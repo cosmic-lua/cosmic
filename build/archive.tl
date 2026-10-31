@@ -6,9 +6,9 @@
 --- and writes the format a file's name asks for) behind a command
 --- line.
 ---
---- Like `cosmic json` it ends in no verdict line: its standard output
---- is data (a listing, the paths written) for a pipe or a `$(...)`.
---- Its exit status is the verdict: 0 done, 1 a member or an input path
+--- Like `cosmic json` it prints no summary: its standard output is data
+--- (a listing, the paths written) for a pipe or a `$(...)`, and its exit
+--- status says how it went: 0 done, 1 a member or an input path
 --- that is not there, or files that `extract` would overwrite without
 --- `--force`, 2 a command line, or an archive or input it cannot read
 --- or will not unpack. Complaints go to standard error. Its spec's
@@ -40,11 +40,11 @@ local record verb
     err: function(line: string)
     --- Standard input as a stream, or nil and why. Read as it comes,
     --- never whole: an archive of any size passes through.
-    stdin: function(): Stream.Reader | nil, string
+    stdin: function(): Stream.Reader?, string
   end
 end
 
-local spec = Cli.verbs.archive.spec
+local spec = Cli.verbs.archive.spec or {}
 
 local usage = "cosmic archive list [--json] <file>|-; " ..
   "cosmic archive extract [-C <dir>] [--force] <file>|- [<member>...]; " ..
@@ -73,13 +73,13 @@ local function trouble_of(file: string, path: string, why: string): string
   local message = bare_message(why)
   if path ~= file then
     local start, stop = message:find(path, 1, true)
-    while start ~= nil do
+    while start ~= nil and stop ~= nil do
       message = message:sub(1, start - 1) .. "standard input" .. message:sub(stop + 1)
       start, stop = message:find(path, 1, true)
     end
   end
-  if message:find(file == "-" and "standard input" or file, 1, true) == nil then
-    message = (file == "-" and "standard input" or file) .. ": " .. message
+  if message:find(if file == "-" then "standard input" else file end, 1, true) == nil then
+    message = (if file == "-" then "standard input" else file end) .. ": " .. message
   end
   return message
 end
@@ -87,7 +87,7 @@ end
 --- `path` without its `.` and empty components, so `./a//b/` and `a/b`
 --- are one name.
 local function normal(path: string): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for part in path:gmatch("[^/]+") do
     if part ~= "." then parts[#parts + 1] = part end
   end
@@ -104,8 +104,8 @@ end
 --- The first `n` bytes of `source` (fewer at its end), read and not yet
 --- put back ([`Stream.prepend`] does that), or nil and why when a read
 --- failed, which closes `source`.
-local function peek(source: Stream.Reader, n: integer): string | nil, string
-  local parts: {string} = {}
+local function peek(source: Stream.Reader, n: integer): string?, string
+  local parts: mut {string} = {}
   local have = 0
   while have < n do
     local chunk, why = source:read(n - have)
@@ -125,7 +125,7 @@ end
 --- Writes `source` to a file in a temporary directory, a chunk at a
 --- time, and closes `source`: the directory and the path, or nil and
 --- why. The caller removes the directory.
-local function spool(source: Stream.Reader): string | nil, string
+local function spool(source: Stream.Reader): string?, string
   local dir, dir_why = Fs.mkdtemp("cosmic-archive-")
   if dir == nil then
     local _, _ = source:close()
@@ -236,14 +236,14 @@ local function list(file: string, as_json: boolean, to: verb.Io): Outcome
       if encoded == nil then return fail(bare.refused, encode_why) end
       text = encoded .. "\n"
     else
-      local lines: {string} = {}
+      local lines: mut {string} = {}
       for _, entry in ipairs(entries) do
         local name = escaped(entry.path)
         if entry.linkpath ~= "" then name = name .. " -> " .. escaped(entry.linkpath) end
         lines[#lines + 1] = string.format("%s\t%d\t%04o\t%s", name, entry.size,
           entry.mode & 0xfff, entry.kind)
       end
-      text = #lines > 0 and (table.concat(lines, "\n") .. "\n") or ""
+      text = if #lines > 0 then (table.concat(lines, "\n") .. "\n") else "" end
     end
     local ok, out_why = to.out(text)
     if not ok then return fail(bare.refused, bare.lost(out_why)) end
@@ -263,13 +263,13 @@ end
 --- What `extract` refuses for files that are in the way: how many, and
 --- the first five.
 local record Clashes
-  count: integer
-  first: {string}
+  mut count: integer
+  first: mut {string}
 end
 
 --- The path under `dest` that writing `entry` would replace, if any: not
 --- a directory it would only be put into.
-local function clash_of(entry: Archive.Entry, dest: string, selected: function(string): boolean): string | nil
+local function clash_of(entry: Archive.Entry, dest: string, selected: function(string): boolean): string?
   local name = normal(entry.path)
   -- A path that escapes is for [`Archive.extract`] to refuse, by
   -- name; it is not looked up outside `dest` here.
@@ -288,19 +288,19 @@ local function note_clash(clashes: Clashes, name: string)
 end
 
 local function overwrite_refusal(dest: string, clashes: Clashes): Outcome
-  return fail(bare.failed, "would overwrite " .. clashes.count .. " existing " ..
-      (clashes.count == 1 and "path" or "paths") .. " under " .. dest .. " (" ..
-      table.concat(clashes.first, ", ") .. (clashes.count > 5 and ", ..." or "") ..
+  return fail(bare.failed, "would overwrite " .. tostring(clashes.count) .. " existing " ..
+      (if clashes.count == 1 then "path" else "paths" end) .. " under " .. dest .. " (" ..
+      table.concat(clashes.first, ", ") .. (if clashes.count > 5 then ", ..." else "" end) ..
       "); nothing written, use --force to replace")
 end
 
 --- `text` with each `from` in it read as `to`.
 local function replaced(text: string, from: string, to: string): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local at = 1
   while true do
     local start, stop = text:find(from, at, true)
-    if start == nil then break end
+    if start == nil or stop == nil then break end
     out[#out + 1] = text:sub(at, start - 1)
     out[#out + 1] = to
     at = stop + 1
@@ -310,9 +310,9 @@ local function replaced(text: string, from: string, to: string): string
 end
 
 local function print_written(written: {string}, to: verb.Io): Outcome
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, name in ipairs(written) do lines[#lines + 1] = escaped(name) end
-  local text = #lines > 0 and (table.concat(lines, "\n") .. "\n") or ""
+  local text = if #lines > 0 then (table.concat(lines, "\n") .. "\n") else "" end
   local ok, out_why = to.out(text)
   if not ok then return fail(bare.refused, bare.lost(out_why)) end
   return fail(bare.ok, "")
@@ -337,10 +337,10 @@ end
 
 --- The names in the directory `path`, sorted, and nil and why when it
 --- cannot be read.
-local function names_in(path: string): {string} | nil, string
+local function names_in(path: string): {string}?, string
   local entries, why = sys.readdir(path)
   if entries == nil then return nil, path .. ": " .. why end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(entries) do names[#names + 1] = name end
   table.sort(names)
   return names, ""
@@ -357,7 +357,7 @@ end
 --- stays -- only another process racing the extraction reaches it, and
 --- holding the destination still would need a lock no reader honours.
 local function plan_move(tree: string, dest: string, force: boolean, rel: string,
-                         steps: {Step}, why_of: function(string): string): Outcome | nil
+                         steps: mut {Step}, why_of: function(string): string): Outcome?
   local names, list_why = names_in(rel == "" and tree or (tree .. "/" .. rel))
   if names == nil then return fail(bare.refused, list_why) end
   for _, name in ipairs(names) do
@@ -385,8 +385,8 @@ local function plan_move(tree: string, dest: string, force: boolean, rel: string
       return fail(bare.failed, "would overwrite 1 existing path under " .. dest .. " (" ..
           child .. "); nothing written, use --force to replace")
     elseif there.kind == "dir" then
-      return fail(bare.refused, why_of(staged.kind == "link" and ("archive: " .. target .. " is a directory") or
-          (target .. ": Is a directory")))
+      return fail(bare.refused, why_of(if staged.kind == "link" then ("archive: " .. target .. " is a directory") else
+        (target .. ": Is a directory") end))
     else
       steps[#steps + 1] = { rel = child, replace = true, keep = false, mtime = 0, before = 0, backup = "" }
     end
@@ -414,7 +414,7 @@ local function apply_steps(tree: string, dest: string, aside: string, steps: {St
     else
       if step.replace then
         local _, _ = sys.mkdir(aside)
-        step.backup = aside .. "/" .. slot
+        step.backup = aside .. "/" .. tostring(slot)
         local moved, why = Fs.rename(target, step.backup)
         if not moved then
           trouble = why
@@ -433,7 +433,7 @@ local function apply_steps(tree: string, dest: string, aside: string, steps: {St
   if trouble == "" then return { why = "", whole = true } end
   local whole = true
   for slot = done, 1, -1 do
-    local step = steps[slot]
+    local step = assert(steps[slot], "a step was made for each slot done")
     local target = dest .. "/" .. step.rel
     if step.keep then
       local _, _ = Fs.set_mtime(target, step.before)
@@ -451,7 +451,7 @@ end
 
 --- The directories above `dir` that do not exist yet, deepest first.
 local function missing_above(dir: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local at = dir
   while true do
     local present, _ = Fs.is_dir(at)
@@ -500,12 +500,13 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
     local _, _ = inner:close()
     return fail(bare.refused, trouble_of(file, file, parents_why))
   end
-  local stage, stage_why = sys.mkdtemp(parent .. "/.cosmic-extract-XXXXXX")
-  if stage == nil then
+  local made_stage, stage_why = sys.mkdtemp(parent .. "/.cosmic-extract-XXXXXX")
+  if made_stage == nil then
     local _, _ = inner:close()
     undo_made()
     return fail(bare.refused, trouble_of(file, file, parent .. ": " .. stage_why))
   end
+  local stage: string = made_stage
   local tree = stage .. "/tree"
   local function give_up(outcome: Outcome): Outcome
     local _, _ = Fs.remove_tree(stage)
@@ -521,37 +522,36 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   -- files in the way. Read as the entries pass; the entries are not kept.
   local found: {boolean} = {}
   local clashes: Clashes = { count = 0, first = {} }
-  local halted = false
-  local finished, finish_why = false, ""
+  local reading = { halted = false, finished = false, finish_why = "" }
   local function record(entry: Archive.Entry)
     local name = normal(entry.path)
     for slot, member in ipairs(wanted) do
-      if not found[slot] and under(name, member) then found[slot] = true end
+      if found[slot] ~= true and under(name, member) then found[slot] = true end
     end
     if not force then
       local clash = clash_of(entry, dest, selected)
       if clash ~= nil then note_clash(clashes, clash) end
     end
   end
-  local function advance(): Archive.Entry | nil
-    if finished then return nil end
+  local function advance(): Archive.Entry?
+    if reading.finished then return nil end
     local entry, why = inner:next()
     if entry == nil then
-      finished, finish_why = true, why
+      reading.finished, reading.finish_why = true, why
       return nil
     end
     record(entry)
     return entry
   end
   local watched: Archive.Reader = {
-    next = function(_self: Archive.Reader): Archive.Entry | nil, string
-      if halted then return nil, "" end
+    next = function(_self: Archive.Reader): Archive.Entry?, string
+      if reading.halted then return nil, "" end
       local entry = advance()
-      if entry == nil then return nil, finish_why end
+      if entry == nil then return nil, reading.finish_why end
       -- Files are already in the way and nothing will be written: read
       -- on for the rest of the listing without unpacking any more.
       if clashes.count > 0 then
-        halted = true
+        reading.halted = true
         return nil, ""
       end
       return entry, ""
@@ -570,12 +570,12 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   -- before anything was written: its trouble comes first.
   while advance() ~= nil do end
   local _, _ = inner:close()
-  if finish_why ~= "" then
-    return give_up(fail(bare.refused, trouble_of(file, file, finish_why)))
+  if reading.finish_why ~= "" then
+    return give_up(fail(bare.refused, trouble_of(file, file, reading.finish_why)))
   end
-  local missing: {string} = {}
+  local missing: mut {string} = {}
   for slot, member in ipairs(wanted) do
-    if not found[slot] then missing[#missing + 1] = member end
+    if found[slot] ~= true then missing[#missing + 1] = member end
   end
   if #missing > 0 then
     return give_up(fail(bare.failed, file .. ": no such member: " .. table.concat(missing, ", ")))
@@ -594,7 +594,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
     local _, _ = Fs.remove_tree(stage)
     return print_written(written, to)
   end
-  local steps: {Step} = {}
+  local steps: mut {Step} = {}
   local trouble = plan_move(tree, dest, force, "", steps, why_of)
   if trouble ~= nil then return give_up(trouble) end
   local moved = apply_steps(tree, dest, stage .. "/aside", steps)
@@ -612,7 +612,7 @@ end
 
 local function extract(file: string, dest: string, force: boolean, members: {string},
                        to: verb.Io): Outcome
-  local wanted: {string} = {}
+  local wanted: mut {string} = {}
   for _, member in ipairs(members) do
     local name = normal(member)
     if name == "" then return fail(bare.refused, "an empty member name; " .. usage) end
@@ -630,7 +630,7 @@ local function extract(file: string, dest: string, force: boolean, members: {str
     -- a member that is not in the archive, and files it would replace.
     local entries, why = Archive.list(path)
     if entries == nil then return fail(bare.refused, trouble_of(file, path, why)) end
-    local missing: {string} = {}
+    local missing: mut {string} = {}
     for _, member in ipairs(wanted) do
       local found = false
       for _, entry in ipairs(entries) do
@@ -692,14 +692,16 @@ local record Item
   mode: integer
   mtime: integer
   size: integer
-  target: string
+  mut target: string
 end
 
 --- The items for the paths given, by name, sorted, and nil and an
 --- outcome when one cannot be archived.
-local function gather(paths: {string}, skip_file: string | nil): {Item} | nil, Outcome
-  local by_name: {string:Item} = {}
-  local function add(name: string, full: string): Outcome | nil
+local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
+  local by_name: mut {string:Item} = {}
+  -- The paths given that were the output file itself, left out of the archive.
+  local left_out: mut {string} = {}
+  local function add(name: string, full: string): Outcome?
     local st, why = sys.lstat(full)
     if st == nil then return fail(bare.failed, full .. ": " .. why) end
     local item: Item = { name = name, full = full, kind = st.kind, mode = st.mode & 0x1ff,
@@ -707,7 +709,10 @@ local function gather(paths: {string}, skip_file: string | nil): {Item} | nil, O
     if st.kind == "file" then
       if skip_file ~= nil then
         local same, _ = Fs.absolute(full)
-        if same == skip_file then return nil end
+        if same == skip_file then
+          left_out[#left_out + 1] = full
+          return nil
+        end
       end
     elseif st.kind == "link" then
       local target, target_why = Fs.readlink(full)
@@ -732,35 +737,51 @@ local function gather(paths: {string}, skip_file: string | nil): {Item} | nil, O
       if trouble ~= nil then return nil, trouble end
     end
     local rooted, _ = Fs.is_dir(given)
-    if (root and rooted) or (not root and by_name[name].kind == "dir") then
-      local seen: {{string, string}} = {}
-      local odd: string | nil
+    local added = by_name[name]
+    if (root and rooted == true) or (not root and added ~= nil and added.kind == "dir") then
+      local record Seen
+        relative: string
+        kind: string
+      end
+      local seen: mut {Seen} = {}
+      local odd: mut {string} = {}
       local listed, walk_why = Fs.walk(given, function(relative: string, _bare: string, kind: Fs.Kind): boolean
         if kind == "dir" or kind == "link" then
-          seen[#seen + 1] = { relative, kind }
-        elseif kind ~= "file" and odd == nil then
+          seen[#seen + 1] = { relative = relative, kind = kind }
+        elseif kind ~= "file" and odd[1] == nil then
           -- A fifo, a socket or a device: [`Fs.walk`] lists only files,
           -- directories and links, so it is met here or not at all.
-          odd = relative
+          odd[1] = relative
         end
         return false
       end)
       if listed == nil then return nil, fail(bare.refused, walk_why) end
-      if odd ~= nil then
-        return nil, fail(bare.refused, given .. "/" .. odd .. ": neither a file, a directory nor a symlink")
+      local stray = odd[1]
+      if stray ~= nil then
+        return nil, fail(bare.refused, given .. "/" .. stray .. ": neither a file, a directory nor a symlink")
       end
-      for _, relative in ipairs(listed) do seen[#seen + 1] = { relative, "file" } end
+      for _, relative in ipairs(listed) do
+        seen[#seen + 1] = { relative = relative, kind = "file" }
+      end
       for _, pair in ipairs(seen) do
-        local sub = add(root and pair[1] or (name .. "/" .. pair[1]), given .. "/" .. pair[1])
+        local sub = add(root and pair.relative or (name .. "/" .. pair.relative), given .. "/" .. pair.relative)
         if sub ~= nil then return nil, sub end
       end
     end
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(by_name) do names[#names + 1] = name end
   table.sort(names)
-  local items: {Item} = {}
-  for _, name in ipairs(names) do items[#items + 1] = by_name[name] end
+  local own_output = left_out[1]
+  if #names == 0 and own_output ~= nil then
+    return nil, fail(bare.refused, own_output .. ": the archive being written is the only path given, and it is left out of itself; " ..
+        "name a file or directory to put in it")
+  end
+  local items: mut {Item} = {}
+  for _, name in ipairs(names) do
+    local item = assert(by_name[name], "the names are the keys of by_name")
+    items[#items + 1] = item
+  end
   return items, fail(bare.ok, "")
 end
 
@@ -772,7 +793,7 @@ local function add_file(writer: Stream.ArchiveWriter, item: Item): boolean, stri
   -- A tar reads only the size it was given, so a file that grew since
   -- it was stat'd has bytes past it that would be silently dropped; a
   -- zip has read to the end and refused it already.
-  local more, more_why: string | nil, string = nil, ""
+  local more, more_why: string?, string = nil, ""
   if ok then more, more_why = body:read(1) end
   -- A writer does not close its body.
   local _, _ = body:close()
@@ -787,9 +808,9 @@ end
 local function create(out: string, paths: {string}, reproducible: boolean, to: verb.Io): Outcome
   local format, format_why = Archive.format_of(out)
   if format == nil then return fail(bare.refused, bare_message(format_why)) end
-  local skip_file: string | nil
+  local skip_file: string?
   local present, _ = Fs.exists(out)
-  if present then
+  if present == true then
     local resolved, _ = Fs.absolute(out)
     skip_file = resolved
   end
@@ -817,9 +838,9 @@ local function create(out: string, paths: {string}, reproducible: boolean, to: v
   end
   local closed, close_why = writer:close()
   if not closed then return fail(bare.refused, out .. ": " .. close_why) end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, item in ipairs(packed) do lines[#lines + 1] = escaped(item.name) end
-  local ok, out_why = to.out(#lines > 0 and (table.concat(lines, "\n") .. "\n") or "")
+  local ok, out_why = to.out(if #lines > 0 then (table.concat(lines, "\n") .. "\n") else "" end)
   if not ok then return fail(bare.refused, bare.lost(out_why)) end
   return fail(bare.ok, "")
 end
@@ -830,7 +851,7 @@ end
 
 --- The Reader over standard input, refusing a terminal, where nothing
 --- would ever end the bytes.
-local function open_stdin(): Stream.Reader | nil, string
+local function open_stdin(): Stream.Reader?, string
   return bare.stdin_reader("no file given and standard input is a terminal; give a file or pipe an archive in")
 end
 
@@ -845,7 +866,7 @@ local standard: verb.Io = {
 --- overwritten, 2 a command line or an archive it cannot read or unpack.
 --- @param argv the command line, `archive` at slot 1
 --- @param io where the text is read and written; the process's own when nil
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("archive", to.err)
   local parsed, trouble = Flags.parse(argv, 2, spec)
@@ -857,7 +878,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local words = flags.words
   local action = words[1]
   local function only(option: string, actions: {string}): boolean
-    if not flags.set[option] and flags.values[option] == nil then return true end
+    if flags.set[option] ~= true and flags.values[option] == nil then return true end
     for _, name in ipairs(actions) do
       if name == action then return true end
     end
@@ -865,7 +886,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return false
   end
   if action ~= "list" and action ~= "extract" and action ~= "create" then
-    complain((action == nil and "name list, extract or create" or ("no such action: " .. action)) ..
+    complain((if action == nil then "name list, extract or create" else ("no such action: " .. action) end) ..
         "; " .. usage)
     return bare.refused
   end
@@ -885,26 +906,34 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     end
     outcome = list(words[2], flags.set["--json"] or false, to)
   elseif action == "extract" then
-    if #words < 2 then
+    local archive_file = words[2]
+    if archive_file == nil then
       complain("give a file, or - for standard input; " .. usage)
       return bare.refused
     end
-    if words[2] == "" then
+    if archive_file == "" then
       complain(bare.empty_file .. "; " .. usage)
       return bare.refused
     end
-    local members: {string} = {}
-    for slot = 3, #words do members[#members + 1] = words[slot] end
-    outcome = extract(words[2], flags.values["-C"] or ".", flags.set["--force"] or false,
+    local members: mut {string} = {}
+    for slot = 3, #words do
+      local word = words[slot]
+      if word ~= nil then members[#members + 1] = word end
+    end
+    outcome = extract(archive_file, flags.values["-C"] or ".", flags.set["--force"] or false,
       members, to)
   else
-    if #words < 3 then
+    local output = words[2]
+    if #words < 3 or output == nil then
       complain("give an output file and at least one path; " .. usage)
       return bare.refused
     end
-    local paths: {string} = {}
-    for slot = 3, #words do paths[#paths + 1] = words[slot] end
-    outcome = create(words[2], paths, flags.set["--reproducible"] or false, to)
+    local paths: mut {string} = {}
+    for slot = 3, #words do
+      local word = words[slot]
+      if word ~= nil then paths[#paths + 1] = word end
+    end
+    outcome = create(output, paths, flags.set["--reproducible"] or false, to)
   end
   if outcome.why ~= "" then complain(outcome.why) end
   return outcome.code
@@ -916,7 +945,7 @@ verb.spec = {
   name = "archive",
   guide = "a quick look inside an archive",
   tests = { "build.archive_test", "build.archive_tool_test" },
-  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a subcommand and its paths",
   exits = "`archive` prints its listing or the paths it wrote, and exits 0, 1 or 2 as `json` does.",

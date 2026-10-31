@@ -22,12 +22,20 @@ local test_inputs = require("build.test_inputs")
 local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
 local this_program = require("build.this_program")
+local build_paths = require("build.paths")
 
 --- The program itself, which the case that starts it runs.
 Test.policy{
   profiles = { "cosmic", "system" },
   grants = { { path = "o/bin", letters = "rx" } },
 }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 --- An `Effective` holding `files` of the tree and nothing else declared.
 local function effective(files: {string}): test_inputs.Effective
@@ -37,7 +45,7 @@ local function effective(files: {string}): test_inputs.Effective
   return out
 end
 
---- Makes `tmp`/scratch, a scratch directory laid out as build.test's
+--- Makes `tmp`/scratch, a scratch directory laid out as build.test_key's
 --- `scratch` lays one out -- `real`, and `tmp` a link to it -- and
 --- answers it.
 local function scratch_in(tmp: string): string
@@ -61,19 +69,19 @@ end
 --- reads that are run, and a worker that declares `tool` runs o/bin.
 local function test_a_plan_for_the_policy_leaves_the_system_and_proc_to_the_policy(tmp: string)
   local root, scratch = tmp .. "/root", scratch_in(tmp)
-  assert(Fs.mkdirs(root .. "/o/bin"))
-  assert(Fs.write(root .. "/o/cosmic.db", "x"))
+  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
   local inputs = effective({})
   inputs.system, inputs.tool = true, true
   inputs.host = { "/proc", "/dev/urandom" }
   local policy = test_sandbox.plan(root, scratch, inputs, {})
   assert(policy.trouble == "", policy.trouble)
-  local reads = policy.sandbox.unveil.reads
+  local reads = assert(policy.sandbox.unveil).reads
   assert(not holds(reads, "/proc") and not holds(reads, "/usr") and not holds(reads, "/etc"),
     table.concat(reads, " "))
   assert(holds(reads, "/dev/urandom") and holds(reads, "/dev/null"))
   assert(policy.sandbox.user == nil, "a policy chooses the user")
-  assert(policy.runs[root .. "/o/bin"] == true)
+  assert(policy.runs[build_dir(root) .. "/bin"] == true)
 end
 
 --- The plan of one module made once a run is rebound to the scratch
@@ -82,8 +90,8 @@ end
 --- plan's path of, and a copy that shares nothing with the first.
 local function test_a_plan_rebound_to_another_scratch_is_the_plan_made_for_it(tmp: string)
   local root = tmp .. "/root"
-  assert(Fs.mkdirs(root .. "/o/bin"))
-  assert(Fs.write(root .. "/o/cosmic.db", "x"))
+  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
   assert(Fs.write(root .. "/a.tl", "x"))
   for _, own in ipairs({ true, false }) do
     local inputs = effective({ "a.tl" })
@@ -100,20 +108,20 @@ local function test_a_plan_rebound_to_another_scratch_is_the_plan_made_for_it(tm
       assert(table.concat(a, " ") == table.concat(b, " "), what .. ": " .. table.concat(a, " ") ..
           " is not " .. table.concat(b, " "))
     end
-    same(rebound.sandbox.unveil.reads, fresh.sandbox.unveil.reads, "reads")
-    same(rebound.sandbox.unveil.writes, fresh.sandbox.unveil.writes, "writes")
-    for path, inside in pairs(fresh.sandbox.unveil.at) do
-      assert(rebound.sandbox.unveil.at[path] == inside, path)
+    same(assert(rebound.sandbox.unveil).reads, assert(fresh.sandbox.unveil).reads, "reads")
+    same((assert(rebound.sandbox.unveil).writes or {}), (assert(fresh.sandbox.unveil).writes or {}), "writes")
+    for path, inside in pairs((assert(fresh.sandbox.unveil).at or {})) do
+      assert((assert(rebound.sandbox.unveil).at or {})[path] == inside, path)
     end
-    for path in pairs(rebound.sandbox.unveil.at) do
-      assert(fresh.sandbox.unveil.at[path] ~= nil, path)
+    for path in pairs((assert(rebound.sandbox.unveil).at or {})) do
+      assert((assert(fresh.sandbox.unveil).at or {})[path] ~= nil, path)
     end
     for path in pairs(fresh.runs) do assert(rebound.runs[path], path) end
-    assert(not holds(rebound.sandbox.unveil.writes, first))
+    assert(not holds((assert(rebound.sandbox.unveil).writes or {}), first))
     -- Changing the copy leaves the plan it came from alone.
-    table.insert(rebound.sandbox.unveil.reads, "/changed")
+    table.insert(assert(rebound.sandbox.unveil).reads, "/changed")
     rebound.env.CHANGED = "yes"
-    assert(not holds(made.sandbox.unveil.reads, "/changed") and made.env.CHANGED == nil)
+    assert(not holds(assert(made.sandbox.unveil).reads, "/changed") and made.env.CHANGED == nil)
   end
 end
 
@@ -127,31 +135,38 @@ local function test_a_program_started_by_a_name_with_dots_is_granted_where_it_is
   local script = [[
 local Sandbox = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
+local test_inputs = require("build.test_inputs")
 local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
-local root, scratch = sys.getenv("ROOT"), sys.getenv("SCRATCH")
-local artifact = sys.getenv("ARTIFACT")
-local function declared(more)
-  local inputs = { files = {}, reads = {}, host = {}, env = {}, network = {},
-    tool = false, store = false, system = true }
-  for name, value in pairs(more) do inputs[name] = value end
-  return inputs
+local root = assert(sys.getenv("ROOT"))
+local scratch = assert(sys.getenv("SCRATCH"))
+local artifact = assert(sys.getenv("ARTIFACT"))
+local record Case
+  name: string
+  inputs: test_inputs.Effective
 end
-local function holds(list, value)
-  for _, each in ipairs(list) do if each == value then return true end end
+local function declared(tool: boolean, nests: boolean, lua: boolean, store: boolean): test_inputs.Effective
+  return { files = {}, reads = {}, host = {}, env = {}, network = {}, tool = tool, store = store,
+    system = true, nests = nests, lua = lua }
+end
+local function holds(list: {string}, value: string): boolean
+  for _, each in ipairs(list) do
+    if each == value then return true end
+  end
   return false
 end
-for _, case in ipairs({
-  { name = "tool", inputs = declared({ tool = true }) },
-  { name = "nests store", inputs = declared({ nests = true, store = true }) },
-  { name = "lua store", inputs = declared({ lua = true, store = true }) },
-}) do
+local cases: {Case} = {
+  { name = "tool", inputs = declared(true, false, false, false) },
+  { name = "nests store", inputs = declared(false, true, false, true) },
+  { name = "lua store", inputs = declared(false, false, true, true) },
+}
+for _, case in ipairs(cases) do
   local plan = test_sandbox.plan(root, scratch, case.inputs, {}, nil)
   local policy = test_policy.worker(plan, case.inputs)
   local ok, trouble = Sandbox.check(policy)
   assert(ok, case.name .. ": " .. tostring(trouble))
   if case.name ~= "tool" then
-    local unveil = plan.sandbox.unveil
+    local unveil = assert(plan.sandbox.unveil)
     assert(plan.program == artifact, case.name .. " is told " .. tostring(plan.program))
     assert(holds(unveil.reads, artifact), case.name)
   end
@@ -187,7 +202,7 @@ end
 --- module of the tree: a plan for the policy grants the real one only where
 --- the module declares `store` (keyed on the whole projection), `tool` has
 --- o/bin anyway, and any other runs on a sealed database
---- ([`build.test`]'s `sealed_for`) and is given no artifact at all.
+--- ([`build.test_key`]'s `sealed_for`) and is given no artifact at all.
 local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_store(tmp: string)
   local launched = Proc.relaunch()
   if launched == nil or launched.argv[2] ~= "--artifact" then
@@ -196,8 +211,8 @@ local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_st
   end
   local artifact = launched.argv[3]
   local root, scratch = tmp .. "/root", scratch_in(tmp)
-  assert(Fs.mkdirs(root .. "/o/bin"))
-  assert(Fs.write(root .. "/o/cosmic.db", "x"))
+  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
   local bare = effective({})
   bare.nests = true
   local storing = effective({})
@@ -205,10 +220,10 @@ local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_st
   local plain = test_sandbox.plan(root, scratch, bare, {})
   local with = test_sandbox.plan(root, scratch, storing, {})
   assert(with.trouble == "", with.trouble)
-  assert(holds(with.sandbox.unveil.reads, artifact), table.concat(with.sandbox.unveil.reads, " "))
-  assert(not with.runs[artifact], "the artifact is read, not run")
-  assert(not holds(plain.sandbox.unveil.reads, artifact),
-    table.concat(plain.sandbox.unveil.reads, " "))
+  assert(holds(assert(with.sandbox.unveil).reads, artifact), table.concat(assert(with.sandbox.unveil).reads, " "))
+  assert(with.runs[artifact] ~= true, "the artifact is read, not run")
+  assert(not holds(assert(plain.sandbox.unveil).reads, artifact),
+    table.concat(assert(plain.sandbox.unveil).reads, " "))
   assert(test_policy.worker(plain, bare) ~= nil)
   assert(test_policy.worker(with, storing) ~= nil)
 end
@@ -221,9 +236,9 @@ end
 --- Any of those declarations gives the plan the host's directory, and says which.
 local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directory_is_declared(tmp: string)
   local root, scratch = tmp .. "/root", scratch_in(tmp)
-  assert(Fs.mkdirs(root .. "/o/bin"))
+  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
   assert(Fs.mkdirs(root .. "/data"))
-  assert(Fs.write(root .. "/o/cosmic.db", "x"))
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
   assert(Fs.write(root .. "/file.txt", "x"))
   local function planned(inputs: test_inputs.Effective): test_sandbox.Plan
     local made = test_sandbox.plan(root, scratch, inputs, {})
@@ -233,12 +248,13 @@ local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directo
   local bare = effective({})
   local own = planned(bare)
   assert(own.own_scratch and own.why_shared == "", own.why_shared)
-  assert(#own.sandbox.unveil.writes == 0 and own.sandbox.unveil.at[scratch] == nil)
+  assert(#(assert(own.sandbox.unveil).writes or {}) == 0 and (assert(own.sandbox.unveil).at or {})[scratch] == nil)
   local policy = assert(test_policy.worker(own, bare))
   assert(policy.tmp == true)
-  local tmp_grant: Sandbox.Grant = nil
-  for _, grant in ipairs(policy.grants) do
-    assert(grant.from == nil or grant.from ~= scratch, "a bind of the host's scratch directory")
+  local tmp_grant: Sandbox.Grant? = nil
+  for _, grant in ipairs(policy.grants or {}) do
+    local from = grant.from
+    assert(from == nil or from ~= scratch, "a bind of the host's scratch directory")
     if grant.path == "/tmp" then tmp_grant = grant end
   end
   assert(tmp_grant ~= nil and tmp_grant.letters == "rwxc")
@@ -256,8 +272,8 @@ local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directo
     local inputs = effective({})
     change(inputs)
     local made = planned(inputs)
-    assert(not made.own_scratch and made.why_shared:find(word, 1, true), word .. ": " .. made.why_shared)
-    assert(made.sandbox.unveil.writes[1] == scratch)
+    assert(not made.own_scratch and made.why_shared:find(word, 1, true) ~= nil, word .. ": " .. made.why_shared)
+    assert((assert(made.sandbox.unveil).writes or {})[1] == scratch)
     local held = assert(test_policy.worker(made, inputs))
     assert(held.tmp == nil, word)
   end

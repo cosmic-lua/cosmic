@@ -1,5 +1,5 @@
 --- `cosmic archive` run as this program: real standard input and the
---- rule that it prints its data and no verdict line, exiting 0, 1 or 2.
+--- rule that it prints its data and no summary, exiting 0, 1 or 2.
 --- These start this program, so they need `tool`; the operations are in
 --- `archive_test.tl`.
 
@@ -27,7 +27,7 @@ local function cosmic(dir: string, words: {string}, input?: string): Ran
   return { code = result.code, out = result.stdout or "", err = result.stderr or "" }
 end
 
-local function test_create_list_and_extract_print_data_and_no_verdict(tmp: string)
+local function test_create_list_and_extract_print_data_and_no_summary(tmp: string)
   assert(Fs.mkdirs(tmp .. "/tree"))
   assert(Fs.write(tmp .. "/tree/a.txt", "aye"))
   local made = cosmic(tmp, { "archive", "create", "out.tar.gz", "tree" })

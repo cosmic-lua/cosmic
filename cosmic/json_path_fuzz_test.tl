@@ -21,7 +21,7 @@ local TOKENS <const> = { "$", ".", "..", "[", "]", "'", '"', "\\", "\\u", "d83d"
 
 local function gen_query(src: Fuzz.Source): string
   if src:int(0, 3) == 0 then
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     while Fuzz.more(src, #parts, 20) do parts[#parts + 1] = Fuzz.pick(src, TOKENS) end
     return table.concat(parts)
   end
@@ -70,7 +70,7 @@ local NAMES <const> = { "a", "", "~", "/", "~1", "a/b~c", "it's", '"', "\\", "\n
   "0", "-", "01" }
 
 local function gen_steps(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while Fuzz.more(src, #parts, 6) do
     local kind = src:int(0, 3)
     if kind == 0 then
@@ -91,7 +91,7 @@ end
 --- position, "e" a marked array the step counts back from the end of.
 local function steps_of(input: string): Json.Steps, {string}
   local steps: Json.Steps = {}
-  local builds: {string} = {}
+  local builds: mut {string} = {}
   for i, part in ipairs(Fuzz.unpack(input)) do
     local kind = part:sub(1, 1)
     builds[i] = kind
@@ -99,7 +99,7 @@ local function steps_of(input: string): Json.Steps, {string}
       steps[i] = part:sub(2)
     else
       local n = math.tointeger(tonumber(part:sub(2))) as integer
-      steps[i] = kind == "e" and -n or n
+      steps[i] = if kind == "e" then -n else n end
     end
   end
   return steps, builds
@@ -115,7 +115,7 @@ local function holder(steps: Json.Steps, builds: {string}, i: integer): any
   if step is string then
     return { [step] = holder(steps, builds, i + 1), other = 0 }
   end
-  local list: {any: any} = builds[i] == "h" and {} or Json.array() as {any: any}
+  local list: mut {any: any} = if builds[i] == "h" then {} else Json.array() as {any: any} end
   if step < 0 then
     list[1] = holder(steps, builds, i + 1)
     for k = 2, -step do list[k] = k end
@@ -172,7 +172,7 @@ local function steps_hold(input: string): boolean, string
   if #found ~= 1 or found[1].value ~= "leaf" then
     return false, "the query does not select the leaf: " .. path
   end
-  Fuzz.label(#steps > 0 and "stepped" or "empty")
+  Fuzz.label(if #steps > 0 then "stepped" else "empty" end)
   return true, ""
 end
 
@@ -221,14 +221,14 @@ end
 --- A drawn document, of objects keyed "a", "b" or "c", arrays and
 --- scalars, as JSON text.
 local function gen_document(src: Fuzz.Source, depth: integer): string
-  local kind = src:int(0, depth >= 3 and 0 or 5)
+  local kind = src:int(0, if depth >= 3 then 0 else 5 end)
   if kind == 0 then return Fuzz.pick(src, { "1", "null", '"s"' }) end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   if kind <= 2 then
     while Fuzz.more(src, #parts, 4) do parts[#parts + 1] = gen_document(src, depth + 1) end
     return "[" .. table.concat(parts, ",") .. "]"
   end
-  local used: {string: boolean} = {}
+  local used: mut {string: boolean} = {}
   while Fuzz.more(src, #parts, 3) do
     local name = Fuzz.pick(src, { "a", "b", "c" })
     if not used[name] then
@@ -242,7 +242,7 @@ end
 --- A document, whether its nulls are holes, and a query of child and
 --- descendant segments of names, indices and `*`.
 local function gen_selection(src: Fuzz.Source): string
-  local segments: {string} = {}
+  local segments: mut {string} = {}
   repeat
     local selector: string
     local kind = src:int(1, 3)
@@ -251,17 +251,17 @@ local function gen_selection(src: Fuzz.Source): string
     elseif kind == 2 then
       selector = "['" .. Fuzz.pick(src, { "a", "b", "c" }) .. "']"
     else
-      selector = "[" .. src:int(-3, 3) .. "]"
+      selector = "[" .. tostring(src:int(-3, 3)) .. "]"
     end
-    segments[#segments + 1] = (src:int(0, 1) == 0 and ".." or "") .. selector
+    segments[#segments + 1] = (if src:int(0, 1) == 0 then ".." else "" end) .. selector
   until not Fuzz.more(src, #segments, 4)
-  return Fuzz.pack({ gen_document(src, 0), src:int(0, 1) == 0 and "holes" or "nulls", "$" .. table.concat(segments) })
+  return Fuzz.pack({ gen_document(src, 0), if src:int(0, 1) == 0 then "holes" else "nulls" end, "$" .. table.concat(segments) })
 end
 
 --- What a reference walk visits under a node: its children, an array's
 --- in order to its highest position, an object's in byte order.
 local function reference_children(node: Json.Match): {Json.Match}
-  local out: {Json.Match} = {}
+  local out: mut {Json.Match} = {}
   local v = node.value
   if not (v is {any: any}) then return out end
   local t = v as {any: any}
@@ -280,7 +280,7 @@ local function reference_children(node: Json.Match): {Json.Match}
       if t[i] ~= nil then child(i, t[i]) end
     end
   elseif layout == "object" then
-    local names: {string} = {}
+    local names: mut {string} = {}
     for k in pairs(t) do names[#names + 1] = k as string end
     table.sort(names)
     for _, k in ipairs(names) do child(k, t[k]) end
@@ -289,7 +289,7 @@ local function reference_children(node: Json.Match): {Json.Match}
 end
 
 --- What `seg` selects under `node`, by the reference walk.
-local function reference_select(seg: Json.Segment, node: Json.Match, out: {Json.Match})
+local function reference_select(seg: Json.Segment, node: Json.Match, out: mut {Json.Match})
   local kids = reference_children(node)
   local top = 0
   for _, kid in ipairs(kids) do
@@ -298,9 +298,11 @@ local function reference_select(seg: Json.Segment, node: Json.Match, out: {Json.
   end
   for _, kid in ipairs(kids) do
     local last = kid.steps[#kid.steps]
-    local hit = seg.kind == "wildcard" or (seg.kind == "name" and last == seg.name)
+    local kind = seg.kind
+    local hit = kind == "wildcard" or (kind == "name" and last == seg.name)
     if seg.kind == "index" and last is integer then
-      local want = seg.index >= 0 and seg.index + 1 or top + 1 + seg.index
+      local index = assert(seg.index)
+      local want = if index >= 0 then index + 1 else top + 1 + index end
       hit = last == want
     end
     if hit then out[#out + 1] = kid end
@@ -319,8 +321,9 @@ local function selection_holds(input: string): boolean, string
   -- A document of `null` alone decodes to nil: test the message.
   local doc, derr = Json.decode(text, { null_value = (not holes) and Json.null or nil })
   if derr ~= "" then return false, "a drawn document does not decode: " .. derr end
-  local q, qerr = Json.query(query)
-  if q == nil then return false, "a drawn query does not read: " .. qerr end
+  local parsed, qerr = Json.query(query)
+  if parsed == nil then return false, "a drawn query does not read: " .. qerr end
+  local q: Json.Query = parsed
   local nodes: {Json.Match} = { { steps = {}, value = doc } }
   for _, seg in ipairs(q.segments) do
     local out: {Json.Match} = {}
@@ -328,8 +331,7 @@ local function selection_holds(input: string): boolean, string
       if seg.descendant then
         -- A descendant segment applies its selector at the node itself
         -- and at every value beneath it.
-        local visit: function(Json.Match)
-        visit = function(n: Json.Match)
+        local function visit(n: Json.Match)
           reference_select({ descendant = false, kind = seg.kind, name = seg.name, index = seg.index }, n, out)
           for _, kid in ipairs(reference_children(n)) do visit(kid) end
         end
@@ -342,12 +344,12 @@ local function selection_holds(input: string): boolean, string
   end
   local found, err = Json.select(doc, q)
   if found == nil then return false, "select refused: " .. err end
-  local want, got: {string}, {string} = {}, {}
+  local want, got: mut {string}, mut {string} = {}, {}
   for i, n in ipairs(nodes) do want[i] = assert(Json.path(n.steps)) end
   for i, m in ipairs(found) do got[i] = assert(Json.path(m.steps)) end
   local a, b = table.concat(got, " "), table.concat(want, " ")
   if a ~= b then return false, query .. " on " .. text .. ":\n got  " .. a .. "\n want " .. b end
-  Fuzz.label(#found > 0 and "selected" or "selected nothing")
+  Fuzz.label(if #found > 0 then "selected" else "selected nothing" end)
   return true, ""
 end
 

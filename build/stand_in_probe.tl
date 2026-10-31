@@ -4,6 +4,7 @@
 --- and nothing else of this tree.
 
 local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Proc = require("cosmic.proc")
@@ -22,37 +23,40 @@ local signals: {string:integer} = {
   TERM = sys.SIGTERM, INT = sys.SIGINT, KILL = sys.SIGKILL, HUP = sys.SIGHUP,
 }
 
---- The guard `trap` opened, the status it ends with, and whether it
---- ends with it at all (`trap -` goes on).
-local guard: Child.Guard = nil
-local trapped = 0
-local ignoring = false
+--- What the script has done so far: the guard `trap` opened, the status it
+--- ends with, whether it ends with it at all (`trap -` goes on), and what
+--- the commands of the chain running have said of their failures, said
+--- once the chain ends the script, and not where a `||` takes one up.
+local record Probe
+  mut guard?: Signal.Guard
+  mut trapped: integer
+  mut ignoring: boolean
+  mut troubles: mut {string}
+end
+
+local probe: Probe = { trapped = 0, ignoring = false, troubles = {} }
 
 --- What `start` started, kept from the collector, whose end of a handle
 --- would end its process: the script then ends by [`sys.exit`].
-local started: {Child.Handle} = {}
-
---- What the commands of the chain running have said of their failures,
---- said once the chain ends the script, and not where a `||` takes one
---- up.
-local troubles: {string} = {}
+local started: mut {Child.Handle} = {}
 
 local function trap_fired(): boolean
-  return guard ~= nil and not ignoring and guard:cancelled() ~= 0
+  local guard = probe.guard
+  return guard ~= nil and not probe.ignoring and guard:cancelled() ~= 0
 end
 
 --- Sleeps `ns` nanoseconds by the clock, a slice at a time, however
 --- long a slice's sleep takes (a host may coalesce short timers into
 --- longer ones): the status a trap ends it with, or nil.
-local function sleep_for(ns: integer): integer
+local function sleep_for(ns: integer): integer?
   local deadline = Time.monotonic_ns() + ns
   while true do
-    if trap_fired() then return trapped end
+    if trap_fired() then return probe.trapped end
     local left = deadline - Time.monotonic_ns()
     if left <= 0 then break end
     local _, _ = sys.nanosleep(math.min(left, SLICE_NS))
   end
-  if trap_fired() then return trapped end
+  if trap_fired() then return probe.trapped end
   return nil
 end
 
@@ -63,21 +67,21 @@ local function exists(path: string): boolean
 end
 
 local function failed(what: string, trouble: string): integer
-  troubles[#troubles + 1] = "probe: " .. what .. ": " .. trouble .. "\n"
+  probe.troubles[#probe.troubles + 1] = "probe: " .. what .. ": " .. trouble .. "\n"
   return 1
 end
 
-local function number(word: string): integer
+local function number(word: string): integer?
   return math.tointeger(tonumber(word))
 end
 
-local function put_all(fd: integer, data: string): integer
+local function put_all(fd: integer, data: string): integer?
   local ok, trouble = Fs.put(fd, data)
   if not ok then return failed("write", trouble) end
   return nil
 end
 
-local function append(path: string, data: string): integer
+local function append(path: string, data: string): integer?
   local fd, trouble = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_APPEND, 420)
   if fd == nil then return failed(path, trouble) end
   local written, write_trouble = sys.write(fd, data)
@@ -88,8 +92,8 @@ end
 
 --- `program`, with `argument` its one where there is one.
 local function argv_of(program: string, argument: string): {string}
-  local argv: {string} = { program }
-  if argument ~= "" then argv[2] = argument end
+  local argv: mut {string} = { program }
+  if argument ~= "" then argv[#argv + 1] = argument end
   return argv
 end
 
@@ -104,27 +108,27 @@ end
 
 --- Each verb, handed its first word and the rest, each substituted;
 --- answers the status to end with, or nil to go on.
-local verbs: {string:function(string, string): integer} = {
-  print = function(first: string, rest: string): integer
-    return put_all(1, (rest ~= "" and first .. " " .. rest or first) .. "\n")
+local verbs: {string:function(string, string): integer?} = {
+  print = function(first: string, rest: string): integer?
+    return put_all(1, (if rest ~= "" then first .. " " .. rest else first end) .. "\n")
   end,
-  eprint = function(first: string, rest: string): integer
-    return put_all(2, (rest ~= "" and first .. " " .. rest or first) .. "\n")
+  eprint = function(first: string, rest: string): integer?
+    return put_all(2, (if rest ~= "" then first .. " " .. rest else first end) .. "\n")
   end,
-  write = function(path: string, text: string): integer
+  write = function(path: string, text: string): integer?
     local ok, trouble = Fs.write(path, text .. "\n")
     if not ok then return failed(path, trouble) end
     return nil
   end,
-  ["write-pid"] = function(path: string): integer
+  ["write-pid"] = function(path: string): integer?
     local ok, trouble = Fs.write(path, tostring(sys.getpid()) .. "\n")
     if not ok then return failed(path, trouble) end
     return nil
   end,
-  append = function(path: string, text: string): integer
+  append = function(path: string, text: string): integer?
     return append(path, text .. "\n")
   end,
-  cat = function(path: string): integer
+  cat = function(path: string): integer?
     if path ~= "" then
       local bytes, trouble = Fs.read(path)
       if bytes == nil then return failed(path, trouble) end
@@ -138,23 +142,23 @@ local verbs: {string:function(string, string): integer} = {
       if stopped ~= nil then return stopped end
     end
   end,
-  ["cat-quiet"] = function(path: string): integer
+  ["cat-quiet"] = function(path: string): integer?
     local bytes, _ = Fs.read(path)
     if bytes == nil then return nil end
     return put_all(1, bytes)
   end,
-  ls = function(path: string): integer
+  ls = function(path: string): integer?
     local names, trouble = Fs.list(path)
     if names == nil then return failed(path, trouble) end
     table.sort(names)
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, name in ipairs(names) do lines[#lines + 1] = name .. "\n" end
     return put_all(1, table.concat(lines))
   end,
-  exit = function(status: string): integer
+  exit = function(status: string): integer?
     return number(status) or 2
   end,
-  signal = function(name: string, target: string): integer
+  signal = function(name: string, target: string): integer?
     local signal = signals[name]
     if signal == nil then return failed("signal", "no signal " .. name) end
     local named = target
@@ -187,41 +191,41 @@ local verbs: {string:function(string, string): integer} = {
     sys.exit(SIGNAL_MISSED)
     return SIGNAL_MISSED
   end,
-  trap = function(status: string): integer
-    local opened, trouble = guard, ""
-    if opened == nil then opened, trouble = Child.guard() end
+  trap = function(status: string): integer?
+    local opened, trouble = probe.guard, ""
+    if opened == nil then opened, trouble = Signal.guard() end
     if opened == nil then return failed("trap", trouble) end
-    guard, trapped, ignoring = opened, number(status) or 2, status == "-"
+    probe.guard, probe.trapped, probe.ignoring = opened, number(status) or 2, status == "-"
     return nil
   end,
-  sleep = function(ms: string): integer
+  sleep = function(ms: string): integer?
     return sleep_for(Time.ms(number(ms) or 0))
   end,
-  ["sleep-forever"] = function(): integer
+  ["sleep-forever"] = function(): integer?
     while true do
       local stopped = sleep_for(Time.seconds(1))
       if stopped ~= nil then return stopped end
     end
   end,
-  ["wait-for"] = function(path: string): integer
+  ["wait-for"] = function(path: string): integer?
     while not exists(path) do
       local stopped = sleep_for(SLICE_NS)
       if stopped ~= nil then return stopped end
     end
     return nil
   end,
-  exists = function(path: string, status: string): integer
+  exists = function(path: string, status: string): integer?
     if exists(path) then return number(status) or 2 end
     return nil
   end,
-  copy = function(from: string, to: string): integer
+  copy = function(from: string, to: string): integer?
     local bytes, trouble = Fs.read(from)
     if bytes == nil then return failed(from, trouble) end
     local ok, write_trouble = Fs.write(to, bytes)
     if not ok then return failed(to, write_trouble) end
     return nil
   end,
-  cwd = function(path: string): integer
+  cwd = function(path: string): integer?
     local here, trouble = sys.getcwd()
     if here == nil then return failed("cwd", trouble) end
     if path == "" then return put_all(1, here .. "\n") end
@@ -229,17 +233,17 @@ local verbs: {string:function(string, string): integer} = {
     if not ok then return failed(path, write_trouble) end
     return nil
   end,
-  mkfifo = function(path: string): integer
+  mkfifo = function(path: string): integer?
     local ok, trouble = sys.mkfifo(path)
     if not ok then return failed(path, trouble) end
     return nil
   end,
-  mkdirs = function(path: string): integer
+  mkdirs = function(path: string): integer?
     local ok, trouble = Fs.mkdirs(path)
     if not ok then return failed(path, trouble) end
     return nil
   end,
-  ["grep-count"] = function(path: string, text: string): integer
+  ["grep-count"] = function(path: string, text: string): integer?
     local bytes, trouble = Fs.read(path)
     if bytes == nil then return failed(path, trouble) end
     local count = 0
@@ -248,7 +252,7 @@ local verbs: {string:function(string, string): integer} = {
     end
     return put_all(1, tostring(count) .. "\n")
   end,
-  ["status-field"] = function(name: string): integer
+  ["status-field"] = function(name: string): integer?
     local status, trouble = Fs.read("/proc/self/status")
     if status == nil then return failed("/proc/self/status", trouble) end
     for line in status:gmatch("[^\n]+") do
@@ -256,21 +260,21 @@ local verbs: {string:function(string, string): integer} = {
     end
     return failed("status-field", "no " .. name)
   end,
-  run = function(program: string, argument: string): integer
+  run = function(program: string, argument: string): integer?
     local result, _ = Child.run(argv_of(program, argument), { process_group = false })
     if result == nil then return 127 end
     if not result.ok then return Child.shell_status(result) end
     return nil
   end,
-  start = function(program: string, argument: string): integer
+  start = function(program: string, argument: string): integer?
     local handle, trouble = Child.start(argv_of(program, argument), { process_group = false })
     if handle == nil then return failed("start", trouble) end
     started[#started + 1] = handle
     return nil
   end,
-  ["start-count"] = function(word: string, rest: string): integer
+  ["start-count"] = function(word: string, rest: string): integer?
     local program, argument = rest:match("^(%S+)%s*(.-)$")
-    if program == nil then return failed("start-count", "no program") end
+    if program == nil or argument == nil then return failed("start-count", "no program") end
     local wanted = number(word)
     if wanted == nil or wanted < 0 then return failed("start-count", "no count " .. word) end
     local count = 0
@@ -284,9 +288,9 @@ local verbs: {string:function(string, string): integer} = {
       started[#started + 1] = handle
       count = count + 1
     end
-    return put_all(1, "started " .. count .. (refusal ~= "" and (" then " .. refusal) or "") .. "\n")
+    return put_all(1, "started " .. tostring(count) .. (if refusal ~= "" then (" then " .. refusal) else "" end) .. "\n")
   end,
-  ["fd-closed"] = function(word: string): integer
+  ["fd-closed"] = function(word: string): integer?
     local fd = number(word)
     if fd == nil or fd < 0 then
       local _, _ = Fs.put(2, "probe: fd-closed: no descriptor " .. word .. "\n")
@@ -296,21 +300,21 @@ local verbs: {string:function(string, string): integer} = {
     if open ~= nil then return 1 end
     return nil
   end,
-  ["sockets-open"] = function(): integer
+  ["sockets-open"] = function(): integer?
     local count = 0
     for fd = 3, 1023 do
       -- fstat raises for the retained artifact descriptor, which is no socket.
       local ok, stat = pcall(sys.fstat, fd)
       if ok and stat ~= nil and stat.mode & 0xF000 == 0xC000 then count = count + 1 end
     end
-    return put_all(1, "sockets " .. count .. "\n")
+    return put_all(1, "sockets " .. tostring(count) .. "\n")
   end,
-  ["write-fd"] = function(word: string, text: string): integer
+  ["write-fd"] = function(word: string, text: string): integer?
     local fd = number(word)
     if fd == nil or fd < 0 then return failed("write-fd", "no descriptor " .. word) end
     return put_all(fd, text .. "\n")
   end,
-  rlimit = function(name: string): integer
+  rlimit = function(name: string): integer?
     local resources: {string:integer} = {
       nofile = sys.RLIMIT_NOFILE, fsize = sys.RLIMIT_FSIZE, cpu = sys.RLIMIT_CPU,
       core = sys.RLIMIT_CORE, nproc = sys.RLIMIT_NPROC,
@@ -319,9 +323,9 @@ local verbs: {string:function(string, string): integer} = {
     if resource == nil then return failed("rlimit", "no resource " .. name) end
     local limits, trouble = sys.getrlimit(resource)
     if limits == nil then return failed("rlimit", trouble) end
-    return put_all(1, name .. " " .. limits.soft .. " " .. limits.hard .. "\n")
+    return put_all(1, name .. " " .. tostring(limits.soft) .. " " .. tostring(limits.hard) .. "\n")
   end,
-  setrlimit = function(name: string, word: string): integer
+  setrlimit = function(name: string, word: string): integer?
     local resources: {string:integer} = {
       nofile = sys.RLIMIT_NOFILE, fsize = sys.RLIMIT_FSIZE, cpu = sys.RLIMIT_CPU,
       core = sys.RLIMIT_CORE, nproc = sys.RLIMIT_NPROC,
@@ -335,24 +339,24 @@ local verbs: {string:function(string, string): integer} = {
     if not ok then return failed("setrlimit", trouble) end
     return put_all(1, "set\n")
   end,
-  getpgid = function(word: string): integer
+  getpgid = function(word: string): integer?
     local pid = number(word)
     if pid == nil or pid < 0 then return failed("getpgid", "no pid " .. word) end
     local group, trouble = sys.getpgid(pid)
     if group == nil then return failed("getpgid", trouble) end
-    return put_all(1, "pgid " .. group .. "\n")
+    return put_all(1, "pgid " .. tostring(group) .. "\n")
   end,
-  ["env-of"] = function(name: string): integer
+  ["env-of"] = function(name: string): integer?
     local value = sys.getenv(name)
-    return put_all(1, value ~= nil and name .. "=" .. value .. "\n" or name .. " unset\n")
+    return put_all(1, if value ~= nil then name .. "=" .. value .. "\n" else name .. " unset\n" end)
   end,
-  connect = function(path: string): integer
+  connect = function(path: string): integer?
     local conn, trouble = Net.connect(Net.unix(path), { timeout_ns = Time.seconds(5) })
     if conn == nil then return put_all(1, trouble .. "\n") end
     local _, _ = conn:close()
     return put_all(1, "connected\n")
   end,
-  ["connect-tcp"] = function(host: string, word: string): integer
+  ["connect-tcp"] = function(host: string, word: string): integer?
     local port = number(word)
     if port == nil or port < 0 or port > 65535 then
       return failed("connect-tcp", "no port " .. word)
@@ -362,7 +366,7 @@ local verbs: {string:function(string, string): integer} = {
     local _, _ = conn:close()
     return put_all(1, "connected\n")
   end,
-  ["bind-tcp"] = function(host: string, word: string): integer
+  ["bind-tcp"] = function(host: string, word: string): integer?
     local port = number(word)
     if port == nil or port < 0 or port > 65535 then
       return failed("bind-tcp", "no port " .. word)
@@ -372,10 +376,10 @@ local verbs: {string:function(string, string): integer} = {
     local _, _ = server:close()
     return put_all(1, "bound\n")
   end,
-  ["loopback-tcp"] = function(host: string): integer
+  ["loopback-tcp"] = function(host: string): integer?
     local server, trouble = Net.listen(Net.tcp(host, 0), { timeout_ns = Time.seconds(5) })
     if server == nil then return put_all(1, trouble .. "\n") end
-    local conn, connect_trouble = Net.connect(Net.tcp(host, server.address.port),
+    local conn, connect_trouble = Net.connect(Net.tcp(host, assert(server.address.port)),
       { timeout_ns = Time.seconds(5) })
     if conn == nil then
       local _, _ = server:close()
@@ -388,7 +392,7 @@ local verbs: {string:function(string, string): integer} = {
     local _, _ = accepted:close()
     return put_all(1, "connected\n")
   end,
-  ["loopback-unix"] = function(path: string): integer
+  ["loopback-unix"] = function(path: string): integer?
     local server, trouble = Net.listen(Net.unix(path), { timeout_ns = Time.seconds(5) })
     if server == nil then return put_all(1, trouble .. "\n") end
     local conn, connect_trouble = Net.connect(Net.unix(path), { timeout_ns = Time.seconds(5) })
@@ -403,7 +407,7 @@ local verbs: {string:function(string, string): integer} = {
     local _, _ = accepted:close()
     return put_all(1, "connected\n")
   end,
-  ["start-isolated"] = function(program: string): integer
+  ["start-isolated"] = function(program: string): integer?
     local handle, trouble = Child.start({ program }, { policy = {
       isolate = { "file" }, grants = { { path = program, letters = "rx" },
         { path = ".", letters = "r" } } } })
@@ -411,30 +415,30 @@ local verbs: {string:function(string, string): integer} = {
     local _, _ = handle:close()
     return put_all(1, "started\n")
   end,
-  ["run-isolated"] = function(program: string, script: string): integer
+  ["run-isolated"] = function(program: string, script: string): integer?
     local result, trouble = Child.run({ program, script }, { policy = {
       isolate = { "file" }, grants = { { path = program, letters = "rx" },
         { path = ".", letters = "r" } } }, stdout = "capture", stderr = "stdout" })
     if result == nil then return put_all(1, trouble .. "\n") end
     return put_all(1, "exit " .. tostring(result.code) .. "\n" .. (result.stdout or ""))
   end,
-  ["run-looped"] = function(program: string, script: string): integer
+  ["run-looped"] = function(program: string, script: string): integer?
     local result, trouble = Child.run({ program, script }, { policy = {
       isolate = { "file" }, loopback = { "127.0.0.1" }, grants = { { path = program, letters = "rx" },
         { path = ".", letters = "r" } } }, stdout = "capture", stderr = "stdout" })
     if result == nil then return put_all(1, trouble .. "\n") end
     return put_all(1, "exit " .. tostring(result.code) .. "\n" .. (result.stdout or ""))
   end,
-  present = function(path: string): integer
+  present = function(path: string): integer?
     if exists(path) then return nil end
     return failed(path, "not there")
   end,
-  writable = function(path: string): integer
+  writable = function(path: string): integer?
     local opened, trouble = opens_to_write(path)
     if not opened then return failed(path, trouble) end
     return nil
   end,
-  create = function(path: string, text: string): integer
+  create = function(path: string, text: string): integer?
     local fd, trouble = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, 420)
     if fd == nil then return failed(path, trouble) end
     local written, write_trouble = sys.write(fd, text .. "\n")
@@ -442,28 +446,28 @@ local verbs: {string:function(string, string): integer} = {
     if written == nil then return failed(path, write_trouble) end
     return nil
   end,
-  truncate = function(path: string): integer
+  truncate = function(path: string): integer?
     local fd, trouble = sys.open(path, sys.O_WRONLY | sys.O_TRUNC)
     if fd == nil then return failed(path, trouble) end
     local _, _ = sys.close(fd)
     return nil
   end,
-  rm = function(path: string): integer
+  rm = function(path: string): integer?
     local ok, trouble = sys.unlink(path)
     if not ok then return failed(path, trouble) end
     return nil
   end,
-  rmdir = function(path: string): integer
+  rmdir = function(path: string): integer?
     local ok, trouble = sys.rmdir(path)
     if not ok then return failed(path, trouble) end
     return nil
   end,
-  rename = function(from: string, to: string): integer
+  rename = function(from: string, to: string): integer?
     local ok, trouble = sys.rename(from, to)
     if not ok then return failed(from, trouble) end
     return nil
   end,
-  flip = function(a: string, b: string): integer
+  flip = function(a: string, b: string): integer?
     while true do
       local _, _ = sys.rename(a, a .. ".t")
       local _, _ = sys.rename(b, a)
@@ -471,26 +475,26 @@ local verbs: {string:function(string, string): integer} = {
     end
     return nil
   end,
-  chmod = function(path: string, word: string): integer
+  chmod = function(path: string, word: string): integer?
     local bits = math.tointeger(tonumber(word, 8))
     if bits == nil then return failed("chmod", "no mode " .. word) end
     local ok, trouble = Fs.chmod(path, bits)
     if not ok then return failed(path, trouble) end
     return nil
   end,
-  mode = function(path: string): integer
+  mode = function(path: string): integer?
     local st, trouble = sys.stat(path)
     if st == nil then return failed(path, trouble) end
     return put_all(1, string.format("%o\n", st.mode & 0xfff))
   end,
-  ["find-writable"] = function(root: string): integer
-    local lines: {string} = {}
-    local pending: {string} = { root }
+  ["find-writable"] = function(root: string): integer?
+    local lines: mut {string} = {}
+    local pending: mut {string} = { root }
     while #pending > 0 do
-      local directory = table.remove(pending)
+      local directory = assert(table.remove(pending), "pending is not empty")
       local entries, _ = sys.readdir(directory)
       if entries ~= nil then
-        local names: {string} = {}
+        local names: mut {string} = {}
         for name in pairs(entries) do names[#names + 1] = name end
         table.sort(names)
         for _, name in ipairs(names) do
@@ -526,11 +530,11 @@ end
 --- `line` split at each `&&` and `||` standing between blanks: its
 --- commands, and the operator before each but the first.
 local function chained(line: string): {string}, {string}
-  local commands, operators: {string}, {string} = {}, {}
+  local commands, operators: mut {string}, mut {string} = {}, {}
   local at = 1
   while true do
     local from, to, operator = line:find("%s+(([&|])%2)%s+", at)
-    if from == nil then break end
+    if from == nil or to == nil or operator == nil then break end
     commands[#commands + 1] = line:sub(at, from - 1)
     operators[#operators + 1] = operator
     at = to + 1
@@ -539,59 +543,69 @@ local function chained(line: string): {string}, {string}
   return commands, operators
 end
 
+--- Command `position` of `commands`, which [`chained`] answers one more of than it has operators.
+local function command_at(commands: {string}, position: integer): string
+  return (assert(commands[position], "chained answers a command before and after each operator"))
+end
+
 --- Runs the script's commands: the status to end with.
 local function run_script(script: string, args: {string}, dir: string): integer
   local joined = table.concat(args, " ")
   --- Runs one command: nil to go on, or the status to end with.
-  local function command(line: string): integer
+  local function command(line: string): integer?
     -- The verb, its first word and the rest: the blanks between them
     -- go, however many, while the rest keeps its own as written.
-    local verb, first, rest: string, string, string = line:match("^(%S+)%s*(%S*)%s*(.-)$")
+    local verb, first, rest = line:match("^(%S+)%s*(%S*)%s*(.-)$")
+    if verb == nil or first == nil or rest == nil then
+      probe.troubles[#probe.troubles + 1] = "probe: no command in \"" .. line .. "\"\n"
+      return 2
+    end
     local run = verbs[verb]
     if run == nil then
-      troubles[#troubles + 1] = "probe: unknown verb " .. verb .. "\n"
+      probe.troubles[#probe.troubles + 1] = "probe: unknown verb " .. verb .. "\n"
       return 2
     end
     return run(substituted(first, joined, dir), substituted(rest, joined, dir))
   end
   for each in script:gmatch("[^;\n]+") do
     local line: string = String.trim(each)
-    local only, guarded: string, string = line:match("^%[([^%]]*)%]%s+(.*)$")
-    if only ~= nil then
+    local only, guarded = line:match("^%[([^%]]*)%]%s+(.*)$")
+    if only ~= nil and guarded ~= nil then
       line = only == args[1] and guarded or ""
     end
     if line ~= "" then
       local commands, operators = chained(line)
-      local stopped = command(commands[1])
+      local stopped = command(command_at(commands, 1))
       for i, operator in ipairs(operators) do
         if operator == "&&" and stopped == nil then
-          stopped = command(commands[i + 1])
+          stopped = command(command_at(commands, i + 1))
         elseif operator == "||" and stopped ~= nil then
-          troubles = {}
-          stopped = command(commands[i + 1])
+          probe.troubles = {}
+          stopped = command(command_at(commands, i + 1))
         end
       end
       if stopped ~= nil then
-        local _, _ = Fs.put(2, table.concat(troubles))
+        local _, _ = Fs.put(2, table.concat(probe.troubles))
         return stopped
       end
-      troubles = {}
+      probe.troubles = {}
     end
-    if trap_fired() then return trapped end
+    if trap_fired() then return probe.trapped end
   end
   return 0
 end
 
-return function(argv: {string}): integer
+return function(argv: mut {string}): integer
   local executable, _ = Proc.executable()
   local self = executable or ""
   local beside, _ = Fs.read(self .. ".do")
-  if beside == nil and argv[1] ~= nil then
+  local script_file = argv[1]
+  if beside == nil and script_file ~= nil then
     -- A script file whose `#!` line names it: its body.
-    local st, _ = sys.stat(argv[1])
-    local text: string = nil
+    local st, _ = sys.stat(script_file)
+    local text: string? = nil
     if st ~= nil and st.kind == "file" then
-      local read, _ = Fs.read(argv[1])
+      local read, _ = Fs.read(script_file)
       text = read
     end
     if text ~= nil and text:sub(1, 2) == "#!" then
@@ -600,9 +614,11 @@ return function(argv: {string}): integer
     end
   end
   local script = beside or argv[1] or ""
-  local first_arg = beside ~= nil and 1 or 2
-  local args: {string} = {}
-  for i = first_arg, #argv do args[#args + 1] = argv[i] end
+  local first_arg = if beside ~= nil then 1 else 2 end
+  local args: mut {string} = {}
+  for i, word in ipairs(argv) do
+    if i >= first_arg then args[#args + 1] = word end
+  end
   local status = run_script(script, args, Fs.dirname(self))
   -- What `start` started runs on: ending here, rather than by returning,
   -- keeps the collector from ending it with its handle.

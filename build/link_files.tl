@@ -11,7 +11,6 @@
 
 local Fs = require("cosmic.fs")
 local String = require("cosmic.string")
-local ast = require("build.ast")
 local c_tokens = require("build.c_tokens")
 local link_text = require("build.link_text")
 
@@ -20,7 +19,7 @@ end
 
 --- The kind of file `path` is by its name, as far as links go:
 --- "teal", "c", "zig" or "markdown"; nil for any other.
-function link_files.kind_of(path: string): string | nil
+function link_files.kind_of(path: string): string?
   if String.ends_with(path, ".tl") or String.ends_with(path, ".lua") then return "teal" end
   if String.ends_with(path, ".c") or String.ends_with(path, ".h") then return "c" end
   if String.ends_with(path, ".zig") then return "zig" end
@@ -39,9 +38,11 @@ local never: {string: boolean} = { ["o"] = true, ["vendor"] = true, ["patch"] = 
 --- `.claude/skills/`, which are Markdown, and everything under a
 --- directory that is a checkout of its own (it holds a `.git`), such as
 --- a worktree nested in this one, whose files are its own tree's. Each
---- directory is asked after once.
+--- directory is asked after once. A project's `static/` is carried
+--- verbatim ([`cosmic.layout`]'s `static`), so what is written in it is no
+--- source of the tree's.
 function link_files.skipper(dir: string): function(string): boolean
-  local checkouts: {string: boolean} = {}
+  local checkouts: mut {string: boolean} = {}
   local function checkout(path: string): boolean
     local known = checkouts[path]
     if known == nil then
@@ -52,10 +53,10 @@ function link_files.skipper(dir: string): function(string): boolean
     return known
   end
   return function(entry: string): boolean
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     for part in entry:gmatch("[^/]+") do parts[#parts + 1] = part end
     for index, part in ipairs(parts) do
-      if never[part] or (index == 1 and part == "bin") then
+      if never[part] == true or (index == 1 and (part == "bin" or part == "static")) then
         return true
       end
       if part:sub(1, 1) == "." and not (index == 1 and part == ".claude") then
@@ -74,19 +75,19 @@ end
 
 --- Every file under `dir` a walk by [`link_files.skipper`] finds,
 --- relative to it and sorted.
-function link_files.walk(dir: string): {string} | nil, string
+function link_files.walk(dir: string): {string}?, string
   local skip = link_files.skipper(dir)
   local files, trouble = Fs.walk(dir, function(entry: string): boolean return skip(entry) end)
   if files == nil then return nil, trouble end
   table.sort(files)
-  return files
+  return files, ""
 end
 
 --- The kind of `file`, a path from the root of a tree `own` says is or
 --- is not cosmic's, when its links are checked as a file's that is not
 --- Teal: Markdown or Zig anywhere, and C in cosmic's own tree but in
 --- `.claude/`. Nil for any other file.
-function link_files.checked(file: string, own: boolean): string | nil
+function link_files.checked(file: string, own: boolean): string?
   local kind = link_files.kind_of(file)
   if kind == "markdown" or kind == "zig" then
     return kind
@@ -99,7 +100,7 @@ end
 
 --- The lines of `body`, split at each line break.
 local function split_lines(body: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for line in String.lines(body) do
     out[#out + 1] = line
   end
@@ -116,28 +117,33 @@ local function slash_comment(text: string, column: integer): {string}, {integer}
   if text:sub(1, 2) == "/*" then
     local body = text:sub(3):gsub("%*/$", "")
     local raw = split_lines(body)
-    local out: {string} = { raw[1] }
-    local starts: {integer} = { 3 }
+    local out: mut {string} = {}
+    local head = raw[1]
+    if head ~= nil then out[1] = head end
+    local starts: mut {integer} = { 3 }
     local at = 3
     for index = 2, #raw do
-      at = at + #raw[index - 1] + 1
-      local marker = raw[index]:match("^[ \t]*%*") or
-        raw[index]:match("^" .. ("[ \t]?"):rep(column + 1)) or ""
-      out[index] = raw[index]:sub(#marker + 1)
-      starts[index] = at + #marker
+      local before = assert(raw[index - 1], "index is within the lines")
+      local written = assert(raw[index], "index is within the lines")
+      at = at + #before + 1
+      local marker = written:match("^[ \t]*%*") or
+        written:match("^" .. ("[ \t]?"):rep(column + 1)) or ""
+      local line = written:sub(#marker + 1)
+      out[#out + 1] = line
+      starts[#starts + 1] = at + #marker
     end
     return out, starts
   end
-  local marker = text:match("^//[/!]?")
+  local marker = assert(text:match("^//[/!]?"), "a comment that is not /* begins with //")
   return { text:sub(#marker + 1) }, { #marker + 1 }
 end
 
 --- `comment` placed in the file: each line's `starts` counted from the
 --- byte of the file its text (`raw`, the comment as written) begins at.
 local function placed(comment: link_text.Comment, raw_at: integer, at: {integer}): link_text.Comment
-  local starts: {integer} = {}
+  local starts: mut {integer} = {}
   for index, offset in ipairs(at) do
-    starts[index] = raw_at > 0 and raw_at + offset - 1 or 0
+    starts[index] = if raw_at > 0 then raw_at + offset - 1 else 0 end
   end
   comment.starts = starts
   return comment
@@ -147,7 +153,7 @@ end
 --- string or character literal, and never in a multiline string's
 --- line (what follows `\`).
 local function zig_comments(source: string): {link_text.Comment}
-  local out: {link_text.Comment} = {}
+  local out: mut {link_text.Comment} = {}
   local number = 0
   local line_start = 1
   for line in String.lines(source) do
@@ -160,7 +166,7 @@ local function zig_comments(source: string): {link_text.Comment}
       if c == "\"" or c == "'" then
         j = j + 1
         while j <= #line and line:sub(j, j) ~= c do
-          j = j + (line:sub(j, j) == "\\" and 2 or 1)
+          j = j + (if line:sub(j, j) == "\\" then 2 else 1 end)
         end
         j = j + 1
       elseif line:sub(j, j + 1) == "\\\\" or line:sub(j, j + 1) == "//" then
@@ -182,16 +188,16 @@ end
 --- the whole.
 function link_files.blocks(kind: string, source: string): {link_text.Block}
   if kind == "markdown" then
-    return { { line = 1, text = source, starts = ast.line_starts(source) } }
+    return { { line = 1, text = source, starts = link_text.line_starts(source) } }
   end
-  local comments: {link_text.Comment} = {}
+  local comments: mut {link_text.Comment} = {}
   if kind == "c" then
-    local line_starts = ast.line_starts(source)
+    local line_starts = link_text.line_starts(source)
     for _, comment in ipairs(c_tokens.comments(source)) do
       local line_start = line_starts[comment.line] or 1
       local raw_at = source:find(comment.text, line_start, true) or 0
-      local lines, at = slash_comment(comment.text, raw_at > 0 and raw_at - line_start + 1 or 1)
-      comments[#comments + 1] = placed({ line = comment.line, lines = lines, doc = false }, raw_at, at)
+      local lines, at = slash_comment(comment.text, if raw_at > 0 then raw_at - line_start + 1 else 1 end)
+      table.insert(comments, placed({ line = comment.line, lines = lines, doc = false }, raw_at, at))
     end
   elseif kind == "zig" then
     comments = zig_comments(source)
@@ -239,8 +245,8 @@ end
 --- `var` at the start of a line, `pub` or `export` before it) and not
 --- also in a block.
 local function module_level_zig(source: string): {string: boolean}
-  local top: {string: boolean} = {}
-  local inner: {string: boolean} = {}
+  local top: mut {string: boolean} = {}
+  local inner: mut {string: boolean} = {}
   for line in String.lines(source) do
     for _, word in ipairs({ "fn", "const", "var" }) do
       local declared = line:match("^[%a ]-%f[%w_]" .. word .. "%s+([%a_][%w_]*)")
@@ -249,9 +255,9 @@ local function module_level_zig(source: string): {string: boolean}
       end
     end
   end
-  local out: {string: boolean} = {}
+  local out: mut {string: boolean} = {}
   for name in pairs(top) do
-    if not inner[name] then out[name] = true end
+    if inner[name] ~= true then out[name] = true end
   end
   return out
 end
@@ -274,17 +280,17 @@ function link_files.declarations(kind: string, source: string): link_text.Declar
 end
 
 --- The links of `source`, a Markdown, C or Zig file of `kind`, as the
---- build records a module's ([`link_text.found`]): every link but a
+--- build records a module's (`link_text.found`): every link but a
 --- definition, whose target a reference link carries, each at the
 --- column of its file its `[` is at. A name no file declares a first
 --- part of is no alias here: only Teal requires a module.
 function link_files.found(kind: string, source: string): {link_text.Found}
-  local out: {link_text.Found} = {}
+  local out: mut {link_text.Found} = {}
   if not link_text.may_link(source) then
     return out
   end
-  local names: {string: boolean} | nil = nil
-  local line_starts = ast.line_starts(source)
+  local names: {string: boolean}? = nil
+  local line_starts = link_text.line_starts(source)
   for _, block in ipairs(link_files.blocks(kind, source)) do
     local starts = block.starts or {}
     for _, link in ipairs(link_text.parse(block.text)) do
@@ -293,8 +299,9 @@ function link_files.found(kind: string, source: string): {link_text.Found}
         -- A line of the block that is not one stretch of the file keeps
         -- the column of its text.
         local start = starts[link.line] or 0
-        if start > 0 and line_starts[line] ~= nil then
-          link.column = start - line_starts[line] + link.column
+        local line_start = line_starts[line]
+        if start > 0 and line_start ~= nil then
+          link.column = start - line_start + link.column
         end
         link.line = line
         local own = false

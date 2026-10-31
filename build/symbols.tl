@@ -37,7 +37,10 @@ end
 --- runtime is built is left to the tree (`internal_guides`). Every
 --- guide is in one list or the other: [`build.tree_checks`] refuses a
 --- guide in neither, so a new one is never left out by mistake.
-symbols.guides = { "command-line", "project", "quickstart" }
+symbols.guides = {
+  "command-line", "project", "quickstart", "semantic-search", "sql", "web", "web-api", "web-deploy",
+  "web-forms", "web-live", "web-security", "web-sessions",
+}
 
 --- The guides a binary does not carry, each with its reason.
 symbols.internal_guides = {
@@ -58,7 +61,7 @@ end
 --- The condition under which the SQL `column` names a user guide's
 --- module (one of the user guides above).
 function symbols.guide_module(column: string): string
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, name in ipairs(symbols.guides) do
     names[#names + 1] = "'doc.guides." .. name .. "'"
   end
@@ -121,7 +124,7 @@ function symbols.shown_docs(alias: string, public: boolean, indexed?: boolean): 
   local source = "replace(" .. alias .. ".source_symbol, ':', '.')"
   local written = "substr(" .. source .. ", 1, instr(" .. source .. " || '.', '.') - 1)"
   local hidden: string
-  if indexed then
+  if indexed == true then
     hidden = "NOT EXISTS (SELECT 1 FROM docs lr WHERE lr.module = " .. alias ..
       ".module AND lr.source_symbol = " .. written .. " AND " ..
       symbols.local_declaration("lr") .. ")"
@@ -244,8 +247,8 @@ end
 --- is never a reason to fail the compile it explains.
 function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
                        query: string): {string}
-  local seen: {string: boolean} = {}
-  local out: {string} = {}
+  local seen: mut {string: boolean} = {}
+  local out: mut {string} = {}
   for index, db in ipairs(databases) do
     -- A query that fails is no match: a hint never fails the compile.
     local rows, _ = Sqlite.text_rows(db,
@@ -256,8 +259,8 @@ function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
       { { text = query } })
     if rows ~= nil then
       for _, row in ipairs(rows) do
-        local name = row[2] ~= "" and row[2] or row[1]
-        if not seen[name] then
+        local name = row:text(2) ~= "" and row:text(2) or row:text(1)
+        if seen[name] ~= true then
           seen[name] = true
           out[#out + 1] = name
         end
@@ -267,6 +270,13 @@ function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
   return out
 end
 
+--- One query [`symbols.has_example_query`] asks: its SQL and the one or two texts it binds.
+local record ExampleQuery
+  sql: string
+  first: string
+  second?: string
+end
+
 --- Whether a worked-example name, comment, or checked source answers a
 --- query in any of `databases`. Compiler diagnostics ask before printing
 --- a docs command, so an old or incomplete binary never advertises
@@ -274,38 +284,39 @@ end
 --- cannot replace the compiler's own diagnostic.
 function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean},
                                    name: string): boolean
-  local owners: {string: integer} = {}
+  local owners: mut {string: integer} = {}
   for index, db in ipairs(databases) do
     -- A query that fails is no owner, and so no example.
     local modules, _ = Sqlite.text_rows(db, "SELECT path FROM modules")
     if modules ~= nil then
       for _, row in ipairs(modules) do
-        if owners[row[1]] == nil then owners[row[1]] = index end
+        if owners[row:text(1)] == nil then owners[row:text(1)] = index end
       end
     end
   end
-  local words: {string} = {}
+  local words: mut {string} = {}
   for word in name:gmatch("[%w_]+") do words[#words + 1] = word end
   local phrase = '"' .. table.concat(words, " ") .. '"'
   for index, db in ipairs(databases) do
-    for _, lookup in ipairs({
-        { "SELECT e.module FROM examples e WHERE e.name = ?1 AND " ..
-              symbols.public_only("e.module", public[index] == true), name },
-        -- The phrase matches stemmed words, so `Fs.reads` finds [`Fs.read`];
-        -- the GLOB says the name is there whole, as `docs` checks it.
-        { "SELECT e.module FROM examples_fts JOIN examples e " ..
-              "ON e.id = examples_fts.rowid WHERE examples_fts MATCH ?1 AND " ..
-              "(e.text || ' ' || e.source || ' ') GLOB ?2 AND " ..
-              symbols.public_only("e.module", public[index] == true), phrase,
-            "*" .. name .. "[^A-Za-z0-9_]*" },
-    }) do
+    local lookups: {ExampleQuery} = {
+      { sql = "SELECT e.module FROM examples e WHERE e.name = ?1 AND " ..
+          symbols.public_only("e.module", public[index] == true), first = name },
+      -- The phrase matches stemmed words, so `Fs.reads` finds [`Fs.read`];
+      -- the GLOB says the name is there whole, as `docs` checks it.
+      { sql = "SELECT e.module FROM examples_fts JOIN examples e " ..
+          "ON e.id = examples_fts.rowid WHERE examples_fts MATCH ?1 AND " ..
+          "(e.text || ' ' || e.source || ' ') GLOB ?2 AND " ..
+          symbols.public_only("e.module", public[index] == true), first = phrase,
+        second = "*" .. name .. "[^A-Za-z0-9_]*" },
+    }
+    for _, lookup in ipairs(lookups) do
       -- A query that fails is no match.
-      local binds: {Sqlite.Value} = { { text = lookup[2] } }
-      if lookup[3] ~= nil then binds[2] = { text = lookup[3] } end
-      local rows, _ = Sqlite.text_rows(db, lookup[1], binds)
+      local binds: mut {Sqlite.Value} = { { text = lookup.first } }
+      if lookup.second ~= nil then binds[#binds + 1] = { text = lookup.second } end
+      local rows, _ = Sqlite.text_rows(db, lookup.sql, binds)
       if rows ~= nil then
         for _, row in ipairs(rows) do
-          if owners[row[1]] == index then return true end
+          if owners[row:text(1)] == index then return true end
         end
       end
     end

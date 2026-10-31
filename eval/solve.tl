@@ -11,10 +11,16 @@
 --- [`eval/arena`] runs eval/arena.tl: it requires `cosmic.*` modules
 --- only.
 local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
+
+--- The status a run ended with, written inside the guarded call and read after it.
+local record Ended
+  mut status: integer
+end
 
 local record Solve
   --- What a run was asked for on the command line.
@@ -84,42 +90,45 @@ local credentials: {string} = { "/home/claude/.claude/remote/.oauth_token" }
 
 local USAGE <const> = "usage: eval/solve <arena> --model <id> [--max-turns N] [--timeout S]"
 
-local function positive(text: string): integer
-  if text == nil or not text:match("^[1-9]%d*$") then return nil end
+local function positive(text: string): integer?
+  if not text:match("^[1-9]%d*$") then return nil end
   return math.tointeger(tonumber(text))
 end
 
 --- Reads the command line: the arena, then `--model` (required),
---- `--max-turns` (60 by default) and `--timeout` (600 seconds by
+--- `--max-turns` (150 by default) and `--timeout` (600 seconds by
 --- default), as eval/README.md's manual launch has them.
-function Solve.parse(argv: {integer: string}): Solve.Options | nil, string
-  local options: Solve.Options = { max_turns = 60, timeout = 600 }
+function Solve.parse(argv: {string}): Solve.Options?, string
+  local arena: string? = nil
+  local model: string? = nil
+  local max_turns, timeout = 150, 600
   local i = 1
-  while argv[i] ~= nil do
+  while true do
     local word = argv[i]
+    if word == nil then break end
     if word == "--model" or word == "--max-turns" or word == "--timeout" then
       local value = argv[i + 1]
       if value == nil then return nil, word .. " needs a value" end
       if word == "--model" then
-        options.model = value
+        model = value
       else
         local n = positive(value)
         if n == nil then return nil, word .. " takes a positive integer: " .. value end
-        if word == "--max-turns" then options.max_turns = n else options.timeout = n end
+        if word == "--max-turns" then max_turns = n else timeout = n end
       end
       i = i + 2
     elseif word:sub(1, 1) == "-" then
       return nil, "unknown option " .. word
-    elseif options.arena ~= nil then
+    elseif arena ~= nil then
       return nil, "one arena only: " .. word
     else
-      options.arena = word
+      arena = word
       i = i + 1
     end
   end
-  if options.arena == nil then return nil, "an arena is required" end
-  if options.model == nil or options.model == "" then return nil, "--model is required" end
-  return options, ""
+  if arena == nil then return nil, "an arena is required" end
+  if model == nil or model == "" then return nil, "--model is required" end
+  return { arena = arena, model = model, max_turns = max_turns, timeout = timeout }, ""
 end
 
 --- The arguments the CLI is given after its own name: eval/README.md's
@@ -139,19 +148,29 @@ end
 --- The solver's whole environment: `passed` from `host`, and its own
 --- HOME, CLAUDE_CONFIG_DIR, TMPDIR and PATH inside `arena`, PATH
 --- putting the arena's bin/ first, then `extra` (an interpreter's
---- directories), then the system's.
+--- directories), then the system's, and COSMIC_TEST_SANDBOX=0.
 function Solve.environment(host: {string:string}, arena: string, extra: {string}): {string:string}
-  local env: {string:string} = {}
+  local env: mut {string:string} = {}
   for _, name in ipairs(passed) do
-    env[name] = host[name]
+    local value = host[name]
+    if value ~= nil then env[name] = value end
   end
   local path = { arena .. "/bin" }
   for _, dir in ipairs(extra) do path[#path + 1] = dir end
   for _, dir in ipairs({ "/usr/local/bin", "/usr/bin", "/bin" }) do path[#path + 1] = dir end
-  env.PATH = table.concat(path, ":")
-  env.HOME = arena .. "/home"
-  env.CLAUDE_CONFIG_DIR = arena .. "/config"
-  env.TMPDIR = arena .. "/tmp"
+  env["PATH"] = table.concat(path, ":")
+  env["HOME"] = arena .. "/home"
+  env["CLAUDE_CONFIG_DIR"] = arena .. "/config"
+  env["TMPDIR"] = arena .. "/tmp"
+  -- The solver is uid 0 of a user namespace holding no capability, where
+  -- cosmic cannot sandbox a test worker and would run it unsandboxed
+  -- anyway; pinning that states the regime, and eval/check/grade.tl
+  -- grades under it.
+  -- TODO: once the solver gets a mapped non-root user (or capabilities)
+  -- in cosmic.child's sandbox, and a way to pass the CLI's root-only
+  -- OAuth token to it, drop this pin so the solver meets the sandboxed
+  -- regime a host grades in, and drop the grader's.
+  env["COSMIC_TEST_SANDBOX"] = "0"
   return env
 end
 
@@ -161,16 +180,16 @@ end
 --- executable alone; a script, its directory (an npm package's) and its
 --- interpreter, whose directory goes on PATH for an `env` line.
 function Solve.program(resolved: string, head: string,
-                       find: function(string): string | nil): Solve.Program | nil, string
+                       find: function(string): string?): Solve.Program?, string
   if head:sub(1, 4) == "\127ELF" then
     return { reads = { resolved }, path = {} }, ""
   end
   local line = head:match("^#!%s*([^\n]*)")
   if line == nil then return nil, resolved .. " is neither an executable nor a script" end
-  local words: {string} = {}
+  local words: mut {string} = {}
   for word in line:gmatch("%S+") do words[#words + 1] = word end
   local name = words[1]
-  if name ~= nil and name:match("/env$") then name = words[2] end
+  if name ~= nil and name:match("/env$") ~= nil then name = words[2] end
   if name == nil then return nil, resolved .. ": no interpreter on its #! line" end
   local interpreter = find(name)
   if interpreter == nil then return nil, resolved .. ": interpreter " .. name .. " not found" end
@@ -184,17 +203,17 @@ end
 --- reaches and the host never sees.
 function Solve.unveil(arena: string, program: Solve.Program, host_reads: {string},
                       exists: function(string): boolean): Child.Unveil
-  local reads: {string} = {}
-  local seen: {string:boolean} = {}
+  local reads: mut {string} = {}
+  local seen: mut {string:boolean} = {}
   local function add(path: string)
-    if seen[path] or not exists(path) then return end
+    if seen[path] == true or not exists(path) then return end
     seen[path] = true
     reads[#reads + 1] = path
   end
   for _, path in ipairs(host_reads) do add(path) end
   for _, path in ipairs(program.reads) do add(path) end
   add(arena .. "/bin")
-  local writes: {string} = {}
+  local writes: mut {string} = {}
   for _, sub in ipairs(writable) do writes[#writes + 1] = arena .. "/" .. sub end
   return { reads = reads, writes = writes }
 end
@@ -203,7 +222,7 @@ end
 --- `files_named` names in `env` where each is absolute, and the
 --- credential files.
 function Solve.host_reads(env: {string:string}): {string}
-  local reads: {string} = {}
+  local reads: mut {string} = {}
   for _, path in ipairs(system) do reads[#reads + 1] = path end
   for _, name in ipairs(files_named) do
     local path = env[name]
@@ -258,7 +277,7 @@ local function exists(path: string): boolean
   return there == true
 end
 
-function Solve.main(argv: {integer: string}): integer
+function Solve.main(argv: {string}): integer
   local options, usage_trouble = Solve.parse(argv)
   if options == nil then
     complain(usage_trouble)
@@ -301,7 +320,7 @@ function Solve.main(argv: {integer: string}): integer
     complain(htrouble)
     return 2
   end
-  local program, gtrouble = Solve.program(resolved, head, function(name: string): string | nil
+  local program, gtrouble = Solve.program(resolved, head, function(name: string): string?
     local found: string = name
     if name:sub(1, 1) ~= "/" then
       local on_path, _ = Proc.find(name)
@@ -348,7 +367,7 @@ function Solve.main(argv: {integer: string}): integer
         "(eval/README.md has the manual launch)")
     return 2
   end
-  local outputs: {integer} = {}
+  local outputs: mut {integer} = {}
   for _, name in ipairs({ "transcript.jsonl", "stderr" }) do
     local out, wtrouble = Fs.open_write(arena .. "/" .. name, 0x1a4)
     if out == nil then
@@ -357,7 +376,7 @@ function Solve.main(argv: {integer: string}): integer
     end
     outputs[#outputs + 1] = out
   end
-  local command: {string} = { resolved }
+  local command: mut {string} = { resolved }
   for _, word in ipairs(Solve.arguments(prompt, options)) do command[#command + 1] = word end
   local wrote, wtrouble = Fs.write(arena .. "/started_at", now())
   if not wrote then
@@ -367,33 +386,41 @@ function Solve.main(argv: {integer: string}): integer
   local started = Time.monotonic_ns()
   -- The run's own guard holds a SIGINT or SIGTERM until finished_at and
   -- exit_code are written, then delivers it as it closes.
-  local guard <close> = assert(Child.guard())
-  local result, trouble = Child.run(command, {
-    env = env,
-    cwd = arena .. "/project",
-    stdin = "null",
-    stdout = outputs[1],
-    stderr = outputs[2],
-    timeout_ns = Time.seconds(options.timeout),
-    sandbox = { unveil = unveil },
-  })
-  for _, out in ipairs(outputs) do local _, _ = Fs.close(out) end
-  local status: integer
-  if result ~= nil then
-    status = Solve.status(result)
-  elseif guard:cancelled() ~= 0 then
-    status = 128 + guard:cancelled()
-  else
-    complain(trouble .. " (where the sandbox is unavailable, eval/README.md has the manual launch)")
-    status = 125
-  end
-  local _, _ = Fs.write(arena .. "/finished_at", now())
-  local _, _ = Fs.write(arena .. "/exit_code", tostring(status) .. "\n")
-  local seconds = (Time.monotonic_ns() - started) // 1000000000
-  complain(arena .. ": exit " .. tostring(status) .. " after " .. tostring(seconds) .. "s" ..
-      (result ~= nil and result.timed_out and " (past the " .. tostring(options.timeout) ..
-        "s deadline)" or ""))
-  return status
+  -- TODO: hold the guard in a `<close>` local again and drop the `pcall`, once ci/cosmic-driver.pin names a release
+  -- that declares [`Signal.Guard`] as a class: a `<close>` local must be one.
+  local guard = assert(Signal.guard())
+  local ended: Ended = { status = 0 }
+  local ran, raised = pcall(function()
+    local result, trouble = Child.run(command, {
+      env = env,
+      cwd = arena .. "/project",
+      stdin = "null",
+      stdout = outputs[1],
+      stderr = outputs[2],
+      timeout_ns = Time.seconds(options.timeout),
+      sandbox = { unveil = unveil },
+    })
+    for _, out in ipairs(outputs) do local _, _ = Fs.close(out) end
+    local status: integer
+    if result ~= nil then
+      status = Solve.status(result)
+    elseif guard:cancelled() ~= 0 then
+      status = 128 + guard:cancelled()
+    else
+      complain(trouble .. " (where the sandbox is unavailable, eval/README.md has the manual launch)")
+      status = 125
+    end
+    local _, _ = Fs.write(arena .. "/finished_at", now())
+    local _, _ = Fs.write(arena .. "/exit_code", tostring(status) .. "\n")
+    local seconds = (Time.monotonic_ns() - started) // 1000000000
+    complain(arena .. ": exit " .. tostring(status) .. " after " .. tostring(seconds) .. "s" ..
+        (if result ~= nil and result.timed_out then " (past the " .. tostring(options.timeout) ..
+            "s deadline)" else "" end))
+    ended.status = status
+  end)
+  local _, _ = guard:close()
+  if not ran then error(raised, 0) end
+  return ended.status
 end
 
 return Solve

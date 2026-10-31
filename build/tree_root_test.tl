@@ -7,10 +7,18 @@ local Sqlite = require("cosmic.sqlite")
 local invoke = require("build.invoke")
 local sys = require("cosmic.sys")
 local tree_root = require("build.tree_root")
+local build_paths = require("build.paths")
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 --- The move a command line gets, or nil.
-local function moved_by(argv: {integer:string}, options: {string:boolean | Flags.Option},
-                        home: string | nil, named?: string): tree_root.Move | nil
+local function moved_by(argv: {string}, options: {string:boolean | Flags.Option},
+                        home: string?, named?: string): tree_root.Move?
   return tree_root.move(argv, options, home, named).move
 end
 
@@ -18,24 +26,29 @@ end
 --- path, resolved.
 local function project(dir: string): string
   local tmp = assert(sys.realpath(dir))
-  assert(Fs.mkdirs(tmp .. "/proj/o"))
-  assert(Fs.write(tmp .. "/proj/o/cosmic.db", ""))
+  assert(build_dir(tmp .. "/proj"))
+  assert(Fs.write(build_dir(tmp .. "/proj") .. "/cosmic.db", ""))
   assert(Fs.mkdirs(tmp .. "/proj/a/b"))
   -- What the last build staged: one source under a/b.
-  local db = assert(Sqlite.open(tmp .. "/proj/o/build.db", { writable = true }))
+  local db = assert(Sqlite.open(build_dir(tmp .. "/proj") .. "/build.db", { writable = true }))
   assert(Sqlite.run(db, "CREATE TABLE files (path TEXT PRIMARY KEY, size INTEGER, " ..
       "mtime_ns INTEGER, ino INTEGER, dev INTEGER, sha256 TEXT, data BLOB) WITHOUT ROWID"))
   assert(Sqlite.run(db, "INSERT INTO files (path) VALUES ('a/b/x_test.tl')"))
+  -- And one file of the tool's own, which no module is.
+  assert(Sqlite.run(db, "CREATE TABLE tool (path TEXT PRIMARY KEY, size INTEGER, " ..
+      "mtime_ns INTEGER, ctime_ns INTEGER, ino INTEGER, dev INTEGER, sha256 TEXT) WITHOUT ROWID"))
+  assert(Sqlite.run(db, "INSERT INTO tool (path) VALUES ('lang/check.tl')"))
+  assert(Fs.mkdirs(tmp .. "/proj/lang"))
   assert(db:close())
   return tmp .. "/proj"
 end
 
 --- The root `cosmic todos` would run at from `dir`, or nil where it runs
 --- in `dir` itself.
-local function rooted(dir: string, home: string | nil, named?: string): string | nil
+local function rooted(dir: string, home: string?, named?: string): string?
   local here = assert(sys.getcwd())
   assert(sys.chdir(dir))
-  local moved = moved_by({ [0] = "cosmic", "todos" }, {}, home, named)
+  local moved = moved_by({ "todos" }, {}, home, named)
   assert(sys.chdir(here))
   if moved == nil then return nil end
   return moved.root
@@ -50,15 +63,22 @@ local function test_an_ancestor_with_a_built_database_is_the_tree(tmp: string)
   assert(rooted(root, nil) == nil)
 end
 
+--- A directory the build walked for the tool's own files and staged no
+--- module under is part of the tree too: `lang/` holds the checker.
+local function test_a_directory_of_the_tools_own_files_is_in_the_tree(tmp: string)
+  local root = project(tmp)
+  assert(rooted(root .. "/lang", nil) == root)
+end
+
 --- `o/build.db` alone is what a failed run leaves anywhere, so it makes
 --- no directory a tree; a directory that holds a built database is its
 --- own tree, nested or not.
 local function test_only_a_built_database_establishes_a_tree(tmp: string)
   local root = project(tmp)
-  assert(Fs.mkdirs(root .. "/a/o"))
-  assert(Fs.write(root .. "/a/o/build.db", ""))
+  assert(build_dir(root .. "/a"))
+  assert(Fs.write(build_dir(root .. "/a") .. "/build.db", ""))
   assert(rooted(root .. "/a", nil) == root)
-  assert(Fs.write(root .. "/a/o/cosmic.db", ""))
+  assert(Fs.write(build_dir(root .. "/a") .. "/cosmic.db", ""))
   assert(rooted(root .. "/a", nil) == nil)
   -- The nearest built ancestor is a/, which staged nothing under a/b.
   assert(rooted(root .. "/a/b", nil) == nil)
@@ -104,13 +124,13 @@ local function test_paths_are_read_from_where_the_verb_started(tmp: string)
   assert(Fs.write(root .. "/a/b/x_test.tl", ""))
   local here = assert(sys.getcwd())
   assert(sys.chdir(root .. "/a/b"))
-  local fix = moved_by({ [0] = "cosmic", "fix", "--check", "x_test.tl", "." }, { ["--check"] = {} }, nil)
-  local test = moved_by({ [0] = "cosmic", "test", "--jobs", "2", "x_test.tl:test_a", "some.module" },
+  local fix = moved_by({ "fix", "--check", "x_test.tl", "." }, { ["--check"] = {} }, nil)
+  local test = moved_by({ "test", "--jobs", "2", "x_test.tl:test_a", "some.module" },
     { ["--jobs"] = { value = "n" } }, nil)
-  local uses = moved_by({ [0] = "cosmic", "uses", "Fs.read", "x_test.tl" }, {}, nil)
-  local docs = moved_by({ [0] = "cosmic", "docs", "x_test.tl" }, {}, nil)
-  local made = moved_by({ [0] = "cosmic", "fix", "new/x.tl", "../x.tl", "/elsewhere/y" }, {}, nil, nil)
-  local json = moved_by({ [0] = "cosmic", "json", "x" }, {}, nil)
+  local uses = moved_by({ "uses", "Fs.read", "x_test.tl" }, {}, nil)
+  local docs = moved_by({ "docs", "x_test.tl" }, {}, nil)
+  local made = moved_by({ "fix", "new/x.tl", "../x.tl", "/elsewhere/y" }, {}, nil, nil)
+  local json = moved_by({ "json", "x" }, {}, nil)
   assert(sys.chdir(here))
   assert(made ~= nil)
   assert(table.concat(made.argv, " ") == "fix a/b/new/x.tl a/x.tl /elsewhere/y",
@@ -134,7 +154,7 @@ local function test_a_verb_below_the_root_runs_at_the_root(tmp: string)
   assert(result.code == 0, result.stderr .. result.stdout)
   assert(result.stderr:find("todos runs in " .. root, 1, true), result.stderr)
   assert(result.stdout:find("a/b/note.tl:1", 1, true), result.stdout)
-  assert(not Fs.exists(root .. "/a/b/o"))
+  assert(Fs.exists(build_paths.required(root .. "/a/b")) ~= true)
 end
 
 --- The home directory stops the climb however it is spelled: with a
@@ -150,10 +170,10 @@ end
 --- the directory stays a root of its own, and the note says why.
 local function test_an_unreadable_database_is_said(tmp: string)
   local root = project(tmp)
-  assert(Fs.write(root .. "/o/build.db", "not a database"))
+  assert(Fs.write(build_dir(root) .. "/build.db", "not a database"))
   local here = assert(sys.getcwd())
   assert(sys.chdir(root .. "/a/b"))
-  local answer = tree_root.move({ [0] = "cosmic", "todos" }, {}, nil)
+  local answer = tree_root.move({ "todos" }, {}, nil)
   assert(sys.chdir(here))
   assert(answer.move == nil and answer.refused == "")
   assert(answer.note:find("not using the tree at " .. root, 1, true), answer.note)
@@ -164,7 +184,7 @@ local function test_a_root_of_slash_joins_cleanly(tmp: string)
   local root = project(tmp)
   local here = assert(sys.getcwd())
   assert(sys.chdir(root .. "/a"))
-  local moved = moved_by({ [0] = "cosmic", "fix", "x.tl" }, {}, nil, "/")
+  local moved = moved_by({ "fix", "x.tl" }, {}, nil, "/")
   assert(sys.chdir(here))
   assert(moved ~= nil and moved.root == "/")
   assert(moved.argv[2] == root:sub(2) .. "/a/x.tl", moved.argv[2])

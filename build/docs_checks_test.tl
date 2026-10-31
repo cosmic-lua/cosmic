@@ -30,7 +30,7 @@ end
 local function row(module: string, symbol: string, kind: string, signature: string,
                    text: string): Row
   -- A member is written under the module's record: `Thing.add` is `add`.
-  local member = kind == "function" and "Thing." .. symbol or symbol
+  local member = if kind == "function" then "Thing." .. symbol else symbol end
   return { module = module, symbol = symbol, source_symbol = member, kind = kind,
     signature = signature, text = text, exported = true }
 end
@@ -43,9 +43,9 @@ local function projection(rows: {Row}): Sqlite.Handle
   for _, statement in ipairs(schema.create("")) do
     assert(db:exec(statement))
   end
-  local seen: {string: boolean} = {}
+  local seen: mut {string: boolean} = {}
   for _, item in ipairs(rows) do
-    if not seen[item.module] then
+    if seen[item.module] ~= true then
       seen[item.module] = true
       assert(Sqlite.run(db,
         "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
@@ -56,7 +56,7 @@ local function projection(rows: {Row}): Sqlite.Handle
       "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, text, file, line) " ..
         "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)",
       { { text = item.module }, { text = item.symbol }, { text = item.source_symbol },
-        { integer = item.exported and 1 or 0 }, { text = item.kind },
+        { integer = if item.exported then 1 else 0 end }, { text = item.kind },
         { text = item.signature }, { text = item.text },
         { text = item.module:gsub("%.", "/") .. ".tl" } }))
   end
@@ -65,7 +65,7 @@ end
 
 --- A page that breaks no rule: a module, its record and a documented
 --- function.
-local function clean(): {Row}
+local function clean(): mut {Row}
   return {
     row("cosmic.thing", "", "module", "", "Things, made and counted."),
     row("cosmic.thing", "Thing", "record", "local record Thing", ""),
@@ -76,7 +76,7 @@ end
 
 --- The lines `found` holds that mention `word`.
 local function mentioning(found: {string}, word: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, line in ipairs(found) do
     if line:find(word, 1, true) ~= nil then out[#out + 1] = line end
   end
@@ -160,7 +160,7 @@ end
 --- module keeps to itself, though it is marked exported.
 local function test_a_local_record_nothing_names_is_refused()
   local rows = clean()
-  rows[#rows + 1] = row("cosmic.thing", "Pipe", "record", "local record Pipe", "A buffer.")
+  table.insert(rows, row("cosmic.thing", "Pipe", "record", "local record Pipe", "A buffer."))
   local db = projection(rows)
   local found = docs_checks.rendered(db, none)
   assert(#found == 1 and found[1]:find("cosmic.thing.Pipe: a `local` record", 1, true) ~= nil,
@@ -171,9 +171,9 @@ local function test_a_local_record_nothing_names_is_refused()
   assert(#found == 0, table.concat(found, "\n"))
 
   rows = clean()
-  rows[#rows + 1] = row("cosmic.thing", "Pipe", "record", "local record Pipe", "A buffer.")
-  rows[#rows + 1] = row("cosmic.thing", "drain", "function",
-    "function Thing.drain(p: Pipe): integer", "Empties `p`.")
+  table.insert(rows, row("cosmic.thing", "Pipe", "record", "local record Pipe", "A buffer."))
+  table.insert(rows, row("cosmic.thing", "drain", "function",
+    "function Thing.drain(p: Pipe): integer", "Empties `p`."))
   found = docs_checks.rendered(projection(rows), none)
   assert(#found == 0, table.concat(found, "\n"))
 end

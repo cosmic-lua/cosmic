@@ -1,0 +1,31 @@
+file: lib/vtls/mbedtls.c
+note: Mozilla stops trusting a root for server certificates issued
+  after a date (CKA_NSS_SERVER_DISTRUST_AFTER in NSS's certdata.txt),
+  which no list of roots can say. cosmic's core keeps those dates with
+  the roots it carries (core/http.c, build/roots.tl), and the verify
+  callback asks it of each certificate of a chain: the server's own is
+  refused (MBEDTLS_X509_BADCERT_OTHER) when its root is one of them and
+  it was issued after the date. It refuses too any certificate of the
+  chain Mozilla's OneCRL revokes (MBEDTLS_X509_BADCERT_REVOKED; the core
+  carries OneCRL's entries, build/onecrl.tl). The core defines
+  cosmic_tls_distrust; curl here only declares and calls it.
+--- find
+static int mbed_verify_cb(void *ptr, mbedtls_x509_crt *crt,
+                          int depth, uint32_t *flags)
+{
+  struct Curl_cfilter *cf = (struct Curl_cfilter *)ptr;
+  struct ssl_primary_config *conn_config = Curl_ssl_cf_get_primary_config(cf);
+  struct Curl_easy *data = CF_DATA_CURRENT(cf);
+--- replace
+uint32_t cosmic_tls_distrust(CURL *easy, const mbedtls_x509_crt *crt,
+                             int depth);
+
+static int mbed_verify_cb(void *ptr, mbedtls_x509_crt *crt,
+                          int depth, uint32_t *flags)
+{
+  struct Curl_cfilter *cf = (struct Curl_cfilter *)ptr;
+  struct ssl_primary_config *conn_config = Curl_ssl_cf_get_primary_config(cf);
+  struct Curl_easy *data = CF_DATA_CURRENT(cf);
+
+  *flags |= cosmic_tls_distrust(data, crt, depth);
+--- end

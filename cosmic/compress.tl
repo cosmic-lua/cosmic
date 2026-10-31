@@ -90,7 +90,7 @@ end
 --- Compresses `data` whole in the `format` framing, at `level` as
 --- `deflater(format, level)` takes it; raises where that does.
 function Compress.deflate(format: Compress.Format, data: string, level?: integer):
-    string | nil, string
+    string?, string
   local enc, trouble = raw.deflater(format, level)
   if enc == nil then return nil, trouble end
   return Stream.run(enc, data)
@@ -99,13 +99,13 @@ end
 --- Expands `data`, whole, from the `format` framing, such as `deflate`
 --- produced; raises on an unknown format. When `max_bytes` is given,
 --- more than `max_bytes` bytes of output is an error rather than an
---- answer, and a `max_bytes` that is not an integer of at least 0
+--- answer, and a `max_bytes` under 0
 --- raises. Bytes after the end of the compressed data are an error
 --- too.
 function Compress.inflate(format: Compress.Format, data: string, max_bytes?: integer):
-    string | nil, string
-  if max_bytes ~= nil and (math.type(max_bytes) ~= "integer" or max_bytes < 0) then
-    error("compress: max_bytes must be an integer of at least 0", 2)
+    string?, string
+  if max_bytes ~= nil and max_bytes < 0 then
+    error("compress: max_bytes must be at least 0", 2)
   end
   local dec, trouble = raw.inflater(format)
   if dec == nil then return nil, trouble end
@@ -121,7 +121,7 @@ end
 --- (including FEXTRA/FNAME/FCOMMENT/FHCRC), verifies the CRC-32 and
 --- ISIZE trailer, and decodes every member of a multi-member stream.
 --- Raises on an unknown format.
-function Compress.inflater(format: Compress.Format): Compress.Stream | nil, string
+function Compress.inflater(format: Compress.Format): Compress.Stream?, string
   return raw.inflater(format)
 end
 
@@ -129,7 +129,7 @@ end
 --- miniz default, 6); raises on an unknown format or a level out of
 --- range. A gzip encoder writes a minimal ten-byte header (mtime 0,
 --- OS 255, no extra fields) and the CRC-32/ISIZE trailer.
-function Compress.deflater(format: Compress.Format, level?: integer): Compress.Stream | nil, string
+function Compress.deflater(format: Compress.Format, level?: integer): Compress.Stream?, string
   return raw.deflater(format, level)
 end
 
@@ -140,12 +140,12 @@ end
 --- ask for more than `max_memory` bytes of decoder memory (default 256
 --- MiB; `xz -9` needs 65 MiB).
 --- Raises when `max_memory` is not positive.
-function Compress.xz_decoder(max_memory?: integer): Compress.Stream | nil, string
+function Compress.xz_decoder(max_memory?: integer): Compress.Stream?, string
   return raw.xz_decoder(max_memory)
 end
 
 --- A streaming decoder for .bz2: multi-stream is handled.
-function Compress.bz2_decoder(): Compress.Stream | nil, string
+function Compress.bz2_decoder(): Compress.Stream?, string
   return raw.bz2_decoder()
 end
 
@@ -158,7 +158,7 @@ end
 --- limit is compared with the window the header declares, which is not
 --- always a power of two, however the input is split.
 --- Raises when `max_window` is under 1024.
-function Compress.zstd_decoder(max_window?: integer): Compress.Stream | nil, string
+function Compress.zstd_decoder(max_window?: integer): Compress.Stream?, string
   return raw.zstd_decoder(max_window)
 end
 
@@ -166,19 +166,8 @@ end
 --- command's); raises on a level out of range. It writes one frame,
 --- with a checksum of its content, as the `zstd` command does; its
 --- output for the same input and level is the same from run to run.
-function Compress.zstd_encoder(level?: integer): Compress.Stream | nil, string
+function Compress.zstd_encoder(level?: integer): Compress.Stream?, string
   return raw.zstd_encoder(level)
-end
-
---- The running CRC-32 (IEEE) of `data`. Pass the previous value as
---- `crc` to continue it over more than one call; raises when `crc` is
---- outside 0 to 0xffffffff.
-function Compress.crc32(data: string, crc?: integer): integer
-  -- TODO: a zip's checksum is no compressor's, and [`cosmic.zip`] is this
-  -- function's one caller: move it there once a module can be handed
-  -- another module's `cosmic.internal.` table, as this one is handed its
-  -- own (the C sum is what keeps a body's bytes off the Lua loop).
-  return raw.crc32(data, crc)
 end
 
 return Compress

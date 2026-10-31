@@ -4,6 +4,7 @@
 --- starts this very program to run a chunk. They run on every platform,
 --- as the cases that unveil a child's root are Linux's alone.
 
+local RawTables = require("build.raw_tables")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
@@ -21,27 +22,15 @@ Test.policy{
   promises = { "nest" },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader, as
---- `require` would hand it.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 --- The descriptors [`this_program.program`] hands its child, as
 --- [`process.spawn`] takes them: each a descriptor of this process, as
 --- the relaunch's are, and none "capture", which only [`cosmic.child`]
 --- reads.
 local function spawn_fds(started: this_program.Program): {integer:integer}
-  local fds: {integer:integer} = {}
-  for number, fd in pairs(started.options.fds) do
+  local fds: mut {integer:integer} = {}
+  for number, fd in pairs(started.options.fds or {}) do
     if fd is integer then
       fds[number] = fd
     else
@@ -66,12 +55,13 @@ end
 --- root.
 local function test_a_user_is_refused_unless_given_with_its_group_and_unveil(tmp: string)
   local probe = probe_in(tmp)
-  local user = sys.getuid() == 65533 and 65531 or 65533
-  for _, sandbox in ipairs({
-      { unveil = { reads = { probe }, writes = {} }, user = 0, group = user },
-      { unveil = { reads = { probe }, writes = {} }, user = user },
-      { offline = true, user = user, group = user },
-  } as {raw_process.Sandbox}) do
+  local user = if sys.getuid() == 65533 then 65531 else 65533 end
+  local sandboxes: {raw_process.Sandbox} = {
+    { unveil = { reads = { probe }, writes = {} }, user = 0, group = user },
+    { unveil = { reads = { probe }, writes = {} }, user = user },
+    { offline = true, user = user, group = user },
+  }
+  for _, sandbox in ipairs(sandboxes) do
     assert(raises(probe, sandbox), "a user is refused unless given with its group and unveil, and not as root")
   end
 end
@@ -82,7 +72,7 @@ local function test_an_idmapped_bind_is_refused_without_a_user(tmp: string)
   assert(sys.mkdir(tmp .. "/closed", 0x1c0))
   local ok, trouble = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
     { unveil = { reads = { probe }, writes = {}, binds = { { path = tmp .. "/closed", idmap = true } } } })
-  assert(not ok and tostring(trouble):find("idmap requires a user", 1, true), tostring(trouble))
+  assert(not ok and tostring(trouble):find("idmap requires a user", 1, true) ~= nil, tostring(trouble))
 end
 
 --- An unveiled path is absolute, and a name it is bound at is plain and
@@ -114,7 +104,7 @@ local function test_a_sandbox_the_platform_lacks_is_refused(tmp: string)
     Test.skip("a platform with a sandbox answers this where a test requires one")
   end
   local probe = probe_in(tmp)
-  local user = sys.getuid() == 65533 and 65531 or 65533
+  local user = if sys.getuid() == 65533 then 65531 else 65533 end
   local sandboxes: {raw_process.Sandbox} = {
     { offline = true },
     { unveil = { reads = { probe } }, offline = true },
@@ -128,9 +118,9 @@ local function test_a_sandbox_the_platform_lacks_is_refused(tmp: string)
   for index, sandbox in ipairs(sandboxes) do
     local ok, pid, trouble, errno = pcall(process.spawn, probe, { probe, "print hi" }, nil, tmp, nil,
       nil, nil, false, nil, sandbox)
-    assert(ok, "a start of a sandbox the platform lacks is refused, not raised, " .. index .. ": " .. tostring(pid))
+    assert(ok, "a start of a sandbox the platform lacks is refused, not raised, " .. tostring(index) .. ": " .. tostring(pid))
     assert(pid == nil and (errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
-      errno == sys.EINVAL or errno == sys.ENOSPC), index .. ": " .. tostring(trouble))
+      errno == sys.EINVAL or errno == sys.ENOSPC), tostring(index) .. ": " .. tostring(trouble))
   end
   assert(not process.subreaper(), "there is no subreaper to be")
 end
@@ -140,11 +130,11 @@ end
 --- end: it exits once this process closes the other end.
 local function test_an_exit_watch_is_readable_once_its_child_exits()
   local ok, raised = pcall(process.exit_watch, 0)
-  assert(not ok and tostring(raised):find("pid is out of range", 1, true), tostring(raised))
+  assert(not ok and tostring(raised):find("pid is out of range", 1, true) ~= nil, tostring(raised))
   local ends = assert(process.pipe())
   local started = this_program.program({ "-e",
     'local Fs = require("cosmic.fs") while assert(Fs.take(0, 4096)) ~= "" do end' })
-  local pid = process.spawn(started.argv[1], started.argv, started.options.env, nil,
+  local pid = process.spawn(assert(started.argv[1], "this_program.program puts the executable first"), started.argv, started.options.env, nil,
     ends.reader, nil, nil, false, spawn_fds(started))
   sys.close(ends.reader)
   assert(pid, "the child did not start")
@@ -153,7 +143,8 @@ local function test_an_exit_watch_is_readable_once_its_child_exits()
     "the watch was readable while its child ran")
   sys.close(ends.writer)
   local ready = assert(sys.poll({ watch }, { sys.POLLIN }, 30000))
-  assert(ready[1] & sys.POLLIN ~= 0, "the child's exit left its watch unreadable")
+  local watched = assert(ready[1], "the poll answers for the watch")
+  assert(watched & sys.POLLIN ~= 0, "the child's exit left its watch unreadable")
   assert(process.waitpid(pid, false))
   sys.close(watch)
   local none, _, errno = process.exit_watch(pid)

@@ -19,7 +19,7 @@ end
 
 --- Everything `fd` holds now, without waiting for more.
 local function drained(fd: integer): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while true do
     local data, _, errno = sys.read(fd, 1 << 16)
     if data == nil or data == "" then
@@ -48,7 +48,7 @@ local function test_a_read_with_a_timeout_fails_with_the_timeout_word(tmp: strin
   local elapsed = Clock.monotonic_ns() - before
   assert(chunk == nil and why == Poll.TIMEOUT, tostring(why))
   assert(elapsed >= Clock.ms(79) and elapsed < Clock.seconds(5),
-    "timed out after " .. elapsed // Clock.ms(1) .. " ms")
+    "timed out after " .. tostring(elapsed // Clock.ms(1)) .. " ms")
   assert(sys.write(writer, "late") == 4)
   assert(r:read() == "late")
   assert(sys.close(writer))
@@ -74,8 +74,10 @@ end
 local function test_a_read_with_a_timeout_in_a_task_lets_the_others_run(tmp: string)
   local reader, writer = fifo(tmp, "task")
   local r = Stream.from_fd(reader, { nonblocking = true, timeout_ns = Clock.ms(120) })
-  local ticks, elapsed = 0, 0
-  local chunk, why: string | nil, string
+  local ticks: integer = 0
+  local elapsed: integer = 0
+  local chunk: string? = nil
+  local why: string? = nil
   Poll.run(function()
     local done = false
     local ticker = Poll.spawn(function()
@@ -92,8 +94,8 @@ local function test_a_read_with_a_timeout_in_a_task_lets_the_others_run(tmp: str
   end)
   assert(chunk == nil and why == Poll.TIMEOUT, tostring(why))
   assert(elapsed >= Clock.ms(119) and elapsed < Clock.seconds(5),
-    "timed out after " .. elapsed // Clock.ms(1) .. " ms")
-  assert(ticks >= 2, "the other task ticked " .. ticks .. " times while the read waited")
+    "timed out after " .. tostring(elapsed // Clock.ms(1)) .. " ms")
+  assert(ticks >= 2, "the other task ticked " .. tostring(ticks) .. " times while the read waited")
   assert(sys.close(reader))
   assert(sys.close(writer))
 end
@@ -103,7 +105,7 @@ end
 local function test_a_write_goes_whole_into_a_slow_reader(tmp: string)
   local reader, writer = fifo(tmp, "slow")
   local body = string.rep("0123456789abcdef", 1 << 16)
-  local received: {string} = {}
+  local received: mut {string} = {}
   Poll.run(function()
     local taking = Poll.spawn(function()
       local r = Stream.from_fd(reader, { nonblocking = true })
@@ -137,9 +139,9 @@ local function test_a_write_that_expires_reports_the_bytes_written(tmp: string)
   local elapsed = Clock.monotonic_ns() - before
   assert(not ok and why == Poll.TIMEOUT, tostring(why))
   assert(elapsed >= Clock.ms(59) and elapsed < Clock.seconds(5),
-    "timed out after " .. elapsed // Clock.ms(1) .. " ms")
+    "timed out after " .. tostring(elapsed // Clock.ms(1)) .. " ms")
   local went = w:written()
-  assert(went > 0 and went < #body, "wrote " .. went)
+  assert(went > 0 and went < #body, "wrote " .. tostring(went))
   assert(drained(reader) == body:sub(1, went), "the reader found other bytes than went")
   assert(w:write(body:sub(went + 1, went + 4)))
   assert(w:written() == went + 4)
@@ -169,19 +171,20 @@ end
 local function test_a_wait_the_caller_gives_replaces_the_poll(tmp: string)
   local reader, writer = fifo(tmp, "hook")
   local body = string.rep("0123456789abcdef", 1 << 15)
-  local seen: {string} = {}
-  local calls, asked = 0, 0
-  local fail: string = nil
+  local seen: mut {string} = {}
+  local asked = 0
+  local calls: integer = 0
+  local fail: string? = nil
   local w = Stream.to_fd(writer, { nonblocking = true, wait = function(fd: integer,
-                                                                       events: integer, left: integer | nil): boolean, string
+                                                                       events: integer, left: integer?): boolean, string
     calls = calls + 1
     assert(fd == writer and events == sys.POLLOUT and left == nil)
     if fail ~= nil then return false, fail end
-    seen[#seen + 1] = drained(reader)
+    table.insert(seen, drained(reader))
     return true, ""
   end })
   assert(w:write(body))
-  seen[#seen + 1] = drained(reader)
+  table.insert(seen, drained(reader))
   assert(calls > 0 and table.concat(seen) == body)
   fail = Poll.CANCELLED
   local filled = string.rep("x", 1 << 17)
@@ -205,7 +208,7 @@ local function test_the_options_are_checked()
   raises(function() local _ = Stream.from_fd(0, { timeout_ns = Clock.ms(5) }) end, "nonblocking")
   raises(function() local _ = Stream.to_fd(1, { timeout_ns = Clock.ms(5) }) end, "nonblocking")
   raises(function()
-    local _ = Stream.to_fd(1, { wait = function(_: integer, _: integer, _: integer | nil):
+    local _ = Stream.to_fd(1, { wait = function(_: integer, _: integer, _: integer?):
         boolean, string return true, "" end })
   end, "nonblocking")
   raises(function() local _ = Stream.from_fd(0, { nonblocking = true, timeout_ns = -1 }) end,

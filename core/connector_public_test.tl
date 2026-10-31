@@ -4,23 +4,15 @@
 --- held to what [`cosmic.relay.address`]'s `check` says of the same
 --- address. The vectors are written out here, not computed from the list
 --- under test.
-local type raw_process = require("cosmic.internal.process")
 local type _ = require("cosmic.child")
 local type _net = require("cosmic.net")
+local RawTables = require("build.raw_tables")
 local Test = require("cosmic.test")
-local Relay = require("cosmic.relay")
+local Address = require("cosmic.relay.address")
 local sys = require("cosmic.sys")
 local DENIED <const> = 65536 -- a refusal by the lists, past any errno
 Test.policy{ promises = { "fork" } }
-local type Searcher = function(string): any, any
-local function process_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: a loader's extra is the raw table
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then return extra as raw_process end -- cast: core/process.h's table
-  end
-  error("no raw table")
-end
-local process = process_table()
+local process = RawTables.process()
 
 local function require_native_connector()
   local result, why, number = process.connector_probe({ host = "127.0.0.1", port = 9 }, "pointer")
@@ -50,22 +42,22 @@ end
 
 --- A public connector over the relay's own list and `OWN`, whose decision
 --- `decide` reads for an address.
-local function start(): {integer}, integer
-  local pair = assert(process.connector_pair())
-  local child, why = process.connector_start({}, pair[2], 500, { deny = Relay.Address.deny_cidrs(), own = OWN })
-  assert(sys.close(pair[2]))
+local function start(): RawTables.Ends, integer
+  local pair = RawTables.connector_pair()
+  local child, why = process.connector_start({}, pair.connector, 500, { deny = Address.deny_cidrs(), own = OWN })
+  assert(sys.close(pair.connector))
   assert(child, why)
-  greeted(pair[1])
+  greeted(pair.controller)
   return pair, child
 end
 
 local function decide(fd: integer, address: string): boolean
-  local bytes = assert(Relay.Address.parse(address))
-  assert(sys.write(fd, string.pack(">I4I4I4I4I4", 5, 0xffffffff, 0, 0, #bytes == 4 and 4 or 6) ..
+  local bytes = assert(Address.parse(address))
+  assert(sys.write(fd, string.pack(">I4I4I4I4I4", 5, 0xffffffff, 0, 0, if #bytes == 4 then 4 else 6 end) ..
       string.char(table.unpack(bytes)) .. string.rep("\0", 16 - #bytes)) == 36)
   local tag, errno = string.unpack(">I4I4", read_whole(fd, 8))
-  assert(tag == 5, "the reply carries another tag: " .. tag)
-  assert(errno == 0 or errno == DENIED, address .. ": errno " .. errno)
+  assert(tag == 5, "the reply carries another tag: " .. tostring(tag))
+  assert(errno == 0 or errno == DENIED, address .. ": errno " .. tostring(errno))
   return errno == 0
 end
 
@@ -75,9 +67,9 @@ local record Edge
   cidr: string
   first: string
   last: string
-  below: string
+  below?: string
   below_ok: boolean
-  above: string
+  above?: string
   above_ok: boolean
 end
 
@@ -145,28 +137,32 @@ local EDGES <const>: {Edge} = {
 --- of `address`.
 local function expect(fd: integer, address: string, allowed: boolean, what: string)
   assert(decide(fd, address) == allowed, what .. " " .. address .. ": the connector should " ..
-      (allowed and "allow" or "refuse") .. " it")
-  local own = Relay.Address.own_addresses(OWN)
-  local ok = Relay.Address.check(address, 443, {}, own)
+      (if allowed then "allow" else "refuse" end) .. " it")
+  local own = Address.own_addresses(OWN)
+  local ok = Address.check(address, 443, {}, own)
   assert(ok == allowed, what .. " " .. address .. ": the relay's check disagrees")
 end
 
 local function test_every_refused_prefix_is_refused_at_both_ends_and_its_neighbours_follow_their_own_prefix()
   require_native_connector()
   local pair, child = start()
-  local named: {string: boolean} = {}
+  local named: mut {string: boolean} = {}
   for _, row in ipairs(EDGES) do
     named[row.cidr] = true
-    expect(pair[1], row.first, false, row.cidr .. " first")
-    expect(pair[1], row.last, false, row.cidr .. " last")
-    if row.below ~= nil then expect(pair[1], row.below, row.below_ok, row.cidr .. " below") end
-    if row.above ~= nil then expect(pair[1], row.above, row.above_ok, row.cidr .. " above") end
+    expect(pair.controller, row.first, false, row.cidr .. " first")
+    expect(pair.controller, row.last, false, row.cidr .. " last")
+    if row.below ~= nil then
+      expect(pair.controller, row.below, row.below_ok, row.cidr .. " below")
+    end
+    if row.above ~= nil then
+      expect(pair.controller, row.above, row.above_ok, row.cidr .. " above")
+    end
   end
   -- A prefix added to the list is a prefix added here.
-  for _, cidr in ipairs(Relay.Address.deny_cidrs()) do
+  for _, cidr in ipairs(Address.deny_cidrs()) do
     assert(named[cidr], cidr .. " has no boundary vectors")
   end
-  assert(sys.close(pair[1]))
+  assert(sys.close(pair.controller))
   assert(assert(process.waitpid(child, false)).code == 0)
 end
 
@@ -175,50 +171,57 @@ local function test_ipv6_is_allowed_only_inside_2000_slash_3_and_the_forms_that_
   local pair, child = start()
   for _, address in ipairs({ "2000::", "2000::1", "2606:4700:4700::1111", "2a00:1450:4001:81b::200e",
       "3fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "2003::", "3ffe::" }) do
-    expect(pair[1], address, true, "global unicast")
+    expect(pair.controller, address, true, "global unicast")
   end
   for _, address in ipairs({ "::", "1fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "4000::", "8000::", "a000::",
       "e000::", "1::", "100:0:0:1::", "::ffff:8.8.8.8", "::ffff:0808:0808", "::ffff:10.0.0.1", "::ffff:127.0.0.1",
       "64:ff9b::808:808", "64:ff9b::8.8.8.8", "64:ff9b:1:808:0:0:a9fe:a9fe", "::8.8.8.8", "::808:808",
       "::ffff:0:808:808", "2002:808:808::", "2001:0:808:808::" }) do
-    expect(pair[1], address, false, "outside what is allowed")
+    expect(pair.controller, address, false, "outside what is allowed")
   end
   -- An IPv4-mapped spelling of an own address is the IPv4 address it carries, for the IPv4 form.
-  expect(pair[1], "8.8.4.4", false, "own")
-  expect(pair[1], "8.8.4.5", true, "next to an own address")
-  expect(pair[1], "2606:4700::6810:84e5", false, "own")
-  expect(pair[1], "2606:4700::6810:84e6", true, "next to an own address")
-  assert(sys.close(pair[1]))
+  expect(pair.controller, "8.8.4.4", false, "own")
+  expect(pair.controller, "8.8.4.5", true, "next to an own address")
+  expect(pair.controller, "2606:4700::6810:84e5", false, "own")
+  expect(pair.controller, "2606:4700::6810:84e6", true, "next to an own address")
+  assert(sys.close(pair.controller))
   assert(assert(process.waitpid(child, false)).code == 0)
 end
 
 --- `bytes` with bit `at` (1 is the most significant) flipped.
 local function flipped(bytes: {integer}, at: integer): {integer}
-  local copy: {integer} = { table.unpack(bytes) }
+  local copy: mut {integer} = { table.unpack(bytes) }
   local index = (at - 1) // 8 + 1
-  copy[index] = copy[index] ~ (1 << (7 - (at - 1) % 8))
+  local byte = assert(copy[index], "bit " .. tostring(at) .. " is inside the address")
+  local flipped_byte = byte ~ (1 << (7 - (at - 1) % 8))
+  table.remove(copy, index)
+  table.insert(copy, index, flipped_byte)
   return copy
 end
 
 local function spelled(bytes: {integer}): string
   if #bytes == 4 then return table.concat(bytes, ".") end
-  local groups: {string} = {}
-  for i = 1, 16, 2 do groups[#groups + 1] = ("%x"):format(bytes[i] * 256 + bytes[i + 1]) end
+  local groups: mut {string} = {}
+  for i = 1, 16, 2 do
+    local high, low = bytes[i], bytes[i + 1]
+    assert(high and low, "an IPv6 address holds 16 bytes")
+    groups[#groups + 1] = ("%x"):format(high * 256 + low)
+  end
   return table.concat(groups, ":")
 end
 
 local function test_a_prefix_of_any_length_holds_exactly_the_addresses_that_share_its_bits()
   require_native_connector()
   for _, base in ipairs({ "93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946" }) do
-    local bytes = assert(Relay.Address.parse(base))
+    local bytes = assert(Address.parse(base))
     local width = #bytes * 8
     for bits = 0, width do
-      local pair = assert(process.connector_pair())
-      local child, why = process.connector_start({}, pair[2], 500, { deny = { base .. "/" .. bits } })
-      assert(sys.close(pair[2]))
+      local pair = RawTables.connector_pair()
+      local child, why = process.connector_start({}, pair.connector, 500, { deny = { base .. "/" .. tostring(bits) } })
+      assert(sys.close(pair.connector))
       assert(child, why)
-      greeted(pair[1])
-      assert(not decide(pair[1], base), base .. "/" .. bits .. " does not hold its own address")
+      greeted(pair.controller)
+      assert(not decide(pair.controller, base), base .. "/" .. tostring(bits) .. " does not hold its own address")
       for _, at in ipairs({ 1, 3, 4, bits - 1, bits, bits + 1, bits + 2, width }) do
         if at >= 1 and at <= width then
           -- Flipping bit `at` leaves the first at - 1 bits, so the prefix holds the
@@ -227,11 +230,11 @@ local function test_a_prefix_of_any_length_holds_exactly_the_addresses_that_shar
           local held = bits < at
           local outside = #bytes == 16 and at <= 3
           local other = spelled(flipped(bytes, at))
-          assert(decide(pair[1], other) == not (held or outside),
-            base .. "/" .. bits .. " with bit " .. at .. " flipped: " .. other)
+          assert(decide(pair.controller, other) == not (held or outside),
+            base .. "/" .. tostring(bits) .. " with bit " .. tostring(at) .. " flipped: " .. other)
         end
       end
-      assert(sys.close(pair[1]))
+      assert(sys.close(pair.controller))
       assert(assert(process.waitpid(child, false)).code == 0)
     end
   end

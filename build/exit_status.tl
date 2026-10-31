@@ -4,7 +4,7 @@
 --- file run and `-e` (build/dispatch.tl) and `--standalone`
 --- (build/standalone.tl).
 
-local log = require("build.verdict").log
+local log = require("build.logger").log
 
 local record exit_status
 end
@@ -13,11 +13,11 @@ end
 --- nil is 0, and a number or numeric text (" 3 ", "0x3", "3.0") whose
 --- value is a whole number from 0 to 255 is that number. Anything else
 --- -- a boolean, other text, a table, 1.5, -1, 256 -- is nil.
-function exit_status.status(value: any): integer | nil
+function exit_status.status(value: any): integer?
   if value == nil then
     return 0
   end
-  local whole: integer | nil = nil
+  local whole: integer? = nil
   if value is number or value is string then
     local number = tonumber(value)
     whole = number ~= nil and math.tointeger(number) or nil

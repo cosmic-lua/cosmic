@@ -4,12 +4,20 @@ local Poll = require("cosmic.poll")
 local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local rebuild_lock = require("build.rebuild_lock")
+local build_paths = require("build.paths")
 
---- A tree with an o/ for the lock's files, and the path of its lock file.
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
+
+--- A tree with a build directory for the lock's files, and the path of its lock file.
 local function tree(tmp: string): string, string
   local root = tmp .. "/tree"
-  assert(Fs.mkdirs(root .. "/o"))
-  return root, root .. "/o/rebuild.lock"
+  assert(build_dir(root))
+  return root, build_dir(root) .. "/rebuild.lock"
 end
 
 --- A run holding the flock alone, as another run holding the lock does
@@ -29,9 +37,30 @@ local function test_a_held_flock_keeps_another_run_out(tmp: string)
   assert(sys.close(other))
   taken, trouble = rebuild_lock.take(root, 0)
   assert(taken == "held", tostring(taken) .. " " .. trouble)
-  assert(Fs.read(root .. "/o/rebuild.lock.pid") == tostring(sys.getpid()) .. "\nrebuild\n")
+  assert(Fs.read(build_dir(root) .. "/rebuild.lock.pid") == tostring(sys.getpid()) .. "\nrebuild\n")
   rebuild_lock.release()
   assert(assert(sys.stat(path)).size == 0, "the lock's file was written")
+end
+
+--- A directory's lock is claimed without waiting while no run holds it,
+--- and is refused, without trouble, while one does; the claim keeps a
+--- run out until it is closed.
+local function test_a_claim_is_refused_while_a_run_holds_the_lock(tmp: string)
+  local root, path = tree(tmp)
+  local directory = build_dir(root)
+  local other = assert(sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x1a4))
+  assert(sys.flock(other, "exclusive"))
+  local refused, trouble = rebuild_lock.claim(directory)
+  assert(refused == nil and trouble == "", "claimed a held lock: " .. trouble)
+  assert(sys.close(other))
+  do
+    local claimed, claim_trouble = rebuild_lock.claim(directory)
+    assert(claimed ~= nil, claim_trouble)
+    local _held <close> = claimed
+    assert(rebuild_lock.take(root, 0) == "busy", "a claim let a run take the lock")
+  end
+  assert(rebuild_lock.take(root, 0) == "held")
+  rebuild_lock.release()
 end
 
 --- A holder asking again holds it still, and a holder lets go of the
@@ -59,7 +88,7 @@ local function test_a_wait_out_of_range_raises(tmp: string)
   local root = tree(tmp)
   for _, wait_ns in ipairs({ -1, Poll.MOST_NS + 1 }) do
     local ok, err = pcall(rebuild_lock.take, root, wait_ns)
-    assert(not ok and tostring(err):find("rebuild_lock.take: the wait is out of range", 1, true),
+    assert(not ok and tostring(err):find("rebuild_lock.take: the wait is out of range", 1, true) ~= nil,
       tostring(err))
   end
 end
@@ -69,7 +98,7 @@ end
 local function test_a_lock_that_cannot_be_opened_says_why(tmp: string)
   local taken, trouble = rebuild_lock.take(tmp .. "/missing", 0)
   assert(taken == nil, tostring(taken))
-  assert(trouble:find(tmp .. "/missing/o/rebuild.lock: ", 1, true), trouble)
+  assert(trouble:find(tmp .. "/missing: ", 1, true), trouble)
 end
 
 --- A process that holds a checkout's lock takes it again at once, as a
@@ -79,14 +108,14 @@ end
 --- itself the holder, by its role.
 local function test_a_holder_takes_its_own_lock_again(tmp: string)
   local root = tmp .. "/tree"
-  assert(Fs.mkdirs(root .. "/o"))
+  assert(build_dir(root))
   local took = assert(rebuild_lock.hold(root, "test", "test"))
   assert(took == true)
   assert(rebuild_lock.holds(root))
   assert(rebuild_lock.take(root, 0, "rebuild") == "held")
   assert(rebuild_lock.hold(root, "write", "o/cosmic.db") == false,
     "a holder took its own lock as though it were new")
-  assert(Fs.read(root .. "/o/rebuild.lock.pid") ==
+  assert(Fs.read(build_dir(root) .. "/rebuild.lock.pid") ==
       tostring(sys.getpid()) .. "\ntest\n")
   rebuild_lock.release()
   assert(not rebuild_lock.holds(root))
@@ -97,12 +126,12 @@ end
 --- A process holds one checkout's lock at once: another's is refused,
 --- by name, rather than taken as the one it holds.
 local function test_a_holder_is_refused_another_checkouts_lock(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/one/o") and Fs.mkdirs(tmp .. "/two/o"))
+  assert(build_dir(tmp .. "/one") and build_dir(tmp .. "/two"))
   assert(rebuild_lock.take(tmp .. "/one", 0, "test") == "held")
   local taken, trouble = rebuild_lock.take(tmp .. "/two", 0, "test")
   rebuild_lock.release()
   assert(taken == nil, "took a second checkout's lock")
-  assert(trouble:find(tmp .. "/one/o/rebuild.lock", 1, true), trouble)
+  assert(trouble:find(build_dir(tmp .. "/one") .. "/rebuild.lock", 1, true), trouble)
 end
 
 --- A waiting run names the holder by what it is doing: its role, as the
@@ -111,28 +140,28 @@ end
 --- be rebuilding.
 local function test_the_holder_is_named_by_its_role(tmp: string)
   local root = tmp .. "/tree"
-  assert(Fs.mkdirs(root .. "/o"))
-  assert(Fs.write(root .. "/o/rebuild.lock.pid", "1\ntest\n"))
+  assert(build_dir(root))
+  assert(Fs.write(build_dir(root) .. "/rebuild.lock.pid", "1\ntest\n"))
   local named = rebuild_lock.holder(root)
   assert(named:find("in this checkout is running its tests", 1, true), named)
-  assert(Fs.write(root .. "/o/rebuild.lock.pid", "1\n"))
+  assert(Fs.write(build_dir(root) .. "/rebuild.lock.pid", "1\n"))
   named = rebuild_lock.holder(root)
   assert(named:find("in this checkout is rebuilding the tool", 1, true), named)
-  assert(Fs.write(root .. "/o/rebuild.lock.pid", tostring(sys.getpid()) .. "\nwrite\n"))
+  assert(Fs.write(build_dir(root) .. "/rebuild.lock.pid", tostring(sys.getpid()) .. "\nwrite\n"))
   assert(rebuild_lock.holder(root) ==
-      "another cosmic run in this checkout is writing o/cosmic.db")
+      "another cosmic run in this checkout is writing its projection")
 end
 
 --- A handed lock names the file its holder holds, whatever the
 --- holder called its root.
 local function test_a_lock_is_handed_by_the_file_it_names(tmp: string)
   local root = tmp .. "/tree"
-  assert(Fs.mkdirs(root .. "/o"))
+  assert(build_dir(root))
   assert(rebuild_lock.take(root, 0, "test") == "held")
   local handed = rebuild_lock.hand({ KEPT = "1" }, root .. "/.")
   rebuild_lock.release()
   assert(handed.KEPT == "1")
-  assert(handed.COSMIC_REBUILD_LOCK_HANDED == root .. "/./o/rebuild.lock")
+  assert(handed.COSMIC_REBUILD_LOCK_HANDED == build_dir(root) .. "/rebuild.lock")
 end
 
 --- A lock file this process cannot write would lock nothing, so it is
@@ -150,5 +179,43 @@ local function test_a_lock_file_that_cannot_be_written_is_refused(tmp: string)
   assert(taken == nil, tostring(taken))
   assert(trouble:find(path .. ": ", 1, true), trouble)
   local held, hold_trouble = rebuild_lock.hold(root, "test", "test")
-  assert(held == nil and hold_trouble:find(path .. ": ", 1, true), hold_trouble)
+  assert(held == nil and hold_trouble:find(path .. ": ", 1, true) ~= nil, hold_trouble)
+end
+
+local record Held
+  mut fd: integer
+  mut said: string
+  mut count: integer
+end
+
+--- A run kept waiting says so again every interval, naming the holder
+--- and how long it has waited, rather than going silent after its first
+--- line. Another run holds the flock until the first reminder is said,
+--- which lets it go; the interval is one second here, not the 15 s a run
+--- waits, which is longer than a test may take.
+local function test_a_waiting_run_says_how_long_it_has_waited(tmp: string)
+  local root, path = tree(tmp)
+  local made = assert(Sqlite.open(path, { writable = true }))
+  assert(made:close())
+  local other: Held = { fd = assert(sys.open(path, sys.O_RDWR, 0)), said = "", count = 0 }
+  assert(sys.flock(other.fd, "exclusive"))
+  local function remind(line: string)
+    other.said = line
+    other.count = other.count + 1
+    if other.fd >= 0 then
+      assert(sys.close(other.fd))
+      other.fd = -1
+    end
+  end
+  local before = Clock.monotonic_ns()
+  local ok, waited, trouble = pcall(rebuild_lock.wait, root, "test", "waiting for it",
+    Clock.seconds(1), remind)
+  local took = Clock.monotonic_ns() - before
+  if other.fd >= 0 then assert(sys.close(other.fd)) end
+  assert(ok, tostring(waited))
+  assert(waited, trouble)
+  rebuild_lock.release()
+  assert(other.count == 1, "reminders said: " .. tostring(other.count))
+  assert(other.said:find("still waiting, 1 s on: ", 1, true) == 1, other.said)
+  assert(took < Clock.seconds(5), "the wait took " .. tostring(took // Clock.ms(1)) .. " ms")
 end

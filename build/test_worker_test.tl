@@ -7,6 +7,13 @@ local type Sandbox = require("cosmic.sandbox")
 local Clock = require("cosmic.clock")
 local worker = require("build.test_worker")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 --- A worker's end, having written `report` to the report's descriptor.
 local function ended(report: worker.Report): Child.Result
   return { ok = true, code = 0, timed_out = false, truncated = false,
@@ -33,16 +40,19 @@ end
 local function test_a_line_of_hits_read_twice_is_one_table()
   local function reported(loaded: {integer}, tested: {integer}): worker.Report
     local report = passing({})
-    report.load_hits = { ["build.a"] = { [loaded[1]] = true, [loaded[2]] = true } }
-    report.test_hits = { ["build.a"] = { [tested[1]] = true } }
+    report.load_hits = { ["build.a"] = { [nth(loaded, 1)] = true, [nth(loaded, 2)] = true } }
+    report.test_hits = { ["build.a"] = { [nth(tested, 1)] = true } }
     return report
   end
   local first = assert(worker.decode(worker.encode(reported({ 3, 5 }, { 7, 7 }))))
   local second = assert(worker.decode(worker.encode(reported({ 3, 5 }, { 9, 9 }))))
   assert(first.load_hits["build.a"] == second.load_hits["build.a"])
   assert(first.test_hits["build.a"] ~= second.test_hits["build.a"])
-  assert(first.load_hits["build.a"][3] and first.load_hits["build.a"][5])
-  assert(first.test_hits["build.a"][7] and second.test_hits["build.a"][9])
+  local first_loaded = assert(first.load_hits["build.a"], "the first report has load hits for build.a")
+  local first_tested = assert(first.test_hits["build.a"], "the first report has test hits for build.a")
+  local second_tested = assert(second.test_hits["build.a"], "the second report has test hits for build.a")
+  assert(first_loaded[3] == true and first_loaded[5] == true)
+  assert(first_tested[7] == true and second_tested[9] == true)
   local malformed = worker.encode(passing({})):gsub("\nend\n$", "\ntest-hit zz 1\nend\n")
   assert(worker.decode(malformed) == nil)
 end
@@ -72,7 +82,8 @@ local function test_a_worker_that_ran_an_unkeyed_module_fails_its_test()
   assert(not failed.passed)
   assert(failed.message:find("its worker ran build.docs,", 1, true), failed.message)
   assert(failed.message:find("worker.loads", 1, true), failed.message)
-  assert(failed.report ~= nil and failed.report.passed)
+  local report = failed.report
+  assert(report ~= nil and report.passed)
   -- Given no set of what the tool carries, nothing of what it ran is held.
   assert(judged({ "build.docs" }, false).passed)
 end
@@ -111,11 +122,13 @@ local function test_a_worker_is_started_as_its_command_line_says()
     "suite.a_test", "test_x", "/tmp/tmp", "/tmp/children", "", "suite.a_test",
     "--tree", "suite.a_test", "suite.b" }
   assert(#argv == #expected, table.concat(argv, " "))
-  for i, value in ipairs(expected) do assert(argv[i] == value, i .. ": " .. argv[i]) end
-  assert(options.env.PATH == "/bin" and options.env.COVERAGE == "1")
-  assert(options.env.COSMIC_COVERAGE_STARTUP == "1")
-  assert(options.fds[worker.report_fd] == "capture" and options.fds[254] == 7)
-  assert(options.process_group and options.sandbox == nil and options.stdin == "null")
+  for i, value in ipairs(expected) do
+    assert(argv[i] == value, tostring(i) .. ": " .. nth(argv, i))
+  end
+  assert(assert(options.env).PATH == "/bin" and assert(options.env).COVERAGE == "1")
+  assert(assert(options.env).COSMIC_COVERAGE_STARTUP == "1")
+  assert(assert(options.fds)[worker.report_fd] == "capture" and assert(options.fds)[254] == 7)
+  assert(options.process_group == true and options.sandbox == nil and options.stdin == "null")
   -- Held by a ruleset that forbids running nothing, or by none.
   for hold, flag in pairs({ mounts = "--worker-held", none = "--worker" } as {string:string}) do
     local held = worker.invocation({
@@ -125,8 +138,8 @@ local function test_a_worker_is_started_as_its_command_line_says()
     })
     assert(held.argv[3] == flag, hold .. ": " .. table.concat(held.argv, " "))
   end
-  -- Given the store of its closure, it names it ahead of the closure;
-  -- one given none, which has the projection at o/cosmic.db, names none.
+  -- Given a store, it names it ahead of the closure; one given none
+  -- names none, which the worker refuses.
   for _, store in ipairs({ "/stores/a.db", "" }) do
     local given = worker.invocation({
       start = { argv = { "/bin/cosmic" }, env = {}, fds = {} }, env = {}, root = "/tree",
@@ -135,8 +148,8 @@ local function test_a_worker_is_started_as_its_command_line_says()
       tree = {},
     })
     local said = table.concat(given.argv, " ", 10)
-    local wanted = store ~= "" and "--store /stores/a.db suite.a_test --tree" or
-      "suite.a_test --tree"
+    local wanted = if store ~= "" then "--store /stores/a.db suite.a_test --tree" else
+      "suite.a_test --tree" end
     assert(said == wanted, said)
   end
 end
@@ -159,14 +172,14 @@ local function test_a_nesting_worker_is_handed_no_descriptor_of_the_program()
     })
   end
   local nesting = started({ "fork", "nest" })
-  local env = nesting.options.policy.set_env
+  local env = assert(assert(nesting.options.policy).set_env)
   assert(env.COSMIC_PORTABLE_ARTIFACT_FD == nil and env.COSMIC_PORTABLE_CORE_FD == nil)
   assert(env.COSMIC_PORTABLE_CORE_LENGTH == "9", "the rest of the contract stays")
-  assert(nesting.options.fds[254] == nil and nesting.options.fds[255] == nil)
-  assert(nesting.options.fds[worker.report_fd] == "capture")
+  assert(assert(nesting.options.fds)[254] == nil and assert(nesting.options.fds)[255] == nil)
+  assert(assert(nesting.options.fds)[worker.report_fd] == "capture")
   local plain = started({ "fork" })
-  assert(plain.options.policy.set_env.COSMIC_PORTABLE_ARTIFACT_FD == "254")
-  assert(plain.options.fds[254] == 7 and plain.options.fds[255] == 8)
+  assert(assert(assert(plain.options.policy).set_env).COSMIC_PORTABLE_ARTIFACT_FD == "254")
+  assert(assert(plain.options.fds)[254] == 7 and assert(plain.options.fds)[255] == 8)
 end
 
 --- A test that said it could not check what it exists to check
@@ -199,16 +212,19 @@ local function test_a_report_passes_only_after_successful_process_shutdown()
   report.test_hits = { ["suite.tl"] = { [12] = true } }
   report.skipped = "unchecked"
   local outcomes: {Child.Result} = { ended(report), ended(report), ended(report) }
-  outcomes[1].ok, outcomes[1].code = false, 7
-  outcomes[2].ok, outcomes[2].code, outcomes[2].signal = false, nil, 9
-  outcomes[3].ok = false
+  nth(outcomes, 1).ok, nth(outcomes, 1).code = false, 7
+  nth(outcomes, 2).ok, nth(outcomes, 2).code, nth(outcomes, 2).signal = false, nil, 9
+  nth(outcomes, 3).ok = false
   for i, result in ipairs(outcomes) do
     local judged = worker.judge({ result = result, trouble = "", timeout_ns = Clock.seconds(1),
       sandboxed = false })
     assert(not judged.passed and judged.skipped == "")
-    assert(judged.report ~= nil and judged.report.test_hits["suite.tl"][12])
-    local ending = i == 2 and "was killed by signal 9" or
-      "exited with status " .. (i == 1 and "7" or "0")
+    local judged_report = judged.report
+    assert(judged_report ~= nil)
+    local suite_hits = assert(judged_report.test_hits["suite.tl"], "the judged report has test hits for suite.tl")
+    assert(suite_hits[12] == true)
+    local ending = if i == 2 then "was killed by signal 9" else
+      "exited with status " .. (if i == 1 then "7" else "0" end) end
     assert(judged.message:find(ending .. " after it reported", 1, true), judged.message)
   end
   report.passed, report.message = false, "assertion failed"
@@ -219,11 +235,11 @@ local function test_a_report_passes_only_after_successful_process_shutdown()
   result.ok, result.code = false, 7
   local shutdown = worker.judge({ result = result, trouble = "", timeout_ns = Clock.seconds(1),
     sandboxed = false })
-  assert(not shutdown.passed and shutdown.message:find("assertion failed", 1, true))
+  assert(not shutdown.passed and shutdown.message:find("assertion failed", 1, true) ~= nil)
   assert(shutdown.message:find("exited with status 7", 1, true), shutdown.message)
   result = ended(passing({}))
   result.ok, result.timed_out = false, true
   local late = worker.judge({ result = result, trouble = "", timeout_ns = Clock.seconds(30),
     sandboxed = false })
-  assert(not late.passed and late.message:find("timed out after 30 s", 1, true))
+  assert(not late.passed and late.message:find("timed out after 30 s", 1, true) ~= nil)
 end

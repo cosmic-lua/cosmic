@@ -2,13 +2,13 @@
 --- this binary's own embedded standard library and nothing else.
 ---
 --- `cosmic <file.tl>` builds the tree the file sits in first -- stages
---- it into `o/`, compiles every module it holds, and refuses to go on
+--- it into its build directory, compiles every module it holds, and refuses to go on
 --- when the running binary is stale against that tree. That is right
 --- for a project, and wrong for a script whose job is to repair the
 --- tree: [`bin/zig`], which rebuilds a stale core, cannot itself need a
 --- fresh one. A standalone run reads the one file, checks and compiles
 --- it in memory with the embedded compiler, and calls it. Nothing is
---- staged, nothing under `o/` is written, the tree around the file is
+--- staged, no build directory is written, the tree around the file is
 --- never read, and the binary's age against that tree does not matter.
 ---
 --- Checking a file types every standard module it requires, which
@@ -40,110 +40,85 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Store = require("cosmic.store")
+local Globals = require("cosmic.internal.globals")
+local GrammarMode = require("build.grammar_mode")
 local exit_status = require("build.exit_status")
-local teal = require("build.teal")
-local log = require("build.verdict").log
-local type compiler = require("build.compiler")
+local log = require("build.logger").log
+local Pipeline = require("build.pipeline")
 
 local record standalone
   --- A loaded chunk, or the entry point one returns.
   type Main = function(...: any): (any...)
 end
 
---- A checker environment that answers `cosmic.*` from this binary's own
---- sources and nothing else: no path is searched.
-function standalone.environment(built: compiler): compiler.Env | nil, string
-  teal.serve_standard(built)
-  local env, trouble = built.new_env({
-    defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
-  })
-  if env == nil then
-    return nil, trouble
-  end
-  for _, name in ipairs(teal.withheld) do
-    env.globals[name] = nil
-    env.modules[name] = nil
-  end
-  return env, ""
-end
-
 --- Where a clean compile of `source` by this binary is kept: nil when
 --- there is no cache directory [`Fs.cache_dir`] will vouch for, and so
 --- no cache.
-local function cached_path(source: string, variables?: {string:string}): string | nil
+local function cached_path(source: string, variables?: {string:string}, own?: boolean): string?
   local dir, _ = Fs.cache_dir("standalone", { environment = variables })
   if dir == nil then
     return nil
   end
-  local key = Hash.hex_sha256((Store.meta("boot_hash") or "") .. "\0" .. source)
+  -- A chunk that takes the tool's own modules is checked against more than a file is, so its Lua is kept apart.
+  local key = Hash.hex_sha256((Store.meta("boot_hash") or "") .. "\0grammar-new\0" .. (if own == true then "own\0" else "" end) ..
+      source)
   return dir .. "/" .. key .. ".lua"
 end
 
 --- `code`, loaded as `file`'s chunk.
-local function loaded(file: string, code: string): standalone.Main | nil, string
-  local chunk, chunk_trouble = load(code, "@" .. file, "t")
+local function loaded(file: string, code: string): standalone.Main?, string
+  local chunk, chunk_trouble = load(code, "@" .. file, "t", Globals.table())
   if chunk == nil then
     return nil, file .. ": " .. tostring(chunk_trouble)
   end
   return chunk, ""
 end
 
---- `file`'s Teal, checked and compiled to Lua: nil and every complaint
---- the checker has when it is not clean.
-local function generate(file: string, source: string, built?: compiler): string | nil, string
-  local load_trouble = ""
-  if built == nil then
-    built, load_trouble = teal.load()
-  end
-  if built == nil then
-    return nil, load_trouble
-  end
-  local env, env_trouble = standalone.environment(built)
-  if env == nil then
-    return nil, env_trouble
-  end
-  local code, result = built.gen(source, env, nil, "tl")
-  local lines: {string} = {}
-  if result ~= nil then
-    for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
-      for _, e in ipairs(group or {}) do
-        local where = (e.filename == nil or e.filename == "") and file or e.filename
-        local instead = where == file and teal.replacement(e.msg, source, e.y, e.x, e.fields) or nil
-        lines[#lines + 1] = where .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg ..
-          (instead ~= nil and " -- " .. instead or "")
-      end
-    end
-  end
-  if code == nil or #lines > 0 then
-    if #lines == 0 then
-      lines[1] = file .. ": the compiler refused it"
-    end
-    return nil, table.concat(lines, "\n")
-  end
-  return code, ""
+--- `file`'s Teal, checked and compiled to Lua by the new checker ([`build.pipeline`]): nil and every complaint it has when
+--- the file is not clean. The standard library's declarations are the new checker's, the ones the tool carries
+--- ([`build.checker_declarations`]).
+local function generate_new(file: string, source: string, options: Pipeline.Options): string?, string
+  return Pipeline.lone(file, source, options)
 end
 
 --- `file`'s Teal, checked and compiled to Lua -- from the cache when this
 --- binary compiled these exact bytes cleanly before, and kept there when
 --- not. The cache is found through `variables` when given (as
 --- [`Fs.cache_dir`] finds it), and this process's own otherwise. nil and
---- every complaint of the checker when the file is not clean.
---- `built`, when given, must be loaded by this binary's [`teal.load`],
---- optionally stripped: the cache assumes this binary's compiler. Every
---- check creates its own environment; previous declarations are not shared.
-function standalone.code(file: string, source: string,
-                         variables?: {string:string}, built?: compiler): string | nil, string
-  local cached = cached_path(source, variables)
-  local code: string
+--- every complaint of the checker when the file is not clean. Every check
+--- creates its own program; previous declarations are not shared. The new
+--- checker ([`build.pipeline`]) holds the file to no ceiling and takes `cosmic.*` from this binary. A
+--- `COSMIC_GRAMMAR` that names another checker is refused ([`build.grammar_mode`]). With `own`, as `cosmic -e` asks, the file
+--- may also require the tool's own modules, which the checker types from their sources ([`build.standard_text`]'s `own`),
+--- and it is checked each time and kept nowhere.
+function standalone.code(file: string, source: string, variables?: {string:string}, own?: boolean): string?, string
+  local mode, mode_trouble = GrammarMode.mode()
+  if mode == nil then
+    return nil, mode_trouble
+  end
+  -- A chunk of `-e` is not kept: it is checked against more than a file is, runs once and is written afresh each time.
+  local cached: string? = nil
+  if own ~= true then cached = cached_path(source, variables) end
+  local code: string?
   if cached ~= nil then
     -- A cache that cannot be read is a miss.
     local read, _ = Fs.read(cached)
     code = read
   end
   if code == nil then
-    local generated, trouble = generate(file, source, built)
+    -- What the checker reads besides the file is the declarations of the standard library, which the tool carries (so
+    -- they are part of the binary the cache name holds), read only for a file the cache does not hold.
+    local options, trouble = Pipeline.alone()
+    if options == nil then
+      return nil, file .. ": " .. trouble
+    end
+    if own == true then
+      options = { globals = options.globals, ceilings = options.ceilings, types = options.types,
+        standard = Pipeline.carried_own(), project = options.project }
+    end
+    local generated, generate_trouble = generate_new(file, source, options)
     if generated == nil then
-      return nil, trouble
+      return nil, generate_trouble
     end
     code = generated
     if cached ~= nil then
@@ -153,11 +128,20 @@ function standalone.code(file: string, source: string,
   return code, ""
 end
 
+--- The modules `source`, which is `file`'s Teal, requires by a literal name, in the order they stand: read by the syntax tree
+--- of the checker that compiles the file ([`standalone.code`]). nil and why where the file does not parse.
+function standalone.requires(file: string, source: string): {string}?, string
+  local mode, mode_trouble = GrammarMode.mode()
+  if mode == nil then
+    return nil, mode_trouble
+  end
+  return Pipeline.requires(file, source)
+end
+
 --- `file`'s Teal, checked and compiled to a loaded chunk ([`standalone.code`],
---- loaded as `file`'s).
-function standalone.compile(file: string, source: string,
-                            variables?: {string:string}, built?: compiler): standalone.Main | nil, string
-  local code, trouble = standalone.code(file, source, variables, built)
+--- loaded as `file`'s), `own` as it says there.
+function standalone.compile(file: string, source: string, variables?: {string:string}, own?: boolean): standalone.Main?, string
+  local code, trouble = standalone.code(file, source, variables, own)
   if code == nil then
     return nil, trouble
   end
@@ -166,7 +150,7 @@ end
 
 --- The entry point `produced` names: itself when it is a function, its
 --- `main` field when that is one, nil otherwise.
-function standalone.entry(produced: any): standalone.Main | nil
+function standalone.entry(produced: any): standalone.Main?
   if produced is standalone.Main then
     return produced
   end
@@ -179,13 +163,13 @@ function standalone.entry(produced: any): standalone.Main | nil
   return nil
 end
 
---- Runs `argv[2]` standalone: `argv` is the whole command line, `cosmic`
---- at slot 0 and `--standalone` at slot 1, so the file sees what follows
---- its own path, and its path at `argv[0]`. `why`, where given, says what
---- made this run standalone, which a file that does not compile is told
---- beside its refusal: a require of a module that is not `cosmic.*` is
---- refused here and not in the run the caller may have meant.
-function standalone.run(argv: {integer:string}, why?: string): integer
+--- Runs `argv[2]` standalone: `argv` is the whole command line, `--standalone`
+--- at slot 1, so the file sees what follows its own path, and its path at
+--- `argv[0]`. `why`, where given, says what made this run standalone, which
+--- a file that does not compile is told beside its refusal: a require of a
+--- module that is not `cosmic.*` is refused here and not in the run the
+--- caller may have meant.
+function standalone.run(argv: {string}, why?: string): integer
   local file = argv[2]
   if file == nil then
     log:complain("usage: cosmic --standalone <file.tl> [args...]")
@@ -204,14 +188,12 @@ function standalone.run(argv: {integer:string}, why?: string): integer
     end
     return 1
   end
-  local arguments: {integer:string} = { [0] = file }
-  local slot = 3
-  while argv[slot] ~= nil do
-    arguments[slot - 2] = argv[slot]
-    slot = slot + 1
-  end
+  -- `arg[0]` is the script, so the table is keyed by position and not a sequence.
+  local arguments: mut {integer: string} = {}
+  for slot = 3, #argv do arguments[slot - 2] = assert(argv[slot]) end
+  arguments[0] = file
   -- Its top level finds them in `arg`, as `lua file a b` gives them.
-  rawset(_G, "arg", arguments)
+  rawset(_G as {string:any}, "arg", arguments)
   local main = standalone.entry(chunk())
   if main == nil then
     return 0

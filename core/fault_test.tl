@@ -27,8 +27,8 @@ local function reply(status: string, head: string, body: string): string
 end
 
 --- Reads `response` to its end: the body, or nil and why not.
-local function read_all(response: Http.Response): string | nil, string
-  local parts: {string} = {}
+local function read_all(response: Http.Response): string?, string
+  local parts: mut {string} = {}
   while true do
     local chunk, trouble = response:read()
     if chunk == nil then
@@ -74,15 +74,18 @@ local function assert_released(tmp: string, before: Held, what: string)
   assert(testing.live_transfers() == 0, what .. " left a transfer alive")
   local bytes, blocks = testing.c_heap()
   assert(bytes == before.bytes and blocks == before.blocks,
-    what .. " left " .. (blocks - before.blocks) .. " blocks on the C heap")
+    what .. " left " .. tostring((blocks - before.blocks)) .. " blocks on the C heap")
   local fd = next_descriptor(tmp)
-  assert(fd == before.fd, what .. " left descriptor " .. before.fd .. " open")
+  assert(fd == before.fd, what .. " left descriptor " .. tostring(before.fd) .. " open")
 end
 
 local record Fault
   point: string
-  skip: integer
-  headers: {string: string}
+  skip?: integer
+  headers?: {string: string}
+  --- The roots the request trusts: the default, the minimal ones, reach
+  --- curl as a blob; "mozilla" as the chain `use_roots` installs.
+  roots?: string
 end
 
 --- Every point `open` passes on a scripted request with a header, the
@@ -92,7 +95,9 @@ local faults: {Fault} = {
   { point = "curl_easy_init" },
   { point = "curl_easy_setopt(CURLOPT_URL)" },
   { point = "curl_easy_setopt(CURLOPT_ERRORBUFFER)" },
-  { point = "curl_easy_setopt(CURLOPT_SSL_CTX_FUNCTION)" },
+  { point = "curl_easy_setopt(CURLOPT_CAINFO_BLOB)" },
+  { point = "curl_easy_setopt(CURLOPT_PROXY_CAINFO_BLOB)" },
+  { point = "curl_easy_setopt(CURLOPT_SSL_CTX_FUNCTION)", roots = "mozilla" },
   { point = "curl_easy_setopt(CURLOPT_POSTFIELDS)" },
   { point = "curl_easy_setopt(CURLOPT_HTTPHEADER)" },
   { point = "curl_easy_setopt(CURLOPT_OPENSOCKETFUNCTION)" },
@@ -111,14 +116,14 @@ local function test_each_fault_point_in_open_fails_the_request_cleanly(tmp: stri
     local what = fault.point .. " (skipping " .. tostring(fault.skip or 0) .. ")"
     testing.fail_at(fault.point, fault.skip)
     local response, trouble = Http.open(url, { method = "POST", body = "payload",
-      headers = { ["X-One"] = "1" }, script = { reply("200 OK", "", "hello") } })
+      headers = { ["X-One"] = "1" }, roots = fault.roots, script = { reply("200 OK", "", "hello") } })
     assert(not testing.fail_at(), what .. " was never reached")
     assert(response == nil, what .. " did not fail the request")
-    local call = fault.point:match("^[%w_]+")
+    local call = assert(fault.point:match("^[%w_]+"), "a fault point names a call")
     assert(trouble:find(call, 1, true) ~= nil, what .. ": the message does not name " ..
         call .. ": " .. trouble)
     if fault.point:find("(", 1, true) ~= nil then
-      local option = fault.point:match("%((.*)%)")
+      local option = assert(fault.point:match("%((.*)%)"), "a fault point names an option")
       assert(trouble:find(option, 1, true) ~= nil, what .. ": " .. trouble)
     end
     assert_released(tmp, before, what)

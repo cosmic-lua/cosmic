@@ -17,7 +17,7 @@ these were taken up front and are not reopened per PR.
 - **verb-only code moves to `build/`.** code only a `cosmic` verb calls is the
   tool's, not the library's. it moves beside its verb and leaves the documented
   stdlib. `ci/` and `eval/` count as callers: a change greps them too, since
-  `../o/bin/cosmic fix --check` from `ci/` type-checks that tree against this
+  `../bin/cosmic fix --check` from `ci/` type-checks that tree against this
   binary.
 - **time is nanoseconds everywhere.** every parameter, field and constant that
   holds a span or an instant is an integer of nanoseconds, suffixed `_ns` where
@@ -44,11 +44,11 @@ these were taken up front and are not reopened per PR.
 ## rules every PR follows
 
 1. it stands alone and passes CI; it starts from `origin/main` in a worktree of
-   its own, per [`.claude/skills/ship/SKILL.md`], and is never stacked.
+   its own, per [`doc/contributing.md`], and is never stacked.
 2. the change has a test that fails without it, and the suite passes:
-   `bin/zig build boot`, `o/bin/cosmic fix <changed-paths>`, `timeout 30
-   o/bin/cosmic test`, `o/bin/cosmic fix --check .` before pushing, and
-   `../o/bin/cosmic fix --check` from `ci/` when `ci/` changed.
+   `bin/zig build boot`, `bin/cosmic fix <changed-paths>`, `timeout 30
+   bin/cosmic test`, `bin/cosmic fix --check .` before pushing, and
+   `../bin/cosmic fix --check` from `ci/` when `ci/` changed.
 3. every removed export has a [`cosmic.removed`] entry, every moved one a
    replacement that names its new home, so a program that used it fails to
    compile with the replacement in the message (`cosmic docs` has no
@@ -57,7 +57,7 @@ these were taken up front and are not reopened per PR.
 4. a worked example or guide that called a removed export is rewritten to the
    replacement, never deleted to make the export "unearned".
 5. a gap the PR leaves is a `TODO:` in the code at the moment it is left, and
-   the PR description lists each from `o/bin/cosmic todos <paths>`.
+   the PR description lists each from `bin/cosmic todos <paths>`.
 6. a separate agent reviews the diff adversarially before the PR opens;
    every BLOCKING finding is fixed, and what is left is said in the
    description.
@@ -181,7 +181,7 @@ zip's a subset of tar's), `mode`, `size`, `mtime`, `linkpath` and `open`;
 `Tar.Entry is ArchiveEntry` adds `uid`, `gid`, `typeflag`; `Zip.Entry is
 ArchiveEntry` adds `compressed_size`, `method`, `crc32`, `offset`.
 [`Archive.Reader`] becomes the interface `{ next, close }` both satisfy, so
-`wrap_zip` (archive.tl:175) and the two casts [`build/contracts.tl`] exempts go;
+`wrap_zip` (archive.tl:175) and the two casts build/contracts.tl exempts go;
 `wrap_tar` keeps only its drain. [`Stream.ArchiveWriter`] (`add_file`,
 `add_dir`, `add_symlink`, `close`, `abort`) over [`Tar.Writer`] and
 [`Zip.Writer`] (zip gains `add_symlink`, refusing with a reason where the
@@ -199,8 +199,6 @@ helper per module. [`Zip.Reader.entries`] reports failure as `next` does.
 [`Archive.list`] takes a path or a Reader, as `extract` does;
 [`Archive.open`] (no direct caller) stays as `list`'s and `extract`'s entry.
 [`ExtractOptions.unsupported`], `.mtimes`, `.max_bytes` (no caller) go.
-[`Hash.byte_sum`] and [`Compress.crc32`] stay, each with the `TODO:` naming
-what moving them waits on.
 
 ### wave 4: process and network I/O
 
@@ -237,9 +235,9 @@ a task cannot yield), but not in a killed task's `<close>` handler, where every
 wait still raises (`poll_test.tl` holds it); [`Poll.delay`] and
 [`Poll.ready`] stay task-only for the same reason, so child's three branches
 and net's three (`waited`, `connection`, `locked`, whose waits outside a task
-end at a caught [`Child.guard`] signal, which only the core's socket waits and
+end at a caught [`Signal.guard`] signal, which only the core's socket waits and
 [`sys.flock`] see) remain, each with a `TODO:` naming what it waits on.
-the [`Child.wait_any`] exemption in [`build/contracts.tl`] stays too: it is for
+the [`Child.wait_any`] exemption in build/contracts.tl stays too: it is for
 the handle answered beside a group's lingering-member trouble, not for the
 timeout.
 
@@ -307,7 +305,7 @@ line. [`Net.serve`] with `workers` and [`Net.listen`] with `reclaim` raise namin
 the removal. of the four asserts, one went with `reclaim` and one had
 become [`Poll.checked_ns`] in PR 10; the two left, `read`'s `max` and
 `shutdown`'s `how`, raise `net: ...` at the caller. the raw bindings only
-the supervisor and `Net.pair`/`Conn:peer` used went from the core with them:
+the supervisor and `Net.pair`/[`Conn:peer`] used went from the core with them:
 `pair`, `peer`, `adopt`, `handed`, `cosmic_socket_entered` (the removal of
 `COSMIC_NET_WORKER` from the environment) and process's `arguments`, with
 their tests.
@@ -372,7 +370,7 @@ becomes the raw type as [`Hash.Hasher`] is. a new C function gets its
 
 **PR 17 `test: the build's validators live in the build`.** [`Test.fields`],
 [`Test.any_host_refusal`], [`Test.network_trouble`], [`Test.lua_trouble`] move to
-[`build/analyzer.tl`], their one caller; `trouble_of` (test.tl:282) is a
+build/analyzer.tl, their one caller; `trouble_of` (test.tl:282) is a
 [`cosmic.shape`] spec over `Needs`. [`cosmic.test`] exports `needs` and `skip`.
 [`Coverage.native_entries`] and [`Coverage.snapshot`] (no caller outside
 `test/`) go with hints.
@@ -414,8 +412,6 @@ land goes to [`doc/roadmap.md`] under "shape", with the reason.
 - `Fs`'s path-prefixing wrappers over `sys`: the prefix is the contract
   [`cosmic.errno`] documents. the build's direct `sys` calls are left; a
   sweep to `Fs` is a follow-up when it pays.
-- [`Hash.byte_sum`], [`Compress.crc32`]: moving them waits on a module being
-  handed another module's internal table; their `TODO:`s say so.
 - `Env`: 28 lines, but the replacement the removed-globals mapping names.
 - the object styles (closures in a table against a shared method table):
   each module keeps the one it has; a tree-wide choice is a separate
@@ -424,7 +420,7 @@ land goes to [`doc/roadmap.md`] under "shape", with the reason.
 ## process
 
 each PR is implemented by an agent in a worktree of its own, following
-[`.claude/skills/ship/SKILL.md`]; a second agent reviews the diff
+[`doc/contributing.md`]; a second agent reviews the diff
 adversarially, with the worktree path and `git diff origin/main...HEAD`,
 and the first fixes what it finds; the PR opens as a draft with auto-merge
 enabled and is marked ready once its own CI is green; the next PR on the
@@ -432,13 +428,10 @@ same files starts from the merged main. a PR that cannot land as written
 lands what it can and moves the rest to the roadmap, saying so in its
 description.
 
-[`.claude/skills/ship/SKILL.md`]: ../../.claude/skills/ship/SKILL.md
 [`Archive.list`]: ../../cosmic/archive.tl
 [`Archive.open`]: ../../cosmic/archive.tl
 [`Archive.Reader`]: ../../cosmic/archive.tl
-[`build/analyzer.tl`]: ../../build/analyzer.tl
 [`build/codec.tl`]: ../../build/codec.tl
-[`build/contracts.tl`]: ../../build/contracts.tl
 [`build/dataset.tl`]: ../../build/dataset.tl
 [`build/dataset_test.tl`]: ../../build/dataset_test.tl
 [`build/dispatch.tl`]: ../../build/dispatch.tl
@@ -447,7 +440,6 @@ description.
 [`build/sql.tl`]: ../../build/sql.tl
 [`build/test.tl`]: ../../build/test.tl
 [`Cell.kind`]: ../../cosmic/sqlite.tl
-[`Child.guard`]: ../../cosmic/child.tl
 [`Child.Options.stdin`]: ../../cosmic/child.tl
 [`Child.wait_any`]: ../../cosmic/child.tl
 [`Civil.nanosecond`]: ../../cosmic/time.tl
@@ -455,12 +447,11 @@ description.
 [`Codec.decoder`]: ../../cosmic/codec.tl
 [`Codec.encoder`]: ../../cosmic/codec.tl
 [`Codec.Name`]: ../../cosmic/codec.tl
-[`Compress.crc32`]: ../../cosmic/compress.tl
 [`Compress.deflate`]: ../../cosmic/compress.tl
 [`Compress.inflate`]: ../../cosmic/compress.tl
 [`Compress.Stream`]: ../../cosmic/compress.tl
-[`Conn.write`]: ../../cosmic/net.tl
-[`Conn:peer`]: ../../cosmic/net.tl
+[`Conn.write`]: ../../cosmic/internal/connection.tl
+[`Conn:peer`]: ../../cosmic/internal/connection.tl
 [`Conn:writer`]: ../../cosmic/net.tl
 [`core/allocation_test.tl`]: ../../core/allocation_test.tl
 [`core/hash.c`]: ../../core/hash.c
@@ -484,6 +475,7 @@ description.
 [`Coverage.snapshot`]: ../../cosmic/coverage.tl
 [`Csv.parse`]: ../../cosmic/csv.tl
 [`Csv.table`]: ../../cosmic/csv.tl
+[`doc/contributing.md`]: ../contributing.md
 [`doc/roadmap.md`]: ../roadmap.md
 [`Duration.nanoseconds`]: ../../cosmic/time.tl
 [`ExtractOptions.unsupported`]: ../../cosmic/archive.tl
@@ -500,7 +492,6 @@ description.
 [`Fs.truncate`]: ../../cosmic/fs.tl
 [`Fs.walk`]: ../../cosmic/fs.tl
 [`Fs.write`]: ../../cosmic/fs.tl
-[`Hash.byte_sum`]: ../../cosmic/hash.tl
 [`Hash.Hasher`]: ../../cosmic/hash.tl
 [`Hash.Mac`]: ../../cosmic/hash.tl
 [`Http.download`]: ../../cosmic/http/init.tl
@@ -508,7 +499,7 @@ description.
 [`Json.layout`]: ../../cosmic/json.tl
 [`ListenOptions.reclaim`]: ../../cosmic/net.tl
 [`Net.Address`]: ../../cosmic/net.tl
-[`Net.Conn.read`]: ../../cosmic/net.tl
+[`Net.Conn.read`]: ../../cosmic/internal/connection.tl
 [`Net.Conn`]: ../../cosmic/net.tl
 [`Net.listen`]: ../../cosmic/net.tl
 [`Net.pair`]: ../../cosmic/net.tl
@@ -531,6 +522,7 @@ description.
 [`Shape.either`]: ../../cosmic/shape.tl
 [`Shape.failures`]: ../../cosmic/shape.tl
 [`Shape.record`]: ../../cosmic/shape.tl
+[`Signal.guard`]: ../../cosmic/signal.tl
 [`Spec.kind`]: ../../cosmic/shape.tl
 [`Sqlite.cell`]: ../../cosmic/sqlite.tl
 [`Sqlite.Query`]: ../../cosmic/sqlite.tl

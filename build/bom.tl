@@ -20,8 +20,9 @@
 --- against, and the system call tables Cosmopolitan libc's
 --- pledge-linux.c is ported into core/promises.c from -- has a record of
 --- the same grammar at `build/bom/<name>.pin`, its notices beside it. A
---- tree's patches under `patch/<name>/` are listed with it, so a reader
---- knows the code is not upstream's as published.
+--- tree's patches under `patch/<name>/` are listed with it, and so are the
+--- files of the tree that descend from it whole (`descendants`), so a
+--- reader knows the code is not upstream's as published.
 ---
 --- The tool's database carries two tables built from these (see
 --- [`build.schema`]): `components`, a row each, and `notices`, each
@@ -46,7 +47,8 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local bind = require("build.bind")
 local clock = require("build.clock")
-local log = require("build.verdict").log
+local logger = require("build.logger")
+local log = logger.log
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
 
@@ -59,8 +61,8 @@ local record bom
   --- the lines of it to keep; `first` is nil for the whole file.
   record Notice
     file: string
-    first: integer | nil
-    last: integer | nil
+    first?: integer
+    last?: integer
   end
 
   --- One record, as [`bom.parse`] reads it.
@@ -70,10 +72,13 @@ local record bom
     version: string
     url: string
     --- The upstream archive's, as fetched; "" when the record names
-    --- none (a component cosmic does not fetch itself).
+    --- none (a component cosmic does not fetch itself, or one whose
+    --- upstream publishes another digest).
     sha256: string
+    --- As `sha256`, for the upstream that publishes SHA3-256.
+    sha3_256: string
     license: string
-    notices: {bom.Notice}
+    notices: mut {bom.Notice}
   end
 
   --- One component as the database holds it.
@@ -84,8 +89,10 @@ local record bom
     license: string
     url: string
     sha256: string
-    --- `patch/<name>/<file> <sha256>`, one per line, in name order; ""
-    --- for a component shipped as published.
+    sha3_256: string
+    --- `<file> <sha256>`, one per line: first the files of the tree that
+    --- descend from the component whole, then `patch/<name>/<file>` in name
+    --- order; "" for a component shipped as published.
     patches: string
   end
 end
@@ -94,115 +101,141 @@ end
 local kinds: {string:boolean} = { library = true, data = true, test = true }
 
 --- A `notice` line's value: `path` or `path:first-last`.
-local function notice_of(value: string): bom.Notice | nil, string
+local function notice_of(value: string): bom.Notice?, string
   local file, first, last = value:match("^(.-):(%d+)%-(%d+)$")
   if file == nil then
     if value:find(":", 1, true) ~= nil then
       return nil, "notice " .. value .. ": a range is written file:first-last"
     end
-    return { file = value }
+    return { file = value }, ""
   end
   local from, to = math.tointeger(tonumber(first)), math.tointeger(tonumber(last))
   if from == nil or to == nil or from < 1 or to < from then
     return nil, "notice " .. value .. ": the range is empty"
   end
-  return { file = file, first = from, last = to }
+  return { file = file, first = from, last = to }, ""
 end
 
 --- A record's text as a component named `name`: `version`, `url` and
---- `license` must be present; `sha256` and `kind` may be absent. Keys
---- this grammar does not know -- `strip`, `keep` and the rest
---- [`bin/vendor`] reads -- are skipped.
-function bom.parse(name: string, source: string): bom.Component | nil, string
+--- `license` must be present; `sha256`, `sha3-256` and `kind` may be
+--- absent. Keys this grammar does not know -- `strip`, `keep` and the
+--- rest [`bin/vendor`] reads -- are skipped.
+function bom.parse(name: string, source: string): bom.Component?, string
   local component: bom.Component = { name = name, kind = "library", version = "",
-    url = "", sha256 = "", license = "", notices = {} }
-  local seen: {string:boolean} = {}
+    url = "", sha256 = "", sha3_256 = "", license = "", notices = {} }
+  local seen: mut {string:boolean} = {}
   for line in String.lines(source) do
-    local key, value = line:match("^([%w_]+)%s+(.-)%s*$")
-    if key ~= nil and key ~= "notice" then
-      if seen[key] then
-        key = nil
-      else
-        seen[key] = true
-      end
+    local key, value = line:match("^([%w_%-]+)%s+(.-)%s*$")
+    if key == nil then
+      -- A bare key (`sha256`, no space after it) names no value, which is refused like `sha256 `.
+      key, value = line:match("^([%w_%-]+)$"), ""
     end
-    if key == "notice" then
-      local notice, trouble = notice_of(value)
-      if notice == nil then
-        return nil, name .. ": " .. trouble
+    -- A key given twice counts the first time only.
+    local repeated = key ~= nil and key ~= "notice" and seen[key] == true
+    if key ~= nil and not repeated then
+      seen[key] = true
+    end
+    if key ~= nil and value ~= nil and not repeated then
+      if key == "notice" then
+        local notice, trouble = notice_of(value)
+        if notice == nil then
+          return nil, name .. ": " .. trouble
+        end
+        component.notices[#component.notices + 1] = notice
+      elseif key == "license" then
+        component.license = value
+      elseif key == "version" or key == "url" or key == "sha256" or key == "sha3-256" then
+        -- The first word, as [`bin/vendor`] reads these.
+        local word = value:match("^%S+")
+        if word == nil then
+          return nil, name .. ": " .. key .. " has no value"
+        end
+        if key == "version" then
+          component.version = word
+        elseif key == "url" then
+          component.url = word
+        elseif key == "sha256" then
+          component.sha256 = word:lower()
+        else
+          component.sha3_256 = word:lower()
+        end
+      elseif key == "kind" then
+        if kinds[value] ~= true then
+          return nil, name .. ": kind " .. value .. " is none of library, data and test"
+        end
+        component.kind = value
       end
-      component.notices[#component.notices + 1] = notice
-    elseif key == "license" then
-      component.license = value
-    elseif key == "version" or key == "url" or key == "sha256" then
-      -- The first word, as [`bin/vendor`] reads these.
-      local word = value:match("^%S+")
-      if key == "version" then
-        component.version = word
-      elseif key == "url" then
-        component.url = word
-      else
-        component.sha256 = word:lower()
-      end
-    elseif key == "kind" then
-      if not kinds[value] then
-        return nil, name .. ": kind " .. value .. " is none of library, data and test"
-      end
-      component.kind = value
     end
   end
-  local missing = component.version == "" and "version" or
-    component.url == "" and "url" or component.license == "" and "license" or nil
+  local missing = if component.version == "" then "version" elseif
+    component.url == "" then "url" elseif component.license == "" then "license" else nil end
   if missing ~= nil then
     return nil, name .. ": its record names no " .. missing
   end
-  return component
+  return component, ""
 end
 
 --- A notice's text, read from under `directory`.
-local function notice_text(directory: string, notice: bom.Notice): string | nil, string
+local function notice_text(directory: string, notice: bom.Notice): string?, string
   local path = directory .. "/" .. notice.file
   local data, trouble = Fs.read(path)
   if data == nil then
     return nil, trouble
   end
   data = data:gsub("\r\n", "\n")
-  if notice.first == nil then
+  local first, last = notice.first, notice.last
+  if first == nil or last == nil then
     if data:sub(-1) ~= "\n" then
-      return data .. "\n"
+      return data .. "\n", ""
     end
-    return data
+    return data, ""
   end
-  local kept: {string} = {}
+  local kept: mut {string} = {}
   local number = 0
   local ended = data:sub(-1) == "\n" and data or data .. "\n"
   for line in ended:gmatch("([^\n]*)\n") do
     number = number + 1
-    if number >= notice.first and number <= notice.last then
+    if number >= first and number <= last then
       kept[#kept + 1] = line
     end
   end
-  if number < notice.last then
-    return nil, path .. ": has " .. plural.count(number, "line") .. ", not " .. notice.last
+  if number < last then
+    return nil, path .. ": has " .. plural.count(number, "line") .. ", not " .. tostring(last)
   end
-  return table.concat(kept, "\n") .. "\n"
+  return table.concat(kept, "\n") .. "\n", ""
 end
 
---- The files under `patch/<name>/`, each with its sha256, one per line.
-local function patches_of(root: string, name: string): string | nil, string
+--- The files of the tree that descend whole from a vendored tree, by its
+--- name: the standard library's declarations the new checker types a program against ([`lang/stdlib.d.tl`]) were
+--- written from tl's, not tl's own source. They are listed with the tree's patches, as modified rather than patched. The
+--- binary carries their text, with [`lang/prelude.d.tl`]'s, as rows of `decls` ([`build.checker_declarations`]), for the
+--- projects the new checker types.
+local descendants: {string:{string}} = {
+  tl = { "lang/stdlib.d.tl" },
+}
+
+--- The tree's `descendants`, then the files under `patch/<name>/`, each
+--- with its sha256, one per line.
+local function patches_of(root: string, name: string): string?, string
+  local lines: mut {string} = {}
+  for _, file in ipairs(descendants[name] or {}) do
+    local data, _ = Fs.read(root .. "/" .. file)
+    if data ~= nil then
+      lines[#lines + 1] = file .. " " .. Hash.hex_sha256(data)
+    end
+  end
   local directory = root .. "/patch/" .. name
   local exists, trouble = Fs.exists(directory)
   if exists == nil then
     return nil, trouble
   end
   if not exists then
-    return "", ""
+    return table.concat(lines, "\n"), ""
   end
   local names, list_trouble = Fs.list(directory)
   if names == nil then
     return nil, list_trouble
   end
-  local lines: {string} = {}
   for _, file in ipairs(names) do
     -- Only what [`build/patch.tl`] applies: a patch record is a `.txt`.
     if String.ends_with(file, ".txt") and #file > 4 then
@@ -218,21 +251,29 @@ end
 
 --- The entries of `directory`, or none when there is no such directory:
 --- a tree shaped like cosmic's own need not vendor anything.
-local function entries(directory: string): {string} | nil, string
+local function entries(directory: string): {string}?, string
   local exists, trouble = Fs.exists(directory)
   if exists == nil then
     return nil, trouble
   end
   if not exists then
-    return {}
+    return {}, ""
   end
   return Fs.list(directory)
 end
 
---- Where the records sit, as `{name, record path, notice directory}`,
---- sorted by name: every `vendor/*/PIN`, then every `build/bom/*.pin`.
-local function records(root: string): {{string}} | nil, string
-  local found: {{string}} = {}
+--- Where one record sits: the component's `name`, the `path` of its
+--- record, and the `directory` its notice files are named relative to.
+local record Record
+  name: string
+  path: string
+  directory: string
+end
+
+--- Where the records sit, sorted by name: every `vendor/*/PIN`, then
+--- every `build/bom/*.pin`.
+local function records(root: string): {Record}?, string
+  local found: mut {Record} = {}
   local vendored, trouble = entries(root .. "/vendor")
   if vendored == nil then
     return nil, trouble
@@ -244,7 +285,7 @@ local function records(root: string): {{string}} | nil, string
       return nil, pin_trouble
     end
     if pinned then
-      found[#found + 1] = { name, directory .. "/PIN", directory }
+      found[#found + 1] = { name = name, path = directory .. "/PIN", directory = directory }
     end
   end
   local linked, linked_trouble = entries(root .. "/build/bom")
@@ -254,18 +295,20 @@ local function records(root: string): {{string}} | nil, string
   for _, file in ipairs(linked) do
     local name = file:match("^(.+)%.pin$")
     if name ~= nil then
-      found[#found + 1] = { name, root .. "/build/bom/" .. file, root .. "/build/bom" }
+      found[#found + 1] = { name = name, path = root .. "/build/bom/" .. file, directory = root .. "/build/bom" }
     end
   end
-  table.sort(found, function(a: {string}, b: {string}): boolean
-    return a[1] < b[1]
+  table.sort(found, function(a: Record, b: Record): boolean
+    return a.name < b.name
   end)
-  for index = 2, #found do
-    if found[index][1] == found[index - 1][1] then
-      return nil, "two records name " .. found[index][1]
+  local previous: string? = nil
+  for _, record in ipairs(found) do
+    if record.name == previous then
+      return nil, "two records name " .. record.name
     end
+    previous = record.name
   end
-  return found
+  return found, ""
 end
 
 --- Writes the tree at `root`'s components and their notices into the
@@ -279,7 +322,7 @@ function bom.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, 
     return false, trouble
   end
   for _, entry in ipairs(found) do
-    local name, path, directory = entry[1], entry[2], entry[3]
+    local name, path, directory = entry.name, entry.path, entry.directory
     local source, read_trouble = Fs.read(path)
     if source == nil then
       return false, read_trouble
@@ -296,10 +339,10 @@ function bom.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, 
       end
       local inserted, insert_trouble = Sqlite.run(db,
         "INSERT INTO " .. qualifier .. "components (name, kind, version, license, url, " ..
-          "sha256, patches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+          "sha256, sha3_256, patches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         { text(name), text(component.kind), text(component.version),
           text(component.license), text(component.url), text(component.sha256),
-          text(patches) })
+          text(component.sha3_256), text(patches) })
       if not inserted then
         return false, insert_trouble
       end
@@ -322,38 +365,73 @@ function bom.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, 
 end
 
 --- Every component `db` holds, by name.
-function bom.rows(db: Sqlite.Handle): {bom.Row} | nil, string
+function bom.rows(db: Sqlite.Handle): {bom.Row}?, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT name, kind, version, license, url, sha256, patches " ..
+    "SELECT name, kind, version, license, url, sha256, sha3_256, patches " ..
       "FROM components ORDER BY name")
   if rows == nil then
     return nil, trouble
   end
-  local out: {bom.Row} = {}
+  local out: mut {bom.Row} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { name = row[1], kind = row[2], version = row[3],
-      license = row[4], url = row[5], sha256 = row[6], patches = row[7] }
+    out[#out + 1] = { name = row:text(1), kind = row:text(2), version = row:text(3),
+      license = row:text(4), url = row:text(5), sha256 = row:text(6), sha3_256 = row:text(7), patches = row:text(8) }
   end
-  return out
+  return out, ""
+end
+
+--- What a component's `patches` text lists: the `patched` records under `patch/`, and the files cosmic `modified` (a
+--- descendant of the component), each line as written.
+local record Patches
+  patched: {string}
+  modified: {string}
+end
+
+--- `row`'s patches text read into its two lists, or nil and why when a line of it names no path.
+local function patches_in(row: bom.Row): Patches?, string
+  local patched: mut {string} = {}
+  local modified: mut {string} = {}
+  for entry in String.lines(row.patches) do
+    if entry:sub(1, 6) == "patch/" then
+      patched[#patched + 1] = entry
+    elseif entry:match("^%S") == nil then
+      return nil, row.name .. ": a line of its patches names no path: " .. ("%q"):format(entry)
+    else
+      modified[#modified + 1] = entry
+    end
+  end
+  return { patched = patched, modified = modified }, ""
 end
 
 --- One line per component: name, version, license, and whether cosmic
---- patches it -- or, for data upstream releases on its own schedule (the
+--- patches it or carries a modified descendant of it -- or, for data upstream releases on its own schedule (the
 --- CA roots, the time zones), that `cosmic refresh` updates it.
-local function lines_of(rows: {bom.Row}): {string}
-  local lines: {string} = {}
+function bom.lines(rows: {bom.Row}): {string}?, string
+  local lines: mut {string} = {}
   for _, row in ipairs(rows) do
     local line = row.name .. " " .. row.version .. "  " .. row.license
     if row.patches ~= "" then
-      local _, breaks = row.patches:gsub("\n", "")
-      local count = breaks + 1
-      line = line .. "  (" .. count .. " patch" .. (count == 1 and "" or "es") .. ")"
+      local listed, listed_trouble = patches_in(row)
+      if listed == nil then
+        return nil, listed_trouble
+      end
+      local patched = listed.patched
+      local modified: mut {string} = {}
+      for _, entry in ipairs(listed.modified) do
+        modified[#modified + 1] = assert(entry:match("^(%S+)"), "patches_in refused a line naming no path")
+      end
+      if #patched > 0 then
+        line = line .. "  (" .. plural.count(#patched, "patch", "patches") .. ")"
+      end
+      if #modified > 0 then
+        line = line .. "  (modified: " .. table.concat(modified, ", ") .. ")"
+      end
     elseif row.kind == "data" then
       line = line .. "  (data: `cosmic refresh` updates it)"
     end
     lines[#lines + 1] = line
   end
-  return lines
+  return lines, ""
 end
 
 --- Every notice `db` holds, each under a heading naming its component
@@ -361,7 +439,7 @@ end
 --- public domain, or a license such as MPL-2.0 that asks instead that a
 --- recipient be told where the source is -- gets its heading and that
 --- source.
-function bom.notices(db: Sqlite.Handle): string | nil, string
+function bom.notices(db: Sqlite.Handle): string?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT c.name, c.version, c.license, c.url, n.file IS NULL, " ..
       "coalesce(n.file, ''), coalesce(n.text, '') FROM components c " ..
@@ -369,36 +447,43 @@ function bom.notices(db: Sqlite.Handle): string | nil, string
   if rows == nil then
     return nil, trouble
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, row in ipairs(rows) do
-    local head = "== " .. row[1] .. " " .. row[2] .. " (" .. row[3] .. ")"
-    if row[5] == "1" then
-      parts[#parts + 1] = head .. "\n\nno notice; its source: " .. row[4] .. "\n"
+    local head = "== " .. row:text(1) .. " " .. row:text(2) .. " (" .. row:text(3) .. ")"
+    if row:text(5) == "1" then
+      parts[#parts + 1] = head .. "\n\nno notice; its source: " .. row:text(4) .. "\n"
     else
-      parts[#parts + 1] = head .. ": " .. row[6] .. "\n\n" .. row[7]
+      parts[#parts + 1] = head .. ": " .. row:text(6) .. "\n\n" .. row:text(7)
     end
   end
-  return table.concat(parts, "\n")
+  return table.concat(parts, "\n"), ""
 end
 
 --- `value` with every byte a URL query value may not hold as itself
 --- written as `%XX`.
 local function escaped(value: string): string
   return (value:gsub("[^%w%-%._~]", function(c: string): string
-    return string.format("%%%02X", c:byte())
+    return string.format("%%%02X", (assert(c:byte(), "gsub hands over one byte")))
   end))
 end
 
 --- The rows as a CycloneDX 1.6 document, `subject` naming what they
 --- are the materials of. A component's archive hash goes with the
 --- distribution reference it came from: it is upstream's as published,
---- which a patched component's code no longer is.
-function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): string | nil, string
-  local components: {any} = {}
+--- which a patched or modified component's code no longer is.
+function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): string?, string
+  local components: mut {any} = {}
   for _, row in ipairs(rows) do
     local reference: {string:any} = { type = "distribution", url = row.url }
+    local hashes: mut {any} = {}
     if row.sha256 ~= "" then
-      reference.hashes = { { alg = "SHA-256", content = row.sha256 } }
+      hashes[#hashes + 1] = { alg = "SHA-256", content = row.sha256 }
+    end
+    if row.sha3_256 ~= "" then
+      hashes[#hashes + 1] = { alg = "SHA3-256", content = row.sha3_256 }
+    end
+    if #hashes > 0 then
+      reference.hashes = hashes
     end
     local component: {string:any} = {
       type = row.kind,
@@ -411,7 +496,20 @@ function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): strin
       externalReferences = { reference },
     }
     if row.patches ~= "" then
-      component.pedigree = { notes = "patched by cosmic:\n" .. row.patches }
+      local listed, listed_trouble = patches_in(row)
+      if listed == nil then
+        return nil, listed_trouble
+      end
+      local patched, modified = listed.patched, listed.modified
+      local notes: mut {string} = {}
+      if #modified > 0 then
+        notes[#notes + 1] = "modified by cosmic, a descendant of this component:\n" ..
+          table.concat(modified, "\n")
+      end
+      if #patched > 0 then
+        notes[#notes + 1] = "patched by cosmic:\n" .. table.concat(patched, "\n")
+      end
+      component.pedigree = { notes = table.concat(notes, "\n") }
     end
     components[#components + 1] = component
   end
@@ -430,60 +528,66 @@ end
 --- [`build/dispatch.tl`] has a tool older than cosmic's own tree rebuild
 --- itself first, since [`build.reboot`] requires this module through
 --- [`build.writer`].
-local function run(argv: {integer:string}): integer
+local function run(argv: {string}): integer
   local started = Clock.monotonic_ns()
-  local function finish(code: integer, detail: string): integer
-    log:verdict("bom", code == 0, detail .. ", " .. clock.took(started))
-    return code
+  -- A failure's complaint says why; only a run that passed is summarized.
+  local function passed(detail: string): integer
+    local _, _ = logger.summary("bom", detail .. ", " .. clock.took(started))
+    return 0
   end
   local usage = "cosmic bom [--licenses | --json <path>]"
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.bom.spec)
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.bom.spec))
   if parsed == nil then
     log:complain("bom: " .. parse_trouble .. "; " .. usage)
-    return finish(2, "usage: see `cosmic help bom`")
+    return 2
   end
   if #parsed.words > 0 or #parsed.given > 1 then
     log:complain("bom: takes one option at most, and no words: " .. usage)
-    return finish(2, "usage: see `cosmic help bom`")
+    return 2
   end
   local databases = Store.databases()
   local binary = databases[#databases]
   if binary == nil then
     log:complain("bom: the running artifact has no database")
-    return finish(1, "no database")
+    return 1
   end
   local rows, trouble = bom.rows(binary)
   if rows == nil then
     log:complain("bom: " .. trouble)
-    return finish(1, "the binary's own database")
+    return 1
   end
-  if parsed.set["--licenses"] then
+  if parsed.set["--licenses"] == true then
     local notices, notice_trouble = bom.notices(binary)
     if notices == nil then
       log:complain("bom: " .. notice_trouble)
-      return finish(1, "the binary's own database")
+      return 1
     end
     log:say(notices)
-    return finish(0, plural.count(#rows, "component"))
+    return passed(plural.count(#rows, "component"))
   end
   local path = parsed.values["--json"]
   if path ~= nil then
     local document, encode_trouble = bom.cyclonedx(rows, "cosmic", Store.meta("boot_hash") or "")
     if document == nil then
       log:complain("bom: " .. encode_trouble)
-      return finish(1, "encoding")
+      return 1
     end
     local written, write_trouble = Fs.write(path, document .. "\n")
     if not written then
       log:complain("bom: " .. path .. ": " .. write_trouble)
-      return finish(1, path)
+      return 1
     end
-    return finish(0, plural.count(#rows, "component") .. " written to " .. path)
+    return passed(plural.count(#rows, "component") .. " written to " .. path)
   end
-  for _, line in ipairs(lines_of(rows)) do
+  local lines, lines_trouble = bom.lines(rows)
+  if lines == nil then
+    log:complain("bom: " .. lines_trouble)
+    return 1
+  end
+  for _, line in ipairs(lines) do
     log:say(line)
   end
-  return finish(0, plural.count(#rows, "component"))
+  return passed(plural.count(#rows, "component"))
 end
 
 --- The `bom` verb as [`build/verb_list.tl`] lists it. The rows are the
@@ -493,10 +597,11 @@ bom.spec = {
   name = "bom",
   guide = "none: lists the components a binary carries, described by `cosmic help bom`; the quickstart does not cover it",
   tests = { "build.bom_test", "build.bom_verb_test" },
-  run = function(argv: {integer:string}): integer return run(argv) end,
+  run = function(argv: {string}): integer return run(argv) end,
   bare = false,
   takes = "nothing",
   fresh = true,
+  reads = true,
 }
 
 return bom

@@ -45,8 +45,9 @@ local function to_wal(db: Sqlite.Handle, wait_ns: integer): boolean, string
   local deadline = started + wait_ns
   while true do
     local result = text_rows_result(db, "PRAGMA journal_mode = WAL")
-    if result.rows ~= nil then
-      local mode = result.rows[1] ~= nil and result.rows[1][1] or ""
+    local rows = result.rows
+    if rows ~= nil then
+      local mode = rows[1] ~= nil and rows[1]:text(1) or ""
       if mode ~= "wal" then return false, "journal mode is " .. mode .. ", not wal" end
       return true, ""
     end
@@ -68,19 +69,19 @@ end
 --- up. `wait_ns` is ten seconds when nil. Answers the handle, or nil and why, prefixed with `path`, having
 --- closed what it opened.
 function shared_sqlite.open(path: string, prepare: function(Sqlite.Handle): (boolean, string),
-                            wait_ns?: integer): Sqlite.Handle | nil, string
+                            wait_ns?: integer): Sqlite.Handle?, string
   wait_ns = wait_ns or busy_ns
   local opened, trouble = Sqlite.open(path, { writable = true })
   if opened == nil then return nil, path .. ": " .. trouble end
   local db: Sqlite.Handle = opened
-  local function fail(why: string): Sqlite.Handle | nil, string
+  local function fail(why: string): Sqlite.Handle?, string
     local _, _ = db:close()
     return nil, path .. ": " .. why
   end
   db:busy_timeout(0)
   local journal, journal_trouble = to_wal(db, wait_ns)
   if not journal then return fail(journal_trouble) end
-  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. -(-wait_ns // MS))
+  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. tostring(-(-wait_ns // MS)))
   if not timed then return fail(time_trouble) end
   local prepared, prepare_trouble = prepare(db)
   if not prepared then return fail(prepare_trouble) end

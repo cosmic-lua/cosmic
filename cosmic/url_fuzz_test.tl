@@ -21,7 +21,7 @@ local function gen_text(src: Fuzz.Source): string
   if src:int(0, 3) == 0 then
     return Fuzz.bytes(src, 48)
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   while Fuzz.more(src, #out, 24) do
     out[#out + 1] = Fuzz.pick(src, TEXT)
   end
@@ -103,7 +103,7 @@ local CLIMBS <const> = { "..", "%2e%2e", "%2E%2E", ".%2e", "%2E." }
 --- (`e`), which mostly holds no `/` or NUL, so that most paths are
 --- read rather than refused.
 local function gen_path(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while Fuzz.more(src, #parts, 6) do
     local kind = src:int(0, 6)
     if kind == 6 then
@@ -129,11 +129,11 @@ local function test_segments_answer_no_climb_and_read_back_escaped_names(tmp: st
     requires = { "segments", "root", "refused", "climb refused" },
     shares = { segments = 0.1, refused = 0.1 },
     check = function(input: string): boolean, string
-      local pieces: {string} = {}
+      local pieces: mut {string} = {}
       -- The names a segment escaped from them must read back as, when
       -- the path holds only such segments and no name is dropped or
       -- refused by its value.
-      local names: {string} = {}
+      local names: mut {string} = {}
       local only_names = true
       for _, part in ipairs(Fuzz.unpack(input)) do
         if part:sub(1, 1) == "e" then
@@ -176,7 +176,7 @@ local function test_segments_answer_no_climb_and_read_back_escaped_names(tmp: st
           end
         end
       end
-      Fuzz.label(#segs == 0 and "root" or "segments")
+      Fuzz.label(if #segs == 0 then "root" else "segments" end)
       return true, ""
     end,
   })
@@ -208,8 +208,9 @@ local function test_parse_is_total(tmp: string)
       if parts.host == "" or parts.host ~= parts.host:lower() or parts.host:find("[@%[%]/?#]") then
         return false, "host " .. parts.host
       end
-      if parts.port ~= nil and (parts.port < 0 or parts.port > 65535) then
-        return false, "port " .. parts.port
+      local port = parts.port
+      if port ~= nil and (port < 0 or port > 65535) then
+        return false, "port " .. tostring(port)
       end
       if parts.path ~= "" and parts.path:sub(1, 1) ~= "/" then
         return false, "path " .. parts.path
@@ -237,9 +238,9 @@ local function test_parse_reads_back_the_parts_a_url_was_built_from(tmp: string)
     dir = tmp,
     gen = function(src: Fuzz.Source): string
       local function maybe(choice: string): string
-        return src:int(0, 1) == 0 and "" or choice
+        return if src:int(0, 1) == 0 then "" else choice end
       end
-      local path: {string} = {}
+      local path: mut {string} = {}
       while Fuzz.more(src, #path, 4) do path[#path + 1] = "/" .. Url.escape(gen_text(src)) end
       return Fuzz.pack({ Fuzz.pick(src, SCHEMES), maybe("u" .. Fuzz.pick(src, USERINFO)), Fuzz.pick(src, HOSTS),
         maybe("p" .. Fuzz.pick(src, PORTS)), table.concat(path), maybe("q" .. Url.escape(gen_text(src)) .. "?/"),
@@ -250,9 +251,9 @@ local function test_parse_reads_back_the_parts_a_url_was_built_from(tmp: string)
       local f = Fuzz.unpack(input)
       if #f ~= 7 then return false, ("%d fields, not the 7 the generator packs"):format(#f) end
       local scheme, userinfo, host, port, path, query, fragment = f[1], f[2], f[3], f[4], f[5], f[6], f[7]
-      local url = scheme .. "://" .. (userinfo ~= "" and userinfo:sub(2) .. "@" or "") .. host ..
-        (port ~= "" and ":" .. port:sub(2) or "") .. path .. (query ~= "" and "?" .. query:sub(2) or "") ..
-        (fragment ~= "" and "#" .. fragment:sub(2) or "")
+      local url = scheme .. "://" .. (if userinfo ~= "" then userinfo:sub(2) .. "@" else "" end) .. host ..
+        (if port ~= "" then ":" .. port:sub(2) else "" end) .. path .. (if query ~= "" then "?" .. query:sub(2) else "" end) ..
+        (if fragment ~= "" then "#" .. fragment:sub(2) else "" end)
       local parts, why = Url.parse(url)
       if parts == nil then return false, ("refused %q: %s"):format(url, why) end
       local want_host = host:lower():match("^%[(.*)%]$") or host:lower()
@@ -276,6 +277,101 @@ local function test_parse_reads_back_the_parts_a_url_was_built_from(tmp: string)
       if host:sub(1, 1) == "[" then Fuzz.label("ipv6") end
       if parts.query ~= nil then Fuzz.label("query") end
       if parts.fragment ~= nil then Fuzz.label("fragment") end
+      return true, ""
+    end,
+  })
+end
+
+--- Pairs drawn from [`gen_text`], packed as the names and values in turn.
+local function gen_pairs(src: Fuzz.Source): string
+  local fields: mut {string} = {}
+  while Fuzz.more(src, #fields // 2, 8) do
+    fields[#fields + 1] = gen_text(src)
+    fields[#fields + 1] = gen_text(src)
+  end
+  return Fuzz.pack(fields)
+end
+
+local function test_encode_query_decodes_back_to_the_same_pairs(tmp: string)
+  Fuzz.run({
+    name = "url query round trip",
+    dir = tmp,
+    gen = gen_pairs,
+    requires = { "pairs", "repeated" },
+    shares = { pairs = 0.5 },
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local want: mut {Url.Pair} = {}
+      for i = 1, #fields - 1, 2 do
+        want[#want + 1] = { name = fields[i], value = fields[i + 1] }
+      end
+      local text = Url.encode_query(want)
+      if text:find("[^A-Za-z0-9._~%%&=+-]") then
+        return false, ("encode wrote %q"):format(text)
+      end
+      local q, why = Url.decode_query(text, { utf8 = false, max_pairs = 100 })
+      if q == nil then return false, ("%q refused: %s"):format(text, why) end
+      if #q.pairs ~= #want then
+        return false, ("%q read %d pairs, not %d"):format(text, #q.pairs, #want)
+      end
+      local seen: mut {string:integer} = {}
+      for i, p in ipairs(want) do
+        local got = q.pairs[i]
+        if got.name ~= p.name or got.value ~= p.value then
+          return false, ("pair %d of %q read as %q=%q"):format(i, text, got.name, got.value)
+        end
+        seen[p.name] = (seen[p.name] or 0) + 1
+        if Url.query_all(q, p.name)[seen[p.name]] ~= p.value then
+          return false, ("by_name misses pair %d of %q"):format(i, text)
+        end
+      end
+      for name, n in pairs(seen) do
+        if #Url.query_all(q, name) ~= n then return false, "by_name holds the wrong count" end
+        if n > 1 then Fuzz.label("repeated") end
+      end
+      if #want > 0 then Fuzz.label("pairs") end
+      return true, ""
+    end,
+  })
+end
+
+local function test_decode_query_is_total_and_keeps_what_it_reads(tmp: string)
+  Fuzz.run({
+    name = "url query total",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string
+      local pieces: mut {string} = {}
+      while Fuzz.more(src, #pieces, 12) do
+        pieces[#pieces + 1] = (gen_text(src):gsub("&", "%%26"))
+      end
+      local text = table.concat(pieces, if src:int(0, 3) == 0 then ";" else "&" end)
+      if src:int(0, 2) == 0 then
+        text = Fuzz.mutate(src, text, 3)
+      end
+      return Fuzz.pack({ tostring(src:int(0, 3)), text })
+    end,
+    requires = { "decoded", "refused" },
+    shares = { decoded = 0.2, refused = 0.1 },
+    check = function(input: string): boolean, string
+      local f = Fuzz.unpack(input)
+      local mode = math.tointeger(tonumber(f[1])) or 0
+      local text = f[2] or ""
+      local opts: Url.QueryOptions = { lenient = mode & 1 == 1, utf8 = mode & 2 == 0, max_pairs = 6 }
+      local ok, q, why = pcall(Url.decode_query, text, opts)
+      if not ok then return false, "raised: " .. tostring(q) end
+      if q == nil then
+        if not why:find("^url: ") then return false, "refused with " .. why end
+        Fuzz.label("refused")
+        return true, ""
+      end
+      if why ~= "" or #q.pairs > 6 then return false, "decoded with a reason or past the cap" end
+      local total = 0
+      for name, values in pairs(q.by_name) do
+        if #values == 0 then return false, "empty list for " .. name end
+        total = total + #values
+      end
+      if total ~= #q.pairs then return false, "by_name and pairs disagree" end
+      Fuzz.label("decoded")
       return true, ""
     end,
   })

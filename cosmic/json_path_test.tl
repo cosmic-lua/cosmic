@@ -7,9 +7,10 @@
 local Json = require("cosmic.json")
 
 local function steps_text(steps: Json.Steps): string
-  local parts: {string} = {}
-  for i, step in ipairs(steps) do
-    parts[i] = step is string and Json.quote(step) or tostring(step)
+  local parts: mut {string} = {}
+  for _, step in ipairs(steps) do
+    local text = step is string and Json.quote(step) or tostring(step)
+    parts[#parts + 1] = text
   end
   return "{" .. table.concat(parts, ", ") .. "}"
 end
@@ -165,12 +166,12 @@ local function test_select_answers_the_rfc_examples()
     return (assert(Json.select(store, (assert(Json.query(text))))))
   end
   local function values(found: {Json.Match}): string
-    local out: {string} = {}
-    for i, m in ipairs(found) do out[i] = assert(Json.encode(m.value)) end
+    local out: mut {string} = {}
+    for i, m in ipairs(found) do out[i] = assert(Json.encode_any(m.value)) end
     return table.concat(out, " ")
   end
   local function pointers(found: {Json.Match}): string
-    local out: {string} = {}
+    local out: mut {string} = {}
     for i, m in ipairs(found) do out[i] = assert(Json.pointer(m.steps)) end
     return table.concat(out, " ")
   end
@@ -218,7 +219,7 @@ end
 --- in this module's alike; DEL is escaped in both.
 local function test_a_long_place_is_named_by_its_innermost_part()
   local long = string.rep("k", 250)
-  local _, encoded = Json.encode({ a = { [long] = print } })
+  local _, encoded = Json.encode_any({ a = { [long] = print } })
   assert(encoded == 'json: cannot encode a function at pointer ending "/' .. string.rep("k", 40) .. '..."', encoded)
   local slashes = string.rep("/", 150)
   local _, decoded = Json.decode(('{"a": {"%s": 1, "%s": 2}}'):format(slashes, slashes))
@@ -230,7 +231,7 @@ local function test_a_long_place_is_named_by_its_innermost_part()
   loop.self = loop
   local _, cycle = Json.select(loop, (assert(Json.query("$..x"))), { max_depth = 100 })
   assert(cycle:match('^json: a value nests deeper than 100 levels at pointer ending "/self/') and #cycle < 300, cycle)
-  local _, del = Json.encode({ ["a\127"] = print })
+  local _, del = Json.encode_any({ ["a\127"] = print })
   assert(del == 'json: cannot encode a function at pointer "/a\\u007f"', del)
   local _, del_get = Json.get({ ["a\127"] = 1 }, { "a\127", 1 })
   assert(del_get == 'json: the value at pointer "/a\\u007f" is number, not an array or object', del_get)

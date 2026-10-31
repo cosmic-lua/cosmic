@@ -35,7 +35,7 @@ local function test_only_the_checked_core_instruments()
     if checked then
       assert(ok, name .. ": " .. tostring(err))
     else
-      assert(not ok and tostring(err):find(name .. ": only the checked core", 1, true),
+      assert(not ok and tostring(err):find(name .. ": only the checked core", 1, true) ~= nil,
         name .. " must raise on the " .. testing.configuration .. " core: " .. tostring(err))
     end
   end

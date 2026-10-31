@@ -13,7 +13,7 @@ local function decoded(text: string, opts?: Json.DecodeOptions): any
 end
 
 local function encoded(value: any): string
-  local text, err = Json.encode(value)
+  local text, err = Json.encode_any(value)
   assert(text ~= nil, "encode failed: " .. err)
   return text
 end
@@ -75,7 +75,7 @@ local function flat_lines(value: any, opts?: json_query.FlattenOptions): {string
   local leaves, err = json_query.flatten(value, opts)
   assert(leaves ~= nil, err)
   assert(err == "")
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for i, leaf in ipairs(leaves) do
     local line, why = json_query.flat_line(leaf.steps, leaf.value)
     assert(line ~= nil, why)
@@ -168,9 +168,9 @@ local function test_flat_line_prints_the_compact_value()
   assert(json_query.flat_line({}, Json.null) == "$ = null")
   assert(json_query.flat_line({ "s" }, 'a "q" = b\n') == "$.s = \"a \\\"q\\\" = b\\n\"")
   local line, err = json_query.flat_line({ "f" }, function() end)
-  assert(line == nil and err:find('the value at pointer "/f": ', 1, true), err)
+  assert(line == nil and err:find('the value at pointer "/f": ', 1, true) ~= nil, err)
   local zero, why = json_query.flat_line({ 0 }, 1)
-  assert(zero == nil and why:find("step 1 is 0", 1, true), why)
+  assert(zero == nil and why:find("step 1 is 0", 1, true) ~= nil, why)
 end
 
 local function test_every_flat_path_reads_back_to_its_leaf()
@@ -190,20 +190,25 @@ end
 --- and counts in `counter[1]` each time it is walked by `pairs`: one for
 --- every container a walk lays out, so a test can bound the work a walk
 --- does by what it counted, not by how long it took.
-local function counted(value: any, counter: {integer}): any
+local function counted(value: any, counter: mut {integer}): any
   if not (value is {any:any}) then return value end
-  local copy: {any:any} = {}
+  local copy: mut {any:any} = {}
   for key, member in pairs(value) do copy[key] = counted(member, counter) end
-  local walk_copy: function(): any, any, any = function(): any, any, any
+  local walk_copy = function(): function(): (any, any)
     counter[1] = counter[1] + 1
-    return next, copy, nil
+    local at = { value = nil as any }
+    return function(): any, any
+      local key, member = next(copy, at.value)
+      at.value = key
+      return key, member
+    end
   end
   return setmetatable({}, { __index = copy, __pairs = walk_copy })
 end
 
 local function test_flatten_of_a_large_document_lays_out_each_container_once()
-  local rows: {any} = {}
-  for i = 1, 25000 do rows[i] = { id = i, tags = { "a", "b" }, ["in"] = { id = -i } } end
+  local rows: mut {any} = {}
+  for i = 1, 25000 do rows[#rows + 1] = { id = i, tags = { "a", "b" }, ["in"] = { id = -i } } end
   local counter = { 0 }
   local leaves = assert(json_query.flatten(counted({ rows = Json.array(rows) }, counter)))
   assert(#leaves == 100000, #leaves)
@@ -225,15 +230,15 @@ local function test_a_max_depth_out_of_range_raises_naming_the_caller()
     local text = json_query.describe(doc, { max_depth = depth as integer })
     return text
   end
-  local walks = "json: max_depth must be an integer from 1 to " .. Json.depth_limit
+  local walks = "json: max_depth must be an integer from 1 to " .. tostring(Json.depth_limit)
   for _, bad in ipairs({ 0, Json.depth_limit + 1, 1.5, "2" } as {any}) do
     local ok, message = pcall(flatten_with, bad)
-    assert(not ok and tostring(message):find(walks, 1, true), tostring(message))
+    assert(not ok and tostring(message):find(walks, 1, true) ~= nil, tostring(message))
     assert(tostring(message):find("json_query_test", 1, true), "named where it was called: " .. tostring(message))
   end
   for _, bad in ipairs({ -1, 1.5, "2" } as {any}) do
     local ok, message = pcall(describe_with, bad)
-    assert(not ok and tostring(message):find("json: max_depth must be an integer of at least 0", 1, true),
+    assert(not ok and tostring(message):find("json: max_depth must be an integer of at least 0", 1, true) ~= nil,
       tostring(message))
     assert(tostring(message):find("json_query_test", 1, true), "named where it was called: " .. tostring(message))
   end

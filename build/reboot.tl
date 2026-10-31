@@ -7,7 +7,8 @@
 --- rebuilt tool's writer is not the code that wrote its database, that
 --- tool writes the database again itself and re-enters once more, so a
 --- rebuild lands on the bytes a boot writes. When a core input differs,
---- only zig can rebuild it: the tool runs `bin/zig build boot` and
+--- only zig can rebuild it: the tool runs `bin/zig build boot`
+--- ([`reboot.boot_command`] says with what) and
 --- re-enters the original argv on the tool that boot wrote, unless
 --- `COSMIC_AUTO_BOOT=0` says to refuse instead ([`reboot.auto_boot`]).
 --- A Teal rebuild whose compile fails after the compiler's own modules
@@ -23,6 +24,7 @@
 
 local build_paths = require("build.paths")
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
@@ -31,16 +33,16 @@ local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local identity = require("build.identity")
 local artifact = require("build.artifact")
-local derivation = require("build.derivation")
+local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
+local plural = require("build.plural")
 local rebuild_lock = require("build.rebuild_lock")
+local stale_reason = require("build.stale_reason")
 local shared_compiles = require("build.shared_compiles")
-local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
 local writer = require("build.writer")
-local log = require("build.verdict").log
-local type compiler = require("build.compiler")
+local log = require("build.logger").log
 
 local record reboot
   --- How the tree stands against the running binary.
@@ -48,6 +50,19 @@ local record reboot
     "fresh"
     "teal"
     "core"
+  end
+
+  --- How a test has [`reboot.stale_exit`] see the running tool, where it
+  --- cannot run the tree's own: the path it runs as ([`reboot.own_tool`]'s
+  --- `executable`), the environment that says whether it boots
+  --- ([`reboot.auto_boot`]) and whether a reboot entered it (`marker`),
+  --- and what its database's `meta` says, by key, in place of the running
+  --- binary's (`boot_hash`, `image_hash`, and `written_by`, `writer`,
+  --- `compiled_by` and `compiler`, which say whether it is `unsettled`).
+  record Seen
+    tool: string
+    environment: {string:string}
+    meta: {string:string}
   end
 end
 
@@ -57,44 +72,85 @@ end
 --- rebuilt tool's own writer (`unsettled`).
 local marker = "COSMIC_REBOOTED"
 
+--- The running binary's `meta` value of `key`, or what `seen` says in
+--- its place ([`reboot.Seen`]).
+local function meta_of(key: string, seen?: reboot.Seen): string?
+  if seen ~= nil then
+    local given = seen.meta[key]
+    if given ~= nil then return given end
+  end
+  return Store.meta(key)
+end
+
 --- Whether the running binary's database was compiled or written by
 --- code other than the compiler and writer it carries
 --- ([`identity.Identities`]). A rebuild uses the stale tool's compiler and
 --- writer, so the rebuilt tool compiles and writes its database once
 --- more itself; then it matches what a boot writes. A database that
---- records neither identity is unsettled too.
-local function unsettled(): boolean
-  local written_by = Store.meta("written_by")
-  local compiled_by = Store.meta("compiled_by")
-  return written_by == nil or written_by ~= Store.meta("writer") or
-    compiled_by == nil or compiled_by ~= Store.meta("compiler")
+--- records neither identity is unsettled too. What it was compiled by
+--- is the tool string the new checker keys its compiles by, over the code of the checker the binary carries
+--- ([`build.pipeline`]'s `coded`).
+local function unsettled(seen?: reboot.Seen): boolean
+  local written_by = meta_of("written_by", seen)
+  local compiled_by = meta_of("compiled_by", seen)
+  local carried = meta_of("compiler", seen)
+  return written_by == nil or written_by ~= meta_of("writer", seen) or
+    compiled_by == nil or carried == nil or
+    compiled_by ~= require("build.pipeline").coded(GrammarMode.tool(carried, "new"))
+end
+
+--- The command that renews a tool that carries every core, or, with
+--- `host_only`, the host's core alone (a boot without `-Dboot-cores=all`
+--- wrote it), run as `zig`: the same kind, so that a boot the tool starts
+--- never changes what it can do. Every boot was of every core before there
+--- was a choice.
+--- @param zig the program that runs zig: a tree's [`bin/zig`]
+--- @param host_only whether the tool carries the host's core alone
+function reboot.boot_command(zig: string, host_only: boolean): {string}
+  if host_only then
+    return { zig, "build", "boot" }
+  end
+  return { zig, "build", "boot", "-Dboot-cores=all" }
+end
+
+--- Whether the running tool carries the host's core alone, as a boot
+--- without `-Dboot-cores=all` leaves it ([`artifact.host_only`]). A tool
+--- with no portable prefix to read says no: it is no host-only boot's.
+local function host_only_tool(): boolean
+  local prefix, _ = artifact.trusted_prefix()
+  return prefix ~= nil and artifact.host_only(prefix)
 end
 
 --- What a tool stale against the core says when it does not boot.
-local core_refusal = "the tool is stale; run bin/zig build boot"
+local function core_refusal(): string
+  return "the tool is stale; run " ..
+    table.concat(reboot.boot_command("bin/zig", host_only_tool()), " ")
+end
 
 --- What a stale cosmic that is not the tree's own tool says: it neither
---- rebuilds itself nor boots the tree.
+--- rebuilds itself nor boots the tree. bin/cosmic runs the tree's own,
+--- booting it first where there is none.
 local foreign_refusal = "this cosmic is stale against the tree and is not " ..
-  "the tree's own tool (under o/), so it will not rebuild itself; " ..
-  "run bin/zig build boot and use o/bin/cosmic"
+  "the tree's own tool (in its build directory), so it will not rebuild itself; " ..
+  "run bin/cosmic, which runs that tool"
 
---- Whether the running binary is one this tree built: under `root/o`,
---- as o/bin/cosmic and the checked suite's o/sanitized one are. Only such
+--- Whether the running binary is one this tree built: in the tree's
+--- build directory ([`build.paths`]), as the tool and the checked suite's
+--- sanitized one are. Only such
 --- a tool rebuilds itself when stale. A rebuild writes the tree's tool
 --- over the path it was started as, so any other cosmic run here (a
 --- release, the bootstrap cache's, one on PATH) would be overwritten.
 --- The path is judged where it names: its directory is resolved but not
 --- its name. A file renamed or removed while it runs is still judged by
---- where it was, and a link into o/ from elsewhere is elsewhere, since
---- a rebuild would replace the link, not o/'s tool. `executable` is the
+--- where it was, and a link into the build directory from elsewhere is
+--- elsewhere, since a rebuild would replace the link, not the tool. `executable` is the
 --- path this process was started as, by default.
 -- TODO: refuse a host-built tool whose file was removed while it runs:
 -- with no started-as path, Proc.executable falls back to /proc/self/exe,
 -- which then reads ".../cosmic (deleted)", and a rebuild would write a
 -- file of that name. Once Proc.executable says the file is gone, answer
 -- nil for it here.
-function reboot.own_tool(root: string, executable?: string): boolean | nil, string
+function reboot.own_tool(root: string, executable?: string): boolean?, string
   local running = executable
   if running == nil then
     local found, trouble = Proc.executable()
@@ -107,7 +163,7 @@ function reboot.own_tool(root: string, executable?: string): boolean | nil, stri
   if directory == nil then
     return nil, directory_trouble
   end
-  local outputs, outputs_trouble = Fs.absolute(build_paths.required(root))
+  local outputs, outputs_trouble = Fs.absolute(build_paths.resolve(root).directory)
   if outputs == nil then
     return nil, outputs_trouble
   end
@@ -118,7 +174,7 @@ end
 --- `COSMIC_AUTO_BOOT` is "0", which a caller that wants the refusal
 --- (a fixture holding the artifact still, say) sets.
 function reboot.auto_boot(environment?: {string:string}): boolean
-  local value: string | nil
+  local value: string?
   if environment ~= nil then
     value = environment.COSMIC_AUTO_BOOT
   else
@@ -129,29 +185,27 @@ end
 
 --- `argv` from slot 1 on, led by `program`, the path to exec, as the
 --- list [`Proc.exec`] takes.
-local function reentry(program: string, argv: {integer:string}): {string}
-  local arguments: {string} = { program }
-  local at = 1
-  while argv[at] ~= nil do
-    arguments[#arguments + 1] = argv[at]
-    at = at + 1
+local function reentry(program: string, argv: {string}): {string}
+  local arguments: mut {string} = { program }
+  for _, argument in ipairs(argv) do
+    arguments[#arguments + 1] = argument
   end
   return arguments
 end
 
 --- Compares the tree's fingerprints with the running binary's.
-local function state_of(handle: work.Handle): reboot.State | nil, string
-  local fingerprint, trouble = identity.record_fingerprint(handle.db)
+local function state_of(handle: work.Handle, seen?: reboot.Seen): reboot.State?, string
+  local fingerprint, trouble = identity.record_fingerprint(handle.db, handle.root)
   if fingerprint == nil then
     return nil, trouble
   end
-  if fingerprint.boot == (Store.meta("boot_hash") or "") then
-    return "fresh"
+  if fingerprint.boot == (meta_of("boot_hash", seen) or "") then
+    return "fresh", ""
   end
-  if fingerprint.image == (Store.meta("image_hash") or "") then
-    return "teal"
+  if fingerprint.image == (meta_of("image_hash", seen) or "") then
+    return "teal", ""
   end
-  return "core"
+  return "core", ""
 end
 
 --- Closes `handle`, which the caller is giving up, and answers `trouble`.
@@ -160,10 +214,19 @@ local function closing(handle: work.Handle, trouble: string): string
   return trouble
 end
 
+--- The `marker` this process runs under, as `seen` ([`reboot.Seen`]) has it
+--- where given: nil where no reboot entered it.
+local function entered_by(seen?: reboot.Seen): string?
+  if seen ~= nil then
+    return seen.environment[marker]
+  end
+  return sys.getenv(marker)
+end
+
 --- Why a rebuild (`into`, settling when `settle`) refuses in this
 --- process, which a reboot has entered: nil when it may go on.
-local function refusal(settle: boolean): string | nil
-  local entered = sys.getenv(marker)
+local function refusal(settle: boolean, seen?: reboot.Seen): string?
+  local entered = entered_by(seen)
   if entered == nil or (settle and entered == "1") then
     return nil
   end
@@ -193,8 +256,8 @@ function reboot.carries_tree_code(handle: work.Handle): boolean
     return false
   end
   for _, row in ipairs(rows) do
-    local source, _ = Store.source(row[1])
-    if source == nil or Hash.hex_sha256(source) ~= row[2] then
+    local source, _ = Store.source(row:text(1))
+    if source == nil or Hash.hex_sha256(source) ~= row:text(2) then
       return false
     end
   end
@@ -208,8 +271,35 @@ end
 --- this tree built and always records its compiler's, so a nil there is
 --- a damaged database, whose failure is reported as the tree's own
 --- rather than answered with a boot that would mend nothing.
-function reboot.compiler_moved(tool: string | nil, wanted: string | nil): boolean
+function reboot.compiler_moved(tool: string?, wanted: string?): boolean
   return tool ~= nil and wanted ~= nil and tool ~= wanted
+end
+
+--- The web assets a rebuilt tool carries: those of `db`, the running
+--- binary's database, else, for a binary from before the table that has
+--- none, those of the vendored trees under `root` (a project's tree has
+--- no vendor/, and then the tool carries none).
+--- @param db Sqlite.Handle The running binary's database
+--- @param root string The tree's root
+--- @return {work.WebAsset} | nil The files
+--- @return string Why not
+function reboot.web_assets(db: Sqlite.Handle, root: string): {work.WebAsset}?, string
+  local web, trouble = work.web_assets_of(db)
+  if web == nil then
+    return nil, trouble
+  end
+  if #web == 0 then
+    local vendored, _ = work.read_web_assets(root .. "/vendor")
+    if vendored ~= nil then web = vendored end
+  end
+  return web, ""
+end
+
+--- What a compile of the tree teaches [`into`] of the tree: whether the tool
+--- carries the tree's code, and the compiler identity the tree recorded.
+local record Learned
+  mut code: boolean
+  mut compiler: string?
 end
 
 --- Rebuilds the tool from the tree and replaces this process with it,
@@ -223,8 +313,8 @@ end
 --- out of a failure. `settle` rebuilds a fresh but `unsettled` tool,
 --- which a rebuild may enter; anything else refuses once a reboot has
 --- entered this process.
-local function into(handle: work.Handle, built: compiler,
-                    argv: {integer:string}, settle: boolean): string, boolean
+local function into(handle: work.Handle, argv: {string}, settle: boolean): string, boolean
+  local started = Clock.monotonic_ns()
   local refused = refusal(settle)
   if refused ~= nil then
     return closing(handle, refused), false
@@ -238,26 +328,28 @@ local function into(handle: work.Handle, built: compiler,
     return closing(handle, executable_trouble), false
   end
 
-  -- A fresh checkout has no boot-populated compiler row in its working
-  -- database yet. Preserve the exact compiler carried by the trusted running
-  -- artifact so the rebuilt Cosmic remains able to rebuild again.
-  local compiler_source, compiler_trouble = Store.source("vendor.tl")
-  if compiler_source == nil then
-    return closing(handle, "the compiler source is not in this binary: " .. compiler_trouble), false
-  end
-  local kept, keep_trouble = derivation.put_compiler(handle.db, compiler_source)
-  if not kept then
-    return closing(handle, keep_trouble), false
-  end
-  -- And the zones it carries, which only a boot reads from the tree.
+  -- The zones and web assets it carries, which only a boot reads from
+  -- the tree.
   local databases = Store.databases()
-  local zones, zones_trouble = work.zoneinfo_of(databases[#databases])
+  local own_database = databases[#databases]
+  if own_database == nil then
+    return closing(handle, "this binary carries no database"), false
+  end
+  local zones, zones_trouble = work.zoneinfo_of(own_database)
   if zones == nil then
     return closing(handle, "the zones in this binary: " .. zones_trouble), false
   end
   local zoned, zoned_trouble = work.put_zoneinfo(handle, zones)
   if not zoned then
     return closing(handle, zoned_trouble), false
+  end
+  local web, web_trouble = reboot.web_assets(own_database, handle.root)
+  if web == nil then
+    return closing(handle, "the web assets in this binary: " .. web_trouble), false
+  end
+  local web_put, web_put_trouble = work.put_web_assets(handle, web)
+  if not web_put then
+    return closing(handle, web_put_trouble), false
   end
 
   -- Compiled by this tool's compiler and keyed by its identity, which is
@@ -275,23 +367,28 @@ local function into(handle: work.Handle, built: compiler,
   -- by its own code, and also when a stale tool rebuilt it across a
   -- change to the fingerprint's definition: it is stale by its own code,
   -- and settles on the "teal" path.
-  local tree_code = false
-  local tree_compiler: string | nil
-  -- Unjudged: this tool's build.contracts, rules and exemptions alike,
+  local learned: Learned = { code = false, compiler = nil }
+  -- Unjudged: this tool's build.syntax_contracts, rules and exemptions alike,
   -- may be older than the tree's, so a module it refuses is built
   -- anyway, and the tool built here judges it again, by the tree's own,
   -- when it re-enters the command.
-  local result, compile_trouble = importer.compile_tree(handle, built,
+  -- The tool carries Lua the new checker wrote, in this process ([`importer.compile_tree`]), and says so in the tool
+  -- string it records.
+  local grammar, grammar_trouble = GrammarMode.mode()
+  if grammar == nil then
+    return closing(handle, grammar_trouble), false
+  end
+  local result, compile_trouble = importer.compile_tree(handle,
     function(recorded: identity.Identities): string, string
-      tree_compiler = recorded.compiler
+      learned.compiler = recorded.compiler
       local tool = Store.meta("compiler") or ""
       if settle then
         local boot_hash, _ = identity.recorded_boot_hash(handle.db)
-        tree_code = (boot_hash ~= nil and boot_hash == Store.meta("boot_hash")) or
+        learned.code = (boot_hash ~= nil and boot_hash == Store.meta("boot_hash")) or
           reboot.carries_tree_code(handle)
-        if tree_code then tool = recorded.compiler end
+        if learned.code then tool = recorded.compiler end
       end
-      return tool, ""
+      return GrammarMode.tool(tool, grammar), ""
     end, true, shared_compiles.for_build())
   if result == nil then
     -- The compiler of a tool settling is the tree's: it cannot have moved.
@@ -302,16 +399,23 @@ local function into(handle: work.Handle, built: compiler,
     -- identities: take the compiler's from what is staged and parsed.
     -- That walk of `requires` may be partial; a truncated one differs
     -- from the tool's, so it errs toward a boot, never toward a miss.
-    if tree_compiler == nil then
+    if learned.compiler == nil then
       local found, _ = identity.compiler_identity(handle.db)
-      tree_compiler = found
+      learned.compiler = found
     end
     return closing(handle, compile_trouble),
-      reboot.compiler_moved(Store.meta("compiler"), tree_compiler)
+      reboot.compiler_moved(Store.meta("compiler"), learned.compiler)
   end
-  local database_path = build_paths.required(handle.root) .. "/cosmic.db"
+  -- The new checker goes on past a module it refuses, to tell every refusal; a tool is not written from a tree it refused.
+  local breaches = result.refused
+  if #breaches > 0 then
+    return closing(handle, table.concat(breaches, "\n") .. "\nthe new checker refused " ..
+        tostring(#breaches) .. " of the tree's modules, so no tool is written from it"), false
+  end
+  local layout = build_paths.resolve(handle.root)
+  local database_path = layout.projection
   local written, write_trouble =
-    writer.write_result(handle, database_path, result, tree_code)
+    writer.write_result(handle, database_path, result, learned.code)
   if not written then
     return closing(handle, write_trouble), false
   end
@@ -319,7 +423,7 @@ local function into(handle: work.Handle, built: compiler,
   -- tree's: the projection it carries is signed by that writer, and a
   -- tool it wrote whose writer differs writes itself again on re-entry
   -- (`unsettled`).
-  local carried_path = build_paths.required(handle.root) .. "/carried.db"
+  local carried_path = layout.carried
   local carried, carry_trouble = writer.carried(database_path, carried_path)
   if not carried then
     return closing(handle, carry_trouble), false
@@ -341,10 +445,51 @@ local function into(handle: work.Handle, built: compiler,
     return publish_trouble, false
   end
 
+  -- The wait a verb's own summary never counts: it times the run the new
+  -- tool makes.
+  log:complain(string.format("rebuilt the tool in %.1f s (%s compiled, %d cached)",
+    (Clock.monotonic_ns() - started) / Clock.seconds(1),
+    plural.count(result.compiled, "module"), result.cached))
   local environment = sys.environ()
-  environment[marker] = settle and "2" or "1"
+  environment[marker] = if settle then "2" else "1" end
   local _, exec_trouble = Proc.exec(reentry(out, argv), { env = environment })
   return exec_trouble, false
+end
+
+--- What `serialize` answers a verb that only reads, which found another
+--- run holding the rebuild lock: it has closed the working database, and
+--- the verb goes on with its own code. No exit code is negative.
+local read_on <const> = -1
+
+--- What `guard` answers in place of `read_on` where the tool is the
+--- tree's, fresh but unsettled: the verb goes on with code as new as the
+--- tree's, so its lookup builds as any does.
+local read_on_fresh <const> = -2
+
+--- The build directories of the trees this process's check of the tool
+--- ([`reboot.stale_exit`]) went on in without holding the tool to them
+--- ([`reboot.unchecked`]), each a tree however its root is spelled.
+local unchecked_trees: mut {string:boolean} = {}
+
+--- Leaves the tree at `root` unchecked for the life of this process.
+local function leave_unchecked(root: string)
+  unchecked_trees[build_paths.resolve(root).directory] = true
+end
+
+--- Whether this process's check before a verb that only reads
+--- ([`reboot.stale_exit`]) went on in the tree at `root` without holding
+--- the tool to it: another run held its working database, or that
+--- database was of another schema, so the check was skipped; or another
+--- run held the rebuild lock while the tool was older than the tree. The
+--- tool's code may then be older than the tree's, so for the life of the
+--- process nothing derived from it is written there: a lookup builds
+--- nothing ([`rebuild.here`]), `cosmic lsp` stages nothing
+--- ([`rebuild.stage`]), and each reads what is there.
+function reboot.unchecked(root: string): boolean
+  -- A directory that can have no build directory, as one the build home
+  -- is beneath, was never checked, and so never left unchecked.
+  local directory, _ = build_paths.optional(root)
+  return directory ~= nil and unchecked_trees[directory] == true
 end
 
 -- The rebuild lock ([`build.rebuild_lock`]) is held by a run from the
@@ -354,11 +499,7 @@ end
 -- it, since only the tree's own tool ([`reboot.own_tool`]) rebuilds. A run
 -- waits for its holder as long as it takes, as [`rebuild_lock.hold`]
 -- does: that may be a whole `cosmic test` run, and a holder that dies
--- lets it go.
-
---- Where the holder of the rebuild lock sets aside the database of the
---- tool under o/ to read it (`replaced`).
-local probe_name = "/rebuild.lock.probe"
+-- lets it go. A verb that only reads waits for none (`read_on`).
 
 --- The meta a tool's database carries that tells one written apart
 --- from another: a rebuild moves `boot_hash` (the tree's, which is why it
@@ -367,10 +508,16 @@ local probe_name = "/rebuild.lock.probe"
 --- it ([`build.writer`]'s `carried`).
 local identity_keys <const> = { "written_by", "compiled_by", "boot_hash" }
 
+--- What `replaced` found comparing a tool's identity with the running
+--- one's, inside [`Store.alone`].
+local record Compared
+  mut differs: boolean
+end
+
 --- Whether the program at `out` is no longer the one this process runs:
 --- another run rebuilt the tool, and exec'd, between this run's start
 --- and its taking the rebuild lock. Read from the database `out` carries,
---- set aside under o/ while this run holds the lock; anything that
+--- set aside in the build directory while this run holds the lock; anything that
 --- cannot be read answers false, and this run rebuilds as it would have.
 local function replaced(root: string, out: string): boolean
   local bytes, _ = Fs.read(out)
@@ -381,7 +528,7 @@ local function replaced(root: string, out: string): boolean
   if parts == nil then
     return false
   end
-  local probe = build_paths.required(root) .. probe_name
+  local probe = build_paths.resolve(root).probe
   local written, _ = Fs.write(probe, parts.database)
   if not written then
     return false
@@ -397,31 +544,28 @@ local function replaced(root: string, out: string): boolean
   if rows == nil then
     return false
   end
-  local carried: {string:string} = {}
+  local carried: mut {string:string} = {}
   for _, row in ipairs(rows) do
-    carried[row[1]] = row[2]
+    carried[row:text(1)] = row:text(2)
   end
   -- The running tool's own, not a database a verb attached before
-  -- [`stale_exit`] ran (o/cosmic.db, whose meta Store.meta finds first).
-  local own: {string:string} = {}
+  -- [`stale_exit`] ran (the projection, whose meta Store.meta finds first).
+  local compared: Compared = { differs = false }
   Store.alone(function()
     for _, key in ipairs(identity_keys) do
-      own[key] = Store.meta(key)
+      if carried[key] ~= Store.meta(key) then
+        compared.differs = true
+      end
     end
   end)
-  for _, key in ipairs(identity_keys) do
-    if carried[key] ~= own[key] then
-      return true
-    end
-  end
-  return false
+  return compared.differs
 end
 
 --- Closes `handle` and replaces this process with the tool at `out`,
 --- running `argv` again in this process's environment, its `marker`
 --- as it was. Answers the exit code when it cannot.
 local function reenter(handle: work.Handle, out: string,
-                       argv: {integer:string}): integer
+                       argv: {string}): integer
   local closed, close_trouble = work.close(handle)
   if not closed then
     log:complain(close_trouble)
@@ -440,11 +584,12 @@ end
 ---
 --- When another run holds the lock, this one closes `handle` (the holder
 --- needs the working database to finish), says so, waits for the holder
---- to re-enter or exit, and replaces itself with the tool now under o/,
+--- to re-enter or exit, and replaces itself with the tool now in the
+--- build directory,
 --- running `argv` again. That tool is fresh when the holder's rebuild
 --- landed; when it did not, the re-entered run takes the lock and
 --- rebuilds itself. A run that takes the lock at once but finds the tool
---- under o/ is no longer the one it runs (`replaced`) re-enters that
+--- there is no longer the one it runs (`replaced`) re-enters that
 --- tool too, rather than rebuild from an older one.
 ---
 --- A re-entered run keeps `marker` as it was: a run a reboot entered
@@ -452,8 +597,13 @@ end
 --- runs never rebuild one after another for good. The caller makes the
 --- `marker` refusal (`refusal`) before it comes here, so a run that
 --- would refuse never waits.
+---
+--- A verb that only reads (`reads`) never waits: where another run holds
+--- the lock, it closes `handle`, says so once
+--- ([`rebuild_lock.tell_not_waiting`]) and answers `read_on`, going on
+--- with its own code.
 local function serialize(handle: work.Handle, root: string,
-                         argv: {integer:string}): integer | nil
+                         argv: {string}, reads: boolean): integer?
   -- Tried at once, while this run holds the working database: a run
   -- holding the lock may be waiting for that database, so this run
   -- waits for the lock only once it has closed it.
@@ -482,6 +632,10 @@ local function serialize(handle: work.Handle, root: string,
     log:complain(close_trouble)
     return 1
   end
+  if reads then
+    rebuild_lock.tell_not_waiting(argv[1] or "cosmic", root)
+    return read_on
+  end
   local waited, wait_trouble = rebuild_lock.wait(root, "rebuild",
     rebuild_lock.holder(root) .. "; waiting for it" .. rebuild_lock.suffix(root))
   if not waited then
@@ -495,37 +649,45 @@ local function serialize(handle: work.Handle, root: string,
   return 3
 end
 
---- Rebuilds the core with `root/bin/zig build boot`, whose output goes to
+--- Rebuilds the core with `root/bin/zig build boot`, as the running tool's
+--- own cores ask ([`reboot.boot_command`]), whose output goes to
 --- stderr so a verb's own stdout stays its own, then replaces this process
---- with the tool the boot wrote, `root/o/bin/cosmic`, running `argv` again.
+--- with the tool the boot wrote ([`build.paths`]' `tool`), running `argv`
+--- again.
 --- It is handed no handle: the caller closes its working database
 --- first, since the boot writes it ([`reboot.guard`] does).
 --- `environment` is what both run in, this process's by default.
 --- Returns only when it cannot, saying why.
-function reboot.boot_into(root: string, argv: {integer:string},
-                          environment?: {string:string}): string
-  environment = environment or sys.environ()
-  if environment[marker] ~= nil then
+function reboot.boot_into(root: string, argv: {string},
+                          environment?: mut {string:string}): string
+  local run_in: mut {string:string} = {}
+  if environment ~= nil then
+    run_in = environment
+  else
+    for name, value in pairs(sys.environ()) do run_in[name] = value end
+  end
+  if run_in[marker] ~= nil then
     return "the tool is still stale after a reboot"
   end
-  log:complain("the core is stale; running bin/zig build boot")
+  local command = table.concat(reboot.boot_command("bin/zig", host_only_tool()), " ")
+  log:complain("the core is stale; running " .. command)
   -- The boot takes the rebuild lock (build/zig.tl), which a guard
   -- calling this holds: handed on, rather than waited for.
-  local boot_environment = environment
+  local boot_environment: {string:string} = run_in
   if rebuild_lock.holds(root) then
-    boot_environment = rebuild_lock.hand(environment, root)
+    boot_environment = rebuild_lock.hand(run_in, root)
   end
-  local result, trouble = Child.run({ root .. "/bin/zig", "build", "boot" },
+  local result, trouble = Child.run(reboot.boot_command(root .. "/bin/zig", host_only_tool()),
     { cwd = root, env = boot_environment, stdout = 2 })
   if result == nil then
-    return "bin/zig build boot: " .. trouble
+    return command .. ": " .. trouble
   end
   if not result.ok then
-    return "bin/zig build boot failed; fix what it reports and run this again"
+    return command .. " failed; fix what it reports and run this again"
   end
-  environment[marker] = "1"
-  local _, exec_trouble = Proc.exec(reentry(build_paths.required(root) .. "/bin/cosmic", argv),
-    { env = environment })
+  run_in[marker] = "1"
+  local _, exec_trouble = Proc.exec(reentry(build_paths.resolve(root).tool, argv),
+    { env = run_in })
   return exec_trouble
 end
 
@@ -545,7 +707,7 @@ end
 --- The caller has closed its working database ([`reboot.boot_into`]).
 --- `environment` is what the boot runs in, this process's by default.
 --- A boot that starts re-enters `argv` and does not return here.
-function reboot.rebuild_failed(root: string, argv: {integer:string},
+function reboot.rebuild_failed(root: string, argv: {string},
                                trouble: string, moved: boolean,
                                environment?: {string:string}): integer
   if not moved then
@@ -554,7 +716,7 @@ function reboot.rebuild_failed(root: string, argv: {integer:string},
   end
   if not reboot.auto_boot(environment) then
     log:complain(trouble)
-    log:complain(core_refusal)
+    log:complain(core_refusal())
     return 3
   end
   log:complain("the tool cannot compile the tree and its compiler has moved; " ..
@@ -587,23 +749,30 @@ end
 --- waits for it and re-enters `argv` on the tool it wrote.
 ---
 --- `handle` is the working database of `root`, which must be cosmic's
---- own tree ([`tree.is_own`]), open and staged. Answers nil when the tool
+--- own tree ([`tree.standing`]), open and staged. Answers nil when the tool
 --- is fresh, handing `handle` back open for the caller to go on with.
 --- Otherwise it has said why on stderr and closed `handle`, and answers
 --- the exit code the caller returns at once: 3 for a refusal, or a
 --- rebuild or boot that failed, and 1 when the check itself failed.
+--- With `reads`, for a verb that only reads, it waits for no run holding
+--- the rebuild lock: where one does, it closes `handle`, says so once,
+--- and answers -1 (`read_on`), or -2 (`read_on_fresh`) for a tool as new
+--- as the tree but unsettled, the verb going on with its own code.
+--- `seen` is [`reboot.Seen`].
 --- @param argv the command line, re-entered after a rebuild
 function reboot.guard(handle: work.Handle, root: string,
-                      argv: {integer:string}): integer | nil
-  local state, state_trouble = state_of(handle)
+                      argv: {string}, reads?: boolean, seen?: reboot.Seen): integer?
+  local state, state_trouble = state_of(handle, seen)
   if state == nil then
     log:complain(closing(handle, state_trouble))
     return 1
   end
-  if state == "fresh" and not unsettled() then
+  if state == "fresh" and not unsettled(seen) then
     return nil
   end
-  local own, own_tool_trouble = reboot.own_tool(root)
+  local tool: string? = nil
+  if seen ~= nil then tool = seen.tool end
+  local own, own_tool_trouble = reboot.own_tool(root, tool)
   if own == nil then
     log:complain(closing(handle, own_tool_trouble))
     return 1
@@ -612,17 +781,20 @@ function reboot.guard(handle: work.Handle, root: string,
     if not own then
       return nil
     end
-    local refused = refusal(true)
+    local refused = refusal(true, seen)
     if refused ~= nil then
       log:complain(closing(handle, refused))
       return 3
     end
-    local waited = serialize(handle, root, argv)
+    local waited = serialize(handle, root, argv, reads == true)
+    if waited == read_on then
+      return read_on_fresh
+    end
     if waited ~= nil then
       return waited
     end
     log:complain("the tool's database was built by other code than its own; building it again")
-    local trouble, _ = into(handle, teal.lazy(), argv, true)
+    local trouble, _ = into(handle, argv, true)
     log:complain(trouble)
     return 3
   end
@@ -631,15 +803,17 @@ function reboot.guard(handle: work.Handle, root: string,
     return 3
   end
   if state == "core" then
-    if not reboot.auto_boot() then
-      log:complain(closing(handle, core_refusal))
+    local environment: {string:string}? = nil
+    if seen ~= nil then environment = seen.environment end
+    if not reboot.auto_boot(environment) then
+      log:complain(closing(handle, core_refusal()))
       return 3
     end
-    if sys.getenv(marker) ~= nil then
+    if entered_by(seen) ~= nil then
       log:complain(closing(handle, "the tool is still stale after a reboot"))
       return 3
     end
-    local waited = serialize(handle, root, argv)
+    local waited = serialize(handle, root, argv, reads == true)
     if waited ~= nil then
       return waited
     end
@@ -661,30 +835,32 @@ function reboot.guard(handle: work.Handle, root: string,
   -- which is the tree's ([`carries_tree_code`]), takes of the tree, rather
   -- than refusing; `into` sets the marker to "2", so a tool stale after
   -- that refuses.
-  local settle = sys.getenv(marker) == "1" and unsettled()
-  local refused = refusal(settle)
+  local settle = entered_by(seen) == "1" and unsettled(seen)
+  local refused = refusal(settle, seen)
   if refused ~= nil then
     log:complain(closing(handle, refused))
     return 3
   end
-  local waited = serialize(handle, root, argv)
+  local waited = serialize(handle, root, argv, reads == true)
   if waited ~= nil then
     return waited
   end
   if settle then
     log:complain("the tool's database was built by other code than its own; building it again")
-    local trouble, _ = into(handle, teal.lazy(), argv, true)
+    local trouble, _ = into(handle, argv, true)
     log:complain(trouble)
     return 3
   end
-  log:complain("the tool is stale; rebuilding it from the tree")
-  local trouble, moved = into(handle, teal.lazy(), argv, false)
+  log:complain("the tool is stale; rebuilding it from the tree" .. stale_reason.of(handle))
+  local trouble, moved = into(handle, argv, false)
   return reboot.rebuild_failed(root, argv, trouble, moved)
 end
 
---- The staleness guard for a read-only verb -- `docs`, `uses`, `db`,
---- `help` -- that never compiles the tree itself but still runs
---- `build.*` Teal that this binary embedded at its own boot. Inside
+--- The staleness guard for a verb that runs `build.*` Teal this binary
+--- embedded at its own boot before, or without, compiling the tree
+--- itself -- `docs`, `uses`, `db`, `help`, `todos`, `fix`, and the
+--- `fresh` ones, `lsp` among them ([`verb_spec.Spec`]). `fix` compiles
+--- the tree after this check, with the code the check holds to it. Inside
 --- cosmic's own tree, an edit to that Teal is otherwise invisible
 --- until `bin/zig build boot`, where `AGENTS.md` (step 3) promises an
 --- edit to Teal rebuilds on its own.
@@ -697,32 +873,97 @@ end
 --- `meta` ([`identity.recorded_boot_hash`]) still describes `tool` exactly,
 --- so it is read back rather than recomputed. Only when something moved,
 --- or the database has no
---- recorded `boot_hash` yet (a fresh `o/`, or one nothing has staged
+--- recorded `boot_hash` yet (a fresh build directory, or one nothing has staged
 --- for), does this fall back to [`work.stage`]'s directory walk and
 --- [`reboot.guard`] -- the same path `cosmic test` always takes.
 ---
---- Answers as [`reboot.guard`] does for the tree in the working
---- directory: nil to go on, when the tree is not cosmic's own or the
---- tool is fresh, or an exit code to return at once, having said why.
+--- A verb that only reads (`reads`: [`verb_spec.Spec`]'s `reads`) never
+--- waits here for another run that holds the working database's write
+--- lock, whatever that run is: a build or a test run, which checks the
+--- tool against the tree as it goes; a lookup's own build or `cosmic
+--- lsp`'s stage, which stage the tree and check no tool; or a boot,
+--- which writes a newer tool. This check is skipped, said once on stderr
+--- ([`work.tell_busy`]), and the verb goes on with this binary's code,
+--- stale or not, reading what that run last committed, which a newer
+--- tool may have written. A database of another schema that another run
+--- may be using, holding its write lock or the checkout's rebuild lock,
+--- is skipped so too, said as [`work.tell_other_schema`] says. Where the
+--- locks are free, the check is as for any verb, a database of another
+--- schema made again as a build makes it ([`work.try_open_remaking`]).
+--- Nor does it wait for another run that holds the checkout's rebuild
+--- lock, a whole `cosmic test` run above all: where the tool is stale,
+--- it rebuilds nothing, says so once
+--- ([`rebuild_lock.tell_not_waiting`]), and goes on with this binary's
+--- code as above, saying once too that the code is older than the
+--- tree's. A tool as new as the tree but unsettled goes on so too. A verb
+--- that writes waits for either lock, as its build would. Where it went
+--- on without holding the tool to the tree, the verb's lookup builds
+--- nothing ([`reboot.unchecked`]).
+---
+--- What such a reader reads, another run, of a newer tool or an older
+--- one, may have written with code other than its own. So the working
+--- database records the boot hash of the code that staged it
+--- ([`work.other_code`]), and the projection the writer and the compiler
+--- that wrote it ([`writer.other_code`]), and a reader whose code is
+--- other than that says so once and reads none of it: `todos` lists no
+--- TODO, `docs`, `uses` and `help` answer from the binary's own
+--- databases alone, and `cosmic lsp`, which runs for good and so reads
+--- them at every stage and hover once a boot or a rebuild has moved the
+--- tool on, finds no module in the one and no docs in the other. `sql`
+--- and `db` show the rows as stored, taking them to mean nothing.
+---
+--- Answers as [`reboot.guard`] does for the tree at `root`, the working
+--- directory by default: nil to go on, when the tree is not cosmic's own
+--- or the tool is fresh, or an exit code to return at once, having said
+--- why.
 --- @param argv the command line, re-entered after a rebuild
-function reboot.stale_exit(argv: {integer:string}): integer | nil
-  local root, root_trouble = Fs.absolute(".")
-  if root == nil then
-    log:complain(root_trouble)
-    return 1
+--- @param seen how a test has the check see the running tool ([`reboot.Seen`])
+function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
+                           seen?: reboot.Seen): integer?
+  local at = root
+  if at == nil then
+    local found, root_trouble = Fs.absolute(".")
+    if found == nil then
+      log:complain(root_trouble)
+      return 1
+    end
+    at = found
   end
-  local own_tree, own_trouble = tree.is_own(root)
-  if own_tree == nil then
+  local standing, own_trouble = tree.standing(at)
+  if standing == nil then
     log:complain(own_trouble)
     return 1
   end
-  if not own_tree then
+  if not standing.own then
     return nil
   end
-  local handle, open_trouble = work.open(root)
-  if handle == nil then
-    log:complain(open_trouble)
-    return 1
+  local handle: work.Handle
+  if reads == true then
+    local tried, try_trouble = work.try_open_remaking(at)
+    if tried == nil then
+      log:complain(try_trouble)
+      return 1
+    end
+    local held = tried.handle
+    if held == nil then
+      local working = build_paths.resolve(at).working
+      local other = tried.other_schema
+      if other ~= nil then
+        work.tell_other_schema(argv[1] or "cosmic", working, other)
+      else
+        work.tell_busy(argv[1] or "cosmic", working)
+      end
+      leave_unchecked(at)
+      return nil
+    end
+    handle = held
+  else
+    local opened, open_trouble = work.open(at)
+    if opened == nil then
+      log:complain(open_trouble)
+      return 1
+    end
+    handle = opened
   end
 
   local moved, moved_trouble = work.tool_moved(handle)
@@ -737,21 +978,39 @@ function reboot.stale_exit(argv: {integer:string}): integer | nil
       log:complain(closing(handle, recorded_trouble))
       return 1
     end
-    fresh = recorded ~= nil and recorded == (Store.meta("boot_hash") or "")
+    fresh = recorded ~= nil and recorded == (meta_of("boot_hash", seen) or "")
     -- A tool that is not the tree's own never settles ([`reboot.guard`]),
     -- so only the tree's own is sent there to.
-    if fresh and unsettled() then
-      local own, _ = reboot.own_tool(root)
+    if fresh and unsettled(seen) then
+      local tool: string? = nil
+      if seen ~= nil then tool = seen.tool end
+      local own, _ = reboot.own_tool(at, tool)
       fresh = own == false
     end
   end
   if not fresh then
-    local staged, stage_trouble = work.stage(handle, own_tree)
+    -- TODO: a reader stages here with its own code before it knows
+    -- whether the tool is stale, so a stale reader writes stage rows,
+    -- the TODO index among them, while another run's `cosmic test`
+    -- holds the rebuild lock, before `serialize` finds it held. It waits
+    -- on the tree's fingerprint taken without a stage (from the files'
+    -- stats against the rows), so a reader that finds the tool stale and
+    -- the lock held goes on before it writes.
+    local staged, stage_trouble = work.stage(handle, standing.own)
     if staged == nil then
       log:complain(closing(handle, stage_trouble))
       return 1
     end
-    local code = reboot.guard(handle, root, argv)
+    local code = reboot.guard(handle, at, argv, reads, seen)
+    if code == read_on then
+      log:complain((argv[1] or "cosmic") .. ": this tool is older than the tree, so what it answers " ..
+          "comes from its own older code")
+      leave_unchecked(at)
+      return nil
+    end
+    if code == read_on_fresh then
+      return nil
+    end
     if code ~= nil then
       return code
     end

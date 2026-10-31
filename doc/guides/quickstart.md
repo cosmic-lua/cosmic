@@ -141,6 +141,16 @@ cosmic json '$.items'` works. A URL may carry its digest, as pip's do:
 
 `cosmic hash [--sha512 | --sha1 | --md5 | ...] [<file>|-]...` prints `sha256sum`'s `<hex>  <name>` lines, the same on every platform (`sha256sum` and `shasum -a 256` differ), streaming each file; `--check sums.txt` verifies a list (`name: OK` or `FAILED`, exit 1 on any failure), and `--hmac-file key.bin` makes each digest an HMAC without the key in `ps`. `cosmic help hash` has the rest.
 
+## the Lua of a Teal file
+
+`cosmic compile file.tl` prints the Lua this binary's compiler writes for a
+`.tl` file; `cosmic compile -o out a.tl b.tl` writes `out/a.lua` and
+`out/b.lua`. It reads only the files you name, so it runs in any directory,
+and the Lua is raw, with no wrapper. A type error is counted on standard
+error (`--errors` lists each) and the Lua is written anyway; only a syntax
+error refuses, naming `file:line:column`, writing nothing and exiting 2.
+`cosmic help compile` has the rest.
+
 ## bytes to text and back
 
 `cosmic codec hex|base64|base64url [-d] [file|-]` encodes a file or
@@ -148,8 +158,7 @@ standard input on one line (`--wrap N` wraps it; GNU base64's 76 is not
 the default) and with `-d` decodes it, ignoring whitespace and refusing
 a bad character or padding with exit 2 and its byte offset: `printf hi
 | cosmic codec base64` prints `aGk=`. base64url is unpadded, as JWTs
-write it; `--lenient` accepts the other padding. It prints no verdict
-line.
+write it; `--lenient` accepts the other padding. It prints no summary.
 
 ## a quick look inside an archive
 
@@ -225,14 +234,16 @@ reads its words from the function it returns (`argv[1]`, `argv[2]`), runs
 as `--standalone` does and writes nothing beside it; add a `--write` for
 the output it makes. Standalone, it finds `cosmic.*` modules only: a script
 with modules of its own beside it takes `--set-env COSMIC_STANDALONE=0
---write .`, which builds the tree around it into `o/`.
+--write ~/.cache/cosmic/trees`, which builds the tree around it in its
+build directory there (under `COSMIC_BUILD_HOME` when that is set).
 
 `--closure` holds a script to the modules it needs and nothing of this
 program's own file: `cosmic sandbox --closure -- cosmic convert.tl in.csv
 out.json` compiles `convert.tl` here, seals it with the `cosmic.*` modules
 it requires by name, and runs it on that, so a `require` of anything else
 fails; a module of your own beside the script is refused before the child
-starts, and a `pcall(require, ...)` or computed name is not followed.
+starts. A `pcall(require, "name")` is followed as a `require` is, and a
+computed name is refused when the script is compiled.
 `--database PATH` runs a file [`Store.seal`] wrote, and `--modules a,b`
 seals exactly those modules (the first its main) from this program's store;
 the three are exclusive. The database a run seals is removed when it ends.
@@ -276,7 +287,7 @@ local Clock = require("cosmic.clock")
 local dir = assert(Fs.mkdtemp("quickstart-"))
 assert(Fs.write(dir .. "/greeter.tl", [[
 return function(argv: {string}): integer
-  print("hello, " .. argv[1])
+  print("hello, " .. (argv[1] or "world"))
   return 0
 end
 ]]))
@@ -336,7 +347,7 @@ for name, value in pairs(relaunch.env) do env[name] = value end
 local sleeper <close> = assert(Child.start(argv, { env = env, fds = relaunch.fds }))
 local done, trouble = Child.wait_any({ sleeper }, Clock.ms(10))
 if done == nil and trouble ~= Poll.TIMEOUT then error(trouble) end
-print(done == nil and "still running" or "finished")
+print(if done == nil then "still running" else "finished" end)
 local ended = assert(sleeper:wait())
 print("exit " .. tostring(ended.code))
 ```
@@ -354,10 +365,17 @@ child when the block ends, however it ends -- by its last line, a
 a child still running. An opener answers `Handle | nil` and a reason,
 and the compiler refuses `<close>` on a type that may be nil, so
 `assert` narrows it first, raising the reason when there is no handle.
-The same line holds a [`Child.guard`], a [`cosmic.net`] socket or an
+The same line holds a [`Signal.guard`], a [`cosmic.net`] socket or an
 [`Http.open`] response. A descriptor from [`Fs.open_read`] is an
 integer, which `<close>` cannot hold: [`Fs.close`] closes it, and
 [`Fs.read`] reads a whole file without one.
+
+A record of your own is closable too: its body declares `metamethod
+__close: function(Handle)`, and each value is made with a metatable that
+holds a `__close` (`local mt: metatable<Handle> = { __close = function(self:
+Handle) ... end }`, then `setmetatable(value, mt)`); [`Fs.Scratch.__close`]
+is one. Without it the compiler refuses `<close>` with `to-be-closed
+variable h has a non-closable type Handle`.
 
 ## ending early
 
@@ -386,7 +404,6 @@ names the fix. Write `local peak = 0.0`, or annotate `local peak: number = 0`,
 for a variable that holds floats. A function declared `: number` may still
 `return 0`: an integer is a number.
 
-[`Child.guard`]: ../../cosmic/child.tl
 [`Child.start`]: ../../cosmic/child.tl
 [`Child.wait_any`]: ../../cosmic/child.tl
 [`cosmic.child`]: ../../cosmic/child.tl
@@ -398,6 +415,7 @@ for a variable that holds floats. A function declared `: number` may still
 [`Fs.mkdtemp`]: ../../cosmic/fs.tl
 [`Fs.open_read`]: ../../cosmic/fs.tl
 [`Fs.read`]: ../../cosmic/fs.tl
+[`Fs.Scratch.__close`]: ../../cosmic/fs.tl
 [`Fs.write`]: ../../cosmic/fs.tl
 [`Hash.hex_sha256`]: ../../cosmic/hash.tl
 [`Http.open`]: ../../cosmic/http/init.tl
@@ -407,4 +425,5 @@ for a variable that holds floats. A function declared `: number` may still
 [`Json.select`]: ../../cosmic/json.tl
 [`Poll.TIMEOUT`]: ../../cosmic/poll.tl
 [`Proc.exit`]: ../../cosmic/proc.tl
+[`Signal.guard`]: ../../cosmic/signal.tl
 [`Store.seal`]: ../../cosmic/store.tl

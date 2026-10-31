@@ -18,6 +18,7 @@ local shared_verdicts = require("build.shared_verdicts")
 local confine = require("build.confine")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+local build_paths = require("build.paths")
 
 --- The program itself, which its tests start, roots of their own for
 --- the sandboxed workers of the runs they start (`nests`), and the
@@ -29,12 +30,19 @@ Test.policy{
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }
 
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
+
 --- Runs `cosmic test` on `root` with `words` after it, answering what
 --- it printed.
 local function run(root: string, output: string, env: {string:string},
                    words?: {string}, fails?: boolean): string
   local fd = assert(Fs.open_write(output))
-  local args: {string} = { "test" }
+  local args: mut {string} = { "test" }
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
   local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
@@ -43,7 +51,7 @@ local function run(root: string, output: string, env: {string:string},
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
   local text = assert(Fs.read(output))
-  assert(result ~= nil and result.ok == not fails, tostring(trouble) .. text)
+  assert(result ~= nil and result.ok == fails ~= true, tostring(trouble) .. text)
   return text
 end
 
@@ -101,7 +109,7 @@ local function test_reads_flavour()
 end
 
 local function test_reads_everything()
-  assert(Env.all().FLAVOUR ~= nil)
+  assert(Env.all()["FLAVOUR"] ~= nil)
 end
 
 local function test_plain()
@@ -118,13 +126,13 @@ Test.policy { grants = { { path = "]] .. Fs.dirname(root) ..
 
 local function test_reads_outside()
   local f = assert(Env.get("OUTSIDE")) .. "/f"
-  assert(assert(Fs.stat(f)).mtime ~= ]] .. unready .. [[)
+  assert(assert(Fs.stat(f)).mtime ~= ]] .. tostring(unready) .. [[)
   assert(Fs.read(f) == "out\n")
 end
 ]]))
 end
 
-local type Said = function(string, string, string, ?{string}): string
+local type Said = function(string, string, string, arg4?: {string}): string
 
 --- A shared cache seeded by a first checkout's run under `tmp`: the
 --- environment its runs are given, a `said` that runs `cosmic test` on
@@ -293,7 +301,8 @@ local function test_reads_a_database()
   local db = assert(Sqlite.open("suite/data.db"))
   local rows = assert(Sqlite.text_rows(db, "SELECT v FROM t"))
   assert(db:close())
-  assert(rows[1][1] == "one", rows[1][1])
+  local row = assert(rows[1])
+  assert(row:text(1) == "one", row:text(1))
 end
 ]]))
   end
@@ -306,12 +315,12 @@ end
   assert(same:find("0 ran, 1 stood", 1, true), same)
   database_checkout(tmp .. "/changed", "two")
   local changed = run(tmp .. "/changed", tmp .. "/changed.out", env, nil, true)
-  assert(changed:find("FAIL (1 of 1 failed", 1, true), changed)
+  assert(changed:find("1 of 1 test failed", 1, true), changed)
 end
 
 --- A checkout at `root` whose tests read what `suite/link` is and
 --- where it leads: a link to `target`, or a file where it is nil.
-local function link_checkout(root: string, target: string | nil)
+local function link_checkout(root: string, target: string?)
   assert(Fs.mkdirs(root .. "/suite"))
   if target ~= nil then
     assert(Fs.symlink(target, root .. "/suite/link"))
@@ -339,7 +348,7 @@ end
 --- The environment the link cases run in, sharing through a cache in
 --- `tmp`, once a first checkout whose link leads to "a" has run and
 --- shared its verdicts; nil where it shared nothing.
-local function linked(tmp: string): {string:string} | nil
+local function linked(tmp: string): {string:string}?
   local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
@@ -363,7 +372,7 @@ local function test_a_link_a_test_reads_is_keyed_by_what_it_is(tmp: string)
   assert(same:find("0 ran, 2 stood", 1, true), same)
   link_checkout(tmp .. "/retargeted", "b")
   local retargeted = run(tmp .. "/retargeted", tmp .. "/retargeted.out", env, nil, true)
-  assert(retargeted:find("FAIL (1 of 2 failed", 1, true), retargeted)
+  assert(retargeted:find("1 of 2 tests failed", 1, true), retargeted)
 end
 
 --- A checkout whose link is a file instead runs both tests that read
@@ -373,7 +382,7 @@ local function test_a_link_made_a_file_runs_what_read_it_again(tmp: string)
   if env == nil then return end
   link_checkout(tmp .. "/file", nil)
   local file = run(tmp .. "/file", tmp .. "/file.out", env, nil, true)
-  assert(file:find("FAIL (2 of 2 failed", 1, true), file)
+  assert(file:find("2 of 2 tests failed", 1, true), file)
 end
 
 --- A database a test attaches through the store ([`cosmic.store`]'s
@@ -408,15 +417,22 @@ local function test_reads_an_attached_database()
 end
 ]]))
     assert(Fs.write(root .. "/suite/working_test.tl", [[
+local Env = require("cosmic.env")
+local Hash = require("cosmic.hash")
+local sys = require("cosmic.sys")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
 Test.policy { grants = { { path = "o/build.db", letters = "r" } } }
 
+-- The tree's build directory, named as build/paths.tl names it, under
+-- the base the runner gives a worker.
+local built = assert(Env.get("COSMIC_BUILD_HOME")) .. "/" .. Hash.hex_sha256((assert(sys.realpath("."))))
+
 -- Through the store's own lookup, which searches a database the test
 -- attached ahead of the rest.
 local function test_reads_the_working_database()
-  assert(Store.attach("o/build.db"))
+  assert(Store.attach(built .. "/build.db"))
   assert(Store.meta("schema") ~= nil, "the working database records its schema")
 end
 ]]))
@@ -430,7 +446,7 @@ end
   assert(same:find("1 ran, 1 stood", 1, true), same)
   attached_checkout(tmp .. "/changed", "two")
   local changed = run(tmp .. "/changed", tmp .. "/changed.out", env, nil, true)
-  assert(changed:find("FAIL (1 of 2 failed", 1, true), changed)
+  assert(changed:find("1 of 2 tests failed", 1, true), changed)
 end
 
 --- SQLite names a file with its links resolved: a database a test
@@ -466,11 +482,12 @@ end
   assert(again:find("0 ran, 1 stood", 1, true), again)
 end
 
---- What the build left under o/ is an input like any file of the tree:
---- a checkout whose o/ holds the same bytes stands on a sibling's
---- verdict of a test that read it, one whose o/ holds other bytes runs
---- it, and a test that read the working database, which every run
---- rewrites, runs every time.
+--- What the build left in its build directory, which a grant names
+--- `o/`, is an input like any file of the tree: a checkout whose build
+--- directory holds the same bytes stands on a sibling's verdict of a
+--- test that read it, one whose holds other bytes runs it, and a test
+--- that read the working database, which every run rewrites, runs
+--- every time.
 local function test_a_read_of_the_builds_output_is_keyed_by_its_bytes(tmp: string)
   local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
@@ -479,27 +496,42 @@ local function test_a_read_of_the_builds_output_is_keyed_by_its_bytes(tmp: strin
   local function said(name: string, tool: string, wanted: string): string
     local root = tmp .. "/" .. name
     assert(Fs.mkdirs(root .. "/suite"))
-    assert(Fs.mkdirs(root .. "/o/bin"))
-    assert(Fs.write(root .. "/o/bin/tool", tool))
+    assert(Fs.mkdirs(build_dir(root) .. "/bin"))
+    assert(Fs.write(build_dir(root) .. "/bin/tool", tool))
     assert(Fs.write(root .. "/suite/output_test.tl", [[
+local Env = require("cosmic.env")
+local Hash = require("cosmic.hash")
+local sys = require("cosmic.sys")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
 Test.policy { grants = { { path = "o/bin/tool", letters = "r" } } }
 
+-- The tree's build directory, named as build/paths.tl names it, under
+-- the base the runner gives a worker.
+local built = assert(Env.get("COSMIC_BUILD_HOME")) .. "/" .. Hash.hex_sha256((assert(sys.realpath("."))))
+
 local function test_reads_the_tool()
-  assert(Fs.read("o/bin/tool") ~= nil)
-  assert(Fs.stat("o/bin/tool") ~= nil)
+  local tool = built .. "/bin/tool"
+  assert(Fs.read(tool) ~= nil)
+  assert(Fs.stat(tool) ~= nil)
 end
 ]]))
     assert(Fs.write(root .. "/suite/working_test.tl", [[
+local Env = require("cosmic.env")
+local Hash = require("cosmic.hash")
+local sys = require("cosmic.sys")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
 Test.policy { grants = { { path = "o/build.db", letters = "r" } } }
 
+-- The tree's build directory, named as build/paths.tl names it, under
+-- the base the runner gives a worker.
+local built = assert(Env.get("COSMIC_BUILD_HOME")) .. "/" .. Hash.hex_sha256((assert(sys.realpath("."))))
+
 local function test_reads_the_working_database()
-  assert(Fs.read("o/build.db") ~= nil)
+  assert(Fs.read(built .. "/build.db") ~= nil)
 end
 ]]))
     local text = run(root, tmp .. "/" .. name .. ".out", env)
@@ -529,7 +561,7 @@ local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(
   local tables = assert(Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'declared%'"))
   assert(#tables == 1, "one table")
-  assert(db:exec("UPDATE " .. tables[1][1] .. " SET key = 'another runtime ' || key"))
+  assert(db:exec("UPDATE " .. tables[1]:text(1) .. " SET key = 'another runtime ' || key"))
   assert(db:close())
   checkout(tmp .. "/second", "one\n")
   local second = run(tmp .. "/second", tmp .. "/second.out", env, { "suite/reads_test.tl" })
@@ -589,7 +621,7 @@ local function test_a_cache_of_another_shape_is_done_without(tmp: string)
   local named = assert(Sqlite.text_rows(probe.db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'declared%'"))
   shared_verdicts.close(probe)
-  assert(db:exec("CREATE TABLE " .. named[1][1] .. " (x TEXT)"))
+  assert(db:exec("CREATE TABLE " .. named[1]:text(1) .. " (x TEXT)"))
   local before = assert(Fs.stat(other))
   env.COSMIC_VERDICT_CACHE = other
   checkout(tmp .. "/third", "one\n")
@@ -601,7 +633,7 @@ local function test_a_cache_of_another_shape_is_done_without(tmp: string)
   assert(db:exec("CREATE TABLE healthy (value TEXT)"))
   assert(db:exec("INSERT INTO healthy VALUES ('still usable')"))
   local reader = assert(Sqlite.open(other))
-  assert(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy"))[1][1] == "still usable")
+  assert(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy"))[1]:text(1) == "still usable")
   assert(reader:close())
   assert(db:close())
 end
@@ -637,8 +669,9 @@ local function test_a_touched_file_runs_nothing_again(tmp: string)
   assert(alone:find("0 ran, 4 stood", 1, true), alone)
 end
 
---- A checkout made again at the path of one removed is another
---- checkout: it stands on what the removed one reached.
+--- A checkout made again at the path of one removed, with its build
+--- directory, is another checkout: it stands on what the removed one
+--- reached.
 local function test_a_checkout_made_again_at_the_same_path_stands_on_the_last(tmp: string)
   local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
@@ -649,6 +682,7 @@ local function test_a_checkout_made_again_at_the_same_path_stands_on_the_last(tm
   local first = run(tmp .. "/here", tmp .. "/first.out", env, words)
   assert(first:find("4 ran, 0 stood", 1, true), first)
   if not shares(first) then return end
+  assert(Fs.remove_tree(build_paths.required(tmp .. "/here")))
   assert(Fs.remove_tree(tmp .. "/here"))
   checkout(tmp .. "/here", "one\n")
   local again = run(tmp .. "/here", tmp .. "/again.out", env, words)
@@ -676,7 +710,7 @@ local function test_a_failure_here_is_not_answered_from_elsewhere(tmp: string)
   assert(Fs.set_mtime(tmp .. "/outside/f", unready))
   local failed = run(tmp .. "/second", tmp .. "/failed.out", env,
     { "suite/outside_test.tl" }, true)
-  assert(failed:find("1 of 1 failed", 1, true), failed)
+  assert(failed:find("1 of 1 test failed", 1, true), failed)
   if not shares(failed) then return end
   -- The first passes, and shares it.
   assert(Fs.set_mtime(tmp .. "/outside/f", ready))
@@ -686,7 +720,7 @@ local function test_a_failure_here_is_not_answered_from_elsewhere(tmp: string)
   -- under the same key.
   assert(Fs.set_mtime(tmp .. "/outside/f", unready))
   local again = run(tmp .. "/second", tmp .. "/again.out", env, {}, true)
-  assert(again:find("1 of 5 failed", 1, true), again)
+  assert(again:find("1 of 5 tests failed", 1, true), again)
   -- ...and the row it would have stood on is gone: a third checkout
   -- runs the test too.
   assert(Fs.set_mtime(tmp .. "/outside/f", ready))
@@ -725,7 +759,7 @@ Test.policy {
 }
 
 local function test_stops_early()
-  assert(assert(Fs.stat(assert(Env.get("OUTSIDE")) .. "/f")).mtime ~= ]] .. unready .. [[)
+  assert(assert(Fs.stat(assert(Env.get("OUTSIDE")) .. "/f")).mtime ~= ]] .. tostring(unready) .. [[)
   assert(Fs.read("suite/c.txt") == "c\n")
 end
 ]]))
@@ -741,14 +775,14 @@ local function test_a_failure_that_read_less_is_not_answered_from_elsewhere(tmp:
   tmp = resolved
   assert(Fs.set_mtime(tmp .. "/outside/f", unready))
   local failed = run(tmp .. "/second", tmp .. "/failed.out", env, {}, true)
-  assert(failed:find("1 of 1 failed", 1, true), failed)
+  assert(failed:find("1 of 1 test failed", 1, true), failed)
   if not shares(failed) then return end
   assert(Fs.set_mtime(tmp .. "/outside/f", ready))
   local passed = run(tmp .. "/first", tmp .. "/passed.out", env, {})
   assert(passed:find("1 ran", 1, true), passed)
   assert(Fs.set_mtime(tmp .. "/outside/f", unready))
   local again = run(tmp .. "/second", tmp .. "/again.out", env, {}, true)
-  assert(again:find("1 of 1 failed", 1, true), again)
+  assert(again:find("1 of 1 test failed", 1, true), again)
 end
 
 --- Without the cache too, a test that failed here runs until it passes
@@ -758,9 +792,126 @@ local function test_a_failure_here_runs_again_without_the_cache(tmp: string)
   tmp = resolved
   assert(Fs.set_mtime(tmp .. "/outside/f", unready))
   local failed = run(tmp .. "/second", tmp .. "/failed.out", env, {}, true)
-  assert(failed:find("1 of 1 failed", 1, true), failed)
+  assert(failed:find("1 of 1 test failed", 1, true), failed)
   if not shares(failed) then return end
   env.COSMIC_VERDICT_CACHE = "0"
   local alone = run(tmp .. "/second", tmp .. "/alone.out", env, {}, true)
-  assert(alone:find("1 of 1 failed", 1, true), alone)
+  assert(alone:find("1 of 1 test failed", 1, true), alone)
+end
+
+--- `base`'s variables but for `dropped`, with `added` set.
+local function varied(base: {string:string}, dropped: {string}, added: {string:string}): {string:string}
+  local out: mut {string:string} = {}
+  for name, value in pairs(base) do out[name] = value end
+  for _, name in ipairs(dropped) do out[name] = nil end
+  for name, value in pairs(added) do out[name] = value end
+  return out
+end
+
+--- What the cases below hold: the environment of a run as host b, the
+--- cache it and the cases' first run share, and the root of the cases.
+local record AsAnotherHost
+  env: {string:string}
+  cache: string
+  root: string
+end
+
+--- A cache seeded by a run as host `a` ("host-a" in COSMIC_HOST_ID) of
+--- the checkout `first` under `tmp`, its rows then stamped with the rest
+--- of host b's identity ("host-b"), as rows of a host of other features
+--- (and not of another image) are: the same host in all but the
+--- features, which a test cannot make differ. `extra` is written into
+--- the checkout, beside reads_test.tl, before it runs, and `fails` says
+--- whether the run fails. Nil where the run shared nothing (`shares`).
+local function seeded_as_another_host(tmp: string, extra: {string:string},
+                                      fails: boolean): AsAnotherHost?
+  local root = assert(Fs.absolute(tmp))
+  assert(Fs.mkdirs(root .. "/outside"))
+  assert(Fs.write(root .. "/outside/f", "out\n"))
+  local cache = root .. "/cache/verdicts.db"
+  local as_a = varied(environment(), { "COSMIC_TEST_ALL", "COSMIC_SANDBOX" }, {
+    COSMIC_VERDICT_CACHE = cache, OUTSIDE = root .. "/outside", FLAVOUR = "sweet",
+    COSMIC_HOST_ID = "host-a" })
+  checkout(root .. "/first", "one\n")
+  local words: mut {string} = { "suite/reads_test.tl" }
+  for name, text in pairs(extra) do
+    assert(Fs.write(root .. "/first/suite/" .. name, text))
+    words[#words + 1] = "suite/" .. name
+  end
+  table.sort(words)
+  local first = run(root .. "/first", root .. "/first.out", as_a, words, fails)
+  if not shares(first) then return nil end
+  -- What host b says of itself, on a cache of its own.
+  local probing = varied(as_a, {}, { COSMIC_HOST_ID = "host-b",
+    COSMIC_VERDICT_CACHE = root .. "/cache-b/verdicts.db" })
+  checkout(root .. "/probe", "one\n")
+  local probe = run(root .. "/probe", root .. "/probe.out", probing,
+    { "--census", "suite/reads_test.tl" })
+  local identity, rest = probe:match("host identity (%x+), host rest (%x+)")
+  assert(identity ~= nil and rest ~= nil, probe)
+  local db = assert(Sqlite.open(cache, { writable = true }))
+  local rows = assert(Sqlite.text_rows(db, "SELECT DISTINCT parts FROM declared_v1"))
+  assert(#rows == 1, "one set of parts")
+  local named = shared_verdicts.host_of(assert(rows[1]):text(1))
+  assert(named.identity ~= nil and named.identity ~= identity, "host a is host b")
+  assert(named.rest ~= nil and named.rest ~= rest, "the hosts' ids differ in their rest")
+  assert(Sqlite.run(db, "UPDATE declared_v1 SET parts = replace(parts, ?1, ?2)",
+    { { text = "host rest " .. named.rest }, { text = "host rest " .. rest } }))
+  assert(db:close())
+  return { env = varied(probing, {}, { COSMIC_VERDICT_CACHE = cache }), cache = cache, root = root }
+end
+
+--- A gathering run (COSMIC_TEST_FOREIGN_FEATURES=1) stands on the rows
+--- another host of this host's rest reached, under that host's key;
+--- the same run without it, as every local `cosmic test` is, runs the
+--- tests.
+local function test_a_gathering_run_stands_on_the_rows_of_a_host_of_other_features(tmp: string)
+  local held = seeded_as_another_host(tmp, {}, false)
+  if held == nil then return end
+  local root = held.root
+  checkout(root .. "/local", "one\n")
+  local alone = run(root .. "/local", root .. "/local.out", held.env, { "suite/reads_test.tl" })
+  assert(alone:find("4 ran, 0 stood", 1, true), alone)
+  local gathering = varied(held.env, {}, { COSMIC_TEST_FOREIGN_FEATURES = "1" })
+  checkout(root .. "/gather", "one\n")
+  local gathered = run(root .. "/gather", root .. "/gather.out", gathering, { "suite/reads_test.tl" })
+  assert(gathered:find("0 ran, 4 stood, 4 of them on another checkout's verdict", 1, true), gathered)
+  -- The rows stay under host a's key and the run that ran them here
+  -- under host b's: the gathering run made none of its own.
+  local db = assert(Sqlite.open(held.cache))
+  local rows = assert(Sqlite.text_rows(db, "SELECT COUNT(*) FROM declared_v1"))
+  assert(db:close())
+  assert(assert(rows[1]):text(1) == "8", "the gathering run made rows of this host's key")
+end
+
+--- The near misses of a gathering run: a file its module declares
+--- differs (what the key holds apart from the host), a test that
+--- failed on the other host and left no row, and a test no run there
+--- reached.
+local function test_a_gathering_run_runs_what_the_other_hosts_rows_do_not_answer_for(tmp: string)
+  local held = seeded_as_another_host(tmp, {
+    ["extra_test.tl"] = "local function test_extra() assert(1 == 1) end\n",
+    ["fails_test.tl"] = "local function test_fails() assert(false) end\n",
+  }, true)
+  if held == nil then return end
+  local root = held.root
+  local gathering = varied(held.env, {}, { COSMIC_TEST_FOREIGN_FEATURES = "1" })
+  checkout(root .. "/gather", "one\n")
+  assert(Fs.write(root .. "/gather/suite/extra_test.tl", "local function test_extra() assert(1 == 1) end\n"))
+  assert(Fs.write(root .. "/gather/suite/fails_test.tl", "local function test_fails() assert(false) end\n"))
+  local failed = run(root .. "/gather", root .. "/gather.out", gathering,
+    { "suite/extra_test.tl", "suite/fails_test.tl", "suite/reads_test.tl" }, true)
+  -- Only that test ran, and failed (a failing summary does not count
+  -- the tests that stood): the run found verdicts for the others.
+  assert(failed:find("1 of 6 tests failed", 1, true) ~= nil, failed)
+  assert(failed:find("shared verdicts: none of", 1, true) == nil, failed)
+  assert(failed:find("test: FAIL  suite.fails_test", 1, true) ~= nil, failed)
+  assert(select(2, failed:gsub("test: FAIL ", "")) == 1, failed)
+  checkout(root .. "/edited", "two\n")
+  local edited = run(root .. "/edited", root .. "/edited.out", gathering, { "suite/reads_test.tl" })
+  assert(edited:find("4 ran, 0 stood", 1, true), edited)
+  assert(Fs.write(root .. "/gather/suite/more_test.tl", "local function test_more() assert(2 == 2) end\n"))
+  local more = run(root .. "/gather", root .. "/more.out", gathering,
+    { "suite/more_test.tl", "suite/extra_test.tl" })
+  assert(more:find("1 ran, 1 stood", 1, true), more)
 end

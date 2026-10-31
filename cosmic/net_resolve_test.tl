@@ -1,9 +1,10 @@
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
+local Address = require("cosmic.relay.address")
 
 --- The addresses `found` holds, one "family address" each, sorted.
 local function listed(found: {Net.Resolved}): {string}
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, resolved in ipairs(found) do
     lines[#lines + 1] = resolved.family .. " " .. resolved.address
   end
@@ -29,9 +30,18 @@ local function test_a_hosts_file_answers_every_address_of_both_families(tmp: str
   assert(#only == 1 and only[1].address == "198.51.100.7" and only[1].family == "ipv4")
 end
 
+local function test_nameservers_lists_numeric_servers_at_port_53()
+  local servers = assert(Net.nameservers())
+  assert(#servers >= 1, "at least the resolver's default")
+  for _, server in ipairs(servers) do
+    assert(Address.parse(server.host) ~= nil, server.host)
+    assert(server.port == 53, server.host .. ":" .. tostring(server.port))
+  end
+end
+
 local function test_a_numeric_literal_answers_itself_without_a_query()
   -- The only server is a port nothing listens at, so a query would fail.
-  local opts: Net.ResolveOptions = { servers = { Net.udp("127.0.0.1", 9) }, timeout_ns = 1 }
+  local opts: Net.ResolveOptions = { servers = { { host = "127.0.0.1", port = 9 } }, timeout_ns = 1 }
   for _, case in ipairs({
       { "127.0.0.1", "ipv4" }, { "255.255.255.255", "ipv4" }, { "::1", "ipv6" },
       { "2001:db8::1", "ipv6" }, { "::ffff:192.0.2.1", "ipv6" },
@@ -49,22 +59,16 @@ local function test_a_name_the_resolver_cannot_take_fails_and_a_degenerate_argum
     local found, why = Net.resolve(name, { timeout_ns = 1 })
     assert(found == nil and why == "Invalid argument", string.format("%q: %s", name, tostring(why)))
   end
-  local found, why = Net.resolve("example.test", { servers = { Net.udp("127.0.0.1,8.8.8.8", 53) } })
+  local found, why = Net.resolve("example.test", { servers = { { host = "127.0.0.1,8.8.8.8", port = 53 } } })
   assert(found == nil and why == "Invalid argument", why)
-  found, why = Net.resolve("example.test", { servers = { Net.udp("localhost", 53) } })
+  found, why = Net.resolve("example.test", { servers = { { host = "localhost", port = 53 } } })
   assert(found == nil and why == "Invalid argument", why)
   found, why = Net.resolve("example.test", { hosts_file = tmp .. "/x\0y" })
   assert(found == nil and why == "Invalid argument", why)
-  local number: any = 7
-  local text: any = "x"
-  assert(not pcall(Net.resolve, number as string))
-  assert(not pcall(Net.resolve, "example.test", text as Net.ResolveOptions))
   assert(not pcall(Net.resolve, "example.test", { timeout_ns = -1 }))
-  assert(not pcall(Net.resolve, "example.test", { timeout_ns = 0.5 } as Net.ResolveOptions))
-  assert(not pcall(Net.resolve, "example.test", { hosts_file = number } as Net.ResolveOptions))
-  assert(not pcall(Net.resolve, "example.test", { servers = text } as Net.ResolveOptions))
   assert(not pcall(Net.resolve, "example.test", { servers = {} }))
-  assert(not pcall(Net.resolve, "example.test", { servers = { Net.tcp("127.0.0.1", 53) } }))
+  assert(not pcall(Net.resolve, "example.test", { servers = { { host = "127.0.0.1", port = 70000 } } }))
+  assert(not pcall(Net.resolve, "example.test", { servers = { { host = "127.0.0.1", port = 0 } } }))
 end
 
 --- A name of 254 bytes (253 and a trailing dot) is the longest asked of

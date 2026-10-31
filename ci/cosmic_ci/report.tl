@@ -43,7 +43,7 @@ local record Report
   end
   record Job
     name: string
-    seconds: integer | nil
+    seconds?: integer
     steps: {Step}
   end
   record Run
@@ -53,12 +53,12 @@ local record Report
     sha: string
     conclusion: string
     attempt: string
-    jobs: {Job}
-    suites: {State.SuiteRun}
+    mut jobs: mut {Job}
+    suites: mut {State.SuiteRun}
     --- Each `ci-driver-` artifact that could not be had, and why.
-    missing: {string}
-    qualifies: boolean
-    why: string
+    missing: mut {string}
+    mut qualifies: boolean
+    mut why: string
   end
   record Artifact
     name: string
@@ -68,17 +68,47 @@ local record Report
   record Options
     runs: integer
     event: string
-    branch: string | nil
+    branch?: string
     repo: string
     workflow: string
     client: GithubApi.Client
   end
-  spec: {string:Flags.Option}
+  --- What `driver.tl report` answers: the exit status, and what it says on standard output and on standard error.
+  record Answer
+    code: integer
+    out: string
+    err: string
+  end
+  spec: function(): {string:Flags.Option}
+end
+
+--- The report text a run of [`Report.report`] under `pcall` came to.
+local record Said
+  mut text: string
+end
+
+--- What one suite reported in the runs a report compares: each figure's values, a value a run.
+local record Series
+  ms: mut {number}
+  stood: mut {number}
+  ran: mut {number}
+end
+
+--- What one leg's jobs took in the runs a report compares, a value a run.
+local record Times
+  seconds: mut {number}
+end
+
+--- `count` as text, "" where there is none.
+local function count_text(count: integer?): string
+  if count == nil then return "" end
+  return tostring(count)
 end
 
 --- The join job of ci.yml (`ci`): every other job of a run but `reuse`
 --- and `seed`'s legs is a leg of the platform matrix, named by its leg,
---- or the checked job (`linux-x86_64-checked`), which runs beside them.
+--- or a job of the checked suite (`linux-x86_64-checked`, its shares, its
+--- narrowing run) or the format check, which run beside them.
 local join_job <const> = "ci"
 --- The suites whose key parts decide whether a run qualifies: the
 --- checked suite's and each leg's native one (orchestration.tl's
@@ -90,45 +120,47 @@ local lookback <const> = 10
 --- How many of a leg's slowest steps a run's table names.
 local slowest_steps <const> = 3
 
-Report.spec = {
-  ["--runs"] = { value = "n", about = "how many completed runs to report (1 to 100; 10)" },
-  ["--event"] = { value = "event", about = "the event whose runs to report (merge_group)" },
-  ["--branch"] = { value = "branch", about = "the branch whose runs to report (main for push)" },
-  ["--repo"] = { value = "owner/name",
-    about = "the repository ($GITHUB_REPOSITORY, else cosmic-lua/cosmic)" },
-  ["--workflow"] = { value = "file", about = "the workflow whose runs to report (ci.yml)" },
-}
+function Report.spec(): {string:Flags.Option}
+  return {
+    ["--runs"] = { value = "n", about = "how many completed runs to report (1 to 100; 10)" },
+    ["--event"] = { value = "event", about = "the event whose runs to report (merge_group)" },
+    ["--branch"] = { value = "branch", about = "the branch whose runs to report (main for push)" },
+    ["--repo"] = { value = "owner/name",
+      about = "the repository ($GITHUB_REPOSITORY, else cosmic-lua/cosmic)" },
+    ["--workflow"] = { value = "file", about = "the workflow whose runs to report (ci.yml)" },
+  }
+end
 
 --- Seconds since 1970 of an ISO 8601 UTC time as GitHub writes one
 --- ("2026-09-28T12:34:56Z"), or nil for anything else (JSON null).
-function Report.seconds_of(value: any): integer | nil
+function Report.seconds_of(value: any): integer?
   if not value is string then return nil end
   local y, mo, d, h, mi, s = value:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d):(%d%d):(%d%d)")
   if not y then return nil end
   local year, month = math.tointeger(tonumber(y)), math.tointeger(tonumber(mo))
   local day = math.tointeger(tonumber(d))
   -- Days from the civil date (Howard Hinnant's days_from_civil).
-  if month <= 2 then year = year - 1 end
-  local era = year // 400
-  local yoe = year - era * 400
-  local mp = (month + 9) % 12
-  local doy = (153 * mp + 2) // 5 + day - 1
+  if assert(month) <= 2 then year = assert(year) - 1 end
+  local era = assert(year) // 400
+  local yoe = assert(year) - era * 400
+  local mp = (assert(month) + 9) % 12
+  local doy = (153 * mp + 2) // 5 + assert(day) - 1
   local doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
   local days = era * 146097 + doe - 719468
-  return days * 86400 + math.tointeger(tonumber(h)) * 3600 +
-    math.tointeger(tonumber(mi)) * 60 + math.tointeger(tonumber(s))
+  return days * 86400 + assert(math.tointeger(tonumber(h))) * 3600 +
+    assert(math.tointeger(tonumber(mi))) * 60 + assert(math.tointeger(tonumber(s)))
 end
 
-local function span(from: any, to: any): integer | nil
+local function span(from: any, to: any): integer?
   local a, b = Report.seconds_of(from), Report.seconds_of(to)
   if a == nil or b == nil or b < a then return nil end
   return b - a
 end
 
 --- "13m 32s", "45s", or "-" for none.
-function Report.duration(seconds: integer | nil): string
+function Report.duration(seconds: integer?): string
   if seconds == nil then return "-" end
-  if seconds < 60 then return seconds .. "s" end
+  if seconds < 60 then return tostring(seconds) .. "s" end
   return string.format("%dm %02ds", seconds // 60, seconds % 60)
 end
 
@@ -137,10 +169,10 @@ end
 local record RunItem
   id: integer
   event: string
-  head_branch: string | nil
+  head_branch?: string
   head_sha: string
-  conclusion: string | nil
-  run_attempt: integer | nil
+  conclusion?: string
+  run_attempt?: integer
 end
 local record RunsAnswer
   workflow_runs: {RunItem}
@@ -151,14 +183,14 @@ local RUNS <const> = Shape.record_of("RunsAnswer")
 --- skipped job has no `steps`, and a skipped step no times.
 local record StepItem
   name: string
-  started_at: string | nil
-  completed_at: string | nil
+  started_at?: string
+  completed_at?: string
 end
 local record JobItem
   name: string
-  started_at: string | nil
-  completed_at: string | nil
-  steps: {StepItem} | nil
+  started_at?: string
+  completed_at?: string
+  steps?: {StepItem}
 end
 local record JobsAnswer
   jobs: {JobItem}
@@ -170,8 +202,8 @@ local JOBS <const> = Shape.record_of("JobsAnswer")
 local record ArtifactItem
   name: string
   id: integer
-  created_at: string | nil
-  expired: boolean | nil
+  created_at?: string
+  expired?: boolean
 end
 local record ArtifactsAnswer
   artifacts: {ArtifactItem}
@@ -183,11 +215,11 @@ local ARTIFACTS <const> = Shape.record_of("ArtifactsAnswer")
 function Report.runs(text: string): {Report.Run}
   local answer, why = RUNS:decode_into(text)
   assert(answer ~= nil, "the runs list: " .. why)
-  local out: {Report.Run} = {}
+  local out: mut {Report.Run} = {}
   for _, run in ipairs(answer.workflow_runs) do
     out[#out + 1] = { id = tostring(run.id), event = run.event,
       branch = run.head_branch or "", sha = run.head_sha,
-      conclusion = run.conclusion or "", attempt = tostring(run.run_attempt or ""),
+      conclusion = run.conclusion or "", attempt = count_text(run.run_attempt),
       jobs = {}, suites = {}, missing = {}, qualifies = false, why = "" }
   end
   return out
@@ -198,9 +230,9 @@ end
 function Report.jobs(text: string): {Report.Job}
   local answer, why = JOBS:decode_into(text)
   assert(answer ~= nil, "the jobs list: " .. why)
-  local out: {Report.Job} = {}
+  local out: mut {Report.Job} = {}
   for _, job in ipairs(answer.jobs) do
-    local steps: {Report.Step} = {}
+    local steps: mut {Report.Step} = {}
     for _, step in ipairs(job.steps or {}) do
       local seconds = span(step.started_at, step.completed_at)
       if seconds then steps[#steps + 1] = { name = step.name, seconds = seconds } end
@@ -220,12 +252,12 @@ end
 function Report.driver_artifacts(text: string): {Report.Artifact}
   local answer, why = ARTIFACTS:decode_into(text)
   assert(answer ~= nil, "the artifacts list: " .. why)
-  local newest: {string:Report.Artifact} = {}
-  local names: {string} = {}
+  local newest: mut {string:Report.Artifact} = {}
+  local names: mut {string} = {}
   for _, artifact in ipairs(answer.artifacts) do
     local name, id = artifact.name, tostring(artifact.id)
     local created = Report.seconds_of(artifact.created_at) or 0
-    if name:match("^ci%-driver%-") and artifact.expired ~= true then
+    if (name:match("^ci%-driver%-") and artifact.expired ~= true) == true then
       local held = newest[name]
       if held == nil then names[#names + 1] = name end
       if held == nil or created > held.created then
@@ -234,13 +266,16 @@ function Report.driver_artifacts(text: string): {Report.Artifact}
     end
   end
   table.sort(names)
-  local out: {Report.Artifact} = {}
-  for _, name in ipairs(names) do out[#out + 1] = newest[name] end
+  local out: mut {Report.Artifact} = {}
+  for _, name in ipairs(names) do
+    local artifact = newest[name]
+    if artifact ~= nil then out[#out + 1] = artifact end
+  end
   return out
 end
 
---- Whether `name` is a platform leg's job, or the checked job's, which
---- runs beside the legs and can be a run's slowest: not the join, nor
+--- Whether `name` is a platform leg's job, or one of the checked jobs',
+--- which run beside the legs and can be a run's slowest: not the join, nor
 --- ci.yml's `reuse` lookup or a `seed` leg ("seed (<leg>, <runner>)"),
 --- which run in place of the legs on a push to main that reuses the
 --- queue's run.
@@ -249,7 +284,7 @@ function Report.is_platform_job(name: string): boolean
 end
 
 local function platform_jobs(run: Report.Run): {Report.Job}
-  local out: {Report.Job} = {}
+  local out: mut {Report.Job} = {}
   for _, job in ipairs(run.jobs) do
     if Report.is_platform_job(job.name) then out[#out + 1] = job end
   end
@@ -265,18 +300,22 @@ function Report.runner_seconds(run: Report.Run): integer
 end
 
 --- A run's slowest platform job, or nil where none has both times.
-function Report.slowest(run: Report.Run): Report.Job | nil
-  local slowest: Report.Job | nil = nil
+function Report.slowest(run: Report.Run): Report.Job?
+  local slowest: Report.Job? = nil
+  local slowest_seconds = 0
   for _, job in ipairs(platform_jobs(run)) do
-    if job.seconds and (slowest == nil or job.seconds > slowest.seconds) then slowest = job end
+    local seconds = job.seconds
+    if seconds ~= nil and (slowest == nil or seconds > slowest_seconds) then
+      slowest, slowest_seconds = job, seconds
+    end
   end
   return slowest
 end
 
 local function deciding_rows(run: Report.Run): {string:State.SuiteRun}
-  local rows: {string:State.SuiteRun} = {}
+  local rows: mut {string:State.SuiteRun} = {}
   for _, row in ipairs(run.suites) do
-    if deciding[row.suite] then rows[row.worker .. " " .. row.suite] = row end
+    if deciding[row.suite] == true then rows[row.worker .. " " .. row.suite] = row end
   end
   return rows
 end
@@ -294,7 +333,7 @@ local function matched_restored(now: {string:string}, held: string): string, str
   for _, group in ipairs(groups) do
     rows = rows + group.rows
     if next(group.parts) ~= nil then named = true end
-    if group.parts.runtime == now.runtime and group.parts.harness == now.harness then
+    if group.parts["runtime"] == now["runtime"] and group.parts["harness"] == now["harness"] then
       matched = matched + group.rows
     end
   end
@@ -323,37 +362,38 @@ end
 function Report.qualify(runs: {Report.Run}, shown?: integer)
   for i = 1, math.min(shown or #runs, #runs) do
     local run = runs[i]
-    run.qualifies, run.why = false, ""
-    local rows = deciding_rows(run)
-    local earlier: Report.Run | nil = nil
+    assert(run).qualifies, assert(run).why = false, ""
+    local rows = deciding_rows(assert(run))
+    local earlier: Report.Run? = nil
     for j = i + 1, #runs do
-      if runs[j].conclusion ~= "cancelled" and next(deciding_rows(runs[j])) ~= nil then
+      if assert(runs[j]).conclusion ~= "cancelled" and next(deciding_rows(assert(runs[j]))) ~= nil then
         earlier = runs[j]
         break
       end
     end
-    local keys: {string} = {}
+    local keys: mut {string} = {}
     for key in pairs(rows) do keys[#keys + 1] = key end
     table.sort(keys)
-    local by_census: {string} = {}
+    local by_census: mut {string} = {}
     local by_earlier, unnamed_held = 0, false
-    local moved: {string} = {}
+    local moved: mut {string} = {}
     for _, key in ipairs(keys) do
-      local now = rows[key].parts or {}
-      local held = rows[key].held
+      local now = assert(rows[key]).parts or {}
+      local held = assert(rows[key]).held
       local verdict, detail = "none", ""
       if held ~= nil then verdict, detail = matched_restored(now, held) end
       -- Said of a row compared with the earlier run for want of a census.
-      local unnamed = verdict == "unnamed" and "restored rows name no parts, " or ""
-      if (now.runtime or "") == "" or (now.harness or "") == "" then
+      local unnamed = ""
+      if verdict == "unnamed" then unnamed = "restored rows name no parts, " end
+      if (now["runtime"] or "") == "" or (now["harness"] or "") == "" then
         moved[#moved + 1] = key .. ": no key parts"
       elseif verdict == "matched" then
         by_census[#by_census + 1] = key .. ": " .. detail
       elseif verdict == "moved" then
         moved[#moved + 1] = key .. ": " .. detail
       elseif earlier == nil then
-        moved[#moved + 1] = key .. ": " .. (unnamed ~= "" and unnamed or "no census, ") ..
-          "and no earlier run with suite rows listed to compare"
+        if unnamed == "" then unnamed = "no census, " end
+        moved[#moved + 1] = key .. ": " .. unnamed .. "and no earlier run with suite rows listed to compare"
       else
         local was = deciding_rows(earlier)[key]
         if was == nil then
@@ -374,58 +414,61 @@ function Report.qualify(runs: {Report.Run}, shown?: integer)
       end
     end
     if #keys == 0 then
-      run.why = "no checked or native suite rows"
+      assert(run).why = "no checked or native suite rows"
     elseif #moved > 0 then
-      run.why = table.concat(moved, "; ")
+      assert(run).why = table.concat(moved, "; ")
     else
-      run.qualifies = true
-      local said: {string} = {}
+      assert(run).qualifies = true
+      local said: mut {string} = {}
       if #by_census > 0 then
         said[#said + 1] = "runtime and harness epoch and timeout among the restored cache's (" ..
           table.concat(by_census, "; ") .. ")"
       end
       if by_earlier > 0 then
-        said[#said + 1] = (unnamed_held and "restored rows name no parts; " or "") ..
-          "runtime and harness epoch and timeout held since run " .. (earlier as Report.Run).id
+        local earlier_id = ""
+        if earlier ~= nil then earlier_id = earlier.id end
+        said[#said + 1] = (if unnamed_held then "restored rows name no parts; " else "" end) ..
+          "runtime and harness epoch and timeout held since run " .. earlier_id
       end
-      run.why = table.concat(said, "; ")
+      assert(run).why = table.concat(said, "; ")
     end
   end
 end
 
 --- The median of `values`, or nil for none.
-function Report.median(values: {number}): number | nil
+function Report.median(values: {number}): number?
   if #values == 0 then return nil end
-  local sorted: {number} = {}
-  for i, v in ipairs(values) do sorted[i] = v end
+  local sorted: mut {number} = {}
+  for _, v in ipairs(values) do sorted[#sorted + 1] = v end
   table.sort(sorted)
   local middle = (#sorted + 1) // 2
   if #sorted % 2 == 1 then return sorted[middle] end
-  return (sorted[middle] + sorted[middle + 1]) / 2
+  return (assert(sorted[middle]) + assert(sorted[middle + 1])) / 2
 end
 
-local function whole(value: number | nil): integer | nil
+local function whole(value: number?): integer?
   if value == nil then return nil end
   return math.floor(value + 0.5)
 end
 
 local function suite_table(rows: {State.SuiteRun}): string
-  local lines: {string} = { "| Leg | Suite | Status | Tests | Ran | Stood | Stood % | ms |\n",
+  local lines: mut {string} = { "| Leg | Suite | Status | Tests | Ran | Stood | Stood % | ms |\n",
     "|---|---|---|---:|---:|---:|---:|---:|\n" }
   for _, row in ipairs(rows) do
     lines[#lines + 1] = string.format("| %s | %s | %s | %s | %s | %s | %s | %s |\n",
-      row.worker or "", row.suite or "", row.status or "", tostring(row.tests or ""),
-      tostring(row.ran or ""), tostring(row.stood or ""), SuiteOutput.stood_percent(row),
-      tostring(row.elapsed_ms or ""))
+      row.worker, row.suite, row.status, count_text(row.tests),
+      count_text(row.ran), count_text(row.stood), SuiteOutput.stood_percent(row),
+      count_text(row.elapsed_ms))
   end
   return table.concat(lines)
 end
 
 --- `runs`, qualified (`qualify`), as the report's markdown.
 function Report.render(runs: {Report.Run}, o: Report.Options): string
-  local out: {string} = { string.format("# CI runs: %s, %s event%s, last %d\n",
-    o.workflow, o.event, o.branch and (" on " .. o.branch) or "", #runs) }
-  local qualifying: {Report.Run} = {}
+  local branch = o.branch
+  local out: mut {string} = { string.format("# CI runs: %s, %s event%s, last %d\n",
+    o.workflow, o.event, if branch ~= nil then (" on " .. branch) else "" end, #runs) }
+  local qualifying: mut {Report.Run} = {}
   for _, run in ipairs(runs) do
     out[#out + 1] = string.format("\n## Run %s (%s, %s, attempt %s, %s)\n\n",
       run.id, run.conclusion, run.branch, run.attempt, run.sha:sub(1, 12))
@@ -437,16 +480,16 @@ function Report.render(runs: {Report.Run}, o: Report.Options): string
     end
     out[#out + 1] = "- Wall: " .. wall .. "\n"
     out[#out + 1] = "- Runner time: " .. Report.duration(Report.runner_seconds(run)) .. "\n"
-    out[#out + 1] = "- Qualifies: " .. (run.qualifies and "yes" or "no") ..
+    out[#out + 1] = "- Qualifies: " .. (if run.qualifies then "yes" else "no" end) ..
       " (" .. run.why .. ")\n"
     for _, missing in ipairs(run.missing) do
       out[#out + 1] = "- Not read: " .. missing .. "\n"
     end
     out[#out + 1] = "\n| Leg | Time | Slowest steps |\n|---|---:|---|\n"
     for _, job in ipairs(platform_jobs(run)) do
-      local named: {string} = {}
+      local named: mut {string} = {}
       for i = 1, math.min(slowest_steps, #job.steps) do
-        named[i] = job.steps[i].name .. " " .. Report.duration(job.steps[i].seconds)
+        named[#named + 1] = assert(job.steps[i]).name .. " " .. Report.duration(assert(job.steps[i]).seconds)
       end
       out[#out + 1] = "| " .. job.name .. " | " .. Report.duration(job.seconds) ..
         " | " .. table.concat(named, "; ") .. " |\n"
@@ -465,35 +508,48 @@ function Report.render(runs: {Report.Run}, o: Report.Options): string
     out[#out + 1] = "None qualifies.\n"
     return table.concat(out)
   end
-  local walls: {number} = {}
-  local runner: {number} = {}
-  local legs: {string:{number}} = {}
-  local leg_names: {string} = {}
-  local suites: {string:{string:{number}}} = {}
-  local suite_names: {string} = {}
+  local walls: mut {number} = {}
+  local runner: mut {number} = {}
+  local legs: mut {string:Times} = {}
+  local leg_names: mut {string} = {}
+  local suites: mut {string:Series} = {}
+  local suite_names: mut {string} = {}
   for _, run in ipairs(qualifying) do
     local slowest = Report.slowest(run)
-    if slowest then walls[#walls + 1] = slowest.seconds end
+    if slowest ~= nil then
+      local wall = slowest.seconds
+      if wall ~= nil then walls[#walls + 1] = wall end
+    end
     runner[#runner + 1] = Report.runner_seconds(run)
     for _, job in ipairs(platform_jobs(run)) do
-      if job.seconds then
-        if not legs[job.name] then
-          legs[job.name] = {}
+      local seconds = job.seconds
+      if seconds then
+        local held = legs[job.name]
+        if held == nil then
+          held = { seconds = {} }
+          legs[job.name] = held
           leg_names[#leg_names + 1] = job.name
         end
-        table.insert(legs[job.name], job.seconds)
+        held.seconds[#held.seconds + 1] = seconds
       end
     end
     for _, row in ipairs(run.suites) do
       local key = row.worker .. " | " .. row.suite
-      if not suites[key] then
-        suites[key] = { ms = {}, stood = {}, ran = {} }
+      local found = suites[key]
+      local series: Series
+      if found == nil then
+        series = { ms = {}, stood = {}, ran = {} }
+        suites[key] = series
         suite_names[#suite_names + 1] = key
+      else
+        series = found
       end
-      if row.elapsed_ms then table.insert(suites[key].ms, row.elapsed_ms) end
-      if row.ran then table.insert(suites[key].ran, row.ran) end
+      local elapsed_ms = row.elapsed_ms
+      if elapsed_ms then series.ms[#series.ms + 1] = elapsed_ms end
+      local row_ran = row.ran
+      if row_ran then series.ran[#series.ran + 1] = row_ran end
       local percent = tonumber(SuiteOutput.stood_percent(row))
-      if percent then table.insert(suites[key].stood, percent) end
+      if percent then series.stood[#series.stood + 1] = percent end
     end
   end
   table.sort(leg_names)
@@ -502,15 +558,15 @@ function Report.render(runs: {Report.Run}, o: Report.Options): string
   out[#out + 1] = "- Runner time: " .. Report.duration(whole(Report.median(runner))) .. "\n"
   out[#out + 1] = "\n| Leg | Time |\n|---|---:|\n"
   for _, name in ipairs(leg_names) do
-    out[#out + 1] = "| " .. name .. " | " .. Report.duration(whole(Report.median(legs[name]))) .. " |\n"
+    out[#out + 1] = "| " .. name .. " | " .. Report.duration(whole(Report.median(assert(legs[name]).seconds))) .. " |\n"
   end
   out[#out + 1] = "\n| Leg | Suite | Ran | Stood % | ms |\n|---|---|---:|---:|---:|\n"
   for _, key in ipairs(suite_names) do
-    local figures = suites[key]
-    local stood = Report.median(figures.stood)
-    out[#out + 1] = "| " .. key .. " | " .. tostring(whole(Report.median(figures.ran)) or "") ..
+    local series = assert(suites[key])
+    local stood = Report.median(series.stood)
+    out[#out + 1] = "| " .. key .. " | " .. count_text(whole(Report.median(series.ran))) ..
       " | " .. (stood and string.format("%.1f", stood) or "") ..
-      " | " .. tostring(whole(Report.median(figures.ms)) or "") .. " |\n"
+      " | " .. count_text(whole(Report.median(series.ms))) .. " |\n"
   end
   return table.concat(out)
 end
@@ -521,34 +577,42 @@ local function api(o: Report.Options, endpoint: string): string
   return text
 end
 
+--- The rows a read of an operations database came to, kept where the function that reads them under `pcall` can set them.
+local record Read
+  mut rows: {State.SuiteRun}
+end
+
 --- The suite rows of `bytes`, an operations database, or nil and why
 --- they cannot be read.
-local function rows_of(bytes: string, path: string): {State.SuiteRun} | nil, string
+local function rows_of(bytes: string, path: string): {State.SuiteRun}?, string
   local written, why = Fs.write(path, bytes)
   if not written then return nil, why end
   local db, trouble = Sqlite.open(path)
   if db == nil then return nil, trouble end
-  local called, rows = pcall(State.suite_rows, db)
-  db:close()
-  if not called then return nil, tostring(rows) end
-  return rows as {State.SuiteRun}, ""
+  local read: Read = { rows = {} }
+  local called, raised = pcall(function()
+    read.rows = State.suite_rows(db)
+  end)
+  local _, _ = db:close()
+  if not called then return nil, tostring(raised) end
+  return read.rows, ""
 end
 
 --- The operations database a `ci-driver-` artifact's zip, `zip`, holds,
 --- or nil and why it holds none.
-local function database_of(zip: string): string | nil, string
+local function database_of(zip: string): string?, string
   local reader, why = Zip.open_string(zip)
   if reader == nil then return nil, why end
   local listed, list_why = reader:entries()
   if listed == nil then
-    reader:close()
+    local _, _ = reader:close()
     return nil, list_why
   end
-  local found: string | nil = nil
+  local found: string? = nil
   local trouble = "no operations.db"
   for _, entry in ipairs(listed) do
     if entry.path == "operations.db" and entry.kind == "file" then
-      local stream, opened = entry.open(entry)
+      local stream, opened = entry:open()
       if stream == nil then
         trouble = opened
       else
@@ -557,7 +621,7 @@ local function database_of(zip: string): string | nil, string
       end
     end
   end
-  reader:close()
+  local _, _ = reader:close()
   if found == nil then return nil, trouble end
   return found, ""
 end
@@ -572,11 +636,11 @@ local function read_suites(o: Report.Options, run: Report.Run, scratch: string)
     local file = scratch .. "/" .. run.id .. "-" .. artifact.id .. ".zip"
     local downloaded, why = GithubApi.download(o.client, "repos/" .. o.repo ..
         "/actions/artifacts/" .. artifact.id .. "/zip", file)
-    local zip: string | nil = nil
+    local zip: string? = nil
     if downloaded then zip, why = Fs.read(file) end
-    local rows: {State.SuiteRun} | nil = nil
+    local rows: {State.SuiteRun}? = nil
     if zip ~= nil then
-      local database: string | nil
+      local database: string?
       database, why = database_of(zip)
       if database ~= nil then
         rows, why = rows_of(database, scratch .. "/" .. run.id .. "-" .. artifact.id .. ".db")
@@ -598,22 +662,28 @@ function Report.report(o: Report.Options): string
   -- (`qualify`); each one's rows are fetched only while no earlier run
   -- has any.
   local listed = math.min(o.runs + lookback, 100)
-  local query = "status=completed&per_page=" .. listed .. "&event=" .. o.event
-  if o.branch then query = query .. "&branch=" .. o.branch end
+  local query = "status=completed&per_page=" .. tostring(listed) .. "&event=" .. o.event
+  local branch = o.branch
+  if branch then query = query .. "&branch=" .. branch end
   local runs = Report.runs(api(o, "repos/" .. o.repo .. "/actions/workflows/" ..
       o.workflow .. "/runs?" .. query))
-  local shown: {Report.Run} = {}
-  for i = 1, math.min(o.runs, #runs) do shown[i] = runs[i] end
+  local shown: mut {Report.Run} = {}
+  for i = 1, math.min(o.runs, #runs) do
+    local run = runs[i]
+    if run ~= nil then shown[#shown + 1] = run end
+  end
   local scratch = assert(Fs.mkdtemp("cosmic-ci-report-"))
   local called, trouble = pcall(function(): boolean
     for _, run in ipairs(shown) do
-      run.jobs = Report.jobs(api(o, "repos/" .. o.repo .. "/actions/runs/" .. run.id ..
+      local fetched = Report.jobs(api(o, "repos/" .. o.repo .. "/actions/runs/" .. run.id ..
           "/jobs?per_page=100"))
+      run.jobs = {}
+      for _, job in ipairs(fetched) do run.jobs[#run.jobs + 1] = job end
       read_suites(o, run, scratch)
     end
     for i = #shown + 1, #runs do
-      read_suites(o, runs[i], scratch)
-      if runs[i].conclusion ~= "cancelled" and next(deciding_rows(runs[i])) ~= nil then
+      read_suites(o, assert(runs[i]), scratch)
+      if assert(runs[i]).conclusion ~= "cancelled" and next(deciding_rows(assert(runs[i]))) ~= nil then
         break
       end
     end
@@ -643,11 +713,11 @@ end
 --- read, 1 where there is no token or GitHub failed; and what it says on
 --- stdout and on stderr. `client` stands in for the live one `env` makes.
 function Report.answer(got: Flags.Parsed, env: {string:string},
-                       client?: GithubApi.Client): integer, string, string
-  local function refuse(why: string): integer, string, string
-    return 2, "", "driver.tl report: " .. why .. "\n"
+                       client?: GithubApi.Client): Report.Answer
+  local function refuse(why: string): Report.Answer
+    return { code = 2, out = "", err = "driver.tl report: " .. why .. "\n" }
   end
-  if #got.words > 0 then return refuse("takes no words: " .. got.words[1]) end
+  if #got.words > 0 then return refuse("takes no words: " .. assert(got.words[1])) end
   local runs = math.tointeger(tonumber(got.values["--runs"] or "10"))
   if runs == nil or runs < 1 or runs > 100 then
     return refuse("--runs must be a whole number from 1 to 100")
@@ -655,10 +725,10 @@ function Report.answer(got: Flags.Parsed, env: {string:string},
   local event = got.values["--event"] or "merge_group"
   local branch = got.values["--branch"]
   if branch == nil and event == "push" then branch = "main" end
-  local repository = got.values["--repo"] or env.GITHUB_REPOSITORY or ""
+  local repository = got.values["--repo"] or env["GITHUB_REPOSITORY"] or ""
   if repository == "" then repository = "cosmic-lua/cosmic" end
   local workflow = got.values["--workflow"] or "ci.yml"
-  if branch and not branch_name(branch) then
+  if branch ~= nil and not branch_name(branch) then
     return refuse("not a branch name: " .. branch)
   end
   for _, value in ipairs({ event, workflow }) do
@@ -669,21 +739,30 @@ function Report.answer(got: Flags.Parsed, env: {string:string},
   end
   if client == nil then
     local live, why = GithubApi.live(env)
-    if live == nil then return 1, "", "driver.tl report: " .. why .. "\n" end
+    if live == nil then return { code = 1, out = "", err = "driver.tl report: " .. why .. "\n" } end
     client = live
   end
-  local called, answer = pcall(Report.report, { runs = runs, event = event,
-    branch = branch, repo = repository, workflow = workflow, client = client })
-  if not called then return 1, "", "driver.tl report: " .. tostring(answer) .. "\n" end
-  return 0, answer as string, ""
+  local said: Said = { text = "" }
+  local called, raised = pcall(function()
+    said.text = Report.report({ runs = runs, event = event,
+      branch = branch, repo = repository, workflow = workflow, client = client })
+  end)
+  if not called then
+    return { code = 1, out = "", err = "driver.tl report: " .. tostring(raised) .. "\n" }
+  end
+  return { code = 0, out = said.text, err = "" }
 end
 
 --- `driver.tl report [options]`, in this process's environment.
 function Report.command(got: Flags.Parsed): integer
-  local code, out, err = Report.answer(got, Env.all())
-  if out ~= "" then Fs.put(Fs.stdout, out) end
-  if err ~= "" then Fs.put(Fs.stderr, err) end
-  return code
+  local answer = Report.answer(got, Env.all())
+  if answer.out ~= "" then
+    local _, _ = Fs.put(Fs.stdout, answer.out)
+  end
+  if answer.err ~= "" then
+    local _, _ = Fs.put(Fs.stderr, answer.err)
+  end
+  return answer.code
 end
 
 return Report

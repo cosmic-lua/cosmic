@@ -22,10 +22,15 @@ int cosmic_open_sqlite (lua_State *L);
  * handle's metatable exists. */
 void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db);
 
-/* Registers the functions every handle this module opens knows --
- * `sha256`, `digest`, `hmac`, `deflate`, `inflate` -- on `db`, so a
- * connection opened elsewhere (the store's) answers the same queries.
- * Forwards SQLite's status: SQLITE_OK, or the first failure. */
+/* Readies `db` as every handle this module opens is, so a connection
+ * opened elsewhere (the store's) answers the same queries under the same
+ * rules: turns PRAGMA trusted_schema off, so the views and triggers a
+ * database file holds may call only what SQLite marks innocuous, and
+ * registers `sha256`, `digest`, `hmac`, `deflate`, `inflate` and the
+ * functions of the SQLite extensions the core is built with
+ * (`generate_series`, `regexp`, `decimal`, `uuid`, `sha1`, `sha3`,
+ * `base64`, `base85`, `compress`, ...). Forwards SQLite's status:
+ * SQLITE_OK, or the first failure. */
 int cosmic_sqlite_functions (sqlite3 *db);
 
 #endif

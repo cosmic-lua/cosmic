@@ -1,0 +1,12 @@
+#!/bin/sh
+# Runs a round of evals -- arenas, solvers, grades, summaries, result.json
+# and an index: see eval/round.tl, which this runs with `cosmic
+# --standalone` on bin/cosmic-bootstrap's cosmic: the pinned release, or
+# $COSMIC_BOOTSTRAP when set.
+#
+#   eval/round <task,...|all> --model <id> [--tool PATH] [--out DIR] [--run N]
+#              [--jobs N] [--max-turns N] [--timeout S]
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+exec "$root/bin/cosmic-bootstrap" --standalone "$root/eval/round.tl" "$@"

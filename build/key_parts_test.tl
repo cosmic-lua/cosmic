@@ -7,13 +7,20 @@ local Codec = require("cosmic.codec")
 local declared_key = require("build.declared_key")
 local key_parts = require("build.key_parts")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 --- Every byte alone, and strings of every length to 64 over a spread
 --- of bytes, hex-encode as [`Codec.hex`] does and decode back.
 local function test_hex_is_codec_hex_and_unhex_inverts_it()
-  local samples: {string} = { "" }
+  local samples: mut {string} = { "" }
   for byte = 0, 255 do samples[#samples + 1] = string.char(byte) end
   for length = 1, 64 do
-    local bytes: {string} = {}
+    local bytes: mut {string} = {}
     for i = 1, length do bytes[i] = string.char((i * 37 + length * 11) % 256) end
     samples[#samples + 1] = table.concat(bytes)
   end
@@ -37,8 +44,8 @@ local function test_a_key_part_is_the_kind_then_path_and_answer_in_hex()
   assert(key_parts.key_part("s", edges, "") == "s 000a7fff ")
   assert(key_parts.key_part("d", "caf\xc3\xa9", "x") == "d 636166c3a9 78")
   for _, case in ipairs({ { "i", "build.a_test test_b", "" }, { "r", "/tree/x", "ok 12" } }) do
-    assert(key_parts.key_part(case[1], case[2], case[3]) ==
-        case[1] .. " " .. Codec.hex(case[2]) .. " " .. Codec.hex(case[3]))
+    assert(key_parts.key_part(nth(case, 1), nth(case, 2), nth(case, 3)) ==
+        nth(case, 1) .. " " .. Codec.hex(nth(case, 2)) .. " " .. Codec.hex(nth(case, 3)))
   end
 end
 
@@ -57,6 +64,6 @@ end
 local function test_declared_key_answers_the_compiler_readers()
   assert(declared_key.compiler_readers == key_parts.compiler_readers)
   assert(declared_key.reads_compiler == key_parts.reads_compiler)
-  assert(key_parts.reads_compiler({ "build.a", key_parts.compiler_readers[1] }))
+  assert(key_parts.reads_compiler({ "build.a", nth(key_parts.compiler_readers, 1) }))
   assert(not key_parts.reads_compiler({ "build.a" }))
 end

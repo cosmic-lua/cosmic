@@ -3,7 +3,7 @@ local Fs = require("cosmic.fs")
 local record Predicate
 end
 
-local function checked(answer: boolean | nil, trouble?: string): boolean
+local function checked(answer: boolean?, trouble: string): boolean
   assert(answer ~= nil, trouble)
   return answer
 end
@@ -14,6 +14,12 @@ end
 
 function Predicate.is_dir(path: string): boolean
   return checked(Fs.is_dir(path))
+end
+
+--- Whether `path` has no status: nothing is there, or it cannot be looked at.
+function Predicate.absent(path: string): boolean
+  local status, _ = Fs.stat(path)
+  return status == nil
 end
 
 return Predicate

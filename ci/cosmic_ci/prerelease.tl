@@ -17,14 +17,14 @@ local String = require("cosmic.string")
 local record Prerelease
   --- The platform legs, in the byte order of their products'
   --- directories' names, the order `stage` expects them in.
-  lanes: {string}
+  lanes: function(): {string}
   --- The assets a published prerelease holds, and the order a resumed
   --- draft uploads the missing ones in.
-  assets: {string}
+  assets: function(): {string}
   --- What `stage` reads from its environment: PRODUCTS, RELEASE,
   --- SOURCE_COMMIT and SOURCE_RUN_URL.
   record Stage
-    products: string
+    mut products: string
     release: string
     commit: string
     run_url: string
@@ -38,7 +38,21 @@ local record Prerelease
     release: string
     commit: string
     run_prefix: string
-    temp: string
+    mut temp: string
+  end
+  --- The release `publish` makes: a draft prerelease.
+  record NewRelease
+    tag_name: string
+    name: string
+    body: string
+    draft: boolean
+    prerelease: boolean
+  end
+  --- The ids of the drafts a page of the releases list holds, and
+  --- whether the list's drafts end there.
+  record Drafts
+    ids: {integer}
+    ends: boolean
   end
 end
 
@@ -51,10 +65,19 @@ local record Source
 end
 local SOURCE <const> = Shape.record_of("Source")
 
-Prerelease.lanes = { "alpine-x86_64", "linux-aarch64", "linux-x86_64", "macos-aarch64" }
+local LANES <const>: {string} = { "alpine-x86_64", "linux-aarch64", "linux-x86_64", "macos-aarch64" }
+
+function Prerelease.lanes(): {string}
+  return LANES
+end
+
 --- The lane whose bytes every other lane's must equal.
 local baseline_lane <const> = "linux-x86_64"
-Prerelease.assets = { "cosmic", "SHA256SUMS", "source.json" }
+local ASSETS <const>: {string} = { "cosmic", "SHA256SUMS", "source.json" }
+
+function Prerelease.assets(): {string}
+  return ASSETS
+end
 
 --- The type each asset is uploaded as, as gh guessed it from the name.
 local asset_types: {string:string} = { ["source.json"] = "application/json",
@@ -63,7 +86,7 @@ local asset_types: {string:string} = { ["source.json"] = "application/json",
 local function read(path: string): string return (assert(Fs.read(path))) end
 
 local function is_file(path: string): boolean
-  local st = Fs.stat(path)
+  local st, _ = Fs.stat(path)
   return st ~= nil and st.kind == "file"
 end
 
@@ -82,7 +105,7 @@ end
 --- The digest an executed-cosmic.sha256 manifest names: its text,
 --- trailing newlines aside, is exactly `<64 lowercase hex>  cosmic`.
 --- nil and why otherwise.
-function Prerelease.manifest_digest(text: string): string | nil, string
+function Prerelease.manifest_digest(text: string): string?, string
   local line = substituted(text)
   local digest = line:match("^([0-9a-f]+)  cosmic$")
   if digest == nil or #digest ~= 64 then
@@ -134,41 +157,63 @@ end
 --- Whether `names`, a release's asset names, are exactly the three a
 --- published prerelease holds.
 function Prerelease.complete_assets(names: {string}): boolean, string
-  if #names ~= #Prerelease.assets then
-    return false, "the release holds " .. Plural.count(#names, "asset") .. ", not " .. #Prerelease.assets
+  if #names ~= #ASSETS then
+    return false, "the release holds " .. Plural.count(#names, "asset") .. ", not " .. tostring(#ASSETS)
   end
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, name in ipairs(names) do seen[name] = true end
-  for _, name in ipairs(Prerelease.assets) do
-    if not seen[name] then return false, "the release holds no " .. name end
+  for _, name in ipairs(ASSETS) do
+    if seen[name] ~= true then return false, "the release holds no " .. name end
   end
   return true, ""
 end
 
 --- Whether a draft may hold an asset of this name when it is resumed.
 function Prerelease.known_asset(name: string): boolean
-  for _, known in ipairs(Prerelease.assets) do
+  for _, known in ipairs(ASSETS) do
     if name == known then return true end
   end
   return false
 end
 
---- The ids of the releases tagged `tag`, from the decoded pages
---- [`GithubApi.pages`] gathers of the releases list.
-function Prerelease.release_ids(pages: {any}, tag: string): {integer}
-  local ids: {integer} = {}
-  for _, page in ipairs(pages) do
-    assert(page is {any} and Json.is_array(page), "a page of the releases list is no array")
-    for _, release in ipairs(page) do
-      assert(release is {string:any}, "a release is no object")
-      if release.tag_name == tag then
-        local id = release.id
-        assert(id is integer, "release " .. tag .. " has no id")
-        ids[#ids + 1] = id
-      end
+--- One release of the releases list. The flags and ids are `any` so that a
+--- release without them is refused by name ([`Prerelease.draft_ids`]).
+local record ReleaseRow
+  id?: any
+  draft?: any
+  tag_name?: any
+end
+local RELEASE_ROW <const> = Shape.record_of("ReleaseRow")
+
+--- The ids of the drafts tagged `tag` on `page`, one page of 100 of the
+--- releases list as the API's JSON, and whether the list's drafts end
+--- there: the page holds a release that is no draft, or fewer than 100.
+--- GitHub lists drafts before every other release, which nothing
+--- documents; a draft after one that is no draft raises, since a draft
+--- the scan would pass over unseen is one the publish would make again
+--- beside it.
+function Prerelease.draft_ids(page: string, tag: string): Prerelease.Drafts
+  local items, why: {any}?, string = Shape.decode_into(page, Shape.list(Shape.any))
+  assert(items ~= nil, "a page of the releases list is no array: " .. why)
+  local ids: mut {integer} = {}
+  local published = false
+  for _, item in ipairs(items) do
+    local release, trouble = RELEASE_ROW:into(item)
+    assert(release ~= nil, "a release is no object: " .. trouble)
+    local draft = release.draft
+    assert(draft is boolean, "release " .. tostring(release.tag_name) .. " has no draft flag")
+    if not draft then
+      published = true
+    elseif published then
+      error("the releases list holds draft " .. tostring(release.tag_name) ..
+          " after a published release, which the publish's search for its draft assumes it does not")
+    elseif release.tag_name == tag then
+      local id = release.id
+      assert(id is integer, "release " .. tag .. " has no id")
+      ids[#ids + 1] = id
     end
   end
-  return ids
+  return { ids = ids, ends = published or #items < 100 }
 end
 
 local function required(env: {string:string}, name: string): string
@@ -186,12 +231,13 @@ end
 --- `portable-product-*` that is itself a directory, not a link to one,
 --- as `find -mindepth 1 -maxdepth 1 -type d` finds them, sorted.
 local function product_directories(products: string): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(products)))) do
     if name:match("^portable%-product%-") then
       local path = products .. "/" .. name
-      local st = Fs.stat(path)
-      if st ~= nil and st.kind == "dir" and Fs.readlink(path) == nil then
+      local st, _ = Fs.stat(path)
+      local link, _ = Fs.readlink(path)
+      if st ~= nil and st.kind == "dir" and link == nil then
         found[#found + 1] = name
       end
     end
@@ -205,15 +251,15 @@ end
 --- notes. Raises on the first product that fails a check.
 function Prerelease.stage(s: Prerelease.Stage)
   local found = product_directories(s.products)
-  assert(#found == #Prerelease.lanes, "expected " .. Plural.count(#Prerelease.lanes, "product directory", "product directories") ..
-      ", found " .. #found)
-  for i, lane in ipairs(Prerelease.lanes) do
+  assert(#found == #LANES, "expected " .. Plural.count(#LANES, "product directory", "product directories") ..
+      ", found " .. tostring(#found))
+  for i, lane in ipairs(LANES) do
     assert(found[i] == "portable-product-" .. lane,
-      "expected portable-product-" .. lane .. ", found " .. found[i])
+      "expected portable-product-" .. lane .. ", found " .. assert(found[i]))
   end
   local baseline = read(s.products .. "/portable-product-" .. baseline_lane .. "/cosmic")
-  local digest: string | nil = nil
-  for _, lane in ipairs(Prerelease.lanes) do
+  local digest: string? = nil
+  for _, lane in ipairs(LANES) do
     local product = s.products .. "/portable-product-" .. lane
     for _, name in ipairs({ "cosmic", "executed-cosmic.sha256", "expected-platforms" }) do
       assert(is_file(product .. "/" .. name), product .. ": no file " .. name)
@@ -247,8 +293,8 @@ function Prerelease.publish_context(env: {string:string}): Prerelease.Publish
     run_prefix = required(env, "SOURCE_RUN_PREFIX"), temp = required(env, "RUNNER_TEMP") }
 end
 
---- A GET of `path`, a JSON object; raises where there is none.
-local function api_object(p: Prerelease.Publish, path: string): {string:any}
+--- A GET of `path`, a JSON object's text; raises where there is none.
+local function api_object(p: Prerelease.Publish, path: string): string
   local object, why = GithubApi.object(p.client, "GET", path)
   assert(object ~= nil, why)
   return object
@@ -261,7 +307,7 @@ local function api_probe(p: Prerelease.Publish, path: string): boolean
   local reply, why = GithubApi.request(p.client, "GET", path)
   assert(reply ~= nil, why)
   if reply.status >= 200 and reply.status <= 299 then return true end
-  assert(reply.status == 404, "GET " .. path .. " failed (HTTP status " .. reply.status .. ")")
+  assert(reply.status == 404, "GET " .. path .. " failed (HTTP status " .. tostring(reply.status) .. ")")
   return false
 end
 
@@ -269,12 +315,86 @@ local function tag_of(p: Prerelease.Publish): string
   return "next-" .. p.commit
 end
 
+--- The pages of 100 the releases list serves: GitHub stops at its 1000th,
+--- a page past that answering 422 or not by the server it reaches.
+local list_pages <const> = 10
+
+--- What a release answered by tag is read for: its id, which must be an integer.
+local record ReleaseId
+  id?: any
+end
+local RELEASE_ID <const> = Shape.record_of("ReleaseId")
+
+--- The ids of the releases tagged with `p`'s tag, a draft's among them.
+--- The list of releases serves only its first 1000, so it is not read
+--- whole: a published release is asked for by its tag, which answers
+--- none but a published one, and the list is read only while its
+--- releases are drafts, which it lists before every other
+--- ([`Prerelease.draft_ids`] raises where it does not), so the first page
+--- that holds one that is no draft ends it. A draft made or deleted
+--- between two pages' requests shifts them, so an id is taken once. A
+--- transport error or a status but 2xx and 404 raises, so neither can
+--- lead to making anything.
+local function release_ids(p: Prerelease.Publish): {integer}
+  local tag = tag_of(p)
+  local ids: mut {integer} = {}
+  local taken: mut {integer:boolean} = {}
+  local by_tag = "repos/" .. p.repository .. "/releases/tags/" .. tag
+  local found, why = GithubApi.request(p.client, "GET", by_tag)
+  assert(found ~= nil, why)
+  if found.status ~= 404 then
+    assert(found.status >= 200 and found.status <= 299,
+      "GET " .. by_tag .. " failed (HTTP status " .. tostring(found.status) .. ")")
+    local published, decode_trouble = RELEASE_ID:decode_into(found.body)
+    assert(published ~= nil, "GET " .. by_tag .. ": " .. decode_trouble)
+    local id = published.id
+    assert(id is integer, "release " .. tag .. " has no id")
+    ids[#ids + 1] = id
+    taken[id] = true
+  end
+  for page = 1, list_pages do
+    local path = "repos/" .. p.repository .. "/releases?per_page=100&page=" .. tostring(page)
+    local reply, trouble = GithubApi.request(p.client, "GET", path)
+    assert(reply ~= nil, trouble)
+    assert(reply.status >= 200 and reply.status <= 299,
+      "GET " .. path .. " failed (HTTP status " .. tostring(reply.status) .. ")")
+    local drafts = Prerelease.draft_ids(reply.body, tag)
+    for _, id in ipairs(drafts.ids) do
+      if taken[id] == nil then
+        taken[id] = true
+        ids[#ids + 1] = id
+      end
+    end
+    if drafts.ends then return ids end
+  end
+  error("the releases list's first " .. tostring(list_pages * 100) .. " are all drafts")
+end
+
+--- The git object a ref or a tag names.
+local record GitObject
+  sha?: any
+  type?: any
+end
+--- A ref or an annotated tag as the API answers it.
+local record GitRef
+  ref?: any
+  object?: GitObject
+end
+local GIT_REF <const> = Shape.record_of("GitRef")
+
 --- The git object `object` (a ref's or a tag's `object` field) names.
-local function target(object: any, what: string): string, string
-  assert(object is {string:any}, what .. " names no object")
+local function target(object: GitObject?, what: string): string, string
+  assert(object ~= nil, what .. " names no object")
   local sha, kind = object.sha, object.type
   assert(sha is string and kind is string, what .. " names no object")
   return sha, kind
+end
+
+--- The ref or annotated tag at `path`, read from the API.
+local function git_ref(p: Prerelease.Publish, path: string): GitRef
+  local ref, why = GIT_REF:decode_into(api_object(p, path))
+  assert(ref ~= nil, "GET " .. path .. ": " .. why)
+  return ref
 end
 
 --- The tag names the commit being published. It is resolved as a tag,
@@ -283,33 +403,52 @@ end
 --- it tags.
 local function verify_tag(p: Prerelease.Publish)
   local tag = tag_of(p)
-  local ref = api_object(p, "repos/" .. p.repository .. "/git/ref/tags/" .. tag)
+  local ref = git_ref(p, "repos/" .. p.repository .. "/git/ref/tags/" .. tag)
   assert(ref.ref == "refs/tags/" .. tag, tag .. ": the API answered another ref")
   local sha, kind = target(ref.object, tag)
   -- A tag may tag a tag; a chain longer than this is no release tag.
   for _ = 1, 8 do
     if kind ~= "tag" then break end
-    local annotated = api_object(p, "repos/" .. p.repository .. "/git/tags/" .. sha)
+    local annotated = git_ref(p, "repos/" .. p.repository .. "/git/tags/" .. sha)
     sha, kind = target(annotated.object, tag)
   end
   assert(kind == "commit", tag .. " names no commit")
   assert(sha == p.commit, tag .. " names another commit")
 end
 
+--- The repository as the API answers a GET of it.
+local record Repository
+  default_branch?: any
+end
+local REPOSITORY <const> = Shape.record_of("Repository")
+
+--- A file of a compare.
+local record ChangedFile
+  filename?: any
+end
+--- A compare of two commits as the API answers it.
+local record Comparison
+  files?: {ChangedFile}
+end
+local COMPARISON <const> = Shape.record_of("Comparison")
+
 --- Whether the repository's default branch holds workflows other than
 --- `p.commit`'s: the files the compare from the commit to the branch
 --- changes include one under .github/workflows/.
 local function workflows_moved(p: Prerelease.Publish): boolean
-  local repo = api_object(p, "repos/" .. p.repository)
+  local path = "repos/" .. p.repository
+  local repo, why = REPOSITORY:decode_into(api_object(p, path))
+  assert(repo ~= nil, "GET " .. path .. ": " .. why)
   local branch = repo.default_branch
   assert(branch is string, p.repository .. " names no default branch")
-  local compare = api_object(p, "repos/" .. p.repository .. "/compare/" ..
-      p.commit .. "..." .. branch)
+  local compare_path = "repos/" .. p.repository .. "/compare/" .. p.commit .. "..." .. branch
+  local compare, trouble = COMPARISON:decode_into(api_object(p, compare_path))
+  assert(compare ~= nil, "GET " .. compare_path .. ": " .. trouble)
   local files = compare.files
-  assert(files is {any}, "the compare to " .. branch .. " lists no files")
+  assert(files ~= nil, "the compare to " .. branch .. " lists no files")
   for _, file in ipairs(files) do
-    local name = file is {string:any} and file.filename or nil
-    if name is string and name:match("^%.github/workflows/") then return true end
+    local name = file.filename
+    if name is string and name:match("^%.github/workflows/") ~= nil then return true end
   end
   return false
 end
@@ -336,37 +475,53 @@ local function ensure_tag(p: Prerelease.Publish): boolean
     assert(made ~= nil, why)
     if made.status < 200 or made.status > 299 then
       if made.status == 403 and
-          made.body:find("Resource not accessible by integration", 1, true) and
+          made.body:find("Resource not accessible by integration", 1, true) ~= nil and
           workflows_moved(p) then
         return false
       end
       error("POST " .. path .. " ref=refs/tags/" .. tag .. " failed (HTTP status " ..
-          made.status .. ")", 0)
+          tostring(made.status) .. ")", 0)
     end
   end
   verify_tag(p)
   return true
 end
 
+--- An asset of a release.
+local record AssetRow
+  name?: any
+  id?: any
+end
+--- A release as GET releases/ID answers it.
+local record ReleaseView
+  prerelease?: any
+  draft?: any
+  upload_url?: any
+  assets?: {AssetRow}
+end
+local RELEASE_VIEW <const> = Shape.record_of("ReleaseView")
+
 --- The release `id`, as GET releases/ID answers: by id, not by tag, as
 --- the by-tag endpoint finds no draft.
-local function view(p: Prerelease.Publish, id: integer): {string:any}
-  return api_object(p, "repos/" .. p.repository .. "/releases/" .. id)
+local function view(p: Prerelease.Publish, id: integer): ReleaseView
+  local path = "repos/" .. p.repository .. "/releases/" .. tostring(id)
+  local release, why = RELEASE_VIEW:decode_into(api_object(p, path))
+  assert(release ~= nil, "GET " .. path .. ": " .. why)
+  return release
 end
 
 --- The names of a release's assets, sorted, and each one's id.
-local function assets_of(release: {string:any}): {string}, {string:integer}
+local function assets_of(release: ReleaseView): {string}, {string:integer}
   local assets = release.assets
-  assert(assets is {any} and Json.is_array(assets), "the release's assets are no array")
-  local names: {string} = {}
-  local ids: {string:integer} = {}
+  assert(assets ~= nil, "the release's assets are no array")
+  local names: mut {string} = {}
+  local ids: mut {string:integer} = {}
   -- TODO: an asset whose `state` is not "uploaded" is what a run that
   -- died mid-upload leaves: delete it (`DELETE releases/assets/ID`) and
   -- upload it again. Until then a re-run fails on it (it is listed as an
   -- asset, so its download or comparison fails) until someone deletes it
   -- by hand.
   for _, asset in ipairs(assets) do
-    assert(asset is {string:any}, "an asset is no object")
     local name, id = asset.name, asset.id
     assert(name is string, "an asset has no name")
     assert(id is integer, "asset " .. name .. " has no id")
@@ -385,7 +540,7 @@ end
 --- Downloads the asset `name`, whose id is `id`, into `destination`.
 local function download(p: Prerelease.Publish, id: integer, name: string, destination: string)
   local ok, why = GithubApi.download(p.client, "repos/" .. p.repository ..
-      "/releases/assets/" .. id, destination .. "/" .. name, "application/octet-stream")
+      "/releases/assets/" .. tostring(id), destination .. "/" .. name, "application/octet-stream")
   assert(ok, why)
 end
 
@@ -393,7 +548,8 @@ end
 local function fresh(p: Prerelease.Publish, name: string): string
   local path = p.temp .. "/prerelease/" .. name
   local there, why = Fs.exists(path)
-  assert(there == false, there and path .. " exists already" or why)
+  assert(there ~= nil, why)
+  assert(not there, path .. " exists already")
   assert(Fs.mkdirs(path))
   return path
 end
@@ -414,14 +570,15 @@ local function verify_assets(p: Prerelease.Publish, release: integer, digest: st
   local complete, why = Prerelease.complete_assets(names)
   assert(complete, tag_of(p) .. ": " .. why)
   local destination = fresh(p, name)
-  for _, asset in ipairs(Prerelease.assets) do download(p, ids[asset], asset, destination) end
+  for _, asset in ipairs(ASSETS) do
+    download(p, assert(ids[asset]), asset, destination)
+  end
   same_bytes(p.release .. "/cosmic", destination .. "/cosmic")
   same_bytes(p.release .. "/SHA256SUMS", destination .. "/SHA256SUMS")
   source_checked(p, digest, destination .. "/source.json")
 end
 
-local function flag(state: {string:any}, name: string): boolean
-  local value = state[name]
+local function flag(value: any, name: string): boolean
   assert(value is boolean, "the release's " .. name .. " is no boolean")
   return value
 end
@@ -434,19 +591,15 @@ end
 function Prerelease.publish(p: Prerelease.Publish): string
   local tag = tag_of(p)
   local digest = Hash.hex_sha256(read(p.release .. "/cosmic"))
-  -- The get-by-tag endpoint only promises published releases. Listing
-  -- releases with authentication also finds an interrupted draft.
-  local pages, why = GithubApi.pages(p.client, "repos/" .. p.repository .. "/releases?per_page=100")
-  assert(pages ~= nil, why)
-  local ids = Prerelease.release_ids(pages, tag)
-  assert(#ids <= 1, Plural.count(#ids, "release") .. (#ids == 1 and " is" or " are") .. " tagged " .. tag)
+  local ids = release_ids(p)
+  assert(#ids <= 1, Plural.count(#ids, "release") .. (if #ids == 1 then " is" else " are" end) .. " tagged " .. tag)
   local release: integer
   if #ids == 1 then
-    release = ids[1]
+    release = assert(ids[1])
     verify_tag(p)
     local state = view(p, release)
-    assert(flag(state, "prerelease"), tag .. " is no prerelease")
-    if not flag(state, "draft") then
+    assert(flag(state.prerelease, "prerelease"), tag .. " is no prerelease")
+    if not flag(state.draft, "draft") then
       verify_assets(p, release, digest, "published")
       return "prerelease already published and verified: " .. tag
     end
@@ -455,10 +608,13 @@ function Prerelease.publish(p: Prerelease.Publish): string
       return "::warning::prerelease skipped: " .. tag .. ": GitHub refused the tag, " ..
         "the default branch's workflows having moved past it"
     end
-    local created, trouble = GithubApi.object(p.client, "POST",
-      "repos/" .. p.repository .. "/releases", { tag_name = tag, name = tag,
-        body = read(p.release .. "/notes.md"), draft = true, prerelease = true })
-    assert(created ~= nil, trouble)
+    local made: Prerelease.NewRelease = { tag_name = tag, name = tag,
+      body = read(p.release .. "/notes.md"), draft = true, prerelease = true }
+    local created_text, trouble = GithubApi.object(p.client, "POST",
+      "repos/" .. p.repository .. "/releases", made)
+    assert(created_text ~= nil, trouble)
+    local created, created_trouble = RELEASE_ID:decode_into(created_text)
+    assert(created ~= nil, "the created release: " .. created_trouble)
     local created_id = created.id
     assert(created_id is integer, "the created release has no id")
     release = created_id
@@ -469,21 +625,21 @@ function Prerelease.publish(p: Prerelease.Publish): string
   assert(upload_url is string, tag .. " names no upload URL")
   -- Resume an interrupted draft by accepting only identical existing
   -- assets. source.json may name an earlier successful run for this SHA.
-  local existing: {string:boolean} = {}
+  local existing: mut {string:boolean} = {}
   local names, asset_ids = assets_of(state)
   for _, name in ipairs(names) do
     assert(Prerelease.known_asset(name), tag .. " holds an unexpected asset: " .. name)
     existing[name] = true
     local destination = fresh(p, "existing-" .. name)
-    download(p, asset_ids[name], name, destination)
+    download(p, assert(asset_ids[name]), name, destination)
     if name == "source.json" then
       source_checked(p, digest, destination .. "/" .. name)
     else
       same_bytes(p.release .. "/" .. name, destination .. "/" .. name)
     end
   end
-  for _, name in ipairs(Prerelease.assets) do
-    if not existing[name] then
+  for _, name in ipairs(ASSETS) do
+    if existing[name] ~= true then
       local uploaded, trouble = GithubApi.upload(p.client, upload_url, name,
         read(p.release .. "/" .. name), asset_types[name])
       assert(uploaded, tag .. ": " .. trouble)
@@ -491,11 +647,11 @@ function Prerelease.publish(p: Prerelease.Publish): string
   end
   verify_assets(p, release, digest, "completed")
   local edited, trouble = GithubApi.object(p.client, "PATCH",
-    "repos/" .. p.repository .. "/releases/" .. release, { draft = false, prerelease = true })
+    "repos/" .. p.repository .. "/releases/" .. tostring(release), { draft = false, prerelease = true })
   assert(edited ~= nil, trouble)
   verify_tag(p)
   verify_assets(p, release, digest, "published")
-  assert(not flag(view(p, release), "draft"), tag .. " is still a draft")
+  assert(not flag(view(p, release).draft, "draft"), tag .. " is still a draft")
   return "prerelease published and verified: " .. tag
 end
 
@@ -509,7 +665,7 @@ local function command(name: string, argv: {string}, action: function(): string)
     local _, _ = Fs.put(Fs.stderr, name .. ": " .. tostring(answer) .. "\n")
     return 1
   end
-  if answer ~= "" then assert(Fs.put(Fs.stdout, answer .. "\n")) end
+  if answer is string and answer ~= "" then assert(Fs.put(Fs.stdout, answer .. "\n")) end
   return 0
 end
 

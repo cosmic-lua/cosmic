@@ -25,12 +25,12 @@ local function test_what_only_a_process_can_do_raises(tmp: string)
   local here = assert(sys.getcwd())
   local ran, trouble = pcall(invoke.run, { "-e", "require('cosmic.proc').exit(0)" },
     { cwd = tmp })
-  assert(not ran and tostring(trouble):find("called sys.exit", 1, true), tostring(trouble))
+  assert(not ran and tostring(trouble):find("called sys.exit", 1, true) ~= nil, tostring(trouble))
   local swallowed, why = pcall(invoke.run, { "-e", "pcall(require('cosmic.proc').exit, 0)" },
     { cwd = tmp })
-  assert(not swallowed and tostring(why):find("called sys.exit", 1, true), tostring(why))
+  assert(not swallowed and tostring(why):find("called sys.exit", 1, true) ~= nil, tostring(why))
   local file, file_trouble = pcall(invoke.run, { "main.tl" }, { cwd = tmp })
-  assert(not file and tostring(file_trouble):find("runs a file", 1, true),
+  assert(not file and tostring(file_trouble):find("runs a file", 1, true) ~= nil,
     tostring(file_trouble))
   assert(sys.exit == exit and sys.execve == execve and Store.attach == attach)
   assert(sys.getcwd() == here)
@@ -45,7 +45,7 @@ local function test_an_uncaught_error_exits_1(tmp: string)
   local result = invoke.run({ "-e", "error('boom', 0)" }, { cwd = tmp })
   assert(result.code == 1, result.stdout)
   assert(result.stderr == "cosmic: boom\n", result.stderr)
-  local table_error = invoke.run({ "-e", "error({})" }, { cwd = tmp })
+  local table_error = invoke.run({ "-e", "local value: {string:string} = {} error(value)" }, { cwd = tmp })
   assert(table_error.code == 1 and table_error.stderr == "cosmic: failed\n",
     table_error.stderr)
   local number_error = invoke.run({ "-e", "error(42)" }, { cwd = tmp })

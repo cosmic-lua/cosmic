@@ -16,18 +16,77 @@ local record Types
   --- What an interpolation's value is made into where it lands.
   --- `plain` is any slot of a `text` template: it is spliced as it is.
   --- `text`, `rtext` (the text of `<title>` and `<textarea>`, which
-  --- takes no markup), `attr` and `url` are the places a slot can stand in
-  --- an `html` template (see `markup`).
+  --- takes no markup), `ftext` (text inside `<svg>`, `<math>` or
+  --- `<select>`, which takes no markup either), `attr`, `url` (a whole URL),
+  --- `url_local` (a whole URL that must be a same-origin reference, in an
+  --- attribute a dialect says so of), `urlpart` (a piece of one, after
+  --- literal text), `json` (the whole value, a `SafeJson`) and `selector`
+  --- (an identifier after `#` or `.` in a CSS selector) are the places a
+  --- slot can stand in an `html` template (see `markup`).
   enum Slot
     "plain"
     "text"
     "rtext"
+    "ftext"
     "attr"
     "url"
+    "url_local"
+    "urlpart"
+    "json"
+    "selector"
   end
 
-  --- What a node of the tree is. `if` and `with` hold their branches,
-  --- `range` its body; `interp` is a `{{.a.b}}` and `text` literal text.
+  --- What a slot is in an attribute that a dialect classifies. `url` and
+  --- `url_local` take a URL (a whole one, or a part after literal text),
+  --- `json` the whole value as JSON, `selector` an identifier piece of a CSS
+  --- selector, and `refused` nothing: a slot there is an error.
+  enum Class
+    "url"
+    "url_local"
+    "json"
+    "selector"
+    "refused"
+  end
+
+  --- How a dialect treats a slot in one attribute (or family of them).
+  record Rule
+    --- What a slot there is.
+    class: Class
+    --- For `refused`, the end of the refusal after "a slot in the 'x'
+    --- attribute ": what a slot there would be. Else "".
+    why: string
+  end
+
+  --- A rule for every attribute whose name begins with `prefix`.
+  record Prefix
+    --- The start of the attribute names, lower case.
+    prefix: string
+    --- What a slot in them is.
+    rule: Rule
+  end
+
+  --- The attribute vocabulary of one dialect, as data: see
+  --- [`cosmic.template.dialect`].
+  record Def
+    --- The name `{{use name}}` gives it.
+    name: string
+    --- The version of the framework whose source the table was read from.
+    targets: string
+    --- The rule of each attribute that has one, by lower case name.
+    exact: {string: Rule}
+    --- The rules of families of attributes; the longest prefix wins.
+    prefixes: {Prefix}
+    --- The attribute name families the framework also reads with a `data-`
+    --- prefix (`hx-`).
+    families: {string}
+    --- The attributes of the framework the dialect has looked at and found
+    --- to need no rule: a slot in one is escaped as any attribute's is.
+    plain: {string}
+  end
+
+  --- What a node of the tree is. `if`, `with` and `range` hold their
+  --- branches; `interp` is a value such as `{{.a.b}}` and `text` literal
+  --- text.
   enum Kind
     "text"
     "interp"
@@ -37,18 +96,24 @@ local record Types
   end
 
   --- What a word inside an action is: a dotted field path starting with
-  --- `.`, a bare word, or the `|` between pipeline stages.
+  --- `.`, a variable starting with `$` (and any field path after it), a
+  --- bare word, the `|` between pipeline stages, a quoted string, or the
+  --- `,` and `:=` of a range's bindings.
   enum Part
     "field"
+    "variable"
     "word"
     "pipe"
+    "string"
+    "comma"
+    "declare"
   end
 
   --- One word of an action, with where it began (a byte column, from 1).
   record Token
     --- What the word is.
     kind: Part
-    --- The word as written.
+    --- The word as written; a string's bytes, its quotes and escapes gone.
     value: string
     --- Where it begins: its line, from 1.
     line: integer
@@ -64,7 +129,7 @@ local record Types
     --- True for an action, false for literal text.
     action: boolean
     --- The text of literal text, with trimmed whitespace gone.
-    text: string
+    mut text: string
     --- The words of an action, in order, without its braces.
     tokens: {Token}
     --- The line of the item's first byte (of an action, its `{{`).
@@ -92,20 +157,39 @@ local record Types
     func: string
   end
 
-  --- A value: a path of fields from dot (empty for dot itself), then
-  --- each stage applied to what came before.
+  --- What a pipeline's path starts from: dot, `$` (the value `render` is
+  --- given), or a variable a range binds.
+  enum Head
+    "dot"
+    "root"
+    "variable"
+  end
+
+  --- A value: a path of fields from its head (empty for the head itself),
+  --- then each stage applied to what came before.
   record Pipeline
-    --- The field names after dot, none for dot itself.
-    path: {string}
+    --- What the path starts from.
+    mut head: Head
+    --- The variable's name, without its `$`, when `head` is `variable`;
+    --- else "".
+    mut name: string
+    --- The field names after the head, none for the head itself.
+    mut path: {string}
     --- The stages, applied first to last.
     stages: {Stage}
   end
 
-  --- One arm of an `if` or `with`: its condition (none for `else`), its
-  --- body and where its action stands.
+  --- One arm of an `if`, `with` or `range`: its condition (none for
+  --- `else`), the variables a range's own arm binds, its body and where
+  --- its action stands.
   record Branch
     --- The condition or value, nil for `else`.
-    pipeline: Pipeline
+    pipeline?: Pipeline
+    --- The name a range binds each element's index to, without its `$`,
+    --- or "".
+    index: string
+    --- The name a range binds each element to, without its `$`, or "".
+    element: string
     --- What the arm holds.
     body: {Node}
     --- Where the arm's action begins.
@@ -129,15 +213,16 @@ local record Types
     --- The line its action ends on.
     end_line: integer
     --- The line of a block's `{{end}}`.
-    close_line: integer
+    mut close_line: integer
     --- A text node's literal text.
     text: string
     --- An interpolation's value.
-    pipeline: Pipeline
-    --- A block's arms: `if`'s in order, `with`'s and `range`'s first.
-    branches: {Branch}
+    pipeline?: Pipeline
+    --- A block's arms in order: a `with` or `range` has its own first and
+    --- then its `else`, if any.
+    branches: mut {Branch}
     --- Where an interpolation's value lands, once `context` has run.
-    ctx: Slot
+    mut ctx: Slot
   end
 
   --- The names that cannot follow a `.` in Lua (`global`, which Lua 5.5
@@ -152,8 +237,12 @@ local record Types
     type_name: string
     --- The module's import path.
     import_path: string
+    --- The line of the `{{type}}` action, after any blank lines.
+    line: integer
     --- What the template makes.
     mode: Mode
+    --- The dialects it uses (`{{use name}}`), in order.
+    dialects: {string}
     --- The nodes after the declaration.
     body: {Node}
     --- The template's line count.

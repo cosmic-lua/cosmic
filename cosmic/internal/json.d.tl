@@ -3,6 +3,12 @@
 -- function answers `value, ""` on success and `nil, error` on failure.
 
 local record json
+  -- The type of `null`: JSON `null`'s stand-in, a userdata with nothing to
+  -- read or call.
+  record Null
+    userdata
+  end
+
   -- The value `text` holds. JSON `null` is `null` when given, and nil
   -- when not. nil and a message, naming the line and column, when the
   -- text is not one RFC 8259 JSON value (JSON5 when `json5`; either
@@ -29,7 +35,7 @@ local record json
                    lone_surrogates?: boolean, record?: integer,
                    hash_comments?: boolean,
                    duplicate_keys?: boolean, line?: integer, column?: integer,
-                   prefix?: string, opened?: integer): any | nil, string
+                   prefix?: string, opened?: integer): any?, string
   -- true and "" when `decode` would read `text` under the same
   -- options; else false and the message it would fail with. It builds
   -- no value.
@@ -45,19 +51,22 @@ local record json
   format: function(text: string, max_depth?: integer, json5?: boolean,
                    lone_surrogates?: boolean, hash_comments?: boolean,
                    duplicate_keys?: boolean, pretty?: boolean,
-                   canonical?: boolean): string | nil, string
+                   canonical?: boolean): string?, string
   -- `value` as JSON text. nil and a message when it holds something
   -- JSON cannot say, naming where: `... at pointer "/users/2/name"`. Keys are
   -- sorted by their bytes; `pretty` lays it out two spaces a level. Raises
   -- when `max_depth` is outside 1 to `depth_limit`.
-  encode: function(value: any, pretty?: boolean, max_depth?: integer): string | nil, string
+  encode: function(value: any, pretty?: boolean, max_depth?: integer, ascii?: boolean): string?, string
   -- Marks `t`, or a new table, as a JSON array and answers it. Raises
   -- when `t` has another metatable.
   array: function(t?: {any}): {any}
-  -- Whether `v` is a table carrying the array mark.
+  -- Marks `t`, a table with no metatable, as an array that may have
+  -- holes when `holey` is true, else as an array, and answers it.
+  with_holes: function<T>(t: {integer: T}, holey: boolean): {integer: T}
+  -- Whether `v` is a table carrying either array mark.
   is_array: function(v: any): boolean
   -- The stand-in for JSON `null`: a userdata that encodes as `null`.
-  null: any
+  null: Null
   -- How many arrays and objects may nest when the caller names no
   -- limit, and the most a caller may name.
   default_depth: integer

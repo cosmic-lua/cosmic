@@ -23,10 +23,10 @@ local function test_a_run_writes_nothing_and_passes_its_arguments(tmp: string)
   assert(Fs.write(script, [[
 local Fs = require("cosmic.fs")
 local record Script
-  main: function({string}): integer
+  mut main: function({string}): integer
 end
 Script.main = function(argv: {string}): integer
-  Fs.put(Fs.stdout, argv[0] .. "|" .. table.concat(argv, ",") .. "\n")
+  local _, _ = Fs.put(Fs.stdout, (argv[0] or "") .. "|" .. table.concat(argv, ",") .. "\n")
   return 5
 end
 return Script
@@ -74,9 +74,9 @@ end
 --- 2, the complaint naming the file rather than cmd.cosmic.main; one
 --- that has a whole value is that value.
 local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
-  local function run(returned: string): Child.Result
+  local function run(returned: string, kind: string): Child.Result
     local script = tmp .. "/script.tl"
-    assert(Fs.write(script, "return function(_argv: {string}): any\n  return " ..
+    assert(Fs.write(script, "return function(_argv: {string}): " .. kind .. "\n  return " ..
         returned .. "\nend\n"))
     local started = this_program.program({ "--standalone", script }, {
       env = { XDG_CACHE_HOME = tmp .. "/cache" },
@@ -84,18 +84,18 @@ local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
     })
     return (assert(Child.run(started.argv, started.options)))
   end
-  for returned, shown in pairs({ ["300"] = "300", ["\"three\""] = "\"three\"",
-      ["1.5"] = "1.5" } as {string:string}) do
-    local result = run(returned)
+  local kinds: {string: string} = { ["300"] = "integer", ["\"three\""] = "string", ["1.5"] = "number" }
+  for returned, shown in pairs({ ["300"] = "300", ["\"three\""] = "\"three\"", ["1.5"] = "1.5" }) do
+    local result = run(returned, assert(kinds[returned]))
     assert(result.code == 2, returned .. " exited " .. tostring(result.code) .. ": " ..
         tostring(result.stderr))
     local complaint = "cosmic: " .. tmp .. "/script.tl returned " .. shown ..
       ", not an exit status 0-255"
     assert(tostring(result.stderr):find(complaint, 1, true) ~= nil, tostring(result.stderr))
   end
-  local whole = run("4.0")
+  local whole = run("4.0", "number")
   assert(whole.code == 4, tostring(whole.stderr))
-  local text = run("\"4\"")
+  local text = run("\"4\"", "string")
   assert(text.code == 4, tostring(text.stderr))
 end
 
@@ -112,7 +112,7 @@ end
 --- them, where `...` is what `require` handed it.
 local function test_a_file_finds_its_words_in_arg_at_its_top_level(tmp: string)
   local script = tmp .. "/top.tl"
-  assert(Fs.write(script, 'print(arg[0] .. "|" .. table.concat(arg, ","))\n'))
+  assert(Fs.write(script, 'print((arg[0] or "") .. "|" .. table.concat(arg, ","))\n'))
   local started = this_program.program({ "--standalone", script, "one", "two" }, { cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))

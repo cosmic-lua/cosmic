@@ -1,0 +1,12 @@
+file: ext/misc/csv.c
+note: A table's width when neither columns= nor schema= sets it, the field count of its first record, is held so a scan can refuse a record wider than it (22-csv-refuses-a-wider-record.txt).
+--- find
+  int nCol;                       /* Number of columns in the CSV file */
+  unsigned int tstFlags;          /* Bit values used for testing */
+} CsvTable;
+--- replace
+  int nCol;                       /* Number of columns in the CSV file */
+  int bFirstWidth;                /* nCol is the first record's width */
+  unsigned int tstFlags;          /* Bit values used for testing */
+} CsvTable;
+--- end

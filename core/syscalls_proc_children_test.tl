@@ -1,30 +1,16 @@
 --- Listing live and reaped children where the kernel exposes its list.
 
+local RawTables = require("build.raw_tables")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local stand_in = require("build.stand_in")
-local type raw_process = require("cosmic.internal.process")
-local type Searcher = function(string): any, any
-
---- The raw process table the store hands the child module's loader.
-local function raw_process_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: a searcher takes loader data too
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process -- cast: core/process.h declares the table
-    end
-  end
-  error("cosmic.child is handed no raw table")
-end
-
-local process = raw_process_table()
+local process = RawTables.process()
 
 local function probe_in(tmp: string): string
   return (assert(stand_in.build(tmp .. "/probe")))
 end
 
-Test.policy{ grants = { { path = "/proc", letters = "r" } },
-  requires = { "path:/proc/thread-self/children" } }
+Test.policy{ profiles = { "proc" }, requires = { "path:/proc/thread-self/children" } }
 
 --- `children` lists the children of the thread that starts them, a
 --- child still running among them and gone once reaped; off Linux there
@@ -43,8 +29,8 @@ local function test_children_lists_a_running_child_until_it_is_reaped(tmp: strin
     assert(math.type(child) == "integer" and child > 0)
     if child == pid then listed = true end
   end
-  assert(listed, "the running child " .. pid .. " is not listed")
+  assert(listed, "the running child " .. tostring(pid) .. " is not listed")
   for _, child in ipairs((assert(process.children()))) do
-    assert(child ~= pid, "the reaped child " .. pid .. " is still listed")
+    assert(child ~= pid, "the reaped child " .. tostring(pid) .. " is still listed")
   end
 end

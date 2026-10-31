@@ -1,0 +1,38 @@
+file: src/lparser.c
+note: The reserved forms of the compiler's Lua: `{ ... } @ C` is the table the constructor makes with the table C as its metatable (C a name or a path of fields), and `@v` the metatable of v. The character is no part of Teal or of Lua, so the text of a program written in either has none; only the compiler writes them.
+--- find
+static void simpleexp (LexState *ls, expdesc *v) {
+  /* simpleexp -> FLT | INT | STRING | NIL | TRUE | FALSE | ... |
+                  constructor | FUNCTION body | suffixedexp */
+--- replace
+/*
+ * TODO: make the table with its metatable in one instruction (the plan's
+ * one opcode, doc/plans/strict-teal.md), once bin/perf measures what the
+ * second instruction of a class literal costs a run that makes a million
+ * instances: the fields are written first, as the constructor has them,
+ * and the metatable after.
+ */
+
+/*
+** The class literal: 'constructor' has made the table in the register
+** 'v' stands for; attach the class table the path after '@' names.
+*/
+static void classliteral (LexState *ls, expdesc *v) {
+  /* classliteral -> constructor '@' NAME { '.' NAME } */
+  FuncState *fs = ls->fs;
+  expdesc mt;
+  int table = v->u.info;
+  luaX_next(ls);  /* skip '@' */
+  singlevar(ls, &mt);
+  while (ls->t.token == '.')
+    fieldsel(ls, &mt);
+  luaK_exp2anyreg(fs, &mt);
+  luaK_codeABC(fs, OP_SETCLASS, table, mt.u.info, 0);
+  fs->freereg = cast_byte(table + 1);  /* free the register of the path */
+}
+
+
+static void simpleexp (LexState *ls, expdesc *v) {
+  /* simpleexp -> FLT | INT | STRING | NIL | TRUE | FALSE | ... |
+                  constructor | FUNCTION body | suffixedexp */
+--- end

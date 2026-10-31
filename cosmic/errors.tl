@@ -16,7 +16,7 @@ end
 --- "not" with anything that says "is not available"). Deliberately
 --- short: the English function words cosmic's own messages use, not a
 --- general-purpose list.
-local stopwords: {string:boolean} = {}
+local stopwords: mut {string:boolean} = {}
 for _, word in ipairs({
     "a", "an", "the", "is", "are", "was", "were", "be",
     "to", "of", "in", "on", "at", "for", "and", "or",
@@ -29,10 +29,10 @@ end
 --- The significant words of `text`, in order: its runs of ASCII letters
 --- and digits, lowercased, less `stopwords`.
 local function significant(text: string): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for word in text:gmatch("[%w]+") do
     local lower = word:lower()
-    if not stopwords[lower] then
+    if stopwords[lower] ~= true then
       found[#found + 1] = lower
     end
   end
@@ -47,15 +47,15 @@ end
 --- message is a literal prefix of a real one, so it is the message's
 --- words that are sought in the row's, and `bm25` ranks a row sharing
 --- more, or rarer, words first. At most sixteen words, and under 1024 bytes.
-local function catalog_query(message: string): string | nil
-  local terms: {string} = {}
+local function catalog_query(message: string): string?
+  local terms: mut {string} = {}
   local used = #"message: ()"
   for _, word in ipairs(significant(message)) do
     if #terms == 16 then
       break
     end
     local term = '"' .. word .. '"'
-    local needed = #term + (#terms > 0 and 4 or 0)
+    local needed = #term + (if #terms > 0 then 4 else 0 end)
     if used + needed >= 1024 then
       break
     end
@@ -74,14 +74,14 @@ end
 --- ordinary word such as "files". Distinct and whole, because a word
 --- said three times is one word, and "os" is not in "cosmic".
 local function shared_words(message: string, candidate: string): integer
-  local present: {string:boolean} = {}
+  local present: mut {string:boolean} = {}
   for word in candidate:gmatch("[%w]+") do
     present[word:lower()] = true
   end
-  local counted: {string:boolean} = {}
+  local counted: mut {string:boolean} = {}
   local shared = 0
   for _, word in ipairs(significant(message)) do
-    if present[word] and not counted[word] then
+    if present[word] == true and counted[word] ~= true then
       counted[word] = true
       shared = shared + 1
     end
@@ -94,7 +94,7 @@ end
 --- `@param`/`@return` line left out, since those describe the signature,
 --- not the failure.
 local function guidance_lines(head: string, text: string): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local at = 1
   while at <= #text do
     local newline = text:find("\n", at, true)
@@ -117,13 +117,35 @@ local function guidance_lines(head: string, text: string): string
   return table.concat(lines, "\n") .. "\n"
 end
 
+--- Whether the first line of `message`, less a `chunk:line: ` location,
+--- is one of the runtime messages the Lua VM and its argument checks write:
+--- `attempt to ...`, `module '...' not found` or `bad argument #n to ...`
+--- (whose `X expected, got Y` is theirs too), which cosmic's own bindings
+--- raise as well. They share ordinary words with doc comments the catalog
+--- holds, and no row answers them (none matched the `bad argument`
+--- messages cosmic's bindings raise); [`Errors.hint`] answers what it can. The location is `file:N: `, or `[string "..."]:N: ` for a
+--- chunk `load` made; a file name with a space in it is not seen.
+local function lua_wrote(message: string): boolean
+  local line = message:match("^[^\n]*")
+  line = line:gsub("^%S+:%d+: ", "", 1)
+  line = line:gsub('^%[string ".-"%]:%d+: ', "", 1)
+  return line:find("^attempt to ") ~= nil or
+    line:find("^module '.-' not found") ~= nil or
+    line:find("^bad argument #%d+ to ") ~= nil
+end
+
 --- What the catalog of the one database `handle` says beneath an
 --- uncaught error's `message`, in the lines [`Errors.guidance`] prints: the
 --- best row's guidance, or nil when it has none -- no catalog, no row
 --- sharing two or more significant words with the message, or no
---- guidance on the row it shares them with. [`Errors.guidance`] asks each
---- database the store holds in turn.
-function Errors.guidance_in(handle: Sqlite.Handle, message: string): string | nil
+--- guidance on the row it shares them with. A message Lua itself wrote
+--- (`attempt to ...`, `module '...' not found`, `bad argument #n to ...`)
+--- has none: the catalog is for the messages cosmic's own code raises.
+--- [`Errors.guidance`] asks each database the store holds in turn.
+function Errors.guidance_in(handle: Sqlite.Handle, message: string): string?
+  if lua_wrote(message) then
+    return nil
+  end
   local query = catalog_query(message)
   if query == nil then
     return nil
@@ -141,11 +163,11 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string | ni
     return nil
   end
   local row = rows[1]
-  local text, candidate, symbol, file = row[1], row[2], row[3], row[4]
+  local text, candidate, symbol, file = row:text(1), row:text(2), row:text(3), row:text(4)
   if text == "" or shared_words(message, candidate) < 2 then
     return nil
   end
-  local line = math.tointeger(tonumber(row[5])) or 0
+  local line = math.tointeger(tonumber(row:text(5))) or 0
   local head: string
   if line > 0 then
     head = symbol .. " (" .. file .. ":" .. tostring(line) .. ")"
@@ -167,7 +189,7 @@ end
 --- method, only as its metatable's `__index`; or R declares `set`
 --- (an interface's method, a function-typed field) and nothing defines
 --- it. The message tells the two apart by nothing, so both are named.
-function Errors.hint(message: string): string | nil
+function Errors.hint(message: string): string?
   local method = message:match("^[^\n]*attempt to call a nil value %(method '([%a_][%w_]*)'%)\n") or
     message:match("^[^\n]*attempt to call a nil value %(method '([%a_][%w_]*)'%)$")
   if method == nil then
@@ -186,7 +208,7 @@ end
 --- the error it matches, the doc comment of the function the message
 --- came from; or nil when none matches it. The core prints it for an
 --- error nothing caught.
-function Errors.guidance(message: string): string | nil
+function Errors.guidance(message: string): string?
   local hint = Errors.hint(message)
   if hint ~= nil then
     return "cosmic: hint: " .. hint .. "\n"
@@ -201,9 +223,28 @@ function Errors.guidance(message: string): string | nil
 end
 
 --- The call stack as text, with `message` at the top when one is given.
---- `level` says how many frames to skip; 1, the default, is the caller.
+--- `level` says how many frames to skip; 1, the default, is the caller,
+--- and a level past the stack gives just `stack traceback:`. A `level`
+--- below 1 raises: it would name this wrapper or the binding's own frame.
 function Errors.trace(message?: string, level?: integer): string
-  return errors.trace(message, level or 1)
+  local skip = level or 1
+  if skip < 1 then
+    error("trace: level must be at least 1, got " .. tostring(skip), 2)
+  end
+  -- The binding counts this frame as level 1.
+  return errors.trace(message, skip + 1)
+end
+
+--- The call stack of coroutine `co` as text, from its top, with
+--- `message` at the top when one is given. For a coroutine that raised,
+--- it is where it raised, which `coroutine.resume` does not say (it
+--- answers only the error) and which stays until the coroutine is
+--- closed. One that returned, or was closed, has no frames: the text is
+--- just `stack traceback:`. For the running coroutine the first frame is
+--- the caller's, as [`trace`]'s is.
+function Errors.trace_of(co: thread, message?: string): string
+  -- The binding counts this frame as level 1.
+  return errors.trace_of(co, message, 2)
 end
 
 return Errors

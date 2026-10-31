@@ -6,10 +6,12 @@
 --- this.
 
 local Codec = require("cosmic.codec")
+local FieldPath = require("cosmic.internal.field_path")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
-local Relay = require("cosmic.relay")
+local Grant = require("cosmic.relay.grant")
+local RelayConfig = require("cosmic.internal.relay_config")
 local sys = require("cosmic.sys")
 
 -- Taken at load: a test that replaces a member of the library table does not
@@ -54,7 +56,7 @@ local record rules
     letters: string
     --- The host's path, when it differs from `path`: the program sees this
     --- file or directory under another name. Needs `isolate` file.
-    from: string
+    from?: string
   end
 
   --- Resource limits on every process the program starts. Nil is the
@@ -63,60 +65,60 @@ local record rules
   --- nothing else.
   record Limits
     --- The most descriptors a process may hold open (at least 1).
-    open_files: integer
+    open_files?: integer
     --- The most bytes a process may write to one file.
-    file_bytes: integer
+    file_bytes?: integer
     --- The CPU seconds a process may spend (at least 1). Soft and hard
     --- limit are the same, so a process past it is ended by SIGKILL, with
     --- no SIGXCPU to catch first.
-    cpu_seconds: integer
+    cpu_seconds?: integer
     --- The most processes and threads of the whole sandbox, counted by
     --- the user namespace it runs in (at least 1): a child's, with
     --- `isolate` "proc" or "file", on a Linux kernel from 5.17.
-    processes: integer
+    processes?: integer
   end
 
   --- What a program is held to; every field is optional, and what a policy
   --- leaves out it does not have.
   record Policy
-    --- Named policies to join in, by [`Sandbox.merge`]: "system", "cosmic".
-    profiles: {string}
+    --- Named policies to join in, by [`Sandbox.merge`]: "system", "cosmic", "proc".
+    profiles?: {string}
     --- The paths the program reaches.
-    grants: {Grant}
+    grants?: {Grant}
     --- How far it is isolated from the host. With "file", a writable grant on a tree that user does not own (`/etc`
     --- as `rwc`, say) is mounted so that it is the tree's owner there: it
     --- writes the owner's files, root's included, through that mount.
-    isolate: {Isolate}
+    isolate?: {Isolate}
     --- The system calls it may make beyond its basics.
-    promises: {Promise}
+    promises?: {Promise}
     --- The hosts it may reach, "host:port", where the host or the port is
     --- "*" for any. A host is a DNS name, an IPv4 address or an IPv6 address
     --- in brackets, and a name is read lower-case without a final dot; a
     --- pattern, an underscore and anything else the relay's readers refuse
     --- is refused here too ([`cosmic.relay.grant`]).
-    connect: {string}
+    connect?: {string}
     --- The addresses of 127/8 it uses inside its own network.
-    loopback: {string}
+    loopback?: {string}
     --- The variables passed through from the caller's environment.
-    env: {string}
+    env?: {string}
     --- The variables set, by name. With `env`, the program's whole
     --- environment; a name in both is set.
-    set_env: {string:string}
+    set_env?: {string:string}
     --- What a decoded, encoded policy holds in place of `set_env`'s
     --- values: for each name, the SHA-256 of its value in lowercase
     --- hex. [`PolicyJson.encode`] writes these, so the text shows a value
     --- changed without showing it; a policy that holds one, and no value
     --- for the name, cannot start a program.
-    set_env_digests: {string:string}
+    set_env_digests?: {string:string}
     --- Whether the program has a fresh temporary directory of its own,
     --- named by `TMPDIR`, that it may write. Under `isolate` file it is
     --- the root's own /tmp, which a grant of "/tmp" with no `from` and the
     --- letters `rwxc` lets the program run files from (`rwc`, the default,
     --- does not), and a `set_env` TMPDIR beneath /tmp is kept, for a
     --- directory the program makes there.
-    tmp: boolean
+    tmp?: boolean
     --- The resources it may spend.
-    limits: Limits
+    limits?: Limits
     --- The user a child runs as (1 to 4294967294, never root, nor the
     --- overflow ids 65534 and 65535), in place of the one of its own a root
     --- caller's child is given from a pool ([`Sandbox.user_id`]): the same
@@ -140,11 +142,11 @@ local record rules
     --- owner's), and stay its own on the host. Any other user's there
     --- show as owned by the overflow id: read and run as their mode lets
     --- everyone (or its group, where theirs is the owner's), never written.
-    user: integer
+    user?: integer
     --- The group a child runs as, with `user`: for a root caller, `user`'s
     --- own number where it is left out; for any other, its own group. On
     --- macOS only the caller's own group is met, as for `user`.
-    group: integer
+    group?: integer
     --- A database the program runs on, by its absolute path ([`rules.Database`]): the program
     --- is this program's core started on that database
     --- (`core --database <path>`), so what it can `require` is the
@@ -165,7 +167,7 @@ local record rules
     --- file of that digest, and [`PolicyJson.encode`] writes it, so the
     --- text holds what the database is and not only where; merging keeps
     --- it.
-    database: rules.Database
+    database?: rules.Database
   end
   --- A database a policy names: its absolute `path`, and the SHA-256 of
   --- its bytes (`sha256`, 64 lowercase hex digits) where the policy is to
@@ -178,7 +180,7 @@ local record rules
     --- The file's absolute path, with no "..".
     path: string
     --- The SHA-256 of the file's bytes, in lowercase hex; nil for a path alone.
-    sha256: string | nil
+    sha256?: string
   end
 end
 
@@ -192,17 +194,17 @@ local LETTERS <const> = "rwxcu"
 
 --- `letters` as a set in the order of "rwxcu", each letter once; nil for
 --- none or a letter outside it.
-local function canonical_letters(letters: string): string | nil
-  local seen: {string:boolean} = {}
+local function canonical_letters(letters: string): string?
+  local seen: mut {string:boolean} = {}
   for i = 1, #letters do
     local letter = letters:sub(i, i)
     if not LETTERS:find(letter, 1, true) then return nil end
     seen[letter] = true
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i = 1, #LETTERS do
     local letter = LETTERS:sub(i, i)
-    if seen[letter] then out[#out + 1] = letter end
+    if seen[letter] == true then out[#out + 1] = letter end
   end
   if #out == 0 then return nil end
   return table.concat(out)
@@ -220,12 +222,13 @@ local function loopback_ok(address: string): boolean
   if a == nil then return false end
   for _, part in ipairs({ a, b, c }) do
     if #part > 1 and part:sub(1, 1) == "0" then return false end
-    if tonumber(part) > 255 then return false end
+    local octet = tonumber(part)
+    if octet == nil or octet > 255 then return false end
   end
   return true
 end
 
-local PROFILES <const>: {string} = { "cosmic", "system" }
+local PROFILES <const>: {string} = { "cosmic", "proc", "system" }
 
 local function listed(name: string, names: {string}): boolean
   for _, known in ipairs(names) do
@@ -234,23 +237,33 @@ local function listed(name: string, names: {string}): boolean
   return false
 end
 
+--- The path of the value `steps` name from the root: a string is a member, an
+--- integer a list element by its Lua index.
+local function path_of(steps: {string | integer}): string
+  local path = FieldPath.root
+  for _, step in ipairs(steps) do
+    path = if step is string then FieldPath.field(path, step) else FieldPath.index(path, step) end
+  end
+  return path
+end
+
 --- Why the limit `name`, nil for none, is below `least`, or "".
-local function below(name: string, value: integer, least: integer): string
+local function below(name: string, value: integer?, least: integer): string
   if value == nil or value >= least then return "" end
-  return "pointer \"/limits/" .. name .. "\": a limit is at least " .. least
+  return path_of({ "limits", name }) .. ": a limit is at least " .. tostring(least)
 end
 
 --- Why `loopback` and `connect` may not be held together, or "": a
 --- `loopback` address is the program's own network, which `NO_PROXY` keeps
 --- direct, while a `connect` target of it names the host's service, which
 --- the program reaches through the relay. `NO_PROXY` is by host, so the
---- port does not tell them apart. Names the `loopback` entry's pointer; in a merged policy, whose lists
+--- port does not tell them apart. Names the `loopback` entry's path; in a merged policy, whose lists
 --- hold each address once, sorted, it is the entry of the merged list.
 local function loopback_conflict(loopback: {string}, connect: {string}, joined: boolean): string
   for i, address in ipairs(loopback) do
-    local target = Relay.Config.naming(connect, address)
+    local target = RelayConfig.naming(connect, address)
     if target ~= "" then
-      return "pointer \"/loopback/" .. (i - 1) .. "\"" .. (joined and " of the merged policy" or "") .. ": \"" .. address .. "\" is also the host address that " ..
+      return path_of({ "loopback", i }) .. ": " .. (if joined then "in the merged policy, " else "" end) .. "\"" .. address .. "\" is also the host address that " ..
         "connect \"" .. target .. "\" names, and a proxy client cannot tell the two apart by port: " ..
         "give the sandbox's own services another 127.x address (127.0.0.2, say)"
     end
@@ -258,117 +271,118 @@ local function loopback_conflict(loopback: {string}, connect: {string}, joined: 
   return ""
 end
 
---- The first thing wrong in a policy's values, as `pointer "/grants/0/letters":
+--- The first thing wrong in a policy's values, as `$.grants[0].letters:
 --- why`, or "" when none is: the field's types are Teal's, and these are the
 --- values a type does not hold. With `exact`, a grant's letters must be
 --- already in the order of "rwxcu", each once, as [`Sandbox.check`] with
 --- `exact` takes them.
 local function invalid(p: rules.Policy, exact: boolean): string
-  local function at(pointer: string, why: string): string
-    return "pointer \"" .. pointer .. "\": " .. why
+  local function at(steps: {string | integer}, why: string): string
+    return path_of(steps) .. ": " .. why
   end
   for i, name in ipairs(p.profiles or {}) do
     if not listed(name, PROFILES) then
-      return at("/profiles/" .. (i - 1), "unknown profile \"" .. name .. "\" (known: " ..
+      return at({ "profiles", i }, "unknown profile \"" .. name .. "\" (known: " ..
           table.concat(PROFILES, ", ") .. ")")
     end
   end
   for i, grant in ipairs(p.grants or {}) do
-    local base = "/grants/" .. (i - 1)
-    if grant.path == nil or grant.path == "" or grant.path:find("\0", 1, true) then
-      return at(base .. "/path", "a path is not empty and holds no NUL")
+    if grant.path == nil or grant.path == "" or grant.path:find("\0", 1, true) ~= nil then
+      return at({ "grants", i, "path" }, "a path is not empty and holds no NUL")
     end
     for segment in grant.path:gmatch("[^/]+") do
       if segment == ".." then
-        return at(base .. "/path", "\"..\" is not allowed; name the directory itself")
+        return at({ "grants", i, "path" }, "\"..\" is not allowed; name the directory itself")
       end
     end
     local canonical = grant.letters ~= nil and canonical_letters(grant.letters) or nil
     if canonical == nil then
-      return at(base .. "/letters", "letters are of \"" .. LETTERS .. "\", at least one")
+      return at({ "grants", i, "letters" }, "letters are of \"" .. LETTERS .. "\", at least one")
     end
     if exact and canonical ~= grant.letters then
-      return at(base .. "/letters", "\"" .. grant.letters .. "\" is not in the order of \"" ..
+      return at({ "grants", i, "letters" }, "\"" .. grant.letters .. "\" is not in the order of \"" ..
           LETTERS .. "\", each letter once: \"" .. canonical .. "\"")
     end
-    if grant.from ~= nil and (grant.from == "" or grant.from:find("\0", 1, true)) then
-      return at(base .. "/from", "a host path is not empty and holds no NUL")
+    local from = grant.from
+    if from ~= nil and (from == "" or from:find("\0", 1, true) ~= nil) then
+      return at({ "grants", i, "from" }, "a host path is not empty and holds no NUL")
     end
   end
   for i, target in ipairs(p.connect or {}) do
-    local _, why = Relay.Grant.parse(target)
+    local _, why = Grant.parse(target)
     if why ~= "" then
-      return at("/connect/" .. (i - 1), "\"" .. target .. "\" is not a target the relay can use: " ..
+      return at({ "connect", i }, "\"" .. target .. "\" is not a target the relay can use: " ..
           why .. " (host:port, the host a name, an IPv4 address, an IPv6 address in " ..
           "brackets or \"*\" for any name, the port from 1 to 65535 or \"*\" for any)")
     end
   end
   for i, address in ipairs(p.loopback or {}) do
     if not loopback_ok(address) then
-      return at("/loopback/" .. (i - 1), "\"" .. address .. "\" is not an address of 127/8")
+      return at({ "loopback", i }, "\"" .. address .. "\" is not an address of 127/8")
     end
   end
   local conflict = loopback_conflict(p.loopback or {}, p.connect or {}, false)
   if conflict ~= "" then return conflict end
   for i, name in ipairs(p.env or {}) do
     if not env_name_ok(name) then
-      return at("/env/" .. (i - 1), "a variable's name is not empty and holds no '=' or NUL")
+      return at({ "env", i }, "a variable's name is not empty and holds no '=' or NUL")
     end
   end
   for name, value in pairs(p.set_env or {}) do
     if not env_name_ok(name) then
-      return at("/set_env", "\"" .. name .. "\" is not a variable's name: not empty, no '=' or NUL")
+      return at({ "set_env", name }, "\"" .. name .. "\" is not a variable's name: not empty, no '=' or NUL")
     end
     if value:find("\0", 1, true) then
-      return at("/set_env/" .. name, "a value holds no NUL")
+      return at({ "set_env", name }, "a value holds no NUL")
     end
   end
   for name, digest in pairs(p.set_env_digests or {}) do
     if not env_name_ok(name) then
-      return at("/set_env_digests", "\"" .. name .. "\" is not a variable's name: not empty, " ..
+      return at({ "set_env_digests", name }, "\"" .. name .. "\" is not a variable's name: not empty, " ..
           "no '=' or NUL")
     end
-    if not digest:match("^%x+$") or #digest ~= 64 or digest:find("%u") then
-      return at("/set_env_digests/" .. name, "a digest is 64 lowercase hex digits")
+    if not digest:match("^%x+$") or #digest ~= 64 or digest:find("%u") ~= nil then
+      return at({ "set_env_digests", name }, "a digest is 64 lowercase hex digits")
     end
   end
   for _, field in ipairs({ "user", "group" }) do
     local id = field == "user" and p.user or p.group
     if id ~= nil and (math.type(id) ~= "integer" or id < 1 or id > 4294967294) then
-      return at("/" .. field, "an id is a whole number from 1 to 4294967294: never root")
+      return at({ field }, "an id is a whole number from 1 to 4294967294: never root")
     end
     if id == 65534 or id == 65535 then
-      return at("/" .. field, id .. " is the overflow id, which the kernel shows for an id " ..
+      return at({ field }, id .. " is the overflow id, which the kernel shows for an id " ..
           "a namespace does not map: name another")
     end
   end
   if p.group ~= nil and p.user == nil then
-    return at("/group", "a group is given with a user")
+    return at({ "group" }, "a group is given with a user")
   end
-  if p.database ~= nil then
-    local path = p.database.path
-    if path == "" or path:find("\0", 1, true) then
-      return at("/database/path", "a path is not empty and holds no NUL")
+  local given = p.database
+  if given ~= nil then
+    local path = given.path
+    if path == "" or path:find("\0", 1, true) ~= nil then
+      return at({ "database", "path" }, "a path is not empty and holds no NUL")
     end
     if path:sub(1, 1) ~= "/" then
-      return at("/database/path", "\"" .. path .. "\" is relative: the program's directory is not the " ..
+      return at({ "database", "path" }, "\"" .. path .. "\" is relative: the program's directory is not the " ..
           "one this is read from, so name the file by its absolute path")
     end
     for segment in path:gmatch("[^/]+") do
       if segment == ".." then
-        return at("/database/path", "\"..\" is not allowed; name the file itself")
+        return at({ "database", "path" }, "\"..\" is not allowed; name the file itself")
       end
     end
-    local digest = p.database.sha256
+    local digest = given.sha256
     if digest ~= nil and not (digest:find("^%x+$") and #digest == 64 and digest:lower() == digest) then
-      return at("/database/sha256", "a digest is 64 lowercase hex digits")
+      return at({ "database", "sha256" }, "a digest is 64 lowercase hex digits")
     end
     local found, trouble = sys.stat(path)
     if found == nil then
-      return at("/database/path", path .. ": " .. trouble)
+      return at({ "database", "path" }, path .. ": " .. trouble)
     end
     if found.kind ~= "file" then
-      return at("/database/path", path .. " is not a regular file")
+      return at({ "database", "path" }, path .. " is not a regular file")
     end
   end
   local limits = p.limits or {}
@@ -394,7 +408,7 @@ end
 --- kernel reads after a link; [`invalid`] refuses it. An empty result
 --- is "." (relative) or "/".
 local function clean_path(path: string): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for part in path:gmatch("[^/]+") do
     if part ~= "." then parts[#parts + 1] = part end
   end
@@ -406,11 +420,11 @@ end
 
 --- The members of every list given, each once, in byte order.
 local function sorted_set<T>(...: {T}): {T}
-  local seen: {T:boolean} = {}
-  local out: {T} = {}
+  local seen: mut {T:boolean} = {}
+  local out: mut {T} = {}
   for _, list in ipairs({ ... }) do
     for _, item in ipairs(list) do
-      if not seen[item] then
+      if seen[item] ~= true then
         seen[item] = true
         out[#out + 1] = item
       end
@@ -426,20 +440,19 @@ local function digest_of(value: string): string
   return Codec.hex(Hash.sha256(value))
 end
 
---- The limit `name` once `incoming` joins `held`, either nil for none:
---- the one value given. Two different values answer why.
-local function join_limit(name: string, held: integer, incoming: integer): integer, string
-  if incoming == nil then return held, "" end
-  if held ~= nil and held ~= incoming then
-    return held, "limits." .. name .. " is given two values, " .. held .. " and " .. incoming
+--- Why `held` and `incoming`, two values for the limit `name` (either nil
+--- for none), disagree, or "" when they do not.
+local function limit_conflict(name: string, held: integer?, incoming: integer?): string
+  if held ~= nil and incoming ~= nil and held ~= incoming then
+    return path_of({ "limits", name }) .. ": given two values, " .. tostring(held) .. " and " .. tostring(incoming)
   end
-  return incoming, ""
+  return ""
 end
 
 local record Joined
   path: string
-  from: string
-  letters: {string:boolean}
+  from?: string
+  letters: mut {string:boolean}
 end
 
 --- The paths of the "system" profile on Linux and what each is for, read and
@@ -504,10 +517,12 @@ end
 --- without a /lib64. Apart from [`rules.profile`], which asks this host, only
 --- a test of the other host's list calls it.
 function rules.system_profile(host: string, exists: function(string): boolean): rules.Policy
-  local grants: {rules.Grant} = {}
+  local grants: mut {rules.Grant} = {}
   for _, entry in ipairs(rules.system_paths(host)) do
-    if exists(entry[1]) then
-      grants[#grants + 1] = { path = entry[1], letters = entry[2] }
+    local path = assert(entry[1], "a system path entry names its path")
+    local letters = assert(entry[2], "a system path entry names its letters")
+    if exists(path) then
+      grants[#grants + 1] = { path = path, letters = letters }
     end
   end
   return { grants = grants }
@@ -527,7 +542,7 @@ end
 --- needs neither the launcher's shell nor a cache to unpack a core into;
 --- a process that runs the path itself (a shell under the policy) runs
 --- the launcher, which needs both.
-local function cosmic_profile(): rules.Policy | nil, string
+local function cosmic_profile(): rules.Policy?, string
   local path, why = Proc.executable()
   if path == nil then
     return refuse("profile \"cosmic\": this process has no executable: " .. why)
@@ -535,11 +550,21 @@ local function cosmic_profile(): rules.Policy | nil, string
   return { grants = { { path = path, letters = "rx" } } }, ""
 end
 
+--- The "proc" profile: `r` on the host's /proc where there is one (Linux),
+--- the kernel's process information, and nothing on macOS, where sysctl
+--- answers with no file to grant. As the "system" profile does, it grants
+--- only a path the host has, so a Linux host with no /proc mounted gets none.
+local function proc_profile(): rules.Policy
+  if on_darwin() or not present("/proc") then return {} end
+  return { grants = { { path = "/proc", letters = "r" } } }
+end
+
 --- What the profile `name` holds on this host: [`Sandbox.profile`], which
 --- says how.
-function rules.profile(name: string): rules.Policy | nil, string
+function rules.profile(name: string): rules.Policy?, string
+  if name == "proc" then return proc_profile(), "" end
   if name == "system" then
-    return rules.system_profile(on_darwin() and "darwin" or "linux", present), ""
+    return rules.system_profile(if on_darwin() then "darwin" else "linux" end, present), ""
   end
   if name == "cosmic" then return cosmic_profile() end
   return refuse("unknown profile \"" .. tostring(name) .. "\" (known: " ..
@@ -548,7 +573,7 @@ end
 
 --- The database at `path`, with the SHA-256 of its bytes now:
 --- [`Sandbox.database`], which says how.
-function rules.database(path: string): rules.Database | nil, string
+function rules.database(path: string): rules.Database?, string
   local bytes, why = Fs.read(path)
   if bytes == nil then return refuse("database " .. why) end
   return { path = path, sha256 = Hash.hex_sha256(bytes) }, ""
@@ -556,8 +581,8 @@ end
 
 --- What the policies given hold together: [`Sandbox.merge`], which says
 --- how.
-function rules.merge(...: rules.Policy): rules.Policy | nil, string
-  local flat: {rules.Policy} = {}
+function rules.merge(...: rules.Policy): rules.Policy?, string
+  local flat: mut {rules.Policy} = {}
   local given: {rules.Policy} = { ... }
   local on_database = false
   for _, p in ipairs(given) do
@@ -578,28 +603,30 @@ function rules.merge(...: rules.Policy): rules.Policy | nil, string
     end
     flat[#flat + 1] = p
   end
-  local joined: {string:Joined} = {}
-  local order: {Joined} = {}
+  local joined: mut {string:Joined} = {}
+  local order: mut {Joined} = {}
   local limits: rules.Limits = {}
-  local set_env: {string:string} = {}
-  local digests: {string:string} = {}
+  local set_env: mut {string:string} = {}
+  local digests: mut {string:string} = {}
   local isolate: {rules.Isolate} = {}
   local promises: {rules.Promise} = {}
   local connect: {string} = {}
   local loopback: {string} = {}
   local env: {string} = {}
   local tmp = false
-  local user, group: integer, integer
-  local database: rules.Database = nil
+  local user, group: integer?, integer?
+  local database: rules.Database? = nil
   for _, p in ipairs(flat) do
-    if p.database ~= nil then
-      local at = clean_path(p.database.path)
-      local digest = p.database.sha256
+    local named = p.database
+    if named ~= nil then
+      local at = clean_path(named.path)
+      local digest = named.sha256
       if database ~= nil and database.path ~= at then
-        return refuse("database is given two values, " .. database.path .. " and " .. at)
+        return refuse(path_of({ "database", "path" }) .. ": given two values, " .. database.path .. " and " .. at)
       end
-      if database ~= nil and digest ~= nil and database.sha256 ~= nil and database.sha256 ~= digest then
-        return refuse("database " .. at .. " is given two digests, " .. database.sha256 ..
+      local database_sha256 = database and database.sha256
+      if database ~= nil and digest ~= nil and database_sha256 ~= nil and database_sha256 ~= digest then
+        return refuse(path_of({ "database", "sha256" }) .. ": given two digests for " .. at .. ", " .. database_sha256 ..
             " and " .. digest)
       end
       database = { path = at, sha256 = digest or (database and database.sha256) }
@@ -622,44 +649,47 @@ function rules.merge(...: rules.Policy): rules.Policy | nil, string
     env = sorted_set(env, p.env or {})
     for name, value in pairs(p.set_env or {}) do
       if set_env[name] ~= nil and set_env[name] ~= value then
-        return refuse("set_env \"" .. name .. "\" is given two values")
+        return refuse(path_of({ "set_env", name }) .. ": given two values")
       end
       set_env[name] = value
     end
     for name, digest in pairs(p.set_env_digests or {}) do
       if digests[name] ~= nil and digests[name] ~= digest then
-        return refuse("set_env_digests \"" .. name .. "\" is given two digests")
+        return refuse(path_of({ "set_env_digests", name }) .. ": given two digests")
       end
       digests[name] = digest
     end
-    if p.tmp then tmp = true end
-    if p.user ~= nil and user ~= nil and p.user ~= user then
-      return refuse("user is given two values, " .. user .. " and " .. p.user)
+    if p.tmp == true then tmp = true end
+    local p_user = p.user
+    if p_user ~= nil and user ~= nil and p_user ~= user then
+      return refuse(path_of({ "user" }) .. ": given two values, " .. tostring(user) .. " and " .. tostring(p_user))
     end
-    if p.group ~= nil and group ~= nil and p.group ~= group then
-      return refuse("group is given two values, " .. group .. " and " .. p.group)
+    local p_group = p.group
+    if p_group ~= nil and group ~= nil and p_group ~= group then
+      return refuse(path_of({ "group" }) .. ": given two values, " .. tostring(group) .. " and " .. tostring(p_group))
     end
     user, group = p.user or user, p.group or group
     local own = p.limits or {}
-    local why: string
-    limits.open_files, why = join_limit("open_files", limits.open_files, own.open_files)
-    if why == "" then
-      limits.file_bytes, why = join_limit("file_bytes", limits.file_bytes, own.file_bytes)
-    end
-    if why == "" then
-      limits.cpu_seconds, why = join_limit("cpu_seconds", limits.cpu_seconds, own.cpu_seconds)
-    end
-    if why == "" then
-      limits.processes, why = join_limit("processes", limits.processes, own.processes)
-    end
+    local why = limit_conflict("open_files", limits.open_files, own.open_files)
+    if why == "" then why = limit_conflict("file_bytes", limits.file_bytes, own.file_bytes) end
+    if why == "" then why = limit_conflict("cpu_seconds", limits.cpu_seconds, own.cpu_seconds) end
+    if why == "" then why = limit_conflict("processes", limits.processes, own.processes) end
+    limits.open_files = own.open_files or limits.open_files
+    limits.file_bytes = own.file_bytes or limits.file_bytes
+    limits.cpu_seconds = own.cpu_seconds or limits.cpu_seconds
+    limits.processes = own.processes or limits.processes
     if why ~= "" then return refuse(why) end
   end
-  local grants: {rules.Grant} = {}
+  local grants: mut {rules.Grant} = {}
   for _, held in ipairs(order) do
-    local letters: {string} = {}
+    local letters: mut {string} = {}
     for letter in pairs(held.letters) do letters[#letters + 1] = letter end
-    grants[#grants + 1] = { path = held.path, from = held.from,
-      letters = canonical_letters(table.concat(letters)) }
+    -- Each policy was checked above, so every grant holds a letter of LETTERS.
+    local canonical = canonical_letters(table.concat(letters))
+    if canonical == nil then
+      return refuse(path_of({ "grants" }) .. ": the grant of " .. held.path .. " holds no letter of \"" .. LETTERS .. "\"")
+    end
+    grants[#grants + 1] = { path = held.path, from = held.from, letters = canonical }
   end
   table.sort(grants, function(a: rules.Grant, b: rules.Grant): boolean
     if a.path ~= b.path then return a.path < b.path end
@@ -675,7 +705,7 @@ function rules.merge(...: rules.Policy): rules.Policy | nil, string
   if has_file and not has_proc then isolate = sorted_set(isolate, { implied }) end
   for name, value in pairs(set_env) do
     if digests[name] ~= nil and digests[name] ~= digest_of(value) then
-      return refuse("set_env_digests \"" .. name .. "\" is not the digest of set_env's value")
+      return refuse(path_of({ "set_env_digests", name }) .. ": not the digest of set_env's value")
     end
     digests[name] = nil
   end

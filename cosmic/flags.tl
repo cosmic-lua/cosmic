@@ -7,6 +7,12 @@
 --- "report" for the file. `cosmic docs Flags.dispatch` shows such a
 --- program whole.
 ---
+--- The command line is the plain `{string}` a program's entry point is handed
+--- (`return function(argv: {string}): integer`): the words after the
+--- program's name. Slot 0, where the runtime puts the name, is not read; a
+--- function that prints the name, as [`Flags.dispatch`] does in help, takes it
+--- as an argument of its own.
+---
 ---     local got, why = Flags.parse(argv, 2, { ["--check"] = false, ["--jobs"] = true })
 ---     -- cosmic fix --check a.tl  => got.set["--check"], got.words = { "a.tl" }
 ---
@@ -21,9 +27,9 @@ local record Flags
   record Option
     --- What its value is called in help ("n", "path"), for an option
     --- that takes one; nil for one that takes none.
-    value: string
+    value?: string
     --- One line on what it does.
-    about: string
+    about?: string
   end
 
   --- What a command line held.
@@ -31,13 +37,13 @@ local record Flags
     --- Each option given that takes no value.
     set: {string:boolean}
     --- Each option given with a value, by name; the last one given wins.
-    values: {string:string}
+    values: mut {string:string}
     --- Each option given with a value, by name: every value it was
     --- given, in order, for an option that may be repeated.
-    all: {string:{string}}
+    all: mut {string:{string}}
     --- Every option given, by name, in order, once each time it was
     --- given: what counts a repeat, or tells which came first.
-    given: {string}
+    given: mut {string}
     --- Every other word, in order.
     words: {string}
   end
@@ -56,15 +62,16 @@ local record Flags
   record Command
     --- The options the command takes, as [`Flags.parse`] reads a spec;
     --- none when nil.
-    spec: {string:boolean | Option}
+    spec?: {string:boolean | Option}
     --- One line on what the command does, for help.
-    about: string
+    about?: string
     --- What follows the command in its usage line ("[options] <file>"),
     --- for help; "[options]" when nil and the command takes any.
-    usage: string
+    usage?: string
     --- Runs the command with what its line held, answering its exit
-    --- status.
-    run: function(Parsed): integer
+    --- status. None for a command only described, as [`cosmic.cli`]'s
+    --- verbs are, which [`Flags.dispatch`] refuses to run.
+    run?: function(Parsed): integer
   end
 end
 
@@ -91,7 +98,10 @@ end
 --- what follows "=" in the same word for a "--" option or a one-dash
 --- option named whole ("--jobs=4", "-std=c99"). A lone "-" is a word, and
 --- "--" ends the options: every word after it is a word even when it
---- begins with "-", as a negative number must.
+--- begins with "-", as a negative number must. A file run as `cosmic
+--- f.tl` gets its words as typed, a "--" among them. So for `cosmic f.tl
+--- -- --email x`, Flags.parse from slot 1 reads "--email" and "x" as
+--- words. Write `cosmic f.tl --email x`.
 ---
 --- A word with one "-" that the spec does not name whole is a cluster of
 --- one-letter options, as getopt reads one: "-vq" is "-v -q", and a
@@ -110,15 +120,15 @@ end
 --- the same word: "--jobs=--x", "-std=-x", "-n--x". A spec key that is
 --- not an option ("x", "-", "--"), or that holds an "=" no word could
 --- reach ("--a=b"), raises, as does an [`Option`] whose `value` is "".
---- @param argv {integer:string} The command line
+--- @param argv {string} The command line: the words after the program's name, as typed
 --- @param from integer The first slot to read
 --- @param spec {string:boolean|Option} Each option, and whether it takes a value
 --- @return Parsed | nil What the line held
 --- @return string Why it was refused, or "" when it was not
-function Flags.parse(argv: {integer:string}, from: integer,
-                     spec: {string:boolean | Flags.Option}): Flags.Parsed | nil, string
+function Flags.parse(argv: {string}, from: integer,
+                     spec: {string:boolean | Flags.Option}): Flags.Parsed?, string
   for name in pairs(spec) do
-    if name:sub(1, 1) ~= "-" or name == "-" or name == "--" or name:find("=", 2, true) then
+    if name:sub(1, 1) ~= "-" or name == "-" or name == "--" or name:find("=", 2, true) ~= nil then
       error("flags: " .. name .. " is not an option a spec can name", 2)
     end
     local entry = spec[name]
@@ -127,7 +137,7 @@ function Flags.parse(argv: {integer:string}, from: integer,
     end
   end
   local parsed: Flags.Parsed = { set = {}, values = {}, all = {}, given = {}, words = {} }
-  local slot = from
+  local cursor: integer = from
   local function flag(name: string)
     parsed.set[name] = true
     parsed.given[#parsed.given + 1] = name
@@ -135,10 +145,10 @@ function Flags.parse(argv: {integer:string}, from: integer,
   -- Records `name`'s value: `value` when the word held it, otherwise
   -- the next word, which must not look like an option. `same` is how a
   -- value is attached to `name` in one word, for the refusal to show.
-  local function valued(name: string, value: string | nil, same: string): string
+  local function valued(name: string, value: string?, same: string): string
     if value == nil then
-      slot = slot + 1
-      value = argv[slot]
+      cursor = cursor + 1
+      value = argv[cursor]
       if value == nil then
         return name .. " needs a value"
       elseif looks_like_option(value) then
@@ -164,8 +174,8 @@ function Flags.parse(argv: {integer:string}, from: integer,
     return name ~= nil and #name > 2 and spec[name] ~= nil
   end
   local options = true
-  while argv[slot] ~= nil do
-    local word = argv[slot]
+  while argv[cursor] ~= nil do
+    local word = argv[cursor]
     if not options or word == "-" or word:sub(1, 1) ~= "-" then
       parsed.words[#parsed.words + 1] = word
     elseif word == "--" then
@@ -177,7 +187,7 @@ function Flags.parse(argv: {integer:string}, from: integer,
       if entry == nil then
         return nil, "no such option: " .. name
       elseif takes_value(entry) then
-        local trouble = valued(name, value, #name > 2 and "=" or "")
+        local trouble = valued(name, value, if #name > 2 then "=" else "" end)
         if trouble ~= "" then
           return nil, trouble
         end
@@ -212,7 +222,7 @@ function Flags.parse(argv: {integer:string}, from: integer,
         at = at + 1
       end
     end
-    slot = slot + 1
+    cursor = cursor + 1
   end
   return parsed, ""
 end
@@ -227,35 +237,36 @@ end
 --- of its value -- beside what it does, in a column: sorted by name
 --- without its dashes, each line indented two spaces.
 local function option_lines(spec: {string:boolean | Flags.Option}): {string}
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(spec) do names[#names + 1] = name end
   table.sort(names, function(a: string, b: string): boolean
     local bare_a, bare_b = a:gsub("^%-+", ""), b:gsub("^%-+", "")
     if bare_a ~= bare_b then return bare_a < bare_b end
     return a < b
   end)
-  local heads: {string} = {}
+  local heads: mut {string} = {}
   local width = 0
   for index, name in ipairs(names) do
     local entry = spec[name]
     local head = name
-    if entry is Flags.Option and entry.value ~= nil then
-      head = name .. " <" .. entry.value .. ">"
+    local value = entry is Flags.Option and entry.value or nil
+    if value ~= nil then
+      head = name .. " <" .. value .. ">"
     elseif entry == true then
       head = name .. " <value>"
     end
     heads[index] = head
     if columns(head) > width then width = columns(head) end
   end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for index, name in ipairs(names) do
     local entry = spec[name]
     local about = entry is Flags.Option and entry.about or nil
     if about ~= nil and about ~= "" then
-      lines[index] = "  " .. heads[index] .. string.rep(" ", width - columns(heads[index])) ..
+      lines[#lines + 1] = "  " .. heads[index] .. string.rep(" ", width - columns(heads[index])) ..
         "  " .. about
     else
-      lines[index] = "  " .. heads[index]
+      lines[#lines + 1] = "  " .. heads[index]
     end
   end
   return lines
@@ -297,13 +308,11 @@ function Flags.help(command: Flags.Command, name: string): string
     error("flags: help's name is empty", 2)
   end
   local spec = command.spec or {}
-  local usage = command.usage
-  if usage == nil then
-    usage = next(spec) ~= nil and "[options]" or ""
-  end
-  local parts: {string} = { "usage: " .. (usage ~= "" and name .. " " .. usage or name) }
-  if command.about ~= nil and command.about ~= "" then
-    parts[#parts + 1] = "\n" .. command.about
+  local usage = command.usage or (if next(spec) ~= nil then "[options]" else "" end)
+  local parts: mut {string} = { "usage: " .. (if usage ~= "" then name .. " " .. usage else name end) }
+  local about = command.about
+  if about ~= nil and about ~= "" then
+    parts[#parts + 1] = "\n" .. about
   end
   if next(spec) ~= nil then
     parts[#parts + 1] = "\noptions:\n" .. Flags.options(spec)
@@ -313,7 +322,7 @@ end
 
 --- The help of `program` as a whole: its commands, each with its about.
 local function commands_help(program: string, commands: {string:Flags.Command}): string
-  local names: {string} = {}
+  local names: mut {string} = {}
   local width = 0
   for name in pairs(commands) do
     names[#names + 1] = name
@@ -322,10 +331,11 @@ local function commands_help(program: string, commands: {string:Flags.Command}):
   table.sort(names)
   local any_options = false
   for _, command in pairs(commands) do
-    if command.spec ~= nil and next(command.spec) ~= nil then any_options = true end
+    local spec = command.spec
+    if spec ~= nil and next(spec) ~= nil then any_options = true end
   end
-  local usage = "usage: " .. program .. " <command>" .. (any_options and " [options]" or "")
-  local lines: {string} = { usage, "", "commands:" }
+  local usage = "usage: " .. program .. " <command>" .. (if any_options then " [options]" else "" end)
+  local lines: mut {string} = { usage, "", "commands:" }
   for _, name in ipairs(names) do
     local about = commands[name].about
     if about ~= nil and about ~= "" then
@@ -346,11 +356,11 @@ end
 --- an option's value would go, which [`Flags.parse`] refuses anyway. For
 --- a program that reads its own line, as [`Flags.dispatch`] does not:
 --- its refusals and its help are then the same rule's.
---- @param argv {integer:string} The command line
+--- @param argv {string} The command line
 --- @param from integer The first slot to read
 --- @param spec {string:boolean|Option} The options the command names
 --- @return boolean Whether help was asked for
-function Flags.asks_help(argv: {integer:string}, from: integer,
+function Flags.asks_help(argv: {string}, from: integer,
                          spec: {string:boolean | Flags.Option}): boolean
   local slot = from
   while argv[slot] ~= nil and argv[slot] ~= "--" do
@@ -368,7 +378,8 @@ end
 --- would, and answers what its `run` answers. Answers nil and why, run
 --- nothing, when the line names no command, one `commands` does not
 --- hold -- an option before the command is one -- or a line the
---- command's spec refuses, whose why names the command. Empty
+--- command's spec refuses, whose why names the command, or a command
+--- with no `run`. Empty
 --- `commands` raises.
 ---
 --- Help is answered rather than run -- `code` 0 and `help` for the
@@ -385,22 +396,18 @@ end
 ---     if ran == nil then Fs.put(Fs.stderr, "prog: " .. why .. "\n") return 2 end
 ---     if ran.help ~= "" then print(ran.help) end
 ---     return ran.code
---- @param argv {integer:string} The command line
+--- @param argv {string} The command line
 --- @param from integer The slot holding the command
 --- @param commands {string:Command} Each command, by the word that names it
---- @param program string | nil What help calls the program: by default
----   the last part of `argv[0]`'s path ("/" or "\\" apart), or
----   "program" without one
+--- @param program string What help calls the program ("prog" in `prog build
+---   --help`): not read from `argv`, which holds the words after the program's
+---   name
 --- @return Dispatched | nil What the command answered, or the help
 --- @return string Why nothing ran, or "" when a command or help did
-function Flags.dispatch(argv: {integer:string}, from: integer,
-                        commands: {string:Flags.Command}, program?: string): Flags.Dispatched | nil, string
+function Flags.dispatch(argv: {string}, from: integer,
+                        commands: {string:Flags.Command}, program: string): Flags.Dispatched?, string
   if next(commands) == nil then
     error("flags: dispatch needs a command to choose among", 2)
-  end
-  if program == nil then
-    local last = argv[0] ~= nil and argv[0]:match("([^/\\]*)$") or ""
-    program = last ~= "" and last or "program"
   end
   local name = argv[from]
   if name == "--help" or name == "-h" or (name == "help" and commands.help == nil) then
@@ -419,7 +426,7 @@ function Flags.dispatch(argv: {integer:string}, from: integer,
     return { code = 0, help = Flags.help(commands[asked], program .. " " .. asked) }, ""
   end
   if name == nil then
-    local names: {string} = {}
+    local names: mut {string} = {}
     for known in pairs(commands) do names[#names + 1] = known end
     table.sort(names)
     return nil, "needs a command: " .. table.concat(names, ", ")
@@ -436,7 +443,11 @@ function Flags.dispatch(argv: {integer:string}, from: integer,
   if parsed == nil then
     return nil, name .. ": " .. why
   end
-  return { code = command.run(parsed), help = "" }, ""
+  local run = command.run
+  if run == nil then
+    return nil, name .. ": the command has no run"
+  end
+  return { code = run(parsed), help = "" }, ""
 end
 
 return Flags

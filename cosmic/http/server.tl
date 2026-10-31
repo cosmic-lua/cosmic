@@ -18,6 +18,7 @@
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
+local Number = require("cosmic.number")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
@@ -46,7 +47,8 @@ local record Server
     --- "HTTP/1.1" or "HTTP/1.0".
     version: string
     --- The headers, by lowercased name; a name sent more than once has
-    --- its values joined with ", ". For an absolute-form target, `host`
+    --- its values joined with ", ", but `cookie`'s with "; " (RFC
+    --- 6265 5.4). For an absolute-form target, `host`
     --- is the target's host and port, whatever Host said.
     headers: {string:string}
     --- The body, read as it arrives: a Content-Length's bytes, or a
@@ -62,7 +64,12 @@ local record Server
     body: Stream.Reader
     --- The Content-Length: the body's size, 0 for a request with no
     --- body, nil for a chunked one.
-    length: integer
+    length?: integer
+    --- Where the request came from: the numeric TCP address of the
+    --- connection's far end, as the kernel names it, and the proxy's
+    --- where one sits between (no header is read). Nil where the
+    --- connection has none ([`Net.Conn.peer`] says when).
+    peer?: Net.Address
   end
 
   --- What a handler answers. The server writes `Date`,
@@ -87,61 +94,91 @@ local record Server
     --- is 0, but in a reply to HEAD, where it is the size of the body a
     --- GET would get, sent with no bytes; and in a 304, where RFC 9110
     --- 8.6 has it the size of a 200's body, and it is passed on
-    --- unchecked. A 204 has none.
-    headers: {string:string}
+    --- unchecked. A 204 has none. A list value writes one line per
+    --- element, in order: use it for Set-Cookie, which cannot be joined
+    --- with ", " (RFC 6265 3, RFC 9110 5.3). An empty list writes
+    --- nothing; a list of Content-Length is refused.
+    headers?: {string: string | {string}}
     --- nil for none, the bytes, or a Reader, which the server reads to
     --- its end (or to `length`) as it writes and then closes, read or
     --- not.
-    body: string | Stream.Reader
+    body?: string | Stream.Reader
     --- The body's size in bytes, as a `Content-Length` header gives it:
     --- the two, given both, must agree. A Reader without either goes
     --- chunked, or, to an HTTP/1.0 client, until the connection closes.
-    length: integer
+    length?: integer
     --- Close the connection after this reply.
-    close: boolean
+    close?: boolean
   end
 
   --- What [`Server.serve`] serves, and how. A field of the wrong shape, or
   --- one not named here, raises, naming it.
   record ServeSpec
     --- Where to listen, as [`Net.ServeSpec.listeners`].
-    listeners: {Net.Address}
+    listeners?: {Net.Address}
     --- Answers one request, in the connection's task: see [`Server.serve`].
     handle: function(Request): Reply
     --- What a server takes on at most; a field left nil has its default.
     record Limits
       --- The most connections open at once (256).
-      connections: integer
+      connections?: integer
       --- The most bytes of a request's head (64 KiB), past which it is
       --- answered 431, and of the head with a chunked body's chunk
       --- extensions and trailers, past which 413.
-      head_bytes: integer
+      head_bytes?: integer
       --- The most bytes of a request's body (1 MiB); past it, 413.
-      body_bytes: integer
+      -- TODO: let a request's route choose its own limit
+      -- (`ServeSpec.body_limit(method, path)`, doc/plans/web/core.md
+      -- 13.4). A lower one needs only exchange to consult it before
+      -- wire.body; a higher one (an upload route) waits on
+      -- wire.read_head, which answers 413 for a Content-Length past the
+      -- server-wide `body_bytes` before the route is known: it would
+      -- take the Content-Length check out of read_head into the caller.
+      body_bytes?: integer
     end
     --- Bounds on what the server takes on; nil for every default.
-    limits: Limits
+    limits?: Limits
     --- How long any one read or write of a connection waits once a
     --- request's head is in -- the body's reads, the reply's writes
     --- -- (30 seconds); see [`Net.ServeSpec.timeout_ns`].
-    timeout_ns: integer
+    timeout_ns?: integer
     --- As [`Net.ServeSpec.grace_ns`]: how long requests in flight have
     --- to finish once the server stops; nil to wait for every one.
-    grace_ns: integer
+    grace_ns?: integer
     --- How long a connection waits for the first byte of a request, its
     --- first or the next after a reply, before it is closed (5 seconds).
-    idle_ns: integer
+    idle_ns?: integer
     --- How long a request's head may take to arrive whole, from its
     --- first byte (30 seconds): past it, 408 and the connection closed,
     --- so a client sending a head a byte at a time holds a connection
     --- no longer.
-    head_ns: integer
+    head_ns?: integer
+    --- How long a request's body may take (30 seconds), however steadily
+    --- its bytes come. The time runs from the handler's first read of
+    --- the body, so a handler working before it reads costs the client
+    --- none; the server's own drop of a body the handler left unread
+    --- has a window of its own. Past it the read fails as a
+    --- [`Poll.TIMEOUT`] does and the server answers 408 in place of the
+    --- handler's reply and closes, so a client sending a body a byte
+    --- at a time holds a connection no longer; a body that was unread
+    --- and is not dropped in time closes the connection after the
+    --- handler's reply. A request with no body has none. A server taking
+    --- uploads past what 30 seconds carry raises it.
+    body_ns?: integer
     --- As [`Net.ServeSpec.on_ready`].
-    on_ready: function(addresses: {Net.Address}, server: Net.Server)
+    on_ready?: function(addresses: {Net.Address}, server: Net.Server)
+    --- As [`Net.ServeSpec.on_stop`]: called once, as the server begins
+    --- to stop, in a task of its run. The server has by then marked
+    --- itself stopping (a reply in flight is sent with `Connection:
+    --- close`) and closed the connections idle between requests, so it
+    --- is where a long-lived reply, a stream, is told to end. What it
+    --- raises goes to [`Server.ServeSpec.on_error`] and the server stops
+    --- all the same.
+    on_stop?: function(server: Net.Server)
     --- Given what a handler raised, with its stack, or why its reply
     --- could not be sent; nil to write each to stderr. See
     --- [`Net.ServeSpec.on_error`].
-    on_error: function(trouble: string)
+    on_error?: function(trouble: string)
   end
 
   --- What a Range header asks of a representation, as [`Server.range`]
@@ -159,10 +196,10 @@ local record Server
     --- bytes from `first` to `last`, "unsatisfiable" for a 416.
     kind: RangeKind
     --- The span's first byte, counted from 0; set only for "span".
-    first: integer
+    first?: integer
     --- The span's last byte, counted from 0 and sent with it; set only
     --- for "span".
-    last: integer
+    last?: integer
   end
 end
 
@@ -181,7 +218,8 @@ local LINGER_BYTES <const> = 256 * KIB
 
 local SPEC_FIELDS <const>: {string:boolean} = {
   listeners = true, handle = true, limits = true, timeout_ns = true, grace_ns = true,
-  idle_ns = true, head_ns = true, on_ready = true, on_error = true,
+  idle_ns = true, head_ns = true, body_ns = true, on_ready = true, on_stop = true,
+  on_error = true,
 }
 
 local LIMIT_FIELDS <const>: {string:boolean} = {
@@ -193,7 +231,7 @@ local REPLY_FIELDS <const>: {string:boolean} = {
 }
 
 --- Raises for the spec's `field`, at the caller of [`Server.serve`].
-local function spec_error(field: string, must: string)
+local function spec_error(field: string, must: string): never
   error("http: spec." .. field .. " must be " .. must, 4)
 end
 
@@ -202,7 +240,7 @@ end
 local function checked_spec(spec: any)
   if not spec is {any: any} then error("http: serve takes a spec table", 3) end
   for key in pairs(spec) do
-    if not (key is string and SPEC_FIELDS[key]) then
+    if not (key is string and SPEC_FIELDS[key] == true) then
       error("http: spec has no field " .. tostring(key), 3)
     end
   end
@@ -217,7 +255,7 @@ local function checked_spec(spec: any)
       spec_error("limits", "a table")
     else
       for key, value in pairs(limits) do
-        if not (key is string and LIMIT_FIELDS[key]) then
+        if not (key is string and LIMIT_FIELDS[key] == true) then
           error("http: spec.limits has no field " .. tostring(key), 3)
         end
         if not (value is integer and value >= 1) then
@@ -226,10 +264,10 @@ local function checked_spec(spec: any)
       end
     end
   end
-  for _, field in ipairs({ "timeout_ns", "grace_ns", "idle_ns", "head_ns" }) do
+  for _, field in ipairs({ "timeout_ns", "grace_ns", "idle_ns", "head_ns", "body_ns" }) do
     Poll.checked_ns(spec[field], "http", "spec." .. field, 3)
   end
-  for _, field in ipairs({ "on_ready", "on_error" }) do
+  for _, field in ipairs({ "on_ready", "on_stop", "on_error" }) do
     local fn = spec[field]
     if fn ~= nil and type(fn) ~= "function" then spec_error(field, "nil or a function") end
   end
@@ -238,30 +276,27 @@ end
 --- A connection read under a deadline: each read waits at most `each`,
 --- and none past `deadline`, a [`Clock.monotonic_ns`] reading (nil for
 --- none).
-local record Timed is Stream.Reader
+local class Timed is Stream.Reader
   conn: Net.Conn
   each: integer
-  deadline: integer
-  read: function(Timed, max_bytes?: integer): string | nil, string
-  close: function(Timed): boolean, string
-end
+  mut deadline?: integer
 
-local timed_mt: metatable<Timed> = { __index = Timed }
-
-function Timed:read(max_bytes?: integer): string | nil, string
-  local wait = self.each
-  if self.deadline ~= nil then
-    local left = self.deadline - Clock.monotonic_ns()
-    if left <= 0 then return nil, Poll.TIMEOUT end
-    if wait == nil or left < wait then wait = left end
+  function read(self, max_bytes?: integer): string?, string
+    local wait = self.each
+    local deadline = self.deadline
+    if deadline ~= nil then
+      local left = deadline - Clock.monotonic_ns()
+      if left <= 0 then return nil, Poll.TIMEOUT end
+      if wait == nil or left < wait then wait = left end
+    end
+    self.conn:set_timeout(wait)
+    return self.conn:read(max_bytes)
   end
-  self.conn:set_timeout(wait)
-  return self.conn:read(max_bytes)
-end
 
---- The connection is the server's to close.
-function Timed:close(): boolean, string
-  return true, ""
+  --- The connection is the server's to close.
+  function close(self): boolean, string
+    return true, ""
+  end
 end
 
 --- A server's state for the length of its run.
@@ -271,16 +306,18 @@ local record Serving
   timeout_ns: integer
   idle_ns: integer
   head_ns: integer
-  stopping: boolean
+  body_ns: integer
+  mut stopping: boolean
   --- Each connection waiting for its next request's first byte, which
   --- stopping closes at once.
-  idle: {Net.Conn: boolean}
+  idle: mut {Net.Conn: boolean}
 end
 
 --- Gives `trouble` to the spec's [`Server.ServeSpec.on_error`], or stderr.
 local function report(s: Serving, trouble: string)
-  if s.spec.on_error ~= nil then
-    s.spec.on_error(trouble)
+  local on_error = s.spec.on_error
+  if on_error ~= nil then
+    on_error(trouble)
     return
   end
   local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
@@ -293,7 +330,7 @@ end
 
 --- Sends the server's own reply of `status` to the request `head` (nil
 --- where there is none), saying `why` in its body, and closes after it.
-local function answer(s: Serving, conn: Net.Conn, head: wire.Head | nil, status: integer, why: string)
+local function answer(s: Serving, conn: Net.Conn, head: wire.Head?, status: integer, why: string)
   local text = ("%d %s"):format(status, wire.reason(status))
   if why ~= "" then text = text .. ": " .. why end
   conn:set_timeout(s.timeout_ns)
@@ -328,7 +365,7 @@ local function reply_trouble(reply: any): string
     return "the handler answered " .. type(reply) .. ", not a Server.Reply"
   end
   for key in pairs(reply) do
-    if not (key is string and REPLY_FIELDS[key]) then
+    if not (key is string and REPLY_FIELDS[key] == true) then
       return "the reply has no field " .. tostring(key)
     end
   end
@@ -340,8 +377,23 @@ local function reply_trouble(reply: any): string
   if headers ~= nil then
     if not headers is {any: any} then return "the reply's headers must be a table" end
     for name, value in pairs(headers) do
-      if not (name is string and value is string) then
-        return "the reply's headers must map names to strings"
+      if not name is string then return "the reply's headers must map names to strings" end
+      if value is {any: any} then
+        -- A list: keys 1..n, all strings.
+        local count = 0
+        for key, line in pairs(value) do
+          if not (key is integer and line is string) then
+            return "the reply's headers must map names to strings or lists of them"
+          end
+          count = count + 1
+        end
+        for i = 1, count do
+          if value[i] == nil then
+            return "the reply's headers must map names to strings or lists of them"
+          end
+        end
+      elseif not value is string then
+        return "the reply's headers must map names to strings or lists of them"
       end
     end
   end
@@ -363,75 +415,111 @@ end
 --- Closes the Reader body of `reply`, what a handler answered, where it
 --- has one the server will not send: checked as it runs, since the
 --- handler's answer is a [`Reply`] only by its declaration.
-local function drop_body(reply: Server.Reply)
+local function drop_body(reply: Server.Reply?)
   if type(reply) ~= "table" then return end
   local body = reply.body
+  if body == nil then return end
   if type(body) == "table" and not body is string and type(body.close) == "function" then
     -- Protected: a close that raised once, in the reply's send, may again.
     local _, _ = pcall(body.close, body)
   end
 end
 
+--- Why the server cannot send `reply`, what a handler answered to a request
+--- of `method` (GET when nil), or "": the checks it makes before it
+--- writes one, and for which it answers 500 instead -- a field the
+--- [`Server.Reply`] lacks, a header that cannot be written, a body or a
+--- Content-Length that disagree. A test that calls a handler without a
+--- server asks it what the server would.
+---
+---     assert(Server.check({ status = 200, body = "hi" }) == "")
+---     assert(Server.check({ status = 200, body = "hi", length = 5 }) ~= "")
+--- @param reply Server.Reply The handler's answer
+--- @param method string | nil The request's method
+--- @return string Why it cannot be sent, or ""
+function Server.check(reply: Server.Reply, method?: string): string
+  local trouble = reply_trouble(reply)
+  if trouble ~= "" then return trouble end
+  -- `check` reads no date: the one sent is made as the reply goes out.
+  return wire.check({ status = reply.status, headers = reply.headers, body = reply.body,
+    length = reply.length, method = method, date = "" })
+end
+
+--- The reason phrase of `status` as the server writes it ("Not Found"),
+--- or "" for a status it does not name.
+--- @param status integer An HTTP status
+--- @return string Its phrase
+function Server.reason(status: integer): string
+  return wire.reason(status)
+end
+
 --- Serves the request `head` read from `input`: calls the handler and
 --- writes its reply, or the server's own. True where the connection
 --- stays open for the next request.
-local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wire.Head): boolean
+local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wire.Head,
+                        timed: Timed, peer: Net.Address?): boolean
   -- Whether `100 Continue` went, and whether the final head has: an
   -- interim reply after it would be read as the final reply's body.
-  local continued, replied = false, false
+  local interim = { continued = false, replied = false }
   local function go_on()
-    if head.continue and not continued and not replied then
-      continued = true
+    if head.continue and interim.continued ~= true and interim.replied ~= true then
+      interim.continued = true
       conn:set_timeout(s.timeout_ns)
       local _, _ = conn:write("HTTP/1.1 100 Continue\r\n\r\n")
     end
   end
-  local body = wire.body(input, head, s.limits, go_on)
+  -- The body's deadline starts at the handler's first read, so the
+  -- handler's own time before it is the client's no more.
+  local body = wire.body(input, head, s.limits, function()
+    timed.deadline = Clock.monotonic_ns() + s.body_ns
+    go_on()
+  end)
   local request: Server.Request = {
     method = head.method, target = head.target, path = head.path, query = head.query,
-    version = head.version, headers = head.headers, body = body, length = head.length,
+    version = head.version, headers = head.headers, body = body, length = head.length, peer = peer,
   }
-  local reply: Server.Reply = nil
-  local ok, raised: boolean, any = xpcall(function() reply = s.spec.handle(request) end, traced)
+  local ok, reply = xpcall(s.spec.handle, traced, request)
   -- A body that failed is answered for, whatever the handler made of
   -- it: its raise, or its reply, followed from the failed read.
   local state = body.state
   if state == "over" or state == "bad" or state == "failed" then
     if ok then drop_body(reply) end
     if state ~= "failed" then
-      answer(s, conn, head, state == "over" and 413 or 400, (body.failure:gsub("^http: ", "")))
+      answer(s, conn, head, if state == "over" then 413 else 400 end, (body.failure:gsub("^http: ", "")))
       linger(conn)
     elseif body.failure == Poll.TIMEOUT then
-      answer(s, conn, head, 408, "the body came slower than timeout_ns")
+      answer(s, conn, head, 408, "the body came slower than body_ns or timeout_ns")
       linger(conn)
     end
     return false
   end
   local where = head.method .. " " .. head.target
   if not ok then
-    report(s, "http: " .. where .. ": " .. tostring(raised))
+    report(s, "http: " .. where .. ": " .. tostring(reply))
     answer(s, conn, head, 500, "")
     if body.state == "open" then linger(conn) end
     return false
   end
-  local trouble = reply_trouble(reply)
-  if trouble == "" then
-    trouble = wire.check({ status = reply.status, headers = reply.headers, body = reply.body,
-      length = reply.length, method = head.method })
+  -- A handler is a Reply only by its declaration: it may answer nothing.
+  local trouble: string
+  if reply == nil then
+    trouble = reply_trouble(reply)
+  else
+    trouble = Server.check(reply, head.method)
   end
-  if trouble ~= "" then
+  if trouble ~= "" or reply == nil then
     drop_body(reply)
     report(s, "http: " .. where .. ": " .. trouble)
     answer(s, conn, head, 500, "")
     if body.state == "open" then linger(conn) end
     return false
   end
-  local close = reply.close == true or head.close or s.stopping or reply.status >= 400
+  local close = reply.close == true or head.close or s.stopping
   -- A client still waiting for `100 Continue` sends its body only once
   -- told to, or not at all. A Reader reply may read the request's body
   -- as it goes, so the client is told now; after another, what follows
   -- on the connection is unknown, and it closes.
-  if head.continue and not continued and body.state == "open" then
+  if head.continue and interim.continued ~= true and body.state == "open" then
     local given = reply.body
     local sends_body = head.method ~= "HEAD" and reply.status ~= 204 and reply.status ~= 304
     if given ~= nil and not given is string and sends_body and not close then
@@ -440,28 +528,33 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
       close = true
     end
   end
-  replied = true
+  interim.replied = true
   conn:set_timeout(s.timeout_ns)
-  local sent: wire.Sent = nil
-  local sending, raised_sending: boolean, any = xpcall(function()
-    sent = wire.send(conn, {
-      status = reply.status, headers = reply.headers, body = reply.body, length = reply.length,
+  -- The reply is built inside the protected call, as its date is read there.
+  local function send_reply(to: Net.Conn): wire.Sent
+    return wire.send(to, {
+      status = reply.status, headers = reply.headers, body = reply.body,
+      length = reply.length,
       close = close, method = head.method, version = head.version,
       date = Time.format_http(Clock.now_ns()),
     })
-  end, traced)
+  end
+  local sending, sent = xpcall(send_reply, traced, conn)
   if not sending then
     -- A Reader body that raised: the reply is cut short.
     drop_body(reply)
-    report(s, "http: " .. where .. ": the reply's body: " .. tostring(raised_sending))
+    report(s, "http: " .. where .. ": the reply's body: " .. tostring(sent))
     return false
   end
+  -- The send answered once it did not raise.
+  local result = sent
+  if result == nil then return false end
   local failed = body.state ~= "open" and body.state ~= "done"
-  if sent.body_failure ~= "" and not failed then
-    report(s, "http: " .. where .. ": the reply's body: " .. sent.body_failure)
+  if result.body_failure ~= "" and not failed then
+    report(s, "http: " .. where .. ": the reply's body: " .. result.body_failure)
   end
-  if sent.close then
-    if sent.write_failure == "" and body.state == "open" then linger(conn) end
+  if result.close then
+    if result.write_failure == "" and body.state == "open" then linger(conn) end
     return false
   end
   -- A reply Reader that read the request's body may have ended cleanly
@@ -473,6 +566,10 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   end
   -- What of the body the handler left is dropped, so the next request
   -- starts where this one ends.
+  if body.state == "open" then
+    -- A window of its own: the handler's time, and its reads', are spent.
+    timed.deadline = Clock.monotonic_ns() + s.body_ns
+  end
   if body.state == "open" and not body:drain() then
     linger(conn)
     return false
@@ -482,14 +579,11 @@ end
 
 --- Serves `conn`, one request after another, until it closes, fails,
 --- or idles past `idle_ns`.
--- TODO: bound a request's body as head_ns bounds its head, with a
--- `body_ns` from the head's end (the reads' deadline, as Timed's is for
--- the head): today only timeout_ns, each read's, holds it, so a client
--- sending a body a byte a read holds its connection, and a stop with
--- no grace_ns, for as long as the body lasts.
 local function serve_conn(s: Serving, conn: Net.Conn)
-  local timed: Timed = setmetatable({ conn = conn, each = s.timeout_ns }, timed_mt)
+  local timed: Timed = { conn = conn, each = s.timeout_ns, deadline = nil }
   local input = wire.input(timed)
+  -- Nil where the connection has none (a unix one); the request then has no peer.
+  local peer, _ = conn:peer()
   while true do
     if not wire.buffered(input) then
       if s.stopping then return end
@@ -512,7 +606,9 @@ local function serve_conn(s: Serving, conn: Net.Conn)
       end
       return
     end
-    if not exchange(s, conn, input, head) then return end
+    local kept = exchange(s, conn, input, head, timed, peer)
+    timed.deadline = nil
+    if not kept then return end
   end
 end
 
@@ -533,8 +629,12 @@ end
 ---
 --- A connection serves one request after another (keep-alive), and
 --- answers requests pipelined on it in order; it closes after a reply
---- to HTTP/1.0, to `Connection: close`, with `Reply.close`, with a 4xx or
---- 5xx status, and once the server is stopping. It closes once idle
+--- to HTTP/1.0, to `Connection: close`, with `Reply.close`, and once the server is
+--- stopping; a 4xx or 5xx reply keeps it open (a handler wanting it
+--- closed says `close`), unless the request's body was left unread and
+--- could not be dropped (past `limits.body_bytes`, malformed, or slower
+--- than `body_ns`), or the server answered for the handler: its own
+--- 4xx and 5xx close the connection. It closes once idle
 --- for `idle_ns` too, and at once when the server stops: a request in
 --- flight then finishes, answered with `Connection: close`.
 ---
@@ -544,8 +644,8 @@ end
 --- Transfer-Encoding, or a transfer coding other than a last chunked
 --- (400, or 501 for a coding it does not decode); a version but 1.0 or
 --- 1.1 (505); a head past `limits.head_bytes` (431); a head slower than
---- `head_ns` (408), or a body read slower than `timeout_ns` (408); a
---- body past `limits.body_bytes` (413, at once where the Content-Length
+--- `head_ns` (408), or a body slower than `body_ns` or one of its reads
+--- slower than `timeout_ns` (408); a body past `limits.body_bytes` (413, at once where the Content-Length
 --- says so, before a client waiting with `Expect: 100-continue` sends
 --- it); any other expectation (417). A client sending that expectation
 --- is sent `100 Continue` when the handler first reads the body.
@@ -573,6 +673,8 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
   if Poll.in_task() then
     error("http: serve runs a Poll.run of its own, and cannot be called in a task of another", 2)
   end
+  local listeners = spec.listeners
+  assert(listeners, "http: checked_spec refuses a spec without listeners")
   local limits = spec.limits or {}
   local s: Serving = {
     spec = spec,
@@ -580,21 +682,24 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
     timeout_ns = spec.timeout_ns or Clock.seconds(30),
     idle_ns = spec.idle_ns or Clock.seconds(5),
     head_ns = spec.head_ns or Clock.seconds(30),
+    body_ns = spec.body_ns or Clock.seconds(30),
     stopping = false,
     idle = {},
   }
   return Net.serve{
-    listeners = spec.listeners,
+    listeners = listeners,
     serve = function(conn: Net.Conn) serve_conn(s, conn) end,
     limits = { connections = limits.connections or 256 },
     timeout_ns = s.timeout_ns,
     grace_ns = spec.grace_ns,
     on_ready = spec.on_ready,
-    on_stop = function(_server: Net.Server)
+    on_stop = function(server: Net.Server)
       s.stopping = true
-      local idle: {Net.Conn} = {}
+      local idle: mut {Net.Conn} = {}
       for conn in pairs(s.idle) do idle[#idle + 1] = conn end
       for _, conn in ipairs(idle) do local _, _ = conn:close() end
+      local on_stop = spec.on_stop
+      if on_stop ~= nil then on_stop(server) end
     end,
     on_error = spec.on_error,
   }
@@ -605,7 +710,7 @@ end
 
 --- Whether byte `b` is a space or a tab, RFC 9110's OWS; nil, past
 --- the text's end, is not.
-local function ows(b: integer | nil): boolean
+local function ows(b: integer?): boolean
   return b == 32 or b == 9
 end
 
@@ -638,7 +743,7 @@ local MOST <const> = tostring(math.maxinteger)
 --- one comes out the same either way.
 local function count(digits: string): integer
   if fewer(MOST, digits) then return math.maxinteger end
-  return math.tointeger(tonumber(digits))
+  return Number.integer(digits)
 end
 
 --- Reads the Range `header` of a GET (nil where it sent none) against
@@ -673,11 +778,11 @@ end
 ---
 --- Range concerns only GET, and a server ignores it for every other
 --- method; a handler that honors If-Range passes nil where its
---- validator does not match. A `size` that is no integer from 0
+--- validator does not match. A `size` below 0
 --- raises.
-function Server.range(header: string | nil, size: integer): Server.Range
-  if not (math.type(size) == "integer" and size >= 0) then
-    error("http: Server.range's size must be an integer from 0", 2)
+function Server.range(header: string?, size: integer): Server.Range
+  if size < 0 then
+    error("http: Server.range's size must be from 0", 2)
   end
   local unranged: Server.Range = { kind = "whole" }
   if header == nil then return unranged end
@@ -686,11 +791,11 @@ function Server.range(header: string | nil, size: integer): Server.Range
   if equals == nil or value:sub(1, equals - 1):lower() ~= "bytes" or ows(value:byte(equals + 1)) then
     return unranged
   end
-  local spec: string = nil
+  local spec: string? = nil
   local from = equals + 1
   while true do
     local comma = value:find(",", from, true)
-    local element = stripped(value, from, comma ~= nil and comma - 1 or #value)
+    local element = stripped(value, from, if comma ~= nil then comma - 1 else #value end)
     if element ~= "" then
       if spec ~= nil then return unranged end
       spec = element
@@ -700,7 +805,7 @@ function Server.range(header: string | nil, size: integer): Server.Range
   end
   if spec == nil then return unranged end
   local first_digits, last_digits = spec:match("^([0-9]+)%-([0-9]*)$")
-  if first_digits ~= nil then
+  if first_digits ~= nil and last_digits ~= nil then
     local first_count, last_count = significant(first_digits), significant(last_digits)
     if last_digits ~= "" and fewer(last_count, first_count) then return unranged end
     local first = count(first_count)
@@ -717,15 +822,20 @@ function Server.range(header: string | nil, size: integer): Server.Range
   return { kind = "span", first = size - math.min(n, size), last = size - 1 }
 end
 
+local record EntityTag
+  last: integer
+  opaque: string
+end
+
 --- Where the entity tag that starts at `at` in `text` ends, and its
 --- opaque tag, quotes and all, which a weak comparison compares; nil
 --- where none starts there.
-local function entity_tag(text: string, at: integer): integer, string
+local function entity_tag(text: string, at: integer): EntityTag?
   local from = at
   if text:sub(at, at + 1) == "W/" then from = at + 2 end
   local _, last = text:find('^"[!\x23-\x7e\x80-\xff]*"', from)
-  if last == nil then return nil, nil end
-  return last, text:sub(from, last)
+  if last == nil then return nil end
+  return { last = last, opaque = text:sub(from, last) }
 end
 
 --- Whether the If-None-Match `header` (nil where none was sent) names
@@ -744,9 +854,9 @@ end
 --- `*` names a representation that exists, so a handler asks only of
 --- one it has. A list element that is no entity tag names nothing, and
 --- the rest are still read. An `etag` that is no entity tag raises.
-function Server.none_match(header: string | nil, etag: string): boolean
-  local own_last, own = entity_tag(etag, 1)
-  if own_last ~= #etag then
+function Server.none_match(header: string?, etag: string): boolean
+  local own = entity_tag(etag, 1)
+  if own == nil or own.last ~= #etag then
     error(("http: Server.none_match's etag %q is no entity tag, as \"v1\" or W/\"v1\""):format(etag), 2)
   end
   if header == nil then return false end
@@ -758,11 +868,11 @@ function Server.none_match(header: string | nil, etag: string): boolean
     if b == 44 or ows(b) then
       at = at + 1
     else
-      local last, opaque = entity_tag(value, at)
-      local after = last ~= nil and last + 1 or at
+      local found = entity_tag(value, at)
+      local after = if found ~= nil then found.last + 1 else at end
       while ows(value:byte(after)) do after = after + 1 end
-      if last ~= nil and (after > #value or value:byte(after) == 44) then
-        if opaque == own then return true end
+      if found ~= nil and (after > #value or value:byte(after) == 44) then
+        if found.opaque == own.opaque then return true end
       else
         -- What is no entity tag runs to the next comma.
         after = value:find(",", after, true) or #value + 1

@@ -7,11 +7,11 @@
 --- are not run (`requires`) or, where only the call can tell, skipped
 --- (Test.skip).
 
+local RawTables = require("build.raw_tables")
 local Net = require("cosmic.net")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local unix_socket = require("build.unix_socket")
-local type raw_process = require("cosmic.internal.process")
 local stand_in = require("build.stand_in")
 local Clock = require("cosmic.clock")
 -- Required, so the module whose loader is handed the raw table is of this
@@ -21,24 +21,12 @@ local type _ = require("cosmic.child")
 --- /proc and loopback, as core/syscalls_test.tl declares them: the child
 --- connects to a listener of this process's on loopback.
 Test.policy{
-  grants = { { path = "/proc", letters = "r" } },
+  profiles = { "proc" },
   loopback = { "127.0.0.1" },
   requires = { "landlock" },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader, as
---- `require` would hand it.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
 --- the script its first argument holds: a static executable that reads
@@ -73,6 +61,7 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
     -- seccomp profile): what only the call can tell.
     assert(errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM, trouble)
     Test.skip("the kernel gives no Landlock ruleset: " .. tostring(trouble))
+    return
   end
   local output = create(tmp .. "/said")
   local pid = assert(process.spawn(probe, { probe,
@@ -129,6 +118,7 @@ local function connects_through_a_ruleset(tmp: string, listen: function(string):
   if ruleset == nil then
     assert(listener:close())
     Test.skip("the kernel gives no Landlock ruleset: " .. tostring(trouble))
+    return
   end
   local output = create(tmp .. "/said")
   local pid = assert(process.spawn(probe, { probe, script(listener, socket) },

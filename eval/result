@@ -1,0 +1,11 @@
+#!/bin/sh
+# Writes an arena's result.json: see eval/result.tl, which this runs with
+# `cosmic --standalone` on bin/cosmic-bootstrap's cosmic: the pinned
+# release, or $COSMIC_BOOTSTRAP when set.
+#
+#   eval/result <arena> [--grade-exit N] [--grade-log PATH] [--model M] [--commit C]
+#               [--max-turns N] [--timeout S]
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+exec "$root/bin/cosmic-bootstrap" --standalone "$root/eval/result.tl" "$@"

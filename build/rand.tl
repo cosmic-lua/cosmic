@@ -13,7 +13,7 @@
 --- nonce. `--seed` is refused with `uuid` and `token`, which have no use
 --- for it.
 ---
---- Like `cosmic json` it ends in no verdict line: its standard output is
+--- Like `cosmic json` it prints no summary: its standard output is
 --- data for a pipe. Exit 0 is ok, 2 a command line, a file or a request
 --- it refuses (a failed write to standard output included), 1 the
 --- operating system's entropy source failing. Complaints go to standard
@@ -59,9 +59,9 @@ local record verb
     --- Writes one complaint line, without its newline.
     err: function(line: string)
     --- The whole of standard input, or nil and why.
-    stdin: function(): string | nil, string
+    stdin: function(): string?, string
     --- The operating system's entropy: [`Rand.entropy`] when nil.
-    entropy: function(count: integer): string | nil, string
+    entropy: function(count: integer): string?, string
     --- The wall clock in nanoseconds: [`Clock.now_ns`] when nil.
     now_ns: function(): integer
   end
@@ -75,7 +75,7 @@ end
 verb.MAX_BYTES = 1048576
 verb.MAX_COUNT = 10000000
 
-local spec = Cli.verbs.rand.spec
+local spec = Cli.verbs.rand.spec or {}
 
 local usage = "cosmic rand uuid [--v4|--v7] [-n N] | token [--bytes N] [--hex|--base64url] | " ..
   "int [-n N] [--seed S] [--] <lo> <hi> | pick [-n N] [--seed S] [file|-] | shuffle [--seed S] [file|-]"
@@ -87,7 +87,7 @@ local record Source
 end
 
 --- Parses `word` as a whole decimal integer, or nil.
-local function integer_of(word: string): integer | nil
+local function integer_of(word: string): integer?
   if not word:match("^[+-]?%d+$") then return nil end
   return math.tointeger(tonumber(word))
 end
@@ -95,12 +95,12 @@ end
 --- What `argv` asks for, checked against the subcommand.
 local record Request
   command: string
-  version: integer
-  count: integer | nil
-  bytes: integer
-  encoding: string
-  seed: integer | nil
-  words: {string}
+  mut version: integer
+  mut count?: integer
+  mut bytes: integer
+  mut encoding: string
+  mut seed?: integer
+  words: mut {string}
 end
 
 --- The prefix that keeps a negative number from being read as an option.
@@ -109,21 +109,23 @@ local NEGATIVE <const> = "\1"
 --- `argv` with each negative integer bound of `int` marked so `Flags`
 --- reads it as a word, not an option: `cosmic rand int -5 5` works
 --- without a `--`. An option's value is left alone.
-local function marked(argv: {integer:string}): {integer:string}
-  local out: {integer:string} = {}
-  for key, word in pairs(argv) do out[key] = word end
-  if argv[2] ~= "int" then return out end
-  local slot = 3
-  while argv[slot] ~= nil do
-    local word = argv[slot]
-    if word == "--" then break end
-    if word == "-n" or word == "--seed" then
+local function marked(argv: {string}): {string}
+  local marked_at: mut {integer: string} = {}
+  if argv[2] == "int" then
+    local slot = 3
+    while argv[slot] ~= nil do
+      local word = argv[slot]
+      if word == nil or word == "--" then break end
+      if word == "-n" or word == "--seed" then
+        slot = slot + 1
+      elseif word:match("^%-%d+$") then
+        marked_at[slot] = NEGATIVE .. word
+      end
       slot = slot + 1
-    elseif word:match("^%-%d+$") then
-      out[slot] = NEGATIVE .. word
     end
-    slot = slot + 1
   end
+  local out: mut {string} = {}
+  for key, word in ipairs(argv) do out[#out + 1] = marked_at[key] or word end
   return out
 end
 
@@ -137,18 +139,19 @@ local allowed: {string:{string:boolean}} = {
 }
 
 --- What `argv` asks for, or nil and why it is refused.
-local function arguments(argv: {integer:string}): Request | nil, string
+local function arguments(argv: {string}): Request?, string
   local command = argv[2]
   if command == nil then
     return nil, "give a subcommand"
   end
-  if allowed[command] == nil then
+  local allowed_here = allowed[command]
+  if allowed_here == nil then
     return nil, "no such subcommand: " .. command
   end
   local parsed, trouble = Flags.parse(marked(argv), 3, spec)
   if parsed == nil then return nil, trouble end
   for _, name in ipairs(parsed.given) do
-    if not allowed[command][name] then
+    if allowed_here[name] ~= true then
       if name == "--seed" then
         return nil, "--seed is refused with " .. command .. ": its output is secret, and a seed would make it replayable"
       end
@@ -162,19 +165,19 @@ local function arguments(argv: {integer:string}): Request | nil, string
     end
     request.words[#request.words + 1] = word
   end
-  if parsed.set["--v4"] and parsed.set["--v7"] then
+  if parsed.set["--v4"] == true and parsed.set["--v7"] == true then
     return nil, "name one of --v4 and --v7, not both"
   end
-  if parsed.set["--v7"] then request.version = 7 end
-  if parsed.set["--hex"] and parsed.set["--base64url"] then
+  if parsed.set["--v7"] == true then request.version = 7 end
+  if parsed.set["--hex"] == true and parsed.set["--base64url"] == true then
     return nil, "name one of --hex and --base64url, not both"
   end
-  if parsed.set["--hex"] then request.encoding = "hex" end
+  if parsed.set["--hex"] == true then request.encoding = "hex" end
   local given = parsed.values["-n"]
   if given ~= nil then
     local count = integer_of(given)
     if count == nil or count < 1 or count > verb.MAX_COUNT then
-      return nil, "-n needs a whole number from 1 to " .. verb.MAX_COUNT .. ", not " .. given
+      return nil, "-n needs a whole number from 1 to " .. tostring(verb.MAX_COUNT) .. ", not " .. given
     end
     request.count = count
   end
@@ -182,7 +185,7 @@ local function arguments(argv: {integer:string}): Request | nil, string
   if given ~= nil then
     local bytes = integer_of(given)
     if bytes == nil or bytes < 1 or bytes > verb.MAX_BYTES then
-      return nil, "--bytes needs a whole number from 1 to " .. verb.MAX_BYTES .. ", not " .. given
+      return nil, "--bytes needs a whole number from 1 to " .. tostring(verb.MAX_BYTES) .. ", not " .. given
     end
     request.bytes = bytes
   end
@@ -205,13 +208,13 @@ local function arguments(argv: {integer:string}): Request | nil, string
     end
     if words[1] == "" then return nil, bare.empty_file end
   elseif #words > 0 then
-    return nil, command .. " takes no words, not " .. #words
+    return nil, command .. " takes no words, not " .. tostring(#words)
   end
   return request, ""
 end
 
 --- The bytes of standard input, refusing a terminal.
-local function read_stdin(): string | nil, string
+local function read_stdin(): string?, string
   return bare.stdin_text("no file given and standard input is a terminal; give a file or pipe lines in")
 end
 
@@ -227,7 +230,7 @@ local standard: verb.Io = {
 --- last line's newline ends it and does not begin another, so "" is no
 --- lines and "a\n\nb" is three.
 local function lines_of(text: string): {string}
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local at = 1
   while at <= #text do
     local stop = text:find("\n", at, true)
@@ -248,7 +251,7 @@ end
 --- file or a request it refuses, or a standard output that took no write.
 --- @param argv the command line, `rand` at slot 1
 --- @param io where text is read and written and bytes drawn; the process's own when nil
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("rand", to.err)
   local found, trouble = arguments(argv)
@@ -263,11 +266,16 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   -- THE ONE READ OF THE OPERATING SYSTEM'S ENTROPY. Every value that
   -- may be a secret is made from bytes this returns; a seeded
   -- generator ([`Rand.new`]) is reached only from `seeded` below.
-  local broken: string | nil
+  local record Drawn
+    mut broken?: string
+    mut pool: string
+    mut used: integer
+  end
+  local drawn: Drawn = { pool = "", used = 0 }
   local function fetch(count: integer): string
     local bytes, why = draw_entropy(count)
     if bytes == nil or #bytes ~= count then
-      broken = why ~= "" and why or "short read"
+      drawn.broken = why ~= "" and why or "short read"
       error("entropy", 0)
     end
     return bytes
@@ -276,14 +284,13 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   -- for many values), which is still the operating system's entropy:
   -- each byte is handed out once. A large draw reads for itself.
   local POOL <const> = 8192
-  local pool, used = "", 0
   local function secret(count: integer): string
     if count > 64 then return fetch(count) end
-    if used + count > #pool then
-      pool, used = fetch(POOL), 0
+    if drawn.used + count > #drawn.pool then
+      drawn.pool, drawn.used = fetch(POOL), 0
     end
-    local bytes = pool:sub(used + 1, used + count)
-    used = used + count
+    local bytes = drawn.pool:sub(drawn.used + 1, drawn.used + count)
+    drawn.used = drawn.used + count
     return bytes
   end
 
@@ -302,26 +309,30 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
 
   local source: Source
-  if request.seed ~= nil then
-    source = seeded(request.seed)
+  local request_seed = request.seed
+  if request_seed ~= nil then
+    source = seeded(request_seed)
   else
     source = { int = secret_int }
   end
 
   -- Output goes out in pieces, so a large -n is never held whole.
-  local pending: {string} = {}
-  local pending_size = 0
+  local record Output
+    mut pending: mut {string}
+    mut size: integer
+  end
+  local output: Output = { pending = {}, size = 0 }
   local function flush(): boolean
-    if pending_size == 0 then return true end
-    local text = table.concat(pending)
-    pending, pending_size = {}, 0
+    if output.size == 0 then return true end
+    local text = table.concat(output.pending)
+    output.pending, output.size = {}, 0
     return bare.delivered(complain, to.out(text))
   end
   local function emit(text: string): boolean
-    pending[#pending + 1] = text
-    pending[#pending + 1] = "\n"
-    pending_size = pending_size + #text + 1
-    if pending_size >= 65536 then return flush() end
+    output.pending[#output.pending + 1] = text
+    output.pending[#output.pending + 1] = "\n"
+    output.size = output.size + #text + 1
+    if output.size >= 65536 then return flush() end
     return true
   end
 
@@ -331,15 +342,15 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       hex:sub(17, 20) .. "-" .. hex:sub(21, 32)
   end
 
-  local last_v7 = -1
+  local last_v7: integer = -1
   --- One UUID: version 4 from 16 entropy bytes with the version and
   --- variant bits set, or version 7 laid out as 48 bits of milliseconds,
   --- the version, the 12-bit counter, the variant and 62 entropy bits.
   local function uuid(version: integer): string
     if version == 4 then
       local bytes = secret(16)
-      local b6 = (bytes:byte(7) & 0x0f) | 0x40
-      local b8 = (bytes:byte(9) & 0x3f) | 0x80
+      local b6 = (assert(bytes:byte(7), "sixteen bytes were drawn") & 0x0f) | 0x40
+      local b8 = (assert(bytes:byte(9), "sixteen bytes were drawn") & 0x3f) | 0x80
       return uuid_text(bytes:sub(1, 6) .. string.char(b6) .. bytes:sub(8, 8) ..
           string.char(b8) .. bytes:sub(10))
     end
@@ -348,51 +359,47 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     if stamp <= last_v7 then stamp = last_v7 + 1 end
     last_v7 = stamp
     local tail = secret(8)
-    local b8 = (tail:byte(1) & 0x3f) | 0x80
+    local b8 = (assert(tail:byte(1), "eight bytes were drawn") & 0x3f) | 0x80
     local head = string.pack(">I6", stamp >> 12)
     local counter = stamp & 0xfff
     return uuid_text(head .. string.char(0x70 | (counter >> 8), counter & 0xff) ..
         string.char(b8) .. tail:sub(2))
   end
 
-  local code = 0
-  local function body()
+  local function body(): integer
     local command = request.command
     if command == "uuid" then
       for _ = 1, request.count or 1 do
         if not emit(uuid(request.version)) then
-          code = 2
-          return
+          return 2
         end
       end
     elseif command == "token" then
       local bytes = secret(request.bytes)
       local text = request.encoding == "hex" and Codec.hex(bytes) or Codec.base64url(bytes)
       if not emit(text) then
-        code = 2
-        return
+        return 2
       end
     elseif command == "int" then
-      local lo, hi = integer_of(request.words[1]), integer_of(request.words[2])
+      local low_word = assert(request.words[1], "int takes two bounds, which the arity check holds it to")
+      local high_word = assert(request.words[2], "int takes two bounds, which the arity check holds it to")
+      local lo, hi = integer_of(low_word), integer_of(high_word)
       if lo == nil or hi == nil then
-        complain("the bounds are whole numbers, not " .. request.words[1] .. " and " .. request.words[2])
-        code = 2
-        return
+        complain("the bounds are whole numbers, not " .. low_word .. " and " .. high_word)
+        return 2
       end
       if lo > hi then
         complain(("the low bound %d is above the high bound %d"):format(lo, hi))
-        code = 2
-        return
+        return 2
       end
       for _ = 1, request.count or 1 do
         if not emit(tostring(source.int(lo, hi))) then
-          code = 2
-          return
+          return 2
         end
       end
     else
       local file = request.words[1]
-      local text: string | nil
+      local text: string?
       local why: string
       if file == nil or file == "-" then
         text, why = to.stdin()
@@ -401,8 +408,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       end
       if text == nil then
         complain(why)
-        code = 2
-        return
+        return 2
       end
       local items = lines_of(text)
       -- Fisher-Yates: each step swaps slot i with a uniform slot from i
@@ -413,34 +419,33 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
         wanted = request.count or 1
         if wanted > #items then
           complain(("cannot pick %d of %s"):format(wanted, plural.count(#items, "line")))
-          code = 2
-          return
+          return 2
         end
       end
       for slot = 1, wanted do
         local other = source.int(slot, #items)
-        items[slot], items[other] = items[other], items[slot]
-        if not emit(items[slot]) then
-          code = 2
-          return
+        local at_slot = assert(items[slot], "a slot up to the count is a line")
+        local at_other = assert(items[other], "a slot drawn up to the end is a line")
+        items[slot], items[other] = at_other, at_slot
+        if not emit(at_other) then
+          return 2
         end
       end
     end
-    if not flush() then code = 2 end
+    if not flush() then return 2 end
+    return 0
   end
 
-  local ok, result = pcall(function(): integer
-    body()
-    return code
-  end)
+  local ok, result = pcall(body)
   if not ok then
-    if broken ~= nil then
-      complain("the operating system's entropy source failed: " .. broken)
+    local drawn_broken = drawn.broken
+    if drawn_broken ~= nil then
+      complain("the operating system's entropy source failed: " .. drawn_broken)
       return 1
     end
     error(result, 0)
   end
-  return code
+  return result
 end
 
 --- The `rand` verb as [`build/verb_list.tl`] lists it. It reads no tree,
@@ -449,7 +454,7 @@ verb.spec = {
   name = "rand",
   guide = "a random id, token or number",
   tests = { "build.rand_test", "build.rand_tool_test" },
-  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a subcommand and its words",
   exits = "`rand` prints what it draws and nothing after; it exits 1 when the entropy source failed, 2 when it refuses its command line or a write fails.",

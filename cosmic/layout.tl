@@ -3,7 +3,7 @@
 --- `<name>_example.tl`, and modules are named by their path from the
 --- project root. Each field below is one
 --- convention. A field is named for the file it shapes (`tests`), not
---- for a verb: `cosmic docs test` is [`cosmic.cli`]'s, the verb.
+--- for a verb: `cosmic help test` is [`cosmic.cli`]'s, the verb.
 local record Layout
   --- a worked example: a `<name>_example.tl` file must return a
   --- record literally named `Example`, one field per example --
@@ -20,7 +20,7 @@ local record Layout
   --- functions -- direct elements of the file, never inside another
   --- statement -- are discovered and run by `cosmic test`. No return
   --- value and no registration; the name alone is the rule. Its
-  --- verdict line's "N ran, M stood" is [`test.Tally`]: ran counts
+  --- summary's "N ran, M stood" is [`test.Tally`]: ran counts
   --- tests actually executed this time, stood the ones answered from
   --- an unchanged prior verdict instead
   tests: string
@@ -56,11 +56,22 @@ local record Layout
   --- at one import path are refused like any two files. `cosmic fix` parses
   --- a template and never rewrites it
   templates: string
+  --- a static asset: any file under the top-level `static/` directory is
+  --- carried verbatim in the project's executable and served by
+  --- [`cosmic.web.static`]. `static/css/app.css` is the asset `css/app.css`.
+  --- A `static/` directory is never a module namespace: a `.tl` or `.tmpl`
+  --- under it is an asset, not a module, so it is not compiled, tested or
+  --- required. There is no configuration: a mount's URL is named in the
+  --- router, not in the file layout. The build refuses a file past 16 MiB,
+  --- a name holding a control byte or any of `\ % ? #`, a path past 255
+  --- bytes, two names that differ only in case, and a link that leaves the
+  --- project
+  static: string
 end
 
 local layout: Layout = {
   Example = "Example", tests = "tests", require = "require", guides = "guides",
-  templates = "templates",
+  templates = "templates", static = "static",
 }
 
 return layout

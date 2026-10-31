@@ -47,30 +47,22 @@ static int run_bridge (lua_State *L, const char *root) {
   return 0;
 }
 
-/* Loads the vendored compiler under the environment the bridge built,
- * then has it compile the compiler's patched Teal source (the bridge's
- * `bootstrap`): leaves that compiler, and the Lua it was compiled to,
- * on the stack. */
-static int run_compiler (lua_State *L, const char *tl_dir, int bridge) {
-  char path[4096];
-  if (!join_path(path, sizeof path, tl_dir, "tl.lua")) {
+/* Has the bridge build the compiler from the seed: the Lua the pinned
+ * release wrote for the files of build/seed.txt, in `seed_dir` (build.zig's
+ * seed step). The bridge's `bootstrap` loads it under the environment the
+ * bridge built as the first-stage compiler and has that compile the same
+ * files again, from the tree; it leaves the second stage's entry module,
+ * `root`/build/seed.tl, on the stack. */
+static int run_compiler (lua_State *L, const char *root, const char *seed_dir,
+                         int bridge) {
+  char entry[4096];
+  if (!join_path(entry, sizeof entry, root, "build/seed.tl")) {
     return 1;
-  }
-  if (luaL_loadfilex(L, path, "t") != LUA_OK) {
-    return report(L, "the compiler would not load");
-  }
-  lua_getfield(L, bridge, "environment");
-  if (lua_setupvalue(L, -2, 1) == NULL) {
-    fprintf(stderr, "cosmic boot: the compiler has no environment to set\n");
-    return 1;
-  }
-  if (lua_pcall(L, 0, 1, 0) != LUA_OK) {
-    return report(L, "the compiler would not run");
   }
   lua_getfield(L, bridge, "bootstrap");
-  lua_insert(L, -2);
-  lua_pushstring(L, tl_dir);
-  if (lua_pcall(L, 2, 2, 0) != LUA_OK) {
+  lua_pushstring(L, seed_dir);
+  lua_pushstring(L, entry);
+  if (lua_pcall(L, 2, 1, 0) != LUA_OK) {
     return report(L, "the compiler would not compile itself");
   }
   return 0;
@@ -180,25 +172,17 @@ static int declare_syscalls (lua_State *L, const char *root, int bridge) {
   return 0;
 }
 
-int cosmic_boot (lua_State *L, const char *root, const char *tl_dir, int argc,
+int cosmic_boot (lua_State *L, const char *root, const char *seed_dir, int argc,
                  char **argv) {
   if (run_bridge(L, root) != 0) {
     return 1;
   }
   int bridge = lua_gettop(L);
 
-  if (run_compiler(L, tl_dir, bridge) != 0) {
+  if (run_compiler(L, root, seed_dir, bridge) != 0) {
     return 1;
   }
-  int source = lua_gettop(L);
-  int compiler = source - 1;
-
-  /* The compiler answers to the name its declaration carries, so the
-   * tree requires it like any other module. */
-  lua_getfield(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
-  lua_pushvalue(L, compiler);
-  lua_setfield(L, -2, "build.compiler");
-  lua_pop(L, 1);
+  int compiler = lua_gettop(L);
 
   lua_getfield(L, bridge, "searcher_for");
   lua_pushvalue(L, compiler);
@@ -232,8 +216,7 @@ int cosmic_boot (lua_State *L, const char *root, const char *tl_dir, int argc,
     lua_pushstring(L, argv[i]);
     lua_seti(L, -2, i);
   }
-  lua_pushvalue(L, source);
-  if (lua_pcall(L, 3, 1, 0) != LUA_OK) {
+  if (lua_pcall(L, 2, 1, 0) != LUA_OK) {
     return report(L, "build.boot failed");
   }
   int status = cosmic_tostatus(L, -1);

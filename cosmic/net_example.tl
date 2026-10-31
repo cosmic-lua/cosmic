@@ -29,20 +29,26 @@ function Example.listen()
   end
 end
 
+-- TODO: hold these in `<close>` locals once a Conn is a class the checker
+-- finds `__close` on (the `close_not_closable` pins of cosmic/net_example.tl
+-- in build/ceilings.txt).
+
 --- A request and its answer: `shutdown("write")` tells the server the
---- request is whole while the client still reads what comes back.
+--- request is whole while the client still reads what comes back. Each end
+--- is closed by hand: the checker refuses `<close>` on a [`Net.Conn`].
 function Example.connect()
-  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
-  local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
+  local server = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
+  local client = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
   assert(client:write("status"))
   assert(client:shutdown("write"))
   local conn = assert(server:accept())
   local request = assert(Stream.read_all(conn))
-  assert(conn:write(request == "status" and "ok" or "unknown"))
+  assert(conn:write(if request == "status" then "ok" else "unknown" end))
   assert(conn:close())
   local answer = assert(Stream.read_all(client))
   print(answer)
   assert(answer == "ok", answer)
+  assert(client:close())
   assert(server:close())
 end
 
@@ -50,7 +56,7 @@ end
 --- listener's `address` names for a client to connect to.
 function Example.tcp()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
-  print(server.address.port > 0)
+  print(assert(server.address.port) > 0)
   local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
   local conn <close> = assert(server:accept())
   assert(client:write("hello"))
@@ -98,7 +104,7 @@ function Example.serve()
       for line in lines:each() do assert(conn:write(line .. "\n")) end
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local client <close> = assert(Net.connect(addresses[1], { timeout_ns = Clock.seconds(5) }))
+      local client <close> = assert(Net.connect(assert(addresses[1]), { timeout_ns = Clock.seconds(5) }))
       assert(client:write("hello\n"))
       local answer = assert(Stream.lines(client):read())
       print(answer)

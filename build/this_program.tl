@@ -17,14 +17,14 @@ local record this_program
   --- How to start this very program (`program`): the command line and
   --- the options to hand [`Child.run`] or [`Child.start`].
   record Program
-    argv: {string}
+    mut argv: {string}
     options: Child.Options
   end
 end
 
 this_program.runtime_environment = {
   "HOME", "XDG_CACHE_HOME", "PATH", "TMPDIR", "COSMIC_PORTABLE_CACHE", "COSMIC_VERDICT_CACHE",
-  "COSMIC_BUILD_CACHE", "COSMIC_AUTO_BOOT", "COSMIC_TEST_SANDBOX", confine.held_variable,
+  "COSMIC_BUILD_CACHE", "COSMIC_BUILD_HOME", "COSMIC_AUTO_BOOT", "COSMIC_TEST_SANDBOX", confine.held_variable,
 }
 
 --- The environment to start a process of this very program with, for a
@@ -35,8 +35,8 @@ this_program.runtime_environment = {
 --- `test_directory`), so what the process leaves there goes with the
 --- test, not into the host's temporary directory. The core hands a child
 --- the directory its coverage goes to whatever environment it is given.
-function this_program.environment(): {string:string}
-  local out: {string:string} = {}
+function this_program.environment(): mut {string:string}
+  local out: mut {string:string} = {}
   local own = confine.test_directory()
   for _, name in ipairs(this_program.runtime_environment) do
     if name == "TMPDIR" and own ~= nil then
@@ -92,24 +92,24 @@ function this_program.program(args: {string}, opts?: Child.Options): this_progra
     error("this_program.program: env beside a policy: the policy's env and set_env are the " ..
         "child's whole environment", 2)
   end
-  local relaunch: Proc.Relaunch
+  local relaunch: Proc.Relaunch?
   if given.policy == nil then
     local found, _ = Proc.relaunch()
     relaunch = found
   end
-  local argv: {string} = {}
+  local argv: mut {string} = {}
   if relaunch ~= nil then
     for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
   else
     argv[1] = assert(Proc.executable())
   end
   for _, word in ipairs(args) do argv[#argv + 1] = word end
-  local env: {string:string} | nil
+  local env: mut {string:string}?
   if given.policy == nil then
     env = {}
     for name, value in pairs(given.env or Env.all()) do env[name] = value end
   end
-  local fds: {integer:integer | string} = {}
+  local fds: mut {integer:integer | string} = {}
   for number, fd in pairs(given.fds or {}) do fds[number] = fd end
   if relaunch ~= nil and env ~= nil then
     for name, value in pairs(relaunch.env) do env[name] = value end

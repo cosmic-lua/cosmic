@@ -3,7 +3,7 @@
 --- renders (`rendered`), and the names those pages and the guides and
 --- help texts refer to (`references`).
 ---
---- Both read the tree's projection, `o/cosmic.db`, through
+--- Both read the tree's projection, `cosmic.db`, through
 --- [`build.docs`]'s own view marked as a public source: the view a
 --- project sees of the binary it builds with, so a page here is the
 --- page a user gets, made by the code that makes it.
@@ -31,7 +31,7 @@ end
 --- ([`build.writer`]'s `carried`): the only rows a public source has,
 --- read without a query of the rest. Made at `scratch`, opened, and
 --- unlinked, so nothing is left behind.
-function docs_checks.carried(whole: string, scratch: string): Sqlite.Handle | nil, string
+function docs_checks.carried(whole: string, scratch: string): Sqlite.Handle?, string
   local made, made_trouble = writer.carried(whole, scratch)
   if not made then
     return nil, made_trouble
@@ -45,7 +45,7 @@ function docs_checks.carried(whole: string, scratch: string): Sqlite.Handle | ni
     local _, _ = db:close()
     return nil, remove_trouble
   end
-  return db
+  return db, ""
 end
 
 --- The kinds whose page lists other symbols, which only the renderer
@@ -64,7 +64,7 @@ local surfaces: {string: string} = {}
 --- The backticked `cosmic docs <query>` and `Module.symbol` references
 --- that name nothing, by the text between the backticks, and why each
 --- is fine.
-local unresolved: {string: string} = {}
+local unresolved: mut {string: string} = {}
 
 unresolved["cosmic docs Tally.words"] = "the project guide's own module, which its " ..
   "reader has just written"
@@ -82,7 +82,7 @@ local boundary = "[^%w_/%.]"
 local internal_paths: {string} = { "cosmic/internal/", "build/", "core/", "cosmic%.internal%." }
 
 --- Whether `line` names an internal path outside a code sample.
-local function internal_in(line: string): string | nil
+local function internal_in(line: string): string?
   local padded = " " .. line
   for _, pattern in ipairs(internal_paths) do
     local from = padded:find(boundary .. pattern)
@@ -98,7 +98,7 @@ end
 --- which names the file on purpose) and not an example's source, which
 --- is a worked program and may say what it likes.
 local function shown_prose(lines: {string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local source = false
   local example = false
   for at, line in ipairs(lines) do
@@ -157,11 +157,12 @@ end
 function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {string}
   local excused = exempt and exempt.undocumented or undocumented
   local kept = exempt and exempt.surfaces or surfaces
-  local out: {string} = {}
-  local view, view_trouble = docs.view({ db }, { true })
-  if view == nil then
+  local out: mut {string} = {}
+  local read_view, view_trouble = docs.view({ db }, { true })
+  if read_view == nil then
     return { "reading the view: " .. view_trouble }
   end
+  local view: docs.View = read_view
   local index, index_trouble = docs.index(view)
   if index == nil then
     return { "reading the index: " .. index_trouble }
@@ -174,11 +175,11 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
   if rows == nil then
     return { "reading the docs: " .. trouble }
   end
-  local shown: {{string}} = rows
+  local shown: Sqlite.Rows = rows
 
   -- Several modules declare `Entry.path`, so one lookup answers each.
-  local looked: {string: docs.Lookup} = {}
-  local function lookup(name: string): docs.Lookup | nil
+  local looked: mut {string: docs.Lookup} = {}
+  local function lookup(name: string): docs.Lookup?
     local found = looked[name]
     if found == nil then
       local fresh, found_trouble = docs.lookup(view, name)
@@ -202,8 +203,8 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
     end
     for _, line in ipairs(lines) do
       if private_member(line) then
-        out[#out + 1] = label .. ": lists a member the module keeps to itself: " ..
-          String.trim(line)
+        table.insert(out, label .. ": lists a member the module keeps to itself: " ..
+            String.trim(line))
       end
     end
     for _, line in ipairs(shown_prose(lines)) do
@@ -225,13 +226,17 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
       elseif line:match("^  %S") ~= nil then
         inherited = false
       elseif inherited and line:match("^    [%a_]") ~= nil then
-        local name = line:match("^    ([%w_]+)")
+        -- A field a record writes is listed with its `mut`.
+        local name = assert(line:match("^    mut ([%w_]+)") or line:match("^    ([%w_]+)"),
+          "a line that starts with a letter or an underscore has a name")
         local asked = entry.source_symbol .. "." .. name
         local reached = lookup(asked)
         local found = false
-        for _, item in ipairs(reached or {}) do
-          if item.module == entry.module and item.source_symbol == asked then
-            found = true
+        if reached ~= nil then
+          for _, item in ipairs(reached) do
+            if item.module == entry.module and item.source_symbol == asked then
+              found = true
+            end
           end
         end
         if reached ~= nil and not (found and reached.exact) then
@@ -267,28 +272,29 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
   -- A `local` type is shown only where a public signature names it, or
   -- as the record the module returns, whose members are named for it
   -- ([`Fs.read`] is `read`). Nothing else of a module's own is a reader's.
-  local signatures: {string: {string}} = {}
-  local canonical: {string: boolean} = {}
+  local signatures: mut {string: {string}} = {}
+  local canonical: mut {string: boolean} = {}
   for _, row in ipairs(shown) do
-    local module, symbol, source_symbol, signature = row[1], row[2], row[3], row[5]
+    local module, symbol, source_symbol, signature = row:text(1), row:text(2), row:text(3), row:text(5)
     signatures[module] = signatures[module] or {}
     table.insert(signatures[module], " " .. signature .. " ")
     if symbol ~= source_symbol then
-      canonical[module .. "\n" .. source_symbol:match("^[^.:]*")] = true
+      local stem = assert(source_symbol:match("^[^.:]*"), "the pattern ^[^.:]* matches the empty text")
+      canonical[module .. "\n" .. stem] = true
     end
   end
 
-  local used: {string: boolean} = {}
-  local kept_used: {string: boolean} = {}
+  local used: mut {string: boolean} = {}
+  local kept_used: mut {string: boolean} = {}
   for _, row in ipairs(shown) do
     local module, symbol, source_symbol, kind, signature, text =
-      row[1], row[2], row[3], row[4], row[5], row[6]
+      row:text(1), row:text(2), row:text(3), row:text(4), row:text(5), row:text(6)
     local key = module .. "." .. source_symbol
-    local where = row[7] .. ":" .. row[8] .. ": " .. key
+    local where = row:text(7) .. ":" .. row:text(8) .. ": " .. key
     if symbol ~= "" then
       if signature:gsub("^local ", ""):find("--", 1, true) ~= nil then
-        out[#out + 1] = where .. ": the signature has a comment in it: " ..
-          signature:gsub("%s+", " ")
+        table.insert(out, where .. ": the signature has a comment in it: " ..
+            signature:gsub("%s+", " "))
       end
       if source_symbol:find("[.:]_[^_]") ~= nil or source_symbol:find("^_[^_]") ~= nil then
         out[#out + 1] = where .. ": a member the module keeps to itself is shown"
@@ -301,24 +307,27 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
         end
       end
       -- A function or a container has a page of its own to reach.
-      if kind == "function" or kind == "method" or containers[kind] then
+      if kind == "function" or kind == "method" or containers[kind] == true then
         local found = lookup(source_symbol)
-        local answer: docs.Entry | nil = nil
-        for _, entry in ipairs(found or {}) do
-          if entry.module == module and entry.source_symbol == source_symbol then
-            answer = entry
+        local answer: docs.Entry? = nil
+        if found ~= nil then
+          for _, entry in ipairs(found) do
+            if entry.module == module and entry.source_symbol == source_symbol then
+              answer = entry
+            end
           end
         end
         if found ~= nil and answer == nil then
           out[#out + 1] = where .. ": `cosmic docs " .. source_symbol .. "` does not answer with it"
-        elseif answer ~= nil and containers[kind] then
+        elseif answer ~= nil and containers[kind] == true then
           inspect(module .. " " .. source_symbol, answer)
         end
       end
       if signature:sub(1, 6) == "local " and source_symbol:find("[.:]") == nil and
-          containers[kind] and not canonical[module .. "\n" .. source_symbol] then
+          containers[kind] == true and canonical[module .. "\n" .. source_symbol] ~= true then
         local named = false
-        for _, other in ipairs(signatures[module]) do
+        local module_signatures = assert(signatures[module], "every module of the rows has its signatures")
+        for _, other in ipairs(module_signatures) do
           if other:find("[^.%w_]" .. source_symbol .. "[^%w_]") ~= nil and
               other ~= " " .. signature .. " " then
             named = true
@@ -348,12 +357,12 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
     end
   end
   for key, reason in pairs(excused) do
-    if not used[key] then
+    if used[key] ~= true then
       out[#out + 1] = key .. ": excused (" .. reason .. "), but it is documented or gone"
     end
   end
   for key, reason in pairs(kept) do
-    if not kept_used[key] then
+    if kept_used[key] ~= true then
       out[#out + 1] = key .. ": kept as a surface (" .. reason .. "), but it is gone"
     end
   end
@@ -364,7 +373,7 @@ end
 --- Every backticked span of `text` outside a fenced block, with its
 --- line breaks read as spaces: a doc comment wraps where it likes.
 local function spans(text: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local prose = (text:gsub("```.-```", " "):gsub("%s+", " "))
   for span in prose:gmatch("`([^`]+)`") do
     out[#out + 1] = span
@@ -396,23 +405,24 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
                                 verbs?: {string}, allowed?: {string: string}): {string}
   help = help or {}
   local dangling = allowed or unresolved
-  local danglers: {string: boolean} = {}
-  local known: {string: boolean} = { exit = true }
+  local danglers: mut {string: boolean} = {}
+  local known: mut {string: boolean} = { exit = true }
   for _, verb in ipairs(verbs or Cli.order) do known[verb] = true end
-  local view, view_trouble = docs.view({ db }, { true })
-  if view == nil then
+  local read_view, view_trouble = docs.view({ db }, { true })
+  if read_view == nil then
     return { "reading the view: " .. view_trouble }
   end
+  local view: docs.View = read_view
   local index, index_trouble = docs.index(view)
   if index == nil then
     return { "reading the index: " .. index_trouble }
   end
   -- The record a public module returns is its last name, capitalized:
   -- `Fs` for [`cosmic.fs`].
-  local records: {string: boolean} = {}
+  local records: mut {string: boolean} = {}
   for _, summary in ipairs(index) do
-    if symbols.is_public_module(summary.module) then
-      local last = summary.module:match("[^.]+$")
+    local last = summary.module:match("[^.]+$")
+    if symbols.is_public_module(summary.module) and last ~= nil then
       records[last:sub(1, 1):upper() .. last:sub(2)] = true
     end
   end
@@ -423,21 +433,21 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   if rows == nil then
     return { "reading the docs: " .. trouble }
   end
-  local texts: {{string}} = rows
+  local texts: Sqlite.Rows = rows
 
-  local out: {string} = {}
-  local answered: {string: boolean} = {}
+  local out: mut {string} = {}
+  local answered: mut {string: boolean} = {}
   -- What cosmic.removed says to write instead, for a query it lists as
   -- gone: `cosmic docs` answers such a name, but a page that names it is
   -- stale.
-  local gone: {string: string} = {}
+  local gone: mut {string: string} = {}
   -- TODO: take a query that names a worked example by its own name
   -- (`cosmic docs records_interfaces_methods`, which the compiler's
   -- see-also hints print), so a guide can point a reader at the one
   -- place an interface is shown; only an exact symbol or a query of
   -- several words passes here.
   local function resolves(query: string): boolean
-    local words: {string} = {}
+    local words: mut {string} = {}
     for word in query:gmatch("%S+") do words[#words + 1] = word end
     local asked = docs.asked(words)
     if asked == nil then
@@ -453,8 +463,9 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
     if cached == nil then
       local found, _ = docs.lookup(view, query)
       cached = found ~= nil and #found > 0 and (found.exact or query:find(" ", 1, true) ~= nil)
-      if found ~= nil and #found > 0 and found[1].kind == "removed" then
-        gone[query] = found[1].text
+      local top = if found ~= nil then found[1] else nil end
+      if top ~= nil and top.kind == "removed" then
+        gone[query] = top.text
         cached = false
       end
       answered[query] = cached
@@ -463,27 +474,30 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   end
   local function check(where: string, text: string)
     for _, span in ipairs(spans(text)) do
-      local problem: string | nil = nil
+      local problem: string? = nil
       local query = span:match("^cosmic docs (.+)$")
       local verb = span:match("^cosmic help (%S+)$")
       if query ~= nil then
         query = query:gsub("^([\"'])(.*)%1$", "%2")
         if not placeholder(query) and not resolves(query) then
-          problem = gone[query] ~= nil and "names a removed symbol: " .. gone[query] or
-            "finds nothing"
+          local removal = gone[query]
+          problem = if removal ~= nil then "names a removed symbol: " .. removal else
+            "finds nothing" end
         end
       elseif verb ~= nil then
-        if not placeholder(verb) and not known[verb] then
+        if not placeholder(verb) and known[verb] ~= true then
           problem = "names no verb"
         end
       else
         local chain = span:match("^(%u[%w]*[%.:][%w_%.:]*[%w_])")
-        if chain ~= nil and records[chain:match("^[%w]+")] and
+        local head = if chain ~= nil then chain:match("^[%w]+") else nil end
+        if chain ~= nil and head ~= nil and records[head] == true and
             (#chain == #span or span:sub(#chain + 1, #chain + 1):match("[%s(]") ~= nil) then
           chain = chain:gsub(":", ".")
           if not resolves(chain) then
-            problem = gone[chain] ~= nil and "names a removed symbol: " .. gone[chain] or
-              "names no symbol"
+            local removal = gone[chain]
+            problem = if removal ~= nil then "names a removed symbol: " .. removal else
+              "names no symbol" end
           end
         end
       end
@@ -497,14 +511,14 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
     end
   end
   for _, row in ipairs(texts) do
-    check(row[4] .. ":" .. row[5] .. ": " .. row[1] ..
-        (row[2] ~= "" and " " .. row[2] or ""), row[3])
+    check(row:text(4) .. ":" .. row:text(5) .. ": " .. row:text(1) ..
+        (if row:text(2) ~= "" then " " .. row:text(2) else "" end), row:text(3))
   end
   for name, text in pairs(help) do
-    check("`cosmic help" .. (name ~= "" and " " .. name or "") .. "`", text)
+    check("`cosmic help" .. (if name ~= "" then " " .. name else "" end) .. "`", text)
   end
   for span, reason in pairs(dangling) do
-    if not danglers[span] then
+    if danglers[span] ~= true then
       out[#out + 1] = "`" .. span .. "` is allowed to dangle (" .. reason ..
         "), but it resolves or is gone"
     end

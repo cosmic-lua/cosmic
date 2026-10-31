@@ -9,8 +9,13 @@ local Test = require("cosmic.test")
 --- driver says where the candidate and its products are
 --- (COSMIC_FIXTURE_*) and what the children it starts read
 --- ([`Fixture.inherited`], which each of them hands on and no more, and
---- which cosmic_ci/orchestration_test.tl holds this list to).
+--- which cosmic_ci/orchestration_test.tl holds this list to). It
+--- declares `tool`, as [`BuildPaths.directory`] starts the running
+--- program on the candidate's build/paths.tl, whose modules a worker run
+--- on its closure alone would lack.
 Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
   env = {
     "COSMIC_FIXTURE_PRODUCT",
     "COSMIC_FIXTURE_SOURCE",
@@ -71,7 +76,7 @@ local function test_the_product_boots_its_own_tree_to_itself(tmp: string)
   Fixture.source_tree(tree)
 
   Fixture.succeeded("self-driven-boot", Fixture.call_with_environment(
-    "self-driven-boot", { tree .. "/bin/zig", "build", "boot" }, tree,
+    "self-driven-boot", { tree .. "/bin/zig", "build", "boot", "-Dboot-cores=all" }, tree,
     diagnostics, Fixture.environment({
       COSMIC_BOOTSTRAP = product,
       COSMIC_PORTABLE_CACHE = tmp .. "/portable-cache",

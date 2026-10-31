@@ -4,7 +4,6 @@
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
-local Hash = require("cosmic.hash")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 
@@ -13,7 +12,7 @@ local Tar = require("cosmic.tar")
 local PARTS <const> = { "a", "b", "dir", "x.txt", "é", "a b", "..", ".", "-", "", "\\" }
 
 local function gen_path(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   repeat
     if src:int(1, 8) == 1 then
       parts[#parts + 1] = string.rep("n", src:int(90, 160))
@@ -29,12 +28,12 @@ end
 --- Entries as [`Fuzz.pack`] fields: a kind, a path, and a body (a file's
 --- bytes, a link's target, nothing for a directory), repeated.
 local function gen_entries(src: Fuzz.Source): {string}
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   while Fuzz.more(src, #fields // 3, 5) do
     local kind = Fuzz.pick(src, { "file", "dir", "symlink" })
     local body = ""
     if kind == "file" then
-      body = Fuzz.bytes(src, src:int(0, 1) == 0 and 16 or 1100)
+      body = Fuzz.bytes(src, if src:int(0, 1) == 0 then 16 else 1100 end)
     elseif kind == "symlink" then
       body = gen_path(src)
     end
@@ -46,7 +45,7 @@ local function gen_entries(src: Fuzz.Source): {string}
 end
 
 --- The archive the writer makes of `fields`, or nil when it refuses one.
-local function write(fields: {string}): string | nil
+local function write(fields: {string}): string?
   local out = Stream.collect()
   local tw = Tar.writer(out, { deterministic = true })
   for i = 1, #fields, 3 do
@@ -70,18 +69,18 @@ end
 --- failure. Each body is read when `read` is true and left for `next`
 --- to skip otherwise. Nil and why when the reader answers something no
 --- archive could mean.
-local function entries_of(input: string, read: boolean): {string} | nil, string
+local function entries_of(input: string, read: boolean): {string}?, string
   local tr = Tar.reader(Stream.from_string(input))
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   for _ = 1, 10000 do
     local e, trouble = tr:next()
     if e == nil then
       if trouble == nil then return nil, "next: nil without a reason" end
-      if read then Fuzz.label(trouble == "" and "ended" or "refused") end
-      seen[#seen + 1] = trouble == "" and "ended" or "refused"
+      if read then Fuzz.label(if trouble == "" then "ended" else "refused" end) end
+      seen[#seen + 1] = if trouble == "" then "ended" else "refused" end
       return seen, ""
     end
-    if e.size < 0 then return nil, "an entry of negative size: " .. e.size end
+    if e.size < 0 then return nil, "an entry of negative size: " .. tostring(e.size) end
     seen[#seen + 1] = ("%q %s %d"):format(e.path, e.kind, e.size)
     if read then
       Fuzz.label("entry")
@@ -90,7 +89,7 @@ local function entries_of(input: string, read: boolean): {string} | nil, string
       if body ~= nil then
         -- Every other body is asked for whole, its size in one read, as
         -- a caller that trusts the header would; the rest in chunks.
-        local data: string = nil
+        local data: string? = nil
         if #seen % 2 == 0 and e.size > 0 then
           local first, ftrouble = body:read(e.size)
           if first ~= nil then
@@ -176,27 +175,27 @@ local NOT_OCTAL <const> = { "8", "9", "-1", "+7", "0x1f", "1e9", " ", "7 7", "\0
 local function numeric_field(src: Fuzz.Source, width: integer, v: integer): string
   local how = src:int(1, 12)
   if how <= 5 then
-    return field(("%0" .. (width - 1) .. "o"):format(v) .. "\0", width)
+    return field(("%0" .. tostring((width - 1)) .. "o"):format(v) .. "\0", width)
   elseif how == 6 then
-    return field(("%" .. (width - 2) .. "o \0"):format(v), width)
+    return field(("%" .. tostring((width - 2)) .. "o \0"):format(v), width)
   elseif how == 7 then
-    return ("%0" .. width .. "o"):format(v):sub(-width)
+    return ("%0" .. tostring(width) .. "o"):format(v):sub(-width)
   elseif how == 8 then
     local b = string.pack(">i8", v)
     if width > 8 then
-      b = string.rep(v < 0 and "\xff" or "\0", width - 8) .. b
+      b = string.rep(if v < 0 then "\xff" else "\0" end, width - 8) .. b
     else
       b = b:sub(-width)
     end
     return string.char(b:byte(1) | 0x80) .. b:sub(2)
   elseif how == 9 then
-    local b: {string} = { string.char(0x80 | src:int(0, 0x7f)) }
-    for i = 2, width do b[i] = string.char(src:int(0, 255)) end
+    local b: mut {string} = { string.char(0x80 | src:int(0, 0x7f)) }
+    for _ = 2, width do b[#b + 1] = string.char(src:int(0, 255)) end
     return table.concat(b)
   elseif how == 10 then
     return field(Fuzz.pick(src, NOT_OCTAL) .. ("%o"):format(v), width)
   elseif how == 11 then
-    return string.rep(src:int(0, 1) == 0 and "\0" or " ", width)
+    return string.rep(if src:int(0, 1) == 0 then "\0" else " " end, width)
   end
   return string.rep("7", width)
 end
@@ -252,7 +251,7 @@ local function special_body(src: Fuzz.Source, typeflag: string): string
     if src:int(0, 7) == 0 then name = name .. "\0" .. gen_path(src) end
     return name .. string.rep("\0", src:int(0, 2))
   end
-  local records: {string} = {}
+  local records: mut {string} = {}
   while Fuzz.more(src, #records, 4) do records[#records + 1] = pax_record(src) end
   local body = table.concat(records)
   if src:int(0, 7) == 0 then body = body:sub(1, src:int(0, #body)) end
@@ -290,7 +289,8 @@ local function header(src: Fuzz.Source, typeflag: string, size: integer): string
     string.rep("\0", 12),
   }
   local block = table.concat(parts)
-  local sum = Hash.byte_sum(block)
+  local sum = 0
+  for i = 1, #block do sum = sum + block:byte(i) end
   if src:int(0, 15) == 0 then sum = sum + src:int(1, 64) end
   return block:sub(1, 148) .. ("%06o\0 "):format(sum) .. block:sub(157)
 end
@@ -299,7 +299,7 @@ end
 --- body -- a special header's records, or bytes whose count the size
 --- field usually states -- padded to a block, usually; then the end.
 local function gen_archive(src: Fuzz.Source): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local entries = 0
   while Fuzz.more(src, entries, 6) do
     entries = entries + 1

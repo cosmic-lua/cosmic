@@ -7,6 +7,7 @@
 --- they are not applicable, and where this host's kernel refuses Landlock
 --- or seccomp a child that reports it skips its case (Test.skip).
 
+local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 -- The child loads these from the store, which holds this test's closure alone.
@@ -15,10 +16,10 @@ local _sandbox = require("cosmic.sandbox")
 local _store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Fs = require("cosmic.fs")
+local build_paths = require("build.paths")
 local Test = require("cosmic.test")
 local stand_in = require("build.stand_in")
 local this_program = require("build.this_program")
-local type raw_process = require("cosmic.internal.process")
 
 --- The program is this one, which a test starts only with `tool`; its
 --- temporary directory is the test's own.
@@ -31,17 +32,6 @@ Test.policy{
 
 local DENIED <const> = "Permission denied"
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
 --- What the child runs first: the modules it uses, loaded before it is
 --- restricted since it may read nothing after, and the helpers that
 --- report. `say(name, ...)` prints `name=` and its values; `reads(path)`
@@ -52,37 +42,44 @@ local Sandbox = require("cosmic.sandbox")
 local Child = require("cosmic.child")
 local Net = require("cosmic.net")
 local Store = require("cosmic.store")
-local function say(name, ...)
-  local words = {}
-  for i = 1, select("#", ...) do words[i] = tostring((select(i, ...))) end
+local function say(name: string, ...: any)
+  local words: mut {string} = {}
+  for i = 1, select("#", ...) do words[#words + 1] = tostring((select(i, ...))) end
   print(name .. "=" .. table.concat(words, " "))
 end
-local function reads(path)
+local function reads(path: string): string
   local fd, why = sys.open(path, sys.O_RDONLY)
   if fd == nil then return "denied: " .. why end
   local data = sys.read(fd, 100)
   sys.close(fd)
-  return data
+  return data or ""
 end
-local function writes(path)
+local function writes(path: string): string
   local fd, why = sys.open(path, sys.O_WRONLY | sys.O_CREAT, 420)
   if fd == nil then return "denied: " .. why end
   sys.close(fd)
   return "wrote"
 end
+--- A limit as "soft hard", or "none" where it cannot be read.
+local function limit(resource: integer): string
+  local held = sys.getrlimit(resource)
+  if held == nil then return "none" end
+  return tostring(held.soft) .. " " .. tostring(held.hard)
+end
+local _, _, _, _, _, _ = Child, Net, Store, reads, writes, limit
 ]]
 
 --- What a child said: its lines, `name=value`, by name, and how it ended.
 local record Said
   code: integer
-  lines: {string:string}
+  lines: mut {string:string}
   raw: string
 end
 
 --- Runs `chunk`, after `PRELUDE`, in a child of this program, and answers
 --- what it printed. Skips the test where the child reports `skip=` and
 --- why, which it does where this host's kernel gives no Landlock.
-local function in_child(chunk: string): Said | nil
+local function in_child(chunk: string): Said?
   local started = this_program.program({ "-e", PRELUDE .. chunk }, {
     env = this_program.environment(), stdout = "capture", stderr = "stdout",
     timeout_ns = Clock.seconds(60) })
@@ -105,13 +102,13 @@ end
 --- `restrict=<ok> <why>`, and goes on only where it held.
 local function restricted(policy: string, rest: string): string
   return string.format([[
-local ok, why = Sandbox.restrict(%s)
-if not ok and why:find("Landlock is not available here", 1, true) then
-  say("skip", why)
-  os.exit(0)
+local restricted, restricted_why = Sandbox.restrict(%s)
+if not restricted and restricted_why:find("Landlock is not available here", 1, true) ~= nil then
+  say("skip", restricted_why)
+  return 0
 end
-say("restrict", ok, why)
-if not ok then os.exit(0) end
+say("restrict", restricted, restricted_why)
+if not restricted then return 0 end
 %s
 ]], policy, rest)
 end
@@ -173,7 +170,7 @@ local function test_the_fork_promise_lets_a_process_start(tmp: string)
     string.format("{ grants = { { path = %q, letters = \"rx\" } }, promises = { \"fork\" } }", probe),
     string.format([[
 local result, trouble = Child.run({ %q, "print hi" }, { process_group = false, stdout = "capture" })
-say("fork", result ~= nil and result.ok, result and result.stdout or trouble)
+if result ~= nil then say("fork", result.ok, result.stdout) else say("fork", false, trouble) end
 ]], probe)))
   if said == nil then return end
   assert(said.lines.fork:find("^true"), said.raw)
@@ -184,19 +181,19 @@ end
 --- forked, and nothing outside the sandbox. Below ABI 6 the filter keeps
 --- the calls to the pid it was built for.
 local function test_the_signal_scope_lets_a_forked_process_signal_what_is_inside(tmp: string)
-  local abi, _ = (raw_behind("cosmic.child") as raw_process).landlock_abi() -- cast: the table core/process.h declares
+  local abi, _ = RawTables.process().landlock_abi()
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local sibling = assert(Child.start({ probe, "sleep-forever" }, { process_group = false }))
   local said = in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"rx\" } }, promises = { \"fork\" } }", probe),
     string.format([[
 local own = Child.run({ %q, "signal TERM" }, { process_group = false, stdout = "capture", stderr = "stdout" })
-say("self", own and own.signal, own and own.code, own and own.stdout)
-local held = Child.start({ %q, "sleep-forever" }, { process_group = false })
-local ended, why = sys.kill(held.pid, sys.SIGKILL)
-say("child", ended, why)
+if own ~= nil then say("self", own.signal, own.code, own.stdout) else say("self", nil, nil, nil) end
+local held = assert(Child.start({ %q, "sleep-forever" }, { process_group = false }))
+local ended, kill_why = sys.kill(held.pid, sys.SIGKILL)
+say("child", ended, kill_why)
 local waited = held:wait()
-say("reaped", waited and waited.signal)
+if waited ~= nil then say("reaped", waited.signal) else say("reaped", nil) end
 local mine, mine_why = sys.kill(sys.getpid(), 0)
 say("pid", mine, mine_why)
 local outside, outside_why = sys.kill(%d, sys.SIGKILL)
@@ -226,12 +223,9 @@ end
 
 local function test_limits_lower_what_the_process_may_spend()
   local said = in_child(restricted("{ limits = { open_files = 24, cpu_seconds = 100 } }", [[
-local open = sys.getrlimit(sys.RLIMIT_NOFILE)
-local cpu = sys.getrlimit(sys.RLIMIT_CPU)
-local core = sys.getrlimit(sys.RLIMIT_CORE)
-say("nofile", open.soft, open.hard)
-say("cpu", cpu.soft, cpu.hard)
-say("core", core.soft, core.hard)
+say("nofile", limit(sys.RLIMIT_NOFILE))
+say("cpu", limit(sys.RLIMIT_CPU))
+say("core", limit(sys.RLIMIT_CORE))
 local held = 0
 while sys.dup(0) ~= nil do held = held + 1 end
 say("dups", held <= 24)
@@ -248,8 +242,7 @@ local function test_a_limit_is_never_raised()
   local said = in_child([[
 assert(sys.setrlimit(sys.RLIMIT_NOFILE, 64, 64))
 ]] .. restricted("{}", [[
-local open = sys.getrlimit(sys.RLIMIT_NOFILE)
-say("nofile", open.soft, open.hard)
+say("nofile", limit(sys.RLIMIT_NOFILE))
 ]]))
   if said == nil then return end
   assert(said.lines.nofile == "64 64", said.raw)
@@ -264,9 +257,9 @@ local function test_restricting_again_narrows(tmp: string)
 say("a", reads(%q))
 say("b", reads(%q))
 say("c", reads(%q))
-local second, why = Sandbox.restrict({ grants = { { path = %q, letters = "r" }, { path = %q, letters = "r" } },
+local second, second_why = Sandbox.restrict({ grants = { { path = %q, letters = "r" }, { path = %q, letters = "r" } },
   limits = { cpu_seconds = 100 } })
-say("second", second, why)
+say("second", second, second_why)
 say("a2", reads(%q))
 say("b2", reads(%q))
 say("c2", reads(%q))
@@ -286,10 +279,9 @@ end
 --- filter allows where the process cannot raise a hard limit.
 local function test_a_later_limit_is_lowered_under_the_filter()
   local said = in_child(restricted("{}", [[
-local second, why = Sandbox.restrict({ limits = { cpu_seconds = 5 } })
-say("second", second, why)
-local cpu = sys.getrlimit(sys.RLIMIT_CPU)
-say("cpu", cpu.soft, cpu.hard)
+local second, second_why = Sandbox.restrict({ limits = { cpu_seconds = 5 } })
+say("second", second, second_why)
+say("cpu", limit(sys.RLIMIT_CPU))
 ]]))
   if said == nil then return end
   assert(said.lines.second == "true " and said.lines.cpu == "5 5", said.raw)
@@ -302,15 +294,14 @@ local function test_stacked_restrictions_each_lower_a_limit()
   local said = in_child(restricted("{ limits = { cpu_seconds = 100 } }", [[
 local seconds = { 50, 25, 10 }
 for i, n in ipairs(seconds) do
-  local ok, why = Sandbox.restrict({ limits = { cpu_seconds = n } })
-  say("r" .. i, ok, why)
-  local cpu = sys.getrlimit(sys.RLIMIT_CPU)
-  say("cpu" .. i, cpu.soft, cpu.hard)
+  local next_ok, next_why = Sandbox.restrict({ limits = { cpu_seconds = n } })
+  say("r" .. tostring(i), next_ok, next_why)
+  say("cpu" .. tostring(i), limit(sys.RLIMIT_CPU))
 end
 ]]))
   if said == nil then return end
   for i, n in ipairs({ 50, 25, 10 }) do
-    assert(said.lines["r" .. i] == "true " and said.lines["cpu" .. i] == n .. " " .. n, said.raw)
+    assert(said.lines["r" .. tostring(i)] == "true " and said.lines["cpu" .. tostring(i)] == tostring(n) .. " " .. tostring(n), said.raw)
   end
 end
 
@@ -324,12 +315,12 @@ local function test_the_filter_lets_a_process_lower_its_own_limits_unless_it_can
 local fd = assert(sys.open("/proc/self/status", sys.O_RDONLY))
 local status = assert(sys.read(fd, 8192))
 sys.close(fd)
-say("capable", (tonumber(status:match("CapPrm:%s*(%x+)"), 16) >> 24) & 1 == 1)
+local prm = assert(math.tointeger(tonumber(assert(status:match("CapPrm:%s*(%x+)")), 16)))
+say("capable", (prm >> 24) & 1 == 1)
 ]] .. restricted("{}", [[
-local lowered, why = sys.setrlimit(sys.RLIMIT_CPU, 5, 5)
-say("lowered", lowered, why)
-local cpu = sys.getrlimit(sys.RLIMIT_CPU)
-say("cpu", cpu.soft, cpu.hard)
+local lowered, lowered_why = sys.setrlimit(sys.RLIMIT_CPU, 5, 5)
+say("lowered", lowered, lowered_why)
+say("cpu", limit(sys.RLIMIT_CPU))
 local raised, raised_why = sys.setrlimit(sys.RLIMIT_CPU, 50, 50)
 say("raised", raised, raised_why)
 ]]))
@@ -369,15 +360,15 @@ local REFUSED <const>: {{string}} = {
 local function test_every_refusal_holds_nothing(tmp: string)
   assert(Fs.write(tmp .. "/free", "free") and Fs.write(tmp .. "/held", "held"))
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for i, case in ipairs(REFUSED) do
-    lines[#lines + 1] = string.format("say(%q, Sandbox.restrict(%s))", "case" .. i, case[1])
+    lines[#lines + 1] = string.format("say(%q, Sandbox.restrict(%s))", "case" .. tostring(i), case[1])
   end
   local said = in_child(table.concat(lines, "\n") .. "\n" .. string.format([[
 -- What the kernel's side refuses: an open descriptor, one fds names that is
 -- not open, a grant of a path that is not there (after its limit is planned),
 -- and a child not yet waited for.
-local nofile_before = sys.getrlimit(sys.RLIMIT_NOFILE).soft
+local nofile_before = limit(sys.RLIMIT_NOFILE)
 local fd = assert(sys.open(%q, sys.O_RDONLY))
 say("fd", fd)
 say("unnamed", Sandbox.restrict({}))
@@ -388,17 +379,17 @@ say("missing", Sandbox.restrict({ grants = { { path = %q, letters = "r" } },
 local running = assert(Child.start({ %q, "sleep-forever" }, { process_group = false }))
 say("child", Sandbox.restrict({}))
 assert(running:close())
-say("cpu", sys.getrlimit(sys.RLIMIT_CPU).soft ~= 7)
-say("nofile", sys.getrlimit(sys.RLIMIT_NOFILE).soft == nofile_before)
+say("cpu", limit(sys.RLIMIT_CPU):sub(1, 2) ~= "7 ")
+say("nofile", limit(sys.RLIMIT_NOFILE) == nofile_before)
 say("with_limits", Sandbox.restrict({ isolate = { "file" }, grants = { { path = "/", letters = "r" } },
   limits = { cpu_seconds = 9, open_files = 12 } }))
-say("cpu_after", sys.getrlimit(sys.RLIMIT_CPU).soft ~= 9)
-say("nofile_after", sys.getrlimit(sys.RLIMIT_NOFILE).soft == nofile_before)
+say("cpu_after", limit(sys.RLIMIT_CPU):sub(1, 2) ~= "9 ")
+say("nofile_after", limit(sys.RLIMIT_NOFILE) == nofile_before)
 say("free", reads(%q))
 ]], tmp .. "/held", tmp .. "/absent", probe, tmp .. "/free"))
   if said == nil then return end
   for i, case in ipairs(REFUSED) do
-    local answer = said.lines["case" .. i] or ""
+    local answer = said.lines["case" .. tostring(i)] or ""
     assert(answer:find("^false sandbox: ") and answer:find(case[2], 1, true),
       case[1] .. " -> " .. answer)
   end
@@ -423,12 +414,16 @@ end
 local function replaced_handle(tmp: string, which: integer)
   assert(Fs.mkdirs(tmp .. "/rw") and Fs.write(tmp .. "/rw/f", "x"))
   local said = in_child(string.format([[
-local before = {}
-for n = 3, 80 do if sys.fd_flags(n) then before[n] = true end end
+local before: mut {integer:boolean} = {}
+for n = 3, 80 do
+  if sys.fd_flags(n) ~= nil then before[n] = true end
+end
 say("first", Sandbox.restrict({ grants = { { path = %q, letters = "rw" } } }))
-local new = {}
-for n = 3, 80 do if sys.fd_flags(n) and not before[n] then new[#new + 1] = n end end
-local slot = new[%d]
+local new: mut {integer} = {}
+for n = 3, 80 do
+  if sys.fd_flags(n) ~= nil and before[n] == nil then new[#new + 1] = n end
+end
+local slot = assert(new[%d])
 say("slots", #new)
 assert(sys.close(slot))
 local fd = assert(sys.open(%q, sys.O_RDWR))
@@ -457,7 +452,7 @@ end
 local function test_a_writable_descriptor_on_a_store_database_is_the_programs_own(tmp: string)
   local said = in_child(string.format([[
 -- A database of the store's own kind, attached: the store holds it read-only.
-local original = "o/cosmic.db"
+local original = %q
 local copy = %q .. "/copy.db"
 local source = assert(sys.open(original, sys.O_RDONLY))
 local target = assert(sys.open(copy, sys.O_WRONLY | sys.O_CREAT, 420))
@@ -472,7 +467,7 @@ local mine = assert(sys.open(copy, sys.O_RDWR))
 say("mine", mine)
 say("refused", Sandbox.restrict({}))
 say("named", Sandbox.restrict({}, { fds = { mine } }))
-]], tmp))
+]], build_paths.resolve(".").projection, tmp))
   if said == nil then return end
   assert(said.lines.refused == "false sandbox: restrict: descriptor " .. said.lines.mine ..
       " is open and not named in fds: close it, or name it to keep it", said.raw)

@@ -1,10 +1,11 @@
 --- CI policy around the running driver's build-free cache maintenance.
 --- The driver owns formats; incomplete reports withhold save outputs.
-local Child = require("cosmic.child")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Maps = require("cosmic_ci.maps")
 local Proc = require("cosmic.proc")
+local Seams = require("cosmic_ci.seams")
 local Plural = require("cosmic_ci.plural")
+local Signal = require("cosmic.signal")
 local Shape = require("cosmic.shape")
 
 local record CacheTrim
@@ -13,11 +14,34 @@ local record CacheTrim
     "verdicts"
   end
   record Request
-    family: Family
+    mut family: Family
     paths: {string}
-    since_ns: integer | nil
+    since_ns?: integer
     whole: boolean
-    restored: string | nil
+    mut restored?: string
+  end
+  --- What a trim said: standard output and the diagnostics.
+  record Said
+    out: string
+    err: string
+  end
+  --- What a command of the driver came to: its exit status and what it said.
+  record Command
+    mut code: integer
+    mut out: string
+    mut err: string
+  end
+  --- Whether cleaning a snapshot is safe.
+  enum Ownership
+    "owned"
+    "aliased"
+    "unknown"
+  end
+  --- [`CacheTrim.snapshot_safe`]'s answer: `owned` where the snapshot is nobody else's,
+  --- `aliased` where it names the live cache, `unknown` where it could not be told.
+  record Snapshot
+    ownership: Ownership
+    why: string
   end
 end
 local enum State
@@ -30,11 +54,11 @@ local record File
   path: string
   state: State
   reason: string
-  kept: integer | nil
-  removed: integer | nil
-  before_bytes: integer | nil
-  after_bytes: integer | nil
-  reached: boolean | nil
+  kept?: integer
+  removed?: integer
+  before_bytes?: integer
+  after_bytes?: integer
+  reached?: boolean
   unknown_tables: {string}
   unstamped_tables: {string}
   removed_set_aside: {string}
@@ -42,15 +66,15 @@ end
 local record Report
   version: integer
   files: {File}
-  digest: string | nil
-  fresh: integer | nil
+  digest?: string
+  fresh?: integer
   warnings: {string}
 end
 local REPORT <const> = Shape.record_of("Report")
 --- A report is bounded metadata, not cache contents. Truncation fails closed.
 local report_limit <const> = 4 * 1024 * 1024
 
-local function report(text: string, request: CacheTrim.Request): Report | nil, string
+local function report(text: string, request: CacheTrim.Request): Report?, string
   local paths = request.paths
   local value, why = REPORT:decode_into(text)
   if value == nil then return nil, why end
@@ -74,24 +98,28 @@ local function report(text: string, request: CacheTrim.Request): Report | nil, s
   if value.fresh ~= nil and (value.digest == nil or request.family ~= "compiles" or request.restored == nil) then
     return nil, "cache report has an unexpected fresh count"
   end
-  if value.fresh ~= nil and value.fresh < 0 then
+  local fresh = value.fresh
+  if fresh ~= nil and fresh < 0 then
     return nil, "cache report has a negative fresh count"
   end
-  if value.digest ~= nil and (#value.digest ~= 64 or not value.digest:match("^[0-9a-f]+$")) then
+  local digest = value.digest
+  if digest ~= nil and (#digest ~= 64 or not digest:match("^[0-9a-f]+$")) then
     return nil, "cache report has an invalid digest"
   end
   return value, ""
 end
 
 --- Normalize absent names too; resolve existing parents before comparing.
-local function spelling(path: string): string | nil, string
-  local resolved, trouble = Fs.absolute(path)
+local function spelling(path: string): string?, string
+  local seams = Seams.calls()
+  local resolved, trouble = seams.fs_absolute(path)
   if resolved ~= nil then return resolved, "" end
-  local exists, why = Fs.exists(path)
-  if exists ~= false then return nil, exists == nil and why or trouble end
+  local exists, why = seams.fs_exists(path)
+  if exists == nil then return nil, why end
+  if exists ~= false then return nil, trouble end
   local parent, parent_trouble = spelling(Fs.dirname(path))
   if parent == nil then return nil, parent_trouble end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for part in (parent .. "/" .. Fs.basename(path)):gmatch("[^/]+") do
     if part == ".." then
       table.remove(parts)
@@ -105,32 +133,41 @@ end
 --- Snapshot cleanup must not name the live cache or any live sidecar,
 --- through its spelling, a symlink or an existing hard link. An inspection
 --- failure cannot establish ownership, so it retains the snapshot too.
-function CacheTrim.snapshot_safe(live: string, restored: string): boolean | nil, string
+function CacheTrim.snapshot_safe(live: string, restored: string): CacheTrim.Snapshot
+  local seams = Seams.calls()
   for _, left in ipairs({ "", "-wal", "-shm" }) do
     for _, right in ipairs({ "", "-wal", "-shm" }) do
       local a, b = live .. left, restored .. right
       local ca, why = spelling(a)
-      if ca == nil then return nil, why end
+      if ca == nil then return { ownership = "unknown", why = why } end
       local cb, trouble = spelling(b)
-      if cb == nil then return nil, trouble end
-      if ca == cb then return false, "RESTORED aliases the live cache or its sidecars" end
+      if cb == nil then return { ownership = "unknown", why = trouble } end
+      if ca == cb then
+        return { ownership = "aliased", why = "RESTORED aliases the live cache or its sidecars" }
+      end
       local sa, a_trouble = Fs.stat(a)
-      if sa == nil and Fs.exists(a) ~= false then return nil, a_trouble end
+      if sa == nil then
+        local there, _ = seams.fs_exists(a)
+        if there ~= false then return { ownership = "unknown", why = a_trouble } end
+      end
       local sb, b_trouble = Fs.stat(b)
-      if sb == nil and Fs.exists(b) ~= false then return nil, b_trouble end
+      if sb == nil then
+        local there, _ = seams.fs_exists(b)
+        if there ~= false then return { ownership = "unknown", why = b_trouble } end
+      end
       if sa ~= nil and sb ~= nil and sa.dev == sb.dev and sa.ino == sb.ino then
-        return false, "RESTORED aliases the live cache or its sidecars"
+        return { ownership = "aliased", why = "RESTORED aliases the live cache or its sidecars" }
       end
     end
   end
-  return true, ""
+  return { ownership = "owned", why = "" }
 end
 
 local function remove_snapshot(path: string): string
-  local failures: {string} = {}
+  local failures: mut {string} = {}
   for _, suffix in ipairs({ "", "-wal", "-shm" }) do
     local name = path .. suffix
-    local exists, trouble = Fs.exists(name)
+    local exists, trouble = Seams.calls().fs_exists(name)
     if exists == nil then
       failures[#failures + 1] = name .. ": " .. trouble
     elseif exists then
@@ -142,17 +179,24 @@ local function remove_snapshot(path: string): string
 end
 
 local function output(env: {string:string}, values: string): string
-  local path = env.GITHUB_OUTPUT or ""
+  local path = env["GITHUB_OUTPUT"] or ""
   if path == "" or values == "" then return "" end
-  local ok, why = Fs.append(path, values)
-  return ok and "" or why
+  local ok, why = Seams.calls().fs_append(path, values)
+  return if ok then "" else why end
 end
 
-local function invoke(request: CacheTrim.Request): Report | nil, string
+--- What [`invoke`] answered, kept where the function that runs it under `pcall` can read it.
+local record Invoked
+  mut report?: Report
+  mut trouble: string
+end
+
+--- Runs the driver's trim of `request`'s files and reads its report.
+local function invoke(request: CacheTrim.Request): Invoked
   local start, why = Proc.relaunch()
-  if start == nil then return nil, why end
-  local argv: {string} = {}
-  for i, word in ipairs(start.argv) do argv[i] = word end
+  if start == nil then return { trouble = why } end
+  local argv: mut {string} = {}
+  for _, word in ipairs(start.argv) do argv[#argv + 1] = word end
   for _, word in ipairs({ "cache", "trim", request.family }) do argv[#argv + 1] = word end
   for _, path in ipairs(request.paths) do argv[#argv + 1] = path end
   if request.whole then
@@ -161,59 +205,70 @@ local function invoke(request: CacheTrim.Request): Report | nil, string
     argv[#argv + 1] = "--since-ns"
     argv[#argv + 1] = tostring(request.since_ns)
   end
-  if request.restored ~= nil then
-    argv[#argv + 1], argv[#argv + 2] = "--restored", request.restored
+  local restored = request.restored
+  if restored ~= nil then
+    argv[#argv + 1] = "--restored"
+    argv[#argv + 1] = restored
   end
   argv[#argv + 1] = "--json"
-  local env = Env.all()
-  for name, value in pairs(start.env) do env[name] = value end
-  local fds: {integer:integer | string} = {}
+  local env = Maps.with(Seams.calls().env_all(), start.env)
+  local fds: mut {integer:integer | string} = {}
   for fd, given in pairs(start.fds) do fds[fd] = given end
-  local result, trouble = Child.run(argv, { env = env, fds = fds,
+  local result, trouble = Seams.calls().child_run(argv, { env = env, fds = fds,
     stdout = "capture", stderr = "capture", capture_limit = report_limit })
-  if result == nil then return nil, trouble end
-  if result.truncated then return nil, "cache maintenance report was truncated" end
+  if result == nil then return { trouble = trouble } end
+  if result.truncated then return { trouble = "cache maintenance report was truncated" } end
   if not result.ok then
-    return nil, "cache maintenance ended " .. tostring(result.code or result.signal) .. ": " ..
-      (result.stderr or "")
+    return { trouble = "cache maintenance ended " .. tostring(result.code or result.signal) .. ": " ..
+        (result.stderr or "") }
   end
   local decoded, decode_trouble = report(result.stdout or "", request)
-  if decoded == nil then return nil, decode_trouble end
-  return decoded, result.stderr or ""
+  if decoded == nil then return { trouble = decode_trouble } end
+  return { report = decoded, trouble = result.stderr or "" }
 end
 
---- Cleans the owned snapshot before Child.run's signal is redelivered,
---- and publishes save outputs only from a complete validated report.
-function CacheTrim.run(request: CacheTrim.Request, env: {string:string}): string, string
-  local verb = request.family .. "-trim"
-  local opened, guard_trouble = Child.guard()
-  if opened == nil then
-    local cleanup = request.restored ~= nil and remove_snapshot(request.restored) or ""
-    return "", verb .. ": " .. guard_trouble .. (cleanup ~= "" and "\n" .. cleanup or "") .. "\n"
-  end
-  local guard <close> = opened
-  local value: Report = nil
+--- What [`CacheTrim.run`] answers, kept where the function that runs it under `pcall` can read it.
+local record Done
+  mut lines: string
+  mut trouble: string
+end
+
+--- The body of [`CacheTrim.run`] while `guard` holds the signals.
+local function trim(guard: Signal.Guard, request: CacheTrim.Request, env: {string:string}, verb: string): string, string
+  local value: Report? = nil
   local trouble = ""
   if #request.paths > 0 then
-    local ok, answer, why = pcall(invoke, request)
-    if ok then value, trouble = answer as Report, why else trouble = tostring(answer) end
+    local invoked: Invoked = { trouble = "" }
+    local ok, raised = pcall(function()
+      local answered = invoke(request)
+      invoked.report, invoked.trouble = answered.report, answered.trouble
+    end)
+    if ok then value, trouble = invoked.report, invoked.trouble else trouble = tostring(raised) end
   end
-  if request.restored ~= nil then
-    local why = remove_snapshot(request.restored)
+  local restored = request.restored
+  if restored ~= nil then
+    local why = remove_snapshot(restored)
     if why ~= "" then
       value = nil
       trouble = trouble .. "\n" .. why
     end
   end
   if guard:cancelled() ~= 0 then return "", verb .. ": maintenance cancelled\n" end
-  if value == nil then return "", trouble == "" and "" or verb .. ": " .. trouble .. "\n" end
-  local lines: {string} = {}
+  if value == nil then
+    if trouble == "" then return "", "" end
+    return "", verb .. ": " .. trouble .. "\n"
+  end
+  local lines: mut {string} = {}
   for _, file in ipairs(value.files) do
     local line = verb .. ": " .. file.path .. ": " .. file.state
-    if file.kept ~= nil then line = line .. "; kept " .. file.kept end
-    if file.removed ~= nil then line = line .. ", removed " .. file.removed end
-    if file.before_bytes ~= nil and file.after_bytes ~= nil then
-      line = line .. "; " .. file.before_bytes .. " -> " .. Plural.count(file.after_bytes, "byte")
+    local kept = file.kept
+    if kept ~= nil then line = line .. "; kept " .. tostring(kept) end
+    local removed = file.removed
+    if removed ~= nil then line = line .. ", removed " .. tostring(removed) end
+    local after_bytes = file.after_bytes
+    local before_bytes = file.before_bytes
+    if before_bytes ~= nil and after_bytes ~= nil then
+      line = line .. "; " .. tostring(before_bytes) .. " -> " .. Plural.count(after_bytes, "byte")
     end
     lines[#lines + 1] = line .. "\n"
     if #file.removed_set_aside > 0 then
@@ -229,21 +284,48 @@ function CacheTrim.run(request: CacheTrim.Request, env: {string:string}): string
     trouble = trouble .. verb .. ": " .. warning .. "\n"
   end
   local values = ""
-  if value.digest ~= nil then
-    values = "digest=" .. value.digest .. "\n"
-    lines[#lines + 1] = verb .. ": digest " .. value.digest .. "\n"
+  local digest = value.digest
+  if digest ~= nil then
+    values = "digest=" .. digest .. "\n"
+    lines[#lines + 1] = verb .. ": digest " .. digest .. "\n"
   end
-  if value.fresh ~= nil then
-    values = values .. "fresh=" .. value.fresh .. "\n"
-    lines[#lines + 1] = verb .. ": " .. value.fresh .. " compiles not in what was restored\n"
+  local fresh = value.fresh
+  if fresh ~= nil then
+    local count = tostring(fresh)
+    values = values .. "fresh=" .. count .. "\n"
+    lines[#lines + 1] = verb .. ": " .. count .. " compiles not in what was restored\n"
   end
   local unsaid = output(env, values)
   if unsaid ~= "" then trouble = trouble .. verb .. ": " .. unsaid .. "\n" end
   return table.concat(lines), trouble
 end
 
+--- Cleans the owned snapshot before Child.run's signal is redelivered,
+--- and publishes save outputs only from a complete validated report.
+function CacheTrim.run(request: CacheTrim.Request, env: {string:string}): CacheTrim.Said
+  local verb = request.family .. "-trim"
+  local opened, guard_trouble = Seams.calls().signal_guard()
+  if opened == nil then
+    local restored = request.restored
+    local cleanup = ""
+    if restored ~= nil then cleanup = remove_snapshot(restored) end
+    if cleanup ~= "" then cleanup = "\n" .. cleanup end
+    return { out = "", err = verb .. ": " .. guard_trouble .. cleanup .. "\n" }
+  end
+  -- TODO: hold the guard in a `<close>` local again and drop the `pcall`, once ci/cosmic-driver.pin names a release
+  -- that declares [`Signal.Guard`] as a class: a `<close>` local must be one.
+  local guard: Signal.Guard = opened
+  local done: Done = { lines = "", trouble = "" }
+  local ran, raised = pcall(function()
+    done.lines, done.trouble = trim(guard, request, env, verb)
+  end)
+  local _, _ = guard:close()
+  if not ran then error(raised, 0) end
+  return { out = done.lines, err = done.trouble }
+end
+
 --- SINCE as nanoseconds, checked before multiplication can overflow.
-function CacheTrim.since(argv: {string}): integer | nil
+function CacheTrim.since(argv: {string}): integer?
   local since = math.tointeger(tonumber(argv[1] or ""))
   if since == nil or since < 0 or since > math.maxinteger // 1000000000 then return nil end
   return since * 1000000000

@@ -7,6 +7,7 @@ local Fs = require("cosmic.fs")
 local Fuzz = require("cosmic_ci.fuzz")
 local HostId = require("cosmic_ci.host_id")
 local Images = require("cosmic_ci.images")
+local Islands = require("cosmic_ci.islands")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
 local Orchestration = require("cosmic_ci.orchestration")
@@ -33,8 +34,11 @@ local function run(argv: {string}): integer
   local timeout = math.tointeger(tonumber(timeout_text))
   assert(timeout and timeout >= 0, "timeout must be a non-negative integer")
   local context = Context.read()
-  local command: {string} = { executable }
-  for i = 4, #argv do command[#command + 1] = argv[i] end
+  local command: mut {string} = { executable }
+  for i = 4, #argv do
+    local argument = argv[i]
+    if argument ~= nil then command[#command + 1] = argument end
+  end
   local runner: Runner.Context = { database = context.db, worker = context.worker,
     run = context.run, attempt = context.attempt, candidate = context.root }
   return Runner.operation(runner, phase, { argv = command, cwd = context.root,
@@ -49,7 +53,7 @@ end
 
 local function summarize(_argv: {string}): integer
   local db_path = Context.database()
-  local lines: {string} = { "## Cosmic CI operations\n\n" }
+  local lines: mut {string} = { "## Cosmic CI operations\n\n" }
   local database_exists = Predicate.exists(db_path)
   if not database_exists then
     lines[#lines + 1] =
@@ -73,8 +77,8 @@ local function summarize(_argv: {string}): integer
     lines[#lines + 1] = "| Worker | Run | Attempt | Phase | Status | ms | Exit | Signal | Detail |\n"
     lines[#lines + 1] = "|---|---|---|---|---:|---:|---:|---:|---|\n"
     for _, row in ipairs(rows) do
-      local cells: {string} = {}
-      for i = 1, 9 do cells[i] = clean(row[i]) end
+      local cells: mut {string} = {}
+      for i = 1, 9 do cells[#cells + 1] = clean(row:text(i)) end
       lines[#lines + 1] = "| " .. table.concat(cells, " | ") .. " |\n"
     end
     -- Each suite's row (orchestration's `record_suite`), for a reader
@@ -90,17 +94,16 @@ local function summarize(_argv: {string}): integer
 end
 
 --- Each command: what it does and takes, for `driver.tl --help`, and
---- its handler, which gets the words after the command with the
---- driver's own path at slot 0. A command that takes options names
---- them in `spec` and is run by `options`, given what its line held;
---- the rest take none, so a word that begins with "-" goes after a
---- "--": `run`'s command line does.
+--- its handler, which gets the words after the command. A command that
+--- takes options names them in `spec` and is run by `options`, given what
+--- its line held; the rest take none, so a word that begins with "-" goes
+--- after a "--": `run`'s command line does.
 local record Command
   about: string
   usage: string
-  handler: function({string}): integer
-  spec: {string:boolean | Flags.Option}
-  options: function(Flags.Parsed): integer
+  handler?: function({string}): integer
+  spec?: {string:boolean | Flags.Option}
+  options?: function(Flags.Parsed): integer
 end
 
 local commands: {string:Command} = {
@@ -132,8 +135,12 @@ local commands: {string:Command} = {
     usage = "", handler = ChangedPaths.command },
   ["prune-commit-verdicts"] = { about = "delete main's commit-keyed verdicts and the branches' compiles a day old",
     usage = "", handler = CommitVerdicts.prune_command },
+  ["invalidate-commit-verdicts"] = { about = "delete main's verdicts keyed by COMMIT, after that commit's run that saves them failed",
+    usage = "", handler = CommitVerdicts.invalidate_command },
   ["place-tree"] = { about = "move the checkout to the path this commit and leg choose, or back",
-    usage = "[--name | --restore]", spec = PlaceTree.spec, options = PlaceTree.command },
+    usage = "[--name | --restore]", spec = PlaceTree.spec(), options = PlaceTree.command },
+  ["check-islands"] = { about = "type-check the files ci/bootstrap-files.txt lists, on the running driver, in the new grammar, by running each with --help",
+    usage = "[ROOT]", handler = Islands.command },
   platform = { about = "run one phase of this worker's platform job",
     usage = "PHASE [ARG]", handler = Orchestration.platform },
   provenance = { about = "check that every worker tested the same bytes",
@@ -151,11 +158,11 @@ local commands: {string:Command} = {
   ["image-publish"] = { about = "join one image's architectures under one tag",
     usage = "", handler = Images.publish_command },
   report = { about = "print CI's recent runs' times and suites, from GitHub's API",
-    usage = "[options]", spec = Report.spec, options = Report.command },
+    usage = "[options]", spec = Report.spec(), options = Report.command },
 }
 
-return function(argv: {integer:string}): integer
-  local dispatched: {string:Flags.Command} = {}
+return function(argv: {string}): integer
+  local dispatched: mut {string:Flags.Command} = {}
   for name, entry in pairs(commands) do
     local handler = entry.handler
     local options = entry.options
@@ -165,16 +172,19 @@ return function(argv: {integer:string}): integer
       spec = entry.spec,
       run = function(got: Flags.Parsed): integer
         if options then return options(got) end
-        local rest: {integer:string} = { [0] = argv[0] }
-        for i, word in ipairs(got.words) do rest[i] = word end
-        return handler(rest)
+        local run_words = assert(handler, "a command names a handler or options")
+        return run_words(got.words)
       end,
     }
   end
   local ran, why = Flags.dispatch(argv, 1, dispatched, "driver.tl")
   if ran == nil then
-    local named = argv[1] ~= nil and commands[argv[1]] or nil
-    local usage = named ~= nil and "; usage: driver.tl " .. argv[1] .. " " .. named.usage or ""
+    local first = argv[1]
+    local usage = ""
+    if first ~= nil then
+      local named = commands[first]
+      if named ~= nil then usage = "; usage: driver.tl " .. first .. " " .. named.usage end
+    end
     local _, _ = Fs.put(Fs.stderr, "driver.tl: " .. why .. usage .. "\n")
     return 2
   end

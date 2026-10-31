@@ -44,11 +44,14 @@
 
 #include <curl/curl.h>
 
+#include <mbedtls/pk.h>
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
+#include <psa/crypto.h>
 
 #include "fail.h"
 #include "fault.h"
+#include "guard.h"
 #include "memory.h"
 #include "process.h"
 #include "store.h"
@@ -115,6 +118,13 @@ struct transfer {
   int paused; /* the write callback paused the transfer */
   int done;   /* curl_multi says the transfer is over */
   int closed; /* close() (or __gc) has run */
+  /* The root whose distrust date refused the server's certificate, as
+   * [`cosmic_tls_distrust`] found it; NULL when none did. */
+  const struct distrusted *distrusted;
+  /* The subject of the certificate OneCRL revokes that
+   * [`cosmic_tls_distrust`] found in the chain; empty when none. */
+  char revoked[160];
+  int chosen; /* trusts the roots `open`'s ca_blob gave, not the store's */
   CURLcode result;
 };
 
@@ -133,15 +143,60 @@ static struct script *live_scripts;
   "--binary <this program> -o <copy>` writes a copy with newer ones " \
   "(`--cacert <pem>` reads them from a file)"
 
+/* The same advice for a request that trusts fewer roots than the binary
+ * carries, as one does by default (cosmic/http/init.tl's
+ * [`Http.default_roots`]). */
+#define CHOSEN_ROOTS \
+  "the CA roots this request trusts do not include this peer's: by default it trusts " \
+  "only the minimal roots, and COSMIC_CA_ROOTS=mozilla, `cosmic build --roots mozilla` " \
+  "or opts.roots = \"mozilla\" trusts every root this binary carries; opts.ca or " \
+  "$SSL_CERT_FILE trusts one more"
+
 /* The trust store: every CA root the binary's own database carries
  * (`ca_roots`, which build/roots.tl fills from Mozilla's bundle), plus
  * the certificates in $SSL_CERT_FILE when it names a readable file --
  * which is how a TLS-intercepting proxy's own CA gets trusted. Parsed
  * once and kept for the life of the process: [`use_roots`] hands it to
- * every TLS connection, a proxy's included. */
+ * every TLS connection, a proxy's included, of a request that chose no
+ * roots of its own (`ca_blob`). */
 static mbedtls_x509_crt roots;
 
 static int roots_ready;
+
+/* A carried root Mozilla trusts for no server certificate issued after a
+ * date (`ca_roots.distrust_after`, build/roots.tl): its DER, its label,
+ * and that date as `YYYYMMDDHHMMSS` in UTC. */
+struct distrusted {
+  unsigned char *der;
+  size_t len;
+  char label[96];
+  char after[15];
+};
+
+/* A certificate Mozilla's OneCRL revokes (`ca_revoked`, build/onecrl.tl):
+ * by its issuer's DER Name and its serial number's bytes, or, `by_key`,
+ * by its subject's DER Name and the SHA-256 of its SubjectPublicKeyInfo,
+ * which catches every certificate of that name and key. */
+struct revoked {
+  bool by_key;
+  unsigned char *name;
+  size_t name_len;
+  unsigned char *value;
+  size_t value_len;
+};
+
+/* Every certificate OneCRL revokes, read with the trust store and kept
+ * with it. */
+static struct revoked *revoked;
+static size_t revoked_count;
+
+/* Every carried root with a distrust date, read with the rest of the
+ * trust store and kept with it. */
+static struct distrusted *distrusted;
+static size_t distrusted_count;
+/* How many certificates at the head of `roots` are the binary's own
+ * roots; the rest came from $SSL_CERT_FILE. */
+static int carried_roots;
 
 /* Adds the certificates in $SSL_CERT_FILE, when it names a readable
  * regular file, to `roots`. A certificate there that does not parse is
@@ -185,9 +240,83 @@ static bool add_cert_file (void) {
   return ok;
 }
 
+/* Keeps the root of `stmt`'s row, `der`, in `distrusted` when the row
+ * names a distrust date (column 1, its label column 2). Returns NULL, or
+ * why not: there was no memory, or the date is not `YYYYMMDDHHMMSS`. */
+static const char *keep_distrusted (sqlite3_stmt *stmt, const unsigned char *der,
+                                    size_t len) {
+  const char *after = (const char *)sqlite3_column_text(stmt, 1);
+  if (after == NULL || after[0] == '\0') return NULL;
+  if (strlen(after) != 14 || strspn(after, "0123456789") != 14) {
+    return "no CA roots: a root's distrust date is not YYYYMMDDHHMMSS";
+  }
+  struct distrusted *grown = cosmic_realloc(distrusted, (distrusted_count + 1) * sizeof *grown);
+  if (grown == NULL) return "no memory for the CA roots";
+  distrusted = grown;
+  struct distrusted *one = &distrusted[distrusted_count];
+  one->der = cosmic_malloc(len);
+  if (one->der == NULL) return "no memory for the CA roots";
+  memcpy(one->der, der, len);
+  one->len = len;
+  const char *label = (const char *)sqlite3_column_text(stmt, 2);
+  snprintf(one->label, sizeof one->label, "%s", label != NULL ? label : "");
+  memcpy(one->after, after, sizeof one->after);
+  distrusted_count++;
+  return NULL;
+}
+
+/* Fills `revoked` from the `ca_revoked` rows of `db`, the binary's own
+ * database. Returns NULL, or why not: there is no such table, a row is
+ * of a kind this does not know, or there was no memory. */
+static const char *load_revoked (sqlite3 *db) {
+  sqlite3_stmt *stmt = NULL;
+  if (sqlite3_prepare_v2(db, "SELECT kind, name, value FROM main.ca_revoked", -1, &stmt,
+                         NULL) != SQLITE_OK) {
+    sqlite3_finalize(stmt);
+    return "no revoked certificates: the binary's database has no ca_revoked table";
+  }
+  const char *trouble = NULL;
+  int rc = SQLITE_DONE;
+  while (trouble == NULL && (rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+    const char *kind = (const char *)sqlite3_column_text(stmt, 0);
+    const unsigned char *name = sqlite3_column_blob(stmt, 1);
+    int name_len = sqlite3_column_bytes(stmt, 1);
+    const unsigned char *value = sqlite3_column_blob(stmt, 2);
+    int value_len = sqlite3_column_bytes(stmt, 2);
+    bool by_key = kind != NULL && strcmp(kind, "key") == 0;
+    if (kind == NULL || (!by_key && strcmp(kind, "serial") != 0) || name == NULL ||
+        name_len <= 0 || value == NULL || value_len <= 0) {
+      trouble = "no revoked certificates: a row of ca_revoked is of no kind this reads";
+      break;
+    }
+    struct revoked *grown = cosmic_realloc(revoked, (revoked_count + 1) * sizeof *grown);
+    if (grown == NULL) {
+      trouble = "no memory for the revoked certificates";
+      break;
+    }
+    revoked = grown;
+    unsigned char *bytes = cosmic_malloc((size_t)name_len + (size_t)value_len);
+    if (bytes == NULL) {
+      trouble = "no memory for the revoked certificates";
+      break;
+    }
+    memcpy(bytes, name, (size_t)name_len);
+    memcpy(bytes + name_len, value, (size_t)value_len);
+    revoked[revoked_count] = (struct revoked){by_key, bytes, (size_t)name_len,
+      bytes + name_len, (size_t)value_len};
+    revoked_count++;
+  }
+  if (trouble == NULL && rc != SQLITE_DONE) {
+    trouble = "no CA roots: reading the binary's database failed";
+  }
+  sqlite3_finalize(stmt);
+  return trouble;
+}
+
 /* Fills `roots` from the `ca_roots` rows of the last database the store
  * searches, which is always the binary's own, so a project's database
- * never adds a root. Returns NULL, or why not, leaving `roots` empty.
+ * never adds a root, and `distrusted` from those of them with a distrust
+ * date. Returns NULL, or why not, leaving `roots` empty.
  * A binary with no roots refuses every request, plain http too, rather
  * than trusting some other set: one whose own database is missing or
  * holds none is broken, and says so at its first request. */
@@ -196,8 +325,8 @@ static const char *load_roots (lua_State *L) {
   sqlite3 *db = count > 0 ? cosmic_store_database(L, count) : NULL;
   if (db == NULL) return "no CA roots: this binary carries no database";
   sqlite3_stmt *stmt = NULL;
-  if (sqlite3_prepare_v2(db, "SELECT der FROM main.ca_roots", -1, &stmt,
-                         NULL) != SQLITE_OK) {
+  if (sqlite3_prepare_v2(db, "SELECT der, distrust_after, label FROM main.ca_roots",
+                         -1, &stmt, NULL) != SQLITE_OK) {
     sqlite3_finalize(stmt);
     return "no CA roots: the binary's database has no ca_roots table";
   }
@@ -218,6 +347,7 @@ static const char *load_roots (lua_State *L) {
     int parsed = mbedtls_x509_crt_parse_der(&roots, der, (size_t)len);
     if (parsed == 0) {
       trusted++;
+      trouble = keep_distrusted(stmt, der, (size_t)len);
     } else if (parsed == MBEDTLS_ERR_X509_ALLOC_FAILED) {
       trouble = "no memory for the CA roots";
     }
@@ -230,11 +360,21 @@ static const char *load_roots (lua_State *L) {
     trouble = "no CA roots: the binary's database holds none; `cosmic refresh cacert "
       "--binary <this program> -o <copy>` writes a copy that has them";
   }
+  carried_roots = trusted;
+  if (trouble == NULL) trouble = load_revoked(db);
   if (trouble == NULL && !add_cert_file()) {
     trouble = "no memory for $SSL_CERT_FILE";
   }
   if (trouble != NULL) {
     mbedtls_x509_crt_free(&roots);
+    for (size_t i = 0; i < distrusted_count; i++) cosmic_free(distrusted[i].der);
+    cosmic_free(distrusted);
+    distrusted = NULL;
+    distrusted_count = 0;
+    for (size_t i = 0; i < revoked_count; i++) cosmic_free(revoked[i].name);
+    cosmic_free(revoked);
+    revoked = NULL;
+    revoked_count = 0;
     return trouble;
   }
   roots_ready = 1;
@@ -699,6 +839,96 @@ static const char *transfer_error (struct transfer *t) {
   return t->errbuf;
 }
 
+/* The root of the chain being verified, when it is one of `distrusted`:
+ * met first, since curl's verify callback is called root first, and
+ * held until the server's own certificate ends the chain. */
+static const struct distrusted *chain_root;
+
+/* Whether OneCRL revokes `crt`: by its issuer and serial number, or by
+ * its subject and the SHA-256 of its SubjectPublicKeyInfo, which is
+ * hashed only once a subject matches. A key that cannot be hashed counts
+ * as revoked, so a failure refuses rather than trusts. */
+static bool is_revoked (const mbedtls_x509_crt *crt) {
+  unsigned char hash[32];
+  bool hashed = false;
+  for (size_t i = 0; i < revoked_count; i++) {
+    const struct revoked *one = &revoked[i];
+    if (!one->by_key) {
+      if (crt->issuer_raw.len == one->name_len && crt->serial.len == one->value_len &&
+          memcmp(crt->issuer_raw.p, one->name, one->name_len) == 0 &&
+          memcmp(crt->serial.p, one->value, one->value_len) == 0) {
+        return true;
+      }
+    } else if (crt->subject_raw.len == one->name_len &&
+               memcmp(crt->subject_raw.p, one->name, one->name_len) == 0) {
+      if (!hashed) {
+        size_t got = 0;
+        if (psa_hash_compute(PSA_ALG_SHA_256, crt->pk_raw.p, crt->pk_raw.len, hash,
+                             sizeof hash, &got) != PSA_SUCCESS || got != sizeof hash) {
+          return true;
+        }
+        hashed = true;
+      }
+      if (one->value_len == sizeof hash && memcmp(hash, one->value, sizeof hash) == 0) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/* The transfer whose handshake `easy` is, or NULL. */
+static struct transfer *transfer_of (CURL *easy) {
+  struct transfer *t = NULL;
+  if (curl_easy_getinfo(easy, CURLINFO_PRIVATE, (char **)&t) != CURLE_OK) return NULL;
+  return t;
+}
+
+/* What curl's mbedtls verify callback (patch/curl/05-distrust-after.txt)
+ * adds to the flags of `crt`, at `depth` of a chain `easy`'s handshake
+ * verifies, from Mozilla's root store and OneCRL, recording on the
+ * transfer what it refused for its message:
+ * - MBEDTLS_X509_BADCERT_REVOKED for any certificate of the chain OneCRL
+ *   revokes ([`is_revoked`]);
+ * - MBEDTLS_X509_BADCERT_OTHER for the server's certificate (depth 0)
+ *   when the chain's root is one Mozilla trusts for no server
+ *   certificate issued after a date and this one's notBefore is past
+ *   it. A root the server presents as its own certificate is held to its
+ *   own date. */
+uint32_t cosmic_tls_distrust (CURL *easy, const mbedtls_x509_crt *crt, int depth) {
+  uint32_t flags = 0;
+  if (revoked_count > 0 && is_revoked(crt)) {
+    struct transfer *t = transfer_of(easy);
+    if (t != NULL && t->revoked[0] == '\0' &&
+        mbedtls_x509_dn_gets(t->revoked, sizeof t->revoked, &crt->subject) < 0) {
+      snprintf(t->revoked, sizeof t->revoked, "%s", "(a subject mbedtls cannot word)");
+    }
+    flags |= MBEDTLS_X509_BADCERT_REVOKED;
+  }
+  const struct distrusted *met = NULL;
+  for (size_t i = 0; i < distrusted_count && met == NULL; i++) {
+    if (crt->raw.len == distrusted[i].len &&
+        memcmp(crt->raw.p, distrusted[i].der, distrusted[i].len) == 0) {
+      met = &distrusted[i];
+    }
+  }
+  if (depth > 0) {
+    if (met != NULL) chain_root = met;
+    return flags;
+  }
+  const struct distrusted *root = met != NULL ? met : chain_root;
+  chain_root = NULL;
+  if (root == NULL) return flags;
+  const mbedtls_x509_time *from = &crt->valid_from;
+  char issued[64];
+  snprintf(issued, sizeof issued, "%04d%02d%02d%02d%02d%02d", from->year, from->mon,
+           from->day, from->hour, from->min, from->sec);
+  if (strcmp(issued, root->after) <= 0) return flags;
+  struct transfer *t = transfer_of(easy);
+  if (t != NULL) t->distrusted = root;
+  return flags | MBEDTLS_X509_BADCERT_OTHER;
+}
+
 /* Pushes `t`'s failure: curl's message, and for a peer whose chain
  * leads to no root this binary carries, how to get newer ones. Only
  * that flag is the roots' doing -- a name that does not match, or an
@@ -712,9 +942,17 @@ static const char *transfer_error (struct transfer *t) {
  * cuts the untrusted line short, and no hint is given. */
 static void push_transfer_error (lua_State *L, struct transfer *t) {
   const char *message = transfer_error(t);
-  if (t->result == CURLE_PEER_FAILED_VERIFICATION &&
+  const struct distrusted *root = t->distrusted;
+  if (t->result == CURLE_PEER_FAILED_VERIFICATION && t->revoked[0] != '\0') {
+    lua_pushfstring(L, "%s; the certificate %s is revoked by Mozilla's OneCRL", message,
+                    t->revoked);
+  } else if (t->result == CURLE_PEER_FAILED_VERIFICATION && root != NULL) {
+    lua_pushfstring(L, "%s; the CA root \"%s\" is trusted for no server certificate "
+                    "issued after %s UTC, as Mozilla's root store says, and this one was",
+                    message, root->label, root->after);
+  } else if (t->result == CURLE_PEER_FAILED_VERIFICATION &&
       strstr(message, "certificate is not correctly signed by the trusted CA") != NULL) {
-    lua_pushfstring(L, "%s; %s", message, STALE_ROOTS);
+    lua_pushfstring(L, "%s; %s", message, t->chosen ? CHOSEN_ROOTS : STALE_ROOTS);
   } else {
     lua_pushstring(L, message);
   }
@@ -889,6 +1127,10 @@ struct request {
   size_t body_len;
   int follow;
   int verbose;
+  const char *unix_socket; /* NULL: the network */
+  const char *ca_blob; /* NULL: the trust store; else the PEM to trust */
+  size_t ca_blob_len;
+  const char *pin; /* NULL: none; else CURLOPT_PINNEDPUBLICKEY's value */
   const char *redirect_protocols; /* a static CURLOPT_REDIR_PROTOCOLS_STR */
   long max_redirects;
   long connect_timeout_ms;
@@ -968,7 +1210,24 @@ static CURLcode configure (struct transfer *t, const struct request *r,
   SET(CURLOPT_LOW_SPEED_LIMIT, r->low_speed_bytes);
   SET(CURLOPT_LOW_SPEED_TIME, r->low_speed_seconds);
   SET(CURLOPT_VERBOSE, r->verbose ? 1L : 0L);
-  SET(CURLOPT_SSL_CTX_FUNCTION, use_roots);
+  if (r->ca_blob != NULL) {
+    /* curl copies the blob, parses it into each connection's own chain,
+     * and keys connection reuse and TLS session resumption on it, so a
+     * request trusting other roots never takes over a connection or a
+     * session verified against the store. A proxy's connection is
+     * verified against the same roots. */
+    struct curl_blob blob = {(void *)r->ca_blob, r->ca_blob_len,
+      CURL_BLOB_COPY};
+    SET(CURLOPT_CAINFO_BLOB, &blob);
+    SET(CURLOPT_PROXY_CAINFO_BLOB, &blob);
+  } else {
+    SET(CURLOPT_SSL_CTX_FUNCTION, use_roots);
+  }
+  /* Only the origin's key: curl keys connection reuse and TLS session
+   * resumption on the pin too. */
+  if (r->pin != NULL) SET(CURLOPT_PINNEDPUBLICKEY, r->pin);
+  /* curl sends every redirect it follows through the same socket. */
+  if (r->unix_socket != NULL) SET(CURLOPT_UNIX_SOCKET_PATH, r->unix_socket);
   return set_method(t, r, which);
 }
 
@@ -1090,6 +1349,11 @@ static int http_open (lua_State *L) {
   if (has_headers) headers_check(L);
   int has_script = opt_table(L, "script");         /* index 6 */
   if (has_script) script_check(L);
+  size_t unix_socket_len = 0;
+  r.unix_socket = opt_string(L, "unix_socket", &unix_socket_len); /* index 7 */
+  r.ca_blob = opt_string(L, "ca_blob", &r.ca_blob_len); /* index 8 */
+  size_t pin_len = 0;
+  r.pin = opt_string(L, "pin", &pin_len); /* index 9 */
   r.follow = opt_boolean(L, "follow", 1);
   r.verbose = opt_boolean(L, "verbose", 0);
   r.redirect_protocols = opt_redirect_protocols(L);
@@ -1112,6 +1376,20 @@ static int http_open (lua_State *L) {
   if (memchr(r.url, '\0', url_len) != NULL) {
     return failed(L, "invalid url: contains a NUL byte");
   }
+  if (r.unix_socket != NULL) {
+    if (unix_socket_len == 0) {
+      return failed(L, "invalid unix_socket: empty");
+    }
+    if (memchr(r.unix_socket, '\0', unix_socket_len) != NULL) {
+      return failed(L, "invalid unix_socket: contains a NUL byte");
+    }
+  }
+  if (r.ca_blob != NULL && r.ca_blob_len == 0) {
+    return failed(L, "invalid ca_blob: empty");
+  }
+  if (r.pin != NULL && (pin_len == 0 || memchr(r.pin, '\0', pin_len) != NULL)) {
+    return failed(L, "invalid pin: empty or contains a NUL byte");
+  }
   if (has_headers) {
     lua_pushvalue(L, 5);
     if (headers_problem(L)) {
@@ -1126,7 +1404,7 @@ static int http_open (lua_State *L) {
 
   /* The body's one uservalue keeps it alive for as long as curl may
    * still be sending it, which is well past `open`'s return. */
-  struct transfer *t = lua_newuserdatauv(L, sizeof *t, 1); /* index 7 */
+  struct transfer *t = lua_newuserdatauv(L, sizeof *t, 1); /* index 10 */
   memset(t, 0, sizeof *t);
 #ifdef COSMIC_CHECKED
   cosmic_http_live_transfers++;
@@ -1134,7 +1412,7 @@ static int http_open (lua_State *L) {
   luaL_setmetatable(L, HANDLE_TYPE);
   if (r.body != NULL) {
     lua_pushvalue(L, 4);
-    lua_setiuservalue(L, 7, 1);
+    lua_setiuservalue(L, 10, 1);
   }
 
   t->easy = COSMIC_FAULT("curl_easy_init") ? NULL : curl_easy_init();
@@ -1143,6 +1421,7 @@ static int http_open (lua_State *L) {
     return failed(L, "curl_easy_init failed");
   }
   t->follow = r.follow;
+  t->chosen = r.ca_blob != NULL;
   const char *which = NULL;
   CURLcode rc = configure(t, &r, &which);
   if (rc != CURLE_OK) return setopt_failed(L, t, which, rc);
@@ -1210,7 +1489,7 @@ static int http_open (lua_State *L) {
     transfer_release(t);
     return 2;
   }
-  lua_settop(L, 7);
+  lua_settop(L, 10);
   return cosmic_succeeded(L);
 }
 
@@ -1252,8 +1531,94 @@ static int http_check_certificate (lua_State *L) {
   return cosmic_done(L);
 }
 
+/* roots(): the trust store's certificates, as DER, in a table: under
+ * `carried` the binary's own roots, each as [`load_roots`] read it, and
+ * under `extra` those $SSL_CERT_FILE added; or `nil, err` when the
+ * store could not be made, as `open` would fail. What
+ * cosmic/http/init.tl builds a request's own roots from. */
+static int http_roots (lua_State *L) {
+  const char *trouble = http_ready(L);
+  if (trouble != NULL) return failed(L, trouble);
+  lua_createtable(L, 0, 2);
+  lua_createtable(L, carried_roots, 0);
+  lua_newtable(L);
+  int carried = 0;
+  int extra = 0;
+  for (const mbedtls_x509_crt *crt = &roots; crt != NULL; crt = crt->next) {
+    if (crt->raw.len == 0) continue;
+    lua_pushlstring(L, (const char *)crt->raw.p, crt->raw.len);
+    if (carried < carried_roots) {
+      lua_rawseti(L, -3, ++carried);
+    } else {
+      lua_rawseti(L, -2, ++extra);
+    }
+  }
+  lua_setfield(L, -3, "extra");
+  lua_setfield(L, -2, "carried");
+  return cosmic_succeeded(L);
+}
+
+static void crt_release (void *resource) {
+  mbedtls_x509_crt_free(resource);
+  cosmic_free(resource);
+}
+
+/* Room for any public key mbedtls_pk_write_pubkey_der writes: an RSA
+ * key's SubjectPublicKeyInfo is at most 38 bytes and twice the largest
+ * MPI (MBEDTLS_MPI_MAX_SIZE, 1024 bytes by default), an EC key's far
+ * less. */
+#define PUBLIC_KEY_DER_MAX 4096
+
+/* public_key(cert): the DER of the SubjectPublicKeyInfo of `cert`, one
+ * certificate as PEM or DER, written as curl writes the peer's key to
+ * check a pin against (mbedtls_pk_write_pubkey_der), so a pin made of it
+ * is one curl matches; or `nil, err` when mbedtls cannot read it as one.
+ * Raises when there was no memory to read it.
+ * TODO: tell an allocation failure from a certificate mbedtls cannot
+ * read here too, as http_check_certificate's TODO says. */
+static int http_public_key (lua_State *L) {
+  size_t len;
+  const char *cert = luaL_checklstring(L, 1, &len);
+  struct cosmic_guard *guard = cosmic_guard_push(L, crt_release);
+  mbedtls_x509_crt *crt = cosmic_malloc(sizeof *crt);
+  if (crt == NULL) return luaL_error(L, "http: no memory to read a certificate");
+  mbedtls_x509_crt_init(crt);
+  guard->resource = crt;
+  /* A Lua string is NUL-terminated past its length, and mbedtls reads
+   * PEM only from a buffer whose length counts that NUL. */
+  int pem = len > 0 && strstr(cert, "-----BEGIN CERTIFICATE-----") != NULL;
+  int parsed = pem ? mbedtls_x509_crt_parse(crt, (const unsigned char *)cert, len + 1)
+                   : mbedtls_x509_crt_parse_der(crt, (const unsigned char *)cert, len);
+  if (parsed == MBEDTLS_ERR_X509_ALLOC_FAILED) {
+    return luaL_error(L, "http: no memory to read a certificate");
+  }
+  if (parsed != 0 || crt->next != NULL) {
+    char why[80];
+    if (parsed != 0) {
+      snprintf(why, sizeof why, "not an X.509 certificate mbedtls can read (-0x%04X)",
+               (unsigned)(parsed < 0 ? -parsed : parsed));
+    } else {
+      snprintf(why, sizeof why, "more than one certificate");
+    }
+    return failed(L, why);
+  }
+  unsigned char key[PUBLIC_KEY_DER_MAX];
+  int written = mbedtls_pk_write_pubkey_der(&crt->pk, key, sizeof key);
+  if (written <= 0) {
+    char why[64];
+    snprintf(why, sizeof why, "its public key cannot be written (-0x%04X)",
+             (unsigned)(written < 0 ? -written : 0));
+    return failed(L, why);
+  }
+  /* mbedtls writes the key at the end of the buffer. */
+  lua_pushlstring(L, (const char *)key + sizeof key - (size_t)written, (size_t)written);
+  return cosmic_succeeded(L);
+}
+
 static const luaL_Reg module[] = {
   {"open", http_open},
+  {"roots", http_roots},
+  {"public_key", http_public_key},
   {"check_certificate", http_check_certificate},
   {NULL, NULL},
 };

@@ -30,7 +30,7 @@ notes tool:
 - `help`: prints usage naming every command above, to stdout, and
   exits 0. Run this one with no other arguments; it takes none.
 - Notes persist in a SQLite database file: the path in the `NOTES_DB`
-  environment variable when it is set, otherwise `notes.db` in the
+  environment variable when it is set, otherwise the file notes.db in the
   current directory. Use cosmic's own SQLite support rather than
   implementing storage another way.
 
@@ -38,8 +38,8 @@ The project's library module is named `notes`, `require("notes")`, and
 exports at least this API, which the project's own program uses and
 which is checked through these names and types:
 
-- `notes.Note`, a record: `id: integer` and `text: string`.
-- `notes.Store`, a record of an open notes database, with these
+- `notes.Note`: a record with `id: integer` and `text: string`.
+- `notes.Store`: a record of an open notes database, with these
   methods, called as `store:add(text)`:
   - `add(text: string): integer`, the new note's id;
   - `list(): {notes.Note}`, oldest first;
@@ -47,7 +47,7 @@ which is checked through these names and types:
   - `remove(id: integer): boolean`, whether there was such a note;
   - `close()`, closing the database.
 
-  A `notes.Store` is closed, as `close()` closes it, when a variable
+  A store is closed, as `close()` closes it, when a variable
   declared `<close>` holding it goes out of scope:
   `local store <close> = assert(notes.open(path))`.
 - `notes.open(path: string): notes.Store | nil, string`: the notes

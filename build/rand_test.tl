@@ -8,22 +8,29 @@ local Fs = require("cosmic.fs")
 local Rand = require("cosmic.rand")
 local rand = require("build.rand")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 local record Ran
-  code: integer
-  out: string
-  err: string
+  mut code: integer
+  mut out: string
+  mut err: string
 end
 
 local record Stand
-  stdin: string
-  entropy: function(count: integer): string | nil, string
-  now_ns: function(): integer
-  out: function(text: string): boolean, string
+  stdin?: string
+  entropy?: function(count: integer): string?, string
+  now_ns?: function(): integer
+  out?: function(text: string): boolean, string
 end
 
 local function run(words: {string}, stand?: Stand): Ran
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "rand" }
-  for index, word in ipairs(words) do argv[index + 1] = word end
+  local argv: mut {string} = { "rand" }
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local given: Stand = stand or {}
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = rand.run(argv, {
@@ -32,9 +39,10 @@ local function run(words: {string}, stand?: Stand): Ran
       return true, ""
     end,
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
-    stdin = function(): string | nil, string
-      if given.stdin == nil then return nil, "no standard input in this test" end
-      return given.stdin, ""
+    stdin = function(): string?, string
+      local stdin = given.stdin
+      if stdin == nil then return nil, "no standard input in this test" end
+      return stdin, ""
     end,
     entropy = given.entropy or Rand.entropy,
     now_ns = given.now_ns or function(): integer return 1700000000123456789 end,
@@ -43,7 +51,7 @@ local function run(words: {string}, stand?: Stand): Ran
 end
 
 local function lines(text: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for line in text:gmatch("[^\n]+") do out[#out + 1] = line end
   return out
 end
@@ -51,7 +59,7 @@ end
 local function test_uuid_v4_layout_and_bits()
   local ran = run({ "uuid", "-n", "50" })
   assert(ran.code == 0 and ran.err == "", ran.err)
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, id in ipairs(lines(ran.out)) do
     assert(id:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-4%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"), id)
     assert(id == id:lower(), id)
@@ -67,11 +75,11 @@ end
 
 local function test_uuid_v4_is_made_of_entropy_alone()
   -- All bits set: the version and variant bits are forced, the rest kept.
-  local ran = run({ "uuid" }, { entropy = function(count: integer): string | nil, string
+  local ran = run({ "uuid" }, { entropy = function(count: integer): string?, string
     return string.rep("\255", count), ""
   end })
   assert(ran.out == "ffffffff-ffff-4fff-bfff-ffffffffffff\n", ran.out)
-  local zero = run({ "uuid" }, { entropy = function(count: integer): string | nil, string
+  local zero = run({ "uuid" }, { entropy = function(count: integer): string?, string
     return string.rep("\0", count), ""
   end })
   assert(zero.out == "00000000-0000-4000-8000-000000000000\n", zero.out)
@@ -79,7 +87,7 @@ end
 
 local function test_uuid_v7_layout_and_bits()
   -- 1700000000123 ms, 456789 ns into it: 456789 * 4096 // 1e6 = 1871.
-  local ran = run({ "uuid", "--v7" }, { entropy = function(count: integer): string | nil, string
+  local ran = run({ "uuid", "--v7" }, { entropy = function(count: integer): string?, string
     return string.rep("\255", count), ""
   end })
   assert(ran.code == 0, ran.err)
@@ -96,31 +104,31 @@ local function test_uuid_v7_sorts_as_drawn_within_one_millisecond()
   -- A frozen clock, then one that steps back: every value still sorts
   -- after the one before.
   local ticks = { 5000000000, 5000000000, 5000000000, 4999000000, 5000000001 }
-  local at = 0
+  local at = { value = 0 }
   local ran = run({ "uuid", "--v7", "-n", "300" }, { now_ns = function(): integer
-    at = at + 1
-    return ticks[at] or 5000000001
+    at.value = at.value + 1
+    return ticks[at.value] or 5000000001
   end })
   local ids = lines(ran.out)
   assert(#ids == 300)
   for index = 2, #ids do
-    assert(ids[index - 1] < ids[index], ids[index - 1] .. " !< " .. ids[index])
+    assert(nth(ids, index - 1) < nth(ids, index), nth(ids, index - 1) .. " !< " .. nth(ids, index))
   end
   local real = lines(run({ "uuid", "--v7", "-n", "2000" }).out)
   for index = 2, #real do
-    assert(real[index - 1] < real[index], real[index - 1] .. " !< " .. real[index])
+    assert(nth(real, index - 1) < nth(real, index), nth(real, index - 1) .. " !< " .. nth(real, index))
   end
 end
 
 local function test_token_length_and_alphabet()
   local default = run({ "token" })
   local text = default.out:sub(1, -2)
-  assert(default.code == 0 and #text == 43 and text:match("^[A-Za-z0-9_-]+$"), text)
+  assert(default.code == 0 and #text == 43 and text:match("^[A-Za-z0-9_-]+$") ~= nil, text)
   assert(not text:find("=", 1, true))
   local url = run({ "token", "--bytes", "5", "--base64url" }).out:sub(1, -2)
-  assert(#url == 7 and url:match("^[A-Za-z0-9_-]+$"), url)
+  assert(#url == 7 and url:match("^[A-Za-z0-9_-]+$") ~= nil, url)
   local hex = run({ "token", "--hex", "--bytes", "16" }).out:sub(1, -2)
-  assert(#hex == 32 and hex:match("^%x+$") and hex == hex:lower(), hex)
+  assert(#hex == 32 and hex:match("^%x+$") ~= nil and hex == hex:lower(), hex)
   local one = run({ "token", "--bytes", "1" }).out:sub(1, -2)
   assert(#one == 2)
   local biggest = run({ "token", "--bytes", tostring(rand.MAX_BYTES), "--hex" })
@@ -194,7 +202,7 @@ end
 local function test_int_seeded_covers_the_range_evenly_enough()
   local ran = run({ "int", "1", "6", "-n", "600", "--seed", "1" })
   assert(ran.code == 0, ran.err)
-  local counts: {integer:integer} = {}
+  local counts: mut {integer:integer} = {}
   for _, line in ipairs(lines(ran.out)) do
     local value = assert(math.tointeger(tonumber(line)))
     counts[value] = (counts[value] or 0) + 1
@@ -202,7 +210,8 @@ local function test_int_seeded_covers_the_range_evenly_enough()
   -- A fixed seed draws one fixed sequence, so this cannot flake: every
   -- value turns up, and none is far from the 100 a fair die gives.
   for value = 1, 6 do
-    assert(counts[value] ~= nil and counts[value] > 60 and counts[value] < 140, value)
+    local drawn = counts[value]
+    assert(drawn ~= nil and drawn > 60 and drawn < 140, value)
   end
   assert(run({ "int", "1", "6", "-n", "600", "--seed", "1" }).out == ran.out)
   assert(run({ "int", "1", "6", "-n", "600", "--seed", "2" }).out ~= ran.out)
@@ -213,30 +222,35 @@ local function test_int_from_entropy_rejects_rather_than_wraps()
   -- Range 0..2 is masked to two bits: a draw of 3 is outside it and must
   -- be drawn again, not reduced modulo 3 to 0.
   local draws = { 3, 3, 1, 2, 0 }
-  local calls = 0
-  local ran = run({ "int", "0", "2", "-n", "3" }, { entropy = function(count: integer): string | nil, string
-    calls = calls + 1
-    local parts: {string} = {}
-    for index = 1, count // 8 do parts[index] = string.pack("<i8", draws[(index - 1) % 5 + 1]) end
+  local calls = { value = 0 }
+  local ran = run({ "int", "0", "2", "-n", "3" }, { entropy = function(count: integer): string?, string
+    calls.value = calls.value + 1
+    local parts: mut {string} = {}
+    for index = 1, count // 8 do
+      parts[index] = string.pack("<i8", nth(draws, (index - 1) % 5 + 1))
+    end
     return table.concat(parts), ""
   end })
-  assert(ran.out == "1\n2\n0\n" and calls == 1, ran.out .. calls)
+  assert(ran.out == "1\n2\n0\n" and calls.value == 1, ran.out .. calls.value)
 end
 
 local function test_int_from_entropy_reaches_every_value_and_no_seed_is_used()
   -- The entropy is a fixed stream, so the count below is fixed too.
   local source = Rand.new(11)
-  local ran = run({ "int", "-1", "1", "-n", "300" }, { entropy = function(count: integer): string | nil, string
+  local ran = run({ "int", "-1", "1", "-n", "300" }, { entropy = function(count: integer): string?, string
     return source:bytes(count), ""
   end })
-  local counts: {integer:integer} = {}
+  local counts: mut {integer:integer} = {}
   for _, line in ipairs(lines(ran.out)) do
     local value = assert(math.tointeger(tonumber(line)))
     counts[value] = (counts[value] or 0) + 1
   end
-  for value = -1, 1 do assert(counts[value] ~= nil and counts[value] > 60, value) end
+  for value = -1, 1 do
+    local drawn = counts[value]
+    assert(drawn ~= nil and drawn > 60, value)
+  end
   -- Seeded runs never ask the entropy source.
-  local untouched = run({ "int", "1", "9", "--seed", "3" }, { entropy = function(_count: integer): string | nil, string
+  local untouched = run({ "int", "1", "9", "--seed", "3" }, { entropy = function(_count: integer): string?, string
     error("a seeded draw read the entropy source")
   end })
   assert(untouched.code == 0, untouched.err)
@@ -257,7 +271,7 @@ end
 
 local function test_shuffle_keeps_every_line_and_visits_every_order()
   local input = "x\ny\nz\n"
-  local orders: {string:boolean} = {}
+  local orders: mut {string:boolean} = {}
   for seed = 1, 60 do
     local ran = run({ "shuffle", "--seed", tostring(seed) }, { stdin = input })
     local got = lines(ran.out)
@@ -267,7 +281,7 @@ local function test_shuffle_keeps_every_line_and_visits_every_order()
   end
   local count = 0
   for _ in pairs(orders) do count = count + 1 end
-  assert(count == 6, "saw " .. count .. " of the 6 orders")
+  assert(count == 6, "saw " .. tostring(count) .. " of the 6 orders")
   local entropic = run({ "shuffle" }, { stdin = "1\n2\n3\n4\n5\n6\n7\n8\n" })
   local got = lines(entropic.out)
   table.sort(got)
@@ -309,7 +323,7 @@ local function test_a_file_names_the_lines(tmp: string)
   local missing = run({ "shuffle", tmp .. "/nope.txt" })
   assert(missing.code == 2 and missing.out == "" and missing.err:find("cosmic: rand: ", 1, true) == 1)
   local unreadable = run({ "pick" })
-  assert(unreadable.code == 2 and unreadable.err:find("no standard input", 1, true), unreadable.err)
+  assert(unreadable.code == 2 and unreadable.err:find("no standard input", 1, true) ~= nil, unreadable.err)
   local two = run({ "shuffle", path, path })
   assert(two.code == 2, two.err)
 end
@@ -331,11 +345,11 @@ local function test_a_failed_write_to_standard_output_is_exit_2()
   local stand = refuse()
   stand.stdin = "a\nb\n"
   local shuffled = run({ "shuffle" }, stand)
-  assert(shuffled.code == 2 and shuffled.err:find("standard output", 1, true), shuffled.err)
+  assert(shuffled.code == 2 and shuffled.err:find("standard output", 1, true) ~= nil, shuffled.err)
 end
 
 local function test_a_failing_entropy_source_is_exit_1_and_says_so()
-  local ran = run({ "uuid" }, { entropy = function(_count: integer): string | nil, string
+  local ran = run({ "uuid" }, { entropy = function(_count: integer): string?, string
     return nil, "rand: entropy: no source"
   end })
   assert(ran.code == 1 and ran.out == "", ran.out)
@@ -358,7 +372,7 @@ local function test_v7_counter_carries_into_the_milliseconds_at_4095()
   -- same instant would be fraction 4096, which carries into the ms.
   local ns = 7000000000 + 999756
   local ran = run({ "uuid", "--v7", "-n", "3" }, { now_ns = function(): integer return ns end,
-    entropy = function(count: integer): string | nil, string return string.rep("\0", count), "" end })
+    entropy = function(count: integer): string?, string return string.rep("\0", count), "" end })
   local ids = lines(ran.out)
   local ms = ("%012x"):format(7000)
   local next_ms = ("%012x"):format(7001)

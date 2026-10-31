@@ -1,0 +1,4 @@
+version 0.24.8
+url https://luarocks.org/manifests/hisham/tl-0.24.8-1.src.rock
+license MIT
+notice tl.LICENSE

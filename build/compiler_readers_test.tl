@@ -22,7 +22,7 @@ local function test_a_read_of_the_compiler_is_seen(dir: string)
     ["build/tool.tl"] = module_of("local tool = " .. call .. '("compiler") or ""'),
     ["build/by.tl"] = module_of("local by = " .. call .. "( 'compiled_by' )"),
     ["build/keyed.tl"] = module_of("local key = 'x'\nlocal value = " .. call .. "(key)"),
-    ["build/declares.tl"] = module_of("function " .. call .. "(key: string): string | nil end"),
+    ["build/declares.tl"] = module_of("function " .. call .. "(key: string): string? end"),
     ["build/runtime.tl"] = module_of("local runtime = " .. call .. '("runtime")'),
   })
   local found = tree_checks.compiler_readers(db, { "build.tool", "build.by", "build.gone" })

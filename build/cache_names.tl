@@ -4,7 +4,7 @@
 ---
 --- The two are apart, and this module requires nothing, because the
 --- analyzer checks a declaration's names against these as it parses
---- ([`build.analyzer`]). That puts this module in the analyzer's identity
+--- ([`build.syntax_analyzer`]). That puts this module in the analyzer's identity
 --- and the compiler's ([`build.identity`]'s `compiler_identity`). [`build.caches`]
 --- reaches build/zig.tl to find the zig cache, so it is in neither.
 
@@ -17,7 +17,7 @@ end
 --- writes one reads to find it: a sandboxed worker is given them
 --- ([`build.test_inputs`]). Here rather than in [`build.caches`], whose
 --- lazy require of build/zig.tl would put build/zig.tl and all it
---- requires in the harness's digest ([`build.test`]'s `key_code`), which
+--- requires in the harness's digest ([`build.test_key`]'s `key_code`), which
 --- [`build.test_inputs`] is part of.
 local locating: {string:{string}} = {
   zig = { "HOME", "XDG_CACHE_HOME", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE",
@@ -33,7 +33,8 @@ end
 
 cache_names.names = {
   zig = "the pinned zig, and zig's global and project caches",
-  bootstrap = "the bootstrap cosmic, and the cores a portable cosmic extracts",
+  bootstrap = "the bootstrap cosmic, the cores a portable cosmic extracts, and the " ..
+    "compiles its standalone runs keep",
 }
 
 return cache_names

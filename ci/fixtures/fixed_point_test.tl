@@ -1,6 +1,7 @@
 local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
 local Fixture = require("cosmic_ci.fixture")
+local Maps = require("cosmic_ci.maps")
 
 local Test = require("cosmic.test")
 
@@ -9,10 +10,16 @@ local Test = require("cosmic.test")
 --- driver says where the candidate and its products are
 --- (COSMIC_FIXTURE_*) and what the children it starts read
 --- ([`Fixture.inherited`], which each of them hands on and no more, and
---- which cosmic_ci/orchestration_test.tl holds this list to).
+--- which cosmic_ci/orchestration_test.tl holds this list to). It
+--- declares `tool`, as [`BuildPaths.directory`] starts the running
+--- program on the candidate's build/paths.tl, whose modules a worker run
+--- on its closure alone would lack.
 Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
   env = {
     "COSMIC_FIXTURE_PRODUCT",
+    "COSMIC_FIXTURE_SHARED_COMPILES",
     "COSMIC_FIXTURE_SOURCE",
     "PATH",
     "HOME",
@@ -52,10 +59,14 @@ Test.policy{
   },
 }
 
--- A rebuild from a fresh tree compiles all of it (about 20 s on a
--- runner), and one whose compiler moved compiles it again on
--- re-entry; the driver bounds each test here (orchestration.tl).
-local rebuild_timeout_ns <const> = Clock.seconds(150)
+-- A compiler case's rebuild compiles the whole tree cold (about 43 s of
+-- one core), and again on re-entry with the compiler it built: its first
+-- rebuild took 134 s alone on an x86-64 host, and up to 1.27 times that
+-- is expected on the slowest leg. The 150 s this was ended compiler
+-- cases on linux-x86_64 on October 7 and 8 and on alpine-x86_64 on
+-- October 7. A sharing case's rebuild takes less. The driver bounds each
+-- test and the file (orchestration.tl's `fixed_point_test_timeout_ns`).
+local rebuild_timeout_ns <const> = Clock.seconds(270)
 
 local function count_occurrences(text: string, needle: string): integer
   local count = 0
@@ -79,8 +90,22 @@ end
 -- `writer_modules`) or the compiler's (`compiler_modules`): then each
 -- rebuilt tool finds its database built by other code than its own and
 -- builds it again once (`build.reboot`). Outside both, neither does.
+--
+-- `shares` is whether the case's rebuilds share compiles and parses with
+-- the group's other sharing cases, through one file the driver names
+-- afresh for each run (COSMIC_FIXTURE_SHARED_COMPILES) and nothing else
+-- reads; otherwise they share none ([`Fixture.environment`]). A shared
+-- row is keyed by the module's key, which holds the compiler's identity,
+-- the module's source and its imports' keys (build/shared_compiles.tl),
+-- so a rebuild takes a row only where it would compile the same
+-- sources under the same compiler's identity, and every row was
+-- compiled cold in this run by another case's rebuild. Only a case whose
+-- subject is the rebuild's way, not what a compiler compiles, shares:
+-- see [`test_a_rebuilt_compiler_lands_on_the_booted_tool`] for why those
+-- cases compile cold.
 local function run_fixed_point_case(tmp: string, name: string, file: string,
-                                    edit: function(string): string, settles: boolean)
+                                    edit: function(string): string, settles: boolean,
+                                    shares: boolean)
   local product = Fixture.required("COSMIC_FIXTURE_PRODUCT") .. "/cosmic"
   local case_root = tmp .. "/case-fixed-point-" .. name
   local tree = case_root .. "/tree"
@@ -95,8 +120,12 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
 
   local path = tree .. "/" .. file
   local original = Fixture.read(path)
-  local values = Fixture.environment({
+  local base = Fixture.environment({
     COSMIC_PORTABLE_CACHE = case_root .. "/cache" })
+  local values = base
+  if shares then
+    values = Maps.with(base, { COSMIC_BUILD_CACHE = Fixture.required("COSMIC_FIXTURE_SHARED_COMPILES") })
+  end
   for _, stage in ipairs({ "edited", "undone" }) do
     if stage == "edited" then
       local edited = edit(original)
@@ -117,7 +146,7 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
         tostring(stale_lines) .. " stale-rebuild lines, want 1")
     local settled_lines = count_occurrences(err,
       "the tool's database was built by other code than its own; building it again")
-    local want = settles and 1 or 0
+    local want = if settles then 1 else 0 end
     assert(settled_lines == want, name .. ": " .. stage .. ": built its " ..
         "database again " .. tostring(settled_lines) .. " times, want " ..
         tostring(want))
@@ -131,29 +160,39 @@ local function commented(source: string): string
   return source .. "-- a fixed-point fixture\n"
 end
 
+-- The runner starts a file's tests in the order they are declared, as
+-- many at once as it has workers. The first case that shares compiles
+-- (`outside`) fills the group's file; one that starts after it ends
+-- takes the tree's compiles back and compiles only what its own edit
+-- moves, while one that starts beside it compiles cold. So `outside` is
+-- declared among the compiler cases, which take about twice as long,
+-- and the other sharing cases after them: on three or four workers each
+-- of those starts once `outside` has ended.
+
+-- `build.plans` is in the compiler's identity (`build.identity`'s
+-- `compiler_roots`) and not the writer's: each rebuilt tool compiles
+-- the whole tree again with its own compiler.
+--
+-- This case and the two that redefine the compiler's identity share no
+-- compiles: what they check is what a compiler compiles. The undone
+-- stage ends on a tool whose compiler the edited compiler compiled,
+-- compiling the whole tree again under the identity of the product's
+-- compiler, and the product must come of it byte for byte. A sharing
+-- case compiles the same sources under that same identity, so its rows
+-- would stand in for that whole compile, and nothing the twice-rebuilt
+-- compiler compiled would be checked. Nor would the second of the two
+-- that redefine the identity alike compile under the redefined identity
+-- what the first already had.
+local function test_a_rebuilt_compiler_lands_on_the_booted_tool(tmp: string)
+  run_fixed_point_case(tmp, "compiler", "build/plans.tl", commented, true, false)
+end
+
 -- `build.positions` is in neither identity, though build.writer
 -- reaches it (through build.importer, which the writer's identity
 -- leaves out): the stale tool's compiler and writer are the tree's, and
 -- each rebuild is final.
 local function test_a_self_rebuild_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "outside", "build/positions.tl", commented, false)
-end
-
--- Staging, scans and transaction history do not define projection bytes.
-local function test_a_staging_edit_needs_no_settling(tmp: string)
-  run_fixed_point_case(tmp, "staging", "build/work.tl", commented, false)
-end
-
--- `build.clock` is in the writer's identity and not the compiler's.
-local function test_a_rebuilt_writer_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "writer", "build/clock.tl", commented, true)
-end
-
--- `build.contracts` is in the compiler's identity (`build.identity`'s
--- `compiler_roots`) and not the writer's: each rebuilt tool compiles
--- the whole tree again with its own compiler.
-local function test_a_rebuilt_compiler_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "compiler", "build/contracts.tl", commented, true)
+  run_fixed_point_case(tmp, "outside", "build/positions.tl", commented, false, true)
 end
 
 -- An edit to how the compiler's identity is defined (`build.identity`'s
@@ -166,20 +205,9 @@ end
 -- and refuse (exit 3).
 local function test_a_redefined_compiler_lands_on_the_booted_tool(tmp: string)
   run_fixed_point_case(tmp, "identity", "build/identity.tl", function(source: string): string
-    return (source:gsub('"build%.teal", "build%.tree",\n',
-      '"build.teal", "build.tree", "build.clock",\n', 1))
-  end, true)
-end
-
--- An edit to what the tool's fingerprint covers (`build.identity`'s
--- `tool_files`): the stale tool records the tree's fingerprint by its
--- own, older definition, so the tool it writes is stale by its own
--- code, and builds itself again once (`build.reboot`) rather than
--- refusing as still stale after a reboot.
-local function test_a_rebuilt_fingerprint_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "fingerprint", "build/identity.tl", function(source: string): string
-    return (source:gsub('(%["build%.zig%.zon"%] = true,\n)', '%1  ["README.md"] = true,\n', 1))
-  end, true)
+    return (source:gsub('"build%.tree", "build%.withheld",\n',
+      '"build.tree", "build.withheld", "build.clock",\n', 1))
+  end, true, false)
 end
 
 -- One commit that moves both what the fingerprint covers and how the
@@ -196,9 +224,30 @@ local function test_a_redefined_fingerprint_and_compiler_land_on_the_booted_tool
     local covered, files = source:gsub('(%["build%.zig%.zon"%] = true,\n)',
       '%1  ["README.md"] = true,\n', 1)
     assert(files == 1, "fingerprint-identity: tool_files' build.zig.zon line was not found")
-    local redefined, roots = covered:gsub('"build%.teal", "build%.tree",\n',
-      '"build.teal", "build.tree", "build.clock",\n', 1)
+    local redefined, roots = covered:gsub('"build%.tree", "build%.withheld",\n',
+      '"build.tree", "build.withheld", "build.clock",\n', 1)
     assert(roots == 1, "fingerprint-identity: compiler_roots' last line was not found")
     return redefined
-  end, true)
+  end, true, false)
+end
+
+-- Staging, scans and transaction history do not define projection bytes.
+local function test_a_staging_edit_needs_no_settling(tmp: string)
+  run_fixed_point_case(tmp, "staging", "build/work.tl", commented, false, true)
+end
+
+-- `build.clock` is in the writer's identity and not the compiler's.
+local function test_a_rebuilt_writer_lands_on_the_booted_tool(tmp: string)
+  run_fixed_point_case(tmp, "writer", "build/clock.tl", commented, true, true)
+end
+
+-- An edit to what the tool's fingerprint covers (`build.identity`'s
+-- `tool_files`): the stale tool records the tree's fingerprint by its
+-- own, older definition, so the tool it writes is stale by its own
+-- code, and builds itself again once (`build.reboot`) rather than
+-- refusing as still stale after a reboot.
+local function test_a_rebuilt_fingerprint_lands_on_the_booted_tool(tmp: string)
+  run_fixed_point_case(tmp, "fingerprint", "build/identity.tl", function(source: string): string
+    return (source:gsub('(%["build%.zig%.zon"%] = true,\n)', '%1  ["README.md"] = true,\n', 1))
+  end, true, true)
 end

@@ -18,12 +18,12 @@ local record bare
     --- Write a backslash as `\\`, and tab, newline and return as `\t`,
     --- `\n` and `\r`, so the escaped text can be read back; any other
     --- control byte is `\xHH` either way. Overrides `keep_tab_newline`.
-    named: boolean | nil
+    named?: boolean
     --- Leave a tab and a newline as they are, escaping every other
     --- control byte (a header line, whose lines the caller joins with
     --- newlines, keeps its tabs). `fetch` uses it, so a carriage return
     --- is what it escapes.
-    keep_tab_newline: boolean | nil
+    keep_tab_newline?: boolean
   end
 
   --- The exit code of a run that did what was asked.
@@ -95,7 +95,7 @@ end
 --- The Reader over standard input, refusing a terminal, where nothing
 --- would ever end the bytes: nil and `message` for one.
 --- @param message what the refusal says, in the verb's own words
-function bare.stdin_reader(message: string): Stream.Reader | nil, string
+function bare.stdin_reader(message: string): Stream.Reader?, string
   if Proc.is_tty(Fs.stdin) then return nil, message end
   -- [`Stream.from_fd`] borrows the descriptor, which stays open.
   return Stream.from_fd(Fs.stdin), ""
@@ -104,7 +104,7 @@ end
 --- The bytes of standard input, refusing a terminal as [`stdin_reader`]
 --- does; nil and why when there is none or it cannot be read.
 --- @param message what the refusal says, in the verb's own words
-function bare.stdin_text(message: string): string | nil, string
+function bare.stdin_text(message: string): string?, string
   local reader, why = bare.stdin_reader(message)
   if reader == nil then return nil, why end
   return Stream.read_all(reader)
@@ -133,7 +133,7 @@ function bare.escape(text: string, options?: bare.EscapeOptions): string
       if byte == "\n" then return "\\n" end
       if byte == "\r" then return "\\r" end
     end
-    return string.format("\\x%02X", byte:byte())
+    return string.format("\\x%02X", (assert(byte:byte(), "gsub hands over one byte")))
   end)
   return safe
 end
@@ -142,8 +142,11 @@ end
 --- prints one: a password in a URL must not reach a log.
 function bare.redact_url(url: string): string
   local scheme, authority, rest = url:match("^(%a+://)([^/?#]*)(.*)$")
-  if scheme == nil or not authority:find("@", 1, true) then return url end
-  return scheme .. "***@" .. authority:match("([^@]*)$") .. rest
+  if scheme == nil then return url end
+  assert(authority ~= nil and rest ~= nil, "a match sets every capture")
+  if not authority:find("@", 1, true) then return url end
+  local host = assert(authority:match("([^@]*)$"), "the pattern matches an empty tail at worst")
+  return scheme .. "***@" .. host .. rest
 end
 
 return bare

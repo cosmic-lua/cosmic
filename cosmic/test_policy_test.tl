@@ -5,29 +5,24 @@
 
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local teal = require("build.teal")
-local analyzer = require("build.analyzer")
+local Analyzer = require("build.syntax_analyzer")
+local type PolicyRules = require("build.policy_rules")
 local test_inputs = require("build.test_inputs")
 
 -- The source of cosmic.sandbox.policy, whose `Policy` fields [`Test.Policy`] repeats.
 Test.policy{ grants = { { path = "cosmic/sandbox/policy.tl", letters = "r" } } }
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
-
 --- A module that declares `call` on `Test`, as the build reads it.
-local function declared(call: string): analyzer.Declared | nil, string
+local function declared(call: string): PolicyRules.Declared?, string
   local source = 'local Test = require("cosmic.test")\n' .. call .. "\n"
-  local found, trouble = analyzer.analyze(built, source, "fixture_test.tl")
+  local found, trouble = Analyzer.analyze(source, "fixture_test.tl")
   if found == nil then return nil, trouble end
   return found.inputs, ""
 end
 
 --- The `needs` the running harness makes of the policy `call` writes, as
 --- a table of its fields, or nil and why: `call` is `Test.policy <table>`.
-local function runtime_needs(call: string): Test.Needs | nil, string
+local function runtime_needs(call: string): Test.Needs?, string
   local chunk = load("return " .. call:gsub("^Test%.policy%s*", ""))
   if chunk == nil then return nil, "not a table" end
   return Test.needs_of(chunk())
@@ -53,6 +48,14 @@ local SAME: {{string}} = {
   { '{ lua = true, host = { "/proc" }, nests = true, network = { "127.0.0.1" } }',
     'Test.policy { profiles = { "cosmic" }, grants = { { path = "/proc", letters = "r" } }, ' ..
       'promises = { "nest" }, loopback = { "127.0.0.1" } }' },
+  -- The profile "proc" is the grant of /proc by hand, to the key.
+  { '{ host = { "/proc" } }', 'Test.policy { profiles = { "proc" } }' },
+  { '{ lua = true, host = { "/proc" }, nests = true, network = { "127.0.0.1" } }',
+    'Test.policy { profiles = { "cosmic", "proc" }, promises = { "nest" }, ' ..
+      'loopback = { "127.0.0.1" } }' },
+  { '{ system = true, tool = true, host = { "/etc/hosts", "/proc" } }',
+    'Test.policy { profiles = { "system", "cosmic", "proc" }, grants = { { path = "o/bin", letters = "rx" }, ' ..
+      '{ path = "/etc/hosts", letters = "r" } } }' },
   { "{ tool = true }",
     'Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }' },
   { '{ tool = true, store = true, reads = { "a" } }',
@@ -78,6 +81,13 @@ local SAME: {{string}} = {
       '{ path = "a", letters = "r" }, { path = "/noexec", letters = "rwc" }, ' ..
       '{ path = "/cache/bootstrap", letters = "rwxc" }, ' ..
       '{ path = "o/cosmic.db", letters = "r" }, { path = "/etc/hosts", letters = "r" } } }' },
+  -- A file above the project root is a field, not a host read.
+  { '{ parent = { "bin/cosmic-bootstrap", ".github/workflows/ci.yml" } }',
+    'Test.policy { grants = { { path = "/parent/bin/cosmic-bootstrap", letters = "r" }, ' ..
+      '{ path = "/parent/.github/workflows/ci.yml", letters = "r" } } }' },
+  { '{ parent = { "a" }, host = { "/etc/hosts" }, reads = { "b" } }',
+    'Test.policy { grants = { { path = "/etc/hosts", letters = "r" }, ' ..
+      '{ path = "/parent/a", letters = "r" }, { path = "b", letters = "r" } } }' },
   -- A promise with no `needs` field changes no key before the filter runs.
   { "{ }", 'Test.policy { promises = { "fork", "jit", "fattr" }, tmp = true }' },
   { '{ reads = { "testdata" }, system = true, tool = true, nests = true, ' ..
@@ -178,6 +188,17 @@ local function test_a_policy_with_no_needs_is_refused()
       "test.policy: grants[1].letters takes letters of rwxcu, in that order" },
     { 'Test.policy { grants = { { letters = "r" } } }', "test.policy: grants[1].path takes a path" },
     { 'Test.policy { profiles = { "net" } }', "test.policy: profiles: no profile net" },
+    { 'Test.policy { grants = { { path = "/parent/a", letters = "rw" } } }',
+      "grants[1].path /parent/<file> is a file of the project root's parent directory" },
+    { 'Test.policy { grants = { { path = "/parent/a", letters = "r", from = "/e" } } }',
+      "grants[1].path /parent/<file> is a file" },
+    { 'Test.policy { grants = { { path = "/parent/", letters = "r" } } }', "names no file" },
+    { 'Test.policy { grants = { { path = "/parent/a/", letters = "r" } } }', 'ends in a "/"' },
+    { 'Test.policy { grants = { { path = "/parent/../a", letters = "r" } } }', 'has a ".." name' },
+    { 'Test.policy { grants = { { path = "/parent/a/./b", letters = "r" } } }', 'has a "." name' },
+    { 'Test.policy { grants = { { path = "/parent/a//b", letters = "r" } } }', "has an empty name" },
+    { 'Test.policy { grants = { { path = "/parent/$HOME", letters = "r" } } }', "holds a $" },
+    { 'Test.policy { database = "x.db" }', "test.policy: database is refused" },
     { 'Test.policy { promises = { "exec" } }', "test.policy: promises: no promise exec" },
     { "Test.policy { reeds = {} }", "test.policy: has no field reeds; it has connect, database, env" },
     { 'Test.policy { env = "PATH" }', "test.policy: env takes a list of string literals, written out" },
@@ -214,6 +235,14 @@ local function test_a_policy_with_no_needs_is_refused()
   end
 end
 
+--- A path the module never declared is a mistake of the test, which
+--- `parent` raises for, whether or not a runner gives it a parent directory.
+local function test_parent_refuses_a_path_the_module_never_declared()
+  local ok, why = pcall(Test.parent, "bin/cosmic-bootstrap")
+  assert(not ok and tostring(why):find("parent(\"bin/cosmic-bootstrap\") is not declared", 1, true),
+    tostring(why))
+end
+
 --- A module declares its policy once, at the top level.
 local function test_a_module_declares_its_policy_once()
   local twice, again = declared('Test.policy { }\nTest.policy { }')
@@ -229,8 +258,8 @@ end
 local function test_the_policy_record_is_the_sandboxs()
   local text = assert(Fs.read("cosmic/sandbox/policy.tl"))
   local record = assert(text:match("\n  record Policy\n(.-)\n  end\n"), "no Policy")
-  local theirs: {string} = {}
-  for name in ("\n" .. record):gmatch("\n    ([%a_]+): ") do theirs[#theirs + 1] = name end
+  local theirs: mut {string} = {}
+  for name in ("\n" .. record):gmatch("\n    ([%a_]+)%??: ") do theirs[#theirs + 1] = name end
   theirs[#theirs + 1] = "requires"
   table.sort(theirs)
   local _, said = Test.needs_of({ nothing = true })
@@ -242,7 +271,7 @@ end
 --- reads and the worker is handed alike, and the key holds. Nothing is
 --- inferred from its other fields.
 local function test_a_policy_declares_requirements()
-  local function read(call: string): analyzer.Declared
+  local function read(call: string): PolicyRules.Declared
     local found, why = declared(call)
     assert(found ~= nil, call .. ": " .. tostring(why))
     return found
@@ -252,7 +281,7 @@ local function test_a_policy_declares_requirements()
   assert(#read('Test.policy { promises = { "nest" }, grants = { { path = "/proc", letters = "r" } } }').requires == 0)
   local call = 'Test.policy { requires = { "root" }, promises = { "nest" } }'
   local handed = assert(runtime_needs(call))
-  assert(names(handed.requires) == "root")
+  assert(names(assert(handed.requires)) == "root")
   local from_policy = read(call)
   assert(test_inputs.canonical(test_inputs.as_declared(handed)) == test_inputs.canonical(from_policy))
   assert(test_inputs.canonical(from_policy):find('requires "root"', 1, true))
@@ -286,6 +315,7 @@ local function test_a_requirement_that_breaks_a_rule_fails_the_build()
   for _, call in ipairs({
       'Test.policy { requires = { "path:/etc/hosts" }, grants = { { path = "/etc/hosts", letters = "r" } } }',
       'Test.policy { requires = { "path:/proc/self/status" }, grants = { { path = "/proc", letters = "r" } } }',
+      'Test.policy { requires = { "path:/proc/self/status" }, profiles = { "proc" } }',
       'Test.policy { requires = { "program:jq" }, profiles = { "system" }, env = { "PATH" } }',
       'Test.policy { requires = { "root", "portable" } }',
       'Test.policy { requires = { "sandbox", "landlock", "landlock:3", "userns", "nest", "own_proc", "proc" } }',

@@ -11,6 +11,8 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local stand_in = require("build.stand_in")
+local test_child = require("build.test_child")
+local testing = require("cosmic.internal.testing")
 local this_program = require("build.this_program")
 
 --- The declared scratch; this program, which the child runs; and
@@ -22,34 +24,44 @@ Test.policy{
   requires = { "userns" },
 }
 
---- The chunk the child runs on the noexec scratch and the directory to bind
---- it at: it makes a user and mount namespace of its own (CLONE_NEWUSER
+--- The child that runs on the noexec scratch (its first word) and the directory to bind
+--- it at (its second): it makes a user and mount namespace of its own (CLONE_NEWUSER
 --- 0x10000000, CLONE_NEWNS 0x20000), binds the scratch (MS_BIND 4096),
 --- tries to remount the bind exec (MS_REMOUNT 32), and tries to run the
 --- program through it, which, run, would exit 97 and print nothing.
-local CHUNK <const> = [==[
-local testing = require("cosmic.internal.testing")
-local sys = require("cosmic.sys")
-local noexec, alias = %q, %q
-local uid, gid = sys.getuid(), sys.getgid()
--- A refusal of the namespace or of the write of its ids is said as
--- `setup_<step>=<errno>` and ends the chunk: the test decides what it is.
-local made, _, errno = testing.unshare(0x10000000 | 0x20000)
-if not made then print("setup_unshare=" .. tostring(errno)) return end
-for _, f in ipairs({ { "setgroups", "deny" }, { "uid_map", "0 " .. uid .. " 1\n" },
-    { "gid_map", "0 " .. gid .. " 1\n" } }) do
-  local fd, _, open_errno = sys.open("/proc/self/" .. f[1], sys.O_WRONLY)
-  if fd == nil then print("setup_" .. f[1] .. "=" .. tostring(open_errno)) return end
-  local n, _, write_errno = sys.write(fd, f[2])
-  assert(sys.close(fd))
-  if n ~= #f[2] then print("setup_" .. f[1] .. "=" .. tostring(write_errno or 0)) return end
-end
-assert(testing.mount(noexec, alias, nil, 4096))
-local cleared, _, refused_errno = testing.mount(nil, alias, nil, 32 | 4096)
-print("remount=" .. (cleared and "ok" or tostring(refused_errno)))
-local _, _, refused = sys.execve(alias .. "/program", { alias .. "/program", "exit 97" }, {})
-print("exec=" .. tostring(refused))
-]==]
+test_child.register("nested bind", function(args: {string}): integer
+  local noexec, alias = assert(args[1]), assert(args[2])
+  local uid, gid = sys.getuid(), sys.getgid()
+  -- A refusal of the namespace or of the write of its ids is said as
+  -- `setup_<step>=<errno>` and ends the child: the test decides what it is.
+  local made, _, errno = testing.unshare(0x10000000 | 0x20000)
+  if not made then
+    print("setup_unshare=" .. tostring(errno))
+    return 0
+  end
+  local steps: {{string}} = { { "setgroups", "deny" }, { "uid_map", "0 " .. tostring(uid) .. " 1\n" },
+    { "gid_map", "0 " .. tostring(gid) .. " 1\n" } }
+  for _, step in ipairs(steps) do
+    local name, text = assert(step[1]), assert(step[2])
+    local fd, _, open_errno = sys.open("/proc/self/" .. name, sys.O_WRONLY)
+    if fd == nil then
+      print("setup_" .. name .. "=" .. tostring(open_errno))
+      return 0
+    end
+    local n, _, write_errno = sys.write(fd, text)
+    assert(sys.close(fd))
+    if n ~= #text then
+      print("setup_" .. name .. "=" .. tostring(write_errno))
+      return 0
+    end
+  end
+  assert(testing.mount(noexec, alias, nil, 4096))
+  local cleared, _, refused_errno = testing.mount(nil, alias, nil, 32 | 4096)
+  print("remount=" .. (if cleared then "ok" else tostring(refused_errno) end))
+  local _, _, refused = sys.execve(alias .. "/program", { alias .. "/program", "exit 97" }, {})
+  print("exec=" .. tostring(refused))
+  return 0
+end)
 
 local function test_nested_bind_preserves_noexec_and_cannot_clear_it(tmp: string)
   local ordinary = tmp .. "/ordinary"
@@ -60,13 +72,13 @@ local function test_nested_bind_preserves_noexec_and_cannot_clear_it(tmp: string
   assert(Fs.write(path, assert(Fs.read(ordinary)), 0x1c0))
   local alias = tmp .. "/bound"
   assert(Fs.mkdirs(alias))
-  local started = this_program.program({ "-e", CHUNK:format(noexec, alias) },
+  local started = this_program.program(test_child.words(tmp, "core.noexec_nested_test", "nested bind", { noexec, alias }),
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) })
   local result, trouble = Child.run(started.argv, started.options)
   assert(result ~= nil, trouble)
   local said = tostring(result.stdout) .. tostring(result.stderr)
   assert(result.ok, said)
-  local got: {string:string} = {}
+  local got: mut {string:string} = {}
   for name, outcome in said:gmatch("([%w_]+)=(%w+)") do got[name] = outcome end
   -- A host that gives the sandbox but refuses a namespace of its own, or
   -- the write of its ids (AppArmor's restriction), cannot be asked.

@@ -37,12 +37,12 @@ local record assertions
   reset: function()
 end
 
-local installed = false
+local state <const> = { installed = false }
 
 function assertions.install()
-  if installed then return end
-  installed = true
-  rawset(_G, "assert", raw.assert)
+  if state.installed == true then return end
+  state.installed = true
+  rawset(_G as {string:any}, "assert", raw.assert)
 end
 
 assertions.lua_assert = lua_assert

@@ -10,15 +10,16 @@ local closure_store = require("build.closure_store")
 local declared_key = require("build.declared_key")
 local docs = require("build.docs")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local test_inputs = require("build.test_inputs")
 local work = require("build.work")
 local writer = require("build.writer")
 local Clock = require("cosmic.clock")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
 end
 
 --- Writes a minimal one-module project at `root`, greeting `whom`: the
@@ -52,7 +53,7 @@ local function build_and_write(root: string, whom: string, out: string,
   write_project(root, whom)
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, tool or "closure-store-test"))
+  local result = assert(importer.compile(handle, tool or "closure-store-test"))
   assert(writer.write_result(handle, out, result))
   return handle
 end
@@ -141,7 +142,7 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   local held_rows = assert(Sqlite.text_rows(held_db,
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM decls ORDER BY path)"))
   assert(held_db:close())
-  assert(held_rows[1][1] == "base extra", held_rows[1][1])
+  assert(nth(held_rows, 1):text(1) == "base extra", nth(held_rows, 1):text(1))
   closure = names
   assert(store("world", tmp .. "/unheld.db") == first,
     "a declaration's edit moved the address of a closure that does not hold it")
@@ -159,12 +160,12 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
       "(SELECT count(*) FROM meta WHERE key IN ('boot_hash', 'projected', 'writer')), " ..
       "(SELECT count(*) FROM meta WHERE key = 'closure'), (SELECT count(*) FROM decls)"))
   assert(db:close())
-  local row = rows[1]
-  assert(row[1] == "greet greet_test", row[1])
-  assert(row[2] == "0", "a doc of a module outside the closure is in its store")
-  assert(row[3] == "0", "a meta row that moves with the whole tree is in the store")
-  assert(row[4] == "0", "the store names its address, which a key would then hold")
-  assert(row[5] == "0", "a declaration outside the closure is in its store")
+  local row = nth(rows, 1)
+  assert(row:text(1) == "greet greet_test", row:text(1))
+  assert(row:text(2) == "0", "a doc of a module outside the closure is in its store")
+  assert(row:text(3) == "0", "a meta row that moves with the whole tree is in the store")
+  assert(row:text(4) == "0", "the store names its address, which a key would then hold")
+  assert(row:text(5) == "0", "a declaration outside the closure is in its store")
 end
 
 --- The store of an import closure holds what the compiler made of it,
@@ -249,6 +250,13 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
       "VALUES ('greet', 'Fs', 'cosmic.fs')")
   held("a name a module outside the closure binds", "INSERT INTO bound (path, name, requires) " ..
       "VALUES ('other', 'Fs', 'cosmic.fs')")
+  moved("an edge the checker follows", "INSERT INTO decl_imports (path, requires) " ..
+      "VALUES ('greet', 'cosmic.fs')")
+  held("an edge of a module outside the closure", "INSERT INTO decl_imports (path, requires) " ..
+      "VALUES ('other', 'cosmic.fs')")
+  moved("a stub", "INSERT INTO stubs (path, source) VALUES ('greet', deflate('return {}'))")
+  held("a stub of a module outside the closure", "INSERT INTO stubs (path, source) " ..
+      "VALUES ('other', deflate('return {}'))")
   moved("an example", "INSERT INTO examples (module, name, text, file, line, source) " ..
       "VALUES ('greet', 'hello', 'Greets.', 'greet.tl', 1, 'greet.hello()')")
   -- What the projection's writer decides of a row and not the closure's
@@ -296,10 +304,13 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
   held("a link of a declaration outside the closure", link("extra", "extra.d.tl"), extra_decl)
   local extra_bound = "INSERT INTO bound (path, name, requires) VALUES ('extra', 'R', 'raw')"
   held("a name a declaration outside the closure binds", extra_bound, extra_decl)
+  local extra_edge = "INSERT INTO decl_imports (path, requires) VALUES ('extra', 'raw')"
+  held("an edge of a declaration outside the closure", extra_edge, extra_decl)
   names = { "extra", "greet", "greet_test" }
   moved("a declaration's doc", extra_doc, extra_decl)
   moved("a declaration's link", link("extra", "extra.d.tl"), extra_decl)
   moved("a name a declaration binds", extra_bound, extra_decl)
+  moved("an edge of a declaration", extra_edge, extra_decl)
   names = { "greet", "greet_test" }
   -- SQLite's quote() ends a text at its first NUL: what follows it moves
   -- the address too.
@@ -325,7 +336,8 @@ local function test_a_closure_store_answers_for_its_closure_s_links(tmp: string)
   assert(Fs.write(root .. "/other.tl", table.concat({
     'local greet = require("greet")',
     "-- Wraps [`greet.hello`].",
-    "return greet.hello",
+    "local other: function(): string = greet.hello",
+    "return other",
     "",
   }, "\n")))
   local handle = build_and_write(root, "world", tmp .. "/whole.db")
@@ -337,9 +349,9 @@ local function test_a_closure_store_answers_for_its_closure_s_links(tmp: string)
   local view = assert(docs.view({ db }))
   local found = assert(docs.uses(view, "greet.hello"))
   assert(db:close())
-  local links: {string} = {}
+  local links: mut {string} = {}
   for _, use in ipairs(found) do
-    if use.link then links[#links + 1] = use.from_file .. ":" .. use.line end
+    if use.link then links[#links + 1] = use.from_file .. ":" .. tostring(use.line) end
   end
   assert(table.concat(links, " ") == "greet_test.tl:2", table.concat(links, " "))
 end
@@ -354,7 +366,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
   local function raw(parameter: string)
     assert(Fs.write(root .. "/raw.d.tl", table.concat({
       "local record raw",
-      "  meta: function(" .. parameter .. ": string): string | nil",
+      "  meta: function(" .. parameter .. ": string): string?",
       "end",
       "return raw",
       "",
@@ -362,7 +374,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
   end
   raw("key")
   assert(Fs.write(root .. "/wrap.tl", table.concat({
-    'local type raw_store = require("raw")',
+    'local raw_store = require("raw")',
     "local record wrap",
     "  raw: raw_store",
     "end",
@@ -372,7 +384,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
   assert(Fs.write(root .. "/wrap_test.tl", table.concat({
     'local wrap = require("wrap")',
     "local function test_wrap()",
-    "  assert(wrap ~= nil)",
+    "  assert(type(wrap) == \"table\")",
     "end",
     "",
   }, "\n")))
@@ -387,19 +399,19 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
     write_project(root, "world")
     local handle = assert(work.open(root))
     assert(work.stage(handle, false))
-    local result = assert(importer.compile(handle, built, "closure-store-test"))
+    local result = assert(importer.compile(handle, "closure-store-test"))
     assert(writer.write_result(handle, tmp .. "/whole.db", result))
-    local by_path: {string:importer.Module} = {}
+    local by_path: mut {string:importer.Module} = {}
     for _, m in ipairs(result.modules) do by_path[m.path] = m end
-    local declarations: {string:string} = {}
+    local declarations: mut {string:string} = {}
     local rows = assert(Sqlite.text_rows(handle.db,
       "SELECT path, file FROM inputs WHERE kind = 'decl'"))
     for _, row in ipairs(rows) do
-      declarations[row[1]] = row[2]
+      declarations[row:text(1)] = row:text(2)
     end
     assert(work.close(handle))
     local basis = assert(closure_store.basis(tmp .. "/whole.db"))
-    local out: {string:string} = {}
+    local out: mut {string:string} = {}
     for _, path in ipairs({ "wrap_test", "greet_test" }) do
       local names = test_inputs.modules(assert(by_path[path]), by_path, declarations)
       out[path] = closure_store.address(basis, names, "salt")
@@ -438,7 +450,8 @@ local function test_a_closure_store_is_the_same_bytes_each_time_it_is_written(tm
         "signature, text, file, line) VALUES ('greet', 'greet.wave', 'greet.wave', 1, " ..
         "'function', 'function(): string', 'Waves at the world.', 'greet.tl', 2); " ..
         "INSERT INTO uses (module, symbol, from_module, from_file, line) VALUES " ..
-        "('greet', 'hello', 'greet_test', 'greet_test.tl', 99); " ..
+        "('greet', 'hello', 'greet_test', 'greet_test.tl', 99), " ..
+        "('greet', 'hello', 'other_test', 'other_test.tl', 7); " ..
         "INSERT INTO catalog (kind, module, symbol, message, text, file, line) VALUES " ..
         "('error', 'greet', 'greet.hello', 'no world to greet', 'Raised with none.', " ..
         "'greet.tl', 4); " ..
@@ -460,13 +473,20 @@ local function test_a_closure_store_is_the_same_bytes_each_time_it_is_written(tm
     "a second write of the same rows moved the store's bytes")
   assert(assert(Fs.read(tmp .. "/three.db")) == one,
     "a write from the projection written afresh moved the store's bytes")
+  -- Found by source module in the extraction, the closure's uses are
+  -- the same rows in the same order, and a module outside it adds none.
+  assert(closure_store.extract(tmp .. "/whole.db", tmp .. "/extraction.db"))
+  assert(closure_store.write(tmp .. "/whole.db", tmp .. "/four.db", names, again,
+    tmp .. "/extraction.db"))
+  assert(assert(Fs.read(tmp .. "/four.db")) == one,
+    "a write from the uses keyed by source module moved the store's bytes")
   local db = assert(Sqlite.open(tmp .. "/one.db"))
   local counts = assert(Sqlite.text_rows(db, "SELECT (SELECT count(*) FROM docs_fts " ..
       "WHERE docs_fts MATCH 'waves'), (SELECT count(*) FROM catalog_fts WHERE catalog_fts " ..
       "MATCH 'world'), (SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'greets'), " ..
       "(SELECT count(*) FROM uses)"))
   assert(db:close())
-  assert(table.concat(counts[1], " ") == "1 1 1 2", table.concat(counts[1], " "))
+  assert(table.concat(nth(counts, 1):texts(), " ") == "1 1 1 2", table.concat(nth(counts, 1):texts(), " "))
 end
 
 --- The key of a test given a closure store holds the store by its bytes,
@@ -509,4 +529,42 @@ local function test_a_key_holds_a_closure_store_by_its_bytes(tmp: string)
   local moved, moved_key = keyed("the writer", tmp .. "/moved.db")
   assert(moved ~= address, "a row of the closure left the address")
   assert(moved_key ~= key, "a change to the store's bytes left the key")
+end
+
+--- The basis of a projection is kept beside it once the file is older than
+--- the clock's tick, and read back the same; a write to the file, even in
+--- place, makes the next read come from its rows.
+local function test_a_basis_is_kept_beside_a_projection_that_is_old_enough(tmp: string)
+  local root = tmp .. "/a"
+  assert(Fs.mkdirs(root))
+  assert(work.close(build_and_write(root, "world", tmp .. "/whole.db")))
+  local whole = tmp .. "/whole.db"
+  local fresh = assert(closure_store.basis(whole))
+  assert(Fs.exists(whole .. ".basis") ~= true, "a basis was kept of a file just written")
+  assert(Clock.sleep_ns(Clock.seconds(2) + Clock.ms(100)))
+  local made = assert(closure_store.basis(whole))
+  assert(Fs.exists(whole .. ".basis"), "no basis was kept of a file two seconds old")
+  local kept = assert(closure_store.basis(whole))
+  for _, basis in ipairs({ made, kept }) do
+    assert(basis.shared == fresh.shared, "the kept basis names other meta")
+    for path, line in pairs(fresh.modules) do
+      assert(basis.modules[path] == line and basis.kinds[path] == fresh.kinds[path],
+        path .. ": a kept basis holds another line")
+    end
+    assert(#basis.pairable == #fresh.pairable, "a kept basis pairs other modules")
+  end
+  local db = assert(Sqlite.open(whole, { writable = true }))
+  assert(db:exec("UPDATE modules SET bytecode = bytecode || X'00' WHERE path = 'greet'"))
+  assert(db:close())
+  local changed = assert(closure_store.basis(whole))
+  assert(changed.modules["greet"] ~= fresh.modules["greet"],
+    "a basis kept of the file before an edit in place answered after it")
+  -- Once the edited file is older than the tick too, a basis is kept and
+  -- looked for again: only its token says it is of the file before the edit.
+  assert(Clock.sleep_ns(Clock.seconds(2) + Clock.ms(100)))
+  assert(Fs.exists(whole .. ".basis"))
+  local old_token = assert(closure_store.basis(whole))
+  assert(old_token.modules["greet"] == changed.modules["greet"],
+    "a basis kept of the file before an edit in place answered after it, once the file was old")
+  assert(old_token.modules["greet"] ~= fresh.modules["greet"], "the edit is not in the kept basis")
 end

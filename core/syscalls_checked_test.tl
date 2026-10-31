@@ -27,9 +27,9 @@ local function test_readdir_names_an_entry_of_unknown_type_as_lstat_does(tmp: st
   for skip = 0, 5 do
     testing.fail_at("readdir_d_type", skip)
     local entries = assert(sys.readdir(d))
-    assert(not testing.fail_at(), "entry " .. skip .. " never reached readdir_d_type")
+    assert(not testing.fail_at(), "entry " .. tostring(skip) .. " never reached readdir_d_type")
     for name, kind in pairs(want) do
-      assert(entries[name] == kind, "entry " .. skip .. " of unknown type: " .. name .. " is " ..
+      assert(entries[name] == kind, "entry " .. tostring(skip) .. " of unknown type: " .. name .. " is " ..
           tostring(entries[name]))
     end
   end

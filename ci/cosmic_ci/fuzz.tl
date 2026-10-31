@@ -8,7 +8,9 @@ local Clock = require("cosmic.clock")
 local Context = require("cosmic_ci.context")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Seams = require("cosmic_ci.seams")
 local State = require("cosmic_ci.state")
+local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local String = require("cosmic.string")
@@ -47,10 +49,10 @@ local final_output_ns <const> = 5 * 1000 * 1000 * 1000
 --- Every `*_fuzz_test.tl` under `root`, outside its top-level o/,
 --- vendor/ and ci/, as `./`-relative paths in byte order.
 function Fuzz.discover(root: string): {string}
-  local found = assert(Fs.walk(root, function(entry: string, _name: string): boolean
+  local found = assert(Fs.walk(root, function(entry: string, _name: string, _kind: sys.Kind): boolean
     return pruned[entry] == true
   end))
-  local tests: {string} = {}
+  local tests: mut {string} = {}
   for _, entry in ipairs(found) do
     local name = Fs.basename(entry)
     if String.ends_with(name, suffix) then
@@ -63,9 +65,17 @@ end
 
 --- Up to `limit` of `from`, a line each.
 local function joined(from: {string}, limit: integer): string
-  local out: {string} = {}
-  for i = 1, math.min(#from, limit) do out[i] = from[i] .. "\n" end
+  local out: mut {string} = {}
+  for i, line in ipairs(from) do
+    if i > limit then break end
+    out[#out + 1] = line .. "\n"
+  end
   return table.concat(out)
+end
+
+--- How many bytes of the line being read [`each_line`] has kept.
+local record Taken
+  mut length: integer
 end
 
 --- Calls `each` with every line `next_chunk` answers, as grep reads them
@@ -74,13 +84,13 @@ end
 --- when `next_chunk` answers "" or `each` answers true.
 local function each_line(next_chunk: function(): string,
                          each: function(string): boolean)
-  local line: {string} = {}
-  local length = 0
+  local line: mut {string} = {}
+  local taken: Taken = { length = 0 }
   local function add(piece: string)
-    if length < cut and #piece > 0 then
-      local kept = piece:sub(1, cut - length)
+    if taken.length < cut and #piece > 0 then
+      local kept = piece:sub(1, cut - taken.length)
       line[#line + 1] = kept
-      length = length + #kept
+      taken.length = taken.length + #kept
     end
   end
   while true do
@@ -95,12 +105,12 @@ local function each_line(next_chunk: function(): string,
       end
       add(bytes:sub(at, newline - 1))
       local whole = table.concat(line)
-      line, length = {}, 0
+      line, taken.length = {}, 0
       if each(whole) then return end
       at = newline + 1
     end
   end
-  if length > 0 then each(table.concat(line)) end
+  if taken.length > 0 then each(table.concat(line)) end
 end
 
 --- The summary's first lines, before the run.
@@ -114,10 +124,11 @@ end
 --- time from `next_chunk` until it answers "": every failing test's
 --- line first, then the reports beneath them, bounded.
 function Fuzz.failure(next_chunk: function(): string, seed: string): string
-  local failing: {string} = {}
-  local reports: {string} = {}
+  local failing: mut {string} = {}
+  local reports: mut {string} = {}
   each_line(next_chunk, function(line: string): boolean
-    if line:sub(1, 10) == "test: FAIL" and #failing < failing_lines then
+    if (line:sub(1, 10) == "test: FAIL" or line:match("^test: %d+ of %d+ tests? failed, ") ~= nil) and
+        #failing < failing_lines then
       failing[#failing + 1] = line
     end
     if line:sub(1, 6) ~= "build:" and line:sub(1, 6) ~= "test: " and
@@ -145,16 +156,29 @@ local function chunks(path: string): Next, Close
   end
 end
 
+--- A byte range of a file: where a line starts and where it ends, its newline excluded.
+local record Span
+  first: integer
+  last: integer
+end
+
+--- The lines [`Fuzz.tail`] has read, kept where the function that reads them under `pcall` can add to them.
+local record Tailed
+  lines: mut {string}
+end
+
 --- The last `tail_lines` lines of the file at `path`, as `tail -n` and
 --- `cut` answer them, or nil when there is no such file. It reads the
 --- file backwards from its end only as far as those lines begin, and
 --- then only each one's first `cut` bytes.
-function Fuzz.tail(path: string): {string} | nil
-  local fd = Fs.open_read(path)
-  if fd == nil then return nil end
-  local called, answer = pcall(function(): {string}
+function Fuzz.tail(path: string): {string}?
+  local opened, _ = Fs.open_read(path)
+  if opened == nil then return nil end
+  local fd: integer = opened
+  local tailed: Tailed = { lines = {} }
+  local called, raised = pcall(function()
     local size = assert(Fs.stat(path)).size
-    if size == 0 then return {} end
+    if size == 0 then return end
     local function at(offset: integer, count: integer): string
       return (assert(sys.pread(fd, count, offset)))
     end
@@ -162,150 +186,188 @@ function Fuzz.tail(path: string): {string} | nil
     -- excluded, the last line first.
     local stop = size
     if at(size - 1, 1) == "\n" then stop = size - 1 end
-    local spans: {{integer}} = {}
+    local spans: mut {Span} = {}
     local block_end = stop
     while #spans < tail_lines do
       if block_end == 0 then
-        spans[#spans + 1] = { 0, stop }
+        spans[#spans + 1] = { first = 0, last = stop }
         break
       end
       local block_start = math.max(0, block_end - chunk)
       local block = at(block_start, block_end - block_start)
       local limit = #block
       while #spans < tail_lines do
-        local newline = block:sub(1, limit):match("^.*()\n") as integer
+        local newline = math.tointeger(tonumber(block:sub(1, limit):match("^.*()\n")))
         if newline == nil then break end
-        spans[#spans + 1] = { block_start + newline, stop }
+        spans[#spans + 1] = { first = block_start + newline, last = stop }
         stop = block_start + newline - 1
         limit = newline - 1
       end
       block_end = block_start
     end
-    local tail: {string} = {}
     for i = #spans, 1, -1 do
-      local first, last = spans[i][1], spans[i][2]
-      tail[#tail + 1] = last > first and at(first, math.min(cut, last - first)) or ""
+      local span = spans[i]
+      if span ~= nil then
+        local line = ""
+        if span.last > span.first then
+          line = at(span.first, math.min(cut, span.last - span.first))
+        end
+        tailed.lines[#tailed.lines + 1] = line
+      end
     end
-    return tail
   end)
   local closed, trouble = Fs.close(fd)
-  if not called then error(answer) end
+  if not called then error(raised) end
   assert(closed, trouble)
-  return answer as {string}
+  return tailed.lines
 end
 
 --- What a cancelled run's summary says: the end of the output the run
 --- kept, as [`Fuzz.tail`] answers it, or none when it kept none.
-function Fuzz.cancelled_summary(tail: {string} | nil): string
+function Fuzz.cancelled_summary(tail: {string}?): string
   return "\nCancelled, at the time limit or by hand, before fuzzing finished:" ..
     " a property\nthat hangs is the likeliest cause. The end of its output:\n\n" ..
     "~~~~\n" .. joined(tail or {}, tail_lines) .. "~~~~\n"
+end
+
+--- What [`streamed`] learns of the run, kept where the functions that run it under `pcall` can set it.
+local record Streamed
+  --- The child's exit status, once it is known.
+  mut status?: integer
+  --- Why the output is not whole, "" when it is.
+  mut trouble: string
 end
 
 --- Keeps merged output in `out` and offers it to `log` as it arrives.
 --- Each bounded drain yields to signal and exit supervision. After exit,
 --- one deadline bounds inherited writers; an incomplete drain is a driver
 --- failure, while any known child status remains available to be saved.
-local function streamed(guard: Child.Guard, argv: {string}, cwd: string,
-                        env: {string:string}, out: string, log: integer): integer | nil, string
-  local out_fd = assert(Fs.open_write(out))
-  local status: integer = nil
-  local called, failure = pcall(function(): string
-    local sink = Stream.tee(Stream.to_fd(out_fd), Stream.to_fd(log))
-    local started, start_trouble = Child.start(argv, { cwd = cwd, env = env,
+local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
+                        env: {string:string}, out: string, log: integer): Streamed
+  local program = assert(argv[1], "no program to run")
+  local seams = Seams.calls()
+  local out_fd = assert(seams.fs_open_write(out))
+  local kept: Streamed = { trouble = "" }
+  local called, failure = pcall(function()
+    local sink = seams.stream_tee(Stream.to_fd(out_fd), Stream.to_fd(log))
+    local started, start_trouble = seams.child_start(argv, { cwd = cwd, env = env,
       stdout = "stream", stderr = "stdout" })
     if started == nil then
-      status = Fs.exists(argv[1]) and 126 or 127
-      local wrote, why = sink:write(argv[1] .. ": " .. start_trouble .. "\n")
-      return wrote and "" or why
+      local there, _ = seams.fs_exists(program)
+      if there == true then kept.status = 126 else kept.status = 127 end
+      local wrote, why = sink:write(program .. ": " .. start_trouble .. "\n")
+      if not wrote then kept.trouble = why end
+      return
     end
-    local handle <close> = started
+    -- TODO: hold the child in a `<close>` local again, once ci/cosmic-driver.pin names a release that declares
+    -- [`Child.Handle`] as a class: a `<close>` local must be one.
+    local handle = started
     local function supervise(): string
-      local deadline: integer = nil
+      local deadline: integer? = nil
       local eof = false
       while true do
         local signal = guard:take()
-        if signal ~= 0 then local _, _ = handle:stop(signal) end
-        local state, why = handle:try_wait()
-        if state == nil then return why end
-        if state.finished and status == nil then
-          status = Child.shell_status(state.result)
+        if signal ~= 0 then local _, _ = handle.stop(signal) end
+        local waiting, why = handle.try_wait()
+        if waiting == nil then return why end
+        if waiting.finished and kept.status == nil then
+          kept.status = Child.shell_status(assert(waiting.result))
           deadline = Clock.monotonic_ns() + final_output_ns
         end
         if eof then
-          if status ~= nil then return "" end
-          Clock.sleep_ns(poll_ns)
+          if kept.status ~= nil then return "" end
+          local _, _ = Clock.sleep_ns(poll_ns)
         else
           local wait = poll_ns
           if deadline ~= nil then
             wait = math.min(wait, math.max(0, deadline - Clock.monotonic_ns()))
             if wait == 0 then return "fuzz output remained open after the child exited" end
           end
-          local drained = handle:drain{ stdout = sink, timeout_ns = wait, max_bytes = drain_bytes }
+          local drained = handle.drain{ stdout = sink, stderr = nil, timeout_ns = wait, max_bytes = drain_bytes }
           if drained.kind == "failed" then return drained.reason end
           eof = drained.kind == "eof"
           -- limit, timeout and interrupted all resume supervision. A failed
           -- sink may have saved more than it logged; its chunk is never replayed.
         end
       end
-      return ""
     end
-    local ran, why = pcall(supervise)
+    local ran, reason = pcall(supervise)
+    if not ran then
+      kept.trouble = tostring(reason)
+    elseif reason is string then
+      kept.trouble = reason
+    end
     -- drain may have observed exit before a sink failed or raised. Keep
     -- that actual status before scoped cleanup ends any remaining child.
-    if status == nil then
-      local observed, state = pcall(function(): Child.TryWait | nil return (handle:try_wait()) end)
-      if observed and state ~= nil and state.finished then
-        status = Child.shell_status(state.result)
-      end
+    if kept.status == nil then
+      local _, _ = pcall(function()
+        local waiting, _ = handle.try_wait()
+        if waiting ~= nil and waiting.finished then
+          kept.status = Child.shell_status(assert(waiting.result))
+        end
+      end)
     end
-    return ran and why or tostring(why)
+    local _, _ = handle.close()
   end)
   local closed, close_trouble = Fs.close(out_fd)
-  if not called then return status, tostring(failure) end
-  if failure ~= "" then return status, failure as string end
-  if not closed then return status, close_trouble end
-  return status, ""
+  if not called then return { status = kept.status, trouble = tostring(failure) } end
+  if kept.trouble ~= "" then return kept end
+  if not closed then return { status = kept.status, trouble = close_trouble } end
+  return { status = kept.status, trouble = "" }
+end
+
+--- A failed run's summary, kept where the function that makes it under `pcall` can set it.
+local record Failed
+  mut text: string
 end
 
 --- Fuzzes every property `r.root` holds on its checked core, writing
 --- the output to `$temp/fuzz.out` and the status to `$temp/fuzz.status`,
 --- and answers the status.
 function Fuzz.execute(r: Fuzz.Run): integer
-  local seed, iters = r.env.FUZZ_SEED or "", r.env.FUZZ_ITERS or ""
+  local seed, iters = r.env["FUZZ_SEED"] or "", r.env["FUZZ_ITERS"] or ""
   r.summarize(Fuzz.header(seed, iters))
   -- A failing test's directory is left under TMPDIR, holding the
   -- shrunk input it kept (build/test.tl's sweep).
   local scratch = r.temp .. "/fuzz"
   assert(Fs.mkdirs(scratch))
-  local env: {string:string} = {}
+  local env: mut {string:string} = {}
   for name, value in pairs(r.env) do env[name] = value end
-  env.TMPDIR = scratch
-  env.COSMIC_AUTO_BOOT = "0"
-  env.COSMIC_TEST_TIMEOUT = "1200"
-  local argv: {string} = { BuildPaths.directory(r.root, env) .. executable, "test", "--all" }
+  env["TMPDIR"] = scratch
+  env["COSMIC_AUTO_BOOT"] = "0"
+  env["COSMIC_TEST_TIMEOUT"] = "1200"
+  local argv: mut {string} = { BuildPaths.directory(r.root, env) .. executable, "test", "--all" }
   for _, test in ipairs(Fuzz.discover(r.root)) do argv[#argv + 1] = test end
   local out = r.temp .. "/fuzz.out"
-  local status: integer
-  do
-    -- Streamed to the log as it runs, and kept for the summary: a run
-    -- cancelled at its time limit still shows how far it got. A signal
-    -- caught meanwhile is delivered again once the status is kept.
-    local guard <close> = assert(Child.guard())
-    local trouble: string
-    status, trouble = streamed(guard, argv, r.root, env, out, r.log)
-    if status ~= nil then
-      assert(Fs.write(r.temp .. "/fuzz.status", tostring(status) .. "\n"))
+  -- Streamed to the log as it runs, and kept for the summary: a run
+  -- cancelled at its time limit still shows how far it got. A signal
+  -- caught meanwhile is delivered again once the status is kept.
+  -- TODO: hold the guard in a `<close>` local again, once ci/cosmic-driver.pin names a release that declares
+  -- [`Signal.Guard`] as a class: a `<close>` local must be one.
+  local guard = assert(Signal.guard())
+  local kept: Streamed = { trouble = "" }
+  local ran, raised = pcall(function()
+    local answered = streamed(guard, argv, r.root, env, out, r.log)
+    kept.status, kept.trouble = answered.status, answered.trouble
+    local reached = kept.status
+    if reached ~= nil then
+      assert(Fs.write(r.temp .. "/fuzz.status", tostring(reached) .. "\n"))
     end
-    assert(trouble == "", trouble)
-    assert(status ~= nil, "fuzz child ended without a status")
-  end
+    assert(kept.trouble == "", kept.trouble)
+    assert(reached ~= nil, "fuzz child ended without a status")
+  end)
+  local _, _ = guard:close()
+  if not ran then error(raised, 0) end
+  local status = assert(kept.status)
   if status ~= 0 then
     local next_chunk, close = chunks(out)
-    local called, text = pcall(Fuzz.failure, next_chunk, seed)
+    local failed: Failed = { text = "" }
+    local called, raised_failure = pcall(function()
+      failed.text = Fuzz.failure(next_chunk, seed)
+    end)
     close()
-    if not called then error(text) end
-    r.summarize(text as string)
+    if not called then error(raised_failure) end
+    r.summarize(failed.text)
   end
   return status
 end

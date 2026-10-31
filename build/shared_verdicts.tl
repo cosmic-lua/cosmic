@@ -1,6 +1,6 @@
 --- The passing test verdicts every checkout of a tree shares: a SQLite
 --- database under the cosmic cache directory, beside the one each
---- checkout keeps in `o/build.db`. The file is `verdicts/verdicts.db` by
+--- checkout keeps in `build.db`. The file is `verdicts/verdicts.db` by
 --- default, or the absolute path `COSMIC_VERDICT_CACHE` names; `0` turns
 --- the cache off. A sandboxed run's verdicts are shared. Its key is the
 --- digest of everything its test was given ([`build.declared_key`]) and
@@ -62,8 +62,8 @@ local record shared_verdicts
   --- How many rows the cache holds, and how many of them are of the
   --- tests a run looked up (`census`).
   record Census
-    rows: integer
-    of_tests: integer
+    mut rows: integer
+    mut of_tests: integer
   end
 
   --- How many rows the cache holds under one set of key parts, as
@@ -73,23 +73,30 @@ local record shared_verdicts
     rows: integer
   end
 
+  --- The identity and rest of a host a row's `parts` name ([`host_of`]);
+  --- nil for each a row does not name.
+  record NamedHost
+    identity?: string
+    rest?: string
+  end
+
   --- What a run owes the cache when it ends.
   record Owed
     --- The key parts the run's keys hold (`named`): those every key
     --- holds, and the system, compiler and program that only some do.
     --- Each row it keeps, or stands on unnamed, is stamped with them;
     --- nil for none.
-    parts: string
-    kept: {Kept}
+    mut parts?: string
+    kept: mut {Kept}
     --- Keys the run relied on, which stay the longer for it.
-    used: {string}
+    used: mut {string}
     --- Keys the run failed under, whose rows go.
-    failed: {string}
+    failed: mut {string}
     --- The digest of the bytes of each closure store the run keyed a
     --- test by, by the store's address ([`build.closure_store`]'s
     --- `address`): kept, or stamped as relied on, so a checkout without
     --- the store keys its tests without writing it ([`store_digest`]).
-    stores: {string:string}
+    stores?: {string:string}
   end
 end
 
@@ -112,7 +119,7 @@ local declared <const> = cache_formats.declared
 --- The table of what each closure store's bytes digest to, by its
 --- address: `stores_v1`. An address digests everything a store's bytes
 --- follow from -- its rows, the code that writes it and the runtime that
---- runs that code ([`build.test`]'s `address_stores`) -- so one address
+--- runs that code ([`build.test_key`]'s `address_stores`) -- so one address
 --- names one store's bytes wherever it is written, and a checkout can
 --- key a test by a store it has not written. Bounded as `declared` is.
 local stores <const> = cache_formats.stores
@@ -123,7 +130,7 @@ local text = bind.text
 --- else `verdicts.db` in `Fs.cache_dir("verdicts")`, made if missing.
 --- Nil and "" when the variable is `0`, or nil and why when there is
 --- nowhere to keep it.
-function shared_verdicts.location(environment?: {string:string}): string | nil, string
+function shared_verdicts.location(environment?: {string:string}): string?, string
   local value: string
   if environment ~= nil then
     value = environment[variable] or ""
@@ -159,7 +166,7 @@ end
 
 --- Turns the cache off in `environment`, for a process that is to
 --- neither read nor write it.
-function shared_verdicts.turn_off(environment: {string:string})
+function shared_verdicts.turn_off(environment: mut {string:string})
   environment[variable] = "0"
 end
 
@@ -172,7 +179,7 @@ local schema <const> = cache_formats.verdicts
 --- little that way.
 local function packed(hits: string): string
   return (hits:gsub("([^\t\n]*)\t([^\n]*)\n", function(path: string, lines: string): string
-    local out: {string} = {}
+    local out: mut {string} = {}
     local last = 0
     for line in lines:gmatch("%d+") do
       local number = math.tointeger(tonumber(line)) or 0
@@ -186,7 +193,7 @@ end
 --- `packed` undone.
 local function unpacked(hits: string): string
   return (hits:gsub("([^\t\n]*)\t([^\n]*)\n", function(path: string, lines: string): string
-    local out: {string} = {}
+    local out: mut {string} = {}
     local last = 0
     for step in lines:gmatch("%d+") do
       last = last + (math.tointeger(tonumber(step)) or 0)
@@ -198,7 +205,7 @@ end
 
 --- Whether `db`'s table of this format has its `parts` column, which a
 --- file from a binary without it lacks.
-local function has_parts(db: Sqlite.Handle): boolean | nil, string
+local function has_parts(db: Sqlite.Handle): boolean?, string
   local rows, trouble = Sqlite.text_rows(db, "SELECT 1 FROM pragma_table_info('" ..
       declared .. "') WHERE name = 'parts'")
   if rows == nil then return nil, trouble end
@@ -246,12 +253,12 @@ end
 
 --- Opens the cache at `path`, making it and its directory when missing,
 --- in write-ahead mode ([`shared_sqlite.open`]).
-function shared_verdicts.open(path: string): shared_verdicts.Cache | nil, string
+function shared_verdicts.open(path: string): shared_verdicts.Cache?, string
   local made, made_trouble = Fs.mkdirs(Fs.dirname(path))
   if not made then return nil, made_trouble end
   local db, trouble = shared_sqlite.open(path, prepare)
   if db == nil then return nil, trouble end
-  return { db = db, path = path }
+  return { db = db, path = path }, ""
 end
 
 function shared_verdicts.close(cache: shared_verdicts.Cache)
@@ -261,25 +268,25 @@ end
 --- The coverage and duration of the passing verdict under the declared
 --- `key` ([`build.declared_key`]), or nil: the key is the whole check.
 function shared_verdicts.declared(cache: shared_verdicts.Cache,
-                                  key: string): shared_verdicts.Found | nil, string
+                                  key: string): shared_verdicts.Found?, string
   local rows, trouble = Sqlite.text_rows(cache.db,
     "SELECT CAST(inflate(hits) AS TEXT), elapsed_ns FROM " .. declared .. " WHERE key = ?1",
     { text(key) })
   if rows == nil then return nil, trouble end
   if rows[1] == nil then return nil, "" end
-  return { hits = unpacked(rows[1][1]),
-    elapsed_ns = math.tointeger(tonumber(rows[1][2]) or 0) or 0 }, ""
+  return { hits = unpacked(rows[1]:text(1)),
+    elapsed_ns = math.tointeger(tonumber(rows[1]:text(2)) or 0) or 0 }, ""
 end
 
 --- The digest of the bytes of the closure store at `address`, as a run
 --- that had it kept it (`settle`), or nil.
 function shared_verdicts.store_digest(cache: shared_verdicts.Cache,
-                                      address: string): string | nil, string
+                                      address: string): string?, string
   local rows, trouble = Sqlite.text_rows(cache.db,
     "SELECT digest FROM " .. stores .. " WHERE address = ?1", { text(address) })
   if rows == nil then return nil, trouble end
   if rows[1] == nil then return nil, "" end
-  return rows[1][1], ""
+  return rows[1]:text(1), ""
 end
 
 --- How many rows the cache holds, and how many are of a test in
@@ -288,15 +295,15 @@ end
 --- tests under keys the run no longer reaches (a host, runtime or
 --- harness that moved), which `unmatched` says.
 function shared_verdicts.census(cache: shared_verdicts.Cache,
-                                tests: {string:boolean}): shared_verdicts.Census | nil, string
+                                tests: {string:boolean}): shared_verdicts.Census?, string
   local rows, trouble = Sqlite.text_rows(cache.db,
     "SELECT test, COUNT(*) FROM " .. declared .. " GROUP BY test")
   if rows == nil then return nil, trouble end
   local out: shared_verdicts.Census = { rows = 0, of_tests = 0 }
   for _, row in ipairs(rows) do
-    local count = math.tointeger(tonumber(row[2]) or 0) or 0
+    local count = math.tointeger(tonumber(row:text(2)) or 0) or 0
     out.rows = out.rows + count
-    if tests[row[1]] then out.of_tests = out.of_tests + count end
+    if tests[row:text(1)] == true then out.of_tests = out.of_tests + count end
   end
   return out, ""
 end
@@ -307,7 +314,7 @@ end
 --- the system's, the compiler's and the program's, only the keys of
 --- modules given them.
 function shared_verdicts.named(parts: {{string}}): string
-  local named: {string} = {}
+  local named: mut {string} = {}
   for _, part in ipairs(parts) do named[#named + 1] = part[1] .. " " .. part[2] end
   return table.concat(named, ", ")
 end
@@ -322,14 +329,55 @@ end
 --- How many rows the cache holds under each set of key parts its rows
 --- name, the most first: what a run found in the cache before it
 --- stood on or kept anything (`cosmic test --census`).
-function shared_verdicts.held(cache: shared_verdicts.Cache): {shared_verdicts.Held} | nil, string
+function shared_verdicts.held(cache: shared_verdicts.Cache): {shared_verdicts.Held}?, string
   local rows, trouble = Sqlite.text_rows(cache.db, "SELECT parts, COUNT(*) FROM " ..
       declared .. " GROUP BY parts ORDER BY COUNT(*) DESC, parts")
   if rows == nil then return nil, trouble end
-  local out: {shared_verdicts.Held} = {}
+  local out: mut {shared_verdicts.Held} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { parts = row[1] or "", rows = math.tointeger(tonumber(row[2]) or 0) or 0 }
+    out[#out + 1] = { parts = row:text(1) or "", rows = math.tointeger(tonumber(row:text(2)) or 0) or 0 }
   end
+  return out, ""
+end
+
+--- The identity ([`declared_key.host_split`]) and rest of the host a row
+--- was reached on, as its `parts` name them ("host identity X, host
+--- rest Y"); nil for either a row that names none, as one a run before
+--- they were named kept.
+function shared_verdicts.host_of(parts: string): shared_verdicts.NamedHost
+  local identity, rest: string?, string? = nil, nil
+  for item in (parts .. ", "):gmatch("(.-), ") do
+    identity = identity or item:match("^host identity (%x+)$")
+    rest = rest or item:match("^host rest (%x+)$")
+  end
+  return { identity = identity, rest = rest }
+end
+
+--- The identities of the hosts, other than `own`, whose rows the cache
+--- holds and whose rest but for their features is `rest`: hosts that
+--- differ from the one of identity `own` in its kernel's release and
+--- version and its processor's features alone
+--- ([`declared_key.host_split`]), sorted. A gathering run looks a test up
+--- under each one's key (build/test_key.tl's `lookup`), in this order, and
+--- the first row found answers: a pass on any like host stands though
+--- another like host failed the same key, since a failing run deletes its
+--- row rather than leaving a mark (the failing share's own job fails CI).
+function shared_verdicts.hosts_like(cache: shared_verdicts.Cache, rest: string,
+                                    own: string): {string}?, string
+  local rows, trouble = Sqlite.text_rows(cache.db, "SELECT DISTINCT parts FROM " .. declared ..
+      " WHERE parts LIKE '%host identity %'")
+  if rows == nil then return nil, trouble end
+  local seen: mut {string:boolean} = {}
+  local out: mut {string} = {}
+  for _, row in ipairs(rows) do
+    local named = shared_verdicts.host_of(row:text(1))
+    local identity, there = named.identity, named.rest
+    if identity ~= nil and there == rest and identity ~= own and seen[identity] ~= true then
+      seen[identity] = true
+      out[#out + 1] = identity
+    end
+  end
+  table.sort(out)
   return out, ""
 end
 
@@ -342,7 +390,7 @@ end
 ---     test: census: no rows
 function shared_verdicts.census_line(held: {shared_verdicts.Held}): string
   if #held == 0 then return "test: census: no rows" end
-  local groups: {string} = {}
+  local groups: mut {string} = {}
   for _, group in ipairs(held) do
     groups[#groups + 1] = string.format("%d %s under %s", group.rows,
       plural.noun(group.rows, "row"),
@@ -358,10 +406,10 @@ end
 --- nothing to stand on.
 function shared_verdicts.unmatched(path: string, looked: integer,
                                    census: shared_verdicts.Census,
-                                   parts: {{string}}): string | nil
+                                   parts: {{string}}): string?
   if looked == 0 or census.rows == 0 then return nil end
-  local why = census.of_tests > 0 and "none under the keys this run reached" or
-    "no other run reached them"
+  local why = if census.of_tests > 0 then "none under the keys this run reached" else
+    "no other run reached them" end
   return string.format("test: shared verdicts: none of %s looked up stood, " ..
       "though %s holds %s, %d of them of those tests: %s (%s)",
     plural.count(looked, "test"), path, plural.count(census.rows, "row"), census.of_tests,
@@ -403,16 +451,17 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
         if not ok then return false, trouble end
       end
     end
-    local addresses: {string} = {}
-    for address in pairs(owed.stores or {}) do addresses[#addresses + 1] = address end
+    local stored = owed.stores or {}
+    local addresses: mut {string} = {}
+    for address in pairs(stored) do addresses[#addresses + 1] = address end
     table.sort(addresses)
     -- A digest here that differs from the run's for the same address
-    -- was reported by the run as an error ([`build.test`]'s
+    -- was reported by the run as an error ([`build.test_key`]'s
     -- `mismatched`), which says the run's replaces it.
     for _, address in ipairs(addresses) do
       local ok, trouble = Sqlite.run(db, "INSERT OR REPLACE INTO " .. stores ..
           " (address, digest, used_ns) VALUES (?1, ?2, ?3)",
-        { text(address), text(owed.stores[address]), { integer = now_ns } })
+        { text(address), text(stored[address]), { integer = now_ns } })
       if not ok then return false, trouble end
     end
     for _, bound in ipairs({ { declared, "key" }, { stores, "address" } }) do
@@ -422,7 +471,7 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
       if not aged then return false, age_trouble end
       local bounded, bound_trouble = Sqlite.run(db, "DELETE FROM " .. name ..
           " WHERE " .. key .. " IN (SELECT " .. key .. " FROM " .. name .. " " ..
-          "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. kept_rows .. ")")
+          "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. tostring(kept_rows) .. ")")
       if not bounded then return false, bound_trouble end
     end
     return true, ""

@@ -1,7 +1,7 @@
 --- The SQLite file the shared caches keep (build/shared_sqlite.tl):
 --- opened in write-ahead mode, with a bounded wait on other writers.
 
-local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -20,14 +20,14 @@ local function test_an_open_cache_is_in_wal_mode_and_prepared(tmp: string)
   local path = tmp .. "/cache.db"
   local db = assert(shared_sqlite.open(path, prepare))
   local mode = assert(Sqlite.text_rows(db, "PRAGMA journal_mode"))
-  assert(mode[1][1] == "wal", mode[1][1])
+  assert(mode[1]:text(1) == "wal", mode[1]:text(1))
   local timeout = assert(Sqlite.text_rows(db, "PRAGMA busy_timeout"))
-  assert(timeout[1][1] == "10000", "busy timeout " .. timeout[1][1])
+  assert(timeout[1]:text(1) == "10000", "busy timeout " .. timeout[1]:text(1))
   assert(Sqlite.text_rows(db, "SELECT key FROM kept"))
   db:close()
   local waiting = assert(shared_sqlite.open(path, prepare, Clock.ms(50)))
   timeout = assert(Sqlite.text_rows(waiting, "PRAGMA busy_timeout"))
-  assert(timeout[1][1] == "50", "busy timeout " .. timeout[1][1])
+  assert(timeout[1]:text(1) == "50", "busy timeout " .. timeout[1]:text(1))
   waiting:close()
   -- The last connection closed, SQLite removes the log; one left open
   -- by a failed open would keep it.
@@ -87,8 +87,8 @@ local function test_a_cache_being_written_is_tried_again_then_answered_busy(tmp:
   local waited, trouble = held_open(tmp .. "/cache.db",
     { "BEGIN IMMEDIATE", "INSERT INTO held (x) VALUES (1)" }, wait_ns)
   assert(trouble:find("locked", 1, true) ~= nil, trouble)
-  assert(waited >= wait_ns, "answered busy after " .. waited .. " ns")
-  assert(waited < gave_up_late_ns, "answered busy after " .. waited .. " ns")
+  assert(waited >= wait_ns, "answered busy after " .. tostring(waited) .. " ns")
+  assert(waited < gave_up_late_ns, "answered busy after " .. tostring(waited) .. " ns")
 end
 
 --- A cache another connection holds whole, before it is in write-ahead
@@ -98,8 +98,8 @@ local function test_a_cache_held_whole_is_waited_on_no_longer_than_the_wait(tmp:
   local wait_ns = Clock.ms(100)
   local waited, trouble = held_open(tmp .. "/cache.db", { "BEGIN EXCLUSIVE" }, wait_ns)
   assert(trouble:find("locked", 1, true) ~= nil, trouble)
-  assert(waited >= wait_ns, "answered busy after " .. waited .. " ns")
-  assert(waited < gave_up_late_ns, "answered busy after " .. waited .. " ns")
+  assert(waited >= wait_ns, "answered busy after " .. tostring(waited) .. " ns")
+  assert(waited < gave_up_late_ns, "answered busy after " .. tostring(waited) .. " ns")
 end
 
 --- A cache already in write-ahead mode opens while another connection
@@ -112,7 +112,7 @@ local function test_a_wal_cache_opens_while_another_writes(tmp: string)
   local second = assert(shared_sqlite.open(path, prepare, Clock.ms(50)))
   assert(first:exec("COMMIT"))
   local rows = assert(Sqlite.text_rows(second, "SELECT key FROM kept"))
-  assert(#rows == 1 and rows[1][1] == "k")
+  assert(#rows == 1 and rows[1]:text(1) == "k")
   second:close()
   first:close()
 end
@@ -123,7 +123,7 @@ local function test_a_captured_cancellation_stops_the_wal_retry(tmp: string)
   local path = tmp .. "/cache.db"
   local holder = assert(Sqlite.open(path, { writable = true }))
   assert(holder:exec("CREATE TABLE held (x); BEGIN EXCLUSIVE"))
-  local guard <close> = assert(Child.guard())
+  local guard <close> = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   local started = Clock.monotonic_ns()
   local db, trouble = shared_sqlite.open(path, prepare, Clock.seconds(2))
@@ -134,7 +134,7 @@ local function test_a_captured_cancellation_stops_the_wal_retry(tmp: string)
   assert(holder:close())
   assert(db == nil and trouble ~= "", trouble)
   assert(signal == sys.SIGTERM, "the cache consumed the guard's signal")
-  assert(waited < Clock.seconds(1), "cancelled after " .. waited .. " ns")
+  assert(waited < Clock.seconds(1), "cancelled after " .. tostring(waited) .. " ns")
   local opened = assert(shared_sqlite.open(path, prepare))
   assert(opened:close())
 end

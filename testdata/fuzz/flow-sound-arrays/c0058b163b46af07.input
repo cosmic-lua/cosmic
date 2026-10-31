@@ -1,0 +1,48 @@
+local record Counter
+  mut n: integer
+end
+local st: Counter = { n = 0 }
+local shared: mut {string} = { "a", "b", "c", "d", "e", "f" }
+local function reset(n: integer)
+  while #shared > n do
+    table.remove(shared)
+  end
+  while #shared < n do
+    shared[#shared + 1] = "s"
+  end
+end
+local function touch()
+  st.n = st.n + 1
+end
+local function pure(x: integer): integer
+  return x + 1
+end
+local function shorten()
+  table.remove(shared)
+end
+local function trim(a: mut {string})
+  table.remove(a)
+end
+local class Eater
+  n: integer
+  function __tostring(self): string
+    table.remove(shared)
+    return "x"
+  end
+end
+local eater: Eater = { n = 0 }
+
+local function f1(v: {string}, o: mut {string}): integer
+  local total = 0
+  assert(#v >= 1)
+  total = total + #tostring(eater)
+  total = total + #tostring(v[1])
+  return total
+end
+for n = 6, 0, -1 do
+  reset(n)
+  local ok, why = pcall(f1, shared, shared)
+  if not ok and tostring(why):find("fact violated", 1, true) ~= nil then
+    error(why)
+  end
+end

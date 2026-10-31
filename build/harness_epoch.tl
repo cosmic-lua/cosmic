@@ -1,12 +1,15 @@
 --- The test harness's epoch, which every sandboxed verdict key holds
 --- ([`build.declared_key`]'s `epoch` part) in place of the harness's own
 --- code: what every worker loads ([`build.test_worker`]'s `loads`), the
---- sandbox's maker ([`build.test`]'s `harness_own`), and the code that
---- makes a key and looks a verdict up under one ([`build.test`] and its
+--- sandbox's maker ([`build.test_key`]'s `harness_own`), and the code that
+--- makes a key and looks a verdict up under one ([`build.test_key`] and its
 --- `key_code`). An edit to that code moves no key by itself, so a
---- comment in build/test.tl runs no test again but those that import
+--- comment in build/test_key.tl runs no test again but those that import
 --- it. `epoch` moves every key, and is bumped by hand for a change that
---- can alter a pass or a fail.
+--- can alter a pass or a fail. The runner around it, [`build.test`], is no
+--- module of the harness: it schedules the workers and keeps the history,
+--- the coverage and the summary, makes no key, and an edit to it moves
+--- no digest here.
 ---
 --- `epoch` is a count and a token of 8 random hex digits,
 --- "N-xxxxxxxx": the token makes each bump its own value. Were it a
@@ -27,7 +30,7 @@
 --- edits of a bump when the harness moves.
 ---
 --- `acknowledged` holds a digest per module of that code as it was when
---- the choice was last made ([`build.test`]'s `harness`, over each
+--- the choice was last made ([`build.test_key`]'s `harness`, over each
 --- module's source and bytecode). It is one module to a line, sorted,
 --- with a blank line between each two, so two changes to different
 --- modules merge cleanly, even two that sort next to each other, and two
@@ -49,11 +52,11 @@
 --- * what every worker loads ([`worker.loads`], which [`worker.judge`] holds
 ---   each worker to);
 --- * the sandbox's maker (`harness_own`);
---- * build.test itself, cosmic.child, which applies a worker's
+--- * build.test_key itself, cosmic.child, which applies a worker's
 ---   sandbox, and cosmic.sandbox and cosmic.sandbox.policy, which decide a
 ---   policy worker's grants (`harness_alone`), each held alone;
 --- * the closure of the key's roots (`key_roots`) over the requires each
----   makes by value, as its bytecode names them ([`test.value_imports`]).
+---   makes by value, as its bytecode names them ([`test_key.value_imports`]).
 ---   A `local type` require is not followed, since Teal erases it and
 ---   what the imported type does at run time is compiled into the
 ---   importer's bytecode, which the digests hold.
@@ -77,86 +80,96 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = "38-3ce9b8e0" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "60-4a96df9f" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
-  ["build.artifact"] = "4405196f6511a21a7493aa3d1ee196c6318d3ceec2e0202800494c46b9502745",
+  ["build.artifact"] = "38a8cfff7234e89aac9fdcdacbdc2148b35a282d73f0ff59952aa360d9d74033",
 
-  ["build.assertions"] = "9a37be1602aa1540dd0248a267964b00c667843089d44bfb3f1828f324a739ce",
+  ["build.assertions"] = "493581fd2868cf0ec99a12baaf108fb28c9106398d2df35a8e5d3d925ad6bfd3",
 
-  ["build.bind"] = "9fee5bf681f9fcb8a2e2e88ba7982b1d3546b5c438ddd598e5de1c27e12c80ec",
+  ["build.bind"] = "e6e670add858a2a3b3fe668d61a1447b7ade175ca3c8de64ab040e091c3038a6",
 
-  ["build.cache_formats"] = "4ae5e6d24acc9388d72472a50da0146c5a026ec089796491001380175c195a40",
+  ["build.cache_formats"] = "0f32a7868d0e9b00d1170380e8ca7ba93d449b66cebf9b3a182c8218a993b122",
 
-  ["build.cache_names"] = "d576babcccc2b3e8875bdae9066f2c53835e0a87374438ae98a86a8064214542",
+  ["build.cache_names"] = "1bdd81c33602e85362226a8bb0b529720d89c747376961f8d0aab99158c9e772",
 
-  ["build.caches"] = "57bac59a121d7520f3d30b9052a6f6c5d67a51e8785c5a75d021760317fb9312",
+  ["build.caches"] = "18fc193d825a960a4716cb62fae40d37e1c0d35d61c9acb91025dc0b60b570ee",
 
-  ["build.confine"] = "8a099027ad9a259232504f7dee7c7588d7ce819428276cd505f6409876e2520a",
+  ["build.confine"] = "1fdbf723a191d552b99edf862ad9ebc6f2f3a70471dd53c4131c0c15bc1de2f8",
 
-  ["build.core_image"] = "dfc18e0e6316237ab9fb11a957df68d6217e42cffc6f2f3a767018c5313700ac",
+  ["build.core_image"] = "18daf88c3c58f62a222472eaa52b99218cd1e5b7ccafde6a0beded46c8f3382b",
 
-  ["build.declared_key"] = "e670fe2af8512e8a173ea14b7060baa3cc59204ad516bbb718aade991b8ea291",
+  ["build.declared_key"] = "2339324771d53a11e9d43f09351051ac15a3bab97337d2b7cf9c873e1430d933",
 
-  ["build.digest"] = "dccca5b63f2992d4d23213450142bdd05eee403ebaf3a4e0acf7437da72558f0",
+  ["build.digest"] = "63588bce17aabb935b044ae8a4af8cea78d1dca19822a36e72efe62d4a877355",
 
-  ["build.host_names"] = "aad7658fe3e84c19552b4f69151271d49d94e1fc924a016b450536ce2a2da1a6",
+  ["build.host_names"] = "be77323ab570346a02b67f7b8122cf30503dcb0642adb23f1f1c3d9b6da61547",
 
-  ["build.host_requires"] = "8c17d5873cecb2318f579a3b0bf9ce3f18a3901f8f674956ac9321e823fdbae9",
+  ["build.host_requires"] = "9356c9adfc65e4cf1415b145a63d27be272b6cd8aa050e952ad1bfd7d0af3028",
 
-  ["build.key_parts"] = "943e73eeff585ef486ed03cc22ba7143a92a715b58675d990a0051d8ed165b90",
+  ["build.key_parts"] = "8d6552f9b67824ad5158996a1806062870f2e0a7f8eac6d42f27b3fa26337fc2",
 
-  ["build.launcher"] = "1bddaa2b691f6aa90da3256d045fc69f38d12c935e981a231841d94c2157b224",
+  ["build.launcher"] = "40a625bfb41cc84e48dd9c3ff9241aeeb8a8945a41116c054286c45d3e181975",
 
-  ["build.paths"] = "2a27cf798c71beeeddaed027f7f3b11af8a5f25f7c082841c19d7cef310aa9f0",
+  ["build.load_module"] = "a54bd951a24ee621ba85cda899b57226f1203ebc7ff8e710fad39459d5ba6e63",
 
-  ["build.plural"] = "08b0e817376c03fe90737c8bb26d6ae1400dadd9d61b23d00c1b0f1051ad8771",
+  ["build.paths"] = "911ce247a4e165f0e0be03486c0b4c74fc02676d2d18363eeebbdb01af6286b4",
 
-  ["build.shared_sqlite"] = "788981d831e67bb29bdf3e91e685e06904288d211d44fb671b8ece4c0ae00f77",
+  ["build.plural"] = "08dc094acbdc34d3bc0ed7d04238e33810e3ff573574b2e612e1202bde7f24c4",
 
-  ["build.shared_verdicts"] = "516c08e34d1fc392de5363af92b6d669344fc3c8b504c469ae3771a424d0db6b",
+  ["build.shared_sqlite"] = "a1f438f3ab7ff5eb92e8db6235d80bd75b6dc8db51833f27aa78cc6965daca90",
 
-  ["build.test"] = "e5df2ed18603bb069927c1674f8708e3eea1c27ba664e20ed9d1586f48d0e7dd",
+  ["build.shared_verdicts"] = "4c24d7d643a460ca52731f5549be2e0f567576f5ea6e0c2b3382a7e6ef223f10",
 
-  ["build.test_inputs"] = "f4be19a303d0b582b5fa3635a6629134f4aea2aa6c9d94b0f41f0371ea5bee6c",
+  ["build.test_inputs"] = "3e1795794c1f76e4fc42314b7ed0ac1f455848397e86c01005de697d21e45581",
 
-  ["build.test_policy"] = "f4d98a90f54c4ba29b6ce6d50c0cf08a5efc02e225dbd2382af84dee78da8557",
+  ["build.test_key"] = "4e94d131b7097f10249bb6a739621695486aaa7d48121dd43774a11f804ea4ae",
 
-  ["build.test_sandbox"] = "19ff6af7330dad09c1c7d35c58f46d5b5b426751676a44f10a0fb2d68aec4c67",
+  ["build.test_policy"] = "b1eda91fc78d4da9c2216a5a78b3394c64e7bcf51cacb3d4469bc053ade829ea",
 
-  ["build.test_worker"] = "890221f4f18944b3bab309427d80337b117a4a3170f319264277d508e4432e24",
+  ["build.test_sandbox"] = "e5980389fa52539475b918e58e3d34d133e7f20b97430ec7e16c2d8a52fd6a2d",
 
-  ["build.this_program"] = "d111ef81b6f2303b92612c6db23abd195ef08c0216f4c53fc1040140cfb50894",
+  ["build.test_worker"] = "c94c6d77310681f8451bde21e56c887de97e1a67139944cc62b406003a5903b2",
 
-  ["build.zig_caches"] = "255a9e814a29dd8fe6bf40900f0ee34a7f64267f4f0bee3a2367a3d687e299e1",
+  ["build.this_program"] = "345b0565401a0f96cd0dcc4165281806148315424265bca17841eaf72d32fd42",
 
-  ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
+  ["build.zig_caches"] = "3dd89e9f3b612891419f3178cfb211d59ff80da1e42515f77e33b4a9366f2853",
 
-  ["cosmic.child"] = "77fd0d5dd6f643afd530bf775ed4891f871053965b04a68e18b1ba84372712ee",
+  ["cmd.cosmic.main"] = "4199a34c391ac393c2cff8404cced9e3e593309f7ec58fb1af37f26e3fead347",
 
-  ["cosmic.coverage"] = "079fe202231c4ae3ee642e27f6703a37850132c28c2a6d1daf50c7eb1669ac9a",
+  ["cosmic.child"] = "f138cd38dac9589325b96a1eda0801d7a850efa83a01dd209499c455acc35c22",
 
-  ["cosmic.env"] = "9ae16736e69ff2305de1aff7db0f15db90993e1e61ef786d7bf6f33528ef0057",
+  ["cosmic.codec"] = "5e783e4f60065fa4f114225120aaf286c3d07987b4df98ade9e39e93c5bd24f5",
 
-  ["cosmic.fs"] = "befc25dee33fd54963b4a28dfe6a825724c37ed9f0f26a29b8908b1a72f628ed",
+  ["cosmic.coverage"] = "606cfe646be07026cd761d392d21d2ca9000a074c061b6c325bf2b67a8039770",
 
-  ["cosmic.proc"] = "1f2f124e7478daaf5955a2043d03a379d8dbc657ffe938ac71d221376f677bcf",
+  ["cosmic.env"] = "4fab933c9a5f8103144f6b2283e368c140878ce80bcb8162866aa9ca2004927d",
 
-  ["cosmic.sandbox"] = "53ed9101b7ba50dcb98c270ad534711ea3c1d9d557a996e2415bc1996f998728",
+  ["cosmic.fs"] = "8181e65f1fe838a9b20dcf4bd6ace61e7be9c422a7f043345a8957bad62bbd21",
 
-  ["cosmic.sandbox.policy"] = "06dee459b27c6bf4efe69bc6f68a51a05ca1a434bf0e216896eee2dc939ecd42",
+  ["cosmic.hash"] = "965927db84637153d43cb09283970fd875a1164afde8ec862fd48965991f8d79",
 
-  ["cosmic.sqlite"] = "ac3fd16dd89251feaee572e4e4b1d29257037afeca3b5c9b141557f2ce732390",
+  ["cosmic.proc"] = "b34e6e997f2785dcb1a7a82c5385e0bcfcf99d51b4c0b220a755f40b51e87d3e",
 
-  ["cosmic.string"] = "bf0e5e828de84f23aa818887e0280a3ebc844c9ca5e384c33227cb42715b8655",
+  ["cosmic.project"] = "7109f1a1bfb3400ba57174beca48225a345b8388ea0766a1eab33929545fb8ec",
 
-  ["cosmic.test"] = "ef32574fdad8aa2854757326d596f98901c439f1ec87b777360f3940fb69c940",
+  ["cosmic.sandbox"] = "5dd7fdfdc217c237db9692b2fe905b41e6a589ea47577998a280cb05168a2b1c",
+
+  ["cosmic.sandbox.policy"] = "ce2cbf3101cfe8a57d0d946b3c1fe2b5bdb8626b0fa39f45b9bdcf46b9146c65",
+
+  ["cosmic.sqlite"] = "332400bc17109ab3ce8bbc63df6d2d51099a285df2755e4b0a69b75ece50d03b",
+
+  ["cosmic.string"] = "4696ea716c4b8f796923350161765a4fdc0313355d68c327902536123cf603a5",
+
+  ["cosmic.test"] = "ebc9e177be9aa9ab131904a7fd7f041c09e6224efeb01bab91c77235aa341fad",
 
 }
 
 harness_epoch.library = {
   ["cosmic.child"] = "its `start` turns a worker's plan into the unveils, binds and " ..
     "offline spawn holds it to; held alone, what it requires is not walked",
+  ["cosmic.codec"] = "cosmic.hash's hex encoding of the digest `build.paths` names a " ..
+    "project's build directory by",
   ["cosmic.coverage"] = "the worker starts and stops the coverage a test's lines are " ..
     "counted by, whose session a test that imports it shares",
   ["cosmic.env"] = "the worker's environment, which its key holds, is read and built " ..
@@ -164,10 +177,14 @@ harness_epoch.library = {
   ["cosmic.fs"] = "places each read, bind and unveil (`within`, `relative`), writes " ..
     "the worker's report, and probes the paths a module requires of the host " ..
     "(`build.host_requires`: `exists`, `is_dir`, `absolute`)",
+  ["cosmic.hash"] = "`build.paths` names a project's build directory by the SHA-256 of " ..
+    "its root (`hex_sha256`), where the worker finds its tree's and builds its own",
   ["cosmic.proc"] = "names this program (`executable`), which a worker whose test does " ..
     "not declare `tool` is held from running; and finds a program a module requires " ..
     "of the host (`find`) and whether a portable artifact can start again " ..
     "(`relaunch`) for `build.host_requires`",
+  ["cosmic.project"] = "`build.paths` asks its `directory` where a project's build " ..
+    "directory is, where the worker finds its tree's and builds its own",
   ["cosmic.sandbox"] = "`merge` resolves a policy's profiles into the grants a worker " ..
     "is held to (`build.test_policy`'s `runs`); held alone, what it requires is not walked",
   ["cosmic.sandbox.policy"] = "the policy layer cosmic.sandbox answers under its own " ..
@@ -182,7 +199,7 @@ harness_epoch.library = {
     "shared verdicts are stored and looked up under exact keys through it",
   ["cosmic.string"] = "text a key or verdict holds is split, tested or counted through " ..
     "it: the launcher's template (`build.launcher`), the runtime identity " ..
-    "(`build.test`), sandbox paths (`build.test_sandbox`), the artifact's SQLite " ..
+    "(`build.test_key`), sandbox paths (`build.test_sandbox`), the artifact's SQLite " ..
     "header (`build.artifact`) and " ..
     "plurals (`build.plural`)",
   ["cosmic.test"] = "a test's declaration (`Test.policy`), which the worker judges, and " ..
@@ -227,6 +244,28 @@ harness_epoch.retired = {
   "3ef16d5d",
   "f1098f05",
   "65e16d68",
+  "3ce9b8e0",
+  "c7eacb64",
+  "aabf64e1",
+  "9ee7da50",
+  "2ae6c1bc",
+  "70386030",
+  "f3062d3a",
+  "0b25a594",
+  "c2cc59fa",
+  "01fb9c1b",
+  "7517cd3f",
+  "e102e8aa",
+  "a6665ec1",
+  "fddb0e02",
+  "f29a420b",
+  "1c38ce00",
+  "dbae9496",
+  "4523ed60",
+  "70cb7bca",
+  "69753f80",
+  "692cdf96",
+  "c5141a87",
 }
 
 return harness_epoch

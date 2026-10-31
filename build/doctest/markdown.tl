@@ -1,6 +1,6 @@
 --- Fenced code blocks out of a markdown doc, in document order. This
 --- is the whole of what [`build.doctest`] reads from the markdown itself;
---- everything the grammar in doc/meta.md means by a block's tag
+--- everything the grammar in doc/writing.md means by a block's tag
 --- (`teal`, `lua`, `output`, `text`, and the `continue`/`file=`/
 --- `skip=` modifiers on `teal`/`lua`) is decided here, once, so
 --- [`build.doctest.generate`] never re-parses a tag string.
@@ -19,9 +19,9 @@
 local String = require("cosmic.string")
 
 local record Modifiers
-  continue: boolean
-  file: string | nil
-  skip: string | nil
+  mut continue: boolean
+  mut file: string?
+  mut skip: string?
 end
 
 local record Block
@@ -32,7 +32,7 @@ local record Block
   --- line included and no trailing newline of its own.
   content: string
   --- The 1-based source line of the opening fence, for error messages.
-  line: integer
+  mut line: integer
 end
 
 local record markdown
@@ -59,13 +59,13 @@ end
 ---   fallible return admits at most two slots, and there is no single
 ---   value here to carry the other in
 --- @return string why `info` was refused
-local function parse_tag(info: string): Tag | nil, string
-  local words: {string} = {}
+local function parse_tag(info: string): Tag?, string
+  local words: mut {string} = {}
   for word in info:gmatch("%S+") do
     words[#words + 1] = word
   end
   local lang = words[1] or ""
-  if not valid_langs[lang] then
+  if valid_langs[lang] ~= true then
     return nil, "unknown fenced block tag '" .. lang .. "'"
   end
   if (lang == "text" or lang == "output") and #words > 1 then
@@ -73,7 +73,7 @@ local function parse_tag(info: string): Tag | nil, string
   end
   local modifiers: Modifiers = { continue = false, file = nil, skip = nil }
   for i = 2, #words do
-    local word = words[i]
+    local word = assert(words[i], "i is within the words")
     if word == "continue" then
       modifiers.continue = true
     elseif word:sub(1, 5) == "file=" then
@@ -102,12 +102,12 @@ end
 
 --- The column-0 fence opening `line`, including its marker, run length,
 --- and info string, or nil when the line is not an opener.
-local function open_fence(line: string): Fence | nil
+local function open_fence(line: string): Fence?
   local run, info = line:match("^(```+)(.*)$")
   if run == nil then
     run, info = line:match("^(~~~+)(.*)$")
   end
-  if run == nil then
+  if run == nil or info == nil then
     return nil
   end
   return { marker = run:sub(1, 1), length = #run, info = info }
@@ -116,7 +116,7 @@ end
 --- Whether `line` closes `fence`: only whitespace may surround a same-marker
 --- run at least as long as the opening run.
 local function closes_fence(line: string, fence: Fence): boolean
-  local run: string | nil
+  local run: string?
   if fence.marker == "`" then
     run = line:match("^%s*(```+)%s*$")
   else
@@ -144,20 +144,21 @@ end
 ---   one this grammar knows, or a line looks like an indented fence
 ---   this grammar does not support
 --- @return string why, naming the source line
-function markdown.parse_blocks(source: string): {Block} | nil, string
-  local lines: {string} = {}
+function markdown.parse_blocks(source: string): {Block}?, string
+  local lines: mut {string} = {}
   for line in String.lines(source) do
     lines[#lines + 1] = line
   end
-  local blocks: {Block} = {}
+  local blocks: mut {Block} = {}
   local i = 1
   while i <= #lines do
-    local fence = open_fence(lines[i])
+    local line = assert(lines[i], "i is within the lines")
+    local fence = open_fence(line)
     local declared = fence == nil and
-      lines[i]:match("^<!%-%-%s*policy:%s*(.-)%s*%-%->%s*$") or nil
-    if fence == nil and (lines[i]:match("^<!%-%-%s*inputs:") ~= nil or
-        lines[i]:match("^<!%-%-%s*needs:") ~= nil) then
-      return nil, "line " .. i .. ": a doc declares what its examples read with " ..
+      line:match("^<!%-%-%s*policy:%s*(.-)%s*%-%->%s*$") or nil
+    if fence == nil and (line:match("^<!%-%-%s*inputs:") ~= nil or
+        line:match("^<!%-%-%s*needs:") ~= nil) then
+      return nil, "line " .. tostring(i) .. ": a doc declares what its examples read with " ..
         "<!-- policy: ... --> now"
     elseif declared ~= nil then
       blocks[#blocks + 1] = {
@@ -168,32 +169,33 @@ function markdown.parse_blocks(source: string): {Block} | nil, string
       }
       i = i + 1
     elseif fence == nil then
-      if looks_like_an_indented_fence(lines[i]) then
-        return nil, "line " .. i .. ": this line looks like a fenced code " ..
+      if looks_like_an_indented_fence(line) then
+        return nil, "line " .. tostring(i) .. ": this line looks like a fenced code " ..
           "block opener but is indented; indented fences are not " ..
           "supported here -- start it at column 1"
       end
       i = i + 1
     else
       local open_line = i
-      local content_lines: {string} = {}
+      local content_lines: mut {string} = {}
       local j = i + 1
       local closed = false
       while j <= #lines do
-        if closes_fence(lines[j], fence) then
+        local inner = assert(lines[j], "j is within the lines")
+        if closes_fence(inner, fence) then
           closed = true
           break
         end
-        content_lines[#content_lines + 1] = lines[j]
+        content_lines[#content_lines + 1] = inner
         j = j + 1
       end
       if not closed then
-        return nil, "line " .. open_line .. ": a fenced code block never closes"
+        return nil, "line " .. tostring(open_line) .. ": a fenced code block never closes"
       end
       local trimmed = String.trim(fence.info)
       local tag, tag_trouble = parse_tag(trimmed)
       if tag == nil then
-        return nil, "line " .. open_line .. ": " .. tag_trouble
+        return nil, "line " .. tostring(open_line) .. ": " .. tag_trouble
       end
       blocks[#blocks + 1] = {
         lang = tag.lang,

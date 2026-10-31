@@ -21,7 +21,7 @@ end
 
 local function test_product_setup_rejects_missing_boot_outputs(tmp: string)
   assert(Fs.mkdirs(tmp .. "/root/build"))
-  assert(Fs.write(tmp .. "/root/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
+  assert(Fs.write(tmp .. "/root/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
   fails(function()
     ProductSetup.build(tmp .. "/root", tmp .. "/product", tmp .. "/work")
   end, "/o/bin/cosmic")
@@ -30,7 +30,7 @@ end
 
 local function test_launcher_setup_rejects_missing_targets(tmp: string)
   assert(Fs.mkdirs(tmp .. "/root/build"))
-  assert(Fs.write(tmp .. "/root/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
+  assert(Fs.write(tmp .. "/root/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
   fails(function()
     LauncherSetup.build(tmp .. "/root", tmp .. "/launcher", "target",
       tmp .. "/work")
@@ -79,7 +79,7 @@ end
 
 --- A sandboxed fixture reads what the runtime setup packs for it as one
 --- file whose bytes key its verdict (runtime_setup.tl's `pack`): the
---- closure of the module it names, followed through the tree's modules
+--- closure of the module it names (a `pcall(require, "<name>")` is followed as a `require` is), followed through the tree's modules
 --- but not the runtime's own, and the same files packed twice make the
 --- same bytes, which unpack to what they were.
 local function test_the_runtime_setup_packs_a_closure_the_same_each_time(tmp: string)
@@ -88,20 +88,17 @@ local function test_the_runtime_setup_packs_a_closure_the_same_each_time(tmp: st
       Fs.mkdirs(root .. "/cosmic"))
   assert(Fs.write(root .. "/test/portable/tool.tl",
     'local Fs = require("cosmic.fs")\nlocal fixture = require("test.portable")\n' ..
-      'local a = require( "build.a" )\nlocal gone = require("build.gone")\n'))
+      'local a = require( "build.a" )\nlocal gone = require("build.gone")\n' ..
+      'local found = pcall(require, "build.c")\n'))
   assert(Fs.write(root .. "/test/portable/init.tl", 'local a = require("build.a")\n'))
   assert(Fs.write(root .. "/build/a.tl", 'local b = require("build.b")\n', 0x1ed))
   assert(Fs.write(root .. "/build/b.tl", "return {}\n"))
-  assert(Fs.write(root .. "/build/b_test.tl", "local _ = 1\n"))
-  assert(Fs.write(root .. "/build/c_test.tl", "local _ = 2\n"))
+  assert(Fs.write(root .. "/build/c.tl", "return {}\n"))
   assert(Fs.write(root .. "/cosmic/fs.tl", "return {}\n"))
   local closure = RuntimeSetup.closure(root, "test/portable/tool.tl")
   assert(table.concat(closure, " ") ==
-      "build/a.tl build/b.tl test/portable/init.tl test/portable/tool.tl",
+      "build/a.tl build/b.tl build/c.tl test/portable/init.tl test/portable/tool.tl",
     table.concat(closure, " "))
-  local files = RuntimeSetup.files_but_tests(root, "build", "build/c_test.tl")
-  assert(table.concat(files, " ") == "build/a.tl build/b.tl build/c_test.tl",
-    table.concat(files, " "))
   -- The files' times move between the two packs, as a checkout's do
   -- from one run to the next: the tars must not.
   for _, relative in ipairs(closure) do
@@ -119,4 +116,24 @@ local function test_the_runtime_setup_packs_a_closure_the_same_each_time(tmp: st
     assert(Fs.read(out .. "/" .. relative) == Fs.read(root .. "/" .. relative), relative)
   end
   assert(assert(Fs.stat(out .. "/build/a.tl")).mode & 0x1ff == 0x1ed, "a mode was not kept")
+end
+
+--- A file the closure is told another stands for is listed and not read, so
+--- what it requires is not followed, and the tar holds the other's bytes under
+--- its name.
+local function test_the_runtime_setup_packs_a_stand_in_for_a_row_of_the_runtime(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/test/portable") and Fs.mkdirs(root .. "/build") and Fs.mkdirs(root .. "/stand"))
+  assert(Fs.write(root .. "/test/portable/probe.tl", 'local a = require("build.artifact")\n'))
+  assert(Fs.write(root .. "/build/artifact.tl", 'local b = require("build.b")\n'))
+  assert(Fs.write(root .. "/build/b.tl", "return {}\n"))
+  assert(Fs.write(root .. "/stand/row.tl", "return {}\n"))
+  local stood_for = { ["build/artifact.tl"] = "stand/row.tl" }
+  local closure = RuntimeSetup.closure(root, "test/portable/probe.tl", stood_for)
+  assert(table.concat(closure, " ") == "build/artifact.tl test/portable/probe.tl", table.concat(closure, " "))
+  RuntimeSetup.pack(root, closure, tmp .. "/stand.tar", stood_for)
+  local out = Fixture.unpack(tmp .. "/stand.tar", tmp .. "/out")
+  assert(Fs.read(out .. "/build/artifact.tl") == "return {}\n")
+  local missing, _ = Fs.stat(out .. "/build/b.tl")
+  assert(missing == nil, "a module the stand-in replaced was packed")
 end

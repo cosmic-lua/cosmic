@@ -25,13 +25,17 @@
   permissions: {contents: "read"},
 
   env: {
-    # A branch push is `light`: each leg but alpine-x86_64 builds and
-    # runs its native suite, and the checked job, in place of its
-    # suite, the pinned CI driver's check and the format check. The
-    # merge queue, main and a manual run are `full`: every leg, the
-    # checked core, the product and portable suites, the regressions,
-    # attestation and provenance.
-    COSMIC_CI_SCOPE: "${{ (github.event_name != 'push' || github.ref == 'refs/heads/main') && 'full' || 'light' }}",
+    # The scope each job runs (COSMIC_CI_SCOPE, which each job that reads it
+    # sets from the `scope` job's output, below) is `light` for a branch
+    # push that touches nothing a light run leaves unproved, and `full`
+    # for every other run. A `light` run: each leg but alpine-x86_64 builds
+    # and runs its native suite, and the checked job, in place of its
+    # suite, the pinned CI driver's check and the format check. A `full`
+    # run, the merge queue's, main's, a manual run's and a branch push's
+    # whose change touches what a light run leaves out
+    # (.github/scripts/branch-scope.txt): every leg, the checked core,
+    # the product and portable suites, the regressions, attestation and
+    # provenance.
     # Whether this run's platform legs save the caches every run
     # restores: a push to main and the scheduled run, no other (a push
     # to main that reuses the queue's run saves from `seed`, having no
@@ -54,6 +58,51 @@
   },
 
   jobs: {
+    # What a branch push runs: the merge queue's scope (`full`) where its
+    # change touches what a light run leaves out, else `light`
+    # (.github/scripts/branch-scope.sh; the list is branch-scope.txt, held
+    # to what the caches hash by build/workflows_test.tl), so that a failure
+    # that only the queue's legs, regressions and suites show surfaces on the
+    # branch, not a pass and a requeue later. Only a branch push runs it,
+    # which no other run waits on; each job that reads its output names it in
+    # `needs`, and reads `full` where the output is empty (this job skipped,
+    # or failed), so a run it did not decide takes the wider scope. It asks
+    # GitHub for the branch's files (no checkout beyond the script and the
+    # list, and no driver), which keeps it to a runner's start and some
+    # seconds. Its `base`, set only where it chose `full`, is the main commit
+    # the branch grew from: the legs take it as the merge queue's base
+    # (COSMIC_CI_BASE_SHA), so a change that moves build/harness_epoch.tl
+    # runs every test as the queue's does (orchestration.tl's `stands`).
+    # TODO: name what else only the queue's legs prove, once a record of the
+    # queue's failures says which changed paths they follow: of the queue
+    # failures read when this list was written, the alpine native and
+    # product suites (2830, 2831, 2882, 2916) failed on changes to cosmic/ and
+    # tests that no path of the list names, and a list of all of cosmic/
+    # would run most branches in the queue's scope.
+    scope: {
+      if: "github.event_name == 'push' && github.ref_name != 'main'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 5,
+      permissions: {contents: "read"},
+      outputs: {scope: "${{ steps.decide.outputs.scope }}", base: "${{ steps.decide.outputs.base }}"},
+      steps: [
+        {
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          with: {
+            "sparse-checkout": "/.github/scripts/branch-scope.sh\n/.github/scripts/branch-scope.txt\n",
+            "sparse-checkout-cone-mode": false,
+            "persist-credentials": false,
+          },
+        },
+        {
+          name: "choose the branch push's scope",
+          id: "decide",
+          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}"},
+          run: "sh .github/scripts/branch-scope.sh decide \"$REPOSITORY\" \"$SHA\"",
+        },
+      ],
+    },
+
     # A push to main tests the commit the merge queue just tested, so it
     # first looks for that run (driver.tl queue-find): found, `seed` saves
     # the queue's caches and relays its products in place of `platform`
@@ -109,7 +158,7 @@
     # in its platform environment, and uploads them for the join; on a
     # push to main whose commit passed the queue, `seed` does instead.
     platform: {
-      needs: "reuse",
+      needs: ["reuse", "scope"],
       if: "!cancelled() && needs.reuse.outputs.run == ''",
       # The leg's name is the check's, so a ruleset needs no matrix; a
       # light run's second linux-x86_64 share (`shard`) is
@@ -123,7 +172,7 @@
           # matrix cannot read) runs no alpine-x86_64 leg, linux-x86_64's
           # runner and target in another image; the merge queue, main and
           # a scheduled or manual run run all four.
-          name: "${{ fromJSON((github.event_name != 'push' || github.ref == 'refs/heads/main') && '[\"linux-x86_64\", \"linux-aarch64\", \"macos-aarch64\", \"alpine-x86_64\"]' || '[\"linux-x86_64\", \"linux-aarch64\", \"macos-aarch64\"]') }}",
+          name: "${{ fromJSON(needs.scope.outputs.scope != 'light' && '[\"linux-x86_64\", \"linux-aarch64\", \"macos-aarch64\", \"alpine-x86_64\"]' || '[\"linux-x86_64\", \"linux-aarch64\", \"macos-aarch64\"]') }}",
           # A light run splits linux-x86_64's native suite, its longest
           # leg's, between two legs on that leg's runner and image
           # (COSMIC_CI_SHARD, `cosmic test --shard`), each its whole
@@ -131,7 +180,7 @@
           # the other legs whole. Each restores and keys as that leg
           # does, and the gate (`ci`) needs every leg. A full run, whose
           # suites gate a merge, runs every leg whole.
-          shard: "${{ fromJSON((github.event_name != 'push' || github.ref == 'refs/heads/main') && '[\"\"]' || '[\"1/2\", \"2/2\"]') }}",
+          shard: "${{ fromJSON(needs.scope.outputs.scope != 'light' && '[\"\"]' || '[\"1/2\", \"2/2\"]') }}",
           # Of the original combinations, before any entry below is
           # added; on a full run, with no second share, none matches.
           exclude: [{name: "linux-aarch64", shard: "2/2"}, {name: "macos-aarch64", shard: "2/2"}],
@@ -180,6 +229,10 @@
       permissions: {contents: "read", packages: "read", actions: "read"},
       "timeout-minutes": 45,
       env: {
+        # The run's scope, from the `scope` job: `light` only for a branch
+        # push that touches nothing a light run leaves unproved. The steps
+        # below test it (`env.COSMIC_CI_SCOPE`).
+        COSMIC_CI_SCOPE: "${{ needs.scope.outputs.scope == 'light' && 'light' || 'full' }}",
         # The job's own name (`name` above), which names what it
         # uploads apart from the other linux-x86_64 share's.
         COSMIC_WORKER: "${{ matrix.shard == '2/2' && format('{0}-shard', matrix.name) || matrix.name }}",
@@ -195,9 +248,15 @@
         # checked_suite). The format check runs on one leg, first thing
         # in assemble; a branch push's (`light`) runs in the checked job.
         COSMIC_CI_CHECKED_SUITE: "skip",
-        # The slowest fixture, the same on every platform: one leg on a
-        # gating run, every leg on the scheduled run (phase_fixtures).
-        COSMIC_CI_FIXED_POINT: "${{ (matrix.name == 'linux-aarch64' || github.event_name == 'schedule') && 'run' || 'skip' }}",
+        # The slowest fixture, the same on every platform: no gating run
+        # (some 270 s on linux-aarch64), every leg on the scheduled run
+        # (phase_fixtures).
+        COSMIC_CI_FIXED_POINT: "${{ github.event_name == 'schedule' && 'run' || 'skip' }}",
+        # The small fixtures run beside the self-driven one, within one
+        # worker budget of the leg's processors (phase_fixtures,
+        # `fixture_lanes`), rather than after it: the two Linux legs
+        # whose fixture step the one-test self-driven case idles.
+        COSMIC_CI_FIXTURE_BUDGET: "${{ (matrix.name == 'linux-aarch64' || matrix.name == 'alpine-x86_64') && 'run' || 'skip' }}",
         # Rename, unlink and locking bugs show on glibc Linux and macOS:
         # those two legs on a gating run, every leg on the scheduled run.
         COSMIC_CI_SELF_REBUILD: "${{ (matrix.name == 'linux-x86_64' || matrix.name == 'macos-aarch64' || github.event_name == 'schedule') && 'run' || 'skip' }}",
@@ -207,13 +266,14 @@
         # (phase_portable). The merge queue runs it on alpine-x86_64
         # alone: linux-x86_64 builds the same portable bytes, which the
         # join's provenance check holds identical, and the suite (some
-        # 190 s) was that leg's, the queue's longest, critical path.
+        # 190 s on that leg) was its, the queue's longest, critical path.
         # linux-x86_64 still runs its regressions on those bytes and
-        # attests them, as the legs that skip the suite do. A push to
+        # attests them, as the legs that skip the suite do. A branch push
+        # that runs the full scope (`scope`) runs it as the queue does. A push to
         # main that reuses the queue's run runs no legs, so glibc's run
         # of it lands with the scheduled run, or a push to main that
         # found no queue run to reuse.
-        COSMIC_CI_PORTABLE_SUITE: "${{ ((matrix.name == 'linux-x86_64' && github.event_name != 'merge_group') || matrix.name == 'alpine-x86_64' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'run' || 'skip' }}",
+        COSMIC_CI_PORTABLE_SUITE: "${{ ((matrix.name == 'linux-x86_64' && github.event_name != 'merge_group' && (github.event_name != 'push' || github.ref == 'refs/heads/main')) || matrix.name == 'alpine-x86_64' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'run' || 'skip' }}",
         COSMIC_CI_FORMAT: "${{ matrix.name == 'linux-aarch64' && 'run' || 'skip' }}",
         # A Linux leg fails where a confined test's sandbox does not hold
         # (phase_sandbox) and runs its suites sandboxed; macOS cannot.
@@ -226,9 +286,12 @@
         # Pushes and the merge queue stand on verdicts; a manual and the
         # scheduled run run every test (orchestration.tl's `stands`).
         COSMIC_CI_EVENT: "${{ github.event_name }}",
-        # The queue's base, against which a moved build/harness_epoch.tl
-        # runs every test; empty for any other event.
-        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha }}",
+        # The queue's base, or a full branch push's (its merge base with
+        # main, from `scope`), against which a moved build/harness_epoch.tl
+        # runs every test and the format check holds build/ceilings.txt
+        # (build/ceilings_base.tl: a ceiling only falls); empty for any
+        # other run.
+        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}",
       },
       steps: [
         {
@@ -269,9 +332,15 @@
           run: "${{ matrix.prepare }}",
         },
 
+        # Restored by every run, saved by main's push and scheduled runs
+        # alone (COSMIC_CI_SAVES, "save the pinned zig" below), once per
+        # key: a branch or queue run that misses, as one that moves the pin
+        # does, fetches zig and keeps nothing, where a save per ref wrote a
+        # copy only that ref could read.
         {
-          name: "cache the pinned zig",
-          uses: "actions/cache@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          name: "restore the pinned zig",
+          id: "zig-restore",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/cache/cosmic/zig",
             # v2: installs are named by the pin's sha too (build/zig.tl's
@@ -308,8 +377,18 @@
         # runner's detected CPU is the likeliest: its maker (11 MB, in
         # the global cache) and the configurer compiled from build.zig
         # (22 MB, in the project cache, beside its configuration under
-        # `c/`); a step listing what the build wrote under zig-build
-        # (find -newer a stamp made after the restore) would say.
+        # `c/`). A second boot of an unchanged tree on one machine writes
+        # only dependencies.zig, and the maker and configurer are built
+        # for the detected CPU with no flag, variable or library file to
+        # name another (zig 0.17 compiles them inside its binary), so
+        # that stays unverified here and unfixed until a zig that builds
+        # them for a baseline CPU is pinned. The step "list what the
+        # build wrote to the zig build cache" (below, on runs of main and
+        # the queue that restored a match) prints the runner's CPU and
+        # what the build wrote since the restore; read it on a run of
+        # main, and once bin/zig.pin names a zig that builds them for
+        # the baseline CPU, or the writes name another cause, replace
+        # this TODO.
         # An entry restored here gives every file a new inode, which zig
         # 0.17 reads as a changed C source: the driver's boot takes the
         # new inodes into the manifests before it builds
@@ -349,6 +428,17 @@
           },
         },
 
+        # The mark the report below counts the build's writes from: after
+        # both restores, before the driver's boot (which rewrites the
+        # manifests of the restored files, cosmic_ci/zig_restat.tl).
+        {
+          name: "mark the restored zig build cache",
+          "continue-on-error": true,
+          shell: "sh",
+          "working-directory": ".",
+          run: "sh .github/scripts/zig-build-writes.sh stamp",
+        },
+
         # Restored on the host, bootstrapped in the container: a composite
         # action's steps do not take defaults.run's shell. Before the
         # lookups below, which the driver makes (merge-base, `ahead`).
@@ -385,14 +475,40 @@
         # Every run restores the verdicts main saved for this host at the
         # tree's base, else the newest, and only main saves
         # (COSMIC_CI_SAVES). A restore decides how many tests stand, never
-        # whether a verdict is right.
+        # whether a verdict is right. Main names the entry its run of a
+        # commit saved, or took, by a tiny one under the commit whose key
+        # ends in that entry's digest (`<prefix>sha-<commit>-<digest>`,
+        # below): a lookup by prefix downloads nothing, and takes the
+        # newest, a failed recheck's over its commit's first run's. Its
+        # path, which an entry's version hashes, keeps it from the
+        # verdicts' restore by prefix.
+        {
+          name: "look up the verdicts entry of the tree's base",
+          id: "verdicts-base-lookup",
+          if: "steps.merge-base.outputs.sha != ''",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/verdicts-commit",
+            key: "${{ format('{0}sha-{1}-', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) }}",
+            "restore-keys": "${{ format('{0}sha-{1}-', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) }}\n",
+            "lookup-only": true,
+          },
+        },
+        {
+          name: "name the verdicts entry of the tree's base",
+          id: "verdicts-base",
+          if: "steps.verdicts-base-lookup.outputs.cache-matched-key != ''",
+          shell: "sh",
+          env: {PREFIX: "${{ steps.host-id.outputs.verdicts }}", BASE: "${{ format('{0}sha-{1}-', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) }}", FOUND: "${{ steps.verdicts-base-lookup.outputs.cache-matched-key }}"},
+          run: "echo \"key=$PREFIX${FOUND#\"$BASE\"}\" >> \"$GITHUB_OUTPUT\"",
+        },
         {
           name: "restore test verdicts",
           id: "verdicts-restore",
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
-            key: "${{ steps.merge-base.outputs.sha && format('{0}sha-{1}', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) || steps.host-id.outputs.verdicts }}",
+            key: "${{ steps.verdicts-base.outputs.key || steps.host-id.outputs.verdicts }}",
             "restore-keys": "${{ steps.host-id.outputs.verdicts }}\n",
           },
         },
@@ -468,34 +584,110 @@
         # on the tree's path fails some run (driver.tl place-tree); on the macOS
         # leg's gating runs, whose keys hold the path, of the leg's alone.
         # TODO: move it on the macOS leg alone once "check the pinned CI
-        # driver" runs cosmic_ci's tests sandboxed:
-        # the tree's own suites here already see it at /tree wherever it
-        # is (COSMIC_TEST_SANDBOX=1), and the pinned release sandboxes
-        # its workers by default and knows `system`, but cosmic_ci's
-        # tests read the checkout around ci/ (bin/cosmic-bootstrap,
-        # build/, .github/), which a worker held to ci/ is not given and
-        # `Test.policy` names only as a host grant written out in the
-        # source; the macOS leg has no sandbox at all. Then too, the
-        # cosmic_ci tests that start the system's own programs
-        # (bootstrap_test, fixture_test and runner_test start /bin/sh,
-        # fuzz_test /bin/cp) declare the profile "system" in their
-        # `Test.policy`.
+        # driver" runs cosmic_ci's tests sandboxed: the tree's own suites
+        # here already see it at /tree wherever it is (COSMIC_TEST_SANDBOX=1),
+        # and the pinned release sandboxes its workers by default, knows
+        # `system` and takes `/parent/` grants (orchestration_test and
+        # queue_stage_test declare theirs), but a sandboxed `cosmic test
+        # cosmic_ci` from ci/ still fails tests, for the host programs they
+        # start and the files they read without declaring them (`system`
+        # profiles, grants), which that run lists; the macOS leg has no
+        # sandbox at all.
         {
           name: "move the tree to a path of its own",
           run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
 
+        # Main saves the marker only once a commit lands, some minutes
+        # after its queue run began its check, so the runs queued behind a
+        # change to what the key hashes (ci/ and the rest) all missed and
+        # checked again (2026-10-10, behind a change to ci/ in the
+        # queue). The run ahead in the queue keeps the key its leg checked
+        # (or found, or took) for the run behind to read, as the verdicts
+        # are (below): an exact match is the same check on the same host
+        # (the key holds both), by a run that passed it. Not waited for
+        # beyond the leg ahead's start of its boot, which follows the
+        # upload; where none is found, or the key differs, the check runs.
+        {
+          name: "find the CI driver check of the run ahead in the queue",
+          id: "driver-ahead",
+          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && steps.driver-check-restore.outputs.cache-hit != 'true'",
+          shell: "sh",
+          "continue-on-error": true,
+          "timeout-minutes": 2,
+          env: {
+            GH_TOKEN: "${{ github.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            BASE: "${{ github.event.merge_group.base_sha }}",
+            JOB: "${{ matrix.name }}",
+            ARTIFACT: "driver-checked-${{ matrix.name }}",
+            WITHIN_SECONDS: "30",
+            WAIT_SECONDS: "15",
+            SUITE_STEP: "build release Cosmic",
+          },
+          run: "cosmic-driver cosmic_ci/driver.tl queue-ahead",
+        },
+        {
+          name: "download the CI driver check of the run ahead",
+          id: "driver-ahead-download",
+          if: "steps.driver-ahead.outputs.run != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "driver-checked-${{ matrix.name }}",
+            path: "${{ runner.temp }}/driver-ahead",
+            "run-id": "${{ steps.driver-ahead.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        # Only the key this leg's own lookup computed counts.
+        {
+          name: "take the CI driver check of the run ahead",
+          id: "driver-ahead-take",
+          if: "steps.driver-ahead-download.outcome == 'success'",
+          "continue-on-error": true,
+          shell: "sh",
+          env: {KEY: "${{ steps.driver-check-restore.outputs.cache-primary-key }}"},
+          run: "[ -n \"$KEY\" ] && [ -f \"$RUNNER_TEMP/driver-ahead/key\" ] && [ \"$(cat \"$RUNNER_TEMP/driver-ahead/key\")\" = \"$KEY\" ] && echo hit=true >> \"$GITHUB_OUTPUT\" || :",
+        },
+
         # --all, unsandboxed: it shares no verdicts, and cosmic_ci's tests
-        # read the checkout around ci/ (the TODO above). On every leg of
+        # are not all declared to run sandboxed (the TODO above). On every leg of
         # a full run, the merge queue's too, since those tests start the
         # host's own programs (/bin/sh, cp), which the marker's key holds
         # by the leg's container, or on macOS by the runner's image.
         {
           name: "check the pinned CI driver",
           id: "driver-check",
-          if: "env.COSMIC_CI_SCOPE == 'full' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || steps.driver-check-restore.outputs.cache-hit != 'true')",
+          if: "env.COSMIC_CI_SCOPE == 'full' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (steps.driver-check-restore.outputs.cache-hit != 'true' && steps.driver-ahead-take.outputs.hit != 'true'))",
           env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "0"},
           run: "cosmic-driver test cosmic_ci && mkdir -p \"$RUNNER_TEMP/driver-checked\" && echo \"${{ steps.driver-check-restore.outputs.cache-primary-key }}\" > \"$RUNNER_TEMP/driver-checked/key\"",
+        },
+
+        # The marker for the run behind in the queue (above), where this
+        # leg's check passed or its key was found: never a failed check's.
+        # Not the marker main saves: queue-stage stages that from
+        # driver-checked/, written by the check alone.
+        {
+          name: "keep the CI driver check for the run behind in the queue",
+          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && (steps.driver-check.outcome == 'success' || steps.driver-check-restore.outputs.cache-hit == 'true' || steps.driver-ahead-take.outputs.hit == 'true')",
+          "continue-on-error": true,
+          shell: "sh",
+          env: {KEY: "${{ steps.driver-check-restore.outputs.cache-primary-key }}"},
+          run: "[ -n \"$KEY\" ] && mkdir -p \"$RUNNER_TEMP/driver-relay\" && echo \"$KEY\" > \"$RUNNER_TEMP/driver-relay/key\"",
+        },
+        {
+          name: "upload the CI driver check for the run behind in the queue",
+          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && (steps.driver-check.outcome == 'success' || steps.driver-check-restore.outputs.cache-hit == 'true' || steps.driver-ahead-take.outputs.hit == 'true')",
+          "continue-on-error": true,
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "driver-checked-${{ matrix.name }}",
+            path: "${{ runner.temp }}/driver-relay",
+            "if-no-files-found": "error",
+            overwrite: true,
+            "retention-days": 1,
+          },
         },
 
         # The boot, apart from the native suite, so that the wait below
@@ -525,7 +717,7 @@
         {
           name: "find the run ahead in the queue",
           id: "ahead",
-          if: "github.event_name == 'merge_group' && steps.verdicts-restore.outputs.cache-matched-key != format('{0}sha-{1}', steps.host-id.outputs.verdicts, github.event.merge_group.base_sha)",
+          if: "github.event_name == 'merge_group' && (steps.verdicts-base.outputs.key == '' || steps.verdicts-restore.outputs.cache-matched-key != steps.verdicts-base.outputs.key)",
           shell: "sh",
           "continue-on-error": true,
           "timeout-minutes": 2,
@@ -621,6 +813,18 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform darwin-suite",
         },
 
+        # The tests that watch the declared types of the standard library
+        # and of the tool's own modules skip in every run but a checked
+        # one (`--check-types`), and in that one until the compile writes
+        # the boundary checks (build/type_watch.tl): this is the one that
+        # asks them (cosmic_ci's phase_declared_types). A light run's second share
+        # skips it: the first runs it whole.
+        {
+          name: "run the declared-types tests on a checked run",
+          if: "matrix.name == 'linux-x86_64' && matrix.shard != '2/2'",
+          run: "cosmic-driver cosmic_ci/driver.tl platform declared-types",
+        },
+
         # Fails where a part of spawn's sandbox a confined test needs did
         # not hold (COSMIC_CI_REQUIRE_SANDBOX, phase_sandbox).
         {
@@ -634,6 +838,21 @@
           id: "assemble",
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "cosmic-driver cosmic_ci/driver.tl platform assemble",
+        },
+
+        # Where a run of main or the merge queue restored an entry of its
+        # own vendor and core part, what it wrote to zig-build is what
+        # the TODO at the restore asks about; before the prune below
+        # removes any of it. Not the scheduled run, which restores
+        # nothing (it only looks the entry up) and builds cold.
+        {
+          name: "list what the build wrote to the zig build cache",
+          "continue-on-error": true,
+          if: "always() && github.event_name != 'schedule' && steps.assemble.outcome != 'skipped' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group') && startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-{1}-', steps.names.outputs.vendor, steps.names.outputs.core))",
+          shell: "sh",
+          "working-directory": ".",
+          env: {RESTORED: "${{ steps.zig-cache-restore.outputs.cache-matched-key }}"},
+          run: "sh .github/scripts/zig-build-writes.sh report",
         },
 
         # What a save of zig's caches below would carry that no build of
@@ -671,6 +890,17 @@
           },
         },
 
+        # The install assemble verified, where main's run found none.
+        {
+          name: "save the pinned zig",
+          if: "always() && steps.driver.outcome == 'success' && steps.assemble.outcome == 'success' && env.COSMIC_CI_SAVES == 'true' && steps.zig-restore.outputs.cache-hit != 'true'",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/cache/cosmic/zig",
+            key: "${{ steps.zig-restore.outputs.cache-primary-key }}",
+          },
+        },
+
         # Only after a check that ran and passed where no marker was found.
         {
           name: "save the CI driver check's marker",
@@ -680,6 +910,18 @@
             path: "${{ runner.temp }}/driver-checked",
             key: "${{ steps.driver-check-restore.outputs.cache-primary-key }}",
           },
+        },
+
+        # Before the portable suite, which the queue's alpine leg runs
+        # (some 286 s there, run 38146952746), so a regression's failure, the self-rebuild
+        # fixture's among them, surfaces that much sooner. Neither reads
+        # what the other writes: the fixtures stand on fixtures.db,
+        # beside verdicts.db, which the verdict cache restores and saves
+        # with it, and unpack the source assemble archived.
+        {
+          name: "run runtime, launcher, rebuild, and identity regressions",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
+          run: "cosmic-driver cosmic_ci/driver.tl platform fixtures",
         },
 
         {
@@ -693,14 +935,6 @@
           name: "verify the delayed portable database boundary",
           if: "always() && steps.portable-suite.outcome != 'skipped'",
           run: "cosmic-driver cosmic_ci/driver.tl platform portable-boundary \"${{ steps.portable-suite.outcome }}\"",
-        },
-
-        # The sandboxed fixtures stand on fixtures.db, beside verdicts.db,
-        # which the verdict cache restores and saves with it.
-        {
-          name: "run runtime, launcher, rebuild, and identity regressions",
-          if: "env.COSMIC_CI_SCOPE == 'full'",
-          run: "cosmic-driver cosmic_ci/driver.tl platform fixtures",
         },
 
         {
@@ -870,34 +1104,15 @@
           run: "cosmic-driver cosmic_ci/driver.tl place-tree --restore",
         },
 
-        # The same rows under this commit, for a branch based on it
-        # (driver.tl merge-base), whatever was restored; saved first, so a main
-        # run's restore by prefix takes the entry keyed by content where
-        # both were saved. `prune` deletes these after a day.
-        # TODO: skip the save by content (and queue-stage's key
-        # for it) on the digest of the rows restored rather than on the
-        # key matched, once verdicts-trim names that digest too: a
-        # restore of the base's entry, or a main run's restore by prefix
-        # that takes this copy where no save by content followed, matches
-        # a key under a commit, so the save by content runs where its
-        # rows are an entry's already, and warns that the key exists.
-        # Neither save runs for the macOS leg's scheduled run: its keys
-        # hold the tree's path, which that run chooses by the commit
-        # (driver.tl place-tree), so its rows would answer no gating run, whose
-        # path the leg alone chooses, and one that restored them would
-        # run every test.
-        {
-          name: "save test verdicts under this commit",
-          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1')",
-          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
-          with: {
-            path: "${{ runner.temp }}/verdicts",
-            key: "${{ steps.host-id.outputs.verdicts }}sha-${{ github.sha }}",
-          },
-        },
-
         # Whatever failed (a failing verdict takes a passing one out),
-        # where the rows differ from the entry restored.
+        # where the rows differ from the entry restored, which is always
+        # one keyed by content: the entry under a commit is saved from
+        # another path. Neither this save nor the one under the commit
+        # runs for the macOS leg's scheduled run: its keys hold the
+        # tree's path, which that run chooses by the commit (driver.tl
+        # place-tree), so its rows would answer no gating run, whose path
+        # the leg alone chooses, and one that restored them would run
+        # every test.
         {
           name: "save test verdicts",
           if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
@@ -905,6 +1120,27 @@
           with: {
             path: "${{ runner.temp }}/verdicts",
             key: "${{ steps.host-id.outputs.verdicts }}${{ steps.verdicts-trim.outputs.digest }}",
+          },
+        },
+
+        # The entry of those rows, named under this commit for a branch
+        # based on it (driver.tl merge-base), whatever was restored: a
+        # file of its key, under a key ending in its digest, which is all
+        # a branch's restore reads. `prune` deletes these after a day, and
+        # `invalidate` those of a commit whose run failed.
+        {
+          name: "name the verdicts entry of this commit",
+          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1')",
+          shell: "sh",
+          run: "mkdir -p \"$RUNNER_TEMP/verdicts-commit\" && echo \"${{ steps.host-id.outputs.verdicts }}${{ steps.verdicts-trim.outputs.digest }}\" > \"$RUNNER_TEMP/verdicts-commit/key\"",
+        },
+        {
+          name: "save test verdicts under this commit",
+          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1')",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/verdicts-commit",
+            key: "${{ steps.host-id.outputs.verdicts }}sha-${{ github.sha }}-${{ steps.verdicts-trim.outputs.digest }}",
           },
         },
 
@@ -941,39 +1177,47 @@
       ],
     },
 
-    # linux-x86_64's checked suite, the whole suite on the sanitized core
-    # (orchestration.tl's checked_suite), in a job of its own on that
-    # leg's host, beside the legs: run after that leg's own suites, it
-    # would make the leg the run's longest by some three to six minutes.
-    # It boots and builds only what the suite reads, and keeps the suite's
-    # verdicts under a cache name of its own (`linux-x86_64-checked`),
-    # saved and seeded as a leg's are; it restores linux-x86_64's zig
-    # build outputs and compiles, which that leg saves. Its tree moves
-    # to a path of the commit's own, as a leg's does. Where `platform`
-    # runs, it runs. On a branch push (`light`) it runs no checked suite
-    # but what would otherwise hold up a leg: the pinned CI driver's
-    # check, which the legs run only on a full run, and the tree's
-    # format check, which answers the same on every host and runs on one
-    # leg in a full run's assemble. Each costs a leg some 30 to 60 s
-    # where this job has no suite, and its format check lays out only
-    # what the branch changed, so it keeps pace with the legs.
+    # linux-x86_64's checked suite gathered: the whole suite on the
+    # sanitized core (orchestration.tl's checked_suite), after the shares
+    # of it that `checked-shard` runs (each a job of its own on that
+    # leg's host, beside the legs), in a job of its own on that host.
+    # Each share kept the verdicts of its tests; this job merges them
+    # into a cache of its own, restoring none of main's (it only looks up
+    # the entry its save compares with, which a harness change may have
+    # moved the rows of), and runs the whole suite, on which every test
+    # stands, so that what only a whole run answers is checked: that some
+    # test enters each C function. The suite's own time is a minute or
+    # two; what the job costs is the boot and checked build it repeats,
+    # the checked core being what it runs
+    # (COSMIC_CI_CHECKED_SUITE=gather). It boots and builds only what the
+    # suite reads, and keeps the suite's verdicts under a cache name of
+    # its own (`linux-x86_64-checked`), saved and seeded as a leg's are;
+    # it restores linux-x86_64's zig build outputs and compiles, which
+    # that leg saves. Its tree moves to a path of the commit's own, as a
+    # leg's does. Where `platform` runs, it runs, unless a share failed.
+    # On a branch push (`light`) the shares do not run, and it runs
+    # none of the checked suite's steps but the pinned CI driver's check,
+    # which the legs run only on a full run: some 30 to 60 s where this
+    # job has no suite. The tree's format check, which answers the same
+    # on every host and runs on one leg in a full run's assemble, is the
+    # `format` job's on a light run.
     checked: {
-      needs: "reuse",
-      if: "!cancelled() && needs.reuse.outputs.run == ''",
+      needs: ["reuse", "scope", "checked-shard"],
+      if: "!cancelled() && needs.reuse.outputs.run == '' && (needs.checked-shard.result != 'failure' || github.event_name == 'push' || github.event_name == 'schedule')",
       name: "linux-x86_64-checked",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
       permissions: {contents: "read", packages: "read", actions: "read"},
-      "timeout-minutes": 45,
+      "timeout-minutes": 20,
       env: {
+        COSMIC_CI_SCOPE: "${{ needs.scope.outputs.scope == 'light' && 'light' || 'full' }}",
         COSMIC_WORKER: "linux-x86_64-checked",
         TARGET: "x86_64-linux-musl",
-        COSMIC_CI_CHECKED_SUITE: "run",
-        COSMIC_CI_FORMAT: "run",
+        COSMIC_CI_CHECKED_SUITE: "gather",
         COSMIC_CI_REQUIRE_SANDBOX: "1",
         COSMIC_CI_DECLARED_KEYS: "0",
         COSMIC_CI_EVENT: "${{ github.event_name }}",
-        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha }}",
+        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}",
       },
       steps: [
         {
@@ -996,6 +1240,7 @@
         # What linux-x86_64's leg restores and saves, restored alone.
         {
           name: "restore the pinned zig",
+          id: "zig-restore",
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/cache/cosmic/zig",
@@ -1048,29 +1293,40 @@
           env: {STARTED: "${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}"},
           run: "cosmic-driver cosmic_ci/driver.tl leg-host-id \"linux-x86_64-checked\" \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\" \"ubuntu-24.04\" \"$STARTED\"",
         },
-        # The base on main a full run restores verdicts by, and from which
-        # a light run's format check lays out only what changed.
+        # The base on main a full run restores verdicts by.
         {
           name: "find the tree's base on main",
           id: "merge-base",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
           shell: "sh",
           "continue-on-error": true,
           env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", QUEUE_BASE: "${{ github.event.merge_group.base_sha }}"},
           run: "cosmic-driver cosmic_ci/driver.tl merge-base",
         },
-        # What a branch changed since that base, whose tree main's run
-        # held to the whole format check: a light run's lays out only
-        # these, and makes the checks spanning files over the whole tree.
-        # Where it names none, the check covers the whole tree.
         {
-          name: "name the paths the branch changed",
-          id: "changed",
-          if: "env.COSMIC_CI_SCOPE == 'light'",
-          shell: "sh",
-          "continue-on-error": true,
-          env: {BASE: "${{ steps.merge-base.outputs.sha }}", OUT: "${{ runner.temp }}/changed-paths"},
-          run: "cosmic-driver cosmic_ci/driver.tl changed-paths",
+          name: "look up the verdicts entry of the tree's base",
+          id: "verdicts-base-lookup",
+          if: "env.COSMIC_CI_SCOPE == 'full' && steps.merge-base.outputs.sha != ''",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/verdicts-commit",
+            key: "${{ format('{0}sha-{1}-', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) }}",
+            "restore-keys": "${{ format('{0}sha-{1}-', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) }}\n",
+            "lookup-only": true,
+          },
         },
+        {
+          name: "name the verdicts entry of the tree's base",
+          id: "verdicts-base",
+          if: "env.COSMIC_CI_SCOPE == 'full' && steps.verdicts-base-lookup.outputs.cache-matched-key != ''",
+          shell: "sh",
+          env: {PREFIX: "${{ steps.host-id.outputs.verdicts }}", BASE: "${{ format('{0}sha-{1}-', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) }}", FOUND: "${{ steps.verdicts-base-lookup.outputs.cache-matched-key }}"},
+          run: "echo \"key=$PREFIX${FOUND#\"$BASE\"}\" >> \"$GITHUB_OUTPUT\"",
+        },
+        # Looked up, not restored: the run's verdicts are the shares'
+        # alone, fresh whatever stands (`gather_run`), so no row of
+        # main's can stand where the run's own did not reach it. The
+        # entry found is the one the save compares with.
         {
           name: "restore test verdicts",
           id: "verdicts-restore",
@@ -1078,8 +1334,9 @@
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
-            key: "${{ steps.merge-base.outputs.sha && format('{0}sha-{1}', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) || steps.host-id.outputs.verdicts }}",
+            key: "${{ steps.verdicts-base.outputs.key || steps.host-id.outputs.verdicts }}",
             "restore-keys": "${{ steps.host-id.outputs.verdicts }}\n",
+            "lookup-only": true,
           },
         },
         {
@@ -1137,68 +1394,57 @@
           env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "0"},
           run: "cosmic-driver test cosmic_ci",
         },
+        # What bin/cosmic-bootstrap runs (bin/zig, bin/vendor,
+        # bin/verify-codesign, bin/perf and build/paths.tl) must
+        # type-check under the pinned driver in the new grammar, not only
+        # the tree's: the check above compiles ci/ on it, and this the
+        # rest, each file ci/bootstrap-files.txt lists run with --help.
+        # Every scope, since it takes well under a second a file.
+        {
+          name: "type-check the bootstrap's scripts on the pinned driver",
+          run: "cosmic-driver cosmic_ci/driver.tl check-islands",
+        },
         {
           name: "build release Cosmic",
           id: "boot",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "cosmic-driver cosmic_ci/driver.tl platform boot",
-        },
-        # A light run's format check, which a full run's assemble makes
-        # on one leg over the whole tree: of the paths the branch changed
-        # (above), where it named them, the checks spanning files still
-        # over the whole tree.
-        {
-          name: "check the tree's format",
-          if: "env.COSMIC_CI_SCOPE == 'light'",
-          env: {COSMIC_CI_FORMAT_CHANGED: "${{ steps.changed.outputs.paths }}"},
-          run: "cosmic-driver cosmic_ci/driver.tl platform format",
         },
         {
           name: "build the checked core and the format decoder",
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "cosmic-driver cosmic_ci/driver.tl platform checked-build",
         },
-        # As a leg takes the verdicts of the run ahead in the queue, but
-        # waiting a minute and a half at most, and not at all for a
-        # checked job ahead that will not have kept them by then: it
-        # keeps them some seven minutes after it starts (READY_SECONDS).
+        # The verdicts the shares kept, one artifact each, each in a
+        # directory of its own, merged into an empty cache: the rows
+        # of every test of the suite, which the run behind in the
+        # queue takes from the shares' artifacts, not from this job's.
         {
-          name: "find the run ahead in the queue",
-          id: "ahead",
-          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && steps.verdicts-restore.outputs.cache-matched-key != format('{0}sha-{1}', steps.host-id.outputs.verdicts, github.event.merge_group.base_sha)",
-          shell: "sh",
-          "continue-on-error": true,
-          "timeout-minutes": 4,
-          env: {
-            GH_TOKEN: "${{ github.token }}",
-            REPOSITORY: "${{ github.repository }}",
-            BASE: "${{ github.event.merge_group.base_sha }}",
-            JOB: "linux-x86_64-checked",
-            ARTIFACT: "verdicts-linux-x86_64-checked",
-            WITHIN_SECONDS: "90",
-            WAIT_SECONDS: "15",
-            READY_SECONDS: "420",
-          },
-          run: "cosmic-driver cosmic_ci/driver.tl queue-ahead",
-        },
-        {
-          name: "download the verdicts of the run ahead",
-          id: "ahead-download",
-          if: "env.COSMIC_CI_SCOPE == 'full' && steps.ahead.outputs.run != ''",
-          "continue-on-error": true,
+          name: "download the verdicts the shares kept",
+          id: "shares-download",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
           with: {
-            name: "verdicts-linux-x86_64-checked",
-            path: "${{ runner.temp }}/verdicts-ahead",
-            "run-id": "${{ steps.ahead.outputs.run }}",
-            "github-token": "${{ github.token }}",
+            pattern: "verdicts-linux-x86_64-checked-shard-*",
+            path: "${{ runner.temp }}/verdicts-shares",
           },
         },
         {
-          name: "take the verdicts of the run ahead",
-          id: "verdicts-ahead",
-          if: "env.COSMIC_CI_SCOPE == 'full' && steps.ahead-download.outcome == 'success'",
-          "continue-on-error": true,
-          run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/verdicts-ahead\"",
+          name: "take the verdicts the shares kept",
+          id: "verdicts-shares",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
+          run: "for share in \"${{ runner.temp }}\"/verdicts-shares/*/; do cosmic-driver cosmic_ci/driver.tl verdicts-merge \"$share\" || exit 1; done",
+        },
+        # Where a share failed (this job runs then only where it saves,
+        # the nightly and main's push) the run is red, and runs no test
+        # again: its cache is the shares' rows, the failed share's
+        # without the failed test's, so the save below takes that pass
+        # out of main's newest entry as the whole suite's job did.
+        {
+          name: "fail where a share failed",
+          if: "env.COSMIC_CI_SCOPE == 'full' && needs.checked-shard.result == 'failure'",
+          shell: "sh",
+          run: "echo \"a share of the checked suite failed\"; exit 1",
         },
         {
           name: "run the checked core's suite",
@@ -1210,19 +1456,6 @@
           name: "check performance fixture histories on the checked core",
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "cosmic-driver cosmic_ci/driver.tl platform performance-checked",
-        },
-        {
-          name: "keep the suite's verdicts for the run behind in the queue",
-          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && steps.checked-suite.outcome == 'success'",
-          "continue-on-error": true,
-          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
-          with: {
-            name: "verdicts-linux-x86_64-checked",
-            path: "${{ runner.temp }}/verdicts/checked.db*",
-            "if-no-files-found": "ignore",
-            "retention-days": 1,
-            overwrite: true,
-          },
         },
         # A run that failed keeps what it restored too (`whole`).
         {
@@ -1310,15 +1543,6 @@
           run: "cosmic-driver cosmic_ci/driver.tl place-tree --restore",
         },
         {
-          name: "save test verdicts under this commit",
-          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true'",
-          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
-          with: {
-            path: "${{ runner.temp }}/verdicts",
-            key: "${{ steps.host-id.outputs.verdicts }}sha-${{ github.sha }}",
-          },
-        },
-        {
           name: "save test verdicts",
           if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true' && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
@@ -1326,6 +1550,706 @@
             path: "${{ runner.temp }}/verdicts",
             key: "${{ steps.host-id.outputs.verdicts }}${{ steps.verdicts-trim.outputs.digest }}",
           },
+        },
+        {
+          name: "name the verdicts entry of this commit",
+          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true'",
+          shell: "sh",
+          run: "mkdir -p \"$RUNNER_TEMP/verdicts-commit\" && echo \"${{ steps.host-id.outputs.verdicts }}${{ steps.verdicts-trim.outputs.digest }}\" > \"$RUNNER_TEMP/verdicts-commit/key\"",
+        },
+        {
+          name: "save test verdicts under this commit",
+          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true'",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/verdicts-commit",
+            key: "${{ steps.host-id.outputs.verdicts }}sha-${{ github.sha }}-${{ steps.verdicts-trim.outputs.digest }}",
+          },
+        },
+      ],
+    },
+
+    # The checked core's suite, the whole suite on the sanitized core
+    # (orchestration.tl's checked_suite), in shares of its tests: one job
+    # for each, on linux-x86_64's host, beside the legs and each other
+    # (`cosmic test --shard I/N`, as a light run's linux-x86_64 legs run
+    # theirs). The suite takes twelve to twenty-five minutes on one
+    # runner, which makes it a merge queue run's longest path and has
+    # passed its bound; a share of four takes a quarter of that after a
+    # build of three minutes, within the bound the share has of its own
+    # (orchestration.tl's `checked_shard_timeout_ns`). A share checks no
+    # C function is entered, which only a whole run answers: `checked`
+    # makes that run, standing on the verdicts the shares keep. So each
+    # share uploads them as `verdicts-linux-x86_64-checked-shard-<part>`
+    # whatever the event, the run's `checked` job and, in the merge queue,
+    # the run behind taking them (`ahead` below). It restores the verdicts
+    # of the tree's base and compiles as `checked` does, saves nothing
+    # and seeds nothing: `checked` saves the verdicts, and linux-x86_64
+    # the zig build outputs and compiles. A full run only.
+    "checked-shard": {
+      needs: ["reuse", "scope"],
+      if: "!cancelled() && needs.reuse.outputs.run == '' && needs.scope.outputs.scope != 'light'",
+      name: "linux-x86_64-checked-shard-${{ matrix.part }}",
+      defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
+      strategy: {"fail-fast": false, matrix: {part: [1, 2, 3, 4]}},
+      "runs-on": "ubuntu-24.04",
+      permissions: {contents: "read", packages: "read", actions: "read"},
+      "timeout-minutes": 25,
+      env: {
+        COSMIC_WORKER: "linux-x86_64-checked",
+        TARGET: "x86_64-linux-musl",
+        COSMIC_CI_CHECKED_SUITE: "run",
+        COSMIC_CI_CHECKED_SHARD: "${{ matrix.part }}/${{ strategy.job-total }}",
+        COSMIC_CI_REQUIRE_SANDBOX: "1",
+        COSMIC_CI_DECLARED_KEYS: "0",
+        COSMIC_CI_EVENT: "${{ github.event_name }}",
+        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}",
+      },
+      steps: [
+        {
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          with: {"fetch-depth": "${{ github.event_name == 'merge_group' && 2 || 1 }}"},
+        },
+        {
+          name: "start the leg's container",
+          "working-directory": ".",
+          shell: "sh",
+          env: {IMAGE: "ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a", TOKEN: "${{ secrets.GITHUB_TOKEN }}", ACTOR: "${{ github.actor }}"},
+          run: "sh .github/scripts/leg-container.sh start \"$IMAGE\"",
+        },
+        {
+          name: "create the unprivileged builder",
+          "working-directory": "/",
+          shell: "leg-shell --root {0}",
+          run: "useradd -m -o -u \"$(stat -c %u \"$GITHUB_WORKSPACE\")\" runner",
+        },
+        # What linux-x86_64's leg restores and saves, restored alone.
+        {
+          name: "restore the pinned zig",
+          id: "zig-restore",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/cache/cosmic/zig",
+            key: "zig-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin', 'patch/zig-lib/**') }}",
+          },
+        },
+        {
+          name: "name the zig build cache, and the run's start",
+          id: "names",
+          uses: "./.github/actions/cache-names",
+          with: {leg: "linux-x86_64"},
+        },
+        {
+          name: "restore zig build outputs",
+          id: "zig-cache-restore",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/zig-build",
+            key: "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-${{ github.run_id }}-${{ github.run_attempt }}",
+            "restore-keys": "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}full-\n${{ steps.names.outputs.vendor }}\n",
+            "lookup-only": "${{ github.event_name == 'schedule' }}",
+          },
+        },
+        {
+          name: "restore zig build outputs of another vendor part",
+          if: "github.ref != 'refs/heads/main' && steps.zig-cache-restore.outputs.cache-matched-key == ''",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/zig-build",
+            key: "${{ steps.zig-cache-restore.outputs.cache-primary-key }}",
+            "restore-keys": "zig-build-linux-x86_64-\n",
+          },
+        },
+        # Before the lookups below, which the driver makes (merge-base,
+        # `ahead`).
+        {
+          name: "bootstrap the pinned CI driver",
+          id: "driver",
+          uses: "./.github/actions/cosmic-driver",
+          with: {"zig-cache": true, shell: "leg-shell {0}"},
+        },
+        # The leg's host, under the checked job's name: what a test is
+        # keyed by holds the same COSMIC_HOST_ID as linux-x86_64's, and
+        # its verdict cache is named apart from that leg's.
+        {
+          name: "name the leg's host",
+          id: "host-id",
+          shell: "sh",
+          env: {STARTED: "${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl leg-host-id \"linux-x86_64-checked\" \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\" \"ubuntu-24.04\" \"$STARTED\"",
+        },
+        {
+          name: "find the tree's base on main",
+          id: "merge-base",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", QUEUE_BASE: "${{ github.event.merge_group.base_sha }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl merge-base",
+        },
+        {
+          name: "look up the verdicts entry of the tree's base",
+          id: "verdicts-base-lookup",
+          if: "steps.merge-base.outputs.sha != ''",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/verdicts-commit",
+            key: "${{ format('{0}sha-{1}-', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) }}",
+            "restore-keys": "${{ format('{0}sha-{1}-', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) }}\n",
+            "lookup-only": true,
+          },
+        },
+        {
+          name: "name the verdicts entry of the tree's base",
+          id: "verdicts-base",
+          if: "steps.verdicts-base-lookup.outputs.cache-matched-key != ''",
+          shell: "sh",
+          env: {PREFIX: "${{ steps.host-id.outputs.verdicts }}", BASE: "${{ format('{0}sha-{1}-', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) }}", FOUND: "${{ steps.verdicts-base-lookup.outputs.cache-matched-key }}"},
+          run: "echo \"key=$PREFIX${FOUND#\"$BASE\"}\" >> \"$GITHUB_OUTPUT\"",
+        },
+        {
+          name: "restore test verdicts",
+          id: "verdicts-restore",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/verdicts",
+            key: "${{ steps.verdicts-base.outputs.key || steps.host-id.outputs.verdicts }}",
+            "restore-keys": "${{ steps.host-id.outputs.verdicts }}\n",
+          },
+        },
+        {
+          name: "restore compiles and parses",
+          id: "compiles-restore",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/build-cache",
+            key: "${{ steps.names.outputs.compiles }}",
+            "restore-keys": "${{ steps.names.outputs.compiles }}\ncompiles-linux-x86_64-\n",
+          },
+        },
+        # To a path of this commit's and this job's own, as a leg's tree
+        # moves: the checked core runs the harness, the boot's staging and
+        # `tool.tl entry` unsandboxed at the tree's path, so a path of
+        # another length each commit varies what the sanitizers see.
+        # After every hashFiles, which reads the checkout.
+        {
+          name: "move the tree to a path of its own",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree",
+        },
+        {
+          name: "build release Cosmic",
+          id: "boot",
+          run: "cosmic-driver cosmic_ci/driver.tl platform boot",
+        },
+        {
+          name: "build the checked core and the format decoder",
+          run: "cosmic-driver cosmic_ci/driver.tl platform checked-build",
+        },
+        # As a leg takes the verdicts of the run ahead in the queue, but
+        # waiting a minute and a half at most, and not at all for a
+        # share ahead that will not have kept them by then: it keeps
+        # them some seven minutes after it starts (READY_SECONDS). A
+        # share takes the share of the same part, which the same tests
+        # fall to where the suite's tests are the same.
+        {
+          name: "find the run ahead in the queue",
+          id: "ahead",
+          if: "github.event_name == 'merge_group' && (steps.verdicts-base.outputs.key == '' || steps.verdicts-restore.outputs.cache-matched-key != steps.verdicts-base.outputs.key)",
+          shell: "sh",
+          "continue-on-error": true,
+          "timeout-minutes": 4,
+          env: {
+            GH_TOKEN: "${{ github.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            BASE: "${{ github.event.merge_group.base_sha }}",
+            JOB: "linux-x86_64-checked-shard-${{ matrix.part }}",
+            ARTIFACT: "verdicts-linux-x86_64-checked-shard-${{ matrix.part }}",
+            WITHIN_SECONDS: "90",
+            WAIT_SECONDS: "15",
+            READY_SECONDS: "600",
+          },
+          run: "cosmic-driver cosmic_ci/driver.tl queue-ahead",
+        },
+        {
+          name: "download the verdicts of the run ahead",
+          id: "ahead-download",
+          if: "steps.ahead.outputs.run != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "verdicts-linux-x86_64-checked-shard-${{ matrix.part }}",
+            path: "${{ runner.temp }}/verdicts-ahead",
+            "run-id": "${{ steps.ahead.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "take the verdicts of the run ahead",
+          id: "verdicts-ahead",
+          if: "steps.ahead-download.outcome == 'success'",
+          "continue-on-error": true,
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/verdicts-ahead\"",
+        },
+        {
+          name: "run a share of the checked core's suite",
+          id: "checked-suite",
+          run: "cosmic-driver cosmic_ci/driver.tl platform checked",
+        },
+        # Trimmed to the rows this share's run used, which are its tests'
+        # (`checked` merges the four, and its run stands on them), and
+        # kept in every event, for `checked` and the run behind.
+        {
+          name: "keep only this share's test verdicts",
+          id: "verdicts-trim",
+          if: "always() && steps.driver.outcome == 'success'",
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}",
+        },
+        {
+          name: "keep the share's verdicts for the gathering job and the run behind in the queue",
+          if: "always() && steps.verdicts-trim.outcome == 'success'",
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "verdicts-linux-x86_64-checked-shard-${{ matrix.part }}",
+            path: "${{ runner.temp }}/verdicts/checked.db*",
+            "if-no-files-found": "error",
+            "retention-days": 1,
+            overwrite: true,
+          },
+        },
+        {
+          name: "summarize worker operations",
+          if: "always() && steps.driver.outcome == 'success'",
+          run: "cosmic-driver cosmic_ci/driver.tl summarize",
+        },
+        {
+          name: "preserve CI driver database",
+          if: "always()",
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "ci-driver-linux-x86_64-checked-shard-${{ matrix.part }}",
+            path: "${{ runner.temp }}/cosmic-ci/operations.db",
+            "if-no-files-found": "ignore",
+            "retention-days": 7,
+          },
+        },
+        {
+          name: "preserve checked suite failure diagnostics",
+          if: "failure()",
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "platform-diagnostics-linux-x86_64-checked-shard-${{ matrix.part }}",
+            path: "${{ runner.temp }}/cosmic-ci/platform/checked-diagnostics",
+            "if-no-files-found": "ignore",
+            "retention-days": 7,
+          },
+        },
+        {
+          name: "describe the leg's container",
+          if: "failure()",
+          "working-directory": "/",
+          shell: "sh",
+          run: "docker inspect cosmic-leg || :; docker logs cosmic-leg || :",
+        },
+        {
+          name: "remove the leg's container",
+          if: "always()",
+          "working-directory": "/",
+          shell: "sh",
+          run: "docker rm -f cosmic-leg || :",
+        },
+        # Before checkout's post step, whose git refuses the repository
+        # at another path (driver.tl place-tree).
+        {
+          name: "move the tree back to where it was checked out",
+          if: "always() && steps.driver.outcome == 'success'",
+          shell: "sh",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree --restore",
+        },
+      ],
+    },
+
+    # The whole suite on a checked run (`--check-types`): each read the
+    # checker narrowed by a test is checked against the real run, and a
+    # fact that is false fails the test (cosmic_ci's
+    # phase_checked_narrowing). It stands on no verdict and runs every
+    # test, on the release tool and no checked core, so it boots and
+    # builds nothing else, and keeps and saves no verdicts. A job of its
+    # own on linux-x86_64's host, beside the legs and the checked suite's
+    # shares: it takes thirteen to fifteen minutes, which the shares' job
+    # would add to its path. A full run only.
+    # TODO: run this suite in shares too (`cosmic test --check-types
+    # --shard`), as `checked-shard` does the checked core's: its whole
+    # run makes the check of the C functions some test enters, which a
+    # checked run keeps no verdict to answer for in a gathering run
+    # (`checked`), so it waits on that check's being held elsewhere:
+    # the native suites of every full run's legs make it on the same
+    # core, over tests this one adds to.
+    "checked-narrowing": {
+      needs: ["reuse", "scope"],
+      if: "!cancelled() && needs.reuse.outputs.run == '' && needs.scope.outputs.scope != 'light'",
+      name: "linux-x86_64-checked-narrowing",
+      defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
+      "runs-on": "ubuntu-24.04",
+      permissions: {contents: "read", packages: "read", actions: "read"},
+      "timeout-minutes": 45,
+      env: {
+        COSMIC_WORKER: "linux-x86_64-checked",
+        TARGET: "x86_64-linux-musl",
+        COSMIC_CI_REQUIRE_SANDBOX: "1",
+        COSMIC_CI_DECLARED_KEYS: "0",
+        COSMIC_CI_EVENT: "${{ github.event_name }}",
+        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}",
+      },
+      steps: [
+        {
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          with: {"fetch-depth": "${{ github.event_name == 'merge_group' && 2 || 1 }}"},
+        },
+        {
+          name: "start the leg's container",
+          "working-directory": ".",
+          shell: "sh",
+          env: {IMAGE: "ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a", TOKEN: "${{ secrets.GITHUB_TOKEN }}", ACTOR: "${{ github.actor }}"},
+          run: "sh .github/scripts/leg-container.sh start \"$IMAGE\"",
+        },
+        {
+          name: "create the unprivileged builder",
+          "working-directory": "/",
+          shell: "leg-shell --root {0}",
+          run: "useradd -m -o -u \"$(stat -c %u \"$GITHUB_WORKSPACE\")\" runner",
+        },
+        # What linux-x86_64's leg restores and saves, restored alone.
+        {
+          name: "restore the pinned zig",
+          id: "zig-restore",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/cache/cosmic/zig",
+            key: "zig-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin', 'patch/zig-lib/**') }}",
+          },
+        },
+        {
+          name: "name the zig build cache, and the run's start",
+          id: "names",
+          uses: "./.github/actions/cache-names",
+          with: {leg: "linux-x86_64"},
+        },
+        {
+          name: "restore zig build outputs",
+          id: "zig-cache-restore",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/zig-build",
+            key: "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-${{ github.run_id }}-${{ github.run_attempt }}",
+            "restore-keys": "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}full-\n${{ steps.names.outputs.vendor }}\n",
+            "lookup-only": "${{ github.event_name == 'schedule' }}",
+          },
+        },
+        {
+          name: "restore zig build outputs of another vendor part",
+          if: "github.ref != 'refs/heads/main' && steps.zig-cache-restore.outputs.cache-matched-key == ''",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/zig-build",
+            key: "${{ steps.zig-cache-restore.outputs.cache-primary-key }}",
+            "restore-keys": "zig-build-linux-x86_64-\n",
+          },
+        },
+        # Before the lookups below, which the driver makes (merge-base,
+        # `ahead`).
+        {
+          name: "bootstrap the pinned CI driver",
+          id: "driver",
+          uses: "./.github/actions/cosmic-driver",
+          with: {"zig-cache": true, shell: "leg-shell {0}"},
+        },
+        # The leg's host, under the checked job's name: what a test is
+        # keyed by holds the same COSMIC_HOST_ID as linux-x86_64's, and
+        # its verdict cache is named apart from that leg's.
+        {
+          name: "name the leg's host",
+          id: "host-id",
+          shell: "sh",
+          env: {STARTED: "${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl leg-host-id \"linux-x86_64-checked\" \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\" \"ubuntu-24.04\" \"$STARTED\"",
+        },
+        {
+          name: "restore compiles and parses",
+          id: "compiles-restore",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/build-cache",
+            key: "${{ steps.names.outputs.compiles }}",
+            "restore-keys": "${{ steps.names.outputs.compiles }}\ncompiles-linux-x86_64-\n",
+          },
+        },
+        # To a path of this commit's and this job's own, as a leg's tree
+        # moves, after every hashFiles, which reads the checkout.
+        {
+          name: "move the tree to a path of its own",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree",
+        },
+        {
+          name: "build release Cosmic",
+          id: "boot",
+          run: "cosmic-driver cosmic_ci/driver.tl platform boot",
+        },
+        {
+          name: "run the whole suite on a checked run",
+          id: "checked-narrowing",
+          run: "cosmic-driver cosmic_ci/driver.tl platform checked-narrowing",
+        },
+        {
+          name: "summarize worker operations",
+          if: "always() && steps.driver.outcome == 'success'",
+          run: "cosmic-driver cosmic_ci/driver.tl summarize",
+        },
+        {
+          name: "preserve CI driver database",
+          if: "always()",
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "ci-driver-linux-x86_64-checked-narrowing",
+            path: "${{ runner.temp }}/cosmic-ci/operations.db",
+            "if-no-files-found": "ignore",
+            "retention-days": 7,
+          },
+        },
+        {
+          name: "describe the leg's container",
+          if: "failure()",
+          "working-directory": "/",
+          shell: "sh",
+          run: "docker inspect cosmic-leg || :; docker logs cosmic-leg || :",
+        },
+        {
+          name: "remove the leg's container",
+          if: "always()",
+          "working-directory": "/",
+          shell: "sh",
+          run: "docker rm -f cosmic-leg || :",
+        },
+        # Before checkout's post step, whose git refuses the repository
+        # at another path (driver.tl place-tree).
+        {
+          name: "move the tree back to where it was checked out",
+          if: "always() && steps.driver.outcome == 'success'",
+          shell: "sh",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree --restore",
+        },
+      ],
+    },
+
+    # The tree's format check, as a branch push (a light run) makes it,
+    # which a full run makes in linux-aarch64's assemble. A job of its
+    # own, beside the legs, so that its minutes are no part of any
+    # other's: of what the branch changed, where it names the paths
+    # (driver.tl changed-paths, `fix --check --changed`), the checks
+    # spanning files still over the whole tree. It boots the tree to have
+    # the tool, and runs no suite. The check starts from the memo of what
+    # it found in each file (build/check_memo.tl) that the scheduled run
+    # saves, and which a branch finds under main's: the files a branch
+    # did not change cost it nothing, where a check of the tree without
+    # one takes some seven minutes. The scheduled run makes the whole
+    # tree's check here for that, besides assemble's, and saves what it
+    # leaves. A job of a branch push, or of the scheduled run, where
+    # `platform` runs.
+    format: {
+      needs: ["reuse", "scope"],
+      if: "!cancelled() && needs.reuse.outputs.run == '' && ((github.event_name == 'push' && github.ref_name != 'main' && needs.scope.outputs.scope == 'light') || github.event_name == 'schedule')",
+      name: "linux-x86_64-format",
+      defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
+      "runs-on": "ubuntu-24.04",
+      permissions: {contents: "read", packages: "read", actions: "read"},
+      "timeout-minutes": 45,
+      env: {
+        COSMIC_WORKER: "linux-x86_64-format",
+        TARGET: "x86_64-linux-musl",
+        COSMIC_CI_FORMAT: "run",
+        COSMIC_CI_REQUIRE_SANDBOX: "1",
+        COSMIC_CI_DECLARED_KEYS: "0",
+        COSMIC_CI_EVENT: "${{ github.event_name }}",
+        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha }}",
+      },
+      steps: [
+        {
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          with: {"fetch-depth": "${{ github.event_name == 'merge_group' && 2 || 1 }}"},
+        },
+        {
+          name: "start the leg's container",
+          "working-directory": ".",
+          shell: "sh",
+          env: {IMAGE: "ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a", TOKEN: "${{ secrets.GITHUB_TOKEN }}", ACTOR: "${{ github.actor }}"},
+          run: "sh .github/scripts/leg-container.sh start \"$IMAGE\"",
+        },
+        {
+          name: "create the unprivileged builder",
+          "working-directory": "/",
+          shell: "leg-shell --root {0}",
+          run: "useradd -m -o -u \"$(stat -c %u \"$GITHUB_WORKSPACE\")\" runner",
+        },
+        # What linux-x86_64's leg restores and saves, restored alone.
+        {
+          name: "restore the pinned zig",
+          id: "zig-restore",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/cache/cosmic/zig",
+            key: "zig-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin', 'patch/zig-lib/**') }}",
+          },
+        },
+        {
+          name: "name the zig build cache, and the run's start",
+          id: "names",
+          uses: "./.github/actions/cache-names",
+          with: {leg: "linux-x86_64"},
+        },
+        {
+          name: "restore zig build outputs",
+          id: "zig-cache-restore",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/zig-build",
+            key: "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-${{ github.run_id }}-${{ github.run_attempt }}",
+            "restore-keys": "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}full-\n${{ steps.names.outputs.vendor }}\n",
+            "lookup-only": "${{ github.event_name == 'schedule' }}",
+          },
+        },
+        {
+          name: "restore zig build outputs of another vendor part",
+          if: "github.ref != 'refs/heads/main' && steps.zig-cache-restore.outputs.cache-matched-key == ''",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/zig-build",
+            key: "${{ steps.zig-cache-restore.outputs.cache-primary-key }}",
+            "restore-keys": "zig-build-linux-x86_64-\n",
+          },
+        },
+        {
+          name: "bootstrap the pinned CI driver",
+          id: "driver",
+          uses: "./.github/actions/cosmic-driver",
+          with: {"zig-cache": true, shell: "leg-shell {0}"},
+        },
+        {
+          name: "find the tree's base on main",
+          id: "merge-base",
+          if: "github.event_name != 'schedule'",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", QUEUE_BASE: "${{ github.event.merge_group.base_sha }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl merge-base",
+        },
+        # The base the format check holds build/ceilings.txt to (build/ceilings_base.tl): a ceiling only
+        # falls, so a count raised or a row added since the tree's base on main fails the check. Where the
+        # step above found no base this sets none, and the check fails, since skipping it there would let a
+        # raise through whenever GitHub could not name the base; run the job again.
+        {
+          name: "name the base the ceilings are held to",
+          if: "steps.merge-base.outputs.sha != ''",
+          shell: "sh",
+          env: {BASE: "${{ steps.merge-base.outputs.sha }}"},
+          run: "echo \"COSMIC_CEILINGS_BASE=$BASE\" >> \"$GITHUB_ENV\"",
+        },
+        # What a branch changed since that base, whose tree main's run
+        # held to the whole format check: the check lays out only these,
+        # and makes the checks spanning files over the whole tree. Where
+        # it names none, the check covers the whole tree.
+        {
+          name: "name the paths the branch changed",
+          id: "changed",
+          if: "github.event_name != 'schedule'",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {BASE: "${{ steps.merge-base.outputs.sha }}", OUT: "${{ runner.temp }}/changed-paths"},
+          run: "cosmic-driver cosmic_ci/driver.tl changed-paths",
+        },
+        {
+          name: "restore compiles and parses",
+          id: "compiles-restore",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/build-cache",
+            key: "${{ steps.names.outputs.compiles }}",
+            "restore-keys": "${{ steps.names.outputs.compiles }}\ncompiles-linux-x86_64-\n",
+          },
+        },
+        # To a path of this commit's and this job's own, as a leg's tree
+        # moves, after every hashFiles, which reads the checkout.
+        {
+          name: "move the tree to a path of its own",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree",
+        },
+        {
+          name: "build release Cosmic",
+          id: "boot",
+          run: "cosmic-driver cosmic_ci/driver.tl platform boot",
+        },
+        # The newest memo any run of this ref can read: main's, the
+        # scheduled run's, for a branch. The key is this run's alone, so
+        # nothing is ever found by it, and a miss costs the check its time.
+        {
+          name: "restore the format check's memo",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/check-memo",
+            key: "check-memo-v1-${{ github.run_id }}-${{ github.run_attempt }}",
+            "restore-keys": "check-memo-v1-\n",
+          },
+        },
+        {
+          name: "check the tree's format",
+          id: "format",
+          env: {COSMIC_CI_FORMAT_CHANGED: "${{ steps.changed.outputs.paths }}", COSMIC_CI_CHECK_MEMO: "${{ runner.temp }}/check-memo"},
+          run: "cosmic-driver cosmic_ci/driver.tl platform format",
+        },
+        # What the check left, of the whole tree: the scheduled run's alone.
+        {
+          name: "save the format check's memo",
+          if: "steps.format.outcome == 'success' && env.COSMIC_CI_SAVES == 'true'",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/check-memo",
+            key: "check-memo-v1-${{ github.run_id }}-${{ github.run_attempt }}",
+          },
+        },
+        {
+          name: "summarize worker operations",
+          if: "always() && steps.driver.outcome == 'success'",
+          run: "cosmic-driver cosmic_ci/driver.tl summarize",
+        },
+        {
+          name: "preserve CI driver database",
+          if: "always()",
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "ci-driver-linux-x86_64-format",
+            path: "${{ runner.temp }}/cosmic-ci/operations.db",
+            "if-no-files-found": "ignore",
+            "retention-days": 7,
+          },
+        },
+        {
+          name: "describe the leg's container",
+          if: "failure()",
+          "working-directory": "/",
+          shell: "sh",
+          run: "docker inspect cosmic-leg || :; docker logs cosmic-leg || :",
+        },
+        {
+          name: "remove the leg's container",
+          if: "always()",
+          "working-directory": "/",
+          shell: "sh",
+          run: "docker rm -f cosmic-leg || :",
+        },
+        # Before checkout's post step, whose git refuses the repository
+        # at another path (driver.tl place-tree).
+        {
+          name: "move the tree back to where it was checked out",
+          if: "always() && steps.driver.outcome == 'success'",
+          shell: "sh",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree --restore",
         },
       ],
     },
@@ -1338,9 +2262,10 @@
     # On the leg's own runner: an entry's version hashes its path, which
     # is the runner's. Seeds stand only on a run whose every leg passed.
     # TODO: a branch push shows this job as a skipped check, one of the
-    # two exceptions build/workflows_test.tl's
+    # exceptions build/workflows_test.tl's
     # test_a_branch_push_starts_no_job_it_skips names (`reuse`, whose
-    # runner a branch push's legs would wait on, is the other). Moving it, with a
+    # runner a branch push's legs would wait on, `prune` and `invalidate`
+    # are the others). Moving it, with a
     # lookup of its own, to a workflow on a push to main alone would end
     # that, at the cost of a second lookup that could disagree with
     # this one's and saves no longer in this run's concurrency group.
@@ -1380,20 +2305,21 @@
           name: "read the keys the queue's leg named",
           id: "keys",
           shell: "sh",
-          run: "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-[0-9a-f]+|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}|compiles=compiles-${{ matrix.name }}-[0-9a-f]+|zig-build=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-[0-9]+-[0-9]+|zig-build-exact=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-|driver-checked=driver-checked-v2-${{ matrix.name }}-[A-Za-z0-9._-]+-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
+          run: "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-[0-9a-f]+|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}-[0-9a-f]+|compiles=compiles-${{ matrix.name }}-[0-9a-f]+|zig-build=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-[0-9]+-[0-9]+|zig-build-exact=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-|driver-checked=driver-checked-v2-${{ matrix.name }}-[A-Za-z0-9._-]+-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
         },
-        # Under the commit first, as a leg saves them.
-        {
-          name: "save test verdicts under this commit",
-          if: "steps.keys.outputs.verdicts-sha != ''",
-          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
-          with: {path: "${{ runner.temp }}/verdicts", key: "${{ steps.keys.outputs.verdicts-sha }}"},
-        },
+        # The rows first, then their name under the commit, as a leg
+        # saves them.
         {
           name: "save test verdicts",
           if: "steps.keys.outputs.verdicts != ''",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {path: "${{ runner.temp }}/verdicts", key: "${{ steps.keys.outputs.verdicts }}"},
+        },
+        {
+          name: "save test verdicts under this commit",
+          if: "steps.keys.outputs.verdicts-sha != ''",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {path: "${{ runner.temp }}/verdicts-commit", key: "${{ steps.keys.outputs.verdicts-sha }}"},
         },
         {
           name: "save compiles and parses",
@@ -1487,19 +2413,64 @@
       ],
     },
 
+    # Cancels the queue's run once a leg or the checked job has failed
+    # (cancel-on-failure.sh), so `ci` reports a minute or two later (its
+    # runner starts) and the queue restarts the entries behind sooner; a
+    # branch's, main's and the scheduled run let every leg finish. A job
+    # of its own, not a step of each leg: only
+    # it holds `actions: write`, where the legs run test code, and the
+    # failed leg has finished, so it keeps its `failure`. It starts with
+    # the legs, waits on none and is waited on by none (the gate does not
+    # need it), and always exits 0, so no result of its own can fail a
+    # run or a ruleset.
+    cancel: {
+      name: "cancel the run on a failed leg",
+      if: "github.event_name == 'merge_group'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 50,
+      permissions: {contents: "read", actions: "write"},
+      steps: [
+        {
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          with: {
+            "sparse-checkout": "/.github/scripts/cancel-on-failure.sh\n",
+            "sparse-checkout-cone-mode": false,
+            "persist-credentials": false,
+            "fetch-depth": 1,
+          },
+        },
+        {
+          env: {
+            GH_TOKEN: "${{ github.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            RUN_ID: "${{ github.run_id }}",
+            ATTEMPT: "${{ github.run_attempt }}",
+            SELF: "cancel the run on a failed leg",
+          },
+          run: ".github/scripts/cancel-on-failure.sh",
+        },
+      ],
+    },
+
     # The one check a ruleset requires, whatever the scope: it fails when
     # any leg or the checked job failed or was cancelled (a seeded run's
     # `seed` legs; a `reuse` that failed or was skipped found nothing,
-    # and the platform legs and the checked job ran), and
+    # and the platform legs and the checked job ran), and likewise the
+    # checked suite's shares and the checked narrowing run, which a full
+    # run makes, and the format check, which a light run's job does; a
+    # job the scope does not run reads as passed, and
     # on a full run it is also the provenance join, proving every leg
     # attested identical bytes. Steps, not a job of its own, which a
     # branch push would show as skipped.
     ci: {
-      needs: ["reuse", "platform", "checked", "seed"],
+      needs: ["reuse", "scope", "platform", "checked", "checked-shard", "checked-narrowing", "format", "seed"],
       if: "always()",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 5,
-      env: {COSMIC_WORKER: "provenance"},
+      env: {
+        COSMIC_CI_SCOPE: "${{ needs.scope.outputs.scope == 'light' && 'light' || 'full' }}",
+        COSMIC_WORKER: "provenance",
+      },
       steps: [
         {
           name: "every leg passed",
@@ -1507,8 +2478,12 @@
             QUEUE_RUN: "${{ needs.reuse.outputs.run }}",
             RESULT: "${{ needs.reuse.outputs.run != '' && needs.seed.result || needs.platform.result }}",
             CHECKED: "${{ needs.reuse.outputs.run != '' && needs.seed.result || needs.checked.result }}",
+            SHARES: "${{ needs.reuse.outputs.run != '' && needs.seed.result || env.COSMIC_CI_SCOPE == 'full' && needs.checked-shard.result || 'success' }}",
+            NARROWING: "${{ needs.reuse.outputs.run != '' && needs.seed.result || env.COSMIC_CI_SCOPE == 'full' && needs.checked-narrowing.result || 'success' }}",
+            FORMAT: "${{ (env.COSMIC_CI_SCOPE == 'light' || github.event_name == 'schedule') && needs.format.result || 'success' }}",
+            EVENT: "${{ github.event_name }}",
           },
-          run: "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ]",
+          run: "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED; shares: $SHARES; checked narrowing: $NARROWING; format: $FORMAT\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$SHARES\" = success ] && [ \"$NARROWING\" = success ] && [ \"$FORMAT\" = success ] || { [ \"$EVENT\" != merge_group ] || echo \"a failed leg cancels a queue run, so the other legs may read cancelled; an error annotation names the failed leg\"; exit 1; }",
         },
         # Only a full run's legs attest and upload a product.
         {
@@ -1560,18 +2535,17 @@
     # checkout that keeps no credentials. After every job
     # that saves, whatever their result, so a red push to main prunes
     # too; beside the join, so the check a ruleset requires waits on
-    # none of it. Every push runs it, a branch's with its steps skipped,
-    # so a branch push shows it run rather than skipped: off the legs'
-    # path, it costs a branch push nothing but a runner.
+    # none of it. The job's `if` holds every condition, so a branch push,
+    # which has nothing to prune, starts no runner for it and shows it as
+    # a skipped check.
     prune: {
       needs: ["platform", "checked", "seed"],
-      if: "always() && github.event_name == 'push'",
+      if: "always() && github.event_name == 'push' && github.ref == 'refs/heads/main'",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 5,
       permissions: {contents: "read", actions: "write"},
       steps: [
         {
-          if: "github.ref == 'refs/heads/main'",
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
           with: {
             "sparse-checkout": "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n/.github/actions/cosmic-driver/\n",
@@ -1581,17 +2555,54 @@
         },
         {
           name: "bootstrap the pinned CI driver",
-          if: "github.ref == 'refs/heads/main'",
           "continue-on-error": true,
           uses: "./.github/actions/cosmic-driver",
         },
         {
           name: "prune verdicts saved under a commit, and branches' compiles",
-          if: "github.ref == 'refs/heads/main'",
           "working-directory": "ci",
           "continue-on-error": true,
           env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}"},
           run: "cosmic-driver cosmic_ci/driver.tl prune-commit-verdicts",
+        },
+      ],
+    },
+
+    # The copies of main's verdicts under a commit, all of them, after a
+    # run of main's that saves verdicts failed
+    # (driver.tl invalidate-commit-verdicts): a cache entry is never
+    # overwritten, and a branch restores the entry under its base's
+    # commit before any other, so the pass a nightly's forced recheck
+    # took out of its database would still stand for every branch based
+    # on that commit. The legs' own saves have finished (`needs`), so the
+    # restore by prefix then takes the failed run's. Beside `prune`: the
+    # one other job whose token may write the cache. The job's `if` holds
+    # every condition, so a green run, and a branch push, start no
+    # runner for it; a scheduled run is on the default branch.
+    invalidate: {
+      needs: ["platform", "checked", "checked-shard", "checked-narrowing", "seed"],
+      if: "always() && contains(needs.*.result, 'failure') && (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 5,
+      permissions: {contents: "read", actions: "write"},
+      steps: [
+        {
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          with: {
+            "sparse-checkout": "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n/.github/actions/cosmic-driver/\n",
+            "sparse-checkout-cone-mode": false,
+            "persist-credentials": false,
+          },
+        },
+        {
+          name: "bootstrap the pinned CI driver",
+          uses: "./.github/actions/cosmic-driver",
+        },
+        {
+          name: "delete the verdicts saved under a commit",
+          "working-directory": "ci",
+          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", COMMIT: "${{ github.sha }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl invalidate-commit-verdicts",
         },
       ],
     },

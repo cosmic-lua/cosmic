@@ -1,10 +1,9 @@
 --- The policy of each of `cosmic test`'s workers wherever they are
---- sandboxed: each starts under a [`cosmic.sandbox`] policy by
---- [`Child.start`], as the design's test phase has it: a policy of its own
---- that names the tree at /tree, the scratch directory with `rwxc`, the
---- store at o/cosmic.db, the core, and what the module declares, with
---- `isolate` "file" and a /proc of the sandbox's own. Where nothing the
---- module declares puts a directory of the host in the root
+--- sandboxed: each starts by [`Child.start`] under a [`cosmic.sandbox`]
+--- policy of its own that names the tree at /tree, the scratch directory
+--- with `rwxc`, the store at o/cosmic.db, the core, and what the module
+--- declares, with `isolate` "file" and a /proc of the sandbox's own.
+--- Where nothing the module declares puts a directory of the host in the root
 --- ([`test_sandbox.Plan`]'s `own_scratch`), the scratch directory is not a
 --- bind of the host's either but a directory the worker makes in the
 --- sandbox's own /tmp (`tmp`, with "/tmp" granted `rwxc`): a root of files
@@ -36,10 +35,9 @@
 
 -- TODO: let a worker hold itself with [`Sandbox.restrict`] to what its
 -- module declares, with the runner's own reads (the store, the core, the
--- report) granted only to the start, as a step after the policy path
--- became the default (#2621's doc/plans/sandbox.md): today the worker is
--- held from its first instruction by the whole policy it is started
--- under, which is all that it and its test may reach.
+-- report) granted only to the start: today the worker is held from its
+-- first instruction by the whole policy it is started under, which is all
+-- that it and its test may reach.
 
 local Sandbox = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
@@ -81,10 +79,10 @@ end
 
 --- The promises of a worker: `base_promises`, and `nest` where its module
 --- declares `nests`, whose tests build roots of their own.
-local function worker_promises(nests: boolean): {Sandbox.Promise}
-  local out: {Sandbox.Promise} = {}
+local function worker_promises(nests?: boolean): {Sandbox.Promise}
+  local out: mut {Sandbox.Promise} = {}
   for _, promise in ipairs(base_promises) do out[#out + 1] = promise end
-  if nests then out[#out + 1] = "nest" end
+  if nests == true then out[#out + 1] = "nest" end
   return out
 end
 
@@ -96,7 +94,7 @@ local MOST_OPEN_FILES <const> = 1048576
 --- what is the same wherever the tree is and whatever is declared beside it
 --- ([`test_policy.worker`] adds the paths).
 local function shape(effective: test_inputs.Effective): Sandbox.Policy
-  local loopback: {string} = {}
+  local loopback: mut {string} = {}
   for address in pairs(effective.network) do loopback[#loopback + 1] = address end
   table.sort(loopback)
   -- A policy's descriptors default to 1024, soft and hard, where a default
@@ -109,7 +107,7 @@ local function shape(effective: test_inputs.Effective): Sandbox.Policy
   local held, _ = sys.getrlimit(sys.RLIMIT_NOFILE)
   if held ~= nil then limits.open_files = math.min(held.hard, MOST_OPEN_FILES) end
   return {
-    profiles = effective.system and { "system" } or nil,
+    profiles = if effective.system == true then { "system" } else nil end,
     isolate = { "file" },
     promises = worker_promises(effective.nests),
     loopback = loopback,
@@ -131,7 +129,7 @@ end
 --- what the plan says is run (`runs`), what a device allows, else `r`.
 local function letters_of(path: string, inside: string, runs: {string:boolean}): string
   if devices[inside] ~= nil then return devices[inside] end
-  if runs[path] then return "rx" end
+  if runs[path] == true then return "rx" end
   return "r"
 end
 
@@ -144,16 +142,16 @@ end
 --- @return the policy
 function test_policy.worker(plan: test_sandbox.Plan, effective: test_inputs.Effective): Sandbox.Policy
   local policy = shape(effective)
-  local unveil = plan.sandbox.unveil
+  local unveil = assert(plan.sandbox.unveil)
   local at = unveil.at or {}
-  local grants: {Sandbox.Grant} = {}
+  local grants: mut {Sandbox.Grant} = {}
   for _, path in ipairs(unveil.reads) do
     local inside = at[path] or path
     grants[#grants + 1] = { path = inside, from = at[path] ~= nil and path or nil,
       letters = letters_of(path, inside, plan.runs) }
   end
-  local scratch: string = nil
-  for _, path in ipairs(unveil.writes) do
+  local scratch: string? = nil
+  for _, path in ipairs(unveil.writes or {}) do
     local inside = at[path] or path
     grants[#grants + 1] = { path = inside, from = at[path] ~= nil and path or nil, letters = "rwxc" }
     scratch = scratch or path
@@ -161,7 +159,7 @@ function test_policy.worker(plan: test_sandbox.Plan, effective: test_inputs.Effe
   -- The private noexec scratch: a writable grant without `x`, which the
   -- root of `isolate` "file" mounts noexec ([`build.test`]'s `launch` makes
   -- the directory it is bound from).
-  if effective.noexec_ready and scratch ~= nil then
+  if effective.noexec_ready == true and scratch ~= nil then
     grants[#grants + 1] = { path = "/noexec", from = scratch .. "/noexec", letters = "rwc" }
   end
   -- A worker whose root shows no directory of the host has its scratch
@@ -180,11 +178,11 @@ end
 --- @param policy the policy of a worker
 --- @return the paths, in the policy's order, nil and why where it does not merge
 --- @return why, where it does not
-function test_policy.runs(policy: Sandbox.Policy): {string} | nil, string
+function test_policy.runs(policy: Sandbox.Policy): {string}?, string
   local merged, why = Sandbox.merge(policy)
   if merged == nil then return nil, why end
-  local out: {string} = {}
-  for _, grant in ipairs(merged.grants) do
+  local out: mut {string} = {}
+  for _, grant in ipairs(merged.grants or {}) do
     if grant.letters:find("x", 1, true) then out[#out + 1] = grant.path end
   end
   return out, ""

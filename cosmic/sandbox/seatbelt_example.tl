@@ -8,7 +8,7 @@ local Example = {}
 function Example.compile()
   local profile = assert(Seatbelt.compile({ grants = { { path = "input", letters = "r" } } },
     { paths = { input = { path = "/srv/input", directory = false } } }))
-  print(profile.parameters.PATH_1) -- /srv/input
+  print(profile.parameters["PATH_1"]) -- /srv/input
   assert(profile.text:find('(allow file-read* (literal (param "PATH_1")))', 1, true))
   assert(not profile.text:find("/srv/input", 1, true))
 end

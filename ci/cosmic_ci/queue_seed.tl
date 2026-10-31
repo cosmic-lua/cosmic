@@ -1,6 +1,7 @@
 --- The merge queue's result, which a push to main reuses rather than
 --- testing the same commit again (README.md's "the queue's result"), and
---- the run ahead of a queue run in the queue, whose verdicts it takes.
+--- the run ahead of a queue run in the queue, whose verdicts or driver
+--- check it takes.
 --- Both ask the API through [`Github.Host`] and never fail their step: a
 --- full run, or none of the verdicts ahead, costs time, never a result.
 ---
@@ -52,6 +53,7 @@
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Github = require("cosmic_ci.github")
+local Shape = require("cosmic.shape")
 local Time = require("cosmic.time")
 
 local record QueueSeed
@@ -70,7 +72,7 @@ local QUEUE <const> = "gh-readonly-queue/main/"
 --- A whole number `env` names, `default` where it names none (a variable
 --- set to nothing is none, as the shell's `${NAME:-default}` has it), and
 --- nil and why where it is no whole number.
-local function whole(env: {string:string}, name: string, default: integer | nil): integer | nil, string
+local function whole(env: {string:string}, name: string, default: integer?): integer?, string
   local text = env[name]
   if text == nil or text == "" then return default, "" end
   local value = math.tointeger(tonumber(text))
@@ -87,12 +89,12 @@ local record Settings
   wait: integer
 end
 
-local function settings(env: {string:string}, who: string): Settings | nil, string
-  local repository = env.REPOSITORY
+local function settings(env: {string:string}, who: string): Settings?, string
+  local repository = env["REPOSITORY"]
   if repository == nil or repository == "" then return nil, who .. ": no REPOSITORY" end
   local call, why = whole(env, "CALL_SECONDS", 15)
   if call == nil then return nil, who .. ": " .. why end
-  local wait: integer | nil
+  local wait: integer?
   wait, why = whole(env, "WAIT_SECONDS", 20)
   if wait == nil then return nil, who .. ": " .. why end
   return { repository = repository, call = call, wait = wait }, ""
@@ -115,36 +117,59 @@ local record Run
   event: string
 end
 
+--- One run of the API's listing, each field as `jq -r` would print it.
+local record RunRow
+  id?: any
+  status?: any
+  conclusion?: any
+  head_sha?: any
+  head_branch?: any
+  html_url?: any
+  event?: any
+end
+local record RunsPage
+  workflow_runs: {RunRow}
+end
+local RUNS_PAGE <const> = Shape.record_of("RunsPage")
+
 --- The workflow runs `pages` list, as `.workflow_runs[]` reads them in
 --- the API's order (newest first), or nil where an answer holds no
 --- list of runs.
-local function runs_of(pages: {any}): {Run} | nil
-  local out: {Run} = {}
-  for _, page in ipairs(pages) do
-    local list = type(page) == "table" and (page as {string:any}).workflow_runs or nil
-    if type(list) ~= "table" then return nil end
-    for _, item in ipairs(list as {any}) do
-      if type(item) ~= "table" then return nil end
-      local run = item as {string:any}
-      out[#out + 1] = { id = printed(run.id), status = printed(run.status),
-        conclusion = run.conclusion == nil and "none" or printed(run.conclusion),
-        sha = printed(run.head_sha), branch = printed(run.head_branch),
-        url = printed(run.html_url), event = printed(run.event) }
+local function runs_of(pages: {string}): {Run}?
+  local out: mut {Run} = {}
+  for _, text in ipairs(pages) do
+    local page, _ = RUNS_PAGE:decode_into(text)
+    if page == nil then return nil end
+    for _, row in ipairs(page.workflow_runs) do
+      local conclusion = "none"
+      if row.conclusion ~= nil then conclusion = printed(row.conclusion) end
+      out[#out + 1] = { id = printed(row.id), status = printed(row.status),
+        conclusion = conclusion,
+        sha = printed(row.head_sha), branch = printed(row.head_branch),
+        url = printed(row.html_url), event = printed(row.event) }
     end
   end
   return out
 end
 
+--- One artifact of a run's listing.
+local record ArtifactRow
+  name?: any
+  expired?: any
+end
+local record ArtifactsPage
+  artifacts: {ArtifactRow}
+end
+local ARTIFACTS_PAGE <const> = Shape.record_of("ArtifactsPage")
+
 --- The names of a run's artifacts that have not expired, as a set, or
 --- nil where the answer holds no list of artifacts.
-local function artifact_names(pages: {any}): {string:boolean} | nil
-  local names: {string:boolean} = {}
-  for _, page in ipairs(pages) do
-    local list = type(page) == "table" and (page as {string:any}).artifacts or nil
-    if type(list) ~= "table" then return nil end
-    for _, item in ipairs(list as {any}) do
-      if type(item) ~= "table" then return nil end
-      local artifact = item as {string:any}
+local function artifact_names(pages: {string}): {string:boolean}?
+  local names: mut {string:boolean} = {}
+  for _, text in ipairs(pages) do
+    local page, _ = ARTIFACTS_PAGE:decode_into(text)
+    if page == nil then return nil end
+    for _, artifact in ipairs(page.artifacts) do
       -- `select(.expired | not)`: only an artifact marked expired is out.
       if artifact.expired == nil or artifact.expired == false then
         names[printed(artifact.name)] = true
@@ -157,39 +182,49 @@ end
 local record Job
   status: string
   --- Seconds since the epoch where it has started.
-  started: integer | nil
+  started?: integer
   --- Whether it has begun the suite step, where one is named.
   reached: boolean
   name: string
 end
 
+--- One step of a job, and one job of a run's listing.
+local record StepRow
+  name?: any
+  status?: any
+end
+local record JobRow
+  status?: any
+  name?: any
+  started_at?: any
+  steps?: {StepRow}
+end
+local record JobsPage
+  jobs: {JobRow}
+end
+local JOBS_PAGE <const> = Shape.record_of("JobsPage")
+
 --- The jobs `pages` list, in the API's order, each with whether it has
 --- begun the step `suite` (in progress or completed; always false where
 --- `suite` is ""), or nil where an answer holds no list of jobs or
 --- a job's start is no time.
-local function jobs_of(pages: {any}, suite: string): {Job} | nil
-  local out: {Job} = {}
-  for _, page in ipairs(pages) do
-    local list = type(page) == "table" and (page as {string:any}).jobs or nil
-    if type(list) ~= "table" then return nil end
-    for _, item in ipairs(list as {any}) do
-      if type(item) ~= "table" then return nil end
-      local job = item as {string:any}
-      local started: integer | nil = nil
+local function jobs_of(pages: {string}, suite: string): {Job}?
+  local out: mut {Job} = {}
+  for _, text in ipairs(pages) do
+    local page, _ = JOBS_PAGE:decode_into(text)
+    if page == nil then return nil end
+    for _, job in ipairs(page.jobs) do
+      local started: integer? = nil
       if job.started_at ~= nil and job.started_at ~= "" then
-        local ns = Time.parse_rfc3339(printed(job.started_at))
+        local ns, _ = Time.parse_rfc3339(printed(job.started_at))
         if ns == nil then return nil end
         started = ns // 1000000000
       end
       local reached = false
-      local steps = job.steps
-      if suite ~= "" and type(steps) == "table" then
-        for _, step in ipairs(steps as {any}) do
-          if type(step) == "table" then
-            local entry = step as {string:any}
-            if entry.name == suite and (entry.status == "in_progress" or entry.status == "completed") then
-              reached = true
-            end
+      if suite ~= "" then
+        for _, entry in ipairs(job.steps or {}) do
+          if entry.name == suite and (entry.status == "in_progress" or entry.status == "completed") then
+            reached = true
           end
         end
       end
@@ -216,11 +251,11 @@ function QueueSeed.find(env: {string:string}, host: Github.Host): integer
     local _, _ = Fs.put(Fs.stderr, why .. "\n")
     return 2
   end
-  local legs: {string} = {}
-  for leg in (env.LEGS or ""):gmatch("%S+") do legs[#legs + 1] = leg end
-  local sha = env.SHA or ""
+  local legs: mut {string} = {}
+  for leg in (env["LEGS"] or ""):gmatch("%S+") do legs[#legs + 1] = leg end
+  local sha = env["SHA"] or ""
   if #legs == 0 or sha == "" then
-    local _, _ = Fs.put(Fs.stderr, "queue-find: no " .. (#legs == 0 and "LEGS" or "SHA") .. "\n")
+    local _, _ = Fs.put(Fs.stderr, "queue-find: no " .. (if #legs == 0 then "LEGS" else "SHA" end) .. "\n")
     return 2
   end
   local tries, trouble = whole(env, "TRIES", 6)
@@ -257,7 +292,7 @@ function QueueSeed.find(env: {string:string}, host: Github.Host): integer
       if names ~= nil then
         local missing = ""
         for _, leg in ipairs(legs) do
-          if not names["seed-" .. leg] then missing = missing .. " " .. leg end
+          if names["seed-" .. leg] ~= true then missing = missing .. " " .. leg end
         end
         if missing == "" then
           found, url = candidate, candidate_url
@@ -286,28 +321,28 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
     local _, _ = Fs.put(Fs.stderr, "queue-ahead: " .. why .. "\n")
     return 2
   end
-  local artifact, job = env.ARTIFACT or "", env.JOB or ""
+  local artifact, job = env["ARTIFACT"] or "", env["JOB"] or ""
   if artifact == "" or job == "" then return refuse("no ARTIFACT or JOB") end
   local s, why = settings(env, "queue-ahead")
   if s == nil then
     local _, _ = Fs.put(Fs.stderr, why .. "\n")
     return 2
   end
-  local within: integer | nil
-  local ready: integer | nil
+  local within: integer?
+  local ready: integer?
   local trouble: string
   within, trouble = whole(env, "WITHIN_SECONDS", 150)
   if within == nil then return refuse(trouble) end
   ready, trouble = whole(env, "READY_SECONDS", nil)
   if trouble ~= "" then return refuse(trouble) end
-  local suite = env.SUITE_STEP or ""
-  local base = env.BASE or ""
+  local suite = env["SUITE_STEP"] or ""
+  local base = env["BASE"] or ""
   local found, said = "", ""
   local deadline = host.now() + within
   if not Github.is_commit(base) then
-    said = "no base to find the run ahead by: the restore's verdicts alone."
+    said = "no base to find the run ahead by: nothing taken from the run ahead."
   elseif host.moved(base) then
-    said = "build/harness_epoch.tl moved from " .. base .. "'s: every test runs (--all), and stands on no verdict."
+    said = "build/harness_epoch.tl moved from " .. base .. "'s: nothing taken from the run ahead; a suite runs every test (--all)."
   end
   while said == "" do
     -- At most three calls a round, each cut off at CALL_SECONDS.
@@ -324,7 +359,7 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
         end
       end
       if run == "" then
-        said = base .. " is no merge queue run's head: the restore's verdicts alone."
+        said = base .. " is no merge queue run's head: nothing taken from the run ahead."
       end
     else
       pending = true
@@ -334,17 +369,17 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
       local names = listed and artifact_names(listed) or nil
       if names == nil then
         pending = true
-      elseif names[artifact] then
+      elseif names[artifact] == true then
         found = run
       elseif status == "completed" then
-        said = "the run ahead, " .. run .. ", completed without " .. artifact .. ": the restore's verdicts alone."
+        said = "the run ahead, " .. run .. ", completed without " .. artifact .. ": nothing taken from the run ahead."
       else
         local answered = Github.ask(host, run_path(s, run, "jobs"), false, s.call)
         local jobs = answered and jobs_of(answered, suite) or nil
         if jobs == nil then
           pending = true
         else
-          local mine: Job | nil = nil
+          local mine: Job? = nil
           for _, candidate in ipairs(jobs) do
             if candidate.name == job then
               mine = candidate
@@ -353,21 +388,22 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
           end
           if mine ~= nil and mine.status == "completed" then
             said = job .. " of the run ahead, " .. run .. ", completed without " .. artifact ..
-              ": the restore's verdicts alone."
+              ": nothing taken from the run ahead."
           else
             pending = true
             -- A job with none listed has not started: nor reached its suite.
             local reached = mine ~= nil and mine.reached
-            local started = mine ~= nil and mine.started or nil
+            local started: integer? = nil
+            if mine ~= nil then started = mine.started end
             if suite ~= "" and not reached then
               said = job .. " of the run ahead, " .. run .. ", has not begun '" .. suite ..
-                "' (not started, building, or waiting on its own run ahead): the restore's verdicts alone."
+                "' (not started, building, or waiting on its own run ahead): nothing taken from the run ahead."
             elseif ready ~= nil then
               if started == nil then
-                said = job .. " of the run ahead, " .. run .. ", has not started: the restore's verdicts alone."
+                said = job .. " of the run ahead, " .. run .. ", has not started: nothing taken from the run ahead."
               elseif started + ready > deadline then
                 said = job .. " of the run ahead, " .. run .. ", keeps " .. artifact ..
-                  " only after the wait: the restore's verdicts alone."
+                  " only after the wait: nothing taken from the run ahead."
               end
             end
           end
@@ -379,9 +415,9 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
   end
   host.output("run=" .. found)
   if found ~= "" then
-    said = "the run ahead, " .. found .. ", holds " .. artifact .. ": this run takes its verdicts."
+    said = "the run ahead, " .. found .. ", holds " .. artifact .. ": this run takes it."
   elseif said == "" then
-    said = "the run ahead of " .. base .. " left no " .. artifact .. " in time: the restore's verdicts alone."
+    said = "the run ahead of " .. base .. " left no " .. artifact .. " in time: nothing taken from the run ahead."
   end
   Github.say(host, said)
   return 0

@@ -1,15 +1,16 @@
 --- Turns a markdown doc's fenced code-block examples into one Teal
---- source string, per doc/meta.md's grammar. The result is the source of
---- an ordinary `kind = "test"` module: [`build.compilation.collect`]
---- treats it like a hand-written `_test.tl`. [`build.analyzer.analyze`]
+--- source string, per doc/writing.md's grammar. The result is the source of
+--- an ordinary `kind = "test"` module: [`build.plans`]'s `collect`
+--- treats it like a hand-written `_test.tl`. [`build.syntax_analyzer`]'s `analysis_of`
 --- discovers its tests and [`build.test`] runs them. Nothing
---- here runs a test, discovers one, or records a verdict: doc/meta.md
+--- here runs a test, discovers one, or records a verdict: doc/writing.md
 --- says a doc needs no doctest machinery of its own.
 local markdown = require("build.doctest.markdown")
 local generate = require("build.doctest.generate")
 
 local record doctest
   type Entry = generate.Entry
+  type Block = markdown.Block
 end
 
 --- @param source string the doc's own markdown text
@@ -19,9 +20,9 @@ end
 ---   prefixes with `file` the same way it does for every other input
 --- @return string | nil generated Teal source, or nil on a grammar
 ---   error -- an unterminated fence, an unknown tag, or
----   a block ordering the grammar in doc/meta.md does not allow
+---   a block ordering the grammar in doc/writing.md does not allow
 --- @return string why, naming the source line the trouble sits at
-function doctest.extract(source: string, file: string): string | nil, string
+function doctest.extract(source: string, file: string): string?, string
   local blocks, block_trouble = markdown.parse_blocks(source)
   if blocks == nil then
     return nil, block_trouble
@@ -34,12 +35,21 @@ end
 --- @param source string the doc's own markdown text
 --- @return {generate.Entry} | nil nil on a grammar error, as `extract`
 --- @return string why
-function doctest.entries(source: string): {generate.Entry} | nil, string
+function doctest.entries(source: string): {generate.Entry}?, string
   local blocks, block_trouble = markdown.parse_blocks(source)
   if blocks == nil then
     return nil, block_trouble
   end
   return generate.entries(blocks)
+end
+
+--- The fenced blocks of a doc, in document order, each with the line of its opening fence: what a tool that rewrites a
+--- block in place needs, and what `extract` and `entries` read.
+--- @param source string the doc's own markdown text
+--- @return {markdown.Block} | nil nil on a grammar error, as `extract`
+--- @return string why
+function doctest.blocks(source: string): {markdown.Block}?, string
+  return markdown.parse_blocks(source)
 end
 
 return doctest

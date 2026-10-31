@@ -5,6 +5,7 @@
 --- refusal is the argument check's, on every platform, and starts no
 --- child, so it needs no sandbox.
 
+local RawTables = require("build.raw_tables")
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
 local stand_in = require("build.stand_in")
@@ -16,18 +17,7 @@ local type _ = require("cosmic.child")
 --- test's own directory and never started.
 Test.policy{}
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 local function test_a_promise_no_one_keeps_is_refused_before_a_start(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
@@ -53,6 +43,6 @@ local function test_nest_is_a_promise_of_a_root_and_pid_namespace_of_its_own(tmp
     sandboxed.promises = { "nest" }
     local started, why = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
       sandboxed)
-    assert(not started and tostring(why):find("nest", 1, true), tostring(why))
+    assert(not started and tostring(why):find("nest", 1, true) ~= nil, tostring(why))
   end
 end

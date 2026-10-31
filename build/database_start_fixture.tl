@@ -25,9 +25,9 @@ local record database_start_fixture
   --- What a fixture database records of itself.
   record Made
     --- The program the database names as `main`; nil for none.
-    main: string
+    main?: string
     --- The digest of the core it was written for; nil for none.
-    core: string
+    core?: string
     --- Whether it carries the standard library modules its programs load.
     library: boolean
   end
@@ -49,11 +49,11 @@ end
 --- libraries this test does: [`Store.requires`] and [`Store.bytecode`]
 --- answer for a module this test's closure holds.
 local function closure(roots: {string}): {Module}, {string:string}
-  local found: {Module} = {}
-  local bytecode: {string:string} = {}
-  local seen: {string:boolean} = {}
+  local found: mut {Module} = {}
+  local bytecode: mut {string:string} = {}
+  local seen: mut {string:boolean} = {}
   local function visit(name: string)
-    if seen[name] then return end
+    if seen[name] == true then return end
     seen[name] = true
     local code, _ = Store.bytecode(name)
     if code == nil then return end
@@ -74,8 +74,8 @@ function database_start_fixture.write_database(path: string, modules: {Module}, 
   local _, _ = Fs.remove(path)
   local db = assert(Sqlite.open(path, { writable = true }))
   for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
-  local rows: {Module} = {}
-  local bytecode: {string:string} = {}
+  local rows: mut {Module} = {}
+  local bytecode: mut {string:string} = {}
   if made.library then
     local library, codes = closure(LIBRARY)
     for _, module in ipairs(library) do rows[#rows + 1] = module end
@@ -95,9 +95,11 @@ function database_start_fixture.write_database(path: string, modules: {Module}, 
         { text(module.name), text(required) }))
     end
   end
-  local meta: {{string}} = { { "runtime_basis", "fixture-basis" } }
-  if made.main ~= nil then meta[#meta + 1] = { "main", made.main } end
-  if made.core ~= nil then meta[#meta + 1] = { "core_sha256", made.core } end
+  local meta: mut {{string}} = { { "runtime_basis", "fixture-basis" } }
+  local main = made.main
+  if main ~= nil then meta[#meta + 1] = { "main", main } end
+  local core = made.core
+  if core ~= nil then meta[#meta + 1] = { "core_sha256", core } end
   for _, pair in ipairs(meta) do
     assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES (?1, ?2)",
       { text(pair[1]), text(pair[2]) }))
@@ -113,7 +115,7 @@ end
 
 --- The core to start bare, or nil where this process has none to relaunch
 --- (a host program, which a bare core is not).
-function database_start_fixture.core_path(): string | nil
+function database_start_fixture.core_path(): string?
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return nil end
   return relaunch.argv[1]
@@ -135,7 +137,7 @@ end
 
 --- The program's output as the lines `name<TAB>value` it prints.
 function database_start_fixture.fields(output: string): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for line in output:gmatch("([^\n]*)\n") do
     local name, value = line:match("^([^\t]+)\t(.*)$")
     if name ~= nil then out[name] = value end

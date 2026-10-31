@@ -1,0 +1,28 @@
+file: ext/misc/csv.c
+note: csv.c reads a file 1024 bytes at a time and answers the first byte of each refill as a char, which is signed on x86: a 0xFF there is -1, which is EOF, so the field ends, the byte is lost and the rest of the line starts a new row, and a file that begins with 0xFF (a UTF-16LE byte order mark, or a Latin-1 y-umlaut) reads as empty. It also takes a failed read for the end of the file, so a directory or an I/O error reads as an empty or cut-short table. This answers the byte unsigned, and records a read error, which 16-csv-reports-what-the-reader-refuses.txt makes the statement's error. Upstream reads so as of 3.54.0.
+--- find
+  assert( p->in!=0 );        /* Only called if reading froma file */
+
+  got = fread(p->zIn, 1, CSV_INBUFSZ, p->in);
+  if( got==0 ) return EOF;
+  p->nIn = got;
+  p->iIn = 1;
+  return p->zIn[0];
+}
+
+/* Return the next character of input.  Return EOF at end of input. */
+--- replace
+  assert( p->in!=0 );        /* Only called if reading froma file */
+
+  got = fread(p->zIn, 1, CSV_INBUFSZ, p->in);
+  if( got==0 ){
+    if( ferror(p->in) ) csv_errmsg(p, "read error");
+    return EOF;
+  }
+  p->nIn = got;
+  p->iIn = 1;
+  return ((unsigned char*)p->zIn)[0];
+}
+
+/* Return the next character of input.  Return EOF at end of input. */
+--- end

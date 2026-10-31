@@ -23,9 +23,9 @@ local NUMBERS <const> = { 0, 1, 2, 64, 1024, -1 }
 local DIGESTS <const> = { string.rep("a", 64), string.rep("A", 64), "abc", string.rep("0", 63) }
 
 --- A list of up to `max` draws from `pool`, or nil for none.
-local function list(src: Fuzz.Source, pool: {string}, max: integer): {string} | nil
+local function list(src: Fuzz.Source, pool: {string}, max: integer): {string}?
   if src:int(0, 2) == 0 then return nil end
-  local out: {string} = {}
+  local out: mut {string} = {}
   while Fuzz.more(src, #out, max) do out[#out + 1] = Fuzz.pick(src, pool) end
   if #out == 0 then return nil end
   return out
@@ -42,7 +42,7 @@ local function gen_policy(src: Fuzz.Source): {string:any}
   fields.loopback = list(src, ADDRESSES, 3)
   fields.env = list(src, NAMES, 4)
   if src:int(0, 2) == 0 then
-    local grants: {{string:string}} = {}
+    local grants: mut {{string:string}} = {}
     while Fuzz.more(src, #grants, 4) do
       grants[#grants + 1] = { path = Fuzz.pick(src, PATHS), letters = Fuzz.pick(src, LETTERS),
         from = src:int(0, 3) == 0 and Fuzz.pick(src, PATHS) or nil }
@@ -50,7 +50,7 @@ local function gen_policy(src: Fuzz.Source): {string:any}
     if #grants > 0 then fields.grants = grants end
   end
   if src:int(0, 2) == 0 then
-    local set_env: {string:string} = {}
+    local set_env: mut {string:string} = {}
     while Fuzz.more(src, 0, 3) do set_env[Fuzz.pick(src, NAMES)] = Fuzz.pick(src, PATHS) end
     if next(set_env) ~= nil then fields.set_env = set_env end
   end
@@ -71,7 +71,7 @@ end
 local function gen_text(src: Fuzz.Source): string
   local kind = src:int(0, 5)
   if kind == 0 then return Fuzz.bytes(src, 64) end
-  local text = Json.encode(gen_policy(src)) or "{}"
+  local text = Json.encode_any(gen_policy(src)) or "{}"
   if kind <= 2 then return Fuzz.mutate(src, text, 3) end
   return text
 end

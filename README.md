@@ -11,13 +11,21 @@ database of compiled modules rather than reading files at run time.
 bin/zig build boot
 ```
 
-`boot` builds the cores it needs and stages the working database under `o/`.
+`boot` builds the host's core and stages the working database in the
+build directory, outside the checkout: `~/.cache/cosmic/trees/<key>`
+(under `$XDG_CACHE_HOME` when set), `<key>` the SHA-256 of the checkout's
+canonical path, or under the absolute base `COSMIC_BUILD_HOME` names
+([`build/paths.tl`]). [`bin/cosmic`] runs the tool built there, from any
+directory, and boots first if there is none; `bin/cosmic db` names its
+databases. The tool carries the host's core alone; `bin/zig build boot
+-Dboot-cores=all` builds every release core, which `cosmic build` needs to write a
+program that runs on every target.
 
 ## run a file
 
 ```sh
 echo 'print("hello from the database")' > hello.tl
-o/bin/cosmic hello.tl
+bin/cosmic hello.tl
 ```
 
 ```output
@@ -42,4 +50,7 @@ The tool documents itself, in a release binary too:
 
 what cosmic is for and how it is built lives in
 [doc/design.md](doc/design.md); how this documentation works, and what
-its examples promise, is [doc/meta.md](doc/meta.md).
+its examples promise, is [doc/writing.md](doc/writing.md).
+
+[`bin/cosmic`]: bin/cosmic
+[`build/paths.tl`]: build/paths.tl

@@ -23,6 +23,20 @@ function Example.get()
   assert(got.status == 200 and got.body == '{"ok":true}', got.body)
 end
 
+--- A status that is not 2xx, checked by hand: the call succeeds, since
+--- the server answered, and hands back the body the server sent with
+--- its 404. `assert` on the call refuses only a request that got no
+--- answer at all. A real call leaves `script` out:
+--- `Http.get("https://example.com/missing")`.
+function Example.status()
+  local reply = "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n" ..
+    "Connection: close\r\n\r\nno widget"
+  local got = assert(Http.get("http://example.test/missing", { script = { reply } }))
+  local found = got.status // 100 == 2
+  print(got.status, found, got.body)
+  assert(not found and got.status == 404 and got.body == "no widget", got.body)
+end
+
 --- Any method, its response read whole: a PUT with a body, then a
 --- DELETE. The method is the first argument, case-sensitive as HTTP's
 --- are. A real call leaves `script` out:

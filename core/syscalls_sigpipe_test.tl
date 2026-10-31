@@ -4,22 +4,11 @@
 --- started so. core/syscalls_test.tl reads the same from Linux's
 --- /proc/self/status, which macOS has none of.
 
+local RawTables = require("build.raw_tables")
 local sys = require("cosmic.sys")
 local stand_in = require("build.stand_in")
 
-local type raw_process = require("cosmic.internal.process")
-local type Searcher = function(string): any, any
-
---- The raw process table `require` hands [`cosmic.child`]'s loader.
-local function raw_behind_child(): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error("cosmic.child is handed no raw table")
-end
-
-local process = raw_behind_child() as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 --- How a stand-in program (build/stand_in.tl) ends writing to a pipe no
 --- one reads, handed as its descriptor 3: the signal that ended it, or

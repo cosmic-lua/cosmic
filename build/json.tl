@@ -13,11 +13,9 @@
 --- lookup and no query language, and `grep` over `--flat` does what they
 --- would.
 ---
---- Like the other bare verbs (build/bare.tl) it ends in no verdict line.
---- Its standard output is data for a pipe or a `$(...)`, and a line of
---- its own after the value would be in that data; `cosmic sql` puts its
---- verdict last, for a reader to drop, but a JSON value has no line to
---- drop. Its exit status is the verdict: 0 found, 1 the path is not
+--- Like the other bare verbs (build/bare.tl) it prints no summary: its
+--- standard output is data for a pipe or a `$(...)`, and what it found is
+--- the value itself. Its exit status says how it went: 0 found, 1 the path is not
 --- there, 2 a command line, a file or a text it cannot read. Complaints
 --- go to standard error, as every verb's do, a missing place named by
 --- its JSON Pointer as [`Json.get`] names it. Its `spec`
@@ -49,7 +47,7 @@ local record verb
     --- Writes one complaint line, without its newline.
     err: function(line: string)
     --- The whole of standard input, or nil and why.
-    stdin: function(): string | nil, string
+    stdin: function(): string?, string
   end
 
   --- What a command line asks for.
@@ -60,7 +58,7 @@ local record verb
     --- Whether the query names one value at most: no `*` and no `..`.
     singular: boolean
     --- The file to read; nil for standard input.
-    file: string | nil
+    file?: string
     --- Whether the file is a lone word that reads like a path of
     --- another language than JSONPath (`.users`, `[0]`), for a hint
     --- when there is no such file.
@@ -72,7 +70,7 @@ local record verb
   end
 end
 
-local spec = Cli.verbs.json.spec
+local spec = Cli.verbs.json.spec or {}
 
 local usage = "cosmic json [--flat | --exists | --keys | --shape | --compact | -r] [--] [<path>] [<file>|-]" ..
   "; a file whose name begins with $ is written ./name, or follows --"
@@ -93,12 +91,12 @@ local function plain(why: string): string
 end
 
 --- What `argv` asks for, or nil and why it is refused.
-local function arguments(argv: {integer:string}): verb.Request | nil, string
+local function arguments(argv: {string}): verb.Request?, string
   local parsed, trouble = Flags.parse(argv, 2, spec)
   if parsed == nil then return nil, trouble end
-  local modes: {string} = {}
+  local modes: mut {string} = {}
   for _, name in ipairs({ "exists", "keys", "shape", "flat" }) do
-    if parsed.set["--" .. name] then modes[#modes + 1] = "--" .. name end
+    if parsed.set["--" .. name] == true then modes[#modes + 1] = "--" .. name end
   end
   if #modes > 1 then
     return nil, "name one of " .. table.concat(modes, " and ") .. ", not both"
@@ -106,8 +104,8 @@ local function arguments(argv: {integer:string}): verb.Request | nil, string
   local raw = parsed.set["-r"] or parsed.set["--raw"] or false
   local compact = parsed.set["--compact"] or false
   if #modes == 1 and (raw or compact) then
-    return nil, (raw and "--raw" or "--compact") .. " shapes a printed value, which " ..
-      modes[1] .. (modes[1] == "--flat" and " prints in one form" or " does not print")
+    return nil, (if raw then "--raw" else "--compact" end) .. " shapes a printed value, which " ..
+      modes[1] .. (if modes[1] == "--flat" then " prints in one form" else " does not print" end)
   end
   local words = parsed.words
   -- No option of this verb takes a value, so the first `--` is the one
@@ -116,10 +114,11 @@ local function arguments(argv: {integer:string}): verb.Request | nil, string
   -- when it comes after the `--`.
   local before = 0
   local slot = 2
-  while argv[slot] ~= nil and argv[slot] ~= "--" do
-    local word = argv[slot]
-    if word == "-" or word:sub(1, 1) ~= "-" then before = before + 1 end
+  local seen = argv[slot]
+  while seen ~= nil and seen ~= "--" do
+    if seen == "-" or seen:sub(1, 1) ~= "-" then before = before + 1 end
     slot = slot + 1
+    seen = argv[slot]
   end
   local after_dashes = argv[slot] == "--" and before == 0
   local request: verb.Request = {
@@ -127,7 +126,7 @@ local function arguments(argv: {integer:string}): verb.Request | nil, string
     compact = compact, raw = raw,
   }
   if #modes == 1 then request.mode = modes[1]:sub(3) end
-  local path: string | nil
+  local path: string?
   if #words == 2 then
     path, request.file = words[1], words[2]
   elseif #words == 1 then
@@ -141,8 +140,9 @@ local function arguments(argv: {integer:string}): verb.Request | nil, string
   elseif #words > 2 then
     return nil, "give a path and a file at most, not " .. plural.count(#words, "word")
   end
-  if request.file == "" then return nil, bare.empty_file end
-  if request.file == "-" then request.file = nil end
+  local file = request.file
+  if file == "" then return nil, bare.empty_file end
+  if file == "-" then request.file = nil end
   if path ~= nil then
     local query, why = Json.query(path)
     if query == nil then return nil, plain(why) end
@@ -166,12 +166,12 @@ end
 
 --- What `--keys` prints for `value`: an object's keys, sorted, one per
 --- line, or an array's length; nil and why when it is neither.
-local function keys_of(value: any): string | nil, string
+local function keys_of(value: any): string?, string
   if value is {any:any} then
     local layout = Json.layout(value)
-    if layout == "array" then return rawlen(value) .. "\n", "" end
+    if layout == "array" then return tostring(rawlen(value)) .. "\n", "" end
     if layout == "object" then
-      local names: {string} = {}
+      local names: mut {string} = {}
       for key in pairs(value) do
         if key is string then names[#names + 1] = key end
       end
@@ -185,7 +185,7 @@ end
 
 --- The bytes of standard input, refusing a terminal, where nothing
 --- would ever end them.
-local function read_stdin(): string | nil, string
+local function read_stdin(): string?, string
   return bare.stdin_text("no file given and standard input is a terminal; give a file " ..
       "(written ./name, or after --, when its name begins with $), or pipe JSON in")
 end
@@ -200,13 +200,13 @@ local standard: verb.Io = {
 --- as `$..*..a` reaches one value by more than one way, and RFC 9535
 --- lists it once for each.
 local function distinct(found: {Json.Match}): {Json.Match}
-  local seen: {string:boolean} = {}
-  local kept: {Json.Match} = {}
-  for _, match in ipairs(found) do
-    local pointer = assert(Json.pointer(match.steps))
-    if not seen[pointer] then
+  local seen: mut {string:boolean} = {}
+  local kept: mut {Json.Match} = {}
+  for _, hit in ipairs(found) do
+    local pointer = assert(Json.pointer(hit.steps))
+    if seen[pointer] ~= true then
       seen[pointer] = true
-      kept[#kept + 1] = match
+      kept[#kept + 1] = hit
     end
   end
   return kept
@@ -218,22 +218,23 @@ end
 --- `$..*`). A pointer's prefixes ending before a `/` are its ancestors',
 --- since a name's own `/` is written `~1`.
 local function outermost(found: {Json.Match}): {Json.Match}
-  local pointers: {string} = {}
-  local matched: {string:boolean} = {}
-  for i, match in ipairs(found) do
-    pointers[i] = assert(Json.pointer(match.steps))
-    matched[pointers[i]] = true
+  local pointers: mut {string} = {}
+  local matched: mut {string:boolean} = {}
+  for i, hit in ipairs(found) do
+    local pointer = assert(Json.pointer(hit.steps))
+    pointers[i] = pointer
+    matched[pointer] = true
   end
-  local kept: {Json.Match} = {}
-  for i, match in ipairs(found) do
-    local pointer = pointers[i]
-    local inside = pointer ~= "" and matched[""]
+  local kept: mut {Json.Match} = {}
+  for i, hit in ipairs(found) do
+    local pointer = assert(pointers[i], "each hit was given its pointer")
+    local inside = pointer ~= "" and matched[""] == true
     local slash = pointer:find("/", 2, true)
     while not inside and slash ~= nil do
-      inside = matched[pointer:sub(1, slash - 1)]
+      inside = matched[pointer:sub(1, slash - 1)] == true
       slash = pointer:find("/", slash + 1, true)
     end
-    if not inside then kept[#kept + 1] = match end
+    if not inside then kept[#kept + 1] = hit end
   end
   return kept
 end
@@ -244,7 +245,7 @@ end
 --- text it cannot read.
 --- @param argv the command line, `json` at slot 1
 --- @param io where the text is read and written; the process's own when nil
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("json", to.err)
   local function written(ok: boolean, why: string): integer
@@ -256,18 +257,19 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return bare.refused
   end
   local request: verb.Request = parsed
-  local text: string | nil
+  local text: string?
   local read_trouble: string
-  if request.file == nil then
+  local file = request.file
+  if file == nil then
     text, read_trouble = to.stdin()
   else
-    text, read_trouble = Fs.read(request.file)
+    text, read_trouble = Fs.read(file)
   end
   if text == nil then
     local named = request.file
     if request.pathlike and named ~= nil then
       local there, _ = Fs.exists(named)
-      if not there then read_trouble = read_trouble .. "; a path starts with `$`" end
+      if there ~= true then read_trouble = read_trouble .. "; a path starts with `$`" end
     end
     complain(read_trouble)
     return bare.refused
@@ -287,20 +289,20 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   -- line per leaf or match; `-r` prints the matches as their text, one
   -- to a line.
   local function print_lines(found: {Json.Match}, as_text: boolean): integer
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, item in ipairs(found) do
-      local line: string | nil
-      local why: string
+      local line: string?
+      local why: string?
       local leaf = item.value
       if as_text and leaf is string then
         line = leaf
       elseif as_text then
-        line, why = Json.encode(leaf)
+        line, why = Json.encode_any(leaf)
       else
         line, why = json_query.flat_line(item.steps, leaf)
       end
       if line == nil then
-        complain(plain(why))
+        complain(plain(why or ""))
         return bare.failed
       end
       lines[#lines + 1] = line
@@ -310,9 +312,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   -- The leaves under each of `found`, in its order.
   local function flattened(found: {Json.Match}): integer
-    local leaves: {Json.Match} = {}
-    for _, match in ipairs(found) do
-      local under, why = json_query.flatten(match.value, { max_depth = Json.depth_limit, root = match.steps })
+    local leaves: mut {Json.Match} = {}
+    for _, hit in ipairs(found) do
+      local under, why = json_query.flatten(hit.value, { max_depth = Json.depth_limit, root = hit.steps })
       if under == nil then
         complain(why)
         return bare.refused
@@ -336,9 +338,10 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       local steps: Json.Steps = {}
       for i, segment in ipairs(request.query.segments) do
         if segment.kind == "name" then
-          steps[i] = segment.name
+          steps[i] = assert(segment.name, "a name segment names one")
         else
-          steps[i] = segment.index >= 0 and segment.index + 1 or segment.index
+          local index = assert(segment.index)
+          steps[i] = if index >= 0 then index + 1 else index end
         end
       end
       local _, missing = Json.get(document, steps)
@@ -368,7 +371,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   if request.raw and value is string then
     return written(to.out(value .. "\n"))
   end
-  local encoded, encode_trouble = Json.encode(value, { pretty = not request.compact })
+  local encoded, encode_trouble = Json.encode_any(value, { pretty = not request.compact })
   if encoded == nil then
     complain(place .. ": " .. plain(encode_trouble))
     return bare.failed
@@ -382,7 +385,7 @@ verb.spec = {
   name = "json",
   guide = "a quick question about a JSON file",
   tests = { "build.json_test", "build.json_tool_test", "build.json_query_test" },
-  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a path and a file",
   exits = "`json` prints its value and nothing after, for a pipe, and exits 0 when it found the path, 1 when the path is not there, 2 for a command line or a text it refused.",

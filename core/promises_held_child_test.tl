@@ -7,6 +7,7 @@
 --- Landlock they are skipped (`requires`). The filter's own rules, on both
 --- architectures, are core/promises_test.tl's.
 
+local RawTables = require("build.raw_tables")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Test = require("cosmic.test")
@@ -34,18 +35,7 @@ Test.policy{
   requires = { "landlock", "nest" },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 --- What a script left on stdout and stderr, and how its program ended.
 local record Outcome
@@ -80,7 +70,7 @@ local function in_sandbox(tmp: string, probe: string, sandbox: raw_process.Sandb
     sys.close(output)
     Test.skip("this host gives no such sandbox: " .. tostring(trouble))
   end
-  local status = assert(process.waitpid(pid, false))
+  local status = assert(process.waitpid(assert(pid), false))
   sys.close(output)
   return { code = status.code, signal = status.signal, said = (Fs.read(path)) or "" }
 end
@@ -94,7 +84,7 @@ local function test_a_child_in_a_user_namespace_of_its_own_sets_its_own_limits(t
   assert(lowers.code == 0 and lowers.said == "set\nnofile 64 64\n", "it lowers them: " .. lowers.said)
   local raises = in_sandbox(tmp, probe, { promises = {}, offline = true },
     "setrlimit nofile 64; setrlimit nofile 128")
-  assert(raises.code == 1 and raises.said:find("not permitted", 1, true), "it raises none: " .. raises.said)
+  assert(raises.code == 1 and raises.said:find("not permitted", 1, true) ~= nil, "it raises none: " .. raises.said)
 end
 
 local function test_a_child_asks_after_any_pid_only_in_a_pid_namespace_of_its_own(tmp: string)
@@ -104,7 +94,7 @@ local function test_a_child_asks_after_any_pid_only_in_a_pid_namespace_of_its_ow
     "getpgid 1")
   assert(own.code == 0 and own.said:find("pgid ", 1, true) == 1, "pid 1 is its own: " .. own.said)
   local host = under(tmp, probe, "getpgid 1")
-  assert(host.code == 1 and host.said:find("not permitted", 1, true),
+  assert(host.code == 1 and host.said:find("not permitted", 1, true) ~= nil,
     "in the host's, no pid but its own: " .. host.said)
   local itself = under(tmp, probe, "getpgid 0")
   assert(itself.code == 0, itself.said)
@@ -121,7 +111,10 @@ end
 
 local function test_a_unix_socket_is_made_only_where_the_root_the_network_and_landlock_hold_it(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
+  if abi == nil then
+    Test.skip("no Landlock here: " .. tostring(trouble))
+    return
+  end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local script = "connect /none.sock"
   local held = in_sandbox(tmp, probe, rooted(probe, true), script)
@@ -148,8 +141,9 @@ end
 --- `shown`, files or directories of the host, at their own names.
 local function rooted_with(probe: string, shown: {string}): raw_process.Sandbox
   local sandbox = rooted(probe, true)
-  for _, path in ipairs(shown) do sandbox.unveil.reads[#sandbox.unveil.reads + 1] = path end
-  sandbox.unveil.tmp = 1 << 20
+  local unveil = assert(sandbox.unveil)
+  for _, path in ipairs(shown) do unveil.reads[#unveil.reads + 1] = path end
+  unveil.tmp = 1 << 20
   return sandbox
 end
 
@@ -169,7 +163,10 @@ end
 
 local function test_a_root_of_its_own_tmpfs_alone_makes_a_unix_socket_there(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
+  if abi == nil then
+    Test.skip("no Landlock here: " .. tostring(trouble))
+    return
+  end
   if unix_socket.skipped(tmp) then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   -- What it makes in its own /tmp it also reaches there, whatever Landlock's ABI.
@@ -226,7 +223,10 @@ end
 
 local function test_a_root_that_shows_a_directory_of_the_host_is_held_by_landlock_alone(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
+  if abi == nil then
+    Test.skip("no Landlock here: " .. tostring(trouble))
+    return
+  end
   if unix_socket.skipped(tmp) then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
@@ -243,7 +243,10 @@ end
 
 local function test_a_socket_file_in_the_root_is_not_held_below_abi_9(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
+  if abi == nil then
+    Test.skip("no Landlock here: " .. tostring(trouble))
+    return
+  end
   if unix_socket.skipped(tmp) then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
@@ -260,7 +263,10 @@ local O_PATH <const> = 2097152
 
 local function test_a_descriptor_that_opens_a_directory_or_a_socket_is_not_held_below_abi_9(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
+  if abi == nil then
+    Test.skip("no Landlock here: " .. tostring(trouble))
+    return
+  end
   if unix_socket.skipped(tmp) then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
@@ -274,11 +280,14 @@ local function test_a_descriptor_that_opens_a_directory_or_a_socket_is_not_held_
   -- an O_PATH descriptor of a socket file is a way to connect to it.
   local directory = assert(sys.open(tmp .. "/socks", sys.O_RDONLY))
   local named = assert(sys.open(socket, O_PATH))
-  local ways: {{integer | string}} = { { directory, "/proc/self/fd/3/host.sock" },
-    { named, "/proc/self/fd/3" } }
+  local record Way
+    fd: integer
+    path: string
+  end
+  local ways: {Way} = { { fd = directory, path = "/proc/self/fd/3/host.sock" },
+    { fd = named, path = "/proc/self/fd/3" } }
   for _, way in ipairs(ways) do
-    local result = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect " .. (way[2] as string),
-      { [3] = way[1] as integer })
+    local result = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect " .. way.path, { [3] = way.fd })
     assert(result.said ~= "connected\n", "not reached: " .. result.said)
     if abi < 9 then
       assert(refused(result.said), "socket() refused below ABI 9: " .. result.said)
@@ -290,19 +299,25 @@ local function test_a_descriptor_that_opens_a_directory_or_a_socket_is_not_held_
 end
 
 --- Starts `sandbox` with the stand-in, with no script of weight: the pid,
---- or nil and why the start failed.
-local function start(probe: string, sandbox: raw_process.Sandbox): integer | nil, string
+--- or nil and why the start failed (empty text beside a pid).
+local function start(probe: string, sandbox: raw_process.Sandbox): integer?, string
   local null = assert(sys.open("/dev/null", sys.O_RDWR))
   local pid, trouble = process.spawn(probe, { probe, "print started" }, nil, "/", nil, null, null, false,
     nil, sandbox)
   sys.close(null)
-  if pid ~= nil then assert(process.waitpid(pid, false)) end
-  return pid, trouble
+  if pid == nil then return nil, trouble end
+  assert(process.waitpid(pid, false))
+  return pid, ""
 end
 
 local function test_a_unix_socket_below_abi_9_fails_a_start_that_binds_a_directory(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
+  if abi == nil then
+    Test.skip("no Landlock here: " .. tostring(trouble))
+    return
+  end
+  -- Read before the local function below, after which the checker no longer knows `abi` is set.
+  local below_abi_9 = abi < 9
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(Fs.mkdirs(tmp .. "/socks") and Fs.write(tmp .. "/u.file", "x"))
   -- A `u` grant allows unix sockets (the start's `sockets`), so the root alone must
@@ -312,14 +327,15 @@ local function test_a_unix_socket_below_abi_9_fails_a_start_that_binds_a_directo
     local sandbox = rooted_with(probe, shown)
     sandbox.sockets = { "unix" }
     sandbox.grants = { { path = probe, access = "rx" }, { path = tmp .. "/u.file", access = "u" } }
-    sandbox.unveil.reads[#sandbox.unveil.reads + 1] = tmp .. "/u.file"
+    local reads = assert(sandbox.unveil).reads
+    reads[#reads + 1] = tmp .. "/u.file"
     return sandbox
   end
   local pid, why = start(probe, with_u({}))
   if pid == nil then Test.skip("no such sandbox: " .. tostring(why)) end
   local shown, refusal = start(probe, with_u({ tmp .. "/socks" }))
-  if abi < 9 then
-    assert(shown == nil and tostring(refusal):find("changed kind", 1, true), "refused: " .. tostring(refusal))
+  if below_abi_9 then
+    assert(shown == nil and tostring(refusal):find("changed kind", 1, true) ~= nil, "refused: " .. tostring(refusal))
   else
     assert(shown ~= nil, "Landlock holds it from ABI 9: " .. tostring(refusal))
   end
@@ -327,7 +343,10 @@ end
 
 local function test_a_path_swapped_for_a_directory_after_the_check_fails_the_start(tmp: string)
   local abi, trouble = process.landlock_abi()
-  if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
+  if abi == nil then
+    Test.skip("no Landlock here: " .. tostring(trouble))
+    return
+  end
   if abi >= 9 then return end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(Fs.write(tmp .. "/swap-a", "x") and Fs.mkdirs(tmp .. "/swap-b"))
@@ -349,7 +368,7 @@ local function test_a_path_swapped_for_a_directory_after_the_check_fails_the_sta
   local caught = false
   for _ = 1, 1500 do
     local pid, why = start(probe, rooted_with(probe, { tmp .. "/swap-a" }))
-    if pid == nil and tostring(why):find("changed kind", 1, true) then
+    if pid == nil and tostring(why):find("changed kind", 1, true) ~= nil then
       caught = true
       break
     end

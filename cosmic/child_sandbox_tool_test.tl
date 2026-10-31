@@ -12,30 +12,31 @@ local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
+local child_lua_fixture = require("build.child_lua_fixture")
 local child_tool_fixture = require("build.child_tool_fixture")
 
 --- The same as cosmic/child_tool_test.tl reads: the program itself
 --- (`tool`), started past its launcher, `/proc`, and `nests`, for a child
 --- sandboxed in a root of its own.
 Test.policy{
-  profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
+  profiles = { "cosmic", "proc" },
+  grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },
   requires = { "sandbox" },
 }
 
 --- This program again, past its launcher ([`this_program.program`]),
---- running the Lua chunk `chunk` with `args` as its `...`: the child
+--- running the Teal chunk `chunk` with `args` as its `...`: the child
 --- each test starts, where a shell would need the system's. The argv
 --- and options, for [`Child.run`] or [`Child.start`].
 local function lua(chunk: string, args?: {string}, opts?: Child.Options): {string}, Child.Options
-  local words: {string} = { "-e", chunk }
+  local words: mut {string} = { "-e", chunk }
   for _, word in ipairs(args or {}) do words[#words + 1] = word end
   local started = this_program.program(words, opts)
   return started.argv, started.options
 end
 
-local sleeping, AGAIN = child_tool_fixture.sleeping, child_tool_fixture.AGAIN
+local sleeping, AGAIN = child_tool_fixture.sleeping, child_lua_fixture.AGAIN
 
 --- Chunk prefixes: cosmic.fs as `Fs`, cosmic.sys as `sys`.
 local FS <const> = 'local Fs = require("cosmic.fs") '
@@ -78,11 +79,12 @@ local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
   reads[#reads + 1] = "/proc"
   reads[#reads + 1] = "/dev/null"
   local r, trouble = Child.run(lua(AGAIN .. FS .. SYS .. 'local hidden, given = ... ' ..
+      'if hidden == nil or given == nil then return 2 end ' ..
       'Fs.put(1, assert(Fs.read("f")) .. "\\n" .. assert(sys.getcwd()) .. "\\n" .. ' ..
-      '(Fs.exists(hidden) == true and "hidden-seen" or "hidden-absent") .. "\\n") ' ..
-      'local own = assert(again("return require(\'cosmic.fs\').exists(" .. ' ..
-      'string.format("%q", given) .. ") == true and 0 or 1"):wait()) ' ..
-      'Fs.put(1, (own.code == 0 and "own-name" or "no-own-name") .. "\\n")', { hidden, given },
+      '(if Fs.exists(hidden) == true then "hidden-seen" else "hidden-absent" end) .. "\\n") ' ..
+      'local own = assert(again("if require(\'cosmic.fs\').exists(" .. ' ..
+      'string.format("%q", given) .. ") == true then return 0 end return 1"):wait()) ' ..
+      'Fs.put(1, (if own.code == 0 then "own-name" else "no-own-name" end) .. "\\n")', { hidden, given },
     { cwd = "/given", stdout = "capture", stderr = "stdout",
       sandbox = { unveil = { reads = reads, at = { [given] = "/given" } }, offline = true } }))
   if r == nil then

@@ -1,0 +1,30 @@
+file: ext/misc/csv.c
+note: The reader's messages for a stray quote and an unterminated quoted field print a 64-bit line count with %d, count lines from 0, and end one message with a line break. This prints it with %lld, counting from 1, without the line break. They reach the caller through 16-csv-reports-what-the-reader-refuses.txt. A stray quote also ends the record, as an unterminated field does, so the scan reports it rather than reading on into the next field and reporting what it finds there. With header=yes, lines count from the first record after the header. Upstream prints them so as of 3.54.0.
+--- find
+          break;
+        }
+        if( pc=='"' && c!='\r' ){
+          csv_errmsg(p, "line %d: unescaped %c character", p->nLine, '"');
+          break;
+        }
+        if( c==EOF ){
+          csv_errmsg(p, "line %d: unterminated %c-quoted field\n",
+                     startLine, '"');
+          p->cTerm = (char)c;
+          break;
+        }
+--- replace
+          break;
+        }
+        if( pc=='"' && c!='\r' ){
+          csv_errmsg(p, "line %lld: unescaped %c character", p->nLine+1, '"');
+          p->cTerm = EOF;
+          break;
+        }
+        if( c==EOF ){
+          csv_errmsg(p, "line %lld: unterminated %c-quoted field",
+                     startLine+1, '"');
+          p->cTerm = (char)c;
+          break;
+        }
+--- end

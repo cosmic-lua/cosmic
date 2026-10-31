@@ -6,11 +6,12 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Net = require("cosmic.net")
+local _ = require("cosmic.net") -- in the closure: the scripts require it
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
+local Udp = require("build.udp_fixture")
 local _ = require("build.standalone")
 
 --- The program itself, which runs the lookup; a loopback alone answers.
@@ -43,7 +44,7 @@ end
 
 --- The name and type a query asks, or nil for a message that is none.
 local function question(query: string): string, integer, integer
-  local labels: {string} = {}
+  local labels: mut {string} = {}
   local at = 13
   while true do
     local size = query:byte(at)
@@ -60,7 +61,7 @@ end
 local function response(query: string, reply: Reply, question_end: integer): string
   local id = string.unpack(">I2", query)
   local records = reply.records
-  local parts: {string} = {
+  local parts: mut {string} = {
     string.pack(">I2I2I2I2I2I2", id, 0x8180 | reply.rcode, 1, #records, 0, 0),
     query:sub(13, question_end),
   }
@@ -77,16 +78,18 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 return function(argv: {string}): integer
-  local opts: Net.ResolveOptions = { timeout_ns = Clock.ms(assert(math.tointeger(argv[3]))) }
-  if argv[2] ~= "" then
-    opts.servers = { Net.udp("127.0.0.1", assert(math.tointeger(argv[2]))) }
+  local timeout_ns = Clock.ms(assert(math.tointeger(argv[3])))
+  local port = argv[2] or ""
+  local opts: Net.ResolveOptions = { timeout_ns = timeout_ns }
+  if port ~= "" then
+    opts = { timeout_ns = timeout_ns, servers = { { host = "127.0.0.1", port = assert(math.tointeger(port)) } } }
   end
-  local found, why = Net.resolve(argv[1], opts)
-  local lines: {string} = {}
+  local found, why = Net.resolve(argv[1] or "", opts)
+  local lines: mut {string} = {}
   for _, resolved in ipairs(found or {}) do lines[#lines + 1] = resolved.family .. " " .. resolved.address end
   table.sort(lines)
-  if found == nil then lines[1] = "error " .. why end
-  Fs.put(Fs.stdout, table.concat(lines, "\n"))
+  if found == nil then lines = { "error " .. why } end
+  local _, _ = Fs.put(Fs.stdout, table.concat(lines, "\n"))
   return 0
 end
 ]]
@@ -94,14 +97,14 @@ end
 --- The same under a guard that a SIGINT, sent once the server has seen
 --- a query, ends the wait of: prints what it answered.
 local GUARDED <const> = [[
-local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
+local Signal = require("cosmic.signal")
 return function(argv: {string}): integer
-  local guard = assert(Child.guard())
-  local found, why = Net.resolve(argv[1],
-    { servers = { Net.udp("127.0.0.1", assert(math.tointeger(argv[2]))) } })
-  Fs.put(Fs.stdout, found == nil and "error " .. why or "found")
+  local guard = assert(Signal.guard())
+  local found, why = Net.resolve(argv[1] or "",
+    { servers = { { host = "127.0.0.1", port = assert(math.tointeger(argv[2])) } } })
+  local _, _ = Fs.put(Fs.stdout, if found == nil then "error " .. why else "found" end)
   assert(guard:release())
   return 0
 end
@@ -111,40 +114,41 @@ end
 --- against a server that answers each query as `serve` says, and the
 --- "type name" of each query the server saw.
 local function lookup(tmp: string, name: string, timeout_ms: integer,
-                      serve: function(string, integer): Reply,
+                      serve: function(string, integer): Reply?,
                       guarded?: boolean): {string}, {string}
   local script = tmp .. "/resolve.tl"
   assert(Fs.write(script, guarded and GUARDED or SCRIPT))
-  local server <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0), { timeout_ns = Clock.ms(20) }))
+  local server <close> = assert(Udp.bind("127.0.0.1", 0))
   local started = this_program.program({ "--standalone", script, name,
     tostring(server.address.port), tostring(timeout_ms) },
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local child <close> = assert(Child.start(started.argv, started.options))
-  local seen: {string} = {}
-  local result: Child.Result
+  local seen: mut {string} = {}
+  local result: Child.Result?
   while result == nil do
     local state = assert(child:try_wait())
     if state.finished then
       result = state.result
     else
-      local packet, why = server:receive()
+      local packet, why = Udp.receive(server, Clock.ms(20))
       if packet ~= nil then
         local asked, qtype, question_end = question(packet.data)
         assert(asked ~= nil, "a malformed query")
-        seen[#seen + 1] = qtype .. " " .. asked
+        seen[#seen + 1] = tostring(qtype) .. " " .. asked
         if guarded and #seen == 1 then assert(child:stop(sys.SIGINT)) end
         local reply = serve(asked, qtype)
         if reply ~= nil then
-          assert(server:send(response(packet.data, reply, question_end), packet.address))
+          assert(Udp.send(server, response(packet.data, reply, question_end), packet.address))
         end
       else
         assert(why == Poll.TIMEOUT, why)
       end
     end
   end
-  assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
-  local lines: {string} = {}
-  for line in ((result.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+  local finished = assert(result)
+  assert(finished.code == 0, tostring(finished.code) .. " " .. tostring(finished.stderr))
+  local lines: mut {string} = {}
+  for line in ((finished.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
   table.sort(seen)
   return lines, seen
 end
@@ -194,7 +198,7 @@ local function test_a_failing_server_is_a_failure_not_an_answer(tmp: string)
 end
 
 local function test_a_server_that_never_answers_times_out(tmp: string)
-  local lines, seen = lookup(tmp, "silent.example.test", 400, function(): Reply return nil end)
+  local lines, seen = lookup(tmp, "silent.example.test", 400, function(): Reply? return nil end)
   assert(lines[1] == "error " .. Poll.TIMEOUT, lines[1])
   assert(#seen >= 1, "the server was never asked")
 end
@@ -208,6 +212,6 @@ local function test_one_family_failing_leaves_the_addresses_of_the_other(tmp: st
 end
 
 local function test_a_caught_signal_ends_a_lookup_that_waits(tmp: string)
-  local lines = lookup(tmp, "stalled.example.test", 20000, function(): Reply return nil end, true)
+  local lines = lookup(tmp, "stalled.example.test", 20000, function(): Reply? return nil end, true)
   assert(lines[1] == "error interrupted", lines[1])
 end

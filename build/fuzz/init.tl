@@ -47,6 +47,7 @@ local shrink = require("build.fuzz.shrink")
 local type Budget = require("cosmic.internal.budget")
 local String = require("cosmic.string")
 local Test = require("cosmic.test")
+local Globals = require("cosmic.internal.globals")
 
 --- The instruction budget, handed to this module only when it loads from
 --- the binary's own tree (core/store.c's `raw_modules`). It shares the
@@ -54,7 +55,8 @@ local Test = require("cosmic.test")
 --- Loaded any other way there is none, and a check that never ends is
 --- ended by the test runner's deadline instead.
 local extra: any = select(2, ...)
-local arm: function(count?: integer)
+local type Arm = function(count?: integer)
+local arm: Arm?
 if type(extra) == "table" then
   arm = (extra as Budget).budget
 end
@@ -70,6 +72,17 @@ local DEFAULT_ITERS <const> = 64
 --- VM instructions one check may spend: seconds of work even under
 --- coverage, far past what one parse of a small input should need.
 local DEFAULT_BUDGET <const> = 50000000
+
+--- How many times the budget a checked run (`cosmic test --check-types`)
+--- allows: the code it compiles spends instructions on its checks, the
+--- hook call at each narrowed read and typed boundary, that the budget is
+--- not meant to count. The "wide" corpus input of core/sqlite_functions_fuzz_test.tl's
+--- rtree property (40 rows) spends over 50M with them and under 100M.
+local CHECKED_BUDGET_FACTOR <const> = 4
+
+--- Reads the hook a checked run defines as a global, which a chunk reads,
+--- since it is no field of the checker's `_G`.
+local read_hook = assert(load("return __cosmic_tc", "=fuzz", "t", Globals.table()))
 
 --- How many candidate inputs shrinking may check before it reports the
 --- smallest failing one found so far.
@@ -109,39 +122,39 @@ local record Fuzz
     -- "kept at" paths below are gone once such a worker ends.
     --- The directory the input under test is kept in: a test's own
     --- temporary directory. Nothing is kept without one.
-    dir: string
+    dir?: string
     --- Iterations, in place of `FUZZ_ITERS`.
-    iters: integer
+    iters?: integer
     --- The most iterations `FUZZ_ITERS` may ask for, for a property whose
     --- every input costs a process or a file the size of a core: a deep
     --- run raises every other property's count, and this one's only to
     --- here.
-    max_iters: integer
+    max_iters?: integer
     --- VM instructions one check may spend.
-    budget: integer
+    budget?: integer
     --- The directory of inputs checked before any is drawn: failures
     --- found before, kept so they stay fixed. `testdata/fuzz/` and the
     --- property's name, slugged, by default; one that does not exist
     --- holds nothing.
-    corpus: string
+    corpus?: string
     --- One input to check in place of a run, as a report's `reproduce`
     --- line names it: `<property>:<case seed>`. `FUZZ_CASE` sets it for
     --- every property run, so it is for the one test file a report
     --- names: a property whose name it does not match checks nothing,
     --- its corpus included.
-    case: string
+    case?: string
     --- Labels (see `label`) at least one drawn input must reach, or the
     --- run fails: what the property is meant to exercise. Not held when
     --- `FUZZ_ITERS` asks for fewer inputs than the default 64, as
     --- reproducing one failure does.
-    requires: {string}
+    requires?: {string}
     --- The least share of the drawn inputs, above 0 and at most 1, that
     --- must reach each label named, held when `requires` is: for a
     --- property whose generator could come to reach what it exists to
     --- exercise rarely rather than never. Set it well under the share
     --- a run reaches, so that another seed does not fall under it by
     --- chance.
-    shares: {string: number}
+    shares?: {string: number}
   end
 end
 
@@ -151,31 +164,31 @@ local type Draw = shrink.Draw
 --- A value outside the range asked for is clamped to its lower end, and
 --- a draw past the end of `values` is its lower end, so any list of
 --- integers replays to some input.
-local function replaying(values: {integer}, draws: {Draw}): Fuzz.Source
-  local at = 0
-  local src: Fuzz.Source = {}
-  src.int = function(_self: Fuzz.Source, min: integer, max: integer): integer
-    if min > max then
-      error(("fuzz: int(%d, %d): min is greater than max"):format(min, max), 2)
-    end
-    at = at + 1
-    local v = values[at]
-    if v == nil or v < min or v > max then v = min end
-    draws[#draws + 1] = { min = min, max = max, value = v }
-    return v
-  end
-  return src
+local function replaying(values: {integer}, draws: mut {Draw}): Fuzz.Source
+  local replayed: integer = 0
+  return {
+    int = function(_self: Fuzz.Source, min: integer, max: integer): integer
+      if min > max then
+        error(("fuzz: int(%d, %d): min is greater than max"):format(min, max), 2)
+      end
+      replayed = replayed + 1
+      local v = values[replayed]
+      if v == nil or v < min or v > max then v = min end
+      draws[#draws + 1] = { min = min, max = max, value = v }
+      return v
+    end,
+  }
 end
 
 --- A source drawing from `rng` that records what it hands out.
-local function recording(rng: Rand.Source, draws: {Draw}): Fuzz.Source
-  local src: Fuzz.Source = {}
-  src.int = function(_self: Fuzz.Source, min: integer, max: integer): integer
-    local v = rng:int(min, max)
-    draws[#draws + 1] = { min = min, max = max, value = v }
-    return v
-  end
-  return src
+local function recording(rng: Rand.Source, draws: mut {Draw}): Fuzz.Source
+  return {
+    int = function(_self: Fuzz.Source, min: integer, max: integer): integer
+      local v = rng:int(min, max)
+      draws[#draws + 1] = { min = min, max = max, value = v }
+      return v
+    end,
+  }
 end
 
 --- An integer from the environment, or `otherwise` when it is unset.
@@ -194,8 +207,11 @@ end
 --- The labels the input being drawn and checked has reached, while
 --- `run` is counting them; nil otherwise, so shrinking and replay count
 --- nothing.
-local reached: {string: boolean} = nil
+local record Counting
+  mut reached?: {string: boolean}
+end
 
+local counting: Counting = {}
 --- Records that the input under check reached `name`: an outcome worth
 --- counting ("opened", "refused at the header", "read a body"). `run`
 --- prints how many inputs reached each label and fails a property that
@@ -204,13 +220,16 @@ local reached: {string: boolean} = nil
 --- does nothing.
 --- @param name string The label
 function Fuzz.label(name: string)
+  local reached = counting.reached
   if reached ~= nil then reached[name] = true end
 end
 
 --- Runs `check` on `input` once, under the budget.
 local function attempt(check: function(string): boolean, string, input: string,
                        budget: integer): boolean, string
-  if arm then arm(budget) end
+  if arm then
+    arm(if (read_hook()) ~= nil then budget * CHECKED_BUDGET_FACTOR else budget end)
+  end
   local ok, held, why = pcall(check, input)
   if arm then arm() end
   if not ok then
@@ -263,28 +282,28 @@ end
 --- Checks every `.input` file in the property's corpus, in name order,
 --- raising a report on the first that fails; each is written to `kept`
 --- first, as a drawn input is. Returns how many were checked.
-local function check_corpus(p: Fuzz.Property, budget: integer, kept: string): integer
+local function check_corpus(p: Fuzz.Property, budget: integer, kept: string?): integer
   local dir = corpus_of(p)
   local there, trouble = Fs.exists(dir)
   if there == false then return 0 end
-  local names: {string}
-  if there then names, trouble = Fs.list(dir) end
+  local names: {string}?
+  if there == true then names, trouble = Fs.list(dir) end
   if names == nil then
     error(("fuzz %s: corpus %s: %s"):format(p.name, dir, trouble), 0)
   end
   local checked = 0
   for _, name in ipairs(names) do
-    if name:sub(-6) ~= ".input" then goto continue end
-    local path = dir .. "/" .. name
-    local input, rtrouble = Fs.read(path)
-    if input == nil then
-      error(("fuzz %s: corpus %s: %s"):format(p.name, path, rtrouble), 0)
+    if name:sub(-6) == ".input" then
+      local path = dir .. "/" .. name
+      local input, rtrouble = Fs.read(path)
+      if input == nil then
+        error(("fuzz %s: corpus %s: %s"):format(p.name, path, rtrouble), 0)
+      end
+      if kept ~= nil then local _, _ = Fs.write(kept, input) end
+      local held, why = attempt(p.check, input, budget)
+      assert(held or corpus_failed(p, path, why, input))
+      checked = checked + 1
     end
-    if kept ~= nil then local _, _ = Fs.write(kept, input) end
-    local held, why = attempt(p.check, input, budget)
-    assert(held or corpus_failed(p, path, why, input))
-    checked = checked + 1
-    ::continue::
   end
   return checked
 end
@@ -292,15 +311,15 @@ end
 --- The line `run` prints of how many inputs reached each label, in
 --- name order, or nil when no label was reached and none is required.
 local function label_counts(counts: {string: integer}, required: {string},
-                            iters: integer): string | nil
-  local names: {string} = {}
+                            iters: integer): string?
+  local names: mut {string} = {}
   for name in pairs(counts) do names[#names + 1] = name end
   for _, name in ipairs(required or {}) do
     if counts[name] == nil then names[#names + 1] = name end
   end
   if #names == 0 then return nil end
   table.sort(names)
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i, name in ipairs(names) do
     parts[i] = ("%s %d"):format(name, counts[name] or 0)
   end
@@ -309,7 +328,7 @@ end
 
 --- Builds the input `values` replay to, with the draws that built it.
 local function build(gen: function(Fuzz.Source): string, values: {integer}): string, {Draw}
-  local draws: {Draw} = {}
+  local draws: mut {Draw} = {}
   local input = gen(replaying(values, draws))
   return input, draws
 end
@@ -318,13 +337,13 @@ end
 --- property's slug and the seed of the source that drew it, as a report
 --- prints them. Nil when neither is set; raises when one is set to
 --- anything else, so a typo is never a silent full run.
-local function named_case(p: Fuzz.Property): string, integer
+local function named_case(p: Fuzz.Property): string?, integer?
   local text = p.case or Env.get_or("FUZZ_CASE", "")
   if text == "" then return nil, nil end
   local raw = text
   local name = text:match("^(.-):%-?%d+$")
   local digits = text:match(":(%-?%d+)$")
-  local n: integer = digits ~= nil and math.tointeger(tonumber(digits)) or nil
+  local n: integer? = digits ~= nil and math.tointeger(tonumber(digits)) or nil
   if name == nil or not name:match("^[%w%-]+$") or n == nil then
     error(("fuzz: FUZZ_CASE=%q is not <property>:<case seed>, as a report prints it"):format(raw), 0)
   end
@@ -348,23 +367,25 @@ local function run(p: Fuzz.Property): integer
   -- Fewer inputs than the default, as reproducing one failure asks for,
   -- may reach no label at all by chance: `requires` holds of a whole run.
   local whole = p.iters ~= nil or iters >= DEFAULT_ITERS
-  if p.iters == nil and p.max_iters ~= nil and iters > p.max_iters then
-    iters = p.max_iters
+  local max_iters = p.max_iters
+  if p.iters == nil and max_iters ~= nil and iters > max_iters then
+    iters = max_iters
   end
   if case_name ~= nil then iters, whole = 1, false end
   local budget = p.budget or DEFAULT_BUDGET
-  local kept: string
-  if p.dir ~= nil then
-    kept = p.dir .. "/" .. slug(p.name) .. ".input"
+  local kept: string?
+  local dir = p.dir
+  if dir ~= nil then
+    kept = dir .. "/" .. slug(p.name) .. ".input"
     print(("fuzz %s: seed=%d iters=%d; the input under test is kept at %s"):
         format(p.name, seed, iters, kept))
   end
   local replayed = 0
   if case_name == nil then replayed = check_corpus(p, budget, kept) end
-  local counts: {string: integer} = {}
+  local counts: mut {string: integer} = {}
   local seeds = Rand.new(seed)
   for i = 1, iters do
-    local draws: {Draw} = {}
+    local draws: mut {Draw} = {}
     local mine: {string: boolean} = {}
     local case = case_seed or seeds:int(math.mininteger, math.maxinteger)
     local where = case_name ~= nil and ("FUZZ_CASE=%s:%d"):format(case_name, case) or
@@ -373,20 +394,21 @@ local function run(p: Fuzz.Property): integer
     if case_name == nil then
       reproduce = reproduce .. (", or FUZZ_SEED=%d FUZZ_ITERS=%d"):format(seed, i)
     end
-    reached = mine
+    counting.reached = mine
     local ok, input = pcall(p.gen, recording(Rand.new(case), draws))
     if not ok then
-      reached = nil
+      counting.reached = nil
       error(input, 0)
     end
     if kept ~= nil then local _, _ = Fs.write(kept, input) end
     local held, why = attempt(p.check, input, budget)
-    reached = nil
+    counting.reached = nil
     for name in pairs(mine) do counts[name] = (counts[name] or 0) + 1 end
     -- Raises the report of an input that failed, after shrinking it; the
     -- check of the input hands it to `assert` below, so an input that held
     -- is a call to `assert` made, and a failure is the report raised.
     local function failure(): boolean
+      local reason = why
       -- A check that fails an input once and holds for it the next time
       -- depends on something beside the input: shrinking would chase
       -- noise, so the report says so and stops.
@@ -395,8 +417,8 @@ local function run(p: Fuzz.Property): integer
         error(("fuzz %s: %s: flaky: failed (%s), then held when the same input was " ..
           "checked again; it depends on something beside its input\n" ..
           "  input (%s, hex): %s\n  %s\n  reproduce: %s"):
-            format(p.name, where, why, plural.count(#input, "byte"), shown(input),
-              kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
+            format(p.name, where, reason, plural.count(#input, "byte"), shown(input),
+              if kept ~= nil then ("kept at " .. kept) else "not kept: the property names no dir" end,
               reproduce), 0)
       end
       local function fails(values: {integer}): boolean, {Draw}
@@ -410,7 +432,7 @@ local function run(p: Fuzz.Property): integer
       local small_held, small_why = attempt(p.check, small, budget)
       local flaky = ""
       if not small_held then
-        why = small_why
+        reason = small_why
       else
         -- The shrunk input failed while shrinking and held just now:
         -- report the input that first failed, and say why.
@@ -423,9 +445,9 @@ local function run(p: Fuzz.Property): integer
         "  shrunk in %s from %s and %s to %s and %s; input (hex): %s%s\n" ..
         "  %s\n  reproduce: %s\n" ..
         "  once fixed, keep it as a regression case: %s"):
-          format(p.name, where, why, plural.count(tries, "try", "tries"), plural.count(#draws, "draw"),
+          format(p.name, where, reason, plural.count(tries, "try", "tries"), plural.count(#draws, "draw"),
             plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
-            kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
+            if kept ~= nil then ("kept at " .. kept) else "not kept: the property names no dir" end,
             reproduce,
             kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep) or
               ("write the input above to " .. keep)), 0)
@@ -438,14 +460,15 @@ local function run(p: Fuzz.Property): integer
   if iters == 0 and replayed == 0 then
     Test.passed_unchecked("fuzz properties drew no input (FUZZ_ITERS=0, no corpus)")
   end
-  local named: {string} = {}
-  local is_named: {string: boolean} = {}
+  local named: mut {string} = {}
+  local is_named: mut {string: boolean} = {}
   for _, name in ipairs(p.requires or {}) do named[#named + 1], is_named[name] = name, true end
-  local shared: {string} = {}
-  for name in pairs(p.shares or {}) do shared[#shared + 1] = name end
+  local shares = p.shares or {}
+  local shared: mut {string} = {}
+  for name in pairs(shares) do shared[#shared + 1] = name end
   table.sort(shared)
   for _, name in ipairs(shared) do
-    if not is_named[name] then named[#named + 1] = name end
+    if is_named[name] ~= true then named[#named + 1] = name end
   end
   local line = label_counts(counts, named, iters)
   if line ~= nil then print(("fuzz %s: labels: %s"):format(p.name, line)) end
@@ -460,11 +483,11 @@ local function run(p: Fuzz.Property): integer
     end
     for _, name in ipairs(shared) do
       local reached_by = counts[name] or 0
-      if reached_by < p.shares[name] * iters then
+      if reached_by < shares[name] * iters then
         if kept ~= nil then local _, _ = Fs.remove(kept) end
         error(("fuzz %s: seed=%d: %s of %d reached %q, under the share of %g the property " ..
           "requires: its inputs exercise it too rarely"):format(p.name, seed, plural.count(reached_by, "input"), iters, name,
-            p.shares[name]), 0)
+            shares[name]), 0)
       end
     end
   end
@@ -482,10 +505,10 @@ end
 function Fuzz.run(p: Fuzz.Property): integer
   -- A check may run a property of its own: its labels are its own, and
   -- the enclosing input's count again once it is done.
-  local enclosing = reached
-  reached = nil
+  local enclosing = counting.reached
+  counting.reached = nil
   local ok, n = pcall(run, p)
-  reached = enclosing
+  counting.reached = enclosing
   if not ok then error(n, 0) end
   return n
 end
@@ -525,7 +548,7 @@ end
 
 --- Up to `max` arbitrary bytes, each after a `more` draw.
 function Fuzz.bytes(src: Fuzz.Source, max: integer): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   while Fuzz.more(src, #out, max) do out[#out + 1] = string.char(src:int(0, 255)) end
   return table.concat(out)
 end
@@ -576,14 +599,14 @@ end
 --- a structure (entries, say) and whose check builds from it: shrinking
 --- then works on the structure's draws, not on bytes a writer made.
 function Fuzz.pack(fields: {string}): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i, f in ipairs(fields) do parts[i] = string.pack("<s4", f) end
   return table.concat(parts)
 end
 
 --- The fields `pack` packed into `input`.
 function Fuzz.unpack(input: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local at = 1
   while at <= #input do
     local f: string

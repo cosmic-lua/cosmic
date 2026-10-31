@@ -4,8 +4,10 @@ local Fs = require("cosmic.fs")
 local GithubApi = require("cosmic_ci.github_api")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
+local Maps = require("cosmic_ci.maps")
 local Prerelease = require("cosmic_ci.prerelease")
 local Proc = require("cosmic.proc")
+local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 
 -- These tests start this program (the pinned driver's own cosmic, or a copy of it
@@ -27,7 +29,7 @@ local function exists(path: string): boolean
   assert(there ~= nil, why)
   return there
 end
-local function output(value: string | nil): string return value or "" end
+local function output(value: string?): string return value or "" end
 
 --- Raises unless `action` raises a message holding `expected`.
 local function refused(expected: string, action: function())
@@ -73,6 +75,17 @@ local function test_release_text_is_the_shell_scripts()
       "hashes before publication.\n")
 end
 
+--- Whether `said` holds the Shape failure at JSON Pointer `at` that wants `expected`
+--- (`string, got integer`): `$.a[0].b: want string, got integer` for the pointer `/a/0/b`.
+local function shape_failure(said: string, at: string, expected: string): boolean
+  local path = "$"
+  for segment in at:gmatch("/([^/]*)") do
+    path = path .. (if segment:find("^%d+$") then "[" .. segment .. "]" else "." .. segment end)
+  end
+  local rest = if expected:find(", got nothing$") then "missing" else "want " .. expected end
+  return said:find(path .. ": " .. rest, 1, true) ~= nil
+end
+
 local function test_source_valid()
   local digest = string.rep("ab", 32)
   local function valid(text: string): boolean
@@ -102,7 +115,7 @@ local function test_source_valid()
     local accepted, trouble = Prerelease.source_valid(text, commit, digest, run_prefix)
     assert(not accepted, text)
     assert(trouble:find("source.json is no source record: ", 1, true) and
-        trouble:find('pointer "' .. at .. '": expected ' .. expected, 1, true), trouble)
+        shape_failure(trouble, at, expected), trouble)
   end
   unshaped('{"commit":"' .. commit .. '","digest":"' .. digest .. '","run_url":1}',
     "/run_url", "string, got integer")
@@ -113,9 +126,10 @@ end
 local function test_asset_set()
   assert(Prerelease.complete_assets({ "SHA256SUMS", "cosmic", "source.json" }))
   assert(Prerelease.complete_assets({ "source.json", "cosmic", "SHA256SUMS" }))
-  for _, bad in ipairs({ {}, { "cosmic", "SHA256SUMS" },
-      { "cosmic", "SHA256SUMS", "source.json", "notes.md" },
-      { "cosmic", "cosmic", "source.json" }, { "cosmic", "SHA256SUMS", "notes.md" } }) do
+  local incomplete: {{string}} = { {}, { "cosmic", "SHA256SUMS" },
+    { "cosmic", "SHA256SUMS", "source.json", "notes.md" },
+    { "cosmic", "cosmic", "source.json" }, { "cosmic", "SHA256SUMS", "notes.md" } }
+  for _, bad in ipairs(incomplete) do
     assert(not Prerelease.complete_assets(bad), table.concat(bad, ","))
   end
   assert(Prerelease.known_asset("cosmic") and Prerelease.known_asset("SHA256SUMS") and
@@ -123,27 +137,49 @@ local function test_asset_set()
   assert(not Prerelease.known_asset("notes.md") and not Prerelease.known_asset("cosmic.exe"))
 end
 
-local function release(id: integer, name: string): {string:any}
-  return { id = id, tag_name = name }
+local function json(value: any): string return (assert(Json.encode_any(value))) end
+
+--- A page of the releases list, as JSON: the `items`, each already JSON.
+local function array_of(items: {string}): string return "[" .. table.concat(items, ",") .. "]" end
+
+--- A release of the list as JSON.
+local function release(id: integer, name: string, draft: boolean): string
+  return '{"id":' .. tostring(id) .. ',"tag_name":' .. json(name) .. ',"draft":' .. tostring(draft) .. "}"
 end
 
-local function test_release_ids_gathers_every_page()
-  local pages: {any} = { Json.array({ release(1, "next-a") }),
-    Json.array({ release(2, tag), release(3, "next-b") }), Json.array(),
-    Json.array({ release(4, tag) }) }
-  local ids = Prerelease.release_ids(pages, tag)
-  assert(#ids == 2 and ids[1] == 2 and ids[2] == 4)
-  assert(#Prerelease.release_ids({ Json.array() }, tag) == 0)
-  refused("no array", function() Prerelease.release_ids({ { id = 1 } }, tag) end)
-  refused("is no object", function() Prerelease.release_ids({ Json.array({ 7 }) }, tag) end)
+local function test_draft_ids_reads_a_page_and_says_where_the_drafts_end()
+  local full: mut {string} = {}
+  for i = 1, 98 do full[#full + 1] = release(10 + i, "next-x" .. tostring(i), true) end
+  full[#full + 1] = release(2, tag, true)
+  full[#full + 1] = release(3, tag, true)
+  local found = Prerelease.draft_ids(array_of(full), tag)
+  local ids, ends = found.ids, found.ends
+  assert(#ids == 2 and ids[1] == 2 and ids[2] == 3 and not ends, "a full page of drafts goes on")
+  local drafts_then: mut {string} = {}
+  for i = 1, 99 do
+    drafts_then[#drafts_then + 1] = release(10 + i, "next-x" .. tostring(i), true)
+  end
+  drafts_then[#drafts_then + 1] = release(5, tag, false)
+  local mixed = Prerelease.draft_ids(array_of(drafts_then), tag)
+  assert(#mixed.ids == 0 and mixed.ends, "a published release, never counted, ends the drafts on a full page")
+  refused("draft next-z after a published release", function()
+    Prerelease.draft_ids(array_of({ release(5, tag, false), release(6, "next-z", true) }), tag)
+  end)
+  local short = Prerelease.draft_ids(array_of({ release(6, "next-y", true) }), tag)
+  assert(short.ends, "a page short of 100 ends the list")
+  refused("no array", function() Prerelease.draft_ids('{"id":1}', tag) end)
+  refused("is no object", function() Prerelease.draft_ids("[7]", tag) end)
+  refused("has no draft flag", function()
+    Prerelease.draft_ids(array_of({ '{"tag_name":' .. json(tag) .. "}" }), tag)
+  end)
   refused("has no id", function()
-    Prerelease.release_ids({ Json.array({ { tag_name = tag } }) }, tag)
+    Prerelease.draft_ids(array_of({ '{"tag_name":' .. json(tag) .. ',"draft":true}' }), tag)
   end)
 end
 
 --- Four lanes' products under `products`, each holding `bytes`.
 local function products(dir: string, bytes: string): string
-  for _, lane in ipairs(Prerelease.lanes) do
+  for _, lane in ipairs(Prerelease.lanes()) do
     local product = dir .. "/portable-product-" .. lane
     assert(Fs.mkdirs(product))
     write(product .. "/cosmic", bytes)
@@ -206,7 +242,7 @@ local function test_stage_refuses_what_the_lanes_disagree_on(tmp: string)
   local n = 0
   for expected, spoil in pairs(cases) do
     n = n + 1
-    local dir = tmp .. "/case-" .. n
+    local dir = tmp .. "/case-" .. tostring(n)
     local s = stage_context(dir)
     spoil(s.products)
     refused(expected, function() Prerelease.stage(s) end)
@@ -223,14 +259,14 @@ end
 local record Release
   id: integer
   tag: string
-  draft: boolean
-  prerelease: boolean
-  assets: {Asset}
+  mut draft: boolean
+  mut prerelease: boolean
+  assets: mut {Asset}
   title: string
   notes: string
   --- The commit publishing the release makes its tag at, where the tag
   --- is missing.
-  target: string | nil
+  mut target?: string
 end
 
 --- A repository standing in for GitHub's, answering a client's `send`
@@ -243,54 +279,74 @@ end
 local record Repo
   client: GithubApi.Client
   release: string
-  temp: string
-  tags: {string:string}
-  annotated: {string:string}
-  tag_objects: {string:string}
-  branches: {string:string}
-  releases: {Release}
-  assets: integer
-  compare: {string}
-  fail: {string:string}
+  mut temp: string
+  tags: mut {string:string}
+  annotated: mut {string:string}
+  tag_objects: mut {string:string}
+  branches: mut {string:string}
+  releases: mut {Release}
+  mut assets: integer
+  mut compare: {string}
+  fail: mut {string:string}
   --- Each request as "METHOD path" ("UPLOAD name" for an upload).
-  log: {string}
+  log: mut {string}
   --- The content type each uploaded asset came with.
-  uploaded: {string:string}
+  uploaded: mut {string:string}
 end
 
 local api <const> = "https://api.test/"
 local uploads <const> = "https://uploads.test/"
 local blob <const> = "https://blob.test/"
 
-local function reply(status: integer, value: any, headers?: {string:string}): GithubApi.Reply
-  local body = value is string and value or assert(Json.encode(value))
+--- The object a ref or an annotated tag names.
+local record GitObjectJson
+  sha: string
+  type: string
+end
+
+--- What a request of the publish may send as its JSON body: a field of any.
+local record RequestBody
+  ref?: any
+  sha?: any
+  tag_name?: any
+  name?: any
+  body?: any
+  draft?: any
+  prerelease?: any
+end
+local REQUEST_BODY <const> = Shape.record_of("RequestBody")
+
+local function reply(status: integer, body: string, headers?: {string:string}): GithubApi.Reply
   return { status = status, headers = headers or {}, body = body }
 end
 
+--- GitHub's error body.
+local function said(message: string): string return json({ message = message }) end
+
 local function not_found(): GithubApi.Reply
-  return reply(404, { message = "Not Found" })
+  return reply(404, said("Not Found"))
 end
 
-local function release_json(rel: Release): {string:any}
-  local assets: {any} = {}
+local function release_json(rel: Release): string
+  local assets: mut {string} = {}
   for _, asset in ipairs(rel.assets) do
-    assets[#assets + 1] = { name = asset.name, id = asset.id, size = #asset.data,
-      state = "uploaded" }
+    assets[#assets + 1] = '{"name":' .. json(asset.name) .. ',"id":' .. tostring(asset.id) ..
+      ',"size":' .. tostring(#asset.data) .. ',"state":"uploaded"}'
   end
-  return { id = rel.id, tag_name = rel.tag, draft = rel.draft, prerelease = rel.prerelease,
-    assets = Json.array(assets),
-    upload_url = uploads .. "repos/" .. repository .. "/releases/" .. rel.id ..
-      "/assets{?name,label}" }
+  return '{"id":' .. tostring(rel.id) .. ',"tag_name":' .. json(rel.tag) .. ',"draft":' .. tostring(rel.draft) ..
+    ',"prerelease":' .. tostring(rel.prerelease) .. ',"assets":' .. array_of(assets) ..
+    ',"upload_url":' .. json(uploads .. "repos/" .. repository .. "/releases/" .. tostring(rel.id) ..
+        "/assets{?name,label}") .. "}"
 end
 
-local function release_by(r: Repo, id: string): Release | nil
+local function release_by(r: Repo, id: string): Release?
   for _, rel in ipairs(r.releases) do
     if tostring(rel.id) == id then return rel end
   end
   return nil
 end
 
-local function asset_by(r: Repo, id: string): Asset | nil
+local function asset_by(r: Repo, id: string): Asset?
   for _, rel in ipairs(r.releases) do
     for _, asset in ipairs(rel.assets) do
       if tostring(asset.id) == id then return asset end
@@ -308,74 +364,95 @@ local function serve_upload(r: Repo, request: GithubApi.Request): GithubApi.Repl
   r.log[#r.log + 1] = "UPLOAD " .. name
   for _, asset in ipairs(rel.assets) do
     if asset.name == name then
-      return reply(422, { message = "Validation Failed",
-        errors = { { code = "already_exists", field = "name" } } })
+      return reply(422, '{"message":"Validation Failed","errors":[{"code":"already_exists","field":"name"}]}')
     end
   end
   r.assets = r.assets + 1
   local expected: {string:string} = { ["source.json"] = "application/json",
     SHA256SUMS = "text/plain", cosmic = "application/octet-stream" }
-  assert(request.headers["Content-Type"] == expected[name],
-    name .. " is uploaded as " .. tostring(request.headers["Content-Type"]))
-  r.uploaded[name] = request.headers["Content-Type"]
-  rel.assets[#rel.assets + 1] = { name = name, id = r.assets, data = assert(request.body) }
-  return reply(201, { id = r.assets, name = name, state = "uploaded" })
+  local content_type = request.headers["Content-Type"]
+  assert(content_type == expected[name], name .. " is uploaded as " .. tostring(content_type))
+  if content_type ~= nil then r.uploaded[name] = content_type end
+  table.insert(rel.assets, { name = name, id = r.assets, data = assert(request.body) })
+  return reply(201, '{"id":' .. tostring(r.assets) .. ',"name":' .. json(name) .. ',"state":"uploaded"}')
 end
 
 local function serve_page(r: Repo, rest: string): GithubApi.Reply
-  -- One release to a page, so a caller must gather every page.
-  local page = math.tointeger(tonumber(rest:match("&page=(%d+)$") or "1")) as integer
-  local rel = r.releases[page]
-  local list: {any} = {}
-  if rel then list[1] = { id = rel.id, tag_name = rel.tag } end
-  local headers: {string:string} = {}
-  if r.releases[page + 1] then
-    headers.link = '<' .. api .. "repos/" .. repository .. "/releases?per_page=100&page=" ..
-      (page + 1) .. '>; rel="next"'
+  -- Pages of 100, drafts first, as GitHub lists them.
+  local page = assert(math.tointeger(tonumber(rest:match("&page=(%d+)$") or "1")))
+  local ordered: mut {Release} = {}
+  for _, rel in ipairs(r.releases) do
+    if rel.draft then ordered[#ordered + 1] = rel end
   end
-  return reply(200, Json.array(list), headers)
+  for _, rel in ipairs(r.releases) do
+    if not rel.draft then ordered[#ordered + 1] = rel end
+  end
+  local list: mut {string} = {}
+  local last = page * 100
+  if last > #ordered then last = #ordered end
+  for i = (page - 1) * 100 + 1, last do
+    local rel = assert(ordered[math.tointeger(i) or 0])
+    list[#list + 1] = release(rel.id, rel.tag, rel.draft)
+  end
+  return reply(200, array_of(list))
 end
 
-local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply | nil, string
-  if r.fail.transport then return nil, "connection refused" end
-  assert(request.headers.Authorization == nil, "the fake adds the token itself")
-  if request.url:sub(1, #uploads) == uploads then return serve_upload(r, request) end
+local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply?, string
+  if r.fail["transport"] then return nil, "connection refused" end
+  assert(request.headers["Authorization"] == nil, "the fake adds the token itself")
+  if request.url:sub(1, #uploads) == uploads then return serve_upload(r, request), "" end
   assert(request.url:sub(1, #api) == api, "a request to " .. request.url)
   local path = request.url:sub(#api + 1)
   local method = request.method
   r.log[#r.log + 1] = method .. " " .. path
-  local body: {string:any} = {}
-  if request.body then
+  local body: RequestBody = {}
+  local request_body = request.body
+  if request_body then
     assert(request.headers["Content-Type"] == "application/json", "a JSON body is not typed")
-    body = assert(Json.decode_object(request.body))
+    body = assert(REQUEST_BODY:decode_into(request_body))
   end
   if path == "repos/" .. repository then
-    return reply(200, { full_name = repository, default_branch = "main" })
+    return reply(200, json({ full_name = repository, default_branch = "main" })), ""
   end
   local prefix = "repos/" .. repository .. "/"
   assert(path:sub(1, #prefix) == prefix, "an unexpected path " .. path)
   local rest = path:sub(#prefix + 1)
-  if rest:match("^releases%?per_page=100") and method == "GET" then return serve_page(r, rest) end
+  if (rest:match("^releases%?per_page=100") and method == "GET") == true then
+    return serve_page(r, rest), ""
+  end
+  local by_tag = rest:match("^releases/tags/(.+)$")
+  if by_tag ~= nil and method == "GET" then
+    if r.fail["by-tag"] then return reply(500, said("Server Error")), "" end
+    -- The get-by-tag endpoint answers a published release alone.
+    for _, rel in ipairs(r.releases) do
+      if rel.tag == by_tag and not rel.draft then return reply(200, release_json(rel)), "" end
+    end
+    return not_found(), ""
+  end
   local probed = rest:match("^git/ref/tags/(.+)$")
-  if probed and method == "GET" then
+  if (probed and method == "GET") == true then
     if r.fail["ref-transport"] then return nil, "connection reset" end
-    if r.fail.ref then return reply(500, { message = "Server Error" }) end
-    local sha = r.tags[probed]
-    if sha == nil then return not_found() end
-    local object = { sha = sha, type = "commit" }
-    if r.annotated[probed] then object = { sha = r.annotated[probed], type = "tag" } end
-    return reply(200, { ref = "refs/tags/" .. probed, object = object })
+    if r.fail["ref"] then return reply(500, said("Server Error")), "" end
+    local sha = r.tags[assert(probed)]
+    if sha == nil then return not_found(), "" end
+    local object: GitObjectJson = { sha = sha, type = "commit" }
+    local annotated = r.annotated[assert(probed)]
+    if annotated ~= nil then
+      object = { sha = annotated, type = "tag" }
+    end
+    return reply(200, '{"ref":' .. json("refs/tags/" .. assert(probed)) .. ',"object":' .. json(object) .. "}"), ""
   end
   local tag_object = rest:match("^git/tags/(.+)$")
-  if tag_object and method == "GET" then
-    local tagged = r.tag_objects[tag_object]
-    if tagged == nil then return not_found() end
-    return reply(200, { sha = tag_object, object = { sha = tagged, type = "commit" } })
+  if (tag_object and method == "GET") == true then
+    local tagged = r.tag_objects[assert(tag_object)]
+    if tagged == nil then return not_found(), "" end
+    local object: GitObjectJson = { sha = tagged, type = "commit" }
+    return reply(200, '{"sha":' .. json(tag_object) .. ',"object":' .. json(object) .. "}"), ""
   end
-  if rest:match("^compare/%x+%.%.%.main$") and method == "GET" then
-    local files: {any} = {}
-    for _, name in ipairs(r.compare) do files[#files + 1] = { filename = name } end
-    return reply(200, { status = "ahead", files = Json.array(files) })
+  if (rest:match("^compare/%x+%.%.%.main$") and method == "GET") == true then
+    local files: mut {string} = {}
+    for _, name in ipairs(r.compare) do files[#files + 1] = json({ filename = name }) end
+    return reply(200, '{"status":"ahead","files":' .. array_of(files) .. "}"), ""
   end
   if rest == "git/refs" and method == "POST" then
     local ref, sha = body.ref, body.sha
@@ -383,50 +460,51 @@ local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply | nil
     local made = assert(ref:match("^refs/tags/(.+)$"))
     local message = r.fail["create-ref"]
     if message then
-      return reply(403, { message = message ~= "" and message or
-          "Resource not accessible by integration" })
+      local why = message
+      if why == "" then why = "Resource not accessible by integration" end
+      return reply(403, said(why)), ""
     end
-    if r.tags[made] then return reply(422, { message = "Reference already exists" }) end
+    if r.tags[made] then return reply(422, said("Reference already exists")), "" end
     r.tags[made] = sha
-    return reply(201, { ref = ref, object = { sha = sha } })
+    return reply(201, '{"ref":' .. json(ref) .. ',"object":' .. json({ sha = sha }) .. "}"), ""
   end
   if rest == "releases" and method == "POST" then
     local name = body.tag_name
     assert(name is string and body.name == name, "a release is named for its tag")
     assert(body.draft == true and body.prerelease == true, "a release is a draft prerelease")
     -- A tag the draft names is made already, as the flow verifies it.
-    if r.tags[name] == nil then return reply(422, { message = "Validation Failed" }) end
+    if r.tags[name] == nil then return reply(422, said("Validation Failed")), "" end
     local rel: Release = { id = #r.releases + 1, tag = name, draft = true, prerelease = true,
       assets = {}, title = name, notes = tostring(body.body) }
     r.releases[#r.releases + 1] = rel
-    return reply(201, release_json(rel))
+    return reply(201, release_json(rel)), ""
   end
   local id = rest:match("^releases/(%d+)$")
   local rel = id and release_by(r, id)
-  if id and method == "GET" then
-    if rel == nil then return not_found() end
-    return reply(200, release_json(rel))
+  if (id and method == "GET") == true then
+    if rel == nil then return not_found(), "" end
+    return reply(200, release_json(rel)), ""
   end
-  if id and method == "PATCH" then
-    if rel == nil then return not_found() end
-    local keys = 0
-    for _ in pairs(body) do keys = keys + 1 end
-    assert(keys == 2 and body.draft == false and body.prerelease == true,
+  if (id and method == "PATCH") == true then
+    if rel == nil then return not_found(), "" end
+    assert(body.draft == false and body.prerelease == true and body.ref == nil and body.sha == nil and
+        body.tag_name == nil and body.name == nil and body.body == nil,
       "the edit is not exactly draft=false, prerelease=true")
     if not r.fail["edit-draft"] then
       rel.draft = false
+      local target = rel.target
       -- Publishing a draft whose tag is missing makes the tag, at the
       -- draft's target.
-      if r.tags[rel.tag] == nil and rel.target then r.tags[rel.tag] = rel.target end
+      if r.tags[rel.tag] == nil and target ~= nil then r.tags[rel.tag] = target end
     end
     rel.prerelease = true
-    return reply(200, release_json(rel))
+    return reply(200, release_json(rel)), ""
   end
   local asset_id = rest:match("^releases/assets/(%d+)$")
-  if asset_id and method == "GET" then
-    assert(request.headers.Accept == "application/octet-stream", "an asset is asked for as bytes")
-    if asset_by(r, asset_id) == nil then return not_found() end
-    return reply(302, "", { location = blob .. asset_id })
+  if (asset_id and method == "GET") == true then
+    assert(request.headers["Accept"] == "application/octet-stream", "an asset is asked for as bytes")
+    if asset_by(r, assert(asset_id)) == nil then return not_found(), "" end
+    return reply(302, "", { location = blob .. assert(asset_id) }), ""
   end
   error("an unexpected request " .. method .. " " .. path)
 end
@@ -442,7 +520,7 @@ local function repo(tmp: string, bytes?: string): Repo
   local r: Repo = { client = client, release = s.release, temp = tmp .. "/runner",
     tags = {}, annotated = {}, tag_objects = {}, branches = {}, releases = {}, assets = 100,
     compare = {}, fail = {}, log = {}, uploaded = {} }
-  client.send = function(request: GithubApi.Request): GithubApi.Reply | nil, string
+  client.send = function(request: GithubApi.Request): GithubApi.Reply?, string
     return serve(r, request)
   end
   client.fetch = function(url: string, to: string): boolean, string
@@ -469,10 +547,10 @@ local function seed(r: Repo, draft: boolean, assets: {string:string}): Release
   r.tags[tag] = commit
   local rel: Release = { id = #r.releases + 1, tag = tag, draft = draft, prerelease = true,
     assets = {}, title = tag, notes = "" }
-  for _, name in ipairs(Prerelease.assets) do
+  for _, name in ipairs(Prerelease.assets()) do
     if assets[name] then
       r.assets = r.assets + 1
-      rel.assets[#rel.assets + 1] = { name = name, id = r.assets, data = assets[name] }
+      table.insert(rel.assets, { name = name, id = r.assets, data = assert(assets[name]) })
     end
   end
   for name, data in pairs(assets) do
@@ -486,8 +564,8 @@ local function seed(r: Repo, draft: boolean, assets: {string:string}): Release
 end
 
 local function staged(r: Repo): {string:string}
-  local assets: {string:string} = {}
-  for _, name in ipairs(Prerelease.assets) do assets[name] = read(r.release .. "/" .. name) end
+  local assets: mut {string:string} = {}
+  for _, name in ipairs(Prerelease.assets()) do assets[name] = read(r.release .. "/" .. name) end
   return assets
 end
 
@@ -504,27 +582,59 @@ local function logged(r: Repo): string return table.concat(r.log, "\n") end
 
 local function test_publish_creates_tag_and_release(tmp: string)
   local r = repo(tmp)
-  -- Other commits' releases, so the list takes two pages.
-  for id, letter in ipairs({ "a", "b" }) do
-    r.releases[id] = { id = id, tag = "next-" .. string.rep(letter, 40), draft = false,
-      prerelease = true, assets = {}, title = "", notes = "" }
+  -- Other commits' releases, two pages of them: the published ones end
+  -- the drafts on the first, so the second is never asked for.
+  for id = 1, 150 do
+    table.insert(r.releases, { id = id, tag = string.format("next-%040x", id), draft = false,
+      prerelease = true, assets = {}, title = "", notes = "" })
   end
   assert(publish(r) == "prerelease published and verified: " .. tag)
   assert(r.tags[tag] == commit)
-  assert(#r.releases == 3)
-  local rel = r.releases[3]
-  assert(not rel.draft and rel.prerelease and #rel.assets == 3)
+  assert(#r.releases == 151)
+  local rel = r.releases[151]
+  assert(not assert(rel).draft and assert(rel).prerelease and #assert(rel).assets == 3)
   local data = staged(r)
-  for _, asset in ipairs(rel.assets) do assert(asset.data == data[asset.name], asset.name) end
+  for _, asset in ipairs(assert(rel).assets) do
+    assert(asset.data == data[asset.name], asset.name)
+  end
   assert(rel.notes == read(r.release .. "/notes.md"))
   assert(rel.title == tag)
   local log = logged(r)
   assert(count(r, "POST repos/owner/repo/releases") == 1 and count(r, "UPLOAD ") == 3, log)
   assert(count(r, "POST repos/owner/repo/git/refs") == 1, log)
   assert(r.uploaded["source.json"] == "application/json" and
-      r.uploaded.SHA256SUMS == "text/plain" and
-      r.uploaded.cosmic == "application/octet-stream")
-  assert(count(r, "GET repos/owner/repo/releases?per_page=100&page=2") == 1, log)
+      r.uploaded["SHA256SUMS"] == "text/plain" and
+      r.uploaded["cosmic"] == "application/octet-stream")
+  assert(count(r, "GET repos/owner/repo/releases?per_page=100&page=2") == 0, log)
+  assert(count(r, "GET repos/owner/repo/releases/tags/" .. tag) == 1, log)
+end
+
+--- A draft past the first page of drafts is found: a page of nothing but
+--- drafts leads to the next, and the publish resumes it rather than make
+--- another.
+local function test_publish_finds_a_draft_past_a_page_of_drafts(tmp: string)
+  local r = repo(tmp)
+  for id = 1, 100 do
+    table.insert(r.releases, { id = id, tag = string.format("next-%040x", id), draft = true,
+      prerelease = true, assets = {}, title = "", notes = "", target = nil })
+  end
+  seed(r, true, {})
+  assert(publish(r) == "prerelease published and verified: " .. tag)
+  assert(#r.releases == 101, "no second release was made")
+  assert(not assert(r.releases[101]).draft)
+  assert(count(r, "GET repos/owner/repo/releases?per_page=100&page=2") == 1, logged(r))
+end
+
+--- Ten pages of nothing but drafts are all the list serves: the publish
+--- refuses rather than ask for an eleventh.
+local function test_publish_refuses_a_list_of_only_drafts(tmp: string)
+  local r = repo(tmp)
+  for id = 1, 1000 do
+    table.insert(r.releases, { id = id, tag = string.format("next-%040x", id), draft = true,
+      prerelease = true, assets = {}, title = "", notes = "", target = nil })
+  end
+  refused("first 1000 are all drafts", function() publish(r) end)
+  assert(count(r, "GET repos/owner/repo/releases?per_page=100&page=11") == 0, logged(r))
 end
 
 local function test_publish_resumes_a_draft_uploading_only_what_is_missing(tmp: string)
@@ -538,11 +648,11 @@ local function test_publish_resumes_a_draft_uploading_only_what_is_missing(tmp: 
   assert(logged(r):find("UPLOAD SHA256SUMS", 1, true))
   assert(count(r, "POST") == 0)
   assert(not rel.draft)
-  local data: {string:string} = {}
+  local data: mut {string:string} = {}
   for _, asset in ipairs(rel.assets) do data[asset.name] = asset.data end
   assert(data["source.json"] == earlier)
-  assert(data.cosmic == "product bytes")
-  assert(data.SHA256SUMS == read(r.release .. "/SHA256SUMS"))
+  assert(data["cosmic"] == "product bytes")
+  assert(data["SHA256SUMS"] == read(r.release .. "/SHA256SUMS"))
 end
 
 local function test_publish_refuses_a_draft_holding_other_bytes(tmp: string)
@@ -570,13 +680,11 @@ end
 
 local function test_publish_refuses_a_published_release_that_differs(tmp: string)
   local r = repo(tmp)
-  local assets = staged(r)
-  assets.SHA256SUMS = string.rep("0", 64) .. "  cosmic\n"
+  local assets = Maps.with(staged(r), { ["SHA256SUMS"] = string.rep("0", 64) .. "  cosmic\n" })
   seed(r, false, assets)
   refused("differs from", function() publish(r) end)
   local r2 = repo(tmp .. "/second")
-  local short = staged(r2)
-  short["source.json"] = nil
+  local short = Maps.without(staged(r2), { "source.json" })
   seed(r2, false, short)
   refused("holds 2 assets", function() publish(r2) end)
 end
@@ -590,13 +698,16 @@ end
 
 local function test_publish_refuses_api_failures_other_than_404(tmp: string)
   -- ref-transport fails only the tag probe, with no answer at all: the
-  -- listing before it succeeds, so the probe itself refuses.
+  -- lookups by tag and of the list before it succeed, so the probe itself
+  -- refuses. by-tag fails the lookup by tag with a 500, which must not
+  -- read as no published release.
   local expected: {string:string} = { ref = "HTTP status 500",
-    ["ref-transport"] = "connection reset", transport = "connection refused" }
-  for _, failure in ipairs({ "ref", "ref-transport", "transport" }) do
+    ["ref-transport"] = "connection reset", transport = "connection refused",
+    ["by-tag"] = "releases/tags/" .. tag .. " failed (HTTP status 500)" }
+  for _, failure in ipairs({ "ref", "ref-transport", "transport", "by-tag" }) do
     local r = repo(tmp .. "/" .. failure)
     r.fail[failure] = ""
-    refused(expected[failure], function() publish(r) end)
+    refused(assert(expected[failure]), function() publish(r) end)
     assert(next(r.tags) == nil and #r.releases == 0, failure)
     assert(count(r, "POST") == 0, logged(r))
   end
@@ -692,7 +803,8 @@ local function test_publish_refuses_two_releases_for_the_tag(tmp: string)
   seed(r, false, staged(r))
   seed(r, true, {})
   refused("2 releases are tagged " .. tag, function() publish(r) end)
-  -- Both pages of the list were read, and nothing else was asked.
+  -- The published one by its tag, the draft from the list's first page,
+  -- and nothing else was asked.
   assert(#r.log == 2, logged(r))
 end
 
@@ -702,9 +814,9 @@ local function test_publish_fails_an_upload_the_release_refuses(tmp: string)
   local r = repo(tmp)
   local rel = seed(r, true, {})
   local send = r.client.send
-  r.client.send = function(request: GithubApi.Request): GithubApi.Reply | nil, string
+  r.client.send = function(request: GithubApi.Request): GithubApi.Reply?, string
     -- Another run uploads SHA256SUMS just before this one does.
-    if request.upload and request.url:find("name=SHA256SUMS", 1, true) and
+    if request.upload == true and request.url:find("name=SHA256SUMS", 1, true) ~= nil and
         #rel.assets == 1 then
       rel.assets[#rel.assets + 1] = { name = "SHA256SUMS", id = 999, data = "x" }
     end
@@ -724,12 +836,12 @@ local function test_the_publish_command_succeeds_through_a_fake_api(tmp: string)
   -- Each run has a temporary directory of its own, as a job does.
   local function run(n: integer, argv: {string}): integer
     local p = publisher(r)
-    p.temp = tmp .. "/run-" .. n
+    p.temp = tmp .. "/run-" .. tostring(n)
     assert(Fs.mkdirs(p.temp))
     return Prerelease.publish_command(argv, p)
   end
   assert(run(1, {}) == 0)
-  assert(#r.releases == 1 and not r.releases[1].draft)
+  assert(#r.releases == 1 and not assert(r.releases[1]).draft)
   assert(run(2, {}) == 0)
   assert(count(r, "POST repos/owner/repo/releases") == 1 and count(r, "UPLOAD ") == 3, logged(r))
   r.temp = tmp .. "/run-3"
@@ -741,12 +853,13 @@ local function test_publish_needs_a_token(tmp: string)
   local env: {string:string} = { REPOSITORY = repository, RELEASE = tmp, SOURCE_COMMIT = commit,
     SOURCE_RUN_PREFIX = run_prefix, RUNNER_TEMP = tmp }
   refused("GH_TOKEN", function() Prerelease.publish_context(env) end)
-  env.GITHUB_TOKEN = "fake-token"
-  local p = Prerelease.publish_context(env)
+  local with_token = Maps.with(env, { GITHUB_TOKEN = "fake-token" })
+  local p = Prerelease.publish_context(with_token)
   assert(p.repository == repository and p.commit == commit and p.temp == tmp)
   assert(p.client.base == "https://api.github.com")
-  env.REPOSITORY = nil
-  refused("REPOSITORY", function() Prerelease.publish_context(env) end)
+  refused("REPOSITORY", function()
+    Prerelease.publish_context(Maps.without(with_token, { "REPOSITORY" }))
+  end)
 end
 
 --- The two commands as prerelease.yml runs them, through driver.tl, from
@@ -759,30 +872,30 @@ local function test_driver_stages_and_refuses_to_publish_without_a_token(tmp: st
   assert(Fs.mkdirs(project))
   assert(Fs.copy_tree(assert(Fs.absolute("cosmic_ci")), project .. "/cosmic_ci"))
   local host = assert(Proc.executable())
-  local env = Env.all()
-  env.GH_TOKEN = nil
-  env.GITHUB_TOKEN = nil
-  env.PRODUCTS = tmp .. "/staged-products"
-  env.RELEASE = tmp .. "/driver-release"
-  env.SOURCE_COMMIT = commit
-  env.SOURCE_RUN_URL = run_prefix .. "7"
-  env.SOURCE_RUN_PREFIX = run_prefix
-  env.REPOSITORY = repository
-  env.RUNNER_TEMP = tmp .. "/driver-runner"
+  local env = Maps.with(Maps.without(Env.all(), { "GH_TOKEN", "GITHUB_TOKEN" }), {
+    PRODUCTS = tmp .. "/staged-products",
+    RELEASE = tmp .. "/driver-release",
+    SOURCE_COMMIT = commit,
+    SOURCE_RUN_URL = run_prefix .. "7",
+    SOURCE_RUN_PREFIX = run_prefix,
+    REPOSITORY = repository,
+    RUNNER_TEMP = tmp .. "/driver-runner",
+    COSMIC_GRAMMAR = "new",
+  })
   local function driver(command: string): Child.Result
     return (assert(Child.run({ host, "cosmic_ci/driver.tl", command }, { cwd = project,
       env = env, stdout = "capture", stderr = "capture" })))
   end
   local staged_run = driver("prerelease-stage")
   assert(staged_run.ok, staged_run.stderr)
-  assert(read(env.RELEASE .. "/source.json") == read(r.release .. "/source.json"))
+  assert(read(assert(env["RELEASE"]) .. "/source.json") == read(r.release .. "/source.json"))
   local refusal = driver("prerelease-publish")
   assert(not refusal.ok and refusal.code == 1, refusal.stdout)
   assert(output(refusal.stderr):find("prerelease-publish: ", 1, true) and
       output(refusal.stderr):find("GH_TOKEN", 1, true), refusal.stderr)
-  assert(not exists(env.RUNNER_TEMP .. "/prerelease"))
+  assert(not exists(assert(env["RUNNER_TEMP"]) .. "/prerelease"))
   local usage = assert(Child.run({ host, "cosmic_ci/driver.tl", "prerelease-stage", "word" },
     { cwd = project, env = env, stdout = "capture", stderr = "capture" }))
-  assert(usage.code == 1 and output(usage.stderr):find("usage: driver.tl prerelease-stage", 1, true),
+  assert(usage.code == 1 and output(usage.stderr):find("usage: driver.tl prerelease-stage", 1, true) ~= nil,
     usage.stderr)
 end

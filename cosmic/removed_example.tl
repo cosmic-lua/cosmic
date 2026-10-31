@@ -15,7 +15,8 @@ function Example.conversion()
   end
   assert(positive_id("42") == 42 and tonumber("ff", 16) == 255)
   for _, bad in ipairs({ "1junk", "1.5", "0", "-1" }) do
-    assert(not pcall(positive_id, bad))
+    local ok, trouble = pcall(positive_id, bad)
+    assert(not ok, tostring(trouble))
   end
   assert(type(42) == "number")
 end
@@ -32,10 +33,10 @@ function Example.protected_calls()
   local false_ok, false_value = pcall(function(): boolean return false end)
   local all_args = assert(load(
     "local value,label=assert(7,'seven'); return value==7 and label=='seven'"))
-  assert(all_args() and false_ok and false_value == false)
-  local good = xpcall(function() error("broken", 0) end,
+  assert(all_args() == true and false_ok and false_value == false)
+  local good, handled = xpcall(function() error("broken", 0) end,
     function(reason: any): string return "handled: " .. tostring(reason) end)
-  assert(not good)
+  assert(not good and handled == "handled: broken")
 end
 
 --- ipairs(array) stops at its first nil. pairs(table) and next(table, key)
@@ -45,11 +46,13 @@ end
 function Example.iteration_select()
   local sum = 0
   for _, n in ipairs({ 2, 3, 5 }) do sum = sum + n end
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for key in pairs({ a = 1, b = 2 }) do seen[key] = true end
-  local function tail(...: string): string, integer return select(2, ...), select("#", ...) end
+  local function tail(...: string): string, integer
+    return assert(select(2, ...)), select("#", ...)
+  end
   local value, count = tail("a", "b", "c")
-  assert(sum == 10 and seen.a and seen.b and value == "b" and count == 3)
+  assert(sum == 10 and seen["a"] == true and seen["b"] == true and value == "b" and count == 3)
 end
 
 --- getmetatable and setmetatable query/install metatables; __metatable can
@@ -57,10 +60,10 @@ end
 --- does not infer arbitrary __index, __newindex, __call, arithmetic,
 --- comparison, concatenation, length, or conversion metamethod behavior.
 function Example.metatables_raw()
-  local values: {string:integer} = { present = 2 }
-  local mt: metatable<{string:integer}> = { __index = function(): integer return 9 end }
+  local values: mut {string:integer} = { present = 2 }
+  local mt: metatable<mut {string:integer}> = { __index = function(): integer return 9 end }
   setmetatable(values, mt)
-  assert(values.missing == 9 and rawget(values, "missing") == nil)
+  assert(values["missing"] == 9 and rawget(values, "missing") == nil)
   rawset(values, "missing", 4)
   assert(rawequal(values, values) and rawlen({ 1, 2 }) == 2 and getmetatable(values) == mt)
 end
@@ -75,7 +78,7 @@ end
 --- _G is the environment; _VERSION identifies Lua. dofile/loadfile are
 --- removed: paths are not modules.
 function Example.load_chunk()
-  local environment: {any:any} = { answer = 40 }
+  local environment: {string: integer} = { answer = 40 }
   local chunk, trouble = load("return answer + 2", "example", "t", environment)
   assert(chunk ~= nil, trouble)
   assert(chunk() == 42)
@@ -106,17 +109,18 @@ end
 --- neither fills elements nor has a bundled Teal declaration.
 function Example.table_operations()
   local xs = { "c", "a", "b" }
-  local empty: {string} = {}
+  local empty: mut {string} = {}
   assert(table.remove(empty) == nil and table.remove(xs, #xs + 1) == nil)
-  assert(not pcall(function() table.remove(xs, 0) end))
+  local removed, trouble = pcall(function() table.remove(xs, 0) end)
+  assert(not removed, tostring(trouble))
   table.insert(xs, "z")
   assert(table.remove(xs) == "z")
   table.insert(xs, 2, "x")
   assert(table.remove(xs, 2) == "x")
   table.sort(xs)
   assert(table.concat(xs, ":", 1, 3) == "a:b:c")
-  table.move(xs, 1, 2, 2, xs)
-  assert(table.concat(xs) == "aab")
+  table.move(xs, 2, #xs, 1)
+  assert(table.concat(xs) == "bcc")
   local packed = table.pack("a", nil, "c")
   assert(packed.n == 3)
   local a, b = table.unpack({ "a", "b" })
@@ -130,6 +134,7 @@ end
 --- C locale and are not Unicode case conversion.
 function Example.string_bytes()
   local a, b = string.byte("AB", 1, 2)
+  assert(a ~= nil and b ~= nil)
   assert(a == 65 and b == 66 and string.char(a, b) == "AB")
   assert(string.len("abc") == 3 and string.sub("cosmic", -3) == "mic")
   assert(string.rep("x", 3, ":") == "x:x:x" and string.reverse("ab") == "ba")
@@ -156,7 +161,8 @@ function Example.string_patterns()
   local changed, count = string.gsub("a1b2", "%d", "")
   assert(changed == "ab" and count == 2)
   local malformed = "(" .. ""
-  assert(not pcall(string.match, "x", malformed))
+  local matched, trouble = pcall(function() local _ = string.match("x", malformed) end)
+  assert(not matched, tostring(trouble))
 end
 
 --- string.format is printf-like. string.pack encodes binary values;
@@ -183,7 +189,7 @@ function Example.math_numeric()
   assert(whole == 2 and fraction == .25 and math.fmod(-7, 3) == -1)
   assert(math.min(3, 1, 2) == 1 and math.max(3, 1, 2) == 3)
   assert(math.type(1) == "integer" and math.tointeger(1.5) == nil)
-  assert(1_000_000 == 1000000 and math.type(1_000) == "integer" and tonumber("1_000") == nil)
+  assert(1000000 == 1000000 and math.type(1000) == "integer" and tonumber("1_000") == nil)
 end
 
 --- math.sin, math.cos, math.tan, math.asin, math.acos and math.atan(y[, x]) use
@@ -244,9 +250,26 @@ function Example.coroutines()
   assert(coroutine.close(abandoned))
 end
 
+-- An interface method names its receiver, `function(self: Greeter, ...)`:
+-- `self` is then whatever implements Greeter, so a class's own
+-- `function greet(self, ...)` satisfies it. Unnamed, `function(Greeter, ...)`
+-- takes Greeter itself, which `function greet(self, ...)` does not match.
+local interface Greeter
+  greet: function(self: Greeter, who: string): string
+end
+local class Friendly is Greeter
+  mood: string
+
+  function greet(self, who: string): string
+    return self.mood .. ", " .. who
+  end
+end
+
 --- Records are nominal table types; interfaces are structural requirements.
---- `record R is I` states conformance. Colon methods receive self; dot access
---- is an ordinary field/function access.
+--- `record R is I` states conformance, and a class `class C is I` holds the
+--- methods. Colon methods receive self; dot access is an ordinary
+--- field/function access. An interface method that a class implements with
+--- `function m(self, ...)` declares its receiver as `self: I`.
 function Example.records_interfaces_methods()
   local interface Named
     name: string
@@ -263,10 +286,17 @@ function Example.records_interfaces_methods()
   }
   local named: Named = user
   assert(named.name == "Ada" and user:label() == "Ada:7")
+
+  -- A class value is made from a literal, and returned where an implemented interface is expected.
+  local function friend(mood: string): Greeter
+    local made: Friendly = { mood = mood }
+    return made
+  end
+  assert(friend("hello"):greet("Ada") == "hello, Ada")
 end
 
 --- Enums are closed sets of literal strings. `{T}` is an array, `{K:V}` a map,
---- and `{A,B}` a fixed tuple.
+--- and a record with a field for each position a fixed tuple.
 function Example.enums_arrays_maps_tuples()
   local enum Color
     "red"
@@ -275,8 +305,12 @@ function Example.enums_arrays_maps_tuples()
   local color: Color = "red"
   local array: {integer} = { 2, 3 }
   local map: {string:integer} = { answer = 42 }
-  local tuple: {string,integer} = { "age", 9 }
-  assert(color == "red" and array[2] == 3 and map.answer == 42 and tuple[1] == "age")
+  local record Pair
+    label: string
+    count: integer
+  end
+  local pair: Pair = { label = "age", count = 9 }
+  assert(color == "red" and array[2] == 3 and map.answer == 42 and pair.label == "age")
 end
 
 --- A union `A | B` accepts only values assignable to one member; operations
@@ -297,16 +331,16 @@ function Example.unions_narrowing_casts()
     name: string
   end
   local record Left is Named
-    where self.name == "left"
+    name: string
   end
   local record Right is Named
-    where self.name == "right"
+    name: string
   end
   local function side(value: Left | Right): string
     if value is Left then return "L:" .. value.name end
     return "R:" .. value.name
   end
-  local function render(value: string | integer | nil): string
+  local function render(value: (string | integer)?): string
     if value == nil then return "missing" end
     if value is integer then return tostring(value + 1) end
     return string.upper(value as string)
@@ -315,11 +349,11 @@ function Example.unions_narrowing_casts()
     if type(value) ~= "string" then return 0 end
     return #value
   end
-  local function first_size(sizes: {integer} | nil): integer | nil
+  local function first_size(sizes: {integer}?): integer?
     return sizes and sizes[1]
   end
   assert(length("abc") == 3 and length(3) == 0 and first_size({ 7 }) == 7 and first_size(nil) == nil)
-  local maybe: string | nil = "present"
+  local maybe: string? = ("present"):match("^p%a+$")
   assert(maybe ~= nil)
   local definitely: string = maybe
   local left: Left = { name = "left" }
@@ -342,11 +376,15 @@ function Example.generics_functions_returns()
   local interface HasName
     name: string
   end
+  local record Person is HasName
+    name: string
+  end
   local function identity<T>(v: T): T return v end
   local function name_of<T is HasName>(v: T): string return v.name end
   local function quotient(a: integer, b: integer): integer, integer return a // b, a % b end
   local q, r = quotient(7, 3)
-  assert(identity("x") == "x" and name_of({ name = "Ada" }) == "Ada" and q == 2 and r == 1)
+  local ada: Person = { name = "Ada" }
+  assert(identity("x") == "x" and name_of(ada) == "Ada" and q == 2 and r == 1)
   local sizes = { 3, 1, 2 }
   table.sort(sizes, function(a, b) return a > b end)
   assert(sizes[1] == 3 and sizes[3] == 1)
@@ -371,7 +409,7 @@ end
 --- callers should inspect the documented convention.
 function Example.modules_declarations_nil_error()
   local Fs = require("cosmic.fs")
-  assert(require("cosmic.fs") == Fs and package.loaded["cosmic.fs"] == Fs)
+  assert(require("cosmic.fs") == Fs)
   local data, trouble = Fs.read("/no/such/file")
   assert(data == nil and trouble ~= "")
 end

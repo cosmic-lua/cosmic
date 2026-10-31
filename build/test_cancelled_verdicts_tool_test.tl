@@ -9,6 +9,7 @@ local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local cache_formats = require("build.cache_formats")
+local build_paths = require("build.paths")
 
 local declared = cache_formats.declared
 
@@ -17,12 +18,19 @@ Test.policy{
   grants = { { path = "o/bin", letters = "rx" } },
 }
 
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
+
 local function snapshot(path: string, query: string): string
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, query))
   assert(db:close())
-  local out: {string} = {}
-  for _, row in ipairs(rows) do out[#out + 1] = table.concat(row, "|") end
+  local out: mut {string} = {}
+  for _, row in ipairs(rows) do out[#out + 1] = table.concat(row:texts(), "|") end
   return table.concat(out, "\n")
 end
 
@@ -57,7 +65,7 @@ local function test_d_unstarted() assert(true) end
   local function run(name: string, words: {string}, passes: boolean): string
     local output = tmp .. "/" .. name .. ".out"
     local fd = assert(Fs.open_write(output))
-    local args: {string} = { "test", "--jobs", "1" }
+    local args: mut {string} = { "test", "--jobs", "1" }
     for _, word in ipairs(words) do args[#args + 1] = word end
     local start = this_program.program(args, { cwd = root, env = env, stdout = fd, stderr = fd })
     local result = assert(Child.run(start.argv, start.options))
@@ -68,10 +76,10 @@ local function test_d_unstarted() assert(true) end
   end
   local passed = run("prime", { "work_test.tl:test_b_observed_failure", "work_test.tl:test_d_unstarted" }, true)
   assert(passed:find("2 ran, 0 stood", 1, true), passed)
-  local records = root .. "/o/build.db"
+  local records = build_dir(root) .. "/build.db"
   local key = snapshot(cache, "SELECT key FROM " .. declared .. " WHERE test = 'work_test test_b_observed_failure'")
   assert(key ~= "")
-  local histories: {string:string} = {}
+  local histories: mut {string:string} = {}
   for _, name in ipairs({ "runs", "test_runs", "coverage", "coverage_by_test" }) do
     histories[name] = snapshot(records, "SELECT * FROM " .. name .. " ORDER BY 1")
   end
@@ -85,7 +93,7 @@ local function test_d_unstarted() assert(true) end
   local handle <close> = assert(Child.start(start.argv, start.options))
   assert(Fs.close(fd))
   local deadline = Clock.monotonic_ns() + Clock.seconds(20)
-  while not Fs.exists(marker) do
+  while Fs.exists(marker) ~= true do
     assert(Clock.monotonic_ns() < deadline, assert(Fs.read(output)))
     local done = Child.wait_any({ handle }, Clock.ms(10))
     assert(done == nil, assert(Fs.read(output)))
@@ -107,11 +115,11 @@ local function test_d_unstarted() assert(true) end
   assert(snapshot(cache, "SELECT key FROM " .. declared .. " WHERE key = '" .. key .. "'") == "", "shared pass survived")
   -- Unsandboxed keys include the checkout path. Temporarily set aside
   -- its working database so a fresh consumer meets exactly the same key.
-  assert(Fs.rename(root .. "/o", tmp .. "/saved-o"))
+  assert(Fs.rename(build_dir(root), tmp .. "/saved-o"))
   local fresh = run("fresh", { "work_test.tl:test_b_observed_failure" }, false)
-  assert(fresh:find("1 of 1 failed, 0 infrastructure errors", 1, true), fresh)
-  assert(Fs.remove_tree(root .. "/o"))
-  assert(Fs.rename(tmp .. "/saved-o", root .. "/o"))
+  assert(fresh:find("1 of 1 test failed, 0 infrastructure errors", 1, true), fresh)
+  assert(Fs.remove_tree(build_paths.required(root)))
+  assert(Fs.rename(tmp .. "/saved-o", build_paths.required(root)))
   -- Another checkout may subsequently share a pass. The local failure
   -- still wins: deletion alone would allow this replacement to stand.
   local shared = assert(Sqlite.open(cache, { writable = true }))
@@ -121,5 +129,5 @@ local function test_d_unstarted() assert(true) end
   assert(shared:close())
   assert(snapshot(cache, "SELECT key FROM " .. declared .. " WHERE key = '" .. key .. "'") == key)
   local again = run("again", { "work_test.tl:test_b_observed_failure" }, false)
-  assert(again:find("1 of 1 failed, 0 infrastructure errors", 1, true), again)
+  assert(again:find("1 of 1 test failed, 0 infrastructure errors", 1, true), again)
 end

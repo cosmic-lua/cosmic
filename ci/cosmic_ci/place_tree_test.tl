@@ -110,8 +110,8 @@ ffffffffffffffffffffffffffffffffffffffff checked schedule 1 322e3b17c5eaead
 
 --- A host over `env`, collecting what it prints and warns.
 local function host(env: {string:string}): PlaceTree.Host, {string}, {string}
-  local out: {string} = {}
-  local err: {string} = {}
+  local out: mut {string} = {}
+  local err: mut {string} = {}
   return {
     env = env,
     print = function(line: string) out[#out + 1] = line end,
@@ -123,8 +123,10 @@ end
 --- where `declared` is "1", for a checkout at `workspace` where given.
 local function environment(sha: string, leg: string, event?: string, declared?: string,
                            workspace?: string): {string:string}
-  return { GITHUB_SHA = sha, COSMIC_WORKER = leg, GITHUB_EVENT_NAME = event or "push",
-    COSMIC_CI_DECLARED_KEYS = declared or "0", GITHUB_WORKSPACE = workspace }
+  local values: mut {string:string} = { GITHUB_SHA = sha, COSMIC_WORKER = leg,
+    GITHUB_EVENT_NAME = event or "push", COSMIC_CI_DECLARED_KEYS = declared or "0" }
+  if workspace ~= nil then values["GITHUB_WORKSPACE"] = workspace end
+  return values
 end
 
 --- The name `--name` prints for the inputs.
@@ -132,7 +134,7 @@ local function name(sha: string, leg: string, event?: string, declared?: string)
   local given, out = host(environment(sha, leg, event, declared))
   assert(PlaceTree.run(given, "--name") == 0)
   assert(#out == 1)
-  return out[1]
+  return assert(out[1])
 end
 
 local function test_names_match_the_recorded_vectors()
@@ -155,19 +157,19 @@ end
 local LEGS <const> = { "linux-x86_64", "linux-aarch64", "macos-aarch64", "alpine-x86_64", "fuzz", "checked" }
 
 local function test_every_commit_and_leg_names_one_directory_of_its_own_length()
-  local lengths: {integer: boolean} = {}
+  local lengths: mut {integer: boolean} = {}
   local distinct = 0
   for n = 0, 15 do
     local sha = string.format("%x", n) .. SHA:sub(2)
     for _, leg in ipairs(LEGS) do
       local named = name(sha, leg)
       assert(named:match("^%x+$") ~= nil and #named <= 24, sha .. " " .. leg .. " names " .. named)
-      if not lengths[#named] then distinct = distinct + 1 end
+      if lengths[#named] ~= true then distinct = distinct + 1 end
       lengths[#named] = true
     end
   end
   -- The name's length varies too, not only its digits.
-  assert(distinct >= 8, "only " .. distinct .. " lengths in 96 names")
+  assert(distinct >= 8, "only " .. tostring(distinct) .. " lengths in 96 names")
 end
 
 local function test_another_leg_or_commit_names_another_path()
@@ -226,18 +228,18 @@ end
 --- Everything under `root`, a line each: a link with its target, a
 --- directory, or a file with its contents.
 local function layout(root: string): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local function walk(relative: string)
     for _, entry in ipairs((assert(Fs.list(root .. relative)))) do
       local path = relative .. "/" .. entry
       local target = Fs.readlink(root .. path)
       if target then
         lines[#lines + 1] = path .. " -> " .. target
-      elseif Fs.is_dir(root .. path) then
+      elseif Fs.is_dir(root .. path) == true then
         lines[#lines + 1] = path .. "/"
         walk(path)
       else
-        lines[#lines + 1] = path .. " = " .. assert(Fs.read(root .. path))
+        table.insert(lines, path .. " = " .. assert(Fs.read(root .. path)))
       end
     end
   end
@@ -342,7 +344,7 @@ local function test_a_gating_run_keyed_by_declarations_moves_the_tree_to_the_leg
   local root, workspace = checkout()
   local before = layout(root)
   local out = place(workspace, "", "macos-aarch64", "1")
-  assert(out[1]:find(", a gating run keyed by the path)", 1, true), out[1])
+  assert(assert(out[1]):find(", a gating run keyed by the path)", 1, true), out[1])
   assert(Fs.readlink(workspace) == name("0" .. SHA:sub(2), "macos-aarch64", "push", "1"),
     layout(root))
   place(workspace, "--restore", "macos-aarch64", "1")
@@ -367,7 +369,7 @@ local function test_a_move_onto_an_existing_directory_is_refused()
   local before = layout(root)
   local given, out, err = host(environment(SHA, "linux-x86_64", "push", "0", workspace))
   assert(PlaceTree.run(given, "") == 1)
-  assert(#out == 0 and err[1]:find("exists already", 1, true), tostring(err[1]))
+  assert(#out == 0 and assert(err[1]):find("exists already", 1, true) ~= nil, tostring(err[1]))
   assert(layout(root) == before, layout(root))
   assert(Fs.remove_tree(root))
 end

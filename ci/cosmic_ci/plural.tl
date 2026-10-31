@@ -15,7 +15,8 @@ end
 --- `singular`, or its plural, as `count` asks, for a line that prints the
 --- number itself (a format's `%d`).
 function Plural.noun(count: integer, singular: string, several?: string): string
-  return count == 1 and singular or several or singular .. "s"
+  if count == 1 then return singular end
+  return several or singular .. "s"
 end
 
 return Plural

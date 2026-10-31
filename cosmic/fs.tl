@@ -60,10 +60,10 @@ local record Fs
   record CacheOptions
     --- The variables to read (`XDG_CACHE_HOME`, `HOME`), by name; the
     --- process's own when nil.
-    environment: {string:string}
+    environment?: {string:string}
     --- Whether to make and check the directory; true when nil. False
     --- answers the name alone.
-    make: boolean
+    make?: boolean
   end
 
   --- A private directory made by [`Fs.scratch`], removed with everything
@@ -76,7 +76,7 @@ local record Fs
     --- scratch directory is open. Leave the file alone, and neither
     --- read nor close the descriptor.
     owner: integer
-    metamethod __close: function(Scratch)
+    __close: function(Scratch)
   end
 
   --- The descriptor of standard input, 0: what [`Fs.take`] reads from.
@@ -101,7 +101,7 @@ local chunk_size = 1 << 16
 --- Reads the whole of a file as bytes, loading it in one call. Use this for
 --- the common io.open/io.read or io.lines case when streaming and Lua file
 --- handles are unnecessary.
-function Fs.read(path: string): string | nil, string
+function Fs.read(path: string): string?, string
   local fd, trouble = sys.open(path, sys.O_RDONLY)
   if fd == nil then
     return nil, path .. ": " .. trouble
@@ -114,7 +114,7 @@ function Fs.read(path: string): string | nil, string
   if st ~= nil and st.kind == "file" and st.size > chunk_size then
     ask = st.size
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while true do
     local chunk, failure = sys.read(fd, ask)
     if chunk == nil then
@@ -157,22 +157,6 @@ end
 -- How an object of this module is made: see the note on objects in
 -- cosmic/stream.tl.
 
---- What [`Fs.create`] returns: its methods live on the record's own
---- table, so creating a file costs a table, not four closures.
-local record StagedFile is Fs.Staged
-  path: string
-  temporary: sys.TemporaryFile
-  -- "" until a call fails.
-  failed: string
-  closed: boolean
-  write: function(StagedFile, string): boolean, string
-  sync: function(StagedFile): boolean, string
-  close: function(StagedFile): boolean, string
-  abort: function(StagedFile): boolean, string
-end
-
-local staged_file_mt: metatable<StagedFile> = { __index = StagedFile }
-
 --- Remembers `why` as the file's failure, naming the caller's path: a
 --- failure is sticky, and never names the temporary file, which the
 --- caller never chose and which is gone when it reads the message.
@@ -181,53 +165,63 @@ local function failing(self: StagedFile, why: string): string
   return self.failed
 end
 
-function StagedFile:write(data: string): boolean, string
-  if self.closed then return false, self.path .. ": the file is closed" end
-  if self.failed ~= "" then return false, self.failed end
-  local ok, why = write_all(self.temporary.fd, data, "")
-  if not ok then return false, failing(self, why) end
-  return true, ""
-end
+--- What [`Fs.create`] returns: its methods live on the record's own
+--- table, so creating a file costs a table, not four closures.
+local class StagedFile is Fs.Staged
+  path: string
+  temporary: sys.TemporaryFile
+  -- "" until a call fails.
+  mut failed: string
+  mut closed: boolean
 
-function StagedFile:sync(): boolean, string
-  if self.closed then return false, self.path .. ": the file is closed" end
-  if self.failed ~= "" then return false, self.failed end
-  local ok, why = sys.fsync(self.temporary.fd)
-  if not ok then return false, failing(self, why) end
-  return true, ""
-end
-
-function StagedFile:abort(): boolean, string
-  if self.closed then return true, "" end
-  self.closed = true
-  local _, _ = sys.close(self.temporary.fd)
-  local _, _ = sys.unlink(self.temporary.path)
-  return true, ""
-end
-
-function StagedFile:close(): boolean, string
-  local temporary = self.temporary
-  if self.closed then
+  function write(self, data: string): boolean, string
+    if self.closed then return false, self.path .. ": the file is closed" end
     if self.failed ~= "" then return false, self.failed end
+    local ok, why = write_all(self.temporary.fd, data, "")
+    if not ok then return false, failing(self, why) end
     return true, ""
   end
-  self.closed = true
-  if self.failed ~= "" then
-    local _, _ = sys.close(temporary.fd)
-    local _, _ = sys.unlink(temporary.path)
-    return false, self.failed
+
+  function sync(self): boolean, string
+    if self.closed then return false, self.path .. ": the file is closed" end
+    if self.failed ~= "" then return false, self.failed end
+    local ok, why = sys.fsync(self.temporary.fd)
+    if not ok then return false, failing(self, why) end
+    return true, ""
   end
-  local closed, close_trouble = sys.close(temporary.fd)
-  if not closed then
-    local _, _ = sys.unlink(temporary.path)
-    return false, failing(self, close_trouble)
+
+  function abort(self): boolean, string
+    if self.closed then return true, "" end
+    self.closed = true
+    local _, _ = sys.close(self.temporary.fd)
+    local _, _ = sys.unlink(self.temporary.path)
+    return true, ""
   end
-  local moved, why = sys.rename(temporary.path, self.path)
-  if not moved then
-    local _, _ = sys.unlink(temporary.path)
-    return false, failing(self, why)
+
+  function close(self): boolean, string
+    local temporary = self.temporary
+    if self.closed then
+      if self.failed ~= "" then return false, self.failed end
+      return true, ""
+    end
+    self.closed = true
+    if self.failed ~= "" then
+      local _, _ = sys.close(temporary.fd)
+      local _, _ = sys.unlink(temporary.path)
+      return false, self.failed
+    end
+    local closed, close_trouble = sys.close(temporary.fd)
+    if not closed then
+      local _, _ = sys.unlink(temporary.path)
+      return false, failing(self, close_trouble)
+    end
+    local moved, why = sys.rename(temporary.path, self.path)
+    if not moved then
+      local _, _ = sys.unlink(temporary.path)
+      return false, failing(self, why)
+    end
+    return true, ""
   end
-  return true, ""
 end
 
 --- Starts writing a file at `path`: bytes go to a new temporary neighbor,
@@ -240,14 +234,14 @@ end
 --- mode. Nothing is synced unless `sync` is called, so a crash can
 --- still lose the write. [`Stream.create`] is this, as a
 --- [`cosmic.stream`] Writer.
-function Fs.create(path: string, mode?: integer): Fs.Staged | nil, string
+function Fs.create(path: string, mode?: integer): Fs.Staged?, string
   local temporary, trouble = sys.open_temporary(path, mode or 0x1a4)
   if temporary == nil then
     return nil, path .. ": " .. trouble
   end
-  local staged: StagedFile = setmetatable({
+  local staged: StagedFile = {
     path = path, temporary = temporary, failed = "", closed = false,
-  }, staged_file_mt)
+  }
   return staged, ""
 end
 
@@ -272,8 +266,8 @@ function Fs.write(path: string, data: string, mode?: integer): boolean, string
 end
 
 local record AppendFile
-  metamethod __close: function(AppendFile)
-  fd: integer
+  __close: function(AppendFile)
+  mut fd: integer
 end
 
 local append_mt: metatable<AppendFile> = {
@@ -295,7 +289,6 @@ local append_mt: metatable<AppendFile> = {
 --- or false and a reason naming `path`; a write failure wins over a
 --- close failure.
 function Fs.append(path: string, data: string, mode?: integer): boolean, string
-  if type(data) ~= "string" then error("fs: append data must be a string", 2) end
   local file <close>: AppendFile = setmetatable({ fd = -1 }, append_mt)
   local fd, trouble = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_APPEND, mode or 0x1a4)
   if fd == nil then return false, path .. ": " .. trouble end
@@ -310,7 +303,7 @@ function Fs.append(path: string, data: string, mode?: integer): boolean, string
 end
 
 --- Metadata for a path, or nil and an error if it cannot be inspected.
-function Fs.stat(path: string): sys.Stat | nil, string
+function Fs.stat(path: string): sys.Stat?, string
   local st, trouble = sys.stat(path)
   if st == nil then
     return nil, path .. ": " .. trouble
@@ -320,7 +313,7 @@ end
 
 --- Whether anything is at a path. A missing path is false, while an error
 --- inspecting the path is nil.
-function Fs.exists(path: string): boolean | nil, string
+function Fs.exists(path: string): boolean?, string
   local st, trouble, number = sys.stat(path)
   if st ~= nil then
     return true, ""
@@ -333,7 +326,7 @@ end
 
 --- Whether a directory is at a path. A missing path or an existing
 --- non-directory is false, while an error inspecting the path is nil.
-function Fs.is_dir(path: string): boolean | nil, string
+function Fs.is_dir(path: string): boolean?, string
   local st, trouble, number = sys.stat(path)
   if st ~= nil then
     return st.kind == "dir", ""
@@ -392,7 +385,7 @@ end
 --- A fresh, empty temporary directory under the system temp directory,
 --- named with `prefix` and a random suffix: `mktemp -d`. `TMPDIR` picks the
 --- temp directory when it is set, and `/tmp` otherwise.
-function Fs.mkdtemp(prefix: string): string | nil, string
+function Fs.mkdtemp(prefix: string): string?, string
   local base = Env.get_or("TMPDIR", "/tmp")
   local template = base .. "/" .. prefix .. "XXXXXX"
   local path, trouble = sys.mkdtemp(template)
@@ -428,7 +421,7 @@ local function private_dir(path: string): boolean, string
 end
 
 --- The base [`Fs.cache_dir`] puts `cosmic` under.
-local function cache_base(environment?: {string:string}): string | nil, string
+local function cache_base(environment?: {string:string}): string?, string
   local function get(name: string): string
     if environment ~= nil then
       return environment[name] or ""
@@ -458,7 +451,7 @@ end
 --- `opts.make` false only the name is answered, from the environment
 --- alone: nothing is made, looked at or checked, so the directory may
 --- not be there.
-function Fs.cache_dir(tool: string, opts?: Fs.CacheOptions): string | nil, string
+function Fs.cache_dir(tool: string, opts?: Fs.CacheOptions): string?, string
   local environment = opts ~= nil and opts.environment or nil
   local base, base_trouble = cache_base(environment)
   if base == nil then
@@ -515,7 +508,7 @@ end
 
 --- The names in a directory, sorted, without `.` and `..`.
 local function sorted_names(entries: {string:Fs.Kind}): {string}
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(entries) do
     names[#names + 1] = name
   end
@@ -525,7 +518,7 @@ end
 
 --- The entries of a directory, sorted, without `.` and `..`: `ls -A`, or
 --- `readdir`.
-function Fs.list(path: string): {string} | nil, string
+function Fs.list(path: string): {string}?, string
   local entries, trouble = sys.readdir(path)
   if entries == nil then
     return nil, path .. ": " .. trouble
@@ -548,10 +541,10 @@ local record Pending
 end
 
 --- Both walks: [`Fs.walk`], and with `follow`, [`Fs.walk_following`].
-local function walk(root: string, skip: function(string, string, Fs.Kind): boolean,
-                    follow: boolean): {string} | nil, string
-  local found: {string} = {}
-  local pending: {Pending} = { { relative = "", above = nil } }
+local function walk(root: string, follow: boolean,
+                    skip?: function(string, string, Fs.Kind): boolean): {string}?, string
+  local found: mut {string} = {}
+  local pending: mut {Pending} = { { relative = "", above = nil } }
   while #pending > 0 do
     local next_one = table.remove(pending)
     local relative = next_one.relative
@@ -610,8 +603,8 @@ end
 --- `"socket"` and so on), and may refuse a whole directory. The
 --- listing says what each entry is, so nothing here is stat'd.
 function Fs.walk(root: string,
-                 skip?: function(string, string, Fs.Kind): boolean): {string} | nil, string
-  return walk(root, skip, false)
+                 skip?: function(string, string, Fs.Kind): boolean): {string}?, string
+  return walk(root, false, skip)
 end
 
 --- Every file under a root as [`Fs.walk`] lists them -- relative to
@@ -629,13 +622,13 @@ end
 --- before a link is followed, so it is told `"link"` and may refuse
 --- one. Each directory, and each link, is stat'd.
 function Fs.walk_following(root: string,
-                           skip?: function(string, string, Fs.Kind): boolean): {string} | nil, string
-  return walk(root, skip, true)
+                           skip?: function(string, string, Fs.Kind): boolean): {string}?, string
+  return walk(root, true, skip)
 end
 
 local record Descriptor
   fd: integer
-  metamethod __close: function(Descriptor)
+  __close: function(Descriptor)
 end
 local descriptor_mt: metatable<Descriptor> = {
   __close = function(self: Descriptor) local _, _ = sys.close(self.fd) end,
@@ -669,7 +662,7 @@ local scratch_mt: metatable<Fs.Scratch> = {
 --- is not yet held. It is released before this returns, and the work in
 --- the directory runs outside it. Use one `parent` for one kind of
 --- scratch directory: calls under it sweep each other's.
-function Fs.scratch(parent: string): Fs.Scratch | nil, string
+function Fs.scratch(parent: string): Fs.Scratch?, string
   local fd, trouble = sys.open(parent .. "/.scratch-gate", sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW, 0x180)
   if fd == nil then return nil, parent .. ": " .. trouble end
   local opened: Descriptor = { fd = fd }
@@ -714,7 +707,7 @@ function Fs.scratch(parent: string): Fs.Scratch | nil, string
 end
 
 --- A path with no link and no `..` left in it: `realpath`.
-function Fs.absolute(path: string): string | nil, string
+function Fs.absolute(path: string): string?, string
   local resolved, trouble = sys.realpath(path)
   if resolved == nil then
     return nil, path .. ": " .. trouble
@@ -753,7 +746,7 @@ end
 --- The Lua io module and io.open handles are unavailable. This opens a file
 --- for reading and returns an integer descriptor instead. Most callers want
 --- [`Fs.read`]; use Fs.take and Fs.close when a file must be read in pieces.
-function Fs.open_read(path: string): integer | nil, string
+function Fs.open_read(path: string): integer?, string
   -- TODO: a descriptor a `<close>` variable can hold (a record with
   -- `__close` over the fd), here and in open_write, so a file read or
   -- written in pieces is closed on every way out of its block: callers
@@ -772,7 +765,7 @@ end
 --- `mode` is the permission bits of a file this call creates, as an
 --- integer (0x1a4 for 0644, the default), less the process's umask; an
 --- existing file keeps its own.
-function Fs.open_write(path: string, mode?: integer): integer | nil, string
+function Fs.open_write(path: string, mode?: integer): integer?, string
   local flags = sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC
   local fd, trouble = sys.open(path, flags, mode or 0x1a4)
   if fd == nil then
@@ -783,7 +776,7 @@ end
 
 --- Reads up to `count` bytes from a descriptor. This is the streaming byte
 --- operation in place of io.read; an empty string is the end of the file.
-function Fs.take(fd: integer, count: integer): string | nil, string
+function Fs.take(fd: integer, count: integer): string?, string
   local data, trouble = sys.read(fd, count)
   if data == nil then
     return nil, trouble
@@ -818,7 +811,7 @@ function Fs.symlink(target: string, path: string): boolean, string
 end
 
 --- The target of a symbolic link.
-function Fs.readlink(path: string): string | nil, string
+function Fs.readlink(path: string): string?, string
   local target, trouble = sys.readlink(path)
   if target == nil then
     return nil, path .. ": " .. trouble
@@ -975,7 +968,7 @@ end
 function Fs.dirname(path: string): string
   local trimmed = unslashed(path)
   if trimmed == "" then
-    return path == "" and "." or "/"
+    return if path == "" then "." else "/" end
   end
   local at = #trimmed
   while at > 0 and trimmed:byte(at) ~= 47 do at = at - 1 end
@@ -1000,7 +993,7 @@ end
 --- `path` relative to `directory`, lexically: "." when they are the same,
 --- the rest after the directory's "/" when `path` is within it, and nil
 --- with a reason when it is not.
-function Fs.relative(path: string, directory: string): string | nil, string
+function Fs.relative(path: string, directory: string): string?, string
   if not Fs.within(path, directory) then
     return nil, path .. ": not within " .. directory
   end

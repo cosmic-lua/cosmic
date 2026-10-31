@@ -21,19 +21,19 @@ local record json_query
     --- How many arrays and objects may nest below the value walked,
     --- 1 to [`Json.depth_limit`] (default [`Json.default_depth`], 64), as
     --- [`Json.EncodeOptions.max_depth`] counts. Deeper fails the walk.
-    max_depth: integer
+    max_depth?: integer
     --- The steps the value was found at (default none), each position
     --- counted from 1, so its leaves' steps run from the document.
-    root: Json.Steps
+    root?: Json.Steps
   end
 end
 
 --- `given`, a `max_depth`, when it is an integer from `least` to `most`
 --- (no upper bound when `most` is nil); otherwise raises, naming the
 --- caller `level` frames above the function that calls this one.
-local function checked_depth(given: any, least: integer, most: integer | nil, level: integer): integer
+local function checked_depth(given: any, least: integer, most: integer?, level: integer): integer
   if not (given is integer) or given < least or (most ~= nil and given > most) then
-    local range = most ~= nil and "from " .. least .. " to " .. most or "of at least " .. least
+    local range = if most ~= nil then "from " .. tostring(least) .. " to " .. tostring(most) else "of at least " .. tostring(least) end
     error("json: max_depth must be an integer " .. range, level + 1)
   end
   return given
@@ -68,59 +68,68 @@ end
 ---     end
 ---     -- $.a[0] = 1
 ---     -- $.a[1].b = []
-function json_query.flatten(value: any, opts?: json_query.FlattenOptions): {Json.Match} | nil, string
+function json_query.flatten(value: any, opts?: json_query.FlattenOptions): {Json.Match}?, string
   local limit = Json.default_depth
   local root: Json.Steps = {}
   if opts ~= nil then
-    if opts.max_depth ~= nil then
-      limit = checked_depth(opts.max_depth, 1, Json.depth_limit, 2)
+    local max_depth = opts.max_depth
+    if max_depth ~= nil then
+      limit = checked_depth(max_depth, 1, Json.depth_limit, 2)
     end
-    if opts.root ~= nil then root = opts.root end
+    local opts_root = opts.root
+    if opts_root ~= nil then root = opts_root end
   end
-  local leaves: {Json.Match} = {}
+  local leaves: mut {Json.Match} = {}
   local open: {any:boolean} = {}
-  local failed: string | nil
-  local steps: Json.Steps = table.move(root, 1, #root, 1, {})
+  local steps: mut {integer | string} = table.move(root, 1, #root, 1, {})
   local function leaf(v: any)
-    leaves[#leaves + 1] = { steps = table.move(steps, 1, #steps, 1, {}), value = v }
+    table.insert(leaves, { steps = table.move(steps, 1, #steps, 1, {}), value = v })
   end
-  local function walk(v: any, depth: integer)
+  -- Walks `v`, answering why it cannot be read, if it cannot.
+  local function walk(v: any, depth: integer): string?
     if not (v is {any:any}) then
       leaf(v)
-      return
+      return nil
     end
     local t: {any:any} = v
     local members = Json.members(t)
     local shape, keys, extent = members.layout, members.keys, members.extent
     if shape == "mixed" then
-      failed = "the value at " .. at_pointer(steps) .. " is a table with mixed keys"
-      return
+      return "the value at " .. at_pointer(steps) .. " is a table with mixed keys"
     end
     if depth >= limit then
-      failed = "the value at " .. at_pointer(steps) .. " nests deeper than max_depth " .. limit
-      return
+      return "the value at " .. at_pointer(steps) .. " nests deeper than max_depth " .. tostring(limit)
     end
     if open[v] then
-      failed = "the value at " .. at_pointer(steps) .. " contains itself"
-      return
+      return "the value at " .. at_pointer(steps) .. " contains itself"
     end
     open[v] = true
     local before = #leaves
-    local function child(step: string | integer, member: any)
-      if member == nil or failed ~= nil then return end
+    local function child(step: string | integer, member: any): string?
+      if member == nil then return nil end
       steps[#steps + 1] = step
-      walk(member, depth + 1)
-      steps[#steps] = nil
+      local why = walk(member, depth + 1)
+      table.remove(steps)
+      return why
     end
+    local failed: string? = nil
     if shape == "array" then
-      for i = 1, extent do child(i, t[i]) end
+      for i = 1, extent do
+        failed = child(i, t[i])
+        if failed ~= nil then break end
+      end
     else
-      for _, key in ipairs(keys) do child(key, t[key]) end
+      for _, key in ipairs(keys) do
+        failed = child(key, t[key])
+        if failed ~= nil then break end
+      end
     end
     open[v] = nil
-    if failed == nil and #leaves == before then leaf(v) end
+    if failed ~= nil then return failed end
+    if #leaves == before then leaf(v) end
+    return nil
   end
-  walk(value, 0)
+  local failed = walk(value, 0)
   if failed ~= nil then return nil, failed end
   return leaves, ""
 end
@@ -132,10 +141,10 @@ end
 --- starts `$[` only before a name that is no word or a position, and
 --- holds a `'` only where a name does, so a word-and-index path needs no
 --- escape in single quotes. nil and why for a step [`Json.path`] refuses.
-local function shorthand(steps: Json.Steps): string | nil, string
+local function shorthand(steps: Json.Steps): string?, string
   local checked, bad = Json.path(steps)
   if checked == nil then return nil, bad end
-  local parts: {string} = { "$" }
+  local parts: mut {string} = { "$" }
   for _, step in ipairs(steps) do
     if step is string then
       if step:match("^[%a_][%w_]*$") then
@@ -160,25 +169,25 @@ end
 --- place ends at the first ` = ` outside a quoted name. nil and a
 --- message naming the place by its JSON Pointer when `value` cannot be
 --- encoded, or a step is no step [`Json.path`] writes.
-function json_query.flat_line(steps: Json.Steps, value: any): string | nil, string
+function json_query.flat_line(steps: Json.Steps, value: any): string?, string
   local path, bad = shorthand(steps)
   if path == nil then return nil, bad end
-  local text, err = Json.encode(value)
+  local text, err = Json.encode_any(value)
   if text == nil then return nil, "the value at " .. at_pointer(steps) .. ": " .. err end
   return path .. " = " .. text, ""
 end
 
 --- What the values seen at one place look like, merged.
 local record Node
-  scalars: {string:boolean}
-  objects: integer
-  fields: {string:Node}
-  seen: {string:integer}
-  arrays: integer
-  shortest: integer
-  longest: integer
-  elements: Node
-  cut: boolean
+  scalars: mut {string:boolean}
+  mut objects: integer
+  fields: mut {string:Node}
+  seen: mut {string:integer}
+  mut arrays: integer
+  mut shortest: integer
+  mut longest: integer
+  mut elements?: Node
+  mut cut: boolean
 end
 
 local function new_node(): Node
@@ -213,9 +222,12 @@ local function absorb(node: Node, v: any, depth: integer, limit: integer)
       node.cut = true
       return
     end
-    if n > 0 and node.elements == nil then node.elements = new_node() end
-    for i = 1, n do
-      absorb(node.elements, v[i], depth + 1, limit)
+    if n > 0 then
+      local elements = node.elements or new_node()
+      node.elements = elements
+      for i = 1, n do
+        absorb(elements, v[i], depth + 1, limit)
+      end
     end
   else
     node.objects = node.objects + 1
@@ -225,49 +237,52 @@ local function absorb(node: Node, v: any, depth: integer, limit: integer)
     end
     for key, member in pairs(v) do
       local name: any = key
-      if not (name is string) then goto continue end
-      local field = node.fields[name]
-      if field == nil then
-        field = new_node()
-        node.fields[name] = field
+      if name is string then
+        local field = node.fields[name]
+        if field == nil then
+          field = new_node()
+          node.fields[name] = field
+        end
+        node.seen[name] = (node.seen[name] or 0) + 1
+        absorb(field, member, depth + 1, limit)
       end
-      node.seen[name] = (node.seen[name] or 0) + 1
-      absorb(field, member, depth + 1, limit)
-      ::continue::
     end
   end
 end
 
 local function sorted_keys<T>(t: {string:T}): {string}
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   for key in pairs(t) do keys[#keys + 1] = key end
   table.sort(keys)
   return keys
 end
 
 local function render(node: Node): string
-  local parts: {string} = sorted_keys(node.scalars)
+  local parts: mut {string} = sorted_keys(node.scalars)
   if node.objects > 0 then
     if node.cut then
       parts[#parts + 1] = "{...}"
     else
-      local members: {string} = {}
+      local members: mut {string} = {}
       for _, name in ipairs(sorted_keys(node.fields)) do
-        local optional = node.seen[name] < node.objects and "?" or ""
-        members[#members + 1] = (name:match("^[%a_][%w_]*$") and name or Json.quote(name)) .. optional .. ": " .. render(node.fields[name])
+        local seen = assert(node.seen[name], "a field of the node was counted")
+        local field = assert(node.fields[name], "a name listed is a field")
+        local optional = if seen < node.objects then "?" else "" end
+        members[#members + 1] = (name:match("^[%a_][%w_]*$") and name or Json.quote(name)) .. optional .. ": " .. render(field)
       end
-      parts[#parts + 1] = "{" .. table.concat(members, ", ") .. "}"
+      table.insert(parts, "{" .. table.concat(members, ", ") .. "}")
     end
   end
   if node.arrays > 0 then
     local size = tostring(node.shortest)
-    if node.longest ~= node.shortest then size = size .. ".." .. node.longest end
+    if node.longest ~= node.shortest then size = size .. ".." .. tostring(node.longest) end
+    local elements = node.elements
     if node.cut then
       parts[#parts + 1] = "[" .. size .. " x ...]"
-    elseif node.elements == nil then
+    elseif elements == nil then
       parts[#parts + 1] = "[" .. size .. "]"
     else
-      parts[#parts + 1] = "[" .. size .. " x " .. render(node.elements) .. "]"
+      table.insert(parts, "[" .. size .. " x " .. render(elements) .. "]")
     end
   end
   return table.concat(parts, "|")

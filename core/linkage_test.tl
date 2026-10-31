@@ -10,19 +10,19 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- /proc, where a process's own mappings are listed.
-Test.policy{ grants = { { path = "/proc", letters = "r" } } }
+Test.policy{ profiles = { "proc" } }
 
 --- The shared objects mapped into this process, by their paths in
 --- /proc/self/maps, each once, sorted.
 local function shared_objects(maps: string): {string}
-  local seen: {string:boolean} = {}
-  local paths: {string} = {}
+  local seen: mut {string:boolean} = {}
+  local paths: mut {string} = {}
   for line in maps:gmatch("[^\n]+") do
     -- address perms offset dev inode, then the path, which may hold
     -- spaces (a deleted file's " (deleted)").
     local path = line:match("^%S+%s+%S+%s+%S+%s+%S+%s+%S+%s+(/.*)$")
     if path ~= nil and not seen[path] then
-      local name = path:match("([^/]*)$")
+      local name = assert(path:match("([^/]*)$"), "a path ends in a name")
       if name:find("%.so$") ~= nil or name:find("%.so[%.%s]") ~= nil or
           name:find("^ld%-") ~= nil then
         seen[path] = true

@@ -57,28 +57,28 @@ The project's library module is named `ledger`, `require("ledger")`,
 and exports at least this API, which the project's own program uses and
 which is checked through these names and types:
 
-- `ledger.Transaction`, a record of one transaction read: `line:
+- `ledger.Transaction`: a record of one transaction read: `line:
   integer` (the line its record starts on), `at: integer` (its `when`
   as whole seconds since the Unix epoch), `cents: integer`,
   `category: string` and `note: string`.
-- `ledger.Skip`, a record of one record refused: `line: integer` and
+- `ledger.Skip`: a record of one record refused: `line: integer` and
   `reason: string`.
-- `ledger.Parsed`, a record: `transactions: {ledger.Transaction}` and
+- `ledger.Parsed`: a record with `transactions: {ledger.Transaction}` and
   `skipped: {ledger.Skip}`, each in file order.
 - `ledger.parse(text: string): ledger.Parsed | nil, string`: the CSV
   text read, or nil and why it is no such file (not CSV, the wrong
   header).
-- `ledger.Options`, a record: `zone: string` (nil for UTC), `from:
+- `ledger.Options`: a record with `zone: string` (nil for UTC), `from:
   string` and `to: string` (`YYYY-MM-DD`, nil for no bound).
-- `ledger.Month`, a record: `month: string`, `total_cents: integer`
+- `ledger.Month`: a record with `month: string`, `total_cents: integer`
   and `categories: {string: integer}`, as in the JSON above.
-- `ledger.Report`, a record: `months: {ledger.Month}` in ascending
+- `ledger.Report`: a record with `months: {ledger.Month}` in ascending
   order, and `rows: integer`.
 - `ledger.summarize(transactions: {ledger.Transaction}, options:
   ledger.Options): ledger.Report | nil, string`: the months and rows
-  `report` prints for those transactions, reading only the fields of
-  `ledger.Transaction` named above, or nil and why for an unknown zone
-  or a malformed date.
+  `report` prints for those transactions, reading only the transaction
+  fields named above, or nil and why for an unknown zone or a malformed
+  date.
 
 The project must have all four of these:
 

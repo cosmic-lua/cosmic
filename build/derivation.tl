@@ -6,22 +6,27 @@
 
 local Sqlite = require("cosmic.sqlite")
 local analysis_schema = require("build.analysis_schema")
-local analyzer = require("build.analyzer")
-local ast = require("build.ast")
 local doctest = require("build.doctest")
 local gen_syscalls = require("build.gen_syscalls")
-local link_text = require("build.link_text")
 local Template = require("cosmic.template")
 local bind = require("build.bind")
-local type compiler = require("build.compiler")
 
 local record derivation
   record Parses
-    parsed: integer
+    mut parsed: integer
     shared: integer
   end
   record Source
     source_hash: string
+    mapped: boolean
+  end
+  --- A source to parse: what [`derivation.fresh`] finds of it. `file` is
+  --- the least file with that content, and `mapped` is whether any file
+  --- with it was derived rather than staged.
+  record Fresh
+    source_hash: string
+    file: string
+    source: string
     mapped: boolean
   end
   record Parse
@@ -30,28 +35,18 @@ local record derivation
     --- Its rows in every other analysis table ([`packed_parses`]).
     rows: string
   end
+  --- A source [`build.pipeline`]'s `derive` could not parse, and why: the
+  --- message a parse that stops on it answers.
+  record Broken
+    source_hash: string
+    file: string
+    message: string
+  end
 end
 
 local type Source = derivation.Source
 local text = bind.text
 local analysis_tables = analysis_schema.tables
-
---- Puts the compiler in (the Lua that the vendored `tl.tl`, patched, was
---- compiled to: core/bridge.lua's `bootstrap`) as the one input with no
---- file behind it, for every later build to carry. It replaces any
---- compiler row already there, under whatever file it named: there is
---- only ever one.
-function derivation.put_compiler(db: Sqlite.Handle, source: string): boolean, string
-  local cleared, trouble = db:exec("DELETE FROM derived WHERE origin = 'vendor'")
-  if not cleared then
-    return false, trouble
-  end
-  return Sqlite.run(db,
-    "INSERT OR REPLACE INTO derived (file, path, kind, origin, from_hash, " ..
-      "source, source_hash) VALUES ('o/vendor/tl/tl.tl', 'vendor.tl', " ..
-      "'vendor', 'vendor', lower(hex(sha256(?1))), ?1, lower(hex(sha256(?1))))",
-    { text(source) })
-end
 
 --- A doc guide's import path, the same dotted-name convention every
 --- `.tl` file gets: [`doc/guides/quickstart.md`] compiles as
@@ -75,7 +70,7 @@ local function derive_doc_guides(db: Sqlite.Handle): boolean, string
     return false, trouble
   end
   for _, row in ipairs(guides) do
-    local file, doc_source, from_hash = row[1], row[2], row[3]
+    local file, doc_source, from_hash = row:text(1), row:text(2), row:text(3)
     local source, extract_trouble = doctest.extract(doc_source, file)
     if source == nil then
       return false, file .. ": " .. extract_trouble
@@ -105,19 +100,19 @@ end
 --- module it is ([`cosmic.template`]). One it refuses fails the build
 --- with its own `file:line:col` reason. What the compiler last did to a
 --- template stands while the analyzer does ([`build.importer`]'s
---- `forget_stale_analysis`): [`cosmic.template`] is in its closure.
+--- `forget_stale_analysis`): [`cosmic.template`] is in its closure. The module is written in the new checker's grammar
+--- ([`cosmic.template`]'s `Options`).
 local function derive_templates(db: Sqlite.Handle): boolean, string
   local templates, trouble = Sqlite.text_rows(db,
     "SELECT path, CAST(data AS TEXT), sha256 FROM files " ..
-      "WHERE path GLOB '*.tmpl' AND path NOT GLOB 'testdata/*' " ..
-      "AND path NOT GLOB '*/testdata/*' " ..
+      "WHERE path GLOB '*.tmpl' " .. analysis_schema.outside_apart("path") .. " " ..
       "AND path NOT IN (SELECT file FROM derived) ORDER BY path")
   if templates == nil then
     return false, trouble
   end
   for _, row in ipairs(templates) do
-    local file, template_source, from_hash = row[1], row[2], row[3]
-    local source, compile_trouble = Template.compile(template_source, file)
+    local file, template_source, from_hash = row:text(1), row:text(2), row:text(3)
+    local source, compile_trouble = Template.compile(template_source, file, { dialects = nil })
     if source == nil then
       return false, compile_trouble
     end
@@ -144,8 +139,9 @@ local function derive_syscalls(db: Sqlite.Handle): boolean, string
     if headers == nil then
       return false, trouble
     end
-    if #headers > 0 then
-      local header, from_hash = headers[1][1], headers[1][2]
+    local found = headers[1]
+    if found ~= nil then
+      local header, from_hash = found:text(1), found:text(2)
       local source, generate_trouble = gen_syscalls.declaration(header, target.target)
       if source == nil then
         return false, file .. ": " .. generate_trouble
@@ -170,214 +166,35 @@ local function duplicate_import_paths(db: Sqlite.Handle): boolean, string
   if doubled == nil then
     return false, trouble
   end
-  if #doubled > 0 then
-    return false, doubled[1][2] .. " both compile to import path '" ..
-      doubled[1][1] .. "'; rename one"
+  local first = doubled[1]
+  if first ~= nil then
+    return false, first:text(2) .. " both compile to import path '" ..
+      first:text(1) .. "'; rename one"
   end
   return true, ""
 end
 
---- Where a generated source's declarations sit in the file it was
---- generated from, by symbol: its `-- line <symbol> <line>` comments,
---- which [`build.gen_syscalls`] writes. Its own lines say nothing about
---- that file, so a symbol it does not name has no line: 0. `nil` when
---- the source names none -- a source written by hand, or generated with
---- no such map -- whose own lines stand.
-local function origin_lines(source: string): {string: integer} | nil
-  local lines: {string: integer} = {}
-  local any = false
-  for each in source:gmatch("[^\n]+") do
-    local symbol, line = each:match("^%-%- line ([%w_.]+) (%d+)$")
-    if symbol ~= nil then
-      lines[symbol] = math.tointeger(tonumber(line)) or 0
-      any = true
-    end
-  end
-  if not any then
-    return nil
-  end
-  return lines
-end
-
---- The rows `test_inputs` keeps of one parse (see [`build.work`]): its
---- `policy` declaration ([`cosmic.test`]), as the `needs` it stands for,
---- field by field.
-local function insert_test_inputs(db: Sqlite.Handle, source_hash: string,
-                                  found: analyzer.Analysis): boolean, string
-  local rows: {{string}} = {}
-  local function each(field: string, list: {string})
-    for _, value in ipairs(list) do rows[#rows + 1] = { field, value } end
-  end
-  local declared = found.inputs
-  if declared ~= nil then
-    rows[#rows + 1] = { "line", tostring(declared.line) }
-    each("reads", declared.reads)
-    each("host", declared.host)
-    each("env", declared.env)
-    each("network", declared.network)
-    if declared.tool then rows[#rows + 1] = { "tool", "true" } end
-    if declared.lua then rows[#rows + 1] = { "lua", "true" } end
-    if declared.nests then rows[#rows + 1] = { "nests", "true" } end
-    if declared.noexec then rows[#rows + 1] = { "noexec", "true" } end
-    if declared.store then rows[#rows + 1] = { "store", "true" } end
-    if declared.system then rows[#rows + 1] = { "system", "true" } end
-    each("caches", declared.caches)
-    each("requires", declared.requires or {})
-  end
-  for ordinal, row in ipairs(rows) do
-    local ok, why = Sqlite.run(db,
-      "INSERT INTO test_inputs (source_hash, ordinal, field, value) VALUES (?1, ?2, ?3, ?4)",
-      { text(source_hash), { integer = ordinal }, text(row[1]), text(row[2]) })
-    if not ok then return false, why end
-  end
-  return true, ""
-end
-
---- One parse of every source no parse has seen, each counted in
---- `tally` and listed in `made`: what it requires, in order, the tests
---- it defines, and whether it returns its own value.
---- Structural, over the real AST, never a regex over text: a
---- `require("cosmic.foo")` inside a string literal or a comment is not
---- an import. Type-only requires and conditional reassignments are real
---- dependencies the build order must see.
-function derivation.parse_new(db: Sqlite.Handle, built: compiler, tally: derivation.Parses,
-                              made: {Source}): boolean, string
-  local fresh, trouble = Sqlite.text_rows(db,
+--- Every source no parse has seen, in hash order: the one parse each
+--- needs ([`build.pipeline`]'s `derive`).
+function derivation.fresh(db: Sqlite.Handle): {derivation.Fresh}?, string
+  local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, min(file), source, max(origin <> 'tree') FROM inputs " ..
       "WHERE kind <> 'vendor' " ..
       "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
       "GROUP BY source_hash ORDER BY source_hash")
-  if fresh == nil then
-    return false, trouble
+  if rows == nil then
+    return nil, trouble
   end
-  for _, row in ipairs(fresh) do
-    local source_hash, file, source = row[1], row[2], row[3]
-    local mapped = row[4] == "1" and origin_lines(source) or nil
-    local parsed, parse_trouble = ast.parse(built, source, file)
-    if parsed == nil then
-      return false, file .. ": " .. parse_trouble
-    end
-    local requires, requires_trouble = ast.all_requires(built, parsed)
-    if requires == nil then
-      return false, file .. ": " .. requires_trouble
-    end
-    local found, analysis_trouble = analyzer.analysis_of(built, parsed, source)
-    if found == nil then
-      return false, file .. ": " .. analysis_trouble
-    end
-    tally.parsed = tally.parsed + 1
-    made[#made + 1] = { source_hash = source_hash, mapped = row[4] == "1" }
-    local ok, why = Sqlite.run(db,
-      "INSERT INTO parsed (source_hash, has_return, export) VALUES (?1, ?2, ?3)",
-      { text(source_hash), { integer = found.has_top_level_return and 1 or 0 },
-        text(found.export) })
-    if not ok then
-      return false, file .. ": " .. why
-    end
-    for ordinal, name in ipairs(requires) do
-      ok, why = Sqlite.run(db,
-        "INSERT INTO requires (source_hash, ordinal, name) VALUES (?1, ?2, ?3)",
-        { text(source_hash), { integer = ordinal }, text(name) })
-      if not ok then
-        return false, file .. ": " .. why
-      end
-    end
-    for ordinal, name in ipairs(found.tests) do
-      ok, why = Sqlite.run(db,
-        "INSERT INTO tests (source_hash, ordinal, name) VALUES (?1, ?2, ?3)",
-        { text(source_hash), { integer = ordinal }, text(name) })
-      if not ok then
-        return false, file .. ": " .. why
-      end
-    end
-    ok, why = insert_test_inputs(db, source_hash, found)
-    if not ok then
-      return false, file .. ": " .. why
-    end
-    for ordinal, entry in ipairs(found.catalog) do
-      ok, why = Sqlite.run(db,
-        "INSERT INTO catalog (source_hash, ordinal, symbol, message, line) " ..
-          "VALUES (?1, ?2, ?3, ?4, ?5)",
-        { text(source_hash), { integer = ordinal }, text(entry.symbol),
-          text(entry.message), { integer = entry.line } })
-      if not ok then
-        return false, file .. ": " .. why
-      end
-    end
-    for ordinal, entry in ipairs(found.docs) do
-      local line = entry.line
-      if mapped ~= nil then
-        line = mapped[entry.symbol] or 0
-      end
-      ok, why = Sqlite.run(db,
-        "INSERT INTO docs (source_hash, ordinal, symbol, source_symbol, " ..
-          "exported, kind, signature, text, line) " ..
-          "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        { text(source_hash), { integer = ordinal }, text(entry.symbol),
-          text(entry.source_symbol), { integer = entry.exported and 1 or 0 },
-          text(entry.kind), text(entry.signature), text(entry.text),
-          { integer = line } })
-      if not ok then
-        return false, file .. ": " .. why
-      end
-    end
-    for ordinal, entry in ipairs(found.references) do
-      ok, why = Sqlite.run(db,
-        "INSERT INTO refs (source_hash, ordinal, module, member, line) " ..
-          "VALUES (?1, ?2, ?3, ?4, ?5)",
-        { text(source_hash), { integer = ordinal }, text(entry.module),
-          text(entry.member), { integer = entry.line } })
-      if not ok then
-        return false, file .. ": " .. why
-      end
-    end
-    for ordinal, entry in ipairs(found.bound) do
-      ok, why = Sqlite.run(db,
-        "INSERT INTO bound (source_hash, ordinal, name, module) VALUES (?1, ?2, ?3, ?4)",
-        { text(source_hash), { integer = ordinal }, text(entry.name), text(entry.module) })
-      if not ok then
-        return false, file .. ": " .. why
-      end
-    end
-    -- A source from outside the tree (a doc guide's test module) is
-    -- read at lines of its own, not its file's, so its links are not
-    -- kept: they would name lines the file does not have. The guide's
-    -- links are its Markdown's, which the stage reads ([`build.work`]'s
-    -- `linked`).
-    local found_links: {link_text.Found} = {}
-    if row[4] ~= "1" then
-      found_links = link_text.found(built, parsed.node, source, file)
-    end
-    for ordinal, entry in ipairs(found_links) do
-      local link = entry.link
-      ok, why = Sqlite.run(db,
-        "INSERT INTO links (source_hash, ordinal, line, column, form, doc, text, " ..
-          "target, own, alias) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        { text(source_hash), { integer = ordinal }, { integer = link.line },
-          { integer = link.column }, text(link.form), { integer = entry.doc and 1 or 0 },
-          text(link.text), text(link.target), { integer = entry.own and 1 or 0 },
-          text(entry.alias) })
-      if not ok then
-        return false, file .. ": " .. why
-      end
-    end
-    for ordinal, entry in ipairs(found.examples) do
-      ok, why = Sqlite.run(db,
-        "INSERT INTO examples (source_hash, ordinal, name, text, source, " ..
-          "line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        { text(source_hash), { integer = ordinal }, text(entry.name),
-          text(entry.text), text(entry.source), { integer = entry.line } })
-      if not ok then
-        return false, file .. ": " .. why
-      end
-    end
+  local out: mut {derivation.Fresh} = {}
+  for _, row in ipairs(rows) do
+    out[#out + 1] = { source_hash = row:text(1), file = row:text(2), source = row:text(3), mapped = row:text(4) == "1" }
   end
-  return true, ""
+  return out, ""
 end
 
 --- The tables a shared parse packs its rows of ([`packed_parses`]): every
 --- analysis table but `requires`, which it holds apart.
-local packed_tables: {string} = {}
+local packed_tables: mut {string} = {}
 for _, name in ipairs(analysis_tables) do
   if name ~= "requires" then packed_tables[#packed_tables + 1] = name end
 end
@@ -389,13 +206,15 @@ end
 
 --- How many cells a row of each of `packed_tables` has after its
 --- source hash.
-function derivation.table_widths(db: Sqlite.Handle): {string:integer} | nil, string
-  local widths: {string:integer} = {}
+function derivation.table_widths(db: Sqlite.Handle): {string:integer}?, string
+  local widths: mut {string:integer} = {}
   for _, name in ipairs(packed_tables) do
     local rows, trouble = Sqlite.text_rows(db,
       "SELECT count(*) FROM pragma_table_info(?1)", { text(name) })
     if rows == nil then return nil, trouble end
-    widths[name] = (math.tointeger(tonumber(rows[1][1])) or 1) - 1
+    local counted = rows[1]
+    if counted == nil then return nil, "pragma_table_info(" .. name .. ") answered no row" end
+    widths[name] = (math.tointeger(tonumber(counted:text(1))) or 1) - 1
   end
   return widths, ""
 end
@@ -408,65 +227,71 @@ end
 --- `;`, `t` and a text's length, `:` and the text, or `n` for null. A
 --- source with no `parsed` row, or a cell of another kind, has none.
 function derivation.packed_parses(db: Sqlite.Handle,
-                                  sources: {Source}): {string:derivation.Parse} | nil, string
+                                  sources: {Source}): {string:derivation.Parse}?, string
   local widths, widths_trouble = derivation.table_widths(db)
   if widths == nil then return nil, widths_trouble end
-  local hashes: {string} = {}
+  local hashes: mut {string} = {}
   for _, source in ipairs(sources) do hashes[#hashes + 1] = source.source_hash end
   local list = { text(json_list(hashes)) }
   local chosen = "WHERE source_hash IN (SELECT value FROM json_each(?1)) " ..
     "AND source_hash IN (SELECT source_hash FROM parsed)"
-  local requires: {string:{string}} = {}
-  local pieces: {string:{string}} = {}
-  local unpackable: {string:boolean} = {}
+  local requires: mut {string:mut {string}} = {}
+  local pieces: mut {string:mut {string}} = {}
+  local unpackable: mut {string:boolean} = {}
   local names, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, name FROM requires " .. chosen .. " ORDER BY source_hash, ordinal", list)
   if names == nil then return nil, trouble end
   for _, row in ipairs(names) do
-    local of = requires[row[1]] or {}
-    requires[row[1]] = of
-    of[#of + 1] = row[2]
+    local of = requires[row:text(1)] or {}
+    requires[row:text(1)] = of
+    table.insert(of, row:text(2))
   end
   for _, name in ipairs(packed_tables) do
     local rows, rows_trouble = Sqlite.rows(db,
       "SELECT * FROM " .. name .. " " .. chosen .. " ORDER BY 1, 2", list)
     if rows == nil then return nil, rows_trouble end
-    local by_hash: {string:{string}} = {}
-    local counts: {string:integer} = {}
+    local by_hash: mut {string:mut {string}} = {}
+    local counts: mut {string:integer} = {}
     for _, row in ipairs(rows) do
-      local hash = row[1].text or ""
+      local hash = row:kind(1) == "text" and row:text(1) or ""
       local out = by_hash[hash] or {}
       by_hash[hash] = out
       counts[hash] = (counts[hash] or 0) + 1
-      for index = 2, #row do
-        local cell = row[index]
-        if cell.kind == "integer" then
-          out[#out + 1] = "i" .. tostring(cell.integer) .. ";"
-        elseif cell.kind == "text" then
-          local value = cell.text or ""
-          out[#out + 1] = "t" .. #value .. ":" .. value
-        elseif cell.kind == "null" then
+      for index = 2, row:count() do
+        local kind = row:kind(index)
+        if kind == "integer" then
+          table.insert(out, "i" .. tostring(row:integer(index)) .. ";")
+        elseif kind == "text" then
+          local value = row:text(index)
+          table.insert(out, "t" .. tostring(#value) .. ":" .. value)
+        elseif kind == "null" then
           out[#out + 1] = "n"
         else
           unpackable[hash] = true
         end
       end
     end
+    local width = widths[name]
+    if width == nil then return nil, "no width was measured for " .. name end
     for _, hash in ipairs(hashes) do
       local of = pieces[hash] or {}
       pieces[hash] = of
-      of[#of + 1] = name .. " " .. widths[name] .. " " .. (counts[hash] or 0) .. "\n"
-      of[#of + 1] = table.concat(by_hash[hash] or {})
+      table.insert(of, name .. " " .. tostring(width) .. " " .. tostring((counts[hash] or 0)) .. "\n")
+      table.insert(of, table.concat(by_hash[hash] or {}))
     end
   end
   local present, present_trouble = Sqlite.text_rows(db,
     "SELECT source_hash FROM parsed WHERE source_hash IN (SELECT value FROM json_each(?1))", list)
   if present == nil then return nil, present_trouble end
-  local out: {string:derivation.Parse} = {}
+  local out: mut {string:derivation.Parse} = {}
   for _, row in ipairs(present) do
-    local hash = row[1]
-    if not unpackable[hash] then
-      out[hash] = { requires = requires[hash] or {}, rows = table.concat(pieces[hash]) }
+    local hash = row:text(1)
+    local packed = pieces[hash]
+    if packed == nil then
+      return nil, hash .. ": a parsed source was asked for but none of its cells were gathered"
+    end
+    if unpackable[hash] ~= true then
+      out[hash] = { requires = requires[hash] or {}, rows = table.concat(packed) }
     end
   end
   return out, ""
@@ -476,18 +301,20 @@ end
 --- source hash, for tables `widths` cells wide: nil for what it never
 --- writes, or for rows of another width than the tables here have.
 function derivation.unpacked_parse(rows: string,
-                                   widths: {string:integer}): {string:{{Sqlite.Value}}} | nil
-  local out: {string:{{Sqlite.Value}}} = {}
+                                   widths: {string:integer}): {string:{{Sqlite.Value}}}?
+  local out: mut {string:{{Sqlite.Value}}} = {}
   local at = 1
   for _, name in ipairs(packed_tables) do
     local header, width_text, count_text, after = rows:match("^([%w_]+) (%d+) (%d+)\n()", at)
     local width = math.tointeger(tonumber(width_text))
     local count = math.tointeger(tonumber(count_text))
-    if header ~= name or width ~= widths[name] or count == nil or after == nil then return nil end
+    if header ~= name or width == nil or width ~= widths[name] or count == nil or after == nil then
+      return nil
+    end
     at = math.tointeger(after) or 0
-    local table_rows: {{Sqlite.Value}} = {}
+    local table_rows: mut {{Sqlite.Value}} = {}
     for _ = 1, count do
-      local cells: {Sqlite.Value} = {}
+      local cells: mut {Sqlite.Value} = {}
       for _ = 1, width do
         local kind = rows:sub(at, at)
         if kind == "i" then
@@ -532,11 +359,13 @@ function derivation.put_parse(db: Sqlite.Handle, hash: string, requires: {string
       if not ok then return false, why end
     end
     for _, name in ipairs(packed_tables) do
-      for _, cells in ipairs(rows[name]) do
-        local marks: {string} = { "?1" }
-        local values: {Sqlite.Value} = { text(hash) }
+      local table_rows = rows[name]
+      if table_rows == nil then return false, "the parse has no rows of " .. name end
+      for _, cells in ipairs(table_rows) do
+        local marks: mut {string} = { "?1" }
+        local values: mut {Sqlite.Value} = { text(hash) }
         for index, cell in ipairs(cells) do
-          marks[#marks + 1] = "?" .. (index + 1)
+          marks[#marks + 1] = "?" .. tostring((index + 1))
           values[#values + 1] = cell
         end
         local ok, why = Sqlite.run(db, "INSERT INTO " .. name .. " VALUES (" ..
@@ -556,27 +385,30 @@ function derivation.put_parse(db: Sqlite.Handle, hash: string, requires: {string
 end
 
 --- Every source the tables hold no parse of, in hash order.
-function derivation.unparsed(db: Sqlite.Handle): {Source} | nil, string
+function derivation.unparsed(db: Sqlite.Handle): {Source}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, max(origin <> 'tree') FROM inputs WHERE kind <> 'vendor' " ..
       "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
       "GROUP BY source_hash ORDER BY source_hash")
   if rows == nil then return nil, trouble end
-  local out: {Source} = {}
+  local out: mut {Source} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { source_hash = row[1], mapped = row[2] == "1" }
+    out[#out + 1] = { source_hash = row:text(1), mapped = row:text(2) == "1" }
   end
   return out, ""
 end
 
 --- Produces generated inputs and rejects ambiguous import paths before
---- any cached parse or compile can stand for them.
+--- any cached parse or compile can stand for them. The templates are written in the new checker's grammar
+--- ([`derive_templates`]).
 function derivation.inputs(db: Sqlite.Handle): boolean, string
-  for _, step in ipairs({ derive_doc_guides, derive_syscalls, derive_templates, duplicate_import_paths }) do
+  for _, step in ipairs({ derive_doc_guides, derive_syscalls }) do
     local ok, trouble = step(db)
     if not ok then return false, trouble end
   end
-  return true, ""
+  local made, made_trouble = derive_templates(db)
+  if not made then return false, made_trouble end
+  return duplicate_import_paths(db)
 end
 
 return derivation

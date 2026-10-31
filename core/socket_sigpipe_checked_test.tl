@@ -1,3 +1,4 @@
+local RawTables = require("build.raw_tables")
 local _net = require("cosmic.net")
 local sys = require("cosmic.sys")
 local unix_socket = require("build.unix_socket")
@@ -7,19 +8,7 @@ local type raw_socket = require("cosmic.internal.socket")
 
 Test.policy{ requires = { "checked" }, loopback = { "127.0.0.1" } }
 
-local type Searcher = function(string): any, any
-
-local function socket_table(): raw_socket
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.net")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_socket -- cast: the table core/socket.h declares
-    end
-  end
-  error("cosmic.net is handed no raw table")
-end
-
-local raw = socket_table()
+local raw = RawTables.socket()
 
 local function pair(path: string): raw_socket.Socket, raw_socket.Socket
   local address: raw_socket.Address = { kind = "unix", path = path }
@@ -46,7 +35,7 @@ local function test_sendfds_protects_a_received_channel_without_so_nosigpipe(tmp
   local receiver <close> = taking
   assert(raw.sendfds(sender:fd(), { external:fd() }))
   local batch = assert(raw.recvfds(receiver:fd(), 1))
-  local received <close> = batch[1]
+  local received <close> = assert(batch[1], "one descriptor passed")
   assert(peer:close())
   local ok, why, errno = raw.sendfds(received:fd(), { sender:fd() })
   assert(ok == false and why ~= "" and errno == sys.EPIPE)

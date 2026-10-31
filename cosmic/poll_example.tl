@@ -21,7 +21,7 @@ end
 --- Two tasks, each running until it waits: the first sleeps while the
 --- second runs, and `run` returns once both have ended.
 function Example.run()
-  local said: {string} = {}
+  local said: mut {string} = {}
   Poll.run(function()
     Poll.spawn(function()
       assert(Poll.delay(Clock.ms(20)))
@@ -81,7 +81,7 @@ end
 
 --- Sleeping tasks wake in the order of their times, not their starts.
 function Example.delay()
-  local woke: {integer} = {}
+  local woke: mut {integer} = {}
   Poll.run(function()
     for _, ms in ipairs({ 20, 5 }) do
       Poll.spawn(function()
@@ -97,29 +97,29 @@ end
 --- A cancelled task's wait answers [`Poll.CANCELLED`], and it unwinds on
 --- its own terms.
 function Example.cancel()
-  local answer = ""
+  local waited = { answer = "" }
   Poll.run(function()
     local sleeper = Poll.spawn(function()
       local _, why = Poll.delay(Clock.seconds(60))
-      answer = why
+      waited["answer"] = why
     end)
     assert(Poll.delay(0))
     sleeper:cancel()
     assert(sleeper:join())
   end)
-  print(answer)
-  assert(answer == Poll.CANCELLED)
+  print(waited["answer"])
+  assert(waited["answer"] == Poll.CANCELLED)
 end
 
 --- A task that waits on whatever its waits answer outlasts `cancel`,
 --- and is ended by `kill` where it waits: its `<close>` variables are
 --- closed, and a join answers [`Poll.CANCELLED`].
 function Example.kill()
-  local released = false
+  local lease = { released = false }
   local record Lease
-    metamethod __close: function(Lease)
+    __close: function(Lease)
   end
-  local lease_mt: metatable<Lease> = { __close = function() released = true end }
+  local lease_mt: metatable<Lease> = { __close = function() lease["released"] = true end }
   Poll.run(function()
     local stubborn = Poll.spawn(function()
       local _ <close> = setmetatable({} as Lease, lease_mt)
@@ -131,9 +131,36 @@ function Example.kill()
     assert(still == Poll.TIMEOUT)
     stubborn:kill()
     local ended, why = stubborn:join()
-    print(released, ended, why)
-    assert(released and not ended and why == Poll.CANCELLED)
+    print(lease["released"], ended, why)
+    assert(lease["released"] == true and not ended and why == Poll.CANCELLED)
   end)
+end
+
+--- A producer queues work and notifies; the consumer checks its queue,
+--- waits only when it is empty, and checks again on waking, so a notice
+--- sent while it was busy is not lost.
+function Example.notifier()
+  local queue: mut {string} = {}
+  local handled: mut {string} = {}
+  Poll.run(function()
+    local notifier = Poll.notifier()
+    local consumer = Poll.spawn(function()
+      while #handled < 3 do
+        while #queue == 0 do
+          if not notifier:wait(Clock.seconds(5)) then return end
+        end
+        table.insert(handled, assert(table.remove(queue, 1)))
+      end
+    end)
+    for _, job in ipairs({ "a", "b", "c" }) do
+      queue[#queue + 1] = job
+      notifier:notify_one()
+      assert(Poll.delay(0))
+    end
+    assert(consumer:join(Clock.seconds(5)))
+  end)
+  print(table.concat(handled, ", "))
+  assert(table.concat(handled, ", ") == "a, b, c")
 end
 
 return Example

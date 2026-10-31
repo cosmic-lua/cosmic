@@ -23,8 +23,8 @@ local Test = require("cosmic.test")
 --- roots of their own for the sandboxed workers it starts (`nests`), and
 --- the variables the runs set, which choose how their workers are held.
 Test.policy{
-  profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" }, { path = "/proc", letters = "r" } },
+  profiles = { "cosmic", "proc" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" } },
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
   requires = { "nest" },
@@ -102,7 +102,7 @@ local function test_a_sandboxed_run_holds_each_worker_to_its_inputs(tmp: string)
   assert(text:find("; sandboxed", 1, true), text)
   local seen = text:match("seen|([^\n]*)|end")
   assert(seen ~= nil, text)
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   for field in (seen .. "|"):gmatch("([^|]*)|") do fields[#fields + 1] = field end
   assert(fields[1] == "/tree" and fields[2] == test_sandbox.scratch .. "/tmp" and fields[3] == "declared" and
       fields[4] == "nil" and fields[5] == "false" and fields[6] == "d" and fields[7] == "nil" and
@@ -113,13 +113,13 @@ local function test_a_sandboxed_run_holds_each_worker_to_its_inputs(tmp: string)
   -- Required where it can be, the same.
   env.COSMIC_TEST_SANDBOX = "1"
   text, ok = run(root, tmp .. "/required", env)
-  assert(not ok and text:find("; sandboxed", 1, true), text)
+  assert(not ok and text:find("; sandboxed", 1, true) ~= nil, text)
   assert(text:find("rerun: COSMIC_TEST_SANDBOX=1 cosmic test suite/view_test.tl:test_view", 1,
     true), text)
   -- A misspelt switch is refused.
   env.COSMIC_TEST_SANDBOX = "yes"
   text, ok = run(root, tmp .. "/misspelt", env)
-  assert(not ok and text:find('COSMIC_TEST_SANDBOX is "yes"', 1, true), text)
+  assert(not ok and text:find('COSMIC_TEST_SANDBOX is "yes"', 1, true) ~= nil, text)
 end
 
 --- End to end: a sandboxed worker writes a host cache its module
@@ -157,7 +157,7 @@ end
   if unsandboxed(text) then return end
   assert(text:find("wrote|true|false|end", 1, true), text)
   assert(Fs.read(xdg .. "/cosmic/zig-global/entry") == "cached")
-  assert(not Fs.exists(xdg .. "/cosmic/bootstrap"))
+  assert(Fs.exists(xdg .. "/cosmic/bootstrap") ~= true)
 end
 
 --- End to end: a module that grants a `host` path has its worker given
@@ -189,7 +189,7 @@ end
 --- `wanted` and passes unless `passes` is false. Where the first run was not
 --- sandboxed the running test is skipped. Each test makes its own, since a
 --- run takes a second and a half and a test is held to its timeout.
-local function keyed_suite(tmp: string): string, (function(string, ?boolean): string)
+local function keyed_suite(tmp: string): string, (function(string, arg2?: boolean): string)
   local root = tmp .. "/root"
   suite_tree(tmp, root)
   assert(Fs.write(root .. "/suite/data.txt", "one"))
@@ -212,7 +212,7 @@ local function test_child_reads()
     "cat suite/data.txt; cat suite/later.txt || print |absent" },
     { stdout = "capture" }))
   local out = r.stdout or ""
-  assert(r.ok and out:find("|absent", 1, true), out)
+  assert(r.ok and out:find("|absent", 1, true) ~= nil, out)
 end
 ]]))
   assert(Fs.write(root .. "/suite/unstored_test.tl", [[
@@ -231,12 +231,12 @@ end
   env.COSMIC_SANDBOX = nil
   -- Sandboxed where it can be, whatever this run's own switch says.
   env.COSMIC_TEST_SANDBOX = nil
-  local step = 0
+  local step = { value = 0 }
   local function said(wanted: string, passes?: boolean): string
-    step = step + 1
-    local text, ok = run_again(root, tmp .. "/run" .. step, env)
-    assert(ok == (passes ~= false), step .. ": " .. text)
-    assert(text:find(wanted, 1, true), step .. ": " .. text)
+    step.value = step.value + 1
+    local text, ok = run_again(root, tmp .. "/run" .. step.value, env)
+    assert(ok == (passes ~= false), step.value .. ": " .. text)
+    assert(text:find(wanted, 1, true), step.value .. ": " .. text)
     return text
   end
   local first = said("2 ran, 0 stood")
@@ -311,7 +311,7 @@ local function test_second(tmp: string) hold(tmp) end
   local function held(): integer
     local count = 0
     for _, name in ipairs(Fs.list(temp) or {}) do
-      if name:sub(1, 12) == "cosmic-test-" and Fs.exists(temp .. "/" .. name .. "/real/kept") then
+      if name:sub(1, 12) == "cosmic-test-" and Fs.exists(temp .. "/" .. name .. "/real/kept") == true then
         count = count + 1
       end
     end
@@ -345,7 +345,7 @@ local function test_second(tmp: string) hold(tmp) end
   text = assert(Fs.read(output))
   assert(not result.timed_out and result.signal == sys.SIGINT, text)
   assert(text:find("test: cancelled; every running test was ended", 1, true), text)
-  local left: {string} = {}
+  local left: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(temp)))) do
     if name:sub(1, 12) == "cosmic-test-" then left[#left + 1] = name end
   end

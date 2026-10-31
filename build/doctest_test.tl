@@ -8,16 +8,17 @@
 --- modules of its closure. The tree's own guides, built with it, hold
 --- `cosmic.*` examples, file= blocks included.
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local work = require("build.work")
 
 local type Module = importer.Module
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+-- The new checker, where the suite asks for it (`COSMIC_GRAMMAR=new`, which a sandboxed worker sees only if its policy
+-- passes it through), types a project against the declarations the tool carries, which only a worker that holds the tool's
+-- database ("cosmic") has.
+Test.policy{ env = { "COSMIC_GRAMMAR" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function doc(parts: {string}): string
   return table.concat(parts, "\n") .. "\n"
@@ -78,7 +79,7 @@ local skip_doc = doc({
 
 --- Writes one `doc/guides/fixture.md` into a fresh project root of its
 --- own, named after `case`.
-local function write_fixture(case: string, content: string): string | nil, string
+local function write_fixture(case: string, content: string): string?, string
   local root = assert(Fs.mkdtemp("cosmic-doctest-test-" .. case .. "-"))
   local made, trouble = Fs.mkdirs(root .. "/doc/guides")
   if not made then
@@ -91,7 +92,7 @@ local function write_fixture(case: string, content: string): string | nil, strin
   return root, ""
 end
 
-local function compile_fixture(root: string): importer.Result | nil, string
+local function compile_fixture(root: string, given?: GrammarMode.Mode): importer.Result?, string
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
@@ -101,15 +102,24 @@ local function compile_fixture(root: string): importer.Result | nil, string
     work.close(handle)
     return nil, stage_trouble
   end
-  local result, compile_trouble = importer.compile(handle, built, "doctest-test")
+  local grammar = given or assert(GrammarMode.mode())
+  local result, compile_trouble = importer.compile(handle,
+    GrammarMode.tool("doctest-test", grammar),
+    false,
+    nil,
+    false)
   work.close(handle)
   if result == nil then
     return nil, compile_trouble
   end
-  return result
+  -- The new checker goes on past a module it refuses and says so in the result.
+  if #result.refused > 0 then
+    return nil, table.concat(result.refused, "\n")
+  end
+  return result, ""
 end
 
-local function find_module(result: importer.Result, path: string): Module | nil
+local function find_module(result: importer.Result, path: string): Module?
   for _, m in ipairs(result.modules) do
     if m.path == path then
       return m
@@ -122,7 +132,7 @@ end
 --- exactly the shape [`build.test`] itself loads) and returns the table
 --- `require` would hand the runner.
 local function load_module(m: Module): {string:any}
-  local chunk, load_err = load(m.lua, "@" .. m.path, "t")
+  local chunk, load_err = load(assert(m.lua), "@" .. m.path, "t")
   assert(chunk ~= nil, "load failed: " .. tostring(load_err))
   return chunk() as {string:any}
 end
@@ -143,9 +153,21 @@ local function test_an_output_matching_example_actually_passes()
   assert(#m.tests == 1 and m.tests[1] == "test_1",
     "expected exactly test_1, got " .. table.concat(m.tests, ","))
   local mod = load_module(m)
-  local fn = mod.test_1 as function(any...): (any...)
+  local fn = mod.test_1 as function(...: any): (any...)
   local ok, err = pcall(fn, fresh_tmp())
   assert(ok, "expected the matching example to pass, got: " .. tostring(err))
+end
+
+--- The test the generator writes for an example with output (its capture of `print` among it) is code the new checker takes
+--- with no ceiling to hold it, whatever the mode of the suite. (The run of what it writes is the test above, in the suite's.)
+local function test_an_output_matching_example_builds_with_the_new_checker_and_passes()
+  local root, write_trouble = write_fixture("match-new", matching_doc)
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local result, trouble = compile_fixture(root, "new")
+  assert(result ~= nil, "compile failed: " .. tostring(trouble))
+  local m = find_module(result, "doc.guides.fixture")
+  assert(m ~= nil and #m.tests == 1, "doc.guides.fixture was not compiled with its test")
+  assert(assert(m.lua):find("__doctest_capture", 1, true) ~= nil, "the capture is not in the module")
 end
 
 local function test_a_tilde_fenced_example_actually_passes()
@@ -159,7 +181,7 @@ local function test_a_tilde_fenced_example_actually_passes()
     "expected a long tilde-fenced example to be extracted as test_1, got " ..
       table.concat(m.tests, ","))
   local mod = load_module(m)
-  local fn = mod.test_1 as function(any...): (any...)
+  local fn = mod.test_1 as function(...: any): (any...)
   local ok, err = pcall(fn, fresh_tmp())
   assert(ok, "expected the tilde-fenced example to pass, got: " .. tostring(err))
 end
@@ -172,7 +194,7 @@ local function test_an_output_mismatching_example_fails_clearly()
   local m = find_module(result, "doc.guides.fixture")
   assert(m ~= nil, "doc.guides.fixture was not among the compiled modules")
   local mod = load_module(m)
-  local fn = mod.test_1 as function(any...): (any...)
+  local fn = mod.test_1 as function(...: any): (any...)
   local ok, err = pcall(fn, fresh_tmp())
   assert(not ok, "expected the mismatching example to fail")
   local message = tostring(err)
@@ -195,7 +217,7 @@ local function test_a_no_output_example_compiles_but_is_never_run()
   -- `with_test_tail` appends a `return` only when `m.tests` is
   -- non-empty, so a module with none returns nothing at all: nothing
   -- outside this file could ever reach `example_1` to call it.
-  local chunk, load_err = load(m.lua, "@" .. m.path, "t")
+  local chunk, load_err = load(assert(m.lua), "@" .. m.path, "t")
   assert(chunk ~= nil, "load failed: " .. tostring(load_err))
   local produced: any = chunk()
   assert(produced == nil,
@@ -213,4 +235,29 @@ local function test_a_skip_block_compiles_and_defines_nothing()
   assert(#m.tests == 0, "expected no tests, got " .. #m.tests)
   assert(m.source:find("skipped: intended", 1, true) ~= nil,
     "expected the skip's own reason in the generated source:\n" .. m.source)
+end
+
+--- The shadow of `print` that every example with an output block makes is
+--- the generated module's own and is dropped; an example that declares a
+--- `print` of its own shadows that one, which is its author's to rename.
+local function test_an_example_that_redeclares_print_is_refused()
+  local redeclared = doc({
+    "# Fixture",
+    "",
+    "```teal",
+    "local print = function(_: string) end",
+    'print("hello")',
+    "```",
+    "",
+    "```output",
+    "hello",
+    "```",
+  })
+  local root, write_trouble = write_fixture("redeclared-print", redeclared)
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil, "an example that redeclares print was accepted")
+  -- in the words of the checker that refused it
+  assert(trouble:find("shadows previous declaration of 'print' (originally declared at", 1, true) ~= nil or
+      trouble:find("variable `print` shadows the variable `print` declared at", 1, true) ~= nil, trouble)
 end

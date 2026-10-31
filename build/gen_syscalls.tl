@@ -25,13 +25,13 @@ end
 
 local record Call
   name: string
-  summary: string
+  mut summary: string
   --- Every prose line of the block, in order: the summary is the first.
-  prose: {string}
-  parameters: {Parameter}
-  results: {Result}
+  mut prose: mut {string}
+  parameters: mut {Parameter}
+  results: mut {Result}
   --- The header line of the macro that names it.
-  line: integer
+  mut line: integer
 end
 
 local record Field
@@ -42,16 +42,16 @@ local record Field
 end
 
 local record Class
-  name: string
+  mut name: string
   --- Whether it is a userdata (`@class Name: userdata`) rather than a
   --- table: its `fun(...)` fields are methods, and those named `__*`
   --- metamethods.
-  userdata: boolean
-  summary: string
-  prose: {string}
-  fields: {Field}
+  mut userdata: boolean
+  mut summary: string
+  mut prose: mut {string}
+  fields: mut {Field}
   --- The header line of its `@class` tag.
-  line: integer
+  mut line: integer
 end
 
 --- One string an `@alias` admits (`---| "file" # a regular file`).
@@ -64,11 +64,11 @@ end
 --- per member), declared as a Teal enum, so a value outside it is a
 --- compile error rather than a comparison that is never true.
 local record Alias
-  name: string
-  prose: {string}
-  members: {Member}
+  mut name: string
+  mut prose: mut {string}
+  members: mut {Member}
   --- The header line of its `@alias` tag.
-  line: integer
+  mut line: integer
 end
 
 --- Everything one read of the header found: its calls, its classes and
@@ -130,12 +130,17 @@ end
 --- `function(self: Socket): boolean, string`.
 local function teal_type(text: string): string
   if text:sub(1, 4) == "fun(" then
-    local spaced = text:sub(5):gsub(":", ": "):gsub(",", ", ")
+    local spaced = text:sub(5):gsub("([^,%(%)%s|]+)|nil", "%1?"):gsub(":", ": "):gsub(",", ", ")
     return "function(" .. spaced
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for piece in text:gmatch("[^|]+") do
     parts[#parts + 1] = piece
+  end
+  -- A type that may be nil is written with `?`, as the new grammar has it.
+  local first = parts[1]
+  if #parts == 2 and parts[2] == "nil" and first ~= nil then
+    return first .. "?"
   end
   return table.concat(parts, " | ")
 end
@@ -144,8 +149,8 @@ end
 --- `first`, with the comment's own decoration removed, and the header
 --- line each one is on. Both are empty when the comment is not one.
 local function annotation_lines(comment: string, first: integer): {string}, {integer}
-  local lines: {string} = {}
-  local at: {integer} = {}
+  local lines: mut {string} = {}
+  local at: mut {integer} = {}
   local offset = 0
   for line in String.lines(comment) do
     local text = line:match("^%s*%*?%s?(.*)$") or line
@@ -168,10 +173,33 @@ local function trimmed(lines: {string}): {string}
   while last >= first and lines[last] == "" do
     last = last - 1
   end
-  return table.move(lines, first, last, 1, {})
+  local kept: mut {string} = {}
+  for i, line in ipairs(lines) do
+    if i >= first and i <= last then
+      kept[#kept + 1] = line
+    end
+  end
+  return kept
 end
 
-local function parse_call(name: string, lines: {string}): Call | nil, string
+--- What an annotation line opens: its `tag` (`param`, `return`, ...) and
+--- the `rest` of the line after it.
+local record Tag
+  tag: string
+  rest: string
+end
+
+--- The tag a line of an annotation opens, or nil for a line that opens
+--- none.
+local function tagged(line: string): Tag?
+  local tag, rest = line:match("^@(%a+)%s+(.*)$")
+  if tag == nil or rest == nil then
+    return nil
+  end
+  return { tag = tag, rest = rest }
+end
+
+local function parse_call(name: string, lines: {string}): Call?, string
   local call: Call = {
     name = name,
     summary = "",
@@ -181,36 +209,39 @@ local function parse_call(name: string, lines: {string}): Call | nil, string
     line = 0,
   }
   for _, line in ipairs(lines) do
-    local tag, rest = line:match("^@(%a+)%s+(.*)$")
+    local opened = tagged(line)
+    local tag = if opened ~= nil then opened.tag else nil end
+    local rest = if opened ~= nil then opened.rest else "" end
+
     if tag == "param" then
       local pname, kind, description = rest:match("^([%w_]+)(%??)%s+(.*)$")
       local optional = false
-      if pname == nil then
+      if pname == nil or description == nil then
         return nil, name .. ": a @param line names no parameter"
       end
       if kind == "?" then
         optional = true
       end
       local ptype, pdescription = description:match("^(%S+)%s*(.*)$")
-      if ptype == nil then
+      if ptype == nil or pdescription == nil then
         return nil, name .. ": parameter '" .. pname .. "' has no type"
       end
-      call.parameters[#call.parameters + 1] = {
+      table.insert(call.parameters, {
         name = pname,
         kind = teal_type(ptype),
         optional = optional,
         description = pdescription,
-      }
+      })
     elseif tag == "return" then
       local kind, rname, description = rest:match("^(%S+)%s+([%w_]+)%s*(.*)$")
-      if kind == nil then
+      if kind == nil or rname == nil or description == nil then
         return nil, name .. ": a @return line has no type and name"
       end
-      call.results[#call.results + 1] = {
+      table.insert(call.results, {
         kind = teal_type(kind),
         name = rname,
         description = description,
-      }
+      })
     elseif tag == nil then
       local text = line:gsub("^%s+", "")
       if call.summary == "" then
@@ -225,58 +256,66 @@ local function parse_call(name: string, lines: {string}): Call | nil, string
   call.prose = trimmed(call.prose)
   local n = #call.results
   if n ~= 0 and n ~= 1 and n ~= 3 then
-    return nil, name .. ": declares " .. n .. " returns; a syscall is " ..
+    return nil, name .. ": declares " .. tostring(n) .. " returns; a syscall is " ..
       "infallible (1), never returns (0), or fallible (exactly 3: " ..
       "value, string, integer)"
   end
   if n == 3 then
-    local first = call.results[1].kind
-    if first == "boolean | nil" then
+    local result_one = assert(call.results[1], "three returns were counted")
+    local result_two = assert(call.results[2], "three returns were counted")
+    local result_three = assert(call.results[3], "three returns were counted")
+    local first = result_one.kind
+    if first == "boolean?" then
       return nil, name .. ": a fallible syscall's first return is boolean, an " ..
         "effect that fails with false, or a value that fails with nil -- " ..
         "never boolean|nil"
     end
-    if first ~= "boolean" and first:sub(-6) ~= " | nil" then
+    if first ~= "boolean" and first:sub(-1) ~= "?" then
       return nil, name .. ": a fallible syscall's first return is boolean, or " ..
         "a value that fails with nil (T|nil)"
     end
-    if call.results[2].kind ~= "string" then
+    if result_two.kind ~= "string" then
       return nil, name .. ": a fallible syscall's second return is the " ..
         "error, which must be string"
     end
-    if call.results[3].kind ~= "integer" then
+    if result_three.kind ~= "integer" then
       return nil, name .. ": a fallible syscall's third return is the " ..
         "error code, which must be integer"
     end
   end
-  return call
+  return call, ""
 end
 
-local function parse_class(lines: {string}, at: {integer}): Class | nil, string
+local function parse_class(lines: {string}, at: {integer}): Class?, string
   local class: Class = { name = "", userdata = false, summary = "", prose = {}, fields = {},
     line = 0 }
   for index, line in ipairs(lines) do
-    local tag, rest = line:match("^@(%a+)%s+(.*)$")
+    local opened = tagged(line)
+    local tag = if opened ~= nil then opened.tag else nil end
+    local rest = if opened ~= nil then opened.rest else "" end
+
     if tag == "class" then
       local name, parent = rest:match("^([%w_]+)(.-)%s*$")
       local is_userdata = parent ~= nil and parent:match("^%s*:%s*userdata$") ~= nil
-      if name == nil or (parent ~= "" and not is_userdata) then
+      if name == nil or parent == nil or (parent ~= "" and not is_userdata) then
         return nil, "a class block names no class, or a parent other than userdata"
       end
+      local class_line = assert(at[index], "annotation_lines kept a line for each line")
       class.name = name
       class.userdata = is_userdata
-      class.line = at[index]
+      class.line = class_line
     elseif tag == "field" then
       local fname, kind, description = rest:match("^([%w_]+)%s+(%S+)%s*(.*)$")
-      if fname == nil then
+      if fname == nil or kind == nil or description == nil then
         return nil, "a @field line names no field"
       end
-      class.fields[#class.fields + 1] = {
+      local field_line = assert(at[index], "annotation_lines kept a line for each line")
+      table.insert(class.fields, {
         name = fname,
         kind = teal_type(kind),
         description = description,
-        line = at[index],
-      }
+        line = field_line,
+      })
     elseif tag == nil then
       local text = line:gsub("^%s+", "")
       if class.summary == "" then
@@ -292,23 +331,27 @@ local function parse_class(lines: {string}, at: {integer}): Class | nil, string
   if #class.fields == 0 then
     return nil, class.name .. ": the class has no fields"
   end
-  return class
+  return class, ""
 end
 
-local function parse_alias(lines: {string}, at: {integer}): Alias | nil, string
+local function parse_alias(lines: {string}, at: {integer}): Alias?, string
   local alias: Alias = { name = "", prose = {}, members = {}, line = 0 }
   for index, line in ipairs(lines) do
-    local tag, rest = line:match("^@(%a+)%s+(.*)$")
+    local opened = tagged(line)
+    local tag = if opened ~= nil then opened.tag else nil end
+    local rest = if opened ~= nil then opened.rest else "" end
+
     if tag == "alias" then
       local name = rest:match("^([%w_]+)$")
       if name == nil then
         return nil, "an alias block names no alias, or gives it a type on its own line"
       end
+      local alias_line = assert(at[index], "annotation_lines kept a line for each line")
       alias.name = name
-      alias.line = at[index]
+      alias.line = alias_line
     elseif line:sub(1, 1) == "|" then
       local value, description = line:match('^|%s*"([%w_]+)"%s*(.*)$')
-      if value == nil then
+      if value == nil or description == nil then
         return nil, (alias.name ~= "" and alias.name or "an alias") ..
           ": a member line is not `| \"word\" # what it means`"
       end
@@ -323,7 +366,7 @@ local function parse_alias(lines: {string}, at: {integer}): Alias | nil, string
       end
       alias.members[#alias.members + 1] = { value = value, description = said }
     elseif tag == nil then
-      alias.prose[#alias.prose + 1] = (line:gsub("^%s+", ""))
+      table.insert(alias.prose, (line:gsub("^%s+", "")))
     else
       return nil, (alias.name ~= "" and alias.name or "an alias") .. ": an alias block takes no @" ..
         tag
@@ -339,7 +382,7 @@ local function parse_alias(lines: {string}, at: {integer}): Alias | nil, string
   if #alias.members == 0 then
     return nil, alias.name .. ": the alias has no members"
   end
-  return alias
+  return alias, ""
 end
 
 --- Whether the `COSMIC_CONSTANT` lines right after a `Constants` class's
@@ -349,7 +392,7 @@ end
 --- and one without a field set and never declared.
 local function constants_follow(class: Class, header: string,
                                 at: integer): boolean, string
-  local named: {string} = {}
+  local named: mut {string} = {}
   local from = at
   while true do
     local line_end = header:find("\n", from, true)
@@ -372,9 +415,9 @@ local function constants_follow(class: Class, header: string,
         "COSMIC_CONSTANT(" .. field.name .. ") in its place after the block"
     end
   end
-  if #named > #class.fields then
-    return false, "Constants: COSMIC_CONSTANT(" .. named[#class.fields + 1] ..
-      ") names no field of the class"
+  local extra = named[#class.fields + 1]
+  if extra ~= nil then
+    return false, "Constants: COSMIC_CONSTANT(" .. extra .. ") names no field of the class"
   end
   return true, ""
 end
@@ -383,10 +426,10 @@ end
 --- lists travel together in one record, so a fallible read stays two
 --- slots: the record, or nil and why.
 --- @param header the whole text of core/syscalls.h
-function generator.read(header: string): Declarations | nil, string
-  local calls: {Call} = {}
-  local classes: {Class} = {}
-  local aliases: {Alias} = {}
+function generator.read(header: string): Declarations?, string
+  local calls: mut {Call} = {}
+  local classes: mut {Class} = {}
+  local aliases: mut {Alias} = {}
   -- The header line `position` is on.
   local function line_of(position: integer): integer
     local _, newlines = header:sub(1, position - 1):gsub("\n", "")
@@ -412,9 +455,9 @@ function generator.read(header: string): Declarations | nil, string
         call.line = line_of(header:find("COSMIC_SYSCALL", at, true) or at)
         local arity = tonumber(arity_text) or -1
         if #call.parameters ~= arity then
-          return nil, name .. ": the header declares " .. arity ..
+          return nil, name .. ": the header declares " .. tostring(arity) ..
             " parameter(s) in COSMIC_SYSCALL but the annotation has " ..
-            #call.parameters .. " @param line(s)"
+            tostring(#call.parameters) .. " @param line(s)"
         end
         calls[#calls + 1] = call
       else
@@ -476,15 +519,15 @@ function generator.read(header: string): Declarations | nil, string
     return nil, "Constants: the header writes " .. plural.count(written, "COSMIC_CONSTANT line") ..
       " for " .. plural.count(declared, "field") .. "; one stands outside the block after `Constants`"
   end
-  return { calls = calls, classes = classes, aliases = aliases }
+  return { calls = calls, classes = classes, aliases = aliases }, ""
 end
 
 --- Appends `lines` to `out` as a doc comment at `indent`, so `cosmic
 --- docs` reads the header's own prose rather than a bare signature.
-local function comment(out: {string}, indent: string, lines: {string})
+local function comment(out: mut {string}, indent: string, lines: {string})
   for _, line in ipairs(lines) do
     if line ~= "" or #lines > 1 then
-      out[#out + 1] = indent .. (line == "" and "---" or "--- " .. line)
+      out[#out + 1] = indent .. (if line == "" then "---" else "--- " .. line end)
     end
   end
 end
@@ -492,7 +535,7 @@ end
 --- A call's doc comment: its prose, then one line per parameter and
 --- result that says anything.
 local function call_comment(call: Call): {string}
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, line in ipairs(call.prose) do
     lines[#lines + 1] = line
   end
@@ -510,18 +553,21 @@ local function call_comment(call: Call): {string}
 end
 
 local function signature(call: Call): string
-  local parameters: {string} = {}
+  local parameters: mut {string} = {}
   for _, p in ipairs(call.parameters) do
     parameters[#parameters + 1] =
-      p.name .. (p.optional and "?" or "") .. ": " .. p.kind
+      p.name .. (if p.optional then "?" else "" end) .. ": " .. p.kind
   end
-  local results: {string} = {}
+  local results: mut {string} = {}
   for _, r in ipairs(call.results) do
     results[#results + 1] = r.kind
   end
   local text = "function(" .. table.concat(parameters, ", ") .. ")"
   if #results > 0 then
     text = text .. ": " .. table.concat(results, ", ")
+  else
+    -- a call with no @return never returns (read rejects any other zero)
+    text = text .. ": never"
   end
   return text
 end
@@ -569,7 +615,7 @@ generator.targets = {
 --- The Teal declaration of the module the header describes: `target`'s
 --- (by default the syscall table's, [`cosmic.sys`]).
 --- @param header the whole text of the target's header
-function generator.declaration(header: string, target?: Target): string | nil, string
+function generator.declaration(header: string, target?: Target): string?, string
   target = target or syscalls_target
   local found, trouble = generator.read(header)
   if found == nil then
@@ -577,7 +623,7 @@ function generator.declaration(header: string, target?: Target): string | nil, s
   end
   local calls, classes, aliases = found.calls, found.classes, found.aliases
 
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, line in ipairs(target.summary) do
     out[#out + 1] = "--- " .. line
   end
@@ -588,7 +634,7 @@ function generator.declaration(header: string, target?: Target): string | nil, s
 
   -- A class's field may name an alias, so every alias comes first.
   for _, alias in ipairs(aliases) do
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, line in ipairs(alias.prose) do
       lines[#lines + 1] = line
     end
@@ -613,8 +659,10 @@ function generator.declaration(header: string, target?: Target): string | nil, s
       for _, field in ipairs(class.fields) do
         comment(out, "    ", { field.description })
         local metamethod = class.userdata and field.name:sub(1, 2) == "__"
-        out[#out + 1] = "    " .. (metamethod and "metamethod " or "") .. field.name .. ": " ..
-          field.kind
+        -- A field that may be nil may be left out of a literal.
+        local optional = not metamethod and field.kind:sub(-1) == "?" and field.kind:sub(1, 9) ~= "function("
+        table.insert(out, "    " .. field.name ..
+            (if optional then "?: " .. field.kind:sub(1, -2) else ": " .. field.kind end))
       end
       out[#out + 1] = "  end"
       out[#out + 1] = ""
@@ -626,7 +674,7 @@ function generator.declaration(header: string, target?: Target): string | nil, s
       out[#out + 1] = ""
     end
     comment(out, "  ", call_comment(call))
-    out[#out + 1] = "  " .. call.name .. ": " .. signature(call)
+    table.insert(out, "  " .. call.name .. ": " .. signature(call))
   end
 
   for _, class in ipairs(classes) do
@@ -647,23 +695,23 @@ function generator.declaration(header: string, target?: Target): string | nil, s
   out[#out + 1] = "-- `cosmic docs` shows in place of this file's own lines -- see"
   out[#out + 1] = "-- `build.derivation`'s `origin_lines`."
   for _, alias in ipairs(aliases) do
-    out[#out + 1] = "-- line " .. alias.name .. " " .. alias.line
+    table.insert(out, "-- line " .. alias.name .. " " .. tostring(alias.line))
   end
   for _, class in ipairs(classes) do
     local prefix = ""
     if class.name ~= "Constants" then
-      out[#out + 1] = "-- line " .. class.name .. " " .. class.line
+      table.insert(out, "-- line " .. class.name .. " " .. tostring(class.line))
       prefix = class.name .. "."
     end
     for _, field in ipairs(class.fields) do
-      out[#out + 1] = "-- line " .. prefix .. field.name .. " " .. field.line
+      table.insert(out, "-- line " .. prefix .. field.name .. " " .. tostring(field.line))
     end
   end
   for _, call in ipairs(calls) do
-    out[#out + 1] = "-- line " .. call.name .. " " .. call.line
+    table.insert(out, "-- line " .. call.name .. " " .. tostring(call.line))
   end
   out[#out + 1] = ""
-  return table.concat(out, "\n")
+  return table.concat(out, "\n"), ""
 end
 
 return generator

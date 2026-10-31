@@ -9,7 +9,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
-local test = require("build.test")
+local test_key = require("build.test_key")
 local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 local Test = require("cosmic.test")
@@ -20,8 +20,8 @@ local Test = require("cosmic.test")
 --- (`nests`); and the variables `unsandboxed` reads, which hold a run
 --- to sandboxing.
 Test.policy{
-  profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
+  profiles = { "cosmic", "proc" },
+  grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }
@@ -145,10 +145,10 @@ end
   local result = invoke(root, output, { "suite/left_test.tl" }, env)
   local text = assert(Fs.read(output))
   assert(not result.ok, text)
-  assert(text:find("1 of 2 failed", 1, true), text)
+  assert(text:find("1 of 2 tests failed", 1, true), text)
   assert(text:find("its directory is kept: " .. assert(Fs.absolute(temp)) .. "/cosmic-test-",
     1, true), text)
-  local left: {string} = {}
+  local left: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(temp)))) do
     if name:sub(1, 12) == "cosmic-test-" and name:sub(1, 21) ~= "cosmic-test-children-" then
       left[#left + 1] = name
@@ -195,7 +195,7 @@ local function test_second(tmp: string) hold(tmp, "second") end
   assert(Fs.close(fd))
   local handle <close> = assert(runner, trouble)
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
-  while not (Fs.exists(marks .. "/first") and Fs.exists(marks .. "/second")) do
+  while not (Fs.exists(marks .. "/first") == true and Fs.exists(marks .. "/second") == true) do
     assert(Clock.monotonic_ns() < deadline, assert(Fs.read(output)))
     -- Leaves the runner running, as a timed `wait` would not.
     local done, _ = Child.wait_any({ handle }, Clock.ms(50))
@@ -206,7 +206,7 @@ local function test_second(tmp: string) hold(tmp, "second") end
   local text = assert(Fs.read(output))
   assert(not result.timed_out and result.signal == sys.SIGTERM, text)
   assert(text:find("test: cancelled; every running test was ended", 1, true), text)
-  local left: {string} = {}
+  local left: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(temp)))) do
     if name:sub(1, 12) == "cosmic-test-" and name:sub(1, 21) ~= "cosmic-test-children-" then
       left[#left + 1] = name
@@ -252,7 +252,7 @@ end
   assert(Fs.close(fd))
   local handle <close> = assert(runner, trouble)
   local deadline = Clock.monotonic_ns() + Clock.seconds(20)
-  while not Fs.exists(marks .. "/held") do
+  while Fs.exists(marks .. "/held") ~= true do
     assert(Clock.monotonic_ns() < deadline, assert(Fs.read(output)))
     local done, _ = Child.wait_any({ handle }, Clock.ms(50))
     assert(done == nil, "the runner ended before its tests started\n" .. assert(Fs.read(output)))
@@ -276,7 +276,7 @@ end
 --- other of their prefix as it starts), so the filter's case for them
 --- is the second half's. The first holds the rest of the filter end to
 --- end: its suite declares the variables, so the run's own filter
---- ([`test.worker_environment`]), not the declaration, is what drops how
+--- ([`test_key.worker_environment`]), not the declaration, is what drops how
 --- the run was started (OLDPWD, SHLVL).
 local function test_workers_start_without_the_startup_hooks(tmp: string)
   local root = tmp .. "/project"
@@ -297,10 +297,11 @@ end
   local output = tmp .. "/hooks.out"
   local result = invoke(root, output, { "suite/hooks_test.tl" }, env)
   assert(result.ok, assert(Fs.read(output)))
-  local kept = test.worker_environment({ COSMIC_PORTABLE_STARTUP_TEST_GO = "x",
+  local kept = test_key.worker_environment({ COSMIC_PORTABLE_STARTUP_TEST_GO = "x",
     COSMIC_PORTABLE_CACHE = "c", PATH = "p", COSMIC_REBOOTED = "1", OLDPWD = "/elsewhere",
     _ = "/usr/bin/timeout", SHLVL = "2", COSMIC_BUILD_CACHE = "/shared/cache.db",
-    COSMIC_VERDICT_CACHE = "/shared/verdicts.db", COSMIC_TEST_NO_SHARED = "1",
+    COSMIC_VERDICT_CACHE = "/shared/verdicts.db", COSMIC_TEST_NO_SHARED = "1", COSMIC_TEST_BAIL = "1",
+    COSMIC_TEST_CHECK_TYPES = "1", COSMIC_TEST_TYPES = "1",
     COSMIC_REBUILD_LOCK_HANDED = "/tree/o/rebuild.lock" })
   assert(kept.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
   -- Nor a rebuild lock handed to the run: what a test starts holds none
@@ -308,7 +309,9 @@ end
   assert(kept.COSMIC_REBUILD_LOCK_HANDED == nil)
   -- Nor whether this run stands on shared verdicts: a `cosmic test` a
   -- test starts says that for itself.
-  assert(kept.COSMIC_TEST_NO_SHARED == nil)
+  assert(kept.COSMIC_TEST_NO_SHARED == nil and kept.COSMIC_TEST_BAIL == nil)
+  -- Nor whether it was a checked one, and its workers told to report.
+  assert(kept.COSMIC_TEST_CHECK_TYPES == nil and kept.COSMIC_TEST_TYPES == nil)
   -- Neither cache every checkout shares is a worker's, unless its test
   -- names one for what it starts.
   assert(kept.COSMIC_BUILD_CACHE == "0" and kept.COSMIC_VERDICT_CACHE == "0")

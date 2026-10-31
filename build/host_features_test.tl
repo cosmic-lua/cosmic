@@ -25,7 +25,7 @@ Test.policy{
 --- "Features" on arm), split at spaces and tabs alone as CI's
 --- cosmic_ci/host_id.tl does, so a trailing carriage return is seen alike.
 local function listed(text: string): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for line in text:gmatch("[^\n]+") do
     local flags = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
     for flag in (flags or ""):gmatch("[^ \t]+") do found[#found + 1] = flag end
@@ -53,8 +53,8 @@ local function host(tmp: string, machine: string, cpuinfo: string):
     machine = machine,
     status = write("status", "Uid: 1 1 1 1\n"), own_proc = true, host_id = "h", uid = 1,
   }
-  local names: {string:boolean} = {}
-  local identities: {string:boolean} = {}
+  local names: mut {string:boolean} = {}
+  local identities: mut {string:boolean} = {}
   local function both(what: string, moved: boolean)
     sources.cpu_features = listed((Fs.read(tmp .. "/cpuinfo")) or "")
     local named = declared_key.host_features(sources)
@@ -85,16 +85,20 @@ local function test_a_host_is_named_by_what_it_keys(tmp: string)
 end
 
 --- On x86_64, only the features a core chooses code by are keyed --
---- mbedtls's AES-NI and xz's carry-less CRCs -- so hosted runners that
---- differ in any other split neither the verdicts nor their cache, and
---- a host lacking one of them keys apart. The FMA features are not
---- among them.
+--- mbedtls's AES-NI, xz's carry-less CRCs and the int8 kernels' VNNI --
+--- so hosted runners that differ in any other split neither the
+--- verdicts nor their cache, and a host lacking one of them keys apart.
+--- The FMA features are not among them.
 local function test_an_x86_64_host_keys_only_what_a_core_dispatches_on(tmp: string)
   local base = "fpu sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms"
   local write, both = host(tmp, "x86_64", "processor : 0\nflags : " .. base .. "\n")
   both("the start", true)
-  write("cpuinfo", "flags : " .. base .. " avx512f avx512bw\n")
+  write("cpuinfo", "flags : " .. base .. " avx512bw avx512dq\n")
   both("avx512 more", false)
+  write("cpuinfo", "flags : " .. base .. " avx512f avx512vl avx512_vnni\n")
+  both("avx512 vnni", true)
+  write("cpuinfo", "flags : " .. base .. " avx_vnni\n")
+  both("avx vnni", true)
   write("cpuinfo", "flags : " .. base .. " hypervisor md_clear\n")
   both("a hypervisor's bits more", false)
   write("cpuinfo", "flags : " .. (base:gsub(" bmi2 erms", "")) .. "\n")
@@ -132,14 +136,14 @@ local function test_a_macos_host_is_named_by_its_system_version(tmp: string)
   assert(darwin[2] == "/System/Library/CoreServices/SystemVersion.plist", darwin[2])
   assert(darwin[3] == "", "a version beside the system's")
   local plist = tmp .. "/SystemVersion.plist"
-  local system: {string} = {}
-  for i, path in ipairs(darwin) do system[i] = path == darwin[2] and plist or path end
+  local system: mut {string} = {}
+  for _, path in ipairs(darwin) do system[#system + 1] = path == darwin[2] and plist or path end
   local sources: declared_key.HostSources = {
     packages = {}, system = system, cpu_features = {}, machine = "arm64", sysname = "Darwin",
     status = tmp .. "/status", own_proc = false, host_id = "macos-15", uid = 501,
   }
-  local names: {string:boolean} = {}
-  local identities: {string:boolean} = {}
+  local names: mut {string:boolean} = {}
+  local identities: mut {string:boolean} = {}
   local function both(what: string)
     local named = declared_key.host_features(sources)
     local id = declared_key.host_identity(declared_key.digests(tmp), sources)
@@ -156,10 +160,10 @@ local record Vector
   name: string
   sysname: string
   machine: string
-  cpuinfo: string | nil
-  osrelease: string | nil
-  version: string | nil
-  sysctl: {string:string} | nil
+  cpuinfo: string?
+  osrelease: string?
+  version: string?
+  sysctl: {string:string}?
   digest: string
 end
 
@@ -168,6 +172,7 @@ end
 local darwin_features: {string:string} = {
   ["hw.optional.arm.FEAT_AES"] = "aes", ["hw.optional.AdvSIMD"] = "asimd",
   ["hw.optional.armv8_crc32"] = "crc32", ["hw.optional.arm.FEAT_PMULL"] = "pmull",
+  ["hw.optional.arm.FEAT_SHA256"] = "sha2", ["hw.optional.armv8_2_sha512"] = "sha512",
 }
 
 --- Each recorded host, as ci/testdata/host_features holds it -- x86_64,
@@ -181,10 +186,12 @@ local function test_every_recorded_host_is_named_as_the_ci_names_it(tmp: string)
   assert(#recorded >= 30, "the recorded hosts are gone")
   for i, entry in ipairs(recorded) do
     local vector = entry as Vector
-    local release, version = tmp .. "/osrelease-" .. i, tmp .. "/version-" .. i
-    if vector.osrelease ~= nil then assert(Fs.write(release, vector.osrelease)) end
-    if vector.version ~= nil then assert(Fs.write(version, vector.version)) end
-    local features: {string} = {}
+    local release, version = tmp .. "/osrelease-" .. tostring(i), tmp .. "/version-" .. tostring(i)
+    local osrelease = vector.osrelease
+    if osrelease ~= nil then assert(Fs.write(release, osrelease)) end
+    local vector_version = vector.version
+    if vector_version ~= nil then assert(Fs.write(version, vector_version)) end
+    local features: mut {string} = {}
     if vector.sysname == "Darwin" then
       for name, answer in pairs(vector.sysctl or {}) do
         if answer == "1" then features[#features + 1] = darwin_features[name] end
@@ -193,7 +200,7 @@ local function test_every_recorded_host_is_named_as_the_ci_names_it(tmp: string)
       features = listed(vector.cpuinfo or "")
     end
     local sources: declared_key.HostSources = {
-      system = { "", release, vector.sysname == "Darwin" and "" or version },
+      system = { "", release, if vector.sysname == "Darwin" then "" else version end },
       cpu_features = features, machine = vector.machine, sysname = vector.sysname,
     }
     local named = declared_key.host_features(sources)
@@ -216,7 +223,10 @@ local function test_the_key_names_this_host_as_its_cpuinfo_does(tmp: string)
   -- under /proc (cpuinfo, kernel/osrelease, kernel/version): a sandbox's
   -- /proc is mounted subset=pid, and a grant of /proc/cpuinfo reaches
   -- none of it, so every sandboxed leg skips here.
-  if text == nil then Test.skip("this worker's /proc has no cpuinfo to read") end
+  if text == nil then
+    Test.skip("this worker's /proc has no cpuinfo to read")
+    return
+  end
   local release, version = tmp .. "/osrelease", tmp .. "/version"
   assert(Fs.write(release, Fs.read("/proc/sys/kernel/osrelease") or ""))
   assert(Fs.write(version, Fs.read("/proc/sys/kernel/version") or ""))

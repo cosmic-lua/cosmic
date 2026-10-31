@@ -9,6 +9,7 @@ local schema = require("build.schema")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
+local TypeWatch = require("build.type_watch")
 
 --- `store`: both read every module's rows through [`Store.databases()`].
 Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
@@ -21,7 +22,7 @@ end
 --- `shapes` by type alone (its bytecode does not name it), `lib` requires
 --- `leaf`, and `loop_a` and `loop_b` require each other. Attached ahead
 --- of the binary's, once; a fixture module is never in the binary.
-local attached = false
+local attached: boolean = false
 local function attach(tmp: string)
   if attached then
     return
@@ -75,8 +76,8 @@ local function test_closure_follows_requires_transitively(tmp: string)
   assert(table.concat(Store.closure({ "fixture.lib" }), " ") == "fixture.leaf fixture.lib")
   assert(table.concat(Store.closure({ "fixture.loop_a" }), " ") ==
       "fixture.loop_a fixture.loop_b")
-  local expected: {string:boolean} = {}
-  local stack: {string} = { "cosmic.json" }
+  local expected: mut {string:boolean} = {}
+  local stack: mut {string} = { "cosmic.json" }
   while #stack > 0 do
     local name = table.remove(stack)
     if not expected[name] then
@@ -126,9 +127,9 @@ local function modules_of(path: string): string
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, "SELECT path FROM modules ORDER BY path"))
   assert(db:close())
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, row in ipairs(rows) do
-    names[#names + 1] = row[1]
+    names[#names + 1] = row:text(1)
   end
   return table.concat(names, " ")
 end
@@ -137,7 +138,7 @@ local function count_of(path: string, table_name: string): integer
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))
   assert(db:close())
-  return math.tointeger(rows[1][1]) as integer
+  return math.tointeger(rows[1]:text(1)) as integer
 end
 
 --- Two seals of one set, even in another order or with a name twice,
@@ -163,27 +164,33 @@ local function test_seal_holds_exactly_the_named_modules(tmp: string)
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, "SELECT key, value FROM meta ORDER BY key"))
   assert(db:close())
-  local meta: {string:string} = {}
+  local meta: mut {string:string} = {}
   for _, row in ipairs(rows) do
-    meta[row[1]] = row[2]
+    meta[row:text(1)] = row:text(2)
   end
   assert(meta.main == "fixture.lib")
   assert(meta.runtime_basis ~= nil and meta.runtime_basis == Store.meta("runtime_basis"))
   assert(count_of(path, "zoneinfo") == 0 and count_of(path, "ca_roots") == 0)
   local keys = assert(Sqlite.text_rows(assert(Sqlite.open(path)), "SELECT hex(key) FROM modules"))
-  assert(keys[1][1] == "", "a module's compile key is not carried")
+  assert(keys[1]:text(1) == "", "a module's compile key is not carried")
 end
 
 --- The binary's modules are copied from the binary, not from an
 --- attached database that holds a module of the same name.
 local function test_seal_takes_a_reserved_name_from_the_binary(tmp: string)
+  -- TODO: check this on a checked run too. It waits on a way to read the
+  -- tree's projection and the binary's own modules there, as the checked
+  -- worker is given the checked ones (build/test.tl's TODO on the same).
+  if TypeWatch.checked() then
+    Test.skip("a checked run's modules carry checks, so their bytecode is not the binary's")
+  end
   attach(tmp)
   local path = tmp .. "/binary.db"
   assert(Store.seal({ "cosmic.codec" }, path))
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, "SELECT bytecode FROM modules"))
   assert(db:close())
-  assert(rows[1][1] == assert(Store.bytecode("cosmic.codec")), "the binary's own bytecode")
+  assert(rows[1]:text(1) == assert(Store.bytecode("cosmic.codec")), "the binary's own bytecode")
 end
 
 --- The tz database goes only with cosmic.time, the CA roots only with
@@ -195,6 +202,24 @@ local function test_seal_carries_zones_and_roots_only_for_their_modules(tmp: str
   local trusting = tmp .. "/trusting.db"
   assert(Store.seal({ "cosmic.http" }, trusting))
   assert(count_of(trusting, "ca_roots") > 0 and count_of(trusting, "zoneinfo") == 0)
+  -- And with the roots, the certificates OneCRL revokes, which it refuses.
+  assert(count_of(trusting, "ca_revoked") > 0 and count_of(zoned, "ca_revoked") == 0)
+  assert(count_of(zoned, "web_assets") == 0 and count_of(trusting, "web_assets") == 0)
+end
+
+--- The files cosmic.web serves go only with the module that reads them,
+--- with the hashes the binary computed.
+local function test_seal_carries_the_web_assets_only_for_cosmic_web_htmx(tmp: string)
+  local path = tmp .. "/web.db"
+  assert(Store.seal({ "cosmic.web.htmx" }, path))
+  assert(count_of(path, "web_assets") == 2 and count_of(path, "zoneinfo") == 0)
+  local db = assert(Sqlite.open(path))
+  local rows = assert(Sqlite.text_rows(db,
+    "SELECT name, sha256, sha384, version FROM web_assets ORDER BY name"))
+  assert(db:close())
+  assert(rows[2]:text(1) == "htmx.min.js")
+  local own = assert(Store.web_asset("htmx.min.js"))
+  assert(rows[2]:text(2) == own.sha256 and rows[2]:text(3) == own.sha384 and rows[2]:text(4) == own.version)
 end
 
 local function test_seal_refuses_what_it_cannot_carry(tmp: string)
@@ -244,8 +269,8 @@ local function test_seal_carries_an_extra_module_as_the_main(tmp: string)
     "SELECT kind, bytecode = ?1, source FROM modules WHERE path = 'main' " ..
       "UNION ALL SELECT value, '', '' FROM meta WHERE key = 'main'", { { blob = extra.bytecode } }))
   assert(db:close())
-  assert(rows[1][1] == "main" and rows[1][2] == "1" and rows[1][3] == "return 1\n")
-  assert(rows[2][1] == "main", "the extra module is the database's main")
+  assert(rows[1]:text(1) == "main" and rows[1]:text(2) == "1" and rows[1]:text(3) == "return 1\n")
+  assert(rows[2]:text(1) == "main", "the extra module is the database's main")
   assert(digest == (assert(Store.seal({ "fixture.leaf" }, tmp .. "/again.db", { extra = extra }))))
   -- A script that requires nothing is a program of no sealed names.
   assert(Store.seal({}, tmp .. "/alone.db", { extra = extra }))
@@ -288,6 +313,26 @@ local function test_seal_digest_ignores_tests_and_drops_dangling_edges(tmp: stri
   assert(before == after, "a test moved the digest")
 end
 
+--- A sealed module carries every edge the checker follows from it, as
+--- the database it came from holds them, an edge to a name left out
+--- among them: a compile of a project on the sealed database resolves
+--- the standard library by them ([`build.plans`]).
+local function test_seal_carries_the_checkers_edges(tmp: string)
+  local path = tmp .. "/edges.db"
+  assert(Store.seal({ "cosmic.time" }, path))
+  local query = "SELECT requires FROM decl_imports WHERE path = 'cosmic.time' ORDER BY requires"
+  local databases = Store.databases()
+  local want = assert(Sqlite.text_rows(databases[#databases], query))
+  local sealed = assert(Sqlite.open(path))
+  local got = assert(Sqlite.text_rows(sealed, query))
+  assert(sealed:close())
+  assert(#want > 1, "cosmic.time requires nothing")
+  assert(#got == #want, "the sealed database holds " .. tostring(#got) .. " edges, not " .. tostring(#want))
+  for index, row in ipairs(want) do
+    assert(got[index]:text(1) == row:text(1), row:text(1))
+  end
+end
+
 --- The tables the core reads, as the build's own schema makes them.
 local function test_seal_schema_is_the_builds(tmp: string)
   local path = tmp .. "/schema.db"
@@ -300,19 +345,20 @@ local function test_seal_schema_is_the_builds(tmp: string)
     assert(reference:exec(statement))
   end
   local sealed = assert(Sqlite.open(path))
-  for _, name in ipairs({ "meta", "modules", "imports", "decls", "zoneinfo", "ca_roots" }) do
+  for _, name in ipairs({ "meta", "modules", "imports", "decl_imports", "decls", "zoneinfo",
+      "ca_roots", "ca_revoked", "web_assets" }) do
     local query = "SELECT name, type, \"notnull\", pk FROM pragma_table_info('" .. name .. "')"
     local want = assert(Sqlite.text_rows(reference, query))
     local got = assert(Sqlite.text_rows(sealed, query))
     assert(#want > 0, name .. " is not a table of the schema")
     assert(#want == #got, name .. ": columns differ")
     for index, row in ipairs(want) do
-      assert(table.concat(row, " ") == table.concat(got[index], " "), name .. ": " .. row[1])
+      assert(table.concat(row:texts(), " ") == table.concat(got[index]:texts(), " "), name .. ": " .. row:text(1))
     end
   end
   for _, pragma in ipairs({ "page_size", "auto_vacuum" }) do
-    assert(assert(Sqlite.text_rows(reference, "SELECT * FROM pragma_" .. pragma))[1][1] ==
-        assert(Sqlite.text_rows(sealed, "SELECT * FROM pragma_" .. pragma))[1][1], pragma)
+    assert(assert(Sqlite.text_rows(reference, "SELECT * FROM pragma_" .. pragma))[1]:text(1) ==
+        assert(Sqlite.text_rows(sealed, "SELECT * FROM pragma_" .. pragma))[1]:text(1), pragma)
   end
   assert(sealed:close())
   assert(reference:close())

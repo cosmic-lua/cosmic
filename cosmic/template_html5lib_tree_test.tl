@@ -74,25 +74,28 @@ end
 --- A case of a `.dat` file.
 local record Case
   input: string
-  tree: {string}
+  tree: mut {string}
   --- Whether the case is not a plain document parse (a fragment's
   --- context, scripting on or off), which its tree is made under.
-  other: boolean
+  mut other: boolean
 end
 
 --- The cases of the text of a `.dat` file.
 local function cases_of(text: string): {Case}
-  local cases: {Case} = {}
-  local current: Case | nil = nil
+  local cases: mut {Case} = {}
+  local current: Case? = nil
   local section = ""
-  local data: {string} = {}
+  local data: mut {string} = {}
   local function finish()
-    if current ~= nil then
-      current.input = table.concat(data, "\n")
-      while #current.tree > 0 and current.tree[#current.tree] == "" do
-        current.tree[#current.tree] = nil
+    -- A test of `current` inside this function narrows nothing: the code
+    -- around it assigns `current` after the function is made.
+    local done = current
+    if done ~= nil then
+      done.input = table.concat(data, "\n")
+      while #done.tree > 0 and done.tree[#done.tree] == "" do
+        done.tree[#done.tree] = nil
       end
-      cases[#cases + 1] = current
+      cases[#cases + 1] = done
     end
   end
   for line in (text .. "\n"):gmatch("([^\n]*)\n") do
@@ -138,7 +141,7 @@ end
 
 --- What a slot is, from the Teal the template compiles to.
 local function kind_of(out: string): string
-  for _, kind in ipairs({ "text", "rtext", "attr", "url" }) do
+  for _, kind in ipairs({ "text", "rtext", "ftext", "attr", "url", "part" }) do
     if out:find("parts[#parts + 1] = _" .. kind .. "(", 1, true) then
       return kind
     end
@@ -149,7 +152,7 @@ end
 --- The cuts of a text of `length` bytes to try: both ends and a few
 --- between, the same ones every run.
 local function cuts(length: integer): {integer}
-  local list: {integer} = {}
+  local list: mut {integer} = {}
   local steps = math.min(length, 5)
   local last = -1
   for step = 0, steps do
@@ -186,7 +189,7 @@ end
 
 --- The elements a node at line `at`, `depth` deep, is inside, nearest first.
 local function ancestors(tree: {string}, at: integer, depth: integer): {Element}
-  local list: {Element} = {}
+  local list: mut {Element} = {}
   local below = depth
   for up = at - 1, 1, -1 do
     local d, body = split(tree[up])
@@ -207,13 +210,13 @@ local function ancestors(tree: {string}, at: integer, depth: integer): {Element}
 end
 
 --- The element an attribute line belongs to.
-local function owner_of(tree: {string}, at: integer, depth: integer): Element | nil
+local function owner_of(tree: {string}, at: integer, depth: integer): Element?
   return ancestors(tree, at, depth)[1]
 end
 
 --- Why a slot of `kind` may not be in the text of an element with these
 --- ancestors, or nil if it may.
-local function text_trouble(kind: string, up: {Element}): string | nil
+local function text_trouble(kind: string, up: {Element}): string?
   local parent = up[1]
   if parent == nil then
     return nil
@@ -223,7 +226,7 @@ local function text_trouble(kind: string, up: {Element}): string | nil
       return "rtext but it is not in an HTML textarea or title"
     end
     return nil
-  elseif kind ~= "text" then
+  elseif kind ~= "text" and kind ~= "ftext" then
     return kind .. " in text"
   end
   if parent.name == "script" or parent.name == "style" then
@@ -233,6 +236,11 @@ local function text_trouble(kind: string, up: {Element}): string | nil
   end
   local html_below = false
   for _, element in ipairs(up) do
+    -- Another template's markup, checked as plain HTML text, would be read
+    -- by other rules there.
+    if kind == "text" and (element.foreign or element.name == "select") then
+      return "text, which takes markup, inside " .. element.name
+    end
     if element.foreign then
       if INTEGRATION[element.name] then
         return "text in or under " .. element.name .. ", where a browser reads HTML"
@@ -247,22 +255,22 @@ local function text_trouble(kind: string, up: {Element}): string | nil
 end
 
 local record Reach
-  cases: integer
-  unclosed: integer
-  closers: integer
-  texts: integer
-  values: integer
-  hidden: integer
-  positions: integer
-  accepted: {string: integer}
-  failures: {string}
+  mut cases: integer
+  mut unclosed: integer
+  mut closers: integer
+  mut texts: integer
+  mut values: integer
+  mut hidden: integer
+  mut positions: integer
+  accepted: mut {string: integer}
+  failures: mut {string}
 end
 
 --- The elements, in a document's tree, that are foreign: the names a
 --- template could have to close to end in text.
 local function foreign_names(tree: {string}): {string}
-  local seen: {string: boolean} = {}
-  local names: {string} = {}
+  local seen: mut {string: boolean} = {}
+  local names: mut {string} = {}
   for _, line in ipairs(tree) do
     local name = body_of(line):match("^<%a+ ([^>]+)>$")
     if name ~= nil and not seen[name] and #names < 5 then
@@ -285,8 +293,8 @@ local END_TAGS <const>: {string} = {
 --- `html` template must end there), or nil if none of the ones tried does.
 --- What follows a slot cannot change where the slot stands, so any that
 --- compiles will do, and one is found with no slot.
-local function closer_for(input: string, tree: {string}): string | nil
-  local tails: {string} = {}
+local function closer_for(input: string, tree: {string}): string?
+  local tails: mut {string} = {}
   for _, tail in ipairs(END_TAGS) do
     tails[#tails + 1] = tail
   end
@@ -331,7 +339,7 @@ local function note(reach: Reach, label: string, kind: string)
 end
 
 local function fail(reach: Reach, file: string, kind: string, at: integer, input: string, what: string)
-  reach.failures[#reach.failures + 1] = ("%s: slot %s at %d of %q: %s"):format(file, kind, at, input, what)
+  table.insert(reach.failures, ("%s: slot %s at %d of %q: %s"):format(file, kind, at, input, what))
 end
 
 local function check_case(file: string, case: Case, reach: Reach)
@@ -343,22 +351,23 @@ local function check_case(file: string, case: Case, reach: Reach)
   local document = table.concat(tree, "\n")
   -- The attribute lines of the tree by value: the name each is written
   -- with, or false when two differ.
-  local named: {string: string | boolean} = {}
+  local named: mut {string: string | boolean} = {}
   for _, line in ipairs(tree) do
     local name, value = body_of(line):match('^([^%s="<]+ ?[^%s="<]*)="(.*)"$')
     if name ~= nil then
       named[value] = (named[value] == nil or named[value] == name) and name or false
     end
   end
-  local closer: string | nil = nil
-  local tried = false
-  local function closed(): string | nil
+  local closer: string? = nil
+  local tried: boolean = false
+  local function closed(): string?
     if not tried then
       tried = true
       closer = closer_for(input, tree)
-      if closer == nil then
+      local value = closer
+      if value == nil then
         reach.unclosed = reach.unclosed + 1
-      elseif closer ~= "" then
+      elseif value ~= "" then
         reach.closers = reach.closers + 1
       end
     end
@@ -374,7 +383,7 @@ local function check_case(file: string, case: Case, reach: Reach)
       local before = input:sub(start - 1, start - 1)
       local after = input:sub(start + #text, start + #text)
       local cdata = input:sub(start - 9, start - 1) == "<![CDATA[" and input:sub(start + #text, start + #text + 2) == "]]>"
-      local use: string | nil = nil
+      local use: string? = nil
       if cdata or ((before == ">" or start == 1) and (after == "<" or after == "")) then
         use = closed()
       end
@@ -383,7 +392,7 @@ local function check_case(file: string, case: Case, reach: Reach)
         reach.texts = reach.texts + 1
         try(input, use, start - 1, #text, reach, function(kind: string, cut: integer)
           local parent = up[1]
-          note(reach, (parent ~= nil and parent.foreign) and "foreign" or "html", kind)
+          note(reach, if (parent ~= nil and parent.foreign) then "foreign" else "html" end, kind)
           if cdata then
             fail(reach, file, kind, cut, input, "the tree has a CDATA section there")
           else
@@ -397,7 +406,7 @@ local function check_case(file: string, case: Case, reach: Reach)
     elseif comment ~= nil and comment ~= "" and #comment > 2 and count(input, comment) == 1 and
         count(document, comment) == 1 then
       local start = input:find(comment, 1, true) as integer
-      local use: string | nil = nil
+      local use: string? = nil
       if input:sub(start - 4, start - 1) == "<!--" and input:sub(start + #comment, start + #comment + 2) == "-->" then
         use = closed()
       end
@@ -414,7 +423,7 @@ local function check_case(file: string, case: Case, reach: Reach)
       local quote = input:sub(start - 1, start - 1)
       local written = (name:gsub(" ", ":")):lower()
       local before = input:sub(start - 2 - #written, start - 2):lower()
-      local use: string | nil = nil
+      local use: string? = nil
       if (quote == '"' or quote == "'") and input:sub(start + #value, start + #value) == quote and
           before == written .. "=" and owner_of(tree, at, depth) ~= nil then
         use = closed()
@@ -426,10 +435,10 @@ local function check_case(file: string, case: Case, reach: Reach)
           if is_code(written) then
             fail(reach, file, kind, cut, input, "the tree has the value of the code attribute " .. name)
           elseif URL_ATTRS[written] then
-            if kind ~= "url" then
+            if kind ~= "url" and kind ~= "part" then
               fail(reach, file, kind, cut, input, "the tree has the value of the URL attribute " .. name)
             end
-          elseif not (kind == "attr" or (kind == "url" and written == "archive")) then
+          elseif not (kind == "attr" or ((kind == "url" or kind == "part") and written == "archive")) then
             fail(reach, file, kind, cut, input, "the tree has the value of " .. name)
           end
         end)
@@ -450,24 +459,26 @@ local function test_a_slot_is_accepted_only_where_the_tree_has_text_or_an_attrib
       end
     end
   end
-  assert(#reach.failures == 0, #reach.failures .. " failures:\n" ..
+  assert(#reach.failures == 0, tostring(#reach.failures) .. " failures:\n" ..
       table.concat(reach.failures, "\n", 1, math.min(#reach.failures, 30)))
-  local summary: {string} = {}
+  local summary: mut {string} = {}
   for key, count_of in pairs(reach.accepted) do
-    summary[#summary + 1] = key .. "=" .. count_of
+    summary[#summary + 1] = key .. "=" .. tostring(count_of)
   end
   table.sort(summary)
   print(("tree: %d cases, %d texts, %d comments, %d values, %d positions; accepted %s"):format(
     reach.cases, reach.texts, reach.hidden, reach.values, reach.positions, table.concat(summary, " ")))
-  -- It reaches 1534 cases, 680 texts, 32 comments, 75 values and 3944
-  -- positions, and accepts 1934 slots of HTML text, 97 of rtext, 56 of
-  -- foreign text, 109 in attributes and 17 in URLs.
+  -- It reaches 1534 cases, 675 texts, 31 comments, 74 values and 3914
+  -- positions, and accepts 1892 slots of HTML text, 97 of rtext, 86 of
+  -- ftext (56 in foreign content, 30 in a <select>), 103 in attributes and
+  -- 16 in URLs.
   local accepted = reach.accepted
   -- The template's ending is held to: many cases need a closer to compile.
-  assert(reach.closers >= 100, "only " .. reach.closers .. " cases needed a closer")
+  assert(reach.closers >= 100, "only " .. tostring(reach.closers) .. " cases needed a closer")
   assert(reach.cases >= 1400 and reach.texts >= 600 and reach.hidden >= 25 and reach.values >= 65 and
-      reach.positions >= 3500, "only " .. reach.texts .. " texts and " .. reach.values .. " values were reached")
+      reach.positions >= 3500, "only " .. tostring(reach.texts) .. " texts and " .. tostring(reach.values) .. " values were reached")
   assert((accepted["html text"] or 0) >= 1700 and (accepted["html rtext"] or 0) >= 85 and
-      (accepted["foreign text"] or 0) >= 45 and (accepted["value attr"] or 0) >= 95 and
+      (accepted["foreign ftext"] or 0) >= 45 and
+      (accepted["html ftext"] or 0) >= 25 and (accepted["value attr"] or 0) >= 95 and
       (accepted["value url"] or 0) >= 14, "too few slots were accepted: " .. table.concat(summary, " "))
 end

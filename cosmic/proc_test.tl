@@ -56,7 +56,7 @@ local function test_find_takes_an_empty_entry_as_the_working_directory(dir: stri
   assert(Fs.write(dir .. "/tool", "#!/bin/sh\n", 0x1ed))
   local before = assert(sys.getcwd())
   assert(sys.chdir(dir))
-  local answers: {string} = {}
+  local answers: mut {string} = {}
   local nowhere, elsewhere = dir .. "/nowhere", dir .. "/elsewhere"
   for _, path in ipairs({ "", ":", nowhere .. ":", nowhere .. "::" .. elsewhere }) do
     answers[#answers + 1] = tostring((Proc.find("tool", path)))
@@ -117,8 +117,9 @@ local function test_find_result_preserves_stat_refusal(dir: string)
   local legacy, trouble = Proc.find("tool", hidden)
   assert(Fs.chmod(hidden, 0x1c0))
   if overrides_permissions() then
-    assert(result.kind == "resolved" and result.path == hidden .. "/tool" and result.reason == "")
-    assert(legacy == result.path and trouble == "")
+    local path = result.path
+    assert(result.kind == "resolved" and path == hidden .. "/tool" and result.reason == "")
+    assert(legacy == path and trouble == "")
   else
     assert(result.kind == "not_found" and result.path == nil and result.reason == "tool: not found")
     assert(legacy == nil and trouble == result.reason)

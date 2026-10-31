@@ -1,208 +1,259 @@
---- Whether two parses mean the same thing.
+--- Whether two Teal sources mean the same: the check that stands between the layout of [`build.fix.layout`] and a file
+--- written to disk. A layout that passes the golden cases but loses a token, moves a comment across code, or changes
+--- what the parser reads would be found here, on the file it is laid out on, and the file left as it was.
 ---
---- A renderer checked only against a golden string, or against itself
---- run twice, would be shown consistent, not right: `local x <const> = 5`
---- re-emitted as `local x < const > = 5` is stable, idempotent and
---- wrong. So `cosmic fix` reparses what it wrote and compares the two
---- trees here, field by field, ignoring only what a rewrite may move.
+--- Two sources are the same when all of these hold:
+--- - the tokens, in order, are the same (kind and bytes), but for the comma a table ends with, written before its `}`
+---   or not (which the tree says: the token before the `}` that closes a `Table`);
+--- - the comments are the same, in order, byte for byte, and each follows the same number of tokens. One that lay
+---   before a binary operator that began a line follows the operator once the layout moves it behind the code before
+---   it, so that one more token may precede it there;
+--- - each comment that is part of a doc comment (the run of comments on the lines just before the first token of a
+---   declaration, as [`lang.parser`] reads it) still is, and no other becomes one, so that a layout that parted a doc
+---   comment from its declaration, or joined a comment to one, is found;
+--- - the syntax tree is the same ([`lang.ast_dump`]: the kind and fields of every node, none of the places);
+--- - the `#!` line is the same.
 ---
---- Ignored: a node's position (`y`, `x`, `yend`, `xend`, and those of a
---- list the parser stamps one on), whether a `;` follows a statement,
---- the filename stamped on it, the type
---- identifier tl hands out from a counter, and the comments the parser
---- attached to statements. Comments are compared separately, off the
---- token stream, where each appears exactly once. Everything else is
---- compared, including the fields a type object carries, so a record
---- body that lost a field or a `<const>` that became something else is
---- a difference.
----
---- `if_parent` is skipped rather than followed: an "if_block" node
---- points back at its enclosing "if" statement, a cycle. That statement
---- is compared anyway, from the top.
----
---- The walk keeps a set of pairs, one before-side table with the
---- after-side table it is compared against, not a set of before-side
---- tables. A cycle still terminates, since coming back around brings
---- the same pair, but a table reached by two different routes is
---- compared once against each thing the other tree holds there. tl's
---- parser output is not a tree: `local record Node is {Node}` in
---- [`build/ast/node.tl`] yields the same type object as the record's
---- element type and as its interface list's. Keyed on the before side
---- alone, what the after tree held at the end of the second route would
---- go unchecked, and a renderer that changed it would pass.
-
-local ast = require("build.ast")
-local type compiler = require("build.compiler")
+--- What the sources hold of whitespace, blank lines and breaks is the layout's to change. This check reads nothing of it.
+local Ast = require("lang.ast")
+local Dump = require("lang.ast_dump")
+local Lexer = require("lang.lexer")
+local Parser = require("lang.parser")
 local plural = require("build.plural")
 
-local type Node = ast.Node
+local record Equiv
+  --- A comment of a source: its bytes, and the number of the tokens (the trailing commas of tables not counted) that
+  --- come before it.
+  record Remark
+    text: string
+    before: integer
+    --- The token it is kept on, the first after it.
+    on: integer
+    --- Whether it is part of the doc comment of the node that begins at the token it is kept on.
+    doc: boolean
+    y: integer
+    x: integer
+  end
 
---- Fields that say where something was, not what it is. `semicolon`
---- is among them: a `;` after a statement separates and means nothing
---- more, and [`build.fix.breaks`] drops one where a line break now does
---- its work. Where a `;` decides how a `(` that follows reads, the two
---- readings differ in the tree itself.
-local positional: {string:boolean} = {
-  ["semicolon"] = true,
-  ["y"] = true,
-  ["x"] = true,
-  ["yend"] = true,
-  ["xend"] = true,
-  ["f"] = true,
-  ["typeid"] = true,
-  ["comments"] = true,
-  ["if_parent"] = true,
+  --- What is compared of a source.
+  record Side
+    --- The first lexical or syntax error, worded `name:line:column: message`; "" when there is none.
+    trouble: string
+    shebang: string?
+    tokens: Lexer.Tokens
+    --- The numbers of the tokens that count: all but the trailing commas of tables.
+    mut kept: {integer}
+    mut comments: {Remark}
+    --- The binary operators, by token.
+    mut operators: {integer: boolean}
+    --- The tree without places ([`lang.ast_dump`]); "" when the source does not parse.
+    mut shape: string
+  end
+
+  --- What `source` is compared by, as the dialect `dialect` reads it: `name` is the file it is the text of, for
+  --- the words of an error.
+  read: function(source: string, name: string, dialect: Ast.Dialect): Side
+
+  --- Why `after` is not the same as `before`, or nil when it is. `before` must parse; an `after` that does not is
+  --- a difference.
+  difference: function(before: Side, after: Side): string?
+end
+
+--- The kinds of node that [`lang.parser`] reads a doc comment for: the comments just before their first token.
+local DOCUMENTED <const>: {string: boolean} = {
+  Local = true, LocalFunction = true, Function = true, Record = true, Interface = true, Class = true, Enum = true,
+  Alias = true, Import = true, FieldDecl = true, Method = true, EnumValue = true,
 }
 
-local function is_table(v: any): boolean
-  return v is {any:any}
+--- The comments kept on token `i` that are its doc comment, as [`lang.parser`] reads one: the run on the lines just
+--- before the token, each on a line of its own and not at the end of a line of code. The first of them is the
+--- number returned, the count of comments if there is none.
+local function doc_start(tokens: Lexer.Tokens, i: integer, comments: {Lexer.Comment}): integer
+  local line = Lexer.y(tokens, i) - 1
+  local floor = if i > 1 then Lexer.yend(tokens, i - 1) else 0 end
+  local from = #comments + 1
+  for k = #comments, 1, -1 do
+    local comment = comments[k]
+    if comment == nil or comment.y ~= line or comment.y <= floor then
+      break
+    end
+    from = k
+    line = line - 1
+  end
+  return from
 end
 
-local function as_map(v: any): {any:any}
-  if v is {any:any} then
-    return v
+function Equiv.read(source: string, name: string, dialect: Ast.Dialect): Equiv.Side
+  local lexed = Lexer.lex(source, name)
+  local parsed = Parser.parse(lexed, name, dialect)
+  local tokens = lexed.tokens
+  local count = Lexer.count(tokens)
+  local trouble = ""
+  local first = parsed.errors[1]
+  if first ~= nil then
+    trouble = string.format("%s:%d:%d: %s", name, first.y, first.x, first.msg)
   end
-  return {}
+  local shebang: string? = nil
+  if source:sub(1, 2) == "#!" then
+    shebang = source:sub(1, (source:find("[\r\n]", 3) or #source + 1) - 1)
+  end
+  local side: Equiv.Side = {
+    trouble = trouble, shebang = shebang, tokens = tokens, kept = {}, comments = {}, operators = {}, shape = "",
+  }
+  if first ~= nil then
+    return side
+  end
+
+  local dropped: mut {integer: boolean} = {}
+  local operators: mut {integer: boolean} = {}
+  local documented: mut {integer: boolean} = {}
+  local queue: mut {Ast.Node} = { parsed.chunk }
+  for _, node in ipairs(queue) do
+    local base = node
+    local kids: mut {Ast.Node} = {}
+    Ast.children(node, function(child: Ast.Node)
+      kids[#kids + 1] = child
+      queue[#queue + 1] = child
+    end)
+    local head = kids[1]
+    if DOCUMENTED[base.kind] == true then
+      documented[base.first] = true
+    end
+    if base.kind == "Table" and base.last > base.first + 1 and Lexer.text(tokens, base.last - 1) == "," then
+      dropped[base.last - 1] = true
+    elseif base.kind == "Binary" and head ~= nil then
+      -- Read only for the operator a comment is kept on, which begins its line whatever the source: a comment ends its
+      -- line, so the token after it begins the next. No test of the line is needed.
+      operators[head.last + 1] = true
+    end
+  end
+
+  local kept: mut {integer} = {}
+  local comments: mut {Equiv.Remark} = {}
+  for i = 1, count do
+    local here = tokens.comments[i] or {}
+    local from = if documented[i] == true then doc_start(tokens, i, here) else #here + 1 end
+    for k, comment in ipairs(here) do
+      comments[#comments + 1] = {
+        text = comment.text, before = #kept, on = i, doc = k >= from, y = comment.y, x = comment.x,
+      }
+    end
+    if dropped[i] ~= true then
+      kept[#kept + 1] = i
+    end
+  end
+  side.kept = kept
+  side.comments = comments
+  side.operators = operators
+  side.shape = Dump.dump(parsed.chunk)
+  return side
 end
 
---- The pairs already under comparison, the before side keying a set of
---- the after sides it has been held against.
-local type Pairs = {any:{any:boolean}}
-
-local compare: function(any, any, string, Pairs): boolean, string
-
-local function has_metadata(t: {any:any}): boolean
-  -- Parser nodes, types, operators, and comments carry positions. Field
-  -- maps carry type objects, even under names such as kind or typename.
-  local kind, typename, op, text = t["kind"], t["typename"], t["op"], t["text"]
-  return kind is string or typename is string or op is string or text is string
+--- Where token `i` of `side` is, for a message.
+local function place(side: Equiv.Side, i: integer): string
+  return string.format("%d:%d", Lexer.y(side.tokens, i), Lexer.x(side.tokens, i))
 end
 
---- Fields that hold a coordinate wherever they hold a number, even on a
---- table with no metadata: the parser stamps where some lists close on
---- the list itself (a `<T>` list's `yend` and `xend`). A field map
---- never holds a number under these names, since its values are type
---- objects.
-local coordinate: {string:boolean} = {
-  ["y"] = true,
-  ["x"] = true,
-  ["yend"] = true,
-  ["xend"] = true,
-}
-
---- The keys worth comparing on one table, both sides' keys together.
-local function keys_of(a: {any:any}, b: {any:any}): {any}
-  local metadata = has_metadata(a) and has_metadata(b)
-  local function compared(k: any): boolean
-    if not (k is string) then
-      return true
-    end
-    if metadata then
-      return not positional[k]
-    end
-    return not (coordinate[k] and math.type(a[k]) == "integer" and math.type(b[k]) == "integer")
+--- A token of `side` as it is written in a message.
+local function shown(side: Equiv.Side, i: integer): string
+  local text = Lexer.text(side.tokens, i)
+  if #text > 40 then
+    text = text:sub(1, 37) .. "..."
   end
-  local seen: {any:boolean} = {}
-  local out: {any} = {}
-  for k in pairs(a) do
-    if compared(k) then
-      seen[k] = true
-      out[#out + 1] = k
-    end
-  end
-  for k in pairs(b) do
-    if not seen[k] and compared(k) then
-      out[#out + 1] = k
-    end
-  end
-  return out
+  return string.format("%q", text)
 end
 
-compare = function(a: any, b: any, path: string,
-                   seen: Pairs): boolean, string
-  if is_table(a) ~= is_table(b) then
-    return false, path .. ": one side is a node and the other is not"
+--- The first place at which `a` and `b` differ, and a window of each around it.
+local function window(a: string, b: string): string
+  local at = 1
+  local limit = math.min(#a, #b)
+  while at <= limit and a:byte(at) == b:byte(at) do
+    at = at + 1
   end
-  if not is_table(a) then
-    if a ~= b then
-      return false, path .. ": " .. tostring(a) .. " became " .. tostring(b)
-    end
-    return true, ""
-  end
-  local against = seen[a]
-  if against == nil then
-    against = {}
-    seen[a] = against
-  elseif against[b] then
-    return true, ""
-  end
-  against[b] = true
-  local ma, mb = as_map(a), as_map(b)
-  for _, k in ipairs(keys_of(ma, mb)) do
-    local ok, why = compare(ma[k], mb[k], path .. "." .. tostring(k), seen)
-    if not ok then
-      return false, why
-    end
-  end
-  return true, ""
+  local from = math.max(1, at - 30)
+  return string.format("%q against %q", a:sub(from, at + 30), b:sub(from, at + 30))
 end
 
---- Whether `before` and `after` are the same tree once positions are
---- set aside.
---- @param before Node
---- @param after Node
---- @return boolean
---- @return string What differs, when they are not the same
-local function same_tree(before: Node, after: Node): boolean, string
-  return compare(before, after, "ast", {})
+--- Whether token `i` of `before` and token `j` of `after` are the same: the same kind and bytes.
+local function alike(before: Equiv.Side, i: integer?, after: Equiv.Side, j: integer?): boolean
+  if i == nil or j == nil then
+    return false
+  end
+  return Lexer.kind(before.tokens, i) == Lexer.kind(after.tokens, j) and
+    Lexer.text(before.tokens, i) == Lexer.text(after.tokens, j)
 end
 
---- Every comment one parse carries, in source order.
---- @param tokens {compiler.Token}
---- @return {string}
-local function comments(tokens: {compiler.Token}): {string}
-  local out: {string} = {}
-  for _, t in ipairs(tokens) do
-    local carried = t.comments
-    if carried ~= nil then
-      for _, c in ipairs(carried) do
-        out[#out + 1] = c.text
+--- Why the tokens of `before` and `after` differ, or nil.
+local function tokens_differ(before: Equiv.Side, after: Equiv.Side): string?
+  local a, b = before.kept, after.kept
+  for k = 1, math.max(#a, #b) do
+    local i, j = a[k], b[k]
+    if i == nil or j == nil then
+      if i == nil and j ~= nil then
+        return string.format("a token was added at %s: %s", place(after, j), shown(after, j))
+      end
+      return string.format("the token at %s was lost: %s", place(before, i or 1), shown(before, i or 1))
+    end
+    if not alike(before, i, after, j) then
+      -- One token more or fewer, the rest the same.
+      if alike(before, a[k + 1], after, j) then
+        return string.format("the token at %s was lost: %s", place(before, i), shown(before, i))
+      elseif alike(before, i, after, b[k + 1]) then
+        return string.format("a token was added at %s: %s", place(after, j), shown(after, j))
+      end
+      return string.format("the token at %s, %s, is %s at %s", place(before, i), shown(before, i), shown(after, j),
+        place(after, j))
+    end
+  end
+  return nil
+end
+
+--- Why the comments of `before` and `after` differ, or nil.
+local function comments_differ(before: Equiv.Side, after: Equiv.Side): string?
+  local a, b = before.comments, after.comments
+  for k = 1, math.max(#a, #b) do
+    local was, now = a[k], b[k]
+    if was == nil and now ~= nil then
+      return string.format("a comment was added at %d:%d", now.y, now.x)
+    elseif was ~= nil and now == nil then
+      return string.format("the comment at %d:%d was lost", was.y, was.x)
+    elseif was ~= nil and now ~= nil then
+      if was.text ~= now.text then
+        return string.format("the comment at %d:%d changed: %s", was.y, was.x, window(was.text, now.text))
+      end
+      if was.doc ~= now.doc then
+        return string.format("the comment at %d:%d %s", was.y, was.x,
+          if was.doc then "is no longer part of a doc comment" else "is now part of a doc comment" end)
+      end
+      -- Behind the operator it lay before, once the operator moved behind the code before.
+      local moved = before.operators[was.on] == true and now.before == was.before + 1
+      if now.before ~= was.before and not moved then
+        return string.format("the comment at %d:%d comes after %s, where it came after %d", was.y, was.x,
+          plural.count(now.before, "token"), was.before)
       end
     end
   end
-  return out
+  return nil
 end
 
---- Whether both parses carry the same comments in the same order.
---- @param before {compiler.Token}
---- @param after {compiler.Token}
---- @return boolean
---- @return string What differs, when they do not
-local function same_comments(before: {compiler.Token},
-                             after: {compiler.Token}): boolean, string
-  local was, now = comments(before), comments(after)
-  if #was ~= #now then
-    return false, "had " .. plural.count(#was, "comment") .. ", now has " .. #now
+function Equiv.difference(before: Equiv.Side, after: Equiv.Side): string?
+  if before.trouble ~= "" then
+    return "the source does not parse: " .. before.trouble
   end
-  for i, text in ipairs(was) do
-    if now[i] ~= text then
-      return false, "comment " .. i .. ": " .. text .. " became " .. now[i]
-    end
+  if after.trouble ~= "" then
+    return "the layout does not parse: " .. after.trouble
   end
-  return true, ""
+  if before.shebang ~= after.shebang then
+    return "the #! line changed"
+  end
+  local why = tokens_differ(before, after) or comments_differ(before, after)
+  if why ~= nil then
+    return why
+  end
+  if before.shape ~= after.shape then
+    return "the syntax tree changed: " .. window(before.shape, after.shape)
+  end
+  return nil
 end
 
-local record EquivModule
-  same_tree: function(before: Node, after: Node): boolean, string
-  comments: function(tokens: {compiler.Token}): {string}
-  same_comments: function(before: {compiler.Token},
-                          after: {compiler.Token}): boolean, string
-end
-
-local M: EquivModule = {
-  same_tree = same_tree,
-  comments = comments,
-  same_comments = same_comments,
-}
-
-return M
+return Equiv

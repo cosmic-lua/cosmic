@@ -25,7 +25,7 @@ Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 local function test_the_verb_prints_the_binary_s_own_rows(tmp: string)
   local listed = invoke.run({ "bom" }, { cwd = tmp })
   assert(listed.code == 0, listed.stderr)
-  assert(listed.stdout:find("\nlua %S+  MIT\n") or listed.stdout:find("^lua %S+  MIT\n"),
+  assert(listed.stdout:find("\nlua %S+  MIT  %(%d+ patches%)\n") or listed.stdout:find("^lua %S+  MIT  %(%d+ patches%)\n"),
     listed.stdout)
   -- Data is what `cosmic refresh` updates, and the line says so.
   assert(listed.stdout:find("\ntzdata %S+  %S+  %(data: `cosmic refresh` updates it%)\n"), listed.stdout)
@@ -35,13 +35,20 @@ local function test_the_verb_prints_the_binary_s_own_rows(tmp: string)
   assert(written.code == 0, written.stderr)
   local decoded, why = DOCUMENT:decode_into((assert(Fs.read(path))))
   assert(decoded ~= nil, tostring(why))
-  local names: {string:boolean} = {}
+  local names: mut {string:boolean} = {}
   for _, component in ipairs(decoded.components) do
     names[component.name] = true
   end
-  assert(names["lua"] and names["curl"] and names["musl"], "the document names the components")
+  assert(names["lua"] == true and names["curl"] == true and names["musl"] == true, "the document names the components")
   local notices = invoke.run({ "bom", "--licenses" }, { cwd = tmp })
   assert(notices.code == 0, notices.stderr)
   assert(notices.stdout:find("Lua.org, PUC-Rio", 1, true), "lua's notice is printed")
   assert(notices.stdout:find("== sqlite", 1, true), "a component with no notice is named")
+end
+
+--- A failure is complained about, and gets no summary that repeats it.
+local function test_a_failure_says_why_and_no_summary(tmp: string)
+  local failed = invoke.run({ "bom", "--json", tmp .. "/nowhere/bom.json" }, { cwd = tmp })
+  assert(failed.code == 1 and failed.stdout == "", failed.stdout)
+  assert(failed.stderr:find("^cosmic: bom: ") and not failed.stderr:find("\nbom: "), failed.stderr)
 end

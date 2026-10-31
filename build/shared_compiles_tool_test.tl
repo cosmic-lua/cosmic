@@ -15,9 +15,24 @@ local this_program = require("build.this_program")
 local shared_compiles = require("build.shared_compiles")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
+local build_paths = require("build.paths")
+
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
 
 --- The program itself, which its tests start.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 --- The project every case builds: `a` requires `b`, which requires `c`
 --- and reads a field of a record `c` declares, so its compile finds a
@@ -61,11 +76,18 @@ return a
 ]],
 }
 
+--- The source of the project's file `name`, which the case knows is there.
+local function project_source(name: string): string
+  local source = project[name]
+  assert(source ~= nil, name .. " is a file of the project")
+  return source
+end
+
 --- A checkout of the project at `root`, with `changed` written over it
 --- (a file to "" is left out).
 local function checkout(root: string, changed?: {string:string})
   assert(Fs.mkdirs(root))
-  local files: {string:string} = {}
+  local files: mut {string:string} = {}
   for name, source in pairs(project) do files[name] = source end
   for name, source in pairs(changed or {}) do files[name] = source end
   for name, source in pairs(files) do
@@ -85,7 +107,7 @@ local function build(root: string, env: {string:string}, fails?: boolean): strin
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
   local text = assert(Fs.read(output))
-  assert(result ~= nil and result.ok == not fails, tostring(trouble) .. text)
+  assert(result ~= nil and result.ok == fails ~= true, tostring(trouble) .. text)
   return text
 end
 
@@ -114,8 +136,8 @@ local function dump(path: string, sql: string): string
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, sql))
   assert(db:close())
-  local lines: {string} = {}
-  for _, row in ipairs(rows) do lines[#lines + 1] = table.concat(row, "\t") end
+  local lines: mut {string} = {}
+  for _, row in ipairs(rows) do lines[#lines + 1] = table.concat(row:texts(), "\t") end
   return table.concat(lines, "\n")
 end
 
@@ -134,20 +156,20 @@ local function test_a_second_checkout_compiles_nothing_the_first_compiled(tmp: s
   -- What each checkout ships, and keeps, is what a compile makes: its
   -- bytecode, and the record-field use `b` makes of `c.Box` with it.
   local queries: {{string}} = {
-    { "o/cosmic.db", "SELECT path, file, kind, hex(source_hash), hex(key), hex(bytecode), " ..
+    { "cosmic.db", "SELECT path, file, kind, hex(source_hash), hex(key), hex(bytecode), " ..
         "tests FROM modules ORDER BY path" },
-    { "o/cosmic.db", "SELECT module, symbol, from_module, from_file, line FROM uses " ..
+    { "cosmic.db", "SELECT module, symbol, from_module, from_file, line FROM uses " ..
         "ORDER BY module, symbol, from_module, line" },
-    { "o/build.db", "SELECT key, tool, lua, hex(bytecode), seen FROM compiled ORDER BY key" },
-    { "o/build.db", "SELECT key, ordinal, module, member, line FROM typed_refs " ..
+    { "build.db", "SELECT key, tool, lua, hex(bytecode), seen FROM compiled ORDER BY key" },
+    { "build.db", "SELECT key, ordinal, module, member, line FROM typed_refs " ..
         "ORDER BY key, ordinal" },
   }
   for _, query in ipairs(queries) do
-    local first = dump(tmp .. "/first/" .. query[1], query[2])
-    local second = dump(tmp .. "/second/" .. query[1], query[2])
-    assert(first ~= "" and first == second, query[2] .. "\n" .. first .. "\n--\n" .. second)
+    local first = dump(build_dir(tmp .. "/first") .. "/" .. nth(query, 1), nth(query, 2))
+    local second = dump(build_dir(tmp .. "/second") .. "/" .. nth(query, 1), nth(query, 2))
+    assert(first ~= "" and first == second, nth(query, 2) .. "\n" .. first .. "\n--\n" .. second)
   end
-  local uses = dump(tmp .. "/second/o/cosmic.db", "SELECT symbol FROM uses WHERE module = 'c'")
+  local uses = dump(build_dir(tmp .. "/second") .. "/cosmic.db", "SELECT symbol FROM uses WHERE module = 'c'")
   assert(uses:find("Box.value", 1, true), uses)
   -- Its own now: a build again takes nothing from the cache.
   local again = built(tmp .. "/second", env, "(0 compiled, 3 cached;")
@@ -162,7 +184,7 @@ local function test_an_edit_compiles_only_what_it_reaches(tmp: string)
   built(tmp .. "/first", env, "(4 compiled, 0 cached;")
   -- `c` edited: `a`, `b` and `c` reach it, `d` does not.
   checkout(tmp .. "/edited_c", { ["d.tl"] = alone,
-    ["c.tl"] = project["c.tl"] .. "-- edited\n" })
+    ["c.tl"] = project_source("c.tl") .. "-- edited\n" })
   built(tmp .. "/edited_c", env, "(3 compiled, 1 cached, 1 of them taken from another checkout;")
   -- `d` edited: only `d`.
   checkout(tmp .. "/edited_d", { ["d.tl"] = alone .. "-- edited\n" })
@@ -206,7 +228,7 @@ local function test_a_broken_cache_never_fails_a_build(tmp: string)
     checkout(tmp .. "/" .. name)
     local output = built(tmp .. "/" .. name, env, "(3 compiled, 0 cached;")
     local _, complaints = output:gsub("shared compiles: ", "")
-    assert(complaints == 1 and output:find("building without them", 1, true), output)
+    assert(complaints == 1 and output:find("building without them", 1, true) ~= nil, output)
     assert(not output:find("moved aside", 1, true), output)
     local after = assert(Fs.stat(path))
     assert(after.ino == before.ino and after.dev == before.dev)
@@ -223,11 +245,11 @@ local function test_a_damaged_row_is_compiled_again_and_replaced(tmp: string)
   local env, path = environment(tmp)
   checkout(tmp .. "/first")
   built(tmp .. "/first", env, "(3 compiled, 0 cached;")
-  local keys: {string:string} = {}
-  local db = assert(Sqlite.open(tmp .. "/first/o/cosmic.db"))
+  local keys: mut {string:string} = {}
+  local db = assert(Sqlite.open(build_dir(tmp .. "/first") .. "/cosmic.db"))
   local rows = assert(Sqlite.text_rows(db, "SELECT path, CAST(key AS TEXT) FROM modules"))
   for _, row in ipairs(rows) do
-    keys[row[1]] = shared_compiles.key(row[2], false, false)
+    keys[row:text(1)] = shared_compiles.key(row:text(2), false, false)
   end
   assert(db:close())
   local cache = assert(Sqlite.open(path, { writable = true }))
@@ -243,7 +265,8 @@ local function test_a_damaged_row_is_compiled_again_and_replaced(tmp: string)
   assert(not second:find("shared compiles: ", 1, true), second)
   local opened = assert(shared_compiles.open(path))
   for _, name in ipairs({ "b", "c" }) do
-    local found, trouble = shared_compiles.look(opened, keys[name])
+    local key = assert(keys[name], name .. " has a key")
+    local found, trouble = shared_compiles.look(opened, key)
     assert(found ~= nil, name .. " was not replaced: " .. trouble)
   end
   shared_compiles.close(opened)
@@ -303,10 +326,10 @@ local function test_two_builds_writing_at_once_keep_both(tmp: string)
   tmp = assert(Fs.absolute(tmp))
   local env, path = environment(tmp)
   -- Content of their own, so each writes three compiles.
-  checkout(tmp .. "/one", { ["c.tl"] = project["c.tl"] .. "-- one\n" })
-  checkout(tmp .. "/two", { ["c.tl"] = project["c.tl"] .. "-- two\n" })
-  local handles: {Child.Handle} = {}
-  local outputs: {integer} = {}
+  checkout(tmp .. "/one", { ["c.tl"] = project_source("c.tl") .. "-- one\n" })
+  checkout(tmp .. "/two", { ["c.tl"] = project_source("c.tl") .. "-- two\n" })
+  local handles: mut {Child.Handle} = {}
+  local outputs: mut {integer} = {}
   for index, name in ipairs({ "one", "two" }) do
     local fd = assert(Fs.open_write(tmp .. "/" .. name .. ".out"))
     outputs[index] = fd
@@ -317,8 +340,8 @@ local function test_two_builds_writing_at_once_keep_both(tmp: string)
   end
   for index, handle in ipairs(handles) do
     local result, trouble = handle:wait(Clock.seconds(60))
-    assert(Fs.close(outputs[index]))
-    local text = assert(Fs.read(tmp .. "/" .. (index == 1 and "one" or "two") .. ".out"))
+    assert(Fs.close(nth(outputs, index)))
+    local text = assert(Fs.read(tmp .. "/" .. (if index == 1 then "one" else "two" end) .. ".out"))
     assert(result ~= nil and result.ok, tostring(trouble) .. text)
     assert(text:find("(3 compiled, 0 cached;", 1, true), text)
     assert(not text:find("shared compiles: ", 1, true), text)
@@ -327,7 +350,7 @@ local function test_two_builds_writing_at_once_keep_both(tmp: string)
   -- `a` and `b` reach `c`, so no key of one is the other's.
   assert(rows_in(path) == 6, dump(path, "SELECT key FROM compiled_v2"))
   for _, name in ipairs({ "one", "two" }) do
-    checkout(tmp .. "/" .. name .. "_again", { ["c.tl"] = project["c.tl"] .. "-- " .. name .. "\n" })
+    checkout(tmp .. "/" .. name .. "_again", { ["c.tl"] = project_source("c.tl") .. "-- " .. name .. "\n" })
     built(tmp .. "/" .. name .. "_again", env,
       "(0 compiled, 3 cached, 3 of them taken from another checkout;")
   end
@@ -369,7 +392,7 @@ return 0
   local cache, trouble = shared_compiles.open(path)
   assert(cache ~= nil, trouble)
   local rows = assert(Sqlite.text_rows(cache.db, "PRAGMA journal_mode"))
-  assert(rows[1][1] == "wal", rows[1][1])
+  assert(nth(rows, 1):text(1) == "wal", nth(rows, 1):text(1))
   shared_compiles.close(cache)
   local result, wait_trouble = handle:wait(Clock.seconds(10))
   assert(result ~= nil and result.ok, tostring(wait_trouble))

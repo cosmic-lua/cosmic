@@ -20,26 +20,45 @@
 ---   `content` of a `<meta>` that has `http-equiv` (anywhere in the
 ---   tag), and every attribute of the SVG animation elements (`set`,
 ---   `animate`, `animateMotion`, `animateTransform`: they can animate
----   `href` to `javascript:`). Attributes that frameworks read as code
----   (`hx-*`, `x-on:`, `v-on:`, `@click`, `ng-*`) are not recognised:
----   they are plain attributes here, and a slot in one is the author's
----   to keep out;
+---   `href` to `javascript:`), and what the template's dialects refuse
+---   ([`cosmic.template.dialect`]): always `hx-on*`, `hx-vars` and
+---   `hx-trigger`, which htmx runs as script, and `hx-vals`, `hx-headers`
+---   and `hx-request` (JSON it may run) unless the template says `{{use
+---   htmx}}`, all with or without a `data-` prefix. Other attributes that
+---   frameworks read as code (`x-on:`, `v-on:`, `@click`, `ng-*`) are not
+---   recognised: they are plain attributes here, and a slot in one is the
+---   author's to keep out;
 --- - `<xmp>`, `<iframe>`, `<noembed>`, `<noframes>`, `<noscript>` and
 ---   `<plaintext>` text, which browsers read as raw text (`noscript`
 ---   when scripting is on);
 --- - every attribute of `<script>`, and the `charset` of a `<meta>`;
 --- - a URL attribute (`href`, `src`, ...) of a tag that makes the page
 ---   run or load what the URL names (`script`, `link`, `object`,
----   `embed`, `base`, `use`), or one not at the start of the value.
+---   `embed`, `base`, `use`), or one after text that does not fix where
+---   the URL goes (see below).
+---
+--- The state is the tokenizer's in full, carried over every action: text
+--- fed in runs is read as it would be whole, whether an action that emits
+--- nothing splits it (`</text{{if .a}}{{end}}area>`) or a string action
+--- is one of the runs (`</text{{"area>"}}`), so an end tag, a comment or
+--- a script's escape states cut short between runs are completed by the
+--- run after.
 ---
 --- A slot in a template's end must leave it in plain text: see `ending`.
 ---
 --- What is left is a slot in text; in `<textarea>` and `<title>`, whose
 --- text ends at their end tag, which takes a string or a number and never
---- markup; in a quoted attribute value; and in a quoted URL attribute
---- value that the slot begins, when the literal text after it, up to the
+--- markup; in a quoted attribute value (where an attribute a dialect
+--- classifies has its class's slot: a request URL that must be local, the
+--- whole value as JSON, or an identifier in a selector, see `ident`); in a
+--- quoted URL attribute value after literal text that fixes where the URL goes (a part, below); and
+--- in a quoted URL attribute value that the slot begins, when the literal
+--- text after it, up to the
 --- first `/`, `?` or `#`, has no `:` or `&` (which could complete a scheme:
---- `href="{{.p}}:alert(1)"`, `{{.p}}&colon;alert(1)`).
+--- `href="{{.p}}:alert(1)"`, `{{.p}}&colon;alert(1)`), and does not begin
+--- with `/` or `\` (which, after a value of `/`, would make `//host`, the
+--- protocol-relative URL [`Html.href`] refuses; a tab, line feed or carriage
+--- return before it is dropped by a URL parser and does not count).
 ---
 --- Foreign content (`<svg>`, `<math>`) is followed only as far as the
 --- elements in them, their attributes and plain text, on a stack of the
@@ -51,11 +70,31 @@
 --- size=1>`, ...); a tag the browser reads HTML in (`<foreignObject>`,
 --- `<desc>`, `<title>`, `<annotation-xml>`, `<mi>`, ...); an end tag that
 --- is not the innermost open element's (`</g>` after `<svg><a>`); an
---- `<svg>` or `<math>` in a `<select>`; and the text of a `<script>`,
+--- `<svg>`, `<math>` or `<template>` in a `<select>`; and the text of a `<script>`,
 --- `<style>`, `<textarea>` or `<title>` in foreign content when it holds a
---- `<`, and `<noscript>` text with a comment in it. A tag that carries a
+--- `<`, and `<noscript>` text that a browser with scripting off, which reads
+--- it as markup, leaves outside plain text (`<noscript><style></noscript>`,
+--- `<noscript><p title="</noscript>`). So does a start tag of
+--- raw text or RCDATA in a `<select>` other than `<script>` and
+--- `<textarea>`, or after a `<frameset>` other than `<noframes>`: a parser
+--- in the classic "in select" or "in frameset" mode ignores it and reads
+--- the markup in its text as tags, where a newer one opens the element
+--- (`<select><title><option onclick="{{.x}}">`). A tag that carries a
 --- `/` across a block boundary (`<svg {{if .a}}/{{end}}>`) is a place of
 --- its own, so the arms of a block that differ in it are refused.
+---
+--- The arms of a block may leave a tag at different boundaries between its
+--- attributes, as one that adds a whole attribute does
+--- (`<input{{if .a}} checked{{end}} name=n>`, `<input {{if .a}}checked {{end}}name=n>`).
+--- The place is then each of them, and the text after the block is read in
+--- each until they agree, at a byte that begins a new attribute or ends the
+--- tag. Text that carries a name or value on in one of them, or gives an
+--- attribute a value (`<input{{if .a}} checked{{end}}=x>`,
+--- `<input {{if .a}}chec{{end}}ked>`), is refused, as is a slot or the end of
+--- the template before they agree. So is a block whose arms end apart in a
+--- tag where text carried a name or unquoted value on, or gave an attribute
+--- a value, across an action (`<input a{{if .b}}c d{{end}}>`): an arm may have
+--- ended the attribute the block cut or not.
 --- A slot in RCDATA is escaped as text and takes no markup, which is safe
 --- in either reading, except after a `<` or a partial end tag (`</tex`) in
 --- it, where the slot could complete the end tag and the place after it is
@@ -65,11 +104,41 @@
 --- A URL attribute is `href`, `src`, `action`, `formaction`, `cite`,
 --- `data`, `poster`, `background`, `manifest`, `longdesc`, `codebase`,
 --- `profile`, `icon`, `lowsrc`, `dynsrc`, `classid`, `archive` and
---- `xlink:href`: each takes one URL. A slot is
---- taken as a whole URL (the escaper decides whether it may be a link),
---- which is why it must begin the value: after `href="/a/` it would be a
---- piece of one, which needs an escaper for a piece (doc/roadmap.md).
+--- `xlink:href`, and the ones a dialect says take a URL (`hx-get`, ...):
+--- each takes one URL. A slot that begins the value is
+--- taken as a whole URL (the escaper decides whether it may be a link).
+--- Any other is a part: one path segment, query name or value, or fragment,
+--- which [`html.url_part`] escapes to unreserved bytes and `%XX`, so it holds
+--- no `:`, `/`, `\`, `?`, `#`, `&`, `=`, `@` or quote. It needs no allowlist,
+--- because the literal text before it has fixed the URL's scheme and host,
+--- and the tracker holds the text to that (`judge`). The text must be:
+---
+--- - a leading `/`, `.`, `?` or `#` (`//` and `\` pairs begin a host, so
+---   `//h/` is needed before a part);
+--- - `http:`, `https:` or `mailto:`, and for the first two a host and then
+---   a `/`, `?` or `#`;
+--- - a relative path that has reached a `/`, `?` or `#`;
+--- - or a whole-URL slot, which `href` has judged, and then a `?` or `#`
+---   before a part (a bare origin as the slot's value would make the part
+---   its host).
+---
+--- Text that has not reached one of those leaves the slot refused: `java`,
+--- a space and a word, an `&` before the first `/`, `?` or `#` (which could
+--- spell a `:`), `javascript:`, `data:`, `https://`, `https://host`. A value
+--- may begin in several ways across the arms of a block, and the slot must
+--- be right after each. A part is also refused when the
+--- segment so far (text since the last `/`, `\`, `?` or `#`, across earlier
+--- slots) is only dots and `%2e` escapes, or ends in a `%` and up to one hex
+--- digit: with an empty value, or the rest of an escape, the text and the
+--- part could be a `..` or `%2e` segment, which a browser climbs by
+--- ([`html.url_part`] escapes a whole `.` or `..` itself, but cannot see
+--- the template's text). A part may be empty, so the text
+--- after a whole-URL slot and a part is judged as if it followed the slot
+--- alone. Any `&` in the text before the first `?` or `#` refuses a part
+--- slot after it: the browser decodes character references (`&sol;`, `&#47;`,
+--- `&#46;`, `&Tab;`) before it parses the URL, and the tracker does not.
 
+local dialect = require("cosmic.template.dialect")
 local types = require("cosmic.template.types")
 
 local record Markup
@@ -106,71 +175,163 @@ local record Markup
   --- but whitespace so far.
   record Place
     --- The tokenizer's state, which decides what a slot may be.
-    phase: Phase
+    mut phase: Phase
     --- The tag being read or last read, whose name decides the raw text it
     --- opens and which of its attributes mean what.
-    tag: string
+    mut tag: string
     --- The attribute being read or last read, lower case: `on...` and `href`
     --- are judged by it.
-    attr: string
+    mut attr: string
     --- Whether the tag is an end tag, whose attributes the browser ignores.
-    closing: boolean
+    mut closing: boolean
     --- A URL slot must begin its value: true until text or a slot is in it.
-    fresh: boolean
+    mut fresh: boolean
     --- The `<svg>` and `<math>` open, and the elements inside them that
     --- the browser reads HTML in, innermost last, each name after a space.
-    stack: string
+    mut stack: string
     --- Set when the browser may read what follows by rules this tracker
     --- does not follow, so every later slot is refused: raw text or
     --- RCDATA inside `<svg>` or `<math>` that holds a `<`, `<noscript>`
-    --- text that holds a comment.
-    murky: boolean
-    --- Whether a `<select>` is open in HTML, where an `<svg>` may be ignored.
-    select: boolean
+    --- text that a browser with scripting off leaves outside plain text
+    --- (see `off`), most raw text or RCDATA in `<select>` or after
+    --- `<frameset>`.
+    mut murky: boolean
+    --- Whether a `<select>` is open in HTML, where an `<svg>`, a `<template>`
+    --- and most raw text or RCDATA tags make the place murky, and text
+    --- takes no markup (`ftext`).
+    mut select: boolean
+    --- Whether a `<frameset>` has started in HTML. A parser in frameset
+    --- stays there to the end of the document and ignores most tags.
+    mut frameset: boolean
     --- Whether the `<font>` being read has `color`, `face` or `size`.
-    fontattr: boolean
+    mut fontattr: boolean
     --- Whether the last byte read was the `/` of a tag, which a `>` at the
     --- start of the next run of text then closes as self-closing.
-    slash: boolean
+    mut slash: boolean
     --- Whether the literal text since a URL slot, in the same value, has
     --- not yet reached a `/`, `?` or `#`.
-    after_url: boolean
+    mut after_url: boolean
     --- Set when that text held a `:`.
-    colon: boolean
+    mut colon: boolean
+    --- Whether no literal text has followed a URL slot yet in its value (a
+    --- tab, line feed or carriage return, which a URL parser drops, aside).
+    mut bare: boolean
+    --- Set when the first such text began with `/` or `\`: a slot value of
+    --- `/` and that text would make `//host`.
+    mut rooted: boolean
+    --- In a URL attribute's value, the literal text so far that has not yet
+    --- fixed the URL's scheme (see `pinned`): one text per way the value may
+    --- have begun, joined by NUL, with tab, line feed and carriage return
+    --- (which a URL parser drops) removed. "" before any text.
+    mut lead: string
+    --- Whether the value's literal text, or a whole-URL slot, has fixed the
+    --- URL's scheme and left the position of the next byte in the path, query
+    --- or fragment, which is where a part slot may stand (see `judge`). `lead`
+    --- is then empty and unused.
+    mut pinned: boolean
+    --- The URL path segment being read in a URL attribute's value, one
+    --- text per way it may have gone, joined by NUL, kept only while it is a
+    --- start of a dot segment: up to two dots, each `.` or `%2e` (read as
+    --- `.`), then at most a `%` or `%2`, with text since the last `/`, `\`,
+    --- `?` or `#`, across slots (a part may be empty), tab, line feed and
+    --- carriage return aside. "!" is a segment that cannot be one, "" an
+    --- empty one. A part slot after a dot segment's start could make a `..`
+    --- or a `%2e` escape with its value (`/.` and a part `.`, `/%` and `2e`).
+    mut seg: string
+    --- Whether the value's literal text has reached a `?` or `#`, where
+    --- the query or fragment begins.
+    mut query: boolean
+    --- Set when the literal text before that held an `&`, which a browser
+    --- reads as a character reference (`&sol;` is a `/`, `&#46;` a `.`)
+    --- before it parses the URL, in a place the tracker reads as the path.
+    mut amp: boolean
+    --- Set after a whole-URL slot until literal text reaches a `?` or `#`:
+    --- the slot's value may be a bare origin (`https://host`) or `http:`, so
+    --- a part right after it could be the host or the path's first byte.
+    mut wait: boolean
+    --- In a value of an attribute a dialect gives the class `selector`,
+    --- whether the literal text and slots so far end in the middle of an
+    --- identifier after a `#` or `.`, where a selector slot may stand.
+    mut ident: boolean
+    --- After a `json` slot, which is the whole value: set until the value
+    --- ends.
+    mut sole: boolean
+    --- Set when non-blank literal text followed such a slot in its value.
+    mut sole_trail: boolean
+    --- What the dialects of the template say of an attribute.
+    dialect: dialect.Table
     --- Whether the tag has an `http-equiv` attribute.
-    equiv: boolean
+    mut equiv: boolean
     --- Where a slot in the `content` of a `<meta>` stood (the line, then
     --- the column; 0 for none), in case the tag turns out to hold `http-equiv`.
-    meta_line: integer
+    mut meta_line: integer
     --- Its column.
-    meta_col: integer
-    --- A refusal found at the end of a tag, for the slot that stood at
-    --- `late_line` and `late_col`.
-    late: string
+    mut meta_col: integer
+    --- A refusal found at the end of a tag or of a JSON slot's value, for
+    --- the slot or byte at `late_line` and `late_col`.
+    mut late: string
     --- The line of that slot.
-    late_line: integer
+    mut late_line: integer
     --- Its column.
-    late_col: integer
-    --- In the text of a `<textarea>` or `<title>`, the literal text since
-    --- the last `<` while it could still become the element's end tag (`<`,
-    --- `</`, `</tex`): a slot after it could complete the tag.
-    rc_tail: string
+    mut late_col: integer
+    --- In the text of a raw text or RCDATA element, the longest end of its
+    --- text that the next run could complete into something read here: a
+    --- start of `</tag` (`<`, `</`, `</tex`); in `<script>` also `<scr`, `-`,
+    --- `--`. The next run,
+    --- after a block that emits nothing or a string action, is read after
+    --- it, and a slot after it could complete the tag.
+    mut raw_tail: string
+    --- In the text of a `<script>`, whether a `<!--` has opened (and no `-->`
+    --- has closed) the escaped state, in which a `<script` opens a nested
+    --- script whose `</script>` does not end the element.
+    mut escaped: boolean
+    --- Whether that nested script is open.
+    mut double: boolean
+    --- Whether a name or an unquoted value in this tag went on, or an
+    --- attribute took a value, across an action (`<input a{{if .b}}c{{end}}>`,
+    --- `<input a{{if .b}}=c{{end}}>`), which a block's arms may then have done
+    --- in ways their places do not show: such a tag is never left apart
+    --- (see `apart`).
+    mut split: boolean
+    --- In the text of a `<noscript>`, where a browser with scripting off,
+    --- which reads that text as markup, is in it so far, from the end of
+    --- the `<noscript>` start tag; nil elsewhere. At
+    --- its `</noscript>` the place is murky unless this one is in plain text
+    --- (see [`noscript_clean`]).
+    mut off?: Place
+    --- The other places this one may be, where the arms of a block left
+    --- one tag at different attribute boundaries (`<input{{if .a}} checked{{end}}`):
+    --- each as its phase, a `:` and its attribute (empty where the phase
+    --- does not read one), sorted and joined by spaces; "" for none. They
+    --- share every other field with this place. The text after the block
+    --- is read in each until they agree (see `settle`).
+    mut alts: string
   end
 
-  --- A new place: the start of the template, in text.
-  start: function(): Place
+  --- A new place: the start of the template, in text, whose attributes are
+  --- read by the rules of `attributes`.
+  start: function(attributes: dialect.Table): Place
 
   --- A copy of a place.
   copy: function(p: Place): Place
 
-  --- Whether two places are the same one.
+  --- A string that two places give alike only when every field of the two
+  --- is alike.
+  key: function(p: Place): string
+
+  --- Whether two places are the same one, or are in one tag at boundaries
+  --- between its attributes, which `join` holds as one place until the
+  --- text after them decides.
   same: function(a: Place, b: Place): boolean
 
-  --- Moves a place over literal template text.
-  feed: function(p: Place, text: string)
+  --- Moves a place over literal template text, whose first byte stands at
+  --- `line` and `col`: where the text reads differently in the places it
+  --- may be, `late` says so, at the byte where it does.
+  feed: function(p: Place, text: string, line: integer, col: integer)
 
-  --- What a slot at a place is, or why there is none.
-  slot: function(p: Place): types.Slot | nil, string
+  --- What a slot at a place is, or why there is none. In an attribute a
+  --- dialect classifies it is what the class says.
+  slot: function(p: Place): types.Slot?, string
 
   --- Marks that a slot of kind `ctx` was written at a place, at a line and
   --- column: a URL value must begin with its slot, and the literal text
@@ -182,9 +343,13 @@ local record Markup
   --- or "" when it ends in plain text.
   ending: function(p: Place): string
 
+  --- How two places that `same` found different differ in the text of a raw
+  --- text or RCDATA element, or "" when they differ otherwise.
+  differ: function(a: Place, b: Place): string
+
   --- Folds the place `b`, which `same` found the same as `a`, into `a`: a
-  --- value is fresh only if it is in both, and a URL slot or a pending
-  --- `<meta>` slot in either is kept.
+  --- value is fresh only if it is in both, a URL slot or a pending
+  --- `<meta>` slot in either is kept, and `a` may be any place either may.
   join: function(a: Place, b: Place)
 end
 
@@ -240,17 +405,31 @@ local ANIMATION <const>: {string: boolean} = {
   set = true, animate = true, animatemotion = true, animatetransform = true,
 }
 
-local function start(): Place
-  return { phase = "text", tag = "", attr = "", closing = false, fresh = false, stack = "", murky = false,
-    select = false, fontattr = false, slash = false, after_url = false, colon = false, equiv = false,
-    meta_line = 0, meta_col = 0, late = "", late_line = 0, late_col = 0, rc_tail = "" }
+local function start(attributes: dialect.Table): Place
+  return { dialect = attributes, ident = false, sole = false, sole_trail = false, phase = "text", tag = "", attr = "", closing = false, fresh = false, stack = "", murky = false,
+    select = false, frameset = false, fontattr = false, slash = false, after_url = false, colon = false, bare = false, rooted = false,
+    lead = "", pinned = false, seg = "", query = false, amp = false, wait = false, equiv = false,
+    meta_line = 0, meta_col = 0, late = "", late_line = 0, late_col = 0, raw_tail = "",
+    escaped = false, double = false, split = false, off = nil, alts = "" }
 end
 
 local function copy(p: Place): Place
-  return { phase = p.phase, tag = p.tag, attr = p.attr, closing = p.closing, fresh = p.fresh, stack = p.stack,
-    murky = p.murky, select = p.select, fontattr = p.fontattr, slash = p.slash, after_url = p.after_url, colon = p.colon, equiv = p.equiv,
+  local off = p.off
+  return { dialect = p.dialect, ident = p.ident, sole = p.sole, sole_trail = p.sole_trail, phase = p.phase, tag = p.tag, attr = p.attr, closing = p.closing, fresh = p.fresh, stack = p.stack,
+    murky = p.murky, select = p.select, frameset = p.frameset, fontattr = p.fontattr, slash = p.slash, after_url = p.after_url, colon = p.colon, bare = p.bare,
+    rooted = p.rooted, lead = p.lead, pinned = p.pinned, seg = p.seg, query = p.query, amp = p.amp, wait = p.wait, equiv = p.equiv,
     meta_line = p.meta_line, meta_col = p.meta_col, late = p.late, late_line = p.late_line,
-    late_col = p.late_col, rc_tail = p.rc_tail }
+    late_col = p.late_col, raw_tail = p.raw_tail,
+    escaped = p.escaped, double = p.double, split = p.split, off = off and copy(off), alts = p.alts }
+end
+
+local function key(p: Place): string
+  local off = p.off
+  return string.format("%s %q %q %s %s %q %s %s %s %s %s %s %s %s %s %s %d %d %q %d %d %q %s %s %s %q %q %s %q %q %s %s %s %s %s %s", p.phase, p.tag,
+    p.attr, p.closing, p.fresh, p.stack, p.murky, p.select, p.frameset, p.fontattr, p.slash, p.after_url, p.colon, p.bare,
+    p.rooted, p.equiv, p.meta_line, p.meta_col, p.late, p.late_line, p.late_col, p.raw_tail, p.escaped, p.double, p.split, p.alts,
+    off and key(off) or "-", p.pinned, p.lead, p.seg, p.query, p.amp, p.wait,
+    p.ident, p.sole, p.sole_trail)
 end
 
 --- The phases in which the tag and whether it is an end tag mean something;
@@ -265,42 +444,352 @@ local ATTRIBUTED <const>: {Phase: boolean} = {
   attr_name = true, after_attr = true, before_value = true, value_dq = true, value_sq = true,
 }
 
-local function same(a: Place, b: Place): boolean
-  -- TODO: a conditional bare attribute as the first attribute
-  -- (`<input{{if .a}} checked{{end}} name=n>`) is refused because the arms
-  -- end in different places (`attr_name` against the tag's start): once
-  -- this treats the places between attributes (before_attr, after_attr, a
-  -- name ended by a space or `>`) as one, such a template compiles.
-  if a.phase ~= b.phase or a.stack ~= b.stack or a.murky ~= b.murky or a.select ~= b.select or a.slash ~= b.slash then
+--- Whether `a` and `b` are one place, alternatives aside.
+local function alike(a: Place, b: Place): boolean
+  if a.phase ~= b.phase or a.stack ~= b.stack or a.murky ~= b.murky or a.select ~= b.select or a.frameset ~= b.frameset or
+      a.slash ~= b.slash then
     return false
   end
-  if TAGGED[a.phase] and (a.tag ~= b.tag or a.closing ~= b.closing or a.equiv ~= b.equiv or a.fontattr ~= b.fontattr or
+  if TAGGED[a.phase] == true and (a.tag ~= b.tag or a.closing ~= b.closing or a.equiv ~= b.equiv or a.fontattr ~= b.fontattr or
       (a.meta_line > 0) ~= (b.meta_line > 0)) then
     return false
   end
-  if a.phase == "rcdata" and a.rc_tail ~= b.rc_tail then
+  if (a.phase == "rcdata" or a.phase == "raw") and
+      (a.raw_tail ~= b.raw_tail or a.escaped ~= b.escaped or a.double ~= b.double) then
     return false
   end
-  return not ATTRIBUTED[a.phase] or a.attr == b.attr
+  return ATTRIBUTED[a.phase] ~= true or a.attr == b.attr
+end
+
+--- The phases at a boundary between attributes, in a name that a space,
+--- `/` or `>` would end, or in an unquoted value that a space or `>` would
+--- end, where a tag may stand after a block that adds a whole attribute to it.
+local BOUNDARY <const>: {string: Phase} = {
+  tag_name = "tag_name", before_attr = "before_attr", attr_name = "attr_name", after_attr = "after_attr",
+  value_unq = "value_unq",
+}
+
+--- Whether `a` and `b` stand in one tag at boundaries that the text after
+--- them may yet bring together: everything but the phase and the attribute
+--- agrees.
+local function apart(a: Place, b: Place): boolean
+  return BOUNDARY[a.phase] ~= nil and BOUNDARY[b.phase] ~= nil and a.tag == b.tag and a.closing == b.closing and
+    a.stack == b.stack and a.murky == b.murky and a.select == b.select and a.frameset == b.frameset and a.slash == b.slash and
+    a.equiv == b.equiv and a.fontattr == b.fontattr and (a.meta_line > 0) == (b.meta_line > 0) and
+    not a.split and not b.split
+end
+
+--- `p`'s phase and attribute as `alts` holds them.
+local function alt_key(p: Place): string
+  return p.phase .. ":" .. (ATTRIBUTED[p.phase] and p.attr or "")
+end
+
+--- The keys in `set` other than `p`'s own, as `alts` holds them.
+local function alts_of(p: Place, set: {string: boolean}): string
+  local list: mut {string} = {}
+  for k in pairs(set) do
+    if k ~= alt_key(p) then
+      list[#list + 1] = k
+    end
+  end
+  table.sort(list)
+  return table.concat(list, " ")
+end
+
+--- `p` as the alternative `k` of it.
+local function as_alt(p: Place, k: string): Place
+  local q = copy(p)
+  local phase, attr = k:match("^([^:]*):(.*)$")
+  if phase == nil or attr == nil then
+    error("cosmic.template: an alternative's key is a phase, a colon and an attribute: " .. k)
+  end
+  local boundary = BOUNDARY[phase]
+  if boundary == nil then
+    error("cosmic.template: an alternative is kept only at a boundary, not in the phase " .. phase)
+  end
+  q.phase = boundary
+  q.attr = attr
+  q.alts = ""
+  return q
+end
+
+local function same(a: Place, b: Place): boolean
+  if a.alts == "" and b.alts == "" and alike(a, b) then
+    local off = a.off
+    -- In `<noscript>` text, where both have one, the scripting-off
+    -- readings may themselves stand apart in a tag, as `join` holds them.
+    return off == nil or same(off, assert(b.off))
+  end
+  return apart(a, b)
+end
+
+--- Where a place stands in the text of a raw text or RCDATA element.
+local function raw_state(p: Place): string
+  local out = "<" .. p.tag .. ">"
+  if p.raw_tail ~= "" then
+    out = out .. " after '" .. p.raw_tail .. "'"
+  end
+  if p.escaped then
+    out = out .. (if p.double then " inside a <!-- and a nested <script" else " inside a <!--" end)
+  end
+  return out
+end
+
+local function differ(a: Place, b: Place): string
+  if (a.phase == "rcdata" or a.phase == "raw") and a.phase == b.phase then
+    local x, y = raw_state(a), raw_state(b)
+    if x ~= y then
+      return "one leaves " .. x .. ", another " .. y
+    end
+  end
+  return ""
+end
+
+--- The schemes whose URLs a part slot may stand in after: [`Html.href`]'s.
+local PART_SCHEMES <const>: {string: boolean} = { http = true, https = true, mailto = true }
+
+--- What the literal text `lead` of a URL attribute's value, one way the
+--- value may have begun, makes of a part slot after it: "yes" when the
+--- slot may stand there and no text after can change that, "open" when it
+--- may stand there now but text could still put it in a host (`/`, then
+--- `/`), "no" when it may not (yet): the text does not fix the scheme
+--- (`java`, ` `, an `&` before the first `/`, `?` or `#`, which could
+--- spell a `:`), names one that is not allowed (`javascript:`, `data:`),
+--- or stands in a host (`https://`, `//`, `https://example.com`), where a
+--- part would choose the server.
+local function judge(lead: string): string
+  local s = lead:gsub("^[%z\1-\32]+", "")
+  local first = s:sub(1, 1)
+  if first == "" then
+    return "no"
+  elseif first == "?" or first == "#" or first == "." then
+    return "yes"
+  end
+  -- After a scheme `http:` or `https:` and after a leading `/` or `\`
+  -- pair, a browser reads any run of `/` and `\` as the start of a host.
+  local rest: string
+  if first == "/" or first == "\\" then
+    if s:find("^[/\\]", 2) == nil then
+      return if s == first then "open" else "yes" end
+    end
+    rest = s:gsub("^[/\\]+", "")
+  else
+    local stop = s:find("[:/?#\\]")
+    if stop == nil then
+      return "no"
+    end
+    local head = s:sub(1, stop - 1)
+    if head:find("&", 1, true) then
+      return "no"
+    elseif s:byte(stop) ~= 58 then
+      return "yes"
+    end
+    local scheme = head:lower()
+    if PART_SCHEMES[scheme] ~= true then
+      return "no"
+    elseif scheme == "mailto" then
+      return "yes"
+    end
+    rest = s:sub(stop + 1):gsub("^[/\\]+", "")
+  end
+  return if rest:find("[/\\?#]") then "yes" else "no" end
+end
+
+--- The ways a value may have begun, from `lead`.
+local function ways(lead: string): {string}
+  local out: mut {string} = {}
+  for way in (lead .. "\0"):gmatch("([^%z]*)%z") do
+    out[#out + 1] = way
+  end
+  return out
+end
+
+--- The segment state `seg` holds after the text `text`, one way: what
+--- remains of `seg .. text` after its last `/`, `\`, `?` or `#` when that is
+--- the start of a dot segment (see [`Place.seg`]), else "!".
+local function segment(seg: string, text: string): string
+  local raw = seg .. text
+  local cut = 0
+  for at = #raw, 1, -1 do
+    if raw:find("^[/\\?#]", at) then
+      cut = at
+      break
+    end
+  end
+  local rest = raw:sub(cut + 1)
+  local dots = 0
+  while true do
+    if rest:find("^%.") then
+      rest = rest:sub(2)
+    elseif rest:find("^%%2[eE]") then
+      rest = rest:sub(4)
+    else
+      break
+    end
+    dots = dots + 1
+  end
+  if rest == "" then
+    return dots <= 2 and ("."):rep(dots) or "!"
+  elseif (rest == "%" or rest == "%2") and dots <= 1 then
+    return ("."):rep(dots) .. rest
+  end
+  return "!"
+end
+
+--- Adds the literal text `text` of a URL attribute's value to what `p`
+--- knows of how the value began and ended.
+local function track(p: Place, text: string)
+  text = text:gsub("[\t\n\r]", "")
+  text = text:gsub("%z", "\255")
+  if text == "" then
+    return
+  end
+  local out: mut {string} = {}
+  for _, seg in ipairs(ways(p.seg)) do
+    out[#out + 1] = segment(seg, text)
+  end
+  p.seg = table.concat(out, "\0")
+  local mark = text:find("[?#]")
+  if not p.query then
+    p.amp = p.amp or text:sub(1, (mark or #text + 1) - 1):find("&", 1, true) ~= nil
+  end
+  if mark then
+    p.query = true
+    p.wait = false
+  end
+  if p.pinned then
+    return
+  end
+  local kept: mut {string} = {}
+  for _, way in ipairs(ways(p.lead)) do
+    way = way .. text
+    if judge(way) ~= "yes" then
+      kept[#kept + 1] = way
+    end
+  end
+  p.pinned = #kept == 0
+  p.lead = table.concat(kept, "\0")
+end
+
+--- Whether the text before a part slot could, with the slot's value, make
+--- a dot segment (`/.` and `.`, `/%2` and `e`, `/.%2e` and nothing).
+local function dotty(seg: string): boolean
+  for _, one in ipairs(ways(seg)) do
+    if one ~= "" and one ~= "!" then
+      return true
+    end
+  end
+  return false
+end
+
+--- Whether a part slot may stand at `p`, in a value whose text may have
+--- begun any of the ways `lead` holds.
+local function fixed(p: Place): boolean
+  if p.pinned then
+    return true
+  end
+  for _, way in ipairs(ways(p.lead)) do
+    if judge(way) == "no" then
+      return false
+    end
+  end
+  return true
+end
+
+--- Folds the knowledge of how a URL value began in `b` into `a`'s: a slot
+--- may stand only if it may after either, and the text may have begun in
+--- any way either holds.
+local function merge(a: Place, b: Place)
+  local set: mut {string: boolean} = {}
+  local segs: mut {string} = {}
+  for _, one in ipairs(ways(a.seg)) do
+    set[one] = true
+  end
+  for _, one in ipairs(ways(b.seg)) do
+    set[one] = true
+  end
+  for one in pairs(set) do
+    segs[#segs + 1] = one
+  end
+  table.sort(segs)
+  a.seg = table.concat(segs, "\0")
+  a.query = a.query and b.query
+  a.amp = a.amp or b.amp
+  a.wait = a.wait or b.wait
+  if b.pinned then
+    return
+  elseif a.pinned then
+    a.pinned = false
+    a.lead = b.lead
+    return
+  end
+  local seen: mut {string: boolean} = {}
+  local list: mut {string} = {}
+  for _, way in ipairs(ways(a.lead)) do
+    seen[way] = true
+  end
+  for _, way in ipairs(ways(b.lead)) do
+    seen[way] = true
+  end
+  for way in pairs(seen) do
+    list[#list + 1] = way
+  end
+  table.sort(list)
+  -- A value that began in many ways is one the tracker stops following: a
+  -- way that never fixes the scheme refuses every part slot after it.
+  a.lead = if #list > 8 then "&" else table.concat(list, "\0") end
 end
 
 local function join(a: Place, b: Place)
+  local off = a.off
+  if off ~= nil then
+    join(off, assert(b.off))
+  end
   a.fresh = a.fresh and b.fresh
+  a.ident = a.ident and b.ident
+  a.sole = a.sole or b.sole
+  a.sole_trail = a.sole_trail or b.sole_trail
   a.after_url = a.after_url or b.after_url
+  a.bare = a.bare or b.bare
+  merge(a, b)
+  a.split = a.split or b.split
   if a.meta_line == 0 then
     a.meta_line = b.meta_line
     a.meta_col = b.meta_col
   end
+  local set: mut {string: boolean} = { [alt_key(a)] = true, [alt_key(b)] = true }
+  for _, alts in ipairs({ a.alts, b.alts }) do
+    for k in alts:gmatch("[^ ]+") do
+      set[k] = true
+    end
+  end
+  if alts_of(a, set) == "" then
+    return
+  end
+  -- Closed under what a run of spaces or a `/` makes of each, so the body
+  -- of a `{{range}}` walked from the set ends in it and a third walk finds
+  -- what the second did. The places added refuse no text the others take.
+  local ended: mut {string} = { "before_attr:" }
+  for k in pairs(set) do
+    local name = k:match("^attr_name:(.*)$")
+    if name ~= nil then
+      ended[#ended + 1] = "after_attr:" .. name
+    end
+  end
+  for _, k in ipairs(ended) do
+    set[k] = true
+  end
+  a.alts = alts_of(a, set)
 end
 
---- Whether byte `b` is an HTML space.
-local function space(b: integer): boolean
+--- Whether byte `b` is an HTML space; nil, a read past the end, is not.
+local function space(b: integer?): boolean
   return b == 32 or b == 9 or b == 10 or b == 13 or b == 12
 end
 
---- Whether byte `b` is an ASCII letter.
-local function letter(b: integer): boolean
-  return (b >= 65 and b <= 90) or (b >= 97 and b <= 122)
+--- Whether byte `b` is an ASCII letter; nil, a read past the end, is not.
+local function letter(b: integer?): boolean
+  return b ~= nil and ((b >= 65 and b <= 90) or (b >= 97 and b <= 122))
 end
 
 --- Whether the byte at `i` ends a tag name: a space, `/` or `>`.
@@ -312,7 +801,7 @@ end
 --- Where `tag`'s end tag next begins in `text` from `from`, for a tag of
 --- text that has no markup in it (`style`, `textarea`, `title`): the
 --- offset of its `<`, or nil.
-local function plain_end(text: string, from: integer, tag: string): integer | nil
+local function plain_end(text: string, from: integer, tag: string): integer?
   local at = from
   while true do
     local lt = text:find("</", at, true)
@@ -326,40 +815,75 @@ local function plain_end(text: string, from: integer, tag: string): integer | ni
   end
 end
 
+--- The longest end of `region`, in the text of `tag`, that the next run
+--- could complete into its end tag: the start of `</tag`, or the whole of
+--- it, as it needs the delimiter after it.
+local function plain_tail(region: string, tag: string): string
+  local close = "</" .. tag
+  for len = math.min(#region, #close), 1, -1 do
+    local tail = region:sub(-len)
+    if close:sub(1, len) == tail:lower() then
+      return tail
+    end
+  end
+  return ""
+end
+
+--- What a `<script>` acts on in its text, of which [`script_tail`] keeps the
+--- start of one cut short.
+local SCRIPT_MARKS <const>: {string} = { "<!--", "<script", "</script", "-->" }
+
+--- The longest end of `region` that is the start of one of those and not
+--- yet the whole of it (`<script` and `</script` are whole only with the
+--- delimiter after them), or "".
+local function script_tail(region: string, escaped: boolean): string
+  for len = math.min(#region, 8), 1, -1 do
+    local tail = region:sub(-len):lower()
+    for _, mark in ipairs(SCRIPT_MARKS) do
+      -- A dash only matters in a comment, where `-->` leaves it.
+      local dashes = mark == "-->" and not escaped
+      if not dashes and #tail <= #mark and mark:sub(1, #tail) == tail and
+          (#tail < #mark or mark:find("script", 1, true) ~= nil) then
+        return region:sub(-len)
+      end
+    end
+  end
+  return ""
+end
+
 --- Where a `<script>`'s end tag next begins in `text` from `from`: the
 --- offset of its `<`, or nil. A script that opens a comment (`<!--`)
 --- and a script in it (`<script`) has its first `</script>` in the
 --- script, not at its end, as the standard has it; `-->` leaves the
---- comment.
-local function script_end(text: string, from: integer): integer | nil
+--- comment. Those states are `p`'s, so they hold across a block that
+--- emits nothing, and are left as they stand at the end of `text`.
+local function script_end(p: Place, text: string, from: integer): integer?
   local at = from
-  local escaped = false
-  local double = false
   while true do
     local hit = text:find("[<%-]", at)
     if hit == nil then
       return nil
     end
     if text:byte(hit) == 45 then
-      if escaped and text:sub(hit, hit + 2) == "-->" then
-        escaped = false
-        double = false
+      if p.escaped and text:sub(hit, hit + 2) == "-->" then
+        p.escaped = false
+        p.double = false
         at = hit + 3
       else
         at = hit + 1
       end
-    elseif text:sub(hit, hit + 3) == "<!--" and not escaped then
-      escaped = true
+    elseif text:sub(hit, hit + 3) == "<!--" and not p.escaped then
+      p.escaped = true
       at = hit + 2
     elseif text:byte(hit + 1) == 47 and text:sub(hit + 2, hit + 7):lower() == "script" and
         delimiter(text, hit + 8) then
-      if not double then
+      if not p.double then
         return hit
       end
-      double = false
+      p.double = false
       at = hit + 8
-    elseif escaped and text:sub(hit + 1, hit + 6):lower() == "script" and delimiter(text, hit + 7) then
-      double = true
+    elseif p.escaped and text:sub(hit + 1, hit + 6):lower() == "script" and delimiter(text, hit + 7) then
+      p.double = true
       at = hit + 7
     else
       at = hit + 1
@@ -369,7 +893,7 @@ end
 
 --- The tags that take the HTML parser out of `<svg>` or `<math>` (the
 --- standard's list; `font` only with a `color`, `face` or `size`).
-local BREAKOUT <const>: {string: boolean} = {}
+local BREAKOUT <const>: mut {string: boolean} = {}
 for _, name in ipairs({
     "b", "big", "blockquote", "body", "br", "center", "code", "dd", "div", "dl", "dt", "em", "embed", "h1", "h2",
     "h3", "h4", "h5", "h6", "head", "hr", "i", "img", "li", "listing", "menu", "meta", "nobr", "ol", "p", "pre",
@@ -385,11 +909,18 @@ end
 --- tell where the browser comes out of it: a breakout tag, a tag the
 --- browser reads HTML in, an end tag that is not the innermost element's,
 --- and an `<svg>` or `<math>` in a `<select>`, which the parser may ignore.
+--- In HTML it notes a `<select>` opened or closed and a `<frameset>`
+--- started, and makes a `<template>` in a `<select>` murky: a classic
+--- parser ignores a `</select>` in it and is in select again after it.
 local function count(p: Place, selfclosed: boolean)
   local tag = p.tag
   if p.stack == "" then
     if tag == "select" then
       p.select = not p.closing
+    elseif tag == "frameset" and not p.closing then
+      p.frameset = true
+    elseif tag == "template" and not p.closing and p.select then
+      p.murky = true
     elseif (tag == "svg" or tag == "math") and not p.closing then
       if p.select then
         p.murky = true
@@ -400,19 +931,31 @@ local function count(p: Place, selfclosed: boolean)
     return
   end
   if p.closing then
-    if p.stack:match("%S+$") == tag then
-      p.stack = p.stack:gsub(" %S+$", "")
+    if p.stack:match("[^ ]+$") == tag then
+      p.stack = p.stack:gsub(" [^ ]+$", "")
     else
       p.murky = true
     end
     return
   end
-  if BREAKOUT[tag] or INTEGRATION[tag] or (tag == "font" and p.fontattr) then
+  if BREAKOUT[tag] == true or INTEGRATION[tag] == true or (tag == "font" and p.fontattr) then
     p.murky = true
   end
   if not selfclosed then
     p.stack = p.stack .. " " .. tag
   end
+end
+
+--- Whether a parser in the classic "in select" or "in frameset" mode may
+--- ignore the raw text or RCDATA start tag just read, and read its text as
+--- markup, where a newer one opens the element. "in select" reads only
+--- `<script>` (by the rules in head) and `<textarea>` (which closes the
+--- select), and "in frameset" only `<noframes>`.
+local function ignored(p: Place): boolean
+  if p.stack ~= "" then
+    return false
+  end
+  return (p.select and p.tag ~= "script" and p.tag ~= "textarea") or (p.frameset and p.tag ~= "noframes")
 end
 
 --- Ends the tag just read, at the `>` before `from` (after a value with no
@@ -422,10 +965,10 @@ end
 --- `<svg>` the browser may read them as ordinary elements instead, and
 --- `scan` marks the place murky if what they hold could tell the two apart.
 local function end_tag(p: Place, text: string, from: integer, unquoted: boolean): integer
-  if p.attr == "http-equiv" and ATTRIBUTED[p.phase] then
+  if p.attr == "http-equiv" and ATTRIBUTED[p.phase] == true then
     p.equiv = true
   end
-  local before = from >= 3 and text:byte(from - 2) or (p.slash and 47 or 0)
+  local before = from >= 3 and text:byte(from - 2) or (if p.slash then 47 else 0 end)
   count(p, not unquoted and before == 47)
   if p.tag == "meta" and not p.closing and p.equiv and p.meta_line > 0 then
     p.late = "a slot in the content of a <meta> that has http-equiv could be a redirect"
@@ -433,7 +976,16 @@ local function end_tag(p: Place, text: string, from: integer, unquoted: boolean)
     p.late_col = p.meta_col
   end
   local phase = RAW_TAGS[p.tag]
-  p.phase = (p.closing or phase == nil) and "text" or phase
+  if phase ~= nil and not p.closing and ignored(p) then
+    p.murky = true
+  end
+  p.phase = if (p.closing or phase == nil) then "text" else phase end
+  if p.phase == "raw" and p.tag == "noscript" then
+    local off = start(p.dialect)
+    off.select = p.select
+    off.frameset = p.frameset
+    p.off = off
+  end
   return from
 end
 
@@ -455,12 +1007,39 @@ local function open_tag(p: Place, closing: boolean)
   p.fontattr = false
   p.meta_line = 0
   p.meta_col = 0
+  p.split = false
 end
+
+--- Whether `off`, the scripting-off reading of a `<noscript>`'s text up to
+--- its `</noscript>`, leaves that end tag where the tracker's reading does:
+--- in plain text (or after a `<`, which the `<` of the end tag makes text),
+--- with no foreign element open, and inside a `<select>` or after a
+--- `<frameset>` only if `outer` is. Arms of a block left apart (`alts`)
+--- stand in a tag, which the phase refuses; text that read differently in
+--- them made the place murky as it was read.
+---
+--- A browser with scripting on reads the text as raw text, as the tracker
+--- does; with scripting off (a DOMParser, a sanitizer's parse) it is markup,
+--- and markup can carry the `</noscript>` away: `<noscript><style></noscript>{{.x}}`
+--- puts the slot in `<style>`, `<noscript><img onerror="</noscript>{{.x}}">`
+--- in a handler. Markup that ends in plain text (`<p>Turn on JavaScript</p>`,
+--- a tracking pixel's `<img>`, a closed `<style>` or comment) leaves the end
+--- tag, and what follows it, read alike either way.
+local function noscript_clean(off: Place, outer: Place): boolean
+  return (off.phase == "text" or off.phase == "lt") and not off.murky and off.stack == "" and
+    off.select == outer.select and off.frameset == outer.frameset
+end
+
+local feed: function(p: Place, text: string, line: integer, col: integer)
 
 --- Moves `p` over `text` one state at a time. A run of text ends where a
 --- slot or the template does, so the places a slot may not stand in
 --- (inside a tag) are never left half read.
 local function scan(p: Place, text: string)
+  if p.raw_tail ~= "" and (p.phase == "raw" or p.phase == "rcdata") then
+    text = p.raw_tail .. text
+    p.raw_tail = ""
+  end
   local i = 1
   local n = #text
   while i <= n do
@@ -519,7 +1098,7 @@ local function scan(p: Place, text: string)
       elseif b == 61 then
         -- After a name, `=` brings its value; before one it is the first
         -- byte of a name, as the standard has it.
-        p.phase = phase == "after_attr" and "before_value" or "attr_name"
+        p.phase = if phase == "after_attr" then "before_value" else "attr_name" end
         p.attr = phase == "after_attr" and p.attr or "="
         i = i + 1
       else
@@ -539,7 +1118,7 @@ local function scan(p: Place, text: string)
         elseif d == 62 then
           i = end_tag(p, text, i + 1, false)
         else
-          p.phase = d == 47 and "before_attr" or "after_attr"
+          p.phase = if d == 47 then "before_attr" else "after_attr" end
           i = i + 1
         end
       end
@@ -547,8 +1126,17 @@ local function scan(p: Place, text: string)
       if space(b) then
         i = i + 1
       elseif b == 34 or b == 39 then
-        p.phase = b == 34 and "value_dq" or "value_sq"
+        p.phase = if b == 34 then "value_dq" else "value_sq" end
         p.fresh = true
+        p.ident = false
+        p.sole = false
+        p.sole_trail = false
+        p.lead = ""
+        p.pinned = false
+        p.seg = ""
+        p.query = false
+        p.amp = false
+        p.wait = false
         i = i + 1
       elseif b == 62 then
         i = end_tag(p, text, i + 1, false)
@@ -556,12 +1144,25 @@ local function scan(p: Place, text: string)
         p.phase = "value_unq"
       end
     elseif phase == "value_dq" or phase == "value_sq" then
-      local close = text:find(phase == "value_dq" and '"' or "'", i, true)
+      local close = text:find(if phase == "value_dq" then '"' else "'" end, i, true)
       local last = (close or n + 1) - 1
       if p.fresh then
         local seen = text:find("[^ \t\r\n\f]", i)
         if seen ~= nil and seen <= last then
           p.fresh = false
+        end
+      end
+      if p.sole then
+        local seen = text:find("[^ \t\r\n\f]", i)
+        if seen ~= nil and seen <= last then
+          p.sole_trail = true
+        end
+      end
+      if p.bare then
+        local first = text:match("^[\t\n\r]*()", i)
+        if first ~= nil and first <= last then
+          p.bare = false
+          p.rooted = text:find("^[/\\]", first) ~= nil
         end
       end
       if p.after_url then
@@ -574,12 +1175,53 @@ local function scan(p: Place, text: string)
           p.after_url = false
         end
       end
+      local rule = p.dialect:classify(p.attr)
+      local class = rule ~= nil and rule.class or ""
+      if URL_ATTRS[p.attr] == true or class == "url" or class == "url_local" then
+        track(p, text:sub(i, last))
+      elseif class == "selector" then
+        -- The value is in an identifier if its last byte that is not an
+        -- identifier byte is a `#` or `.`, or if it has none and the value was.
+        -- TODO: the scan does not read `\` escapes. A slot after one is
+        -- refused when the literal text before it ends in the escape or in
+        -- the space that ends a hex escape (`#a\{{x}}`, `#a\2c {{x}}`,
+        -- `#a\2c b{{x}}`), though each stands in an identifier; one whose
+        -- escaped byte is `.` or `#` (`#a\.{{x}}`, `#a\#{{x}}`) is accepted,
+        -- as the scan takes that byte for the start of an identifier, which
+        -- the slot is in either way. Waiting on a CSS-aware scan, if anyone
+        -- writes selectors with escapes.
+        local stop = text:sub(i, last):match(".*()[^%w_%-\128-\255]")
+        if stop ~= nil then
+          local mark = text:byte(i + stop - 1)
+          p.ident = mark == 35 or mark == 46
+        end
+      end
       if close == nil then
         return
       end
+      if p.sole_trail then
+        -- The value ends here, and the next opening quote resets the flag
+        -- before the node's end could see it, so the refusal is recorded
+        -- now, and `feed` places it (`late_line` of -1 until then).
+        if p.late == "" then
+          p.late = "text after a JSON slot in the '" .. p.attr .. "' attribute: a JSON slot is the whole value"
+          p.late_line = -1
+          p.late_col = close
+        end
+        p.sole_trail = false
+      end
       p.phase = "before_attr"
       p.fresh = false
+      p.ident = false
+      p.sole = false
+      p.lead = ""
+      p.pinned = false
+      p.seg = ""
+      p.query = false
+      p.amp = false
+      p.wait = false
       p.after_url = false
+      p.bare = false
       i = close + 1
     elseif phase == "value_unq" then
       if b == 62 then
@@ -636,7 +1278,7 @@ local function scan(p: Place, text: string)
       p.phase = "comment_dash"
       i = dash + 1
     elseif phase == "comment_dash" then
-      p.phase = b == 45 and "comment_end" or "comment"
+      p.phase = if b == 45 then "comment_end" else "comment" end
       i = i + 1
     elseif phase == "comment_end" then
       if b == 62 then
@@ -667,46 +1309,172 @@ local function scan(p: Place, text: string)
       if p.tag == "plaintext" then
         return
       end
-      local found: integer | nil
+      local found: integer?
       if p.tag == "script" then
-        found = script_end(text, i)
+        found = script_end(p, text, i)
       else
         found = plain_end(text, i, p.tag)
       end
       local region = text:sub(i, (found or n + 1) - 1)
-      if (p.stack ~= "" and region:find("<", 1, true)) or (p.tag == "noscript" and region:find("<!--", 1, true)) then
+      local tail = ""
+      if found == nil then
+        tail = p.tag == "script" and script_tail(region, p.escaped) or plain_tail(region, p.tag)
+      end
+      -- The tail is judged with the run that completes it, as it would be
+      -- whole: `</sty` that becomes `</style>` holds no `<` of the text.
+      local settled = region:sub(1, #region - #tail)
+      if p.stack ~= "" and settled:find("<", 1, true) ~= nil then
         p.murky = true
       end
-      if found == nil then
-        if p.phase == "rcdata" then
-          local last = region:match(".*()<")
-          local tail = last and region:sub(last) or (p.rc_tail .. region)
-          local close = "</" .. p.tag
-          p.rc_tail = (#tail <= #close and close:sub(1, #tail) == tail:lower()) and tail or ""
+      if p.tag == "noscript" then
+        -- The tail is left for the run that completes it, as above, and
+        -- read here once it turns out not to be the end tag.
+        -- `feed`, not `scan`, so that a block whose arms leave a tag here at
+        -- different attributes is settled as it is outside (`settle`). The
+        -- line and column only place a `late`, which [`noscript_clean`] reads
+        -- as a refusal and never reports. A run cut before a held tail is
+        -- a boundary only this reading sees, and may mark a tag `split`,
+        -- which can refuse, never admit.
+        local off = assert(p.off)
+        feed(off, settled, 0, 0)
+        -- Refused at once, as `late` is outside: `settle` has stopped
+        -- reading, and `alike` compares `murky`, so the arm this happens in
+        -- joins no arm where it did not.
+        if off.late ~= "" then
+          p.murky = true
         end
+        p.off = found == nil and off or nil
+        if found ~= nil and not noscript_clean(off, p) then
+          p.murky = true
+        end
+      end
+      if found == nil then
+        p.raw_tail = tail
         return
       end
       p.phase = "text"
-      p.rc_tail = ""
+      p.escaped = false
+      p.double = false
       i = found
     end
   end
 end
 
-local function feed(p: Place, text: string)
-  scan(p, text)
+--- Whether byte `b` carries on the tag name, attribute name or unquoted
+--- value that `phase` is reading, or gives the attribute just named a value,
+--- rather than leaving it whole.
+local function continues(phase: Phase, b: integer?): boolean
+  if b == nil or space(b) or b == 62 then
+    return false
+  elseif phase == "value_unq" then
+    return true
+  elseif phase == "after_attr" then
+    return b == 61
+  end
+  return (phase == "tag_name" or phase == "attr_name") and b ~= 47
+end
+
+--- Where the byte at `i` of `text`, whose first byte stands at `line` and
+--- `col`, stands.
+local function locate(text: string, i: integer, line: integer, col: integer): integer, integer
+  local before = text:sub(1, i - 1)
+  local _, lines = before:gsub("\n", "")
+  if lines == 0 then
+    return line, col + i - 1
+  end
+  local last_newline = assert(before:match(".*()\n"), "the lines counted a newline in the text before")
+  return line + lines, i - last_newline
+end
+
+--- Reads `text` a byte at a time in each place `p` may be, until they are
+--- one place, and answers where the rest of it begins. Each must read the
+--- same thing: a byte that continues a name or value in one (`ked` after
+--- `{{if .a}}chec{{end}}`) or brings a value (`=`), or that leaves them apart
+--- in more than phase and attribute (`http-equiv` named in one), makes
+--- `late` a refusal at that byte. Until one byte begins a new attribute
+--- or ends the tag, they stay apart.
+local function settle(p: Place, text: string, line: integer, col: integer): integer
+  local i = 1
+  while p.alts ~= "" and i <= #text do
+    local c = text:sub(i, i)
+    local places: mut {Place} = { p }
+    for k in p.alts:gmatch("[^ ]+") do
+      places[#places + 1] = as_alt(p, k)
+    end
+    p.alts = ""
+    local one, together, extended = true, true, false
+    for _, q in ipairs(places) do
+      extended = extended or continues(q.phase, c:byte())
+      scan(q, c)
+      if q.late_line == -1 then
+        q.late_line, q.late_col = locate(text, i, line, col)
+      end
+      q.slash = q.phase == "before_attr" and c == "/"
+      one = one and alike(p, q)
+      together = together and apart(p, q)
+    end
+    if not extended and one then
+      for _, q in ipairs(places) do
+        if p.late == "" and q.late ~= "" then
+          p.late, p.late_line, p.late_col = q.late, q.late_line, q.late_col
+        end
+      end
+    elseif not extended and together then
+      local set: mut {string: boolean} = {}
+      for _, q in ipairs(places) do
+        set[alt_key(q)] = true
+      end
+      p.alts = alts_of(p, set)
+    else
+      p.late = "a block before this text, or the {{range}} it is in, may leave the tag at different attributes, " ..
+        "and this text reads differently after each: in one and not another it carries on a name or value, " ..
+        "gives an attribute a value, or ends a name that changes the tag (http-equiv, or color, face or size " ..
+        "in <font>)"
+      p.late_line, p.late_col = locate(text, i, line, col)
+      return #text + 1
+    end
+    i = i + 1
+  end
+  return i
+end
+
+feed = function(p: Place, text: string, line: integer, col: integer)
+  -- Empty text moves nothing; past here it would forget a tag's last `/`.
+  if text == "" then
+    return
+  end
+  p.split = p.split or continues(p.phase, text:byte(1))
+  local from = p.alts ~= "" and settle(p, text, line, col) or 1
+  scan(p, from == 1 and text or text:sub(from))
+  if p.late_line == -1 then
+    p.late_line, p.late_col = locate(text, from + p.late_col - 1, line, col)
+  end
   p.slash = p.phase == "before_attr" and text:byte(#text) == 47
 end
 
-local function slot(p: Place): types.Slot | nil, string
+local function slot(p: Place): types.Slot?, string
   local phase = p.phase
-  if p.murky then
-    return nil, "a slot after markup in <svg>, <math> or <noscript> that a browser may read differently from the tracker here (see the notes in markup.tl)"
+  if p.alts ~= "" then
+    return nil, "a slot after a block whose arms leave this tag at different attributes"
+  elseif p.murky then
+    return nil, "a slot after markup in <svg>, <math>, <noscript>, <select> or <frameset> that a browser may read differently from the tracker here (see the notes in markup.tl)"
   elseif phase == "text" then
+    -- Another template's `SafeHtml` was checked as markup in plain HTML
+    -- text. Inside `<svg>` or `<math>` the browser reads it by foreign
+    -- content's rules (`<svg><title><img onerror=...>` makes a live
+    -- `<img>`), and inside `<select>` or after `<frameset>` a classic
+    -- parser reads it in that mode, so text there takes no markup. No
+    -- slot inside foreign content is in HTML content (`<foreignObject>`,
+    -- `<title>`, ...), which could take it, and none in a `<select>` is
+    -- in a `<template>`, which a parser reads HTML in: either element
+    -- makes the place murky.
+    if p.stack ~= "" or p.select or p.frameset then
+      return "ftext", ""
+    end
     return "text", ""
   elseif phase == "rcdata" then
-    if p.rc_tail ~= "" then
-      return nil, "a slot after '" .. p.rc_tail .. "' in <" .. p.tag ..
+    if p.raw_tail ~= "" then
+      return nil, "a slot after '" .. p.raw_tail .. "' in <" .. p.tag ..
         "> could complete its end tag"
     end
     return "rtext", ""
@@ -716,6 +1484,10 @@ local function slot(p: Place): types.Slot | nil, string
     local attr = p.attr
     if attr:sub(1, 2) == "on" then
       return nil, "a slot in the event handler attribute '" .. attr .. "' would be script"
+    end
+    local rule = p.dialect:classify(attr)
+    if rule ~= nil and rule.class == "refused" then
+      return nil, "a slot in the '" .. attr .. "' attribute " .. rule.why
     end
     local code = CODE_ATTRS[attr]
     if code ~= nil then
@@ -727,23 +1499,48 @@ local function slot(p: Place): types.Slot | nil, string
     if attr == "charset" and p.tag == "meta" then
       return nil, "a slot in the charset of a <meta> could change how the page is read"
     end
-    if ANIMATION[p.tag] then
+    if ANIMATION[p.tag] == true then
       return nil, "a slot in an attribute of <" .. p.tag .. "> could animate one to a script URL"
     end
     if attr == "content" and p.tag == "meta" and p.equiv then
       return nil, "a slot in the content of a <meta> that has http-equiv could be a redirect"
     end
-    if URL_ATTRS[attr] then
-      if ACTIVE_TAGS[p.tag] then
+    local class = rule ~= nil and rule.class or ""
+    if URL_ATTRS[attr] == true or class == "url" or class == "url_local" then
+      if ACTIVE_TAGS[p.tag] == true then
         return nil, "a slot in the '" .. attr .. "' of <" .. p.tag .. "> would make the page load or run it"
       end
-      if not p.fresh then
-        -- TODO: once [`cosmic.html`] carries an escaper for one component of
-        -- a URL (a path segment, a query value), let a slot stand after
-        -- literal text in a URL attribute, escaped by that.
-        return nil, "a slot in a URL must begin the value of '" .. attr .. "': after other text it is a piece of one"
+      if p.fresh then
+        return if class == "url_local" then "url_local" else "url" end, ""
+      elseif not fixed(p) then
+        return nil, "a slot in the '" .. attr .. "' attribute that does not begin the value is a piece of a URL, " ..
+          "and must follow text that fixes where the URL goes: begin the value with '/', '.', '?' or '#', or " ..
+          "with http:, https: or mailto: and a path (not a host)"
+      elseif p.amp then
+        return nil, "a slot in the '" .. attr .. "' attribute after an '&' in the path (before any '?' or '#'): a " ..
+          "browser reads '&sol;' as '/' and '&#46;' as '.' before it parses the URL, so write '/', '.' and the like " ..
+          "literally"
+      elseif p.wait then
+        return nil, "a slot in the '" .. attr .. "' attribute that follows a whole-URL slot must come after a '?' or " ..
+          "'#' in the text: the slot's value may be a bare origin (https://host), so the part could extend the host"
+      elseif dotty(p.seg) then
+        return nil, "a slot directly after a '.' or '%2e' segment (or the start of one) in the '" .. attr ..
+          "' attribute could make a '..' segment or a '%2e' escape with its value: end the text before it with " ..
+          "'/', '=' or another byte"
       end
-      return "url", ""
+      return "urlpart", ""
+    elseif class == "json" then
+      if not p.fresh then
+        return nil, "a slot in the '" .. attr .. "' attribute must be the whole value: a JSON text made by Html.json, " ..
+          "as " .. attr .. "='{{.vals}}'"
+      end
+      return "json", ""
+    elseif class == "selector" then
+      if not p.ident then
+        return nil, "a slot in the '" .. attr .. "' attribute is part of a CSS selector, and may stand only inside an " ..
+          "identifier after '#' or '.', as " .. attr .. "=\"#row-{{.id}}\": write the rest of the selector as literal text"
+      end
+      return "selector", ""
     end
     return "attr", ""
   elseif phase == "value_unq" or phase == "before_value" then
@@ -758,8 +1555,25 @@ end
 
 local function wrote(p: Place, ctx: types.Slot, line: integer, col: integer)
   p.fresh = false
-  p.rc_tail = ""
-  p.after_url = ctx == "url"
+  p.raw_tail = ""
+  p.ident = ctx == "selector"
+  p.sole = ctx == "json"
+  local whole = ctx == "url" or ctx == "url_local"
+  if ctx ~= "urlpart" then
+    -- A part may be empty, so after a whole-URL slot it leaves the text
+    -- after the two to be judged as if it followed the first alone.
+    p.after_url = whole
+    p.bare = whole
+  end
+  if whole or ctx == "urlpart" then
+    if whole then
+      p.seg = ""
+      p.query = false
+      p.amp = false
+      p.wait = true
+    end
+    p.pinned = p.pinned or whole
+  end
   if p.tag == "meta" and p.attr == "content" and ctx == "attr" then
     p.meta_line = line
     p.meta_col = col
@@ -767,12 +1581,16 @@ local function wrote(p: Place, ctx: types.Slot, line: integer, col: integer)
 end
 
 local function ending(p: Place): string
+  local innermost = p.stack:match("[^ ]+")
   if p.murky then
-    return "in markup in <svg>, <math> or <noscript> that the tracker could not follow"
+    return "in markup in <svg>, <math>, <noscript>, <select> or <frameset> that the tracker could not follow"
   elseif p.stack ~= "" then
-    return "inside <" .. p.stack:match("%S+") .. ">"
+    if innermost == nil then return "inside a foreign element" end
+    return "inside <" .. innermost .. ">"
   elseif p.select then
     return "inside <select>"
+  elseif p.frameset then
+    return "inside <frameset>"
   end
   local phase = p.phase
   if phase == "text" then
@@ -788,6 +1606,6 @@ local function ending(p: Place): string
   return "inside a comment or markup declaration"
 end
 
-local M: Markup = { start = start, ending = ending, copy = copy, same = same, join = join, feed = feed,
-  slot = slot, wrote = wrote }
+local M: Markup = { start = start, ending = ending, copy = copy, same = same, differ = differ, join = join, feed = feed,
+  slot = slot, wrote = wrote, key = key }
 return M

@@ -1,7 +1,7 @@
 --- A proxy-honouring client (curl) in a sandbox reaches a service of the
 --- host's own loopback that a `connect` target names, at 127.0.0.1: its
 --- `NO_PROXY` leaves that address out, so curl sends it to the relay
---- (cosmic/relay/config.tl's `proxy_env`). The server is this test's own,
+--- (cosmic/internal/relay_config.tl's `proxy_env`). The server is this test's own,
 --- at 127.0.0.1 of the worker's network, which the start's connector
 --- reaches and the program's network of its own does not. Like
 --- cosmic/child_relay_test.tl, it needs a sandbox that nests, and skips
@@ -56,7 +56,7 @@ local function serving(body: function(port: integer))
         end)
       end
     end)
-    body(listener.address.port)
+    body(assert(listener.address.port))
     task:cancel()
     assert(listener:close())
   end)
@@ -81,17 +81,20 @@ end
 --- curl sends it through the relay because NO_PROXY no longer names it.
 --- An address the policy declares under `loopback` stays direct: curl dials
 --- it in the sandbox's own network, where nothing listens (exit 7), and the
---- relay is never asked (it would answer 403).
+--- relay is never asked (through it curl would report a CONNECT tunnel the
+--- relay refused).
 local function test_a_declared_loopback_address_stays_direct()
   serving(function(port: integer)
-    local out, code = curl("127.0.0.1:" .. port, "http://127.0.0.2:" .. port .. "/", { "127.0.0.2" })
-    assert(code == 7 and out:find("403", 1, true) == nil, "exit " .. code .. ": " .. out)
+    local out, code = curl("127.0.0.1:" .. tostring(port), "http://127.0.0.2:" .. tostring(port) .. "/", { "127.0.0.2" })
+    -- Not out:find("403"): the port, chosen by the kernel, may hold those digits.
+    assert(code == 7 and out:find("Failed to connect to 127.0.0.2", 1, true) ~= nil and
+        out:find("CONNECT", 1, true) == nil, "exit " .. tostring(code) .. ": " .. out)
   end)
 end
 
 local function test_a_proxy_client_reaches_a_granted_host_loopback_service()
   serving(function(port: integer)
-    local out, code = curl("127.0.0.1:" .. port, "http://127.0.0.1:" .. port .. "/")
-    assert(code == 0 and out:find("hello from the host", 1, true), "exit " .. code .. ": " .. out)
+    local out, code = curl("127.0.0.1:" .. tostring(port), "http://127.0.0.1:" .. tostring(port) .. "/")
+    assert(code == 0 and out:find("hello from the host", 1, true), "exit " .. tostring(code) .. ": " .. out)
   end)
 end

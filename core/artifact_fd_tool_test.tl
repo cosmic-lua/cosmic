@@ -4,6 +4,7 @@
 --- is refused before it changes anything. Its own module, since a
 --- `tool` test runs again on every edit to the tree.
 
+local RawTables = require("build.raw_tables")
 local sys = require("cosmic.sys")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -15,25 +16,34 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 local _net = require("cosmic.net")
+local test_child = require("build.test_child")
 local unix_socket = require("build.unix_socket")
 local type raw_socket = require("cosmic.internal.socket")
 
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" },
   grants = { { path = "o/bin", letters = "rx" } } }
 
-local type SocketSearcher = function(string): any, any
+local socket = RawTables.socket()
 
-local function socket_table(): raw_socket
-  for _, searcher in ipairs(package.searchers as {SocketSearcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.net")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_socket -- cast: the table core/socket.h declares
-    end
-  end
-  error("cosmic.net is handed no raw table")
+--- The program a relaunch starts again.
+local function program_of(relaunch: Proc.Relaunch): string
+  local program = assert(relaunch.argv[1], "a relaunch names its program")
+  return program
 end
 
-local socket = socket_table()
+--- The descriptor a relaunch hands its child in `slot`.
+local function fd_of(relaunch: Proc.Relaunch, slot: integer): integer
+  local fd = assert(relaunch.fds[slot], "a relaunch hands a descriptor in slot " .. tostring(slot))
+  return fd
+end
+
+--- The child of the test below, run in a copy of the artifact: it sends the file in `args[2]` over the channel in `args[1]`.
+test_child.register("send_file", function(args: {string}): integer
+  local channel, file = math.tointeger(args[1]), math.tointeger(args[2])
+  assert(channel ~= nil and file ~= nil, "the slots are integers")
+  assert(socket.sendfds(channel, { file }))
+  return 0
+end)
 
 --- The program's own path names a file, which a `tool` test, given the
 --- program at its own name, can stat.
@@ -66,7 +76,7 @@ local function test_a_tool_has_the_tree_s_own_program_in_the_tree()
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil or sys.getcwd() ~= "/tree" then return end
   local slot = math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_ARTIFACT_FD)) as integer
-  local artifact = sys.stat("/proc/self/fd/" .. relaunch.fds[slot])
+  local artifact = sys.stat("/proc/self/fd/" .. tostring(fd_of(relaunch, slot)))
   local own = sys.stat("/tree/o/bin/cosmic")
   if artifact == nil or own == nil or artifact.dev ~= own.dev or artifact.ino ~= own.ino then
     return -- another program runs the tree's tests: it keeps its own name
@@ -83,23 +93,32 @@ end
 local probe <const> = [==[
 local sys = require("cosmic.sys")
 local relaunch = assert(require("cosmic.proc").relaunch())
-local fd = relaunch.fds[math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_ARTIFACT_FD))]
-local link = "/proc/self/fd/" .. fd
-if sys.stat(link) == nil then link = "/dev/fd/" .. fd end
-local function said(what, ok, _, errno)
-  if type(ok) == "number" then sys.close(ok) end
-  print(what .. " " .. ((ok == nil or ok == false) and tostring(errno) or "done"))
+local fd = assert(relaunch.fds[assert(math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])))])
+local link = "/proc/self/fd/" .. tostring(fd)
+if sys.stat(link) == nil then link = "/dev/fd/" .. tostring(fd) end
+local function said(what: string, ok: (integer | boolean)?, errno: integer)
+  if ok is integer then sys.close(ok) end
+  print(what .. " " .. (if ok == nil or ok == false then tostring(errno) else "done" end))
 end
-said("write", sys.open(link, sys.O_WRONLY | sys.O_APPEND))
+local written, _, written_errno = sys.open(link, sys.O_WRONLY | sys.O_APPEND)
+said("write", written, written_errno)
 if sys.stat(link) ~= nil then
   local fd2 = sys.open(link, sys.O_WRONLY | sys.O_APPEND)
-  if fd2 then sys.write(fd2, "x") sys.close(fd2) end
+  if fd2 ~= nil then
+    sys.write(fd2, "x")
+    sys.close(fd2)
+  end
 end
-said("read-write", sys.open(link, sys.O_RDWR))
-said("create", sys.open(link, sys.O_CREAT | sys.O_WRONLY, 420))
-said("truncate", sys.open(link, sys.O_WRONLY | sys.O_TRUNC))
-said("chmod", sys.chmod(link, 384))
-said("utimensat", sys.utimensat(link, 1, 0, 1, 0))
+local read_write, _, read_write_errno = sys.open(link, sys.O_RDWR)
+said("read-write", read_write, read_write_errno)
+local created, _, created_errno = sys.open(link, sys.O_CREAT | sys.O_WRONLY, 420)
+said("create", created, created_errno)
+local truncated, _, truncated_errno = sys.open(link, sys.O_WRONLY | sys.O_TRUNC)
+said("truncate", truncated, truncated_errno)
+local chmodded, _, chmod_errno = sys.chmod(link, 384)
+said("chmod", chmodded, chmod_errno)
+local touched, _, touch_errno = sys.utimensat(link, 1, 0, 1, 0)
+said("utimensat", touched, touch_errno)
 ]==]
 
 --- Each is refused, EACCES, and the file is as it was: its bytes, mode
@@ -117,10 +136,10 @@ local function test_a_change_through_the_artifact_descriptor_changes_nothing(tmp
   local slot = math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_ARTIFACT_FD)) as integer
   local core_slot = math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_CORE_FD)) as integer
   local opened = assert(sys.open(copy, sys.O_RDONLY))
-  local env: {string: string} = {}
+  local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
-  local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e", probe }, {
-    env = env, fds = { [slot] = opened, [core_slot] = relaunch.fds[core_slot] },
+  local result = assert(Child.run({ program_of(relaunch), "--artifact", copy, "-e", probe }, {
+    env = env, fds = { [slot] = opened, [core_slot] = fd_of(relaunch, core_slot) },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(sys.close(opened))
   assert(result.ok, tostring(result.stderr))
@@ -132,7 +151,7 @@ local function test_a_change_through_the_artifact_descriptor_changes_nothing(tmp
       "artifact's mode or times:\n" .. tostring(result.stdout))
   local out = tostring(result.stdout)
   for _, what in ipairs({ "write", "read-write", "create", "truncate", "chmod" }) do
-    assert(out:find(what .. " " .. sys.EACCES .. "\n", 1, true) ~= nil,
+    assert(out:find(what .. " " .. tostring(sys.EACCES) .. "\n", 1, true) ~= nil,
       what .. " was not refused:\n" .. out)
   end
 end
@@ -158,14 +177,14 @@ local function test_the_artifact_reached_by_names_is_not_refused(tmp: string)
   local script = { 'local sys = require("cosmic.sys")' }
   for _, name in ipairs(names) do
     script[#script + 1] = string.format("do local fd, _, e = sys.open(%q, sys.O_RDONLY) " ..
-        "print(fd and 'open' or e) if fd then sys.close(fd) end end", name)
+        "print(if fd ~= nil then 'open' else tostring(e) end) if fd ~= nil then sys.close(fd) end end", name)
   end
-  local env: {string: string} = {}
+  local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
   local opened = assert(sys.open(copy, sys.O_RDONLY))
-  local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e",
+  local result = assert(Child.run({ program_of(relaunch), "--artifact", copy, "-e",
     table.concat(script, "\n") }, { env = env, fds = { [slot] = opened,
-      [core_slot] = relaunch.fds[core_slot] }, stdout = "capture", stderr = "capture",
+      [core_slot] = fd_of(relaunch, core_slot) }, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(30) }))
   assert(sys.close(opened))
   assert(result.ok, tostring(result.stderr))
@@ -186,7 +205,7 @@ while true do
   i = i + 1
   if i % 64 == 0 and sys.stat(stop) ~= nil then break end
   sys.unlink(spare)
-  assert(sys.symlink(i % 2 == 0 and plain or through, spare))
+  assert(sys.symlink(if i % 2 == 0 then plain else through end, spare))
   assert(sys.rename(spare, link))
   if i == 2 then print("flipping") end
 end
@@ -211,19 +230,20 @@ local caller <const> = [==[
 local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local link, stop = LINK, STOP
-local counts = { chmod = { done = 0, refused = 0 }, truncate = { done = 0, refused = 0 } }
-local function said(what, ok, errno)
-  if type(ok) == "number" then sys.close(ok) end
-  local count = counts[what]
+local counts: mut {string:integer} = {
+  ["chmod done"] = 0, ["chmod refused"] = 0, ["truncate done"] = 0, ["truncate refused"] = 0,
+}
+local function said(what: string, ok: (integer | boolean)?, errno: integer)
+  if ok is integer then sys.close(ok) end
   if ok == nil or ok == false then
-    if errno == sys.EACCES then count.refused = count.refused + 1 end
+    if errno == sys.EACCES then counts[what .. " refused"] = assert(counts[what .. " refused"]) + 1 end
   else
-    count.done = count.done + 1
+    counts[what .. " done"] = assert(counts[what .. " done"]) + 1
   end
 end
-local function met()
-  for _, count in pairs(counts) do
-    if count.done == 0 or count.refused == 0 then return false end
+local function met(): boolean
+  for _, what in ipairs({ "chmod", "truncate" }) do
+    if counts[what .. " done"] == 0 or counts[what .. " refused"] == 0 then return false end
   end
   return true
 end
@@ -236,9 +256,10 @@ while i < least or (not met() and Clock.monotonic_ns() < deadline) do
   local fd, _, open_errno = sys.open(link, sys.O_WRONLY | sys.O_TRUNC)
   said("truncate", fd, open_errno)
 end
-assert(sys.close(assert(sys.open(stop, sys.O_CREAT | sys.O_WRONLY, 420))))
+local made = assert(sys.open(stop, sys.O_CREAT | sys.O_WRONLY, 420))
+sys.close(made)
 for _, what in ipairs({ "chmod", "truncate" }) do
-  print(what .. " " .. counts[what].done .. " " .. counts[what].refused)
+  print(what .. " " .. tostring(counts[what .. " done"]) .. " " .. tostring(counts[what .. " refused"]))
 end
 ]==]
 
@@ -275,12 +296,12 @@ local function swapped_link_changes_nothing(tmp: string, policy?: Sandbox.Policy
   assert(Fs.write(plain, "text"))
   assert(sys.symlink(plain, link))
   local values = { LINK = link, PLAIN = plain, THROUGH = through, STOP = stop }
-  local env: {string: string} = {}
+  local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
   if policy ~= nil then policy.set_env = env end
   local opened = assert(sys.open(copy, sys.O_RDONLY))
-  local fds = { [slot] = opened, [core_slot] = relaunch.fds[core_slot] }
-  local flipping = assert(Child.start({ relaunch.argv[1], "--artifact", copy, "-e",
+  local fds = { [slot] = opened, [core_slot] = fd_of(relaunch, core_slot) }
+  local flipping = assert(Child.start({ program_of(relaunch), "--artifact", copy, "-e",
     filled(flipper, values) }, { env = env, fds = fds, stdin = "stream", stdout = "stream",
       stderr = "capture" }))
   local said = Stream.lines(assert(flipping.stdout_stream)):read()
@@ -289,7 +310,7 @@ local function swapped_link_changes_nothing(tmp: string, policy?: Sandbox.Policy
     error("the flipper did not start: " .. tostring(said) .. "\n" ..
         (ended ~= nil and tostring(ended.stderr) or why))
   end
-  local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e",
+  local result = assert(Child.run({ program_of(relaunch), "--artifact", copy, "-e",
     filled(caller, values) }, { env = policy == nil and env or nil, fds = fds, stdout = "capture",
       stderr = "capture", policy = policy, timeout_ns = Clock.seconds(7) }))
   if not Fs.exists(stop) then assert(Fs.write(stop, "")) end
@@ -304,7 +325,8 @@ local function swapped_link_changes_nothing(tmp: string, policy?: Sandbox.Policy
   assert(after.mode == before.mode, "a chmod through a swapped link reached the artifact:\n" .. out)
   for _, what in ipairs({ "chmod", "truncate" }) do
     local done, refused = out:match(what .. " (%d+) (%d+)\n")
-    assert(done ~= nil and tonumber(done) > 0 and tonumber(refused) > 0,
+    local met_done, met_refused = tonumber(done), tonumber(refused)
+    assert(met_done ~= nil and met_done > 0 and met_refused ~= nil and met_refused > 0,
       what .. " did not meet both ends of the link:\n" .. out)
   end
 end
@@ -323,15 +345,15 @@ local function test_a_link_swapped_after_the_check_changes_nothing_under_promise
   -- A root runner's policy child is a user of its own, which owns none of
   -- these: the test's directory is opened to it. The core, in a cache
   -- of the host's, is not this test's to chmod.
-  local core = sys.stat(relaunch.argv[1])
+  local core = sys.stat(program_of(relaunch))
   if sys.getuid() == 0 and (core == nil or core.mode & 5 ~= 5) then
-    Test.skip("the core " .. relaunch.argv[1] .. " is not open to the user a root runner's policy " ..
+    Test.skip("the core " .. program_of(relaunch) .. " is not open to the user a root runner's policy " ..
         "child runs as")
     return
   end
   searchable.share(searchable.open(tmp))
   swapped_link_changes_nothing(tmp, { promises = { "fattr" }, grants = {
-    { path = relaunch.argv[1], letters = "rx" }, { path = tmp, letters = "rwc" } } })
+    { path = program_of(relaunch), letters = "rx" }, { path = tmp, letters = "rwc" } } })
 end
 
 --- The source number alone does not protect rights: another open of
@@ -357,9 +379,9 @@ local function test_descriptor_receive_refuses_and_closes_an_artifact_alias(tmp:
   assert(Fs.write(copy, (assert(Fs.read((assert(Proc.executable())))))))
   assert(sys.chmod(copy, 493))
   local copy_fd = assert(sys.open(copy, sys.O_RDONLY))
-  local env: {string: string} = {}
+  local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
-  local fds: {integer: integer} = {}
+  local fds: mut {integer: integer} = {}
   for target, source in pairs(relaunch.fds) do fds[target] = source end
   local slot = math.tointeger(tonumber(env.COSMIC_PORTABLE_ARTIFACT_FD)) as integer
   fds[slot] = copy_fd
@@ -371,15 +393,11 @@ local function test_descriptor_receive_refuses_and_closes_an_artifact_alias(tmp:
   fds[file_slot], fds[channel_slot] = file, sender:fd()
   -- A start on a copied artifact retains a different inode. It can
   -- send this ordinary file; the original receiver must judge it again.
-  local chunk = string.format([==[
-local raw
-for _, searcher in ipairs(package.searchers) do
-  local loader, extra = searcher("cosmic.net")
-  if type(loader) == "function" and type(extra) == "table" then raw = extra break end
-end
-assert(raw.sendfds(%d, { %d }))
-]==], channel_slot, file_slot)
-  local child = assert(Child.start({ relaunch.argv[1], "--artifact", copy, "-e", chunk },
+  local words = test_child.words(tmp, "core.artifact_fd_tool_test", "send_file",
+    { tostring(channel_slot), tostring(file_slot) })
+  local argv: mut {string} = { program_of(relaunch), "--artifact", copy }
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
+  local child = assert(Child.start(argv,
     { env = env, fds = fds, stdout = "capture", stderr = "capture" }))
   assert(sys.close(file))
   assert(sys.close(copy_fd))

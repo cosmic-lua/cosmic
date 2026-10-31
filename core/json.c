@@ -19,6 +19,10 @@
  * it; objects carry none. */
 #define ARRAY_TYPE "cosmic.json.array"
 
+/* The mark of an array that may have holes, which encode writes as
+ * `null`; it is set only by `with_holes`, never by decode. */
+#define HOLES_TYPE "cosmic.json.array_with_holes"
+
 /* The stand-in a caller may ask decode to put where JSON says `null`,
  * and that encodes as `null`: a userdata, so indexing it by mistake
  * raises instead of answering nil. Held in the registry under this
@@ -954,6 +958,9 @@ struct encoding {
   /* Whether to lay the text out over lines, two spaces a level. */
   int pretty;
   int max_depth;
+  /* Whether to write every non-ASCII character as \uXXXX escapes, a
+   * surrogate pair above U+FFFF, so the text is ASCII throughout. */
+  int ascii;
   /* Why the value cannot be encoded, once it cannot. */
   char failure[160];
   /* Where. `out_of_memory` says the failure was not the value's, so no
@@ -1053,6 +1060,29 @@ static int put_string (struct encoding *e, const char *s, size_t n) {
   size_t start = 0;
   for (size_t i = 0; i < n; i++) {
     unsigned char c = (unsigned char)s[i];
+    if (e->ascii && c >= 0x80) {
+      /* [`is_utf8`] accepted the string, so the sequence is whole. */
+      if (put(e, s + start, i - start) < 0) return -1;
+      uint32_t code;
+      size_t extra = c >= 0xf0 ? 3 : c >= 0xe0 ? 2 : 1;
+      code = c & (0x3f >> extra);
+      for (size_t k = 1; k <= extra; k++) {
+        code = code << 6 | ((unsigned char)s[i + k] & 0x3f);
+      }
+      i += extra;
+      start = i + 1;
+      char escape[12];
+      enum { escape_length = 6 };
+      if (code >= 0x10000) {
+        uint32_t high = 0xd800 + ((code - 0x10000) >> 10);
+        code = 0xdc00 + ((code - 0x10000) & 0x3ff);
+        snprintf(escape, sizeof escape, "\\u%04x", (unsigned)high);
+        if (put(e, escape, escape_length) < 0) return -1;
+      }
+      snprintf(escape, sizeof escape, "\\u%04x", (unsigned)code);
+      if (put(e, escape, escape_length) < 0) return -1;
+      continue;
+    }
     if (c >= 0x20 && c != '"' && c != '\\') continue;
     if (put(e, s + start, i - start) < 0) return -1;
     start = i + 1;
@@ -1208,9 +1238,34 @@ static lua_Integer first_hole (lua_State *L, int idx, lua_Integer top) {
   return i;
 }
 
+/* The most holes an array that may have them writes as `null`: its
+ * highest key is no cost to make, so the bytes of a text could be many
+ * times the memory of the array it came from. */
+#define MAX_HOLES 1048576
+
+/* The array mark the table at `idx` carries: 1 for the array mark, 2 for
+ * that of an array that may have holes, 0 for neither. */
+static int array_mark (lua_State *L, int idx) {
+  int mark = 0;
+  if (lua_getmetatable(L, idx)) {
+    luaL_getmetatable(L, ARRAY_TYPE);
+    if (lua_rawequal(L, -1, -2)) {
+      mark = 1;
+    } else {
+      luaL_getmetatable(L, HOLES_TYPE);
+      if (lua_rawequal(L, -1, -3)) mark = 2;
+      lua_pop(L, 1);
+    }
+    lua_pop(L, 2);
+  }
+  return mark;
+}
+
 /* A table is an object when every key is a string, and an array when
  * every key is an integer from 1 up or it carries the array mark; an
- * empty unmarked table is an object. Anything else is refused. */
+ * empty unmarked table is an object. Anything else is refused. An array
+ * that may have holes is as long as its highest key and writes `null`
+ * at each position it holds nothing at. */
 static int put_table (struct encoding *e, int idx, int depth) {
   lua_State *L = e->L;
   if (depth >= e->max_depth) {
@@ -1221,12 +1276,8 @@ static int put_table (struct encoding *e, int idx, int depth) {
     return -1;
   }
   luaL_checkstack(L, 6, "JSON nests too deeply");
-  int marked = 0;
-  if (lua_getmetatable(L, idx)) {
-    luaL_getmetatable(L, ARRAY_TYPE);
-    marked = lua_rawequal(L, -1, -2);
-    lua_pop(L, 2);
-  }
+  int mark = array_mark(L, idx);
+  int marked = mark != 0;
   lua_Integer count = 0;
   lua_Integer strings = 0;
   lua_Integer top = 0;
@@ -1263,6 +1314,17 @@ static int put_table (struct encoding *e, int idx, int depth) {
     }
     return put_object(e, idx, count, depth);
   }
+  if (mark == 2 && top > 0) {
+    if (top - count > MAX_HOLES) {
+      snprintf(e->failure, sizeof e->failure,
+               "cannot encode an array with more than %d holes (its highest"
+               " key is %lld and it holds %lld items); use an object, or"
+               " fill the holes",
+               MAX_HOLES, (long long)top, (long long)count);
+      return -1;
+    }
+    return put_array(e, idx, top, depth);
+  }
   if (count == 0) return marked ? PUT_LITERAL(e, "[]") : PUT_LITERAL(e, "{}");
   if (top > count) {
     snprintf(e->failure, sizeof e->failure,
@@ -1298,8 +1360,8 @@ static int put_value (struct encoding *e, int idx, int depth) {
   }
 }
 
-/* encode(value, pretty?, max_depth?): `value` as JSON text, and "". nil and
- * a message when it holds something JSON cannot say. */
+/* encode(value, pretty?, max_depth?, ascii?): `value` as JSON text, and "".
+ * nil and a message when it holds something JSON cannot say. */
 static int json_encode (lua_State *L) {
   luaL_checkany(L, 1);
   struct encoding e;
@@ -1307,7 +1369,8 @@ static int json_encode (lua_State *L) {
   e.L = L;
   e.pretty = lua_toboolean(L, 2);
   e.max_depth = checked_depth(L, 3);
-  lua_settop(L, 3);
+  e.ascii = lua_toboolean(L, 4);
+  lua_settop(L, 4);
   lua_getfield(L, LUA_REGISTRYINDEX, NULL_KEY);
   e.null_index = lua_gettop(L);
   e.guard = cosmic_guard_push(L, cosmic_free);
@@ -1696,14 +1759,20 @@ static int json_array (lua_State *L) {
   return 1;
 }
 
-/* is_array(v): whether `v` is a table carrying the array mark. */
+/* with_holes(t, holey): marks `t`, which has no metatable, as an array
+ * that may have holes when `holey` is true and as an array otherwise,
+ * and answers it. */
+static int json_with_holes (lua_State *L) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  int holey = lua_toboolean(L, 2);
+  lua_settop(L, 1);
+  luaL_setmetatable(L, holey ? HOLES_TYPE : ARRAY_TYPE);
+  return 1;
+}
+
+/* is_array(v): whether `v` is a table carrying either array mark. */
 static int json_is_array (lua_State *L) {
-  int marked = 0;
-  if (lua_type(L, 1) == LUA_TTABLE && lua_getmetatable(L, 1)) {
-    luaL_getmetatable(L, ARRAY_TYPE);
-    marked = lua_rawequal(L, -1, -2);
-  }
-  lua_pushboolean(L, marked);
+  lua_pushboolean(L, lua_type(L, 1) == LUA_TTABLE && array_mark(L, 1) != 0);
   return 1;
 }
 
@@ -1716,11 +1785,15 @@ static const luaL_Reg module[] = {
   {"decode", json_decode},     {"encode", json_encode},
   {"check", json_check},       {"format", json_format},
   {"array", json_array},       {"is_array", json_is_array},
+  {"with_holes", json_with_holes},
   {NULL, NULL},
 };
 
 int cosmic_open_json (lua_State *L) {
   luaL_newmetatable(L, ARRAY_TYPE);
+  lua_pop(L, 1);
+
+  luaL_newmetatable(L, HOLES_TYPE);
   lua_pop(L, 1);
 
   lua_newuserdatauv(L, 0, 0);

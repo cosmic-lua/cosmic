@@ -2,9 +2,12 @@
 //! vendor trees bin/zig writes first (build/patch.tl).
 //!
 //!     bin/zig build cores     the core for all three targets
-//!     bin/zig build boot      all release cores, then the boot bridge
+//!     bin/zig build boot      the host's release core, then the boot bridge
+//!     bin/zig build boot -Dboot-cores=all
+//!                             every release core, then the boot bridge
 //!
-//! Everything lands under `o/`. Run it through [`bin/zig`], which pins the
+//! Everything lands in the install prefix bin/zig hands it: the build
+//! directory build/paths.tl names. Run it through [`bin/zig`], which pins the
 //! compiler and names zig's two caches, which every checkout shares
 //! (build/zig.tl): everything, vendored or the tree's own, compiles from
 //! copies in the project cache, so a checkout at a path no build has seen
@@ -45,7 +48,7 @@ comptime {
 const Target = struct {
     /// Stable identifier used by portable artifact records. Never renumber.
     id: u32,
-    /// The name the database and `o/bin/` use.
+    /// The name the database and the build directory's `bin/` use.
     name: []const u8,
     /// The pair printed by `uname -s` and `uname -m` on this target.
     uname_os: []const u8,
@@ -59,6 +62,9 @@ const Configuration = struct {
     name: []const u8,
     sanitize: bool,
 };
+
+/// The release cores a boot's tool carries (`-Dboot-cores`).
+const BootCores = enum { host, all };
 
 /// Whether a core observes its own C ([`core/coverage.c`]): not at all, or
 /// with sancov's per-block flags, once linked with an empty block-to-line
@@ -74,13 +80,34 @@ const release_configuration = Configuration{ .id = 1, .name = "release", .saniti
 const sanitized_configuration = Configuration{ .id = 2, .name = "sanitized", .sanitize = true };
 
 const targets = [_]Target{
+    // x86-64-v3 (AVX2, FMA, BMI1/2, F16C, LZCNT, MOVBE: Intel Haswell 2013,
+    // AMD Excavator 2015 or newer), not the architecture's baseline, so the
+    // numeric kernels compile to wide vectors and fused multiply-add with
+    // no runtime dispatch. The launcher refuses an older CPU by name
+    // ([`build/launcher.tl`]) instead of letting the core die with SIGILL.
     .{ .id = 1, .name = "x86_64-linux-musl", .uname_os = "Linux", .uname_arch = "x86_64", .query = .{
         .cpu_arch = .x86_64,
+        .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
         .os_tag = .linux,
         .abi = .musl,
     } },
+    // The aarch64 Linux core is built for Armv8.2-A with the dot-product
+    // and half-precision float extensions (Arm Cortex-A55 and A75, 2017,
+    // Neoverse N1, AWS Graviton2 or newer; not a Raspberry Pi 4 or an
+    // older core), so the int8 and fp16 kernels can use `sdot` and fp16
+    // vector arithmetic, and atomics are single LSE instructions, with no
+    // runtime dispatch. The launcher refuses an older CPU by name. The
+    // model is the generic one with the features added, not a named core
+    // such as cortex_a76: the code is then not scheduled for one chip.
+    // `v8_2a` brings in v8.1a (LSE atomics, rounding doubling multiply
+    // add, CRC32, PAN, VHE) and the 8.2 cache and RAS hints; `dotprod`
+    // and `fullfp16` are the optional 8.2 extensions this adds. The
+    // cryptographic extensions stay off, since they are optional.
+    // The aarch64 macOS core keeps the baseline, Apple M1.
     .{ .id = 2, .name = "aarch64-linux-musl", .uname_os = "Linux", .uname_arch = "aarch64", .query = .{
         .cpu_arch = .aarch64,
+        .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.generic },
+        .cpu_features_add = std.Target.aarch64.featureSet(&.{ .v8_2a, .dotprod, .fullfp16 }),
         .os_tag = .linux,
         .abi = .musl,
     } },
@@ -146,7 +173,8 @@ const own_warnings = [_][]const u8{
 /// the project cache's `cosmic-vendor/`, in their `assert` strings and
 /// type names. Each directory is named by its contents, so those paths
 /// are the same from every checkout at one cache path, which CI's is
-/// (COSMIC_ZIG_CACHE_SEED); a checkout's own `o/zig-cache` names that
+/// (COSMIC_ZIG_CACHE_SEED); a checkout's own `zig-cache`, in its build
+/// directory, names that
 /// checkout, as run-local's does.
 // TODO: compile musl's debug information with `.` for its directory,
 // or strip it alone, once zig's libc build takes our flags (zig 0.17
@@ -170,9 +198,9 @@ const own_c = [_][]const u8{ "-std=c11", debug_dir } ++ own_warnings;
 /// crypto subtree, the TLS and X.509 layer, curl's mbedtls backend and
 /// the core's own C -- is compiled with exactly these flags, so none of
 /// them can see a struct laid out differently from the one the library
-/// was built with. An edit to the header rebuilds every object that
-/// includes it: the compiler's dependency list, not the flag text, is
-/// what puts a header in a compile's cache key.
+/// was built with. Its directory is named by its contents, so an edit to
+/// it compiles again every file given that directory: mbedtls, curl and
+/// the core's own C ([`vendorLibraries`], [`core`]).
 const mbedtls_config = [_][]const u8{
     "-DTF_PSA_CRYPTO_CONFIG_FILE=\"mbedtls_cosmic_config.h\"",
     "-DMBEDTLS_CONFIG_FILE=\"mbedtls_cosmic_config.h\"",
@@ -182,9 +210,10 @@ const mbedtls_config = [_][]const u8{
 /// `library/`. Server-only (`ssl_tls12_server.c`, `ssl_tls13_server.c`),
 /// session-cache/ticket/cookie, DTLS, CRL and certificate-writing sources
 /// are left out: nothing here serves, resumes from a ticket, or signs.
+/// `ssl_msg.c`, which reads <arm_neon.h> where the rest do not, is listed
+/// beside them in [`vendorLibraries`].
 const mbedtls_tls_sources = [_][]const u8{
     "ssl_tls.c",
-    "ssl_msg.c",
     "ssl_ciphersuites.c",
     "ssl_client.c",
     "ssl_tls12_client.c",
@@ -432,6 +461,21 @@ const crypto_include_dirs = [_][]const u8{
     "platform",            "extras",
 };
 
+/// Those of [`crypto_include_dirs`] that hold the crypto library's public
+/// headers, all that curl and the core's own C read of it.
+const crypto_public_dirs = [_][]const u8{ "include", "drivers/builtin/include" };
+
+/// `names`, directories under `crypto`, the library's `tf-psa-crypto`.
+fn cryptoIncludes(
+    b: *std.Build,
+    crypto: std.Build.LazyPath,
+    comptime names: []const []const u8,
+) [names.len]std.Build.LazyPath {
+    var dirs: [names.len]std.Build.LazyPath = undefined;
+    for (&dirs, names) |*dir, name| dir.* = crypto.path(b, name);
+    return dirs;
+}
+
 const core_sources = [_][]const u8{
     "assertions.c",
     "boot.c",
@@ -454,6 +498,7 @@ const core_sources = [_][]const u8{
     "surface.c",
     "syscalls.c",
     "syscalls_fs.c",
+    "vector.c",
     "vfs.c",
     "main.c",
     "portable.c",
@@ -469,18 +514,25 @@ const core_sources = [_][]const u8{
 /// (ci/cosmic_ci/place_tree.tl). A copy sits in a directory named by
 /// its contents, so its path is the same from every checkout.
 ///
-/// Each source file is copied on its own, beside a copy of every header
-/// under core/, laid out as the tree is (`core/x.c` beside `core/x.h`): a
-/// quoted `#include` finds its neighbour first, as in the tree, and an
-/// edit to one file moves only that file's copy, so only its objects
-/// compile again. An edit to any header under core/ moves every copy, so
-/// every core object compiles again (a boot of 19 s locally, against 6 s
-/// after an edit to one .c file): a trade for copies that need no list of
-/// what each file includes. The headers alone are copied once more, the
-/// include directory a file outside core/ reads them from. Only core/'s
-/// own headers sit beside a copy: a quoted `#include` of a neighbouring
-/// .c file, or of a header in a directory under core/, would find nothing
-/// there and fail to compile. Debug information names the copy, which is
+/// Each source file is copied on its own, beside a copy of the headers it
+/// includes, directly or through another header, laid out as the tree is
+/// (`core/x.c` beside `core/x.h`): a quoted `#include` finds its neighbour
+/// first, as in the tree. An edit to a header moves the copy of exactly the
+/// files that include it, so only their objects compile again; the compiler
+/// itself records the headers an object read, so a copy that holds one it
+/// did not read costs nothing but the copy. A file outside core/ (test/...)
+/// names core/'s headers with no include path: the copy holds a header
+/// of that name beside it that includes core's, so nothing but the
+/// closure is a flag or a path. `closure` finds the headers by reading
+/// `#include` lines, whether or not a `#if` keeps them, so a copy holds
+/// at least what any configuration reads; a quoted name found neither
+/// beside the includer nor in core/ is a library's, which an include path
+/// of the library's own tree finds (and keys). [`closureChecks`] holds the
+/// scan to the compiler's own list, in `analyze`.
+///
+/// Only a quoted `#include` of a name is followed: one of a macro, a
+/// `..` path, or an angle-bracket name that is a header of core/ fails the
+/// build, naming the line. Debug information names the copy, which is
 /// there to read, and whose path ends in the tree's own (`.../core/x.c`):
 /// [`core/coverage_map.zig`] maps a line back to the tree by it. The
 /// checked core's sanitizer names the tree's `core/x.c` (`checked_flags`)
@@ -492,64 +544,177 @@ const core_sources = [_][]const u8{
 // would rewrite zig's output, `<cache>/o/<digest>/` to the tree's root.
 const Own = struct {
     b: *std.Build,
-    /// Every header directly under core/, by name, sorted.
-    headers: []const []const u8,
-    /// The headers' copy: the directory whose `core/` holds them.
-    header_root: std.Build.LazyPath,
     /// Each source file copied so far, by its path in the tree, to the
     /// directory holding its copy at that path. One copy per file, however
     /// many compiles read it: two steps writing one directory at once
     /// could hand a compile a file half written.
     roots: std.StringArrayHashMapUnmanaged(std.Build.LazyPath),
+    /// Each tree file `closure` read, by path: its text, or null where
+    /// there is no such file.
+    texts: std.StringHashMapUnmanaged(?[]const u8),
+    /// Each file's closure, by its path.
+    closures: std.StringHashMapUnmanaged(Closure),
+
+    /// The tree files a source file's copy holds, sorted: the file, and
+    /// each header it includes, however deep.
+    const Closure = struct {
+        files: []const []const u8,
+        /// A header beside a file outside core/ that includes core's of the
+        /// same name, for a name the file includes that only core/ holds.
+        forwards: []const Forward,
+    };
+
+    const Forward = struct {
+        /// The tree path the header sits at in the copy.
+        at: []const u8,
+        /// The core header it includes: a tree path.
+        target: []const u8,
+        /// `target` as the header names it, relative to its own directory.
+        relative: []const u8,
+    };
 
     fn init(b: *std.Build) *Own {
-        const io = b.graph.io;
-        // zig caches what build.zig configures, keyed by what it reads
-        // through the build API alone: a header added to core/ would
-        // otherwise go uncopied until something else moved the key.
-        b.dependOnDirectoryContents(b.path("core"));
-        var names: std.ArrayList([]const u8) = .empty;
-        var dir = b.root.openDir(io, "core", .{ .iterate = true }) catch |err| {
-            std.debug.print("build.zig: cannot open core/: {s}\n", .{@errorName(err)});
-            std.process.exit(1);
-        };
-        defer dir.close(io);
-        var it = dir.iterate();
-        while (it.next(io) catch |err| {
-            std.debug.print("build.zig: cannot list core/: {s}\n", .{@errorName(err)});
-            std.process.exit(1);
-        }) |entry| {
-            if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".h"))
-                names.append(b.allocator, b.graph.dupeString(entry.name)) catch @panic("OOM");
-        }
-        std.mem.sort([]const u8, names.items, {}, struct {
-            fn lessThan(_: void, x: []const u8, y: []const u8) bool {
-                return std.mem.lessThan(u8, x, y);
-            }
-        }.lessThan);
         const own = b.allocator.create(Own) catch @panic("OOM");
-        own.* = .{ .b = b, .headers = names.items, .header_root = undefined, .roots = .empty };
-        own.header_root = own.copyHeaders(b.addWriteFiles());
+        own.* = .{ .b = b, .roots = .empty, .texts = .empty, .closures = .empty };
         return own;
     }
 
-    fn copyHeaders(own: *Own, files: *std.Build.Step.WriteFile) std.Build.LazyPath {
+    /// The text of the tree's `path`, or null if there is none. zig caches
+    /// what build.zig configures, keyed by what it reads through the build
+    /// API alone: a file read is declared so that an edit to it, to an
+    /// include line above all, configures again, and a directory listed
+    /// so that a header added beside the includer, shadowing a library's,
+    /// does too.
+    fn text(own: *Own, path: []const u8) ?[]const u8 {
         const b = own.b;
-        for (own.headers) |name| {
-            const at = b.fmt("core/{s}", .{name});
-            _ = files.addCopyFile(b.path(at), at);
+        if (own.texts.get(path)) |found| return found;
+        const key = b.graph.dupeString(path);
+        const at = b.root.joinString(b.allocator, path) catch @panic("OOM");
+        const read: ?[]const u8 = std.Io.Dir.cwd().readFileAlloc(b.graph.io, at, b.allocator, .limited(1 << 24)) catch |err| switch (err) {
+            error.FileNotFound => null,
+            else => {
+                std.debug.print("build.zig: cannot read {s}: {s}\n", .{ path, @errorName(err) });
+                std.process.exit(1);
+            },
+        };
+        if (read != null) b.dependOnFileContents(b.path(path));
+        own.texts.put(b.allocator, key, read) catch @panic("OOM");
+        return read;
+    }
+
+    fn fail(path: []const u8, number: usize, comptime what: []const u8) noreturn {
+        std.debug.print("build.zig: {s}:{d}: " ++ what ++ "\n", .{ path, number });
+        std.process.exit(1);
+    }
+
+    /// The headers `path`, a C file of the tree, includes, as a closure.
+    fn closure(own: *Own, path: []const u8) Closure {
+        const b = own.b;
+        if (own.closures.get(path)) |found| return found;
+        var files: std.ArrayList([]const u8) = .empty;
+        var forwards: std.ArrayList(Forward) = .empty;
+        var seen: std.StringHashMapUnmanaged(void) = .empty;
+        files.append(b.allocator, b.graph.dupeString(path)) catch @panic("OOM");
+        seen.put(b.allocator, files.items[0], {}) catch @panic("OOM");
+        var next: usize = 0;
+        while (next < files.items.len) : (next += 1) {
+            const current = files.items[next];
+            const directory = std.fs.path.dirname(current) orelse "";
+            // Where a directory's listing matters: a header added beside
+            // the includer, or to core/, changes what a name finds.
+            b.dependOnDirectoryContents(b.path(if (directory.len == 0) "." else directory));
+            b.dependOnDirectoryContents(b.path("core"));
+            const source = own.text(current) orelse {
+                std.debug.print("build.zig: {s} is not a file of the tree\n", .{current});
+                std.process.exit(1);
+            };
+            var number: usize = 0;
+            var lines = std.mem.splitScalar(u8, source, '\n');
+            while (lines.next()) |line| {
+                number += 1;
+                var rest = std.mem.trimStart(u8, line, " \t");
+                if (!std.mem.startsWith(u8, rest, "#")) continue;
+                rest = std.mem.trimStart(u8, rest[1..], " \t");
+                if (!std.mem.startsWith(u8, rest, "include")) continue;
+                rest = rest["include".len..];
+                if (rest.len > 0 and (std.ascii.isAlphanumeric(rest[0]) or rest[0] == '_'))
+                    fail(current, number, "an `#include` directive other than include is not followed");
+                rest = std.mem.trimStart(u8, rest, " \t");
+                if (rest.len == 0) continue;
+                const close: u8 = switch (rest[0]) {
+                    '"' => '"',
+                    '<' => '>',
+                    else => fail(current, number, "an `#include` of a macro is not followed; name the header"),
+                };
+                const end = std.mem.indexOfScalarPos(u8, rest, 1, close) orelse
+                    fail(current, number, "an `#include` that does not close");
+                const name = rest[1..end];
+                if (std.mem.indexOf(u8, name, "..") != null)
+                    fail(current, number, "an `#include` with `..` is not followed");
+                const beside = if (directory.len == 0) name else b.fmt("{s}/{s}", .{ directory, name });
+                const in_core = b.fmt("core/{s}", .{name});
+                if (close == '>') {
+                    // A system name; but a header of core/ in angle
+                    // brackets would have been found in core/'s include path,
+                    // which a copy no longer has.
+                    if (own.text(in_core) != null)
+                        fail(current, number, "an angle-bracket `#include` of a header of core/; quote it");
+                    continue;
+                }
+                var found: ?[]const u8 = null;
+                if (own.text(beside) != null) {
+                    found = beside;
+                } else if (!std.mem.eql(u8, directory, "core") and own.text(in_core) != null) {
+                    found = in_core;
+                    var up: usize = 0;
+                    if (directory.len > 0) {
+                        up = 1;
+                        for (directory) |c| up += @intFromBool(c == '/');
+                    }
+                    var relative: std.ArrayList(u8) = .empty;
+                    for (0..up) |_| relative.appendSlice(b.allocator, "../") catch @panic("OOM");
+                    relative.appendSlice(b.allocator, in_core) catch @panic("OOM");
+                    for (forwards.items) |forward| {
+                        if (std.mem.eql(u8, forward.at, beside)) break;
+                    } else forwards.append(b.allocator, .{
+                        .at = b.graph.dupeString(beside),
+                        .target = b.graph.dupeString(in_core),
+                        .relative = relative.items,
+                    }) catch @panic("OOM");
+                }
+                const header = found orelse continue;
+                if (seen.contains(header)) continue;
+                const kept = b.graph.dupeString(header);
+                seen.put(b.allocator, kept, {}) catch @panic("OOM");
+                files.append(b.allocator, kept) catch @panic("OOM");
+            }
         }
-        return files.getDirectory();
+        std.mem.sort([]const u8, files.items, {}, lessThan);
+        std.mem.sort(Forward, forwards.items, {}, struct {
+            fn lessThan(_: void, x: Forward, y: Forward) bool {
+                return std.mem.lessThan(u8, x.at, y.at);
+            }
+        }.lessThan);
+        const done: Closure = .{ .files = files.items, .forwards = forwards.items };
+        own.closures.put(b.allocator, b.graph.dupeString(path), done) catch @panic("OOM");
+        return done;
+    }
+
+    fn lessThan(_: void, x: []const u8, y: []const u8) bool {
+        return std.mem.lessThan(u8, x, y);
     }
 
     /// The directory holding the copy of `path`, a C file of the tree,
-    /// at `path`, beside the headers' copies.
+    /// at `path`, beside the headers it includes.
     fn root(own: *Own, path: []const u8) std.Build.LazyPath {
         const b = own.b;
         if (own.roots.get(path)) |found| return found;
         const files = b.addWriteFiles();
-        _ = files.addCopyFile(b.path(path), path);
-        const copied = own.copyHeaders(files);
+        const closed = own.closure(path);
+        for (closed.files) |name| _ = files.addCopyFile(b.path(name), name);
+        for (closed.forwards) |forward|
+            _ = files.add(forward.at, b.fmt("#include \"{s}\"\n", .{forward.relative}));
+        const copied = files.getDirectory();
         own.roots.put(b.allocator, b.graph.dupeString(path), copied) catch @panic("OOM");
         return copied;
     }
@@ -557,12 +722,6 @@ const Own = struct {
     /// The copy of `path`, a C file of the tree, to compile.
     fn file(own: *Own, path: []const u8) std.Build.LazyPath {
         return own.root(path).path(own.b, path);
-    }
-
-    /// The include directory holding core/'s headers' copies, in place of
-    /// core/ itself.
-    fn include(own: *Own) std.Build.LazyPath {
-        return own.header_root.path(own.b, "core");
     }
 
     /// Each of `paths`, C files of the tree, added to `mod` from its copy.
@@ -581,19 +740,13 @@ pub fn build(b: *std.Build) void {
     // configuration headers the libraries read from core/ are copied here.
     // A checkout sharing another's zig cache then compiles none of vendor/
     // again.
-    const copies = b.addWriteFiles();
-    _ = copies.addCopyFile(b.path("core/ares_config.h"), "include/ares_config.h");
-    _ = copies.addCopyFile(b.path("core/curl_config.h"), "include/curl_config.h");
-    _ = copies.addCopyFile(b.path("core/mbedtls_cosmic_config.h"), "include/mbedtls_cosmic_config.h");
-    _ = copies.addCopyFile(b.path("core/xz_config/config.h"), "xz_config/config.h");
-    _ = copies.addCopyDirectory(b.path("core/darwin-compat"), "darwin-compat", .{});
-    const vendor_config = copies.getDirectory();
+    const config = configHeaders(b);
     const own = Own.init(b);
 
     const trees = patchedTrees(b);
     const lua = patched(b, trees, "lua");
     const sqlite = patched(b, trees, "sqlite");
-    const tl = patched(b, trees, "tl");
+    const sqlite_ext = patched(b, trees, "sqlite-ext");
     const miniz = patched(b, trees, "miniz");
     const mbedtls = patched(b, trees, "mbedtls");
     const bzip2 = patched(b, trees, "bzip2");
@@ -603,15 +756,14 @@ pub fn build(b: *std.Build) void {
     const curl = patched(b, trees, "curl");
     const yyjson = patched(b, trees, "yyjson");
 
-    // The patched copies land under o/vendor, which is where the boot
-    // bridge reads the Teal compiler from.
+    // The patched copies land in the build directory's vendor/.
     const vendored = b.step("vendor", "write the patched vendor trees");
     for ([_]struct { []const u8, std.Build.LazyPath }{
-        .{ "lua", lua },         .{ "sqlite", sqlite },
-        .{ "tl", tl },           .{ "miniz", miniz },
-        .{ "mbedtls", mbedtls }, .{ "bzip2", bzip2 },
-        .{ "xz", xz },           .{ "cares", cares },
-        .{ "curl", curl },       .{ "yyjson", yyjson },
+        .{ "lua", lua },       .{ "sqlite", sqlite },
+        .{ "miniz", miniz },   .{ "mbedtls", mbedtls },
+        .{ "bzip2", bzip2 },   .{ "xz", xz },
+        .{ "cares", cares },   .{ "curl", curl },
+        .{ "yyjson", yyjson }, .{ "sqlite-ext", sqlite_ext },
         .{ "zstd", zstd },
     }) |pair| {
         const install = b.addInstallDirectory(.{
@@ -622,8 +774,24 @@ pub fn build(b: *std.Build) void {
         vendored.dependOn(&install.step);
     }
 
+    // The compiler boot starts from: the Lua the pinned release writes for
+    // the seed's files ([`seedCompiler`]).
+    const seed = seedCompiler(b);
+
     const cores = b.step("cores", "build the core for every target");
-    const boot = b.step("boot", "build all release cores, then bridge into Teal");
+    const boot = b.step("boot", "build the host's release core (-Dboot-cores=all: every one), then bridge into Teal");
+    // A boot's tool carries the cores it is told to: the host's alone by
+    // default, which is all the edit, check and test loop of a checkout
+    // runs, or every release core (`-Dboot-cores=all`), which is what CI
+    // verifies and what a tool needs to make a portable program
+    // ([`build/embed.tl`]). A tool of the host's alone is the same portable
+    // artifact, with a placeholder script where each other core goes
+    // ([`build/boot.tl`]); every core is built by `cores` either way.
+    const boot_cores = b.option(
+        BootCores,
+        "boot-cores",
+        "which release cores the boot's tool carries: host (default) or all",
+    ) orelse .host;
     const portable_hook_cores = b.step(
         "portable-hook-cores",
         "build release and retained-artifact test fixture cores",
@@ -747,7 +915,6 @@ pub fn build(b: *std.Build) void {
         }),
     });
     own.add(environment_check.root_module, &.{ "core/environment.c", "core/environment_test.c" }, &own_c);
-    environment_check.root_module.addIncludePath(own.include());
     boot.dependOn(&b.addRunArtifact(environment_check).step);
 
     // Every core but the test fixtures observes its own C: a table from
@@ -763,11 +930,11 @@ pub fn build(b: *std.Build) void {
             .optimize = .debug,
         }),
     });
-    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .zstd = zstd, .cares = cares, .curl = curl, .yyjson = yyjson, .config = vendor_config };
+    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .sqlite_ext = sqlite_ext, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .zstd = zstd, .cares = cares, .curl = curl, .yyjson = yyjson, .config = config };
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
-        const vendor = vendorLibrary(b, t, release_configuration, resolved, sources);
+        const vendor = vendorLibraries(b, t, release_configuration, resolved, sources);
         const exe = observedCore(b, mapper, cores, t, release_configuration, resolved, sources, vendor);
         const out = b.addInstallFile(
             exe.getEmittedBin(),
@@ -783,22 +950,28 @@ pub fn build(b: *std.Build) void {
         portable_hook_cores.dependOn(&hooked_out.step);
 
         if (std.mem.eql(u8, t.name, hostName(b))) {
-            const bridge = b.addRunArtifact(exe);
-            bridge.addArg("--boot");
-            bridge.addDirectoryArg2(b.path("."), .{});
-            bridge.addDirectoryArg2(tl, .{});
-            bridge.addArg(t.name);
-            bridge.addFileArg2(target_records, .{});
-            bridge.addDirectoryArg2(
-                .{ .relative = .{ .base = .install_prefix, .sub_path = "" } },
-                .{ .make_absolute = true },
-            );
-            // The bridge reads every raw core and writes the database
-            // beside them, so it runs after both.
-            bridge.step.dependOn(cores);
+            // The boot's Teal half reads no core but this one, which is
+            // what runs it: staging, parsing and compiling wait on the
+            // vendored trees only. The other cores matter to the assembly
+            // alone, so they are not waited for here, and the work runs
+            // while they link. Both steps write the build directory, and
+            // [`bin/zig`] holds its rebuild lock around the whole of
+            // `zig build`, so they cannot race; the second depends on the
+            // first and so runs after it.
+            const all = boot_cores == .all;
+            const bridge = bootBridge(b, exe, target_records, seed, t.name, "--stage", all);
             bridge.step.dependOn(vendored);
-            bridge.has_side_effects = true;
-            boot.dependOn(&bridge.step);
+            // The assembly reads every raw core and the carried database
+            // beside them, and writes the tool last: a boot interrupted
+            // or failing before then leaves the previous tool, and the
+            // next boot stages again. A host-only boot reads the host's
+            // alone, which is all it waits for: it puts a placeholder
+            // where each other core goes ([`build/boot.tl`]), and the
+            // other cores are not built.
+            const assembly = bootBridge(b, exe, target_records, seed, t.name, "--assemble", all);
+            assembly.step.dependOn(&bridge.step);
+            assembly.step.dependOn(if (all) cores else &out.step);
+            boot.dependOn(&assembly.step);
         }
     }
 
@@ -849,7 +1022,7 @@ pub fn build(b: *std.Build) void {
     sanitized.dependOn(analyzed);
     const checked_target = hostTarget(b);
     const checked_host = baselineTarget(b, checked_target.query);
-    const checked_vendor = vendorLibrary(b, checked_target, sanitized_configuration, checked_host, sources);
+    const checked_vendor = vendorLibraries(b, checked_target, sanitized_configuration, checked_host, sources);
     const checked = observedCore(b, mapper, sanitized, checked_target, sanitized_configuration, checked_host, sources, checked_vendor);
     const checked_install = b.addInstallFile(
         checked.getEmittedBin(),
@@ -864,10 +1037,13 @@ pub fn build(b: *std.Build) void {
         checked_records,
         "sanitized/targets.tsv",
     );
+    // TODO: split this boot into a stage and an assembly as the release
+    // one is, once a cold `bin/zig build sanitized` shows the checked core
+    // linked well before the cores it waits for: nothing measures that yet.
     const checked_boot = b.addRunArtifact(checked);
     checked_boot.addArg("--boot");
     checked_boot.addDirectoryArg2(b.path("."), .{});
-    checked_boot.addDirectoryArg2(tl, .{});
+    checked_boot.addDirectoryArg2(seed, .{});
     checked_boot.addArg(checked_target.name);
     checked_boot.addFileArg2(target_records, .{});
     checked_boot.addDirectoryArg2(
@@ -890,6 +1066,87 @@ pub fn build(b: *std.Build) void {
     portable_hook_cores.dependOn(cores);
 
     b.getInstallStep().dependOn(cores);
+}
+
+/// What the seed step says when the pinned release refuses the seed's
+/// source: its own complaint, `file:line:column: message`, is above it.
+const seed_refused =
+    "build.zig: the pinned release could not compile the seed (see the file:line above). " ++
+    "If it names a syntax error, a file of build/seed.txt uses syntax the release in ci/cosmic-driver.pin " ++
+    "does not parse: move the pin to a release that parses it (doc/contributing.md, " ++
+    "\"moving the driver pin\"), or name a cosmic that does with COSMIC_BOOTSTRAP=<path>.";
+
+/// The seed boot builds its compiler from: a directory holding the Lua the
+/// pinned release ([`bin/cosmic-bootstrap`], which `COSMIC_BOOTSTRAP` can
+/// point at another cosmic) writes, with its `cosmic compile --grammar
+/// new`, for the files of [`build/seed.txt`]: [`build/seed.tl`] and what it
+/// requires. It is raw: the bridge loads it as the first-stage compiler and
+/// has that compile the same files again (core/bridge.lua's `bootstrap`),
+/// so what the tool carries never depends on this release's emitter.
+///
+/// The run is cached by zig: its inputs are the files it is given, the
+/// pin, which names the release, and [`bin/cosmic-bootstrap`]; so it runs
+/// again only when one of them changes, and a checkout that shares the
+/// zig cache finds the seed there. A stand-in named by `COSMIC_BOOTSTRAP`
+/// is an input too, by its contents.
+fn seedCompiler(b: *std.Build) std.Build.LazyPath {
+    const compile = b.addSystemCommand(&.{
+        "sh", "-c",
+        // Quiet unless it fails: a compile of the seed says, on every
+        // run, that it has type errors, which it is meant to (it is given
+        // no declarations). Only a refusal gets the hint: status 2 is
+        // `cosmic compile`'s for a command line or file it refuses.
+        "said=$(\"$@\" 2>&1) || { status=$?; printf '%s\\n' \"$said\" >&2; " ++
+            "[ \"$status\" -ne 2 ] || printf '%s\\n' \"$0\" >&2; exit \"$status\"; }",
+        seed_refused,
+    });
+    // The tree is the working directory and so the root the modules are
+    // named from: [`lang/flow.tl`] is [`lang.flow`].
+    compile.setCwd(b.path("."));
+    compile.addArgs(&.{ "bin/cosmic-bootstrap", "compile", "--grammar", "new", "-o" });
+    const out = compile.addOutputDirectoryArg("seed");
+    const listing = b.path("build/seed.txt");
+    const at = b.root.joinString(b.allocator, "build/seed.txt") catch @panic("OOM");
+    const text = std.Io.Dir.cwd().readFileAlloc(b.graph.io, at, b.allocator, .limited(1 << 16)) catch |err| {
+        std.debug.print("build.zig: cannot read build/seed.txt: {s}\n", .{@errorName(err)});
+        std.process.exit(1);
+    };
+    b.dependOnFileContents(listing);
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |name| {
+        if (name.len == 0) continue;
+        compile.addArg(name);
+        compile.addFileInput(b.path(name));
+    }
+    compile.addFileInput(listing);
+    compile.addFileInput(b.path("ci/cosmic-driver.pin"));
+    compile.addFileInput(b.path("bin/cosmic-bootstrap"));
+    if (b.graph.environ_map.get("COSMIC_BOOTSTRAP")) |stand_in| {
+        compile.addFileInput(.{ .cwd_relative = stand_in });
+    }
+    return out;
+}
+
+/// A run of the host core's `--boot` bridge in `mode`, `--stage` or
+/// `--assemble` ([`build/boot.tl`]), over the release targets alone, the
+/// cores of all of them where `all`, else the host's.
+fn bootBridge(b: *std.Build, exe: *std.Build.Step.Compile, target_records: std.Build.LazyPath, seed: std.Build.LazyPath, host: []const u8, mode: []const u8, all: bool) *std.Build.Step.Run {
+    const run = b.addRunArtifact(exe);
+    run.addArg("--boot");
+    run.addDirectoryArg2(b.path("."), .{});
+    run.addDirectoryArg2(seed, .{});
+    // `--host-only` leads the mode ([`build/boot.tl`]): the records are
+    // the same, but the cores are the host's alone.
+    if (!all) run.addArg("--host-only");
+    run.addArg(mode);
+    run.addArg(host);
+    run.addFileArg2(target_records, .{});
+    run.addDirectoryArg2(
+        .{ .relative = .{ .base = .install_prefix, .sub_path = "" } },
+        .{ .make_absolute = true },
+    );
+    run.has_side_effects = true;
+    return run;
 }
 
 fn targetRecord(b: *std.Build, target: Target, configuration: Configuration, name: []const u8) []const u8 {
@@ -944,7 +1201,6 @@ fn formatDecoder(
         .strip = optimize != .debug,
     });
     own.add(mod, &.{ "core/portable.c", "test/portable/format_test.c" }, &own_c);
-    mod.addIncludePath(own.include());
     mod.addCMacro(
         "COSMIC_PORTABLE_REQUIRED_TARGET_MASK",
         b.fmt("UINT64_C({d})", .{requiredTargetMask()}),
@@ -1036,39 +1292,11 @@ fn analyze(
     const extra = [_][]const u8{
         "entry.c", "startup_hook.c", "testing.c", "testing_checked.c",
     };
-    const crypto = sources.mbedtls.path(b, "tf-psa-crypto");
     for (core_sources ++ extra) |file| {
         // -S, not -c: `zig cc` would take the analyzer's report for an
         // object and try to link it; as assembly it is left alone.
         const run = b.addSystemCommand(&.{ b.graph.zig_exe, "cc", "-S", "--analyze", "-Xanalyzer", "-analyzer-werror" });
-        run.addArgs(&own_c);
-        // `zig cc` passes options the analyzer has no use for.
-        run.addArg("-Wno-unused-command-line-argument");
-        run.addArgs(&mbedtls_config);
-        run.addArgs(&.{
-            "-DLUA_USE_POSIX",
-            "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
-            "-DCOSMIC_TARGET_ID=1",
-            "-DCOSMIC_TARGET_NAME=\"analyze\"",
-            "-DCOSMIC_CONFIGURATION_ID=1",
-            "-DCOSMIC_CONFIGURATION_NAME=\"analyze\"",
-            b.fmt("-DCOSMIC_PORTABLE_REQUIRED_TARGET_MASK=UINT64_C({d})", .{requiredTargetMask()}),
-            b.fmt("-DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID={d}", .{release_configuration.id}),
-        });
-        run.addDirectoryArg2(sources.own.include(), .{ .prefix = "-I" });
-        run.addDirectoryArg2(sources.lua.path(b, "src"), .{ .prefix = "-I" });
-        run.addDirectoryArg2(sources.sqlite, .{ .prefix = "-I" });
-        run.addDirectoryArg2(sources.miniz, .{ .prefix = "-I" });
-        for (crypto_include_dirs) |dir| {
-            run.addDirectoryArg2(crypto.path(b, dir), .{ .prefix = "-I" });
-        }
-        run.addDirectoryArg2(sources.mbedtls.path(b, "include"), .{ .prefix = "-I" });
-        run.addDirectoryArg2(sources.bzip2, .{ .prefix = "-I" });
-        run.addDirectoryArg2(sources.xz.path(b, "src/liblzma/api"), .{ .prefix = "-I" });
-        run.addDirectoryArg2(sources.zstd.path(b, "lib"), .{ .prefix = "-I" });
-        run.addDirectoryArg2(sources.cares.path(b, "include"), .{ .prefix = "-I" });
-        run.addDirectoryArg2(sources.curl.path(b, "include"), .{ .prefix = "-I" });
-        run.addDirectoryArg2(sources.yyjson.path(b, "src"), .{ .prefix = "-I" });
+        addSyntaxFlags(b, run, sources);
         run.addArg("-o");
         _ = run.addOutputFileArg2(b.fmt("{s}.analysis", .{file}), .{});
         // The tree's own file, so a finding names it: a file argument's
@@ -1077,6 +1305,126 @@ fn analyze(
         run.addFileArg2(b.path(b.fmt("core/{s}", .{file})), .{});
         step.dependOn(&run.step);
     }
+    closureChecks(b, step, sources);
+}
+
+/// The flags the analyzer and the closure check read the tree's own C
+/// with: the warnings, defines and include directories a core is built
+/// with, but for the tree's own, which a file finds beside it.
+fn addSyntaxFlags(b: *std.Build, run: *std.Build.Step.Run, sources: Sources) void {
+    run.addArgs(&own_c);
+    // `zig cc` passes options the analyzer has no use for.
+    run.addArg("-Wno-unused-command-line-argument");
+    run.addArgs(&mbedtls_config);
+    run.addArgs(&.{
+        "-DLUA_USE_POSIX",
+        "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
+        "-DCOSMIC_TARGET_ID=1",
+        "-DCOSMIC_TARGET_NAME=\"analyze\"",
+        "-DCOSMIC_CONFIGURATION_ID=1",
+        "-DCOSMIC_CONFIGURATION_NAME=\"analyze\"",
+        b.fmt("-DCOSMIC_PORTABLE_REQUIRED_TARGET_MASK=UINT64_C({d})", .{requiredTargetMask()}),
+        b.fmt("-DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID={d}", .{release_configuration.id}),
+    });
+    run.addDirectoryArg2(sources.config.mbedtls, .{ .prefix = "-I" });
+    for (libraryIncludes(b, sources)) |dir| run.addDirectoryArg2(dir, .{ .prefix = "-I" });
+}
+
+/// Every C file of the tree a core, a check or a helper is built from.
+const closure_checked = [_][]const u8{
+    "core/entry.c",                       "core/startup_hook.c",
+    "core/testing.c",                     "core/testing_checked.c",
+    "core/coverage_map_empty.c",          "core/strnlen_test.c",
+    "core/environment_test.c",            "test/portable/format_test.c",
+    "test/portable/startup_hook.c",       "test/portable/launcher_payload.c",
+    "test/portable/launcher_socket_fd.c",
+};
+
+/// What a copy of a C file holds ([`Own`]) against what the compiler
+/// reads: `zig cc -MM` lists the headers of the tree a file includes, and
+/// each must be in the copy's closure, or the file would compile from a
+/// copy that lacks one -- an error where the header is missing, but a
+/// stale object where another header of the same name is found. It runs
+/// for the host's target and the other cores' (their `#if` branches keep
+/// different includes) and the checked core's defines, over every C file a
+/// core is built from.
+fn closureChecks(b: *std.Build, step: *std.Build.Step, sources: Sources) void {
+    const checker = b.addExecutable(.{
+        .name = "closure-check",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/closure_check.zig"),
+            .target = baselineHostTarget(b),
+            .optimize = .debug,
+        }),
+    });
+    const variants = [_]struct { name: []const u8, flags: []const []const u8 }{
+        .{ .name = "host", .flags = &.{} },
+        .{ .name = "aarch64-linux-musl", .flags = &.{ "-target", "aarch64-linux-musl" } },
+        .{ .name = "aarch64-macos", .flags = &.{ "-target", "aarch64-macos" } },
+        .{ .name = "checked", .flags = &.{ "-DCOSMIC_CHECKED", "-DLUAI_ASSERT", "-DLUA_USE_APICHECK" } },
+    };
+    var paths: std.ArrayList([]const u8) = .empty;
+    for (core_sources) |name| paths.append(b.allocator, b.fmt("core/{s}", .{name})) catch @panic("OOM");
+    paths.appendSlice(b.allocator, &closure_checked) catch @panic("OOM");
+    for (variants) |variant| for (paths.items) |path| {
+        const deps = b.addSystemCommand(&.{ b.graph.zig_exe, "cc", "-MM" });
+        deps.addArgs(variant.flags);
+        addSyntaxFlags(b, deps, sources);
+        // A file outside core/ finds core/'s headers as its copy does, by
+        // the header beside it that includes them. Each path of the tree
+        // is a lazy one, resolved where the tree is when the step runs: zig
+        // reuses a configured graph from another checkout (its key holds no
+        // build root), so a string naming the root would name that one.
+        if (!std.mem.startsWith(u8, path, "core/")) deps.addDirectoryArg2(b.path("core"), .{ .prefix = "-I", .make_absolute = true });
+        deps.addArg("-MF");
+        const list = deps.addOutputFileArg2(b.fmt("{s}-{s}.d", .{ variant.name, std.fs.path.basename(path) }), .{});
+        deps.addFileArg2(b.path(path), .{ .make_absolute = true });
+        // The headers it reads are no input of this step, so it asks again
+        // each run; the check below stands on the list.
+        deps.has_side_effects = true;
+        const check = b.addRunArtifact(checker);
+        check.addFileArg2(b.path(path), .{ .make_absolute = true });
+        check.addArg(path);
+        check.addFileArg2(list, .{});
+        check.addArgs(sources.own.closure(path).files);
+        step.dependOn(&check.step);
+    };
+}
+
+/// The configuration headers the vendored libraries read from core/, each
+/// copied into a directory of its own in the zig cache, named by its
+/// contents (see the head of `build`). A module's include directory is
+/// part of every compile's flags, so a directory holding more than a
+/// module needs moves that module's compiles when it changes.
+const ConfigHeaders = struct {
+    ares: std.Build.LazyPath,
+    curl: std.Build.LazyPath,
+    mbedtls: std.Build.LazyPath,
+    xz: std.Build.LazyPath,
+    darwin_compat: std.Build.LazyPath,
+};
+
+fn configHeaders(b: *std.Build) ConfigHeaders {
+    return .{
+        .ares = configFile(b, "core/ares_config.h"),
+        .curl = configFile(b, "core/curl_config.h"),
+        .mbedtls = configFile(b, "core/mbedtls_cosmic_config.h"),
+        .xz = configFile(b, "core/xz_config/config.h"),
+        .darwin_compat = darwinCompat(b).path(b, "darwin-compat"),
+    };
+}
+
+/// A directory holding the tree's `path`, a header, by its basename.
+fn configFile(b: *std.Build, path: []const u8) std.Build.LazyPath {
+    const copies = b.addWriteFiles();
+    _ = copies.addCopyFile(b.path(path), std.fs.path.basename(path));
+    return copies.getDirectory();
+}
+
+fn darwinCompat(b: *std.Build) std.Build.LazyPath {
+    const copies = b.addWriteFiles();
+    _ = copies.addCopyDirectory(b.path("core/darwin-compat"), "darwin-compat", .{});
+    return copies.getDirectory();
 }
 
 /// The vendored trees every core is built from.
@@ -1085,6 +1433,8 @@ const Sources = struct {
     own: *Own,
     lua: std.Build.LazyPath,
     sqlite: std.Build.LazyPath,
+    /// SQLite's own extensions, from its source tree's ext/misc/.
+    sqlite_ext: std.Build.LazyPath,
     miniz: std.Build.LazyPath,
     mbedtls: std.Build.LazyPath,
     bzip2: std.Build.LazyPath,
@@ -1095,7 +1445,7 @@ const Sources = struct {
     yyjson: std.Build.LazyPath,
     /// The configuration headers the libraries read from core/, copied
     /// into the zig cache (see the head of `build`).
-    config: std.Build.LazyPath,
+    config: ConfigHeaders,
 };
 
 /// A core that observes its own C: linked first with an empty block table
@@ -1111,19 +1461,18 @@ fn observedCore(
     configuration: Configuration,
     target: std.Build.ResolvedTarget,
     sources: Sources,
-    vendor: *std.Build.Step.Compile,
+    vendor: []const *std.Build.Step.Compile,
 ) *std.Build.Step.Compile {
     const first = core(b, target_record, configuration, target, sources, vendor, false, .first_link);
     const write_map = b.addRunArtifact(mapper);
     write_map.addArg("write");
     write_map.addFileArg2(first.getEmittedBin(), .{});
     const map = write_map.addOutputFileArg2("coverage_map.c", .{});
-    // Where each file the core observes was compiled from, and the
-    // headers' copy a file outside core/ reads.
+    // Where each file the core observes was compiled from: a copy holds
+    // the headers it includes.
     for (ownCoreFiles(b, configuration, false)) |path| {
         write_map.addDirectoryArg2(sources.own.root(path), .{});
     }
-    write_map.addDirectoryArg2(sources.own.header_root, .{});
     const second = core(b, target_record, configuration, target, sources, vendor, false, .{ .map = map });
     const check_map = b.addRunArtifact(mapper);
     check_map.addArg("check");
@@ -1133,18 +1482,26 @@ fn observedCore(
     return second;
 }
 
-/// The vendored libraries of one core, compiled once for a target and
-/// configuration and linked by every core built from them: both links of
-/// an observed core, and the test fixture's hooked core. They are never
-/// instrumented, and never carry debug information even where the core's
-/// own C does (a first link), so no core's build compiles them again.
-fn vendorLibrary(
+/// One vendored library of a core, a static library of its own, appended
+/// to `libraries`: the module its C is added to, with only the include
+/// directories `includes` names, in order. An include directory is a flag
+/// of every file of its module, and a configuration header's is named by
+/// the header's contents, so a library that does not read a header is not
+/// compiled again when it changes.
+///
+/// A library is a compile of its own rather than a module imported into
+/// one compile: zig 0.17 keys a compilation by its root module's include
+/// directories, not by those of the C-only modules it imports, so a
+/// library imported as a module would not be compiled again when its
+/// configuration header's directory moves.
+fn vendorPart(
     b: *std.Build,
-    target_record: Target,
+    libraries: *std.ArrayList(*std.Build.Step.Compile),
     configuration: Configuration,
     target: std.Build.ResolvedTarget,
-    sources: Sources,
-) *std.Build.Step.Compile {
+    name: []const u8,
+    includes: []const std.Build.LazyPath,
+) *std.Build.Module {
     const mod = b.createModule(.{
         .target = target,
         .optimize = coreOptimize(configuration),
@@ -1152,12 +1509,40 @@ fn vendorLibrary(
         .strip = !configuration.sanitize,
         .sanitize_c = if (configuration.sanitize) .full else .off,
     });
-    vendorIncludes(b, mod, target_record, sources);
-    // Last, as core/ is in the core's own module: c-ares, curl and mbedtls
-    // read their configuration headers from there.
-    mod.addIncludePath(sources.config.path(b, "include"));
+    for (includes) |dir| mod.addIncludePath(dir);
+    const lib = b.addLibrary(.{
+        .name = b.fmt("cosmic-{s}", .{name}),
+        .linkage = .static,
+        .root_module = mod,
+    });
+    // See the core's own, at the end of `core`.
+    lib.link_function_sections = true;
+    lib.link_data_sections = true;
+    libraries.append(b.allocator, lib) catch @panic("OOM");
+    return mod;
+}
+
+/// The vendored libraries of one core, compiled once for a target and
+/// configuration and linked by every core built from them: both links of
+/// an observed core, and the test fixture's hooked core. They are never
+/// instrumented, and never carry debug information even where the core's
+/// own C does (a first link), so no core's build compiles them again.
+/// Each is a library of its own ([`vendorPart`]), with the include
+/// directories it reads: an edit to core/curl_config.h compiles curl
+/// again, to core/ares_config.h c-ares, and to
+/// core/mbedtls_cosmic_config.h mbedtls and curl, which reads its headers.
+fn vendorLibraries(
+    b: *std.Build,
+    target_record: Target,
+    configuration: Configuration,
+    target: std.Build.ResolvedTarget,
+    sources: Sources,
+) []const *std.Build.Step.Compile {
+    var libraries: std.ArrayList(*std.Build.Step.Compile) = .empty;
+    const config = sources.config;
     const lua = sources.lua;
     const sqlite = sources.sqlite;
+    const sqlite_ext = sources.sqlite_ext;
     const miniz = sources.miniz;
     const mbedtls = sources.mbedtls;
     const bzip2 = sources.bzip2;
@@ -1166,11 +1551,12 @@ fn vendorLibrary(
     const cares = sources.cares;
     const curl = sources.curl;
     const yyjson = sources.yyjson;
+    const crypto = mbedtls.path(b, "tf-psa-crypto");
 
-    // zig starts a library's files in the order they are added, so the
-    // longest go first: SQLite's amalgamation is the longest single compile
-    // by far (over 20 s released, 80 s under the checked core's sanitizer),
-    // then yyjson. Added after Lua's, they would start late and finish last.
+    // The libraries' compiles run beside one another; the longest are
+    // added first, so they are not the last to start: SQLite's
+    // amalgamation is the longest single compile by far (over 20 s
+    // released, 80 s under the checked core's sanitizer), then yyjson.
     //
     // SQLite's compile-time configuration, as flags rather than a
     // configuration header: a flag is part of the compile's cache key,
@@ -1182,8 +1568,28 @@ fn vendorLibrary(
     // table and index costs in pages and bytes, which `cosmic db`
     // reports. `fts5` is on: it backs the shipped catalog, which an
     // uncaught error and `cosmic docs` search, and costs ~222 KB per raw
-    // core (three raw cores per portable artifact).
-    const sqlite_flags: []const []const u8 = &.{
+    // core (three raw cores per portable artifact). The math functions
+    // (`sqrt`, `ln`, `pow`, ...) and the percentile aggregates
+    // (`median`, `percentile`, ...) are on, which the bare amalgamation
+    // leaves out: about 12 KB per raw core on Linux, 17 KB on macOS. The
+    // `bytecode` and `tables_used` tables are on: what a statement compiles
+    // to, and which tables and indexes it opens, learned without running
+    // it, in about 4 KB. They compile what they are given, which applies a
+    // PRAGMA that changes a connection setting, so patch/sqlite/ keeps them
+    // from the views and triggers a database file holds. The R*Tree is on:
+    // an index of boxes and ranges, for which rows a box or a span
+    // overlaps, in about 44 KB per raw core (35 KB on macOS). SQLite's own
+    // fuzzcheck builds with it; OSS-Fuzz's SQLite target does not, so
+    // core/sqlite_functions_fuzz_test.tl damages trees here, and
+    // patch/sqlite/ bounds the check of a damaged one. `carray` is on: a
+    // table of the elements of a list a caller binds (core/sqlite.c), as
+    // in `x IN carray(?1)`. It reads only an array bound from C, which SQL
+    // cannot forge, and core/sqlite.c binds a copy. The ceiling on
+    // attached databases is SQLite's highest, 125, not its default of 10,
+    // so a connection can raise its limit past 10 (`handle:limit`);
+    // core/sqlite.c still opens each at 10. Past 30 SQLite keeps the set
+    // of databases a statement touches as a byte array, not a word.
+    const sqlite_flags = [_][]const u8{
         "-std=c11",
         debug_dir,
         "-DSQLITE_THREADSAFE=0",
@@ -1198,15 +1604,44 @@ fn vendorLibrary(
         "-DSQLITE_DEFAULT_WAL_SYNCHRONOUS=1",
         "-DSQLITE_LIKE_DOESNT_MATCH_BLOBS=1",
         "-DSQLITE_MAX_EXPR_DEPTH=0",
+        "-DSQLITE_MAX_ATTACHED=125",
         "-DSQLITE_USE_ALLOCA=1",
         "-DSQLITE_ENABLE_COLUMN_METADATA=1",
         "-DSQLITE_ENABLE_DBSTAT_VTAB=1",
         "-DSQLITE_ENABLE_FTS5=1",
+        "-DSQLITE_ENABLE_MATH_FUNCTIONS=1",
+        "-DSQLITE_ENABLE_PERCENTILE=1",
+        "-DSQLITE_ENABLE_BYTECODE_VTAB=1",
+        "-DSQLITE_ENABLE_RTREE=1",
+        "-DSQLITE_ENABLE_CARRAY=1",
     };
-    mod.addCSourceFiles(.{
+    vendorPart(b, &libraries, configuration, target, "sqlite", &.{sqlite}).addCSourceFiles(.{
         .root = sqlite,
         .files = &.{"sqlite3.c"},
-        .flags = sqlite_flags,
+        .flags = &sqlite_flags,
+    });
+
+    // SQLite's own extensions from ext/misc/, which core/sqlite.c
+    // registers on every handle it opens. Each is compiled as part of
+    // SQLite (SQLITE_CORE), so it calls SQLite directly rather than
+    // through a loader's table, under SQLite's own configuration.
+    // basexx.c holds base64.c and base85.c, which it includes, and
+    // compress.c calls miniz (patch/sqlite-ext/). csv.c reads CSV text or
+    // a file as a table, which cosmic.csv's `load` copies into a real one;
+    // patch/sqlite-ext/ holds it to the temp schema, so no database file
+    // names a file for it to read. They cost about 63 KB per raw core.
+    const sqlite_ext_misc = sqlite_ext.path(b, "ext/misc");
+    vendorPart(b, &libraries, configuration, target, "sqlite-ext", &.{ sqlite, sqlite_ext.path(b, "src"), miniz }).addCSourceFiles(.{
+        .root = sqlite_ext_misc,
+        .files = &.{
+            "basexx.c", "compress.c", "csv.c",    "decimal.c", "ieee754.c",
+            "regexp.c", "series.c",   "sha1.c",   "shathree.c", "totype.c",
+            "uint.c",   "uuid.c",
+        },
+        .flags = &(sqlite_flags ++ [_][]const u8{
+            "-DSQLITE_CORE=1",
+            "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
+        }),
     });
 
     // yyjson reads JSON for cosmic.json, and writes each number's
@@ -1214,8 +1649,9 @@ fn vendorLibrary(
     // compiled out: the incremental reader, file and FILE* I/O, and
     // JSON Pointer and Patch. The non-standard extensions stay, for
     // the JSON5 a caller asks for by name; every other read is RFC 8259.
-    mod.addCSourceFiles(.{
-        .root = yyjson.path(b, "src"),
+    const yyjson_src = yyjson.path(b, "src");
+    vendorPart(b, &libraries, configuration, target, "yyjson", &.{yyjson_src}).addCSourceFiles(.{
+        .root = yyjson_src,
         .files = &.{"yyjson.c"},
         .flags = &.{
             "-std=c11",
@@ -1251,8 +1687,9 @@ fn vendorLibrary(
     const lua_checked = lua_base ++ lua_checks;
     const lua_flags: []const []const u8 =
         if (configuration.sanitize) &lua_checked else &lua_base;
-    mod.addCSourceFiles(.{
-        .root = lua.path(b, "src"),
+    const lua_src = lua.path(b, "src");
+    vendorPart(b, &libraries, configuration, target, "lua", &.{lua_src}).addCSourceFiles(.{
+        .root = lua_src,
         .files = &lua_sources,
         .flags = lua_flags,
     });
@@ -1260,7 +1697,7 @@ fn vendorLibrary(
     // miniz reaches for fseeko/ftello, which are POSIX rather than C11.
     // Its zlib-compatible aliases are off: the core calls the mz_ names,
     // and the aliases are static wrappers every including file warns on.
-    mod.addCSourceFiles(.{
+    vendorPart(b, &libraries, configuration, target, "miniz", &.{miniz}).addCSourceFiles(.{
         .root = miniz,
         .files = &.{"miniz.c"},
         .flags = &.{
@@ -1282,7 +1719,7 @@ fn vendorLibrary(
     // nothing reachable calls BZ2_bzCompress. The K&R-flavored source predates
     // -Wall/-Wextra/-Werror by a wide margin, so it gets its own quiet
     // flag set rather than the core's.
-    mod.addCSourceFiles(.{
+    vendorPart(b, &libraries, configuration, target, "bzip2", &.{bzip2}).addCSourceFiles(.{
         .root = bzip2,
         .files = &.{
             "bzlib.c",   "blocksort.c", "compress.c",  "decompress.c",
@@ -1295,9 +1732,20 @@ fn vendorLibrary(
     // x86/arm64 BCJ filters, and the CRC-32/CRC-64/SHA-256 checks) --
     // see core/xz_config for why: the tree vendors no config.h of its
     // own, autoconf's usual job, so core/xz_config/config.h stands in
-    // for it, on an include path scoped to just these files.
+    // for it, on an include path of this library's alone.
     const xz_src = xz.path(b, "src");
-    mod.addCSourceFiles(.{
+    vendorPart(b, &libraries, configuration, target, "xz", &.{
+        config.xz,
+        xz_src.path(b, "common"),
+        xz_src.path(b, "liblzma/api"),
+        xz_src.path(b, "liblzma/common"),
+        xz_src.path(b, "liblzma/check"),
+        xz_src.path(b, "liblzma/lzma"),
+        xz_src.path(b, "liblzma/lz"),
+        xz_src.path(b, "liblzma/rangecoder"),
+        xz_src.path(b, "liblzma/delta"),
+        xz_src.path(b, "liblzma/simple"),
+    }).addCSourceFiles(.{
         .root = xz_src,
         .files = &.{
             "liblzma/check/check.c",
@@ -1345,7 +1793,7 @@ fn vendorLibrary(
     // No legacy formats (before v0.8, 2016), no tracing hooks (weak
     // symbols nothing defines), and xxhash's names under zstd's prefix,
     // as zstd's own makefile builds it.
-    mod.addCSourceFiles(.{
+    vendorPart(b, &libraries, configuration, target, "zstd", &.{zstd.path(b, "lib")}).addCSourceFiles(.{
         .root = zstd.path(b, "lib"),
         .files = &.{
             "common/entropy_common.c",
@@ -1384,8 +1832,23 @@ fn vendorLibrary(
     // [`mbedtls_config`]). The crypto files below are the ones that hold
     // code under that configuration; every other one compiles to nothing.
     const mbedtls_flags = [_][]const u8{ "-std=c11", debug_dir } ++ mbedtls_config;
-    const crypto = mbedtls.path(b, "tf-psa-crypto");
-    mod.addCSourceFiles(.{
+    // <arm_neon.h> is slow to parse, and on aarch64 nearly every file
+    // reads it. Only the files compiled with `mbedtls_flags` below use
+    // it; the rest leave it out (patch/mbedtls) and make the same
+    // objects. A call to mbedtls_xor() in one of them is a compile error,
+    // but NEON code behind MBEDTLS_HAVE_NEON_INTRINSICS would compile to
+    // its scalar path unnoticed.
+    // TODO: hold the list below to what the objects say, with a check
+    // that compiles each file without the header for both aarch64
+    // targets and refuses one whose object differs, run where the
+    // cores are built.
+    const mbedtls_flags_no_neon = mbedtls_flags ++ [_][]const u8{"-DCOSMIC_NO_NEON_HEADER"};
+    const mbedtls_part = vendorPart(b, &libraries, configuration, target, "mbedtls", &(cryptoIncludes(b, crypto, &crypto_include_dirs) ++ [_]std.Build.LazyPath{
+        mbedtls.path(b, "include"),
+        mbedtls.path(b, "library"),
+        config.mbedtls,
+    }));
+    mbedtls_part.addCSourceFiles(.{
         .root = crypto,
         .files = &.{
             "core/psa_crypto.c",
@@ -1398,9 +1861,7 @@ fn vendorLibrary(
             // Digests, MACs, and the PSA cipher and AEAD drivers.
             "drivers/builtin/src/md5.c",
             "drivers/builtin/src/sha1.c",
-            "drivers/builtin/src/sha256.c",
             "drivers/builtin/src/sha3.c",
-            "drivers/builtin/src/sha512.c",
             "drivers/builtin/src/psa_crypto_aead.c",
             "drivers/builtin/src/psa_crypto_cipher.c",
             "drivers/builtin/src/psa_crypto_ecp.c",
@@ -1425,20 +1886,16 @@ fn vendorLibrary(
             // Record protection. aesni.c holds the x86_64 AES-NI path
             // and aesce.c the Armv8 one; each is empty on the other
             // architecture. On aarch64, chacha20_neon.c holds the
-            // NEON-multiblock update() and is empty elsewhere.
-            "drivers/builtin/src/aes.c",
+            // NEON-multiblock update() and is empty elsewhere. Those two,
+            // aes.c, gcm.c and chacha20.c are in the NEON list below.
             "drivers/builtin/src/aesni.c",
-            "drivers/builtin/src/aesce.c",
-            "drivers/builtin/src/gcm.c",
-            "drivers/builtin/src/chacha20.c",
-            "drivers/builtin/src/chacha20_neon.c",
             "drivers/builtin/src/chachapoly.c",
             "drivers/builtin/src/poly1305.c",
             // Certificate public keys and the encodings under them.
-            "extras/md.c",
             "extras/pk.c",
             "extras/pkparse.c",
             "extras/pk_wrap.c",
+            "extras/pkwrite.c",
             "extras/pk_ecc.c",
             "extras/pk_rsa.c",
             "utilities/asn1parse.c",
@@ -1447,11 +1904,34 @@ fn vendorLibrary(
             "utilities/pem.c",
             "utilities/oid.c",
         },
+        .flags = &mbedtls_flags_no_neon,
+    });
+    // The files that read <arm_neon.h>: the NEON and Armv8 crypto
+    // intrinsics (aesce.c and chacha20_neon.c, and the Armv8 SHA paths
+    // of sha256.c and sha512.c), aes.c, which calls aesce.c's, and
+    // the callers of mbedtls_xor(), whose NEON path is the fast one.
+    mbedtls_part.addCSourceFiles(.{
+        .root = crypto,
+        .files = &.{
+            "drivers/builtin/src/aes.c",
+            "drivers/builtin/src/aesce.c",
+            "drivers/builtin/src/chacha20.c",
+            "drivers/builtin/src/chacha20_neon.c",
+            "drivers/builtin/src/gcm.c",
+            "drivers/builtin/src/sha256.c",
+            "drivers/builtin/src/sha512.c",
+            "extras/md.c",
+        },
         .flags = &mbedtls_flags,
     });
-    mod.addCSourceFiles(.{
+    mbedtls_part.addCSourceFiles(.{
         .root = mbedtls.path(b, "library"),
         .files = &mbedtls_tls_sources,
+        .flags = &mbedtls_flags_no_neon,
+    });
+    mbedtls_part.addCSourceFiles(.{
+        .root = mbedtls.path(b, "library"),
+        .files = &.{"ssl_msg.c"},
         .flags = &mbedtls_flags,
     });
 
@@ -1469,7 +1949,14 @@ fn vendorLibrary(
         "-DHAVE_CONFIG_H",   "-D_GNU_SOURCE",
         "-D_DEFAULT_SOURCE",
     };
-    mod.addCSourceFiles(.{
+    const cares_part = vendorPart(b, &libraries, configuration, target, "cares", &.{
+        cares.path(b, "include"),
+        cares.path(b, "src/lib"),
+        cares.path(b, "src/lib/include"),
+        config.ares,
+    });
+    if (target_record.query.os_tag == .macos) cares_part.addIncludePath(config.darwin_compat);
+    cares_part.addCSourceFiles(.{
         .root = cares.path(b, "src/lib"),
         .files = &cares_sources,
         .flags = &cares_flags,
@@ -1489,63 +1976,38 @@ fn vendorLibrary(
         "-DHAVE_CONFIG_H", "-DBUILDING_LIBCURL",
         "-D_GNU_SOURCE",   "-D_DEFAULT_SOURCE",
     } ++ mbedtls_config;
-    mod.addCSourceFiles(.{
+    vendorPart(b, &libraries, configuration, target, "curl", &(cryptoIncludes(b, crypto, &crypto_public_dirs) ++ [_]std.Build.LazyPath{
+        mbedtls.path(b, "include"),
+        cares.path(b, "include"),
+        curl.path(b, "lib"),
+        curl.path(b, "include"),
+        config.curl,
+        config.mbedtls,
+    })).addCSourceFiles(.{
         .root = curl.path(b, "lib"),
         .files = &curl_sources,
         .flags = &curl_flags,
     });
-
-    const lib = b.addLibrary(.{
-        .name = "cosmic-vendor",
-        .linkage = .static,
-        .root_module = mod,
-    });
-    // See the core's own, at the end of `core`.
-    lib.link_function_sections = true;
-    lib.link_data_sections = true;
-    return lib;
+    return libraries.items;
 }
 
-/// Every include directory of the vendored libraries: the library's own
-/// compile reads them, and so does the core's C, which calls into them.
-fn vendorIncludes(
-    b: *std.Build,
-    mod: *std.Build.Module,
-    target_record: Target,
-    sources: Sources,
-) void {
-    mod.addIncludePath(sources.lua.path(b, "src"));
-    mod.addIncludePath(sources.sqlite);
-    mod.addIncludePath(sources.miniz);
-    mod.addIncludePath(sources.yyjson.path(b, "src"));
-    mod.addIncludePath(sources.bzip2);
-    // xz's own config.h stands in for autoconf's; see [`vendorLibrary`].
-    const xz_src = sources.xz.path(b, "src");
-    mod.addIncludePath(sources.config.path(b, "xz_config"));
-    mod.addIncludePath(sources.xz.path(b, "src/common"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/api"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/common"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/check"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/lzma"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/lz"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/rangecoder"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/delta"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/simple"));
-    mod.addIncludePath(sources.zstd.path(b, "lib"));
-    const crypto = sources.mbedtls.path(b, "tf-psa-crypto");
-    for (crypto_include_dirs) |dir| {
-        mod.addIncludePath(crypto.path(b, dir));
-    }
-    mod.addIncludePath(sources.mbedtls.path(b, "include"));
-    mod.addIncludePath(sources.mbedtls.path(b, "library"));
-    mod.addIncludePath(sources.cares.path(b, "include"));
-    mod.addIncludePath(sources.cares.path(b, "src/lib"));
-    mod.addIncludePath(sources.cares.path(b, "src/lib/include"));
-    if (target_record.query.os_tag == .macos) {
-        mod.addIncludePath(sources.config.path(b, "darwin-compat"));
-    }
-    mod.addIncludePath(sources.curl.path(b, "lib"));
-    mod.addIncludePath(sources.curl.path(b, "include"));
+/// The include directories of the vendored libraries' public headers, which
+/// the core's own C reads to call into them, in the order a name is looked
+/// up. mbedtls's configuration header is not among them ([`core`]).
+fn libraryIncludes(b: *std.Build, sources: Sources) [crypto_public_dirs.len + 10]std.Build.LazyPath {
+    return [_]std.Build.LazyPath{
+        sources.lua.path(b, "src"),
+        sources.sqlite,
+        sources.miniz,
+        sources.yyjson.path(b, "src"),
+        sources.bzip2,
+        sources.xz.path(b, "src/liblzma/api"),
+        sources.zstd.path(b, "lib"),
+    } ++ cryptoIncludes(b, sources.mbedtls.path(b, "tf-psa-crypto"), &crypto_public_dirs) ++ [_]std.Build.LazyPath{
+        sources.mbedtls.path(b, "include"),
+        sources.cares.path(b, "include"),
+        sources.curl.path(b, "include"),
+    };
 }
 
 /// The tree's own C files a core compiles, in order, before its block
@@ -1576,7 +2038,7 @@ fn core(
     configuration: Configuration,
     target: std.Build.ResolvedTarget,
     sources: Sources,
-    vendor: *std.Build.Step.Compile,
+    vendor: []const *std.Build.Step.Compile,
     portable_startup_test_hooks: bool,
     native_coverage: NativeCoverage,
 ) *std.Build.Step.Compile {
@@ -1587,13 +2049,48 @@ fn core(
         // The release cores are stripped. The checked core keeps its debug
         // information; [`debug_dir`] and the map's `-g0` keep it naming no
         // path of the build, so it too is the same bytes at any path.
-        // A first link keeps its debug information for the block map to
-        // read; it is never installed.
-        .strip = !configuration.sanitize and native_coverage != .first_link,
+        // A first link is stripped here too, though it keeps its debug
+        // information (see `empty_map` below): zig 0.17 builds a link's
+        // libc and compiler-rt stripped exactly when its root module is
+        // (Compilation.compilerRtStrip), so both links of a core share
+        // one build of them rather than building each twice.
+        .strip = !configuration.sanitize,
         .sanitize_c = if (configuration.sanitize) .full else .off,
     });
-    vendorIncludes(b, mod, target_record, sources);
-    mod.linkLibrary(vendor);
+    // The module the first link's empty block table is compiled in. For a
+    // release core it is an unstripped module of its own, and that alone
+    // keeps the link's debug information: zig 0.17 turns its global debug
+    // format to DWARF when any module is unstripped (Compilation/Config.zig
+    // `any_non_stripped`), which gives the core's own C its `-g` and keeps
+    // the DWARF through the link. It needs a source to be linked at all,
+    // and the table is that source; being data, it adds no block. Were
+    // zig to change this, the table's symbols would be missing from the
+    // link, or `coverage-map write` would fail for want of DWARF.
+    // TODO: drop this module once zig keys the libc and compiler-rt it
+    // builds for a link by something other than the root module's strip,
+    // or keeps debug information under a setting of its own: each would
+    // let the first link be unstripped at the root again. Until then a
+    // zig that again built libc once per strip would only slow a cold
+    // build, which nothing here notices.
+    var empty_map = mod;
+    if (native_coverage == .first_link and !configuration.sanitize) {
+        empty_map = b.createModule(.{ .target = target, .strip = false });
+        mod.addImport("debug_info", empty_map);
+    }
+    for (libraryIncludes(b, sources)) |dir| mod.addIncludePath(dir);
+    // mbedtls's headers name the library's configuration header, which is
+    // not beside them. Only it: an edit to any other header of core/ is no
+    // flag of this module, and moves no object it does not include.
+    // TODO: give the header's directory only to the files that include
+    // mbedtls's headers, in a module of their own, once zig keys a
+    // compilation by the include directories of a C-only module it imports
+    // (zig 0.17 keys only the root module's; see [`vendorPart`]): an edit
+    // to the header compiles every file of the core again, where only
+    // those read it.
+    mod.addIncludePath(sources.config.mbedtls);
+    // As archives, not `linkLibrary`, which would add each library's (empty)
+    // tree of installed headers to the include path of every file here.
+    for (vendor) |library| mod.addObjectFile(library.getEmittedBin());
 
     // The core sees the library through the same configuration it was
     // built with, or the headers would describe another library.
@@ -1622,7 +2119,6 @@ fn core(
         .first_link, .map => if (configuration.sanitize) &checked_observed_flags else &observed_flags,
     };
     sources.own.add(mod, ownCoreFiles(b, configuration, portable_startup_test_hooks), own_flags);
-    mod.addIncludePath(sources.own.include());
 
     mod.addCMacro("COSMIC_TARGET_ID", b.fmt("{d}", .{target_record.id}));
     mod.addCMacro("COSMIC_TARGET_NAME", b.fmt("\"{s}\"", .{target_record.name}));
@@ -1635,7 +2131,7 @@ fn core(
     // same order: the table is data and adds none.
     switch (native_coverage) {
         .off => {},
-        .first_link => sources.own.add(mod, &.{"core/coverage_map_empty.c"}, &.{ "-std=c11", debug_dir }),
+        .first_link => sources.own.add(empty_map, &.{"core/coverage_map_empty.c"}, &.{ "-std=c11", debug_dir }),
         // No debug information for the generated map: it is data, and its
         // file's name is its zig-cache output directory, new on every
         // relink, which would move the checked core's bytes with it.
@@ -1682,17 +2178,26 @@ fn baselineHostTarget(b: *std.Build) std.Build.ResolvedTarget {
     });
 }
 
-/// `query` resolved, refusing a CPU other than its architecture's baseline:
-/// a host tool's bytes key the build's cache, and the checked core runs on
-/// runners other than the one that built it.
+/// `query` resolved, refusing a CPU other than the one it declares: the
+/// architecture's baseline where it names no model, else the explicit model
+/// (the x86-64-v3 of the shipped x86_64 target, which the checked core is
+/// built for) with at least the features it adds (the Armv8.2-A extensions
+/// of the aarch64 Linux target). A host tool's bytes key the build's cache, and the checked
+/// core runs on runners other than the one that built it, so a CPU detected
+/// on this machine (`.native`) must never resolve here.
 fn baselineTarget(b: *std.Build, query: std.Target.Query) std.Build.ResolvedTarget {
     const resolved = b.resolveTargetQuery(query);
-    const expected = std.Target.Cpu.Model.baseline(
-        resolved.result.cpu.arch,
-        resolved.result.os,
-    );
+    const expected = switch (query.cpu_model) {
+        .explicit => |model| model,
+        else => std.Target.Cpu.Model.baseline(
+            resolved.result.cpu.arch,
+            resolved.result.os,
+        ),
+    };
     if (resolved.result.cpu.model != expected)
-        @panic("a host tool or the checked core resolved a CPU other than the baseline");
+        @panic("a host tool or the checked core resolved a CPU other than the one it declares");
+    if (!resolved.result.cpu.features.isSuperSetOf(query.cpu_features_add))
+        @panic("a host tool or the checked core resolved a CPU without the features it declares");
     return resolved;
 }
 

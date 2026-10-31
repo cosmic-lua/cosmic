@@ -31,13 +31,18 @@ local record layout
 end
 
 local type Token = c_tokens.Token
+
+--- The token at `position` of `tokens`, a position the caller's loop keeps within them.
+local function token_at(tokens: {Token}, position: integer): Token
+  return (assert(tokens[position], "a position is within the tokens"))
+end
 local lex = c_tokens.lex
 
 --- What a token says, whitespace aside: a comment's lines without their
 --- indentation or trailing blanks, since moving a comment moves its lines.
 local function meaning(t: Token): string
   if t.kind ~= "comment" then return t.text end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in String.lines(t.text) do
     lines[#lines + 1] = (line:gsub("^[ \t]+", ""):gsub("[ \t]+$", ""))
   end
@@ -49,7 +54,7 @@ end
 --- they are not.
 function layout.same(a: string, b: string): boolean, string
   local function significant(s: string): {Token}
-    local out: {Token} = {}
+    local out: mut {Token} = {}
     for _, t in ipairs(lex(s)) do
       if t.kind ~= "space" and t.kind ~= "newline" then out[#out + 1] = t end
     end
@@ -59,7 +64,7 @@ function layout.same(a: string, b: string): boolean, string
   for i = 1, math.max(#x, #y) do
     local p, q = x[i], y[i]
     if p == nil or q == nil or p.kind ~= q.kind or meaning(p) ~= meaning(q) then
-      return false, "token " .. i .. ": " .. (p and p.text or "<end>") .. " became " ..
+      return false, "token " .. tostring(i) .. ": " .. (p and p.text or "<end>") .. " became " ..
         (q and q.text or "<end>")
     end
   end
@@ -74,13 +79,13 @@ local keywords: {string: boolean} = {
 
 --- A line of tokens, with what the layout needs to know of it.
 local record Line
-  tokens: {Token}
+  tokens: mut {Token}
   --- The tokens past the indentation that are neither space nor comment.
-  code: {Token}
+  code: mut {Token}
 end
 
 local function lines_of(tokens: {Token}): {Line}
-  local out: {Line} = {}
+  local out: mut {Line} = {}
   local current: Line = { tokens = {}, code = {} }
   for _, t in ipairs(tokens) do
     if t.kind == "newline" then
@@ -119,7 +124,7 @@ end
 --- rather than a block of statements. `cast` is what came before the `(`
 --- that `before` closes, when it is a `)`: `= (struct t){` is a compound
 --- literal's entries, `if (x) {` a block.
-local function opens_entries(before: Token, before2: Token, cast: Token): boolean
+local function opens_entries(before: Token?, before2: Token?, cast: Token?): boolean
   if before == nil then return false end
   local t = before.text
   if t == ")" then
@@ -137,10 +142,10 @@ local function laid_out(source: string): string
   -- A definition's name, which takes a space before its parameters: at
   -- file scope, after a type, before a `(` whose close is followed by a
   -- body, a `;`, or an attribute.
-  local spaced: {Token: boolean} = {}
+  local spaced: mut {Token: boolean} = {}
   do
     local depth, parens = 0, 0
-    local prev, prev2: Token, Token
+    local prev, prev2: Token?, Token?
     for i, t in ipairs(tokens) do
       if t.kind == "punct" or t.kind == "word" or t.kind == "literal" then
         if t.text == "{" then
@@ -149,13 +154,13 @@ local function laid_out(source: string): string
           depth = depth - 1
         elseif t.text == "(" then
           if depth == 0 and parens == 0 and prev ~= nil and prev.kind == "word" and
-              not keywords[prev.text] and prev2 ~= nil and
+              keywords[prev.text] ~= true and prev2 ~= nil and
               (prev2.kind == "word" or prev2.text == "*") and
               tokens[i - 1] == prev then
             -- Find the close, then what follows it.
             local level, j = 0, i
             while j <= #tokens do
-              local u = tokens[j]
+              local u = token_at(tokens, j)
               if u.text == "(" then
                 level = level + 1
               elseif u.text == ")" then
@@ -165,11 +170,13 @@ local function laid_out(source: string): string
               j = j + 1
             end
             j = j + 1
-            while tokens[j] ~= nil and (tokens[j].kind == "space" or tokens[j].kind == "newline" or
-                tokens[j].kind == "comment") do
+            local skipped = tokens[j]
+            while skipped ~= nil and (skipped.kind == "space" or skipped.kind == "newline" or
+                skipped.kind == "comment") do
               j = j + 1
+              skipped = tokens[j]
             end
-            local after = tokens[j]
+            local after = skipped
             if after ~= nil and (after.text == "{" or after.text == ";" or after.kind == "word") then
               spaced[prev] = true
             end
@@ -183,36 +190,38 @@ local function laid_out(source: string): string
     end
   end
 
-  local out: {string} = {}
-  local stack: {boolean} = {} -- true for a list of entries
+  local out: mut {string} = {}
+  local stack: mut {boolean} = {} -- true for a list of entries
   local parens = 0
   -- What came before each open parenthesis, and before the last closed.
-  local opened: {Token} = {}
-  local cast: Token
+  local opened: mut {Token} = {}
+  local cast: Token?
   local ends = true
   local delta = 0
   local blanks = 0
-  local prev, prev2: Token, Token
+  local prev, prev2: Token?, Token?
   for _, line in ipairs(lines_of(tokens)) do
     local toks = line.tokens
     local first = 1
     local indent = ""
-    if toks[1] ~= nil and toks[1].kind == "space" then
-      indent = toks[1].text
+    local head = toks[1]
+    if head ~= nil and head.kind == "space" then
+      indent = head.text
       first = 2
     end
-    if toks[first] == nil then
+    local lead = toks[first]
+    if lead == nil then
       blanks = blanks + 1
       if blanks <= 2 then out[#out + 1] = "" end
     else
       blanks = 0
-      local lead = toks[first]
+      local code_head = line.code[1]
       local at: integer
       if lead.kind == "directive" then
         at = width(indent)
-      elseif (ends and parens == 0) or line.code[1] == lead and lead.text == "}" then
+      elseif (ends and parens == 0) or code_head == lead and lead.text == "}" then
         local depth = #stack
-        if line.code[1] ~= nil and line.code[1].text == "}" and lead == line.code[1] then
+        if code_head ~= nil and code_head.text == "}" and lead == code_head then
           depth = depth - 1
         end
         at = 2 * math.max(depth, 0)
@@ -220,24 +229,25 @@ local function laid_out(source: string): string
       else
         at = math.max(width(indent) + delta, 0)
       end
-      local parts: {string} = { string.rep(" ", at) }
+      local parts: mut {string} = { string.rep(" ", at) }
       for k = first, #toks do
-        local t = toks[k]
+        local t = token_at(toks, k)
         local text = t.text
+        local following = toks[k + 1]
         if t.kind == "comment" then text = shifted(text, at - width(indent)) end
-        if spaced[t] and toks[k + 1] ~= nil and toks[k + 1].text == "(" then
+        if spaced[t] == true and following ~= nil and following.text == "(" then
           text = text .. " "
           -- What continues the parameters is lined up under them, unless
           -- they begin on a line of their own at an indent of their own.
-          if line.code[#line.code] ~= toks[k + 1] then delta = delta + 1 end
+          if line.code[#line.code] ~= following then delta = delta + 1 end
         end
         parts[#parts + 1] = text
       end
       out[#out + 1] = (table.concat(parts):gsub("[ \t]+$", ""))
 
       if lead.kind ~= "directive" then
-        local label = line.code[1] ~= nil and
-          (line.code[1].text == "case" or line.code[1].text == "default")
+        local label = code_head ~= nil and
+          (code_head.text == "case" or code_head.text == "default")
         for _, t in ipairs(line.code) do
           if t.text == "{" then
             stack[#stack + 1] = opens_entries(prev, prev2, cast)
@@ -245,7 +255,7 @@ local function laid_out(source: string): string
             stack[#stack] = nil
           elseif t.text == "(" or t.text == "[" then
             parens = parens + 1
-            opened[#opened + 1] = prev
+            if prev ~= nil then opened[#opened + 1] = prev end
           elseif t.text == ")" or t.text == "]" then
             parens = parens - 1
             cast = opened[#opened]
@@ -269,7 +279,7 @@ end
 
 --- `source`, a C file, laid out; or nil and why, when the layout would
 --- change more than whitespace or is not a fixed point.
-function layout.rendered(source: string): string | nil, string
+function layout.rendered(source: string): string?, string
   local out = laid_out(source)
   local same, difference = layout.same(source, out)
   if not same then

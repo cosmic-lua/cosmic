@@ -14,7 +14,8 @@ Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 local function test_a_run_captures_a_verbs_output(tmp: string)
   local verb = invoke.run({ "help", "sql" }, { cwd = tmp })
   assert(verb.code == 0, verb.stderr)
-  assert(verb.stdout:match("help: PASS [^\n]*\n$"), verb.stdout)
+  assert(verb.stdout:find("cosmic sql", 1, true), verb.stdout)
+  assert(verb.stderr:match("^help: 1 verb, %d+ ms\n$"), verb.stderr)
 end
 
 --- The working directory and environment asked for are the run's, only
@@ -29,7 +30,7 @@ local function test_a_run_has_its_own_directory_environment_and_store(tmp: strin
     local Store = require("cosmic.store")
     local sys = require("cosmic.sys")
     print(assert(sys.getcwd()))
-    print(Env.get("INVOKE_GIVEN"), Env.all().INVOKE_GIVEN, Env.get("HOME"))
+    print(Env.get("INVOKE_GIVEN"), Env.all()["INVOKE_GIVEN"], Env.get("HOME"))
     print(#Store.databases())
   ]] }, { cwd = tmp, env = { INVOKE_GIVEN = "yes" } })
   assert(result.code == 0, result.stderr)

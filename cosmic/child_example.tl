@@ -7,6 +7,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
+local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -28,20 +29,20 @@ local Example = {}
 --- round asks whether one came, and leaving the guard's scope delivers
 --- it again once every child is gone.
 function Example.guard()
-  local guard <close> = assert(Child.guard())
+  local guard <close> = assert(Signal.guard())
   -- This program again, past its launcher, each child exiting with its i.
   local again = assert(Proc.relaunch())
-  local running: {Child.Handle} = {}
+  local running: mut {Child.Handle} = {}
   for i = 1, 3 do
     local argv = { table.unpack(again.argv) }
     argv[#argv + 1] = "-e"
     argv[#argv + 1] = "return " .. tostring(i)
-    running[i] = assert(Child.start(argv, { env = again.env, fds = again.fds }))
+    table.insert(running, (assert(Child.start(argv, { env = again.env, fds = again.fds }))))
   end
   while #running > 0 and guard:cancelled() == 0 do
     local done, trouble = Child.wait_any(running, Clock.ms(100))
     if done == nil and trouble ~= Poll.TIMEOUT then error(trouble) end
-    local still: {Child.Handle} = {}
+    local still: mut {Child.Handle} = {}
     for _, h in ipairs(running) do
       if rawequal(h, done) then
         local result = assert(h:wait())
@@ -62,11 +63,11 @@ end
 --- process before its report is out. The SIGTERM it sends itself
 --- stands in for a Ctrl-C or a `kill`.
 function Example.supervisor()
-  local guard <close> = assert(Child.guard())
+  local guard <close> = assert(Signal.guard())
   -- This program again, past its launcher, each child sleeping a minute.
   local again = assert(Proc.relaunch())
-  local running: {Child.Handle} = {}
-  local names: {Child.Handle:string} = {}
+  local running: mut {Child.Handle} = {}
+  local names: mut {Child.Handle:string} = {}
   for _, name in ipairs({ "build", "upload" }) do
     local argv = { table.unpack(again.argv) }
     argv[#argv + 1] = "-e"
@@ -75,15 +76,15 @@ function Example.supervisor()
     running[#running + 1] = h
     names[h] = name
   end
-  local report: {string} = {}
+  local report: mut {string} = {}
   while #running > 0 and guard:cancelled() == 0 do
     local done, trouble = Child.wait_any(running, Clock.ms(100))
     if done == nil and trouble ~= Poll.TIMEOUT then error(trouble) end
-    local still: {Child.Handle} = {}
+    local still: mut {Child.Handle} = {}
     for _, h in ipairs(running) do
       if rawequal(h, done) then
         local result = assert(h:wait())
-        report[#report + 1] = names[h] .. (result.ok and " ok" or " failed")
+        report[#report + 1] = assert(names[h]) .. (if result.ok then " ok" else " failed" end)
       else
         still[#still + 1] = h
       end
@@ -94,13 +95,13 @@ function Example.supervisor()
   end
   for _, h in ipairs(running) do
     assert(h:close())
-    report[#report + 1] = names[h] .. " interrupted"
+    report[#report + 1] = assert(names[h]) .. " interrupted"
   end
   local caught = assert(guard:release())
   for _, line in ipairs(report) do print(line) end
   -- A program would exit with this status, as a shell's does for a
   -- command a signal ended.
-  local status = caught ~= 0 and 128 + caught or 0
+  local status = if caught ~= 0 then 128 + caught else 0 end
   assert(status == 128 + sys.SIGTERM, tostring(status))
 end
 
@@ -111,14 +112,14 @@ end
 --- and exited 0 leaves this process running. The last take follows the
 --- release, which keeps a signal that lands between them.
 function Example.release()
-  local guard <close> = assert(Child.guard())
+  local guard <close> = assert(Signal.guard())
   -- This program again, past its launcher, running an empty chunk.
   local again = assert(Proc.relaunch())
   local argv = { table.unpack(again.argv) }
   argv[#argv + 1] = "-e"
   argv[#argv + 1] = ""
   local h = assert(Child.start(argv, { env = again.env, fds = again.fds }))
-  local result: Child.Result
+  local result: Child.Result?
   while result == nil do
     local state = assert(h:try_wait())
     if state.finished then
@@ -129,12 +130,13 @@ function Example.release()
       Clock.sleep_ns(Clock.ms(10))
     end
   end
+  local finished = assert(result)
   local caught = assert(guard:release())
   local untaken = guard:take()
-  if caught ~= 0 and (untaken ~= 0 or result.signal == caught) then
+  if caught ~= 0 and (untaken ~= 0 or finished.signal == caught) then
     assert(sys.kill(sys.getpid(), caught))
   end
-  print(tostring(result.code))
+  print(tostring(finished.code))
 end
 
 --- A child's output read as it comes rather than once it has exited:

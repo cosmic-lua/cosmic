@@ -3,7 +3,7 @@
 local notes = require("notes")
 
 local function texts(found: {notes.Note}): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, note in ipairs(found) do
     out[#out + 1] = note.id .. "=" .. note.text
   end

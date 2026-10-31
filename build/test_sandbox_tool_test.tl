@@ -15,6 +15,7 @@ local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
 local fixture = require("build.test_sandbox_fixture")
 local Test = require("cosmic.test")
+local build_paths = require("build.paths")
 
 --- What a worker's plan gives it of the host, the program the run that
 --- refuses a path starts, and roots of their own for the workers of that
@@ -25,6 +26,13 @@ Test.policy{
   promises = { "nest" },
 }
 
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
+
 --- An `Effective` holding `files` of the tree and nothing else declared.
 local function effective(files: {string}): test_inputs.Effective
   local out: test_inputs.Effective = { files = {}, reads = {}, host = {}, env = {}, network = {},
@@ -33,7 +41,7 @@ local function effective(files: {string}): test_inputs.Effective
   return out
 end
 
---- Makes `tmp`/scratch, a scratch directory laid out as build.test's
+--- Makes `tmp`/scratch, a scratch directory laid out as build.test_key's
 --- `scratch` lays one out -- `real`, and `tmp` a link to it -- and
 --- answers it. A plan takes that layout as given: where it runs its
 --- worker as a user of its own, it hands it and `real` to that user.
@@ -59,12 +67,11 @@ end
 --- the link, which the sandbox would follow to what it does not have.
 local function test_a_path_another_bind_shows_is_not_bound_again(tmp: string)
   local root, scratch, dir = tmp .. "/root", scratch_in(tmp), tmp .. "/host"
-  for _, made in ipairs({ root .. "/o", root .. "/data", dir, tmp .. "/elsewhere" }) do
+  for _, made in ipairs({ build_dir(root), root .. "/data", dir, tmp .. "/elsewhere" }) do
     assert(Fs.mkdirs(made))
   end
-  for _, file in ipairs({ "o/cosmic.db", "data/x.tl" }) do
-    assert(Fs.write(root .. "/" .. file, "x"))
-  end
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
+  assert(Fs.write(root .. "/data/x.tl", "x"))
   assert(Fs.write(tmp .. "/elsewhere/y.tl", "y"))
   assert(sys.symlink(tmp .. "/elsewhere/y.tl", root .. "/data/y.tl"))
   assert(Fs.write(dir .. "/given", "h"))
@@ -72,30 +79,30 @@ local function test_a_path_another_bind_shows_is_not_bound_again(tmp: string)
   inputs.reads = { "data" }
   inputs.host = { dir, dir .. "/given" }
   local plan = test_sandbox.plan(root, scratch, inputs, {})
-  local unveil = plan.sandbox.unveil
-  assert(holds(unveil.reads, root .. "/data") and unveil.at[root .. "/data"] == "/tree/data")
-  assert(not holds(unveil.reads, root .. "/data/x.tl") and unveil.at[root .. "/data/x.tl"] == nil)
+  local unveil = assert(plan.sandbox.unveil)
+  assert(holds(unveil.reads, root .. "/data") and (unveil.at or {})[root .. "/data"] == "/tree/data")
+  assert(not holds(unveil.reads, root .. "/data/x.tl") and (unveil.at or {})[root .. "/data/x.tl"] == nil)
   assert(holds(unveil.reads, root .. "/data/y.tl") and
-      unveil.at[root .. "/data/y.tl"] == "/tree/data/y.tl")
+      (unveil.at or {})[root .. "/data/y.tl"] == "/tree/data/y.tl")
   assert(holds(unveil.reads, dir) and not holds(unveil.reads, dir .. "/given"))
 end
 
---- The program is named in the tree, at /tree/o/bin/cosmic, where it is
---- the tree's own o/bin/cosmic by where each resolves -- a tree here
---- whose o/bin/cosmic leads to this program -- and where this program
+--- The program is named in the worker's build directory, its bin/cosmic,
+--- where it is the tree's own tool by where each resolves -- a tree here
+--- whose tool leads to this program -- and where this program
 --- is a portable artifact, whose relaunch names the path; a worker whose
 --- module declares `tool` then has it there alone, with the rest of
---- o/bin, not at its own name. In another tree it keeps its own name
+--- its bin, not at its own name. In another tree it keeps its own name
 --- -- but where that is beneath /tree, as this worker's is sandboxed,
 --- where the other's worker has a tree of its own: there it has it at
 --- /program/<its name>. A worker that is not a tool keeps the
 --- runner's name, which it has no way to read.
 local function test_the_tree_s_own_program_is_named_in_the_tree(tmp: string)
   local other, tree, scratch = tmp .. "/other", tmp .. "/tree", scratch_in(tmp)
-  for _, made in ipairs({ other .. "/o/bin", tree .. "/o/bin" }) do
+  for _, made in ipairs({ build_dir(other) .. "/bin", build_dir(tree) .. "/bin" }) do
     assert(Fs.mkdirs(made))
   end
-  assert(Fs.write(other .. "/o/bin/cosmic", "p"))
+  assert(Fs.write(build_dir(other) .. "/bin/cosmic", "p"))
   local inputs = effective({})
   inputs.tool = true
   local relaunch, _ = Proc.relaunch()
@@ -105,22 +112,23 @@ local function test_the_tree_s_own_program_is_named_in_the_tree(tmp: string)
     return -- no portable artifact to name
   end
   local elsewhere = test_sandbox.plan(other, scratch, inputs, {})
-  if Fs.within(executable, "/tree") then
+  if Fs.within(executable, "/tree") or Fs.within(executable, Fs.dirname(test_sandbox.output)) then
     local placed = "/program/" .. Fs.basename(executable)
     assert(elsewhere.program == placed, tostring(elsewhere.program))
-    assert(elsewhere.sandbox.unveil.at[executable] == placed)
+    assert((assert(elsewhere.sandbox.unveil).at or {})[executable] == placed)
   else
     assert(elsewhere.program == nil, tostring(elsewhere.program))
   end
-  assert(holds(elsewhere.sandbox.unveil.reads, executable))
-  assert(sys.symlink(executable, tree .. "/o/bin/cosmic"))
+  assert(holds(assert(elsewhere.sandbox.unveil).reads, executable))
+  assert(sys.symlink(executable, build_dir(tree) .. "/bin/cosmic"))
   local plan = test_sandbox.plan(tree, scratch, inputs, {})
-  assert(plan.program == "/tree/o/bin/cosmic", tostring(plan.program))
+  assert(plan.program == test_sandbox.output .. "/bin/cosmic", tostring(plan.program))
   -- A worker that is not a tool keeps the runner's name.
   local plain = test_sandbox.plan(tree, scratch, effective({}), {})
   assert(plain.program == nil, tostring(plain.program))
-  local unveil = plan.sandbox.unveil
-  assert(holds(unveil.reads, tree .. "/o/bin") and unveil.at[tree .. "/o/bin"] == "/tree/o/bin")
+  local unveil = assert(plan.sandbox.unveil)
+  assert(holds(unveil.reads, build_dir(tree) .. "/bin") and (unveil.at or {})[build_dir(tree) .. "/bin"] ==
+      test_sandbox.output .. "/bin")
   assert(not holds(unveil.reads, executable), executable .. " is given at its own name")
 end
 
@@ -132,10 +140,11 @@ end
 --- nothing either way.
 local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_name(tmp: string)
   local root, scratch, dir = tmp .. "/root", scratch_in(tmp), tmp .. "/host"
-  for _, made in ipairs({ root .. "/o", root .. "/a", root .. "/data", dir }) do
+  for _, made in ipairs({ build_dir(root), root .. "/a", root .. "/data", dir }) do
     assert(Fs.mkdirs(made))
   end
-  for _, file in ipairs({ "o/cosmic.db", "a/x.tl", "data/f" }) do
+  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
+  for _, file in ipairs({ "a/x.tl", "data/f" }) do
     assert(Fs.write(root .. "/" .. file, "x"))
   end
   local host = dir .. "/given"
@@ -144,19 +153,19 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   inputs.reads = { "data/", "../outside" }
   inputs.host = { host }
   local plan = test_sandbox.plan(root, scratch, inputs, {})
-  local unveil = plan.sandbox.unveil
+  local unveil = assert(plan.sandbox.unveil)
   assert(plan.over == 0 and plan.sandbox.offline == true)
-  assert(holds(unveil.reads, root .. "/o/cosmic.db") and
-      unveil.at[root .. "/o/cosmic.db"] == "/tree/o/cosmic.db")
-  assert(holds(unveil.reads, root .. "/a/x.tl") and unveil.at[root .. "/a/x.tl"] == "/tree/a/x.tl")
-  assert(holds(unveil.reads, root .. "/data") and unveil.at[root .. "/data"] == "/tree/data")
+  assert(holds(unveil.reads, build_dir(root) .. "/cosmic.db") and
+      (unveil.at or {})[build_dir(root) .. "/cosmic.db"] == test_sandbox.output .. "/cosmic.db")
+  assert(holds(unveil.reads, root .. "/a/x.tl") and (unveil.at or {})[root .. "/a/x.tl"] == "/tree/a/x.tl")
+  assert(holds(unveil.reads, root .. "/data") and (unveil.at or {})[root .. "/data"] == "/tree/data")
   assert(not holds(unveil.reads, root .. "/a/missing.tl"))
   for _, path in ipairs(unveil.reads) do
     assert(path:find("outside", 1, true) == nil, "a read that climbs out of the tree: " .. path)
   end
-  assert(holds(unveil.reads, host) and unveil.at[host] == nil)
-  assert(#unveil.writes == 1 and unveil.writes[1] == scratch and
-      unveil.at[scratch] == test_sandbox.scratch)
+  assert(holds(unveil.reads, host) and (unveil.at or {})[host] == nil)
+  assert(#(unveil.writes or {}) == 1 and (unveil.writes or {})[1] == scratch and
+      (unveil.at or {})[scratch] == test_sandbox.scratch)
   assert(plan.trouble == "", plan.trouble)
   -- The runtime's own paths (/dev/null: a path that is not there is not
   -- given), but not the system's own, which it is not given undeclared,
@@ -165,31 +174,32 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   assert(not holds(unveil.reads, "/usr"))
   -- Declaring `system` gives the system's own paths too: see
   -- build/test_sandbox_system_test.tl, whose worker has them to give.
-  -- Given the store of its closure, a worker has it at o/cosmic.db in
+  -- Given the store of its closure, a worker has it at its build
+  -- directory's cosmic.db in
   -- the projection's place, which it has nowhere; declaring `store`
   -- keeps the projection.
-  assert(Fs.mkdirs(root .. "/o/stores"))
-  local closure_store = root .. "/o/stores/closure.db"
+  assert(Fs.mkdirs(build_dir(root) .. "/stores"))
+  local closure_store = build_dir(root) .. "/stores/closure.db"
   assert(Fs.write(closure_store, "c"))
   local closed = test_sandbox.plan(root, scratch, inputs, {}, closure_store)
-  assert(closed.sandbox.unveil.at[closure_store] == "/tree/o/cosmic.db" and
-      not holds(closed.sandbox.unveil.reads, root .. "/o/cosmic.db"))
+  assert((assert(closed.sandbox.unveil).at or {})[closure_store] == test_sandbox.output .. "/cosmic.db" and
+      not holds(assert(closed.sandbox.unveil).reads, build_dir(root) .. "/cosmic.db"))
   inputs.store = true
   local whole = test_sandbox.plan(root, scratch, inputs, {}, closure_store)
-  assert(whole.sandbox.unveil.at[root .. "/o/cosmic.db"] == "/tree/o/cosmic.db" and
-      not holds(whole.sandbox.unveil.reads, closure_store))
+  assert((assert(whole.sandbox.unveil).at or {})[build_dir(root) .. "/cosmic.db"] == test_sandbox.output .. "/cosmic.db" and
+      not holds(assert(whole.sandbox.unveil).reads, closure_store))
   inputs.store = false
   -- A declared path not there yet is given nothing.
   inputs.reads = { "data/", "later/x" }
   local later = test_sandbox.plan(root, scratch, inputs, {})
-  assert(not holds(later.sandbox.unveil.reads, root .. "/later/x"))
+  assert(not holds(assert(later.sandbox.unveil).reads, root .. "/later/x"))
   inputs.reads = { "data/", "../outside" }
   -- A declared cache is given to write at its own name, made first.
   inputs.cache_paths = { tmp .. "/caches/zig-global" }
   local cached = test_sandbox.plan(root, scratch, inputs, {})
   assert(cached.trouble == "", cached.trouble)
-  assert(holds(cached.sandbox.unveil.writes, tmp .. "/caches/zig-global") and
-      cached.sandbox.unveil.at[tmp .. "/caches/zig-global"] == nil)
+  assert(holds(assert(cached.sandbox.unveil).writes or {}, tmp .. "/caches/zig-global") and
+      (assert(cached.sandbox.unveil).at or {})[tmp .. "/caches/zig-global"] == nil)
   assert(Fs.exists(tmp .. "/caches/zig-global"))
   -- A file a declared cache holds is given through the cache alone, not
   -- bound again on top of it: there its mount point would be the host's
@@ -203,8 +213,8 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   inputs.cache_paths = { tmp .. "/caches/cores" }
   local nested = test_sandbox.plan(root, scratch, inputs, {})
   assert(nested.trouble == "", nested.trouble)
-  assert(holds(nested.sandbox.unveil.writes, tmp .. "/caches/cores") and
-      not holds(nested.sandbox.unveil.reads, stamp))
+  assert(holds(assert(nested.sandbox.unveil).writes or {}, tmp .. "/caches/cores") and
+      not holds(assert(nested.sandbox.unveil).reads, stamp))
   -- The `bootstrap` cache: cores of its own, made in its scratch
   -- directory before it starts -- a ruleset that holds it walks what is
   -- there then -- and named to it, not the host's, which the cores
@@ -217,11 +227,11 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
     tostring(own_cores.env.COSMIC_PORTABLE_CACHE))
   local cores = assert(sys.stat(scratch .. "/cores"))
   assert(cores.kind == "dir" and cores.mode & 511 == 448, tostring(cores.mode))
-  assert(not holds(own_cores.sandbox.unveil.writes, tmp .. "/caches/cores") and
-      holds(own_cores.sandbox.unveil.reads, stamp))
+  assert(not holds(assert(own_cores.sandbox.unveil).writes or {}, tmp .. "/caches/cores") and
+      holds(assert(own_cores.sandbox.unveil).reads, stamp))
   inputs.caches, inputs.cache_paths = {}, {}
   local alone = test_sandbox.plan(root, scratch, inputs, {})
-  assert(holds(alone.sandbox.unveil.reads, stamp))
+  assert(holds(assert(alone.sandbox.unveil).reads, stamp))
   inputs.host = { host }
   -- A host path where the sandbox has its own -- its scratch directory,
   -- or above it, or /tmp or /tree themselves -- cannot be given, and
@@ -253,7 +263,7 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   inputs.tool = true
   local tooled = test_sandbox.plan(root, scratch, inputs, {})
   -- No o/bin here to give.
-  assert(not holds(tooled.sandbox.unveil.reads, root .. "/o/bin"))
+  assert(not holds(assert(tooled.sandbox.unveil).reads, build_dir(root) .. "/bin"))
 end
 
 --- Runs `cosmic test --all` on `root` with `env`, answering what it
@@ -282,7 +292,7 @@ local function test_a_host_path_that_is_the_trees_is_refused_in_either_mode(tmp:
   for _, mode in ipairs({ "0", "" }) do
     env.COSMIC_TEST_SANDBOX = mode ~= "" and mode or nil
     local inside, inside_ok = run(root, tmp .. "/inside" .. mode, env)
-    assert(not inside_ok and inside:find(root .. "/suite/given.txt is the tree's", 1, true) and
+    assert(not inside_ok and inside:find(root .. "/suite/given.txt is the tree's", 1, true) ~= nil and
         not inside:find("read|", 1, true), inside)
     assert(not inside:find("could not be supervised", 1, true), inside)
   end
@@ -310,12 +320,12 @@ local function test_an_unsandboxed_run_reads_the_tree_and_a_platform_with_no_san
   local text, ok = run(root, tmp .. "/plain", env)
   assert(not ok, text)
   assert(text:find("; unsandboxed (COSMIC_TEST_SANDBOX=0), keyed by declared inputs, " ..
-      "sharing no verdicts)", 1, true), text)
+      "sharing no verdicts\n", 1, true), text)
   assert(text:find("rerun: COSMIC_TEST_SANDBOX=0 cosmic test suite/view_test.tl:test_view", 1,
     true), text)
   local seen = text:match("seen|([^\n]*)|end")
   assert(seen ~= nil, text)
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   for field in (seen .. "|"):gmatch("([^|]*)|") do fields[#fields + 1] = field end
   assert(fields[1] == real_root and fields[3] == "declared" and fields[4] == "undeclared" and
       fields[5] == "true" and fields[6] == "d" and fields[7] == "nil" and
@@ -328,11 +338,11 @@ local function test_an_unsandboxed_run_reads_the_tree_and_a_platform_with_no_san
   assert(not ok, text)
   -- And why, in the summary.
   assert(text:find("; unsandboxed, as no worker can be sandboxed here (", 1, true) and
-      text:find("), keyed by declared inputs, sharing no verdicts)", 1, true), text)
+      text:find("), keyed by declared inputs, sharing no verdicts\n", 1, true), text)
   -- Required, the run fails instead.
   env.COSMIC_TEST_SANDBOX = "1"
-  local required: string = nil
+  local required: string? = nil
   required, ok = run(root, tmp .. "/required", env)
   assert(not ok and required:find("COSMIC_TEST_SANDBOX=1, but no worker can be sandboxed here",
-    1, true), required)
+    1, true) ~= nil, required)
 end

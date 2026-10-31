@@ -28,34 +28,35 @@ local function test_every_listed_module_has_its_spec()
 end
 
 local function test_a_name_is_listed_once()
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, spec in ipairs(verb_list.specs()) do
-    assert(not seen[spec.name], spec.name .. " is listed twice")
+    assert(seen[spec.name] ~= true, spec.name .. " is listed twice")
     seen[spec.name] = true
   end
   for _, name in ipairs(before) do
-    assert(not seen[name], name .. " runs code, not a listed module")
+    assert(seen[name] ~= true, name .. " runs code, not a listed module")
   end
   for _, name in ipairs(after) do
-    assert(not seen[name], name .. " is dispatch's own")
+    assert(seen[name] ~= true, name .. " is dispatch's own")
   end
 end
 
 local function test_a_bare_verb_says_how_it_exits_and_why_it_is_uncased()
   for _, spec in ipairs(verb_list.specs()) do
     if spec.bare then
-      assert(spec.exits ~= nil and spec.exits:find("`" .. spec.name .. "`", 1, true),
+      local exits = spec.exits
+      assert(exits ~= nil and exits:find("`" .. spec.name .. "`", 1, true) ~= nil,
         spec.name .. ": bare, so its exit codes are help's to state, starting with its name")
       assert(spec.passthrough ~= nil, spec.name .. ": bare, so verb_cases needs its reason")
     else
-      assert(spec.exits == nil, spec.name .. ": ends in a verdict line, so has no exit sentence")
-      assert(spec.passthrough == nil, spec.name .. ": ends in a verdict line, so is cased")
+      assert(spec.exits == nil, spec.name .. ": not bare, so `cosmic help exit` covers it")
+      assert(spec.passthrough == nil, spec.name .. ": not bare, so is cased")
     end
   end
 end
 
 local function test_the_list_and_cli_order_agree()
-  local want: {string} = {}
+  local want: mut {string} = {}
   for _, name in ipairs(before) do want[#want + 1] = name end
   for _, spec in ipairs(verb_list.specs()) do want[#want + 1] = spec.name end
   for _, name in ipairs(after) do want[#want + 1] = name end
@@ -65,7 +66,7 @@ local function test_the_list_and_cli_order_agree()
 end
 
 local function test_every_verb_record_is_a_verb_in_order_and_back()
-  local known: {string:boolean} = {}
+  local known: mut {string:boolean} = {}
   for _, name in ipairs(Cli.order) do
     known[name] = true
     assert(Cli.verbs[name] ~= nil, "Cli.order names " .. name .. ", which Cli.verbs lacks")
@@ -76,14 +77,14 @@ local function test_every_verb_record_is_a_verb_in_order_and_back()
 end
 
 local function test_the_groups_name_every_verb_once_and_nothing_else()
-  local seen: {string:integer} = {}
+  local seen: mut {string:integer} = {}
   for _, group in ipairs(Cli.groups) do
     for slot = 2, #group do
       seen[group[slot]] = (seen[group[slot]] or 0) + 1
     end
   end
   for name in pairs(Cli.verbs) do
-    assert(seen[name] == 1, name .. " is in " .. (seen[name] or 0) .. " groups of Cli.groups")
+    assert(seen[name] == 1, name .. " is in " .. tostring((seen[name] or 0)) .. " groups of Cli.groups")
   end
   for name in pairs(seen) do
     assert(Cli.verbs[name] ~= nil, "Cli.groups names " .. name .. ", which Cli.verbs lacks")

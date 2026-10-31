@@ -1,0 +1,9 @@
+file: src/lopcodes.c
+note: OP_SETCLASS sets no register; OP_CLASSOF sets A.
+--- find
+ ,opmode(0, 0, 0, 0, 0, iAx)		/* OP_EXTRAARG */
+--- replace
+ ,opmode(0, 0, 0, 0, 0, iABC)		/* OP_SETCLASS */
+ ,opmode(0, 0, 0, 0, 1, iABC)		/* OP_CLASSOF */
+ ,opmode(0, 0, 0, 0, 0, iAx)		/* OP_EXTRAARG */
+--- end

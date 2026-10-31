@@ -16,7 +16,7 @@ Test.policy{
 --- a kind added to the C cannot be left out of the type.
 local function test_the_enum_is_what_the_core_answers()
   local found = assert(gen_syscalls.read((assert(Fs.read("core/syscalls.h")))))
-  local declared: {string:boolean} = {}
+  local declared: mut {string:boolean} = {}
   for _, alias in ipairs(found.aliases) do
     if alias.name == "Kind" then
       for _, member in ipairs(alias.members) do declared[member.value] = true end
@@ -24,7 +24,7 @@ local function test_the_enum_is_what_the_core_answers()
   end
   local c = assert(Fs.read("core/syscalls_fs.c"))
   local mode_kind = assert(c:match("mode_kind %(mode_t mode%) {(.-)\n}"), "no mode_kind")
-  local answered: {string:boolean} = {}
+  local answered: mut {string:boolean} = {}
   for word in mode_kind:gmatch('return "(%w+)";') do answered[word] = true end
   local readdir = assert(c:match("COSMIC_SYSCALL%(readdir, 1%) {(.-)\n}"), "no readdir")
   for word in readdir:gmatch('kind = "(%w+)";') do answered[word] = true end

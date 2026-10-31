@@ -9,8 +9,8 @@ local plural = require("build.plural")
 local record test_report
   record Failure
     message: string
-    rerun: string | nil
-    printed: string | nil
+    rerun?: string
+    printed?: string
   end
 
   record Build
@@ -31,10 +31,10 @@ local record test_report
     cached: integer
     skipped: integer
     --- Of those that ran, how many passed having made no call to `assert`.
-    unchecked: integer
+    unchecked?: integer
     --- Of the tests chosen, how many are not applicable on this platform,
     --- none of which ran or stood.
-    na: integer
+    na?: integer
     every: integer
     shared: integer
   end
@@ -51,18 +51,18 @@ local function shell_word(word: string): string
 end
 
 --- Each skipped test with its reason, sorted as the failure list is.
-function test_report.skips(skips: {string}): {string}
+function test_report.skips(skips: mut {string}): {string}
   table.sort(skips)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, skip in ipairs(skips) do lines[#lines + 1] = "test: SKIP  " .. skip end
   return lines
 end
 
 --- Each test that passed having made no call to `assert`, sorted as the
 --- skips are.
-function test_report.unchecked(ids: {string}): {string}
+function test_report.unchecked(ids: mut {string}): {string}
   table.sort(ids)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, id in ipairs(ids) do lines[#lines + 1] = "test: NO ASSERT  " .. id end
   return lines
 end
@@ -70,14 +70,14 @@ end
 --- One line for each reason some tests gave [`Test.passed_unchecked`], with
 --- how many gave it, sorted: they passed deliberately without checking.
 function test_report.deliberate(reasons: {string}): {string}
-  local counts: {string:integer} = {}
-  local order: {string} = {}
+  local counts: mut {string:integer} = {}
+  local order: mut {string} = {}
   for _, reason in ipairs(reasons) do
     if counts[reason] == nil then order[#order + 1] = reason end
     counts[reason] = (counts[reason] or 0) + 1
   end
   table.sort(order)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, reason in ipairs(order) do
     lines[#lines + 1] = "test: NOTHING TO CHECK  " .. plural.count(counts[reason], "test") ..
       " passed deliberately without checking: " .. reason
@@ -87,9 +87,9 @@ end
 
 --- Each not applicable test with why, sorted as the skips are: its
 --- module requires what this platform never has.
-function test_report.nas(nas: {string}): {string}
+function test_report.nas(nas: mut {string}): {string}
   table.sort(nas)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, na in ipairs(nas) do lines[#lines + 1] = "test: N/A  " .. na end
   return lines
 end
@@ -97,11 +97,11 @@ end
 --- Each failure with the hint its message earns ([`Errors.hint`]), its
 --- rerun selector and the tail of what it printed.
 --- The `<module> <name>: <message>` line keeps the shape CI reads.
-function test_report.failures(failures: {test_report.Failure}, prefix: string): {string}
+function test_report.failures(failures: mut {test_report.Failure}, prefix: string): {string}
   table.sort(failures, function(a: test_report.Failure, b: test_report.Failure): boolean
     return a.message < b.message
   end)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, failure in ipairs(failures) do
     -- The hint goes straight under the failure's own line, ahead of
     -- what the runner appended to the message (where its directory is
@@ -115,9 +115,10 @@ function test_report.failures(failures: {test_report.Failure}, prefix: string): 
     if rest ~= "" then
       lines[#lines + 1] = rest
     end
-    if failure.rerun ~= nil then
+    local rerun = failure.rerun
+    if rerun ~= nil then
       lines[#lines + 1] = "  rerun: " .. prefix .. "cosmic test " ..
-        shell_word(failure.rerun)
+        shell_word(rerun)
     end
     local printed = failure.printed
     if printed ~= nil then
@@ -132,43 +133,52 @@ end
 
 --- Compilation and staging counts, including reuse from another checkout.
 function test_report.build(counts: test_report.Build, elapsed: string): string
-  return "build: " .. plural.count(counts.modules, "module") .. " (" .. counts.compiled ..
-    " compiled, " .. counts.cached .. " cached" ..
-    (counts.shared > 0 and ", " .. counts.shared .. " of them taken from another checkout" or "") ..
-    ((counts.parsed > 0 or counts.shared_parses > 0) and "; " ..
-      plural.count(counts.parsed, "source") .. " parsed" ..
-      (counts.shared_parses > 0 and ", " .. counts.shared_parses .. " taken from another checkout" or "") or "") ..
-    "; " .. plural.count(counts.files, "file") .. " staged, " .. counts.read .. " read) in " ..
+  return "build: " .. plural.count(counts.modules, "module") .. " (" .. tostring(counts.compiled) ..
+    " compiled, " .. tostring(counts.cached) .. " cached" ..
+    (if counts.shared > 0 then ", " .. tostring(counts.shared) .. " of them taken from another checkout" else "" end) ..
+    (if (counts.parsed > 0 or counts.shared_parses > 0) then "; " ..
+        plural.count(counts.parsed, "source") .. " parsed" ..
+        (if counts.shared_parses > 0 then ", " .. tostring(counts.shared_parses) .. " taken from another checkout" else "" end) else "" end) ..
+    "; " .. plural.count(counts.files, "file") .. " staged, " .. tostring(counts.read) .. " read) in " ..
     elapsed
 end
 
 --- Coverage is informational; the runner separately enforces C-function entry.
 function test_report.coverage(hit: integer, total: integer): string
-  local percentage = total > 0 and (hit * 100.0 / total) or 0.0
+  local percentage = if total > 0 then (hit * 100.0 / total) else 0.0 end
   return string.format("test: coverage %.1f%% (%d/%d %s; informational, never a failure)",
     percentage, hit, total, plural.noun(total, "line"))
 end
 
---- A figure the summary adds goes after `stood`: CI's driver reads the
---- figures before it by their places (ci/cosmic_ci/suite_output.tl).
+--- A passing run's summary, after `test: `: an outcome a reader sees
+--- at a glance, then the figures. A figure the summary adds goes after
+--- `stood`: CI's driver reads the figures before it by their places
+--- (ci/cosmic_ci/suite_output.tl).
 function test_report.passed(counts: test_report.Passed, elapsed: string): string
-  return plural.count(counts.total, "test") .. ", " ..
+  local unchecked, na = counts.unchecked or 0, counts.na or 0
+  return plural.count(counts.total, "test") .. " passed in " ..
     plural.count(counts.modules, "module") .. "; " ..
-    counts.ran .. " ran, " .. counts.cached .. " stood, " ..
-    (counts.skipped > 0 and (counts.skipped .. " skipped (this host could not check " ..
-      (counts.skipped == 1 and "it" or "them") .. "), ") or "") ..
-    ((counts.unchecked or 0) > 0 and (counts.unchecked .. " made no call to assert, ") or "") ..
-    ((counts.na or 0) > 0 and (counts.na .. " n/a (this platform has none of what they check), ") or "") ..
-    (counts.every > 0 and (counts.every .. " run every time (no key holds them), ") or "") ..
-    (counts.shared > 0 and (counts.shared .. " of them on another checkout's verdict, ") or "") ..
+    tostring(counts.ran) .. " ran, " .. tostring(counts.cached) .. " stood, " ..
+    (if counts.skipped > 0 then (tostring(counts.skipped) .. " skipped (this host could not check " ..
+      (if counts.skipped == 1 then "it" else "them" end) .. "), ") else "" end) ..
+    (if unchecked > 0 then (tostring(unchecked) .. " made no call to assert, ") else "" end) ..
+    (if na > 0 then (tostring(na) .. " n/a (this platform has none of what they check), ") else "" end) ..
+    (if counts.every > 0 then (tostring(counts.every) .. " run every time (no key holds them), ") else "" end) ..
+    (if counts.shared > 0 then (tostring(counts.shared) .. " of them on another checkout's verdict, ") else "" end) ..
     elapsed
 end
 
---- The runner has already decided failure before asking for its summary.
+--- A failing run's summary, after `test: `. The runner has already
+--- decided failure before asking for it.
+---
+--- `not_run` counts the tests a bailing run (`cosmic test --bail`) never
+--- started: they are in neither figure above, and are said last, after
+--- what a reader of the figures by their places expects.
 function test_report.failed(failures: integer, total: integer, errors: integer,
-                            elapsed: string): string
-  return failures .. " of " .. total .. " failed, " ..
-    plural.count(errors, "infrastructure error") .. ", " .. elapsed
+                            elapsed: string, not_run?: integer): string
+  return tostring(failures) .. " of " .. plural.count(total, "test") .. " failed, " ..
+    plural.count(errors, "infrastructure error") .. ", " .. elapsed ..
+    (if (not_run or 0) > 0 then ("; " .. not_run .. " not run after the first failure") else "" end)
 end
 
 return test_report

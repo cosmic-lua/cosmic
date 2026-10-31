@@ -9,6 +9,7 @@
 --- guard -- are in cosmic/child_test.tl.
 
 local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
@@ -21,8 +22,7 @@ local fixture = require("build.child_lua_fixture")
 --- and the program itself, started past its launcher so that no host
 --- program is read, only to run Lua (`lua`).
 Test.policy{
-  profiles = { "cosmic" },
-  grants = { { path = "/proc", letters = "r" } },
+  profiles = { "cosmic", "proc" },
 }
 
 local function path_exists(path: string): boolean
@@ -37,7 +37,7 @@ end
 --- (a `sandbox` that unveils); then the process is found by the last
 --- number of its NSpid, and the result is nil if none matches. A process
 --- started without one is in the worker's namespace, sandboxed or not.
-local function host_pid(within: integer, pid: integer): integer | nil
+local function host_pid(within: integer, pid: integer): integer?
   local own, _ = sys.readlink("/proc/self/ns/pid")
   local theirs, _ = sys.readlink("/proc/" .. tostring(within) .. "/ns/pid")
   if theirs == nil or theirs == own then return pid end
@@ -87,7 +87,7 @@ end
 
 local function test_argv_environment_directory_and_file_output(tmp: string)
   local fd, path = output(tmp, "answer")
-  local r = assert(Child.run(lua('local a, b = ... ' .. SYS .. FS ..
+  local r = assert(Child.run(lua('local a, b = ... if a == nil or b == nil then return 2 end ' .. SYS .. FS ..
       'assert(Fs.put(1, a .. "|" .. b .. "|" .. (sys.getenv("WORD") or "") .. ' ..
       'assert(sys.getcwd()) .. "\\n"))', { "a b", "" },
     { cwd = tmp, env = { WORD = "value" }, stdout = fd })))
@@ -107,7 +107,8 @@ end
 local function test_redirect_source_descriptor_does_not_leak(tmp: string)
   local fd = assert(Fs.open_write(tmp .. "/out"))
   local r = assert(Child.run(lua(SYS ..
-      'return sys.fstat(math.tointeger(tonumber(sys.getenv("SOURCE")))) == nil and 0 or 1',
+      'local source = assert(math.tointeger(tonumber(sys.getenv("SOURCE")))) ' ..
+      'if sys.fstat(source) == nil then return 0 end return 1',
     nil, { env = { SOURCE = tostring(fd) }, stdout = fd })))
   assert(Fs.close(fd))
   assert(r.ok)
@@ -168,8 +169,9 @@ end
 
 local function test_non_group_timeout_returns_graceful_term_status(tmp: string)
   local ready = tmp .. "/ready"
-  local h = assert(Child.start(lua('local g = assert(require("cosmic.child").guard()) ' ..
-      FS .. 'assert(Fs.write((...), "ready")) while g:cancelled() == 0 do ' .. sleep(10) ..
+  local h = assert(Child.start(lua('local g = assert(require("cosmic.signal").guard()) ' ..
+      FS .. 'local ready = ... if ready == nil then return 2 end assert(Fs.write(ready, "ready")) ' ..
+      'while g:cancelled() == 0 do ' .. sleep(10) ..
       'end return 19', { ready }, { process_group = false })))
   local deadline = Clock.monotonic_ns() + Clock.seconds(10)
   while not path_exists(ready) and Clock.monotonic_ns() < deadline do
@@ -178,6 +180,33 @@ local function test_non_group_timeout_returns_graceful_term_status(tmp: string)
   assert(path_exists(ready), "child did not report readiness")
   local r = assert(h:wait(0))
   assert(r.code == 19 and r.signal == nil and r.timed_out)
+end
+
+--- Darwin refuses a signal to a process from the start of its exit until
+--- it is a zombie (ESRCH), and waitpid cannot reap it before then: a wait
+--- that ends a child caught there still reaps it. The SIGTERM here is
+--- delivered, then answered as Darwin answers it in that moment.
+local function test_a_child_exiting_as_a_wait_ends_it_is_reaped()
+  local h <close> = assert(Child.start(lua(sleep(30000))))
+  local kill = sys.kill
+  local refused: boolean = false
+  local ok, trouble: boolean, any = pcall(function()
+    sys.kill = function(pid: integer, signal: integer): boolean, string, integer
+      -- The child leads its group, which the handle signals.
+      if pid == -h.pid and signal == sys.SIGTERM and not refused then
+        refused = true
+        assert(kill(pid, signal))
+        return false, "No such process", sys.ESRCH
+      end
+      return kill(pid, signal)
+    end
+    local r, why = h:wait(0)
+    assert(r ~= nil, why)
+    assert(r.signal == sys.SIGTERM and r.timed_out, "the wait reaped the exit the SIGTERM began")
+  end)
+  sys.kill = kill
+  assert(ok, tostring(trouble))
+  assert(refused and not sys.kill(h.pid, 0), "the child is reaped")
 end
 
 -- The `/bin/sh` a refusal case in this module names is never started:
@@ -265,7 +294,7 @@ local function test_more_descriptors_by_number(tmp: string)
   local fd, path = output(tmp, "five")
   -- Descriptors 19 and 20: a sealed child's SQLite holds its database open at a low number.
   local r = assert(Child.run(lua(FS .. SYS .. 'Fs.put(3, "report") Fs.put(20, "five") ' ..
-      'return sys.fstat(19) == nil and 0 or 1', nil,
+      'if sys.fstat(19) == nil then return 0 end return 1', nil,
     { fds = { [3] = "capture", [20] = fd }, stdout = "capture" })))
   assert(Fs.close(fd))
   assert(r.ok, "code " .. tostring(r.code))
@@ -385,7 +414,7 @@ end
 local function test_an_escaped_writer_does_not_hold_up_a_read()
   local started = Clock.monotonic_ns()
   local h = assert(Child.start(lua(AGAIN .. "local escaped = again('" .. sleep(ESCAPED_MS) ..
-      "') " .. FS .. 'Fs.put(1, "done " .. escaped.pid) require("cosmic.sys").exit(0)', nil,
+      "') " .. FS .. 'Fs.put(1, "done " .. tostring(escaped.pid)) require("cosmic.sys").exit(0)', nil,
     { stdout = "stream" })))
   local said = read_all(assert(h.stdout_stream))
   -- A zombie answers `kill(pid, 0)` too, where this process adopted
@@ -461,7 +490,7 @@ local function test_a_wait_holds_a_streamed_output_to_its_limit()
   Clock.sleep_ns(Clock.ms(100))
   assert(assert(h:try_wait()).finished)
   local queued = 0
-  for _, stream in ipairs(h._streams) do queued = queued + stream.size end
+  for _, stream in ipairs(h._streams or {}) do queued = queued + stream.size end
   assert(queued <= 1024, "the wait queued " .. tostring(queued) .. " bytes")
   local chunk = assert(assert(h.stdout_stream):read())
   assert(#chunk > 0)
@@ -502,7 +531,7 @@ local function test_try_wait_services_a_chatty_child()
     polled = assert(h:try_wait())
   end
   assert(polled.finished, "a full pipe stalled the child")
-  assert(#polled.result.stdout == 200000)
+  assert(#assert(assert(polled.result).stdout) == 200000)
 end
 
 local function test_timeout_keeps_what_was_captured()
@@ -537,7 +566,7 @@ end
 --- times out.
 local function test_an_escaped_writer_does_not_hold_up_the_wait()
   local r = assert(Child.run(lua(AGAIN .. "local escaped = again('" .. sleep(ESCAPED_MS) ..
-      "') " .. FS .. 'Fs.put(1, "done " .. escaped.pid) require("cosmic.sys").exit(0)', nil,
+      "') " .. FS .. 'Fs.put(1, "done " .. tostring(escaped.pid)) require("cosmic.sys").exit(0)', nil,
     { stdout = "capture", timeout_ns = Clock.seconds(5) })))
   local alive = ended_escaped(assert(r.stdout))
   assert(r.ok and not r.timed_out, "the wait was held open: " .. tostring(r.stdout))
@@ -655,7 +684,7 @@ local function test_a_timeout_of_0_ends_the_child_at_the_first_wait()
   assert(about(began, 0), ms_since(began))
   local h <close> = assert(Child.start(lua(sleep(30000), nil, { timeout_ns = 0 })))
   local look = assert(h:try_wait())
-  assert(look.finished and look.result.timed_out, "the first try_wait left the child running")
+  assert(look.finished and assert(look.result).timed_out, "the first try_wait left the child running")
 end
 
 --- [`Child.wait_any`] ends a handle whose start's deadline passes while
@@ -701,7 +730,7 @@ local function test_try_wait_ends_a_child_past_its_start_timeout()
   assert(not look.finished)
   local _, _ = Clock.sleep_ns(Clock.ms(350))
   look = assert(h:try_wait())
-  assert(look.finished and look.result.timed_out, "try_wait left the child past its deadline")
+  assert(look.finished and assert(look.result).timed_out, "try_wait left the child past its deadline")
 end
 
 --- A read of a streamed output waits no longer than the child's start
@@ -736,7 +765,7 @@ end
 --- A run made while the caller holds a guard, and nothing is sent,
 --- runs as it would alone, and the caller's guard catches nothing.
 local function test_a_run_inside_a_guard_runs()
-  local guard = assert(Child.guard())
+  local guard = assert(Signal.guard())
   local r = assert(Child.run(lua("return 5")))
   assert(r.code == 5, tostring(r.code))
   assert(guard:cancelled() == 0)

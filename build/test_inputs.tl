@@ -11,8 +11,7 @@
 ---   only a declaration answers for;
 --- - every fuzz corpus (`testdata/fuzz/`, where [`build.fuzz`] looks),
 ---   when the closure holds [`build.fuzz`]; and
---- - a pinned environment, `pinned_env`: what the checker and the
----   fuzzer read of it, and what a process of this program needs.
+--- - a pinned environment, `pinned_env`: what the fuzzer reads of it, and what a process of this program needs.
 ---
 --- Its module declares the rest in a [`cosmic.test`] `policy`, which the
 --- harness reads as paths of the tree (`reads`), of the host (`host`),
@@ -33,7 +32,7 @@ local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 local cache_names = require("build.cache_names")
-local type analyzer = require("build.analyzer")
+local type PolicyRules = require("build.policy_rules")
 local type inputs = require("build.inputs")
 local type positions = require("build.positions")
 
@@ -43,10 +42,10 @@ local record test_inputs
   --- What one test module's tests may read.
   record Effective
     --- The import closure's source files, by path of the tree.
-    files: {string:boolean}
+    files: mut {string:boolean}
     --- Paths of the tree, each a file or a directory and all beneath
     --- it: the fuzz corpora, and what the module declares.
-    reads: {string}
+    reads: mut {string}
     --- Absolute paths outside the tree, each a file or /proc.
     host: {string}
     --- Environment variables, pinned or declared, by name.
@@ -56,85 +55,80 @@ local record test_inputs
     tool: boolean
     --- Whether it starts this program only to run Lua in it
     --- ([`cosmic.test`]'s `lua`): its closure holds `lua_loads` too.
-    lua: boolean
+    lua?: boolean
     --- Whether its worker is left unheld by Landlock, so a process it
     --- starts may have a root of its own ([`cosmic.test`]'s `nests`).
-    nests: boolean
-    noexec: boolean
+    nests?: boolean
+    noexec?: boolean
     --- Whether this run proved private noexec scratch usable by this
     --- worker's identity, and why not when requested but unavailable.
-    noexec_ready: boolean
-    noexec_trouble: string
+    noexec_ready?: boolean
+    noexec_trouble?: string
     store: boolean
     --- Whether its worker is given the system's own paths
     --- ([`confine.worker_unveil`]), and its key the host's packages
     --- and system ([`declared_key.system_identity`]).
-    system: boolean
+    system?: boolean
     --- The host caches declared, by name ([`build.caches`]), and where
     --- they are on this host, once the runner resolves them: empty until
     --- then.
-    caches: {string}
-    cache_paths: {string}
+    caches?: {string}
+    cache_paths?: {string}
+    --- The files of the project root's parent directory declared
+    --- ([`cosmic.test`]'s `parent`), by their relative paths.
+    parent?: {string}
     --- Once `resolve` has run: why a `host` path cannot be given, ""
     --- when every one can.
-    unresolved: string
+    unresolved?: string
   end
 
   lua_loads: {string}
   standalone_loads: {string}
-  compiler_sought: function(closure: {string}, lua: boolean): {string}
+  compiler_sought: function(closure: {string}, lua?: boolean): {string}
 end
 
 --- The variables every test may read undeclared, which a sandboxed
---- worker is given pinned: what the checker and the fuzzer read, how a
+--- worker is given pinned: what the fuzzer reads, how a
 --- test of the sandbox itself confines what it starts (COSMIC_SANDBOX,
 --- [`confine.must_confine`]), and what a process of the program
 --- running the tests reads to run at all
 --- ([`this_program.runtime_environment`]).
-local pinned_env: {string} = { "TL_DEBUG", "TL_DEBUG_FACTS", "FUZZ_SEED", "FUZZ_ITERS", "FUZZ_CASE",
+local pinned_env: mut {string} = { "FUZZ_SEED", "FUZZ_ITERS", "FUZZ_CASE",
   "COSMIC_SANDBOX" }
 for _, name in ipairs(this_program.runtime_environment) do pinned_env[#pinned_env + 1] = name end
 
 --- The modules of the tree a process of this program runs before the
---- chunk `cosmic -e` hands it runs ([`build.dispatch`]'s `evaluate`),
---- and nothing else of the tree: cosmic's main and the lean way dispatch
---- takes to `-e`, with what each requires at its top level. A module
---- that declares `lua` ([`cosmic.test`]) holds them in its closure, as
---- if it required each at its top level, though not what each requires
---- only inside a function it does not call on that way -- dispatch
---- requires every verb's modules so -- so its key holds each by what it
---- is, and every process its tests start runs a sealed database of that closure
---- ([`build.test`]'s `sealed_for`), which carries no other module of the
---- program. A module added to that way is not found by such a process
---- until it is added here; build/lua_children_test.tl holds a `-e` child
---- to loading no more.
+--- chunk `cosmic -e` hands it runs ([`build.dispatch`]'s `evaluate`), and
+--- nothing else of the tree: cosmic's main and the lean way dispatch
+--- takes to `-e`, with what each requires at its top level. `-e` checks and
+--- compiles its chunk with the checker ([`build.standalone`] and what it
+--- requires), so a module that declares `lua` ([`cosmic.test`]) holds that
+--- closure beside these, as if it required [`build.standalone`] at its top
+--- level; its key holds each by what it is, and every process its tests
+--- start runs a sealed database of that closure ([`build.test_key`]'s
+--- `sealed_for`), which carries no other module of the program. A module
+--- added to that way is not found by such a process until it is added
+--- here; build/lua_children_test.tl holds a `-e` child to loading no more.
 -- TODO: hold cosmic.errors and its closure here too: the core
 -- requires it for an uncaught error's guidance (core/main.c's
 -- `ask_guidance`), which a child of a `lua` module cannot load and so
 -- prints none, silently, where another prints the catalog's.
 test_inputs.lua_loads = {
-  "build.dispatch", "build.exit_status", "build.help_source", "build.paths", "build.verdict",
-  "cmd.cosmic.main", "cosmic.env", "cosmic.fs", "cosmic.log",
+  "build.dispatch", "build.exit_status", "build.help_source", "build.paths", "build.logger",
+  "cmd.cosmic.main", "cosmic.codec", "cosmic.env", "cosmic.fs", "cosmic.hash", "cosmic.log",
 }
 
---- What `cosmic --standalone` loads beyond `lua_loads` before the file
---- it checks and runs does ([`build.standalone`]): the checker it types
---- the file with ([`build.teal`], which loads the compiler beside it:
---- [`build.closure_store`]'s `loaded_beside`), with what each requires at its top level. A module
---- that declares `lua` ([`cosmic.test`]) and requires [`build.standalone`]
---- at its top level holds them in its closure, which that module's
---- requires reach; one that declares `lua` alone does not, so an edit to
---- the checker runs its tests no more, and a child of it that runs a
---- file standalone does not find the checker.
+--- What `cosmic -e` and `cosmic --standalone` load beyond `lua_loads` before the chunk or file they check and
+--- run does ([`build.standalone`]): the checker that types the text ([`build.pipeline`]), with what each
+--- requires at its top level. A module that declares `lua` ([`cosmic.test`]) holds them in its closure, as one that
+--- requires [`build.standalone`] does, so an edit to the checker runs its tests.
 --- build/lua_standalone_test.tl holds a standalone child to loading no
 --- more, and [`build.standalone`]'s closure to holding every one. A
---- standalone file that requires a module of the
+--- chunk or file that requires a module of the
 --- standard library is typed from its declaration too, which the test
 --- module holds by requiring that module at its top level.
 test_inputs.standalone_loads = {
-  "build.ast", "build.ast.match", "build.ast.match_cast", "build.ast.node",
-  "build.ast.requires", "build.ast.rewrite", "build.ast.walk", "build.standalone",
-  "build.teal", "cosmic.codec", "cosmic.hash", "cosmic.sqlite", "cosmic.store",
+  "build.standalone", "cosmic.sqlite", "cosmic.store",
 }
 
 --- The names of `closure`, the import closure of a module that declares
@@ -147,15 +141,15 @@ test_inputs.standalone_loads = {
 --- process reach that read holds a reader the search finds anyway, and
 --- an edit to the compiler, which moves its identity, runs a test that
 --- only runs Lua in a child no more than one that runs none.
-function test_inputs.compiler_sought(closure: {string}, lua: boolean): {string}
-  if not lua then return closure end
-  local added: {string:boolean} = {}
+function test_inputs.compiler_sought(closure: {string}, lua?: boolean): {string}
+  if lua ~= true then return closure end
+  local added: mut {string:boolean} = {}
   for _, list in ipairs({ test_inputs.lua_loads, test_inputs.standalone_loads }) do
     for _, name in ipairs(list) do added[name] = true end
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, name in ipairs(closure) do
-    if not added[name] then out[#out + 1] = name end
+    if added[name] ~= true then out[#out + 1] = name end
   end
   return out
 end
@@ -173,7 +167,7 @@ local corpora <const> = "testdata/fuzz/"
 --- `type_only` names the edges not followed (importer path, then required
 --- name): the `local type` requires of a module, which Teal erases, so
 --- that nothing of what the required module is loads when the importer
---- runs ([`build.test`]'s `type_only_imports`). What the imported type
+--- runs ([`build.test_key`]'s `type_only_imports`). What the imported type
 --- does at run time (an `is` against a record's `where`, an enum's
 --- test) is compiled into the importer's bytecode, which the closure
 --- holds. A test module's own requires are all followed, so
@@ -181,32 +175,31 @@ local corpora <const> = "testdata/fuzz/"
 --- source and declarations, for a snippet the test type-checks -- into
 --- its closure.
 ---
---- `requires` holds only the literal names handed to `require` itself,
---- so a `require` of a computed name -- or, until [`build.ast.requires`]
---- follows it (the TODO in build/embed.tl), of a literal one through
---- `pcall(require, ...)` -- is not followed: the worker refuses one
---- that names a module of the tree outside this closure
---- ([`build.test_worker`]), so the miss fails the test rather than
---- leaving its key short.
+--- `requires` holds the literal names handed to `require` and to
+--- `pcall(require, ...)`. A computed name is refused when the module is
+--- compiled; one that gets past that (a `require` held in a variable) is
+--- not followed, and the worker refuses one that names a module of the
+--- tree outside this closure ([`build.test_worker`]), so the miss fails
+--- the test rather than leaving its key short.
 ---
---- The compiler -- `vendor.tl`, derived from vendor/tl/ and its
---- patches -- is no file of it, though build.teal loads it as bytecode
---- (`Store.bytecode("vendor.tl")`) rather than by `require`, so no
---- parse follows it: a key over the closure holds it apart, by its
---- bytecode, in the bytes of the closure store that carries it beside
---- build.teal ([`build.closure_store`]'s `loaded_beside`), as it holds every
---- module of the closure by what the compiler made of it.
+--- The declarations of the globals and of the standard library -- `lang.prelude` and `lang.stdlib` -- are no module
+--- of it, though [`build.checker_declarations`] reads them by name rather than by `require`: a key over the closure holds
+--- them in the bytes of the closure store that carries them beside it ([`build.closure_store`]'s `declared_beside`).
 local function closure(m: Module, by_path: {string:Module},
                        declarations: {string:string},
                        type_only?: {string:{string:boolean}}): {string}, boolean, {string}
-  local seen: {string:boolean} = {}
-  local files: {string} = {}
-  local names: {string} = {}
+  local seen: mut {string:boolean} = {}
+  local files: mut {string} = {}
+  local names: mut {string} = {}
   local fuzzes = false
-  local stack: {Module} = { m }
+  local stack: mut {Module} = { m }
+  -- `cosmic -e` checks and compiles its chunk, so a module that declares `lua` holds the checker as one that requires
+  -- build.standalone does.
+  local standalone = by_path["build.standalone"]
+  if m.inputs ~= nil and m.inputs.lua and standalone ~= nil then stack[#stack + 1] = standalone end
   while #stack > 0 do
     local here = table.remove(stack)
-    if not seen[here.path] then
+    if seen[here.path] ~= true then
       seen[here.path] = true
       files[#files + 1] = here.file
       names[#names + 1] = here.path
@@ -216,9 +209,9 @@ local function closure(m: Module, by_path: {string:Module},
         if name == "build.fuzz" then fuzzes = true end
         if erased[name] then
           -- Loads nothing, so no part of the closure.
-        elseif other ~= nil and not seen[name] then
+        elseif other ~= nil and seen[name] ~= true then
           stack[#stack + 1] = other
-        elseif other == nil and declarations[name] ~= nil and not seen[name] then
+        elseif other == nil and declarations[name] ~= nil and seen[name] ~= true then
           seen[name] = true
           files[#files + 1] = declarations[name]
           names[#names + 1] = name
@@ -229,11 +222,11 @@ local function closure(m: Module, by_path: {string:Module},
   -- Each of `lua_loads`, for a module that declares `lua`, as a module it
   -- requires whose own requires it does not follow: each one's top-level
   -- requires are among them.
-  local declared: analyzer.Declared = m.inputs
+  local declared: PolicyRules.Declared = m.inputs
   local function hold(loads: {string})
     for _, name in ipairs(loads) do
       local other = by_path[name]
-      if other ~= nil and not seen[name] then
+      if other ~= nil and seen[name] ~= true then
         seen[name] = true
         files[#files + 1] = other.file
         names[#names + 1] = name
@@ -265,11 +258,13 @@ end
 function test_inputs.effective(m: Module, by_path: {string:Module},
                                declarations: {string:string},
                                type_only?: {string:{string:boolean}}): test_inputs.Effective
+  local parent: mut {string} = {}
+  local caches: mut {string} = {}
   local out: test_inputs.Effective = {
     files = {}, reads = {}, host = {}, env = {}, network = {},
     tool = false, lua = false, nests = false, noexec = false, noexec_ready = false,
     noexec_trouble = "", store = false,
-    system = false, caches = {},
+    system = false, caches = caches, parent = parent,
     cache_paths = {}, unresolved = "",
   }
   local files, fuzzes = closure(m, by_path, declarations, type_only)
@@ -278,7 +273,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
   -- name may be computed, and corpora are small.
   if fuzzes then out.reads[1] = corpora end
   for _, name in ipairs(pinned_env) do out.env[name] = true end
-  local declared: analyzer.Declared = m.inputs
+  local declared: PolicyRules.Declared = m.inputs
   if declared ~= nil then
     for _, path in ipairs(declared.reads) do out.reads[#out.reads + 1] = path end
     for _, path in ipairs(declared.host) do out.host[#out.host + 1] = path end
@@ -289,9 +284,10 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     out.nests = declared.nests == true
     out.noexec = declared.noexec == true
     out.system = declared.system == true
+    for _, relative in ipairs(declared.parent or {}) do parent[#parent + 1] = relative end
     -- A cache is declared with the variables that locate it.
     for _, name in ipairs(declared.caches or {}) do
-      out.caches[#out.caches + 1] = name
+      caches[#caches + 1] = name
       for _, variable in ipairs(cache_names.variables(name)) do out.env[variable] = true end
     end
   end
@@ -305,7 +301,7 @@ end
 --- "/" for an absolute one.
 function test_inputs.plain(path: string): string
   local absolute = path:sub(1, 1) == "/"
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in path:gmatch("[^/]+") do
     if name == ".." and #names > 0 and names[#names] ~= ".." then
       names[#names] = nil
@@ -315,7 +311,7 @@ function test_inputs.plain(path: string): string
   end
   local joined = table.concat(names, "/")
   if absolute then return "/" .. joined end
-  return joined == "" and "." or joined
+  return if joined == "" then "." else joined end
 end
 
 --- Whether `path` is `prefix`, or beneath it, a trailing "/" on either
@@ -335,7 +331,7 @@ end
 --- why it cannot be given. `roots` are where the tree is (its path and
 --- where that resolves). A path cannot be given when it is the tree,
 --- beneath it or above it.
-function test_inputs.resolved(declared: string, roots: {string}): string | nil, string
+function test_inputs.resolved(declared: string, roots: {string}): string?, string
   local path = declared
   local said = string.format("Test.policy grant of the host path %q", declared)
   local real = confine.resolution(path)
@@ -353,23 +349,33 @@ function test_inputs.resolved(declared: string, roots: {string}): string | nil, 
   return path, ""
 end
 
+--- The directory above the project whose root is `root`, where the files a
+--- `/parent/` grant names are: the root's real path less its last name.
+function test_inputs.parent_directory(root: string): string
+  local real = confine.resolution(root)
+  if real == "" then real = root end
+  local above = real:match("^(.*)/[^/]+/*$")
+  if above == nil or above == "" then return "/" end
+  return above
+end
+
 --- Resolves each `host` path of `effective` (`resolved`), and leaves in
 --- `unresolved` why one cannot be given: see `resolved`, whose `roots`
 --- this takes, or it is a directory, but for /proc, which
 --- [`cosmic.test`]'s host grants never name.
 function test_inputs.resolve(effective: test_inputs.Effective, roots: {string})
-  local host: {string} = {}
+  local host: mut {string} = {}
   effective.unresolved = ""
   for _, declared in ipairs(effective.host) do
     local path, trouble = test_inputs.resolved(declared, roots)
     -- A file, or /proc: a directory no key holds by what it holds (R3).
     -- One not there is none, as a file of another platform's is not.
-    local st: sys.Stat = nil
+    local st: sys.Stat? = nil
     if path ~= nil then
       local found, _ = sys.stat(path)
       st = found
     end
-    if st ~= nil and st.kind == "dir" and not beneath(path, "/proc") then
+    if path ~= nil and st ~= nil and st.kind == "dir" and not beneath(path, "/proc") then
       path, trouble = nil, string.format("Test.policy grant of the host path %q: %s is a " ..
           "directory; a grant of the host names files, or /proc: grant the files the tests read",
         declared, path)
@@ -381,6 +387,17 @@ function test_inputs.resolve(effective: test_inputs.Effective, roots: {string})
     end
   end
   effective.host = host
+  -- Each file above the project must be there, and a file: a test that
+  -- reads one the host lacks fails with this, not with its own error.
+  local above = #(effective.parent or {}) > 0 and test_inputs.parent_directory(roots[1] or "") or ""
+  for _, relative in ipairs(effective.parent or {}) do
+    local st, _ = sys.stat(above .. "/" .. relative)
+    if effective.unresolved == "" and (st == nil or st.kind ~= "file") then
+      effective.unresolved = string.format("Test.policy grant of /parent/%s: %s/%s is %s; a " ..
+          "grant of /parent/ names a file of the directory above the project root",
+        relative, above, relative, if st == nil then "not there" else "not a file" end)
+    end
+  end
 end
 
 --- One declaration as text two can be compared by, and one text for
@@ -388,13 +405,13 @@ end
 --- literal's order, duplicates kept, quoted (`%q`, which marks where it
 --- ends), and for each flag set, as `true`; "" for none. `line` plays no
 --- part.
-function test_inputs.canonical(maybe: analyzer.Declared | nil): string
+function test_inputs.canonical(maybe: PolicyRules.Declared?): string
   if maybe == nil then return "" end
-  local declared: analyzer.Declared = maybe
-  local lines: {string} = {}
+  local declared: PolicyRules.Declared = maybe
+  local lines: mut {string} = {}
   local function list(field: string, values: {string})
     for _, value in ipairs(values) do
-      lines[#lines + 1] = field .. " " .. string.format("%q", value)
+      table.insert(lines, field .. " " .. string.format("%q", value))
     end
   end
   list("reads", declared.reads)
@@ -408,13 +425,14 @@ function test_inputs.canonical(maybe: analyzer.Declared | nil): string
   if declared.store then lines[#lines + 1] = "store true" end
   if declared.system then lines[#lines + 1] = "system true" end
   list("caches", declared.caches or {})
+  list("parent", declared.parent or {})
   list("requires", declared.requires or {})
   return table.concat(lines, "\n")
 end
 
 --- What a `policy` stands for, as the build reads a declaration
---- ([`build.analyzer`]), for `canonical`: nil for none.
-function test_inputs.as_declared(needs: inputs.Needs | nil): analyzer.Declared | nil
+--- ([`build.policy_rules`]), for `canonical`: nil for none.
+function test_inputs.as_declared(needs: inputs.Needs?): PolicyRules.Declared?
   if needs == nil then return nil end
   return { line = 0, reads = needs.reads or {}, host = needs.host or {},
     env = needs.env or {}, network = needs.network or {},
@@ -422,7 +440,7 @@ function test_inputs.as_declared(needs: inputs.Needs | nil): analyzer.Declared |
     nests = needs.nests == true,
     noexec = needs.noexec == true,
     store = needs.store == true, system = needs.system == true,
-    caches = needs.caches or {}, requires = needs.requires or {} }
+    caches = needs.caches or {}, parent = needs.parent or {}, requires = needs.requires or {} }
 end
 
 return test_inputs

@@ -10,6 +10,7 @@
 --- refusals that come before a child, which hold on every platform, are in
 --- cosmic/child_policy_anywhere_test.tl.
 
+local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -18,9 +19,9 @@ local Test = require("cosmic.test")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local searchable = require("build.searchable")
+local confine = require("build.confine")
 local stand_in = require("build.stand_in")
 local unix_socket = require("build.unix_socket")
-local type raw_process = require("cosmic.internal.process")
 
 --- The temporary directory, and a loopback address for the host's own
 --- listener the child must not reach. `nests`: a policy's isolation makes
@@ -89,7 +90,7 @@ end
 
 --- A copy of `grants` with `more` after them.
 local function with(grants: {Sandbox.Grant}, ...: Sandbox.Grant): {Sandbox.Grant}
-  local out: {Sandbox.Grant} = {}
+  local out: mut {Sandbox.Grant} = {}
   for _, grant in ipairs(grants) do out[#out + 1] = grant end
   for _, grant in ipairs({ ... }) do out[#out + 1] = grant end
   return out
@@ -97,7 +98,7 @@ end
 
 --- The pids /proc lists, from `ls /proc`'s lines.
 local function pids(listing: string): {integer}
-  local found: {integer} = {}
+  local found: mut {integer} = {}
   for line in listing:gmatch("[^\n]+") do
     local number = tonumber(line)
     if number ~= nil then found[#found + 1] = math.tointeger(number) end
@@ -107,14 +108,14 @@ end
 
 --- The mount at `point` in a /proc/self/mountinfo `text`: its options, its
 --- file system's type and that file system's own options, or nil.
-local function mount_at(text: string, point: string): {string} | nil
+local function mount_at(text: string, point: string): {string}?
   for line in text:gmatch("[^\n]+") do
     local left, right = line:match("^(.-) %- (.*)$")
     if left ~= nil then
-      local fields: {string} = {}
+      local fields: mut {string} = {}
       for word in left:gmatch("%S+") do fields[#fields + 1] = word end
       if fields[5] == point then
-        local rest: {string} = {}
+        local rest: mut {string} = {}
         for word in right:gmatch("%S+") do rest[#rest + 1] = word end
         return { fields[6], rest[1], rest[3] }
       end
@@ -128,7 +129,7 @@ local function test_isolate_file_gives_a_root_of_only_what_is_granted(tmp: strin
   local policy: Sandbox.Policy = { isolate = { "file" }, grants = at.grants }
   local read = under(at.probe, policy, at.work, "cat ro/a")
   if read == nil then return end
-  assert(read.code == 0 and read.said == "alpha\n", read.code .. ": " .. read.said)
+  assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
   -- What is not granted is not there: not refused, absent.
   local other = under(at.probe, policy, at.work, "cat " .. tmp .. "/other/b")
   assert(other.code == 1 and other.said:find("No such file or directory", 1, true), other.said)
@@ -143,6 +144,39 @@ local function test_isolate_file_gives_a_root_of_only_what_is_granted(tmp: strin
   -- not themselves granted: Landlock refuses listing one.
   local listed = under(at.probe, policy, at.work, "ls /tmp")
   assert(listed.code == 1 and listed.said:find("Permission denied", 1, true), listed.said)
+end
+
+--- A start takes a grant for each path a sandbox unveils (`UNVEIL_MAX`), as
+--- a supervised test process is given one for each file of its closure,
+--- less the /proc its root adds: 400 grants, and the most that leaves, are
+--- all there in the child, and one more is refused, naming the most.
+local function test_a_start_takes_as_many_grants_as_a_sandbox_unveils_paths_less_its_proc(tmp: string)
+  local at = placed(tmp)
+  assert(Fs.mkdirs(tmp .. "/many"))
+  local most = confine.unveil_max - 1
+  --- `count` grants: the program and the directory, and a file each of the rest.
+  local function grants(count: integer): {Sandbox.Grant}
+    local out = at.grants
+    for i = 1, count - 2 do
+      local path = tmp .. "/many/f" .. tostring(i)
+      assert(Fs.write(path, "x"))
+      out = with(out, { path = path, letters = "r" })
+    end
+    return out
+  end
+  for _, count in ipairs({ 400, most }) do
+    local policy: Sandbox.Policy = { isolate = { "file" }, grants = grants(count) }
+    local read = under(at.probe, policy, at.work,
+      "cat " .. tmp .. "/many/f1; cat " .. tmp .. "/many/f" .. tostring(count - 2))
+    assert(read.code == 0, tostring(count) .. " grants: " .. tostring(read.code) .. ": " .. read.said)
+    assert(read.said == "xx", tostring(count) .. " grants: " .. read.said)
+  end
+  local none, why = Child.start({ at.probe, "print hi" },
+    { policy = { isolate = { "file" }, grants = grants(most + 1) }, cwd = at.work })
+  assert(none == nil, "a start over the most was made")
+  assert(why:find("^child: start: sandbox: grants: "), why)
+  assert(why:find("/proc is one more", 1, true), why)
+  assert(why:find("takes, " .. tostring(most) .. ";", 1, true), why)
 end
 
 local function test_isolate_file_has_a_proc_of_its_own_holding_its_own_processes(tmp: string)
@@ -171,7 +205,7 @@ local function test_a_grant_with_from_appears_at_its_name_and_the_host_path_does
     grants = with(at.grants, { path = "/data", letters = "r", from = tmp .. "/hostdata" }) }
   local read = under(at.probe, policy, at.work, "cat /data/c")
   if read == nil then return end
-  assert(read.code == 0 and read.said == "gamma\n", read.code .. ": " .. read.said)
+  assert(read.code == 0 and read.said == "gamma\n", tostring(read.code) .. ": " .. read.said)
   local host = under(at.probe, policy, at.work, "cat " .. tmp .. "/hostdata/c")
   assert(host.code == 1 and host.said:find("No such file or directory", 1, true), host.said)
   -- The mount point is the sandbox's own: the host has no /data made.
@@ -289,7 +323,7 @@ end
 local function test_loopback_gives_a_network_of_its_own_the_host_does_not_share(tmp: string)
   local at = placed(tmp)
   local host = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = 1000000000 }))
-  local port = host.address.port
+  local port = assert(host.address.port)
   -- Nothing is vacuous: the test itself reaches that listener.
   local probe_conn = assert(Net.connect(Net.tcp("127.0.0.1", port)))
   assert(probe_conn:close())
@@ -302,7 +336,7 @@ local function test_loopback_gives_a_network_of_its_own_the_host_does_not_share(
   end
   assert(inside.code == 0 and inside.said == "connected\n", inside.said)
   -- ... and cannot reach the host's, whose port it names.
-  local across = under(at.probe, policy, at.work, "connect-tcp 127.0.0.1 " .. port)
+  local across = under(at.probe, policy, at.work, "connect-tcp 127.0.0.1 " .. tostring(port))
   assert(across.said ~= "connected\n" and across.said:find("refused", 1, true), across.said)
   assert(host:close())
   -- With isolate file as well.
@@ -392,20 +426,6 @@ local function test_a_u_grant_beside_files_alone_is_met(tmp: string)
   assert(result.code == 0 and result.said == "connected\n", result.said)
 end
 
-local type Searcher = function(string): any, any
-
---- The Landlock ABI of this kernel, nil where there is none: from the raw
---- table the store's searcher hands [`cosmic.child`]'s loader.
-local function landlock_abi(): integer | nil, string, integer
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then
-      return (extra as raw_process).landlock_abi() -- cast: the table core/process.h declares
-    end
-  end
-  error("cosmic.child is handed no raw table")
-end
-
 --- A root of files and its own /tmp alone shows no socket of the host's, so
 --- the program makes one there with no `u` grant, at any ABI; a directory of
 --- the host beside it takes that below ABI 9, and its own network namespace
@@ -421,7 +441,7 @@ local function test_a_root_of_files_and_its_own_tmp_makes_unix_sockets_without_u
   local isolated = under(at.probe, { isolate = { "file" }, tmp = true, grants = at.bare }, at.home, script)
   assert(isolated ~= nil and isolated.said:find("not permitted", 1, true), "no network of its own: " ..
       tostring(isolated and isolated.said))
-  local abi, _ = landlock_abi()
+  local abi, _ = RawTables.process().landlock_abi()
   local shown = under(at.probe, { isolate = { "file" }, tmp = true, loopback = { "127.0.0.1" },
     grants = at.grants }, at.work, script)
   assert(shown ~= nil, "started")

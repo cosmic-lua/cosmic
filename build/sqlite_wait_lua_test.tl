@@ -1,18 +1,27 @@
 --- Source-tree database waits stop at a guard signal and release their locks.
 local Child = require("cosmic.child")
-local type _ = require("cosmic.fs")
+local Signal = require("cosmic.signal")
+local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local type Log = require("cosmic.log")
+local build_paths = require("build.paths")
 local rebuild_lock = require("build.rebuild_lock")
 local this_program = require("build.this_program")
-local verdict = require("build.verdict")
+local logger = require("build.logger")
 local work = require("build.work")
 
 Test.policy{ profiles = { "cosmic" } }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 local function child(script: string): Child.Handle
   local command = this_program.program({ "-e", script },
@@ -42,6 +51,7 @@ local function signaller(): Child.Handle
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
+
 print("ready")
 Fs.take(Fs.stdin, 1)
 Clock.sleep_ns(%d)
@@ -63,14 +73,14 @@ end
 local function test_work_begin_stops_the_long_wait_and_can_be_used_again(tmp: string)
   local handle = assert(work.open(tmp))
   assert(work.commit(handle))
-  local holder <close> = hold(tmp .. "/o/build.db")
-  local guard <close> = assert(Child.guard())
+  local holder <close> = hold(build_dir(tmp) .. "/build.db")
+  local guard <close> = assert(Signal.guard())
   local sender <close> = signaller()
   signal(sender)
   local begun, reason = work.begin(handle)
   local caught = guard:take()
   guard:release()
-  assert(not begun and reason:find("interrupted", 1, true), reason)
+  assert(not begun and reason:find("interrupted", 1, true) ~= nil, reason)
   assert(not handle.inside and caught == sys.SIGTERM)
   done(sender)
   assert(assert(holder.stdin_stream):close())
@@ -82,25 +92,25 @@ end
 local function test_work_open_does_not_retry_a_cancelled_first_or_second_begin(tmp: string)
   local initial = assert(work.open(tmp))
   assert(work.close(initial))
-  local holder <close> = hold(tmp .. "/o/build.db")
+  local holder <close> = hold(build_dir(tmp) .. "/build.db")
   -- One signal meets the first brief BEGIN; the other meets its long
   -- retry after the one-second notice. Neither may become another retry.
   -- The first is caught before the open, which its first BEGIN then
   -- finds; the second is sent once the notice is given, so neither
   -- meets the other phase however slow the host.
-  local log = verdict.log
+  local log = logger.log
   local complain = log.complain
   for _, retried in ipairs({ false, true }) do
-    local notices = 0
-    local guard <close> = assert(Child.guard())
-    local sender: Child.Handle | nil
+    local notices = { value = 0 }
+    local guard <close> = assert(Signal.guard())
+    local sender: Child.Handle?
     if retried then
       sender = signaller()
     else
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
     end
     log.complain = function(_: Log.Logger, _: string): boolean, string
-      notices = notices + 1
+      notices.value = notices.value + 1
       if sender ~= nil then signal(sender) end
       return true, ""
     end
@@ -109,9 +119,9 @@ local function test_work_open_does_not_retry_a_cancelled_first_or_second_begin(t
     assert(ran, tostring(opened))
     local caught = guard:take()
     guard:release()
-    assert(opened == nil and reason:find("interrupted", 1, true), reason)
+    assert(opened == nil and reason:find("interrupted", 1, true) ~= nil, reason)
     assert(caught == sys.SIGTERM)
-    assert(notices == (retried and 1 or 0), notices .. " notices")
+    assert(notices.value == (if retried then 1 else 0 end), notices.value .. " notices")
     if sender ~= nil then done(sender) end
   end
   assert(assert(holder.stdin_stream):close())
@@ -122,12 +132,12 @@ end
 local function test_rebuild_sqlite_wait_releases_the_flock_after_cancellation(tmp: string)
   local initial = assert(work.open(tmp))
   assert(work.close(initial))
-  local path = tmp .. "/o/rebuild.lock"
+  local path = build_dir(tmp) .. "/rebuild.lock"
   local holder <close> = hold(path)
   -- A local flock is apart from SQLite's fcntl lock. Other filesystems
   -- use the flock itself to exclude the SQLite holder, so either wait
   -- must still end at the guard and leave neither half held.
-  local guard <close> = assert(Child.guard())
+  local guard <close> = assert(Signal.guard())
   local sender <close> = signaller()
   signal(sender)
   -- Long past the signal, which the ready handshake leaves only its
@@ -136,7 +146,7 @@ local function test_rebuild_sqlite_wait_releases_the_flock_after_cancellation(tm
   local taken, reason = rebuild_lock.take(tmp, Clock.seconds(6))
   local caught = guard:take()
   guard:release()
-  assert(taken == nil and reason:find("interrupted", 1, true), tostring(taken) .. " " .. reason)
+  assert(taken == nil and reason:find("interrupted", 1, true) ~= nil, tostring(taken) .. " " .. reason)
   assert(caught == sys.SIGTERM)
   done(sender)
   assert(assert(holder.stdin_stream):close())

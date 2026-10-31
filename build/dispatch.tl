@@ -1,6 +1,6 @@
 --- What the binary's main does with its command line, as a module
 --- rather than the main itself, so a test can run a verb in-process
---- ([`build.invoke`]): [`cmd/cosmic/main.tl`] hands [`dispatch.main`] every
+--- ([`build.invoke`]): [`cmd/cosmic/main.tl`] hands [`Dispatch.main`] every
 --- command line but a test's worker's (`cosmic test --worker`), which it
 --- runs itself, so a worker loads nothing of this module's. So
 --- `cosmic test --worker` here is `test` refusing an option it does
@@ -13,10 +13,10 @@
 
 local exit_status = require("build.exit_status")
 local help_source = require("build.help_source")
-local verdict = require("build.verdict")
+local logger = require("build.logger")
 local type verb_spec = require("build.verb_spec")
 
-local log = verdict.log
+local log = logger.log
 
 -- Require modules lazily inside what needs them, so a verb's command line
 -- loads that verb's module alone ([`verb_list.find`]), and `-e`,
@@ -40,30 +40,30 @@ local function verb_help(verbs: {string}, binary_only?: boolean): {string: strin
   local docs = require("build.docs")
   local link_text = require("build.link_text")
   local sources: docs.Sources
-  if binary_only then
+  if binary_only == true then
     local handles = require("cosmic.store").databases()
-    local public: {boolean} = {}
+    local public: mut {boolean} = {}
     for i = 1, #handles do public[i] = true end
     sources = { handles = handles, public = public, opened = {} }
   else
     sources = docs.databases()
   end
   local view, view_trouble = docs.view(sources.handles, sources.public)
-  local out: {string: string} = {}
+  local out: mut {string: string} = {}
   if view == nil then
     for _, verb in ipairs(verbs) do
       out[verb] = "(cosmic.cli: " .. view_trouble .. ")\n"
     end
     return out
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, verb in ipairs(verbs) do
     names[#names + 1] = "Cli." .. verb
   end
   local found, trouble = docs.named_all(view, names)
   for _, verb in ipairs(verbs) do
     local symbol = "Cli." .. verb
-    local text: string | nil = nil
+    local text: string? = nil
     if found ~= nil then
       for _, entry in ipairs(found) do
         if entry.symbol == symbol then
@@ -72,14 +72,15 @@ local function verb_help(verbs: {string}, binary_only?: boolean): {string: strin
         end
       end
     end
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     if found == nil then
       lines[#lines + 1] = "(cosmic.cli " .. symbol .. ": " .. trouble .. ")"
     elseif text == nil then
       lines[#lines + 1] = "(cosmic.cli " .. symbol .. ": not found)"
     else
       lines[#lines + 1] = text
-      local options = require("cosmic.flags").options(Cli.verbs[verb].spec or {})
+      local command = Cli.verbs[verb]
+      local options = require("cosmic.flags").options(if command ~= nil then command.spec or {} else {} end)
       if options ~= "" then
         lines[#lines + 1] = options
       end
@@ -92,25 +93,28 @@ end
 
 --- What follows the list of bare verbs in the paragraph that names them,
 --- before the sentence each bare verb's spec gives for its exit codes.
-local help_verdict = "ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL (...)` -- and an exit code: 0 when it passed; 1 when it failed; 2 when its command line was refused -- an option, an argument or a verb it does not know; 3 when the tool is older than the tree and did not rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). A file run, `--standalone` and `-e` are not verbs of that kind: each prints only what its program prints and exits with what it returns. `--version` is not one either: it prints its one line."
+local help_exit = "exits 0 when it passed; 1 when it failed; 2 when its command line was refused -- an option, an argument or a verb it does not know; 3 when the tool is older than the tree and did not rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). Its stdout is its result alone. Its stderr says what went wrong, and a run that passed ends there in a summary of how it went, `fix: 3 Teal files, 0 fixed, 12 ms`. `test`'s summary is its result instead, last on stdout once its tests ran, whether they passed or not: `test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...`."
+
+--- What `cosmic help exit` says of what is not a verb.
+local help_programs = "A file run, `--standalone` and `-e` are not verbs of that kind: each prints only what its program prints and exits with what it returns. `--version` is not one either: it prints its one line."
 
 --- `a`, `b` and `c`: the words in backticks, the last after "and".
 local function listed(names: {string}): string
-  local quoted: {string} = {}
+  local quoted: mut {string} = {}
   for _, name in ipairs(names) do
     quoted[#quoted + 1] = "`" .. name .. "`"
   end
   if #quoted < 2 then
     return table.concat(quoted)
   end
-  local last = table.remove(quoted)
+  local last = assert(table.remove(quoted))
   return table.concat(quoted, ", ") .. " and " .. last
 end
 
 --- `text` broken into lines of at most `width` characters at its spaces
 --- (a word longer than that keeps its own line), with no line ending.
 local function wrapped(text: string, width: integer): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local line = ""
   for word in text:gmatch("%S+") do
     if line == "" then
@@ -156,39 +160,53 @@ those up is the author's judgement, not the tool's.]]
 --- @param verb the verb's name
 --- @param spec the verb's spec, or nil for a verb that has none (a file
 ---   run, `--standalone`, `-e`, `--version`)
-local function spec_notes(verb: string, spec: verb_spec.Spec | nil): string
+local function spec_notes(verb: string, spec: verb_spec.Spec?): string
   if spec == nil then
     return wrapped("Prints only what its program prints, and exits with what it returns, " ..
         "as `cosmic help exit` says.", help_width)
   end
-  local paragraphs: {string} = {}
+  local paragraphs: mut {string} = {}
   if verb == "fix" then
     paragraphs[1] = fix_layout
   end
   paragraphs[#paragraphs + 1] = wrapped("Takes " .. spec.takes .. ".", help_width)
-  if spec.exits ~= nil then
-    paragraphs[#paragraphs + 1] = wrapped(spec.exits, help_width)
+  local exits = spec.exits
+  if exits ~= nil then
+    paragraphs[#paragraphs + 1] = wrapped(exits, help_width)
+  elseif verb == "test" then
+    paragraphs[#paragraphs + 1] = wrapped("Once its tests ran, ends its stdout in their summary, " ..
+        "`test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...`, and exits " ..
+        "as `cosmic help exit` says.", help_width)
+  elseif spec.summarizes_failure == true then
+    paragraphs[#paragraphs + 1] = wrapped("Ends a run with a summary on stderr, `" .. verb ..
+        ": ...`, whether it passed or failed, and exits as `cosmic help exit` says.", help_width)
   else
-    paragraphs[#paragraphs + 1] = wrapped("Ends in a verdict line, `" .. verb .. ": PASS (...)` or `" ..
-        verb .. ": FAIL (...)`, and an exit code: see `cosmic help exit`.", help_width)
+    paragraphs[#paragraphs + 1] = wrapped("Ends a run that passed with a summary on stderr, `" ..
+        verb .. ": ...`, and exits as `cosmic help exit` says.", help_width)
   end
   return table.concat(paragraphs, "\n\n")
 end
 
---- The text of `cosmic help exit`: the verdict line and exit codes the
---- verbs share, then how each verb that prints no verdict exits.
+--- The text of `cosmic help exit`: the exit codes and summary the verbs
+--- share, then how each bare verb exits.
 --- @param specs every verb's spec, in help's order
 local function exit_help(specs: {verb_spec.Spec}): string
-  local bare: {string} = {}
-  local sentences: {string} = {}
+  local bare: mut {string} = {}
+  local failing: mut {string} = {}
+  local sentences: mut {string} = {}
   for _, spec in ipairs(specs) do
     if spec.bare then
       bare[#bare + 1] = spec.name
       sentences[#sentences + 1] = spec.exits or ""
     end
+    if spec.summarizes_failure == true then
+      failing[#failing + 1] = spec.name
+    end
   end
-  return wrapped("Every verb but " .. listed(bare) .. " " .. help_verdict .. " " ..
-      table.concat(sentences, " "), help_width) .. "\n"
+  return wrapped("Every verb but " .. listed(bare) .. " " .. help_exit .. " " ..
+      listed(failing) .. " end a failed run in one too: what it found nothing of, or what is left " ..
+      "to fix. " ..
+      help_programs .. " " .. table.concat(sentences, " "), help_width) .. "\n"
 end
 
 --- The text of `cosmic help <verb>`: the verb's docs, its options, then
@@ -196,11 +214,13 @@ end
 --- @param specs every verb's spec, the `help` verb's included
 --- @param docs the verb's own text if already read ([`verb_help`])
 local function verb_text(verb: string, specs: {verb_spec.Spec}, docs?: string): string
-  local spec: verb_spec.Spec | nil = nil
+  local spec: verb_spec.Spec? = nil
   for _, candidate in ipairs(specs) do
     if candidate.name == verb then spec = candidate end
   end
-  return (docs or verb_help({ verb })[verb]) .. "\n" .. spec_notes(verb, spec)
+  local text = docs or verb_help({ verb })[verb]
+  assert(text, "verb_help answers each verb it is asked")
+  return text .. "\n" .. spec_notes(verb, spec)
 end
 
 --- The verbs spelled as options, by that spelling.
@@ -221,12 +241,13 @@ local function usage_line(verb: string): string
   for spelled, name in pairs(as_option) do
     if name == verb then typed = spelled end
   end
-  local words: {string} = { "cosmic" }
+  local words: mut {string} = { "cosmic" }
   if typed ~= "" then words[#words + 1] = typed end
-  local command = require("cosmic.cli").verbs[verb]
+  local command = assert(require("cosmic.cli").verbs[verb], "the index lists the verbs of Cli.verbs")
   local usage = command.usage
   if usage == nil then
-    usage = command.spec ~= nil and next(command.spec) ~= nil and "[options]" or ""
+    local spec = command.spec
+    usage = if spec ~= nil and next(spec) ~= nil then "[options]" else "" end
   end
   if usage ~= "" then words[#words + 1] = usage end
   return table.concat(words, " ")
@@ -260,19 +281,20 @@ local function index_help(): string
   }
   for _, group in ipairs(Cli.groups) do
     lines[#lines + 1] = ""
-    lines[#lines + 1] = group[1] .. ":"
-    for slot = 2, #group do
-      local verb = group[slot]
-      local usage = usage_line(verb)
-      lines[#lines + 1] = "  " .. usage .. string.rep(" ", width - #usage + 2) ..
-        Cli.verbs[verb].about
+    lines[#lines + 1] = assert(group[1], "a group of Cli.groups opens with its title") .. ":"
+    for slot, verb in ipairs(group) do
+      if slot > 1 then
+        local usage = usage_line(verb)
+        local command = assert(Cli.verbs[verb], "a grouped verb is one of Cli.verbs")
+        lines[#lines + 1] = "  " .. usage .. string.rep(" ", width - #usage + 2) .. assert(command.about)
+      end
     end
   end
   for _, line in ipairs({
       "",
       "More:",
       "  cosmic help <verb>       a verb's full text, with its options",
-      "  cosmic help exit         verdict lines and exit codes",
+      "  cosmic help exit         exit codes and summaries",
       "  cosmic docs              every module of the standard library",
       "  cosmic docs <module>     a module, or a symbol such as Fs.read",
       "",
@@ -285,7 +307,7 @@ local function index_help(): string
 end
 
 --- The directory a path sits in, absolute.
-local function directory_of(path: string): string | nil, string
+local function directory_of(path: string): string?, string
   local Fs = require("cosmic.fs")
   local resolved, trouble = Fs.absolute(path)
   if resolved == nil then
@@ -299,7 +321,7 @@ end
 --- builds the project as `test` and `build` do and the file reaches
 --- the rest of it; the file's own directory otherwise, so a file
 --- anywhere else runs on its own.
-local function root_of(file: string): string | nil, string
+local function root_of(file: string): string?, string
   local Fs = require("cosmic.fs")
   local resolved, trouble = Fs.absolute(file)
   if resolved == nil then
@@ -307,7 +329,7 @@ local function root_of(file: string): string | nil, string
   end
   local here, _ = Fs.absolute(".")
   if here ~= nil and Fs.within(resolved, here) then
-    return here
+    return here, ""
   end
   return directory_of(file)
 end
@@ -315,7 +337,7 @@ end
 --- The module a file is, as its path relative to the root says: a
 --- directory's `init.tl` is the directory's, as the build's `inputs`
 --- view (build/work.tl) names it.
-local function module_of(root: string, file: string): string | nil, string
+local function module_of(root: string, file: string): string?, string
   local Fs = require("cosmic.fs")
   local String = require("cosmic.string")
   local resolved, trouble = Fs.absolute(file)
@@ -326,46 +348,15 @@ local function module_of(root: string, file: string): string | nil, string
     return nil, file .. " is not inside " .. root
   end
   local relative = resolved:sub(#root + 2)
+  if String.ends_with(relative, ".lua") then
+    return nil, file .. " is Lua, and cosmic runs Teal, checked: rename it to " ..
+      (relative:gsub("%.lua$", ".tl")) .. " and run `cosmic fix` on it to see what the checker asks of it"
+  end
   if not String.ends_with(relative, ".tl") then
-    return nil, file .. " is not a Teal source"
+    return nil, file .. " is not a Teal source: cosmic runs files that end in .tl"
   end
   local name = relative:gsub("/init%.tl$", ""):gsub("%.tl$", "")
-  return (name:gsub("/", "."))
-end
-
---- Whether `dir`, a build's o/, can be made and written: it, and the
---- databases a build writes there.
-local function writable(dir: string): boolean
-  local Fs = require("cosmic.fs")
-  local sys = require("cosmic.sys")
-  local made, _ = Fs.mkdirs(dir)
-  if not made then return false end
-  local reached, _ = sys.access(dir, sys.W_OK | sys.X_OK)
-  if not reached then return false end
-  for _, name in ipairs({ "/build.db", "/cosmic.db" }) do
-    local there, _ = sys.access(dir .. name, 0) -- 0: whether it exists
-    local open, _ = sys.access(dir .. name, sys.W_OK)
-    if there and not open then return false end
-  end
-  return true
-end
-
---- Where a run builds the tree around `root` when its o/ cannot be
---- written (another user's, a read-only checkout): a directory of this
---- user's cache of its own for `root`, named by its path's SHA-256, so a
---- later run reuses it, and whether it is new. Nil and why where there
---- is no such cache.
--- TODO: remove a directory of `runs` no run has used for a while, once
--- the caches under $XDG_CACHE_HOME/cosmic share a rule to prune by: each
--- tree run so keeps one, a copy of every file it staged among it.
-local function private_dir(root: string): string | nil, boolean, string
-  local Fs = require("cosmic.fs")
-  local Hash = require("cosmic.hash")
-  local base, trouble = Fs.cache_dir("runs")
-  if base == nil then return nil, false, trouble end
-  local dir = base .. "/" .. Hash.hex_sha256(root)
-  local there, _ = Fs.exists(dir)
-  return dir, not there, ""
+  return (name:gsub("/", ".")), ""
 end
 
 --- Runs a file. The file is a module: it is required once its tree is
@@ -384,16 +375,16 @@ end
 --- is 0, and anything but a whole number from 0 to 255, or text naming
 --- one, exits 2. No function at all is 0.
 --- @param file the path named on the command line
---- @param argv the whole command line, `cosmic` at slot 0 and `file` at
----   slot 1; the file sees only what follows it, as its own `argv`
-local function run(file: string, argv: {integer:string}): integer
+--- @param argv the whole command line, `file` at slot 1; the file sees only
+---   what follows it, as its own `argv`
+local function run(file: string, argv: {string}): integer
   local Store = require("cosmic.store")
   local Clock = require("cosmic.clock")
   local clock = require("build.clock")
+  local GrammarMode = require("build.grammar_mode")
   local importer = require("build.importer")
   local shared_compiles = require("build.shared_compiles")
   local reboot = require("build.reboot")
-  local teal = require("build.teal")
   local tree = require("build.tree")
   local build_paths = require("build.paths")
   local work = require("build.work")
@@ -410,49 +401,26 @@ local function run(file: string, argv: {integer:string}): integer
   end
 
   local started = Clock.monotonic_ns()
-  local own_tree, own_trouble = tree.is_own(root)
-  if own_tree == nil then
-    log:complain(own_trouble)
+  local standing, standing_trouble = tree.standing(root)
+  if standing == nil then
+    log:complain(standing_trouble)
     return 1
   end
-  -- Any tree but cosmic's own whose o/ cannot be written builds into a
-  -- directory of this user's instead. Cosmic's o/ has no stand-in: its
-  -- tool rebuilds from it and its lock guards it.
-  local dir, directory_trouble = build_paths.directory(root)
-  if dir == nil then
-    log:complain(directory_trouble)
-    return 1
-  end
-  if not own_tree and not writable(dir) then
-    local private, new, private_trouble = private_dir(root)
-    if private == nil then
-      log:complain(dir .. " cannot be written, and there is nowhere else to build " .. root ..
-          ": " .. private_trouble)
-      return 1
-    end
-    if new then
-      log:complain(dir .. " cannot be written; building " .. root .. " into " .. private ..
-          " instead, as every run of it will")
-    end
-    dir = private
-  end
-  local handle, open_trouble = work.open(root, dir)
+  local handle, open_trouble = work.open(root)
   if handle == nil then
     log:complain(open_trouble)
     return 1
   end
-  local staged, stage_trouble = work.stage(handle, own_tree)
+  local staged, stage_trouble = work.stage(handle, standing.own)
   if staged == nil then
     local _, _ = work.close(handle)
     log:complain(stage_trouble)
     return 1
   end
 
-  local built = teal.lazy()
-
   -- A stale tool refuses, or rebuilds itself or has zig boot the core
   -- and re-enters this command line ([`reboot.guard`]).
-  if own_tree then
+  if standing.own then
     local code = reboot.guard(handle, root, argv)
     if code ~= nil then
       return code
@@ -462,12 +430,18 @@ local function run(file: string, argv: {integer:string}): integer
   -- The compiler this binary is, as the build that made it recorded.
   -- A project's rows are keyed by it, so a different compiler
   -- recompiles them.
-  local tool = Store.meta("compiler") or ""
+  local asked, grammar_trouble = GrammarMode.mode()
+  if asked == nil then
+    local _, _ = work.close(handle)
+    log:complain(grammar_trouble)
+    return 1
+  end
+  local grammar = asked
+  local tool = GrammarMode.tool(Store.meta("compiler") or "", grammar)
 
-  local database = dir .. "/cosmic.db"
+  local database = build_paths.under(handle.dir).projection
 
-  local result, compile_trouble = importer.compile(handle, built, tool, false,
-    shared_compiles.for_build())
+  local result, compile_trouble = importer.compile_for(handle, tool, name, shared_compiles.for_build())
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
@@ -475,9 +449,7 @@ local function run(file: string, argv: {integer:string}): integer
     return 1
   end
   local written, write_trouble =
-    writer.write_result(handle, database, result)
-  local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
-    result.cached, written and "PASS" or "FAIL")
+    writer.write_recorded(handle, database, result, started, staged)
   local _, _ = work.close(handle)
   if not written then
     log:complain(write_trouble)
@@ -488,6 +460,14 @@ local function run(file: string, argv: {integer:string}): integer
   -- collides with the tail generated for its tests) is left out of the
   -- database. The file asked for compiled, so this only warns.
   for _, line in ipairs(result.refused) do
+    log:complain("warning: " .. line)
+  end
+  -- A broken file the file run does not reach is left out of the database
+  -- too, the run going on without it ([`importer.compile_for`]).
+  -- TODO: keep a left-out module's last good rows in the projection, once
+  -- the writer can carry a module's rows from the projection it replaces:
+  -- until a whole build, `cosmic docs` and `uses` miss it and what requires it.
+  for _, line in ipairs(result.left_out) do
     log:complain("warning: " .. line)
   end
 
@@ -501,17 +481,21 @@ local function run(file: string, argv: {integer:string}): integer
   end
 
   local standalone = require("build.standalone")
-  local arguments: {string} = {}
+  -- `arg[0]` is the script, so the table is keyed by position and not a sequence.
+  local arguments: mut {integer: string} = {}
   arguments[0] = file
   local slot = 2
-  while argv[slot] ~= nil do
-    arguments[slot - 1] = argv[slot]
+  local given = argv[slot]
+  while given ~= nil do
+    arguments[slot - 1] = given
     slot = slot + 1
+    given = argv[slot]
   end
   -- The file's top level, which `require` hands its own name and loader
   -- data as `...`, finds its words in `arg`, as `lua file a b` gives them.
-  rawset(_G, "arg", arguments)
-  local entry = standalone.entry(require(name))
+  rawset(_G as {string:any}, "arg", arguments)
+  local load_module = require("build.load_module")
+  local entry = standalone.entry(load_module.load(name))
   if entry ~= nil then
     return exit_status.of(file, entry(arguments))
   end
@@ -520,13 +504,14 @@ end
 
 --- `cosmic --version`: the SHA-256 of the file this binary runs from,
 --- read in pieces, as a release's SHA256SUMS names it: `cosmic <hex>`.
-local function version(argv: {integer:string}): integer
+local function version(argv: {string}): integer
   local Codec = require("cosmic.codec")
   local Fs = require("cosmic.fs")
   local Hash = require("cosmic.hash")
   local Proc = require("cosmic.proc")
-  if argv[2] ~= nil then
-    log:complain("--version takes nothing after it, not " .. argv[2])
+  local extra = argv[2]
+  if extra ~= nil then
+    log:complain("--version takes nothing after it, not " .. extra)
     return 2
   end
   local path, path_trouble = Proc.executable()
@@ -571,41 +556,47 @@ local function version(argv: {integer:string}): integer
   return 0
 end
 
---- `cosmic -e <chunk> [args...]`: runs `chunk` as Lua, the way `lua -e`
---- does, against this binary's own standard library, with no tree around
---- it. The words after it are its `...`; what it returns is the exit
---- code as a file run's is -- see build/exit_status.tl.
---- @param argv the whole command line, `cosmic` at slot 0 and `-e` at
----   slot 1
-local function evaluate(argv: {integer:string}): integer
+--- `cosmic -e <chunk> [args...]`: runs `chunk` as the body of a Teal file, against this binary's own standard
+--- library, with no tree around it. The chunk is parsed, checked as strictly as a tree build checks (a warning
+--- is refused with an error) and compiled by [`build.standalone`]; a chunk the checker refuses does not run, and
+--- exits 1 with the checker's own messages. It reaches the standard library as a file does, by
+--- `require("cosmic.json")` with a literal name, and may require the tool's own modules too, which are the
+--- tool's one-liner's to use; nothing is bound for it. The words after it are its `...` (each a `string?`); what it
+--- returns is the exit code as a file run's is -- see build/exit_status.tl.
+--- @param argv the whole command line, `-e` at slot 1
+local function evaluate(argv: {string}): integer
   local chunk = argv[2]
   if chunk == nil then
     log:complain("usage: cosmic -e '<chunk>' [args...]")
     return 2
   end
-  local loaded, trouble = load(chunk, "=-e", "t")
+  local loaded, trouble = require("build.standalone").compile("-e", chunk, nil, true)
   if loaded == nil then
-    log:complain(tostring(trouble))
+    local Fs = require("cosmic.fs")
+    local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
+    log:complain("-e runs its chunk as Teal, checked as a file is: see `cosmic help -e`")
     return 1
   end
-  local arguments: {string} = {}
+  local arguments: mut {string} = {}
   local slot = 3
-  while argv[slot] ~= nil do
-    arguments[#arguments + 1] = argv[slot]
+  local given = argv[slot]
+  while given ~= nil do
+    arguments[#arguments + 1] = given
     slot = slot + 1
+    given = argv[slot]
   end
   return exit_status.of("-e", (loaded(table.unpack(arguments))))
 end
 
 --- `help` is dispatch's own spec (below): it prints the specs of every other
 --- verb, so it is declared here and set once `help` exists.
-local help_spec: verb_spec.Spec
+local help_spec: verb_spec.Spec?
 
 --- `cosmic help [verb | exit]`: the index, or one verb's full text, or the
---- exit codes, and a verdict line.
+--- exit codes, then its summary on stderr.
 --- @param asked the verb `cosmic <verb> --help` asked about, or nil to
 ---   read the words after `help` itself
-local function help(argv: {integer:string}, asked: string | nil): integer
+local function help(argv: {string}, asked: string?): integer
   local Cli = require("cosmic.cli")
   local Clock = require("cosmic.clock")
   local clock = require("build.clock")
@@ -618,64 +609,64 @@ local function help(argv: {integer:string}, asked: string | nil): integer
   if asked == "cache" or (asked == nil and argv[2] == "cache" and argv[3] == nil) then
     local spec = assert(verb_list.find("cache"))
     log:say(verb_text("cache", { spec }, verb_help({ "cache" }, true).cache) .. "\n")
-    log:verdict("help", true, "1 verb, " .. clock.took(started))
+    local _, _ = logger.summary("help", "1 verb, " .. clock.took(started))
     return 0
   end
   -- The staleness guard `test` applies: a fingerprint compare when the
   -- tool is fresh. Help reads build.docs, so an edit to it must rebuild.
-  local code = require("build.reboot").stale_exit(argv)
+  local code = require("build.reboot").stale_exit(argv, true)
   if code ~= nil then
     return code
   end
-  local words: {string} = { asked }
+  local words: {string} = if asked ~= nil then { asked } else {} end
   if asked == nil then
     local line = argv
-    local spelled = argv[2] ~= nil and as_option[argv[2]] or nil
+    local second = argv[2]
+    local spelled = if second ~= nil then as_option[second] else nil end
     if spelled ~= nil then
       -- A verb spelled as an option (`cosmic --standalone <file>`,
       -- `cosmic -e <chunk>`) is asked about by either spelling.
       line = {}
-      for slot, word in pairs(argv) do line[slot] = word end
+      for slot, word in ipairs(argv) do line[slot] = word end
       line[2] = spelled
     end
     local parsed, parse_trouble = require("cosmic.flags").parse(line, 2, { ["--help"] = { about = "the index" }, ["-h"] = { about = "the index" } })
     if parsed == nil then
       log:complain("help: " .. parse_trouble)
-      log:verdict("help", false, parse_trouble)
       return 2
     end
     words = parsed.words
   end
   if #words > 1 then
-    log:complain("help: one verb at a time, not " .. #words)
-    log:verdict("help", false, "one verb at a time")
+    log:complain("help: one verb at a time, not " .. tostring(#words))
     return 2
   end
-  if #words == 1 then
-    local known = words[1] == "exit"
+  local requested = words[1]
+  if #words == 1 and requested ~= nil then
+    local known = requested == "exit"
     for _, verb in ipairs(Cli.order) do
-      if verb == words[1] then
+      if verb == requested then
         known = true
         break
       end
     end
     if not known then
-      log:complain("help: no such verb: " .. words[1])
-      log:verdict("help", false, "no such verb: " .. words[1])
+      log:complain("help: no such verb: " .. requested)
       return 2
     end
     local specs = verb_list.specs()
-    specs[#specs + 1] = help_spec
-    if words[1] == "exit" then
+    local own_help = assert(help_spec, "help's spec is set before a verb is dispatched")
+    specs[#specs + 1] = own_help
+    if requested == "exit" then
       log:say(exit_help(specs))
     else
-      log:say(verb_text(words[1], specs) .. "\n")
+      log:say(verb_text(requested, specs) .. "\n")
     end
-    log:verdict("help", true, "1 verb, " .. clock.took(started))
+    local _, _ = logger.summary("help", "1 verb, " .. clock.took(started))
     return 0
   end
   log:say(index_help())
-  log:verdict("help", true, plural.count(#Cli.order, "verb") .. ", " .. clock.took(started))
+  local _, _ = logger.summary("help", plural.count(#Cli.order, "verb") .. ", " .. clock.took(started))
   return 0
 end
 
@@ -683,53 +674,53 @@ help_spec = {
   name = "help",
   guide = "none: the verb that describes the others, itself described by `cosmic help help`",
   tests = { "build.verbs_store_test" },
-  run = function(argv: {integer:string}): integer
+  run = function(argv: {string}): integer
     return help(argv, nil)
   end,
   bare = false,
+  reads = true,
+  recheck_on_refusal = false,
   takes = "a verb, or `exit`",
 }
 
 --- The spec of the verb a command line's first word names, loading the
---- module of that verb alone, or nil for a word that names none. Every
---- verb but the bare ones ([`Spec.bare`]) ends in a verdict line: their
---- exit status is the verdict, and a usage error is complained about and
---- nothing more. build/json.tl says why.
-local function spec_of(word: string): verb_spec.Spec | nil
+--- module of that verb alone, or nil for a word that names none. A bare
+--- verb ([`Spec.bare`]) prints no summary, its output being data:
+--- build/json.tl says why.
+local function spec_of(word: string): verb_spec.Spec?
   local verb_list = require("build.verb_list")
   if word == "help" then
     return help_spec
   end
   local found = verb_list.find(word)
-  if found ~= nil and found.fresh then
+  if found ~= nil and found.fresh == true then
     local inner = found.run
+    local reads = found.reads == true
     -- A tool older than the tree rebuilds first ([`build.reboot`]).
     found = {
       name = found.name,
-      run = function(argv: {integer:string}): integer
-        local stale = require("build.reboot").stale_exit(argv)
+      run = function(argv: {string}): integer
+        local stale = require("build.reboot").stale_exit(argv, reads)
         if stale ~= nil then
           return stale
         end
         return inner(argv)
       end,
       bare = found.bare,
+      fresh = found.fresh,
+      reads = found.reads,
+      recheck_on_refusal = found.recheck_on_refusal,
+      summarizes_failure = found.summarizes_failure,
+      takes = found.takes,
+      guide = found.guide,
+      tests = found.tests,
     }
   end
   return found
 end
 
---- What a verdict line a verb did not give itself says of its exit code.
-local function detail_of(code: integer): string
-  if code == 2 then
-    return "usage: see `cosmic help`"
-  elseif code == 3 then
-    return "the tool is stale"
-  end
-  return ""
+local record Dispatch
 end
-
-local dispatch = {}
 
 --- Every text `cosmic help` prints, by what asks for it: `""` is the
 --- index, `exit` its page, and each verb of [`cosmic.cli.order`] its own,
@@ -738,8 +729,9 @@ local function help_texts(): {string: string}
   local Cli = require("cosmic.cli")
   local verb_list = require("build.verb_list")
   local specs = verb_list.specs()
-  specs[#specs + 1] = help_spec
-  local out: {string: string} = { [""] = index_help(), exit = exit_help(specs) }
+  local own_help = assert(help_spec, "help's spec is set before a verb is dispatched")
+  specs[#specs + 1] = own_help
+  local out: mut {string: string} = { [""] = index_help(), exit = exit_help(specs) }
   local texts = verb_help(Cli.order)
   for _, verb in ipairs(Cli.order) do
     out[verb] = verb_text(verb, specs, texts[verb])
@@ -749,12 +741,19 @@ end
 
 help_source.provide(help_texts)
 
+--- Loads [`cosmic.removed`], which [`build.removed_fix`] reads from `package.loaded` and requires by no name: the catalog
+--- decides only what an error says, so it is no part of the compiler's identity, and this module is outside it. Where the
+--- module is not in the store the tool is given, the load fails and no fix is offered.
+local function load_removed_catalog()
+  local _, _ = pcall(require, "cosmic.removed")
+end
+
 --- Runs the command line and answers its exit code.
---- @param argv the command line, with the program's own name at slot 0
-function dispatch.main(argv: {integer:string}): integer
+--- @param argv the command line, the verb at slot 1
+function Dispatch.main(argv: {string}): integer
   local word = argv[1]
   if word == "-e" then
-    -- Lua's one-liner idiom: like --standalone, no tree and no staleness.
+    -- The one-liner: a checked chunk of Teal, like --standalone with no tree and no staleness.
     return evaluate(argv)
   end
   if word == "--version" then
@@ -762,6 +761,7 @@ function dispatch.main(argv: {integer:string}): integer
     -- the release that published it records.
     return version(argv)
   end
+  load_removed_catalog()
   if word == "--standalone" then
     -- One file against this binary's own standard library: no tree is
     -- staged or built and no staleness is checked -- see
@@ -771,15 +771,13 @@ function dispatch.main(argv: {integer:string}): integer
     return standalone.run(argv)
   end
   -- COSMIC_STANDALONE=1 runs a file (a first word ending .tl, which no
-  -- verb does) as `--standalone` does, writing no o/: what a policy's run
-  -- of this program is given (cosmic.child), whose user may own no o/ to
-  -- build into.
+  -- verb does) as `--standalone` does, writing no build directory: what a
+  -- policy's run of this program is given (cosmic.child), whose user may
+  -- have no build directory to write.
   if word ~= nil and word:sub(-3) == ".tl" and require("cosmic.env").get("COSMIC_STANDALONE") == "1" then
-    local shifted: {integer:string} = { [0] = argv[0], [1] = "--standalone" }
-    local slot = 1
-    while argv[slot] ~= nil do
-      shifted[slot + 1] = argv[slot]
-      slot = slot + 1
+    local shifted: mut {string} = { "--standalone" }
+    for _, given in ipairs(argv) do
+      shifted[#shifted + 1] = given
     end
     return require("build.standalone").run(shifted, "this file ran as --standalone, which " ..
         "finds only cosmic.* modules, because COSMIC_STANDALONE=1 (as under `cosmic sandbox " ..
@@ -791,10 +789,7 @@ function dispatch.main(argv: {integer:string}): integer
   local Fs = require("cosmic.fs")
   local String = require("cosmic.string")
   local sys = require("cosmic.sys")
-  local verb = word
-  if word == nil or word == "-h" or word == "--help" then
-    verb = "help"
-  end
+  local verb = if word == nil or word == "-h" or word == "--help" then "help" else word end
   local chosen = spec_of(verb)
   -- TODO: dispatch through Flags.dispatch, with each verb a Flags.Command
   -- whose `run` takes the Flags.Parsed. It waits on two things in Flags.
@@ -806,26 +801,34 @@ function dispatch.main(argv: {integer:string}): integer
   -- (`cosmic <file.tl> args`, whose program arguments Flags.parse would
   -- refuse as options) and `-e`, `--standalone` and `--version` are
   -- verbs by no command name.
-  local options = chosen ~= nil and Cli.verbs[verb].spec or {}
+  local command = Cli.verbs[verb]
+  local options = if chosen ~= nil and command ~= nil then command.spec or {} else {} end
   -- The words of a program a verb runs are not the verb's to read.
   local own = argv
   if chosen ~= nil and chosen.program_slot ~= nil then
     local at = chosen.program_slot(argv)
     if at ~= nil then
       own = {}
-      for slot = 1, at - 1 do own[slot] = argv[slot] end
+      for slot, given in ipairs(argv) do
+        if slot < at then own[slot] = given end
+      end
     end
   end
   if chosen ~= nil and verb ~= "help" and Flags.asks_help(own, 2, options) then
     -- `cosmic <verb> --help` is `cosmic help <verb>`.
     local asked = verb
+    local own_spec = assert(help_spec, "help's spec is set before a verb is dispatched")
     verb = "help"
     chosen = {
       name = "help",
-      run = function(line: {integer:string}): integer
+      run = function(line: {string}): integer
         return help(line, asked)
       end,
       bare = false,
+      recheck_on_refusal = false,
+      takes = own_spec.takes,
+      guide = own_spec.guide,
+      tests = own_spec.tests,
     }
   end
   if chosen ~= nil and verb ~= "help" then
@@ -853,11 +856,8 @@ function dispatch.main(argv: {integer:string}): integer
     end
   end
   if chosen ~= nil then
-    -- A verb gives its own verdict wherever it has one to give; an exit
-    -- it left without one -- its command line refused, a setup failure,
-    -- a stale tool -- still ends in one here.
     local code = chosen.run(argv)
-    if code == 2 and not verdict.given and not chosen.bare then
+    if code == 2 and not chosen.bare and chosen.fresh ~= true and chosen.recheck_on_refusal ~= false then
       -- A verb may read its command line before it checks the tool is
       -- as new as the tree, and an option the tree added is one a stale
       -- tool refuses: it rebuilds and runs the line again here instead.
@@ -867,13 +867,10 @@ function dispatch.main(argv: {integer:string}): integer
       -- tool's refusal above the rebuild. Each verb would check
       -- staleness before reading its command line, or complain through
       -- a logger that holds usage lines back until main flushes them.
-      local stale = require("build.reboot").stale_exit(argv)
+      local stale = require("build.reboot").stale_exit(argv, chosen.reads == true)
       if stale ~= nil then
         code = stale
       end
-    end
-    if not verdict.given and not chosen.bare then
-      log:verdict(verb, code == 0, detail_of(code))
     end
     return code
   end
@@ -886,7 +883,7 @@ function dispatch.main(argv: {integer:string}): integer
   -- one rather than as a file that is not there.
   if not verb:find("/", 1, true) and not String.ends_with(verb, ".tl") then
     local exists, _ = Fs.exists(verb)
-    if not exists then
+    if exists ~= true then
       log:complain("no such verb or file: " .. verb .. "; see `cosmic help`")
       return 2
     end
@@ -894,4 +891,4 @@ function dispatch.main(argv: {integer:string}): integer
   return run(verb, argv)
 end
 
-return dispatch
+return Dispatch

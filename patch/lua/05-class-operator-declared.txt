@@ -1,0 +1,7 @@
+file: src/lcode.h
+note: The prefix operator that reads a metatable is an operator of the parser's table.
+--- find
+typedef enum UnOpr { OPR_MINUS, OPR_BNOT, OPR_NOT, OPR_LEN, OPR_NOUNOPR } UnOpr;
+--- replace
+typedef enum UnOpr { OPR_MINUS, OPR_BNOT, OPR_NOT, OPR_LEN, OPR_CLASSOF, OPR_NOUNOPR } UnOpr;
+--- end

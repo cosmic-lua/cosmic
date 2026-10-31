@@ -30,38 +30,47 @@ end
 --- Trims through the running driver, preserving its format ownership.
 --- RESTORED is an owned snapshot, cleaned before signal redelivery even
 --- on failure. Invalid arguments fail; maintenance remains best effort.
-function Compiles.command(argv: {string}, env: {string:string}): integer, string, string
+function Compiles.command(argv: {string}, env: {string:string}): CacheTrim.Command
   local since = CacheTrim.since(argv)
-  if since == nil then return 2, "", "compiles-trim: SINCE must be bounded Unix seconds\n" end
+  if since == nil then
+    return { code = 2, out = "", err = "compiles-trim: SINCE must be bounded Unix seconds\n" }
+  end
   local restored = argv[2]
-  if restored ~= nil and (restored:sub(1, 1) ~= "/" or restored:find("\0", 1, true)) then
-    return 2, "", "compiles-trim: RESTORED must be an absolute path without NUL\n"
+  if restored ~= nil and (restored:sub(1, 1) ~= "/" or restored:find("\0", 1, true) ~= nil) then
+    return { code = 2, out = "", err = "compiles-trim: RESTORED must be an absolute path without NUL\n" }
   end
-  local path = env.COSMIC_BUILD_CACHE or ""
-  local paths: {string} = {}
+  local path = env["COSMIC_BUILD_CACHE"] or ""
+  local paths: mut {string} = {}
   if path:sub(1, 1) == "/" then
-    if path:find("\0", 1, true) then return 2, "", "compiles-trim: cache path contains NUL\n" end
-    if restored ~= nil then
-      local safe, why = CacheTrim.snapshot_safe(path, restored)
-      if safe == false then return 2, "", "compiles-trim: " .. why .. "\n" end
-      if safe == nil then return 0, "", "compiles-trim: snapshot retained: " .. why .. "\n" end
+    if path:find("\0", 1, true) then
+      return { code = 2, out = "", err = "compiles-trim: cache path contains NUL\n" }
     end
-    paths[1] = path
+    if restored ~= nil then
+      local snapshot = CacheTrim.snapshot_safe(path, restored)
+      if snapshot.ownership == "aliased" then
+        return { code = 2, out = "", err = "compiles-trim: " .. snapshot.why .. "\n" }
+      end
+      if snapshot.ownership == "unknown" then
+        return { code = 0, out = "", err = "compiles-trim: snapshot retained: " .. snapshot.why .. "\n" }
+      end
+    end
+    paths[#paths + 1] = path
   end
-  local out, err = CacheTrim.run({ family = "compiles", paths = paths,
+  local said = CacheTrim.run({ family = "compiles", paths = paths,
     since_ns = since, whole = false, restored = restored }, env)
+  local out = said.out
   if #paths == 0 then
     out = "compiles-trim: COSMIC_BUILD_CACHE names no file; nothing to trim\n" .. out
   end
-  return 0, out, err
+  return { code = 0, out = out, err = said.err }
 end
 
 --- `driver.tl compiles-trim SINCE [RESTORED]` in the driver's environment.
 function Compiles.trim_command(argv: {string}): integer
-  local code, out, err = Compiles.command(argv, Env.all())
-  if out ~= "" then local _, _ = Fs.put(Fs.stdout, out) end
-  if err ~= "" then local _, _ = Fs.put(Fs.stderr, err) end
-  return code
+  local command = Compiles.command(argv, Env.all())
+  if command.out ~= "" then local _, _ = Fs.put(Fs.stdout, command.out) end
+  if command.err ~= "" then local _, _ = Fs.put(Fs.stderr, command.err) end
+  return command.code
 end
 
 return Compiles

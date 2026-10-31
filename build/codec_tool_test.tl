@@ -1,5 +1,5 @@
 --- `cosmic codec` run as this program: real standard input and output,
---- no verdict line, exit 0 or 2, and a write to a closed descriptor.
+--- no summary, exit 0 or 2, and a write to a closed descriptor.
 --- These start this program, so they need `tool`; the coders themselves
 --- are in `codec_test.tl`.
 
@@ -28,7 +28,7 @@ local function cosmic(dir: string, words: {string}, input?: string): Ran
   return { code = result.code, out = result.stdout or "", err = result.stderr or "" }
 end
 
-local function test_it_reads_standard_input_and_prints_no_verdict(tmp: string)
+local function test_it_reads_standard_input_and_prints_no_summary(tmp: string)
   local enc = cosmic(tmp, { "codec", "base64" }, "foobar")
   assert(enc.code == 0, enc.err)
   assert(enc.out == "Zm9vYmFy\n" and enc.err == "", enc.out .. enc.err)
@@ -48,7 +48,7 @@ local function test_a_file_is_read_and_a_bad_text_exits_2(tmp: string)
   assert(bad.err:find("cosmic: codec: standard input: byte 0x7a at offset 2", 1, true), bad.err)
   assert(not bad.err:find("FAIL", 1, true), bad.err)
   local usage = cosmic(tmp, { "codec", "base32" }, "x")
-  assert(usage.code == 2 and usage.out == "" and usage.err:find("no such encoding", 1, true), usage.err)
+  assert(usage.code == 2 and usage.out == "" and usage.err:find("no such encoding", 1, true) ~= nil, usage.err)
 end
 
 local function test_a_failed_standard_output_write_exits_2(tmp: string)

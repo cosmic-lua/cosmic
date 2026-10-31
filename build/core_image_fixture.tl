@@ -11,11 +11,11 @@ end
 --- given, as a checked core carries its DWARF.
 function fixture.elf(text: string, debug?: string): string
   local text_at = 64 + 56
-  local names = "\0.text\0.shstrtab\0" .. (debug ~= nil and ".debug_str\0" or "")
+  local names = "\0.text\0.shstrtab\0" .. (if debug ~= nil then ".debug_str\0" else "" end)
   local debug_at = text_at + #text
   local names_at = debug_at + #(debug or "")
   local headers_at = names_at + #names
-  local sections: {string} = {
+  local sections: mut {string} = {
     ("\0"):rep(64),
     string.pack("<I4I4i8i8i8i8I4I4i8i8", 1, 1, 6, 0x400000 + text_at, text_at, #text,
       0, 0, 16, 0),

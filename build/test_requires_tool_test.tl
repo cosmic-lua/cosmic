@@ -37,9 +37,9 @@ end
 local function module(root: string, name: string, file: string, extra?: string)
   assert(Fs.write(root .. "/" .. name .. "_test.tl", 'local Test = require("cosmic.test")\n' ..
       'Test.policy { grants = { { path = "' .. file .. '", letters = "r" } }, ' ..
-      'requires = { "path:' .. file .. '" } }\n' .. (extra or "") ..
+      'requires = { "path:' .. file .. '" } }\n' ..
       "local function test_passes() assert(true) end\n" ..
-      "local function test_passes_too() assert(true) end\n"))
+      "local function test_passes_too() assert(true) end\n" .. (extra or "")))
 end
 
 --- What `cosmic test` in `root` printed and its status, run unsandboxed
@@ -68,7 +68,7 @@ local function test_a_present_requirement_runs_and_its_answer_keys_the_verdict(t
   assert(Fs.write(file, "one\n"))
   local out, code = run(root)
   assert(code == 0, out)
-  assert(out:find("2 tests, 1 module; 2 ran, 0 stood, ", 1, true), out)
+  assert(out:find("2 tests passed in 1 module; 2 ran, 0 stood, ", 1, true), out)
   assert(not out:find("skipped", 1, true) and not out:find("n/a", 1, true), out)
   out, code = run(root)
   assert(code == 0, out)
@@ -90,7 +90,7 @@ local function test_an_absent_path_skips_the_module_and_keeps_no_verdict(tmp: st
     assert(code == 0, out)
     assert(out:find("test: SKIP  prog_test test_passes: requires path:" .. outside(tmp) .. "/absent: ", 1, true), out)
     assert(out:find("test: SKIP  prog_test test_passes_too: requires path:", 1, true), out)
-    assert(out:find("2 tests, 1 module; 2 ran, 0 stood, 2 skipped ", 1, true), out)
+    assert(out:find("2 tests passed in 1 module; 2 ran, 0 stood, 2 skipped ", 1, true), out)
     assert(not out:find("must not load", 1, true), out)
   end
 end
@@ -104,9 +104,9 @@ local function test_a_requirement_the_platform_lacks_is_not_applicable(tmp: stri
   assert(Fs.write(root .. "/artifact_test.tl", [[
 local Test = require("cosmic.test")
 Test.policy { requires = { "portable" } }
-error("a module that is not applicable must not load")
 local function test_a() assert(true) end
 local function test_b() assert(true) end
+error("a module that is not applicable must not load")
 ]]))
   assert(Fs.write(root .. "/plain_test.tl", [[
 local function test_c() assert(true) end
@@ -120,7 +120,7 @@ local function test_c() assert(true) end
     -- The module that applies runs once and then stands (a held run is keyed
     -- apart, and runs); the other has no verdict to stand on.
     if i <= 2 then
-      assert(out:find("3 tests, 2 modules; " .. (i == 1 and "1 ran, 0 stood" or "0 ran, 1 stood") .. ", ",
+      assert(out:find("3 tests passed in 2 modules; " .. (if i == 1 then "1 ran, 0 stood" else "0 ran, 1 stood" end) .. ", ",
         1, true), out)
     end
     assert(out:find(", 2 n/a (this platform has none of what they check), ", 1, true), out)
@@ -145,7 +145,7 @@ local function test_a_probe_that_raises_fails_its_modules_alone(tmp: string)
   assert(code ~= 0, out)
   assert(out:find("FAIL  closed_test test_passes: ", 1, true) and
       out:find("the probe of what it requires of the host failed: host_requires: ", 1, true), out)
-  assert(out:find("2 of 3 failed", 1, true), out)
+  assert(out:find("2 of 3 tests failed", 1, true), out)
   assert(not out:find("FAIL  plain_test", 1, true), out)
 end
 
@@ -158,7 +158,7 @@ local function test_an_unknown_requirement_fails_the_build_and_a_linux_one_does_
   local out, code = run(root)
   assert(code ~= 0, out)
   assert(out:find("unknown requirement \"sandbxo\"", 1, true), out)
-  assert(not out:find("test: PASS", 1, true), out)
+  assert(not out:find("test: %d+ tests? passed in "), out)
   assert(Fs.write(root .. "/typo_test.tl", 'local Test = require("cosmic.test")\n' ..
       'Test.policy { requires = { "nest", "proc" } }\nlocal function test_a() assert(true) end\n'))
   out, code = run(root, { COSMIC_TEST_PLATFORM = "other" })
@@ -177,14 +177,14 @@ local function test_a_held_run_fails_what_its_leg_promised_and_lacks(tmp: string
   assert(Fs.write(root .. "/linux_test.tl", [[
 local Test = require("cosmic.test")
 Test.policy { requires = { "nest", "proc" } }
-error("a module with an absent requirement must not load")
 local function test_a() assert(true) end
 local function test_b() assert(true) end
+error("a module with an absent requirement must not load")
 ]]))
   assert(Fs.write(root .. "/plain_test.tl", "local function test_c() assert(true) end\n"))
   local modes: {{string:string}} = { { COSMIC_SANDBOX = "must" }, { COSMIC_CI_REQUIRE_SANDBOX = "1" } }
   for _, held in ipairs(modes) do
-    local extra: {string:string} = { COSMIC_TEST_PLATFORM = "other", COSMIC_TEST_LEG = "linux-test",
+    local extra: mut {string:string} = { COSMIC_TEST_PLATFORM = "other", COSMIC_TEST_LEG = "linux-test",
       COSMIC_TEST_PROMISES = "sandbox,nest" }
     for name, value in pairs(held) do extra[name] = value end
     local out, code = run(root, extra)
@@ -195,7 +195,7 @@ local function test_b() assert(true) end
     -- Without a leg's name, the run is named.
     extra.COSMIC_TEST_LEG = nil
     out, code = run(root, extra)
-    assert(code ~= 0 and out:find("this run promises nest", 1, true), out)
+    assert(code ~= 0 and out:find("this run promises nest", 1, true) ~= nil, out)
     -- Not promised: the same absences fail nothing.
     extra.COSMIC_TEST_PROMISES = "sandbox,userns"
     out, code = run(root, extra)
@@ -215,7 +215,7 @@ local function test_a_promise_the_table_refuses_fails_a_held_run(tmp: string)
   local root = project(tmp)
   assert(Fs.write(root .. "/plain_test.tl", "local function test_c() assert(true) end\n"))
   local out, code = run(root, { COSMIC_TEST_PROMISES = "nest,sandbxo", COSMIC_SANDBOX = "must" })
-  assert(code ~= 0 and out:find("COSMIC_TEST_PROMISES: unknown requirement \"sandbxo\"", 1, true), out)
+  assert(code ~= 0 and out:find("COSMIC_TEST_PROMISES: unknown requirement \"sandbxo\"", 1, true) ~= nil, out)
   out, code = run(root, { COSMIC_TEST_PROMISES = "nest,sandbxo" })
   assert(code == 0, out)
 end

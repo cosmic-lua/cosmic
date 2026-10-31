@@ -15,7 +15,7 @@ local record sqlite
     code: integer
     extended_code: integer
     reason: string
-    cancelled: boolean
+    cancelled?: boolean
   end
   record OpenResult is Outcome
     handle: Handle
@@ -33,13 +33,21 @@ local record sqlite
   end
   record Value
     --- Bound as a 64-bit SQLite integer.
-    integer: integer
+    integer?: integer
     --- Bound as a floating-point number.
-    number: number
+    number?: number
     --- Bound as UTF-8 text, including embedded NUL.
-    text: string
+    text?: string
     --- Bound as bytes, distinct from text.
-    blob: string
+    blob?: string
+    --- Bound as an array of 64-bit integers, for `carray(?N)` alone.
+    integers?: {integer}
+    --- Bound as an array of floating-point numbers, for `carray(?N)` alone.
+    numbers?: {number}
+    --- Bound as an array of texts, each without a NUL, for `carray(?N)` alone.
+    texts?: {string}
+    --- Bound as an array of blobs, for `carray(?N)` alone.
+    blobs?: {string}
   end
   --- One prepared statement. It keeps its handle alive while it is
   --- open. Every call on a finalized statement raises.
@@ -59,9 +67,20 @@ local record sqlite
     bind_text: function(Statement, index: integer, value: string): boolean, string
     --- Binds `value`'s bytes as a blob to the parameter at `index`.
     bind_blob: function(Statement, index: integer, value: string): boolean, string
+    --- Binds a copy of `list` to the parameter at `index`, as an array
+    --- of 64-bit integers that `carray` reads. Raises for an element that
+    --- is no integer.
+    bind_integers: function(Statement, index: integer, list: {integer}): boolean, string
+    --- The same, as an array of floating-point numbers.
+    bind_numbers: function(Statement, index: integer, list: {number}): boolean, string
+    --- The same, as an array of texts; raises for one holding a NUL,
+    --- which carray reads to.
+    bind_texts: function(Statement, index: integer, list: {string}): boolean, string
+    --- The same, as an array of blobs.
+    bind_blobs: function(Statement, index: integer, list: {string}): boolean, string
 
     --- "row" when a row is ready, "done" when the statement is finished.
-    step: function(Statement): string | nil, string
+    step: function(Statement): string?, string
     --- "row" or "done" without a result allocation; a captured failure otherwise.
     step_result: function(Statement): string | ExecResult
     --- Binds a dense list of explicit Values. Invalid parameter shapes raise.
@@ -114,7 +133,7 @@ local record sqlite
     --- SQLite can refuse a lock without calling any busy handler.
     busy_timeout: function(Handle, timeout_ns: integer)
     --- Compiles `sql`, which must hold exactly one statement.
-    prepare: function(Handle, sql: string): Statement | nil, string
+    prepare: function(Handle, sql: string): Statement?, string
     --- Captures a preparation's outcome before cleanup or another operation.
     --- Empty, multiple, overlong or NUL-containing SQL raises.
     prepare_result: function(Handle, sql: string): PrepareResult
@@ -135,8 +154,9 @@ local record sqlite
     --- `"compound_select"`, `"vdbe_op"`, `"function_arg"`,
     --- `"like_pattern_length"`, `"variable_number"`, `"trigger_depth"`,
     --- `"worker_threads"`), and answers the value it had. A negative
-    --- `value` changes nothing, so it reads the limit; a value above the
-    --- library's own ceiling is lowered to it. An unknown name raises.
+    --- `value` changes nothing, so it reads the limit. A value above the
+    --- library's own ceiling raises, naming the ceiling, as does an
+    --- unknown name. `"attached"` starts at 10 and may be raised to 125.
     limit: function(Handle, name: string, value: integer): integer
   end
 
@@ -153,10 +173,10 @@ local record sqlite
   --- open it the ordinary read-only way instead. Giving it with
   --- `writable` raises. Writable opens create a missing file unless
   --- `create` is explicitly false; read-only opens never create.
-  open: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): Handle | nil, string
+  open: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): Handle?, string
   --- A captured open outcome. Invalid path/options raise.
   open_result: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): OpenResult
-  --- The SQLite library's version, such as "3.53.4".
+  --- The SQLite library's version, such as "3.54.0".
   version: string
 end
 

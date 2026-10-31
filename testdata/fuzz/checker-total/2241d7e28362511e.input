@@ -1,0 +1,2 @@
+local x: integer | nil, y = 1, 2
+print(x, y)

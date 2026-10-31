@@ -24,16 +24,24 @@ local confine = require("build.confine")
 local this_program = require("build.this_program")
 local harness_epoch = require("build.harness_epoch")
 local Test = require("cosmic.test")
+local build_paths = require("build.paths")
 
 --- What a sandboxed run of `cosmic test` needs of the host, the
 --- program it runs, roots of their own for its workers (`nests`), and
 --- the variables `unsandboxed` reads, which hold a run to sandboxing.
 Test.policy{
-  profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" }, { path = "/proc", letters = "r" } },
+  profiles = { "cosmic", "proc" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" } },
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 -- What these tests start is this very program.
 confine.confine({ reads = confine.itself() })
@@ -45,7 +53,7 @@ local function checkout(root: string)
   assert(Fs.mkdirs(root .. "/suite/data"))
   assert(Fs.write(root .. "/suite/data/f", "one\n"))
   assert(Fs.write(root .. "/suite/unrelated.txt", "u\n"))
-  assert(Fs.write(root .. "/suite/lib.tl", "return { value = 1 }\n"))
+  assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
   assert(Fs.write(root .. "/suite/data_test.tl", [[
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
@@ -70,7 +78,7 @@ end
 local lib = require("suite.lib")
 
 local function test_plain()
-  assert(lib.value ~= nil)
+  assert(lib.value > 0)
 end
 ]]))
 end
@@ -109,7 +117,7 @@ end
 local function run(root: string, output: string, env: {string:string}, words?: {string},
                    unchecked?: boolean): string
   local fd = assert(Fs.open_write(output))
-  local args: {string} = { "test" }
+  local args: mut {string} = { "test" }
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
   local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(60),
@@ -118,11 +126,11 @@ local function run(root: string, output: string, env: {string:string}, words?: {
   assert(Fs.close(fd))
   local text = assert(Fs.read(output))
   assert(result ~= nil, tostring(trouble) .. text)
-  assert(unchecked or result.ok, tostring(trouble) .. text)
+  assert(unchecked == true or result.ok, tostring(trouble) .. text)
   return text
 end
 
-local type Said = function(string, ?{string}): string
+local type Said = function(string, arg2?: {string}): string
 
 --- A checkout of the suite in `tmp`, run once, sandboxed: the
 --- environment its runs take, and a check of a run after the last one
@@ -134,11 +142,11 @@ local function seeded(tmp: string): {string:string}, Said, string
   local root = tmp .. "/root"
   checkout(root)
   local env = environment(tmp .. "/cache/verdicts.db")
-  local step = 0
+  local step = { value = 0 }
   local function said(wanted: string, words?: {string}): string
-    step = step + 1
-    local text = run(root, tmp .. "/" .. step .. ".out", env, words)
-    assert(text:find(wanted, 1, true), step .. ": " .. text)
+    step.value = step.value + 1
+    local text = run(root, tmp .. "/" .. step.value .. ".out", env, words)
+    assert(text:find(wanted, 1, true), step.value .. ": " .. text)
     return text
   end
   local first = run(root, tmp .. "/first.out", env)
@@ -166,7 +174,7 @@ local function test_a_declared_file_or_module_that_changes_runs_its_test(tmp: st
   if root == nil then return end
   assert(Fs.write(root .. "/suite/data/f", "two\n"))
   said("1 ran, 2 stood")
-  assert(Fs.write(root .. "/suite/lib.tl", "return { value = 2 }\n"))
+  assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 2 }\nreturn lib\n"))
   said("1 ran, 2 stood")
 end
 
@@ -223,7 +231,7 @@ end
   local refused = run(tmp .. "/beyond", tmp .. "/beyond.out", env, nil, true)
   assert(refused:find('suite/beyond_test.tl:6: test.policy: loopback "example.com": loopback ' ..
       "takes loopback addresses 127.a.b.c only", 1, true) and
-      not refused:find("test: PASS", 1, true), refused)
+      not refused:find("test: %d+ tests? passed in "), refused)
   suite(tmp .. "/root", "loopback", '"127.0.0.1", "127.0.0.2"', false)
   local first = run(tmp .. "/root", tmp .. "/first.out", env)
   if unsandboxed(first) then return end
@@ -234,7 +242,7 @@ end
   local probed = run(tmp .. "/probe", tmp .. "/probe.out", env, nil, true)
   local offline = probed:match("loopback in (%S+) |")
   local own = assert(Fs.readlink("/proc/self/ns/net"))
-  assert(offline ~= nil and offline:find("^net:") and offline ~= own, probed .. own)
+  assert(offline ~= nil and offline:find("^net:") ~= nil and offline ~= own, probed .. own)
 end
 
 --- A checkout of the same content stands on the verdicts another
@@ -277,8 +285,8 @@ end
 --- program's core is among.
 local function tool_checkout(root: string)
   assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.mkdirs(root .. "/o/bin"))
-  assert(Fs.write(root .. "/o/bin/stand-in", "one\n"))
+  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
+  assert(Fs.write(build_dir(root) .. "/bin/stand-in", "one\n"))
   -- Each starts this program past its launcher by hand, as
   -- [`this_program.program`] would: another project cannot reach build/.
   -- TODO: start it through [`this_program.program`] once that moves to
@@ -288,16 +296,21 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
 
-local function started(args: {string}): Child.Result | nil, string
+local function started(args: {string}): Child.Result?, string
   local relaunch = Proc.relaunch()
-  local argv: {string} = {}
-  for _, word in ipairs(relaunch ~= nil and relaunch.argv or { assert(Proc.executable()) }) do
-    argv[#argv + 1] = word
+  local argv: mut {string} = {}
+  local env: mut {string: string} = {}
+  for name, value in pairs(Env.all()) do env[name] = value end
+  local fds: mut {integer: integer} = {}
+  if relaunch ~= nil then
+    for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
+    for name, value in pairs(relaunch.env) do env[name] = value end
+    for target, source in pairs(relaunch.fds) do fds[target] = source end
+  else
+    argv[#argv + 1] = assert(Proc.executable())
   end
   for _, word in ipairs(args) do argv[#argv + 1] = word end
-  local env = Env.all()
-  for name, value in pairs(relaunch ~= nil and relaunch.env or {}) do env[name] = value end
-  return Child.run(argv, { env = env, fds = relaunch ~= nil and relaunch.fds or {} })
+  return Child.run(argv, { env = env, fds = fds })
 end
 ]]
   assert(Fs.write(root .. "/suite/tool_test.tl", started .. [[
@@ -320,20 +333,20 @@ local function test_is_refused_the_tool()
   assert(result == nil, "the program ran undeclared")
   -- Not there at all, or, for a worker on a sealed database, whose
   -- program's name is its core's, not run.
-  local wanted = relaunch.argv[2] == "--database" and "ermission denied" or "o such file"
+  local wanted = if relaunch.argv[2] == "--database" then "ermission denied" else "o such file" end
   assert(trouble:find(wanted, 1, true), trouble)
   if relaunch.argv[2] == "--database" then
     -- A worker on a sealed database has no descriptor of the program to
     -- be refused, and its core, which it is not granted to run, is.
     local sealed, sealed_trouble = started({ "-e", "" })
-    assert(sealed == nil and tostring(sealed_trouble):find("ermission denied", 1, true),
+    assert(sealed == nil and tostring(sealed_trouble):find("ermission denied", 1, true) ~= nil,
       tostring(sealed_trouble))
   else
     local ok, why = pcall(started, { "-e", "" })
     assert(not ok, "the program's core ran undeclared")
     assert(tostring(why):find("retained artifact descriptor", 1, true), tostring(why))
   end
-  local core, core_trouble = Child.run({ relaunch.argv[1], "-e", "" })
+  local core, core_trouble = Child.run({ assert(relaunch.argv[1]), "-e", "" })
   assert(core == nil, "the program's core ran undeclared")
   assert(core_trouble:find("ermission denied", 1, true), core_trouble)
   local exe, exe_trouble = Child.run({ "/proc/self/exe", "-e", "" })
@@ -362,11 +375,11 @@ local function test_a_sandboxed_test_runs_the_tool_only_declared(tmp: string)
   env.XDG_CACHE_HOME = tmp .. "/cache"
   local first = run(root, tmp .. "/first.out", env, nil, true)
   if unsandboxed(first) then return end
-  assert(first:find("test: PASS", 1, true) and first:find("3 ran, 0 stood", 1, true), first)
+  assert(first:find("test: %d+ tests? passed in ") and first:find("3 ran, 0 stood", 1, true), first)
   local again = run(root, tmp .. "/again.out", env)
   assert(again:find("0 ran, 3 stood", 1, true), again)
   -- The tool rebuilt: what declares it runs again.
-  assert(Fs.write(root .. "/o/bin/stand-in", "two\n"))
+  assert(Fs.write(build_dir(root) .. "/bin/stand-in", "two\n"))
   local rebuilt = run(root, tmp .. "/rebuilt.out", env)
   assert(rebuilt:find("1 ran, 2 stood", 1, true), rebuilt)
 end
@@ -404,7 +417,7 @@ end
 local function tool_project(tmp: string): function(string), function(string): string
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.mkdirs(root .. "/o/bin"))
+  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
   -- Its worker does not start the tool, which a sandbox nested in this
   -- test's confinement could not find at its name under this test's
   -- /tmp: what it declares is all its key turns on.
@@ -412,30 +425,30 @@ local function tool_project(tmp: string): function(string), function(string): st
     "local Test = require(\"cosmic.test\")\n\nTest.policy { profiles = { \"cosmic\" }, grants = { { path = \"o/bin\", letters = \"rx\" } } }\n\n" ..
       "local function test_tool()\n  assert(true)\nend\n"))
   assert(Fs.write(root .. "/suite/plain_test.tl", "local function test_plain()\n  assert(true)\nend\n"))
-  local tool = root .. "/o/bin/cosmic"
+  local tool = build_dir(root) .. "/bin/cosmic"
   local function rebuild(statements: string)
     rebuilt(tmp, tool, statements)
   end
   rebuild("UPDATE meta SET value = 'one' WHERE key IN ('boot_hash', 'projected')")
   local env = environment(tmp .. "/cache/verdicts.db")
   env.COSMIC_VERDICT_CACHE = "0"
-  local step = 0
+  local step = { value = 0 }
   local function ran(wanted: string, unchecked?: boolean): string
-    step = step + 1
-    local fd = assert(Fs.open_write(tmp .. "/" .. step .. ".out"))
+    step.value = step.value + 1
+    local fd = assert(Fs.open_write(tmp .. "/" .. step.value .. ".out"))
     local result, trouble = Child.run({ tool, "test" }, {
       cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(60),
     })
     assert(Fs.close(fd))
-    local text = assert(Fs.read(tmp .. "/" .. step .. ".out"))
+    local text = assert(Fs.read(tmp .. "/" .. step.value .. ".out"))
     assert(result ~= nil, tostring(trouble) .. text)
-    assert(unchecked or result.ok, tostring(trouble) .. text)
-    if wanted ~= "" then assert(text:find(wanted, 1, true), step .. ": " .. text) end
+    assert(unchecked == true or result.ok, tostring(trouble) .. text)
+    if wanted ~= "" then assert(text:find(wanted, 1, true), step.value .. ": " .. text) end
     return text
   end
   local first = ran("", true)
   if unsandboxed(first) then return nil, nil end
-  assert(first:find("test: PASS", 1, true) and first:find("2 ran, 0 stood", 1, true), first)
+  assert(first:find("test: %d+ tests? passed in ") and first:find("2 ran, 0 stood", 1, true), first)
   return rebuild, function(wanted: string): string return ran(wanted) end
 end
 
@@ -503,11 +516,12 @@ Test.policy {
 }
 
 local function test_moving(tmp: string)
-  local was = Fs.read("suite/moving.txt")
+  local was, _ = Fs.read("suite/moving.txt")
   assert(Fs.write(tmp .. "/started", "yes"))
   local deadline = Clock.monotonic_ns() + 20000000000
-  while not Fs.exists(tmp .. "/stop") and Clock.monotonic_ns() < deadline do
-    assert(Fs.read("suite/moving.txt") == was, "it moved")
+  while Fs.exists(tmp .. "/stop") ~= true and Clock.monotonic_ns() < deadline do
+    local now, _ = Fs.read("suite/moving.txt")
+    assert(now == was, "it moved")
     assert(Clock.sleep_ns(20000000))
   end
 end
@@ -516,16 +530,16 @@ end
   env.COSMIC_VERDICT_CACHE = "0"
   assert(Fs.mkdirs(tmp .. "/t"))
   env.TMPDIR = assert(Fs.absolute(tmp .. "/t"))
-  local step = 0
+  local step = { value = 0 }
   -- A run of `words` after `test`: once its test says it started --
   -- its directory is one of TMPDIR's, sandboxed or not -- `then_do`
   -- moves its input or stops it. What the run said, and whether it
   -- passed.
   local function run_then(words: {string}, then_do: function(string)): string, boolean
-    step = step + 1
-    local out = tmp .. "/" .. step .. ".out"
+    step.value = step.value + 1
+    local out = tmp .. "/" .. step.value .. ".out"
     local fd = assert(Fs.open_write(out))
-    local args: {string} = { "test" }
+    local args: mut {string} = { "test" }
     for _, word in ipairs(words) do args[#args + 1] = word end
     local started = this_program.program(args, {
       cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
@@ -540,7 +554,9 @@ end
       for _, entry in ipairs(Fs.list(tmp .. "/t") or {}) do
         for _, sub in ipairs({ "/real", "/tmp", "" }) do
           local dir = tmp .. "/t/" .. entry .. sub
-          if Fs.exists(dir .. "/started") and not Fs.exists(dir .. "/stop") then found = dir end
+          if Fs.exists(dir .. "/started") == true and Fs.exists(dir .. "/stop") ~= true then
+            found = dir
+          end
         end
       end
       if found == "" then assert(Clock.sleep_ns(20000000)) end
@@ -556,17 +572,17 @@ end
   local function stop(dir: string) assert(Fs.write(dir .. "/stop", "")) end
   local first, first_ok = run_then({}, stop)
   if unsandboxed(first) then return end
-  assert(first_ok and first:find("1 ran, 0 stood", 1, true), first)
+  assert(first_ok and first:find("1 ran, 0 stood", 1, true) ~= nil, first)
   -- Forced, and moved as it runs: it fails.
   local forced, forced_ok = run_then({ "--all" }, function(_: string)
     overwrite(root .. "/suite/moving.txt", "two\n")
   end)
-  assert(not forced_ok and forced:find("it moved", 1, true), forced)
+  assert(not forced_ok and forced:find("it moved", 1, true) ~= nil, forced)
   -- Back as it was: the pass its first run kept is gone with the
   -- failure, so it runs; then it stands.
   overwrite(root .. "/suite/moving.txt", "one\n")
   local back, back_ok = run_then({}, stop)
-  assert(back_ok and back:find("1 ran, 0 stood", 1, true), back)
+  assert(back_ok and back:find("1 ran, 0 stood", 1, true) ~= nil, back)
   local stands = run(root, tmp .. "/stands.out", env)
   assert(stands:find("0 ran, 1 stood", 1, true), stands)
 end
@@ -606,7 +622,7 @@ local function test_a_compiler_that_makes_the_same_bytecode_runs_only_its_reader
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.mkdirs(root .. "/core"))
-  assert(Fs.write(root .. "/suite/lib.tl", "return { value = 1 }\n"))
+  assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
   assert(Fs.write(root .. "/suite/plain_test.tl", [[
 local lib = require("suite.lib")
 
@@ -628,12 +644,54 @@ end
   env.COSMIC_TEST_COMPILER_SALT = "another compiler"
   local moved = run(root, tmp .. "/moved.out", env)
   assert(moved:find("1 ran, 1 stood", 1, true), moved)
-  local db = assert(Sqlite.open(root .. "/o/build.db"))
+  local db = assert(Sqlite.open(build_dir(root) .. "/build.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
       "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
   assert(db:close())
-  assert(rows[1][1] == "core.allocation_test", "ran under another compiler: " .. rows[1][1])
+  assert(rows[1]:text(1) == "core.allocation_test", "ran under another compiler: " .. rows[1]:text(1))
+end
+
+--- A checked run (`--check-types`) compiles the tree with run-time checks
+--- under a compiler of its own ([`importer.checked_tool`]), which moves
+--- the key of a test whose closure reads the compiler's identity as
+--- another compiler does: a verdict it earned never stands for the same
+--- test of an unchecked run. A test of the same bytes that reads no
+--- compiler stands across the two.
+local function test_a_checked_runs_verdicts_never_stand_for_an_unchecked_run(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
+  assert(Fs.write(root .. "/suite/plain_test.tl", [[
+local lib = require("suite.lib")
+
+local function test_plain()
+  assert(lib.value == 1)
+end
+]]))
+  assert(Fs.write(root .. "/core/allocation_test.tl", [[
+local lib = require("suite.lib")
+
+local function test_reads()
+  assert(lib.value == 1)
+end
+]]))
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local checked = run(root, tmp .. "/checked.out", env, { "--check-types" })
+  if unsandboxed(checked) then Test.skip("no worker could be sandboxed here") end
+  assert(checked:find("2 ran, 0 stood", 1, true), checked)
+  local function ran_last(): string
+    local db = assert(Sqlite.open(build_dir(root) .. "/build.db"))
+    local rows = assert(Sqlite.text_rows(db,
+      "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
+        "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
+    assert(db:close())
+    return rows[1]:text(1)
+  end
+  local plain = run(root, tmp .. "/plain.out", env)
+  assert(plain:find("1 ran, 1 stood", 1, true), plain)
+  assert(ran_last() == "core.allocation_test", "ran: " .. ran_last())
 end
 
 --- A test whose module does not declare `store` is given the store of
@@ -647,18 +705,18 @@ end
 local function test_a_test_is_given_the_store_of_its_closure_alone(tmp: string)
   local root = tmp .. "/root"
   -- The closures' stores, less the store of no module the census names
-  -- (build/test.tl's `base_name`).
+  -- (build/test_key.tl's `base_name`).
   local function closure_stores(): {string}
-    local out: {string} = {}
-    local listed: {string} = assert(Fs.list(root .. "/o/stores"))
+    local out: mut {string} = {}
+    local listed: {string} = assert(Fs.list(build_dir(root) .. "/stores"))
     for _, name in ipairs(listed) do
       if name:sub(1, 5) ~= "base-" then out[#out + 1] = name end
     end
     return out
   end
   assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.write(root .. "/suite/lib.tl", "return { value = 1 }\n"))
-  assert(Fs.write(root .. "/suite/other.tl", "return { value = 1 }\n"))
+  assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
+  assert(Fs.write(root .. "/suite/other.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
   assert(Fs.write(root .. "/suite/closed_test.tl", [[
 local Env = require("cosmic.env")
 local Store = require("cosmic.store")
@@ -672,12 +730,9 @@ local function test_closed()
   assert(Store.bytecode("suite.lib") ~= nil, "the closure is not in the store")
   local bytes, _ = Store.bytecode("suite.other")
   assert(bytes == nil, "a module outside the closure is in the store")
-  local ok, why = pcall(require, ("suite." .. "other"))
-  assert(not ok and tostring(why):find("outside the import closure", 1, true), tostring(why))
   if Env.get("ADDED") == "1" then
-    local added, added_why = pcall(require, ("suite." .. "added"))
-    assert(not added and tostring(added_why):find("outside the import closure", 1, true),
-      tostring(added_why))
+    local added, _ = Store.bytecode("suite.added")
+    assert(added == nil, "a module added outside the closure is in the store")
   end
 end
 ]]))
@@ -687,18 +742,18 @@ end
   -- test fails -- `unsandboxed` then ends this one.
   local first = run(root, tmp .. "/first.out", env, nil, true)
   if unsandboxed(first) then return end
-  assert(first:find("test: PASS", 1, true) and first:find("1 ran, 0 stood", 1, true), first)
-  local projection = assert(Fs.read(root .. "/o/cosmic.db"))
+  assert(first:find("test: %d+ tests? passed in ") and first:find("1 ran, 0 stood", 1, true), first)
+  local projection = assert(Fs.read(build_dir(root) .. "/cosmic.db"))
   local stores = closure_stores()
   assert(#stores == 1, table.concat(stores, " "))
   -- Outside the closure: the projection moves, the verdict stands.
-  assert(Fs.write(root .. "/suite/other.tl", "return { value = 2 }\n"))
+  assert(Fs.write(root .. "/suite/other.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 2 }\nreturn lib\n"))
   local outside = run(root, tmp .. "/outside.out", env)
   assert(outside:find("0 ran, 1 stood", 1, true), outside)
-  assert(assert(Fs.read(root .. "/o/cosmic.db")) ~= projection, "the projection did not move")
+  assert(assert(Fs.read(build_dir(root) .. "/cosmic.db")) ~= projection, "the projection did not move")
   -- A module added: it stands, on the same store; told to look, it
-  -- finds a `require` of the new module refused.
-  assert(Fs.write(root .. "/suite/added.tl", "return {}\n"))
+  -- finds the new module not in it.
+  assert(Fs.write(root .. "/suite/added.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 3 }\nreturn lib\n"))
   local added = run(root, tmp .. "/added.out", env)
   assert(added:find("0 ran, 1 stood", 1, true), added)
   assert(#closure_stores() == 1)
@@ -708,7 +763,7 @@ end
   env.ADDED = nil
   -- Inside it: it runs again, given a store of its own, and the one
   -- before is taken out.
-  assert(Fs.write(root .. "/suite/lib.tl", "-- edited\nreturn { value = 1 }\n"))
+  assert(Fs.write(root .. "/suite/lib.tl", "-- edited\nlocal record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
   local inside = run(root, tmp .. "/inside.out", env)
   assert(inside:find("1 ran, 0 stood", 1, true), inside)
   local now = closure_stores()
@@ -742,15 +797,15 @@ local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
   local recored = run(root, tmp .. "/recored.out", env)
   assert(recored:find("0 ran, 3 stood", 1, true) and
       recored:find("3 closure stores written", 1, true), recored)
-  assert(Fs.write(root .. "/suite/lib.tl", "-- edited\nreturn { value = 1 }\n"))
+  assert(Fs.write(root .. "/suite/lib.tl", "-- edited\nlocal record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
   local edited = run(root, tmp .. "/edited.out", env)
   assert(edited:find("1 ran, 2 stood", 1, true), edited)
   checkout(tmp .. "/second")
-  assert(Fs.write(tmp .. "/second/suite/lib.tl", "-- edited\nreturn { value = 1 }\n"))
+  assert(Fs.write(tmp .. "/second/suite/lib.tl", "-- edited\nlocal record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
   local second = run(tmp .. "/second", tmp .. "/second.out", env)
   assert(second:find("0 ran, 3 stood", 1, true) and
       not second:find("closure store", 1, true), second)
-  local stores, _ = Fs.list(tmp .. "/second/o/stores")
+  local stores, _ = Fs.list(build_dir(tmp .. "/second") .. "/stores")
   assert(stores == nil or #stores == 0, "a checkout that stood wrote a store")
 end
 
@@ -776,7 +831,7 @@ end
   local env = environment(tmp .. "/cache/verdicts.db")
   env.COSMIC_TEST_SANDBOX = "0"
   local text = run(root, tmp .. "/first.out", env)
-  assert(text:find("test: PASS", 1, true) and text:find("1 ran, 0 stood", 1, true), text)
+  assert(text:find("test: %d+ tests? passed in ") and text:find("1 ran, 0 stood", 1, true), text)
 end
 
 --- A digest kept of a store's address that its bytes, here or written
@@ -801,16 +856,16 @@ local function test_a_store_whose_bytes_differ_from_its_kept_digest_fails_the_ru
   local here = run(root, tmp .. "/here.out", env, nil, true)
   assert(here:find("must follow from its address alone", 1, true) and
       here:find("the shared verdicts at", 1, true) and here:find("The next run keeps", 1, true) and
-      here:find("test: FAIL", 1, true), here)
+      here:find("test: %d+ of %d+ tests? failed"), here)
   -- Where they are not: the checkout takes the digests kept, and its
   -- tests, given stores that are not those bytes, are keyed again.
   forge()
   checkout(tmp .. "/second")
   local second = run(tmp .. "/second", tmp .. "/second.out", env, { "--all" }, true)
   assert(second:find("must follow from its address alone", 1, true) and
-      second:find("test: FAIL", 1, true), second)
+      second:find("test: %d+ of %d+ tests? failed"), second)
   local kept_aside = false
-  for _, entry in ipairs(Fs.list(tmp .. "/second/o/stores") or {}) do
+  for _, entry in ipairs(Fs.list(build_dir(tmp .. "/second") .. "/stores") or {}) do
     if entry:match("%.mismatch%.db$") then kept_aside = true end
   end
   assert(kept_aside, "the store whose bytes differ was not kept aside")
@@ -829,11 +884,11 @@ local function test_a_run_that_writes_no_store_checks_one(tmp: string)
   -- Every store, and what the shared verdicts keep of it, made to agree
   -- on bytes no write makes.
   local db = assert(Sqlite.open(tmp .. "/cache/verdicts.db", { writable = true }))
-  local listed: {string} = assert(Fs.list(root .. "/o/stores"))
+  local listed: {string} = assert(Fs.list(build_dir(root) .. "/stores"))
   for _, entry in ipairs(listed) do
     local address = entry:match("^base%-(%x+)%.db$") or entry:match("^(%x+)%.db$")
     if address ~= nil then
-      local path = root .. "/o/stores/" .. entry
+      local path = build_dir(root) .. "/stores/" .. entry
       local data = assert(Fs.read(path)) .. "tampered"
       assert(Fs.write(path, data))
       assert(Sqlite.run(db, "UPDATE stores_v1 SET digest = ?1 WHERE address = ?2",
@@ -843,5 +898,5 @@ local function test_a_run_that_writes_no_store_checks_one(tmp: string)
   assert(db:close())
   local checked = run(root, tmp .. "/checked.out", env, nil, true)
   assert(checked:find("must follow from its address alone", 1, true) and
-      checked:find("%.db has %x+") ~= nil and checked:find("test: FAIL", 1, true), checked)
+      checked:find("%.db has %x+") ~= nil and checked:find("test: %d+ of %d+ tests? failed"), checked)
 end

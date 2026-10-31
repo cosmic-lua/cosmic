@@ -12,26 +12,11 @@
 
 local type _net = require("cosmic.net")
 local Fs = require("cosmic.fs")
+local RawTables = require("build.raw_tables")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local type raw_socket = require("cosmic.internal.socket")
-
-local type Searcher = function(string): any, any
 
 local record unix_socket
-end
-
---- The raw socket table the store's searcher hands [`cosmic.net`]'s
---- loader, whose `listen` fails with an errno, which [`Net.listen`]'s
---- message has no shape for.
-local function raw_table(): raw_socket
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.net")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_socket -- cast: the table core/socket.h declares
-    end
-  end
-  error("cosmic.net is handed no raw table")
 end
 
 --- What a try at a unix listener came to.
@@ -44,9 +29,10 @@ local record Probe
   why: string
 end
 
---- Tries a unix listener at a socket file of `dir`, closed again.
+--- Tries a unix listener at a socket file of `dir`, closed again, through the raw socket table, whose `listen` fails
+--- with an errno, which [`Net.listen`]'s message has no shape for.
 local function listens(dir: string): Probe
-  local listener, why, errno = raw_table().listen({ kind = "unix", path = dir .. "/unix-probe.sock" }, 1)
+  local listener, why, errno = RawTables.socket().listen({ kind = "unix", path = dir .. "/unix-probe.sock" }, 1)
   if listener == nil then
     return { made = false, refused = errno == sys.EPERM, why = tostring(why) }
   end
@@ -60,7 +46,7 @@ end
 --- not host directories.
 local function bound_directories(): {string}
   local table_text, _ = Fs.read("/proc/self/mountinfo")
-  local found: {string} = {}
+  local found: mut {string} = {}
   for line in (table_text or ""):gmatch("[^\n]+") do
     -- The fifth field is the mount point.
     local point = line:match("^%S+ %S+ %S+ %S+ (%S+)")
@@ -78,7 +64,7 @@ end
 --- Whether a TCP listener on the loopback is refused, as a worker's filter
 --- refuses it where its module declares no `network`.
 local function listens_inet(): Probe
-  local listener, why, errno = raw_table().listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1)
+  local listener, why, errno = RawTables.socket().listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1)
   if listener == nil then
     return { made = false, refused = errno == sys.EPERM, why = tostring(why) }
   end
@@ -95,10 +81,10 @@ end
 --- among its grants, a host cache or a private `noexec` scratch.
 --- @param dir a directory the process may make a socket file in
 --- @return the reason, or nil
-function unix_socket.refusal(dir: string): string
+function unix_socket.refusal(dir: string): string?
   local tried = listens(dir)
   if not tried.refused then return nil end
-  local reasons: {string} = {}
+  local reasons: mut {string} = {}
   local inet = listens_inet()
   if inet.refused then
     reasons[#reasons + 1] = "its module declares no `network`, so it has no network namespace of " ..

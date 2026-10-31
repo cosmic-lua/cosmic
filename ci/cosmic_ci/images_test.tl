@@ -1,8 +1,11 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Grammar = require("cosmic_ci.grammar")
 local Images = require("cosmic_ci.images")
+local Maps = require("cosmic_ci.maps")
 local Proc = require("cosmic.proc")
+local Seams = require("cosmic_ci.seams")
 local Test = require("cosmic.test")
 
 -- These tests start this program (the pinned driver's own cosmic, or a copy of it
@@ -45,15 +48,15 @@ local function test_build_argv_pushes_only_when_publishing()
 end
 
 local function test_build_argv_refuses_missing_context()
-  local env = build_env("false")
-  env.UBUNTU_SNAPSHOT = nil
+  local env = Maps.without(build_env("false"), { "UBUNTU_SNAPSHOT" })
   local ok, why = pcall(Images.build_argv, env)
-  assert(not ok and tostring(why):find("UBUNTU_SNAPSHOT", 1, true))
+  assert(not ok and tostring(why):find("UBUNTU_SNAPSHOT", 1, true) ~= nil)
 end
 
 local function test_publish_argvs_join_each_arch()
-  local login, create, inspect = Images.publish_argvs("ghcr.io/o/r-ci-ubuntu",
+  local argvs = Images.publish_argvs("ghcr.io/o/r-ci-ubuntu",
     "actor", "abc", " amd64  arm64 ")
+  local login, create, inspect = argvs.login, argvs.create, argvs.inspect
   assert(words(login) == "login ghcr.io -u actor --password-stdin")
   assert(words(create) == "buildx imagetools create --tag ghcr.io/o/r-ci-ubuntu:abc " ..
       "ghcr.io/o/r-ci-ubuntu:abc-amd64 ghcr.io/o/r-ci-ubuntu:abc-arm64", words(create))
@@ -77,6 +80,11 @@ local function test_digest_is_the_first_digest_line()
   assert(Images.digest("Digest:\n") == nil)
   assert(Images.digest("XDigest: sha256:x\n") == nil)
   assert(Images.digest("") == nil)
+end
+
+--- A count a stand-in keeps.
+local record Count
+  mut value: integer
 end
 
 --- A `docker` that records each call's cwd, argv (one bracketed word
@@ -113,23 +121,35 @@ local function read(path: string): string
   return (assert(Fs.read(path)))
 end
 
+--- `Images.publish(env, out)` with a raise caught: its outcome, or code -1
+--- and what was raised as the trouble.
+local function joined(env: {string:string}, out: integer): Images.Outcome
+  local held: Images.Outcome = { code = -1, trouble = "" }
+  local ok, raised = pcall(function()
+    local outcome = Images.publish(env, out)
+    held.code, held.trouble = outcome.code, outcome.trouble
+  end)
+  if not ok then held.trouble = tostring(raised) end
+  return held
+end
+
 local function test_build_runs_docker_from_the_checkout(tmp: string)
-  local env = fake(tmp)
-  for name, value in pairs(build_env("true")) do env[name] = value end
-  local code, trouble = Images.build(env)
+  local env = Maps.with(fake(tmp), build_env("true"))
+  local outcome = Images.build(env)
+  local code, trouble = outcome.code, outcome.trouble
   assert(code == 0, trouble)
   local bracketed = build_words:gsub("[^ ]+", "[%0]")
-  local cwd = "cwd " .. assert(Fs.absolute(env.GITHUB_WORKSPACE)) .. "\n"
-  assert(read(env.FAKE_LOG) == cwd ..
+  local cwd = "cwd " .. assert(Fs.absolute(assert(env["GITHUB_WORKSPACE"]))) .. "\n"
+  assert(read(assert(env["FAKE_LOG"])) == cwd ..
       "argv " .. bracketed .. " [--push] [ci/images/ubuntu]\ntoken unset\n",
-    read(env.FAKE_LOG))
+    read(assert(env["FAKE_LOG"])))
 end
 
 local function test_build_fails_with_docker(tmp: string)
-  local env = fake(tmp)
-  for name, value in pairs(build_env("false")) do env[name] = value end
-  env.FAKE_FAIL, env.FAKE_STATUS = "buildx build", "3"
-  local code, trouble = Images.build(env)
+  local env = Maps.with(Maps.with(fake(tmp), build_env("false")),
+    { FAKE_FAIL = "buildx build", FAKE_STATUS = "3" })
+  local outcome = Images.build(env)
+  local code, trouble = outcome.code, outcome.trouble
   assert(code == 3 and trouble == "docker buildx build: exit 3", trouble)
 end
 
@@ -137,43 +157,42 @@ end
 --- context, whose GITHUB_SHA is main's head, which may be past the
 --- commit whose images it joins (SOURCE_COMMIT).
 local function publish_env(tmp: string): {string:string}
-  local env = fake(tmp)
-  env.IMAGE, env.ARCHES, env.TOKEN = "Ubuntu", "amd64 arm64", "s3cret-token"
-  env.SOURCE_COMMIT, env.GITHUB_SHA = "abc123", "main-head"
-  return env
+  return Maps.with(fake(tmp), { IMAGE = "Ubuntu", ARCHES = "amd64 arm64", TOKEN = "s3cret-token",
+    SOURCE_COMMIT = "abc123", GITHUB_SHA = "main-head" })
 end
 
 local function test_publish_joins_and_reports_the_digest(tmp: string)
   local env = publish_env(tmp)
-  assert(Fs.write(env.GITHUB_STEP_SUMMARY, "earlier\n"))
+  assert(Fs.write(assert(env["GITHUB_STEP_SUMMARY"]), "earlier\n"))
   local out = assert(Fs.open_write(tmp .. "/out"))
-  local code, trouble = Images.publish(env, out)
+  local outcome = Images.publish(env, out)
+  local code, trouble = outcome.code, outcome.trouble
   assert(Fs.close(out))
   assert(code == 0, trouble)
   local name = "ghcr.io/owner/repo-ci-ubuntu"
-  local cwd = "cwd " .. assert(Fs.absolute(env.GITHUB_WORKSPACE)) .. "\n"
-  assert(read(env.FAKE_LOG) ==
+  local cwd = "cwd " .. assert(Fs.absolute(assert(env["GITHUB_WORKSPACE"]))) .. "\n"
+  assert(read(assert(env["FAKE_LOG"])) ==
       cwd .. "argv [login] [ghcr.io] [-u] [actor] [--password-stdin]\n" ..
       "token unset\nstdin s3cret-token\n" ..
       cwd .. "argv [buildx] [imagetools] [create] [--tag] [" .. name .. ":abc123] [" ..
       name .. ":abc123-amd64] [" .. name .. ":abc123-arm64]\ntoken unset\n" ..
       cwd .. "argv [buildx] [imagetools] [inspect] [" .. name .. ":abc123]\n" ..
-      "token unset\n", read(env.FAKE_LOG))
+      "token unset\n", read(assert(env["FAKE_LOG"])))
   assert(read(tmp .. "/out") == name .. "@sha256:0123abcd\n")
-  assert(read(env.GITHUB_STEP_SUMMARY) ==
+  assert(read(assert(env["GITHUB_STEP_SUMMARY"])) ==
       "earlier\nUbuntu: `" .. name .. "@sha256:0123abcd`\n")
 end
 
 local function test_publish_refuses_an_index_without_a_digest(tmp: string)
-  local env = publish_env(tmp)
-  env.FAKE_INSPECT = "Name: x\nDigest: md5:0\n"
+  local env = Maps.with(publish_env(tmp), { FAKE_INSPECT = "Name: x\nDigest: md5:0\n" })
   local out = assert(Fs.open_write(tmp .. "/out"))
-  local code, trouble = Images.publish(env, out)
+  local outcome = Images.publish(env, out)
+  local code, trouble = outcome.code, outcome.trouble
   assert(Fs.close(out))
   assert(code == 1 and trouble == "no digest for ghcr.io/owner/repo-ci-ubuntu:abc123",
     trouble)
   assert(read(tmp .. "/out") == "")
-  assert(Fs.exists(env.GITHUB_STEP_SUMMARY) == false)
+  assert(Fs.exists(assert(env["GITHUB_STEP_SUMMARY"])) == false)
 end
 
 local function test_publish_stops_at_a_docker_failure(tmp: string)
@@ -181,14 +200,14 @@ local function test_publish_stops_at_a_docker_failure(tmp: string)
     "buildx imagetools inspect" }
   for calls, command in ipairs(commands) do
     local dir = tmp .. "/" .. tostring(calls)
-    local env = publish_env(dir)
-    env.FAKE_FAIL, env.FAKE_STATUS = command, "5"
+    local env = Maps.with(publish_env(dir), { FAKE_FAIL = command, FAKE_STATUS = "5" })
     local out = assert(Fs.open_write(dir .. "/out"))
-    local code, trouble = Images.publish(env, out)
+    local outcome = Images.publish(env, out)
+    local code, trouble = outcome.code, outcome.trouble
     assert(Fs.close(out))
-    local label = command == "login" and "login ghcr.io" or command
+    local label = if command == "login" then "login ghcr.io" else command end
     assert(code == 5 and trouble == "docker " .. label .. ": exit 5", trouble)
-    local _, ran = read(env.FAKE_LOG):gsub("argv ", "")
+    local _, ran = read(assert(env["FAKE_LOG"])):gsub("argv ", "")
     assert(ran == calls, "ran on past the failure")
     assert(not trouble:find("s3cret", 1, true))
     assert(read(dir .. "/out") == "")
@@ -196,15 +215,14 @@ local function test_publish_stops_at_a_docker_failure(tmp: string)
 end
 
 local function test_missing_docker_fails(tmp: string)
-  local env = fake(tmp)
-  for name, value in pairs(build_env("false")) do env[name] = value end
-  env.PATH = tmp .. "/nowhere"
-  local code, trouble = Images.build(env)
-  assert(code == 127 and trouble:find("^docker: "), trouble)
+  local env = Maps.with(Maps.with(fake(tmp), build_env("false")), { PATH = tmp .. "/nowhere" })
+  local outcome = Images.build(env)
+  local code, trouble = outcome.code, outcome.trouble
+  assert(code == 127 and trouble:find("^docker: ") ~= nil, trouble)
 end
 
 --- driver.tl as a workflow step runs it, from a copy of this project:
---- the self-check holds `ci/o/build.db` while tests run (see
+--- the self-check holds `ci/`'s `build.db` while tests run (see
 --- orchestration_test.tl), so the driver never runs with `ci/` as root.
 local function driver(tmp: string, command: string,
                       env: {string:string}): Child.Result
@@ -213,83 +231,86 @@ local function driver(tmp: string, command: string,
   assert(assert(Child.run({ "/bin/cp", "-R", assert(Fs.absolute("cosmic_ci")),
     project })).ok)
   return (assert(Child.run({ assert(Proc.executable()),
-    project .. "/cosmic_ci/driver.tl", command }, { cwd = project, env = env,
+    project .. "/cosmic_ci/driver.tl", command }, { cwd = project, env = Grammar.driver(env),
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })))
 end
 
 local function test_driver_runs_both_commands(tmp: string)
-  local env = publish_env(tmp)
-  for name, value in pairs(build_env("false")) do
-    if name ~= "IMAGE" then env[name] = value end
-  end
-  env.HOME = tmp
+  local build = Maps.without(build_env("false"), { "IMAGE" })
+  local env = Maps.with(Maps.with(publish_env(tmp), build), { HOME = tmp })
   local built = driver(tmp .. "/build", "image-build", env)
   assert(built.ok, built.stderr)
   local published = driver(tmp .. "/publish", "image-publish", env)
   assert(published.ok, published.stderr)
   assert(published.stdout == "ghcr.io/owner/repo-ci-ubuntu@sha256:0123abcd\n",
     published.stdout)
-  local _, calls = read(env.FAKE_LOG):gsub("argv ", "")
+  local _, calls = read(assert(env["FAKE_LOG"])):gsub("argv ", "")
   assert(calls == 4)
-  env.FAKE_FAIL, env.FAKE_STATUS = "login", "4"
-  local refused = driver(tmp .. "/refused", "image-publish", env)
-  assert(refused.code == 4 and refused.stderr ==
-      "image-publish: docker login ghcr.io: exit 4\n", refused.stderr)
-  assert(not (refused.stdout .. refused.stderr):find("s3cret", 1, true))
+  local refused = driver(tmp .. "/refused", "image-publish",
+    Maps.with(env, { FAKE_FAIL = "login", FAKE_STATUS = "4" }))
+  local stderr = refused.stderr
+  assert(refused.code == 4 and stderr ==
+      "image-publish: docker login ghcr.io: exit 4\n", stderr)
+  assert(not ((refused.stdout or "") .. (stderr or "")):find("s3cret", 1, true))
 end
 
 local function test_publish_appends_to_the_summary_link_in_place(tmp: string)
   local env = publish_env(tmp)
   local target = tmp .. "/target"
   assert(Fs.write(target, "earlier\n", 0x180))
-  assert(Fs.symlink(target, env.GITHUB_STEP_SUMMARY))
+  assert(Fs.symlink(target, assert(env["GITHUB_STEP_SUMMARY"])))
   local before = assert(Fs.stat(target))
   local out = assert(Fs.open_write(tmp .. "/out"))
-  local code, trouble = Images.publish(env, out)
+  local outcome = Images.publish(env, out)
+  local code, trouble = outcome.code, outcome.trouble
   assert(Fs.close(out))
   assert(code == 0, trouble)
   local after = assert(Fs.stat(target))
   assert(before.ino == after.ino and before.mode == after.mode)
-  assert(Fs.readlink(env.GITHUB_STEP_SUMMARY) == target)
+  assert(Fs.readlink(assert(env["GITHUB_STEP_SUMMARY"])) == target)
   assert(read(target) == "earlier\nUbuntu: `ghcr.io/owner/repo-ci-ubuntu@sha256:0123abcd`\n")
 end
 
 local function test_publish_reports_output_before_one_failed_summary_append(tmp: string)
   local env = publish_env(tmp)
-  local path = env.GITHUB_STEP_SUMMARY
-  assert(Fs.write(path, "earlier\n"))
+  local path = env["GITHUB_STEP_SUMMARY"]
+  assert(Fs.write(assert(path), "earlier\n"))
   local output = tmp .. "/out"
   local out = assert(Fs.open_write(output))
-  local append, calls = Fs.append, 0
-  Fs.append = function(name: string, text: string, mode?: integer): boolean, string
-    calls = calls + 1
+  local seams = Seams.calls()
+  local append = seams.fs_append
+  local calls: Count = { value = 0 }
+  seams.fs_append = function(name: string, text: string, mode?: integer): boolean, string
+    calls.value = calls.value + 1
     assert(read(output) == "ghcr.io/owner/repo-ci-ubuntu@sha256:0123abcd\n")
     assert(append(name, text:sub(1, 2), mode))
     return false, name .. ": injected append failure"
   end
-  local ok, code, trouble = pcall(Images.publish, env, out)
-  Fs.append = append
+  local outcome = joined(env, out)
+  seams.fs_append = append
   assert(Fs.close(out))
-  assert(ok and code == 1 and calls == 1, trouble)
-  assert(trouble == path .. ": injected append failure", trouble)
-  assert(read(path) == "earlier\nUb")
+  assert(outcome.code == 1 and calls.value == 1, outcome.trouble)
+  assert(outcome.trouble == assert(path) .. ": injected append failure", outcome.trouble)
+  assert(read(assert(path)) == "earlier\nUb")
 end
 
 local function test_failed_image_output_does_not_append_the_summary(tmp: string)
   local env = publish_env(tmp)
   local output = assert(Fs.open_write(tmp .. "/out"))
-  local put, append, calls = Fs.put, Fs.append, 0
-  Fs.put = function(fd: integer, text: string): boolean, string
+  local seams = Seams.calls()
+  local put, append = seams.fs_put, seams.fs_append
+  local calls: Count = { value = 0 }
+  seams.fs_put = function(fd: integer, text: string): boolean, string
     if fd == output then return false, "injected output failure" end
     return put(fd, text)
   end
-  Fs.append = function(_name: string, _text: string, _mode?: integer): boolean, string
-    calls = calls + 1
+  seams.fs_append = function(_name: string, _text: string, _mode?: integer): boolean, string
+    calls.value = calls.value + 1
     return true, ""
   end
-  local ok, code, trouble = pcall(Images.publish, env, output)
-  Fs.put, Fs.append = put, append
+  local outcome = joined(env, output)
+  seams.fs_put, seams.fs_append = put, append
   assert(Fs.close(output))
-  assert(ok and code == 1 and trouble == "injected output failure", trouble)
-  assert(calls == 0 and Fs.exists(env.GITHUB_STEP_SUMMARY) == false)
+  assert(outcome.code == 1 and outcome.trouble == "injected output failure", outcome.trouble)
+  assert(calls.value == 0 and Fs.exists(assert(env["GITHUB_STEP_SUMMARY"])) == false)
 end

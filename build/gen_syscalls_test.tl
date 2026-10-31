@@ -1,11 +1,5 @@
 local gen_syscalls = require("build.gen_syscalls")
-local analyzer = require("build.analyzer")
-local teal = require("build.teal")
-
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
+local analyzer = require("build.syntax_analyzer")
 
 local function lines(parts: {string}): string
   return table.concat(parts, "\n") .. "\n"
@@ -49,9 +43,9 @@ local header = lines({
 local function docs(): {string: analyzer.DocEntry}
   local source, trouble = gen_syscalls.declaration(header)
   assert(source ~= nil, trouble)
-  local found, err = analyzer.analyze(built, source, "syscalls.d.tl")
+  local found, err = analyzer.analyze(source, "syscalls.d.tl")
   assert(found ~= nil, "analyze failed: " .. tostring(err))
-  local by_symbol: {string: analyzer.DocEntry} = {}
+  local by_symbol: mut {string: analyzer.DocEntry} = {}
   for _, entry in ipairs(found.docs) do
     by_symbol[entry.symbol] = entry
   end
@@ -78,10 +72,13 @@ end
 
 local function test_classes_and_fields_carry_their_prose()
   local by_symbol = docs()
-  assert(by_symbol["Stat"].text == "What `stat` reports.", by_symbol["Stat"].text)
-  assert(by_symbol["Stat.size"].text == "the size in bytes", by_symbol["Stat.size"].text)
-  assert(by_symbol["O_RDONLY"].text == "open for reading", by_symbol["O_RDONLY"].text)
-  local module = by_symbol[""].text
+  local stat = assert(by_symbol["Stat"], "Stat is documented")
+  assert(stat.text == "What `stat` reports.", stat.text)
+  local size = assert(by_symbol["Stat.size"], "Stat.size is documented")
+  assert(size.text == "the size in bytes", size.text)
+  local read_only = assert(by_symbol["O_RDONLY"], "O_RDONLY is documented")
+  assert(read_only.text == "open for reading", read_only.text)
+  local module = assert(by_symbol[""], "the module is documented").text
   assert(module == "The syscall table: one C function per call, the same on Linux\n" ..
       "and on macOS.", module)
 end
@@ -111,7 +108,7 @@ end
 --- its own summary and mapped to its own header, not the syscall
 --- table's.
 local function test_a_target_names_its_own_record_and_header()
-  local process: gen_syscalls.Target = nil
+  local process: gen_syscalls.Target? = nil
   for _, derivation in ipairs(gen_syscalls.targets) do
     if derivation.path == "cosmic.internal.process" then process = derivation.target end
   end
@@ -140,11 +137,32 @@ end
 --- failing with nil: `boolean|nil` says it is both.
 local function test_a_fallible_call_is_an_effect_or_a_value()
   local _, trouble = gen_syscalls.read(fallible("boolean|nil"))
-  assert(trouble ~= nil and trouble:find("never boolean|nil", 1, true), trouble)
+  assert(trouble ~= nil and trouble:find("never boolean|nil", 1, true) ~= nil, trouble)
   local _, bare = gen_syscalls.read(fallible("string"))
-  assert(bare ~= nil and bare:find("fails with nil", 1, true), bare)
+  assert(bare ~= nil and bare:find("fails with nil", 1, true) ~= nil, bare)
   assert(gen_syscalls.read(fallible("boolean")) ~= nil)
   assert(gen_syscalls.read(fallible("string|nil")) ~= nil)
+end
+
+--- A call with no `@return` never returns, and the declaration says so:
+--- `: never` ends the block of a guard that calls it. One with a result
+--- does not.
+local function test_a_call_with_no_return_is_declared_never()
+  local source = assert(gen_syscalls.declaration(lines({
+    "/*",
+    " * --- Ends the process.",
+    " * ---@param status? integer the exit status",
+    " */",
+    "COSMIC_SYSCALL(leave, 1);",
+    "",
+    "/*",
+    " * --- The process id.",
+    " * ---@return integer pid the id",
+    " */",
+    "COSMIC_SYSCALL(getpid, 0);",
+  })))
+  assert(source:find("leave: function(status?: integer): never", 1, true) ~= nil, source)
+  assert(source:find("getpid: function(): integer", 1, true) ~= nil, source)
 end
 
 --- The `COSMIC_CONSTANT` lines after the `Constants` block are what
@@ -152,7 +170,7 @@ end
 --- exactly, in order: none missing, none extra, none out of place.
 local function test_constants_are_held_to_their_class()
   local function with(entries: {string}): string
-    local parts: {string} = {
+    local parts: mut {string} = {
       "/*",
       " * --- Closes a descriptor.",
       " * ---@param fd integer the descriptor",
@@ -188,10 +206,10 @@ local function test_constants_are_held_to_their_class()
   local stray = with({ "COSMIC_CONSTANT(A)", "COSMIC_CONSTANT(B)" }):gsub(
     "COSMIC_SYSCALL%(close, 1%);", "COSMIC_SYSCALL(close, 1);\nCOSMIC_CONSTANT(C)")
   local refused, refusal = gen_syscalls.read(stray)
-  assert(refused == nil and refusal:find("one stands outside", 1, true), refusal)
+  assert(refused == nil and refusal:find("one stands outside", 1, true) ~= nil, refusal)
   for _, case in ipairs(cases) do
     local read, trouble = gen_syscalls.read(with(case.entries))
-    assert(read == nil and trouble:find(case.refusal, 1, true), trouble)
+    assert(read == nil and trouble:find(case.refusal, 1, true) ~= nil, trouble)
   end
 end
 
@@ -223,16 +241,16 @@ local function test_a_userdata_class_declares_methods_and_metamethods()
       "  record Owner\n    userdata\n",
       "    fd: function(self: Owner): integer\n",
       "    close: function(self: Owner): boolean, string, integer\n",
-      "    metamethod __close: function(self: Owner)\n",
-      "  make: function(): Owner | nil, string, integer\n",
+      "    __close: function(self: Owner)\n",
+      "  make: function(): Owner?, string, integer\n",
   }) do
     assert(source:find(want, 1, true), want .. " missing from:\n" .. source)
   end
-  local found, err = analyzer.analyze(built, source, "syscalls.d.tl")
+  local found, err = analyzer.analyze(source, "syscalls.d.tl")
   assert(found ~= nil, "analyze failed: " .. tostring(err))
   for _, class in ipairs({ "Owner: table", "Owner userdata" }) do
     local refused, why = gen_syscalls.read(with(class))
-    assert(refused == nil and why:find("a parent other than userdata", 1, true), class .. ": " .. why)
+    assert(refused == nil and why:find("a parent other than userdata", 1, true) ~= nil, class .. ": " .. why)
   end
 end
 
@@ -254,7 +272,7 @@ end
 --- An alias whose block is malformed is refused, naming what is wrong.
 local function test_a_malformed_alias_is_refused()
   local function with(body: {string}): string
-    local parts: {string} = { "/*" }
+    local parts: mut {string} = { "/*" }
     for _, line in ipairs(body) do
       parts[#parts + 1] = " * ---" .. line
     end
@@ -284,9 +302,9 @@ local function test_a_malformed_alias_is_refused()
   local clash = with({ " What it is.", "@alias Stat", '| "file" # a file' }) ..
     lines({ "/*", " * --- A class.", " * ---@class Stat", " * ---@field a integer a", " */" })
   local refused, why = gen_syscalls.read(clash)
-  assert(refused == nil and why:find("Stat: names both a class and an alias", 1, true), tostring(why))
+  assert(refused == nil and why:find("Stat: names both a class and an alias", 1, true) ~= nil, tostring(why))
   for _, case in ipairs(cases) do
     local read, trouble = gen_syscalls.read(with(case.body))
-    assert(read == nil and trouble:find(case.refusal, 1, true), tostring(trouble))
+    assert(read == nil and trouble:find(case.refusal, 1, true) ~= nil, tostring(trouble))
   end
 end

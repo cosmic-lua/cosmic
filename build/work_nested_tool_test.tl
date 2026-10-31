@@ -27,7 +27,7 @@ local function linked_project(tmp: string): string
   local project = tmp .. "/project"
   assert(Fs.mkdirs(tmp .. "/shared/lib"))
   assert(Fs.mkdirs(project))
-  assert(Fs.write(tmp .. "/shared/lib/util.tl", "local util = {}\nutil.answer = 42\nreturn util\n"))
+  assert(Fs.write(tmp .. "/shared/lib/util.tl", "local record util\n  answer: integer\nend\nlocal u: util = { answer = 42 }\nreturn u\n"))
   assert(Fs.write(tmp .. "/shared/linked_test.tl",
     'local util = require("lib.util")\n\nlocal function test_linked()\n  assert(util.answer == 42)\nend\n'))
   assert(Fs.write(project .. "/main_test.tl",
@@ -56,6 +56,6 @@ local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string
   local result = assert(Child.run(started.argv, started.options))
   local out = (result.stdout or "") .. (result.stderr or "")
   assert(result.code == 0, out)
-  assert(out:find("(2 tests, 2 modules", 1, true), out)
+  assert(out:find("2 tests passed in 2 modules", 1, true), out)
   if not out:find("; sandboxed", 1, true) then Test.skip(confine.unsandboxed_reason(out)) end
 end

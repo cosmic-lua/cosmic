@@ -23,13 +23,13 @@ end
 
 --- Asserts calling `fn` with `...` raises rather than returning.
 local function raises(fn: any, ...: any)
-  local ok = pcall(fn as function(any...): (any...), ...)
+  local ok = pcall(fn as function(...: any): (any...), ...)
   assert(not ok, "the call must raise")
 end
 
 --- Asserts calling `fn` with `...` raises, and the message holds `says`.
 local function raises_saying(says: string, fn: any, ...: any)
-  local ok, why = pcall(fn as function(any...): (any...), ...)
+  local ok, why = pcall(fn as function(...: any): (any...), ...)
   assert(not ok, "the call must raise")
   assert(tostring(why):find(says, 1, true) ~= nil, tostring(why))
 end
@@ -233,7 +233,7 @@ local function test_existing_only_open_can_commit_to_an_existing_database(tmp: s
   assert(writer:exec("BEGIN; INSERT INTO t VALUES (42); COMMIT"))
   local reader = assert(Sqlite.open(path, { create = true }))
   local rows = assert(Sqlite.rows(reader, "SELECT a FROM t"))
-  assert(#rows == 1 and rows[1][1].integer == 42)
+  assert(#rows == 1 and rows[1]:integer(1) == 42)
   failed(reader:exec("INSERT INTO t VALUES (43)"))
   assert(reader:close())
   assert(writer:close())
@@ -245,7 +245,8 @@ local function test_existing_only_open_keeps_sqlites_temporary_paths()
     local db = assert(Sqlite.open(path, { writable = true, create = false }))
     assert(db:exec("CREATE TABLE t (a); INSERT INTO t VALUES (42)"))
     local rows = assert(Sqlite.rows(db, "SELECT a FROM t"))
-    assert(rows[1][1].integer == 42)
+    local row = assert(rows[1], "the table holds a row")
+    assert(row:integer(1) == 42)
     assert(db:close())
   end
 end
@@ -266,17 +267,8 @@ local function test_create_is_only_an_option_of_writable_open(tmp: string)
   end
 end
 
---- The options are a table. A boolean would read as truthy through the
---- raw binding, so a Lua caller passing `true` is refused rather than
---- made writable.
-local function test_open_refuses_options_that_are_not_a_table(tmp: string)
-  local open: any = Sqlite.open
-  for _, given in ipairs({ true, false, "writable", 1 } as {any}) do
-    local ok, why = pcall(open as function(string, any): (any, any), tmp .. "/never.db", given)
-    assert(not ok and tostring(why):find("sqlite: open: options is a table", 1, true) ~= nil, tostring(why))
-  end
-  assert(Fs.exists(tmp .. "/never.db") == false)
-  -- An explicit false is the same as leaving the option out.
+--- An explicit false is the same as leaving the option out.
+local function test_open_takes_an_explicit_false_option_as_left_out(tmp: string)
   failed(Sqlite.open(tmp .. "/never.db", { writable = false }))
   assert(Fs.exists(tmp .. "/never.db") == false)
 end
@@ -393,7 +385,7 @@ local function test_a_reader_beside_an_open_write_reads_the_last_commit(tmp: str
       "INSERT INTO t VALUES ('committed'); BEGIN; INSERT INTO t VALUES ('pending')"))
   local reader = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(reader, "SELECT v FROM t"))
-  assert(#rows == 1 and rows[1][1] == "committed", "the reader must see only the last commit")
+  assert(#rows == 1 and rows[1]:text(1) == "committed", "the reader must see only the last commit")
   assert(reader:close())
   assert(writer:exec("COMMIT"))
   assert(writer:close())
@@ -407,7 +399,7 @@ local function test_an_immutable_open_makes_no_wal_or_shm_and_takes_no_lock(tmp:
   assert(Fs.exists(path .. "-wal") == false)
   local reader = assert(Sqlite.open(path, { immutable = true }))
   local rows = assert(Sqlite.text_rows(reader, "SELECT v FROM t"))
-  assert(#rows == 1 and rows[1][1] == "1")
+  assert(#rows == 1 and rows[1]:text(1) == "1")
   assert(Fs.exists(path .. "-wal") == false, "an immutable open made a -wal")
   assert(Fs.exists(path .. "-shm") == false, "an immutable open made a -shm")
   failed(reader:exec("INSERT INTO t VALUES (2)"))
@@ -437,14 +429,15 @@ local function test_an_immutable_open_names_the_path_it_was_given(tmp: string)
     assert(made:close())
     local read = assert(Sqlite.open(path, { immutable = true }), name)
     local rows = assert(Sqlite.text_rows(read, "SELECT v FROM t"))
-    assert(rows[1][1] == name, name)
+    local row = assert(rows[1], name .. " holds a row")
+    assert(row:text(1) == name, name)
     assert(read:close())
   end
   -- The same names as relative paths, from the working directory, and one
   -- through "..".
   local here = assert(sys.getcwd())
   assert(sys.chdir(tmp))
-  local trouble: string | nil
+  local trouble: string?
   for _, name in ipairs(names) do
     local read, why = Sqlite.open(name, { immutable = true })
     if read == nil then
@@ -452,12 +445,14 @@ local function test_an_immutable_open_names_the_path_it_was_given(tmp: string)
       break
     end
     local rows = Sqlite.text_rows(read, "SELECT v FROM t")
-    if rows == nil or rows[1][1] ~= name then
+    local row: Sqlite.Row?
+    if rows ~= nil then row = rows[1] end
+    if row == nil or row:text(1) ~= name then
       trouble = name .. " read another file"
     end
     read:close()
   end
-  local dotted = Sqlite.open("../" .. (tmp:match("[^/]*$")) .. "/rel.db", { immutable = true })
+  local dotted = Sqlite.open("../" .. assert(tmp:match("[^/]*$"), "a path ends in a name") .. "/rel.db", { immutable = true })
   assert(sys.chdir(here))
   assert(trouble == nil, trouble)
   assert(dotted ~= nil and #assert(Sqlite.text_rows(dotted, "SELECT v FROM t")) == 1)
@@ -475,6 +470,7 @@ local function test_limit_sets_a_named_limit_and_answers_the_old_one()
   local ok, why = handle:exec("ATTACH ':memory:' AS m")
   failed(ok, why)
   assert(why:find("too many attached", 1, true) ~= nil, why)
+  assert(why:find("raises it", 1, true) == nil, "a limit of 0 refuses every ATTACH: " .. why)
   raises_saying("sqlite: no such limit: nonesuch", handle.limit, handle, "nonesuch", 0)
   raises(handle.limit, handle, "attached", 2 ^ 40)
   for _, name in ipairs({ "length", "sql_length", "column", "expr_depth", "compound_select",
@@ -484,6 +480,34 @@ local function test_limit_sets_a_named_limit_and_answers_the_old_one()
   end
   handle:close()
   raises(handle.limit, handle, "attached", 0)
+end
+
+--- A handle attaches 10 databases until it raises the limit, and the
+--- refusal of the eleventh says how far it may go.
+local function test_attached_limit_starts_at_ten_and_rises_to_its_ceiling()
+  local handle = memory()
+  assert(handle:limit("attached", -1) == 10)
+  for i = 1, 10 do
+    assert(handle:exec("ATTACH ':memory:' AS m" .. tostring(i)))
+  end
+  local hint = 'handle:limit("attached", n) raises it, to at most 125'
+  local ok, why = handle:exec("ATTACH ':memory:' AS m11")
+  failed(ok, why)
+  assert(why == "too many attached databases - max 10; " .. hint, why)
+  local result = handle:exec_result("ATTACH ':memory:' AS m11")
+  assert(result.code == 1 and result.reason == why, result.reason)
+  assert(handle:limit("attached", 125) == 10)
+  assert(handle:exec("ATTACH ':memory:' AS m11"))
+  raises_saying("sqlite: the attached limit is at most 125, not 126",
+    handle.limit, handle, "attached", 126)
+  assert(handle:limit("attached", -1) == 125, "a refused value leaves the limit as it was")
+  for i = 12, 125 do
+    assert(handle:exec("ATTACH ':memory:' AS m" .. tostring(i)))
+  end
+  ok, why = handle:exec("ATTACH ':memory:' AS m126")
+  failed(ok, why)
+  assert(why == "too many attached databases - max 125", "nothing is left to raise: " .. why)
+  assert(handle:close())
 end
 
 local function test_exec_result_captures_codes_and_reason_before_later_operations()
@@ -518,9 +542,9 @@ local function test_exec_result_does_not_retry_or_rollback_a_partial_batch()
   local handle = memory()
   assert(handle:exec("CREATE TABLE t (x)"))
   local result = handle:exec_result("INSERT INTO t VALUES (1); SELECT * FROM missing; INSERT INTO t VALUES (2)")
-  assert(result.code == 1 and result.reason:find("missing", 1, true))
+  assert(result.code == 1 and result.reason:find("missing", 1, true) ~= nil)
   local rows = assert(Sqlite.text_rows(handle, "SELECT x FROM t"))
-  assert(#rows == 1 and rows[1][1] == "1")
+  assert(#rows == 1 and rows[1]:text(1) == "1")
   local ok, reason = handle:exec("SELECT * FROM missing")
   assert(not ok and reason == result.reason, "legacy failure wording changed")
   assert(handle:close())

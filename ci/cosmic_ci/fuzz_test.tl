@@ -3,8 +3,11 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Fuzz = require("cosmic_ci.fuzz")
+local Grammar = require("cosmic_ci.grammar")
+local Maps = require("cosmic_ci.maps")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Proc = require("cosmic.proc")
+local Seams = require("cosmic_ci.seams")
 local sys = require("cosmic.sys")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
@@ -12,6 +15,26 @@ local Test = require("cosmic.test")
 -- These tests start this program (the pinned driver's own cosmic, or a copy of it
 -- as the bootstrap), which a worker on a sealed database does not have whole.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+
+--- A number a closure shares with the test that made it.
+local record Count
+  mut value: integer
+end
+
+--- A yes or no a closure shares with the test that made it.
+local record Flag
+  mut value: boolean
+end
+
+--- The result of a wait run under `pcall`.
+local record Waited
+  mut result?: Child.Result
+end
+
+--- A descriptor, once one is opened, that a closure shares with the test that made it.
+local record Slot
+  mut value?: integer
+end
 
 local function write(path: string, data: string, mode?: integer)
   assert(Fs.mkdirs(Fs.dirname(path)))
@@ -40,10 +63,10 @@ end
 
 --- A function answering `text` `size` bytes at a time, then "".
 local function pieces(text: string, size: integer): function(): string
-  local at = 1
+  local at: Count = { value = 1 }
   return function(): string
-    local piece = text:sub(at, at + size - 1)
-    at = at + size
+    local piece = text:sub(at.value, at.value + size - 1)
+    at.value = at.value + size
     return piece
   end
 end
@@ -67,10 +90,10 @@ end
 
 --- Outputs where a line's length, its end, or a chunk's edge counts.
 local function outputs(): {string}
-  local many: {string} = {}
+  local many: mut {string} = {}
   for i = 1, 40 do many[#many + 1] = "test: FAIL " .. tostring(i) .. "\n" end
   for i = 1, 70 do many[#many + 1] = "report " .. tostring(i) .. "\n" end
-  local wide: {string} = {}
+  local wide: mut {string} = {}
   for i = 1, 45 do wide[#wide + 1] = tostring(i) .. string.rep("w", 70000) end
   return {
     "", "\n", "\n\n", "a", "a\n", "a\n\nb", "\nb",
@@ -100,7 +123,7 @@ local function test_failure_matches_the_shell_it_replaced()
 end
 
 local function test_failure_bounds_what_it_lists()
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i = 1, 40 do parts[#parts + 1] = "test: FAIL " .. tostring(i) .. "\n" end
   for i = 1, 70 do parts[#parts + 1] = "report " .. tostring(i) .. "\n" end
   local text = Fuzz.failure(pieces(table.concat(parts), 5), "1")
@@ -110,17 +133,23 @@ local function test_failure_bounds_what_it_lists()
       not text:find("report 61", 1, true), "report lines were not bounded")
 end
 
+local function test_failure_lists_the_failing_summary()
+  local text = Fuzz.failure(pieces("test: FAIL  a_test test_b: no\n" ..
+      "test: 1 of 2 tests failed, 0 infrastructure errors, 9 ms\nreport\n", 7), "1")
+  assert(text:find("test: 1 of 2 tests failed, 0 infrastructure errors, 9 ms\n", 1, true), text)
+end
+
 local function test_failure_stops_reading_once_it_has_its_lines()
-  local read_after = false
-  local served = 0
+  local read_after: Flag = { value = false }
+  local served: Count = { value = 0 }
   local lines = string.rep("test: FAIL x\n", 30) .. string.rep("report\n", 60)
   local text = Fuzz.failure(function(): string
-    served = served + 1
-    if served == 1 then return lines end
-    read_after = true
+    served.value = served.value + 1
+    if served.value == 1 then return lines end
+    read_after.value = true
     return ""
   end, "1")
-  assert(not read_after, "it read past the lines it keeps")
+  assert(not read_after.value, "it read past the lines it keeps")
   assert(select(2, text:gsub("report\n", "")) == 60)
 end
 
@@ -129,7 +158,7 @@ local function test_tail_matches_the_shell_it_replaced(tmp: string)
   for n, output in ipairs(outputs()) do
     write(tmp .. "/fuzz.out", output)
     local tail = assert(Fuzz.tail(tmp .. "/fuzz.out"))
-    local got = table.concat(tail, "\n") .. (#tail > 0 and "\n" or "")
+    local got = table.concat(tail, "\n") .. (if #tail > 0 then "\n" else "" end)
     local want = expected("tail", n)
     assert(got == want, "output " .. tostring(n) .. "'s tail differs:\n" ..
         got .. "\nfrom:\n" .. want)
@@ -147,7 +176,7 @@ end
 --- A checkout whose checked core is a script standing in for it: it
 --- says what it was given and ran with, and fails as told.
 local function fake_checkout(root: string, exit: string, body?: {string})
-  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
+  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
   write(root .. "/AGENTS.md", "fixture\n")
   write(root .. "/build/a_fuzz_test.tl", "")
   write(root .. "/build/fuzz/b_fuzz_test.tl", "")
@@ -169,7 +198,7 @@ local function test_execute_runs_the_checked_core_on_every_property(tmp: string)
   fake_checkout(root, "3")
   assert(Fs.mkdirs(temp))
   local log_fd = assert(Fs.open_write(tmp .. "/log"))
-  local summary: {string} = {}
+  local summary: mut {string} = {}
   local status = Fuzz.execute({ root = root, temp = temp,
     env = { FUZZ_SEED = "9", FUZZ_ITERS = "5", PATH = "/usr/bin:/bin" },
     log = log_fd,
@@ -187,7 +216,7 @@ local function test_execute_runs_the_checked_core_on_every_property(tmp: string)
   assert(read(temp .. "/fuzz.status") == "3\n")
   assert(#summary == 2 and summary[1] == Fuzz.header("9", "5") and
       summary[2] == Fuzz.failure(pieces(out, 65536), "9"), table.concat(summary))
-  assert(summary[2]:find("~~~~\ntest: FAIL ./build/a_fuzz_test.tl\n\n", 1, true))
+  assert(assert(summary[2]):find("~~~~\ntest: FAIL ./build/a_fuzz_test.tl\n\n", 1, true))
 end
 
 local function test_execute_passes_and_says_so_briefly(tmp: string)
@@ -195,7 +224,7 @@ local function test_execute_passes_and_says_so_briefly(tmp: string)
   fake_checkout(root, "0")
   assert(Fs.mkdirs(temp))
   local log_fd = assert(Fs.open_write(tmp .. "/log"))
-  local summary: {string} = {}
+  local summary: mut {string} = {}
   local status = Fuzz.execute({ root = root, temp = temp, env = {},
     log = log_fd,
     summarize = function(text: string) summary[#summary + 1] = text end })
@@ -206,7 +235,7 @@ end
 
 local function test_execute_reports_a_core_that_cannot_start(tmp: string)
   local root, temp = tmp .. "/checkout", tmp .. "/runner-temp"
-  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
+  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
   write(root .. "/AGENTS.md", "fixture\n")
   assert(Fs.mkdirs(temp))
   local log_fd = assert(Fs.open_write(tmp .. "/log"))
@@ -232,39 +261,37 @@ end
 
 --- The driver's commands read their context from the environment: the
 --- driver runs in a project of its own, as orchestration_test's do.
-local function driver_project(tmp: string): {string}, string
+local function driver_project(tmp: string): string, string, string
   local here = assert(Fs.absolute("."))
   local project = tmp .. "/driver-project"
   assert(Fs.mkdirs(project))
   assert(assert(Child.run({ "/bin/cp", "-R", here .. "/cosmic_ci", project })).ok)
-  return { assert(Proc.executable()), project .. "/cosmic_ci/driver.tl" }, project
+  return assert(Proc.executable()), project .. "/cosmic_ci/driver.tl", project
 end
 
 local function test_driver_commands_read_the_environment(tmp: string)
-  local driver, project = driver_project(tmp)
+  local executable, script, project = driver_project(tmp)
   local root, temp = tmp .. "/checkout", tmp .. "/runner-temp"
   fake_checkout(root, "1")
   assert(Fs.mkdirs(temp))
   local summary = tmp .. "/summary.md"
   -- The job's own GITHUB_* and RUNNER_TEMP, under CI, are replaced.
-  local env = Env.all()
-  env.GITHUB_WORKSPACE, env.RUNNER_TEMP = root, temp
-  env.GITHUB_STEP_SUMMARY = summary
-  env.FUZZ_SEED, env.FUZZ_ITERS = "11", "2"
-  local fuzz = assert(Child.run({ driver[1], driver[2], "fuzz" },
+  local env = Grammar.driver(Maps.with(Env.all(), { GITHUB_WORKSPACE = root, RUNNER_TEMP = temp,
+    GITHUB_STEP_SUMMARY = summary, FUZZ_SEED = "11", FUZZ_ITERS = "2" }))
+  local fuzz = assert(Child.run({ executable, script, "fuzz" },
     { cwd = project, env = env, stdout = "capture", stderr = "capture" }))
   assert(fuzz.code == 1, (fuzz.stdout or "") .. (fuzz.stderr or ""))
   assert((fuzz.stdout or ""):find("env: 11 2 0 1200 ", 1, true), fuzz.stdout)
   local text = read(summary)
   assert(text:sub(1, #Fuzz.header("11", "2")) == Fuzz.header("11", "2"))
   assert(text:find("fuzz-inputs-11 artifact", 1, true), text)
-  local cancelled = assert(Child.run({ driver[1], driver[2], "fuzz-cancelled" },
+  local cancelled = assert(Child.run({ executable, script, "fuzz-cancelled" },
     { cwd = project, env = env, stdout = "capture", stderr = "capture" }))
   assert(cancelled.ok, (cancelled.stdout or "") .. (cancelled.stderr or ""))
   assert(read(summary) == text ..
       Fuzz.cancelled_summary(Fuzz.tail(temp .. "/fuzz.out")))
   assert(Fs.remove(temp .. "/fuzz.out"))
-  assert(assert(Child.run({ driver[1], driver[2], "fuzz-cancelled" },
+  assert(assert(Child.run({ executable, script, "fuzz-cancelled" },
     { cwd = project, env = env, stdout = "null", stderr = "null" })).ok,
     "fuzz-cancelled refused a run that kept no output")
 end
@@ -284,51 +311,62 @@ end
 --- stdout (the job's log) in `<tmp>/log`.
 local function start_fuzz(tmp: string, body: {string},
                           extra?: {string:string}): Child.Handle, string, string
-  local driver, project = driver_project(tmp)
+  local executable, script, project = driver_project(tmp)
   local root, temp = tmp .. "/checkout", tmp .. "/runner-temp"
   fake_checkout(root, "0", body)
   assert(Fs.mkdirs(temp))
-  local env = Env.all()
-  env.GITHUB_WORKSPACE, env.RUNNER_TEMP = root, temp
-  env.GITHUB_STEP_SUMMARY = tmp .. "/summary.md"
-  if extra then
-    for name, value in pairs(extra) do env[name] = value end
-  end
+  local env = Grammar.driver(Maps.with(Maps.with(Env.all(), { GITHUB_WORKSPACE = root, RUNNER_TEMP = temp,
+    GITHUB_STEP_SUMMARY = tmp .. "/summary.md" }), extra or {}))
   local log_fd = assert(Fs.open_write(tmp .. "/log"))
-  local handle, trouble = Child.start({ driver[1], driver[2], "fuzz" },
+  local handle, trouble = Child.start({ executable, script, "fuzz" },
     { cwd = project, env = env, stdout = log_fd, stderr = "null" })
   assert(Fs.close(log_fd))
   assert(handle, trouble)
   return handle, temp, tmp .. "/log"
 end
 
+-- TODO: hold the child in a `<close>` local again and drop this, once ci/cosmic-driver.pin names a release that
+-- declares [`Child.Handle`] as a class: a `<close>` local must be one.
+
+--- Runs `body` on the child [`start_fuzz`] starts, then closes the child, whether `body` returns or raises.
+local function with_fuzz(tmp: string, lines: {string}, extra: {string:string},
+                         body: function(handle: Child.Handle, temp: string, log: string))
+  local handle, temp, log = start_fuzz(tmp, lines, extra)
+  local ran, raised = pcall(function()
+    body(handle, temp, log)
+  end)
+  local _, _ = handle:close()
+  if not ran then error(raised, 0) end
+end
+
 --- A SIGTERM the driver gets reaches the core, whose status is kept
 --- before the driver dies of the signal itself.
 local function test_fuzz_passes_a_signal_on_and_keeps_the_status(tmp: string)
-  local handle <close>, temp, log = start_fuzz(tmp, {
+  with_fuzz(tmp, {
     "#!/bin/sh",
     "trap 'echo trapped; exit 143' TERM",
     "echo ready",
     "i=0",
     "while [ $i -lt 400 ]; do sleep 0.05; i=$((i+1)); done",
     "exit 9",
-  })
-  assert(until_found(temp .. "/fuzz.out", "ready\n", 120),
-    "the core did not start")
-  assert(handle:stop(sys.SIGTERM))
-  local result = assert(handle:wait(Clock.seconds(30)))
-  assert(result.signal == sys.SIGTERM,
-    "the driver ended with " .. tostring(result.code) .. "/" .. tostring(result.signal))
-  assert(read(temp .. "/fuzz.status") == "143\n", read(temp .. "/fuzz.status"))
-  assert(read(temp .. "/fuzz.out"):find("trapped\n", 1, true), "the trap did not run")
-  assert(read(log):find("trapped\n", 1, true), "the log missed the trap's line")
+  }, {}, function(handle: Child.Handle, temp: string, log: string)
+    assert(until_found(temp .. "/fuzz.out", "ready\n", 120),
+      "the core did not start")
+    assert(handle:stop(sys.SIGTERM))
+    local result = assert(handle:wait(Clock.seconds(30)))
+    assert(result.signal == sys.SIGTERM,
+      "the driver ended with " .. tostring(result.code) .. "/" .. tostring(result.signal))
+    assert(read(temp .. "/fuzz.status") == "143\n", read(temp .. "/fuzz.status"))
+    assert(read(temp .. "/fuzz.out"):find("trapped\n", 1, true), "the trap did not run")
+    assert(read(log):find("trapped\n", 1, true), "the log missed the trap's line")
+  end)
 end
 
 --- The log gets the core's output while the core runs: this core goes
 --- on only once the test has seen its first line there.
 local function test_fuzz_streams_the_log_as_the_core_runs(tmp: string)
   local go = tmp .. "/go"
-  local handle <close>, temp, log = start_fuzz(tmp, {
+  with_fuzz(tmp, {
     "#!/bin/sh",
     "echo first",
     "i=0",
@@ -337,83 +375,90 @@ local function test_fuzz_streams_the_log_as_the_core_runs(tmp: string)
     "  sleep 0.05; i=$((i+1))",
     "done",
     "echo second",
-  }, { FUZZ_TEST_GO = go })
-  -- The core's own output first, which waits out the driver's build;
-  -- then the log, well within the time the core waits.
-  local started = until_found(temp .. "/fuzz.out", "first\n", 120)
-  local seen = started and until_found(log, "first\n", 5)
-  -- Let the core go on either way, so nothing is left running.
-  write(go, "")
-  local result = assert(handle:wait(Clock.seconds(30)))
-  assert(seen, "the log did not get the core's first line while it ran")
-  assert(result.code == 0, tostring(result.code) .. "/" .. tostring(result.signal))
-  assert(read(temp .. "/fuzz.status") == "0\n")
-  assert(read(log):find("first\nsecond\n", 1, true), read(log))
+  }, { FUZZ_TEST_GO = go }, function(handle: Child.Handle, temp: string, log: string)
+    -- The core's own output first, which waits out the driver's build;
+    -- then the log, well within the time the core waits.
+    local started = until_found(temp .. "/fuzz.out", "first\n", 120)
+    local seen = started and until_found(log, "first\n", 5)
+    -- Let the core go on either way, so nothing is left running.
+    write(go, "")
+    local result = assert(handle:wait(Clock.seconds(30)))
+    assert(seen, "the log did not get the core's first line while it ran")
+    assert(result.code == 0, tostring(result.code) .. "/" .. tostring(result.signal))
+    assert(read(temp .. "/fuzz.status") == "0\n")
+    assert(read(log):find("first\nsecond\n", 1, true), read(log))
+  end)
 end
 
 local function test_fuzz_forwards_repeated_signals_and_keeps_each_trap(tmp: string)
-  local handle <close>, temp, log = start_fuzz(tmp, {
+  with_fuzz(tmp, {
     "#!/bin/sh", "n=0", "trap 'n=$((n+1)); echo trap$n; [ $n -lt 2 ] || exit 143' TERM",
     "echo ready", "while :; do sleep 0.05; done",
-  })
-  assert(until_found(temp .. "/fuzz.out", "ready\n", 120))
-  assert(handle:stop(sys.SIGTERM))
-  assert(until_found(log, "trap1\n", 5), "first signal was not forwarded")
-  assert(handle:stop(sys.SIGTERM))
-  local result = assert(handle:wait(Clock.seconds(30)))
-  assert(result.signal == sys.SIGTERM)
-  assert(read(temp .. "/fuzz.status") == "143\n")
-  assert(read(log):find("trap2\n", 1, true))
-  assert(read(temp .. "/fuzz.out") == read(log), "successful drains duplicated or omitted bytes")
+  }, {}, function(handle: Child.Handle, temp: string, log: string)
+    assert(until_found(temp .. "/fuzz.out", "ready\n", 120))
+    assert(handle:stop(sys.SIGTERM))
+    assert(until_found(log, "trap1\n", 5), "first signal was not forwarded")
+    assert(handle:stop(sys.SIGTERM))
+    local result = assert(handle:wait(Clock.seconds(30)))
+    assert(result.signal == sys.SIGTERM)
+    assert(read(temp .. "/fuzz.status") == "143\n")
+    assert(read(log):find("trap2\n", 1, true))
+    assert(read(temp .. "/fuzz.out") == read(log), "successful drains duplicated or omitted bytes")
+  end)
 end
 
 local function test_fuzz_waits_after_output_eof_and_drains_a_finite_post_exit_tail(tmp: string)
   local eof = tmp .. "/eof"
   assert(Fs.mkdirs(eof))
-  local first <close>, temp = start_fuzz(eof, { "#!/bin/sh", "exec 1>&- 2>&-", "sleep 0.2", "exit 7" })
-  assert(assert(first:wait(Clock.seconds(30))).code == 7)
-  assert(read(temp .. "/fuzz.status") == "7\n")
-  local setsid = Proc.find("setsid")
-  if setsid == nil then return end
-  local tail = tmp .. "/tail"
-  assert(Fs.mkdirs(tail))
-  local second <close>, tail_temp, log = start_fuzz(tail,
-    { "#!/bin/sh", "\"$FUZZ_SETSID\" /bin/sh -c 'echo ready > \"$FUZZ_TAIL_READY\"; sleep 0.2; echo final-tail' &",
-      "while [ ! -e \"$FUZZ_TAIL_READY\" ]; do sleep 0.01; done", "exit 3" },
-    { FUZZ_SETSID = setsid, FUZZ_TAIL_READY = tail .. "/ready" })
-  assert(assert(second:wait(Clock.seconds(30))).code == 3)
-  assert(read(tail_temp .. "/fuzz.status") == "3\n")
-  assert(read(log) == "final-tail\n" and read(tail_temp .. "/fuzz.out") == read(log))
+  with_fuzz(eof, { "#!/bin/sh", "exec 1>&- 2>&-", "sleep 0.2", "exit 7" }, {}, function(first: Child.Handle, temp: string, _log: string)
+    assert(assert(first:wait(Clock.seconds(30))).code == 7)
+    assert(read(temp .. "/fuzz.status") == "7\n")
+    local setsid = Proc.find("setsid")
+    if setsid == nil then return end
+    local tail = tmp .. "/tail"
+    assert(Fs.mkdirs(tail))
+    with_fuzz(tail,
+      { "#!/bin/sh", "\"$FUZZ_SETSID\" /bin/sh -c 'echo ready > \"$FUZZ_TAIL_READY\"; sleep 0.2; echo final-tail' &",
+        "while [ ! -e \"$FUZZ_TAIL_READY\" ]; do sleep 0.01; done", "exit 3" },
+      { FUZZ_SETSID = setsid, FUZZ_TAIL_READY = tail .. "/ready" },
+      function(second: Child.Handle, tail_temp: string, log: string)
+        assert(assert(second:wait(Clock.seconds(30))).code == 3)
+        assert(read(tail_temp .. "/fuzz.status") == "3\n")
+        assert(read(log) == "final-tail\n" and read(tail_temp .. "/fuzz.out") == read(log))
+      end)
+  end)
 end
 
 local function test_fuzz_output_exceeding_capture_limit_is_saved_without_truncation(tmp: string)
-  local handle <close>, temp, log = start_fuzz(tmp,
-    { "#!/bin/sh", "head -c 20000000 /dev/zero", "echo complete" })
-  assert(assert(handle:wait(Clock.seconds(30))).code == 0)
-  assert(assert(Fs.stat(log)).size == 20000009)
-  assert(read(temp .. "/fuzz.out") == read(log))
+  with_fuzz(tmp, { "#!/bin/sh", "head -c 20000000 /dev/zero", "echo complete" }, {}, function(handle: Child.Handle, temp: string, log: string)
+    assert(assert(handle:wait(Clock.seconds(30))).code == 0)
+    assert(assert(Fs.stat(log)).size == 20000009)
+    assert(read(temp .. "/fuzz.out") == read(log))
+  end)
 end
 
 local function test_a_sink_constructor_failure_closes_the_output_descriptor(tmp: string)
   local root, temp = tmp .. "/checkout", tmp .. "/temp"
   fake_checkout(root, "0")
   assert(Fs.mkdirs(temp))
-  local original_open, original_tee = Fs.open_write, Stream.tee
-  local opened: integer = nil
-  Fs.open_write = function(path: string, mode?: integer): integer | nil, string
+  local seams = Seams.calls()
+  local original_open, original_tee = seams.fs_open_write, seams.stream_tee
+  local opened: Slot = {}
+  seams.fs_open_write = function(path: string, mode?: integer): integer?, string
     local fd, why = original_open(path, mode)
-    if path == temp .. "/fuzz.out" then opened = fd end
+    if path == temp .. "/fuzz.out" then opened.value = fd end
     return fd, why
   end
-  Stream.tee = function(_a: Stream.Writer, _b: Stream.Writer): Stream.Writer
+  seams.stream_tee = function(_a: Stream.Writer, _b: Stream.Writer): Stream.Writer
     error("injected sink constructor failure")
   end
   local ok, why = pcall(Fuzz.execute, { root = root, temp = temp, env = {}, log = Fs.stdout,
     summarize = function(_text: string) end })
-  Fs.open_write, Stream.tee = original_open, original_tee
-  assert(not ok and tostring(why):find("injected sink constructor failure", 1, true))
-  assert(opened ~= nil)
-  local _, _, errno = sys.write(opened, "must be closed")
+  seams.fs_open_write, seams.stream_tee = original_open, original_tee
+  assert(not ok and tostring(why):find("injected sink constructor failure", 1, true) ~= nil)
+  local opened_value = opened.value
+  assert(opened_value ~= nil)
+  local _, _, errno = sys.write(opened_value, "must be closed")
   assert(errno == sys.EBADF, "the output descriptor leaked")
 end
 
@@ -423,49 +468,63 @@ local function test_a_failed_drain_preserves_the_status_it_observed(tmp: string)
   local root, temp = tmp .. "/checkout", tmp .. "/temp"
   fake_checkout(root, "0")
   assert(Fs.mkdirs(temp))
-  local original = Child.start
-  local ended, closed = false, false
-  Child.start = function(_argv: {string}, _opts?: Child.Options): Child.Handle | nil, string
-    local fake: any = {
-      try_wait = function(): Child.TryWait
-        return ended and { finished = true, result = { ok = false, code = 17 } } or { finished = false }
+  local seams = Seams.calls()
+  local original = seams.child_start
+  local ended: Flag = { value = false }
+  local closed: Flag = { value = false }
+  seams.child_start = function(_argv: {string}, _opts?: Child.Options): Seams.Started?, string
+    local fake: Seams.Started = {
+      try_wait = function(): Child.TryWait?, string
+        if ended.value then
+          return { finished = true, result = { ok = false, code = 17, signal = nil, timed_out = false,
+            stdout = nil, stderr = nil, captured = {}, truncated = false } }, ""
+        end
+        return { finished = false }, ""
       end,
-      drain = function(_self: any, options: Child.DrainOptions): Child.DrainResult
+      drain = function(options: Child.DrainOptions): Child.DrainResult
         assert(assert(options.stdout):write("saved-once\n"))
-        ended = true
+        ended.value = true
         return { kind = "failed", bytes = 11, reason = "injected sink failure" }
       end,
-      stop = function(): boolean, string return true, "" end,
+      stop = function(_signal?: integer): boolean, string return true, "" end,
+      close = function(): boolean, string
+        closed.value = true
+        return true, ""
+      end,
     }
-    return setmetatable(fake, { __close = function() closed = true end }) as Child.Handle, ""
+    return fake, ""
   end
   local log = assert(Fs.open_write(tmp .. "/log"))
   local ok, why = pcall(Fuzz.execute, { root = root, temp = temp, env = {}, log = log,
     summarize = function(_text: string) end })
-  Child.start = original
+  seams.child_start = original
   assert(Fs.close(log))
-  assert(not ok and tostring(why):find("injected sink failure", 1, true))
-  assert(closed and read(temp .. "/fuzz.status") == "17\n")
+  assert(not ok and tostring(why):find("injected sink failure", 1, true) ~= nil)
+  assert(closed.value and read(temp .. "/fuzz.status") == "17\n")
   assert(read(temp .. "/fuzz.out") == "saved-once\n" and read(tmp .. "/log") == "saved-once\n")
 end
 
 local function test_an_escaped_writer_bounds_final_drain_without_replacing_child_status(tmp: string)
-  local setsid = Proc.find("setsid")
-  if setsid == nil then Test.skip("this host has no setsid") end
+  local found = Proc.find("setsid")
+  if found == nil then Test.skip("this host has no setsid") end
+  local setsid = assert(found)
   local pid_file = tmp .. "/escaped-pid"
-  local handle <close>, temp = start_fuzz(tmp, {
+  with_fuzz(tmp, {
     "#!/bin/sh",
     "\"$FUZZ_SETSID\" /bin/sh -c 'echo $$ > \"$FUZZ_ESCAPE_PID\"; sleep 30' &",
     "while [ ! -e \"$FUZZ_ESCAPE_PID\" ]; do sleep 0.01; done",
     "echo before-exit", "exit 23",
-  }, { FUZZ_SETSID = setsid, FUZZ_ESCAPE_PID = pid_file })
-  local ok, result = pcall(function(): Child.Result
-    return (assert(handle:wait(Clock.seconds(30))))
+  }, { FUZZ_SETSID = setsid, FUZZ_ESCAPE_PID = pid_file }, function(handle: Child.Handle, temp: string, _log: string)
+    local waited: Waited = {}
+    local ok, raised = pcall(function()
+      waited.result = assert(handle:wait(Clock.seconds(30)))
+    end)
+    local pid = math.tointeger(tonumber(Fs.read(pid_file) or ""))
+    if pid ~= nil then local _, _ = sys.kill(-pid, sys.SIGKILL) end
+    assert(ok, raised)
+    local result = assert(waited.result)
+    assert(not result.ok, "incomplete output was reported as successful")
+    assert(read(temp .. "/fuzz.status") == "23\n", "drain failure replaced the child's actual status")
+    assert(read(temp .. "/fuzz.out") == "before-exit\n")
   end)
-  local pid = math.tointeger(tonumber(Fs.read(pid_file) or ""))
-  if pid ~= nil then local _, _ = sys.kill(-pid, sys.SIGKILL) end
-  assert(ok, result)
-  assert(not result.ok, "incomplete output was reported as successful")
-  assert(read(temp .. "/fuzz.status") == "23\n", "drain failure replaced the child's actual status")
-  assert(read(temp .. "/fuzz.out") == "before-exit\n")
 end

@@ -62,9 +62,9 @@ The project's library module is named `relay`, `require("relay")`, and
 exports at least this API, which the project's own program uses for
 each connection and which is checked through these names and types:
 
-- `relay.Options`, a record: `idle_ns: integer`, the idle limit in
+- `relay.Options`: a record with `idle_ns: integer`, the idle limit in
   nanoseconds (nil for none).
-- `relay.Stats`, a record: `up: integer` and `down: integer`, the bytes
+- `relay.Stats`: a record with `up: integer` and `down: integer`, the bytes
   passed from `a` to `b` and from `b` to `a`, and `idle: boolean`,
   whether the idle limit ended it.
 - `relay.pipe(a, b, options: relay.Options): relay.Stats`, where `a`

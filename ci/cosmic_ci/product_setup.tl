@@ -27,9 +27,13 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
   local diagnostics = tmp .. "/logs"
   local built = Fixture.run("application-build", { cosmic, "build" }, project,
     diagnostics, { COSMIC_PORTABLE_CACHE = tmp .. "/cache" })
-  Fixture.contains(built.out, "build: PASS (o/bin/hello, o/bin/second")
-  local hello = project .. "/o/bin/hello"
-  local second = project .. "/o/bin/second"
+  -- The application's build directory, as the tool built from `root`
+  -- names it: `root`'s resolver, asked of the project. The build prints
+  -- each program it wrote there on a line of its own.
+  local built_bin = BuildPaths.directory(project, nil, root) .. "/bin"
+  local hello = built_bin .. "/hello"
+  local second = built_bin .. "/second"
+  Fixture.contains(built.out, hello .. "\n" .. second .. "\n")
   Fixture.assert_executable(hello)
   Fixture.assert_executable(second)
   local hello_run = Fixture.run("hello", { hello }, project, diagnostics,
@@ -73,7 +77,7 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
   for _, target in ipairs(targets) do
     names[#names + 1] = "cores/" .. target.name .. "/cosmic-core"
   end
-  local hashes: {string} = {}
+  local hashes: mut {string} = {}
   for _, name in ipairs(names) do
     hashes[#hashes + 1] = Fixture.hash(product .. "/" .. name) ..
       "  " .. name .. "\n"
@@ -90,14 +94,14 @@ end
 --- differs, or nil where none does. A file differs where it is not a
 --- regular file, or its bytes are not the ones recorded, or, for the
 --- programs (cosmic and apps/), where it is not executable by everyone.
-function ProductSetup.changed(product: string, recorded: string): string | nil
-  local now = Fs.read(product .. "/hashes.sha256")
+function ProductSetup.changed(product: string, recorded: string): string?
+  local now, _ = Fs.read(product .. "/hashes.sha256")
   if now ~= recorded then return "hashes.sha256" end
   for line in recorded:gmatch("[^\n]+") do
     local digest, name = line:match("^([0-9a-f]+)  (.+)$")
     assert(digest and name, "invalid product hash record: " .. line)
     local path = product .. "/" .. name
-    local st = Fs.stat(path)
+    local st, _ = Fs.stat(path)
     if not st or st.kind ~= "file" or Fixture.hash(path) ~= digest then
       return name
     end

@@ -35,7 +35,7 @@ cosmic/child_policy_anywhere_test.tl
 # Signals a child starts with: a caught one at its default through
 # exec, an ignored one ignored but SIGPIPE (core/syscalls.c's
 # `spawn_program`).
-cosmic/child_signal_test.tl
+cosmic/signal_ignored_test.tl
 # The artifact's descriptor refused without openat2, and the executable
 # found by _NSGetExecutablePath rather than /proc/self/exe
 # (core/syscalls_fs.c, core/executable.c).

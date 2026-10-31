@@ -2,12 +2,14 @@
 
 `ci/` is a project of its own inside the checkout, distinct from cosmic's
 own tree: the outer build excludes its modules and tests, but walks its
-files outside `ci/o/` for TODOs ([input policy](https://github.com/cosmic-lua/cosmic/blob/main/build/identity.tl)). The
+files for TODOs ([input policy](https://github.com/cosmic-lua/cosmic/blob/main/build/identity.tl)). The
 pinned host never tries to rebuild itself from the candidate. It is run in
 place by the pinned, digest-verified host, with cwd `ci/`, so the host's project root is `ci/`
 itself. `cosmic_ci/` is its Teal namespace; `testdata/` holds fixture input
 and is excluded from module and test discovery. Its working database lands
-at `ci/o/build.db` (gitignored).
+in `ci/`'s build directory, outside the checkout, where
+[build/paths.tl](https://github.com/cosmic-lua/cosmic/blob/main/build/paths.tl)
+names it.
 
 `bin/cosmic-bootstrap` downloads and verifies the pinned host, caching it by
 digest under `$XDG_CACHE_HOME/cosmic/bootstrap`, and tries a failed download
@@ -23,14 +25,114 @@ place, with cwd `ci`: `cosmic-driver cosmic_ci/driver.tl ...`.
 bin/zig; it is refused alongside `COSMIC_BOOTSTRAP_VERIFY`, which asks for the
 pin's own.
 
+`bin/cosmic-bootstrap` runs the pinned release with `COSMIC_GRAMMAR=new`, and
+the CI driver is put on the job's PATH by a two-line wrapper that runs the entry
+point (below), which sets it, so the release reads `ci/`, the scripts `bin/cosmic-bootstrap` runs and the
+ones `build/zig.tl` runs on that release's binary (`build/patch.tl`,
+`build/zig_fetch.tl`) in the new checker's grammar, held to every rule and to
+no ceiling. `islands.txt` lists nothing: the pinned release reads a file it
+lists as Teal. CI's `check-islands` command (`cosmic-driver
+cosmic_ci/driver.tl check-islands`) runs each of those scripts with `--help`
+on the running driver, which refuses a script that has a finding before it
+runs, and fails on a syntax error or any finding; `ci/` is compiled by the
+driver's own tests compile only the modules they require, so `check-islands`
+also runs the release's `fix --check` over all of `ci/`.
+
+Which files run standalone on the pinned release is `ci/bootstrap-files.txt`,
+and it is enforced where the run happens, not found by reading the tree. What
+holds, and what does not:
+
+- `bin/cosmic-bootstrap` refuses `--standalone <file>` on a file of its checkout
+  the list does not name, and the same under `COSMIC_STANDALONE=1` with `<file>`
+  as the first word. The target and the checkout are compared as `cd -P` and
+  `pwd -P` resolve them (a `..` after a linked directory is the physical one),
+  a link in the file's name followed, so a link from outside does not get
+  around it. A target whose directory cannot be resolved, `--standalone` with
+  no file, and a checkout with no list are refused. A file outside the
+  checkout is not held. The `sandbox` verb, which runs any program, is refused.
+  A first word `<file>.tl` alone builds the tree around the file, which is how
+  CI runs `cosmic-driver cosmic_ci/driver.tl` from `ci/`: allowed for a file
+  under `ci/` and outside the checkout, refused for any other file of the
+  checkout. (Under `ci/`, a file in a hidden directory or `testdata/` is
+  allowed too, though no run reaches it as a project file.) The other verbs
+  that take files or a project (`test`, `fix`, `build`, `db`, `lsp`, `compile`,
+  `-e`) type-check what they read themselves or act on the project at the
+  caller's working directory, which CI sets to `ci/`; nothing enforces the
+  directory.
+- With no argument it prints an entry point, not the release: a small script,
+  one for each checkout path and release, at
+  `$XDG_CACHE_HOME/cosmic/bootstrap/entry-<sha256>`, that makes the same check
+  and then runs the release without fetching it again, and leaves no
+  `COSMIC_BOOTSTRAP` variable in the release's environment. Entries accumulate
+  there and are never pruned. `$(bin/cosmic-bootstrap)` in
+  `.github/scripts/cosmic-driver.sh` (the `cosmic-driver` every job puts on its
+  PATH) and `.github/scripts/run-local-proof.sh` hold one, so a run by either is
+  held. **The guard holds every caller that takes the documented paths.** It is
+  convention, not enforcement, for anything else: `bin/cosmic-bootstrap
+  --raw-path` prints the release's own path (its only caller is
+  `ci/cosmic_ci/bootstrap_test.tl`, which reads and copies the binary), and the
+  release's binary is reachable in the cache and to any process running on it.
+  Deliberate use of the raw binary is a review matter.
+- `check-islands` type-checks each listed file on the release (with `--help`,
+  except what [`Islands.not_run`] names: `ci/run_local.tl`, whose `--help` would
+  start the platform job, and which the driver's tests compile). It fails on a
+  listed file that is gone, on a `build/zig.tl` `standalone(` call that names a
+  file the list lacks or does not name one in a string literal on its line, and
+  on a list without `build/paths.tl`. It also runs the release's `fix --check`
+  over all of `ci/`, which the driver's tests, compiling only what they
+  require, do not. `build/ci_tree_test.tl` holds the list to
+  `ci/strict-files.txt`.
+- The list is read one way in shell, in [`Islands.paths`] and in
+  `build/ci_tree_test.tl` (which cannot require `ci/`): one path a line, what a
+  `#` starts dropped, white space trimmed from both ends.
+- A refusal of a type error names the file, the list and the pinned release, and
+  says to use only that release's APIs or move the pin; a `--help` exit status
+  that is not 0 is in [`Islands.help_exits`], and the hint says to add it there.
+
+What is not covered. A process running on the release can run its own binary
+(`Proc.executable()`, `Proc.relaunch()`), so no wrapper or entry point can stop
+it. The users of the binary's own path found by reading every `Proc.executable` and
+`Proc.relaunch` of `ci/` and the tree's scripts are these; a new one is the
+residual below:
+
+- `build/zig.tl`, which runs `build/patch.tl` and `build/zig_fetch.tl` that way:
+  its `standalone(` calls are counted, and each file must be in the list.
+- `check-islands` ([`Islands.complaint`]), which runs the listed files.
+- [`BuildPaths.directory`] in [`cosmic_ci/build_paths.tl`], which runs
+  `build/paths.tl` that way as the build directory's resolver (checked to be
+  listed). [`BuildPaths.driver`] refuses a `--standalone` of its own.
+- `ci/run_local.tl`, which starts only `build/paths.tl` that way and cannot use
+  ci/'s modules: it runs standalone, which finds none.
+- `ci/run_local_proof.tl` (`Proc.relaunch()`), which reads and hashes the cached
+  binary; it runs the proof's runner through the entry point it is given, so
+  that run is held.
+- [`BuildPaths.driver`] itself, where the driver's command line is made
+  (`Proc.relaunch()`, and `Proc.executable()` where there is no launcher): it
+  starts nothing, and its callers are the ones listed above.
+- `cosmic release --cache` (`cosmic/cli.tl`), which writes the verified binary
+  into the bootstrap cache; it runs no file.
+- Relaunches that run no file standalone (a project, a verb):
+  [`cosmic_ci/orchestration.tl`] runs `cosmic test`, `cosmic_ci/cache_trim.tl`
+  runs `cosmic cache trim`, and [`Islands.project`] runs `fix --check`. The
+  `*_test.tl` files of `cosmic_ci` start the driver on fixtures they write
+  themselves, in directories of their own, outside every checkout.
+
+A new site in `ci/` that relaunches the driver on a file is the residual:
+nothing catches it, and code review does. A type error in such a file is
+caught, because all of `ci/` is checked on the release; its run is not. Every
+other file of the checkout reaches the release through the wrapper or the entry
+point, or through code review.
+
 ## running the platform job locally
 
-`ci/run-local` runs the platform job's phases (`build` through `fixtures`) on
-this machine, for its own target, with this checkout's `o/bin/cosmic` as the
-driver instead of the pinned release. It snapshots the working tree, tracked
-and untracked files alike, into a fresh candidate outside the checkout, sets
-the variables a workflow job would, and seeds the zig caches from this
-checkout's `o/`. A full run takes a few minutes. The driver runs from a
+`ci/run-local` runs the platform job's phases (`build` through `portable-boundary`) on
+this machine, for its own target, with this checkout's own tool (the one
+`bin/cosmic` runs) as the driver instead of the pinned release. It
+snapshots the working tree, tracked and untracked files alike, into a
+fresh candidate outside the checkout, sets the variables a workflow job
+would, and seeds the zig caches from the
+project cache every checkout shares (`COSMIC_ZIG_CACHE`, default
+`~/.cache/cosmic/zig-project`). A full run takes a few minutes. The driver runs from a
 copy of this checkout's `ci/`, fixtures included, taken each time run-local
 starts, so after one full run `ci/run-local fixtures` re-runs edited
 fixtures against the same products. Each phase's log is under
@@ -49,13 +151,13 @@ unprivileged user namespace (Ubuntu 24.04's
 `kernel.apparmor_restrict_unprivileged_userns=1`, most containers), so the
 phases after it still run there. Set it to hold a local run to the same.
 
-Each leg also promises the host requirements cosmic_ci/capabilities.tl
+Each leg also promises the host requirements cosmic_ci/capabilities.json
 lists for it (a `requires` name of a test module's policy): the driver
 gives every suite's `cosmic test` the list as `COSMIC_TEST_PROMISES` and
 the leg's name (`COSMIC_WORKER`) as `COSMIC_TEST_LEG`, and a held run
 fails a module whose promised requirement is absent. A worker that is no
 leg's (provenance, fuzz) promises none, and `run-local` sets neither
-variable, so a local run only reports. `o/bin/cosmic fix --check .` fails a
+variable, so a local run only reports. `bin/cosmic fix --check .` fails a
 requirement no leg promises.
 
 Where `COSMIC_CI_REQUIRE_SANDBOX=1`, every phase's `cosmic test` runs each
@@ -120,7 +222,7 @@ checked and portable suites, and each fixture's `cosmic test` -- writes
 one row to the operations database's `suite_runs` table once it ends
 ([`cosmic_ci/suite_output.tl`] reads it from the suite's stdout): how it
 ended (`timeout` where the driver ended it, which keeps only the key
-parts; `fail` for any other nonzero exit, a PASS line notwithstanding;
+parts; `fail` for any other nonzero exit, a passing summary notwithstanding;
 else `pass`, or `unreported` where it printed no summary), its exit
 status, its tests, `ran`, `stood`, `shared` and
 elapsed ms from `cosmic test`'s summary line, the key parts
@@ -238,7 +340,8 @@ downloads over `cosmic.http`'s scripted replies; neither reaches the
 network.
 
 `fuzz` and `fuzz-cancelled` are fuzz.yml's, and record no operation.
-`fuzz` runs `o/sanitized/bin/cosmic test --all` from `GITHUB_WORKSPACE`
+`fuzz` runs the sanitized tool (`sanitized/bin/cosmic` in the build
+directory `build/paths.tl` names) as `test --all` from `GITHUB_WORKSPACE`
 over every `*_fuzz_test.tl` outside its top-level `o/`, `vendor/` and
 `ci/`, with the environment it was given (`FUZZ_SEED` and `FUZZ_ITERS`
 among it), `TMPDIR` at `$RUNNER_TEMP/fuzz`, `COSMIC_AUTO_BOOT=0` and
@@ -267,19 +370,49 @@ index's `name@digest`, and appends it to `GITHUB_STEP_SUMMARY`.
 
 ### scope, saves and concurrency
 
-The workflow decides two things once, in its top-level `env`:
-`COSMIC_CI_SCOPE` is `full` for the merge queue, main (a push, the
-scheduled run) and a manual run, and `light` for a branch push;
-`COSMIC_CI_SAVES` is `true` only for a push to main and the scheduled
-run, the only runs whose platform legs save a cache (a push to main
-that reuses the queue's run saves through `seed`, below). The driver
-reads neither (both are `COSMIC_CI_*`, which a suite's workers are
-never given).
+The workflow decides two things once. `COSMIC_CI_SCOPE` is `full` for the
+merge queue, main (a push, the scheduled run) and a manual run, and for a
+branch push whose change touches what a light run leaves unproved (below);
+it is `light` for any other branch push. It is decided by the `scope`
+job, which only a branch push runs, and each job that reads it passes the
+job's output on as its own `COSMIC_CI_SCOPE` (a workflow-level `env` cannot
+read a job): `full` unless the output says `light`, so a run the job did
+not decide, or could not, takes the wider scope. `COSMIC_CI_SAVES`
+is `true` only for a push to main and the scheduled run, the only runs
+whose platform legs save a cache (a push to main that reuses the queue's
+run saves through `seed`, below), and is decided in the top-level `env`.
+The driver reads neither (both are `COSMIC_CI_*`, which a suite's workers
+are never given).
+
+A light run leaves out the queue's alpine leg, regressions, product suite,
+assemble, checked shares and provenance, and a change to what those read
+fails in the queue alone, a pass and a requeue later (PR #3176's
+`all_cores`, a requirement name the pinned driver the alpine fixtures run
+did not know; build, ci/ and core changes failing in the regressions or
+assemble). So the `scope` job asks GitHub for the branch's files (a
+compare with main, `.github/scripts/branch-scope.sh`; no checkout beyond
+two files, and no driver) and chooses `full` where one is named by
+`.github/scripts/branch-scope.txt`: ci/, bin/, the workflow, its actions
+and scripts, what zig's caches hash (the core's C, `build.zig`, vendor/,
+patch/), the harness's epoch file and the artifact, launcher, boot and
+requirement-vocabulary modules of build/. A change to docs, or to any
+test or module that list does not name, runs light, and the job's cost
+there is a runner's start and some seconds. build/branch_scope_test.tl
+holds the list to what the caches and the driver check hash, so it
+cannot drift from them, and the script to `full` wherever it cannot tell
+(a failed compare, a diff of 300 files). A full branch push runs the
+queue's jobs (the checked shares and the narrowing run
+too), and decides the harness as the queue does: the script's merge base
+is the leg's `COSMIC_CI_BASE_SHA`, so a change that moves
+build/harness_epoch.tl runs every test (`harness_moved`). It saves
+nothing, runs the portable suite on alpine-x86_64 alone as the queue
+does, and its format check is assemble's, not the `format` job's.
 
 A `light` run has three platform legs, not four: alpine-x86_64, which
 is linux-x86_64's runner and target in another image, runs on every
 `full` run, the merge queue's among them. A matrix cannot read `env`, so
-the legs' `name` list tests the scope's condition again and takes one
+the legs' `name` list tests the scope's condition again (the `scope`
+job's output) and takes one
 of two lists. The matrix's `include` adds each leg's values by name,
 and an entry naming a leg the list leaves out would start that leg
 anyway (GitHub adds an entry that fits no combination as one of its
@@ -324,6 +457,48 @@ so in main's group it could cancel a pending push, or be cancelled by
 one. Pushes to the merge queue's `gh-readonly-queue/`
 branches are ignored: they run as `merge_group`, and a push run there
 would share its group and cancel it, which the queue reads as a failure.
+
+### the queue's run cancels itself
+
+On the queue's run the job `cancel` watches the run's other jobs
+(`.github/scripts/cancel-on-failure.sh`, every 30 s) and cancels the
+run once one has failed, naming it in an error annotation. The gate
+(`ci`) has `always()`, so it still runs, and fails a minute or two
+later (its runner starts), where it would otherwise wait for every leg
+still running. The queue then drops
+the entry and restarts the entries behind it, which wait on a run that
+cannot merge.
+
+It is a job of its own, not a step of each leg, for two reasons. Only
+it holds `actions: write`, where the legs run test code with `read`. And
+the failed leg has finished when the cancel comes, so it keeps its
+`failure` instead of reading `cancelled`; the legs cancelled with it do
+read `cancelled`, so a result at the gate may too.
+
+A leg that has failed should also stop sooner itself. On the queue's run
+each suite (`cosmic test --bail`: native, checked, portable and darwin;
+`test_words`) starts no test after its first failure. The tests already
+running finish with their own verdicts, so the failure list may name a
+few more than one, and the tests never started keep no verdict, pass or
+fail, so none stands on a later run. The suite's summary says how many
+did not run (`N not run after the first failure`). The leg then fails
+at once, which the `cancel` job turns into a cancelled run without
+waiting on the rest of that suite. The suites run the tree's own tool,
+which parses the flag, not the pinned release the driver runs on. A
+push, the scheduled and a manual run, and `ci/run-local` do not pass
+it: they report every failing test.
+
+Nothing waits on `cancel`: the gate does not need it, and it names no
+required check. It starts with the legs and stops when a job has failed
+and the run is cancelled, when the gate starts (every leg has
+finished), or after 48 minutes. A call that fails is asked again, and it
+always exits 0. A cancel it fails to make leaves the legs running to the
+end.
+
+Every other run keeps its legs running to the end (`fail-fast: false`):
+no entry waits on a branch's run, a leg that goes on shows every failure
+at once, and main's and the scheduled run save from the legs that
+finish. `cancel` shows as a skipped check there.
 
 ### the queue's result
 
@@ -378,7 +553,8 @@ saves and still carries the products, both taken from the queue's run:
   for a runner's start with nothing to do (seconds, up to about 100 s
   in a burst of runs); the legs' `!cancelled()` runs them past a
   skipped `reuse` as past one that found nothing. `seed` too shows as
-  a skipped check on a branch push (a `TODO:`).
+  a skipped check on a branch push (a `TODO:`), as do `prune` and
+  `invalidate`, which act on main alone.
 
 What the push gives up is a second run of the same commit: a flake the
 queue's run missed is no longer caught on main, where the nightly run
@@ -403,8 +579,8 @@ it runs nearly every test again. A cache cannot pass between them (an
 entry is saved under its own ref, which no other reads), so an
 artifact does: each leg of a queue run uploads its native suite's
 verdicts as `verdicts-<leg>` the moment the suite passes, kept a day,
-and the checked job its checked suite's as
-`verdicts-linux-x86_64-checked`. Before its suite, a queue run's leg
+and each share of the checked suite (below) its own as
+`verdicts-linux-x86_64-checked-shard-<part>`. Before its suite, a queue run's leg
 asks the API for the run ahead (`driver.tl queue-ahead`): the
 `merge_group` run on a `gh-readonly-queue/main/` branch whose
 `head_sha` is its base. Where that run holds the leg's artifact, the
@@ -418,9 +594,10 @@ native suite (`SUITE_STEP`): one not started, still building, or itself
 waiting on the run ahead of it. A longer wait cost more than it saved:
 in the queue of 2026-09-30, legs waited 97 and 132 s, one on a leg that
 was itself waiting, where the suite stands mostly on what was restored
-anyway. The checked job waits a minute and a
-half at most, and not at all for a checked job ahead that will not
-have kept its verdicts by then, some seven minutes after it started.
+anyway. A share of the checked suite waits a minute and a
+half at most for the share of the same part, and not at all for one
+ahead that will not have kept its verdicts by then, some ten minutes
+after it started (`READY_SECONDS`, a share's build and its quarter of the suite).
 A run, or its leg, that completed without the artifact, a base that
 heads no queue run (main's already, whose verdicts the restore took; a
 restore of the base's own entry skips the lookup), a change that moves
@@ -429,52 +606,124 @@ failed step are all none, and the suite stands on what was restored.
 Only verdicts pass so, never compiles or the driver check's marker,
 and only from a suite that passed.
 
-### the checked job
+### the checked jobs
 
-The checked core's suite, the whole suite on the sanitized core, ran
-at the end of linux-x86_64's assemble: 178 to 345 s after that leg's
-own suites, which made it the queue's longest leg in 9 of 13 runs
-(2026-09-29). It runs instead in a job of its own, `checked`
-(`linux-x86_64-checked`), beside the legs, on that leg's host: its
-runner, image and builder, and so the same `COSMIC_HOST_ID`. It boots
-(`platform boot`, the build phase without the native suite), builds the
-checked core and the format decoder the contract's fixture would have
-left (`platform checked-build`), and runs the suite (`platform
-checked`). Every leg sets `COSMIC_CI_CHECKED_SUITE=skip`, and still
-builds and verifies its checked core in assemble, which its fixtures
-use; a leg that skips the suite removes a `checked.db` from its
+The checked core's suite, the whole suite on the sanitized core, takes
+12 to 25 minutes on one runner, and 1934 to 2326 s with its build and
+the checked narrowing run behind it (the legs take 946 to 1503 s in the
+merge queue; the figures here are of its runs on 2026-10-23). Run at
+the end of linux-x86_64's assemble, 178 to 345 s after that leg's own
+suites, it made that the queue's longest leg in 9 of 13 runs
+(2026-09-29). It runs in jobs of their own, beside the legs, on
+that leg's host: its runner, image and builder, and so the same
+`COSMIC_HOST_ID`. Each boots (`platform boot`, the build phase without
+the native suite). Every leg sets `COSMIC_CI_CHECKED_SUITE=skip`, and
+still builds and verifies its checked core in assemble, which its
+fixtures use; a leg that skips the suite removes a `checked.db` from its
 verdicts, which would otherwise ride along whole in each save.
 
-It runs wherever the legs do. On a branch push (`light`), which runs
-no checked suite, it boots all the same and runs what would otherwise
-hold up a leg: the pinned CI driver's check (`cosmic-driver test
-cosmic_ci`, 27 to 54 s a leg where it ran), which a light run's legs
-skip, and which it skips too where main's linux-x86_64 leg left its
-marker for the same key (that leg's host, named again under the leg's
-name, and what the key hashes), and the format check (`platform
-format`), which ran after linux-aarch64's suite and runs on a full run
-in that leg's assemble. There it is `fix --check .` (36 to 55 s on this
-job, 2026-09-30, which then often outlasted the legs); on a light run it
-lays out only what the branch changed since its base on main
-(driver.tl changed-paths, `fix --check --changed`), whose
-tree the queue held to the whole check, and still makes every check
-spanning files -- the tree checks, the links, the asserts -- over the
-whole tree (some 20 s). Where a path changed is part of what
-checks each file alone (the layout, the C rules, the compiler, the
-core), or the paths cannot be named, it checks the whole tree. Its
-`operations.db` is kept on either scope, as
-`ci-driver-linux-x86_64-checked`. It restores linux-x86_64's zig build
-outputs and compiles, which that leg saves, and saves neither. Its
-verdicts it keeps under a name of its own,
-`verdicts-linux-x86_64-checked-<host>-<features>-<digest>`, restored,
-trimmed, saved on `COSMIC_CI_SAVES` and seeded as a leg's are. The
-`ci` join requires it, and `report` counts it with the legs. Its tree
-moves to a path of the commit's own, as a leg's does: the checked core
+- `checked-shard` (`linux-x86_64-checked-shard-<part>`), a share of the
+  suite each, four jobs of one matrix, on a full run where the legs run.
+  It builds the checked core and the format decoder the contract's
+  fixture would have left (`platform checked-build`), and runs its
+  share of the suite (`platform checked`, `cosmic test --shard I/N`,
+  `COSMIC_CI_CHECKED_SHARD`; as a light run's linux-x86_64 legs split
+  their native suite). The harness deals the tests in turn in sorted
+  order, so a share is a quarter of them and of the time whatever any
+  restored. The share's bound is its own, 600 s
+  (`checked_shard_timeout_ns`): the suite's 1096 s where no verdict
+  stood and 1504 s at the slowest are 274 and 376 s a share, and the
+  job's 25 minutes hold its three minutes' build and that bound with
+  room. It restores its verdicts as the whole suite's job did, from
+  the entry of the tree's base on main, and in the merge queue takes
+  the verdicts of the same part of the run ahead (`queue-ahead`,
+  `verdicts-linux-x86_64-checked-shard-<part>`). It trims what it
+  restored to the rows its run used, which are its tests', and keeps
+  them as that artifact in every event, `checked`'s input. A share
+  checks no C function is entered by some test, which only a whole run
+  answers; it saves and seeds nothing. Its `operations.db` is kept as
+  `ci-driver-linux-x86_64-checked-shard-<part>`.
+- `checked` (`linux-x86_64-checked`) gathers them, after all four
+  passed (`needs`; a failed share skips it, and `ci` fails on the
+  share), except in a run that saves (main's push, the nightly): there it
+  runs past a failed share, runs no test, fails, and saves the shares' rows (a
+  failed share keeps its own, without the failed test's), so main's newest entry
+  no longer holds that test's pass. It builds the checked core again (`COSMIC_CI_CHECKED_SUITE=gather`)
+  and merges the four artifacts into a verdict cache that holds
+  nothing of main's (its restore only looks the entry up, which the
+  save compares with), then runs the whole suite, on which every test
+  stands (`stands` takes it for a run that gathers: not `--all`, not `--no-shared`, even where the
+  merge queue's change moves the harness and a share ran every test),
+  so that what a whole run alone answers is checked, the C functions some
+  test enters, which the rows carry. A test that keeps no verdict runs
+  again here. The run's bound is 300 s (`checked_gather_timeout_ns`):
+  where a share's artifact is missing the whole suite would run, and the
+  bound fails the job rather than let it take twenty minutes. Then the
+  bounded performance fixture
+  (`platform performance-checked`). Its verdicts it keeps under a name of
+  its own, `verdicts-linux-x86_64-checked-<host>-<features>-<digest>`,
+  trimmed, saved on `COSMIC_CI_SAVES` and seeded as a leg's are; the
+  cache entry holds the checked suite's rows alone, where the same job's
+  narrowing run kept a `verdicts.db` of another 8700 rows nothing read.
+- `checked-narrowing` (`linux-x86_64-checked-narrowing`), the whole
+  suite on a checked run (`--check-types`, `platform checked-narrowing`)
+  on the release tool, which stands on no verdict and reads no checked
+  core: it boots and keeps and saves nothing. A full run only.
+- `format` (`linux-x86_64-format`), a light run's format check
+  (`platform format`), which a full run makes in linux-aarch64's assemble.
+  There it is `fix --check .`; on a light run it lays out only what the
+  branch changed since its base on main
+  (driver.tl changed-paths, `fix --check --changed`), whose
+  tree the queue held to the whole check, and still makes every check
+  spanning files -- the tree checks, the links, the asserts -- over the
+  whole tree. Where a path changed is part of what
+  checks each file alone (the layout, the C rules, the compiler, the
+  core), or the paths cannot be named, it checks the whole tree. That
+  check takes some seven minutes in a fresh build directory, which holds
+  no memo of what the check found in each file (build/check_memo.tl,
+  `translate-check.db`). So the job restores the newest memo its ref can
+  read, `check-memo-v1-<run>` by its prefix (a branch's restore takes
+  main's), `COSMIC_CI_CHECK_MEMO` names it to the phase, which puts it where the
+  check reads it and leaves the check's own beside it; and the
+  scheduled run, which runs this job too, with no paths changed, checks the whole tree
+  and saves what it left. A row is keyed by the file's bytes and the
+  check's own sources, so a memo a day old answers for every file the branch
+  did not change, and a miss costs only the check's time. A branch saves none, and
+  an entry unread for a week is evicted.
+
+On a branch push (`light`), which runs no checked suite, the shares and
+the narrowing run do not run, and `checked` runs only the pinned CI
+driver's check (`cosmic-driver test cosmic_ci`, 27 to 54 s a leg where
+it ran), which a light run's legs skip, and which it skips too where
+main's linux-x86_64 leg left its marker for the same key (that leg's
+host, named again under the leg's name, and what the key hashes): no
+boot, so it ends in a minute or two. Beside it `format` boots and checks the
+format, so that the check, which took longer than the legs, is no
+part of another job's path.
+
+The jobs restore linux-x86_64's zig build outputs and compiles, which
+that leg saves, and save neither. Each keeps its `operations.db`, under
+its own name. The `ci` join requires them all, a job a scope does not
+run counting as passed, and `report` counts them with the legs. Each
+moves its tree to a path of the commit's own, as a leg's does: the checked core
 runs the harness, the boot's staging and `tool.tl entry` unsandboxed
 at that path, so a path of another length each commit varies what the
 sanitizers see. The tree moves back before the seed and the verdicts'
 save, whose path actions/cache names relative to the workspace
 (below).
+
+A full run's critical path through them, from the queue's runs of
+2026-10-23: a share's runner starts, restores, boots and builds the checked
+core in 175 to 218 s, runs its quarter of the suite (some 180 s where most
+stood, 274 to 376 s where the harness moved and none did) and keeps its
+verdicts (10 s), 365 to 408 s or 460 to 604 s; `checked` starts 15 s
+after the last share, repeats the 175 to 218 s, merges (5 s), runs the
+gathering suite (some 100 s) and the fixture (40 s), and stages its seed
+(10 s), 345 to 390 s: 710 to 800 s in all where most stood and 805 to 990 s
+where none did, against 1934 to 2326 s of the one job and the legs' 946 to
+1503 s. The narrowing run, 150 to 195 s to its boot, its 726 to 861 s and
+10 s, takes 890 to 1070 s. So the longest of them ends with the shortest
+leg, and the legs are the queue's path.
 
 ### the Linux legs' container
 
@@ -576,19 +825,31 @@ reaches; trimmed, 8 to 13 MB. Runtime changes and harness epoch bumps
 move every verdict key. Other edits move the keys whose declared inputs
 or import closures change. The cost: main's saved file holds only its
 newest commit's keys, so a branch based on an older main may need verdicts
-that were trimmed away. So main also saves each job's
-verdicts under its commit, `<prefix>sha-<commit>`, even where their
-content is an entry's already (`seed` too, from the key
-`driver.tl queue-stage` names), and each restore asks first for the
-entry of the tree's base on main (`driver.tl merge-base`: a
+that were trimmed away. So main also names, under its commit, the
+entry each job's verdicts are in, whether it saved it or restored it:
+a tiny entry whose key, `<prefix>sha-<commit>-<digest>`, ends in that
+entry's digest (`seed` too, from the key `driver.tl queue-stage`
+names), saved from a path of its own, so of another version, which the
+verdicts' restore by prefix never takes. Each restore asks first for
+the entry of the tree's base on main (`driver.tl merge-base`: a
 branch's merge base with main, through the API; the merge queue's
-base), then the newest. Those copies, one a leg and the checked job
-each main push (some 11 MB each), would fill the repository's 10 GB
-within days and evict the zig outputs (below), so ci.yml's `prune`
-job deletes those more than a day old on each push to main
+base): it looks up `<prefix>sha-<base>-`, which downloads nothing and
+takes the newest name, takes the digest from the key found and
+restores `<prefix><digest>`, then the newest. So a commit's verdicts
+are stored once, by content. ci.yml's `prune` job deletes the
+names more than a day old on each push to main
 (`driver.tl prune-commit-verdicts`, with the one token in
 ci.yml that may write the cache, `actions: write`); a branch based on
-an older commit restores main's newest. A run that failed keeps what it
+an older commit restores main's newest. A cache entry is never
+overwritten, so a run of main that failed (the scheduled run's forced
+recheck can: it stands on no verdict) saves its rows, less the pass it
+took out of its own database, under a new digest and names them under
+its commit beside the name its commit's first run saved; but a leg that
+stopped before its trim names none. ci.yml's `invalidate` job therefore
+deletes the names under that run's commit, every host's, once a run
+of main that saves failed (`driver.tl invalidate-commit-verdicts`),
+and the restore takes the newest by prefix, which is the failed run's
+own save, kept as the failure's evidence. A run that failed keeps what it
 restored with what it reached (`whole`). The compiles are saved only
 where the native build and suite passed.
 
@@ -609,7 +870,7 @@ cache trimming; restore/save policy stays with each job in ci.yml.
 `vendor` hashes what compiles the vendored libraries (the pin,
 `build.zig`, `build/zig.tl`, `vendor/`, `patch/`, the configuration
 headers they read from `core/`) but not the trees zig never compiles
-(tl, tzdata, cacert, wpt-url, html5lib-tokenizer, wpt-html-parsing),
+(tzdata, cacert, onecrl, wpt-url, html5lib-tokenizer, wpt-html-parsing),
 nor the applier, `build/patch.tl`: it names each patched tree by the bytes it writes, so an edit to it that writes the
 same trees leaves every vendored object's path, and so zig's cache,
 as it was. `core` hashes the core's own C.
@@ -657,6 +918,13 @@ nothing is saved, so every main run builds vendor/ cold until one
 passes assemble or the nightly saves; a branch stays warm through the
 restore of another vendor part.
 
+A run of main or the queue that restored an entry of its own vendor and
+core part still grew it by tens of megabytes. Such a run marks the cache
+right after the restore and lists, before the prune, the runner's CPU and
+what the build wrote since (`.github/scripts/zig-build-writes.sh`, the
+step "list what the build wrote to the zig build cache"), for the `TODO:`
+on the restore in ci.yml.
+
 actions/cache archives with `tar -C $GITHUB_WORKSPACE` and a path
 relative to it (`../../_temp/...`), which names nothing through the
 link `place-tree` leaves were the tree more than one directory deep.
@@ -667,7 +935,7 @@ repository at another path and leaves its credentials behind. The move
 means a test whose verdict turns on the tree's path meets it on the
 macOS leg (unsandboxed; a Linux leg's workers see the tree at /tree)
 only where its key moved or on the scheduled run, which stands on
-nothing; the TODO on `build/test.tl`'s `launch` would give such a
+nothing; the TODO on `build/test_key.tl`'s `prepare` would give such a
 worker a fixed path.
 
 The CI driver check's marker is keyed by what cosmic_ci's tests read
@@ -696,7 +964,16 @@ runs on the runner's own userland, so its key holds the runner's image
 saves again. So a full run checks on each leg where its key moved. A branch
 push checks only in the checked job, on linux-x86_64's host. It looks
 up main's marker and skips the check on an exact hit, but saves no marker
-of its own. The queue checks each leg before anything lands.
+of its own. Before anything lands, some trusted run has checked each key: main's earlier marker, the queue run ahead's, or the queue run's own check. Main saves
+a marker only once its commit lands, so the queue runs behind a change to
+what the key hashes would all check again: a queue leg that finds no
+marker looks for the run ahead's, as it does the verdicts (`driver-ahead`
+steps), and skips the check where that run's leg kept the same key as
+`driver-checked-<leg>` after a check that passed, a marker found or one
+taken. It waits only 30 s, and not at all for a leg ahead that has not
+begun its boot (which follows its check), so queue entries that start
+together still each check; the artifact is not main's marker, which `seed` saves
+from the run's staged `driver-checked/` as before.
 
 ### artifacts
 
@@ -716,5 +993,14 @@ alone.
 [`cosmic_ci/suite_output.tl`]: cosmic_ci/suite_output.tl
 [`cosmic_ci/zig_prune.tl`]: cosmic_ci/zig_prune.tl
 
+[`BuildPaths.directory`]: cosmic_ci/build_paths.tl
+[`BuildPaths.driver`]: cosmic_ci/build_paths.tl
+[`cosmic_ci/build_paths.tl`]: cosmic_ci/build_paths.tl
 [`cosmic_ci/host_id.tl`]: cosmic_ci/host_id.tl
+[`cosmic_ci/orchestration.tl`]: cosmic_ci/orchestration.tl
+[`Islands.complaint`]: cosmic_ci/islands.tl
+[`Islands.help_exits`]: cosmic_ci/islands.tl
+[`Islands.not_run`]: cosmic_ci/islands.tl
+[`Islands.paths`]: cosmic_ci/islands.tl
+[`Islands.project`]: cosmic_ci/islands.tl
 [`Runner.phase`]: cosmic_ci/runner.tl

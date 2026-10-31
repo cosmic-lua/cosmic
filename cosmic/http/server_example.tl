@@ -23,7 +23,7 @@ local Example = {}
 --- [`Net.connect`], two requests pipelined, since [`Http.get`] holds the
 --- thread the server runs on until it returns.
 function Example.serve()
-  local store: {string:string} = {}
+  local store: mut {string:string} = {}
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     limits = { body_bytes = 64 * 1024 },
@@ -40,7 +40,7 @@ function Example.serve()
       return { status = 405, headers = { Allow = "GET, HEAD, PUT" } }
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Clock.seconds(5) }))
+      local conn <close> = assert(Net.connect(assert(addresses[1]), { timeout_ns = Clock.seconds(5) }))
       assert(conn:write("PUT /greeting HTTP/1.1\r\nHost: kv\r\nContent-Length: 5\r\n\r\nhello" ..
           "GET /greeting HTTP/1.1\r\nHost: kv\r\nConnection: close\r\n\r\n"))
       local answer = assert(Stream.read_all(conn))
@@ -56,19 +56,21 @@ end
 --- its bytes, and 200 with the whole for no Range, or one it ignores.
 function Example.range()
   local data = "0123456789"
-  local function answer(range: string | nil): Server.Reply
+  local function answer(range: string?): Server.Reply
     local r = Server.range(range, #data)
     if r.kind == "span" then
-      return { status = 206, body = data:sub(r.first + 1, r.last + 1),
-        headers = { ["Content-Range"] = ("bytes %d-%d/%d"):format(r.first, r.last, #data) } }
+      local first, last = assert(r.first), assert(r.last)
+      return { status = 206, body = data:sub(first + 1, last + 1),
+        headers = { ["Content-Range"] = ("bytes %d-%d/%d"):format(first, last, #data) } }
     elseif r.kind == "unsatisfiable" then
       return { status = 416, headers = { ["Content-Range"] = ("bytes */%d"):format(#data) } }
     end
     return { status = 200, body = data }
   end
   local tail = answer("bytes=-3")
-  print(tail.status, tail.headers["Content-Range"], tail.body)
-  assert(tail.status == 206 and tail.body == "789" and tail.headers["Content-Range"] == "bytes 7-9/10")
+  local tail_headers = assert(tail.headers)
+  print(tail.status, tail_headers["Content-Range"], tail.body)
+  assert(tail.status == 206 and tail.body == "789" and tail_headers["Content-Range"] == "bytes 7-9/10")
   assert(answer("bytes=20-").status == 416)
   assert(answer("bytes=0-1,5-6").status == 200 and answer(nil).status == 200)
 end
@@ -77,7 +79,7 @@ end
 --- no body, where If-None-Match names the version it would send.
 function Example.none_match()
   local etag = '"v7"'
-  local function answer(if_none_match: string | nil): Server.Reply
+  local function answer(if_none_match: string?): Server.Reply
     if Server.none_match(if_none_match, etag) then
       return { status = 304, headers = { ETag = etag } }
     end

@@ -280,8 +280,8 @@ static size_t connector_endpoints (lua_State *L, int argument,
     if (v4->sin_family == AF_INET) v4->sin_port = htons((uint16_t)port);
     else v6->sin6_port = htons((uint16_t)port);
     endpoint->slots = port == 0 ? 65535 : 1;
-    /* cosmic/sandbox/relay.tl's table_bytes counts the same, to refuse a policy's
-     * table before a connector starts; cosmic/sandbox/relay_test.tl holds the
+    /* cosmic/internal/relay_start.tl's table_bytes counts the same, to refuse a policy's
+     * table before a connector starts; cosmic/internal/relay_start_test.tl holds the
      * two to agree. */
     uintptr_t stride = connector_stride(endpoint->length);
     bytes = (bytes + stride - 1) / stride * stride + (size_t)endpoint->slots * stride;

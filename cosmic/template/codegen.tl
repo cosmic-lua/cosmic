@@ -11,8 +11,17 @@
 ---     text  string | number | html.SafeHtml       escaped, or taken as it is
 ---     attr  string | number | html.SafeAttr       likewise, for an attribute
 ---     url   string | html.SafeUrl                 `html.href`, then attribute-escaped
+---     url_local string | html.SafeUrl             `html.local_href` (a same-origin reference), likewise
+---     urlpart string | number | html.SafeUrlPart  `html.url_part`, after literal text in a URL
+---     json  html.SafeJson                         entity-escaped JSON text, the whole value
+---     selector string | number                    `html.escape_css_attr`: an identifier in a CSS selector
 ---     rtext string | number                       `<title>`, `<textarea>`: escaped, no markup
+---     ftext string | number                       text in `<svg>`, `<math>`, `<select>`: likewise
 ---     plain string | number                       a `text` template: as it is
+---
+--- A `SafeHtml` is markup checked as plain HTML text, so only a `text`
+--- slot takes one: inside `<svg>`, `<math>` or `<select>` the browser
+--- reads markup by other rules.
 ---
 --- A number is written with `tostring`: no digit, sign, point, exponent
 --- or `inf`/`nan` is a byte HTML treats as markup. A union of one userdata
@@ -20,9 +29,26 @@
 --- two userdata types is not, which is why a slot is never given
 --- `SafeHtml | SafeAttr`.
 ---
+--- A stage answers one value. Each stage's call is the argument of `_one`,
+--- an identity of one parameter, so the checker refuses a stage declared to
+--- answer a fixed number of values above one, whether a slot, a condition
+--- or another stage takes it. Teal reads a variadic result (`T...`) as one
+--- argument, so a stage declared so passes the checker, and what holds it
+--- to one value is `_one` dropping the rest at run time.
+---
+--- The record's module is required with `local type`, which loads nothing
+--- at run time, unless a stage reads it too: so a declaration (`.d.tl`)
+--- can export the record, and a module's body does not run for its types.
+--- The module must return the record type itself, as a `.d.tl` or `local
+--- record M ... end return M` does: one that returns a value of it is
+--- refused at the `{{type}}`'s line, since `require` then answers no
+--- type.
+---
 --- Line N of the template is line N of the module. The requires, the
---- helpers, `render`'s header and `local parts` share line 1 with the
---- template's first line; each line of literal text, and each action,
+--- helpers, `render`'s header and `local parts` share the `{{type}}`'s
+--- line, after a blank line for each blank line before it, so an error
+--- in them (a refused require, an unknown record type) names that line;
+--- each line of literal text, and each action,
 --- is written on its line, with the newlines of a multi-line action and
 --- of trimmed whitespace kept as blank ones; the `return` is on the
 --- template's last line. So a checker or run-time error names the
@@ -30,21 +56,27 @@
 --- line is what the build maps back, and a column map is not worth its
 --- cost until something reads columns.
 ---
---- The names the module declares are `render`, `parts`, `d` and `d1`, `d2`
---- and so on (dot in each `range` and `with`), `v` (a slot's value, in a
---- block of its own), and the helpers
---- `_text`, `_attr` and `_url`; a module that is required is named by the last
---- word of its path, or that word, `_` and a number when the name is taken,
---- reserved, or a keyword, so a name is never declared twice. A name a
+--- The names the module declares are `render`, `parts`, `d` (the value
+--- `render` is given, which `$` names) and `d1`, `d2` and so on (dot in each
+--- `range` and `with`, which a range's element variable names too, a
+--- range's index variable, and the list of a `range` that has an `else`),
+--- so a template's variable is never declared under its own name and can
+--- shadow nothing; `v` (a slot's value, in a block of its own, and
+--- `_one`'s parameter), `T` (`_one`'s type parameter), and the helpers
+--- `_one`, `_text`, `_rtext`, `_ftext`, `_attr`, `_url`, `_lurl`, `_part`, `_json` and `_sel`; a module that
+--- is required is named by the last word of its path, or that word, `_`
+--- and a number when the name is taken, reserved, or a keyword, so a name
+--- is never declared twice. A name a
 --- loop or `with` does not read is written `_`, which is not a warning.
+--- A range's index is `ipairs`'s, an integer from 1.
 
 local types = require("cosmic.template.types")
 
 --- The names generated code uses or that read as syntax, which a required
 --- module is never named.
-local RESERVED <const>: {string: boolean} = {}
+local RESERVED <const>: mut {string: boolean} = {}
 for _, word in ipairs({
-    "parts", "render", "d", "v", "_", "_text", "_rtext", "_attr", "_url", "record", "enum", "type", "global",
+    "parts", "render", "d", "v", "T", "_", "_Module", "_module", "_one", "_text", "_rtext", "_ftext", "_attr", "_url", "_lurl", "_part", "_json", "_sel", "record", "enum", "type", "global",
     "interface", "is", "as", "where", "self", "macroexp",
     -- The standard library and its globals, which a required module must
     -- not shadow (a module named `string` would break every `string.format`
@@ -59,34 +91,47 @@ for _, word in ipairs({
 end
 
 --- The helpers, in the order they are declared.
-local HELPER_ORDER <const>: {types.Slot} = { "plain", "text", "rtext", "attr", "url" }
+local HELPER_ORDER <const>: {types.Slot} = { "plain", "text", "rtext", "ftext", "attr", "url", "url_local", "urlpart", "json", "selector" }
 
 --- A name the template takes, and whether the loop or `with` that made
 --- it has read it.
 local record Dot
   name: string
-  used: boolean
+  mut used: boolean
 end
 
 --- The modules the generated source requires, in the order first needed,
---- each with the name it is given.
+--- each with the name it is given, and those whose value it reads. The
+--- rest it requires as `local type`, which loads nothing at run time.
 local record Imports
-  order: {string}
-  alias_of: {string: string}
-  taken: {string: boolean}
+  order: mut {string}
+  alias_of: mut {string: string}
+  taken: mut {string: boolean}
+  as_value: mut {string: boolean}
 end
 
 --- What generation carries: the text so far, the generated line it is
---- on, the modules and helpers needed, and the name counter.
+--- on, the modules and helpers needed, whether a stage needs `_one`, and
+--- the name counter.
 local record Gen
-  pieces: {string}
-  line: integer
-  started: boolean
+  pieces: mut {string}
+  --- The pieces a header finished after its body replaces, by place in `pieces`.
+  patched: mut {integer: string}
+  mut line: integer
+  mut started: boolean
   mode: types.Mode
   imports: Imports
-  html: string
-  helpers: {types.Slot: boolean}
-  dots: integer
+  mut html: string
+  helpers: mut {types.Slot: boolean}
+  mut staged: boolean
+  mut dots: integer
+  --- What `$` names.
+  root: Dot
+  --- The template's variables in scope, by name without the `$`.
+  vars: mut {string: Dot}
+  --- The local an `{{if}}` has bound a field path to, by the path as
+  --- written in the source (`d.error`), while the arm it guards is written.
+  bound: mut {string: string}
 end
 
 --- The start of a statement that adds to the output.
@@ -97,11 +142,12 @@ local function quote(text: string): string
   local escapes: {string: string} = { ["\\"] = "\\\\", ['"'] = '\\"', ["\n"] = "\\n", ["\r"] = "\\r",
     ["\t"] = "\\t" }
   return '"' .. text:gsub('[%c\\"]', function(c: string): string
-    return escapes[c] or string.format("\\%03d", c:byte())
+    return escapes[c] or string.format("\\%03d", (assert(c:byte(), "the pattern matches one byte")))
   end) .. '"'
 end
 
---- The name `module_path` is required as.
+--- The name `module_path` is required as; required as a type unless
+--- [`value_alias`] also asks for it.
 local function alias_for(g: Gen, module_path: string): string
   local imports = g.imports
   local existing = imports.alias_of[module_path]
@@ -111,9 +157,9 @@ local function alias_for(g: Gen, module_path: string): string
   local base = module_path:match("[^.]+$") or module_path
   local alias = base
   local number = 1
-  while RESERVED[alias] or types.keywords[alias] or imports.taken[alias] or alias:find("^d%d*$") do
+  while RESERVED[alias] == true or types.keywords[alias] == true or imports.taken[alias] == true or alias:find("^d%d*$") ~= nil do
     number = number + 1
-    alias = base .. "_" .. number
+    alias = base .. "_" .. tostring(number)
   end
   imports.order[#imports.order + 1] = module_path
   imports.alias_of[module_path] = alias
@@ -121,24 +167,55 @@ local function alias_for(g: Gen, module_path: string): string
   return alias
 end
 
+--- The name `module_path` is required as, for its value.
+local function value_alias(g: Gen, module_path: string): string
+  g.imports.as_value[module_path] = true
+  return alias_for(g, module_path)
+end
+
 --- `base` then the field `name`: `.name`, or `["name"]` for a keyword.
 local function member(base: string, name: string): string
-  if types.keywords[name] then
+  if types.keywords[name] == true then
     return base .. '["' .. name .. '"]'
   end
   return base .. "." .. name
 end
 
---- The expression for `pipe` at `dot`: its path of fields, each stage
---- wrapped round what is before it.
-local function value(g: Gen, pipe: types.Pipeline, dot: Dot): string
-  dot.used = true
-  local expr = dot.name
+--- The expression for `pipe` at `dot`: its path of fields from its head,
+--- each stage wrapped round what is before it and held to one value by
+--- `_one`. A path an enclosing `{{if}}` tested is read from the local that
+--- test bound, unless `raw` asks for the path itself: only a local is
+--- narrowed, so the checker takes the guarded reads as the test's value.
+local function value(g: Gen, pipe: types.Pipeline, dot: Dot, raw?: boolean): string
+  local head = dot
+  if pipe.head == "root" then
+    head = g.root
+  elseif pipe.head == "variable" then
+    local variable = g.vars[pipe.name]
+    if variable == nil then
+      error("cosmic.template: codegen met $" .. pipe.name .. ", which the parser let through unbound")
+    end
+    head = variable
+  end
+  head.used = true
+  -- The path as the source writes it, which `g.bound` is keyed by, beside
+  -- the expression, in which a prefix an enclosing test bound is its local.
+  local written = head.name
+  local expr = head.name
   for _, field in ipairs(pipe.path) do
+    written = member(written, field)
     expr = member(expr, field)
+    local held = not raw and g.bound[written] or nil
+    if held ~= nil then
+      expr = held
+    end
+  end
+  if raw == true then
+    expr = written
   end
   for _, stage in ipairs(pipe.stages) do
-    expr = member(alias_for(g, stage.module_path), stage.func) .. "(" .. expr .. ")"
+    g.staged = true
+    expr = "_one(" .. member(value_alias(g, stage.module_path), stage.func) .. "(" .. expr .. "))"
   end
   return expr
 end
@@ -155,9 +232,19 @@ end
 --- Writes `code` as the next statement of the line, and answers where in
 --- the pieces it went, for a header that is finished after its body.
 local function put(g: Gen, code: string): integer
-  g.pieces[#g.pieces + 1] = (g.started and " " or "") .. code
+  g.pieces[#g.pieces + 1] = (if g.started then " " else "" end) .. code
   g.started = true
   return #g.pieces
+end
+
+--- The first arm of a range or with `node`, which the parser gives every
+--- block.
+local function first_branch(node: types.Node): types.Branch
+  local arm = node.branches[1]
+  if arm == nil then
+    error("cosmic.template: codegen met a {{" .. node.kind .. "}} with no arm, which the parser let through")
+  end
+  return arm
 end
 
 --- Writes the node list `body`, whose dot is `dot`.
@@ -165,8 +252,12 @@ local emit: function(g: Gen, body: {types.Node}, dot: Dot)
 
 --- The type a slot at `ctx` accepts, as source.
 local function accepts(g: Gen, ctx: types.Slot): string
-  if ctx == "url" then
+  if ctx == "url" or ctx == "url_local" then
     return "string | " .. g.html .. ".SafeUrl"
+  elseif ctx == "json" then
+    return g.html .. ".SafeJson"
+  elseif ctx == "urlpart" then
+    return "string | number | " .. g.html .. ".SafeUrlPart"
   elseif ctx == "attr" then
     return "string | number | " .. g.html .. ".SafeAttr"
   elseif ctx == "text" then
@@ -185,10 +276,20 @@ local function slot_statement(g: Gen, ctx: types.Slot, expr: string): string
   local helper_name = "_text"
   if ctx == "url" then
     helper_name = "_url"
+  elseif ctx == "url_local" then
+    helper_name = "_lurl"
+  elseif ctx == "json" then
+    helper_name = "_json"
+  elseif ctx == "selector" then
+    helper_name = "_sel"
+  elseif ctx == "urlpart" then
+    helper_name = "_part"
   elseif ctx == "attr" then
     helper_name = "_attr"
   elseif ctx == "rtext" then
     helper_name = "_rtext"
+  elseif ctx == "ftext" then
+    helper_name = "_ftext"
   end
   return "do local v: " .. accepts(g, ctx) .. " = " .. expr .. " " .. APPEND .. helper_name .. "(v) end"
 end
@@ -196,26 +297,64 @@ end
 --- A fresh name for dot.
 local function new_dot(g: Gen): Dot
   g.dots = g.dots + 1
-  return { name = "d" .. g.dots, used = false }
+  return { name = "d" .. tostring(g.dots), used = false }
 end
 
 --- Writes an `if` or a `with`, or a `range`.
 local function block(g: Gen, node: types.Node, dot: Dot)
   to_line(g, node.line)
   if node.kind == "range" then
-    local arm = node.branches[1]
+    -- While its body runs, a range holds five of the function's locals (the
+    -- loop's three hidden ones, the index or `_`, and dot), six with an
+    -- `else`, and Lua allows a function 200: a module whose ranges nest
+    -- about 40 deep (33 with an `else`) does not load, Lua naming the
+    -- template's line ("too many local variables"). That stays: no template
+    -- nests so deep, and a function per body, which would lift the limit,
+    -- costs a closure each time a range runs.
+    local arm = first_branch(node)
+    local other = node.branches[2]
     local inner = new_dot(g)
-    local source = value(g, arm.pipeline, dot)
+    local index: Dot = { name = "_", used = false }
+    if arm.index ~= "" then
+      index = new_dot(g)
+    end
+    -- The list is read where the range stands, before its variables are.
+    local source = value(g, assert(arm.pipeline), dot)
+    if arm.index ~= "" then
+      g.vars[arm.index] = index
+    end
+    if arm.element ~= "" then
+      g.vars[arm.element] = inner
+    end
+    local opening = ""
+    if other ~= nil then
+      -- The list is read once, then tested for a first element: ipairs
+      -- makes no step exactly when there is none.
+      local list = new_dot(g).name
+      opening = "do local " .. list .. " = " .. source .. " if " .. list .. "[1] ~= nil then "
+      source = list
+    end
     local head = put(g, "")
     emit(g, arm.body, inner)
-    g.pieces[head] = g.pieces[head] .. "for _, " .. (inner.used and inner.name or "_") ..
-      " in ipairs(" .. source .. ") do"
-    to_line(g, node.close_line)
-    put(g, "end")
+    g.vars[arm.index] = nil
+    g.vars[arm.element] = nil
+    local held = assert(g.pieces[head], "put made the piece at this place")
+    g.patched[head] = held .. opening .. "for " .. (index.used and index.name or "_") .. ", " ..
+      (inner.used and inner.name or "_") .. " in ipairs(" .. source .. ") do"
+    if other ~= nil then
+      to_line(g, other.line)
+      put(g, "end else")
+      emit(g, other.body, dot)
+      to_line(g, node.close_line)
+      put(g, "end end")
+    else
+      to_line(g, node.close_line)
+      put(g, "end")
+    end
   elseif node.kind == "with" then
-    local arm = node.branches[1]
+    local arm = first_branch(node)
     local inner = new_dot(g)
-    put(g, "do local " .. inner.name .. " = " .. value(g, arm.pipeline, dot) .. " if " .. inner.name ..
+    put(g, "do local " .. inner.name .. " = " .. value(g, assert(arm.pipeline), dot) .. " if " .. inner.name ..
         " then")
     emit(g, arm.body, inner)
     local other = node.branches[2]
@@ -227,17 +366,60 @@ local function block(g: Gen, node: types.Node, dot: Dot)
     to_line(g, node.close_line)
     put(g, "end end")
   else
+    -- A field path an arm tests is bound to a local before it is tested:
+    -- the test narrows the local, and the arm reads it.
+    local function bindable(pipeline: types.Pipeline?): string?
+      if pipeline == nil or #pipeline.stages > 0 or #pipeline.path == 0 then
+        return nil
+      end
+      local written = value(g, pipeline, dot, true)
+      return g.bound[written] == nil and written or nil
+    end
+    local any = false
+    for _, arm in ipairs(node.branches) do
+      any = any or bindable(arm.pipeline) ~= nil
+    end
+    -- A chain with a bound arm is flat, one `do` block to an arm in a
+    -- `repeat` that each arm leaves by `break`, so that its depth does not
+    -- grow with the arms (the checker nests by block) and a path is read
+    -- only when the arms before it have failed.
+    local flat = any and #node.branches > 1
+    local closing = ""
     for at, arm in ipairs(node.branches) do
       to_line(g, arm.line)
-      if arm.pipeline == nil then
-        put(g, "else")
+      local pipeline = arm.pipeline
+      local written = pipeline ~= nil and bindable(pipeline) or nil
+      local lead = if at == 1 and flat then "repeat " else "" end
+      if pipeline == nil then
+        put(g, flat and closing or "else")
+        closing = if flat then "" else "end" end
       else
-        put(g, (at == 1 and "if " or "elseif ") .. value(g, arm.pipeline, dot) .. " then")
+        local tested = value(g, pipeline, dot)
+        if written ~= nil then
+          local name = new_dot(g).name
+          put(g, closing .. (if closing ~= "" then " " else "" end) .. lead .. "do local " .. name .. " = " .. tested ..
+              " if " .. name .. " then")
+          g.bound[written] = name
+          closing = if flat then "break end end" else "end end" end
+        elseif flat then
+          put(g, closing .. (if closing ~= "" then " " else "" end) .. lead .. "if " .. tested .. " then")
+          closing = "break end"
+        else
+          put(g, (if at == 1 then "if " else "elseif " end) .. tested .. " then")
+          closing = "end"
+        end
       end
       emit(g, arm.body, dot)
+      if written ~= nil then
+        g.bound[written] = nil
+      end
     end
     to_line(g, node.close_line)
-    put(g, "end")
+    if flat then
+      put(g, closing .. (if closing ~= "" then " " else "" end) .. "until true")
+    else
+      put(g, closing)
+    end
   end
 end
 
@@ -254,7 +436,7 @@ emit = function(g: Gen, body: {types.Node}, dot: Dot)
       end
     elseif node.kind == "interp" then
       to_line(g, node.line)
-      put(g, slot_statement(g, node.ctx, value(g, node.pipeline, dot)))
+      put(g, slot_statement(g, node.ctx, value(g, assert(node.pipeline), dot)))
     else
       block(g, node, dot)
     end
@@ -271,13 +453,29 @@ local function helper(g: Gen, ctx: types.Slot): string
     return "local function _text(v: string | number | " .. html .. ".SafeHtml): string " ..
       "if v is string then return " .. html .. ".raw(" .. html .. ".escape(v)) end " ..
       "if v is number then return tostring(v) end return " .. html .. ".raw(v) end"
-  elseif ctx == "rtext" then
-    return "local function _rtext(v: string | number): string " ..
+  elseif ctx == "rtext" or ctx == "ftext" then
+    return "local function _" .. ctx .. "(v: string | number): string " ..
       "if v is number then return tostring(v) end return " .. html .. ".raw(" .. html .. ".escape(v)) end"
   elseif ctx == "attr" then
     return "local function _attr(v: string | number | " .. html .. ".SafeAttr): string " ..
       "if v is string then return " .. html .. ".raw_attr(" .. html .. ".escape_attr(v)) end " ..
       "if v is number then return tostring(v) end return " .. html .. ".raw_attr(v) end"
+  elseif ctx == "urlpart" then
+    return "local function _part(v: string | number | " .. html .. ".SafeUrlPart): string " ..
+      "local p: " .. html .. ".SafeUrlPart if v is string then p = " .. html .. ".url_part(v) " ..
+      "elseif v is number then p = " .. html .. ".url_part(v) else p = v end " ..
+      "return " .. html .. ".raw(" .. html .. ".escape(" .. html .. ".raw_url_part(p))) end"
+  elseif ctx == "url_local" then
+    return "local function _lurl(v: string | " .. html .. ".SafeUrl): string " ..
+      "if v is string then return " .. html .. ".raw_attr(" .. html .. ".escape_attr(" .. html ..
+      ".raw_url(" .. html .. ".local_href(v)))) end return " .. html .. ".raw_attr(" .. html .. ".escape_attr(" ..
+      html .. ".raw_url(v))) end"
+  elseif ctx == "json" then
+    return "local function _json(v: " .. html .. ".SafeJson): string " ..
+      "return " .. html .. ".raw(" .. html .. ".escape(" .. html .. ".raw_json(v))) end"
+  elseif ctx == "selector" then
+    return "local function _sel(v: string | number): string " ..
+      "return " .. html .. ".raw_attr(" .. html .. ".escape_css_attr(v)) end"
   end
   return "local function _url(v: string | " .. html .. ".SafeUrl): string " ..
     "if v is string then return " .. html .. ".raw_attr(" .. html .. ".escape_attr(" .. html ..
@@ -290,35 +488,51 @@ end
 
 --- Teal source for `template`.
 --- @param template types.Template The tree, its slots' places set
+--- The source is in the new checker's grammar ([`doc/plans/new-checker-grammar.md`]), which holds a project to what no
+--- ceiling excuses: `parts` is a `mut {string}`, and the module returns a local declared with its record type, not a table
+--- literal that no declaration describes.
 --- @return string Source that has as many lines as the template
 function Codegen.generate(template: types.Template): string
-  local g: Gen = { pieces = {}, line = 1, started = false, mode = template.mode,
-    imports = { order = {}, alias_of = {}, taken = {} }, html = "", helpers = {}, dots = 0 }
+  local g: Gen = { pieces = {}, patched = {}, line = template.line, started = false, mode = template.mode,
+    imports = { order = {}, alias_of = {}, taken = {}, as_value = {} }, html = "", helpers = {}, staged = false,
+    dots = 0, root = { name = "d", used = false }, vars = {}, bound = {} }
   local type_alias = alias_for(g, template.import_path)
   if template.mode == "html" then
-    g.html = alias_for(g, "cosmic.html")
+    g.html = value_alias(g, "cosmic.html")
   end
-  local root: Dot = { name = "d", used = false }
-  emit(g, template.body, root)
+  emit(g, template.body, g.root)
 
-  local head: {string} = {}
+  local head: mut {string} = {}
   for _, path in ipairs(g.imports.order) do
-    head[#head + 1] = "local " .. g.imports.alias_of[path] .. " = require(\"" .. path .. "\")"
+    local alias = assert(g.imports.alias_of[path], "alias_for names every path it orders")
+    head[#head + 1] = (if g.imports.as_value[path] == true then "local " else "local type " end) .. alias ..
+      " = require(\"" .. path .. "\")"
+  end
+  if g.staged then
+    head[#head + 1] = "local function _one<T>(v: T): T return v end"
   end
   for _, ctx in ipairs(HELPER_ORDER) do
-    if g.helpers[ctx] then
+    if g.helpers[ctx] == true then
       head[#head + 1] = helper(g, ctx)
     end
   end
-  local result = template.mode == "html" and g.html .. ".SafeHtml" or "string"
-  head[#head + 1] = "local function render(" .. (root.used and "d" or "_") .. ": " .. type_alias .. "." ..
+  local result = if template.mode == "html" then g.html .. ".SafeHtml" else "string" end
+  head[#head + 1] = "local function render(" .. (if g.root.used then "d" else "_" end) .. ": " .. type_alias .. "." ..
     template.type_name .. "): " .. result
-  head[#head + 1] = "local parts: {string} = {}"
+  -- The module's value is a local of a record type that declares `render`, which is what a requirer reads its type from.
+  local ending = " end local record _Module render: function(d: " .. type_alias .. "." .. template.type_name .. "): " ..
+    result .. " end local _module: _Module = {render = render} return _module"
+  head[#head + 1] = "local parts: mut {string} = {}"
 
   to_line(g, template.lines)
-  put(g, "return " .. (template.mode == "html" and g.html .. ".trust(table.concat(parts))" or
-    "table.concat(parts)") .. " end return {render = render}")
-  return table.concat(head, " ") .. " " .. table.concat(g.pieces) .. "\n"
+  put(g, "return " .. (if template.mode == "html" then g.html .. ".trust(table.concat(parts))" else
+    "table.concat(parts)" end) .. ending)
+  local body: mut {string} = {}
+  for i, piece in ipairs(g.pieces) do
+    body[#body + 1] = g.patched[i] or piece
+  end
+  return string.rep("\n", template.line - 1) .. table.concat(head, " ") .. " " ..
+    table.concat(body) .. "\n"
 end
 
 return Codegen

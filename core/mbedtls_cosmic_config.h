@@ -85,13 +85,23 @@
 /* Hardware and assembly paths. AES-NI (x86_64) and the Armv8 crypto
  * extension (aarch64) are each picked at run time from what the CPU
  * reports, falling back to the portable C tables; the file for the
- * other architecture compiles to nothing. MBEDTLS_HAVE_ASM also enables
- * bignum's inline multiply-accumulate, and ECP_NIST_OPTIM the fast
- * reduction modulo the NIST primes. None of this depends on the build
- * machine, so two builds still produce the same bytes. */
+ * other architecture compiles to nothing. SHA-256 and SHA-512 on
+ * aarch64 are the same: the Armv8 SHA2 and SHA512 instructions where
+ * the CPU has them (the auxiliary vector on Linux, which static musl provides;
+ * sysctl on macOS), the portable C elsewhere. On x86_64 upstream has
+ * no SHA-256 instructions; patch/mbedtls adds them, chosen the same way.
+ * MBEDTLS_HAVE_ASM also enables bignum's inline multiply-accumulate,
+ * and ECP_NIST_OPTIM the fast reduction modulo the NIST primes. None
+ * of this depends on the build machine, so two builds still produce
+ * the same bytes.
+ * TODO: add an x86_64 SHA-512 path on the SHA512 extension (Arrow Lake
+ * and Lunar Lake onward) once a host the suite runs on has it, so that
+ * its tests exercise the path. */
 #define MBEDTLS_HAVE_ASM
 #define MBEDTLS_AESNI_C
 #define MBEDTLS_AESCE_C
+#define MBEDTLS_SHA256_USE_ARMV8_A_CRYPTO_IF_PRESENT
+#define MBEDTLS_SHA512_USE_A64_CRYPTO_IF_PRESENT
 #define MBEDTLS_ECP_NIST_OPTIM
 
 /* Wall-clock time: MBEDTLS_HAVE_TIME_DATE gates mbedtls_x509_time_gmtime()
@@ -130,12 +140,16 @@
  * answered with a no_renegotiation alert), session tickets (no
  * ticket-based resumption; a TLS 1.3 NewSessionTicket is read and
  * ignored), file-system loading of CA/CRL/key files (the trust store
- * reaches curl as CURLOPT_CAINFO_BLOB), CRLs, and everything that
- * writes keys or certificates -- which also leaves out curl's
- * public-key pinning, the one reader of mbedtls_pk_write_pubkey_der.
+ * reaches curl through core/http.c), CRLs, and writing certificates.
  * curl's mbedtls backend guards each of those on the matching macro and
  * reports the option that needs one as not built in
  * (CURLE_NOT_BUILT_IN) rather than ignoring it. */
+
+/* Writing a public key: curl's public-key pinning
+ * (CURLOPT_PINNEDPUBLICKEY, cosmic.http's `opts.pin`) hashes the peer's
+ * key as mbedtls_pk_write_pubkey_der writes it, and is built only with
+ * this and MBEDTLS_SSL_KEEP_PEER_CERTIFICATE. */
+#define MBEDTLS_PK_WRITE_C
 
 /* X.509 chain verification and the encoding layers under it. */
 #define MBEDTLS_X509_USE_C

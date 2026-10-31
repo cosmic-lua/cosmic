@@ -15,11 +15,10 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
+local RawTables = require("build.raw_tables")
 local gen_syscalls = require("build.gen_syscalls")
 local _child = require("cosmic.child")
 local _net = require("cosmic.net")
-local type raw_process = require("cosmic.internal.process")
-local type raw_socket = require("cosmic.internal.socket")
 
 --- The binding headers, read for which of their bindings take a
 --- descriptor.
@@ -35,24 +34,12 @@ Test.policy{
   },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader, as
---- `require` would hand it.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
-local socket = raw_behind("cosmic.net") as raw_socket -- cast: the table core/socket.h declares
+local process = RawTables.process()
+local socket = RawTables.socket()
 
 --- The descriptor this process retains on its artifact, or nil for a
 --- start from none: the one [`Proc.relaunch`] hands a child as its own.
-local function artifact_fd(): integer | nil
+local function artifact_fd(): integer?
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return nil end
   local slot = math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_ARTIFACT_FD))
@@ -68,7 +55,7 @@ end
 --- Asserts calling `fn` with `...` raises, naming the artifact's
 --- descriptor.
 local function refused(what: string, fn: any, ...: any)
-  local ok, why = pcall(fn as function(any...): (any...), ...)
+  local ok, why = pcall(fn as function(...: any): (any...), ...)
   assert(not ok, what .. " took the artifact's retained descriptor")
   assert(tostring(why):find("retained artifact descriptor", 1, true) ~= nil,
     what .. " raised for another reason: " .. tostring(why))
@@ -107,6 +94,7 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
   flock = function(_: integer, fd: integer): {any} return { fd, "exclusive" } end,
   flock_kind = function(_: integer, fd: integer): {any} return { fd } end,
   set_nonblocking = function(_: integer, fd: integer): {any} return { fd, false } end,
+  fd_status = function(_: integer, fd: integer): {any} return { fd } end,
   connector_start = function(_: integer, fd: integer): {any}
     return { { { host = "127.0.0.1", port = 1 } }, fd, 1 }
   end,
@@ -136,10 +124,13 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
     return { { grants = {}, promises = {}, rlimits = {} }, { fd } }
   end,
   spawn = function(at: integer, fd: integer): {any}
-    local args: {any} = { "/nonexistent/program", { "program" }, nil, nil, nil, nil, nil, false,
-      nil, nil }
-    if at == 9 then args[9] = { [3] = fd } else args[at] = fd end
-    return args
+    -- The argument at `at` is `fd` (inside a table at 9, the options), every other optional one nil.
+    local function put(slot: integer): any
+      if slot ~= at then return nil end
+      if slot == 9 then return { [3] = fd } end
+      return fd
+    end
+    return { "/nonexistent/program", { "program" }, put(3), put(4), put(5), put(6), put(7), false, put(9), put(10) }
   end,
 }
 
@@ -160,7 +151,7 @@ local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
     ["cosmic.internal.process"] = process as {string: any}, -- cast: core/process.h's
     ["cosmic.internal.socket"] = socket as {string: any}, -- cast: core/socket.h's
   }
-  local missing: {string} = {}
+  local missing: mut {string} = {}
   local tried = 0
   for _, derivation in ipairs(gen_syscalls.targets) do
     local header = assert(Fs.read(derivation.target.header))
@@ -173,9 +164,10 @@ local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
           if case == nil then
             missing[#missing + 1] = call.name
           else
-            local binding = tables[derivation.path][call.name]
+            local derived = assert(tables[derivation.path], "the derivation has a table")
+            local binding = derived[call.name]
             local args = case(at, fd)
-            refused(call.name .. "'s argument " .. at, binding, table.unpack(args, 1, 10))
+            refused(call.name .. "'s argument " .. tostring(at), binding, table.unpack(args, 1, 10))
             tried = tried + 1
           end
         end
@@ -184,7 +176,7 @@ local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
   end
   assert(#missing == 0, "bindings that take a descriptor with no case here: " ..
       table.concat(missing, ", "))
-  assert(tried >= 18, "only " .. tried .. " descriptor arguments were tried")
+  assert(tried >= 18, "only " .. tostring(tried) .. " descriptor arguments were tried")
 end
 
 --- A lookup's `supply`, a method the table walk above does not reach,
@@ -201,7 +193,8 @@ local function test_a_lookup_refuses_the_retained_artifact_as_a_supplied_socket(
     { { host = "127.0.0.1", port = 53, index = 1 } }))
   local _, _, _, _, wants = lookup:step(nil, nil)
   assert(#wants == 1)
-  refused("Lookup:supply", lookup.supply, lookup, wants[1].id, fd, nil)
+  local want = assert(wants[1], "the lookup wants one socket")
+  refused("Lookup:supply", lookup.supply, lookup, want.id, fd, nil)
 end
 
 local function test_a_descriptor_batch_refuses_the_retained_artifact_as_payload()
@@ -234,7 +227,7 @@ local function test_spawn_hands_the_artifact_descriptor_on_only_to_a_relaunch()
   if fd == nil then return end
   local relaunch = assert(Proc.relaunch())
   local core = relaunch.argv[1]
-  local env: {string: string} = {}
+  local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
   local slot = math.tointeger(tonumber(env.COSMIC_PORTABLE_ARTIFACT_FD)) as integer
   refused("a map to another slot", process.spawn, core, { core }, env, nil, nil, nil, nil,
@@ -257,16 +250,16 @@ local function test_an_open_through_the_artifact_descriptor_is_refused(tmp: stri
   assert(Fs.write(plain, "text"))
   local other = assert(sys.open(plain, sys.O_RDONLY))
   for _, dir in ipairs({ "/proc/self/fd/", "/dev/fd/" }) do
-    if sys.stat(dir .. other) ~= nil then
+    if sys.stat(dir .. tostring(other)) ~= nil then
       -- As given, spelled otherwise, through a link to it or to its
       -- directory: each refused, EACCES.
       local link, directory = tmp .. "/link", tmp .. "/directory"
       sys.unlink(link)
       sys.unlink(directory)
-      assert(sys.symlink(dir .. fd, link))
+      assert(sys.symlink(dir .. tostring(fd), link))
       assert(sys.symlink(dir:sub(1, -2), directory))
-      for _, name in ipairs({ dir .. fd, "/" .. dir .. fd, "/." .. dir .. fd, link,
-          directory .. "/" .. fd }) do
+      for _, name in ipairs({ dir .. tostring(fd), "/" .. dir .. tostring(fd), "/." .. dir .. tostring(fd), link,
+          directory .. "/" .. tostring(fd) }) do
         local opened, trouble, errno = sys.open(name, sys.O_RDONLY)
         if opened ~= nil then sys.close(opened) end
         assert(opened == nil and errno == sys.EACCES, name .. " opened the artifact: " ..
@@ -276,8 +269,8 @@ local function test_an_open_through_the_artifact_descriptor_is_refused(tmp: stri
       -- directory.
       local pid = tostring(sys.getpid())
       if dir == "/proc/self/fd/" then
-        for _, name in ipairs({ "/proc/thread-self/fd/" .. fd,
-            "/proc/" .. pid .. "/task/" .. pid .. "/fd/" .. fd }) do
+        for _, name in ipairs({ "/proc/thread-self/fd/" .. tostring(fd),
+            "/proc/" .. pid .. "/task/" .. pid .. "/fd/" .. tostring(fd) }) do
           if sys.stat(name) ~= nil then
             local opened, trouble, errno = sys.open(name, sys.O_RDONLY)
             if opened ~= nil then sys.close(opened) end
@@ -287,7 +280,7 @@ local function test_an_open_through_the_artifact_descriptor_is_refused(tmp: stri
         end
         local here, _ = sys.getcwd()
         if sys.chdir("/proc/" .. pid .. "/task/" .. pid) then
-          local task, _, task_errno = sys.open("fd/" .. fd, sys.O_RDONLY)
+          local task, _, task_errno = sys.open("fd/" .. tostring(fd), sys.O_RDONLY)
           if task ~= nil then sys.close(task) end
           assert(sys.chdir(assert(here)))
           assert(task == nil and task_errno == sys.EACCES,
@@ -302,7 +295,7 @@ local function test_an_open_through_the_artifact_descriptor_is_refused(tmp: stri
         assert(relative == nil and relative_errno == sys.EACCES,
           "a name relative to " .. dir .. " opened the artifact")
       end
-      local again = assert(sys.open(dir .. other, sys.O_RDONLY))
+      local again = assert(sys.open(dir .. tostring(other), sys.O_RDONLY))
       assert(sys.read(again, 16) == "text")
       assert(sys.close(again))
     end
@@ -332,6 +325,7 @@ local function test_other_descriptors_still_work(tmp: string)
   assert(sys.pread(fd, 16, 0) == "he")
   assert(not sys.isatty(fd))
   assert(sys.set_nonblocking(fd, true))
+  assert((assert(sys.fd_status(fd))) & sys.O_NONBLOCK ~= 0)
   assert(#assert(sys.poll({ fd }, { sys.POLLIN }, 0)) == 1)
   assert(sys.close(copy))
   assert(sys.close(fd))
@@ -351,7 +345,7 @@ end
 --- slash percent-escaped.
 local function escaped(path: string): string
   return (path:gsub("[^%w/%-%._~]", function(c: string): string
-    return string.format("%%%02X", c:byte())
+    return string.format("%%%02X", (assert(c:byte(), "a matched byte")))
   end))
 end
 

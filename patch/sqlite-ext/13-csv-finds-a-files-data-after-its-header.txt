@@ -1,0 +1,38 @@
+file: ext/misc/csv.c
+note: With header=yes, the offset of the first data record is cast to int, which a header past 2 GB overflows, and ftell's -1 on a stream that cannot seek is used as an offset. This keeps it a long and fails the connect when ftell does. A table too wide for SQLite was reported as the start of its 200-byte schema text, which cuts off SQLite's reason; this names the reason first. Upstream reads so as of 3.54.0.
+--- find
+  if( bHeader!=1 ){
+    pNew->iStart = 0;
+  }else if( pNew->zData ){
+    pNew->iStart = (int)sRdr.iIn;
+  }else{
+    pNew->iStart = (int)(ftell(sRdr.in) - sRdr.nIn + sRdr.iIn);
+  }
+  csv_reader_reset(&sRdr);
+  rc = sqlite3_declare_vtab(db, CSV_SCHEMA);
+  if( rc ){
+    csv_errmsg(&sRdr, "bad schema: '%s' - %s", CSV_SCHEMA, sqlite3_errmsg(db));
+    goto csvtab_connect_error;
+  }
+  for(i=0; i<sizeof(azPValue)/sizeof(azPValue[0]); i++){
+--- replace
+  if( bHeader!=1 ){
+    pNew->iStart = 0;
+  }else if( pNew->zData ){
+    pNew->iStart = (long)sRdr.iIn;
+  }else{
+    long iPos = ftell(sRdr.in);
+    if( iPos<0 ){
+      csv_errmsg(&sRdr, "cannot find the end of the header in %Q", pNew->zFilename);
+      goto csvtab_connect_error;
+    }
+    pNew->iStart = iPos - (long)sRdr.nIn + (long)sRdr.iIn;
+  }
+  csv_reader_reset(&sRdr);
+  rc = sqlite3_declare_vtab(db, CSV_SCHEMA);
+  if( rc ){
+    csv_errmsg(&sRdr, "bad schema: %s: '%s'", sqlite3_errmsg(db), CSV_SCHEMA);
+    goto csvtab_connect_error;
+  }
+  for(i=0; i<sizeof(azPValue)/sizeof(azPValue[0]); i++){
+--- end

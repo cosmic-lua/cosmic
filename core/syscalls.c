@@ -3378,11 +3378,12 @@ static bool handed_on (lua_State *L, lua_Integer target, lua_Integer fd) {
   return exact && named == target;
 }
 
-/* The most grants one `spawn` takes: UNVEIL_MAX's bound on the paths a
- * sandbox names, and, with their letters, about 3 KB of its frame -- a
- * frame that already holds several times that, so these arrays are not
- * worth an allocation a failure path would have to free. No caller
- * grants more than a few dozen. */
+/* The most grants one `spawn` takes: as many as a sandbox has paths
+ * (`UNVEIL_MAX`), since a policy's start under `isolate` file binds each
+ * grant into its root as an unveiled path (cosmic.child's `MAX_GRANTS`).
+ * With their letters they are 12 bytes each of a frame that already holds
+ * several times what these arrays come to, so they are not worth an
+ * allocation a failure path would have to free. */
 #define GRANT_MAX UNVEIL_MAX
 
 #if defined(__linux__)
@@ -5413,6 +5414,14 @@ COSMIC_SYSCALL(set_nonblocking, 2) {
   return cosmic_ok(L);
 }
 
+COSMIC_SYSCALL(fd_status, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  int flags = fcntl(fd, F_GETFL);
+  if (flags < 0) return cosmic_fail(L, errno);
+  lua_pushinteger(L, flags);
+  return 1;
+}
+
 /* One entry of `poll`'s argument: its descriptor, and where it is in
  * the argument, so the entries sorted by descriptor can be answered in
  * place. */
@@ -5792,8 +5801,9 @@ COSMIC_SYSCALL(cpu_count, 0) {
 
 /* The features `cpu_features` answers, by /proc/cpuinfo's names, in
  * byte order, each with where this processor says it has it: a bit of
- * cpuid leaf 1's ECX on x86_64, and of the auxiliary vector's AT_HWCAP
- * on Linux's aarch64; a name sysctlbyname answers 1 for on Darwin's. */
+ * a register of a cpuid leaf on x86_64, and of the auxiliary vector's
+ * AT_HWCAP on Linux's aarch64; a name sysctlbyname answers 1 for on
+ * Darwin's. */
 #if defined(__aarch64__) && defined(__APPLE__)
 struct cpu_feature {
   const char *name;
@@ -5803,22 +5813,37 @@ struct cpu_feature {
 static const struct cpu_feature cpu_features[] = {
   { "aes", "hw.optional.arm.FEAT_AES" }, { "asimd", "hw.optional.AdvSIMD" },
   { "crc32", "hw.optional.armv8_crc32" }, { "pmull", "hw.optional.arm.FEAT_PMULL" },
+  { "sha2", "hw.optional.arm.FEAT_SHA256" }, { "sha512", "hw.optional.armv8_2_sha512" },
 };
-#elif defined(__x86_64__) || (defined(__aarch64__) && defined(__linux__))
+#elif defined(__x86_64__)
+struct cpu_feature {
+  const char *name;
+  unsigned leaf;
+  unsigned subleaf;
+  unsigned reg; /* 0 eax, 1 ebx, 2 ecx */
+  unsigned bit;
+};
+
+/* core/vector.c chooses its int8 kernel by the last four of leaf 7 (and
+ * by the operating system's saved vector state, which cpuid does not say:
+ * a kernel that saves none lists fewer in /proc/cpuinfo than cpuid does,
+ * and the kernels answer alike, so a key that holds the cpuid bits is
+ * enough). patch/mbedtls's SHA-256 takes `sha_ni` with `sse4_1` and
+ * `ssse3`. */
+static const struct cpu_feature cpu_features[] = {
+  { "aes", 1, 0, 2, 25 }, { "avx512_vnni", 7, 0, 2, 11 }, { "avx512f", 7, 0, 1, 16 },
+  { "avx512vl", 7, 0, 1, 31 }, { "avx_vnni", 7, 1, 0, 4 }, { "pclmulqdq", 1, 0, 2, 1 },
+  { "sha_ni", 7, 0, 1, 29 }, { "sse4_1", 1, 0, 2, 19 }, { "ssse3", 1, 0, 2, 9 },
+};
+#elif defined(__aarch64__) && defined(__linux__)
 struct cpu_feature {
   const char *name;
   unsigned bit;
 };
 
-#if defined(__x86_64__)
 static const struct cpu_feature cpu_features[] = {
-  { "aes", 25 }, { "pclmulqdq", 1 }, { "sse4_1", 19 }, { "ssse3", 9 },
+  { "aes", 3 }, { "asimd", 1 }, { "crc32", 7 }, { "pmull", 4 }, { "sha2", 6 }, { "sha512", 21 },
 };
-#else
-static const struct cpu_feature cpu_features[] = {
-  { "aes", 3 }, { "asimd", 1 }, { "crc32", 7 }, { "pmull", 4 },
-};
-#endif
 #endif
 
 COSMIC_SYSCALL(cpu_features, 0) {
@@ -5833,14 +5858,21 @@ COSMIC_SYSCALL(cpu_features, 0) {
     lua_pushstring(L, cpu_features[f].name);
     lua_rawseti(L, -2, ++count);
   }
-#elif defined(__x86_64__) || (defined(__aarch64__) && defined(__linux__))
-  unsigned long bits = 0;
-#if defined(__x86_64__)
-  unsigned int eax, ebx, ecx, edx;
-  if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) bits = ecx;
-#else
-  bits = getauxval(AT_HWCAP);
-#endif
+#elif defined(__x86_64__)
+  lua_Integer count = 0;
+  for (size_t f = 0; f < sizeof cpu_features / sizeof *cpu_features; f++) {
+    unsigned int registers[4];
+    /* A leaf the processor lacks answers none of its features. */
+    if (!__get_cpuid_count(cpu_features[f].leaf, cpu_features[f].subleaf, &registers[0],
+                           &registers[1], &registers[2], &registers[3])) {
+      continue;
+    }
+    if (((registers[cpu_features[f].reg] >> cpu_features[f].bit) & 1) == 0) continue;
+    lua_pushstring(L, cpu_features[f].name);
+    lua_rawseti(L, -2, ++count);
+  }
+#elif defined(__aarch64__) && defined(__linux__)
+  unsigned long bits = getauxval(AT_HWCAP);
   lua_Integer count = 0;
   for (size_t f = 0; f < sizeof cpu_features / sizeof *cpu_features; f++) {
     if (((bits >> cpu_features[f].bit) & 1) == 0) continue;
@@ -6089,6 +6121,18 @@ int64_t cosmic_now_ms (void) {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
   return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+int64_t cosmic_deadline_ms (int64_t timeout) {
+  if (timeout < 0) return -1;
+  int64_t now = cosmic_now_ms();
+  /* A timeout of 0 is a deadline already come. Any other is put one
+   * millisecond on: now is counted down, so up to a millisecond of the
+   * current one has gone, and a deadline of `now + timeout` would pass
+   * before `timeout` had. */
+  int64_t extra = timeout > 0;
+  if (timeout > INT64_MAX - now - extra) return INT64_MAX;
+  return now + extra + timeout;
 }
 
 int cosmic_wait_slice (int64_t deadline) {

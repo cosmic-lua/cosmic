@@ -12,19 +12,16 @@
 
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
-local Relay = require("cosmic.relay")
+local Address = require("cosmic.relay.address")
 local Sqlite = require("cosmic.sqlite")
+local _Vector = require("cosmic.vector") -- loaded so that the store hands its raw table to [`RawTables`]
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local unix_socket = require("build.unix_socket")
-local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
+local RawTables = require("build.raw_tables")
 local stand_in = require("build.stand_in")
 
--- TODO: declare /proc for Linux alone once a declaration can name a
--- host path per platform (a `host` entry for Linux and one for macOS):
--- macOS has no /proc, so there this declares a path that is not there,
--- which gives and keys nothing but says what the tests need wrongly.
 --- What the syscall table is tested on: /proc. A stand-in program
 --- (build/stand_in.tl) is what a child here runs, reading nothing of the system's. The cases
 --- that start this program itself to run a chunk, or unveil a child's
@@ -33,24 +30,12 @@ local stand_in = require("build.stand_in")
 --- core/syscalls_tool_test.tl's, and the one that reads the program's
 --- own path core/artifact_fd_tool_test.tl's.
 Test.policy{
-  grants = { { path = "/proc", letters = "r" } },
+  profiles = { "proc" },
   loopback = { "127.0.0.1" },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader, as
---- `require` would hand it.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
-local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/internal/hash.d.tl declares
+local process = RawTables.process()
+local hash = RawTables.hash()
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
 --- the script its first argument holds: a static executable that reads
@@ -74,7 +59,7 @@ end
 --- `failed`, and the errno is `errno` in particular.
 local function failed_with(errno: integer, value: any, message: any, number: any)
   failed(value, message, number)
-  assert(number == errno, "expected errno " .. errno .. ", got " .. tostring(number))
+  assert(number == errno, "expected errno " .. tostring(errno) .. ", got " .. tostring(number))
 end
 
 --- The file at `path`, or "" where it cannot be read.
@@ -84,7 +69,7 @@ end
 
 --- Asserts calling `fn` with `...` raises rather than returning.
 local function raises(fn: any, ...: any)
-  local ok = pcall(fn as function(any...): (any...), ...)
+  local ok = pcall(fn as function(...: any): (any...), ...)
   assert(not ok, "a degenerate argument must raise")
 end
 
@@ -100,6 +85,20 @@ local function test_open_and_close(tmp: string)
   local closed, trouble = sys.close(fd)
   assert(closed == true, trouble)
   failed(sys.close(fd))
+end
+
+--- `fd_status` shows O_NONBLOCK as `set_nonblocking` sets it, so a caller can
+--- put back what it found, and a closed descriptor fails with its errno.
+local function test_fd_status_shows_what_set_nonblocking_set(tmp: string)
+  local fd = assert(sys.open(tmp .. "/mode", sys.O_CREAT | sys.O_RDWR, 420))
+  assert((assert(sys.fd_status(fd))) & sys.O_NONBLOCK == 0)
+  assert(sys.set_nonblocking(fd, true))
+  assert((assert(sys.fd_status(fd))) & sys.O_NONBLOCK ~= 0)
+  assert(sys.set_nonblocking(fd, false))
+  assert((assert(sys.fd_status(fd))) & sys.O_NONBLOCK == 0)
+  assert(sys.close(fd))
+  local flags, why, errno = sys.fd_status(fd)
+  assert(flags == nil and why ~= "" and errno == sys.EBADF, tostring(why))
 end
 
 local function test_open_refuses_a_missing_path(tmp: string)
@@ -243,7 +242,7 @@ local function test_utimensat_sets_either_time_to_the_nanosecond(tmp: string)
   assert(st.atime == 5 and st.atime_ns == 6 and st.mtime == 7 and st.mtime_ns == 8)
   assert(sys.utimensat(path, nil, nil, -1, 999999999))
   st = assert(sys.stat(path))
-  assert(st.mtime == -1 and st.mtime_ns == 999999999, st.mtime .. "." .. st.mtime_ns)
+  assert(st.mtime == -1 and st.mtime_ns == 999999999, tostring(st.mtime) .. "." .. tostring(st.mtime_ns))
   assert(st.atime == 5 and st.atime_ns == 6)
   assert(sys.utimensat(path, 9))
   st = assert(sys.stat(path))
@@ -260,7 +259,7 @@ local function test_utimensat_sets_either_time_to_the_nanosecond(tmp: string)
   assert(sys.utimensat(path, nil, nil, 7, 8))
   st = assert(sys.stat(path))
   assert(st.mtime == 7 and st.ctime >= before and st.ctime_ns >= 0 and
-      st.ctime_ns < 1000000000, st.ctime .. "." .. st.ctime_ns)
+      st.ctime_ns < 1000000000, tostring(st.ctime) .. "." .. tostring(st.ctime_ns))
 end
 
 local function test_mkdir_and_rmdir(tmp: string)
@@ -350,7 +349,7 @@ local function test_readdir_lists_entries_without_dot_and_dot_dot(tmp: string)
   local entries = assert(sys.readdir(tmp .. "/d"))
   local count = 0
   for _ in pairs(entries) do count = count + 1 end
-  assert(count == 3, "three entries, got " .. count)
+  assert(count == 3, "three entries, got " .. tostring(count))
   assert(entries[".hidden"] == "file" and entries["a"] == "file")
   assert(entries["sub"] == "dir", "each entry says what it is")
   assert(next((assert(sys.readdir(tmp .. "/d/sub")))) == nil)
@@ -555,16 +554,17 @@ end
 --- every one of this process's as it was.
 local function test_a_child_s_descriptors_are_its_own(tmp: string)
   local probe = probe_in(tmp)
-  local held: {integer} = {}
+  local held: mut {integer} = {}
   local target = 0
   for i = 1, 4 do
-    held[i] = create(tmp .. "/held" .. i)
-    if held[i] > target then target = held[i] end
+    local fd = create(tmp .. "/held" .. tostring(i))
+    held[i] = fd
+    if fd > target then target = fd end
   end
   -- Handed above all of them, so the child closes every one on its way.
   target = target + 2
   local report = create(tmp .. "/report")
-  local pid = assert(process.spawn(probe, { probe, "append /dev/fd/" .. target .. " mapped" },
+  local pid = assert(process.spawn(probe, { probe, "append /dev/fd/" .. tostring(target) .. " mapped" },
     nil, nil, nil, nil, nil, false, { [target] = report }))
   assert(assert(process.waitpid(pid, false)).code == 0)
   assert(assert(sys.pread(report, 64, 0)) == "mapped\n")
@@ -591,8 +591,8 @@ local function test_a_child_is_handed_only_the_descriptors_asked_for(tmp: string
     assert(sys.dup2(report, fd))
     assert(not closed_on_exec(fd))
   end
-  local pid = assert(process.spawn(probe, { probe, "fd-closed " .. below .. "; fd-closed " ..
-      above .. "; write-fd " .. handed .. " handed; write-fd " .. kept .. " kept" },
+  local pid = assert(process.spawn(probe, { probe, "fd-closed " .. tostring(below) .. "; fd-closed " ..
+      tostring(above) .. "; write-fd " .. tostring(handed) .. " handed; write-fd " .. tostring(kept) .. " kept" },
     nil, nil, nil, nil, nil, false, { [handed] = report, [kept] = kept }))
   local status = assert(process.waitpid(pid, false))
   assert(status.code == 0, tostring(status.code))
@@ -630,17 +630,20 @@ end
 local function test_descriptors_handed_crosswise_are_each_where_asked(tmp: string)
   local probe = probe_in(tmp)
   local first, second = 140, 141
-  local files: {integer: integer} = {}
+  local files: mut {integer: integer} = {}
   for _, fd in ipairs({ first, second }) do
     failed_with(sys.EBADF, sys.fd_flags(fd))
-    files[fd] = create(tmp .. "/" .. fd)
-    assert(sys.dup2(files[fd], fd))
+    local file = create(tmp .. "/" .. tostring(fd))
+    files[fd] = file
+    assert(sys.dup2(file, fd))
   end
-  local pid = assert(process.spawn(probe, { probe, "write-fd " .. first .. " first; write-fd " ..
-      second .. " second" }, nil, nil, nil, nil, nil, false, { [first] = second, [second] = first }))
+  local pid = assert(process.spawn(probe, { probe, "write-fd " .. tostring(first) .. " first; write-fd " ..
+      tostring(second) .. " second" }, nil, nil, nil, nil, nil, false, { [first] = second, [second] = first }))
   assert(assert(process.waitpid(pid, false)).code == 0)
-  assert(assert(sys.pread(files[first], 64, 0)) == "second\n")
-  assert(assert(sys.pread(files[second], 64, 0)) == "first\n")
+  local first_file, second_file = files[first], files[second]
+  assert(first_file and second_file, "both descriptors were made")
+  assert(assert(sys.pread(first_file, 64, 0)) == "second\n")
+  assert(assert(sys.pread(second_file, 64, 0)) == "first\n")
   for fd, file in pairs(files) do
     sys.close(fd)
     sys.close(file)
@@ -657,7 +660,7 @@ local function test_a_child_s_process_group_is_its_own_where_asked(tmp: string)
     local group = assert(sys.getpgid(pid))
     assert(sys.kill(pid, sys.SIGKILL))
     assert(assert(process.waitpid(pid, false)).signal == sys.SIGKILL)
-    assert(group == (grouped and pid or own), tostring(group))
+    assert(group == (if grouped then pid else own end), tostring(group))
   end
 end
 
@@ -701,9 +704,10 @@ end
 
 --- The features `cpu_features` can answer, by machine.
 local KNOWN_FEATURES <const>: {string:{string:boolean}} = {
-  x86_64 = { aes = true, pclmulqdq = true, sse4_1 = true, ssse3 = true },
-  aarch64 = { aes = true, asimd = true, crc32 = true, pmull = true },
-  arm64 = { aes = true, asimd = true, crc32 = true, pmull = true },
+  x86_64 = { aes = true, avx512_vnni = true, avx512f = true, avx512vl = true, avx_vnni = true,
+    pclmulqdq = true, sha_ni = true, sse4_1 = true, ssse3 = true },
+  aarch64 = { aes = true, asimd = true, crc32 = true, pmull = true, sha2 = true, sha512 = true },
+  arm64 = { aes = true, asimd = true, crc32 = true, pmull = true, sha2 = true, sha512 = true },
 }
 
 --- `cpu_features` names each feature this processor has, of those it
@@ -716,16 +720,17 @@ local function test_cpu_features_are_named_as_proc_cpuinfo_names_them()
   local features = sys.cpu_features()
   for i, name in ipairs(features) do
     assert(known[name], names.machine .. " answers " .. name)
-    assert(i == 1 or features[i - 1] < name, "not in byte order, or twice: " .. name)
+    local before = features[i - 1]
+    assert(i == 1 or (before ~= nil and before < name), "not in byte order, or twice: " .. name)
   end
   local cpuinfo = read_file("/proc/cpuinfo")
   if cpuinfo == "" then return end
-  local listed: {string:boolean} = {}
+  local listed: mut {string:boolean} = {}
   for line in cpuinfo:gmatch("[^\n]+") do
     local flags = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
     for flag in (flags or ""):gmatch("%S+") do listed[flag] = true end
   end
-  local expected: {string} = {}
+  local expected: mut {string} = {}
   for name in pairs(known) do
     if listed[name] then expected[#expected + 1] = name end
   end
@@ -741,8 +746,8 @@ local function test_cpu_count_is_at_least_one()
 end
 
 local function test_uname_reports_nonempty_sysname_and_machine()
-  local names, trouble = sys.uname()
-  assert(names ~= nil and trouble == nil, "uname answers with one record")
+  local names = assert(sys.uname())
+  assert(select("#", sys.uname()) == 1, "uname answers with one record")
   assert(#names.sysname > 0, "sysname is nonempty")
   assert(#names.machine > 0, "machine is nonempty")
   assert(#names.release > 0, "release is nonempty")
@@ -764,10 +769,10 @@ local function test_getifaddrs_lists_the_loopback_on_darwin_and_fails_enosys_els
   assert(listed ~= nil, why)
   local loopback = false
   for _, entry in ipairs(listed) do
-    local shown = entry.name .. " " .. entry.address .. "/" .. entry.prefix
+    local shown = entry.name .. " " .. entry.address .. "/" .. tostring(entry.prefix)
     assert(#entry.name > 0 and (entry.family == "ipv4" or entry.family == "ipv6"), shown)
-    local bytes = Relay.Address.parse(entry.address)
-    assert(bytes ~= nil and #bytes == (entry.family == "ipv4" and 4 or 16), shown)
+    local bytes = Address.parse(entry.address)
+    assert(bytes ~= nil and #bytes == (if entry.family == "ipv4" then 4 else 16 end), shown)
     assert(entry.prefix >= 0 and entry.prefix <= #bytes * 8, shown)
     if #bytes == 16 and bytes[1] == 0xfe and bytes[2] & 0xc0 == 0x80 then
       assert(bytes[3] == 0 and bytes[4] == 0, "a link-local address keeps its scope: " .. shown)
@@ -876,11 +881,11 @@ local function test_getgid_and_getgroups_answer_the_groups_the_process_runs_with
   local status = read_file("/proc/self/status")
   if status == "" then return end
   assert(status:match("\nGid:%s+(%d+)") == tostring(gid), status)
-  local listed: {string} = {}
+  local listed: mut {string} = {}
   for group in (status:match("\nGroups:([^\n]*)") or ""):gmatch("%d+") do
     listed[#listed + 1] = group
   end
-  local answered: {string} = {}
+  local answered: mut {string} = {}
   for i, group in ipairs(groups) do answered[i] = tostring(group) end
   assert(table.concat(answered, " ") == table.concat(listed, " "),
     table.concat(answered, " ") .. " | " .. table.concat(listed, " "))
@@ -894,11 +899,11 @@ end
 --- refuse or to bound (macOS may do either), so it is only given back.
 local function test_setrlimit_holds_the_process_to_what_getrlimit_answers()
   local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
-  assert(limits.soft > 0 and limits.soft <= limits.hard, limits.soft .. " " .. limits.hard)
+  assert(limits.soft > 0 and limits.soft <= limits.hard, tostring(limits.soft) .. " " .. tostring(limits.hard))
   local lower = limits.soft - 1
   assert(sys.setrlimit(sys.RLIMIT_NOFILE, lower, limits.hard))
   local lowered = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
-  assert(lowered.soft == lower and lowered.hard == limits.hard, lowered.soft .. " " .. lowered.hard)
+  assert(lowered.soft == lower and lowered.hard == limits.hard, tostring(lowered.soft) .. " " .. tostring(lowered.hard))
   assert(sys.setrlimit(sys.RLIMIT_NOFILE, limits.soft, limits.hard))
   assert(assert(sys.getrlimit(sys.RLIMIT_NOFILE)).soft == limits.soft)
   if limits.hard ~= math.maxinteger then
@@ -923,7 +928,7 @@ local function test_clocks_read_and_the_monotonic_one_advances()
   local slept, trouble = sys.nanosleep(2000000)
   assert(slept == true, trouble)
   local after = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC))
-  assert(after - before >= 2000000, "slept " .. (after - before) .. "ns")
+  assert(after - before >= 2000000, "slept " .. tostring((after - before)) .. "ns")
 end
 
 local function test_clock_gettime_refuses_an_unknown_clock()
@@ -942,9 +947,16 @@ local function test_isatty_is_false_for_a_file_and_a_bad_descriptor(tmp: string)
   assert(sys.isatty(fd) == false)
 end
 
+--- Entry `i` of the answers of a poll.
+local function revent(revents: {integer}, i: integer): integer
+  local answer = revents[i]
+  assert(answer, "the poll answers for descriptor " .. tostring(i))
+  return answer
+end
+
 local function hex(bytes: string): string
   return (bytes:gsub(".", function(c: string): string
-    return string.format("%02x", c:byte())
+    return string.format("%02x", (assert(c:byte(), "a matched byte")))
   end))
 end
 
@@ -960,8 +972,10 @@ local function test_digest_sha256_known_answers()
       "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0" },
   }
   for _, case in ipairs(cases) do
-    local digest = hash.digest("sha256", case[1])
-    assert(hex(digest) == case[2], #case[1] .. " bytes hashed to " .. hex(digest))
+    local input, want = case[1], case[2]
+    assert(input and want, "a case is an input and its digest")
+    local digest = hash.digest("sha256", input)
+    assert(hex(digest) == want, tostring(#input) .. " bytes hashed to " .. hex(digest))
   end
   for _, len in ipairs({ 55, 56, 63, 64, 65 }) do
     assert(#hash.digest("sha256", string.rep("x", len)) == 32)
@@ -1043,10 +1057,10 @@ local function test_maps_id_answers_as_the_namespace_maps_list()
     if names.sysname ~= "Linux" then
       assert(not ok and errno == sys.ENOSYS, why)
     elseif listed_in_map(users, id) and listed_in_map(groups, id) then
-      assert(ok, id .. ": " .. tostring(why))
+      assert(ok, tostring(id) .. ": " .. tostring(why))
     else
       failed(ok, why, errno)
-      assert(errno == sys.EINVAL, id .. ": " .. tostring(why))
+      assert(errno == sys.EINVAL, tostring(id) .. ": " .. tostring(why))
     end
   end
   raises(process.maps_id, -1)
@@ -1097,7 +1111,8 @@ end
 local function test_sandbox_platform_answers_true_on_linux_alone()
   local ok, why, errno = process.sandbox_platform()
   if assert(sys.uname()).sysname == "Linux" then
-    assert(ok == true and why == nil, why)
+    assert(ok == true, tostring(why))
+    assert(select("#", process.sandbox_platform()) == 1, "a success answers one value")
   else
     failed(ok, why, errno)
     assert(errno == sys.ENOSYS, why)
@@ -1141,7 +1156,7 @@ end
 --- signals while it does, are the raw process table's, and not the
 --- public [`cosmic.sys`]'s: a public `waitpid(-1)` would take the status
 --- of a child a `Child` handle owns from under it, and a public signal
---- guard would be a second one beside [`Child.guard`]'s. `poll` and
+--- guard would be a second one beside [`Signal.guard`]'s. `poll` and
 --- `set_nonblocking`, which wait on any descriptor, are the public
 --- table's alone.
 local function test_the_process_calls_are_off_the_public_table()
@@ -1198,8 +1213,8 @@ local function test_poll_answers_a_hangup_and_a_closed_descriptor_in_every_entry
     { sys.POLLIN, sys.POLLOUT, sys.POLLIN, sys.POLLOUT }, 0))
   sys.close(ends.reader)
   local said = table.concat(revents as {number}, " ") -- cast: an integer is a number
-  assert(revents[1] & sys.POLLHUP ~= 0 and revents[2] & sys.POLLHUP ~= 0, said)
-  assert(revents[3] & sys.POLLNVAL ~= 0 and revents[4] & sys.POLLNVAL ~= 0, said)
+  assert(revent(revents, 1) & sys.POLLHUP ~= 0 and revent(revents, 2) & sys.POLLHUP ~= 0, said)
+  assert(revent(revents, 3) & sys.POLLNVAL ~= 0 and revent(revents, 4) & sys.POLLNVAL ~= 0, said)
 end
 
 --- `poll` watches as many descriptors as the kernel lets a process
@@ -1214,7 +1229,7 @@ end
 local record Restored
   fds: {integer}
   limits: sys.Limits
-  metamethod __close: function(Restored)
+  __close: function(Restored)
 end
 
 local restored_mt: metatable<Restored> = {
@@ -1234,29 +1249,29 @@ local function test_poll_watches_past_a_thousand_descriptors()
   local ends = assert(process.pipe())
   held.fds[1], held.fds[2] = ends.reader, ends.writer
   assert(sys.write(ends.writer, "x") == 1)
-  local fds: {integer} = {}
-  local events: {integer} = {}
-  local trouble: string
+  local fds: mut {integer} = {}
+  local events: mut {integer} = {}
+  local trouble: string?
   while #fds < wanted do
-    local copy: integer
+    local copy: integer?
     copy, trouble = sys.dup(ends.reader)
     if copy == nil then break end
     fds[#fds + 1] = copy
     held.fds[#held.fds + 1] = copy
     events[#events + 1] = sys.POLLIN
   end
-  assert(#fds == wanted, #fds .. " copies under a hard limit of " .. limits.hard ..
+  assert(#fds == wanted, tostring(#fds) .. " copies under a hard limit of " .. tostring(limits.hard) ..
       ": " .. tostring(trouble))
   fds[#fds + 1] = -1
   events[#events + 1] = sys.POLLIN
   assert(not pcall(sys.poll, { -2 }, { sys.POLLIN }, 0), "a descriptor below -1 raises")
   local revents, failure = sys.poll(fds, events, 0)
   assert(revents ~= nil, failure)
-  assert(#revents == wanted + 1, "one answer per descriptor, not " .. #revents)
+  assert(#revents == wanted + 1, "one answer per descriptor, not " .. tostring(#revents))
   for i = 1, wanted do
-    assert(revents[i] & sys.POLLIN ~= 0, "descriptor " .. i .. " answered " .. revents[i])
+    assert(revent(revents, i) & sys.POLLIN ~= 0, "descriptor " .. tostring(i) .. " answered " .. tostring(revent(revents, i)))
   end
-  assert(revents[wanted + 1] == 0, "an unwatched descriptor answered " .. revents[wanted + 1])
+  assert(revents[wanted + 1] == 0, "an unwatched descriptor answered " .. tostring(revent(revents, wanted + 1)))
 end
 
 --- A descriptor past what an int holds is refused, not truncated: 2^32
@@ -1401,7 +1416,7 @@ local function test_readdir_leaves_no_descriptor_open(tmp: string)
   end
   local after = assert(sys.open(tmp .. "/probe", sys.O_RDWR))
   sys.close(after)
-  assert(after == before, "descriptor " .. after .. " opened where " .. before .. " was free")
+  assert(after == before, "descriptor " .. tostring(after) .. " opened where " .. tostring(before) .. " was free")
 end
 
 local function test_umask_withholds_bits_and_answers_the_last(tmp: string)
@@ -1469,7 +1484,7 @@ local function test_flock_kind_says_whether_a_flock_excludes_an_fcntl_lock(tmp: 
   local path = tmp .. "/lock.db"
   local fd = assert(sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x180))
   local kind, trouble = sys.flock_kind(fd)
-  assert(kind == "apart" or kind == "shared", trouble)
+  assert(kind ~= nil and (kind == "apart" or kind == "shared"), trouble)
   assert(sys.flock(fd, "exclusive"))
   local db = assert(Sqlite.open(path, { writable = true }))
   -- Asked once: a connection waits a minute for a lock by default.
@@ -1486,7 +1501,7 @@ end
 --- Whether the wake pipe of the open guards has a byte to read.
 local function woken(fd: integer): boolean
   local revents = assert(sys.poll({ fd }, { sys.POLLIN }, 0))
-  return revents[1] & sys.POLLIN ~= 0
+  return revent(revents, 1) & sys.POLLIN ~= 0
 end
 
 --- Guards nest. A signal moves the stamp every guard reads and wakes
@@ -1604,7 +1619,7 @@ local function test_the_errnos_only_macos_has_are_named_there()
   if uname.sysname ~= "Darwin" then
     return
   end
-  local names: {string:string} = {}
+  local names: mut {string:string} = {}
   for number = 1, 4095 do
     local name = sys.errno_name(number)
     if name ~= nil then
@@ -1665,7 +1680,8 @@ local function test_full_fsync_has_native_or_unsupported_effect_shape(tmp: strin
   local ok, trouble, errno = sys.full_fsync(fd)
   local names = assert(sys.uname())
   if names.sysname == "Darwin" then
-    assert(ok == true and trouble == nil and errno == nil, tostring(trouble))
+    assert(ok == true, tostring(trouble))
+    assert(select("#", sys.full_fsync(fd)) == 1, "a success answers one value")
   else
     assert(ok == false, "unsupported full flush must not report success")
     failed_with(sys.ENOSYS, ok, trouble, errno)
@@ -1675,7 +1691,7 @@ local function test_full_fsync_has_native_or_unsupported_effect_shape(tmp: strin
   assert(sys.close(fd))
   local closed, why, number = sys.full_fsync(fd)
   assert(closed == false, "a closed descriptor must not be flushed")
-  failed_with(names.sysname == "Darwin" and sys.EBADF or sys.ENOSYS, closed, why, number)
+  failed_with(if names.sysname == "Darwin" then sys.EBADF else sys.ENOSYS end, closed, why, number)
 end
 
 --- Descriptor validation precedes platform dispatch, including on hosts
@@ -1695,11 +1711,11 @@ local function test_spawn_credentials_reject_incomplete_and_reserved_ids()
   } as {raw_process.Credentials}) do
     local ok, why = pcall(process.spawn, "/never-started", { "/never-started" },
       nil, nil, nil, nil, nil, false, nil, nil, credentials)
-    assert(not ok and tostring(why):find("credentials", 1, true), tostring(index) .. ": " .. tostring(why))
+    assert(not ok and tostring(why):find("credentials", 1, true) ~= nil, tostring(index) .. ": " .. tostring(why))
   end
   local ok, why = pcall(process.spawn, "/never-started", { "/never-started" },
     nil, nil, nil, nil, nil, false, nil, { offline = true }, { user = 1, group = 1 })
-  assert(not ok and tostring(why):find("credentials exclude", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("credentials exclude", 1, true) ~= nil, tostring(why))
 end
 
 --- Even when the platform or caller cannot set credentials, refusal
@@ -1777,11 +1793,27 @@ local function test_noexec_scratch_requires_a_boolean_and_unveiling()
     fields.noexec_scratch = value
     local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil,
       nil, nil, nil, false, nil, sandbox)
-    assert(not ok and tostring(trouble):find("noexec_scratch must be a boolean", 1, true),
+    assert(not ok and tostring(trouble):find("noexec_scratch must be a boolean", 1, true) ~= nil,
       tostring(trouble))
   end
   local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil,
     nil, nil, nil, false, nil, { noexec_scratch = true })
-  assert(not ok and tostring(trouble):find("noexec_scratch requires unveil", 1, true),
+  assert(not ok and tostring(trouble):find("noexec_scratch requires unveil", 1, true) ~= nil,
     tostring(trouble))
+end
+
+--- The C functions behind typed wrappers refuse a value of the wrong kind themselves: the wrappers declare the kind, so
+--- a checked run fails a call that hands them one, and only the raw function is handed it here. `equal` compares a MAC
+--- or token, which a number must not convert into.
+local function test_the_c_functions_refuse_what_is_no_string_or_count()
+  raises(hash.equal, 123, "123")
+  raises(hash.equal, "123", 123)
+  raises(hash.equal, print, "1")
+  raises(hash.equal, "1", nil)
+  raises(process.user, 123)
+  raises(process.user, print)
+  local corpus = assert(load("local raw, dims = ... return raw.corpus(dims)", "=raw_corpus", "t"))
+  local vector = RawTables.fields("cosmic.vector")
+  raises(corpus, vector, 1.5)
+  raises(corpus, vector, nil)
 end

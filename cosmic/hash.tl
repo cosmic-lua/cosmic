@@ -7,6 +7,8 @@
 ---   or a stream; [`cosmic.stream`]'s `hashing` feeds one as data passes.
 --- - [`Hash.sha256`] and [`Hash.hex_sha256`] are the common case in one
 ---   call.
+--- - [`Hash.equal`] compares two MACs or tokens without leaking where
+---   they differ.
 --- - [`Hash.siphash`] is SipHash, a keyed hash for short inputs: a hash
 ---   table's, or a cache key a format defines by it.
 ---
@@ -63,12 +65,12 @@ local record Hash
   record SipHashOptions
     --- Rounds per 8-byte word of the message (`c`): 1 to 64, 2 by
     --- default.
-    compression: integer
+    compression?: integer
     --- Rounds once the message is in (`d`): 1 to 64, 4 by default.
-    finalization: integer
+    finalization?: integer
     --- The tag's length in bytes: 8 (SipHash-64, the default) or 16
     --- (SipHash-128).
-    size: integer
+    size?: integer
   end
 end
 
@@ -100,7 +102,7 @@ end
 --- `Hash.digest(algorithm, ...)` over the whole of what was fed to it.
 --- Answers `hasher, ""`, or `nil, error` when the digest cannot start.
 --- Raises on an unknown algorithm, as `digest` and `hmac` do.
-function Hash.hasher(algorithm: Hash.Algorithm): Hash.Hasher | nil, string
+function Hash.hasher(algorithm: Hash.Algorithm): Hash.Hasher?, string
   return raw.hasher(algorithm)
 end
 
@@ -112,7 +114,7 @@ end
 --- a `<close>` abandoning an unfinished one. Answers `mac, ""`, or
 --- `nil, error` when the digest cannot start. Raises on an unknown
 --- algorithm.
-function Hash.hmac_hasher(algorithm: Hash.Algorithm, key: string): Hash.Hasher | nil, string
+function Hash.hmac_hasher(algorithm: Hash.Algorithm, key: string): Hash.Hasher?, string
   return raw.hmac_hasher(algorithm, key)
 end
 
@@ -130,18 +132,17 @@ function Hash.siphash(key: string, data: string, options?: Hash.SipHashOptions):
   return raw.siphash(key, data, o.compression, o.finalization, o.size)
 end
 
---- The sum of the unsigned bytes of `data` from `first` through `last`
---- (1-based and inclusive; the whole string by default), as a tar
---- header checksum adds them up. It is a tar helper, no hash: nothing
---- else needs it. Raises when `first` is below 1, `last` is past the
---- end, or `first` is more than one past `last`; an empty range sums
---- to 0.
-function Hash.byte_sum(data: string, first?: integer, last?: integer): integer
-  -- TODO: a tar header checksum is no hash, and [`cosmic.tar`] is this
-  -- function's one caller: move it there once a module can be handed
-  -- another module's `cosmic.internal.` table, as this one is handed its
-  -- own (the C sum is what keeps a header's 512 bytes off the Lua loop).
-  return raw.byte_sum(data, first, last)
+--- Whether the strings `a` and `b` are the same bytes, for checking a MAC or a
+--- token against one a client sent: the time taken depends on the
+--- length alone, never on where the strings first differ, so a caller
+--- timing the answer learns nothing about the secret. Strings of
+--- different lengths are unequal at once, as a length (a MAC's, by its
+--- algorithm) is not a secret. Use it rather than `==` whenever one
+--- side is secret.
+---
+---     local ok = Hash.equal(Hash.hmac("sha256", key, message), received)
+function Hash.equal(a: string, b: string): boolean
+  return raw.equal(a, b)
 end
 
 return Hash

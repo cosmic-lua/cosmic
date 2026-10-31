@@ -19,9 +19,9 @@ local function test_the_shared_key_moves_with_each_salt()
     key("k", false, true),
     key("k", false, false, "compiled_v3"),
   }
-  local seen: {string:boolean} = { [base] = true }
+  local seen: mut {string:boolean} = { [base] = true }
   for index, other in ipairs(others) do
-    assert(not seen[other], "salt " .. index .. " did not move the key")
+    assert(seen[other] ~= true, "salt " .. tostring(index) .. " did not move the key")
     seen[other] = true
   end
   assert(base == key("k", false, false, "compiled_v2"), "the format is not this one's")
@@ -66,12 +66,12 @@ local function test_past_its_bound_the_least_lately_used_go(tmp: string)
   end
   local sizes = assert(Sqlite.text_rows(cache.db, "SELECT DISTINCT size FROM compiled_v2"))
   assert(#sizes == 1, "rows of one shape differ in size")
-  local size = math.tointeger(tonumber(sizes[1][1])) or 0
+  local size = math.tointeger(tonumber(sizes[1]:text(1))) or 0
   assert(shared_compiles.settle(cache, { kept = { kept("k4") }, used = { "k1" } }, 5, 2 * size))
   local left = assert(Sqlite.text_rows(cache.db, "SELECT key FROM compiled_v2 ORDER BY key"))
   shared_compiles.close(cache)
-  assert(#left == 2 and left[1][1] == "k1" and left[2][1] == "k4",
-    tostring(left[1] and left[1][1]) .. " " .. tostring(left[2] and left[2][1]))
+  assert(#left == 2 and left[1]:text(1) == "k1" and left[2]:text(1) == "k4",
+    tostring(left[1] and left[1]:text(1)) .. " " .. tostring(left[2] and left[2]:text(1)))
 end
 
 --- A real query failure mentioning malformed is not evidence that a
@@ -85,7 +85,7 @@ local function test_a_query_failure_leaves_other_connections_and_files_alone(tmp
   local sibling = path .. ".corrupt-older"
   assert(Fs.write(sibling, "earlier evidence"))
   local files = { path, path .. "-wal", path .. "-shm", sibling }
-  local inodes: {integer} = {}
+  local inodes: mut {integer} = {}
   for index, file in ipairs(files) do inodes[index] = assert(Fs.stat(file)).ino end
   local bytes = assert(Fs.read(path))
   local wal = assert(Fs.read(path .. "-wal"))
@@ -100,7 +100,7 @@ local function test_a_query_failure_leaves_other_connections_and_files_alone(tmp
   assert(holder:exec("CREATE TABLE healthy (value TEXT)"))
   assert(holder:exec("INSERT INTO healthy VALUES ('still usable')"))
   local reader = assert(Sqlite.open(path))
-  assert(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy"))[1][1] == "still usable")
+  assert(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy"))[1]:text(1) == "still usable")
   assert(reader:close())
   assert(holder:close())
   assert(Fs.stat(path .. "-wal") == nil, "the failed build kept a connection open")

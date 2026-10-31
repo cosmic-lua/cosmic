@@ -52,7 +52,7 @@ local function test_a_skipped_test_is_counted_and_runs_every_time(tmp: string)
   local root = project(tmp)
   local out, code = run(root, {})
   assert(code == 0, out)
-  assert(out:find("(2 tests, 1 module; 2 ran, 0 stood, 1 skipped (this host could not " ..
+  assert(out:find("2 tests passed in 1 module; 2 ran, 0 stood, 1 skipped (this host could not " ..
       "check it), ", 1, true), out)
   -- Each reason once.
   assert(out:find("test: SKIP  skip_test test_skips: this host cannot\n", 1, true), out)
@@ -96,7 +96,7 @@ end
   assert(out:find("test: SKIP  ends_test test_fails_past_its_skip: this host cannot check it\n", 1, true), out)
   assert(out:find("test: SKIP  ends_test test_skips_in_a_helper: a helper's reason\n", 1, true), out)
   -- Only the test that fails is a failure.
-  assert(out:find("1 of 5 failed", 1, true), out)
+  assert(out:find("1 of 5 tests failed", 1, true), out)
 end
 
 --- A run held to sandboxing counts a skipped test skipped as any other
@@ -115,8 +115,8 @@ local function test_unavailable_noexec_skips_without_loading_and_keeps_no_verdic
   assert(Fs.write(root .. "/noexec_test.tl", [[
 local Test = require("cosmic.test")
 Test.policy { grants = { { path = "/noexec", letters = "rwc" } } }
-error("an unavailable capability must not load its test module")
 local function test_requires_noexec() error("must not execute") end
+error("an unavailable capability must not load its test module")
 ]]))
   for _ = 1, 2 do
     local out, code = run(root, { COSMIC_TEST_NOEXEC = "/forged" })

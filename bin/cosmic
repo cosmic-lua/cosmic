@@ -1,12 +1,36 @@
 #!/bin/sh
-# Resolve the tree's built tool through the same standalone path resolver
-# bin/zig uses, even when no tree-built tool exists yet.
+# The stable way to run the tree's own tool, from any directory and with
+# the checkout at any path: it asks build/paths.tl, through the bootstrap
+# release as bin/zig does, where the tree's build directory is, and runs
+# the tool there with the arguments given, in the caller's directory,
+# answering its exit status. The tool, once started, rebuilds itself
+# when older than the tree (AGENTS.md, step 3).
+#
+# Where there is no tool yet it runs `bin/zig build boot` first, its
+# output on stderr, and answers a failed boot's status; with
+# COSMIC_AUTO_BOOT=0 it refuses instead, exiting 3, as the tool does
+# when it would have to boot.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 output=$("$root/bin/cosmic-bootstrap" --standalone "$root/build/paths.tl" "$root")
-if [ ! -x "$output/bin/cosmic" ]; then
-  printf 'bin/cosmic: no tool at %s; run %s/bin/zig build boot\n' "$output/bin/cosmic" "$root" >&2
-  exit 3
+tool=$output/bin/cosmic
+if [ ! -x "$tool" ]; then
+  if [ "${COSMIC_AUTO_BOOT:-}" = 0 ]; then
+    printf 'bin/cosmic: no tool at %s, and COSMIC_AUTO_BOOT=0 refuses to boot; run %s/bin/zig build boot\n' \
+      "$tool" "$root" >&2
+    exit 3
+  fi
+  printf 'bin/cosmic: no tool at %s; running bin/zig build boot\n' "$tool" >&2
+  status=0
+  (cd "$root" && exec "$root/bin/zig" build boot) >&2 || status=$?
+  if [ "$status" -ne 0 ]; then
+    printf 'bin/cosmic: bin/zig build boot failed (status %s)\n' "$status" >&2
+    exit "$status"
+  fi
+  if [ ! -x "$tool" ]; then
+    printf 'bin/cosmic: bin/zig build boot wrote no tool at %s\n' "$tool" >&2
+    exit 1
+  fi
 fi
-exec "$output/bin/cosmic" "$@"
+exec "$tool" "$@"

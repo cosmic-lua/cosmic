@@ -9,6 +9,7 @@ local Fs = require("cosmic.fs")
 local embed = require("build.embed")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
+local build_paths = require("build.paths")
 
 --- The program itself, whose core the programs it builds run on.
 --- `store`: [`embed.tree`] joins every `cosmic.*` module's rows.
@@ -16,6 +17,13 @@ Test.policy{
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
 }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 local function run_program(path: string): Child.Result
   return (assert(Child.run({ path }, {
@@ -27,21 +35,24 @@ end
 --- and a boolean. Nil is 0, and a float with an integer's value, or text
 --- naming one, is that integer.
 local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
-  local mains: {string:string} = { big = "256", text = "\"three\"", fits = "7", float = "1.5",
-    yes = "true", negative = "-1", whole = "3.0", none = "nil", numeric = "\"5\"" }
+  -- Each main returns the type of its value: a main's result is read at run time, whatever it is declared.
+  local mains: {string:{string}} = { big = { "integer", "256" }, text = { "string", "\"three\"" },
+    fits = { "integer", "7" }, float = { "number", "1.5" }, yes = { "boolean", "true" },
+    negative = { "integer", "-1" }, whole = { "number", "3.0" }, none = { "integer?", "nil" },
+    numeric = { "string", "\"5\"" } }
   for name, returned in pairs(mains) do
     assert(Fs.mkdirs(tmp .. "/cmd/" .. name))
     assert(Fs.write(tmp .. "/cmd/" .. name .. "/main.tl",
-      "return function(): any\n  return " .. returned .. "\nend\n"))
+      "return function(): " .. assert(returned[1]) .. "\n  return " .. assert(returned[2]) .. "\nend\n"))
   end
   assert(embed.tree(tmp, true))
   for name, code in pairs({ fits = 7, whole = 3, none = 0, numeric = 5 } as {string:integer}) do
-    local r = run_program(tmp .. "/o/bin/" .. name)
+    local r = run_program(build_dir(tmp) .. "/bin/" .. name)
     assert(r.code == code, "an exit status that fits is the program's own: " ..
         name .. " exited " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   end
   for _, name in ipairs({ "big", "text", "float", "yes", "negative" }) do
-    local r = run_program(tmp .. "/o/bin/" .. name)
+    local r = run_program(build_dir(tmp) .. "/bin/" .. name)
     assert(r.code == 2, name .. " exited " .. tostring(r.code) .. ": " .. tostring(r.stderr))
     assert(tostring(r.stderr):find("returned no exit status", 1, true) ~= nil, tostring(r.stderr))
   end

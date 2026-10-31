@@ -3,6 +3,23 @@
 --- recording of git's answers.
 local Github = require("cosmic_ci.github")
 local GithubApi = require("cosmic_ci.github_api")
+local Shape = require("cosmic.shape")
+
+local record Commit
+  sha: string
+end
+local record Compare
+  merge_base_commit: Commit
+end
+local COMPARE <const> = Shape.record_of("Compare")
+
+local record Cache
+  id: integer
+end
+local record Caches
+  actions_caches: {Cache}
+end
+local CACHES <const> = Shape.record_of("Caches")
 
 --- A whole reply: a status line, `head`'s header lines, and `body`.
 local function reply(status: string, head: string, body?: string): string
@@ -14,9 +31,9 @@ end
 --- The live host over a plain-HTTP API whose calls `script` answers in
 --- order, and what each request wrote.
 local function host_with(script: {{string}}): Github.Host, {string}
-  local sent: {string} = {}
+  local sent: mut {string} = {}
   local host = Github.live({ GH_TOKEN = "secret", GITHUB_API_URL = "http://api.test" },
-    { script = script, sent = sent })
+    { script = script, sent = function(text: string) sent[#sent + 1] = text end })
   return host, sent
 end
 
@@ -30,11 +47,12 @@ local function test_a_lookup_gets_the_path_and_decodes_its_answer()
   local host, sent = host_with({ { reply("200 OK", "", '{"merge_base_commit":{"sha":"abc"}}') } })
   local pages, why = host.fetch("repos/o/r/compare/main...x", false, 30)
   assert(pages ~= nil, why)
-  local page = pages[1] as {string: any}
-  assert(#pages == 1 and (page.merge_base_commit as {string: string}).sha == "abc")
+  assert(#pages == 1)
+  local page = assert(COMPARE:decode_into(assert(pages[1])))
+  assert(page.merge_base_commit.sha == "abc")
   assert(#sent == 1)
-  has(sent[1], "GET /repos/o/r/compare/main...x HTTP/1.1\r\n")
-  has(sent[1], "\r\nAuthorization: Bearer secret\r\n")
+  has(assert(sent[1]), "GET /repos/o/r/compare/main...x HTTP/1.1\r\n")
+  has(assert(sent[1]), "\r\nAuthorization: Bearer secret\r\n")
 end
 
 --- A listing answers every page, each fetched where the `Link` header of
@@ -50,14 +68,14 @@ local function test_a_listing_follows_the_link_header_to_every_page()
   })
   local pages, why = host.fetch("repos/o/r/actions/caches?per_page=1", true, 30)
   assert(pages ~= nil and #pages == 3, why)
-  for i, page in ipairs(pages) do
-    local caches = (page as {string: any}).actions_caches as {{string: integer}}
-    assert(caches[1].id == i)
+  for i, text in ipairs(pages) do
+    local caches = assert(CACHES:decode_into(text)).actions_caches
+    assert(assert(caches[1]).id == i)
   end
   assert(#sent == 3)
-  has(sent[1], "GET /repos/o/r/actions/caches?per_page=1 HTTP/1.1\r\n")
-  has(sent[2], "GET /repos/o/r/actions/caches?page=2 HTTP/1.1\r\n")
-  has(sent[3], "GET /repos/o/r/actions/caches?page=3 HTTP/1.1\r\n")
+  has(assert(sent[1]), "GET /repos/o/r/actions/caches?per_page=1 HTTP/1.1\r\n")
+  has(assert(sent[2]), "GET /repos/o/r/actions/caches?page=2 HTTP/1.1\r\n")
+  has(assert(sent[3]), "GET /repos/o/r/actions/caches?page=3 HTTP/1.1\r\n")
 end
 
 --- A listing whose next page is on another origin fails, and the token
@@ -68,8 +86,8 @@ local function test_a_next_link_to_another_origin_fails_the_listing()
     { reply("200 OK", "", "{}") },
   })
   local pages, why = host.fetch("repos/o/r/actions/caches", true, 30)
-  assert(pages == nil and why:find("refusing to send the token to", 1, true) and
-      why:find("page 2", 1, true), tostring(why))
+  assert(pages == nil and why:find("refusing to send the token to", 1, true) ~= nil and
+      why:find("page 2", 1, true) ~= nil, tostring(why))
   assert(#sent == 1, "the token was sent on")
 end
 
@@ -79,7 +97,7 @@ local function test_a_next_link_that_repeats_a_page_fails_the_listing()
   local host, sent = host_with({ { reply("200 OK", loop, "{}") }, { reply("200 OK", loop, "{}") },
     { reply("200 OK", loop, "{}") } })
   local pages, why = host.fetch("repos/o/r/actions/caches", true, 30)
-  assert(pages == nil and why:find("repeats", 1, true), tostring(why))
+  assert(pages == nil and why:find("repeats", 1, true) ~= nil, tostring(why))
   assert(#sent == 2, "the loop was followed")
 end
 
@@ -108,25 +126,27 @@ end
 local function test_a_host_with_no_token_fails_every_lookup()
   local bare = Github.live({})
   local pages, why = bare.fetch("repos/o/r", false, 1)
-  assert(pages == nil and why:find("GH_TOKEN or GITHUB_TOKEN", 1, true), tostring(why))
+  assert(pages == nil and why:find("GH_TOKEN or GITHUB_TOKEN", 1, true) ~= nil, tostring(why))
   pages, why = bare.fetch("repos/o/r", true, 1)
-  assert(pages == nil and why:find("GH_TOKEN or GITHUB_TOKEN", 1, true), tostring(why))
+  assert(pages == nil and why:find("GH_TOKEN or GITHUB_TOKEN", 1, true) ~= nil, tostring(why))
   local deleted: boolean
   deleted, why = bare.delete("repos/o/r/actions/caches/1", 1)
-  assert(deleted == false and why:find("GH_TOKEN or GITHUB_TOKEN", 1, true), tostring(why))
+  assert(deleted == false and why:find("GH_TOKEN or GITHUB_TOKEN", 1, true) ~= nil, tostring(why))
 end
 
 --- A request is cut off after the seconds the lookup gives.
 local function test_a_lookup_carries_its_time_limit()
-  local limits: {integer | nil} = {}
-  local fetch, delete = Github.over({ base = "http://api.test",
+  local limits: mut {integer} = {}
+  local over = Github.over({ base = "http://api.test",
     now_ns = function(): integer return 0 end,
-    fetch = function(): boolean, string return false, "" end,
-    send = function(request: GithubApi.Request): GithubApi.Reply | nil, string
-      limits[#limits + 1] = request.timeout_ns
+    fetch = function(_a: string, _b: string): boolean, string return false, "" end,
+    send = function(request: GithubApi.Request): GithubApi.Reply?, string
+      limits[#limits + 1] = request.timeout_ns or -1
       return { status = 200, headers = {}, body = "{}" }, ""
     end })
-  assert(fetch("a", false, 7) and fetch("b", true, 8) and delete("c", 9))
+  assert(over.fetch("a", false, 7))
+  assert(over.fetch("b", true, 8))
+  assert(over.delete("c", 9))
   assert(limits[1] == 7000000000 and limits[2] == 8000000000 and limits[3] == 9000000000,
     tostring(limits[1]) .. " " .. tostring(limits[2]) .. " " .. tostring(limits[3]))
 end
@@ -136,8 +156,8 @@ local function test_a_delete_sends_delete()
   local host, sent = host_with({ { reply("204 No Content", "") },
     { reply("403 Forbidden", "", '{"message":"Must have admin rights"}') } })
   assert(host.delete("repos/o/r/actions/caches/7", 30))
-  has(sent[1], "DELETE /repos/o/r/actions/caches/7 HTTP/1.1\r\n")
-  has(sent[1], "\r\nAuthorization: Bearer secret\r\n")
+  has(assert(sent[1]), "DELETE /repos/o/r/actions/caches/7 HTTP/1.1\r\n")
+  has(assert(sent[1]), "\r\nAuthorization: Bearer secret\r\n")
   local deleted, why = host.delete("repos/o/r/actions/caches/8", 30)
   assert(deleted == false and why == "DELETE repos/o/r/actions/caches/8: HTTP 403: Must have admin rights", why)
 end
@@ -148,11 +168,12 @@ end
 --- no sign that it moved. (A recorded git stands in: no test runs the host's.)
 local function test_the_harness_moved_is_gits_answer()
   local base = string.rep("a", 40)
-  local function moved(known: integer | nil, diff: integer | nil): boolean, {string}
-    local lines: {string} = {}
-    local answer = Github.harness_moved(function(argv: {string}): integer | nil
-      lines[#lines + 1] = table.concat(argv, " ")
-      return argv[1] == "cat-file" and known or diff
+  local function moved(known: integer?, diff: integer?): boolean, {string}
+    local lines: mut {string} = {}
+    local answer = Github.harness_moved(function(argv: {string}): integer?
+      table.insert(lines, table.concat(argv, " "))
+      if argv[1] == "cat-file" and known ~= nil then return known end
+      return diff
     end, base)
     return answer, lines
   end

@@ -1,7 +1,7 @@
 --- The record every verb module's `spec` is, defined once so a verb is
 --- registered by one value in its own module (listed in build/verb_list.tl)
 --- rather than by a line in each place that has to know it: the dispatch
---- table, the set of verbs that print no verdict, the help prose that says
+--- table, the set of verbs that print no summary, the help prose that says
 --- what a verb takes and how it exits, and the cases in build/verb_cases.tl.
 --- What a person reads about a verb -- its description and options -- stays
 --- in [`cosmic.cli`].
@@ -12,16 +12,39 @@ local record verb_spec
     --- The word that names it on the command line; `Cli.<name>` is its prose.
     name: string
     --- Runs the command line, `name` at slot 1, and answers the exit code.
-    run: function(argv: {integer:string}): integer
-    --- True when the verb ends in no verdict line, its output being data for
-    --- a pipe: its exit status is the verdict, a usage error is complained
-    --- about and nothing more, and the tool's staleness is not checked
-    --- after it.
+    run: function(argv: {string}): integer
+    --- True when the verb prints no summary, its output being data for a
+    --- pipe and its exit status saying how it went, and the tool's
+    --- staleness is not checked after it.
     bare: boolean
     --- True when a tool older than the tree rebuilds itself before the verb
     --- runs, for a verb that does not check as it goes ([`build.reboot`]'s
     --- `stale_exit`): one whose rows, or whose own code, are the tree's.
-    fresh: boolean | nil
+    fresh?: boolean
+    --- True for a verb that only reads the tree's databases: it waits for
+    --- no other run's lock, the working database's write lock or the
+    --- checkout's rebuild lock ([`build.rebuild_lock`]), and answers from
+    --- what is there. It writes only where no other run holds the lock it
+    --- writes under: its staleness check stages the tree, makes a working
+    --- database of another schema again ([`work.try_open_remaking`]) and
+    --- rebuilds a stale tool ([`reboot.stale_exit`]); and, where that check
+    --- held the tool to the tree ([`reboot.unchecked`]), its lookup builds
+    --- ([`rebuild.here`]) and `todos` stages and blames. It marks `sql` too, which opens a database
+    --- read-only and checks no staleness, as the contract it keeps. A verb
+    --- that writes waits, as its build would.
+    reads?: boolean
+    --- False when, after the verb refuses its command line (exit 2),
+    --- [`build/dispatch.tl`] does not ask whether a tool older than the
+    --- tree refused an option the tree added, as it asks of other verbs:
+    --- for one that asks before it reads its line (`help`, `todos`), or
+    --- that must never stage the tree to ask (`sql`). A bare verb, and a
+    --- `fresh` one, which was asked about before it ran, never are.
+    recheck_on_refusal?: boolean
+    --- True when a failure, too, ends in a summary on stderr: what the run
+    --- found nothing of (`db`, `docs`, `uses`, `todos`) or what is left to
+    --- fix (`fix`). Another verb summarizes only a run that passed; a
+    --- failure's complaint says why.
+    summarizes_failure?: boolean
     --- What the verb takes after its name, as `cosmic help <verb>` phrases it
     --- ("a path and a file").
     takes: string
@@ -29,17 +52,17 @@ local record verb_spec
     --- verb's output and exit codes
     --- ("`json` prints its value ... and exits 0 when it ..."), starting
     --- with its name in backticks, on one line: help wraps it. Nil for a
-    --- verb that ends in a verdict line.
-    exits: string | nil
-    --- Why build/verb_cases.tl holds the verb to no verdict-line case, when
-    --- it has none.
-    passthrough: string | nil
+    --- verb that is not bare, which `cosmic help exit` covers.
+    exits?: string
+    --- Why build/verb_cases.tl holds the verb to no pass, fail and refusal
+    --- cases, when it has none.
+    passthrough?: string
     --- For a verb that runs another program, the slot of that program in
     --- its command line (nil when it names none): the words from it on
     --- are the program's own, so `cosmic <verb> prog --help` runs prog with
     --- `--help` rather than asking for the verb's help, which only the
     --- words before it can.
-    program_slot: function(argv: {integer:string}): integer | nil
+    program_slot?: function(argv: {string}): integer?
     --- The verb's section of doc/guides/quickstart.md: the text of its `## `
     --- heading, without the marks, or a string beginning "none: " that says
     --- why the quickstart has none. [`build.tree_checks`]' `verbs` holds it to

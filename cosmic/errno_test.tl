@@ -5,7 +5,7 @@ local sys = require("cosmic.sys")
 --- carries on this OS for the errno of that name: a field whose text no
 --- failure says would guide nothing.
 local function test_each_field_is_the_message_of_its_errno()
-  local messages: {string:string} = {}
+  local messages: mut {string:string} = {}
   for number = 1, 4095 do
     local name = sys.errno_name(number)
     if name ~= nil and messages[name] == nil then

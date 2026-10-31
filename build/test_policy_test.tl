@@ -21,15 +21,15 @@ end
 --- that are run.
 local function plan_of(reads: {string}, writes: {string}, at: {string:string},
                        runs: {string}): test_sandbox.Plan
-  local running: {string:boolean} = {}
+  local running: mut {string:boolean} = {}
   for _, path in ipairs(runs) do running[path] = true end
   return { sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = true },
-    env = {}, over = 0, trouble = "", runs = running }
+    env = {}, over = 0, trouble = "", runs = running, own_scratch = false, why_shared = "" }
 end
 
 --- The grant of `policy` at `path`, or nil.
-local function grant_at(policy: Sandbox.Policy, path: string): Sandbox.Grant | nil
-  for _, grant in ipairs(policy.grants) do
+local function grant_at(policy: Sandbox.Policy, path: string): Sandbox.Grant?
+  for _, grant in ipairs(policy.grants or {}) do
     if grant.path == path then return grant end
   end
   return nil
@@ -106,18 +106,20 @@ local function test_the_declaration_beside_the_paths_is_the_policys_other_fields
   local plan = plan_of({}, { "/host/scratch" }, { ["/host/scratch"] = test_sandbox.scratch }, {})
   local inputs = effective()
   local policy = worker_of(plan, inputs)
-  assert(#policy.isolate == 1 and policy.isolate[1] == "file")
-  assert(holds(policy.promises, "fork") and holds(policy.promises, "fattr") and
-      holds(policy.promises, "jit") and not holds(policy.promises, "nest"),
-    table.concat(policy.promises, ","))
-  assert(policy.profiles == nil and #policy.loopback == 0)
+  assert(#assert(policy.isolate) == 1 and assert(policy.isolate)[1] == "file")
+  local promises = assert(policy.promises)
+  assert(holds(promises, "fork") and holds(promises, "fattr") and
+      holds(promises, "jit") and not holds(promises, "nest"),
+    table.concat(promises, ","))
+  assert(policy.profiles == nil and #assert(policy.loopback) == 0)
   inputs.nests, inputs.system, inputs.tool = true, true, true
   inputs.network = { ["127.0.0.3"] = true, ["127.0.0.1"] = true }
   policy = worker_of(plan, inputs)
-  assert(holds(policy.promises, "nest"), table.concat(policy.promises, ","))
-  assert(#policy.profiles == 1 and policy.profiles[1] == "system")
-  assert(table.concat(policy.loopback, " ") == "127.0.0.1 127.0.0.3",
-    table.concat(policy.loopback, " "))
+  promises = assert(policy.promises)
+  assert(holds(promises, "nest"), table.concat(promises, ","))
+  assert(#assert(policy.profiles) == 1 and assert(policy.profiles)[1] == "system")
+  local loopback = assert(policy.loopback)
+  assert(table.concat(loopback, " ") == "127.0.0.1 127.0.0.3", table.concat(loopback, " "))
   -- Whole, as a start takes it: merging it refuses nothing.
   local merged, why = Sandbox.merge(policy)
   assert(merged ~= nil, tostring(why))
@@ -148,5 +150,5 @@ end
 local function test_a_workers_policy_has_the_runners_descriptor_limit()
   local shaped = test_policy.worker(plan_of({}, {}, {}, {}), effective())
   local held = sys.getrlimit(sys.RLIMIT_NOFILE)
-  assert(shaped ~= nil and held ~= nil and shaped.limits.open_files == math.min(held.hard, 1048576))
+  assert(shaped ~= nil and held ~= nil and assert(shaped.limits).open_files == math.min(held.hard, 1048576))
 end

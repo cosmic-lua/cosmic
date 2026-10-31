@@ -33,7 +33,7 @@ function Example.add_symlink()
   for _, entry in ipairs(entries) do
     print(entry.path, entry.kind, entry.linkpath)
   end
-  local link = entries[2]
+  local link = assert(entries[2])
   assert(link.kind == "symlink" and link.linkpath == "hello.txt", link.linkpath)
   assert(r:close())
 end
@@ -50,8 +50,9 @@ function Example.open_string()
   for _, entry in ipairs(entries) do
     print(entry.path, entry.kind, entry.size)
   end
-  assert(#entries == 1 and entries[1].path == "hello.txt")
-  local body = assert(entries[1]:open())
+  local hello = assert(entries[1])
+  assert(#entries == 1 and hello.path == "hello.txt")
+  local body = assert(hello:open())
   local text = assert(Stream.read_all(body))
   assert(text == "hello, world", text)
   assert(r:close())

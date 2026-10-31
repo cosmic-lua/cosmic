@@ -54,15 +54,14 @@ local function input_is_total(input: string): boolean, string
   else
     Fuzz.label("rfc3339")
   end
-  local moment = got as Time.Zoned
   -- What it read is a moment the calendar holds: one `format_rfc3339` can write.
-  local _ = Time.format_rfc3339(moment.ns, zone)
+  local _ = Time.format_rfc3339(got.ns, zone)
   return true, ""
 end
 
 local function gen_moment(src: Fuzz.Source): string
   local s = src:int(-9000000000, 9000000000)
-  local n = src:int(0, 2) == 0 and 0 or src:int(0, NS - 1)
+  local n = if src:int(0, 2) == 0 then 0 else src:int(0, NS - 1) end
   return string.pack("<i8i4", s, n) .. Fuzz.pick(src, ZONES)
 end
 

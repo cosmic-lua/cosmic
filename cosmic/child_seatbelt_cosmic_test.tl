@@ -36,7 +36,7 @@ local function denials(): string
     "--predicate", "eventMessage CONTAINS \"Sandbox: \"" },
     { stdout = "capture", stderr = "capture", stdin = "null", timeout_ns = Clock.seconds(60) })
   if result == nil then return "" end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in (result.stdout or ""):gmatch("[^\n]+") do lines[#lines + 1] = line end
   return "\nlog: " .. table.concat(lines, "\n", math.max(1, #lines - 60), #lines)
 end
@@ -44,7 +44,7 @@ end
 --- This program run to its end under `policy` on `-e chunk` and `args`,
 --- its output captured.
 local function ran(chunk: string, policy: Sandbox.Policy, args?: {string}): Child.Result
-  local argv: {string} = { (assert(Proc.executable())), "-e", chunk }
+  local argv: mut {string} = { (assert(Proc.executable())), "-e", chunk }
   for _, word in ipairs(args or {}) do argv[#argv + 1] = word end
   local result, why = Child.run(argv, { policy = policy, stdout = "capture", stderr = "capture",
     stdin = "null", timeout_ns = Clock.seconds(60) })
@@ -76,7 +76,7 @@ local function test_it_reads_a_granted_file_and_no_other(tmp: string)
   local granted, other = tmp .. "/granted", tmp .. "/other"
   assert(Fs.write(granted, "granted-bytes"))
   assert(Fs.write(other, "other-bytes"))
-  local result = ran(FS .. 'local a, b = ...; local g = Fs.read(a); local o = Fs.read(b) ' ..
+  local result = ran(FS .. 'local a, b = ... local g = Fs.read(assert(a)) local o = Fs.read(assert(b)) ' ..
       'print(g, o == nil)', { profiles = { "cosmic", "system" },
         grants = { { path = granted, letters = "r" } } }, { granted, other })
   expect(result.ok and result.stdout == "granted-bytes\ttrue\n", result)
@@ -86,15 +86,15 @@ end
 local function test_nothing_outside_its_grants_is_readable()
   macos_only()
   local home = assert(sys.getenv("HOME"), "HOME is not set")
-  local result = ran(FS .. 'local home, hosts = ...; ' ..
-      'print(Fs.list(home) == nil, Fs.read(hosts) == nil)',
+  local result = ran(FS .. 'local home, hosts = ... ' ..
+      'print(Fs.list(assert(home)) == nil, Fs.read(assert(hosts)) == nil)',
     { profiles = { "cosmic", "system" } }, { home, "/etc/hosts" })
   expect(result.ok and result.stdout == "true\ttrue\n", result)
 end
 
 local function test_tmp_is_a_directory_it_may_write()
   macos_only()
-  local result = ran(FS .. 'local dir = require("cosmic.sys").getenv("TMPDIR"); local path = dir .. "/made"; ' ..
+  local result = ran(FS .. 'local dir = assert(require("cosmic.sys").getenv("TMPDIR")) local path = dir .. "/made" ' ..
       'print(dir, (Fs.write(path, "x")), (Fs.read(path)))', { profiles = { "cosmic", "system" }, tmp = true })
   expect(result.ok, result)
   local dir = (result.stdout or ""):match("^([^\t]+)\ttrue\tx\n$")
@@ -109,8 +109,8 @@ local function test_tmp_leaves_its_parent_and_a_read_granted_file_unwritable(tmp
   macos_only()
   local granted = tmp .. "/granted"
   assert(Fs.write(granted, "granted-bytes"))
-  local result = ran(FS .. 'local sys = require("cosmic.sys") local granted = ... ' ..
-      'local dir = sys.getenv("TMPDIR") local parent = Fs.dirname(dir) ' ..
+  local result = ran(FS .. 'local sys = require("cosmic.sys") local granted = assert((...)) ' ..
+      'local dir = assert(sys.getenv("TMPDIR")) local parent = Fs.dirname(dir) ' ..
       'print((Fs.write(dir .. "/in", "x")), (Fs.write(parent .. "/beside", "x")), ' ..
       '(Fs.write(granted, "changed")))', { profiles = { "cosmic", "system" }, tmp = true,
         grants = { { path = granted, letters = "r" } } }, { granted })
@@ -130,6 +130,6 @@ local function test_a_portable_artifacts_relaunch_runs_under_a_policy()
         tostring(launched.argv[2]) .. "): no descriptors to hand on")
   end
   assert(next(launched.fds) ~= nil, "a portable artifact's relaunch hands on no descriptor")
-  local result = ran('print(require("cosmic.proc").relaunch().argv[2])', { profiles = { "cosmic", "system" } })
+  local result = ran('print(assert(require("cosmic.proc").relaunch()).argv[2])', { profiles = { "cosmic", "system" } })
   expect(result.ok and result.stdout == "--artifact\n", result)
 end

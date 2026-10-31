@@ -1,6 +1,6 @@
 --- What a worker whose module declares neither `store`, `tool` nor `nests`
 --- reads of the program: a sealed database of its module's import
---- closure and the modules every worker loads (build/test.tl's
+--- closure and the modules every worker loads (build/test_key.tl's
 --- `sealed_for`), so a module beyond them is found by no `Store` read, no
 --- searcher called by hand and no `require`, whether the module's own test
 --- makes it or a finalizer does after the hold on `require` is
@@ -11,6 +11,7 @@
 --- program is no portable artifact, which the run's summary says; an
 --- unmarked worker on none is skipped.
 local Env = require("cosmic.env")
+local Globals = require("cosmic.internal.globals")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -41,7 +42,7 @@ local function absent(name: string)
   for _, db in ipairs(Store.databases()) do
     local rows = assert(Sqlite.text_rows(db,
       "SELECT count(*) FROM modules WHERE path = ?1", { { text = name } }))
-    assert(rows[1][1] == "0", name .. ": a database holds its row")
+    assert(rows[1]:text(1) == "0", name .. ": a database holds its row")
   end
   -- The searchers behind the runner's own hold on `require`, which stands
   -- first only while the test runs.
@@ -55,22 +56,28 @@ local function test_a_module_outside_the_closure_is_not_in_the_program()
   if not sealed() then return end
   for _, name in ipairs(outside) do absent(name) end
   assert(Store.bytecode("cosmic.store") ~= nil, "a module of the closure is not")
-  local ok, why = pcall(require, "cosmic." .. "zip")
-  assert(not ok and tostring(why):find("outside the import closure", 1, true), tostring(why))
+  -- A `require` of a name made at run time, from a chunk of Lua: the parser refuses it in a typed file.
+  local function dynamic_require(name: string): any
+    local chunk = assert(load("return require((...))", "=dynamic_require", "t", Globals.table()))
+    local value: any = chunk(name)
+    return value
+  end
+  local ok, why = pcall(dynamic_require, "cosmic." .. "zip")
+  assert(not ok and tostring(why):find("outside the import closure", 1, true) ~= nil, tostring(why))
 end
 
 --- The same from a finalizer, which a collection runs where it likes,
 --- once the test is over included.
 local function test_a_finalizer_finds_no_module_outside_the_closure()
   if not sealed() then return end
-  local failure: string = "not run"
+  local failure = { value = "not run" }
   setmetatable({}, { __gc = function()
     local ok, why = pcall(function()
       for _, name in ipairs(outside) do absent(name) end
     end)
-    failure = ok and "" or tostring(why)
+    failure.value = if ok then "" else tostring(why) end
   end })
   collectgarbage()
   collectgarbage()
-  assert(failure == "", failure)
+  assert(failure.value == "", failure.value)
 end

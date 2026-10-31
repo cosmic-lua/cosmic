@@ -4,8 +4,8 @@
 #
 # All the logic lives in build/vendor.tl, run with `cosmic --standalone`:
 # against that binary's own standard library, never the tree, so it
-# works from any directory, writes nothing under o/, and does not care
-# whether the tree has been booted. It fetches into
+# works from any directory, writes nothing in the build directory, and
+# does not care whether the tree has been booted. It fetches into
 # $XDG_CACHE_HOME/cosmic/vendor (default ~/.cache/cosmic/vendor) with
 # cosmic.http's sha256 check and unpacks with cosmic.archive -- no curl,
 # wget, tar, unzip or sha256sum needed.

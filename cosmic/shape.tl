@@ -59,9 +59,13 @@
 --- - Nothing is converted, with one exception: `integer` takes a float
 ---   with no fraction, like the `8080.0` another language's encoder
 ---   writes, and answers the integer. `number` refuses `"1"`.
---- - A failure names the first value that does not fit by its JSON
----   Pointer, as `cosmic.json` names one, list indices counted from 0:
----   `pointer "/rows/1/id": expected string, got integer`. A record's
+--- - A failure names the first value that does not fit by its path from
+---   the root `$`, list indices counted from 0 as the JSON document
+---   counts them: `$.rows[1].id: want string, got integer`. A key that
+---   is not an identifier is quoted as JSON quotes it, `$["a b"]`, and
+---   a value that is not there, or [`Json.null`], is `$.rows[1].id: missing`. A failure of
+---   [`record_of`]'s `into` starts with the record's name, as
+---   `Envelope: $.rows[1].id: missing`. A record's
 ---   fields and a map's keys are checked in byte order, and a list's
 ---   elements in index order, so the same value
 ---   always reports the same failure. Only the first is answered: a
@@ -70,6 +74,7 @@
 --- - `into` never raises on a value, whatever it holds. A spec that was
 ---   not built by these functions is a programming error, and raises.
 
+local FieldPath = require("cosmic.internal.field_path")
 local Json = require("cosmic.json")
 
 local record Shape
@@ -94,15 +99,15 @@ local record Shape
     --- Whether a missing value satisfies it.
     optional: boolean
     --- The element's spec, for "list" and "map".
-    of: Spec
+    of?: Spec
     --- The fields' specs, for "record".
-    fields: {string: Spec}
+    fields?: {string: Spec}
     --- The fields' names in byte order, for "record".
-    names: {string}
+    names?: {string}
     --- Whether a key `fields` does not name is refused, for "record".
-    strict: boolean
+    strict?: boolean
     --- The values admitted, for "one_of".
-    values: {string | number | boolean}
+    values?: {string | number | boolean}
   end
 
   --- A [`Spec`] and the record `T` it was built from, which
@@ -112,10 +117,13 @@ local record Shape
     --- The record's shape: what `record` builds for the fields it
     --- declares.
     spec: Spec
+    --- The record's name, as [`record_of`] was given it. A failure of
+    --- `into` or [`decode_into`] starts with it: `Envelope: $.items[3].name: missing`.
+    name: string
     --- [`into`] over `spec`, answering a `T`.
-    into: function(self: Typed<T>, value: any): T | nil, string
+    into: function(self: Typed<T>, value: any): T?, string
     --- [`decode_into`] over `spec`, answering a `T`.
-    decode_into: function(self: Typed<T>, text: string, opts?: Json.DecodeOptions): T | nil, string
+    decode_into: function(self: Typed<T>, text: string, opts?: Json.DecodeOptions): T?, string
   end
 
   --- Any string.
@@ -166,7 +174,7 @@ end
 --- is a positive integer, the empty table included. An index missing
 --- below the highest is a missing element, which only an optional `of`
 --- admits, so `[1, null, 3]` fits `list(optional(integer))` and comes
---- back with a hole, and fails `list(integer)` at `pointer "/1"`. The
+--- back with a hole, and fails `list(integer)` at `$[1]`. The
 --- answer is marked a JSON array, so an empty one still encodes as `[]`.
 --- @param of Spec Each element's shape
 --- @return Spec The list's shape
@@ -186,8 +194,8 @@ end
 
 --- A record's spec over a copy of `fields`, its names in byte order.
 local function record_spec(fields: {string: Spec}, strict: boolean, what: string): Spec
-  local own: {string: Spec} = {}
-  local names: {string} = {}
+  local own: mut {string: Spec} = {}
+  local names: mut {string} = {}
   for name, spec in pairs(fields) do
     need_spec(spec, ("%s's field %q"):format(what, name))
     own[name] = spec
@@ -209,12 +217,12 @@ end
 --- A record that refuses every key it does not name, for a config file
 --- where a misspelled key should fail rather than vanish:
 --- `{"prot": 8080}` against `strict_record({ port = Shape.integer })`
---- fails with `pointer "/prot": unknown key`. The keys are checked
+--- fails with `$.prot: unknown key`. The keys are checked
 --- before the fields, so the misspelling is named rather than the field
 --- it was meant to be, and the first unknown one in byte order is the
 --- one reported. A key is unknown whatever its value, [`Json.null`] included:
 --- `"prot": null` is still a misspelling. A key that is not a string is
---- refused as a map refuses one, `pointer "": expected record, got the
+--- refused as a map refuses one, `$: want record, got the
 --- integer key 1`. Otherwise it is `record`: a named field that is
 --- `optional` may be missing or [`Json.null`], and the answer is a copy.
 --- @param fields {string: Spec} Each field's shape, by its name
@@ -248,30 +256,13 @@ function Shape.one_of(...: string | number | boolean): Spec
   return { kind = "one_of", optional = false, values = values }
 end
 
-local quoted = Json.quote
+local quoted = FieldPath.quote
 
---- The JSON Pointer `path` extended by the member `name`, `~` written
---- `~0` and `/` written `~1`.
-local function field_path(path: string, name: string): string
-  return path .. "/" .. name:gsub("~", "~0"):gsub("/", "~1")
-end
-
---- The JSON Pointer `path` extended by the list element at `index`,
---- counted from 1 as Lua counts it and from 0 as the pointer does.
-local function index_path(path: string, index: integer): string
-  return path .. "/" .. (index - 1)
-end
-
---- Where `path` is, for a message: `pointer "/rows/1/id"`.
-local function where(path: string): string
-  return "pointer " .. quoted(path)
-end
+local field_path, index_path = FieldPath.field, FieldPath.index
 
 --- What a value is, for a message: the Lua type, with integer and float
---- told apart, and JSON's null and arrays by their JSON names.
+--- told apart, and arrays by their JSON name.
 local function kind_of(v: any): string
-  if v == nil then return "nothing" end
-  if rawequal(v, Json.null) then return "null" end
   if v is number then return math.type(v) end
   if Json.is_array(v) then return "array" end
   return type(v)
@@ -289,8 +280,8 @@ end
 --- What `spec` asks for, for a message.
 local function wanted(spec: Spec): string
   if spec.kind == "one_of" then
-    local parts: {string} = {}
-    for i, v in ipairs(spec.values) do parts[i] = shown(v) end
+    local parts: mut {string} = {}
+    for i, v in ipairs(assert(spec.values)) do parts[i] = shown(v) end
     return "one of " .. table.concat(parts, ", ")
   end
   return spec.kind
@@ -298,7 +289,8 @@ end
 
 --- `path`'s message for a value of the wrong kind.
 local function mismatch(path: string, spec: Spec, v: any): string
-  return ("%s: expected %s, got %s"):format(where(path), wanted(spec), kind_of(v))
+  if v == nil then return path .. ": missing" end
+  return ("%s: want %s, got %s"):format(path, wanted(spec), kind_of(v))
 end
 
 --- A key a list or a map refuses, for a message: a scalar by its value,
@@ -349,13 +341,13 @@ end
 
 --- The message for a container of `kind` that holds a key it refuses.
 local function refusal(path: string, kind: string, key: any): string
-  return ("%s: expected %s, got %s"):format(where(path), kind, key_named(key))
+  return ("%s: want %s, got %s"):format(path, kind, key_named(key))
 end
 
 --- What a strict record `spec` refuses in `t`, before any field is
 --- looked at: a key that is not a string, named where the record
 --- stands, or else the first string key it does not name, in byte
---- order, named where that key is (`pointer "/prot": unknown key`). A key that
+--- order, named where that key is (`$.prot: unknown key`). A key that
 --- is not a string takes precedence, so a strict record fails where it
 --- stands or at its keys, never at a field as well. Answers the message,
 --- or "".
@@ -366,9 +358,10 @@ local function unknown_key(t: {any: any}, spec: Spec, path: string): string
     if refused ~= nil then return refusal(path, "record", refused) end
     return ""
   end
+  local fields = assert(spec.fields)
   for _, k in ipairs(members.keys) do
-    if k is string and spec.fields[k] == nil then
-      return where(field_path(path, k)) .. ": unknown key"
+    if k is string and fields[k] == nil then
+      return field_path(path, k) .. ": unknown key"
     end
   end
   return ""
@@ -380,13 +373,15 @@ end
 local walk: function(v: any, spec: Spec, path: string): any, string
 
 local function walk_record(t: {any: any}, spec: Spec, path: string): any, string
-  if spec.strict then
+  if spec.strict == true then
     local unknown = unknown_key(t, spec, path)
     if unknown ~= "" then return nil, unknown end
   end
-  local out: {string: any} = {}
-  for _, name in ipairs(spec.names) do
-    local got, failed = walk(rawget(t, name), spec.fields[name], field_path(path, name))
+  local out: mut {string: any} = {}
+  local fields, names = spec.fields, spec.names
+  if fields == nil or names == nil then error("shape: a record spec holds no fields", 2) end
+  for _, name in ipairs(names) do
+    local got, failed = walk(rawget(t, name), fields[name], field_path(path, name))
     if failed ~= "" then return nil, failed end
     out[name] = got
   end
@@ -401,9 +396,10 @@ local function walk_list(t: {any: any}, spec: Spec, path: string): any, string
     return nil, refusal(path, "list", least_refused(t, is_index))
   end
   local keys = members.keys
-  local count = #keys > 0 and #keys or members.extent
-  local out: {any} = {}
+  local count = if #keys > 0 then #keys else members.extent end
+  local out: mut {integer: any} = {}
   local after = 0
+  local of = assert(spec.of)
   for i = 1, count do
     local k: integer = i
     if #keys > 0 then
@@ -413,15 +409,18 @@ local function walk_list(t: {any: any}, spec: Spec, path: string): any, string
     -- A hole is a missing element: it fails a list whose elements are
     -- not optional, as a missing field fails a record, and each run of
     -- holes is one miss, at its first index.
-    if not spec.of.optional and k > after + 1 then
-      return nil, mismatch(index_path(path, after + 1), spec.of, nil)
+    if not of.optional and k > after + 1 then
+      return nil, mismatch(index_path(path, after + 1), of, nil)
     end
     after = k
-    local got, failed = walk(rawget(t, k), spec.of, index_path(path, k))
+    local got, failed = walk(rawget(t, k), of, index_path(path, k))
     if failed ~= "" then return nil, failed end
     out[k] = got
   end
-  return Json.array(out), ""
+  -- An element that is nil leaves a hole, and the list is as long as its highest element that is not.
+  -- `out` is a new table of positions from 1 with no metatable, which `with_holes` takes.
+  local list, why = Json.with_holes(out)
+  return assert(list, why), ""
 end
 
 local function walk_map(t: {any: any}, spec: Spec, path: string): any, string
@@ -432,10 +431,11 @@ local function walk_map(t: {any: any}, spec: Spec, path: string): any, string
   if members.layout ~= "object" then
     return nil, refusal(path, "map", least_refused(t, is_name))
   end
-  local out: {string: any} = {}
+  local out: mut {string: any} = {}
+  local of = assert(spec.of)
   for _, k in ipairs(members.keys) do
     if k is string then
-      local got, failed = walk(rawget(t, k), spec.of, field_path(path, k))
+      local got, failed = walk(rawget(t, k), of, field_path(path, k))
       if failed ~= "" then return nil, failed end
       out[k] = got
     end
@@ -458,18 +458,20 @@ walk = function(v: any, spec: Spec, path: string): any, string
     if v is number then
       local i = math.tointeger(v)
       if i ~= nil then return i, "" end
-      return nil, ("%s: expected integer, got %s"):format(where(path), shown(v))
+      return nil, ("%s: want integer, got %s"):format(path, shown(v))
     end
   elseif kind == "boolean" then
     if v is boolean then return v, "" end
   elseif kind == "any" then
     return v, ""
   elseif kind == "one_of" then
-    for _, want in ipairs(spec.values) do
+    local values = spec.values
+    if values == nil then error("shape: a one_of spec holds no values", 2) end
+    for _, want in ipairs(values) do
       if v == want then return v, "" end
     end
     if v is string or v is number or v is boolean then
-      return nil, ("%s: expected %s, got %s"):format(where(path), wanted(spec), shown(v))
+      return nil, ("%s: want %s, got %s"):format(path, wanted(spec), shown(v))
     end
   elseif kind == "list" or kind == "map" or kind == "record" then
     if v is {any: any} then
@@ -493,9 +495,9 @@ end
 --- @param spec Spec The shape it must have
 --- @return T The value, typed
 --- @return string "" or what did not fit
-function Shape.into<T>(value: any, spec: Spec): T | nil, string
+function Shape.into<T>(value: any, spec: Spec): T?, string
   need_spec(spec, "into's shape")
-  local out, failed = walk(value, spec, "")
+  local out, failed = walk(value, spec, "$")
   if failed ~= "" then return nil, failed end
   -- cast: the one from `any`, which walk has just built to `spec`
   return out as T, ""
@@ -504,39 +506,49 @@ end
 --- The JSON `text` holds, checked against `spec` as `into` does, and
 --- "". nil and a message when it does not: [`Json.decode`]'s own, naming
 --- the line and column, when the text is not JSON, or `into`'s, naming
---- the pointer to the first value that does not fit, when it is JSON of
+--- the path to the first value that does not fit, when it is JSON of
 --- another shape. `opts` are [`Json.decode`]'s, forwarded as they are
 --- (`json5`, `null_value`, `max_depth`). The answer's type is the
 --- caller's annotation, as `into`'s is. Text that is `null` decodes to
 --- nothing (unless `opts.null_value` says otherwise), so a required
---- spec answers `pointer "": expected record, got nothing` and an optional one
+--- spec answers `$: missing` and an optional one
 --- answers nil and "". Raises only when `spec` is not a Spec.
 ---
 ---     local text = '{"host": "localhost", "port": 8080}'
 ---     local server, err: Server | nil, string = Shape.decode_into(text, SERVER)
 ---     -- server.port == 8080; with "port": "x", err is
----     -- 'pointer "/port": expected integer, got string'
+---     -- '$.port: want integer, got string'
 --- @param text string The JSON text
 --- @param spec Spec The shape it must have
 --- @param opts Json.DecodeOptions What [`Json.decode`] takes
 --- @return T The value, typed
 --- @return string "" or what was wrong with the text
-function Shape.decode_into<T>(text: string, spec: Spec, opts?: Json.DecodeOptions): T | nil, string
+function Shape.decode_into<T>(text: string, spec: Spec, opts?: Json.DecodeOptions): T?, string
   need_spec(spec, "decode_into's shape")
   local decoded, trouble = Json.decode(text, opts)
   if decoded == nil and trouble ~= "" then return nil, trouble end
-  local out, failed: T | nil, string = Shape.into(decoded, spec)
+  local out, failed: T?, string = Shape.into(decoded, spec)
   if out == nil then return nil, failed end
   return out, ""
 end
 
-local function typed_into<T>(self: Shape.Typed<T>, value: any): T | nil, string
-  return Shape.into(value, self.spec)
+--- `failure` of a [`Typed`], led by the record's name; "" stays "".
+local function named<T>(self: Shape.Typed<T>, failure: string): string
+  if failure == "" then return "" end
+  return self.name .. ": " .. failure
+end
+
+local function typed_into<T>(self: Shape.Typed<T>, value: any): T?, string
+  local out, failed: T?, string = Shape.into(value, self.spec)
+  if failed ~= "" then return nil, named(self, failed) end
+  return out, ""
 end
 
 local function typed_decode_into<T>(self: Shape.Typed<T>, text: string,
-                                    opts?: Json.DecodeOptions): T | nil, string
-  return Shape.decode_into(text, self.spec, opts)
+                                    opts?: Json.DecodeOptions): T?, string
+  local decoded, trouble = Json.decode(text, opts)
+  if decoded == nil and trouble ~= "" then return nil, trouble end
+  return typed_into(self, decoded)
 end
 
 --- The shape of the Teal record `name`, read off its declaration by the
@@ -560,9 +572,12 @@ end
 --- [`one_of`] with its values in byte order; records of those; and a
 --- field typed `T | nil`, as `optional`. A function, a union of more
 --- than one type, a generic, an interface and a record that holds itself
---- are refused when the module is built, naming the field. The record
---- keeps its fields only: a key the payload grew is dropped, as `record`
---- does, and `spec` is a [`Spec`] to put inside any other.
+--- are refused when the module is built, naming the field. A field of type
+--- `any` is read as `optional(any)`, since `any` holds nil: a payload that
+--- lacks its key is accepted and the field is nil, where a field of any other
+--- type must be there. To refuse a missing key, test the field after `into`.
+--- The record keeps its fields only: a key the payload grew is dropped, as
+--- `record` does, and `spec` is a [`Spec`] to put inside any other.
 ---
 --- The build, not the program, reads the declaration: it splices the
 --- spec and the record's type in after `name`, which are `built` and
@@ -592,7 +607,7 @@ function Shape.record_of<T>(name: string, built?: Spec, _witness?: function(): T
     error(("shape: record_of(%q) was given a %s spec, not a record's"):format(name, built.kind), 2)
   end
   local typed: Shape.Typed<T> = {
-    spec = built, into = typed_into, decode_into = typed_decode_into,
+    name = name, spec = built, into = typed_into, decode_into = typed_decode_into,
   }
   return typed
 end

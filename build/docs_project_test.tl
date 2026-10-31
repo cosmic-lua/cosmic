@@ -5,8 +5,12 @@
 --- tests of the verbs' contract (build/verbs_store_test.tl) stand while
 --- the build's cache is out of their keys.
 
+local Clock = require("cosmic.clock")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
+local build_paths = require("build.paths")
 local invoke = require("build.invoke")
 
 Test.policy{
@@ -17,7 +21,8 @@ Test.policy{
 --- `cosmic <args>` in `dir`, built without the shared cache, which lives
 --- outside the test's own directory.
 local function cosmic(dir: string, args: {string}): invoke.Result
-  return invoke.run(args, { cwd = dir, env = { COSMIC_BUILD_CACHE = "0" } })
+  return invoke.run(args, { cwd = dir,
+    env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = assert(Env.get("COSMIC_BUILD_HOME")) } })
 end
 
 local function docs_in(dir: string, ...: string): string
@@ -37,7 +42,7 @@ local function test_docs_answers_from_the_tree_as_it_stands(tmp: string)
     return "--- " .. word .. " words.\nlocal record Thing\nend\nreturn Thing\n"
   end
   assert(Fs.write(project .. "/thing.tl", module("First")))
-  local built = cosmic(project, { "build" })
+  local built = cosmic(project, { "build", "--host" })
   assert(built.code == 0, built.stdout .. built.stderr)
   local first = docs_in(project, "thing")
   assert(first:find("First words.", 1, true), first)
@@ -48,24 +53,37 @@ local function test_docs_answers_from_the_tree_as_it_stands(tmp: string)
   local empty = tmp .. "/nothing"
   assert(Fs.mkdirs(empty))
   local _ = cosmic(empty, { "docs", "Fs.read" })
-  local made, made_trouble = Fs.exists(empty .. "/o")
+  local made, made_trouble = Fs.exists(build_paths.required(empty))
   assert(made ~= nil, made_trouble)
-  assert(not made, "a directory of no project gets no o/")
+  assert(not made, "a directory of no project gets a build directory")
 end
 
 --- A directory no build has been made of is not built by a lookup, even
---- one holding a stray `.tl`: it gets no `o/`, and is told to build.
+--- one holding a stray `.tl`: it gets no build directory, and is told to build.
 local function test_a_lookup_builds_nothing_in_an_unbuilt_directory(tmp: string)
   local stray = tmp .. "/stray"
   assert(Fs.mkdirs(stray))
   assert(Fs.write(stray .. "/notes.tl", "--- Notes.\nlocal record Notes\nend\nreturn Notes\n"))
   local result = cosmic(stray, { "docs", "Fs.read" })
   assert(result.code == 0, result.stdout .. result.stderr)
-  local made, made_trouble = Fs.exists(stray .. "/o")
+  local made, made_trouble = Fs.exists(build_paths.required(stray))
   assert(made ~= nil, made_trouble)
-  assert(not made, "a directory never built gets no o/")
+  assert(not made, "a directory never built gets a build directory")
   assert(result.stderr:find("has not been built", 1, true), result.stderr)
   assert(not result.stdout:find("Notes", 1, true), result.stdout)
+end
+
+--- `docs` in a directory that can have no build directory, the build
+--- home being beneath it, answers from the binary's own databases: it
+--- names no build directory to ask whether it is one a check left
+--- unchecked ([`reboot.unchecked`]).
+local function test_a_lookup_answers_where_the_build_home_is_beneath_the_directory(tmp: string)
+  local work = tmp .. "/work"
+  assert(Fs.mkdirs(work))
+  local result = invoke.run({ "docs", "Fs.read" }, { cwd = work,
+    env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = work .. "/build" } })
+  assert(result.code == 0, result.stdout .. result.stderr)
+  assert(result.stdout:find("Fs.read", 1, true), result.stdout)
 end
 
 --- Every module `cosmic docs` lists answers `cosmic docs <module>`, one
@@ -75,9 +93,9 @@ local function test_a_listed_function_module_answers_its_name(tmp: string)
   local project = tmp .. "/project"
   assert(Fs.mkdirs(project .. "/cmd/greet"))
   assert(Fs.write(project .. "/cmd/greet/main.tl",
-    "--- Says hello.\nlocal function main(_argv: {integer:string}): integer\n" ..
+    "--- Says hello.\nlocal function main(_argv: {string}): integer\n" ..
       "  return 0\nend\nreturn main\n"))
-  local built = cosmic(project, { "build" })
+  local built = cosmic(project, { "build", "--host" })
   assert(built.code == 0, built.stdout .. built.stderr)
   local index = docs_in(project)
   assert(index:find("cmd.greet.main", 1, true), index)
@@ -95,13 +113,13 @@ local function test_uses_lists_a_projects_links_to_the_standard_library(tmp: str
     "local Fs = require(\"cosmic.fs\")\n\n" ..
       "--- Reads its greeting with [`Fs.read`].\nlocal record greet\nend\n\n" ..
       "--- Says hello.\nfunction greet.hello(): string\n" ..
-      "  return (Fs.read(\"hello\")) or \"hello\"\nend\n\nreturn greet\n"))
+      "  local text, why = Fs.read(\"hello\") if text == nil then return why end return text\nend\n\nreturn greet\n"))
   assert(Fs.write(project .. "/README.md", "# Greet\n\nIt reads with [`cosmic.fs.read`].\n"))
-  local built = cosmic(project, { "build" })
+  local built = cosmic(project, { "build", "--host" })
   assert(built.code == 0, built.stdout .. built.stderr)
   local result = cosmic(project, { "uses", "cosmic.fs.read" })
   assert(result.code == 0, result.stdout .. result.stderr)
-  local mine: {string} = {}
+  local mine: mut {string} = {}
   for line in result.stdout:gmatch("[^\n]+") do
     if line:match("^greet%.tl:") or line:match("^README%.md:") then mine[#mine + 1] = line end
   end
@@ -111,5 +129,42 @@ local function test_uses_lists_a_projects_links_to_the_standard_library(tmp: str
   local linked = 0
   for _ in result.stdout:gmatch(": link cosmic%.fs read\n") do linked = linked + 1 end
   local page = docs_in(project, "cosmic.fs.read")
-  assert(page:find("linked from " .. linked .. ";", 1, true), linked .. " links listed:\n" .. page)
+  assert(page:find("linked from " .. tostring(linked) .. ";", 1, true), tostring(linked) .. " links listed:\n" .. page)
+end
+
+--- While another run holds the project's working database, as a `cosmic
+--- test` does through its build, `docs` and `uses` wait for it no more
+--- than to find it held: they answer from what it last committed, and
+--- say so once.
+local function test_a_lookup_waits_for_no_run_holding_the_database(tmp: string)
+  local project = tmp .. "/project"
+  assert(Fs.mkdirs(project))
+  local function module(word: string): string
+    return "local Fs = require(\"cosmic.fs\")\n\n--- " .. word .. " words.\nlocal record thing\nend\n\n" ..
+      "--- Reads.\nfunction thing.read(): string\n  local text, why = Fs.read(\"x\") if text == nil then return why end return text\nend\n\nreturn thing\n"
+  end
+  assert(Fs.write(project .. "/thing.tl", module("First")))
+  local built = cosmic(project, { "build", "--host" })
+  assert(built.code == 0, built.stdout .. built.stderr)
+  assert(Fs.write(project .. "/thing.tl", module("Second")))
+  local held = assert(Sqlite.open(build_paths.required(project) .. "/build.db", { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  for _, words in ipairs({ { "docs", "thing" }, { "uses", "cosmic.fs.read" } }) do
+    local started = Clock.monotonic_ns()
+    local result = cosmic(project, words)
+    local took = Clock.monotonic_ns() - started
+    assert(result.code == 0, result.stdout .. result.stderr)
+    assert(took < Clock.seconds(10), table.concat(words, " ") .. " took " .. tostring(took) .. " ns")
+    -- Said once a process, and both run in this one ([`build.invoke`]).
+    local _, told = result.stderr:gsub("not waiting for it", "")
+    assert(told == (if words[1] == "docs" then 1 else 0 end), result.stderr)
+    if words[1] == "docs" then
+      assert(result.stdout:find("First words.", 1, true), result.stdout)
+    else
+      assert(result.stdout:find("thing.tl:", 1, true), result.stdout)
+    end
+  end
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  assert(docs_in(project, "thing"):find("Second words.", 1, true))
 end

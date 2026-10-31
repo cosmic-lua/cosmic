@@ -1,6 +1,13 @@
 local dataset = require("build.dataset")
 local Sqlite = require("cosmic.sqlite")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 --- A fresh in-memory database.
 local function memory(): Sqlite.Handle
   return (assert(Sqlite.memory()))
@@ -9,19 +16,23 @@ end
 --- The text every cell of `sql` reads as, `NULL` for none, one row per
 --- element and `|` between cells.
 local function grid(db: Sqlite.Handle, sql: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local q <close> = assert(Sqlite.query(db, sql))
   for row in q:each() do
-    local cells: {string} = {}
-    for index, cell in ipairs(row) do
-      if cell.kind == "null" then
-        cells[index] = "NULL"
-      elseif cell.kind == "integer" then
-        cells[index] = "i" .. cell.integer
-      elseif cell.kind == "number" then
-        cells[index] = "r" .. cell.number
+    local cells: mut {string} = {}
+    for index = 1, row:count() do
+      local kind = row:kind(index)
+      if kind == "null" then
+        cells[#cells + 1] = "NULL"
+      elseif kind == "integer" then
+        local whole = row:integer(index)
+        cells[#cells + 1] = "i" .. tostring(whole)
+      elseif kind == "number" then
+        local real = row:number(index)
+        cells[#cells + 1] = "r" .. tostring(real)
       else
-        cells[index] = cell.text
+        local text = row:text(index)
+        cells[#cells + 1] = text
       end
     end
     out[#out + 1] = table.concat(cells, "|")
@@ -74,7 +85,7 @@ local function test_keys_are_quoted_and_collisions_renamed()
   -- Each key's value is in the column named for it, or the renamed one.
   local function value(column: string): string
     local rows = assert(Sqlite.text_rows(db, 'SELECT "' .. column:gsub('"', '""') .. '" FROM t'))
-    return rows[1][1]
+    return nth(rows, 1):text(1)
   end
   assert(value("a b") == "1" and value('x"y') == "2" and value("select") == "3")
   assert(value("A") == "4" and value("_") == "6")
@@ -82,9 +93,9 @@ local function test_keys_are_quoted_and_collisions_renamed()
   assert(made.renamed["_JSON_2"] == "_JSON" and made.renamed["_json_3"] == "_json")
   assert(made.renamed["A"] == nil and made.renamed["select"] == nil)
   -- Every column is distinct even when case is folded, and `_json` is the row's own.
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, column in ipairs(made.columns) do
-    assert(not seen[column:lower()], column .. " twice")
+    assert(seen[column:lower()] ~= true, column .. " twice")
     seen[column:lower()] = true
   end
   assert(made.columns[#made.columns] == "_json")
@@ -115,27 +126,27 @@ end
 local function test_at_reads_the_rows_from_a_path()
   local rows = assert(dataset.read("json", '{"a": {"rows": [{"id": 1}, {"id": 2}]}}',
     { at = { "a", "rows" } }))
-  assert(#rows == 2 and rows[2].id == 2)
+  assert(#rows == 2 and nth(rows, 2).id == 2)
   local none, why = dataset.read("json", '{"a": 1}', { at = { "b" } })
   assert(none == nil and why == 'json: no value at pointer "/b"', why)
   local last = assert(dataset.read("json", '{"a": [{"id": 1}, {"id": 2}]}', { at = { "a", -1 } }))
-  assert(#last == 1 and last[1].id == 2)
+  assert(#last == 1 and nth(last, 1).id == 2)
   local bad, bad_why = dataset.read("json", "{", {})
-  assert(bad == nil and bad_why:find("invalid JSON", 1, true), bad_why)
+  assert(bad == nil and bad_why:find("invalid JSON", 1, true) ~= nil, bad_why)
 end
 
 local function test_ndjson_is_a_row_per_line()
   local rows = assert(dataset.read("ndjson", '{"a": 1}\n\n{"a": 2, "b": "x"}\r\n7\n'))
-  assert(#rows == 3 and rows[2].b == "x" and rows[3].value == 7)
+  assert(#rows == 3 and nth(rows, 2).b == "x" and nth(rows, 3).value == 7)
   local db = memory()
   local made = assert(dataset.load(db, "t", rows))
   assert(table.concat(made.columns, ",") == "a,b,value,_json")
   assert(grid(db, "SELECT sum(a) FROM t")[1] == "i3")
   assert(#assert(dataset.read("ndjson", "")) == 0)
   local bad, why = dataset.read("ndjson", '{"a": 1}\n{\n')
-  assert(bad == nil and why:find("line 2", 1, true), why)
+  assert(bad == nil and why:find("line 2", 1, true) ~= nil, why)
   local at, at_why = dataset.read("ndjson", "{}", { at = { "a" } })
-  assert(at == nil and at_why:find("no path", 1, true), at_why)
+  assert(at == nil and at_why:find("no path", 1, true) ~= nil, at_why)
 end
 
 local function test_formats_are_found_by_name_and_extension()
@@ -145,7 +156,7 @@ local function test_formats_are_found_by_name_and_extension()
   local unknown, why = dataset.format_of("data.xml")
   assert(unknown == nil and why == "dataset: unknown extension .xml (known: .csv, .json, .jsonl, .ndjson, .tab, .tsv)", why)
   local none, none_why = dataset.format_of("README")
-  assert(none == nil and none_why:find("^dataset: no extension"), none_why)
+  assert(none == nil and none_why:find("^dataset: no extension") ~= nil, none_why)
   local missing, missing_why = dataset.read("yaml", "a: 1")
   assert(missing == nil and missing_why == "dataset: no format yaml (known: csv, json, ndjson, tsv)", missing_why)
   assert(dataset.about("json") ~= nil and dataset.about("yaml") == nil)
@@ -156,7 +167,7 @@ local function test_load_refuses_what_sqlite_or_the_caller_cannot_take()
   local rows = assert(dataset.read("json", '[{"a": 1}]'))
   assert(dataset.load(db, "t", rows))
   local again, why = dataset.load(db, "T", rows)
-  assert(again == nil and why:find("already exists", 1, true), why)
+  assert(again == nil and why:find("already exists", 1, true) ~= nil, why)
   local nameless, nameless_why = dataset.load(db, "", rows)
   assert(nameless == nil and nameless_why == "dataset: a table needs a name")
   local odd = assert(dataset.load(db, 'we"ird name', rows))
@@ -164,7 +175,7 @@ local function test_load_refuses_what_sqlite_or_the_caller_cannot_take()
   local ok = Sqlite.rows(db, 'SELECT a FROM "we""ird name"')
   assert(ok ~= nil)
   local bad, bad_why = dataset.load(db, "u", { { a = print as any } })
-  assert(bad == nil and bad_why:find("row 1, a: a function has no SQLite value", 1, true), bad_why)
+  assert(bad == nil and bad_why:find("row 1, a: a function has no SQLite value", 1, true) ~= nil, bad_why)
   -- A refused load leaves no table behind.
   assert(not Sqlite.rows(db, "SELECT * FROM u"))
 end
@@ -190,7 +201,7 @@ end
 
 local function test_too_many_columns_says_the_limit_and_the_count()
   local row: dataset.Row = {}
-  for index = 1, 1999 do row["k" .. index] = index end
+  for index = 1, 1999 do row["k" .. tostring(index)] = index end
   local db = memory()
   assert(dataset.load(db, "t", { row }), "1999 keys and `_json` are 2000 columns")
   row.extra = 1
@@ -205,11 +216,11 @@ local function csv_cells(text: string, raw?: boolean): string
   local rows = assert(dataset.read("csv", text, { raw = raw }))
   local db = memory()
   local made = assert(dataset.load(db, "t", rows))
-  local picks: {string} = {}
+  local picks: mut {string} = {}
   for index = 1, #made.columns - 1 do
-    picks[index] = 'typeof("' .. made.columns[index] .. '") || \':\' || coalesce("' .. made.columns[index] .. '", \'NULL\')'
+    picks[#picks + 1] = 'typeof("' .. nth(made.columns, index) .. '") || \':\' || coalesce("' .. nth(made.columns, index) .. '", \'NULL\')'
   end
-  return grid(db, "SELECT " .. table.concat(picks, " || '|' || ") .. " FROM t")[1]
+  return nth(grid(db, "SELECT " .. table.concat(picks, " || '|' || ") .. " FROM t"), 1)
 end
 
 local function test_a_csv_cell_that_is_plainly_a_number_is_one()
@@ -248,7 +259,7 @@ end
 
 local function test_tsv_reads_tabs_and_csv_and_tsv_refuse_a_path()
   local rows = assert(dataset.read("tsv", "a\tb\n1,5\t2\n"))
-  assert(rows[1].a == "1,5" and rows[1].b == 2)
+  assert(nth(rows, 1).a == "1,5" and nth(rows, 1).b == 2)
   assert(dataset.format_of("x.tab") == "tsv" and dataset.format_of("X.TSV") == "tsv")
   assert(dataset.format_of("x.csv") == "csv")
   for _, name in ipairs({ "csv", "tsv" }) do
@@ -256,7 +267,7 @@ local function test_tsv_reads_tabs_and_csv_and_tsv_refuse_a_path()
     assert(none == nil and why == "dataset: the " .. name .. " format takes no path: each record is a row", why)
   end
   local bad, why = dataset.read("csv", "a,b\n1\n")
-  assert(bad == nil and why:find("line 2, column 1", 1, true), why)
+  assert(bad == nil and why:find("line 2, column 1", 1, true) ~= nil, why)
 end
 
 local function test_duplicate_and_empty_csv_headers_are_renamed_like_json_keys()
@@ -270,7 +281,7 @@ end
 local function test_json_formats_refuse_raw()
   for _, name in ipairs({ "json", "ndjson" }) do
     local none, why = dataset.read(name, "[]", { raw = true })
-    assert(none == nil and why:find("no raw cells", 1, true), why)
+    assert(none == nil and why:find("no raw cells", 1, true) ~= nil, why)
   end
 end
 
@@ -286,7 +297,7 @@ local function test_a_csv_table_follows_the_header_and_json_stays_sorted()
   local made = assert(dataset.load(db, "t", rows))
   assert(table.concat(made.columns, ",") == "z,a,m,_json", table.concat(made.columns, ","))
   local star = Sqlite.text_rows(db, "SELECT * FROM t")
-  assert(star ~= nil and star[1][1] == "1" and star[1][2] == "2" and star[1][3] == "3")
+  assert(star ~= nil and nth(star, 1):text(1) == "1" and nth(star, 1):text(2) == "2" and nth(star, 1):text(3) == "3")
   -- Rows with no order of their own are in byte order.
   local db2 = memory()
   assert(table.concat(assert(dataset.load(db2, "t", { { z = 1, a = 2 } })).columns, ",") == "a,z,_json")
@@ -326,8 +337,8 @@ local function test_a_csv_file_answers_a_sum_by_group()
   assert(table.concat(made.columns, ",") == "type,balance,_json")
   local totals = assert(Sqlite.text_rows(db,
     "SELECT type, sum(balance) FROM accounts GROUP BY type ORDER BY type"))
-  assert(totals[1][1] == "checking" and totals[1][2] == "5")
-  assert(totals[2][1] == "savings" and totals[2][2] == "12.5")
+  assert(nth(totals, 1):text(1) == "checking" and nth(totals, 1):text(2) == "5")
+  assert(nth(totals, 2):text(1) == "savings" and nth(totals, 2):text(2) == "12.5")
 end
 
 --- JSON rows carry no column order, so a key one row lacks is NULL there
@@ -336,6 +347,36 @@ local function test_json_rows_have_null_for_a_missing_key_and_byte_order_columns
   local db, made = loaded('[{"id": 1, "type": "a"}, {"id": 2}]', "accounts")
   assert(table.concat(made.columns, ",") == "id,type,_json")
   local nulls = assert(Sqlite.rows(db, "SELECT id FROM accounts WHERE type IS NULL"))
-  assert(#nulls == 1 and nulls[1][1].integer == 2)
+  assert(#nulls == 1 and nulls[1]:integer(1) == 2)
   assert(dataset.format_of("accounts.jsonl") == "ndjson")
+end
+
+--- A csv is copied in C up to the 500 fields json_object takes for
+--- `_json`, and read here past them, into the same table.
+local function test_load_text_copies_a_csv_up_to_500_fields()
+  for _, width in ipairs({ 500, 501 }) do
+    local header, row = {}, {}
+    for column = 1, width do
+      header[column] = "c" .. tostring(column)
+      row[column] = tostring(column)
+    end
+    local db = assert(Sqlite.memory())
+    local made = assert(dataset.load_text(db, "t", "csv", table.concat(header, ",") .. "\n" ..
+        table.concat(row, ",") .. "\n"))
+    assert((made.copied == true) == (width == 500), tostring(width) .. " fields: copied " .. tostring(made.copied))
+    assert(#made.columns == width + 1 and made.count == 1)
+    assert(grid(db, "SELECT json_extract(_json, '$.c" .. tostring(width) .. "') FROM t")[1] == "i" .. tostring(width))
+    assert(db:close())
+  end
+end
+
+--- `_json` is text, as a stored row's is, whichever way it was loaded:
+--- a JSON function nests it as a string.
+local function test_a_copied_csv_json_column_is_text()
+  local db = assert(Sqlite.memory())
+  local made = assert(dataset.load_text(db, "t", "csv", "a,b\n1,x\n"))
+  assert(made.copied)
+  assert(grid(db, "SELECT json_object('row', _json) FROM t")[1] == '{"row":"{\\"a\\":1,\\"b\\":\\"x\\"}"}',
+    grid(db, "SELECT json_object('row', _json) FROM t")[1])
+  assert(db:close())
 end

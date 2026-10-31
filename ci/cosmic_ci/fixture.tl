@@ -4,15 +4,27 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Project = require("cosmic.project")
 local Runner = require("cosmic_ci.runner")
 local Plural = require("cosmic_ci.plural")
+local Predicate = require("cosmic_ci.fs_predicate")
+local sys = require("cosmic.sys")
 
 -- Candidate scripts, applications, and decoder executions normally finish in
 -- well under a second. Native decoder compilation opts into its larger bound.
 local default_child_timeout_ns <const> = Clock.seconds(30)
 
+--- Where this fixture's children build, once [`Fixture.builds_beneath`]
+--- names it; nil until then, for them to build where the environment says.
+local record Builds
+  mut home?: string
+end
+
+local builds: Builds = {}
+
 local record Fixture
-  inherited: {string}
+  --- The variables of the fixture's own environment that a child it starts has.
+  inherited: function(): {string}
 
   record Target
     id: integer
@@ -55,14 +67,43 @@ function Fixture.required(name: string): string
   return (assert(Env.get(name), "fixture environment is missing " .. name))
 end
 
+--- The build directory of the project at `root` under COSMIC_BUILD_HOME
+--- `home`, which an absolute `home` outside the project always has.
+local function beneath(root: string, home: string): string
+  local location, trouble = Project.directory(root, { COSMIC_BUILD_HOME = home })
+  assert(location, "build directory: " .. trouble)
+  assert(location.none == "", location.none)
+  return location.directory
+end
+
 --- Where the driver placed what a setup made for this fixture to read:
---- the absolute path of o/fixtures/`kind` in the project the fixture runs
---- in (cosmic_ci/orchestration.tl's `place`), which its declaration
---- names as the tree-relative `reads` of the same path, so its key holds
---- what is there. A child of the fixture, in a directory of its own,
---- is given this path.
+--- the absolute path of `fixtures/<kind>` in the build directory of the
+--- project the fixture runs in (cosmic_ci/orchestration.tl's `place`),
+--- which its declaration names as the grant of `o/fixtures/<kind>`, so
+--- its key holds what is there. A child of the fixture, in a directory
+--- of its own, is given this path. The driver sets COSMIC_BUILD_HOME in
+--- its workers, and has the project's build directory beneath it.
 function Fixture.placed(kind: string): string
-  return (assert(Fs.absolute("o/fixtures/" .. kind)))
+  return beneath(".", Fixture.required("COSMIC_BUILD_HOME")) .. "/fixtures/" .. kind
+end
+
+--- Has every child this fixture starts build under `directory`
+--- (COSMIC_BUILD_HOME, [`environment_of`]), made 0700 where it is not
+--- there yet. A sandboxed fixture whose children build -- a project, a
+--- file run -- calls it first: its worker may write its own directory
+--- alone, and a driver whose harness hands its workers no
+--- COSMIC_BUILD_HOME leaves them the user's cache, which a sandbox does
+--- not give.
+function Fixture.builds_beneath(directory: string)
+  local made, trouble, errno = sys.mkdir(directory, 0x1c0)
+  assert(made or errno == sys.EEXIST, directory .. ": " .. tostring(trouble))
+  builds.home = (assert(sys.realpath(directory)))
+end
+
+--- The build directory of the project at `project` that this fixture's
+--- children build in ([`builds_beneath`]).
+function Fixture.built(project: string): string
+  return beneath(project, (assert(builds.home, "Fixture.built: call Fixture.builds_beneath first")))
 end
 
 function Fixture.mkdir(path: string)
@@ -92,20 +133,20 @@ end
 --- yet, and answers it: a copy the fixture may write in, of files the
 --- runtime setup packed (cosmic_ci/runtime_setup.tl's `pack`).
 function Fixture.unpack(tar: string, destination: string): string
-  assert(not Fs.exists(destination), "unpack destination already exists: " .. destination)
+  assert(not Predicate.exists(destination), "unpack destination already exists: " .. destination)
   Fixture.mkdir(destination)
   local written, trouble = Archive.extract(tar, destination)
   assert(written, tar .. ": " .. tostring(trouble))
   return destination
 end
 
---- The runtime setup's copy of test/portable/tool.tl and the modules of
+--- The runtime setup's copy of test/portable/probe.tl and the modules of
 --- the tree it requires (its `tool.tar`), unpacked beneath `work` once:
---- the directory a tool.tl run starts in, where it resolves its
+--- the directory a probe.tl run starts in, where it resolves its
 --- `require`s and writes what it builds (its o/).
 function Fixture.tool_tree(fixture_dir: string, work: string): string
   local tree = work .. "/tool-tree"
-  if Fs.exists(tree) then return tree end
+  if Predicate.exists(tree) then return tree end
   return Fixture.unpack(fixture_dir .. "/tool.tar", tree)
 end
 
@@ -165,7 +206,7 @@ end
 -- TODO: list what a macOS leg's zig and system shims read beyond these
 -- (TOOLCHAINS for xcrun, say) once a macOS leg's run has been read for
 -- it: a variable missing here breaks that leg alone, naming nothing.
-Fixture.inherited = {
+local INHERITED <const>: {string} = {
   "PATH", "HOME", "XDG_CACHE_HOME", "TMPDIR",
   "COSMIC_PORTABLE_CACHE", "COSMIC_VERDICT_CACHE", "COSMIC_AUTO_BOOT",
   "COSMIC_TEST_SANDBOX", "COSMIC_SANDBOX", "COSMIC_TEST_HELD",
@@ -180,33 +221,44 @@ Fixture.inherited = {
   "all_proxy", "https_proxy", "http_proxy", "no_proxy",
 }
 
+function Fixture.inherited(): {string}
+  return INHERITED
+end
+
 --- The environment for a child a fixture starts, with `extra` set over
 --- it: of `base`, the fixture's own (`environment` makes it of that),
 --- the variables of [`inherited`] it has, and nothing else. A copy,
 --- which `base` keeps nothing of. The child
 --- shares no compiles or parses (COSMIC_BUILD_CACHE=0) unless `extra`
---- says otherwise. The fixture's own run shares one file with the leg's
---- other fixtures (`Orchestration.fixture`), but a tree a child builds (a
+--- says otherwise, and reads in the new grammar (COSMIC_GRAMMAR=new). The
+--- fixture's own run shares one file with the leg's other fixtures (`Orchestration.fixture`), but a tree a child builds (a
 --- fresh checkout's boot, the product rebuilding itself) is what a
 --- fixture checks compiles, and work another child or fixture left in
---- that file would stand in for it (fixed_point_test, self_rebuild_test's
---- docs verb). A case that checks a rebuild's way and not its compile
---- names a file of its own (self_rebuild_test's `seeded_compiles`).
+--- that file would stand in for it (fixed_point_test's compiler cases,
+--- self_rebuild_test's docs verb). A case that checks a rebuild's way and
+--- not its compile names a file of its own (self_rebuild_test's
+--- `seeded_compiles`, fixed_point_test's COSMIC_FIXTURE_SHARED_COMPILES).
 ---
 --- Nor does a `cosmic test` the child runs sandbox its workers
 --- (COSMIC_TEST_SANDBOX=0): what a fixture asserts of such a run is its
 --- tally, not its sandbox, and a fixture's own worker is sandboxed
 --- (`Orchestration.fixture`), which a sandbox of the child's would nest
 --- in only as deep as the host allows. So it means the same on every
---- host, as AGENTS.md asks of a test's own `cosmic test`.
+--- host, as doc/testing.md asks of a test's own `cosmic test`.
 function Fixture.environment_of(base: {string:string},
                                 extra?: {string:string}): {string:string}
-  local environment: {string:string} = {}
-  for _, name in ipairs(Fixture.inherited) do
-    if base[name] ~= nil then environment[name] = base[name] end
+  local environment: mut {string:string} = {}
+  for _, name in ipairs(INHERITED) do
+    local inherited = base[name]
+    if inherited ~= nil then environment[name] = inherited end
   end
-  environment.COSMIC_BUILD_CACHE = "0"
-  environment.COSMIC_TEST_SANDBOX = "0"
+  local home = builds.home
+  if home ~= nil then environment["COSMIC_BUILD_HOME"] = home end
+  environment["COSMIC_BUILD_CACHE"] = "0"
+  environment["COSMIC_TEST_SANDBOX"] = "0"
+  -- The pinned release reads ci/ in the new grammar only where it is told to, as the CI driver's wrapper and
+  -- bin/cosmic-bootstrap tell it; a child that is that release, a driver a test starts, is told here.
+  environment["COSMIC_GRAMMAR"] = "new"
   if extra then
     for name, value in pairs(extra) do environment[name] = value end
   end
@@ -218,13 +270,23 @@ function Fixture.environment(extra?: {string:string}): {string:string}
   return Fixture.environment_of(Env.all(), extra)
 end
 
+--- What a read run under `pcall` took.
+local record Taken
+  mut text?: string
+  mut trouble?: string
+end
+
 local function preview(path: string): string
   local fd = assert(Fs.open_read(path))
-  local called, answer, trouble = pcall(Fs.take, fd, 8192)
+  local taken: Taken = {}
+  local called, raised = pcall(function()
+    local text, trouble = Fs.take(fd, 8192)
+    taken.text, taken.trouble = text, trouble
+  end)
   local closed, close_trouble = Fs.close(fd)
-  if not called then error(answer) end
+  if not called then error(raised) end
   assert(closed, close_trouble)
-  return (assert(answer as string | nil, trouble))
+  return (assert(taken.text, taken.trouble))
 end
 
 function Fixture.call_with_environment(label: string, argv: {string},
@@ -237,11 +299,11 @@ function Fixture.call_with_environment(label: string, argv: {string},
   local outcome = Runner.execute({ argv = argv, cwd = directory,
     env = environment, timeout_ns = timeout_ns or default_child_timeout_ns,
     input = input, output = out, error = err, fds = fds })
-  if not outcome.result then
+  local finished = outcome.result
+  if not finished then
     error(label .. ": could not start: " .. tostring(outcome.trouble) ..
         "; stdout=" .. out .. "; stderr=" .. err)
   end
-  local finished = outcome.result as Child.Result
   assert(Fs.put(Fs.stderr, "fixture: " .. label .. ": DONE (" ..
       tostring(outcome.elapsed_ns // 1000000) .. " ms; code=" ..
       tostring(finished.code) .. "; signal=" .. tostring(finished.signal) ..
@@ -251,20 +313,28 @@ end
 
 --- [`call_with_environment`] with each file of `paths` open for reading on
 --- the descriptor it is keyed by, in the child only.
+--- The outcome of a call run under `pcall`.
+local record Done
+  mut outcome?: Fixture.Outcome
+end
+
 function Fixture.call_with_descriptors(label: string, argv: {string},
                                        directory: string, diagnostics: string, environment: {string:string},
                                        paths: {integer:string}): Fixture.Outcome
-  local fds: {integer:integer} = {}
-  local called, answer = pcall(function(): Fixture.Outcome
+  local fds: mut {integer:integer} = {}
+  local done: Done = {}
+  local called, raised = pcall(function()
     for number, path in pairs(paths) do
       fds[number] = assert(Fs.open_read(path))
     end
-    return Fixture.call_with_environment(label, argv, directory, diagnostics,
+    done.outcome = Fixture.call_with_environment(label, argv, directory, diagnostics,
       environment, nil, nil, fds)
   end)
-  for _, fd in pairs(fds) do Fs.close(fd) end
-  if not called then error(answer) end
-  return answer as Fixture.Outcome
+  for _, fd in pairs(fds) do
+    local _, _ = Fs.close(fd)
+  end
+  if not called then error(raised) end
+  return (assert(done.outcome, label .. ": no outcome"))
 end
 
 function Fixture.call(label: string, argv: {string}, directory: string,
@@ -302,9 +372,9 @@ function Fixture.contains(path: string, expected: string)
 end
 
 function Fixture.targets(path: string): {Fixture.Target}
-  local targets: {Fixture.Target} = {}
-  local pairs_seen: {string:boolean} = {}
-  local names_seen: {string:boolean} = {}
+  local targets: mut {Fixture.Target} = {}
+  local pairs_seen: mut {string:boolean} = {}
+  local names_seen: mut {string:boolean} = {}
   local contents = Fixture.read(path)
   assert(contents:sub(1, 1) ~= "\n" and contents:sub(-1) == "\n" and
       not contents:find("\n\n", 1, true),
@@ -318,8 +388,8 @@ function Fixture.targets(path: string): {Fixture.Target}
     assert(id and configuration and kind and name and uname_os and uname_arch,
       "invalid generated target record: " .. line)
     local pair = tostring(id) .. ":" .. tostring(configuration)
-    assert(not pairs_seen[pair], "duplicate target/configuration: " .. pair)
-    assert(not names_seen[name], "duplicate target name: " .. name)
+    assert(pairs_seen[pair] ~= true, "duplicate target/configuration: " .. pair)
+    assert(names_seen[name] ~= true, "duplicate target name: " .. name)
     pairs_seen[pair], names_seen[name] = true, true
     targets[#targets + 1] = {
       id = id,
@@ -333,13 +403,13 @@ function Fixture.targets(path: string): {Fixture.Target}
 end
 
 function Fixture.inspection(path: string): Fixture.Inspection
-  local prefix_length: integer | nil = nil
-  local manifest_offset: integer | nil = nil
-  local manifest_length: integer | nil = nil
-  local database_offset: integer | nil = nil
-  local database_length: integer | nil = nil
-  local declared_count: integer | nil = nil
-  local entries: {string:Fixture.Entry} = {}
+  local prefix_length: integer? = nil
+  local manifest_offset: integer? = nil
+  local manifest_length: integer? = nil
+  local database_offset: integer? = nil
+  local database_length: integer? = nil
+  local declared_count: integer? = nil
+  local entries: mut {string:Fixture.Entry} = {}
   local count = 0
   local contents = Fixture.small(path, 8192)
   assert(contents:sub(1, 1) ~= "\n" and contents:sub(-1) == "\n" and
@@ -385,7 +455,7 @@ function Fixture.inspection(path: string): Fixture.Inspection
 end
 
 function Fixture.entry(inspection: Fixture.Inspection, target: integer,
-                       configuration: integer): Fixture.Entry | nil
+                       configuration: integer): Fixture.Entry?
   return inspection.entries[tostring(target) .. ":" .. tostring(configuration)]
 end
 

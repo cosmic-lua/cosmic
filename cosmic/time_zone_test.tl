@@ -31,7 +31,7 @@ local function at(text: string): integer
 end
 
 local function civil(year: integer, month: integer, day: integer, hour?: integer, minute?: integer,
-                     second?: integer): Time.Civil
+                     second?: integer): Time.CivilFields
   return { year = year, month = month, day = day, hour = hour or 0, minute = minute or 0,
     second = second or 0, ns = 0 }
 end
@@ -194,7 +194,7 @@ local function test_a_zone_is_read_only()
   rawset(ny as {string:string}, "name", "X][!evil=1")
   assert(Time.format_rfc3339(0, ny, { zone_name = true }) ==
       "1969-12-31T19:00:00-05:00[America/New_York]")
-  rawset(ny as {string:string}, "name", nil)
+  rawset(ny as {string:any}, "name", nil)
   assert(ny.name == "America/New_York")
 end
 
@@ -222,7 +222,7 @@ end
 --- database, a TZif file, a TZ string, a calendar moment in a gap -- open
 --- `time: ` once.
 local function test_a_zone_failure_names_the_module_once()
-  local function named(why: string | nil, rest: string)
+  local function named(why: string?, rest: string)
     assert(why ~= nil and why:sub(1, 6) == "time: ", tostring(why))
     local _, count = why:gsub("time: ", "")
     assert(count == 1, why)
@@ -285,7 +285,9 @@ local function tzif(version: string, times: {integer}, indices: {integer}, types
   local function block(wide: boolean): string
     local parts = { "TZif", version, ("\0"):rep(15),
       string.pack(">I4I4I4I4I4I4", 0, 0, 0, #times, #types, #chars) }
-    for _, t in ipairs(times) do parts[#parts + 1] = string.pack(wide and ">i8" or ">i4", t) end
+    for _, t in ipairs(times) do
+      parts[#parts + 1] = string.pack(if wide then ">i8" else ">i4" end, t)
+    end
     for _, i in ipairs(indices) do parts[#parts + 1] = string.char(i) end
     for _, t in ipairs(types) do parts[#parts + 1] = string.pack(">i4BB", t[1], t[2], t[3]) end
     parts[#parts + 1] = chars
@@ -326,7 +328,7 @@ local function test_tzif_reads_a_real_fat_or_slim_file()
   for label, data in pairs({ slim = slim, fat = fat }) do
     -- The version 1 block's transition count: none in a slim file.
     local transitions = string.unpack(">I4", data, 33)
-    assert((transitions > 0) == (label == "fat"), label .. ": " .. transitions .. " transitions")
+    assert((transitions > 0) == (label == "fat"), label .. ": " .. tostring(transitions) .. " transitions")
   end
   local carried = assert(Time.zone_from_tzif(slim, "America/New_York"))
   local read = assert(Time.zone_from_tzif(fat, "America/New_York"))
@@ -375,21 +377,25 @@ end
 --- A file of many local time types whose abbreviations run to one NUL
 --- at the end of many bytes is refused, not searched from every type to
 --- the end, and one whose NUL is near is read in time linear in its
---- length. The bound is on the ratio of reading 40000 types to reading
+--- length. The bound is on the ratio of reading 80000 types to reading
 --- 10000, not on wall time, so it holds on a slow core and a loaded
---- host: linear time gives about 4, a search from every type to the end
---- about 16.
+--- host: linear time gives about 8, a search from every type to the end
+--- about 64.
 local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
   -- A file of `count` types; with `near`, its abbreviations hold a NUL
   -- near their start, and every type reads its own, found once.
   local function file(count: integer, near: boolean): string
     local types = near and string.pack(">i4BB", 3600, 0, 4):rep(count) or
       string.pack(">i4BB", 0, 0, 0):rep(count)
-    local abbreviations = near and "UTC\0CET\0" .. ("A"):rep(count * 6 - 9) .. "\0" or
-      ("A"):rep(count * 6 - 1) .. "\0"
+    local abbreviations = if near then "UTC\0CET\0" .. ("A"):rep(count * 6 - 9) .. "\0" else
+      ("A"):rep(count * 6 - 1) .. "\0" end
     return table.concat({ "TZif", "\0", ("\0"):rep(15),
       string.pack(">I4I4I4I4I4I4", 0, 0, 0, 0, count, count * 6), types, abbreviations })
   end
+  -- TODO: measure process CPU time here once cosmic.sys carries
+  -- clock_gettime(CLOCK_PROCESS_CPUTIME_ID) or getrusage, so scheduling
+  -- and other processes' load stop counting; until then wall time, the
+  -- least of many reads, stands in.
   local function read(data: string, near: boolean): integer
     local started = Time.monotonic_ns()
     local z, why = Time.zone_from_tzif(data, "x")
@@ -403,19 +409,24 @@ local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
     return elapsed
   end
   for _, near in ipairs({ false, true }) do
-    local few, many = file(10000, near), file(40000, near)
-    -- The least of up to three of each, taken in turn, so a pause
-    -- elsewhere on the host inflates neither; a ratio within the bound
-    -- ends the tries.
+    local few, many = file(10000, near), file(80000, near)
+    -- One read of each first, so the first-call costs (code paths,
+    -- allocator growth) are in neither timing. Then the least of up to
+    -- thirty of each, taken in turn, so a pause elsewhere on the host
+    -- inflates neither; a ratio within the bound ends the tries. Linear
+    -- time is about 8 and a quadratic search about 64, so the bound 24
+    -- leaves the noise a factor of three either way.
+    read(few, near)
+    read(many, near)
     local few_ns, many_ns = math.maxinteger, math.maxinteger
-    local ratio: number
-    for _ = 1, 3 do
+    local ratio: number?
+    for _ = 1, 30 do
       few_ns = math.min(few_ns, read(few, near))
       many_ns = math.min(many_ns, read(many, near))
       ratio = many_ns / math.max(few_ns, 1000000)
-      if ratio < 8 then break end
+      if ratio < 24 then break end
     end
-    assert(ratio < 8, ("40000 types took %d ms, 10000 %d ms: %.1fx"):format(
+    assert(ratio ~= nil and ratio < 24, ("80000 types took %d ms, 10000 %d ms: %.1fx"):format(
       many_ns // 1000000, few_ns // 1000000, ratio))
   end
 end
@@ -597,7 +608,7 @@ local function test_add_calendar_keeps_local_time_across_a_change()
   local after = assert(Time.add_calendar(before, { days = 1 }, ny))
   assert(Time.format_rfc3339(after, ny) == "2026-03-08T12:00:00-04:00")
   assert(after - before == 23 * 3600 * NS, "the day was 23 hours long")
-  assert(Time.add_calendar(before, { days = 1 }) - before == 86400 * NS, "UTC's are all 24")
+  assert(assert(Time.add_calendar(before, { days = 1 })) - before == 86400 * NS, "UTC's are all 24")
   local night = at("2026-03-07T07:30:00Z") -- 02:30 EST
   local v, why = Time.add_calendar(night, { days = 1 }, ny)
   assert(v == nil and why:find("does not exist in America/New_York", 1, true), why)
@@ -648,24 +659,30 @@ end
 --- must not flip its sign or leave it short of `to`: each answer has one
 --- sign and `add_calendar` adds it back to `to`.
 local function test_between_holds_across_folds_and_skipped_days()
-  local cases: {{string, string, string}} = {
-    { "Europe/London", "2000-02-29T01:00:00Z", "2023-10-29T01:30:00+01:00" },
-    { "Europe/Dublin", "2000-02-29T01:00:00Z", "2023-10-29T01:30:00+01:00" },
-    { "Antarctica/Troll", "2000-02-29T01:00:00Z", "2023-10-29T01:30:00+01:00" },
-    { "Pacific/Apia", "1900-03-30T12:33:00-11:27", "2011-12-31T00:00:00+14:00" },
-    { "America/New_York", "2023-03-12T01:59:59-05:00", "2023-11-05T01:30:00-05:00" },
-    { "Pacific/Apia", "2010-12-30T00:00:00-10:00", "2012-01-01T00:00:00+14:00" },
+  local record Case
+    zone: string
+    from: string
+    to: string
+  end
+  local cases: {Case} = {
+    { zone = "Europe/London", from = "2000-02-29T01:00:00Z", to = "2023-10-29T01:30:00+01:00" },
+    { zone = "Europe/Dublin", from = "2000-02-29T01:00:00Z", to = "2023-10-29T01:30:00+01:00" },
+    { zone = "Antarctica/Troll", from = "2000-02-29T01:00:00Z", to = "2023-10-29T01:30:00+01:00" },
+    { zone = "Pacific/Apia", from = "1900-03-30T12:33:00-11:27", to = "2011-12-31T00:00:00+14:00" },
+    { zone = "America/New_York", from = "2023-03-12T01:59:59-05:00", to = "2023-11-05T01:30:00-05:00" },
+    { zone = "Pacific/Apia", from = "2010-12-30T00:00:00-10:00", to = "2012-01-01T00:00:00+14:00" },
   }
   local options: Time.AddOptions = { overflow = "clamp", disambiguation = "compatible" }
   for _, case in ipairs(cases) do
-    local z, from, to = zone(case[1]), at(case[2]), at(case[3])
+    local z, from, to = zone(case.zone), at(case.from), at(case.to)
     for _, pair in ipairs({ { from, to }, { to, from } } as {{integer}}) do
       local d = Time.between(pair[1], pair[2], z)
-      local dir = pair[2] > pair[1] and 1 or -1
+      local dir = if pair[2] > pair[1] then 1 else -1 end
       local text = Time.format_duration(d)
-      assert(d.years * dir >= 0 and d.months * dir >= 0 and d.days * dir >= 0 and d.ns * dir >= 0,
-        case[1] .. " " .. text)
-      assert(Time.add_calendar(pair[1], d, z, options) == pair[2], case[1] .. " " .. text)
+      assert((d.years or 0) * dir >= 0 and (d.months or 0) * dir >= 0 and (d.days or 0) * dir >= 0 and
+          (d.ns or 0) * dir >= 0,
+        case.zone .. " " .. text)
+      assert(Time.add_calendar(pair[1], d, z, options) == pair[2], case.zone .. " " .. text)
     end
   end
   local ny = zone("America/New_York")
@@ -681,7 +698,7 @@ end
 --- binary's copy; with no name to take, UTC.
 local function test_local_zone_names_a_carried_zone(tmp: string)
   local missing = tmp .. "/none"
-  local function lz(tz: string, localtime?: string, timezone?: string): Time.Zone
+  local function lz(tz?: string, localtime?: string, timezone?: string): Time.Zone
     local z, why = Time.local_zone({ tz = tz, unset = tz == nil, localtime = localtime or missing,
       timezone = timezone or missing })
     assert(z ~= nil, tostring(tz) .. ": " .. why)

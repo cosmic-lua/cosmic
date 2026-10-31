@@ -2,7 +2,7 @@
 --- this program running a chunk, which a sandboxed worker runs from an
 --- sealed database of the module's import closure and what `cosmic -e`
 --- loads (build/test_inputs.tl's `lua_loads`) in the program's place
---- (build/test.tl's `sealed_for`), and each process it starts in turn
+--- (build/test_key.tl's `sealed_for`), and each process it starts in turn
 --- inherits that -- so a child that reaches for any other module of the
 --- program, runs a verb, or runs a file `--standalone`, finds none rather
 --- than running what no key of its test holds. build/lua_standalone_test.tl
@@ -13,11 +13,12 @@
 
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
-local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local stand_in = require("build.stand_in")
+local test_child = require("build.test_child")
 local test_inputs = require("build.test_inputs")
+local _ = require("build.standalone") -- the checker `-e` types its chunk with: loaded here, as a child's is
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
@@ -48,16 +49,29 @@ local function sandboxed(): boolean
   return false
 end
 
---- A chunk runs, and loads nothing of the tree beyond `lua_loads` and
---- what it requires itself: the lean way dispatch takes to `-e`
---- (build/dispatch_tool_test.tl holds its count), every one of which
---- a child's artifact carries. One added to that way fails here first.
-local function test_a_chunk_runs_on_what_e_loads()
-  local ok, out, err = run({ "-e", "local t = {} for name in pairs(package.loaded) do " ..
-      "t[#t + 1] = name end table.sort(t) print(table.concat(t, ' '))" })
+--- The child of the test below: the names of the modules loaded when `-e` runs a chunk. A chunk of a project cannot
+--- read `package`, so it is registered here, as part of the tree.
+test_child.register("loaded", function(_args: {string}): integer
+  local names: mut {string} = {}
+  for name in pairs(package.loaded) do names[#names + 1] = tostring(name) end
+  table.sort(names, function(a: string, b: string): boolean return a < b end)
+  print(table.concat(names, " "))
+  return 0
+end)
+
+--- A chunk runs, and loads nothing of the tree beyond `lua_loads`, `standalone_loads` and what the test module's
+--- closure holds, which holds the checker `-e` types the chunk with ([`build.test_inputs`]'s closure for a module that
+--- declares `lua`): every one of them a child's artifact carries. One added to that way fails here first.
+local function test_a_chunk_runs_on_what_e_loads(tmp: string)
+  local ok, out, err = run(test_child.words(tmp, "build.lua_children_test", "loaded"))
   assert(ok, err)
-  local allowed: {string:boolean} = { ["cosmic.sys"] = true }
-  for _, name in ipairs(test_inputs.lua_loads) do allowed[name] = true end
+  local allowed: mut {string:boolean} = { ["cosmic.sys"] = true }
+  for _, list in ipairs({ test_inputs.lua_loads, test_inputs.standalone_loads }) do
+    for _, name in ipairs(list) do allowed[name] = true end
+  end
+  for name in pairs(package.loaded) do
+    if name is string then allowed[name] = true end
+  end
   for name in out:gmatch("%S+") do
     if name:find("^build%.") or name:find("^cosmic%.") or name:find("^cmd%.") then
       assert(allowed[name], name .. " is loaded by -e but not in lua_loads: " .. out)
@@ -65,14 +79,15 @@ local function test_a_chunk_runs_on_what_e_loads()
   end
 end
 
---- A module of the test's closure loads; one outside it is not found
---- in the artifact a child runs, where a `tool` test's child would load it.
+--- A module of the test's closure loads; one outside it is not found in the artifact a child runs, where a `tool`
+--- test's child would load it: the checker refuses the chunk that requires it, naming the module.
 local function test_a_module_outside_the_closure_is_not_found()
-  local ok, _, err = run({ "-e", "require('cosmic.child') require('build.this_program')" })
+  local ok, _, err = run({ "-e", "local Child = require('cosmic.child') local This = require('build.this_program') " ..
+      "print(type(Child), type(This))" })
   assert(ok, err)
   if not sandboxed() then return end
-  ok, _, err = run({ "-e", "require('cosmic.zip')" })
-  assert(not ok and err:find("no module 'cosmic.zip'", 1, true), err)
+  ok, _, err = run({ "-e", "local Zip = require('cosmic.zip') print(Zip)" })
+  assert(not ok and err:find("no module `cosmic.zip`", 1, true), err)
 end
 
 --- A verb runs no module the key does not hold: it fails to find them.
@@ -89,32 +104,21 @@ end
 local function test_a_grandchild_runs_the_same_artifact()
   if not sandboxed() then return end
   local chunk = [[
-local Child = require('cosmic.child')
-local Proc = require('cosmic.proc')
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local relaunch = assert(Proc.relaunch())
-local argv = { table.unpack(relaunch.argv) }
-argv[#argv + 1] = '-e'
-argv[#argv + 1] = "require('cosmic.zip')"
+local argv: mut {string} = {}
+for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
+argv[#argv + 1] = "-e"
+argv[#argv + 1] = "local Zip = require('cosmic.zip') print(Zip)"
 local result = assert(Child.run(argv, { env = relaunch.env, fds = relaunch.fds,
-  stdout = 'capture', stderr = 'capture' }))
-local Fs = require('cosmic.fs')
-Fs.put(Fs.stdout, tostring(result.ok) .. ' ' .. (result.stderr or ''))
+  stdout = "capture", stderr = "capture" }))
+Fs.put(Fs.stdout, tostring(result.ok) .. " " .. (result.stderr or ""))
 ]]
   local ok, out, err = run({ "-e", chunk })
   assert(ok, out .. err)
-  assert(out:find("^false ") and out:find("no module 'cosmic.zip'", 1, true), out)
-end
-
---- A file run `--standalone` finds no checker: it is none of `lua_loads`,
---- so a module that declares `lua` alone is keyed without it, and its
---- artifact does not carry it.
-local function test_a_standalone_file_finds_no_checker_without_build_standalone(tmp: string)
-  if not sandboxed() then return end
-  local file = tmp .. "/file.tl"
-  assert(Fs.write(file, "print('ran')\n"))
-  local ok, out, err = run({ "--standalone", file })
-  assert(not ok and out == "", out .. err)
-  assert(err:find("no module", 1, true), err)
+  assert(out:find("^false ") and out:find("no module `cosmic.zip`", 1, true), out)
 end
 
 --- The compiler's identity is no row of the artifact a child runs, as its
@@ -140,9 +144,9 @@ local function test_a_stand_in_runs(tmp: string)
     stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(direct.ok and direct.stdout == "ran\n", tostring(direct.stdout) ..
       tostring(direct.stderr))
-  local ok, out, err = run({ "-e", "local r = assert(require('cosmic.child').run({ ... , " ..
-      "'print ran' }, { stdout = 'capture', stderr = 'capture' })) " ..
-      "local Fs = require('cosmic.fs') Fs.put(Fs.stdout, r.stdout .. r.stderr) " ..
-      "return r.ok and 0 or 1", probe })
+  local ok, out, err = run({ "-e", 'local Child = require("cosmic.child") local Fs = require("cosmic.fs") ' ..
+      'local program = ... if program == nil then return 2 end ' ..
+      'local r = assert(Child.run({ program, "print ran" }, { stdout = "capture", stderr = "capture" })) ' ..
+      'Fs.put(Fs.stdout, (r.stdout or "") .. (r.stderr or "")) local status = 1 if r.ok then status = 0 end return status', probe })
   assert(ok and out == "ran\n", out .. err)
 end

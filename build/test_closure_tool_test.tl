@@ -1,6 +1,5 @@
 --- The cases of build/test_closure_test.tl that run `cosmic test` on a
---- project of their own, whose worker holds its tests' `require` to
---- their closure and is given the store of it. They declare `tool`
+--- project of their own, whose worker is given the store of its tests' closure. They declare `tool`
 --- because they start this program.
 
 local Child = require("cosmic.child")
@@ -35,68 +34,41 @@ local function run(root: string, output: string): boolean, string
   return result.ok, text
 end
 
---- In a project of its own, a test that requires its helper by a
---- computed name fails, naming it; one that requires it by a literal
---- name passes, and so does a computed require of the standard
---- library, which the binary carries rather than the project's tree.
-local function test_a_project_test_requiring_outside_its_closure_fails(tmp: string)
+--- The helper module of the projects below.
+local HELPER <const> = "local record helper\n  answer: integer\nend\nlocal h: helper = { answer = 42 }\nreturn h\n"
+
+--- In a project of its own, a test that probes its helper with `pcall(require, "<name>")` finds it: the probe is an import
+--- as a `require` is, so the helper is in the test's closure and its worker is given it.
+local function test_a_project_test_probing_a_module_with_pcall_has_it_in_its_closure(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.write(root .. "/suite/helper.tl", "return { answer = 42 }\n"))
-  assert(Fs.write(root .. "/suite/static_test.tl", table.concat({
-    'local helper = require("suite.helper")',
-    "local function test_static()",
-    "  assert(helper.answer == 42)",
-    "end",
-  }, "\n") .. "\n"))
-  assert(Fs.write(root .. "/suite/dynamic_test.tl", table.concat({
-    'local name = "suite." .. "helper"',
-    "local function test_dynamic()",
-    "  local helper: any = require(name)",
-    "  assert(helper ~= nil)",
-    "end",
-    "local function test_standard_library()",
-    '  local json: any = require("cosmic." .. "json")',
-    "  assert(json ~= nil)",
+  assert(Fs.write(root .. "/suite/helper.tl", HELPER))
+  assert(Fs.write(root .. "/suite/probe_test.tl", table.concat({
+    "local function test_probe()",
+    '  local found, helper = pcall(require, "suite.helper")',
+    "  assert(found, tostring(helper))",
+    '  assert(type(helper) == "table")',
     "end",
   }, "\n") .. "\n"))
   local ok, text = run(root, tmp .. "/run.out")
-  assert(not ok, text)
-  assert(text:find("test: FAIL  suite.dynamic_test test_dynamic: suite.dynamic_test:3: " ..
-      "module 'suite.helper' is outside the import closure of suite.dynamic_test", 1, true), text)
-  assert(text:find("(1 of 3 failed", 1, true), text)
+  assert(ok, text)
 end
 
---- In a project of its own, a test that reads its helper through the
---- store by hand -- its bytecode, or a searcher called itself --
---- rather than by `require` fails, since the store its worker is given
---- holds its closure alone, whether its module declares `tool` or not;
---- one whose module declares `store`, whose key holds the whole
---- projection, reads it.
+--- In a project of its own, a test that reads its helper through the store by hand, its bytecode, rather than by
+--- `require` fails, since the store its worker is given holds its closure alone, whether its module declares `tool` or
+--- not; one whose module declares `store`, whose key holds the whole projection, reads its bytecode. (A computed
+--- `require` and a searcher called by hand are no program of a project: the checker refuses the one and the other
+--- reads `package`; [`build/test_closure_test.tl`] holds the worker's `require` to the closure in the tree.)
 local function test_a_project_test_reading_the_store_outside_its_closure_needs_store(
     tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.write(root .. "/suite/helper.tl", "return { answer = 42 }\n"))
+  assert(Fs.write(root .. "/suite/helper.tl", HELPER))
   local reads = table.concat({
     'local Store = require("cosmic.store")',
     "local function test_bytecode()",
     '  local bytes, why = Store.bytecode("suite.helper")',
     "  assert(bytes ~= nil, why)",
-    "end",
-    "local function test_searcher()",
-    "  local said = ''",
-    "  for _, searcher in ipairs(package.searchers as {function(string): any, any}) do",
-    '    local loader, extra = searcher("suite.helper")',
-    "    if loader is function(string, any): any then",
-    "      -- The worker's own gate on `require` raises; a searcher called by hand does not.",
-    '      local loaded, helper = pcall(loader, "suite.helper", extra)',
-    "      if loaded and helper is {string:integer} and helper.answer == 42 then assert(true, 'a searcher called by hand found the helper'); return end",
-    "    elseif loader is string then",
-    "      said = said .. loader",
-    "    end",
-    "  end",
-    "  error(said)",
     "end",
   }, "\n") .. "\n"
   assert(Fs.write(root .. "/suite/held_test.tl", reads))
@@ -112,11 +84,9 @@ local function test_a_project_test_reading_the_store_outside_its_closure_needs_s
   local ok, text = run(root, tmp .. "/run.out")
   assert(not ok, text)
   for _, module in ipairs({ "held_test", "tool_test" }) do
-    for _, name in ipairs({ "test_bytecode", "test_searcher" }) do
-      assert(text:find("test: FAIL  suite." .. module .. " " .. name .. ": ", 1, true), text)
-    end
+    assert(text:find("test: FAIL  suite." .. module .. " test_bytecode: ", 1, true), text)
     assert(text:find("no module 'suite.helper' in the store", 1, true), text)
   end
-  assert(not text:find("suite.whole_test", 1, true), text)
-  assert(text:find("(4 of 6 failed", 1, true), text)
+  assert(not text:find("suite.whole_test test_bytecode", 1, true), text)
+  assert(text:find("2 of 3 tests failed", 1, true), text)
 end

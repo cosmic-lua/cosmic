@@ -5,30 +5,34 @@
 
 local Sqlite = require("cosmic.sqlite")
 
-local function scalar(db: Sqlite.Handle, sql: string): string | nil, string
+local function scalar(db: Sqlite.Handle, sql: string): string?, string
   local rows, trouble = Sqlite.text_rows(db, sql)
   if rows == nil then
     return nil, trouble
   end
-  if #rows ~= 1 or #rows[1] ~= 1 then
+  local row = rows[1]
+  if #rows ~= 1 or row == nil or row:count() ~= 1 then
     return nil, "query returned an unexpected shape"
   end
-  return rows[1][1], ""
+  return row:text(1), ""
 end
 
 return function(argv: {string}): integer
   local recover = argv[1] == "--recover-copy"
-  local path = recover and argv[2] or argv[1]
+  local path = argv[1]
+  if recover then path = argv[2] end
   if path == nil or path == "" then
     print("work database integrity: FAIL (usage: work_db_integrity.tl DATABASE)")
     return 2
   end
-  -- A raw snapshot can include a hot rollback journal. CI passes
-  -- --recover-copy only for its second disposable copy, allowing SQLite to
-  -- recover that copy before integrity checks. The preserved bytes remain
-  -- unopened and retain their exact database+journal hashes.
+  -- A raw snapshot can include a hot rollback journal, or the write-ahead
+  -- log holding commits not yet in the file. CI passes --recover-copy only
+  -- for its second disposable copy, allowing SQLite to recover that copy,
+  -- or read its log, before integrity checks. The preserved bytes remain
+  -- unopened and retain their exact hashes, the journal's or log's too.
   -- This file runs only on the candidate's own binary (orchestration.tl's
-  -- local and portable boundaries), so the options table is read as such.
+  -- local and portable boundaries), so the options table is read as such,
+  -- and a row is read through its accessors.
   local db, open_trouble = Sqlite.open(path, { writable = recover })
   if db == nil then
     print("work database integrity: FAIL (open: " .. open_trouble .. ")")
@@ -41,12 +45,12 @@ return function(argv: {string}): integer
     scalar(db, "SELECT count(*) FROM coverage_by_test")
   local integrity, integrity_trouble = Sqlite.text_rows(db, "PRAGMA integrity_check")
   local closed, close_trouble = db:close()
-  local trouble = page_trouble ~= "" and page_trouble or
-    freelist_trouble ~= "" and freelist_trouble or
-    coverage_trouble ~= "" and coverage_trouble or
-    by_test_trouble ~= "" and by_test_trouble or
-    integrity_trouble
-  if trouble ~= nil and trouble ~= "" then
+  -- The first of these that says anything, the page count's before the rest.
+  local trouble = integrity_trouble
+  for _, each in ipairs({ by_test_trouble, coverage_trouble, freelist_trouble, page_trouble }) do
+    if each ~= "" then trouble = each end
+  end
+  if trouble ~= "" then
     print("work database integrity: FAIL (" .. trouble .. ")")
     return 1
   end
@@ -54,17 +58,18 @@ return function(argv: {string}): integer
     print("work database integrity: FAIL (close: " .. close_trouble .. ")")
     return 1
   end
-  if integrity == nil or #integrity ~= 1 or #integrity[1] ~= 1 or
-      integrity[1][1] ~= "ok" then
-    local findings: {string} = {}
+  local only: Sqlite.Row? = nil
+  if integrity ~= nil and #integrity == 1 then only = integrity[1] end
+  if only == nil or only:count() ~= 1 or only:text(1) ~= "ok" then
+    local findings: mut {string} = {}
     for _, row in ipairs(integrity or {}) do
-      findings[#findings + 1] = table.concat(row, " | ")
+      findings[#findings + 1] = table.concat(row:texts(), " | ")
     end
     print("work database integrity: FAIL (" .. table.concat(findings, "; ") .. ")")
     return 1
   end
   print("work database integrity: PASS (SQLite " .. Sqlite.version ..
-      ", " .. page_count .. " pages, " .. freelist .. " free, " ..
-      coverage .. " coverage rows, " .. by_test .. " per-test rows)")
+      ", " .. assert(page_count) .. " pages, " .. assert(freelist) .. " free, " ..
+      assert(coverage) .. " coverage rows, " .. assert(by_test) .. " per-test rows)")
   return 0
 end

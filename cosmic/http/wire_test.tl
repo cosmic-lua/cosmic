@@ -4,6 +4,8 @@
 local Stream = require("cosmic.stream")
 local wire = require("cosmic.http.wire")
 
+local DATE <const> = "Thu, 01 Jan 1970 00:00:00 GMT"
+
 local LIMITS <const>: wire.Limits = { head_bytes = 1024, body_bytes = 100 }
 
 --- What reading `text` as one request's head gives.
@@ -34,6 +36,14 @@ local function test_the_three_target_forms_are_read()
   assert(refusal("GET ftp://h/ HTTP/1.1\r\nHost: h\r\n\r\n") == 400)
   assert(refusal("GET http://u@h/ HTTP/1.1\r\nHost: h\r\n\r\n") == 400)
   assert(refusal("GET /a#b HTTP/1.1\r\nHost: h\r\n\r\n") == 400)
+end
+
+--- Repeated Cookie headers are joined as RFC 6265 5.4 has pairs,
+--- every other repeated header with a comma.
+local function test_repeated_cookie_headers_are_joined_with_semicolons()
+  local got = assert(read("GET / HTTP/1.1\r\nHost: h\r\nCookie: a=1\r\nAccept: x\r\nCookie: b=2\r\nAccept: y\r\n\r\n").head)
+  assert(got.headers["cookie"] == "a=1; b=2", got.headers["cookie"])
+  assert(got.headers["accept"] == "x, y", got.headers["accept"])
 end
 
 --- Bare LF ends a line as CRLF does, blank lines before the request
@@ -111,7 +121,7 @@ end
 local function test_an_expectation_but_100_continue_is_417()
   assert(refusal("PUT / HTTP/1.1\r\nHost: h\r\nExpect: something\r\n\r\n") == 417)
   assert(refusal("PUT / HTTP/1.1\r\nHost: h\r\nExpect: 100-continue, x\r\n\r\n") == 417)
-  assert(read("PUT / HTTP/1.1\r\nHost: h\r\nExpect: 100-Continue\r\n\r\n").head.continue)
+  assert(assert(read("PUT / HTTP/1.1\r\nHost: h\r\nExpect: 100-Continue\r\n\r\n").head).continue)
   local old = assert(read("PUT / HTTP/1.0\r\nExpect: 100-continue\r\n\r\n").head)
   assert(not old.continue)
 end
@@ -120,7 +130,7 @@ local function test_a_declared_body_past_its_limit_is_413()
   local head = "POST / HTTP/1.1\r\nHost: h\r\n"
   assert(refusal(head .. "Content-Length: 101\r\n\r\n") == 413)
   assert(refusal(head .. "Content-Length: 99999999999999999999999999\r\n\r\n") == 413)
-  assert(read(head .. "Content-Length: 100\r\n\r\n").head.length == 100)
+  assert(assert(read(head .. "Content-Length: 100\r\n\r\n").head).length == 100)
 end
 
 --- Where the input ends: before a byte, a clean end; within a head, a
@@ -166,7 +176,7 @@ local function test_a_chunked_body_is_decoded_and_held_to_its_limits()
     local _, why = body_of(head .. bare)
     assert(why == "bad", bare .. ": " .. why)
   end
-  local zeros: {string} = {}
+  local zeros: mut {string} = {}
   for _ = 1, 40 do zeros[#zeros + 1] = string.rep("0", 40) .. "1\r\nx\r\n" end
   local _, padded = body_of(head .. table.concat(zeros) .. "0\r\n\r\n")
   assert(padded == "over", padded)
@@ -178,7 +188,7 @@ end
 --- many small chunks are taken as one large one is.
 local function test_many_small_chunks_pass_as_one_large_one()
   local limits: wire.Limits = { head_bytes = 1024, body_bytes = 50000 }
-  local parts: {string} = { "POST / HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n" }
+  local parts: mut {string} = { "POST / HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n" }
   for _ = 1, 20000 do parts[#parts + 1] = "1\r\nx\r\n" end
   parts[#parts + 1] = "0\r\n\r\n"
   local got, state = body_of(table.concat(parts), limits)
@@ -187,29 +197,50 @@ end
 
 --- What the writer refuses, for the server to answer 500.
 local function test_check_refuses_what_cannot_be_sent()
-  assert(wire.check({ status = 200, headers = { ["X-Ok"] = "fine" } }) == "")
-  assert(wire.check({ status = 99 }) ~= "")
-  assert(wire.check({ status = 200, headers = { ["Bad Name"] = "x" } }) ~= "")
-  assert(wire.check({ status = 200, headers = { X = "a\nb" } }) ~= "")
-  assert(wire.check({ status = 200, headers = { X = "a\0b" } }) ~= "")
+  assert(wire.check({ date = DATE, status = 200, headers = { ["X-Ok"] = "fine" } }) == "")
+  assert(wire.check({ date = DATE, status = 99 }) ~= "")
+  assert(wire.check({ date = DATE, status = 200, headers = { ["Bad Name"] = "x" } }) ~= "")
+  assert(wire.check({ date = DATE, status = 200, headers = { X = "a\nb" } }) ~= "")
+  assert(wire.check({ date = DATE, status = 200, headers = { X = "a\0b" } }) ~= "")
   for _, owned in ipairs({ "Date", "content-length", "Transfer-Encoding", "CONNECTION" }) do
-    assert(wire.check({ status = 200, headers = { [owned] = "x" } }) ~= "", owned)
+    assert(wire.check({ date = DATE, status = 200, headers = { [owned] = "x" } }) ~= "", owned)
   end
-  assert(wire.check({ status = 304, body = "x" }) ~= "")
-  assert(wire.check({ status = 204, body = Stream.from_string("") }) ~= "")
-  assert(wire.check({ status = 204, body = "" }) == "")
-  assert(wire.check({ status = 200, body = "x", length = 2 }) ~= "")
-  assert(wire.check({ status = 200, body = Stream.from_string("x"), length = -1 }) ~= "")
+  assert(wire.check({ date = DATE, status = 304, body = "x" }) ~= "")
+  assert(wire.check({ date = DATE, status = 204, body = Stream.from_string("") }) ~= "")
+  assert(wire.check({ date = DATE, status = 204, body = "" }) == "")
+  assert(wire.check({ date = DATE, status = 200, body = "x", length = 2 }) ~= "")
+  assert(wire.check({ date = DATE, status = 200, body = Stream.from_string("x"), length = -1 }) ~= "")
+end
+
+--- What a list of header values may and may not be.
+local function test_check_takes_lists_of_header_values()
+  assert(wire.check({ date = DATE, status = 200, headers = { ["Set-Cookie"] = { "a=1", "b=2" } } }) == "")
+  assert(wire.check({ date = DATE, status = 200, headers = { ["Set-Cookie"] = {} } }) == "")
+  assert(wire.check({ date = DATE, status = 200, headers = { ["Set-Cookie"] = { "a=1", "b\rc" } } }) ~= "")
+  assert(wire.check({ date = DATE, status = 200, headers = { ["Set-Cookie"] = { "a\0" } } }) ~= "")
+  for _, owned in ipairs({ "Date", "content-length", "Transfer-Encoding", "CONNECTION" }) do
+    assert(wire.check({ date = DATE, status = 200, headers = { [owned] = { "x" } } }) ~= "", owned)
+  end
 end
 
 --- `reply`, checked and sent: the bytes written.
 local function sent_bytes(reply: wire.Reply): string
-  reply.version, reply.date = "HTTP/1.1", "Thu, 01 Jan 1970 00:00:00 GMT"
+  reply.version, reply.date = "HTTP/1.1", DATE
   local why = wire.check(reply)
   assert(why == "", why)
   local sink = Stream.collect()
   local _ = wire.send(sink, reply)
   return sink:result()
+end
+
+--- A list value is one line per element, in order, under the name as
+--- given; an empty list is none.
+local function test_a_list_header_is_written_one_line_per_element()
+  local text = sent_bytes({ date = DATE, status = 200, headers = { ["Set-Cookie"] = { "a=1; Expires=Wed, 21 Oct 2026", "b=2" },
+    ["X-None"] = {}, ["X-A"] = "1" } })
+  assert(text:find("Set-Cookie: a=1; Expires=Wed, 21 Oct 2026\r\nSet-Cookie: b=2\r\n", 1, true) ~= nil, text)
+  assert(text:find("X-None", 1, true) == nil, text)
+  assert(text:find("X-A: 1\r\n", 1, true) ~= nil, text)
 end
 
 --- A reply's own Content-Length, under any case of its name, is the
@@ -219,6 +250,7 @@ end
 local function test_a_given_content_length_is_held_to_the_body()
   local function framed(out: string): string, integer, string
     local head, rest = out:match("^(.-\r\n)\r\n(.*)$")
+    assert(head and rest, "a reply is a head, a blank line and a body")
     local _, count = head:lower():gsub("\r\ncontent%-length:", "")
     return head, count, rest
   end
@@ -278,7 +310,8 @@ local function test_a_head_of_spaces_or_repeats_is_read_in_linear_time()
   assert(spaces.headers["x"] == inside)
   local repeated = assert(read("GET / HTTP/1.1\r\nHost: h\r\n" .. string.rep("X: ab\r\n", 9000) ..
       "\r\n", limits).head)
-  assert(#repeated.headers["x"] == 9000 * 4 - 2)
+  local joined = assert(repeated.headers["x"], "expected a joined X header")
+  assert(#joined == 9000 * 4 - 2)
 end
 
 --- A Reader body breaking its contract -- an empty chunk, which would
@@ -286,20 +319,21 @@ end
 --- the Content-Length -- cuts the reply short instead.
 local function test_a_reader_breaking_its_contract_cuts_the_reply_short()
   local record Giving is Stream.Reader
-    pieces: {string}
-    read: function(Giving, max_bytes?: integer): string | nil, string
+    pieces: mut {string}
+    read: function(Giving, max_bytes?: integer): string?, string
     close: function(Giving): boolean, string
   end
-  local giving_mt: metatable<Giving> = { __index = {
-    read = function(self: Giving, _max_bytes?: integer): string | nil, string
+  local giving_methods = {
+    read = function(self: Giving, _max_bytes?: integer): string?, string
       local piece = table.remove(self.pieces, 1)
       if piece == nil then return nil, "" end
       return piece, ""
     end,
     close = function(_self: Giving): boolean, string return true, "" end,
-  } }
+  }
+  local giving_mt: metatable<Giving> = { __index = giving_methods }
   local record Case
-    length: integer
+    length?: integer
     pieces: {string}
   end
   local cases: {Case} = { { pieces = { "ab", "", "HTTP/1.1 200 OK\r\n\r\n" } },
@@ -308,7 +342,7 @@ local function test_a_reader_breaking_its_contract_cuts_the_reply_short()
     local body: Giving = setmetatable({ pieces = case.pieces }, giving_mt)
     local sink = Stream.collect()
     local sent = wire.send(sink, { status = 200, body = body, length = case.length, method = "GET",
-      version = "HTTP/1.1", date = "Thu, 01 Jan 1970 00:00:00 GMT" })
+      version = "HTTP/1.1", date = DATE })
     assert(sent.close and sent.body_failure ~= "", tostring(case.length))
     assert(not sink:result():find("200 OK\r\n\r\n$"), sink:result())
   end

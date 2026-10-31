@@ -42,14 +42,14 @@ end
 
 --- A grant of the program itself, which a child needs to run at all.
 local function itself(program: string, more?: {Sandbox.Grant}): {Sandbox.Grant}
-  local grants: {Sandbox.Grant} = { { path = program, letters = "rx" } }
+  local grants: mut {Sandbox.Grant} = { { path = program, letters = "rx" } }
   for _, grant in ipairs(more or {}) do grants[#grants + 1] = grant end
   return grants
 end
 
 --- A copy of `grants` with `more` after them.
 local function with(grants: {Sandbox.Grant}, ...: Sandbox.Grant): {Sandbox.Grant}
-  local out: {Sandbox.Grant} = {}
+  local out: mut {Sandbox.Grant} = {}
   for _, grant in ipairs(grants) do out[#out + 1] = grant end
   for _, grant in ipairs({ ... }) do out[#out + 1] = grant end
   return out
@@ -69,7 +69,7 @@ end
 
 --- The directories a policy's `tmp` made that are still in the temporary directory.
 local function sandbox_directories(): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(sys.getenv("TMPDIR") or "/tmp")))) do
     if name:find("^cosmic%-sandbox%-") then found[#found + 1] = name end
   end
@@ -100,8 +100,8 @@ local function test_a_start_under_a_policy_is_refused_where_the_platform_has_no_
     -- It starts in the directory that holds the probe: under isolate file the
     -- start directory must be at, beneath or above a grant.
     local result, why = Child.run({ probe, "print hi" }, { policy = policy, cwd = probe:match("^(.*)/") })
-    assert(result == nil, "policy " .. i .. " started a child where there is no sandbox")
-    assert(unsandboxable(why), "policy " .. i .. ": " .. why)
+    assert(result == nil, "policy " .. tostring(i) .. " started a child where there is no sandbox")
+    assert(unsandboxable(why), "policy " .. tostring(i) .. ": " .. why)
   end
 end
 
@@ -146,8 +146,8 @@ local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
   skip_where_seatbelt_holds("a policy that is not met")
   local probe = stand_in_of(tmp)
   local base = itself(probe)
-  local function grants(): {Sandbox.Grant}
-    local copy: {Sandbox.Grant} = {}
+  local function grants(): mut {Sandbox.Grant}
+    local copy: mut {Sandbox.Grant} = {}
     for i, grant in ipairs(base) do copy[i] = grant end
     return copy
   end
@@ -216,7 +216,7 @@ local function test_a_program_without_the_relays_module_cannot_start_a_policy_wi
   skip_where_seatbelt_holds("the relay's program")
   local probe = stand_in_of(tmp)
   local why = refused({ probe, "print hi" }, { grants = itself(probe), connect = { "example.com:443" } })
-  assert(why:find("^child: start: sandbox: relay: this program does not carry cosmic.relay.main"), why)
+  assert(why:find("^child: start: sandbox: relay: this program does not carry cosmic.internal.relay_main"), why)
   assert(why:find("needs a program that has it", 1, true), why)
   assert(#sandbox_directories() == 0, "a start that failed left a directory behind")
   for _, name in ipairs((assert(Fs.list(sys.getenv("TMPDIR") or "/tmp")))) do
@@ -227,7 +227,7 @@ end
 local function test_a_policy_that_does_not_merge_fails_naming_the_field(tmp: string)
   local probe = stand_in_of(tmp)
   local none, why = Child.start({ probe }, { policy = { grants = { { path = probe, letters = "q" } } } })
-  assert(none == nil and why:find("/grants/0/letters", 1, true), why)
+  assert(none == nil and why:find("$.grants[0].letters", 1, true), why)
   local profile, trouble = Child.start({ probe }, { policy = { profiles = { "bogus" } } })
   assert(profile == nil and trouble:find("bogus", 1, true), trouble)
 end
@@ -236,12 +236,17 @@ local function test_a_policy_of_too_many_grants_fails_before_it_makes_anything(t
   skip_where_seatbelt_holds("the most grants")
   local probe = stand_in_of(tmp)
   local before = #sandbox_directories()
-  for _, count in ipairs({ 256, 300 }) do
+  local most = confine.unveil_max
+  for _, count in ipairs({ most, most + 44 }) do
     local grants = itself(probe)
-    for i = #grants + 1, count do grants[i] = { path = tmp .. "/g" .. i, letters = "r" } end
+    for i = #grants + 1, count do
+      grants[i] = { path = tmp .. "/g" .. tostring(i), letters = "r" }
+    end
     local none, why = Child.start({ probe, "print hi" }, { policy = { grants = grants, tmp = true } })
-    assert(none == nil and why:find("^child: start: sandbox: grants: ") and why:find("256", 1, true), why)
-    assert(#sandbox_directories() == before, count .. " grants left a directory behind")
+    assert(none == nil, "a start over the most was made")
+    assert(why:find("^child: start: sandbox: grants: "), why)
+    assert(why:find("takes, " .. tostring(most) .. ";", 1, true), why)
+    assert(#sandbox_directories() == before, tostring(count) .. " grants left a directory behind")
   end
 end
 
@@ -356,8 +361,8 @@ end
 
 local function test_every_path_of_the_profile_exists_and_is_read_only_or_run()
   local system = assert(Sandbox.profile("system"))
-  assert(#system.grants > 0 or sys.stat("/usr") == nil)
-  for _, grant in ipairs(system.grants) do
+  assert(#(system.grants or {}) > 0 or sys.stat("/usr") == nil)
+  for _, grant in ipairs(system.grants or {}) do
     assert(sys.stat(grant.path) ~= nil, grant.path)
     -- /dev/dtracehelper is macOS's: libSystem opens it for writing as a program starts.
     local written = grant.path == "/dev/null" or grant.path == "/dev/dtracehelper"

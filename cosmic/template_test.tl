@@ -65,7 +65,13 @@ local SLOTS <const>: {{string}} = {
   { "<title>{{.x}}</TITLE>", "_rtext(" },
   { "<svg/><textarea><a href=\"{{.x}}\"></textarea>", "_rtext(" },
   { "<svg><textarea>{{.x}}</textarea></svg>", "_rtext(" },
-  { "<svg><text>{{.x}}</text></svg>", "_text(" },
+  { "<svg><text>{{.x}}</text></svg>", "_ftext(" },
+  { "<math>{{.x}}</math>", "_ftext(" },
+  { "<svg><g>{{if .a}}<g/>{{end}}{{.x}}</g></svg>", "_ftext(" },
+  { "<select>{{.x}}</select>", "_ftext(" },
+  { "<select><option>{{.x}}</option></select>", "_ftext(" },
+  { "<select><option title=\"{{.x}}\">a</option></select>", "_attr(" },
+  { "<select><textarea>{{.x}}</textarea></select>", "_rtext(" },
   { "<svg><g><a href=\"{{.x}}\"><path d=\"M0\"/></a></g></svg>", "_url(" },
   { "<svg viewBox=\"0 0 1 1\"><circle r=\"1\"/></svg><p>{{.x}}</p>", "_text(" },
   { "<svg {{if .a}}class=\"b\"{{end}}><g/></svg>{{.x}}", "_text(" },
@@ -78,7 +84,8 @@ local SLOTS <const>: {{string}} = {
   { "<a href=\"x\" {{if .a}}class=\"b\"{{end}}>{{.x}}", "_text(" },
   { "<p {{if .a}}class=\"c\"{{else}}id=\"d\"{{end}}>{{.x}}", "_text(" },
   { "<a href=\"{{if .a}}{{.x}}{{end}}\">", "_url(" },
-  { "<a href=\"{{.x}}/a:b\">", "_url(" },
+  { "<a href=\"{{.x}}x/a:b\">", "_url(" },
+  { "<a href=\"{{.x}}\t?q=/\">", "_url(" },
   { "<a href=\"{{.x}}?q=a:b#c:d\">", "_url(" },
   { "<meta name=\"d\" content=\"{{.x}}\">", "_attr(" },
   { "<meta content=\"{{.x}}\" name=\"d\">", "_attr(" },
@@ -102,7 +109,7 @@ local function test_each_slot_is_escaped_for_the_place_it_stands_in()
   for _, case in ipairs(SLOTS) do
     local out = compiled(HEAD .. case[1])
     assert(out:find(case[2], 1, true), case[1] .. " did not use " .. case[2])
-    for _, other in ipairs({ "_text(", "_attr(", "_url(" }) do
+    for _, other in ipairs({ "_text(", "_ftext(", "_attr(", "_url(" }) do
       if other ~= case[2] then
         local _, uses = out:gsub("parts%[#parts %+ 1%] = " .. other:gsub("%p", "%%%0"), "")
         assert(uses == 0, case[1] .. " used " .. other)
@@ -144,6 +151,7 @@ local REFUSALS <const>: {{string}} = {
   { "<svg><br><textarea>{{.x}}", "2", "20", "differently" },
   { "<svg><font size=1><textarea>{{.x}}", "2", "29", "differently" },
   { "<select><svg><textarea>{{.x}}", "2", "24", "differently" },
+  { "<frameset><title></title>{{.x}}", "2", "26", "differently" },
   { "<math><svg></math><textarea>{{.x}}", "2", "29", "differently" },
   { "<svg><math></svg><textarea>{{.x}}", "2", "28", "differently" },
   { "<svg></math><textarea>{{.x}}", "2", "23", "differently" },
@@ -165,13 +173,22 @@ local REFUSALS <const>: {{string}} = {
   { "<svg><style><b></style>{{.x}}", "2", "24", "differently" },
   { "<noscript><!-- </noscript>{{.x}}", "2", "27", "differently" },
   { "<plaintext></plaintext>{{.x}}", "2", "24", "<plaintext>" },
+  { "<a href=\"{{.url}}/evil.example\">", "2", "18", "protocol-relative" },
+  { "<a href=\"{{.url}}\\evil.example\">", "2", "18", "protocol-relative" },
+  { "<a href=\"{{.url}}\t\n/evil.example\">", "2", "18", "protocol-relative" },
+  { "<a href=\"{{.url}}{{if .a}}{{end}}/evil.example\">", "2", "34", "protocol-relative" },
+  { "<a href=\"{{.url}}{{if .a}}x{{end}}/evil.example\">", "2", "35", "protocol-relative" },
+  { "<a href=\"{{.url}}{{if .a}}{{end}}\\evil.example\">", "2", "34", "protocol-relative" },
+  { "<a href=\"{{range .l}}{{.url}}{{end}}/evil\">", "2", "22", "fixes where the URL goes" },
+  { "<a href=\"{{.url}}{{.p}}/evil.example\">", "2", "18", "follows a whole-URL slot" },
+  { "<a href=\"{{.url}}{{.p}}:x\">", "2", "18", "follows a whole-URL slot" },
   { "<a href=\"{{.x}}&colon;alert(1)\">", "2", "16", "complete a scheme" },
   { "<a href=\"{{.x}}&#58;alert(1)\">", "2", "16", "complete a scheme" },
   { "<meta charset=\"{{.x}}\">", "2", "16", "charset" },
   { "<script type=\"{{.x}}\">", "2", "15", "<script>" },
   { "<object classid=\"{{.x}}\">", "2", "18", "<object>" },
   { "<applet codebase=\"{{.x}}\">", "2", "19", "<applet>" },
-  { "<a href=\"{{range .l}}{{.x}}{{end}}\">", "2", "22", "must begin" },
+  { "<a href=\"{{range .l}}{{.x}}{{end}}\">", "2", "22", "fixes where the URL goes" },
   { "<a href=\"{{range .l}}{{.x}}:{{end}}\">", "2", "28", "complete a scheme" },
   { "<svg><script>{{.x}}</script>", "2", "14", "<script>" },
   { "<svg><g><a title=x{{.x}}", "2", "19", "unquoted" },
@@ -203,8 +220,38 @@ local REFUSALS <const>: {{string}} = {
   { "<script><!-- <script> </script> {{.x}} </script>", "2", "33", "<script>" },
   { "<script>\n{{.x}}", "3", "1", "<script>" },
   { "<script/>{{.x}}", "2", "10", "<script>" },
-  { "<a href=\"/a/{{.x}}\">", "2", "13", "must begin" },
-  { "<a href=\"{{.x}}{{.y}}\">", "2", "16", "must begin" },
+  { "<a href=\"java{{.x}}\">", "2", "14", "fixes where the URL goes" },
+  { "<a href=\"a{{.x}}\">", "2", "11", "fixes where the URL goes" },
+  { "<a href=\"x &{{.x}}\">", "2", "13", "fixes where the URL goes" },
+  { "<a href=\"java&#115;cript:{{.x}}\">", "2", "26", "fixes where the URL goes" },
+  { "<a href=\"&sol;{{.x}}\">", "2", "15", "fixes where the URL goes" },
+  { "<a href=\"javascript:{{.x}}\">", "2", "21", "fixes where the URL goes" },
+  { "<a href=\"data:text/html,{{.x}}\">", "2", "25", "fixes where the URL goes" },
+  { "<a href=\"tel:{{.x}}\">", "2", "14", "fixes where the URL goes" },
+  { "<a href=\"//{{.x}}\">", "2", "12", "fixes where the URL goes" },
+  { "<a href=\"\\\\{{.x}}\">", "2", "12", "fixes where the URL goes" },
+  { "<a href=\"https://{{.x}}/a\">", "2", "18", "fixes where the URL goes" },
+  { "<a href=\"https:{{.x}}\">", "2", "16", "fixes where the URL goes" },
+  { "<a href=\"https://host{{.x}}\">", "2", "22", "fixes where the URL goes" },
+  { "<a href=\"{{if .a}}/x/{{else}}y{{end}}{{.z}}\">", "2", "38", "fixes where the URL goes" },
+  { "<a href=\"{{if .a}}https://{{else}}/x/{{end}}{{.z}}\">", "2", "45", "fixes where the URL goes" },
+  { "<a href=\"/{{if .a}}{{end}}/{{.x}}\">", "2", "28", "fixes where the URL goes" },
+  { "<a href=\"/a/.{{.x}}\">", "2", "14", "'..' segment" },
+  { "<a href=\"/a/%{{.x}}\">", "2", "14", "'..' segment" },
+  { "<a href=\"/a/%2{{.x}}\">", "2", "15", "'..' segment" },
+  { "<a href=\"/a/{{.x}}/.{{if .a}}{{end}}.{{.y}}\">", "2", "38", "'..' segment" },
+  { "<a href=\"/a/..\t{{.x}}\">", "2", "16", "'..' segment" },
+  { "<a href=\"{{.u}}.{{.x}}\">", "2", "17", "follows a whole-URL slot" },
+  { "<a hx-on:click=\"{{.x}}\">", "2", "17", "would be script" },
+  { "<a hx-on::after-request=\"{{.x}}\">", "2", "26", "would be script" },
+  { "<a hx-on-click=\"{{.x}}\">", "2", "17", "would be script" },
+  { "<a data-hx-on:click=\"{{.x}}\">", "2", "22", "would be script" },
+  { "<a HX-ON:Click=\"{{.x}}\">", "2", "17", "would be script" },
+  { "<a hx-vars=\"{{.x}}\">", "2", "13", "would be script" },
+  { "<a data-hx-vars=\"{{.x}}\">", "2", "18", "would be script" },
+  { "<a hx-vals=\"{{.x}}\">", "2", "13", "{{use htmx}}" },
+  { "<a data-hx-vals='{\"a\": \"{{.x}}\"}'>", "2", "25", "{{use htmx}}" },
+  { "<a hx-vals=\"x\" hx-get=\"/a\" hx-on:click=\"a{{if .a}}b{{end}}{{.x}}\">", "2", "59", "would be script" },
   { "<script src=\"{{.x}}\">", "2", "14", "<script>" },
   { "<link href=\"{{.x}}\">", "2", "13", "<link>" },
   { "<object data=\"{{.x}}\">", "2", "15", "<object>" },
@@ -218,7 +265,7 @@ local REFUSALS <const>: {{string}} = {
   { "<title></title{{.x}}><script>{{.y}}</script>", "2", "15", "complete its end tag" },
   { "<title><{{.x}}title><a href={{.y}}>", "2", "9", "complete its end tag" },
   { "<textarea></textarea {{.x}}>", "2", "22", "attribute" },
-  { "<svg><textarea></textarea{{.x}}></textarea></svg>", "2", "26", "differently" },
+  { "<svg><textarea></textarea{{.x}}></textarea></svg>", "2", "26", "complete its end tag" },
   { "<a href=\"x\">{{.x}}<a href=\"", "2", "28", "the template ends inside the value of the attribute 'href'" },
   { "<a href=\"x\">\n<a title='", "3", "11", "the template ends inside the value of the attribute 'title'" },
   { "<a ", "2", "4", "the template ends inside a tag" },
@@ -234,7 +281,7 @@ local REFUSALS <const>: {{string}} = {
 }
 
 local function test_a_slot_with_no_escaping_is_refused_at_its_line_and_column()
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   for _, case in ipairs(REFUSALS) do
     local why = refused(HEAD .. case[1])
     local want = "t.tmpl:" .. case[2] .. ":" .. case[3] .. ": "
@@ -261,11 +308,479 @@ local function test_the_arms_of_a_branch_must_end_in_the_same_place()
   compiled(HEAD .. "{{if .a}}<script>1</script>{{else}}<p>x</p>{{end}}{{.y}}")
 end
 
+--- Templates whose slot stands after text that fixes the URL: a part.
+local PARTS <const>: {string} = {
+  "<a href=\"/items/{{.x}}\">",
+  "<a href=\"/s?q={{.x}}\">",
+  "<a href=\"/s#{{.x}}\">",
+  "<a href=\"?q={{.x}}\">",
+  "<a href=\"#{{.x}}\">",
+  "<a href=\"./{{.x}}\">",
+  "<a href=\"../{{.x}}\">",
+  "<a href=\"items/{{.x}}\">",
+  "<a href=\"a:b\" title=\"x\"><a href=' /{{.x}}'>",
+  "<a href=\"//example.com/{{.x}}\">",
+  "<a href=\"https://example.com/{{.x}}\">",
+  "<a href=\"HTTP://example.com?q={{.x}}\">",
+  "<a href=\"ht\ntps://example.com/{{.x}}\">",
+  "<a href=\"mailto:{{.x}}\">",
+  "<a href=\"mailto:a@b.example?subject={{.x}}\">",
+  "<a href=\"/a/{{.x}}{{.y}}\">",
+  "<a href=\"/a/{{.x}}/b/{{.y}}?c={{.z}}#{{.w}}\">",
+  "<a href=\"{{.u}}?q={{.x}}\">",
+  "<a href=\"/x/{{range .l}}{{.}}{{end}}\">",
+  "<a href=\"/x/{{range .l}}{{.}}/{{end}}\">",
+  "<a href=\"{{if .a}}/x/{{else}}/y/{{end}}{{.z}}\">",
+  "<a href=\"{{if .a}}https://h/{{else}}/y?{{end}}{{.z}}\">",
+  "<a href=\"{{.u}}?a&amp;b={{.x}}\">",
+  "<a href=\"{{.u}}x#{{.x}}\">",
+  "<a href=\"/s?a=1&amp;b={{.x}}\">",
+  "<a href=\"/s#a&sol;{{.x}}\">",
+  "<a href=\"/a/.b{{.x}}\">",
+  "<a href=\"/a/b.{{.x}}\">",
+  "<a href=\"/a/...{{.x}}\">",
+  "<a href=\"/a/...%2e{{.x}}\">",
+  "<a href=\"/a/%2e%2e%2e{{.x}}\">",
+  "<a href=\"/a/..\n/{{.x}}\">",
+  "<a href=\"/a%20{{.x}}\">",
+  "<a href=\"/a.b/{{.x}}\">",
+  "<a href=\"/a/b.{{if .a}}c{{end}}/{{.x}}\">",
+  "<img src=\"/i/{{.x}}.png\">",
+  "<form action=\"/f/{{.x}}\">",
+  "<svg><a xlink:href=\"/a/{{.x}}\"></a></svg>",
+  "<a href=\"/a/{{.x}}\">{{.y}}</a>",
+  "<a href='/a/{{.x}}'>",
+}
+
+local function test_a_slot_after_text_that_fixes_the_url_is_one_part_of_it()
+  for _, src in ipairs(PARTS) do
+    local out = compiled(HEAD .. src)
+    assert(out:find("_part(v)", 1, true), src .. ": " .. out)
+  end
+  local out = compiled(HEAD .. "<a href=\"/a/{{.x}}\">")
+  assert(out:find("local function _part(v: string | number | html.SafeUrlPart): string", 1, true), out)
+  assert(out:find("do local v: string | number | html.SafeUrlPart = d.x ", 1, true), out)
+  assert(not out:find("_url(v", 1, true), out)
+end
+
+--- Templates whose part slot could, with the browser's own decoding of the
+--- text before it, be a host or a dot segment, with the reason refused.
+local DECODED <const>: {{string}} = {
+  { "<a href=\"/{{.a}}&sol;{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/{{.a}}&#47;{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/{{.a}}&bsol;{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/{{.a}}&#x5c;{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/{{.a}}&Tab;/{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/{{.a}}&NewLine;/{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/&sol;{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/&#9;/{{.b}}\">", "'&' in the path" },
+  { "<a href=\"http:&sol;/{{.b}}\">", "'&' in the path" },
+  { "<a href=\"http:&#47;&#47;{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/a/&#46;&#46;{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/a&amp;b/{{.b}}\">", "'&' in the path" },
+  { "<a href=\"{{if .a}}/&sol;{{else}}/x/{{end}}{{.b}}\">", "'&' in the path" },
+  { "<a href=\"{{if .a}}/x/{{else}}/&sol;{{end}}{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/{{range .l}}&sol;{{end}}{{.b}}\">", "'&' in the path" },
+  { "<a href=\"/x/{{range .l}}&#47;{{.i}}{{end}}\">", "'&' in the path" },
+  { "<a href=\"/a/.%2e{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/%2e%2e{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/%2E%2E{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/%2e.{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/.%2E{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/%2e{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/.%{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/%2e%2{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/.{{.x}}{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/.{{if .a}}{{.x}}{{end}}{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/{{if .a}}.{{else}}%{{end}}{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/{{if .a}}.{{else}}%{{end}}2e{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/{{if .a}}.{{else}}x{{end}}.{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/{{range .l}}.{{end}}{{.b}}\">", "'..' segment" },
+  { "<a href=\"/a/\\.{{.b}}\">", "'..' segment" },
+  { "<a href=\"?.{{.b}}\">", "'..' segment" },
+  { "<a href=\"{{.u}}{{.b}}\">", "follows a whole-URL slot" },
+  { "<a href=\"{{.u}}a{{.b}}\">", "follows a whole-URL slot" },
+  { "<a href=\"{{.u}}.{{.b}}\">", "follows a whole-URL slot" },
+  { "<a href=\"{{.u}}{{if .a}}?{{end}}{{.b}}\">", "follows a whole-URL slot" },
+  { "<a href=\"{{.u}}{{if .a}}?q={{.b}}{{end}}\">", "" },
+}
+
+local function test_a_part_after_decoded_text_or_a_whole_url_slot_is_refused()
+  for _, case in ipairs(DECODED) do
+    local src, why = case[1], case[2]
+    local out, err = Template.compile(HEAD .. src, "t.tmpl")
+    if why == "" then
+      assert(out ~= nil, src .. ": " .. tostring(err))
+    else
+      assert(out == nil, "compiled: " .. src)
+      assert(err:find(why, 1, true), src .. ": " .. err)
+    end
+  end
+end
+
+local function test_an_ampersand_in_a_query_or_fragment_keeps_the_part_slot()
+  compiled(HEAD .. "<a href=\"/s?a=1&amp;b={{.x}}&amp;c={{.y}}\">")
+  compiled(HEAD .. "<a href=\"/s#x&amp;{{.x}}\">")
+  compiled(HEAD .. "<a href=\"?a&sol;{{.x}}\">")
+  compiled(HEAD .. "<a href=\"{{.u}}?a&amp;{{.x}}\">")
+end
+
+local function test_a_slot_in_an_htmx_json_attribute_is_refused_without_use_htmx()
+  for _, attr in ipairs({ "hx-vals", "hx-headers", "hx-request", "data-hx-headers", "DATA-HX-REQUEST", "Hx-Vals" }) do
+    local why = refused(HEAD .. "<a " .. attr .. "=\"{{.x}}\">")
+    assert(why:find("{{use htmx}}", 1, true), attr .. ": " .. why)
+    why = refused(HEAD .. "<a " .. attr .. "='x {{.x}}'>")
+    assert(why:find("{{use htmx}}", 1, true), attr .. ": " .. why)
+  end
+end
+
+local function test_a_slot_in_hx_trigger_is_refused_with_and_without_use_htmx()
+  for _, use in ipairs({ "", "{{use htmx}}\n" }) do
+    for _, attr in ipairs({ "hx-trigger", "data-hx-trigger", "Hx-Trigger" }) do
+      for _, value in ipairs({ "{{.x}}", "click[{{.x}}]", "every {{.n}}s" }) do
+        local why = refused(HEAD .. use .. "<a " .. attr .. "=\"" .. value .. "\">")
+        assert(why:find("'" .. attr:lower() .. "' attribute would be a trigger", 1, true), attr .. ": " .. why)
+      end
+    end
+  end
+end
+
+--- The classes a slot has in each attribute with `{{use htmx}}`: the
+--- helper its generated code writes, or "" for a refusal.
+local HTMX_CLASSES <const>: {{string}} = {
+  { "hx-get=\"{{.u}}\"", "_lurl" },
+  { "hx-post=\"{{.u}}\"", "_lurl" },
+  { "hx-put=\"{{.u}}\"", "_lurl" },
+  { "hx-patch=\"{{.u}}\"", "_lurl" },
+  { "hx-delete=\"{{.u}}\"", "_lurl" },
+  { "hx-push-url=\"{{.u}}\"", "_lurl" },
+  { "hx-replace-url=\"{{.u}}\"", "_lurl" },
+  { "sse-connect=\"{{.u}}\"", "_lurl" },
+  { "ws-connect=\"{{.u}}\"", "_lurl" },
+  { "hx-get=\"/items/{{.id}}\"", "_part" },
+  { "hx-delete=\"/items/{{.id}}?x={{.x}}#{{.f}}\"", "_part" },
+  { "hx-push-url=\"/items/{{.id}}\"", "_part" },
+  { "hx-get=\"{{.u}}?q={{.q}}\"", "_lurl" },
+  { "hx-vals='{{.v}}'", "_json" },
+  { "hx-headers=\"{{.v}}\"", "_json" },
+  { "hx-request='{{.v}}'", "_json" },
+  { "hx-target=\"#row-{{.id}}\"", "_sel" },
+  { "hx-select=\".tab-{{.id}} p\"", "_sel" },
+  { "hx-select-oob=\"#a-{{.id}}:outerHTML,#b-{{.id}}\"", "_sel" },
+  { "hx-include=\"closest form, #f-{{.id}}\"", "_sel" },
+  { "hx-indicator=\"#spin-{{.id}}\"", "_sel" },
+  { "hx-disabled-elt=\"find button.b-{{.id}}\"", "_sel" },
+  { "hx-sync=\"#f-{{.id}}:abort\"", "_sel" },
+  { "hx-swap=\"innerHTML scroll:#top-{{.id}}:top\"", "" },
+  { "hx-swap-oob=\"outerHTML:#x-{{.id}}\"", "_sel" },
+  { "hx-target-422=\"#err-{{.id}}\"", "_sel" },
+  { "hx-target-error=\"#err-{{.id}}\"", "_sel" },
+  { "hx-confirm=\"{{.x}}\"", "_attr" },
+  { "hx-prompt=\"{{.x}}\"", "_attr" },
+  { "hx-boost=\"{{.x}}\"", "" },
+  { "hx-params=\"{{.x}}\"", "" },
+  { "hx-encoding=\"{{.x}}\"", "_attr" },
+  { "hx-ext=\"{{.x}}\"", "" },
+  { "hx-history=\"{{.x}}\"", "_attr" },
+  { "hx-preserve=\"{{.x}}\"", "_attr" },
+  { "hx-validate=\"{{.x}}\"", "_attr" },
+  { "hx-disable=\"{{.x}}\"", "" },
+  { "hx-disinherit=\"{{.x}}\"", "_attr" },
+  { "sse-swap=\"{{.x}}\"", "_attr" },
+  { "ws-send=\"{{.x}}\"", "_attr" },
+  { "hx-trigger=\"{{.x}}\"", "" },
+  { "hx-vars=\"{{.x}}\"", "" },
+  { "hx-on:click=\"{{.x}}\"", "" },
+  { "hx-ws=\"{{.x}}\"", "" },
+}
+
+--- The helpers `out` calls for the slots in its body, in order.
+local function helpers_called(out: string): {string}
+  local calls: mut {string} = {}
+  for name in out:gmatch("parts%[#parts %+ 1%] = (_[a-z]+)%(v%)") do
+    calls[#calls + 1] = name
+  end
+  return calls
+end
+
+local function test_with_use_htmx_each_attribute_has_its_class()
+  for _, case in ipairs(HTMX_CLASSES) do
+    local src = HEAD .. "{{use htmx}}\n<a " .. case[1] .. ">"
+    if case[2] == "" then
+      refused(src)
+    else
+      local calls = helpers_called(compiled(src))
+      assert(calls[1] == case[2], case[1] .. ": " .. table.concat(calls, " "))
+    end
+  end
+end
+
+local function test_without_use_htmx_only_the_script_and_json_attributes_are_refused()
+  for _, case in ipairs(HTMX_CLASSES) do
+    local src = HEAD .. "<a " .. case[1] .. ">"
+    local out, why = Template.compile(src, "t.tmpl")
+    local attr = case[1]:match("^[%w:-]+")
+    if attr == "hx-trigger" or attr == "hx-vars" or attr == "hx-on:click" or attr == "hx-vals" or
+        attr == "hx-headers" or attr == "hx-request" or attr == "hx-ws" then
+      assert(out == nil, case[1])
+      assert(why:find("'" .. attr .. "' attribute", 1, true), why)
+    else
+      -- A plain attribute, attribute-escaped as before.
+      assert(out ~= nil, case[1] .. ": " .. why)
+      for _, call in ipairs(helpers_called(out)) do
+        assert(call == "_attr", case[1] .. ": " .. call)
+      end
+    end
+  end
+end
+
+local function test_every_attribute_is_classified_alike_in_upper_case_and_with_data()
+  for _, case in ipairs(HTMX_CLASSES) do
+    local name, rest = case[1]:match("^([%w:-]+)(.*)$")
+    for _, spelled in ipairs({ name:upper(), "data-" .. name, "DATA-" .. name:upper() }) do
+      local src = HEAD .. "{{use htmx}}\n<a " .. spelled .. rest .. ">"
+      if case[2] == "" then
+        refused(src)
+      else
+        assert(helpers_called(compiled(src))[1] == case[2], spelled .. rest)
+      end
+    end
+  end
+end
+
+local function test_an_hx_swap_spec_and_the_attributes_that_change_a_subtree_are_the_authors()
+  -- U+00A0 passes the attribute escaper raw and splits a swap spec in htmx.
+  for _, src in ipairs({
+      "<a hx-swap=\"innerHTML scroll:#{{.id}}:top\">",
+      "<a hx-swap=\"swap:{{.t}}\">",
+      "<a hx-swap=\"{{.style}}\">",
+      "<a hx-ext=\"ignore:{{.x}}\">",
+      "<a hx-disable=\"{{.x}}\">",
+      "<a hx-boost=\"{{.x}}\">",
+      "<a hx-params=\"{{.x}}\">",
+  }) do
+    local why = refused(HEAD .. "{{use htmx}}\n" .. src)
+    assert(why:find("author", 1, true), src .. ": " .. why)
+    -- Literal text is the author's own.
+    compiled(HEAD .. "{{use htmx}}\n" .. src:gsub("{{[^}]*}}", "x"))
+  end
+end
+
+local function test_the_attribute_forms_htmx_reads_are_classified_alike()
+  for _, form in ipairs({ "hx-vals", "data-hx-vals", "HX-VALS", "Data-Hx-Vals", "dAtA-hX-vAlS" }) do
+    local calls = helpers_called(compiled(HEAD .. "{{use htmx}}\n<a " .. form .. "='{{.v}}'>"))
+    assert(calls[1] == "_json", form)
+  end
+  for _, form in ipairs({ "hx-target", "data-hx-target", "HX-TARGET", "DATA-HX-TARGET" }) do
+    local calls = helpers_called(compiled(HEAD .. "{{use htmx}}\n<a " .. form .. "='#a{{.v}}'>"))
+    assert(calls[1] == "_sel", form)
+  end
+  for _, form in ipairs({ "hx-on:click", "hx-on::after-request", "hx-on--after-request", "hx-on", "HX-ON:CLICK",
+      "data-hx-on:click", "DATA-HX-ON--click", "data-hx-on-click", "hx-vars", "data-hx-vars", "hx-onclick" }) do
+    for _, use in ipairs({ "", "{{use htmx}}\n" }) do
+      local why = refused(HEAD .. use .. "<a " .. form .. "=\"{{.x}}\">")
+      assert(why:find("would be script", 1, true), form .. ": " .. why)
+    end
+  end
+  -- Only the families htmx reads with a `data-` prefix: this is not one.
+  compiled(HEAD .. "{{use htmx}}\n<a data-data-hx-get=\"{{.x}}\" data-hxget=\"{{.x}}\" xhx-get=\"{{.x}}\">")
+end
+
+local function test_a_whole_url_slot_in_an_htmx_request_url_is_checked_as_local()
+  local out = compiled(HEAD .. "{{use htmx}}\n<a hx-get=\"{{.u}}\" href=\"{{.u}}\">")
+  assert(out:find("html.local_href(v)", 1, true), out)
+  assert(helpers_called(out)[1] == "_lurl" and helpers_called(out)[2] == "_url", out)
+  -- The same rules as an href for the text beside a whole-URL slot.
+  assert(refused(HEAD .. "{{use htmx}}\n<a hx-get=\"{{.u}}{{.v}}\">"):find("follows a whole-URL slot", 1, true))
+  assert(refused(HEAD .. "{{use htmx}}\n<a hx-get=\"{{.u}}:x\">"):find("complete a scheme", 1, true))
+  assert(refused(HEAD .. "{{use htmx}}\n<a hx-post=\"java{{.x}}\">"):find("fixes where the URL goes", 1, true))
+  assert(refused(HEAD .. "{{use htmx}}\n<a hx-post=\"/a/.{{.x}}\">"):find("'..' segment", 1, true))
+  assert(refused(HEAD .. "{{use htmx}}\n<link hx-get=\"{{.u}}\">"):find("<link>", 1, true))
+  -- A literal host is the author's own.
+  compiled(HEAD .. "{{use htmx}}\n<a hx-get=\"//example.com/{{.x}}\" hx-post=\"https://example.com/{{.x}}\">")
+end
+
+local function test_a_url_part_in_an_htmx_url_follows_the_rules_of_href()
+  for _, src in ipairs(PARTS) do
+    local swapped = src:gsub("<a href=", "<a hx-get=")
+    local calls = helpers_called(compiled(HEAD .. "{{use htmx}}\n" .. swapped))
+    local part = false
+    for _, call in ipairs(calls) do
+      part = part or call == "_part"
+    end
+    assert(part, swapped .. ": " .. table.concat(calls, " "))
+  end
+  for _, case in ipairs(DECODED) do
+    if case[2] ~= "" then
+      local swapped = case[1]:gsub("href=", "hx-get=")
+      local why = refused(HEAD .. "{{use htmx}}\n" .. swapped)
+      assert(why:find(case[2], 1, true), swapped .. ": " .. why)
+    end
+  end
+end
+
+local function test_a_json_slot_is_the_whole_value()
+  compiled(HEAD .. "{{use htmx}}\n<a hx-vals='{{.v}}'>")
+  compiled(HEAD .. "{{use htmx}}\n<a hx-vals=' {{.v}}\n'>")
+  compiled(HEAD .. "{{use htmx}}\n<a hx-vals='{{if .a}}{{.v}}{{else}}{\"a\": 1}{{end}}'>")
+  for _, case in ipairs({
+      { "<a hx-vals='{\"a\":{{.v}}}'>", "must be the whole value" },
+      { "<a hx-vals='x{{.v}}'>", "must be the whole value" },
+      { "<a hx-vals='{{.v}}{{.v}}'>", "must be the whole value" },
+      { "<a hx-vals='{{.v}}x'>", "text after a JSON slot" },
+      { "<a hx-vals='{{.v}} x'>", "text after a JSON slot" },
+      { "<a hx-vals='{{if .a}}{{.v}}{{end}}x'>", "text after a JSON slot" },
+      { "<a hx-vals='{{.v}}{{if .a}}x{{end}}'>", "text after a JSON slot" },
+      { "<a hx-vals='{{if .a}}x{{end}}{{.v}}'>", "must be the whole value" },
+      { "<a hx-vals='{{range .l}}{{.}}{{end}}'>", "must be the whole value" },
+      { "<a hx-vals=\"{{.v}}'\">", "text after a JSON slot" },
+      { "<a hx-headers=unquoted{{.v}}>", "unquoted" },
+      -- The next attribute's quote must not forget text after the slot.
+      { "<a hx-vals='{{.v}}x' title='q'>", "text after a JSON slot" },
+      { "<a hx-vals='{{.v}}}' title='q'>", "text after a JSON slot" },
+      { "<a hx-vals='{{.v}}x'><b title='q'>", "text after a JSON slot" },
+      { "<a hx-vals='{{.v}}x' hx-get='/a'>", "text after a JSON slot" },
+      { "<a hx-vals='{{.v}}x\"y' title=\"q\">", "text after a JSON slot" },
+      { "<a hx-vals='{{.v}}\n x' title='q'>", "text after a JSON slot" },
+      { "<a hx-vals='{{if .a}}{{.v}}{{end}}x' title='q'>", "text after a JSON slot" },
+      { "<a hx-vals='{{if .a}}{{.v}}x' title='q'{{else}}'{{end}}>", "text after a JSON slot" },
+      { "<a hx-vals='{{if .a}}{{.v}}{{else}}{{.v}}x{{end}}' title='q'>", "text after a JSON slot" },
+      { "<a hx-vals='{{.v}}{{if .a}}x' title='q'{{else}}'{{end}}>", "text after a JSON slot" },
+      { "<a hx-vals='{{range .l}}{{.v}}x' title='q'{{end}}>", "text after a JSON slot" },
+  }) do
+    local why = refused(HEAD .. "{{use htmx}}\n" .. case[1])
+    assert(why:find(case[2], 1, true), case[1] .. ": " .. why)
+  end
+end
+
+local function test_a_refusal_after_a_json_slot_is_placed_at_the_byte_that_ends_it()
+  local why = refused(HEAD .. "{{use htmx}}\n<a hx-vals='{{.v}}ab' title='q'>")
+  assert(why:find("t.tmpl:3:21:", 1, true) and why:find("text after a JSON slot", 1, true), why)
+  -- Blanks after the slot, then the closing quote: the whole value still.
+  compiled(HEAD .. "{{use htmx}}\n<a hx-vals='{{.v}} ' title='q'>")
+  compiled(HEAD .. "{{use htmx}}\n<a hx-vals='{{.v}}' title='q' hx-vals='{{.v}}'>")
+  compiled(HEAD .. "{{use htmx}}\n<a hx-vals='{{if .a}}{{.v}}{{end}}' title='q'>")
+end
+
+local function test_a_selector_slot_stands_only_inside_an_identifier_after_a_hash_or_dot()
+  for _, src in ipairs({
+      "<a hx-target=\"#row-{{.id}}\">",
+      "<a hx-target=\"body, #x{{.i}}\">",
+      "<a hx-target=\"#a-{{.x}}{{.y}}\">",
+      "<a hx-target=\"#a-{{.x}}-b-{{.y}}\">",
+      "<a hx-target=\"#a-{{.x}}-b.c-{{.y}}\">",
+      "<a hx-target=\"#a-{{.x}}\u{e9}{{.y}}\">",
+      "<a hx-target=\"#a-{{if .x}}b{{else}}{{.y}}{{end}}{{.z}}\">",
+      "<a hx-target=\"#a-{{if .x}}{{.y}}{{end}}{{.z}}\">",
+      "<a hx-target=\"#a-{{range .l}}{{.}}-{{end}}{{.z}}\">",
+      "<a hx-target=\"#{{.id}}\">",
+      "<a hx-target=\"closest #card-{{.id}} .x-{{.n}}\">",
+      "<a hx-target='#a-{{.x}}' hx-select='.b-{{.y}}'>",
+  }) do
+    assert(helpers_called(compiled(HEAD .. "{{use htmx}}\n" .. src))[1] == "_sel", src)
+  end
+  for _, src in ipairs({
+      "<a hx-target=\"{{.sel}}\">",
+      "<a hx-target=\" {{.sel}}\">",
+      "<a hx-target=\"body, {{.sel}}\">",
+      "<a hx-target=\"#a, b{{.sel}}\">",
+      "<a hx-target=\"#a {{.sel}}\">",
+      "<a hx-target=\"#a >{{.sel}}\">",
+      "<a hx-target=\"[data-id='{{.id}}']\">",
+      "<a hx-target='[data-id=\"{{.id}}\"]'>",
+      "<a hx-target=\"#a:not({{.sel}})\">",
+      "<a hx-target=\"#a:{{.sel}}\">",
+      "<a hx-target=\"#a\\2c {{.sel}}\">",
+      "<a hx-target=\"#a[{{.sel}}]\">",
+      "<a hx-target=\"closest {{.sel}}\">",
+      "<a hx-target=\"#a-{{.x}}, {{.y}}\">",
+      "<a hx-target=\"#a-{{.x}} {{.y}}\">",
+      "<a hx-target=\"#a-{{.x}}.{{.y}}-{{.z}} {{.w}}\">",
+      "<a hx-target=\"#a-{{if .x}}b{{else}} {{end}}{{.z}}\">",
+      "<a hx-target=\"#a-{{if .x}}{{.y}}{{else}}, {{end}}{{.z}}\">",
+      "<a hx-target=\"#a-{{if .x}}b{{end}}{{if .y}}, {{end}}{{.z}}\">",
+      "<a hx-swap-oob=\"{{.style}}:#x\">",
+  }) do
+    local why = refused(HEAD .. "{{use htmx}}\n" .. src)
+    assert(why:find("part of a CSS selector", 1, true), src .. ": " .. why)
+  end
+end
+
+local function test_the_dialect_names_are_checked_in_the_header()
+  local function header(extra: string): string
+    return "{{type T from m.t}}" .. extra .. "\n<p>{{.x}}</p>"
+  end
+  compiled(header("{{use htmx}}"))
+  compiled(header("\n{{mode html}}\n{{use htmx}}"))
+  compiled(header("\n{{use htmx}}\n{{mode html}}"))
+  compiled(header("{{use htmx}}{{mode html}}"))
+  compiled("\n{{type T from m.t}}\n\n{{use htmx}}\n\n<p>{{.x}}</p>")
+  assert(refused(header("{{mode text}}{{use htmx}}")):find("t.tmpl:1:", 1, true))
+  assert(refused(header("{{use htmx}}{{mode text}}")):find("a text template has no attributes", 1, true))
+  assert(refused(header("{{use htmx}}{{use htmx}}")):find("t.tmpl:1:", 1, true))
+  assert(refused(header("{{use htmx}}\n{{use htmx}}")):find("t.tmpl:2:1: {{use htmx}} is given once", 1, true))
+  assert(refused(header("{{mode html}}{{mode text}}")):find("{{mode}} is given once", 1, true))
+  assert(refused(header("\n{{use alpine}}")):find("t.tmpl:2:7: unknown dialect 'alpine' (known: htmx)", 1, true))
+  assert(refused(header("{{use}}")):find("write {{use name}}", 1, true))
+  assert(refused(header("{{use htmx extra}}")):find("write {{use name}}", 1, true))
+  assert(refused(header("{{use \"htmx\"}}")):find("write {{use name}}", 1, true))
+  assert(refused("{{type T from m.t}}\n<p>{{.x}}</p>{{use htmx}}"):find("t.tmpl:2:", 1, true))
+  assert(refused(header("{{if .a}}{{use htmx}}{{end}}")):find("must directly follow", 1, true))
+  local after = refused(header("text\n{{use htmx}}"))
+  assert(after:find("{{use}} must directly follow {{type}} or {{mode}}", 1, true), after)
+end
+
+local function test_a_use_adds_nothing_to_a_template_that_has_no_hx_attribute()
+  local plain = compiled(HEAD .. "<a href=\"/a/{{.x}}\" class=\"{{.c}}\">{{.t}}</a>\n")
+  local used = compiled("{{type T from m.t}}{{use htmx}}\n<a href=\"/a/{{.x}}\" class=\"{{.c}}\">{{.t}}</a>\n")
+  assert(plain == used, used)
+end
+
+local function test_a_project_dialect_replaces_the_registry()
+  local alpine: Template.Dialect = {
+    name = "alpine",
+    targets = "3",
+    exact = { ["x-html"] = { class = "refused", why = "would be markup Alpine inserts" },
+      ["x-link"] = { class = "url_local", why = "" } },
+    prefixes = { { prefix = "@", rule = { class = "refused", why = "would be script" } } },
+    families = { "x-" },
+    plain = {},
+  }
+  local options: Template.Options = { dialects = { alpine = alpine } }
+  local function compile(src: string): string?, string
+    return Template.compile("{{type T from m.t}}{{use alpine}}\n" .. src, "t.tmpl", options)
+  end
+  local out = assert(compile("<a x-link=\"{{.u}}\" data-x-link=\"/a/{{.i}}\">"))
+  assert(helpers_called(out)[1] == "_lurl" and helpers_called(out)[2] == "_part", out)
+  local html, why = compile("<a data-x-html=\"{{.u}}\">")
+  assert(html == nil and why:find("'data-x-html' attribute would be markup Alpine inserts", 1, true), tostring(why))
+  local click, click_why = compile("<a @click=\"{{.u}}\">")
+  assert(click == nil and click_why:find("would be script", 1, true), tostring(click_why))
+  -- The always-on refusals hold, and the built-in registry is not there.
+  local on, on_why = compile("<a hx-on:click=\"{{.u}}\">")
+  assert(on == nil and on_why:find("would be script", 1, true), tostring(on_why))
+  local gone, gone_why = Template.compile("{{type T from m.t}}{{use htmx}}\n", "t.tmpl", options)
+  assert(gone == nil and gone_why:find("unknown dialect 'htmx' (known: alpine)", 1, true), tostring(gone_why))
+  -- Two dialects must agree on an attribute they both name.
+  local other: Template.Dialect = {
+    name = "other",
+    targets = "1",
+    exact = { ["x-link"] = { class = "json", why = "" } },
+    prefixes = {},
+    families = {},
+    plain = {},
+  }
+  local clash, clash_why = Template.compile("{{type T from m.t}}{{use alpine}}{{use other}}\n", "t.tmpl",
+    { dialects = { alpine = alpine, other = other } })
+  assert(clash == nil and clash_why:find("dialects 'alpine' and 'other' give 'x-link' different rules", 1, true),
+    tostring(clash_why))
+end
+
 local function test_a_slot_that_begins_a_url_is_judged_by_where_its_branch_left_off()
   compiled(HEAD .. "<a href=\"{{if .a}}{{.x}}{{else}}{{.y}}{{end}}\">")
   compiled(HEAD .. "<a href=\"{{if .a}}{{.x}}{{end}}\">")
   local why = refused(HEAD .. "<a href=\"{{if .a}}{{.x}}{{end}}{{.y}}\">")
-  assert(why:find("t.tmpl:2:", 1, true) and why:find("must begin", 1, true), why)
+  assert(why:find("t.tmpl:2:", 1, true) and why:find("fixes where", 1, true), why)
 end
 
 local SYNTAX <const>: {{string}} = {
@@ -288,7 +803,7 @@ local SYNTAX <const>: {{string}} = {
   { HEAD .. "x{{else}}", "2", "2", "without a block" },
   { HEAD .. "{{if .a}}{{else}}{{else}}{{end}}", "2", "18", "after {{else}}" },
   { HEAD .. "{{if .a}}{{else}}{{else if .b}}{{end}}", "2", "18", "after {{else}}" },
-  { HEAD .. "{{range .a}}{{else}}{{end}}", "2", "13", "not supported" },
+  { HEAD .. "{{range .a}}{{else if .b}}{{end}}", "2", "20", "nest an {{if}}" },
   { HEAD .. "{{with .a}}{{else if .b}}{{end}}", "2", "19", "nest an {{if}}" },
   { HEAD .. "{{if .a}}{{else foo}}{{end}}", "2", "17", "takes nothing" },
   { HEAD .. "{{if .a}}{{end x}}", "2", "10", "takes nothing" },
@@ -310,7 +825,7 @@ local SYNTAX <const>: {{string}} = {
 }
 
 local function test_a_template_that_does_not_parse_is_refused_where_it_goes_wrong()
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   for _, case in ipairs(SYNTAX) do
     local why = refused(case[1])
     local want = "t.tmpl:" .. case[2] .. ":" .. case[3] .. ": "
@@ -332,13 +847,13 @@ local function test_the_module_has_the_templates_lines()
   local src = "\n{{type T from m.t}}\n{{mode text}}\nL4 {{.a\n   | m.f\n}} L6\n{{if .a}}\nL8\n{{else if .b}}\nL10\n" ..
     "{{else}}\nL12\n{{end}}\n{{range .c}}{{- .d -}}\nL15\n  {{end}}\n{{with .e}}\n L18\n{{end}}\nL20"
   local out = compiled(src)
-  assert(newlines(out) == newlines(src) + 1, "lines: " .. newlines(out) .. " for " .. newlines(src))
-  local lines: {string} = {}
+  assert(newlines(out) == newlines(src) + 1, "lines: " .. tostring(newlines(out)) .. " for " .. tostring(newlines(src)))
+  local lines: mut {string} = {}
   for line in out:gmatch("([^\n]*)\n") do
     lines[#lines + 1] = line
   end
   for number = 1, 20 do
-    local mark = "L" .. number
+    local mark = "L" .. tostring(number)
     local at = 0
     for index, line in ipairs(lines) do
       if line:find('"' .. mark, 1, true) or line:find(" " .. mark, 1, true) then
@@ -346,11 +861,11 @@ local function test_the_module_has_the_templates_lines()
       end
     end
     if src:find(mark .. "%D") or src:find(mark .. "$") then
-      assert(at == number, mark .. " is on line " .. at .. " of the module:\n" .. out)
+      assert(at == number, mark .. " is on line " .. tostring(at) .. " of the module:\n" .. out)
     end
   end
-  assert(lines[#lines]:find("end return {render = render}", 1, true), "last line: " .. lines[#lines])
-  assert(lines[#lines]:find('"L20" return table.concat(parts) end', 1, true), "last line: " .. lines[#lines])
+  assert(lines[#lines]:find("local _module: _Module = {render = render} return _module", 1, true), "last line: " .. lines[#lines])
+  assert(lines[#lines]:find('"L20" return table.concat(parts) end local record _Module', 1, true), "last line: " .. lines[#lines])
 end
 
 local function test_trimmed_whitespace_keeps_its_lines()
@@ -363,7 +878,7 @@ local function test_each_loop_and_with_has_a_dot_of_its_own()
   local out = compiled(HEAD .. "{{range .a}}{{range .b}}{{with .c}}{{.d}}{{end}}{{.e}}{{end}}{{end}}{{.f}}")
   for _, name in ipairs({ "for _, d1 in", "for _, d2 in", "local d3 = " }) do
     local _, count = out:gsub(name, "")
-    assert(count == 1, name .. " " .. count .. " times in " .. out)
+    assert(count == 1, name .. " " .. tostring(count) .. " times in " .. out)
   end
   assert(out:find("= d3.d parts[#parts + 1] = _text(v)", 1, true) and out:find("= d2.e parts[#parts + 1] = _text(v)", 1, true) and
       out:find("= d.f parts[#parts + 1] = _text(v)", 1, true), out)
@@ -375,11 +890,41 @@ local function test_a_dot_nothing_reads_is_not_named()
   assert(out:find("local d2 = d.b if d2 then", 1, true), out)
 end
 
-local function test_a_condition_chain_is_one_if()
+local function test_a_condition_chain_is_one_flat_block()
   local out = compiled(HEAD .. "{{if .a}}1{{else if .b | m.f}}2{{else}}3{{end}}")
-  assert(out:find("if d.a then", 1, true) and out:find("elseif m.f(d.b) then", 1, true) and
-      out:find(" else ", 1, true), out)
+  assert(out:find("repeat do local d1 = d.a if d1 then", 1, true) and out:find("break end end if _one(m.f(d.b)) then", 1, true) and
+      out:find("break end parts[#parts + 1] = ", 1, true) and out:find(" until true", 1, true), out)
   assert(out:find('require("m")', 1, true), out)
+  -- A chain with no field path to bind stays an `if`.
+  local plain = compiled(HEAD .. "{{if .b | m.f}}1{{else if .c | m.f}}2{{else}}3{{end}}")
+  assert(plain:find("if _one(m.f(d.b)) then", 1, true) and plain:find("elseif _one(m.f(d.c)) then", 1, true) and
+      not plain:find("repeat", 1, true), plain)
+end
+
+--- An `{{else}}` closes the chain that has no field path to bind as it does
+--- one that has, including a test of a path an enclosing test bound.
+local function test_an_else_closes_a_chain_with_nothing_to_bind()
+  local plain = compiled(HEAD .. "{{if .b | m.f}}1{{else}}2{{end}}")
+  assert(plain:find("if _one(m.f(d.b)) then", 1, true) and plain:find(" else ", 1, true) and
+      not plain:find("repeat", 1, true), plain)
+  local _, plain_ends = plain:gsub("%f[%w]end%f[%W]", "")
+  local _, plain_opens = plain:gsub("%f[%w]if%f[%W]", "")
+  assert(plain_ends >= plain_opens, plain)
+  local nested = compiled(HEAD .. "{{if .a}}{{if .a}}x{{else}}y{{end}}{{end}}")
+  assert(nested:find("do local d1 = d.a if d1 then if d1 then", 1, true) and
+      nested:find(" else parts[#parts + 1] = \"y\" end end end", 1, true), nested)
+end
+
+--- A path an enclosing test bound is a prefix of the paths inside it: each
+--- reads the local of the longest prefix bound, the key being the path as
+--- the source writes it.
+local function test_a_nested_guard_reads_the_local_of_its_longest_bound_prefix()
+  local out = compiled(HEAD .. "{{if .a}}{{if .a.b}}{{.a.b.c}}{{.a.d}}{{end}}{{end}}")
+  assert(out:find("do local d1 = d.a if d1 then do local d2 = d1.b if d2 then", 1, true), out)
+  assert(out:find("= d2.c parts", 1, true) and out:find("= d1.d parts", 1, true), out)
+  assert(not out:find("d1.b.c", 1, true) and not out:find("d.a.", 1, true), out)
+  local same = compiled(HEAD .. "{{if .a}}{{if .a.s}}{{.a.s}}{{end}}{{end}}")
+  assert(same:find("do local d2 = d1.s if d2 then", 1, true) and same:find("= d2 parts", 1, true), same)
 end
 
 local function test_a_with_that_is_empty_runs_its_else()
@@ -396,7 +941,7 @@ end
 
 local function test_a_module_is_named_by_its_last_word_unless_that_is_taken()
   local out = compiled("{{type Page from site.table}}\n{{.a | site.html.f}}{{.b | other.html.g}}{{.c | a.d.v}}{{.e | b.d.d1}}")
-  assert(out:find('local table_2 = require("site.table")', 1, true), out)
+  assert(out:find('local type table_2 = require("site.table")', 1, true), out)
   assert(out:find('local html = require("cosmic.html")', 1, true), out)
   assert(out:find('local html_2 = require("site.html")', 1, true), out)
   assert(out:find('local html_3 = require("other.html")', 1, true), out)
@@ -440,6 +985,14 @@ local function test_a_block_inside_and_after_svg_keeps_its_place()
   assert(why:find("t.tmpl:2:6: the arms of this {{if}}", 1, true), why)
 end
 
+local function test_text_inside_svg_math_or_select_takes_a_string_or_a_number_and_no_markup()
+  local out = compiled(HEAD .. "<p>{{.x}}</p><svg>{{.x}}</svg>")
+  assert(out:find("do local v: string | number = d.x parts[#parts + 1] = _ftext(v) end", 1, true), out)
+  assert(out:find("local function _ftext(v: string | number): string " ..
+      "if v is number then return tostring(v) end return html.raw(html.escape(v)) end", 1, true), out)
+  assert(out:find("do local v: string | number | html.SafeHtml = d.x parts[#parts + 1] = _text(v) end", 1, true), out)
+end
+
 local function test_an_html_template_must_end_in_plain_text_since_another_splices_it_into_text()
   -- A SafeHtml goes verbatim into another template's text slot: an inner
   -- template left in a URL would make the outer one's next slot a URL
@@ -452,4 +1005,607 @@ local function test_an_html_template_must_end_in_plain_text_since_another_splice
   compiled(HEAD .. "<svg><g/></svg>")
   compiled(HEAD .. "<select><option>a</option></select>")
   compiled("{{type T from m.t}}{{mode text}}\n<a href=\"")
+end
+
+--- What the module [`Template.compile`] makes of `src`, which has no
+--- slot, renders: its types struck out, it is run as Lua.
+local function rendered(src: string): string
+  local lua = compiled(src):gsub("%(_: t%.T%): [%w%.]+", "()"):gsub("local parts: mut {string}", "local parts")
+  lua = lua:gsub("local record _Module .- end local _module: _Module =", "local _module =")
+  local env: {string: any} = {
+    require = function(name: string): any
+      if name == "cosmic.html" then
+        return { trust = function(s: string): string return s end }
+      end
+      return {}
+    end,
+    table = table,
+  }
+  local chunk = assert(load(lua, "=module", "t", env))
+  local module = chunk() as {string: function(): string}
+  return module.render()
+end
+
+local TEXT <const> = "{{type T from m.t}}{{mode text}}\n"
+
+local function test_a_string_action_writes_its_bytes_as_literal_text()
+  assert(rendered(TEXT .. '{{"{{"}}') == "\n{{")
+  assert(rendered(TEXT .. '{{"}}"}}') == "\n}}")
+  assert(rendered(TEXT .. 'a {{"{{.name}}"}} b') == "\na {{.name}} b")
+  assert(rendered(TEXT .. '{{"{{"}}{{"}}"}}{{"{{{{"}}}}') == "\n{{}}{{{{}}")
+  assert(rendered(TEXT .. '{{ "\\"\\\\" }}') == '\n"\\')
+  assert(rendered(TEXT .. 'a\n {{- "{{" -}} \n b') == "\na{{b")
+  assert(rendered(TEXT .. '{{""}}x') == "\nx")
+  assert(rendered(TEXT .. '{{"if"}} {{"end"}} {{".a | m.f"}}') == "\nif end .a | m.f")
+end
+
+local function test_a_string_action_is_literal_text_the_html_tracker_reads()
+  assert(rendered(HEAD .. '<p>{{"{{"}}.x}}</p>') == "\n<p>{{.x}}</p>")
+  assert(rendered(HEAD .. '<a title="{{"{{"}}">x</a>') == '\n<a title="{{">x</a>')
+  assert(rendered(HEAD .. '{{"<b>"}}x</b>') == "\n<b>x</b>")
+  local slot = compiled(HEAD .. '<a{{" "}}title="{{.x}}">')
+  assert(slot:find("_attr(v)", 1, true), slot)
+  local closed = compiled(HEAD .. '<svg/{{""}}><p>{{.x}}</p>')
+  assert(closed:find("_text(v)", 1, true), closed)
+  local cases: {{string}} = {
+    { '<a href="{{"java"}}{{.x}}">', "2:20: ", "fixes where" },
+    { '<a href="{{.x}}{{"//h"}}">', "2:19: ", "protocol-relative" },
+    { '<p {{"onclick"}}="{{.x}}">', "2:19: ", "event handler" },
+    { '{{"<script>"}}{{.x}}', "2:15: ", "<script>" },
+    { '{{"<!--"}}{{.x}}-->', "2:11: ", "comment" },
+    { '<a{{"{{"}}', "2:11: ", "ends inside a tag" },
+  }
+  for _, case in ipairs(cases) do
+    local why = refused(HEAD .. case[1])
+    assert(why:find("t.tmpl:" .. case[2], 1, true) and why:find(case[3], 1, true), case[1] .. ": " .. why)
+  end
+end
+
+local function test_a_string_action_keeps_the_templates_lines()
+  local src = TEXT .. "L2 {{\n  \"{{\"\n}} L4\n{{- \"x\" -}}\n\nL6"
+  local out = compiled(src)
+  assert(newlines(out) == newlines(src) + 1, out)
+  local lines: mut {string} = {}
+  for line in out:gmatch("([^\n]*)\n") do
+    lines[#lines + 1] = line
+  end
+  assert(lines[2]:find('"L2 "', 1, true) and lines[3]:find('"{{"', 1, true), out)
+  assert(lines[4]:find('" L4"', 1, true) and lines[5]:find('"x"', 1, true), out)
+  assert(lines[7]:find('"L6"', 1, true), out)
+end
+
+local STRINGS <const>: {{string}} = {
+  { HEAD .. '{{"abc}}', "2", "3", "unterminated string" },
+  { HEAD .. '{{"abc', "2", "3", "unterminated string" },
+  { HEAD .. '{{"a\nb"}}', "2", "3", "newline" },
+  { HEAD .. '{{"a\\nb"}}', "2", "5", "escape" },
+  { HEAD .. '{{"\\{"}}', "2", "4", "escape" },
+  { HEAD .. '{{"a" | m.f}}', "2", "7", "string" },
+  { HEAD .. '{{"a" "b"}}', "2", "7", "string" },
+  { HEAD .. '{{.a | "m.f"}}', "2", "8", "string" },
+  { HEAD .. '{{.a"b"}}', "2", "5", "string" },
+  { HEAD .. '{{if "x"}}{{end}}', "2", "6", "string" },
+  { HEAD .. '{{if .a}}{{else if "x"}}{{end}}', "2", "20", "string" },
+  { HEAD .. '{{range "x"}}{{end}}', "2", "9", "string" },
+  { HEAD .. '{{"x"-}}', "2", "6", "trim marker takes a space" },
+  { HEAD .. '{{-"x"-}}', "2", "3", "trim marker takes a space" },
+  { '{{type T "from" m.t}}', "1", "1", "write {{type" },
+}
+
+local function test_a_string_action_that_is_malformed_or_not_alone_is_refused_where_it_goes_wrong()
+  local wrong: mut {string} = {}
+  for _, case in ipairs(STRINGS) do
+    local why = refused(case[1])
+    local want = "t.tmpl:" .. case[2] .. ":" .. case[3] .. ": "
+    if why:sub(1, #want) ~= want or not why:find(case[4], 1, true) then
+      wrong[#wrong + 1] = case[1] .. " said " .. why .. ", not " .. want .. "..." .. case[4]
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+end
+
+-- A run of text cut short, by a string action or a block that emits
+-- nothing, is read as the text whole: a `<!--` in `<noscript>` text, which
+-- the tracker cannot follow, is seen when its bytes come in two runs, and
+-- the `<` of an end tag cut short in `<svg><style>` is not taken for text.
+local function test_text_in_runs_is_read_as_it_is_whole()
+  local cases: {{string}} = {
+    { '<noscript><!--</noscript>{{.x}}', '<noscript>{{"<!"}}--</noscript>{{.x}}' },
+    { '<noscript><!--</noscript><p title="{{.x}}">--></noscript>',
+      '<noscript>{{"<!-"}}-</noscript><p title="{{.x}}">--></noscript>' },
+    { '<noscript><!--</noscript>{{.x}}', '<noscript><!{{if .a}}{{end}}--</noscript>{{.x}}' },
+  }
+  for _, case in ipairs(cases) do
+    for _, src in ipairs(case) do
+      assert(refused(HEAD .. src):find("<noscript>", 1, true), src)
+    end
+  end
+  for _, src in ipairs({ '<svg><style></style></svg>{{.x}}', '<svg><style></sty{{"le>"}}</svg>{{.x}}',
+      '<svg><style></sty{{if .a}}{{end}}le></svg>{{.x}}', '<math><script></scr{{"ipt>"}}</math>{{.x}}' }) do
+    assert(compiled(HEAD .. src):find("_text(v)", 1, true), src)
+  end
+end
+
+--- Templates whose `<noscript>` text a browser with scripting off reads as
+--- markup that puts the slot after `</noscript>` somewhere other than text:
+--- in `<style>`, `<xmp>`, `<textarea>`, `<plaintext>` or a comment, or in
+--- an attribute value.
+local NOSCRIPT_MARKUP <const>: {string} = {
+  "<noscript><style></noscript>{{.x}}</style>",
+  "<noscript><STYLE></noscript>{{.x}}</style>",
+  "<noscript><xmp></noscript>{{.x}}",
+  "<noscript><textarea></noscript>{{.x}}",
+  "<noscript><plaintext></noscript>{{.x}}",
+  "<noscript><!--</noscript>{{.x}}-->",
+  "<noscript><p title=\"</noscript>{{.x}}\">",
+  "<noscript><img src=x onerror=\"</noscript>{{.x}}\">",
+  "<noscript></p title=\"</noscript>{{.x}}\">",
+  "<noscript><svg><style><p title=\"</style></noscript>{{.x}}\">",
+  -- With scripting off the frameset pops the noscript, and the classic
+  -- "in frameset" mode then ignores `<title>`.
+  "<noscript><frameset></noscript><title><frame onload=\"{{.x}}\"></title>",
+  -- An arm that leaves the scripting-off reading in a tag where the text
+  -- after it reads differently, joined with an arm that does not.
+  "<noscript>{{if .a}}<a>{{else}}<a{{if .b}} style{{end}}=\"{{if .c}}{{end}}>{{end}}</noscript>{{.x}}\">",
+  "<noscript>{{with .a}}<a>{{else}}<a{{if .b}} style{{end}}=\"{{if .c}}{{end}}>{{end}}</noscript>{{.x}}\">",
+  "<noscript>{{range .l}}<a>{{else}}<a{{if .b}} style{{end}}=\"{{if .c}}{{end}}>{{end}}</noscript>{{.x}}\">",
+  "<noscript>{{if .a}}{{else}}<a{{if .b}} style{{end}}=\"{{if .c}}{{end}}>{{end}}</noscript>{{.x}}\">",
+  "<noscript>{{if .a}}<a>{{else}}<a{{if .b}} style{{end}}=\"{{\"\"}}>{{end}}</noscript>{{.x}}\">",
+  "<noscript><a{{if .b}} style{{end}}=\"{{\"\"}}></noscript>{{.x}}\">",
+  "<noscript><a{{if .b}} style{{end}}=\"></noscript>{{.x}}\">",
+}
+
+--- `src` cut at every byte of its literal text, with `{{.x}}` its one slot:
+--- by a block that emits nothing, and by that byte written as a string
+--- action. No cut goes beside a brace of the literal text, which would run
+--- into an action's own.
+local function cuts(src: string): {string}
+  local literal: mut {integer: boolean} = {}
+  local at = 1
+  while at <= #src do
+    local open, close = src:find("{{.-}}", at)
+    for i = at, (open or #src + 1) - 1 do
+      literal[i] = not src:sub(i, i):find("[{}]")
+    end
+    at = (close or #src) + 1
+  end
+  local out: mut {string} = { src }
+  for i = 1, #src do
+    if literal[i] and literal[i - 1] ~= false and literal[i + 1] ~= false then
+      local byte = src:sub(i, i):gsub('[\\"]', "\\%0")
+      out[#out + 1] = src:sub(1, i - 1) .. "{{if .cut}}{{end}}" .. src:sub(i)
+      out[#out + 1] = src:sub(1, i - 1) .. '{{"' .. byte .. '"}}' .. src:sub(i + 1)
+    end
+  end
+  return out
+end
+
+local function test_markup_in_noscript_that_scripting_off_reads_differently_refuses_a_later_slot()
+  local wrong: mut {string} = {}
+  for _, src in ipairs(NOSCRIPT_MARKUP) do
+    for _, cut in ipairs(cuts(src)) do
+      local out, why = Template.compile(HEAD .. cut, "t.tmpl")
+      if out ~= nil or not (why:find("differently", 1, true) or why:find("the arms", 1, true)) then
+        wrong[#wrong + 1] = cut .. ": " .. tostring(why)
+      end
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+  local why = refused(HEAD .. "<noscript>{{if .a}}<p title=\"{{end}}</noscript>{{.x}}\">")
+  assert(why:find("arms", 1, true), why)
+end
+
+--- Templates whose `<noscript>` text a browser with scripting off reads as
+--- markup that ends in plain text, so the slot after it stands in text
+--- either way.
+local NOSCRIPT_PLAIN <const>: {string} = {
+  "<noscript>Turn on JavaScript.</noscript>{{.x}}",
+  "<noscript>a < b, 1 <2 & 3> 2</noscript><p>{{.x}}</p>",
+  "<noscript><</noscript>{{.x}}",
+  "<noscript><p>Turn on <b>JavaScript</b>.</p></noscript>{{.x}}",
+  "<noscript><img height=\"1\" style=\"display:none\" src=\"/tr?id=1&amp;ev=view\"/></noscript>{{.x}}",
+  "<noscript><iframe src=\"/ns.html?id=1\" height=\"0\" width=\"0\"></iframe></noscript>{{.x}}",
+  "<noscript><style>.js { display: none }</style></noscript>{{.x}}",
+  "<noscript><link rel=\"stylesheet\" href=\"/no-js.css\"></noscript>{{.x}}",
+  "<noscript><!-- no script --></noscript>{{.x}}",
+  "<noscript><svg><path d=\"M0 0\"/></svg></noscript>{{.x}}",
+  "<p>{{.x}}</p><noscript><p>Turn on JavaScript.</p></noscript>",
+}
+
+local function test_markup_in_noscript_that_ends_in_text_keeps_the_slots_after_it()
+  local wrong: mut {string} = {}
+  for _, src in ipairs(NOSCRIPT_PLAIN) do
+    for _, cut in ipairs(cuts(src)) do
+      local out, why = Template.compile(HEAD .. cut, "t.tmpl")
+      if out == nil or not out:find("_text(v)", 1, true) then
+        wrong[#wrong + 1] = cut .. ": " .. tostring(why)
+      end
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+  for _, src in ipairs({
+      "<noscript>{{if .a}}<p>On</p>{{else}}<b>Off</b>{{end}}</noscript>{{.x}}",
+      "<noscript>{{if .a}}Turn on JS{{end}}</noscript>{{.x}}",
+      "<noscript>{{if .a}}<p>On</p>{{end}}</noscript>{{.x}}",
+      "<noscript>{{range .l}}<p>x</p>{{end}}</noscript>{{.x}}",
+      "<noscript><input{{if .a}} checked{{end}}></noscript>{{.x}}",
+      "<noscript><input{{if .a}} checked{{end}} name=\"n\"></noscript>{{.x}}",
+  }) do
+    assert(compiled(HEAD .. src):find("_text(v)", 1, true), src)
+  end
+  -- Arms that leave the scripting-off reading apart up to `</noscript>`.
+  for _, src in ipairs({
+      "<noscript><input{{if .a}} checked{{end}}</noscript>{{.x}}",
+      "<noscript><input{{if .a}} chec{{end}}ked></noscript>{{.x}}",
+  }) do
+    refused(HEAD .. src)
+  end
+end
+
+-- A parser in the classic "in select" mode ignores a start tag of raw text
+-- or RCDATA other than `<script>` and `<textarea>`, and one in "in frameset"
+-- every one but `<noframes>`, and reads the markup inside as tags; a newer
+-- one opens the element. A `<template>` in a select hides a `</select>` from
+-- the classic parser, which is in select again after `</template>`. A slot
+-- after such a tag is refused, as is one in the same text cut into runs.
+local function test_raw_text_in_select_or_frameset_is_refused()
+  local wrong: mut {string} = {}
+  for _, src in ipairs({
+      '<select><title><option onclick="{{.x}}"></title></select>',
+      '<select><title><script>{{.x}}</script></title></select>',
+      '<select><style><option style="</style>{{.x}}">',
+      '<select><noscript><option title="</noscript>{{.x}}">',
+      '<select><xmp></xmp></select>{{.x}}',
+      '<html><head></head><frameset><title><frame src="about:blank" onload="{{.x}}"></title></frameset>',
+      '<frameset><textarea></textarea>{{.x}}',
+      '<frameset><script></script>{{.x}}',
+      '<select><template></select></template><title><option onclick="{{.x}}"></title>',
+      '<select><template><div><select></select></template><title><option onclick="{{.x}}"></title>',
+      '<select><template></select></template><style><option onclick="</style>{{.x}}">',
+  }) do
+    for _, cut in ipairs(cuts(src)) do
+      local out = Template.compile(HEAD .. cut, "t.tmpl")
+      if out ~= nil then
+        wrong[#wrong + 1] = cut
+      end
+    end
+  end
+  assert(#wrong == 0, "compiled:\n" .. table.concat(wrong, "\n"))
+end
+
+local function test_raw_text_the_select_mode_reads_still_takes_a_slot()
+  for _, src in ipairs({
+      '<select><option>{{.x}}</option></select>',
+      '<select><textarea>{{.x}}</textarea></select>',
+      '<select><script></script><option>{{.x}}</option></select>',
+      '<select></select><title>{{.x}}</title>',
+      '<select><option>a</option></select><style>p</style>{{.x}}',
+  }) do
+    for _, cut in ipairs(cuts(src)) do
+      local out = compiled(HEAD .. cut)
+      assert(out:find("_rtext(v)", 1, true) or out:find("_text(v)", 1, true) or out:find("_ftext(v)", 1, true), cut)
+    end
+  end
+  assert(refused(HEAD .. "<frameset><frame src=\"a\"></frameset>"):find("inside <frameset>", 1, true))
+end
+
+local function test_a_block_may_add_a_whole_attribute_wherever_it_stands_in_a_tag()
+  for _, src in ipairs({
+      '<input{{if .a}} checked{{end}} name="n">',
+      '<input {{if .a}}checked {{end}}name="n">',
+      '<input type="checkbox"{{if .a}} checked{{end}} name="n">',
+      '<input type="checkbox" {{if .a}}checked {{end}}name="n">',
+      '<input type="checkbox"{{if .a}} checked{{end}}>',
+      '<input type="checkbox" {{if .a}}checked{{end}}>',
+      '<input name=n{{if .a}} checked{{end}} id="i">',
+      '<input{{if .a}} checked{{end}}/>',
+      '<input{{if .a}} checked{{end}} />',
+      '<option{{if .a}} selected{{end}}>x</option>',
+      '<input{{if .a}} disabled{{else}} required{{end}} name="n">',
+      '<select{{if .a}} multiple{{end}}{{if .b}} disabled{{end}} name="n"></select>',
+      '<input{{if .a}} class="c"{{end}} name="n">',
+      '<input{{range .l}} checked{{end}} name="n">',
+      '<input{{if .a}} checked{{end}}\n  name="n">',
+      '<textarea{{if .a}} disabled{{end}}></textarea>',
+  }) do
+    local out = compiled(HEAD .. src .. "{{.x}}")
+    assert(out:find("parts[#parts + 1] = _text(v)", 1, true), src .. ": " .. out)
+  end
+  local out = compiled(HEAD .. '<input{{if .a}} checked{{end}} title="{{.t}}" src="{{.u}}">')
+  assert(out:find("_attr(v)", 1, true) and out:find("_url(v)", 1, true), out)
+  out = compiled(HEAD .. '<img{{if .a}} hidden{{end}}{{with .w}} title="{{.t}}"{{end}} src="{{.u}}">')
+  assert(out:find("_attr(v)", 1, true) and out:find("_url(v)", 1, true), out)
+end
+
+--- Text after a block that adds an attribute, which would read differently
+--- after each arm, and where it is refused. Line 1 is the `{{type}}` line.
+local APART <const>: {{string}} = {
+  -- `checked="x"` in one arm, the tag `<input=x>` in the other.
+  { '<input{{if .a}} checked{{end}}=x>', "2", "31", "reads differently" },
+  { '<input{{if .a}} checked{{end}}{{"="}}x>', "2", "34", "reads differently" },
+  { '<input{{if .a}} checked{{end}} =x>', "2", "32", "reads differently" },
+  { '<input{{if .a}} checked{{end}}\n  =x>', "3", "3", "reads differently" },
+  -- `checked` in one arm, `ked` in the other.
+  { '<input {{if .a}}chec{{end}}ked>', "2", "28", "reads differently" },
+  { '<input{{if .a}} checked{{end}}put>', "2", "31", "reads differently" },
+  { '<input{{if .a}} name=n{{end}}/>', "2", "30", "reads differently" },
+  { '<input{{range .l}} checked{{end}}=x>', "2", "34", "reads differently" },
+  { '<meta{{if .a}} http-equiv{{end}} content="{{.c}}">', "2", "33", "reads differently" },
+  -- The arm that names http-equiv is the one the `>` ends, not the place kept.
+  { '<meta content="{{.c}}"{{if .a}}{{else}} http-equiv{{end}}>', "2", "16", "could be a redirect" },
+  { '<input{{range .l}} {{end}}name=x>', "2", "27", "a block before this text" },
+  -- Run again, the body's own `a` carries on the `a` the run before wrote.
+  { '<input {{range .l}}a{{end}}>', "2", "20", "the {{range}} it is in" },
+  { '<input{{if .a}} checked{{end}}{{.x}}>', "2", "31", "a slot" },
+  { '<input{{if .a}} checked{{end}}', "2", "31", "the template ends inside a tag" },
+  { '<in{{if .a}}put checked{{end}}>', "2", "4", "end in different places" },
+  -- An arm that goes on with the name or value the block cut, then adds an attribute.
+  { '<input a{{if .a}}checked {{end}}>', "2", "9", "end in different places" },
+  { '<input name=n{{if .a}}x checked{{end}}>', "2", "14", "end in different places" },
+  { '<input a{{if .a}}=x{{end}}>', "2", "9", "end in different places" },
+  { '<input a {{if .a}}=x{{end}}>', "2", "10", "end in different places" },
+  { '<input/{{if .a}} checked{{end}}>', "2", "8", "end in different places" },
+  { '<p>{{if .a}}<input{{end}} checked>', "2", "4", "end in different places" },
+  { '<a{{if .a}} href{{end}}="{{.u}}">', "2", "24", "reads differently" },
+  { '<meta{{if .a}} http-equiv="refresh"{{end}} content="{{.c}}">', "2", "6", "end in different places" },
+}
+
+local function test_text_that_reads_differently_after_each_arm_of_a_block_is_refused()
+  local wrong: mut {string} = {}
+  for _, case in ipairs(APART) do
+    local why = refused(HEAD .. case[1])
+    local want = "t.tmpl:" .. case[2] .. ":" .. case[3] .. ": "
+    if why:sub(1, #want) ~= want or not why:find(case[4], 1, true) then
+      wrong[#wrong + 1] = case[1] .. " said " .. why .. ", not " .. want .. "..." .. case[4]
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+end
+
+--- `inner` inside `depth` nested ranges, each over `.l`.
+local function nested_ranges(depth: integer, inner: string): string
+  return string.rep("{{range .l}}", depth) .. inner .. string.rep("{{end}}", depth)
+end
+
+-- Each range walks its body twice, so walking every body again from each
+-- place would take time exponential in the depth: 64 levels would never
+-- finish. The source is not loaded: Lua's limit on locals is met first
+-- (see codegen's block).
+local function test_deeply_nested_ranges_compile_without_walking_each_body_again_per_level()
+  local out = compiled(HEAD .. "<p title=\"" .. nested_ranges(64, "{{.x}}") .. "\">" .. nested_ranges(64, "<b>{{.y}}</b>"))
+  local _, attrs = out:gsub("= _attr%(v%)", "")
+  local _, texts = out:gsub("= _text%(v%)", "")
+  assert(attrs == 1 and texts == 1, out)
+  local _, loops = out:gsub("for _, ", "")
+  assert(loops == 128, loops)
+end
+
+local function test_nested_ranges_refuse_a_body_that_does_not_end_where_it_began_at_depth()
+  local why = refused(HEAD .. nested_ranges(40, "<b class=\"") .. "\">")
+  assert(why:find("^t.tmpl:2:469: the body of this {{range}} ends where it did not begin"), why)
+  -- The innermost body ends where it began, but a second time round its
+  -- URL slot no longer begins the value.
+  local url = refused(HEAD .. "<a href=\"" .. nested_ranges(40, "{{.u}}") .. "\">")
+  assert(url:find("^t.tmpl:2:490: a slot in the 'href' attribute that does not begin"), url)
+end
+
+local function test_a_range_takes_an_else_run_when_the_list_is_empty()
+  local out = compiled(HEAD .. "{{range .a}}<b>{{.x}}</b>{{else}}<i>{{.y}}</i>{{end}}{{.z}}")
+  assert(out:find("do local d2 = d.a if d2[1] ~= nil then for _, d1 in ipairs(d2) do", 1, true), out)
+  assert(out:find("end else", 1, true) and out:find("= d.y parts", 1, true) and out:find("end end", 1, true), out)
+  assert(out:find("= d1.x parts", 1, true) and out:find("= d.z parts", 1, true), out)
+  local unread = compiled(HEAD .. "{{range .a}}x{{else}}y{{end}}")
+  assert(unread:find("do local d2 = d.a if d2[1] ~= nil then for _, _ in ipairs(d2) do", 1, true), unread)
+end
+
+local function test_a_range_else_keeps_the_templates_lines()
+  local src = "{{type T from m.t}}{{mode text}}\n{{range .a}}\nL3 {{.x}}\n{{else}}\nL5 {{.y}}\n{{end}}\nL7"
+  local out = compiled(src)
+  assert(newlines(out) == newlines(src) + 1, out)
+  local lines: mut {string} = {}
+  for line in out:gmatch("([^\n]*)\n") do
+    lines[#lines + 1] = line
+  end
+  assert(lines[2]:find("ipairs(d2) do", 1, true), lines[2])
+  assert(lines[3]:find('"L3 "', 1, true) and lines[3]:find("d1.x", 1, true), lines[3])
+  assert(lines[4]:find("end else", 1, true), lines[4])
+  assert(lines[5]:find('"L5 "', 1, true) and lines[5]:find("d.y", 1, true), lines[5])
+  assert(lines[6]:find("end end", 1, true), lines[6])
+  assert(lines[7]:find('"L7"', 1, true), lines[7])
+end
+
+local function test_a_range_else_is_judged_from_where_the_range_begins()
+  local slots = compiled(HEAD .. "<p title=\"{{range .l}}{{.a}}{{else}}{{.b}}{{end}}\">{{range .l}}<b>{{.c}}</b>" ..
+      "{{else}}<i>{{.d}}</i>{{end}}{{.e}}")
+  local _, attrs = slots:gsub("= _attr%(v%)", "")
+  local _, texts = slots:gsub("= _text%(v%)", "")
+  assert(attrs == 2 and texts == 3, slots)
+  -- The else arm begins the URL value, as the loop's first time round does.
+  local url = compiled(HEAD .. "<a href=\"{{range .l}}/a{{else}}{{.u}}{{end}}\">")
+  assert(url:find("_url(v)", 1, true), url)
+  local arms = refused(HEAD .. "{{range .l}}x{{else}}<b class=\"{{end}}\">")
+  assert(arms:find("^t.tmpl:2:1: the arms of this {{range}} end in different places"), arms)
+  local body = refused(HEAD .. "{{range .l}}<b class=\"{{else}}<b class=\"{{end}}\">")
+  assert(body:find("^t.tmpl:2:1: the body of this {{range}} ends where it did not begin"), body)
+  -- The body runs again after itself, so its URL slot no longer begins the
+  -- value; the else arm does not run again.
+  local again = refused(HEAD .. "<a href=\"{{range .l}}{{.u}}{{else}}/x{{end}}\">")
+  assert(again:find("^t.tmpl:2:22: a slot in the 'href' attribute that does not begin"), again)
+  -- What follows is judged from where the else arm leaves off too.
+  local after = refused(HEAD .. "<a href=\"{{range .l}}x{{else}}{{.u}}{{end}}/evil\">")
+  assert(after:find("^t.tmpl:2:44: ") and after:find("protocol-relative", 1, true), after)
+end
+
+local function test_a_range_takes_one_else_and_no_else_if()
+  local chained = refused(HEAD .. "{{range .a}}{{else if .b}}{{end}}")
+  assert(chained:find("^t.tmpl:2:20: {{else}} in a {{range}} takes nothing: nest an {{if}}"), chained)
+  local twice = refused(HEAD .. "{{range .a}}{{else}}{{else}}{{end}}")
+  assert(twice:find("^t.tmpl:2:21: {{else}} after {{else}}"), twice)
+end
+
+local function test_the_records_module_is_required_for_its_types_unless_a_stage_reads_it()
+  local typed = compiled("{{type T from m.t}}{{mode text}}{{.x}}")
+  assert(typed:find('local type t = require("m.t")', 1, true), typed)
+  assert(not typed:find("_one", 1, true), typed)
+  local both = compiled("{{type T from m.t}}{{mode text}}{{.x | m.t.f}}")
+  assert(both:find('local t = require("m.t")', 1, true), both)
+  assert(not both:find("local type", 1, true), both)
+  assert(both:find("local function _one<T>(v: T): T return v end", 1, true), both)
+  assert(both:find("= _one(t.f(d.x))", 1, true), both)
+end
+
+local function test_dollar_is_the_render_argument_anywhere()
+  local out = compiled(HEAD .. "{{range .items}}{{.name}}{{$.title}}{{with .owner}}{{$.who | m.f}}{{end}}{{end}}" ..
+      "{{if $.admin}}{{$}}{{end}}")
+  assert(out:find("= d1.name parts", 1, true) and out:find("= d.title parts", 1, true), out)
+  assert(out:find("= _one(m.f(d.who)) parts", 1, true), out)
+  assert(out:find("local d3 = d.admin if d3 then", 1, true) and out:find("= d parts", 1, true), out)
+  -- Only `$` reads the argument here, so it must be named.
+  local only = compiled(HEAD .. "{{$.x}}")
+  assert(only:find("render(d: t.T)", 1, true) and only:find("= d.x parts", 1, true), only)
+end
+
+local function test_a_range_binds_its_element_and_its_index()
+  local both = compiled(HEAD .. "{{range $i, $x := .items}}{{$i}}{{$x.name}}{{.n}}{{end}}")
+  assert(both:find("for d2, d1 in ipairs(d.items) do", 1, true), both)
+  assert(both:find("= d2 parts", 1, true) and both:find("= d1.name parts", 1, true) and
+      both:find("= d1.n parts", 1, true), both)
+  local element = compiled(HEAD .. "{{range $x := .items}}{{$x.name}}{{end}}")
+  assert(element:find("for _, d1 in ipairs(d.items) do", 1, true), element)
+  local index = compiled(HEAD .. "{{range $i, $x := .items}}{{$i}}{{end}}")
+  assert(index:find("for d2, _ in ipairs(d.items) do", 1, true), index)
+  local unread = compiled(HEAD .. "{{range $i, $x := .items}}x{{end}}")
+  assert(unread:find("for _, _ in ipairs(d.items) do", 1, true), unread)
+  local spaced = compiled(HEAD .. "{{range $i,$x:=.items}}{{$i}}{{end}}")
+  assert(spaced:find("for d2, _ in ipairs(d.items) do", 1, true), spaced)
+end
+
+local function test_a_range_with_bindings_and_an_else_reads_its_list_once()
+  local out = compiled(HEAD .. "{{range $i, $x := .a | m.f}}{{$i}}{{$x}}{{else}}{{.y}}{{end}}")
+  assert(out:find("do local d3 = _one(m.f(d.a)) if d3[1] ~= nil then for d2, d1 in ipairs(d3) do", 1, true), out)
+  assert(out:find("end else", 1, true) and out:find("= d.y parts", 1, true), out)
+end
+
+local function test_nested_ranges_name_the_root_and_each_enclosing_element_and_index()
+  local out = compiled(HEAD .. "{{range $i, $x := .a}}{{range $j, $y := $x.b}}{{$x.n}}{{$i}}{{$y}}{{$j}}" ..
+      "{{$.t}}{{.}}{{end}}{{end}}")
+  assert(out:find("for d2, d1 in ipairs(d.a) do", 1, true), out)
+  assert(out:find("for d4, d3 in ipairs(d1.b) do", 1, true), out)
+  for _, read in ipairs({ "= d1.n parts", "= d2 parts", "= d3 parts", "= d4 parts", "= d.t parts" }) do
+    assert(out:find(read, 1, true), read .. " in " .. out)
+  end
+end
+
+local function test_a_with_keeps_the_root_and_the_enclosing_bindings()
+  local out = compiled(HEAD .. "{{range $i, $x := .a}}{{with .w}}{{.}}{{$x}}{{$i}}{{$.t}}{{end}}{{end}}")
+  assert(out:find("do local d3 = d1.w if d3 then", 1, true), out)
+  assert(out:find("= d3 parts", 1, true) and out:find("= d1 parts", 1, true) and out:find("= d2 parts", 1, true) and
+      out:find("= d.t parts", 1, true), out)
+end
+
+local function test_a_binding_is_never_named_like_a_generated_name_or_a_module()
+  local names = { "html", "d", "d1", "v", "parts", "render", "_one", "_text", "T", "m", "end", "_" }
+  for _, name in ipairs(names) do
+    local out = compiled(HEAD .. "{{range $" .. name .. " := .l}}{{$" .. name .. " | m.f}}{{end}}")
+    assert(out:find("for _, d1 in ipairs(d.l) do", 1, true), name .. ": " .. out)
+    assert(out:find("= _one(m.f(d1)) parts", 1, true), name .. ": " .. out)
+    assert(not out:find("local " .. name .. " ", 1, true) or name == "m" or name == "html", name .. ": " .. out)
+  end
+end
+
+local function test_bindings_keep_the_templates_lines()
+  local src = "{{type T from m.t}}{{mode text}}\n{{range $i,\n  $x := .a}}\nL4 {{$i}}\n{{else}}\nL6 {{$.y}}\n{{end}}\nL8"
+  local out = compiled(src)
+  assert(newlines(out) == newlines(src) + 1, out)
+  local lines: mut {string} = {}
+  for line in out:gmatch("([^\n]*)\n") do
+    lines[#lines + 1] = line
+  end
+  assert(lines[2]:find("for d2, _ in ipairs(d3) do", 1, true), lines[2])
+  assert(lines[4]:find('"L4 "', 1, true) and lines[4]:find("= d2 ", 1, true), lines[4])
+  assert(lines[6]:find('"L6 "', 1, true) and lines[6]:find("= d.y ", 1, true), lines[6])
+  assert(lines[8]:find('"L8"', 1, true), lines[8])
+end
+
+--- Template source, the line and column it is refused at, and what the
+--- reason says, for variables.
+local VARIABLE_REFUSALS <const>: {{string}} = {
+  { HEAD .. "{{$x}}", "2", "3", "'$x' is not declared here" },
+  { HEAD .. "{{range $x := .l}}{{$y.a}}{{end}}", "2", "21", "'$y' is not declared here" },
+  { HEAD .. "{{range $item := .l}}\n  {{$itme.name}}{{end}}", "3", "5", "'$itme' is not declared here" },
+  { HEAD .. "{{range $x := .l}}{{.}}{{else}}{{$x}}{{end}}", "2", "34", "'$x' is not declared here" },
+  { HEAD .. "{{range $i, $x := .l}}{{else}}{{$i}}{{end}}", "2", "33", "'$i' is not declared here" },
+  { HEAD .. "{{range $x := .l}}{{end}}{{$x}}", "2", "28", "'$x' is not declared here" },
+  { HEAD .. "{{if .a}}{{range $x := .l}}{{end}}{{$x}}{{end}}", "2", "37", "'$x' is not declared here" },
+  { HEAD .. "{{range $x := .l}}{{end}}{{range $x := .l}}{{$x}}{{end}}", "2", "1", "" },
+  { HEAD .. "{{range $x := .l}}{{range $x := .m}}{{end}}{{end}}", "2", "27", "'$x' is already declared at 2:9" },
+  { HEAD .. "{{range $x, $x := .l}}{{end}}", "2", "13", "'$x' is already declared at 2:9" },
+  { HEAD .. "{{range $x := $x.l}}{{end}}", "2", "15", "'$x' is not declared here" },
+  { HEAD .. "{{with $x := .w}}{{end}}", "2", "11", "only {{range}} binds" },
+  { HEAD .. "{{if $x := .w}}{{end}}", "2", "9", "only {{range}} binds" },
+  { HEAD .. "{{$x := .w}}", "2", "6", "only {{range}} binds" },
+  { HEAD .. "{{.a | m.f, .b}}", "2", "11", "unexpected ','" },
+  { HEAD .. "{{.a,b}}", "2", "5", "unexpected ','" },
+  { HEAD .. "{{range $i := $x := .a}}{{end}}", "2", "18", "unexpected ':=': a range binds once" },
+  { HEAD .. "{{range $x := .a := .b}}{{end}}", "2", "18", "unexpected ':=': a range binds once" },
+  { HEAD .. "{{range .a := .b}}{{end}}", "2", "12", "unexpected ':=': a range binds once" },
+  { HEAD .. "{{range $ := .l}}{{end}}", "2", "9", "'$' is not a name to bind" },
+  { HEAD .. "{{range $x.a := .l}}{{end}}", "2", "9", "'$x.a' is not a name to bind" },
+  { HEAD .. "{{range $x .l}}{{end}}", "2", "12", "expected := after $x" },
+  { HEAD .. "{{range $x $y}}{{end}}", "2", "12", "expected := after $x" },
+  { HEAD .. "{{range $i, $x .l}}{{end}}", "2", "16", "expected := after $x" },
+  { HEAD .. "{{range $i, .l}}{{end}}", "2", "13", "expected a variable to bind" },
+  { HEAD .. "{{range $i, $x, $y := .l}}{{end}}", "2", "15", "expected := after $x" },
+  { HEAD .. "{{range $x :=}}{{end}}", "2", "1", "expected a value" },
+  { HEAD .. "{{range := .l}}{{end}}", "2", "9", "not a field path" },
+  { HEAD .. "{{$.}}", "2", "3", "not a variable" },
+  { HEAD .. "{{$x..a}}", "2", "3", "not a variable" },
+  { HEAD .. "{{$1}}", "2", "3", "not a variable" },
+  { HEAD .. "{{$$}}", "2", "3", "not a variable" },
+  { HEAD .. "{{.a | $.f}}", "2", "8", "module.path.func" },
+}
+
+local function test_a_variable_out_of_scope_or_misspelled_is_refused_where_it_stands()
+  local wrong: mut {string} = {}
+  for _, case in ipairs(VARIABLE_REFUSALS) do
+    local out, why = Template.compile(case[1], "t.tmpl")
+    if case[4] == "" then
+      if out == nil then
+        wrong[#wrong + 1] = case[1] .. " was refused: " .. why
+      end
+    else
+      local want = "t.tmpl:" .. case[2] .. ":" .. case[3] .. ": "
+      if out ~= nil or why:sub(1, #want) ~= want or not why:find(case[4], 1, true) then
+        wrong[#wrong + 1] = case[1] .. " said " .. tostring(why) .. ", not " .. want .. "..." .. case[4]
+      end
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+end
+
+--- The module a template compiles to is written in the new checker's grammar: its output list is `mut`, and the module
+--- returns a local of a record type that declares `render`, which a project is held to with no ceiling.
+local function test_a_template_is_written_in_the_new_grammar()
+  local made = assert(Template.compile("{{type T from m.t}}{{mode text}}\nhi {{.x}}", "t.tmpl"))
+  assert(made:find("local parts: mut {string} = {}", 1, true) ~= nil, made)
+  assert(made:find("end local record _Module render: function(d: t.T): string end local _module: _Module = {render = render} " ..
+      "return _module", 1, true) ~= nil, made)
+  -- line N of the template is line N of the module
+  local _, lines = made:gsub("\n", "")
+  assert(lines == 2, tostring(lines))
+end
+
+-- The tracker keeps the alternative places of a block as space-separated
+-- keys, and an attribute name may hold a byte Lua's `%s` reads as space
+-- (\v, \f) and HTML does not. Such a name must not split a key: compile
+-- answers a refusal or a template, and never raises.
+local function test_an_attribute_name_with_a_vertical_tab_or_form_feed_never_makes_compile_raise()
+  for _, space in ipairs({ "\v", "\f" }) do
+    for _, tail in ipairs({ ">", "\">", "=x>", "" }) do
+      local src = HEAD .. "<a {{if .a}}b" .. space .. "c" .. tail .. "{{end}}>"
+      local ok, out, why = pcall(Template.compile, src, "t.tmpl")
+      assert(ok, "compile raised on " .. string.format("%q", src) .. ": " .. tostring(out))
+      assert(out ~= nil or why ~= nil, "neither a template nor a refusal")
+    end
+  end
 end

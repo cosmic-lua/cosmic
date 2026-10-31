@@ -1,4 +1,3 @@
-local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
@@ -38,15 +37,20 @@ Test.policy{
     { path = "o/fixtures/runtime/sanitized-cores/sanitized-aarch64-linux-musl/cosmic-core", letters = "r" },
     { path = "o/fixtures/runtime/sanitized-cores/sanitized-aarch64-macos/cosmic-core", letters = "r" },
     { path = "o/fixtures/runtime/tool.tar", letters = "r" },
-    { path = "o/fixtures/runtime/focused-embed.tar", letters = "r" },
   },
   profiles = { "system" },
 }
 
-local type Running = Process.Running
 local start, finish, supervised = Process.start, Process.finish, Process.supervised
 local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.release
 local chmod, host_uname = Process.chmod, Process.host_uname
+
+-- Checks that `out` names the two programs the build wrote, a line each, in
+-- the build directory of `project`.
+local function built_both(out: string, project: string)
+  local bin = Fixture.built(project) .. "/bin"
+  Fixture.contains(out, bin .. "/hello\n" .. bin .. "/second\n")
+end
 
 -- Compares the first `length` bytes of two files, each of which must hold at
 -- least that many.
@@ -98,7 +102,7 @@ local function host_target_field(fixture_dir: string, work: string,
                                  diagnostics: string): string
   local sysname = host_uname(work, diagnostics, "-s", "sysname")
   local arch = host_uname(work, diagnostics, "-m", "arch")
-  local found: string | nil = nil
+  local found: string? = nil
   for line in Fixture.read(fixture_dir .. "/targets.tsv"):gmatch("[^\n]+") do
     local name, uname_os, uname_arch = line:match(
       "^%d+\t%d+\t[^\t]+\t([^\t]+)\t([^\t]+)\t([^\t]+)$")
@@ -125,7 +129,7 @@ local function run_build_race(project: string, cache: string,
   Fixture.copy(fixture_dir .. "/runtime.old", copy_path, 0x1ed)
   local ready = fifo(work, diagnostics, action .. "-ready")
   local go = fifo(work, diagnostics, action .. "-go")
-  supervised(function(active: {Running})
+  supervised(function(active: Process.Fleet)
     local values = Fixture.environment({
       COSMIC_PORTABLE_CACHE = cache,
       COSMIC_PORTABLE_STARTUP_TEST_READY = ready,
@@ -133,7 +137,7 @@ local function run_build_race(project: string, cache: string,
     })
     local child = start(action .. "-build", { copy_path, "build" }, project,
       values, diagnostics)
-    active[#active + 1] = child
+    Process.adopt(active, child)
 
     await_ready(work, diagnostics, action, ready, child)
     if action == "rename" then
@@ -145,9 +149,9 @@ local function run_build_race(project: string, cache: string,
 
     local result = finish(child)
     assert(result.ok, action .. ": build did not exit successfully")
-    Fixture.contains(child.out, "build: PASS (o/bin/hello, o/bin/second")
+    built_both(child.out, project)
     compare_file_prefixes(runtime_prefix,
-      Fixture.read(project .. "/o/bin/hello"), prefix_length)
+      Fixture.read(Fixture.built(project) .. "/bin/hello"), prefix_length)
   end)
 end
 
@@ -160,7 +164,7 @@ end
 
 local function expect_tally(capture: Fixture.Capture, ran: integer,
                             stood: integer)
-  Fixture.contains(capture.out, "test: PASS (1 test, 1 module; " ..
+  Fixture.contains(capture.out, "test: 1 test passed in 1 module; " ..
       tostring(ran) .. " ran, " .. tostring(stood) .. " stood")
 end
 
@@ -181,10 +185,10 @@ local function run_sanitized(fixture_dir: string, tool: string,
     "/cosmic-core"
 
   local entry_cache = work .. "/entry-cache"
-  -- tool.tl's own require("build.artifact") and require("test.portable")
+  -- probe.tl's own require("build.artifact") and require("test.portable")
   -- resolve relative to the process cwd, so this runs from `tool`.
   local entry_out = Fixture.run("sanitized-entry",
-    { fixture_dir .. "/runtime.old", tool .. "/test/portable/tool.tl",
+    { fixture_dir .. "/runtime.old", tool .. "/test/portable/probe.tl",
       "entry", artifact, target_id, "2" }, tool, diagnostics,
     { COSMIC_PORTABLE_CACHE = entry_cache })
   local offset, length, digest = Fixture.small(entry_out.out, 256):match(
@@ -209,7 +213,8 @@ end
 
 -- Restoring into a new project location invalidates the old verdict: the first
 -- run reruns and the immediate repeat stands. The assertions also ensure that
--- relocation preserves the application database and exact executable bytes.
+-- relocation, the build directory moved with the project, preserves the
+-- application database and exact executable bytes.
 -- It runs on the finished primary project, from inside the same test: each
 -- test runs in a process of its own, so no other test can hand it one.
 local function check_transported(fixture_dir: string, finished: string,
@@ -217,15 +222,18 @@ local function check_transported(fixture_dir: string, finished: string,
   -- The destination must not exist so this creates a fresh relocated project.
   local project = work .. "/transported-project"
   copy_tree("restore-transported-state", finished, project)
+  -- Its build directory, outside it, goes with it, as one kept in the
+  -- project would have.
+  copy_tree("restore-transported-build", Fixture.built(finished), Fixture.built(project))
   local counter = project .. "/test-runs"
   local cache = work .. "/transported-cache"
 
-  local projection_before = Fixture.hash(project .. "/o/cosmic.db")
+  local projection_before = Fixture.hash(Fixture.built(project) .. "/cosmic.db")
   expect_tally(run_release(project, cache, counter, diagnostics,
     fixture_dir .. "/runtime.old", "transported"), 1, 0)
   expect_tally(run_release(project, cache, counter, diagnostics,
     fixture_dir .. "/runtime.old", "transported-repeat"), 0, 1)
-  assert(Fixture.hash(project .. "/o/cosmic.db") == projection_before,
+  assert(Fixture.hash(Fixture.built(project) .. "/cosmic.db") == projection_before,
     "transported: a same-context re-run changed the application database")
 
   -- These are the canonical application bytes transported with the work
@@ -234,62 +242,25 @@ local function check_transported(fixture_dir: string, finished: string,
     project .. "/portable-hello.sha256", 256):match("^(%S+)"))
   local expected_second = assert(Fixture.small(
     project .. "/portable-second.sha256", 256):match("^(%S+)"))
-  assert(Fixture.hash(project .. "/o/bin/hello") == expected_hello,
+  assert(Fixture.hash(Fixture.built(project) .. "/bin/hello") == expected_hello,
     "transported hello bytes differ from the recorded hash")
-  assert(Fixture.hash(project .. "/o/bin/second") == expected_second,
+  assert(Fixture.hash(Fixture.built(project) .. "/bin/second") == expected_second,
     "transported second bytes differ from the recorded hash")
 
   -- GitHub artifact transport normalizes executable modes; restore only the
   -- launch permission after proving the transported bytes are unchanged.
   -- A local copy preserves modes, but real artifact transport may not.
-  chmod(project .. "/o/bin/hello", 0x1ed)
-  chmod(project .. "/o/bin/second", 0x1ed)
+  chmod(Fixture.built(project) .. "/bin/hello", 0x1ed)
+  chmod(Fixture.built(project) .. "/bin/second", 0x1ed)
 
   local hello_run = Fixture.run("transported-hello",
-    { project .. "/o/bin/hello" }, project, diagnostics,
+    { Fixture.built(project) .. "/bin/hello" }, project, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })
   local second_run = Fixture.run("transported-second",
-    { project .. "/o/bin/second" }, project, diagnostics,
+    { Fixture.built(project) .. "/bin/second" }, project, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })
   Fixture.contains(hello_run.out, "hello from the edited portable fixture")
   Fixture.contains(second_run.out, "second portable application")
-end
-
--- Run just build/embed_test.tl under the real portable runtime. Its cases
--- cover the portable database, the retained prefix, and host programs
--- made from the running core; every one of them must run, none answered
--- from a verdict, however many the file holds. It is a test of its own,
--- apart from the primary project's, which reads nothing it writes. Alone
--- it takes 21 s on a slow macOS runner, most of the 30 s the two take
--- together, and near a child's default 30 s bound (cosmic_ci/fixture.tl's).
--- Its run is bounded by `focused_embed_timeout_ns` instead, under the
--- 60 s the driver gives each identity test (cosmic_ci/orchestration.tl's
--- `identity_per_test_timeout_s`), so a hang fails naming the run's
--- output rather than by the runner ending the test.
-local focused_embed_timeout_ns <const> = Clock.seconds(50)
-
-local function test_identity_focused_embed(tmp: string)
-  local fixture_dir = Fixture.placed("runtime")
-  local work = tmp
-  local diagnostics = work .. "/logs"
-  Fixture.mkdir(diagnostics)
-
-  -- The candidate's build/ with no test but embed_test.tl
-  -- (cosmic_ci/runtime_setup.tl): the rest of build/'s tests are no part
-  -- of this one's closure, and compiling them was most of this step,
-  -- over the test's own deadline on a slow macOS runner.
-  local focused = Fixture.unpack(fixture_dir .. "/focused-embed.tar",
-    work .. "/focused-embed")
-  local focused_run = Fixture.run("focused-embed", { fixture_dir .. "/runtime.old",
-    "test", "build/embed_test.tl" }, focused, diagnostics,
-    { COSMIC_PORTABLE_CACHE = work .. "/cache" }, focused_embed_timeout_ns)
-  local cases = 0
-  for _ in Fixture.read(focused .. "/build/embed_test.tl"):gmatch("\nlocal function test_") do
-    cases = cases + 1
-  end
-  assert(cases > 0, "build/embed_test.tl holds no tests")
-  Fixture.contains(focused_run.out, "test: PASS (" .. cases .. (cases == 1 and " test" or " tests") .. ", 1 module; " ..
-      cases .. " ran, 0 stood")
 end
 
 -- Build the primary project, check every runtime context against it, then
@@ -297,6 +268,7 @@ end
 local function test_identity_primary(tmp: string)
   local fixture_dir = Fixture.placed("runtime")
   local work = tmp
+  Fixture.builds_beneath(work .. "/build")
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
   local tool = Fixture.tool_tree(fixture_dir, work)
@@ -313,12 +285,12 @@ local function test_identity_primary(tmp: string)
 
   local build1 = Fixture.run("build", { fixture_dir .. "/runtime.old", "build" },
     project, diagnostics, { COSMIC_PORTABLE_CACHE = cache })
-  Fixture.contains(build1.out, "build: PASS (o/bin/hello, o/bin/second")
+  built_both(build1.out, project)
 
   local prefix_length = read_prefix_length(fixture_dir)
   local runtime_prefix = Fixture.read(fixture_dir .. "/runtime.old.prefix")
   for _, application in ipairs({ "hello", "second" }) do
-    local output = project .. "/o/bin/" .. application
+    local output = Fixture.built(project) .. "/bin/" .. application
     Fixture.assert_executable(output)
     local bytes = Fixture.read(output)
     assert(bytes:sub(1, 10):find("#!/bin/sh", 1, true),
@@ -326,7 +298,7 @@ local function test_identity_primary(tmp: string)
     compare_file_prefixes(runtime_prefix, bytes, prefix_length)
   end
 
-  local hello_before_edit = Fixture.read(project .. "/o/bin/hello")
+  local hello_before_edit = Fixture.read(Fixture.built(project) .. "/bin/hello")
   local hello_source = Fixture.read(fixture_dir .. "/hello_main.tl")
   local edited = hello_source:gsub("hello from the portable fixture",
     "hello from the edited portable fixture")
@@ -335,8 +307,8 @@ local function test_identity_primary(tmp: string)
   Fixture.write(project .. "/cmd/hello/main.tl", edited)
   local rebuild = Fixture.run("rebuild", { fixture_dir .. "/runtime.old", "build" },
     project, diagnostics, { COSMIC_PORTABLE_CACHE = cache })
-  Fixture.contains(rebuild.out, "build: PASS (o/bin/hello, o/bin/second")
-  local hello_after_edit = Fixture.read(project .. "/o/bin/hello")
+  built_both(rebuild.out, project)
+  local hello_after_edit = Fixture.read(Fixture.built(project) .. "/bin/hello")
   compare_file_prefixes(hello_before_edit, hello_after_edit, prefix_length)
   assert(hello_before_edit ~= hello_after_edit,
     "portable identity: application edit did not change its suffix")
@@ -364,12 +336,12 @@ local function test_identity_primary(tmp: string)
     "corrupt-core build unexpectedly succeeded")
   Fixture.contains(corrupt_outcome.err, "retained portable core range ")
   Fixture.contains(corrupt_outcome.err, " digest differs from manifest")
-  assert(Fs.exists(corrupt_project .. "/o/bin/hello") == false,
+  assert(Fs.exists(Fixture.built(corrupt_project) .. "/bin/hello") == false,
     "corrupt-core build produced an application")
 
-  local hello_run = Fixture.run("hello", { project .. "/o/bin/hello" }, project,
+  local hello_run = Fixture.run("hello", { Fixture.built(project) .. "/bin/hello" }, project,
     diagnostics, { COSMIC_PORTABLE_CACHE = cache })
-  local second_run = Fixture.run("second", { project .. "/o/bin/second" }, project,
+  local second_run = Fixture.run("second", { Fixture.built(project) .. "/bin/second" }, project,
     diagnostics, { COSMIC_PORTABLE_CACHE = cache })
   Fixture.contains(hello_run.out, "hello from the edited portable fixture")
   Fixture.contains(second_run.out, "second portable application")
@@ -378,9 +350,9 @@ local function test_identity_primary(tmp: string)
     "portable cache must contain exactly one file, found " ..
       tostring(cache_files))
   Fixture.write(project .. "/portable-hello.sha256",
-    Fixture.hash(project .. "/o/bin/hello") .. "\n")
+    Fixture.hash(Fixture.built(project) .. "/bin/hello") .. "\n")
   Fixture.write(project .. "/portable-second.sha256",
-    Fixture.hash(project .. "/o/bin/second") .. "\n")
+    Fixture.hash(Fixture.built(project) .. "/bin/second") .. "\n")
 
   expect_tally(run_release(project, cache, counter, diagnostics,
     fixture_dir .. "/runtime.old", "release"), 1, 0)
@@ -399,13 +371,13 @@ local function test_identity_primary(tmp: string)
   -- A project database is searched ahead of the binary after attachment. Its
   -- rows must not override validated portable context or the binary's
   -- basis.
-  -- Both tool.tl calls below run from `tool`, not `project`: tool.tl's
+  -- Both probe.tl calls below run from `tool`, not `project`: probe.tl's
   -- require("build.artifact") and require("test.portable") resolve
   -- relative to the process cwd, and `project` has no build/ or test/
   -- tree for them to find.
   Fixture.run("spoof-database", { fixture_dir .. "/runtime.old",
-    tool .. "/test/portable/tool.tl", "spoof-database",
-    project .. "/o/cosmic.db" }, tool, diagnostics,
+    tool .. "/test/portable/probe.tl", "spoof-database",
+    Fixture.built(project) .. "/cosmic.db" }, tool, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })
 
   expect_tally(run_release(project, cache, counter, diagnostics,
@@ -414,8 +386,8 @@ local function test_identity_primary(tmp: string)
     diagnostics), 1, 0)
 
   Fixture.run("verify-verdicts", { fixture_dir .. "/runtime.old",
-    tool .. "/test/portable/tool.tl", "verify-verdicts",
-    project .. "/o/build.db", counter }, tool, diagnostics,
+    tool .. "/test/portable/probe.tl", "verify-verdicts",
+    Fixture.built(project) .. "/build.db", counter }, tool, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })
 
   local missing = work .. "/missing-project"

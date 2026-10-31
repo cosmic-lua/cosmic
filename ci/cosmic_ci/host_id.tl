@@ -36,7 +36,9 @@
 --- cache, so a byte that moves renames them all. host_id_test.tl holds
 --- them to vectors recorded from the original shell implementation, and
 --- build/host_features_test.tl holds `declared_key.host_features` to the
---- same vectors (testdata/host_features).
+--- same vectors (testdata/host_features). Keying another feature (`keep`)
+--- renames the caches of the hosts that have it: the vector of such a
+--- host is then recorded again, from the key's own digest.
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -53,13 +55,13 @@ local record HostId
     sysname: string
     machine: string
     --- A file's bytes, nil where it is missing or unreadable.
-    read: function(path: string): string | nil
+    read: function(path: string): string?
     --- What `sysctl -n NAME` prints on macOS, nil where it fails.
-    sysctl: function(name: string): string | nil
+    sysctl: function(name: string): string?
     --- What `docker version --format '{{.Server.Version}}'` prints,
     --- the container engine's server version, or nil and why where it
     --- fails.
-    docker_version: function(): string | nil, string
+    docker_version: function(): string?, string
   end
   --- The facts of this host, finding its programs on `env`'s PATH.
   live: function(env: {string:string}): Facts
@@ -94,17 +96,25 @@ end
 -- says which code reads each: a feature added there is added here. A
 -- machine no audit has read keeps every feature (nil).
 local keep: {string:{string}} = {
-  x86_64 = { "aes", "pclmulqdq", "sse4_1", "ssse3" },
-  aarch64 = { "aes", "asimd", "crc32", "pmull" },
+  x86_64 = { "aes", "avx512_vnni", "avx512f", "avx512vl", "avx_vnni", "pclmulqdq", "sha_ni", "sse4_1",
+    "ssse3" },
+  aarch64 = { "aes", "asimd", "crc32", "pmull", "sha2", "sha512" },
 }
 
 -- Each sysctl name core/syscalls.c's `cpu_features` asks on macOS, by
 -- the feature's name.
-local darwin_features: {{string}} = {
-  { "aes", "hw.optional.arm.FEAT_AES" },
-  { "asimd", "hw.optional.AdvSIMD" },
-  { "crc32", "hw.optional.armv8_crc32" },
-  { "pmull", "hw.optional.arm.FEAT_PMULL" },
+local record DarwinFeature
+  name: string
+  sysctl: string
+end
+
+local darwin_features: {DarwinFeature} = {
+  { name = "aes", sysctl = "hw.optional.arm.FEAT_AES" },
+  { name = "asimd", sysctl = "hw.optional.AdvSIMD" },
+  { name = "crc32", sysctl = "hw.optional.armv8_crc32" },
+  { name = "pmull", sysctl = "hw.optional.arm.FEAT_PMULL" },
+  { name = "sha2", sysctl = "hw.optional.arm.FEAT_SHA256" },
+  { name = "sha512", sysctl = "hw.optional.armv8_2_sha512" },
 }
 
 local darwin_system <const> = "/System/Library/CoreServices/SystemVersion.plist"
@@ -118,7 +128,7 @@ end
 --- A line's features: what follows "flags" or "Features" and a colon,
 --- split at spaces and tabs.
 local function listed(text: string): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for line in (text .. "\n"):gmatch("([^\n]*)\n") do
     local flags = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
     for flag in (flags or ""):gmatch("[^ \t]+") do found[#found + 1] = flag end
@@ -127,25 +137,28 @@ local function listed(text: string): {string}
 end
 
 function HostId.features(facts: HostId.Facts): string
-  local found: {string}
+  local found: mut {string} = {}
   if facts.sysname == "Darwin" then
-    found = {}
-    for _, pair in ipairs(darwin_features) do
-      if chomp(facts.sysctl(pair[2]) or "") == "1" then found[#found + 1] = pair[1] end
+    for _, feature in ipairs(darwin_features) do
+      if chomp(facts.sysctl(feature.sysctl) or "") == "1" then found[#found + 1] = feature.name end
     end
   else
-    found = listed(facts.read("/proc/cpuinfo") or "")
+    for _, flag in ipairs(listed(facts.read("/proc/cpuinfo") or "")) do found[#found + 1] = flag end
   end
   table.sort(found)
-  local wanted: {string:boolean} | nil
-  if keep[facts.machine] ~= nil then
-    wanted = {}
-    for _, flag in ipairs(keep[facts.machine]) do wanted[flag] = true end
+  local wanted: {string:boolean}?
+  local kept = keep[facts.machine]
+  if kept ~= nil then
+    local set: mut {string:boolean} = {}
+    for _, flag in ipairs(kept) do set[flag] = true end
+    wanted = set
   end
-  local parts: {string} = {}
-  local last: string | nil
+  local parts: mut {string} = {}
+  local last: string?
   for _, flag in ipairs(found) do
-    if flag ~= last and (wanted == nil or wanted[flag]) then parts[#parts + 1] = flag .. "\n" end
+    if flag ~= last and (wanted == nil or wanted[flag] == true) then
+      parts[#parts + 1] = flag .. "\n"
+    end
     last = flag
   end
   if facts.sysname == "Darwin" then
@@ -162,25 +175,27 @@ end
 -- one goes wrong, the step fails or the host names fewer features, which
 -- a leg's first run shows.
 function HostId.live(env: {string:string}): HostId.Facts
-  local names = sys.uname()
-  local docker = Proc.find("docker", env.PATH or "")
+  local names, _ = sys.uname()
+  local sysname, machine = "", ""
+  if names ~= nil then sysname, machine = names.sysname, names.machine end
+  local docker, _ = Proc.find("docker", env["PATH"] or "")
   return {
-    sysname = names ~= nil and names.sysname or "",
-    machine = names ~= nil and names.machine or "",
-    read = function(path: string): string | nil
+    sysname = sysname,
+    machine = machine,
+    read = function(path: string): string?
       local text, _ = Fs.read(path)
       return text
     end,
     -- By its path: /usr/sbin is not on every shell's default PATH.
-    sysctl = function(name: string): string | nil
-      local result = Child.run({ "/usr/sbin/sysctl", "-n", name }, { env = env, stdin = "null",
+    sysctl = function(name: string): string?
+      local result, _ = Child.run({ "/usr/sbin/sysctl", "-n", name }, { env = env, stdin = "null",
         stdout = "capture", stderr = "null", timeout_ns = Time.seconds(30) })
       if result == nil or not result.ok then return nil end
       return result.stdout or ""
     end,
-    docker_version = function(): string | nil, string
+    docker_version = function(): string?, string
       if docker == nil then return nil, "docker: not found" end
-      local result = Child.run({ docker, "version", "--format", "{{.Server.Version}}" },
+      local result, _ = Child.run({ docker, "version", "--format", "{{.Server.Version}}" },
         { env = env, stdin = "null", stdout = "capture", stderr = Fs.stderr,
           timeout_ns = Time.seconds(120) })
       if result == nil or not result.ok then return nil, "docker version failed" end
@@ -195,9 +210,11 @@ function HostId.leg_host_id(words: {string}, env: {string:string}, facts: HostId
     local _, _ = Fs.put(Fs.stderr, "leg-host-id: " .. why .. "\n")
     return code
   end
-  if #words ~= 4 then return refuse("usage: leg-host-id NAME IMAGE RUNNER STARTED", 2) end
   local name, image, runner, started = words[1], words[2], words[3], words[4]
-  local system_os, system_version = env.ImageOS or "", env.ImageVersion or ""
+  if #words ~= 4 or name == nil or image == nil or runner == nil or started == nil then
+    return refuse("usage: leg-host-id NAME IMAGE RUNNER STARTED", 2)
+  end
+  local system_os, system_version = env["ImageOS"] or "", env["ImageVersion"] or ""
   if image == "" then
     if runner == "" then return refuse("a leg with no image names no RUNNER", 2) end
     if system_os == "" or system_version == "" then
@@ -205,7 +222,7 @@ function HostId.leg_host_id(words: {string}, env: {string:string}, facts: HostId
     end
   end
   local id: string
-  local env_lines: {string} = {}
+  local env_lines: mut {string} = {}
   if image ~= "" then
     local version, why = facts.docker_version()
     if version == nil then return refuse(why, 1) end
@@ -216,7 +233,7 @@ function HostId.leg_host_id(words: {string}, env: {string:string}, facts: HostId
   end
   env_lines[#env_lines + 1] = "COSMIC_HOST_ID=" .. id
   local prefix = "verdicts-" .. name .. "-" .. Hash.hex_sha256(id):sub(1, 16) .. "-"
-  local function write(file: string | nil, lines: {string}): boolean
+  local function write(file: string?, lines: {string}): boolean
     local text = table.concat(lines, "\n") .. "\n"
     if file == nil or file == "" then
       say(text)
@@ -228,8 +245,8 @@ function HostId.leg_host_id(words: {string}, env: {string:string}, facts: HostId
     end
     return ok
   end
-  if not write(env.GITHUB_ENV, env_lines) then return 1 end
-  if not write(env.GITHUB_OUTPUT, { "prefix=" .. prefix,
+  if not write(env["GITHUB_ENV"], env_lines) then return 1 end
+  if not write(env["GITHUB_OUTPUT"], { "prefix=" .. prefix,
       "verdicts=" .. prefix .. HostId.features(facts) .. "-" }) then
     return 1
   end
@@ -237,8 +254,8 @@ function HostId.leg_host_id(words: {string}, env: {string:string}, facts: HostId
 end
 
 function HostId.command(argv: {string}): integer
-  local words: {string} = {}
-  for i = 1, #argv do words[i] = argv[i] end
+  local words: mut {string} = {}
+  for _, word in ipairs(argv) do words[#words + 1] = word end
   local env = Env.all()
   return HostId.leg_host_id(words, env, HostId.live(env), function(text: string)
     local _, _ = Fs.put(Fs.stdout, text)

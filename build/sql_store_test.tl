@@ -7,16 +7,24 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local sql = require("build.sql")
+local build_paths = require("build.paths")
 
 --- The program's own database is read through a handle
 --- ([`Store.databases()`]), which reads every module's rows too.
 Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
+
 --- A temporary root whose o/cosmic.db holds one small table.
 local function project(): string
   local root = assert(Fs.mkdtemp("cosmic-sql-test-"))
-  assert(Fs.mkdirs(root .. "/o"))
-  local db = assert(Sqlite.open(root .. "/o/cosmic.db", { writable = true }))
+  assert(build_dir(root))
+  local db = assert(Sqlite.open(build_dir(root) .. "/cosmic.db", { writable = true }))
   assert(db:exec("CREATE TABLE t (a, b); INSERT INTO t VALUES " ..
       "(1, 'one'), (NULL, x'00ff'), (1.5, 'tab' || char(9) || 'and\\'), (2.0, ''), " ..
       "(3, char(27) || '[31m' || char(127) || '\\N')"))
@@ -24,16 +32,16 @@ local function project(): string
   return root
 end
 
-local function argv_of(words: {string}): {integer:string}
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "sql" }
-  for index, word in ipairs(words) do
-    argv[index + 1] = word
+local function argv_of(words: {string}): {string}
+  local argv: mut {string} = { "sql" }
+  for _, word in ipairs(words) do
+    argv[#argv + 1] = word
   end
   return argv
 end
 
 --- The database [`sql.source`] picks for a command line, or nil and why.
-local function source(root: string, words: {string}): sql.Source | nil, string
+local function source(root: string, words: {string}): sql.Source?, string
   local parsed = assert(Flags.parse(argv_of(words), 2, { ["--db"] = true, ["--build"] = false,
     ["--store"] = false }))
   return sql.source(root, parsed)
@@ -41,23 +49,23 @@ end
 
 --- What one run wrote, stream by stream.
 local record Written
-  out: {string}
-  err: {string}
-  --- The verdict line, as stdout would end in it.
-  verdict: string
+  out: mut {string}
+  err: mut {string}
+  --- The summary, as stderr would end in it; "" when the run gave none.
+  mut summary: string
 end
 
 local function run(root: string, words: {string}): integer, Written
-  local written: Written = { out = {}, err = {}, verdict = "" }
+  local written: Written = { out = {}, err = {}, summary = "" }
   local code = sql.run(argv_of(words), root, {
     out = function(line: string): boolean, string
       written.out[#written.out + 1] = line
       return true, ""
     end,
     err = function(line: string) written.err[#written.err + 1] = line end,
-    verdict = function(passed: boolean, detail: string)
-      assert(written.verdict == "", "a second verdict: " .. written.verdict)
-      written.verdict = "sql: " .. (passed and "PASS" or "FAIL") .. " (" .. detail .. ")"
+    summary = function(detail: string)
+      assert(written.summary == "", "a second summary: " .. written.summary)
+      written.summary = "sql: " .. detail
     end,
   })
   return code, written
@@ -76,9 +84,9 @@ end
 local function test_the_default_is_the_project_database_else_the_binarys_own()
   local root = project()
   local chosen = assert(source(root, {}))
-  assert(chosen.path == root .. "/o/cosmic.db", chosen.name)
+  assert(chosen.path == build_dir(root) .. "/cosmic.db", chosen.name)
   chosen = assert(source(root, { "--build" }))
-  assert(chosen.path == root .. "/o/build.db")
+  assert(chosen.path == build_dir(root) .. "/build.db")
   chosen = assert(source(root, { "--store" }))
   assert(chosen.path == nil)
   chosen = assert(source(root, { "--db", root .. "/x.db" }))
@@ -88,7 +96,7 @@ local function test_the_default_is_the_project_database_else_the_binarys_own()
   refused, why = source(root, { "--db=a.db", "--db", "b.db" })
   assert(refused == nil and why == "name one database, not --db and --db", why)
 
-  assert(Fs.remove(root .. "/o/cosmic.db"))
+  assert(Fs.remove(build_dir(root) .. "/cosmic.db"))
   chosen = assert(source(root, {}))
   assert(chosen.path == nil, chosen.name)
   -- The binary's own database answers, and still refuses a write.

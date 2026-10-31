@@ -14,7 +14,7 @@ local passthrough = verb_cases.passthrough
 local surplus = verb_cases.surplus
 --- Only which verbs have cases is read here, so the bundle `refresh`
 --- reads is named as the tree holds it, unresolved.
-local cases = verb_cases.cases("vendor/cacert/cacert.pem")
+local cases = verb_cases.cases("vendor/cacert/certdata.txt")
 
 --- Runs `cosmic <args>` in `dir`, in this process, as
 --- build/verbs_tool_test.tl's `cosmic` runs every command line that
@@ -45,12 +45,12 @@ local function test_dispatch_starts_no_worker(tmp: string)
   end
 end
 
-local function test_e_runs_a_lua_chunk(tmp: string)
+local function test_e_runs_a_teal_chunk(tmp: string)
   local said = cosmic(tmp, { "-e", "print(...)", "a", "b c" })
   assert(said.code == 0, said.stderr)
   assert(said.stdout == "a\tb c\n", said.stdout)
   assert(cosmic(tmp, { "-e", "return 3" }).code == 3)
-  local raised = cosmic(tmp, { "-e", "error('boom')" })
+  local raised = cosmic(tmp, { "-e", 'error("boom")' })
   assert(raised.code == 1 and raised.stdout == "", raised.stdout)
   assert((raised.stderr or ""):find("-e:1: boom", 1, true), raised.stderr)
   local broken = cosmic(tmp, { "-e", "x =" })
@@ -62,7 +62,7 @@ local function test_e_runs_a_lua_chunk(tmp: string)
   assert(cosmic(tmp, { "-e", "return 3.0" }).code == 3)
   assert(cosmic(tmp, { "-e", "return 255" }).code == 255)
   for chunk, shown in pairs({ ["256"] = "256", ["-1"] = "-1", ["1.5"] = "1.5", ["true"] = "true",
-      ["'text'"] = '"text"', ["{}"] = "table: " } as {string:string}) do
+      ["'text'"] = '"text"', ["{ 1 }"] = "table: " } as {string:string}) do
     local refused = cosmic(tmp, { "-e", "return " .. chunk })
     assert(refused.code == 2, chunk .. ": " .. tostring(refused.code))
     assert((refused.stderr or ""):find("-e returned " .. shown, 1, true), refused.stderr)
@@ -73,7 +73,7 @@ local function test_e_runs_a_lua_chunk(tmp: string)
 end
 
 local function test_every_verb_is_classified()
-  local listed: {string:boolean} = {}
+  local listed: mut {string:boolean} = {}
   for _, verb in ipairs(Cli.order) do
     listed[verb] = true
     if passthrough[verb] == nil then

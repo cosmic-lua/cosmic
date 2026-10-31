@@ -185,14 +185,15 @@ function Example.copy_n()
   assert(out:result() == "body")
   local ok, why = Stream.copy_n(Stream.from_string("ab"), Stream.collect(), 4)
   print(why)
-  assert(not ok and why:find("wanted 4 bytes, got 2", 1, true), why)
+  assert(not ok)
+  assert(why:find("wanted 4 bytes, got 2", 1, true), why)
 end
 
 --- A Transform driven over a whole string: `run` feeds it, drains what
 --- it holds back and finishes it. A decoder's `max_bytes` bounds the
 --- output, so a small body that expands greatly fails instead of filling
---- memory. Any table with `update` and `finish` is a Transform, such
---- as this one that shouts.
+--- memory. Any record that lists [`Stream.Transform`] and gives its
+--- functions is one, such as this one that shouts.
 function Example.run()
   local packed = assert(Stream.run(assert(Compress.deflater("gzip")), string.rep("a", 10000)))
   local back = assert(Stream.run(assert(Compress.inflater("gzip")), packed, 10000))
@@ -200,13 +201,18 @@ function Example.run()
   local out, why = Stream.run(assert(Compress.inflater("gzip")), packed, 100)
   print(why)
   assert(out == nil and why == "stream: output is larger than 100 bytes", why)
-  local shouting: Stream.Transform = {}
-  shouting.update = function(_self: Stream.Transform, chunk: string): string, string
-    return chunk:upper(), ""
+  local record Shouter is Stream.Transform
+    update: function(Shouter, chunk: string): string?, string
+    finish: function(Shouter): string?, string
+    pending: function(Shouter): boolean
   end
-  shouting.finish = function(_self: Stream.Transform): string, string
-    return "!", ""
-  end
+  local shouting: Shouter = {
+    update = function(_self: Shouter, chunk: string): string?, string
+      return chunk:upper(), ""
+    end,
+    finish = function(_self: Shouter): string?, string return "!", "" end,
+    pending = function(_self: Shouter): boolean return false end,
+  }
   local shouted = assert(Stream.run(shouting, "hello"))
   print(shouted)
   assert(shouted == "HELLO!", shouted)

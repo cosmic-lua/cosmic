@@ -5,10 +5,10 @@
 --- with no `cosmic` beside it.
 ---
 --- A binary is a directory under `cmd/`: `cmd/<name>/main.tl` compiles
---- as `kind = "main"`, and `cosmic build` writes `o/bin/<name>` for
+--- as `kind = "main"`, and `cosmic build` writes `bin/<name>` in its build directory for
 --- each one the tree holds, after building the tree as `cosmic test`
 --- does; a tree with no `cmd/` builds and writes nothing. The project's
---- own projection, `o/cosmic.db`, carries the project and nothing of
+--- own projection, `cosmic.db`, carries the project and nothing of
 --- cosmic's; what the standard library needs at run time is read out of
 --- the running binary's own database, by handle, so no format of the
 --- executable is parsed here.
@@ -26,16 +26,17 @@ local Store = require("cosmic.store")
 local clock = require("build.clock")
 local artifact = require("build.artifact")
 local type raw_store = require("cosmic.internal.store")
+local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
 local narrow = require("build.narrow")
 local schema = require("build.schema")
-local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
 local writer = require("build.writer")
 
-local log = require("build.verdict").log
+local logger = require("build.logger")
+local log = logger.log
 local bind = require("build.bind")
 local verb_spec = require("build.verb_spec")
 
@@ -45,6 +46,12 @@ local record embed
 end
 
 local text = bind.text
+
+--- A row of the `meta` table a program's database carries.
+local record MetaRow
+  key: string
+  value: string
+end
 
 --- One column of the row a statement is standing on, bound as what it
 --- was: a blob stays a blob, a null stays a null.
@@ -75,9 +82,9 @@ local function copy_rows(from: Sqlite.Handle, into: Sqlite.Handle,
   if statement == nil then
     return false, table_name .. ": " .. trouble
   end
-  local slots: {string} = {}
+  local slots: mut {string} = {}
   for index = 1, #columns do
-    slots[index] = "?" .. index
+    slots[index] = "?" .. tostring(index)
   end
   local insert = "INSERT OR IGNORE INTO " .. table_name .. " (" ..
     table.concat(columns, ", ") .. ") VALUES (" .. table.concat(slots, ", ") .. ")"
@@ -90,7 +97,7 @@ local function copy_rows(from: Sqlite.Handle, into: Sqlite.Handle,
     if state == "done" then
       break
     end
-    local row: {Sqlite.Value} = {}
+    local row: mut {Sqlite.Value} = {}
     for index = 1, #columns do
       row[index] = value_at(statement, index - 1)
     end
@@ -116,8 +123,32 @@ local guidance_text <const> = "coalesce(catalog.text, (SELECT d.text FROM docs d
   "WHERE d.module = catalog.module AND d.source_symbol = catalog.symbol))"
 
 --- The `<name>` of `cmd/<name>/main.tl`, from its import path.
-local function name_of(main: string): string | nil
+local function name_of(main: string): string?
   return main:match("^cmd%.([^%.]+)%.main$")
+end
+
+-- TODO: build the missing cores on demand (`bin/zig build cores`, once) in
+-- place of refusing; it waits on the tool knowing the checkout it was
+-- booted from, which its database does not record, so that a project's
+-- `cosmic build` can find the tree to run zig in.
+
+--- The prefix a portable program is made of: the running tool's own, which
+--- carries a core for every target it runs on. A tool booted for the host's
+--- alone (`bin/zig build boot` without `-Dboot-cores=all`) carries a
+--- placeholder for each other target's ([`artifact.placeholder`]), and has no
+--- such prefix to give: a program made of it would run on this host only, and
+--- say nothing of it, so it refuses and names the boot that renews it.
+--- `--host` needs no other core.
+--- @param prefix what [`artifact.trusted_prefix`] answered, or nil
+--- @param trouble and why not, where it answered none
+function embed.portable_prefix(prefix: string?, trouble: string): string?, string
+  if prefix == nil then return nil, trouble end
+  if artifact.host_only(prefix) then
+    return nil, "this tool carries the host's core alone, so a portable program made " ..
+      "of it would run nowhere else; run bin/zig build boot -Dboot-cores=all in " ..
+      "cosmic's checkout to carry every core, or build with --host for this host"
+  end
+  return prefix, ""
 end
 
 --- The database one executable carries, as bytes: the project's own
@@ -127,7 +158,10 @@ end
 --- materials it ships under, and `main` naming the module the
 --- executable runs. Written beside the projection, then vacuumed, so
 --- the bytes are a function of the two databases and nothing else.
-function embed.database(project: string, main: string): string | nil, string
+--- `roots`, when given, is recorded as the roots a request that names
+--- none trusts ("minimal" or "mozilla", [`Http.default_roots`]); every
+--- root the binary carries goes along either way.
+function embed.database(project: string, main: string, roots?: string): string?, string
   local databases = Store.databases()
   local binary = databases[#databases]
   if binary == nil then
@@ -145,7 +179,7 @@ function embed.database(project: string, main: string): string | nil, string
   if out == nil then
     return nil, building .. ": " .. open_trouble
   end
-  local statements: {string} = {}
+  local statements: mut {string} = {}
   for _, statement in ipairs(schema.settings("")) do
     statements[#statements + 1] = statement
   end
@@ -177,6 +211,24 @@ function embed.database(project: string, main: string): string | nil, string
     if not copied then
       return false, copy_trouble
     end
+    -- A binary written before `decl_imports` existed has no such table,
+    -- and one written by a tool that lacked the rows has an empty one:
+    -- the project's own rows fill in below for any module it holds
+    -- byte for byte.
+    local has_edges, edges_trouble = Sqlite.text_rows(binary,
+      "SELECT 1 FROM sqlite_master WHERE name = 'decl_imports'")
+    if has_edges == nil then
+      return false, edges_trouble
+    end
+    if #has_edges > 0 then
+      copied, copy_trouble = copy_rows(binary, out, "decl_imports",
+        { "path", "requires" },
+        "SELECT path, requires FROM decl_imports WHERE path LIKE 'cosmic.%' " ..
+          "ORDER BY path, requires")
+      if not copied then
+        return false, copy_trouble
+      end
+    end
     copied, copy_trouble = copy_rows(binary, out, "decls",
       { "path", "source" }, "SELECT path, source FROM decls ORDER BY path")
     if not copied then
@@ -188,6 +240,25 @@ function embed.database(project: string, main: string): string | nil, string
       { "name", "data" }, "SELECT name, data FROM zoneinfo ORDER BY name")
     if not copied then
       return false, copy_trouble
+    end
+    -- The browser-side files [`cosmic.web`] serves under /_web/.
+    -- TODO: carry them only for a project whose closure requires
+    -- cosmic.web, as Store.seal does for the zones, once embed.database
+    -- computes that closure.
+    -- A binary written before `web_assets` existed has no such table:
+    -- the program then carries none, and cosmic.web.htmx says to rebuild.
+    local has_web, web_trouble = Sqlite.text_rows(binary,
+      "SELECT 1 FROM sqlite_master WHERE name = 'web_assets'")
+    if has_web == nil then
+      return false, web_trouble
+    end
+    if #has_web > 0 then
+      copied, copy_trouble = copy_rows(binary, out, "web_assets",
+        { "name", "data", "sha256", "sha384", "version" },
+        "SELECT name, data, sha256, sha384, version FROM web_assets ORDER BY name")
+      if not copied then
+        return false, copy_trouble
+      end
     end
     -- The guidance a program's own errors can match: the standard
     -- library's own extracted rows. It never runs the build, so a row
@@ -210,8 +281,8 @@ function embed.database(project: string, main: string): string | nil, string
     -- database bytes. [`artifact.split`] finds a file's database from its
     -- trailer, as `cosmic refresh --binary` does: open that.
     copied, copy_trouble = copy_rows(binary, out, "components",
-      { "name", "kind", "version", "license", "url", "sha256", "patches" },
-      "SELECT name, kind, version, license, url, sha256, patches " ..
+      { "name", "kind", "version", "license", "url", "sha256", "sha3_256", "patches" },
+      "SELECT name, kind, version, license, url, sha256, sha3_256, patches " ..
         "FROM components ORDER BY name")
     if not copied then
       return false, copy_trouble
@@ -226,7 +297,15 @@ function embed.database(project: string, main: string): string | nil, string
     -- The CA roots ([`build.roots`]): core/http.c reads them out of the
     -- program's own database, so without them it trusts no server.
     copied, copy_trouble = copy_rows(binary, out, "ca_roots",
-      { "sha256", "label", "der" }, "SELECT sha256, label, der FROM ca_roots ORDER BY sha256")
+      { "sha256", "label", "der", "distrust_after" },
+      "SELECT sha256, label, der, distrust_after FROM ca_roots ORDER BY sha256")
+    if not copied then
+      return false, copy_trouble
+    end
+    -- And the certificates OneCRL revokes ([`build.onecrl`]), which it
+    -- refuses in a chain.
+    copied, copy_trouble = copy_rows(binary, out, "ca_revoked", { "kind", "name", "value" },
+      "SELECT kind, name, value FROM ca_revoked ORDER BY rowid")
     if not copied then
       return false, copy_trouble
     end
@@ -241,13 +320,10 @@ function embed.database(project: string, main: string): string | nil, string
     -- anyway, since the program cannot load without it; its kind is
     -- only its file name. An import edge and a catalog row go with the
     -- module they are about.
-    -- TODO: an edge exists only for a `require` of a literal name
-    -- ([`build.ast.requires`]), so a test or example file loaded by a
-    -- computed name or through `pcall(require, "<name>")` is left out
-    -- and the program fails to load it at run time; teach
-    -- `all_requires` the `pcall(require, ...)` form, and refuse a
-    -- computed require of a project module at build time.
-    local project_rows: {string} = {
+    -- An edge exists for a `require` of a literal name, `pcall(require,
+    -- "<name>")` included (build.syntax_node's requires), and the parser
+    -- refuses a computed name, so every file a program loads is carried.
+    local project_rows: mut {string} = {
       "WITH RECURSIVE carried(path) AS (" ..
         "SELECT path FROM project.modules " ..
         "WHERE kind NOT IN ('test', 'example') " ..
@@ -259,11 +335,25 @@ function embed.database(project: string, main: string): string | nil, string
       "INSERT OR IGNORE INTO imports SELECT * FROM project.imports " ..
         "WHERE path IN (SELECT path FROM main.modules) " ..
         "ORDER BY path, requires",
+      "INSERT OR IGNORE INTO decl_imports SELECT d.path, d.requires " ..
+        "FROM project.decl_imports d WHERE " ..
+        "CASE WHEN EXISTS (SELECT 1 FROM main.decls x WHERE x.path = d.path) " ..
+        "THEN EXISTS (SELECT 1 FROM main.decls x JOIN project.decls y " ..
+        "ON y.path = x.path AND y.source = x.source WHERE x.path = d.path) " ..
+        "ELSE EXISTS (SELECT 1 FROM main.modules m JOIN project.modules p " ..
+        "ON p.path = m.path AND p.source_hash = m.source_hash " ..
+        "WHERE m.path = d.path) END " ..
+        "ORDER BY d.path, d.requires",
       "INSERT INTO catalog (kind, module, symbol, message, text, file, " ..
         "line) SELECT kind, module, symbol, message, " ..
         guidance_text:gsub("FROM docs", "FROM project.docs") .. ", file, line " ..
         "FROM project.catalog " ..
         "WHERE module IN (SELECT path FROM main.modules) ORDER BY id",
+      -- The files under the project's `static/`, which [`cosmic.web.assets`]
+      -- reads from the program's own database. Tests and examples are
+      -- dropped; assets are not.
+      "INSERT INTO payload (path, data, sha256, type, gzip) " ..
+        "SELECT path, data, sha256, type, gzip FROM project.payload ORDER BY path",
     }
     for _, rebuild in ipairs(schema.rebuild("")) do project_rows[#project_rows + 1] = rebuild end
     for _, statement in ipairs(project_rows) do
@@ -272,15 +362,22 @@ function embed.database(project: string, main: string): string | nil, string
         return false, failure
       end
     end
-    local meta: {{string}} = {
-      { "compiler", Store.meta("compiler") or "" },
-      { "runtime_basis", basis },
-      { "main", main },
+    local meta: {MetaRow} = {
+      { key = "compiler", value = Store.meta("compiler") or "" },
+      { key = "runtime_basis", value = basis },
+      { key = "main", value = main },
     }
     for _, pair in ipairs(meta) do
       local ok, failure = Sqlite.run(out,
         "INSERT INTO meta (key, value) VALUES (?1, ?2)",
-        { text(pair[1]), text(pair[2]) })
+        { text(pair.key), text(pair.value) })
+      if not ok then
+        return false, failure
+      end
+    end
+    if roots ~= nil then
+      local ok, failure = Sqlite.run(out,
+        "INSERT INTO meta (key, value) VALUES ('ca_roots_default', ?1)", { text(roots) })
       if not ok then
         return false, failure
       end
@@ -304,21 +401,37 @@ function embed.database(project: string, main: string): string | nil, string
   if bytes == nil then
     return nil, read_trouble
   end
-  return bytes
+  return bytes, ""
 end
 
---- Builds the tree at `root` and writes `root/o/bin/<name>` for every
---- `cmd/<name>/main.tl` it holds: a portable program, or with `host` a host
---- program -- this binary's own core with the program's database appended,
---- which the kernel runs directly, with no launcher, only where this core
---- runs. Returns the names written, none for a tree with no `cmd/`.
+--- Builds the tree at `root` and writes `bin/<name>` in its build
+--- directory ([`build.paths`]) for every `cmd/<name>/main.tl` it holds: a
+--- portable program, or with `host` a host program -- this binary's own
+--- core with the program's database appended, which the kernel runs
+--- directly, with no launcher, only where this core runs. Returns the
+--- names written, none for a tree with no `cmd/`.
 --- @param under paths relative to `root` that narrow it to the programs
 ---   whose `main.tl` is under one; each must hold one. None, or nil, is
 ---   every program
-function embed.tree(root: string, host?: boolean, under?: {string}): {string} | nil, string
-  local own_tree, own_trouble = tree.is_own(root)
-  if own_tree == nil then return nil, own_trouble end
-  if own_tree then
+--- @param grammar the checker that compiles the project: the one
+---   `COSMIC_GRAMMAR` names where not given ([`build.grammar_mode`]). The
+---   new checker ([`build.pipeline`]) holds a project to no ceiling, and a
+---   project written in a form only the fork reads is refused with the new
+---   checker's words and fix.
+--- @param roots the roots its executables trust by default, as
+---   `cosmic build --roots` names them ([`embed.database`]); nil records
+---   none, which is "minimal"
+function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: GrammarMode.Mode,
+                    roots?: string): {string}?, string
+  local mode = grammar
+  if mode == nil then
+    local chosen, chosen_trouble = GrammarMode.mode()
+    if chosen == nil then return nil, chosen_trouble end
+    mode = chosen
+  end
+  local standing, standing_trouble = tree.standing(root)
+  if standing == nil then return nil, standing_trouble end
+  if standing.own then
     return nil, "this is cosmic's own tree, which bin/zig build boot builds"
   end
   local started = Clock.monotonic_ns()
@@ -331,31 +444,30 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
     local _, _ = work.close(handle)
     return nil, stage_trouble
   end
-  local built, load_trouble = teal.load()
-  if built == nil then
-    local _, _ = work.close(handle)
-    return nil, load_trouble
-  end
-  local project = build_paths.required(root) .. "/cosmic.db"
-  local result, compile_trouble =
-    importer.compile(handle, built, Store.meta("compiler") or "", false,
-      shared_compiles.for_build())
+  local project = build_paths.resolve(root).projection
+  -- The new checker reads the project in this process; its compile is keyed by the mode.
+  local tool = GrammarMode.tool(Store.meta("compiler") or "", mode)
+  local result, compile_trouble = importer.compile(handle, tool, false, shared_compiles.for_build())
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
     return nil, compile_trouble
   end
-  local written, write_trouble = writer.write_result(handle, project, result)
-  local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
-    result.cached, written and "PASS" or "FAIL")
+  -- A compile with the new checker goes on past a module it refuses, to name them all; a program is not made of a tree that has one.
+  if #result.refused > 0 then
+    local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled, result.cached, "FAIL")
+    local _, _ = work.close(handle)
+    return nil, table.concat(result.refused, "\n")
+  end
+  local written, write_trouble = writer.write_recorded(handle, project, result, started, staged)
   local _, _ = work.close(handle)
   if not written then
     return nil, write_trouble
   end
 
   local paths = under or {}
-  local mains: {string} = {}
-  local files: {string} = {}
+  local mains: mut {string} = {}
+  local files: mut {string} = {}
   for _, m in ipairs(result.modules) do
     if m.kind == "main" and narrow.holds(paths, m.file) then
       mains[#mains + 1] = m.path
@@ -373,39 +485,42 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
     end
   end
   if #mains == 0 then
-    return {}
+    return {}, ""
   end
 
-  local prefix, core: string, raw_store.Core
+  local prefix, core: string?, raw_store.Core?
   local source_trouble: string
-  if host then
+  if host == true then
     core, source_trouble = artifact.trusted_core()
   else
-    prefix, source_trouble = artifact.trusted_prefix()
+    prefix, source_trouble = embed.portable_prefix(artifact.trusted_prefix())
   end
   if prefix == nil and core == nil then
     return nil, source_trouble
   end
-  local made, mkdir_trouble = Fs.mkdirs(build_paths.required(root) .. "/bin")
+  local bin = build_paths.resolve(root).bin
+  local made, mkdir_trouble = Fs.mkdirs(bin)
   if not made then
     return nil, mkdir_trouble
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, main in ipairs(mains) do
     local name = name_of(main)
     if name == nil then
       return nil, main .. " is not a cmd/<name>/main.tl"
     end
-    local database, database_trouble = embed.database(project, main)
+    local database, database_trouble = embed.database(project, main, roots)
     if database == nil then
       return nil, name .. ": " .. database_trouble
     end
-    local out = build_paths.required(root) .. "/bin/" .. name
-    local program, program_trouble: string, string
+    local out = bin .. "/" .. name
+    local program, program_trouble: string?, string
     if core ~= nil then
       program, program_trouble = artifact.host_program(core, database)
-    else
+    elseif prefix ~= nil then
       program, program_trouble = artifact.program(prefix, database)
+    else
+      return nil, source_trouble
     end
     if program == nil then
       return nil, out .. ": " .. program_trouble
@@ -416,38 +531,46 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
     end
     names[#names + 1] = name
   end
-  return names
+  return names, ""
 end
 
---- `cosmic build [--host] [path...]`: the tree in the working directory,
---- and its executables under `o/bin/` -- only those whose `main.tl` is
---- under one of the paths, when there are any. Ends in a verdict line
---- that names what was written, or says why nothing was.
-local function run(argv: {integer:string}): integer
+--- `cosmic build [--host] [--roots minimal|mozilla] [path...]`: the tree in the working directory,
+--- and its executables in its build directory's `bin/` -- only those whose `main.tl` is
+--- under one of the paths, when there are any. Prints each executable it
+--- wrote on stdout, a path per line, for a caller to run; its summary on
+--- stderr names them again, or says why nothing was written.
+local function run(argv: {string}): integer
   local started = Clock.monotonic_ns()
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.build.spec)
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.build.spec))
   if parsed == nil then
     log:complain("build: " .. parse_trouble)
     return 2
   end
   local host = parsed.set["--host"] == true
+  local roots = parsed.values["--roots"]
+  if roots ~= nil and roots ~= "minimal" and roots ~= "mozilla" then
+    log:complain("build: --roots takes minimal or mozilla, not " .. roots:sub(1, 40))
+    return 2
+  end
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     log:complain(root_trouble)
     return 1
   end
-  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words))
+  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words), nil, roots)
   if names == nil then
     log:complain(trouble)
     return 1
   end
-  local outputs: {string} = {}
+  local outputs: mut {string} = {}
+  local bin = build_paths.resolve(root).bin
   for _, name in ipairs(names) do
-    outputs[#outputs + 1] = "o/bin/" .. name .. (host and " (host)" or "")
+    log:say(bin .. "/" .. name)
+    outputs[#outputs + 1] = bin .. "/" .. name .. (if host then " (host)" else "" end)
   end
   local wrote = #outputs > 0 and table.concat(outputs, ", ") or
     "no executable: no cmd/<name>/main.tl in the tree"
-  log:verdict("build", true, wrote .. ", " .. clock.took(started))
+  local _, _ = logger.summary("build", wrote .. ", " .. clock.took(started))
   return 0
 end
 
@@ -455,8 +578,8 @@ end
 embed.spec = {
   name = "build",
   guide = "none: builds a program for shipping, which doc/guides/portable-runtime.md covers; the quickstart does not",
-  tests = { "build.embed_test", "build.embed_tool_test" },
-  run = function(argv: {integer:string}): integer return run(argv) end,
+  tests = { "build.embed_test", "build.embed_tool_test", "build.embed_portable_tool_test" },
+  run = function(argv: {string}): integer return run(argv) end,
   bare = false,
   takes = "the files or directories to act on",
 }

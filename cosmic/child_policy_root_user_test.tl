@@ -15,7 +15,7 @@
 -- once a leg runs the suite as root (doc/roadmap.md's root leg): until then
 -- only a developer's or an agent's run as root checks them.
 -- TODO: require `root`, and that the worker is, once a CI leg promises
--- `root` (ci/cosmic_ci/capabilities.tl; build/tree_checks.tl refuses a
+-- `root` (ci/cosmic_ci/capabilities.json; build/tree_checks.tl refuses a
 -- name no leg promises) and a requirement names the worker's user: `root`
 -- is the runner's, and a root run that sandboxes its workers starts each as
 -- a user of its own, so it would pass `root` and still skip every test here.
@@ -94,7 +94,7 @@ end
 --- The user ids a `Uid:` line of /proc/self/status lists, a stand-in's
 --- answer to `status-field Uid`: real, effective, saved and filesystem.
 local function uids(said: string): {integer}
-  local found: {integer} = {}
+  local found: mut {integer} = {}
   for number in said:gmatch("%d+") do
     found[#found + 1] = assert(math.tointeger(tonumber(number)))
   end
@@ -151,7 +151,7 @@ local function test_a_root_caller_runs_its_child_as_a_user_of_a_range_of_its_own
     local ids = uids(ran.said)
     assert(#ids == 8, ran.said)
     for _, id in ipairs(ids) do
-      assert(id ~= 0 and id >= first and id <= last, "isolate " .. #isolate .. ": " .. ran.said)
+      assert(id ~= 0 and id >= first and id <= last, "isolate " .. tostring(#isolate) .. ": " .. ran.said)
     end
     assert(ids[1] == ids[5], ran.said)
   end
@@ -190,7 +190,7 @@ local function test_a_root_caller_s_policy_with_no_namespace_drops_to_a_pool_use
   local own_map = assert(Fs.read("/proc/self/uid_map"))
   assert(said:find(own_map, 1, true) ~= nil, "a user namespace of its own: " .. said)
   local made = assert(sys.stat(at.work .. "/made"))
-  assert(made.uid == ids[1] and made.gid == ids[5], "made is " .. made.uid .. ":" .. made.gid)
+  assert(made.uid == ids[1] and made.gid == ids[5], "made is " .. tostring(made.uid) .. ":" .. tostring(made.gid))
 end
 
 --- A user a root caller names is the same every start and owns what it
@@ -209,7 +209,7 @@ local function test_a_root_caller_s_named_user_owns_its_files_from_start_to_star
     { path = dir, letters = "rwc" }, { path = "/proc", letters = "r" } } }
   for round = 1, 2 do
     local result, why = Child.run({ at.probe, "status-field Uid; cat " .. dir .. "/inside; " ..
-        "append " .. dir .. "/made " .. round }, { policy = policy, cwd = at.work, stdout = "capture",
+        "append " .. dir .. "/made " .. tostring(round) }, { policy = policy, cwd = at.work, stdout = "capture",
           stderr = "stdout" })
     assert(result ~= nil, "the start was refused: " .. tostring(why))
     local said = result.stdout or ""
@@ -221,7 +221,7 @@ local function test_a_root_caller_s_named_user_owns_its_files_from_start_to_star
   local text = Fs.read(dir .. "/made")
   assert(text == "1\n2\n", tostring(text))
   local made = assert(sys.stat(dir .. "/made"))
-  assert(made.uid == named and made.gid == named, made.uid .. ":" .. made.gid)
+  assert(made.uid == named and made.gid == named, tostring(made.uid) .. ":" .. tostring(made.gid))
 end
 
 local function test_a_root_caller_may_not_name_a_user_of_the_pool(tmp: string)
@@ -251,7 +251,7 @@ local function test_a_root_caller_s_concurrent_sandboxes_run_as_different_users(
   local at = placed(tmp)
   local policy: Sandbox.Policy = { isolate = { "proc" }, grants = { { path = at.probe, letters = "rx" },
     { path = at.work, letters = "r" } } }
-  local running: {Child.Handle} = {}
+  local running: mut {Child.Handle} = {}
   for i = 1, 3 do
     local handle, why = Child.start({ at.probe, "status-field Uid; sleep 300" },
       { policy = policy, cwd = at.work, stdout = "capture", stderr = "stdout" })
@@ -261,7 +261,7 @@ local function test_a_root_caller_s_concurrent_sandboxes_run_as_different_users(
     end
     running[i] = handle
   end
-  local seen: {integer:boolean} = {}
+  local seen: mut {integer:boolean} = {}
   for _, handle in ipairs(running) do
     local result = assert(handle:wait())
     local id = uids(result.stdout or "")[1]
@@ -277,7 +277,7 @@ local function test_a_root_caller_s_tmp_is_its_child_s_to_write(tmp: string)
     { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" } } }, at.work,
     "create $TMPDIR/made x && cat $TMPDIR/made")
   if ran == nil then return end
-  assert(ran.code == 0 and ran.said == "x\n", ran.code .. ": " .. ran.said)
+  assert(ran.code == 0 and ran.said == "x\n", tostring(ran.code) .. ": " .. ran.said)
 end
 
 local function test_a_root_caller_s_grant_open_to_everyone_is_used_as_it_is(tmp: string)
@@ -325,9 +325,9 @@ local function test_a_root_caller_s_named_user_meets_its_own_files_as_the_owner_
   local ran = under(at.probe, policy, at.work, "cat " .. dir .. "/inside; append " .. dir ..
       "/open more; cat " .. dir .. "/open; cat " .. dir .. "/third")
   if ran == nil then return end
-  assert(ran.code == 0 and ran.said == "secret\nopen\nmore\nthird\n", ran.code .. ": " .. ran.said)
+  assert(ran.code == 0 and ran.said == "secret\nopen\nmore\nthird\n", tostring(ran.code) .. ": " .. ran.said)
   local open = assert(sys.stat(dir .. "/open"))
-  assert(open.uid == 4242 and open.gid == 4242, "open is " .. open.uid .. ":" .. open.gid)
+  assert(open.uid == 4242 and open.gid == 4242, "open is " .. tostring(open.uid) .. ":" .. tostring(open.gid))
   local shut = under(at.probe, policy, at.work, "cat " .. dir .. "/shut")
   assert(shut ~= nil and shut.code ~= 0 and shut.said:find("Permission denied", 1, true), shut.said)
   local grouped = under(at.probe, policy, at.work, "cat " .. dir .. "/grouped")
@@ -347,11 +347,11 @@ local function test_a_root_caller_s_closed_grant_is_idmapped_under_isolate_file(
     { path = dir, letters = "rwc" } } }, at.work,
     "cat " .. dir .. "/inside; create " .. dir .. "/made y; cat " .. dir .. "/made")
   if ran == nil then return end
-  assert(ran.code == 0 and ran.said == "secret\ny\n", ran.code .. ": " .. ran.said)
+  assert(ran.code == 0 and ran.said == "secret\ny\n", tostring(ran.code) .. ": " .. ran.said)
   -- What it made is the owner's on the host, not the sandbox's user's.
   local made = assert(sys.stat(dir .. "/made"))
   assert(made.uid == before.uid and made.gid == before.gid,
-    "owned by " .. made.uid .. ":" .. made.gid .. ", not " .. before.uid .. ":" .. before.gid)
+    "owned by " .. tostring(made.uid) .. ":" .. tostring(made.gid) .. ", not " .. tostring(before.uid) .. ":" .. tostring(before.gid))
   assert(before.mode == assert(sys.stat(dir)).mode)
 end
 
@@ -364,7 +364,7 @@ local function test_a_root_caller_s_closed_read_only_grant_is_idmapped_and_stays
     { path = dir, letters = "r" } } }, at.work,
     "cat " .. dir .. "/inside; create " .. dir .. "/made y")
   if ran == nil then return end
-  assert(ran.code == 1 and ran.said:find("secret", 1, true), ran.code .. ": " .. ran.said)
+  assert(ran.code == 1 and ran.said:find("secret", 1, true), tostring(ran.code) .. ": " .. ran.said)
   assert(not Fs.exists(dir .. "/made"))
 end
 

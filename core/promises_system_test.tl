@@ -8,8 +8,8 @@
 --- applicable); where the kernel still gives no seccomp filter, each skips
 --- itself.
 
+local RawTables = require("build.raw_tables")
 local Test = require("cosmic.test")
-local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
 local type _ = require("cosmic.child")
@@ -24,18 +24,7 @@ Test.policy{
   requires = { "sandbox", "path:/bin/sh" },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 local SHELL <const> = "/bin/sh"
 
@@ -45,18 +34,18 @@ local function shell(promises: {string}, script: string): integer
   local pid, trouble = process.spawn(SHELL, { SHELL, "-c", script }, {}, nil, nil, nil, nil,
     false, nil, { promises = promises })
   if pid == nil then Test.skip("the kernel gives no seccomp filter: " .. tostring(trouble)) end
-  return assert(process.waitpid(pid, false)).code
+  return assert(process.waitpid(assert(pid), false)).code
 end
 
 local function test_a_dynamic_program_starts_under_the_basics()
   local code = shell({}, "exit 0")
-  assert(code == 0, "the shell ends with " .. code)
+  assert(code == 0, "the shell ends with " .. tostring(code))
   assert(shell({}, "exit 7") == 7)
 end
 
 local function test_a_dynamic_program_forks_with_fork()
   -- A subshell is a fork, which the shell reports by its status.
   local code = shell({ "fork" }, "(exit 3); exit $?")
-  assert(code == 3, "a subshell under fork ends with " .. code)
+  assert(code == 3, "a subshell under fork ends with " .. tostring(code))
   assert(shell({ "fork", "jit", "fattr" }, "(exit 0)") == 0)
 end

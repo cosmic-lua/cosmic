@@ -5,18 +5,22 @@
 --- paths, and a snapshot of `o/build.db` restored after `o/cosmic.db`
 --- moved on both leave a row that no longer describes the file.
 
+local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 local importer = require("build.importer")
 local schema = require("build.schema")
-local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 local fixture = require("build.docs_fixture")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
 end
 
 --- Writes a minimal one-module project at `root`, greeting `whom`, so
@@ -51,7 +55,7 @@ local function build_and_write(root: string, whom: string, out: string,
   write_project(root, whom)
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, tool or "writer-test"))
+  local result = assert(importer.compile(handle, tool or "writer-test"))
   assert(writer.write_result(handle, out, result))
   return handle, result
 end
@@ -66,7 +70,7 @@ local function projected(path: string): string
   if #rows == 0 then
     return ""
   end
-  return rows[1][1]
+  return rows[1]:text(1)
 end
 
 --- A file at `out` that some other write replaced -- a different
@@ -151,8 +155,8 @@ local function test_a_declaration_ships_its_docs(tmp: string)
     "SELECT text, file, line FROM docs WHERE module = 'clock' AND symbol = 'now'"))
   assert(out:close())
   assert(#rows == 1, tostring(#rows))
-  assert(rows[1][1] == "Seconds since the epoch." and rows[1][2] == "clock.d.tl" and
-      rows[1][3] == "3", table.concat(rows[1], " "))
+  assert(nth(rows, 1):text(1) == "Seconds since the epoch." and nth(rows, 1):text(2) == "clock.d.tl" and
+      nth(rows, 1):text(3) == "3", table.concat(nth(rows, 1):texts(), " "))
 end
 
 --- What the tool carries is the projection without the tree's own
@@ -164,7 +168,7 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/greet_test.tl", table.concat({
     'local greet = require("greet")',
-    "local function greeting(): string | nil, string",
+    "local function greeting(): string?, string",
     '  if greet.hello() ~= "hello, world" then',
     '    return nil, "greet_test: the greeting changed"',
     "  end",
@@ -197,22 +201,22 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
     "return shared",
     "",
   }, "\n")))
-  assert(Fs.write(root .. "/fixture_test.tl", 'return { name = "x" }\n'))
+  assert(Fs.write(root .. "/fixture_test.tl", 'local record Fixture\n  name: string\nend\nlocal fixture: Fixture = { name = "x" }\nreturn fixture\n'))
   local handle = build_and_write(root, "world", tmp .. "/whole.db")
   assert(work.close(handle))
   -- A bill of materials, as cosmic's own tree's projection holds one.
   local whole_db = assert(Sqlite.open(tmp .. "/whole.db", { writable = true }))
   assert(whole_db:exec("INSERT INTO components VALUES ('zlib', 'library', '1.3', 'Zlib', " ..
-      "'https://zlib.net/z.tar.gz', '', ''); INSERT INTO notices VALUES ('zlib', 1, " ..
+      "'https://zlib.net/z.tar.gz', '', '', ''); INSERT INTO notices VALUES ('zlib', 1, " ..
       "'LICENSE', '(C) 1995 Jean-loup Gailly and Mark Adler' || char(10)); " ..
-      "INSERT INTO ca_roots VALUES (sha256(x'0506'), 'A Root', x'0506')"))
+      "INSERT INTO ca_roots VALUES (sha256(x'0506'), 'A Root', x'0506', '')"))
   assert(whole_db:close())
   assert(writer.carried(tmp .. "/whole.db", tmp .. "/carried.db"))
   assert(writer.carried(tmp .. "/whole.db", tmp .. "/again.db"))
   assert(Fs.read(tmp .. "/carried.db") == Fs.read(tmp .. "/again.db"),
     "the carried database is a function of the projection")
 
-  local function rows(path: string, sql: string): {{string}}
+  local function rows(path: string, sql: string): Sqlite.Rows
     local db = assert(Sqlite.open(path))
     local found = assert(Sqlite.text_rows(db, sql))
     assert(db:close())
@@ -220,12 +224,12 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   end
   local whole = rows(tmp .. "/whole.db",
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM modules ORDER BY path)")
-  assert(whole[1][1] ==
+  assert(nth(whole, 1):text(1) ==
       "cmd.hello.main fixture_test greet greet_example greet_test shared",
-    whole[1][1])
+    nth(whole, 1):text(1))
   local carried = rows(tmp .. "/carried.db",
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM modules ORDER BY path)")
-  assert(carried[1][1] == "cmd.hello.main fixture_test greet shared", carried[1][1])
+  assert(nth(carried, 1):text(1) == "cmd.hello.main fixture_test greet shared", nth(carried, 1):text(1))
   local about_dropped = rows(tmp .. "/carried.db",
     "SELECT (SELECT count(*) FROM docs WHERE module IN ('greet_test', 'greet_example')) " ..
       "+ (SELECT count(*) FROM uses WHERE from_module IN ('greet_test', 'greet_example')) " ..
@@ -234,8 +238,8 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
       "+ (SELECT count(*) FROM catalog WHERE module IN ('greet_test', 'greet_example'))")
   local in_whole = rows(tmp .. "/whole.db",
     "SELECT count(*) FROM catalog WHERE module = 'greet_test'")
-  assert(in_whole[1][1] == "1", "the projection holds the test's catalog row")
-  assert(about_dropped[1][1] == "0", "a row about a dropped module is carried")
+  assert(nth(in_whole, 1):text(1) == "1", "the projection holds the test's catalog row")
+  assert(nth(about_dropped, 1):text(1) == "0", "a row about a dropped module is carried")
   -- `greet` is no public standard-library module, so its docs and the
   -- example about it stay in the projection: `test_the_carried_docs_*`
   -- below covers which docs rows are carried.
@@ -246,17 +250,17 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   local documented = rows(tmp .. "/whole.db",
     "SELECT (SELECT count(*) FROM examples WHERE module = 'greet'), " ..
       "(SELECT count(*) FROM docs WHERE module = 'greet')")
-  assert(documented[1][1] == "1" and tonumber(documented[1][2]) > 0,
+  assert(nth(documented, 1):text(1) == "1" and assert(tonumber(nth(documented, 1):text(2)), "the docs count is a number") > 0,
     "the projection documents greet")
-  assert(kept[1][1] == "0" and kept[1][2] == "0", "greet's docs stay in the projection")
-  assert(kept[1][3] == "cmd.hello.main", "meta is carried")
+  assert(nth(kept, 1):text(1) == "0" and nth(kept, 1):text(2) == "0", "greet's docs stay in the projection")
+  assert(nth(kept, 1):text(3) == "cmd.hello.main", "meta is carried")
   local materials = rows(tmp .. "/carried.db",
     "SELECT c.name, c.license, n.text FROM components c JOIN notices n ON n.component = c.name")
-  assert(#materials == 1 and materials[1][1] == "zlib" and materials[1][2] == "Zlib" and
-      materials[1][3] == "(C) 1995 Jean-loup Gailly and Mark Adler\n",
+  assert(#materials == 1 and materials[1]:text(1) == "zlib" and nth(materials, 1):text(2) == "Zlib" and
+      nth(materials, 1):text(3) == "(C) 1995 Jean-loup Gailly and Mark Adler\n",
     "the tool carries the projection's bill of materials")
   local trusted = rows(tmp .. "/carried.db", "SELECT label, hex(der) FROM ca_roots")
-  assert(#trusted == 1 and trusted[1][1] == "A Root" and trusted[1][2] == "0506",
+  assert(#trusted == 1 and trusted[1]:text(1) == "A Root" and nth(trusted, 1):text(2) == "0506",
     "the tool carries the projection's CA roots")
 end
 
@@ -312,9 +316,9 @@ local function test_a_module_ships_its_bytecode_and_not_its_lua(tmp: string)
       "FROM modules WHERE path = 'greet'"))
   assert(out:close())
   assert(#columns == 0, "the shipped modules table carries generated Lua")
-  assert(#rows == 1 and rows[1][1] == "1" and rows[1][2] == "1",
+  assert(#rows == 1 and rows[1]:text(1) == "1" and nth(rows, 1):text(2) == "1",
     tostring(#rows))
-  assert(rows[1][3] == "1", "the source is stored deflated")
+  assert(nth(rows, 1):text(3) == "1", "the source is stored deflated")
 end
 
 --- The zones the working database holds ship in the projection, and are
@@ -332,14 +336,40 @@ local function test_the_zones_ship_and_sign_the_projection(tmp: string)
     "SELECT group_concat(name || ' ' || typeof(data) || ' ' || length(data), ',' ORDER BY rowid) " ..
       "FROM zoneinfo"))
   assert(db:close())
-  assert(rows[1][1] == "A/Zone blob 6,Test/Zone blob 9", rows[1][1])
+  assert(nth(rows, 1):text(1) == "A/Zone blob 6,Test/Zone blob 9", nth(rows, 1):text(1))
   -- And the tool built from the projection carries them too.
   assert(writer.carried(out, tmp .. "/carried.db"))
   local carried = assert(Sqlite.open(tmp .. "/carried.db"))
   local kept = assert(Sqlite.text_rows(carried,
     "SELECT group_concat(name || ' ' || typeof(data), ',' ORDER BY rowid) FROM zoneinfo"))
   assert(carried:close())
-  assert(kept[1][1] == "A/Zone blob,Test/Zone blob", kept[1][1])
+  assert(nth(kept, 1):text(1) == "A/Zone blob,Test/Zone blob", nth(kept, 1):text(1))
+end
+
+--- The web assets the working database holds ship in the projection and
+--- the tool built from it, and are part of what it is a function of.
+local function test_the_web_assets_ship_and_sign_the_projection(tmp: string)
+  local out = tmp .. "/out.db"
+  local handle, result = build_and_write(tmp .. "/a", "world", out)
+  local before = projected(out)
+  assert(work.put_web_assets(handle, {
+    { name = "b.js", data = "bee\0", sha256 = "s2", sha384 = "t2", version = "2" },
+    { name = "a.js", data = "ay", sha256 = "s1", sha384 = "t1", version = "1" } }))
+  assert(writer.write_result(handle, out, result))
+  assert(work.close(handle))
+  assert(projected(out) ~= before, "new web assets sign a new projection")
+  local function listed(path: string): string
+    local db = assert(Sqlite.open(path))
+    local rows = assert(Sqlite.text_rows(db,
+      "SELECT group_concat(name || ' ' || typeof(data) || ' ' || length(data) || ' ' || " ..
+        "sha256 || ' ' || sha384 || ' ' || version, ',' ORDER BY name) FROM web_assets"))
+    assert(db:close())
+    return nth(rows, 1):text(1)
+  end
+  local expected = "a.js blob 2 s1 t1 1,b.js blob 4 s2 t2 2"
+  assert(listed(out) == expected, listed(out))
+  assert(writer.carried(out, tmp .. "/carried.db"))
+  assert(listed(tmp .. "/carried.db") == expected, listed(tmp .. "/carried.db"))
 end
 
 --- Of a projection's docs, uses and examples, the tool carries what a
@@ -407,7 +437,7 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
   local function column(sql: string): string
     local found = assert(Sqlite.text_rows(out,
       "SELECT coalesce(group_concat(v, ' '), '') FROM (" .. sql .. ")"))
-    return found[1][1]
+    return nth(found, 1):text(1)
   end
   local docs = column("SELECT module AS v FROM docs ORDER BY id")
   local uses = column("SELECT from_module || '>' || module AS v FROM uses " ..
@@ -429,6 +459,64 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
   -- A link to a file names one of the tree's own, which a project lacks.
   assert(linked == "cosmic.fs:5>cosmic.fs", "the links carried: " .. linked)
   assert(indexed == "cosmic.fs build.work", "the docs index: " .. indexed)
+end
+
+--- An internal type is carried when a public declaration names it through
+--- the name its own module binds: as an alias's whole target, or as one of
+--- the bases a record or interface lists, and so is each of its members.
+--- A name that only ends in the bound one, a
+--- binding to another internal module, and a declaration outside the
+--- public standard library reach nothing, however many internal rows there
+--- are to ask about.
+local function test_the_carried_internal_types_are_the_ones_a_public_signature_names(tmp: string)
+  local whole = tmp .. "/whole.db"
+  local db = assert(Sqlite.open(whole, { writable = true }))
+  for _, statement in ipairs(schema.settings("")) do assert(db:exec(statement)) end
+  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  local function internal(module: string, type_name: string): string
+    return "('" .. module .. "', '" .. type_name .. "', 'raw." .. type_name ..
+      "', 1, 'record', '', 'A type.', 'f', 1)"
+  end
+  for _, statement in ipairs({
+      "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, " ..
+        "text, file, line) VALUES " ..
+        internal("cosmic.internal.net", "Alias") .. ", " ..
+        internal("cosmic.internal.net", "First") .. ", " ..
+        internal("cosmic.internal.net", "Second") .. ", " ..
+        internal("cosmic.internal.net", "Suffixed") .. ", " ..
+        internal("cosmic.internal.other", "Elsewhere") .. ", " ..
+        internal("cosmic.internal.net", "Hidden") .. ", " ..
+        internal("cosmic.internal.net", "Base") .. ", " ..
+        "('cosmic.internal.net', 'Alias.size', 'raw.Alias.size', 1, 'field', '', " ..
+        "'A member.', 'f', 1), " ..
+        "('cosmic.internal.net', 'Hidden.size', 'raw.Hidden.size', 1, 'field', '', " ..
+        "'Not reached.', 'f', 1), " ..
+        "('cosmic.net', 'Net.Alias', 'Net.Alias', 1, 'field', 'type Alias = Native.Alias', " ..
+        "'An alias.', 'f', 1), " ..
+        "('cosmic.net', 'Net.Options', 'Net.Options', 1, 'record', " ..
+        "'record Options is Native.First, Native.Second', 'Options.', 'f', 1), " ..
+        "('cosmic.net', 'Net.Suffixed', 'Net.Suffixed', 1, 'field', " ..
+        "'type Suffixed = NotNative.Suffixed', 'Not it.', 'f', 1), " ..
+        "('cosmic.net', 'Net.Elsewhere', 'Net.Elsewhere', 1, 'field', " ..
+        "'type Elsewhere = Native.Elsewhere', 'Not it.', 'f', 1), " ..
+        "('build.net', 'net.Hidden', 'net.Hidden', 1, 'field', " ..
+        "'type Hidden = Native.Hidden', 'Not public.', 'f', 1), " ..
+        "('cosmic.net', 'Net.Shape', 'Net.Shape', 1, 'interface', " ..
+        "'interface Shape is Native.Base', 'A shape.', 'f', 1)",
+      "INSERT INTO bound (path, name, requires) VALUES " ..
+        "('cosmic.net', 'Native', 'cosmic.internal.net'), " ..
+        "('build.net', 'Native', 'cosmic.internal.net')",
+  }) do
+    assert(db:exec(statement))
+  end
+  assert(db:close())
+  assert(writer.carried(whole, tmp .. "/carried.db"))
+  local out = assert(Sqlite.open(tmp .. "/carried.db"))
+  local found = assert(Sqlite.text_rows(out,
+    "SELECT coalesce(group_concat(symbol, ' '), '') FROM (SELECT symbol FROM docs " ..
+      "WHERE module LIKE 'cosmic.internal.%' ORDER BY id)"))
+  assert(out:close())
+  assert(nth(found, 1):text(1) == "Alias First Second Base Alias.size", "the internal types carried: " .. nth(found, 1):text(1))
 end
 
 --- A user guide is a generated test module, which the tool does not
@@ -459,7 +547,7 @@ local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
   local found = assert(Sqlite.text_rows(out,
     "SELECT coalesce(group_concat(module || '|' || text, ' '), '') FROM docs"))
   assert(out:close())
-  assert(found[1][1] == "doc.guides.quickstart|A tour.", found[1][1])
+  assert(nth(found, 1):text(1) == "doc.guides.quickstart|A tour.", nth(found, 1):text(1))
 end
 
 --- Rebuilding the projection from the same source assigns the same
@@ -471,6 +559,59 @@ local function test_a_project_is_reproducible(tmp: string)
     "equivalent projects produced different projections")
 end
 
+--- The compressed sources a projection ships are kept in the working
+--- database by source, so an edit compresses only what it changed: a
+--- projection written again after one is the very bytes a fresh working
+--- database writes, carries the edited text and not the old, and the
+--- cache holds no source the tree no longer has.
+local function test_an_edited_source_is_not_served_from_the_deflate_cache(tmp: string)
+  local handle = build_and_write(tmp .. "/a", "world", tmp .. "/first.db")
+  local before = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM deflated"))
+  assert(assert(before[1]):text(1) ~= "0", "writing a projection fills the cache")
+
+  write_project(tmp .. "/a", "moon")
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, "writer-test"))
+  assert(writer.write_result(handle, tmp .. "/second.db", result))
+  local stale = assert(Sqlite.text_rows(handle.db,
+    "SELECT count(*) FROM deflated WHERE source_hash NOT IN (SELECT source_hash FROM inputs)"))
+  assert(assert(stale[1]):text(1) == "0", "the cache holds a source no input has")
+  assert(work.close(handle))
+
+  assert(work.close((build_and_write(tmp .. "/b", "moon", tmp .. "/fresh.db"))))
+  assert(Fs.read(tmp .. "/second.db") == Fs.read(tmp .. "/fresh.db"),
+    "a projection served from the cache differs from a fresh one")
+  local out = assert(Sqlite.open(tmp .. "/second.db"))
+  local rows = assert(Sqlite.text_rows(out,
+    "SELECT instr(CAST(inflate(source) AS TEXT), 'hello, moon') > 0, " ..
+      "instr(CAST(inflate(source) AS TEXT), 'hello, world') > 0 " ..
+      "FROM modules WHERE path = 'greet'"))
+  assert(out:close())
+  local shipped = assert(rows[1])
+  assert(shipped:text(1) == "1" and shipped:text(2) == "0", "the edited source was not shipped")
+end
+
+--- A compressed source is kept for the core that compressed it: a
+--- projection written by a core of another image never ships bytes the
+--- first made, and the cache drops what that core made.
+local function test_a_source_is_deflated_again_by_a_core_of_another_image(tmp: string)
+  local handle = build_and_write(tmp .. "/a", "world", tmp .. "/first.db")
+  assert(handle.db:exec("UPDATE deflated SET data = x'00'"))
+  assert(handle.db:exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('image_hash', 'other-core')"))
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, "writer-test"))
+  assert(writer.write_result(handle, tmp .. "/second.db", result))
+  local cores = assert(Sqlite.text_rows(handle.db, "SELECT DISTINCT core FROM deflated"))
+  assert(#cores == 1 and assert(cores[1]):text(1) == "6f746865722d636f7265",
+    "the cache holds a core's bytes that is not the writing core's")
+  assert(work.close(handle))
+  local out = assert(Sqlite.open(tmp .. "/second.db"))
+  local rows = assert(Sqlite.text_rows(out,
+    "SELECT instr(CAST(inflate(source) AS TEXT), 'hello, world') > 0 FROM modules WHERE path = 'greet'"))
+  assert(out:close())
+  assert(assert(rows[1]):text(1) == "1", "another core's compressed source was shipped")
+end
+
 --- A paired declaration describes the interface; only its implementation
 --- contributes executable rows and runtime dependencies.
 local function test_paired_declaration_projects_each_source_in_its_role(tmp: string)
@@ -478,38 +619,68 @@ local function test_paired_declaration_projects_each_source_in_its_role(tmp: str
     ["decl_dep.tl"] = "local record Dep\n  declared: integer\nend\nreturn Dep\n",
     ["impl_dep.tl"] = "local record Dep\n  executed: integer\nend\nreturn Dep\n",
     ["foo.d.tl"] = 'local Dep = require("decl_dep")\n' ..
-      "--- Public interface.\n--- See [`Dep.declared`].\nlocal record Foo\n  answer: integer\nend\n" ..
-      'local x = Dep.declared\nfunction Foo.fail(): nil, string\n' ..
-      '  return nil, "declaration error"\nend\nreturn Foo\n',
+      "--- Public interface.\n--- See [`Dep.declared`].\nlocal record Foo\n  answer: integer\n" ..
+      "  fail: function(): nil, string\nend\nreturn Foo\n",
     ["foo.tl"] = 'local Dep = require("impl_dep")\n' ..
       "--- Private implementation.\n--- See [`Dep.executed`].\nlocal record Foo\n  answer: integer\nend\n" ..
       'local x = Dep.executed\nfunction Foo.fail(): nil, string\n' ..
-      '  return nil, "implementation error"\nend\nreturn {answer = 42} as Foo\n',
+      '  return nil, "implementation error"\nend\nlocal value: Foo = { answer = 42 }\nreturn value\n',
     ["only.d.tl"] = "--- Declaration alone.\nlocal record Only\nend\nreturn Only\n",
   })
-  local function rows(sql: string): {{string}}
+  local function rows(sql: string): Sqlite.Rows
     return (assert(Sqlite.text_rows(db, sql)))
   end
   local module = rows("SELECT file, kind, inflate(source) FROM modules WHERE path = 'foo'")
-  assert(#module == 1 and module[1][1] == "foo.tl" and module[1][2] ~= "decl")
-  assert(module[1][3]:find("answer = 42", 1, true), module[1][3])
-  assert(rows("SELECT count(*) FROM decls WHERE path IN ('foo', 'only')")[1][1] == "2")
-  assert(rows("SELECT count(*) FROM modules WHERE path = 'only'")[1][1] == "0")
+  assert(#module == 1 and module[1]:text(1) == "foo.tl" and nth(module, 1):text(2) ~= "decl")
+  assert(nth(module, 1):text(3):find("answer = 42", 1, true), nth(module, 1):text(3))
+  assert(nth(rows("SELECT count(*) FROM decls WHERE path IN ('foo', 'only')"), 1):text(1) == "2")
+  assert(nth(rows("SELECT count(*) FROM modules WHERE path = 'only'"), 1):text(1) == "0")
   local imports = rows("SELECT requires FROM imports WHERE path = 'foo'")
-  assert(#imports == 1 and imports[1][1] == "impl_dep")
+  assert(#imports == 1 and imports[1]:text(1) == "impl_dep")
   local bound = rows("SELECT requires FROM bound WHERE path = 'foo' AND name = 'Dep'")
-  assert(#bound == 1 and bound[1][1] == "decl_dep")
+  assert(#bound == 1 and bound[1]:text(1) == "decl_dep")
   local docs = rows("SELECT file, text FROM docs WHERE module = 'foo' AND symbol = 'Foo'")
-  assert(#docs == 1 and docs[1][1] == "foo.d.tl" and docs[1][2]:find("Public interface.", 1, true))
+  assert(#docs == 1 and docs[1]:text(1) == "foo.d.tl" and nth(docs, 1):text(2):find("Public interface.", 1, true) ~= nil)
   local uses = rows("SELECT module, symbol, from_file FROM uses WHERE from_module = 'foo'")
-  assert(#uses == 1 and uses[1][1] == "impl_dep" and uses[1][2] == "executed" and
-      uses[1][3] == "foo.tl")
+  assert(#uses == 1 and uses[1]:text(1) == "impl_dep" and nth(uses, 1):text(2) == "executed" and
+      nth(uses, 1):text(3) == "foo.tl")
   local catalog = rows("SELECT message, file FROM catalog WHERE module = 'foo'")
-  assert(#catalog == 1 and catalog[1][1] == "implementation error" and catalog[1][2] == "foo.tl")
+  assert(#catalog == 1 and catalog[1]:text(1) == "implementation error" and nth(catalog, 1):text(2) == "foo.tl")
   local links = rows("SELECT module, symbol, from_file FROM links WHERE from_module = 'foo'")
-  assert(#links == 1 and links[1][1] == "decl_dep" and links[1][2] == "declared" and
-      links[1][3] == "foo.d.tl")
-  assert(rows("SELECT count(*) FROM docs WHERE module = 'only'")[1][1] ~= "0")
+  assert(#links == 1 and links[1]:text(1) == "decl_dep" and nth(links, 1):text(2) == "declared" and
+      nth(links, 1):text(3) == "foo.d.tl")
+  assert(nth(rows("SELECT count(*) FROM docs WHERE module = 'only'"), 1):text(1) ~= "0")
+  assert(db:close())
+end
+
+--- A module's edge to a name the plan does not ship, a declaration with
+--- no implementation, is kept for the checker in `decl_imports` and
+--- left out of `imports`, which the program's closures are made of.
+local function test_an_edge_to_a_declaration_is_kept_beside_the_runtime_edges(tmp: string)
+  local db = fixture.database(tmp, {
+    ["only.d.tl"] = "local record Only\n  n: integer\nend\nreturn Only\n",
+    ["dep.tl"] = "local record Dep\nend\nreturn Dep\n",
+    ["paired.d.tl"] = 'local type Dep = require("dep")\nlocal record Paired\n  dep: Dep\nend\nreturn Paired\n',
+    ["paired.tl"] = "local record Paired\nend\nreturn Paired\n",
+    ["foo.tl"] = 'local type Only = require("only")\nlocal Dep = require("dep")\n' ..
+      "local record Foo\n  only: Only\nend\nreturn Foo\n",
+  })
+  local function names(table_name: string): string
+    local rows = assert(Sqlite.text_rows(db,
+      "SELECT requires FROM " .. table_name .. " WHERE path = 'foo' AND requires <> '' " ..
+        "ORDER BY requires"))
+    local out: mut {string} = {}
+    for index, row in ipairs(rows) do out[index] = row:text(1) end
+    return table.concat(out, ",")
+  end
+  assert(names("imports") == "dep", names("imports"))
+  assert(names("decl_imports") == "dep,only", names("decl_imports"))
+  local paired = assert(Sqlite.text_rows(db,
+    "SELECT requires FROM decl_imports WHERE path = 'paired' AND requires <> ''"))
+  assert(#paired == 1 and paired[1]:text(1) == "dep", "a pair keeps its declaration's edges")
+  local leaf = assert(Sqlite.text_rows(db,
+    "SELECT requires FROM decl_imports WHERE path = 'dep'"))
+  assert(#leaf == 1 and leaf[1]:text(1) == "", "a module with no edge has the empty row")
   assert(db:close())
 end
 
@@ -519,19 +690,113 @@ local function test_a_failed_projection_can_be_retried(tmp: string)
   write_project(tmp, "retry")
   local handle = assert(work.open(tmp))
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "writer-test"))
+  local result = assert(importer.compile(handle, "writer-test"))
   assert(handle.db:exec("DROP TABLE compiled"))
   local out = tmp .. "/out.db"
   local written, trouble = writer.write_result(handle, out, result)
-  assert(not written and trouble:find("compiled", 1, true), trouble)
+  assert(not written and trouble:find("compiled", 1, true) ~= nil, trouble)
   assert(not handle.inside, "the failed projection left its transaction open")
   assert(Fs.stat(out) == nil, "the failed projection published a file")
   assert(handle.db:exec("ATTACH ':memory:' AS out"), "the failed snapshot stayed attached")
   assert(handle.db:exec("DETACH out"))
   assert(work.begin(handle))
   assert(work.stage(handle, false))
-  local retried = assert(importer.compile(handle, built, "writer-test"))
+  local retried = assert(importer.compile(handle, "writer-test"))
   assert(writer.write_result(handle, out, retried))
   assert(work.close(handle))
   assert(projected(out) ~= "", "the retry did not publish a signed projection")
+end
+
+--- Writes the static files of the project at `root`: text worth gzipping,
+--- an image, and Teal and a template that are assets, not modules.
+local function write_static(root: string, css: string)
+  assert(Fs.mkdirs(root .. "/static/css"))
+  assert(Fs.mkdirs(root .. "/static/.hidden"))
+  assert(Fs.write(root .. "/static/css/app.css", css))
+  assert(Fs.write(root .. "/static/logo.png", "\137PNG\0\1\2"))
+  assert(Fs.write(root .. "/static/notes.tl", "this is no Teal, and no module {{"))
+  assert(Fs.write(root .. "/static/page.tmpl", "{{ this is no template"))
+  assert(Fs.write(root .. "/static/.hidden/secret", "x"))
+end
+
+--- Compiles the project at `root` and writes its projection to `out`.
+local function write_projection(root: string, out: string)
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, "writer-test"))
+  assert(writer.write_result(handle, out, result))
+  assert(work.close(handle))
+end
+
+--- The files under `static/` are the projection's `payload`, with the
+--- hash, type and gzip a program serves them by; a `.tl` or `.tmpl`
+--- under it is an asset and no module, and a hidden file is left out.
+local function test_static_files_ship_as_payload_not_as_modules(tmp: string)
+  local css = ("a { color: red }\n"):rep(200)
+  write_project(tmp .. "/p", "world")
+  write_static(tmp .. "/p", css)
+  write_projection(tmp .. "/p", tmp .. "/p.db")
+  local db = assert(Sqlite.open(tmp .. "/p.db"))
+  local rows = assert(Sqlite.text_rows(db,
+    "SELECT path, sha256, type, gzip IS NOT NULL, length(data) FROM payload ORDER BY path"))
+  assert(#rows == 4, tostring(#rows) .. " payload rows")
+  assert(nth(rows, 1):text(1) == "css/app.css" and nth(rows, 1):text(2) == Hash.hex_sha256(css))
+  assert(nth(rows, 1):text(3) == "text/css; charset=utf-8" and nth(rows, 1):text(4) == "1" and nth(rows, 1):text(5) == tostring(#css))
+  assert(nth(rows, 2):text(1) == "logo.png" and nth(rows, 2):text(3) == "image/png" and nth(rows, 2):text(4) == "0")
+  assert(nth(rows, 3):text(1) == "notes.tl" and nth(rows, 3):text(3) == "application/octet-stream")
+  assert(nth(rows, 4):text(1) == "page.tmpl")
+  local packed = assert(Sqlite.text_rows(db, "SELECT gzip FROM payload WHERE path = 'css/app.css'"))
+  assert(Compress.inflate("gzip", nth(packed, 1):text(1)) == css)
+  local bytes = assert(Sqlite.text_rows(db, "SELECT data FROM payload WHERE path = 'logo.png'"))
+  assert(nth(bytes, 1):text(1) == "\137PNG\0\1\2", "binary bytes, a NUL among them, are kept")
+  local modules = assert(Sqlite.text_rows(db,
+    "SELECT count(*) FROM modules WHERE path LIKE 'static%' OR path LIKE '%notes%' OR path LIKE '%page%'"))
+  assert(nth(modules, 1):text(1) == "0")
+  assert(db:close())
+end
+
+--- Equal trees project equal bytes, and an edit to an asset moves the
+--- projection although no module changed.
+local function test_an_edit_to_an_asset_moves_the_projection(tmp: string)
+  for _, name in ipairs({ "one", "two" }) do
+    write_project(tmp .. "/" .. name, "world")
+    write_static(tmp .. "/" .. name, "body {}")
+    write_projection(tmp .. "/" .. name, tmp .. "/" .. name .. ".db")
+  end
+  assert(Fs.read(tmp .. "/one.db") == Fs.read(tmp .. "/two.db"), "equal trees, unequal projections")
+  local before = projected(tmp .. "/one.db")
+  assert(Fs.write(tmp .. "/one/static/css/app.css", "body { margin: 0 }"))
+  write_projection(tmp .. "/one", tmp .. "/one.db")
+  assert(projected(tmp .. "/one.db") ~= before)
+  local db = assert(Sqlite.open(tmp .. "/one.db"))
+  local rows = assert(Sqlite.text_rows(db, "SELECT data FROM payload WHERE path = 'css/app.css'"))
+  assert(nth(rows, 1):text(1) == "body { margin: 0 }")
+  assert(db:close())
+end
+
+--- The `type` and `gzip` of a payload row come from cosmic.mime, so an
+--- edit to it moves the signature although no file did.
+local function test_an_edit_to_cosmic_mime_moves_the_signature(tmp: string)
+  local handle, result = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
+  local before = assert(writer.signature(handle, result, "binary"))
+  local real = Store.bytecode
+  Store.bytecode = function(name: string): string?, string
+    if name == "cosmic.mime" then return "an edited cosmic.mime", "" end
+    return real(name)
+  end
+  local after, trouble = writer.signature(handle, result, "binary")
+  Store.bytecode = real
+  assert(work.close(handle))
+  assert(after ~= nil, trouble)
+  assert(after ~= before, "cosmic.mime must be part of the signature")
+end
+
+--- A tree with no `static/` has an empty payload.
+local function test_a_tree_without_static_has_no_payload(tmp: string)
+  write_project(tmp .. "/p", "world")
+  write_projection(tmp .. "/p", tmp .. "/p.db")
+  local db = assert(Sqlite.open(tmp .. "/p.db"))
+  local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM payload"))
+  assert(nth(rows, 1):text(1) == "0")
+  assert(db:close())
 end

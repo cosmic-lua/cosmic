@@ -1,9 +1,11 @@
---- The verdicts main saves under each commit, for a branch based on it:
+--- The verdicts main names under each commit, for a branch based on it:
 --- [`merge_base`], which finds the main commit a run's tree grew from, and
---- `prune`, which deletes those entries a day on, against the API's JSON
+--- `prune`, which deletes those entries a day on, and [`CommitVerdicts.invalidate`],
+--- which deletes them all once a run that saves them failed, against the API's JSON
 --- as the API answers it (cosmic_ci/github_fake.tl).
 local CommitVerdicts = require("cosmic_ci.commit_verdicts")
 local GithubFake = require("cosmic_ci.github_fake")
+local Maps = require("cosmic_ci.maps")
 local Time = require("cosmic.time")
 
 local SHA <const> = "0123456789abcdef0123456789abcdef01234567"
@@ -14,7 +16,7 @@ local TOPIC <const>: {string: string} = { EVENT = "push", REF = "refs/heads/topi
 --- `env` against the lookup's answer `answer` (nil fails it); the calls
 --- it made.
 local function merge_base(env: {string: string}, answer?: string): string, string, integer, {string}
-  local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return answer end)
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string? return answer end)
   local code = CommitVerdicts.merge_base(env, fake.host)
   return GithubFake.text(fake.outputs), GithubFake.text(fake.printed), code, fake.calls
 end
@@ -46,16 +48,17 @@ local function test_the_queue_names_its_base_and_main_none()
   local output, _, _, calls = merge_base({ EVENT = "merge_group", REF = "refs/heads/gh-readonly-queue/main/x",
     SHA = SHA, QUEUE_BASE = BASE, REPOSITORY = "o/r" })
   assert(output == "sha=" .. BASE .. "\n" and #calls == 0, output .. table.concat(calls, "\n"))
-  for _, env in ipairs({
-      { EVENT = "push", REF = "refs/heads/main", SHA = SHA },
-      { EVENT = "schedule", REF = "refs/heads/main", SHA = SHA },
-      { EVENT = "workflow_dispatch", REF = "refs/heads/topic", SHA = SHA },
-      { EVENT = "merge_group", REF = "refs/heads/gh-readonly-queue/main/x", SHA = SHA, QUEUE_BASE = "" },
-      { EVENT = "merge_group", REF = "refs/heads/gh-readonly-queue/main/x", SHA = SHA, QUEUE_BASE = "main" },
-      {},
-  }) do
+  local cases: {{string:string}} = {
+    { EVENT = "push", REF = "refs/heads/main", SHA = SHA },
+    { EVENT = "schedule", REF = "refs/heads/main", SHA = SHA },
+    { EVENT = "workflow_dispatch", REF = "refs/heads/topic", SHA = SHA },
+    { EVENT = "merge_group", REF = "refs/heads/gh-readonly-queue/main/x", SHA = SHA, QUEUE_BASE = "" },
+    { EVENT = "merge_group", REF = "refs/heads/gh-readonly-queue/main/x", SHA = SHA, QUEUE_BASE = "main" },
+    {},
+  }
+  for _, env in ipairs(cases) do
     local none, _, _, asked = merge_base(env, nil)
-    assert(none == "" and #asked == 0, tostring(env.EVENT) .. " " .. tostring(env.REF) .. ": " .. none ..
+    assert(none == "" and #asked == 0, tostring(env["EVENT"]) .. " " .. tostring(env["REF"]) .. ": " .. none ..
         table.concat(asked, "\n"))
   end
 end
@@ -72,13 +75,13 @@ end
 --- An entry as the API lists the cache's: `hours` old.
 local function entry(id: integer, key: string, hours: number): string
   -- With milliseconds, as the API writes them.
-  local created = Time.format_rfc3339((GithubFake.START - math.floor(hours * 3600)) * 1000000000, nil, { digits = 3 })
-  return '{"id":' .. id .. ',"key":"' .. key .. '","created_at":"' .. created .. '","ref":"refs/heads/main"}'
+  local created = Time.format_rfc3339((GithubFake.start() - math.floor(hours * 3600)) * 1000000000, nil, { digits = 3 })
+  return '{"id":' .. tostring(id) .. ',"key":"' .. key .. '","created_at":"' .. created .. '","ref":"refs/heads/main"}'
 end
 
 --- The API's list of the entries given, a page.
 local function listing(...: string): string
-  return '{"total_count":' .. select("#", ...) .. ',"actions_caches":[' .. table.concat({ ... }, ",") .. "]}"
+  return '{"total_count":' .. tostring(select("#", ...)) .. ',"actions_caches":[' .. table.concat({ ... }, ",") .. "]}"
 end
 
 --- A listing in `pages`: each is one page the fake serves linked to the next.
@@ -88,7 +91,7 @@ end
 
 --- The ids `fake` deleted, in order.
 local function deleted(fake: GithubFake.Fake): string
-  local ids: {string} = {}
+  local ids: mut {string} = {}
   for _, call in ipairs(fake.calls) do
     local id = call:match("^DELETE repos/o/r/actions/caches/(%d+)$")
     if id then ids[#ids + 1] = id end
@@ -98,27 +101,31 @@ end
 
 --- `prune` in `env` over `answer`, the listing as the pages the API lists (nil fails it), refusing to delete the ids of `refuse`:
 --- the fake, what it said and its status.
-local function prune(env: {string: string}, answer: string | nil, refuse?: {string}): GithubFake.Fake, string, integer
-  local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return answer end, refuse)
-  env.REPOSITORY = "o/r"
+local function prune(env: mut {string: string}, answer: string?, refuse?: {string}): GithubFake.Fake, string, integer
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string? return answer end, refuse)
+  env["REPOSITORY"] = "o/r"
   local code = CommitVerdicts.prune(env, fake.host)
   return fake, GithubFake.text(fake.printed), code
 end
 
---- Only the verdicts under a commit, a day old, are deleted: not those
---- under their content, nor a newer commit's, nor another cache's.
+--- Only the names under a commit, a day old, are deleted, and the whole
+--- copies once saved there: not the entries under their content, which
+--- a name leads to, nor a newer commit's, nor another cache's.
 local function test_the_prune_deletes_only_old_verdicts_under_a_commit()
   local fake, said, code = prune({}, pages(listing(
-    entry(1, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA, 30),
-    entry(2, "verdicts-leg-0123456789abcdef-f-sha-" .. BASE, 2),
+    entry(1, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA .. "-d0d0d0", 30),
+    entry(2, "verdicts-leg-0123456789abcdef-f-sha-" .. BASE .. "-d0d0d0", 2),
     entry(3, "verdicts-leg-0123456789abcdef-f-d0d0d0", 50),
-    entry(4, "verdicts-leg-checked-0123456789abcdef-f-sha-" .. BASE, 25),
-    entry(5, "verdicts-leg-0123456789abcdef-f-sha-abc", 50),
-    entry(6, "verdicts-leg-0123456789abcdef-f-sha-0" .. SHA, 50))))
+    entry(4, "verdicts-leg-checked-0123456789abcdef-f-sha-" .. BASE .. "-d1d1d1", 25),
+    entry(5, "verdicts-leg-0123456789abcdef-f-sha-abc-d0d0d0", 50),
+    entry(6, "verdicts-leg-0123456789abcdef-f-sha-0" .. SHA .. "-d0d0d0", 50),
+    entry(7, "verdicts-leg-0123456789abcdef-f-sha-" .. BASE, 30),
+    entry(8, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA .. "-", 50),
+    entry(9, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA:upper() .. "-d0d0d0", 50))))
   assert(code == 0, said)
   assert(fake.calls[1] == "GET repos/o/r/actions/caches?key=verdicts-&per_page=100", fake.calls[1])
-  assert(deleted(fake) == "1 4", table.concat(fake.calls, "\n"))
-  assert(said:find("pruned 2 commit-keyed verdict entries older than 24 h (0 failed)", 1, true), said)
+  assert(deleted(fake) == "1 4 7", table.concat(fake.calls, "\n"))
+  assert(said:find("pruned 3 commit-keyed verdict entries older than 24 h (0 failed)", 1, true), said)
   -- HOURS moves the cutoff.
   fake = prune({ HOURS = "1" }, pages(listing(entry(2, "verdicts-leg-h-f-sha-" .. BASE, 2))))
   assert(deleted(fake) == "2", table.concat(fake.calls, "\n"))
@@ -150,14 +157,14 @@ end
 local function test_a_failed_delete_leaves_the_rest_deleted()
   local fake, said = prune({}, pages(listing(entry(1, "verdicts-leg-h-f-sha-" .. SHA, 30),
     entry(2, "verdicts-leg-h-f-sha-" .. BASE, 30))), { "1" })
-  assert(deleted(fake) == "1 2" and said:find("pruned 1 commit-keyed verdict entry older", 1, true) and
-      said:find("(1 failed)", 1, true), table.concat(fake.calls, "\n") .. said)
+  assert(deleted(fake) == "1 2" and said:find("pruned 1 commit-keyed verdict entry older", 1, true) ~= nil and
+      said:find("(1 failed)", 1, true) ~= nil, table.concat(fake.calls, "\n") .. said)
 end
 
 --- A listing or a delete that fails fails nothing: the rest go on.
 local function test_a_failed_prune_fails_nothing()
   local fake, said, code = prune({}, nil)
-  assert(code == 0 and deleted(fake) == "" and said:find("none pruned", 1, true), table.concat(fake.calls, "\n") .. said)
+  assert(code == 0 and deleted(fake) == "" and said:find("none pruned", 1, true) ~= nil, table.concat(fake.calls, "\n") .. said)
   -- Both listings are asked, and both said.
   assert(#fake.calls == 2 and #fake.printed == 4, table.concat(fake.printed, "\n"))
   assert(said:find("lookup failed: GET repos/o/r/", 1, true) and said:find(": HTTP 500", 1, true), said)
@@ -167,7 +174,7 @@ local function test_a_failed_prune_fails_nothing()
       pages('{"actions_caches":[{"id":1,"key":"verdicts-h-f-sha-' .. SHA .. '"}]}'),
       pages('{"actions_caches":[{"id":1,"key":"verdicts-h-f-sha-' .. SHA .. '","created_at":"yesterday"}]}') }) do
     fake, said, code = prune({}, answer)
-    assert(code == 0 and deleted(fake) == "" and said:find("none pruned", 1, true), answer .. said)
+    assert(code == 0 and deleted(fake) == "" and said:find("none pruned", 1, true) ~= nil, answer .. said)
   end
 end
 
@@ -175,8 +182,59 @@ end
 local function test_an_unreadable_environment_is_refused()
   for _, env in ipairs({ { HOURS = "a day" }, { HOURS = "-1" }, { CALL_SECONDS = "soon" } }) do
     local fake, _, code = prune(env, pages(listing()))
-    assert(code == 2 and #fake.calls == 0, tostring(env.HOURS))
+    assert(code == 2 and #fake.calls == 0, tostring(env["HOURS"]))
   end
-  local fake = GithubFake.new(function(): string | nil return nil end)
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
   assert(CommitVerdicts.merge_base({ CALL_SECONDS = "soon" }, fake.host) == 2 and #fake.calls == 0)
+end
+
+--- The failed recheck's case: the name the commit's first run saved is
+--- a minute old and leads to the entry that still holds the pass the
+--- recheck took out of its own database, so `prune`, which waits a day,
+--- leaves it where a branch based on the commit restores by it.
+--- [`CommitVerdicts.invalidate`] deletes the names under that commit,
+--- every host's (checked's too), the failed run's own among them, and a
+--- whole copy once saved there; no other commit's, nor any entry keyed by
+--- content, the failed run's rows among them, nor another cache's.
+local function test_an_invalidate_deletes_the_failed_commits_verdict_entries()
+  local listed = pages(listing(
+    entry(1, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA .. "-d0d0d0", 0.5),
+    entry(2, "verdicts-leg-0123456789abcdef-f-sha-" .. BASE .. "-d0d0d0", 200),
+    entry(3, "verdicts-leg-0123456789abcdef-f-d0d0d0", 50),
+    entry(4, "verdicts-leg-checked-0123456789abcdef-f-sha-" .. SHA .. "-c0c0c0", 2),
+    entry(5, "verdicts-leg-0123456789abcdef-f-sha-" .. BASE .. "-d1d1d1", 2),
+    entry(6, "compiles-branch-leg-0123abcd-d0d0d0", 50),
+    entry(7, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA .. "-d1d1d1", 0.01),
+    entry(8, "verdicts-leg-0123456789abcdef-f-d1d1d1", 0.01),
+    entry(9, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA, 2)))
+  local pruned = prune({}, listed)
+  assert(deleted(pruned) == "2 6", "prune keeps what is under a day old: " .. table.concat(pruned.calls, "\n"))
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string? return listed end)
+  local code = CommitVerdicts.invalidate({ REPOSITORY = "o/r", COMMIT = SHA }, fake.host)
+  local said = GithubFake.text(fake.printed)
+  assert(code == 0, said)
+  assert(fake.calls[1] == "GET repos/o/r/actions/caches?key=verdicts-&per_page=100", fake.calls[1])
+  assert(deleted(fake) == "1 4 7 9", "another commit's entry stays: " .. table.concat(fake.calls, "\n"))
+  assert(#fake.calls == 5, "it asks only for the verdicts: " .. table.concat(fake.calls, "\n"))
+  assert(said:find("pruned 4 commit-keyed verdict entries under commit " .. SHA .. " (0 failed)", 1, true), said)
+end
+
+--- A listing it cannot read, or a delete that fails, fails nothing; an
+--- unreadable step, or no whole commit, refuses, asking nothing.
+local function test_a_failed_invalidate_fails_nothing()
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
+  local code = CommitVerdicts.invalidate({ REPOSITORY = "o/r", COMMIT = SHA }, fake.host)
+  assert(code == 0 and deleted(fake) == "" and GithubFake.text(fake.printed):find("none pruned", 1, true) ~= nil)
+  fake = GithubFake.new(function(_path: string, _nth: integer): string?
+    return pages(listing(entry(1, "verdicts-leg-h-f-sha-" .. SHA, 1), entry(2, "verdicts-leg-g-f-sha-" .. SHA, 1)))
+  end, { "1" })
+  code = CommitVerdicts.invalidate({ REPOSITORY = "o/r", COMMIT = SHA }, fake.host)
+  assert(code == 0 and deleted(fake) == "1 2" and GithubFake.text(fake.printed):find("(1 failed)", 1, true) ~= nil)
+  local invalid: {{string:string}} = { { COMMIT = SHA, CALL_SECONDS = "soon" }, {}, { COMMIT = "" }, { COMMIT = "abc" },
+    { COMMIT = SHA:upper() }, { COMMIT = "main" }, { COMMIT = SHA .. "0" } }
+  for _, given in ipairs(invalid) do
+    local env = Maps.with(given, { REPOSITORY = "o/r" })
+    fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
+    assert(CommitVerdicts.invalidate(env, fake.host) == 2 and #fake.calls == 0, tostring(env["COMMIT"]))
+  end
 end

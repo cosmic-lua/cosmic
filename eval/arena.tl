@@ -24,10 +24,13 @@ function Arena.prompt(dir: string): string
     "sub-agents or coaching. Use the binary as your only source about cosmic.\n"
 end
 
---- Lays out a new arena at `dir` for `task`, with eval/ at `eval`,
---- answering the arena's absolute path. `dir` must not exist yet, and
---- must be outside the repository eval/ sits in, links resolved.
-function Arena.lay(eval: string, task: string, binary: string, dir: string): string | nil, string
+--- The TASK.md an arena for `task` holds: eval/task/<task>.md with
+--- eval/journal.md after it, `eval` being eval/; nil and why when
+--- either cannot be read. It sits in the solver's project, whose
+--- `cosmic fix --check` the grader runs, so it is written for `fix` to
+--- link no span naming the task's own module, whatever that module
+--- declares ([`eval/arena_test.tl`]).
+function Arena.task_text(eval: string, task: string): string?, string
   if task:find("/", 1, true) then
     return nil, "no task eval/task/" .. task .. ".md"
   end
@@ -35,6 +38,27 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   local task_text, _ = Fs.read(eval .. "/task/" .. task .. ".md")
   if task_text == nil then
     return nil, "no task eval/task/" .. task .. ".md"
+  end
+  local journal, jtrouble = Fs.read(eval .. "/journal.md")
+  if journal == nil then
+    return nil, jtrouble
+  end
+  return task_text .. journal, ""
+end
+
+--- A file of an arena, by its path under the arena.
+local record Laid
+  path: string
+  bytes: string
+end
+
+--- Lays out a new arena at `dir` for `task`, with eval/ at `eval`,
+--- answering the arena's absolute path. `dir` must not exist yet, and
+--- must be outside the repository eval/ sits in, links resolved.
+function Arena.lay(eval: string, task: string, binary: string, dir: string): string?, string
+  local task_text, task_trouble = Arena.task_text(eval, task)
+  if task_text == nil then
+    return nil, task_trouble
   end
   local st, stat_trouble = Fs.stat(binary)
   if st == nil then
@@ -44,6 +68,9 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
     return nil, binary .. " is not an executable"
   end
   local repo = eval:match("^(.*)/[^/]+$")
+  if repo == nil then
+    return nil, eval .. " is not a path to eval/: it holds no /"
+  end
   if repo == "" then
     repo = "/"
   end
@@ -75,7 +102,11 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
       return nil, existing .. ": " .. exists_trouble
     end
     if exists then break end
-    rest = "/" .. existing:match("([^/]+)$") .. rest
+    local leaf = existing:match("([^/]+)$")
+    if leaf == nil then
+      return nil, existing .. ": no directory of the path exists"
+    end
+    rest = "/" .. leaf .. rest
     existing = existing:match("^(.*)/[^/]+$") or "."
     if existing == "" then
       existing = "/"
@@ -85,40 +116,38 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   if physical == nil then
     return nil, ptrouble
   end
-  dir = (physical == "/" and "" or physical) .. rest .. "/" .. name
+  dir = (if physical == "/" then "" else physical end) .. rest .. "/" .. name
   if Fs.within(dir, real_repo) then
     return nil, "put the arena outside the repository"
   end
-  local made, mtrouble = Fs.mkdirs(dir:match("^(.*)/[^/]+$"))
+  -- `dir` is its physical parent, the rest not yet made, and its name.
+  local made_parent = (if physical == "/" then "" else physical end) .. rest
+  local made, mtrouble = Fs.mkdirs(made_parent)
   if not made then
     return nil, mtrouble
   end
   -- Again, now the parent is there: a `..` in what did not exist yet is
   -- resolved only now.
-  physical, ptrouble = Fs.absolute(dir:match("^(.*)/[^/]+$"))
+  physical, ptrouble = Fs.absolute(made_parent)
   if physical == nil then
     return nil, ptrouble
   end
-  dir = (physical == "/" and "" or physical) .. "/" .. name
+  dir = (if physical == "/" then "" else physical end) .. "/" .. name
   if Fs.within(dir, real_repo) then
     return nil, "put the arena outside the repository"
   end
   local new, ntrouble, errno = sys.mkdir(dir)
   if not new then
-    return nil, errno == sys.EEXIST and "destination must be new: " .. dir or dir .. ": " .. ntrouble
+    return nil, if errno == sys.EEXIST then "destination must be new: " .. dir else dir .. ": " .. ntrouble end
   end
   local binary_bytes, btrouble = Fs.read(binary)
   if binary_bytes == nil then
     return nil, btrouble
   end
-  local journal, jtrouble = Fs.read(eval .. "/journal.md")
-  if journal == nil then
-    return nil, jtrouble
-  end
-  local files: {{string}} = {
-    { "bin/cosmic", binary_bytes },
-    { "project/TASK.md", task_text .. journal },
-    { "PROMPT.md", Arena.prompt(dir) },
+  local files: {Laid} = {
+    { path = "bin/cosmic", bytes = binary_bytes },
+    { path = "project/TASK.md", bytes = task_text },
+    { path = "PROMPT.md", bytes = Arena.prompt(dir) },
   }
   for _, sub in ipairs({ "bin", "project", "tmp" }) do
     local ok, why = sys.mkdir(dir .. "/" .. sub)
@@ -127,13 +156,13 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
     end
   end
   -- These records are for the evaluator, not the solver.
-  local hashes: {string} = {}
+  local hashes: mut {string} = {}
   for _, file in ipairs(files) do
-    local wrote, wtrouble = Fs.write(dir .. "/" .. file[1], file[2])
+    local wrote, wtrouble = Fs.write(dir .. "/" .. file.path, file.bytes)
     if not wrote then
       return nil, wtrouble
     end
-    hashes[#hashes + 1] = Hash.hex_sha256(file[2]) .. "  " .. file[1] .. "\n"
+    hashes[#hashes + 1] = Hash.hex_sha256(file.bytes) .. "  " .. file.path .. "\n"
   end
   -- The binary is 0755 whatever the umask.
   local executable, etrouble = Fs.chmod(dir .. "/bin/cosmic", 0x1ed)
@@ -151,20 +180,22 @@ local function complain(message: string)
   local _, _ = Fs.put(Fs.stderr, "arena: " .. message .. "\n")
 end
 
-function Arena.main(argv: {integer: string}): integer
+--- @param argv the words after the script's path
+--- @param program this script's own path
+local function run(argv: {string}, program: string): integer
   local task, binary, dir = argv[1], argv[2], argv[3]
   if task == nil or binary == nil or dir == nil or argv[4] ~= nil then
     local _, _ = Fs.put(Fs.stderr, "usage: eval/arena <task> <cosmic-binary> <dir>\n")
     return 2
   end
-  local script, strouble = Fs.absolute(argv[0])
+  local script, strouble = Fs.absolute(program)
   if script == nil then
     complain(strouble)
     return 2
   end
   local eval = script:match("^(.*)/[^/]+%.tl$")
   if eval == nil then
-    complain(argv[0] .. ": expected to run as .../eval/arena.tl")
+    complain(program .. ": expected to run as .../eval/arena.tl")
     return 2
   end
   local laid, trouble = Arena.lay(eval, task, binary, dir)
@@ -174,6 +205,11 @@ function Arena.main(argv: {integer: string}): integer
   end
   local _, _ = Fs.put(Fs.stdout, "arena: " .. laid .. " (task " .. task .. ")\n")
   return 0
+end
+
+--- The entry point: [`run`] with this script's path, Lua's `arg[0]`.
+function Arena.main(argv: {string}): integer
+  return run(argv, (assert(arg[0], "arena: no script path")))
 end
 
 return Arena

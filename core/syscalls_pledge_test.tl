@@ -6,6 +6,7 @@
 --- Linux host refuses it the tests are not run (`requires`) or, where only
 --- the call can tell, skipped (Test.skip).
 
+local RawTables = require("build.raw_tables")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local unix_socket = require("build.unix_socket")
@@ -20,24 +21,12 @@ local type _ = require("cosmic.child")
 -- These tests need a seccomp filter alone, which `sandbox` asks for with
 -- more (core/promises_system_test.tl's TODO names the narrower requirement).
 Test.policy{
-  grants = { { path = "/proc", letters = "r" } },
+  profiles = { "proc" },
   loopback = { "127.0.0.1" },
   requires = { "sandbox" },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader, as
---- `require` would hand it.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
 --- the script its first argument holds: a static executable that reads
@@ -61,7 +50,7 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   --- What the child and a grandchild of it report of their filters, with
   --- one blank for each run of space; skips the test where `sandbox` is
   --- refused, as the kernel gives no such pledge.
-  local function filtered(sandbox: raw_process.Sandbox | nil): string
+  local function filtered(sandbox: raw_process.Sandbox?): string
     local output = create(tmp .. "/status")
     local pid, trouble, errno = process.spawn(probe, { probe,
       "status-field Seccomp; run " .. probe .. " status-field Seccomp" },
@@ -71,13 +60,13 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
       assert(errno == sys.ENOSYS, trouble)
       Test.skip("the kernel gives no pledge: " .. tostring(trouble))
     end
-    assert(assert(process.waitpid(pid, false)).code == 0)
+    assert(assert(process.waitpid(assert(pid), false)).code == 0)
     local said = assert(sys.pread(output, 4096, 0))
     sys.close(output)
     return (said:gsub("%s+", " "))
   end
   local status_file = assert(sys.open("/proc/self/status", sys.O_RDONLY))
-  local own = assert(sys.read(status_file, 65536)):match("Seccomp:%s*(%d)")
+  local own = assert(assert(sys.read(status_file, 65536)):match("Seccomp:%s*(%d)"), "the status names the filter mode")
   sys.close(status_file)
   local plain = filtered(nil)
   assert(plain == "Seccomp: " .. own .. " Seccomp: " .. own .. " ", plain)
@@ -99,7 +88,7 @@ local function test_a_pledge_without_unix_refuses_a_unix_connect(tmp: string)
       sys.close(output)
       Test.skip("the kernel gives no pledge: " .. tostring(trouble))
     end
-    assert(assert(process.waitpid(pid, false)).code == 0)
+    assert(assert(process.waitpid(assert(pid), false)).code == 0)
     local said = assert(sys.pread(output, 4096, 0))
     sys.close(output)
     return said

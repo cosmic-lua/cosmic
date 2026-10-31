@@ -27,18 +27,21 @@ local Net = require("cosmic.net")
 return function(_argv: {string}): integer
   -- SIGPIPE ignored from outside (its bit, 13, of /proc's SigIgn), the
   -- write below would pass whatever the socket asks: say so, and stop.
-  local status = Fs.read("/proc/self/status")
-  local ignored = status ~= nil and status:match("SigIgn:%s*(%x+)")
-  if ignored and (tonumber(ignored, 16) // 0x1000) % 2 == 1 then
-    Fs.put(Fs.stdout, "ignored")
+  local status, _ = Fs.read("/proc/self/status")
+  local mask = if status ~= nil then status:match("SigIgn:%s*(%x+)") else nil end
+  local bits = if mask ~= nil then tonumber(mask, 16) else nil end
+  if bits ~= nil and (bits // 0x1000) % 2 == 1 then
+    local _, _ = Fs.put(Fs.stdout, "ignored")
     return 0
   end
-  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-  local client <close> = assert(Net.connect(server.address))
+  local server = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+  local client = assert(Net.connect(server.address))
   local accepted = assert(server:accept())
   assert(accepted:close())
   local ok, why = client:write(string.rep("x", 1 << 20))
-  Fs.put(Fs.stdout, tostring(ok) .. " " .. why)
+  local _, _ = Fs.put(Fs.stdout, tostring(ok) .. " " .. why)
+  local _, _ = client:close()
+  local _, _ = server:close()
   return 0
 end
 ]]))
@@ -55,7 +58,7 @@ end
 --- A connection's protocol runs a child while the server holds its
 --- signal guard: the run holds one of its own inside the server's.
 local function test_a_protocol_runs_a_child_under_the_server_s_guard()
-  local answer = ""
+  local answer: string = ""
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)
@@ -89,14 +92,15 @@ local function test_a_signal_is_delivered_where_on_ready_raises(tmp: string)
 local Net = require("cosmic.net")
 local sys = require("cosmic.sys")
 return function(_argv: {string}): integer
-  local _, _ = pcall(Net.serve, {
+  local spec: Net.ServeSpec = {
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(_conn: Net.Conn) end,
     on_ready = function(_addresses: {Net.Address}, _server: Net.Server)
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
       error("on_ready failed")
     end,
-  } as Net.ServeSpec)
+  }
+  local _, _ = pcall(Net.serve, spec)
   return 0
 end
 ]]))
@@ -118,23 +122,24 @@ local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 return function(argv: {string}): integer
-  local started = false
+  local seen: mut {string: boolean} = { started = false }
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)
       local line = assert(Stream.lines(conn):read())
-      started = true
+      seen["started"] = true
       assert(Poll.delay(Clock.ms(100)))
       assert(conn:write(line .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Clock.seconds(5) }))
+      local conn = assert(Net.connect(assert(addresses[1]), { timeout_ns = Clock.seconds(5) }))
       assert(conn:write("slow\n"))
-      while not started do assert(Poll.delay(Clock.ms(1))) end
+      while seen["started"] ~= true do assert(Poll.delay(Clock.ms(1))) end
       server:stop()
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
       local answer = assert(Stream.lines(conn):read())
-      assert(Fs.write(argv[1] .. "/report", answer))
+      assert(Fs.write((argv[1] or "") .. "/report", answer))
+      local _, _ = conn:close()
     end,
   })
   return 0

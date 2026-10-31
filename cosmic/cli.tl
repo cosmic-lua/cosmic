@@ -1,11 +1,12 @@
 --- Help for the `cosmic` verbs: `cosmic help` prints an index of them
 --- and `cosmic help <verb>` one verb's full text, generated from one
---- field per verb (`cosmic docs test`, `build`, `fix`, ... answer with
---- the same text, ahead of the module of that name when there is one).
+--- field per verb (`cosmic docs Cli.test`, [`Cli.build`], ... answer with
+--- the same text). Where a module has the verb's name (`json`, `test`),
+--- `cosmic docs json` shows the module and ends with a line pointing here.
 --- This is not an argument parser for a project's own command line: a
 --- project's cmd/<name>/main.tl gets its arguments as a plain array, and
 --- `Flags.parse(argv, 1, spec)` from cosmic.flags reads its options, or
---- `Flags.dispatch(argv, 1, commands)` its commands -- see argv.
+--- `Flags.dispatch(argv, 1, commands, name)` its commands -- see argv.
 ---
 --- The index comes from each verb's `usage` and `about` and from `groups`,
 --- a verb's page from its field and its `spec`, in the order `order`
@@ -18,31 +19,44 @@ local record Cli
   --- `cosmic <file.tl> [args...]`: builds the tree the file sits in --
   --- the working directory when the file is under it, so a file of a
   --- project reaches the rest of it; the file's own directory
-  --- otherwise -- into its o/, then runs it: requires the file, and if
+  --- otherwise -- into its build directory, then runs it: requires the file, and if
   --- what it returns is a function, calls it with one argument, the
   --- words after the file's path (`argv[1]` on, its own path at
   --- `argv[0]`), and exits with what it returns, as `eval` does:
   --- nothing is 0, a whole number from 0 to 255, or text naming one, is
   --- itself, and anything else is complained about and exits 2. The
   --- file's top level finds the same words in the global `arg`; its `...`
-  --- is what `require` hands a module, its own name.
+  --- is what `require` hands a module, its own name. The words are the
+  --- file's as typed, since no option of this program's comes after the
+  --- file. A "--" there is the file's own too. [`Flags.parse`] from
+  --- `argv[1]` reads it as the end of the options, so `cosmic f.tl --
+  --- --help` gives it the word "--help" and no option.
   ---
   ---     return function(argv: {string}): integer
   ---       print("from " .. argv[1] .. " to " .. argv[2])
   ---       return 0
   ---     end
   ---
-  --- A tree whose o/ this user cannot write (another user's checkout,
-  --- say) is built into a directory of this user's own under
-  --- $XDG_CACHE_HOME/cosmic/runs instead, named by the tree's path.
+  --- A file of the tree that does not parse or type-check stops the run
+  --- only when the file requires it, itself or through another module.
+  --- One it does not require is left out, with a warning naming it and
+  --- why, and the file runs. A check of the whole tree -- a global, a
+  --- cycle of imports -- stops every run wherever it is met. `cosmic test`
+  --- and `cosmic fix` build the whole tree, and refuse a broken file anywhere.
+  ---
+  --- A tree's build directory is outside it, this user's own:
+  --- $XDG_CACHE_HOME/cosmic/trees/<key> (~/.cache/cosmic/trees/<key>),
+  --- <key> the SHA-256 of the tree's canonical path, or under the
+  --- absolute base COSMIC_BUILD_HOME names; so a tree this user cannot
+  --- write (another user's checkout, say) builds as any other.
   ---
   --- With COSMIC_STANDALONE=1 it runs the file as `--standalone` does,
-  --- building nothing and writing no o/; a program `cosmic sandbox
+  --- building nothing and writing no build directory; a program `cosmic sandbox
   --- --cosmic` runs has it set unless `--set-env` says otherwise
   run: string
   --- `cosmic --standalone <file.tl> [args...]`: runs one file against this
   --- binary's own standard library, with no tree around it -- nothing
-  --- staged or built, nothing under o/ written, and no staleness
+  --- staged or built, no build directory written, and no staleness
   --- check, so it runs the same whatever state the working directory
   --- is in. The file may require `cosmic.*` modules only; it is
   --- checked and compiled in memory (a clean compile is cached under
@@ -51,13 +65,19 @@ local record Cli
   --- with a record's `main` field standing for a returned function.
   --- COSMIC_STANDALONE=1 makes `cosmic <file.tl>` run so
   standalone: string
-  --- `cosmic -e '<chunk>' [args...]`: runs the chunk as Lua, the way
-  --- `lua -e` does, against this binary's own standard library, with no
-  --- tree around it -- nothing staged or built, nothing under o/
-  --- written, and no staleness check. The words after the chunk are its
-  --- `...`; it prints only what it prints. What it returns is the exit
-  --- code, as a built program's is: nothing is 0, a whole number from 0
-  --- to 255, or text naming one, is itself, and anything else is
+  --- `cosmic -e '<chunk>' [args...]`: runs the chunk as the body of a Teal
+  --- file, against this binary's own standard library, with no tree
+  --- around it -- nothing staged or built, no build directory written,
+  --- and no staleness check. The chunk is checked as strictly as a file
+  --- run `--standalone` is (a warning is refused with an error), and one
+  --- the checker refuses does not run: its messages are printed and it
+  --- exits 1. It reaches the library as a file does,
+  --- `require("cosmic.json")`, by a literal name, and the tool's own
+  --- modules the same way; no module is bound for it, and it is Teal, not
+  --- Lua (`cosmic -e 'print(1 + "x")'` is refused). The words after the chunk are its `...`, each a
+  --- `string?`; it prints only what it prints. What it returns is the
+  --- exit code, as a built program's is: nothing is 0, a whole number
+  --- from 0 to 255, or text naming one, is itself, and anything else is
   --- complained about and exits 2
   eval: string
   --- `cosmic --version`: prints `cosmic <hex>`, the SHA-256 of the file
@@ -102,7 +122,7 @@ local record Cli
   --- file it read -- says so beneath it, naming what to declare.
   ---
   --- A test whose verdict still stands is not run again: one this
-  --- checkout reached, in o/build.db, or one any checkout of the same
+  --- checkout reached, in its build directory's build.db, or one any checkout of the same
   --- content did, which every sandboxed run shares through
   --- $XDG_CACHE_HOME/cosmic/verdicts (~/.cache/cosmic/verdicts):
   --- COSMIC_VERDICT_CACHE names another file, and COSMIC_VERDICT_CACHE=0
@@ -114,10 +134,13 @@ local record Cli
   --- any checkout compiled or parsed the same, through
   --- $XDG_CACHE_HOME/cosmic/build (~/.cache/cosmic/build):
   --- COSMIC_BUILD_CACHE names another file, and COSMIC_BUILD_CACHE=0
-  --- turns it off.
+  --- turns it off. What is left to parse and compile is done by worker
+  --- processes when there is much of it, one fewer than the processors:
+  --- COSMIC_BUILD_JOBS names another count, and 1 turns them off.
   ---
-  --- The tree is the working directory, unless that has no o/cosmic.db
-  --- and an ancestor below the home directory has one whose build
+  --- The tree is the working directory, unless no build of it has
+  --- written its projection (cosmic.db in its build directory, as `run`
+  --- names it) and an ancestor below the home directory has one whose build
   --- staged the working directory: then it is that ancestor, named on
   --- stderr, and paths are read from the working directory.
   --- COSMIC_TREE=<dir> names the tree outright, `.` for the working
@@ -142,9 +165,15 @@ local record Cli
   --- as `test` finds it
   fix: string
   --- `cosmic build [options] [path...]`: builds the tree in the working
-  --- directory, then writes one executable under o/bin/ for each
-  --- cmd/<name>/main.tl it holds -- or only those under the paths --
-  --- o/bin/<name> -- see cmd. That one file is the whole program: copied
+  --- directory, then writes one executable in its build directory's
+  --- bin/ for each cmd/<name>/main.tl it holds -- or only those under
+  --- the paths -- bin/<name>, whose path it prints on a line of its own
+  --- on stdout -- see cmd. The build directory is
+  --- $XDG_CACHE_HOME/cosmic/trees/<key> (the
+  --- home directory's .cache/cosmic/trees/<key>), <key> the SHA-256 of
+  --- the project root's canonical path, so the file is
+  --- <that>/bin/<name>; COSMIC_BUILD_HOME=/absolute/path puts the
+  --- <key> directories there instead. That one file is the whole program: copied
   --- alone to a host with no cosmic, it runs with an empty environment
   --- (`env -i ./name`) on every supported system. It is a /bin/sh
   --- launcher with a core for each system and the program appended;
@@ -156,12 +185,21 @@ local record Cli
   --- cosmic-cores-<uid>. `--host` writes this cosmic's own core and the
   --- program alone, which the kernel runs directly -- no shell, PATH or
   --- cache -- but only on this system and processor: the choice for a
-  --- container with no /bin/sh or a host with nowhere to write. Either
-  --- carries this binary's CA roots and time zones: `cosmic refresh
-  --- --binary o/bin/<name> -o <copy>` writes a copy with newer ones
+  --- container with no /bin/sh or a host with nowhere to write. It
+  --- writes the same bin/<name>, replacing a launcher build of it (and
+  --- the other way round). The launcher `exec`s the core once ready, so
+  --- the process you start is the program's own and signals reach it
+  --- directly. Every executable carries every CA root this cosmic does,
+  --- and its requests trust the minimal ones ([`Http.default_roots`])
+  --- unless `--roots mozilla` makes it all of them, as COSMIC_CA_ROOTS
+  --- does when it runs. Either
+  --- carries this binary's CA roots, the certificates it refuses as
+  --- revoked, and time zones: `cosmic refresh --binary <path> -o <copy>`
+  --- writes a copy with newer ones
   --- later. The tree is found as `test` finds it
   build: string
-  --- `cosmic db [path...]`: what the three databases under o/ hold,
+  --- `cosmic db [path...]`: what the three databases in the build
+  --- directory hold, each named by its path,
   --- table by table -- rows, pages, bytes -- how the last few builds
   --- went, and the slowest tests. Paths narrow it to the rows about the
   --- sources under them -- a row whose file, module or source hash is
@@ -170,11 +208,41 @@ local record Cli
   --- bytes and builds are not per source, so a narrowed report leaves
   --- them out. The tree is found as `test` finds it
   db: string
-  --- `cosmic sql [--db <path> | --build | --store] <statement>`: runs
+  --- `cosmic lsp [--stdio] [--listen [host:]port] [--socket path]`: a
+  --- Language Server Protocol server for Teal, which an editor starts.
+  --- It publishes the checker's errors and warnings as a document is
+  --- opened, changed or saved, checked in memory as the editor holds it
+  --- and as a build checks it, with a project's `require` answered as a
+  --- build names modules, from open documents, then the modules a build
+  --- stages of the workspace's root, staged again when the editor says a
+  --- file changed on disk, then the binary's `cosmic.*`; it answers hover
+  --- with a symbol's docs, as `cosmic docs`, and formats a document as
+  --- `cosmic fix` does. It serves one editor over standard input and
+  --- output, or, with `--listen` (a numeric IPv4 host or a bracketed
+  --- IPv6 one, the loopback when only a port is given) or `--socket`,
+  --- each editor that connects until SIGINT or SIGTERM. Whoever reaches
+  --- a listener reads the files below the root it names, unasked who it
+  --- is: it warns on standard error when it listens beyond the loopback.
+  --- `--stdio` takes neither of the others. Over standard input and
+  --- output it exits 0 after the editor's `shutdown`, at `exit` or the
+  --- stream's end, and 1 at an `exit` or an end with no `shutdown`
+  --- before it or a stream that breaks; a listener exits 0 when a signal
+  --- stops it and 1 when it cannot listen, as at a socket file already
+  --- there, which it leaves for a person to remove; 2 for a command line
+  --- it refuses
+  lsp: string
+  --- `cosmic migrate`: removed. It said what it had been, the verb that
+  --- rewrote a project written in the fork's grammar into the new one, and
+  --- now says that it was removed and points to the project guide
+  --- ([`doc/guides/project.md`], "moving a project to the new grammar"). It
+  --- exits 2 whatever it is given
+  migrate: string
+  --- `cosmic sql [--db <path> | --build | --store] [--to csv|ndjson] <statement>`: runs
   --- one SQL statement read-only -- SQLite itself refuses a write --
-  --- against o/cosmic.db, or the binary's own database when there is
-  --- none, or the one database an option names. o/ is looked for in
-  --- the working directory only, never above it. `cosmic sql --from
+  --- against the projection in the build directory, or the binary's own
+  --- database when there is none, or the one database an option names.
+  --- The build directory is the working directory's only, never a
+  --- project's above it. `cosmic sql --from
   --- <file> ['<statement>']` asks it of a data file instead, to count,
   --- filter, join and sum where `cosmic json` only looks up (`cosmic sql
   --- --from accounts.json 'SELECT type, sum(balance) FROM accounts GROUP
@@ -209,8 +277,19 @@ local record Cli
   --- none); each row after is one line of
   --- tab-separated cells: NULL as \N, a blob as X'<hex>',
   --- and in text a backslash, tab, newline or return as \\, \t, \n or
-  --- \r and any other control byte as \xHH. The verdict line comes
-  --- after the rows, as every verb's last line. Exits 0 when the
+  --- \r and any other control byte as \xHH; the summary goes to
+  --- stderr. `--to` writes the rows in another format. `--to csv`
+  --- quotes as RFC 4180 does, each record ended by LF: a header of the column names first, NULL an empty
+  --- field and '' a quoted empty one (so a one-column NULL is a blank
+  --- line, which a CSV reader may drop), a blob's bytes as they are.
+  --- `--to ndjson` writes a JSON object per row, its members the columns
+  --- in order, a repeated name given `_2`; a result of one column named
+  --- `_json`, as `--from` gives each row, is written as that object's
+  --- text, which holds the row's members with its keys in byte order.
+  --- A blob, an infinity, text or a name that is not UTF-8, or a `_json`
+  --- that is not one, fails the statement, naming the row. `--to` takes
+  --- a statement, not the description no statement gives.
+  --- Exits 0 when the
   --- statement ran, rows or none; 1 when the
   --- database or the statement failed, a write among them; 2 for a
   --- command line it cannot read. Nothing is built or staged.
@@ -263,7 +342,7 @@ local record Cli
   --- "/users/4"`; a query of many that matches nothing: `<query>: no
   --- match`; a `null` value is found), 2 for a command line or a path it
   --- cannot read, or a file that is missing or not JSON. It prints no
-  --- verdict line, which would be in the data a pipe reads
+  --- summary: its output is the data a pipe reads
   json: string
   --- `cosmic hash [options] [file|-]...`: the digest of each file, or of
   --- standard input for `-` or no file, printed as `sha256sum` prints
@@ -294,12 +373,37 @@ local record Cli
   --- command line shows in `ps` and the shell's history. Every
   --- algorithm has an HMAC, and it streams too; `--json` names it
   --- `hmac-sha256` and the like, and `--check` verifies HMACs when
-  --- given a key. It prints no verdict line: its output is data. Exits 0
+  --- given a key. It prints no summary: its output is data. Exits 0
   --- when all is well, 1 when a check failed or a listed file could not
   --- be read, 2 for a command line, a file to hash, a sums file (a
   --- malformed line among them) or a write to standard output it cannot
   --- use, with `cosmic: hash: ...` on standard error
   hash: string
+  --- `cosmic compile [--grammar new] [--errors] [--root dir] [-o dir] file.tl...`: the Lua
+  --- source of each `.tl` file, one text per file, written by this binary's
+  --- own new checker for the tree's Lua, as it writes the tree's own modules. It reads the files named and the
+  --- `cosmic.*` modules the binary carries, never the tree around them, so
+  --- any release runs it in any directory. One file's Lua goes to standard
+  --- output; several need `-o dir`, which gets `<name>.lua` for each (two
+  --- files of one name are refused: compile them in two runs). A file is
+  --- checked as the module its path below `--root` (the working directory)
+  --- names, [`lang/flow.tl`] as [`lang.flow`], and a `require` of
+  --- another named file is answered with its text; a path outside the
+  --- root is refused. A `.d.tl` file is skipped with a note, and types a
+  --- `require` of it. The Lua is raw: no wrapper, nothing joining files.
+  --- A type error is reported and the Lua is written anyway: standard
+  --- error gets a count per file, and with `--errors` each error as
+  --- `file:line:column: message`. Only a syntax error refuses: each is
+  --- named as `file:line:column: message`, no file is written, and the
+  --- exit is 2, as for a command line or a file it cannot use. The files
+  --- are written in the new checker's grammar ([`doc/plans/new-checker-grammar.md`]),
+  --- which is the only one (`--grammar teal` is refused).
+  --- The files named are the whole program, the globals are those the
+  --- `.d.tl` files named declare, and a `cosmic.*` module no file named
+  --- is the module of is typed `invalid` and reported. After a
+  --- non-zero exit do not use the `-o` directory: it may hold files of an
+  --- earlier run. It prints no summary; exits 0 when the Lua is written
+  compile: string
   --- `cosmic cache trim compiles PATH --since-ns N` keeps supported compile
   --- and parse rows last used at or after N, a Unix nanosecond timestamp.
   --- `trim verdicts PATH... --since-ns N` keeps an unreached cache whole;
@@ -314,7 +418,7 @@ local record Cli
   --- Writers must remain stopped through maintenance and the caller's save.
   --- An incomplete WAL checkpoint, read or write suppresses the save digest.
   --- Exit 0 means complete, 1 incomplete maintenance, and 2 a refused command
-  --- line. Diagnostics go to stderr; no verdict line is printed.
+  --- line. Diagnostics go to stderr; no summary is printed.
   cache: string
   --- `cosmic archive list|extract|create`: the zip and tar files a
   --- release ships, with no script. `list <file>|-` prints one entry
@@ -342,8 +446,8 @@ local record Cli
   --- working directory; a fifo, socket or device is refused, named,
   --- wherever it is found. A symlink is stored as a link in both
   --- formats; a zip tool that ignores Unix attributes extracts the
-  --- target's text as a file. Prints no verdict
-  --- line, its output being data for a pipe. Exits 0 when done, 1 for a
+  --- target's text as a file. Prints no summary, its output being data
+  --- for a pipe. Exits 0 when done, 1 for a
   --- member or a path that is not there or files it would overwrite, 2
   --- for a command line, an archive it cannot read or one it refuses
   --- to unpack. See also `cosmic json`
@@ -375,7 +479,7 @@ local record Cli
   --- N` (int, pick, shuffle only) draws from `Rand.new(N)` instead, so
   --- a test or a script can replay it: that output is NOT secret, and
   --- `--seed` is refused with uuid and token. Its standard output is
-  --- data and ends in no verdict line. Exits 0 when it printed,
+  --- data, and it prints no summary. Exits 0 when it printed,
   --- 1 when the entropy source failed, 2 for a command line, a file or a
   --- request it refuses, or a failed write to standard output
   rand: string
@@ -401,7 +505,7 @@ local record Cli
   --- duration reads months as `--clamp` does, on `--zone`'s calendar or the
   --- first time's own; `--seconds` is elapsed time.
   --- `--json` prints one record: epoch, rfc3339, zone, offset and the
-  --- civil fields. It prints no verdict line, as `json` does: exit 0
+  --- civil fields. It prints no summary, as `json` does: exit 0
   --- done, 1 an `add` with no answer, 2 a command line, time, duration
   --- or zone it cannot read
   time: string
@@ -420,11 +524,12 @@ local record Cli
   --- must be padded with `=` and base64url must not be, as each is
   --- written; `--lenient` accepts the other spelling (missing padding on
   --- base64, `=` padding on base64url) and is refused for hex. The whole
-  --- input is read at once. It prints no verdict line, which would be in
-  --- the data a pipe reads; exits 0 when done, 2 for a command line, an
+  --- input is read at once. It prints no summary: its output is the data
+  --- a pipe reads; exits 0 when done, 2 for a command line, an
   --- input or a write it cannot honor
   codec: string
-  --- `cosmic fetch <url[#sha256=hex]> [-o file] [--sha256 hex] [--sha512 hex] [--allow-downgrade] [--head [--json]]`: one
+  --- `cosmic fetch <url[#sha256=hex]> [-o file] [--sha256 hex] [--sha512 hex] [--allow-downgrade] [--head [--json]]
+  --- [--roots set] [--cacert file] [--pin pin]`: one
   --- GET, a small curl. With no `-o` the body goes to standard output, so
   --- `cosmic fetch <url> | cosmic json '$.items'` reads it; with `-o` it is
   --- written to a temporary file beside the target and renamed into place
@@ -450,10 +555,16 @@ local record Cli
   --- values print with control bytes as `\xNN`, and a URL's userinfo prints as
   --- `***`. Streaming to standard output can leave partial bytes sent before a
   --- failure (exit 1); a digest there buffers the whole body, uncapped. Certificates are always
-  --- verified: there is no option that turns it off. GET only, by
+  --- verified: there is no option that turns it off. `--roots` chooses
+  --- the CA roots to verify against, as [`Http.Options`]'s `roots` does
+  --- (`minimal`, `none`, or digests joined by commas); `--cacert` trusts
+  --- a file's certificates besides them; `--pin` holds the server's key
+  --- to a public key pin ([`Http.public_key_pin`]); a value of the wrong
+  --- shape, or a `--cacert` file it cannot read, exits 2 before any
+  --- request. GET only, by
   --- design: for a header, a body or another method write the script
-  --- with [`cosmic.http`]. It prints no verdict line, which would be in
-  --- the body a pipe reads. Exits 0 when the body was delivered, 1 when
+  --- with [`cosmic.http`]. It prints no summary: its output is the body
+  --- a pipe reads. Exits 0 when the body was delivered, 1 when
   --- the fetch failed (no connection, a bad status, a digest that does
   --- not match, a body that broke off, an `-o` write that failed), 2 for a command line, a URL or
   --- a write to standard output it cannot use
@@ -471,14 +582,14 @@ local record Cli
   --- `cosmic uses <sym> [path...]`: every place that refers to a
   --- symbol, as file:line -- only those under the paths, when given --
   --- each link to it, in a comment or a Markdown file, marked `link`.
-  --- The symbol may be a file's path instead (doc/meta.md, or
-  --- doc/meta.md#heading for one heading), which only links name. The
+  --- The symbol may be a file's path instead (doc/writing.md, or
+  --- doc/writing.md#heading for one heading), which only links name. The
   --- tree is found as `test` finds it
   uses: string
   --- `cosmic todos [options] [path | words...]`: every `TODO:` comment
   --- in the tree, as file:line, with the date and commit git blames its
   --- first line on -- in a git repository only: elsewhere git is not
-  --- started, and each is listed with none -- indexed into o/build.db so
+  --- started, and each is listed with none -- indexed into its build.db so
   --- only a file that moved is blamed again. An argument that names a path narrows it to that
   --- path; the rest are words to search the TODOs' text for, best match
   --- first, in FTS5's own syntax ("a phrase", OR, prefix*) when they
@@ -487,7 +598,8 @@ local record Cli
   --- `cosmic bom [--licenses | --json <path>]`: the bill of materials
   --- this binary ships under -- every third-party component its cores
   --- and database carry, one line each: name, version, license, and
-  --- how many patches cosmic applies to it -- or, for data (the CA
+  --- how many patches cosmic applies to it, or the files of the tree that
+  --- stand in for it (`modified:`) -- or, for data (the CA
   --- roots, the time zones), that `cosmic refresh` updates it. `--licenses` prints the
   --- notices those licenses ask a copy to travel with; `--json` writes
   --- the list as a CycloneDX document instead. An executable `cosmic
@@ -495,19 +607,53 @@ local record Cli
   bom: string
   --- `cosmic refresh -o <path> [--binary <path>] [--<dataset> <file>...]
   --- [dataset...]`: the way to update the CA certificates a binary
-  --- trusts and the time zone database it carries when they go out of
-  --- date, with no rebuild. It writes to path a copy of this binary -- or
-  --- of the
-  --- one --binary names, a program `cosmic build` wrote, say -- whose
+  --- trusts, the certificates it refuses as revoked, and the time zone
+  --- database it carries when they go out of date, with no rebuild. It
+  --- writes to path a copy of this binary -- or of the one --binary
+  --- names, a program `cosmic build` wrote, say -- whose
   --- data is replaced with a newer release: the CA roots it trusts
-  --- (cacert, Mozilla's bundle as curl publishes it) and the time zones
-  --- it carries (tzdata, as PyPI's tzdata sdist holds them). Each named
+  --- (cacert, Mozilla's root store as NSS's newest release holds it in
+  --- certdata.txt, with the dates after which it trusts a root for no
+  --- server certificate issued; a file may be that or a PEM bundle, which
+  --- names no dates) and the time zones
+  --- it carries (tzdata, as PyPI's tzdata sdist holds them), and the
+  --- certificates it refuses as revoked (onecrl, Mozilla's OneCRL, as its
+  --- remote settings feed serves it). Each named
   --- dataset is fetched upstream, its newest release; one given a file is
   --- read from it, with no network; with neither, every dataset is
   --- fetched. Every row is checked before anything is written, the
   --- bill of materials records the release each came from, and the
   --- binary it reads is never written
   refresh: string
+  --- `cosmic release [--commit hex] [--until time] [--list [-n count] | -o file | --cache] [--pin file] [--json]`:
+  --- finds cosmic's own releases, the `next-<commit>` prereleases of
+  --- cosmic-lua/cosmic on GitHub, picks one and verifies it. Releases
+  --- are found by their tags and main's history, newest commit first, as
+  --- the API's list of releases serves only 1000 and not by time; a
+  --- `--commit` reads only the releases of the tags its prefix starts,
+  --- refusing a prefix that names more than 10. With no criterion it
+  --- picks the release of the latest commit on main that has one;
+  --- `--commit` the one whose commit starts with the hex (7 to 40
+  --- digits), `--until` the latest whose release was published at or
+  --- before an RFC 3339 time, or by the end of a date in UTC; both may be
+  --- given. A release is verified first: its SHA256SUMS names one
+  --- digest for cosmic and its source.json the same commit and digest.
+  --- With nothing more it prints the release as the three lines of
+  --- ci/cosmic-driver.pin (commit, URL, sha256), or with `--json` an
+  --- object, downloading no binary. `--list` prints the matches instead,
+  --- latest commit first, up to `-n` (20, a request each): the time each
+  --- was published and its commit, or with `--json` an array, verifying
+  --- none. `-o` writes the
+  --- binary to a file, and `--cache` where bin/cosmic-bootstrap caches
+  --- the pin's (`$XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256>`),
+  --- printing that path; either renames it into place only once its
+  --- sha256 is the release's digest. `--pin` writes the three pin lines
+  --- to a file once the binary's bytes are verified. GH_TOKEN goes with
+  --- the API's requests when set, and every redirect must stay on https.
+  --- It prints no summary. Exits 0 when it did what was asked, 1 when it
+  --- could not (no connection, no matching release, a release that fails
+  --- verification, a write that failed), 2 for a command line it refused
+  release: string
   --- `cosmic sandbox [options] [--] program [args...]`: runs a program held
   --- to nothing at all but what the options grant, and everything it
   --- starts with it: the paths it reads, runs, writes and creates, the
@@ -534,10 +680,11 @@ local record Cli
   ---     cosmic sandbox --cosmic --read . -- cosmic run.tl IN OUT
   ---
   --- A file it runs is run as `--standalone` (COSMIC_STANDALONE=1), so a
-  --- grant to read it is enough and no o/ is written beside it, which
+  --- grant to read it is enough and no build directory is written, which
   --- another run's user would own; it may then require `cosmic.*` modules
   --- only. `--set-env COSMIC_STANDALONE=0` builds the tree around it
-  --- instead, which finds its own modules and needs a grant to write there.
+  --- instead, which finds its own modules and needs a grant to write its
+  --- build directory.
   ---
   --- `--database`, `--modules` and `--closure` run this program on a
   --- database that holds the modules it may load and no more: a `require`
@@ -559,8 +706,10 @@ local record Cli
   ---
   ---     cosmic sandbox --closure -- cosmic run.tl IN OUT
   ---
-  --- A `pcall(require, ...)` or a computed name is not followed, and fails
-  --- when it runs; a `require` of a module outside this program's store
+  --- A `pcall(require, "<name>")` is followed as a `require` is, so a name
+  --- no store holds is refused for it too; a name
+  --- computed at run time is refused when the script is compiled. A
+  --- `require` of a module outside this program's store
   --- (a project module beside the script) is refused before anything
   --- starts. The database is written in a directory of the run's own, that
   --- the program's user can search, and removed when the run ends. The
@@ -630,7 +779,7 @@ local record Cli
   --- from, an index of every verb, one line each, and where to read
   --- more. `cosmic help <verb>`
   --- prints that verb's full text, options and exit codes. `cosmic help
-  --- exit` prints the verdict lines and exit codes every verb shares.
+  --- exit` prints the exit codes and summary every verb shares.
   --- `cosmic <verb> --help` is `cosmic help <verb>`
   help: string
 end
@@ -661,8 +810,8 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
-    refresh = "refresh", sandbox = "sandbox", help = "help",
+    db = "db", lsp = "lsp", migrate = "migrate", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", compile = "compile", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    refresh = "refresh", release = "release", sandbox = "sandbox", help = "help",
   },
   verbs = {
     run = {
@@ -674,7 +823,7 @@ local module: Module = {
       usage = "<file.tl> [args]",
     },
     eval = {
-      about = "run a Lua chunk",
+      about = "run a chunk of Teal, checked",
       usage = "'<chunk>' [args]",
     },
     version = {
@@ -689,9 +838,16 @@ local module: Module = {
             "checkout or another (COSMIC_TEST_ALL=1)" },
         ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..
             "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
+        ["--bail"] = { about = "start no test after the first failure; those already running " ..
+            "finish, the tests not started keep no verdict, and the run fails " ..
+            "(COSMIC_TEST_BAIL=1)" },
         ["--census"] = { about = "say the digests every key of the run holds, and where none " ..
             "stood on the shared cache, how many rows it holds, even in a checkout " ..
             "that ran before" },
+        ["--check-types"] = { about = "compile the tree with a run-time check of each declared " ..
+            "parameter, return value and record field write against its type's kind, run every " ..
+            "test, and report the values that fail one; a parameter declared under cosmic/ also " ..
+            "fails the test that passes it (COSMIC_TEST_CHECK_TYPES=1)" },
         ["--jobs"] = { value = "n", about = "run n tests at once; one per processor by default" },
         ["--shard"] = { value = "i/n", about = "run only the i-th of n shares of the chosen " ..
             "tests, dealt in turn in sorted order, so n runs, i = 1 to n, run each test once" },
@@ -703,28 +859,47 @@ local module: Module = {
       about = "format source files and check the tree",
       usage = "[path...]",
       spec = {
-        ["--check"] = { about = "write nothing; name what a fix would change, and fail if any" },
+        ["--check"] = { about = "write nothing; name what a fix would change, and fail if any (a Teal file that is " ..
+            "not laid out, or that the formatter refuses, fails it)" },
         ["--changed"] = { about = "in cosmic's own tree, lay out only the paths named, which " ..
             "changed since the whole tree passed; what spans files still covers it all" },
       },
     },
     build = {
-      about = "write o/bin/<name> per cmd/<name>/main.tl",
+      about = "write bin/<name> in the build directory per cmd/<name>/main.tl",
       usage = "[path...]",
       spec = {
         ["--host"] = { about = "this system's native executable: no launcher, runs only here" },
+        ["--roots"] = { value = "set", about = "the CA roots its requests trust by default: minimal (the default) " ..
+            "or mozilla; every root goes along either way" },
       },
     },
     db = {
-      about = "what the databases under o/ hold",
+      about = "what the databases in the build directory hold",
       usage = "[path...]",
+    },
+    lsp = {
+      about = "a language server for editors",
+      usage = "[--stdio] [--listen [host:]port] [--socket path]",
+      spec = {
+        ["--stdio"] = { about = "serve one editor over standard input and output (the default)" },
+        ["--listen"] = { value = "[host:]port",
+          about = "serve each editor that connects to this TCP port" },
+        ["--socket"] = { value = "path",
+          about = "serve each editor that connects to this socket file" },
+      },
+    },
+    migrate = {
+      about = "removed; says where the new grammar is described",
+      usage = "",
+      spec = {},
     },
     sql = {
       about = "read-only SQL on a database or data files",
       usage = "<statement>",
       spec = {
         ["--db"] = { value = "path", about = "run against this file" },
-        ["--build"] = { about = "run against o/build.db" },
+        ["--build"] = { about = "run against the build directory's build.db" },
         ["--store"] = { about = "run against the binary's own; only PRAGMA data_version" },
         ["--from"] = { value = "file", about = "load a data file (`-` for standard input) as a table " ..
             "named for its stem, or `name=file`; repeat for a join" },
@@ -734,6 +909,7 @@ local module: Module = {
             "no number is read, an empty cell is '' not NULL" },
         ["--at"] = { value = "path", about = "read the --from before it from the array at this " ..
             "JSONPath ($.data.rows), not the document" },
+        ["--to"] = { value = "format", about = "write the rows as csv or ndjson" },
       },
     },
     cache = {
@@ -810,6 +986,12 @@ local module: Module = {
         ["--allow-downgrade"] = { about = "follow a redirect from https to http, which is refused by default" },
         ["--head"] = { about = "print the status and headers, not the body" },
         ["--json"] = { about = "with --head, print them as a JSON object" },
+        ["--roots"] = { value = "set", about = "trust these CA roots: minimal (the default), mozilla, none, " ..
+            "or root sha256 digests joined by commas" },
+        ["--cacert"] = { value = "file", about = "also trust the certificates in this PEM or DER file; " ..
+            "with --roots none, only them" },
+        ["--pin"] = { value = "pin", about = "fail unless the server's key hashes to this sha256//<base64>; " ..
+            "repeat for more than one" },
       },
     },
     time = {
@@ -866,13 +1048,28 @@ local module: Module = {
       },
     },
     refresh = {
-      about = "update a binary's CA roots and time zones",
+      about = "update a binary's CA roots, revoked certificates and time zones",
       usage = "-o <path>",
       spec = {
         ["-o"] = { value = "path", about = "write the refreshed binary here" },
         ["--binary"] = { value = "path", about = "refresh this binary rather than the running one" },
-        ["--cacert"] = { value = "file", about = "read the CA roots from this PEM bundle" },
+        ["--cacert"] = { value = "file", about = "read the CA roots from this certdata.txt (NSS's) or PEM bundle" },
+        ["--onecrl"] = { value = "file", about = "read the revoked certificates from this OneCRL changeset" },
         ["--tzdata"] = { value = "file", about = "read the time zones from this tzdata sdist" },
+      },
+    },
+    release = {
+      about = "find, verify and download cosmic's own releases",
+      usage = "[--commit <hex>] [--until <time>] [--list [-n <count>] | -o <file> | --cache] [--pin <file>] [--json]",
+      spec = {
+        ["--commit"] = { value = "hex", about = "the release whose commit starts with this, 7 to 40 hex digits" },
+        ["--until"] = { value = "time", about = "the newest published at or before this RFC 3339 time, or by the end of this date (UTC)" },
+        ["--list"] = { about = "print the matching releases, newest first, verifying none" },
+        ["-n"] = { value = "count", about = "with --list, print at most this many (default 20)" },
+        ["--json"] = { about = "print the release, or with --list the releases, as JSON" },
+        ["-o"] = { value = "file", about = "write the verified binary here, mode 0755" },
+        ["--cache"] = { about = "write the verified binary into bin/cosmic-bootstrap's cache and print its path" },
+        ["--pin"] = { value = "file", about = "write the release as ci/cosmic-driver.pin's three lines, once verified" },
       },
     },
     sandbox = {
@@ -905,6 +1102,16 @@ local module: Module = {
         ["--cwd"] = { value = "dir", about = "start it in this directory, which relative paths are taken from" },
       },
     },
+    compile = {
+      about = "Lua source for Teal files, despite type errors",
+      usage = "[options] <file.tl>...",
+      spec = {
+        ["-o"] = { value = "dir", about = "write <name>.lua for each file in this directory" },
+        ["--errors"] = { about = "list each type error, not only the count" },
+        ["--root"] = { value = "dir", about = "the directory module names are relative to (default: here)" },
+        ["--grammar"] = { value = "new", about = "the grammar of the files: the new checker's, the only one (default)" },
+      },
+    },
     help = {
       about = "this index, or a verb's full text",
       usage = "[verb]",
@@ -912,13 +1119,13 @@ local module: Module = {
   },
   groups = {
     { "Running code", "run", "standalone", "eval", "version", "sandbox" },
-    { "Project", "test", "fix", "build", "db" },
-    { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand" },
+    { "Project", "test", "fix", "build", "db", "lsp", "migrate" },
+    { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile" },
     { "Lookup", "docs", "uses", "todos", "help" },
-    { "This binary", "bom", "refresh" },
+    { "This binary", "bom", "refresh", "release" },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "docs", "uses", "todos",
-    "bom", "refresh", "sandbox", "help" },
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "lsp", "migrate", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile", "docs", "uses", "todos",
+    "bom", "refresh", "release", "sandbox", "help" },
 }
 
 return module

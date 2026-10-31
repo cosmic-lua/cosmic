@@ -10,13 +10,14 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local build_paths = require("build.paths")
 local Proc = require("cosmic.proc")
--- The child loads these from the store; cosmic.csv is the one it loads
--- only after it is restricted.
-local _csv = require("cosmic.csv")
-local _sandbox = require("cosmic.sandbox")
+-- The child loads these from the store; cosmic.csv, which only the child below requires, in its body and after the
+-- restriction, is in the closure all the same.
+local Sandbox = require("cosmic.sandbox")
 local _sqlite = require("cosmic.sqlite")
 local _store = require("cosmic.store")
+local test_child = require("build.test_child")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
@@ -53,23 +54,30 @@ local sys = require("cosmic.sys")
 local Sandbox = require("cosmic.sandbox")
 local Child = require("cosmic.child")
 local Store = require("cosmic.store")
-local function say(name, ...)
-  local words = {}
-  for i = 1, select("#", ...) do words[i] = tostring((select(i, ...))) end
+local function say(name: string, ...: any)
+  local words: mut {string} = {}
+  for i = 1, select("#", ...) do words[#words + 1] = tostring((select(i, ...))) end
   print(name .. "=" .. table.concat(words, " "))
 end
-local function reads(path)
+local function reads(path: string): string
   local fd, why = sys.open(path, sys.O_RDONLY)
   if fd == nil then return "denied: " .. why end
   local data = sys.read(fd, 100)
   sys.close(fd)
-  return data
+  return data or ""
 end
+--- A limit as "soft hard", or "none" where it cannot be read.
+local function limit(resource: integer): string
+  local held = sys.getrlimit(resource)
+  if held == nil then return "none" end
+  return tostring(held.soft) .. " " .. tostring(held.hard)
+end
+local _, _, _, _ = Child, Store, reads, limit
 ]]
 
 --- What a child said: its lines, `name=value`, by name, and all of it.
 local record Said
-  lines: {string:string}
+  lines: mut {string:string}
   raw: string
 end
 
@@ -103,16 +111,28 @@ say("other", reads(%q))
   assert(said.lines.other == "denied: " .. DENIED, said.raw)
 end
 
-local function test_the_store_loads_a_module_after_the_restriction()
+--- The child of the test below: restricted, it loads a module from the store, which it had not loaded before. A module of
+--- this one's closure that nothing at its top level requires, so that the check that it is not loaded yet cannot pass
+--- vacuously.
+test_child.register("store after restriction", function(_args: {string}): integer
+  print("before=" .. tostring(package.loaded["cosmic.csv"] == nil))
+  local restricted, why = Sandbox.restrict({})
+  print("restrict=" .. tostring(restricted) .. " " .. why)
+  local Csv = require("cosmic.csv")
+  local rows = assert(Csv.parse("a,b"))
+  print("loaded=true " .. assert(assert(rows[1])[2]))
+  return 0
+end)
+
+local function test_the_store_loads_a_module_after_the_restriction(tmp: string)
   macos_only()
-  local said = in_child([[
-say("before", package.loaded["cosmic.csv"] == nil)
-say("restrict", Sandbox.restrict({}))
-local loaded, csv = pcall(require, "cosmic.csv")
-say("loaded", loaded, type(csv) == "table" and csv.parse("a,b")[1][2] or csv)
-]])
-  assert(said.lines.before == "true" and said.lines.restrict == "true ", said.raw)
-  assert(said.lines.loaded == "true b", said.raw)
+  local started = this_program.program(test_child.words(tmp, "cosmic.sandbox_restrict_seatbelt_test", "store after restriction"), {
+    env = this_program.environment(), stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
+  local result = assert(Child.run(started.argv, started.options))
+  local out = result.stdout or ""
+  assert(result.code == 0, out)
+  assert(out:find("before=true\n", 1, true) ~= nil and out:find("restrict=true \n", 1, true) ~= nil, out)
+  assert(out:find("loaded=true b\n", 1, true) ~= nil, out)
 end
 
 local function test_a_second_restriction_is_refused()
@@ -185,22 +205,24 @@ local function test_an_attached_database_in_wal_mode_refuses_the_restriction(tmp
   local said = in_child(string.format([[
 local Sqlite = require("cosmic.sqlite")
 local copy = %q .. "/copy.db"
-local source = assert(sys.open("o/cosmic.db", sys.O_RDONLY))
+local source = assert(sys.open(%q, sys.O_RDONLY))
 local target = assert(sys.open(copy, sys.O_WRONLY | sys.O_CREAT, 420))
 while true do
-  local chunk = sys.read(source, 65536)
-  if chunk == nil or chunk == "" then break end
-  assert(sys.write(target, chunk))
+  local piece = sys.read(source, 65536)
+  if piece == nil or piece == "" then break end
+  assert(sys.write(target, piece))
 end
-sys.close(source) sys.close(target)
+sys.close(source)
+sys.close(target)
 local db = assert(Sqlite.open(copy, { writable = true }))
-say("mode", assert(Sqlite.text_rows(db, "PRAGMA journal_mode=WAL"))[1][1])
+local rows = assert(Sqlite.text_rows(db, "PRAGMA journal_mode=WAL"))
+say("mode", assert(rows[1]):text(1))
 assert(db:close())
 assert(Store.attach(copy))
 say("restrict", Sandbox.restrict({}))
-local loaded, csv = pcall(require, "cosmic.csv")
-say("loaded", loaded, type(csv) == "table" and csv.parse("a,b")[1][2] or csv)
-]], tmp))
+local Csv = require("cosmic.csv")
+say("loaded", true, assert(assert(Csv.parse("a,b"))[1])[2])
+]], tmp, build_paths.resolve(".").projection))
   assert(said.lines.mode == "wal", said.raw)
   assert(said.lines.restrict:find("^false sandbox: restrict: the store's database .*copy%.db " ..
       "is in WAL mode"), said.raw)
@@ -214,10 +236,15 @@ local function test_a_child_under_a_policy_is_refused_a_restriction()
   local chunk = [[
 local sys = require("cosmic.sys")
 local Sandbox = require("cosmic.sandbox")
-local before = sys.getrlimit(sys.RLIMIT_NOFILE).soft
+local function soft(): integer
+  local held = sys.getrlimit(sys.RLIMIT_NOFILE)
+  if held == nil then return -1 end
+  return held.soft
+end
+local before = soft()
 local ok, why = Sandbox.restrict({ limits = { open_files = 17 } })
 print(tostring(ok) .. " " .. why)
-print(sys.getrlimit(sys.RLIMIT_NOFILE).soft == before)
+print(soft() == before)
 ]]
   local result, why = Child.run({ (assert(Proc.executable())), "-e", chunk }, {
     policy = { profiles = { "cosmic", "system" } }, stdout = "capture", stderr = "capture",
@@ -236,9 +263,9 @@ local function test_a_child_started_without_a_policy_is_held_by_the_profile(tmp:
 say("restrict", Sandbox.restrict({ profiles = { "system" }, promises = { "fork" },
   grants = { { path = %q, letters = "r" } } }))
 local granted = Child.run({ "/bin/cat", %q }, { stdout = "capture", stderr = "capture" })
-say("granted", granted and granted.ok, granted and granted.stdout)
+if granted ~= nil then say("granted", granted.ok, granted.stdout) else say("granted", nil, nil) end
 local other = Child.run({ "/bin/cat", %q }, { stdout = "capture", stderr = "capture" })
-say("other", other and other.ok, other and other.stdout, other and other.stderr)
+if other ~= nil then say("other", other.ok, other.stdout, other.stderr) else say("other", nil, nil, nil) end
 ]], tmp .. "/granted", tmp .. "/granted", tmp .. "/other"))
   assert(said.lines.restrict == "true ", said.raw)
   assert(said.lines.granted == "true granted-bytes", said.raw)
@@ -251,13 +278,11 @@ end
 local function test_a_child_s_default_limits_hold_the_process()
   macos_only()
   local said = in_child([[
-local nofile = sys.getrlimit(sys.RLIMIT_NOFILE)
+local nofile = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
 say("before", nofile.soft >= 1024 and nofile.hard >= 1024)
 say("restrict", Sandbox.restrict({}))
-nofile = sys.getrlimit(sys.RLIMIT_NOFILE)
-local core = sys.getrlimit(sys.RLIMIT_CORE)
-say("nofile", nofile.soft, nofile.hard)
-say("core", core.soft, core.hard)
+say("nofile", limit(sys.RLIMIT_NOFILE))
+say("core", limit(sys.RLIMIT_CORE))
 ]])
   assert(said.lines.restrict == "true ", said.raw)
   if said.lines.before == "true" then

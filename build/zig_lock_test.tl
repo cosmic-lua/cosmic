@@ -10,10 +10,18 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 local Zig = require("build.zig")
+local build_paths = require("build.paths")
 local this_program = require("build.this_program")
 local type _ = require("build.standalone")
 
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "build/paths.tl", letters = "r" } } }
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 --- An older tool takes only SQLite's transaction. A negative wait keeps
 --- its hold until stdin closes; zero is a nonblocking probe.
@@ -21,9 +29,12 @@ local sql_tool = [[
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local db = assert(Sqlite.open(%q .. "/o/rebuild.lock", { writable = true }))
+local db = assert(Sqlite.open(%q .. "/rebuild.lock", { writable = true }))
 assert(db:exec("PRAGMA busy_timeout = 0"))
-if not db:exec("BEGIN IMMEDIATE") then print("busy"); return end
+if not db:exec("BEGIN IMMEDIATE") then
+  print("busy")
+  return
+end
 print("held")
 local wait = %d
 if wait < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(wait) end
@@ -33,15 +44,18 @@ local flock_tool = [[
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local fd = assert(sys.open(%q .. "/o/rebuild.lock", sys.O_RDWR | sys.O_CREAT, 0x1a4))
-if not sys.flock(fd, "exclusive", 0) then print("busy"); return end
+local fd = assert(sys.open(%q .. "/rebuild.lock", sys.O_RDWR | sys.O_CREAT, 0x1a4))
+if not sys.flock(fd, "exclusive", 0) then
+  print("busy")
+  return
+end
 print("held")
 local wait = %d
 if wait < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(wait) end
 ]]
 
 local function start(root: string, wait_ns: integer, flock?: boolean): Child.Handle, string
-  local started = this_program.program({ "-e", (flock and flock_tool or sql_tool):format(root, wait_ns) },
+  local started = this_program.program({ "-e", (flock and flock_tool or sql_tool):format(build_dir(root), wait_ns) },
     { stdin = "stream", stdout = "stream", stderr = "capture" })
   local child = assert(Child.start(started.argv, started.options))
   local line = assert(Stream.lines(assert(child.stdout_stream)):read())
@@ -62,18 +76,18 @@ end
 
 local function tree(tmp: string): string
   local root = tmp .. "/tree"
-  assert(Fs.mkdirs(root .. "/o"))
+  assert(build_dir(root))
   return root
 end
 
 local function test_a_boot_excludes_a_sqlite_only_tool_and_releases_on_return(tmp: string)
   local root = tree(tmp)
   local env = { KEPT = "value", COSMIC_REBUILD_LOCK_HANDED = "/stale" }
-  local status = Zig.with_lock(root, env, function(handed: {string:string}): integer
+  local status = Zig.with_lock(build_paths.required(root), env, function(handed: {string:string}): integer
     assert(probe(root) == "busy", "a SQL-only tool entered the boot's lock")
     assert(handed.KEPT == "value")
-    assert(handed.COSMIC_REBUILD_LOCK_HANDED == root .. "/o/rebuild.lock")
-    assert(Fs.read(root .. "/o/rebuild.lock.pid") == tostring(sys.getpid()) .. "\nrebuild\n")
+    assert(handed.COSMIC_REBUILD_LOCK_HANDED == build_dir(root) .. "/rebuild.lock")
+    assert(Fs.read(build_dir(root) .. "/rebuild.lock.pid") == tostring(sys.getpid()) .. "\nrebuild\n")
     return 7
   end)
   assert(status == 7)
@@ -88,13 +102,14 @@ local function test_a_boot_waits_for_a_sqlite_only_tool_even_with_a_wrong_handof
   assert(said == "held", said)
   local script = [[
 local Fs = require("cosmic.fs")
-require("build.zig").with_lock(%q, { COSMIC_REBUILD_LOCK_HANDED = %q }, function()
+local Zig = require("build.zig")
+Zig.with_lock(%q, { COSMIC_REBUILD_LOCK_HANDED = %q }, function(_: {string:string}): integer
   print("held")
   Fs.take(Fs.stdin, 1)
   return 0
 end)
 ]]
-  local started = this_program.program({ "-e", script:format(root, tmp .. "/other-lock") },
+  local started = this_program.program({ "-e", script:format(build_paths.required(root), tmp .. "/other-lock") },
     { stdin = "stream", stdout = "stream", stderr = "stream" })
   local boot = assert(Child.start(started.argv, started.options))
   local waiting = Stream.lines(assert(boot.stderr_stream)):read()
@@ -102,7 +117,7 @@ end)
   local entered = Stream.lines(assert(boot.stdout_stream)):read()
   local held = probe(root)
   finish(boot)
-  assert(waiting ~= nil and waiting:find("waiting for it", 1, true), tostring(waiting))
+  assert(waiting ~= nil and waiting:find("waiting for it", 1, true) ~= nil, tostring(waiting))
   assert(entered == "held", tostring(entered))
   assert(held == "busy", "a waiting boot did not take the released lock")
   assert(probe(root) == "held")
@@ -113,9 +128,9 @@ local function test_a_handoff_uses_file_identity_and_keeps_the_parents_hold(tmp:
   local old, said = start(root, -1)
   assert(said == "held", said)
   local ok, trouble: boolean, any = pcall(function()
-    assert(Zig.with_lock(root, { COSMIC_REBUILD_LOCK_HANDED = root .. "/./o/rebuild.lock" },
+    assert(Zig.with_lock(build_paths.required(root), { COSMIC_REBUILD_LOCK_HANDED = build_dir(root) .. "/./rebuild.lock" },
       function(env: {string:string}): integer
-        assert(env.COSMIC_REBUILD_LOCK_HANDED == root .. "/o/rebuild.lock")
+        assert(env.COSMIC_REBUILD_LOCK_HANDED == build_dir(root) .. "/rebuild.lock")
         assert(probe(root) == "busy", "handoff released its parent's hold")
         return 0
       end) == 0)
@@ -129,7 +144,7 @@ end
 local function test_an_exception_releases_the_lock_before_it_is_rethrown(tmp: string)
   local root = tree(tmp)
   local marker = {}
-  local ok, trouble: boolean, any = pcall(Zig.with_lock, root, {}, function(): integer
+  local ok, trouble: boolean, any = pcall(Zig.with_lock, build_paths.required(root), {}, function(): integer
     assert(probe(root) == "busy")
     error(marker)
   end)
@@ -145,7 +160,7 @@ local function test_an_exception_during_acquisition_releases_the_lock(tmp: strin
   Fs.write = function(): boolean, string
     error("holder write failed", 0)
   end
-  local ok, trouble: boolean, any = pcall(Zig.with_lock, root, {}, function(): integer
+  local ok, trouble: boolean, any = pcall(Zig.with_lock, build_paths.required(root), {}, function(): integer
     error("a build ran after acquisition raised")
   end)
   Fs.write = write
@@ -162,14 +177,14 @@ local function test_a_snapshot_exception_releases_mains_lock(tmp: string)
   local fake = tmp .. "/zig"
   assert(Fs.write(fake, "", 0x1ed))
   local get, snapshot = Env.get, Zig.snapshot
-  Env.get = function(name: string): string | nil
+  Env.get = function(name: string): string?
     return name == "COSMIC_ZIG" and fake or get(name)
   end
-  Zig.snapshot = function(): {string:string} | nil, string
+  Zig.snapshot = function(): {string:string}?, string
     error("snapshot failed", 0)
   end
-  local ok, trouble: boolean, any = pcall(Zig.main,
-    { [0] = root .. "/build/zig.tl", "build", "boot" } as {integer:string})
+  local ok, trouble: boolean, any = pcall(Zig.enter,
+    { "build", "boot" }, root .. "/build/zig.tl")
   Env.get, Zig.snapshot = get, snapshot
   assert(not ok and trouble == "snapshot failed", tostring(trouble))
   assert(probe(root) == "held", "main retained its lock after a snapshot exception")
@@ -177,7 +192,7 @@ end
 
 local function test_a_boot_holds_flock_and_releases_it_on_return(tmp: string)
   local root = tree(tmp)
-  assert(Zig.with_lock(root, {}, function(): integer
+  assert(Zig.with_lock(build_paths.required(root), {}, function(): integer
     local child, said = start(root, 0, true)
     finish(child)
     assert(said == "busy", "a flock-only process entered the boot's lock")
@@ -192,7 +207,7 @@ local function test_a_handoff_keeps_a_flock_only_parents_hold(tmp: string)
   local root = tree(tmp)
   local old, said = start(root, -1, true)
   assert(said == "held")
-  assert(Zig.with_lock(root, { COSMIC_REBUILD_LOCK_HANDED = root .. "/./o/rebuild.lock" },
+  assert(Zig.with_lock(build_paths.required(root), { COSMIC_REBUILD_LOCK_HANDED = build_dir(root) .. "/./rebuild.lock" },
     function(): integer
       local child, probe_said = start(root, 0, true)
       finish(child)
@@ -204,30 +219,33 @@ end
 
 local function test_a_wait_for_a_sql_only_tool_can_be_cancelled_without_consuming_the_guard(tmp: string)
   local root = tree(tmp)
-  local fd = assert(sys.open(root .. "/o/rebuild.lock", sys.O_RDWR | sys.O_CREAT, 0x1a4))
+  local fd = assert(sys.open(build_dir(root) .. "/rebuild.lock", sys.O_RDWR | sys.O_CREAT, 0x1a4))
   local kind, trouble = sys.flock_kind(fd)
   assert(sys.close(fd))
   assert(kind, trouble)
   local old <close>, held = start(root, -1)
   assert(held == "held")
   local script = [[
-local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
 local Zig = require("build.zig")
-local guard <close> = assert(Child.guard())
-local status = Zig.with_lock(%q, {}, function() error("entered a held lock") end)
+
+local guard = assert(Signal.guard())
+local status = Zig.with_lock(%q, {}, function(_: {string:string}): integer
+  error("entered a held lock")
+end)
 local signal = guard:take()
 guard:release()
 assert(status == 1 and signal == sys.SIGTERM)
 print("cancelled")
 Fs.take(Fs.stdin, 1)
 ]]
-  local command = this_program.program({ "-e", script:format(root) },
+  local command = this_program.program({ "-e", script:format(build_paths.required(root)) },
     { stdin = "stream", stdout = "stream", stderr = "stream" })
   local boot <close> = assert(Child.start(command.argv, command.options))
   local waiting = Stream.lines(assert(boot.stderr_stream)):read()
-  assert(waiting ~= nil and waiting:find("waiting for it", 1, true), waiting)
+  assert(waiting ~= nil and waiting:find("waiting for it", 1, true) ~= nil, waiting)
   local began = Clock.monotonic_ns()
   assert(boot:stop(sys.SIGTERM))
   local cancelled = Stream.lines(assert(boot.stdout_stream)):read()
@@ -239,7 +257,7 @@ Fs.take(Fs.stdin, 1)
   finish(probe_child)
   -- A shared lock space keeps flock excluded by the older SQL holder.
   -- Apart locks must already be free, without process exit hiding a leak.
-  assert(said == (kind == "apart" and "held" or "busy"), "cancellation changed the wrong flock hold")
+  assert(said == (if kind == "apart" then "held" else "busy" end), "cancellation changed the wrong flock hold")
   finish(old)
   local released, after = start(root, 0, true)
   finish(released)

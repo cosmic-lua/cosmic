@@ -3,7 +3,7 @@
 --- format, standard input), extract (members, `-C`, `--force`, and the
 --- refusals of a path that escapes), create and its round trip. Its
 --- archives are built here with the modules' own writers. The exit
---- statuses and the absence of a verdict line, which only a process of
+--- statuses and the absence of a summary, which only a process of
 --- its own shows, are in build/archive_tool_test.tl.
 
 local Compress = require("cosmic.compress")
@@ -16,10 +16,17 @@ local Zip = require("cosmic.zip")
 local sys = require("cosmic.sys")
 local archive = require("build.archive")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 local record Ran
-  code: integer
-  out: string
-  err: string
+  mut code: integer
+  mut out: string
+  mut err: string
 end
 
 --- One member of `list --json`'s array. `mtime` is a `number`, which
@@ -30,13 +37,13 @@ local record Row
   size: integer
   mode: string
   mtime: number
-  linkpath: string | nil
+  linkpath: string?
 end
 local ROW <const> = Shape.record_of("Row")
 
 --- `list --json`'s array, checked against [`Row`].
 local function rows_of(text: string): {Row}
-  local rows, why: {Row} | nil, string = Shape.decode_into(text, Shape.list(ROW.spec))
+  local rows, why: {Row}?, string = Shape.decode_into(text, Shape.list(ROW.spec))
   assert(rows ~= nil, tostring(why) .. ": " .. text)
   return rows
 end
@@ -45,8 +52,8 @@ end
 --- standard input (bytes, or a Reader for input that is not to be held
 --- whole), and `out_ok` false for a standard output that fails.
 local function run(words: {string}, stdin?: string | Stream.Reader, out_ok?: boolean): Ran
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "archive" }
-  for index, word in ipairs(words) do argv[index + 1] = word end
+  local argv: mut {string} = { "archive" }
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = archive.run(argv, {
     out = function(text: string): boolean, string
@@ -55,7 +62,7 @@ local function run(words: {string}, stdin?: string | Stream.Reader, out_ok?: boo
       return true, ""
     end,
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
-    stdin = function(): Stream.Reader | nil, string
+    stdin = function(): Stream.Reader?, string
       if stdin == nil then return nil, "no standard input in this test" end
       if stdin is string then return Stream.from_string(stdin), "" end
       return stdin as Stream.Reader, ""
@@ -87,7 +94,7 @@ end
 local function make_tar(path: string, members: {Member}, gzip?: boolean): string
   local sink = assert(Stream.create(path))
   local w: Tar.Writer
-  if gzip then
+  if gzip == true then
     w = Tar.writer(Stream.transform_writer(sink, (assert(Compress.deflater("gzip")))))
   else
     w = Tar.writer(sink)
@@ -139,21 +146,24 @@ local function test_list_prints_path_size_mode_and_type_for_each_format(tmp: str
   for format, path in pairs(each_format(tmp)) do
     local ran = run({ "list", path })
     assert(ran.code == 0 and ran.err == "", format .. ": " .. ran.err)
-    local rows: {{string}} = {}
+    local rows: mut {{string}} = {}
     for line in ran.out:gmatch("[^\n]+") do
-      local cells: {string} = {}
+      local cells: mut {string} = {}
       for cell in (line .. "\t"):gmatch("([^\t]*)\t") do cells[#cells + 1] = cell end
       assert(#cells == 4, format .. ": " .. line)
       rows[#rows + 1] = cells
     end
     assert(#rows == 4, format .. ": " .. ran.out)
-    assert(rows[1][1] == "proj" or rows[1][1] == "proj/", format .. ": " .. rows[1][1])
-    assert(rows[1][4] == "dir", format)
-    assert(rows[2][1] == "proj/a.txt" and rows[2][2] == "5" and rows[2][4] == "file",
-      format .. ": " .. table.concat(rows[2], "|"))
-    assert(rows[3][1] == "proj/sub/b.txt" and rows[3][2] == "6", format)
-    assert(rows[4][1] == "top.txt" and rows[4][2] == "3", format)
-    assert(rows[4][3]:match("^%d%d%d%d$"), rows[4][3])
+    local top = nth(rows, 1)
+    assert(nth(top, 1) == "proj" or nth(top, 1) == "proj/", format .. ": " .. nth(top, 1))
+    assert(top[4] == "dir", format)
+    local second = nth(rows, 2)
+    assert(second[1] == "proj/a.txt" and second[2] == "5" and second[4] == "file",
+      format .. ": " .. table.concat(second, "|"))
+    assert(nth(rows, 3)[1] == "proj/sub/b.txt" and nth(rows, 3)[2] == "6", format)
+    assert(nth(rows, 4)[1] == "top.txt" and nth(rows, 4)[2] == "3", format)
+    local year = nth(nth(rows, 4), 3)
+    assert(year:match("^%d%d%d%d$"), year)
   end
 end
 
@@ -165,7 +175,7 @@ local function test_list_json_is_an_array_of_objects_for_each_format(tmp: string
     assert(#rows == 4, format .. ": " .. ran.out)
     assert(rows[2].path == "proj/a.txt" and rows[2].size == 5 and rows[2].type == "file", format)
     assert(rows[2].mode == "0644" and math.type(rows[2].mtime) == "integer", format)
-    assert(rows[1].type == "dir", format)
+    assert(nth(rows, 1).type == "dir", format)
   end
 end
 
@@ -185,8 +195,8 @@ local function test_list_shows_a_symlink_and_escapes_a_name(tmp: string)
   assert(ran.out:find("ln -> t.txt\t0\t", 1, true), ran.out)
   assert(ran.out:find("odd\\tname\\n\t1\t", 1, true), ran.out)
   local json = rows_of(run({ "list", "--json", path }).out)
-  assert(json[2].linkpath == "t.txt" and json[2].type == "symlink")
-  assert(json[3].path == "odd\tname\n")
+  assert(nth(json, 2).linkpath == "t.txt" and nth(json, 2).type == "symlink")
+  assert(nth(json, 3).path == "odd\tname\n")
 end
 
 local function test_list_reads_standard_input(tmp: string)
@@ -196,7 +206,7 @@ local function test_list_reads_standard_input(tmp: string)
   assert(ran.code == 0 and ran.err == "", ran.err)
   assert(ran.out:find("proj/a.txt\t5\t", 1, true), ran.out)
   local json = run({ "list", "--json", "-" }, bytes)
-  assert(json.code == 0 and json.out:find('"proj/a.txt"', 1, true), json.out)
+  assert(json.code == 0 and json.out:find('"proj/a.txt"', 1, true) ~= nil, json.out)
 end
 
 local function test_list_and_extract_read_a_tgz_and_a_zip_from_standard_input(tmp: string)
@@ -219,24 +229,24 @@ local function test_list_and_extract_read_a_tgz_and_a_zip_from_standard_input(tm
 end
 
 local function test_list_spools_no_temporary_file_for_a_tar_stream_but_does_for_a_zip(tmp: string)
-  local made = 0
+  local made = { value = 0 }
   local real_mkdtemp = Fs.mkdtemp
   local patched = Fs as {string:any}
-  patched.mkdtemp = function(prefix: string): string | nil, string
-    made = made + 1
+  patched.mkdtemp = function(prefix: string): string?, string
+    made.value = made.value + 1
     return real_mkdtemp(prefix)
   end
   local ok, err = pcall(function(): string
     for _, gzip in ipairs({ false, true }) do
       local bytes = assert(Fs.read(make_tar(tmp .. "/t.tar", SAMPLE, gzip)))
       local ran = run({ "list", "-" }, bytes)
-      assert(ran.code == 0 and ran.out:find("top.txt", 1, true), ran.err)
+      assert(ran.code == 0 and ran.out:find("top.txt", 1, true) ~= nil, ran.err)
     end
-    assert(made == 0, "a tar stream was written to a temporary file")
+    assert(made.value == 0, "a tar stream was written to a temporary file")
     local zip = assert(Fs.read(make_zip(tmp .. "/z.zip", SAMPLE)))
     local ran = run({ "list", "-" }, zip)
-    assert(ran.code == 0 and ran.out:find("top.txt", 1, true), ran.err)
-    assert(made == 1, "a zip needs its file")
+    assert(ran.code == 0 and ran.out:find("top.txt", 1, true) ~= nil, ran.err)
+    assert(made.value == 1, "a zip needs its file")
     return ""
   end)
   patched.mkdtemp = real_mkdtemp
@@ -246,15 +256,15 @@ end
 --- A file of `mib` MiB that deflate cannot shrink, so the .tar.gz
 --- holds about as many bytes as it has.
 local function write_big_tgz(path: string, mib: integer): integer
-  local block: {string} = {}
+  local block: mut {string} = {}
   for i = 1, 1 << 16 do block[i] = string.char(math.random(0, 255)) end
   local chunk = table.concat(block)
   local rounds = mib * 16
-  local left = rounds
+  local left = { value = rounds }
   local body: Stream.Reader = {}
-  body.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
-    if left == 0 then return nil, "" end
-    left = left - 1
+  body.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
+    if left.value == 0 then return nil, "" end
+    left.value = left.value - 1
     return chunk, ""
   end
   body.close = function(_self: Stream.Reader): boolean, string return true, "" end
@@ -274,20 +284,21 @@ local function test_list_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: strin
   -- sample of live memory: a run that held the input whole would show
   -- all of it at once.
   local inner = assert(Stream.open(tmp .. "/big.tar.gz"))
-  local reads, peak = 0, 0.0
+  local reads = { value = 0 }
+  local peak = { value = 0.0 }
   local piped: Stream.Reader = {}
-  piped.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+  piped.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
     collectgarbage()
-    peak = math.max(peak, collectgarbage("count"))
-    reads = reads + 1
+    peak.value = math.max(peak.value, collectgarbage("count"))
+    reads.value = reads.value + 1
     return inner:read(max_bytes)
   end
   piped.close = function(_self: Stream.Reader): boolean, string return inner:close() end
   local ran = run({ "list", "-" }, piped)
   assert(ran.code == 0 and ran.err == "", ran.err)
-  assert(ran.out:find("big.bin\t" .. total .. "\t", 1, true), ran.out)
-  assert(reads >= 100, "standard input was read " .. tostring(reads) .. " times")
-  local grown = (peak - base) / 1024
+  assert(ran.out:find("big.bin\t" .. tostring(total) .. "\t", 1, true), ran.out)
+  assert(reads.value >= 100, "standard input was read " .. tostring(reads.value) .. " times")
+  local grown = (peak.value - base) / 1024
   assert(grown < 4, ("memory grew %.1f MiB listing %d MiB"):format(grown, total >> 20))
 end
 
@@ -299,9 +310,9 @@ local function test_an_unknown_format_or_a_missing_file_is_refused(tmp: string)
   assert(ran.err:find("cosmic: archive: ", 1, true) == 1, ran.err)
   assert(ran.err:find("not a recognized archive format", 1, true), ran.err)
   local extracted = run({ "extract", text, "-C", tmp .. "/out" })
-  assert(extracted.code == 2 and not Fs.exists(tmp .. "/out/notes"), extracted.err)
+  assert(extracted.code == 2 and Fs.exists(tmp .. "/out/notes") ~= true, extracted.err)
   local missing = run({ "list", tmp .. "/nothing.zip" })
-  assert(missing.code == 2 and missing.err:find("nothing.zip", 1, true), missing.err)
+  assert(missing.code == 2 and missing.err:find("nothing.zip", 1, true) ~= nil, missing.err)
   local truncated = tmp .. "/cut.tar.gz"
   local whole = assert(Fs.read(make_tar(tmp .. "/whole.tar.gz", SAMPLE, true)))
   assert(Fs.write(truncated, whole:sub(1, #whole - 12)))
@@ -325,15 +336,15 @@ local function test_members_select_a_file_or_everything_under_a_directory(tmp: s
   local one = run({ "extract", path, "-C", tmp .. "/one", "top.txt" })
   assert(one.code == 0, one.err)
   assert(Fs.read(tmp .. "/one/top.txt") == "top")
-  assert(not Fs.exists(tmp .. "/one/proj"))
+  assert(Fs.exists(tmp .. "/one/proj") ~= true)
   local tree = run({ "extract", path, "-C", tmp .. "/two", "./proj/", "top.txt" })
   assert(tree.code == 0, tree.err)
   assert(Fs.read(tmp .. "/two/proj/sub/b.txt") == "bravo!")
   assert(Fs.read(tmp .. "/two/top.txt") == "top")
   -- A name is a whole path or a directory, not a prefix of a name.
   local prefix = run({ "extract", path, "-C", tmp .. "/three", "pro" })
-  assert(prefix.code == 1 and prefix.err:find("no such member: pro", 1, true), prefix.err)
-  assert(not Fs.exists(tmp .. "/three/proj"))
+  assert(prefix.code == 1 and prefix.err:find("no such member: pro", 1, true) ~= nil, prefix.err)
+  assert(Fs.exists(tmp .. "/three/proj") ~= true)
 end
 
 local function test_a_missing_member_writes_nothing_and_exits_1(tmp: string)
@@ -341,7 +352,7 @@ local function test_a_missing_member_writes_nothing_and_exits_1(tmp: string)
   local ran = run({ "extract", path, "-C", tmp .. "/o", "top.txt", "nope.txt" })
   assert(ran.code == 1 and ran.out == "", ran.out)
   assert(ran.err:find("no such member: nope.txt", 1, true), ran.err)
-  assert(not Fs.exists(tmp .. "/o/top.txt"))
+  assert(Fs.exists(tmp .. "/o/top.txt") ~= true)
 end
 
 local function test_extract_reads_standard_input(tmp: string)
@@ -356,9 +367,9 @@ end
 local function refused(path: string, tmp: string, probe: string, why: string)
   local dest = tmp .. "/dest"
   local ran = run({ "extract", "--force", path, "-C", dest })
-  assert(ran.code == 2, why .. ": exited " .. ran.code .. " " .. ran.err)
+  assert(ran.code == 2, why .. ": exited " .. tostring(ran.code) .. " " .. ran.err)
   assert(ran.err:find("cosmic: archive: ", 1, true) == 1, ran.err)
-  assert(not Fs.exists(probe), why .. ": wrote " .. probe)
+  assert(Fs.exists(probe) ~= true, why .. ": wrote " .. probe)
 end
 
 local function test_a_dot_dot_member_is_refused_in_tar_and_zip(tmp: string)
@@ -388,7 +399,7 @@ local function test_a_symlink_out_of_the_target_is_refused(tmp: string)
   assert(Fs.mkdirs(through))
   local ran = run({ "extract", make_tar(tmp .. "/d.tar",
     { link_member("l", "sub"), file_member("l/f.txt", "x") }), "-C", through })
-  assert(not Fs.exists(through .. "/sub/f.txt"), ran.err)
+  assert(Fs.exists(through .. "/sub/f.txt") ~= true, ran.err)
 end
 
 local function test_extract_will_not_overwrite_without_force(tmp: string)
@@ -401,14 +412,14 @@ local function test_extract_will_not_overwrite_without_force(tmp: string)
   assert(ran.err:find("would overwrite 1 existing path", 1, true), ran.err)
   assert(ran.err:find("proj/a.txt", 1, true) and ran.err:find("--force", 1, true), ran.err)
   assert(Fs.read(dest .. "/proj/a.txt") == "mine")
-  assert(not Fs.exists(dest .. "/top.txt"), "nothing is written on a refusal")
+  assert(Fs.exists(dest .. "/top.txt") ~= true, "nothing is written on a refusal")
   local forced = run({ "extract", "--force", path, "-C", dest })
   assert(forced.code == 0, forced.err)
   assert(Fs.read(dest .. "/proj/a.txt") == "alpha")
   assert(Fs.read(dest .. "/top.txt") == "top")
   -- Only what a selection would write is looked at.
   local narrow = run({ "extract", path, "-C", dest, "proj/sub" })
-  assert(narrow.code == 1 and narrow.err:find("proj/sub/b.txt", 1, true), narrow.err)
+  assert(narrow.code == 1 and narrow.err:find("proj/sub/b.txt", 1, true) ~= nil, narrow.err)
   assert(not narrow.err:find("top.txt", 1, true), narrow.err)
 end
 
@@ -443,9 +454,9 @@ local function in_dir(dir: string, words: {string}): Ran
 end
 
 local function names(path: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for line in run({ "list", path }).out:gmatch("[^\n]+") do
-    out[#out + 1] = line:match("^([^\t]*)")
+    out[#out + 1] = assert(line:match("^([^\t]*)"), line)
   end
   return out
 end
@@ -487,17 +498,18 @@ local function test_create_streams_a_large_file_into_a_zip_in_bounded_memory(tmp
   -- whole would hold all of it at once, and one that never opened it
   -- as a Stream would make no read at all.
   local real_open = Stream.open
-  local reads, peak = 0, 0.0
+  local reads = { value = 0 }
+  local peak = { value = 0.0 }
   local patched = Stream as {string:any}
-  patched.open = function(path: string): Stream.Reader | nil, string
+  patched.open = function(path: string): Stream.Reader?, string
     local opened, why = real_open(path)
     if opened == nil or path:sub(-7) ~= "big.txt" then return opened, why end
     local inner: Stream.Reader = opened
     local wrapped: Stream.Reader = {}
-    wrapped.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+    wrapped.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
       collectgarbage()
-      peak = math.max(peak, collectgarbage("count"))
-      reads = reads + 1
+      peak.value = math.max(peak.value, collectgarbage("count"))
+      reads.value = reads.value + 1
       return inner:read(max_bytes)
     end
     wrapped.close = function(_self: Stream.Reader): boolean, string return inner:close() end
@@ -508,9 +520,9 @@ local function test_create_streams_a_large_file_into_a_zip_in_bounded_memory(tmp
   assert(ok, ran)
   local made = ran as Ran
   assert(made.code == 0 and made.err == "", made.err)
-  assert(reads >= rounds // 2, "the file was read " .. tostring(reads) .. " times")
+  assert(reads.value >= rounds // 2, "the file was read " .. tostring(reads.value) .. " times")
   -- Reading the file whole would hold all of it, and its deflated copy.
-  local grown = (peak - base) / 1024
+  local grown = (peak.value - base) / 1024
   assert(grown < 4, ("memory grew %.1f MiB packing %d MiB"):format(grown, total >> 20))
   local r = assert(Zip.open(tmp .. "/out.zip"))
   local entries = assert(r:entries())
@@ -535,25 +547,26 @@ end
 --- the run, the opens and the closes the archive made.
 local function create_counting(src: string, out: string, extra: string): Ran, integer, integer
   local real_open = Stream.open
-  local opens, closes = 0, 0
+  local opens = { value = 0 }
+  local closes = { value = 0 }
   local patched = Stream as {string:any}
-  patched.open = function(path: string): Stream.Reader | nil, string
+  patched.open = function(path: string): Stream.Reader?, string
     local opened, why = real_open(path)
     if opened == nil or path:sub(-4) ~= ".txt" then return opened, why end
-    opens = opens + 1
+    opens.value = opens.value + 1
     local inner: Stream.Reader = opened
     local wrapped: Stream.Reader = {}
-    local grown = false
-    wrapped.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+    local grown = { value = false }
+    wrapped.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
       local got, trouble = inner:read(max_bytes)
-      if got == nil and trouble == "" and extra ~= "" and not grown then
-        grown = true
+      if got == nil and trouble == "" and extra ~= "" and grown.value ~= true then
+        grown.value = true
         return extra, ""
       end
       return got, trouble
     end
     wrapped.close = function(_self: Stream.Reader): boolean, string
-      closes = closes + 1
+      closes.value = closes.value + 1
       return inner:close()
     end
     return wrapped, ""
@@ -561,7 +574,7 @@ local function create_counting(src: string, out: string, extra: string): Ran, in
   local ok, ran = pcall(in_dir, src, { "create", out, "tree" })
   patched.open = real_open
   assert(ok, ran)
-  return ran as Ran, opens, closes
+  return ran as Ran, opens.value, closes.value
 end
 
 local function test_create_closes_every_file_it_opens(tmp: string)
@@ -579,10 +592,10 @@ local function test_create_of_a_file_that_grew_fails_and_leaves_no_archive(tmp: 
   for _, name in ipairs({ "grew.zip", "grew.tar.gz" }) do
     local out = tmp .. "/" .. name
     local ran, opens, closes = create_counting(src, out, "grown")
-    assert(ran.code == 2 and (ran.err:find("bytes, not", 1, true) or ran.err:find("bytes as it was read", 1, true)),
+    assert(ran.code == 2 and (ran.err:find("bytes, not", 1, true) or ran.err:find("bytes as it was read", 1, true)) ~= nil,
       name .. ": " .. ran.err)
     assert(opens > 0 and opens == closes, name)
-    assert(not Fs.exists(out), name .. ": a failed create left an archive behind")
+    assert(Fs.exists(out) ~= true, name .. ": a failed create left an archive behind")
   end
 end
 
@@ -621,17 +634,17 @@ local function test_create_refuses_xz_bzip2_and_what_it_cannot_name(tmp: string)
   local xz = in_dir(src, { "create", tmp .. "/x.tar.xz", "loose.txt" })
   assert(xz.code == 2 and xz.out == "", xz.out)
   assert(xz.err:find("no xz encoder", 1, true), xz.err)
-  assert(not Fs.exists(tmp .. "/x.tar.xz"))
+  assert(Fs.exists(tmp .. "/x.tar.xz") ~= true)
   local bz = in_dir(src, { "create", tmp .. "/x.tar.bz2", "loose.txt" })
-  assert(bz.code == 2 and bz.err:find("no bzip2 encoder", 1, true), bz.err)
+  assert(bz.code == 2 and bz.err:find("no bzip2 encoder", 1, true) ~= nil, bz.err)
   local unknown = in_dir(src, { "create", tmp .. "/x.data", "loose.txt" })
-  assert(unknown.code == 2 and unknown.err:find("end it in .tar.gz, .tgz, .tar.zst, .tzst, .tar or .zip", 1, true), unknown.err)
+  assert(unknown.code == 2 and unknown.err:find("end it in .tar.gz, .tgz, .tar.zst, .tzst, .tar or .zip", 1, true) ~= nil, unknown.err)
 end
 
 local function test_create_refuses_the_name_before_it_reads_the_paths(tmp: string)
   local src = make_tree(tmp)
   local ran = in_dir(src, { "create", tmp .. "/x.tar.xz", "nosuch" })
-  assert(ran.code == 2 and ran.err:find("no xz encoder", 1, true), ran.err)
+  assert(ran.code == 2 and ran.err:find("no xz encoder", 1, true) ~= nil, ran.err)
 end
 
 local function test_create_writes_a_zstd_tar(tmp: string)
@@ -648,18 +661,18 @@ local function test_create_writes_a_plain_tar(tmp: string)
   local ran = in_dir(src, { "create", tmp .. "/x.tar", "loose.txt" })
   assert(ran.code == 0 and ran.err == "", ran.err)
   local listed = run({ "list", tmp .. "/x.tar" })
-  assert(listed.code == 0 and listed.out:find("loose.txt\t5\t", 1, true), listed.out .. listed.err)
+  assert(listed.code == 0 and listed.out:find("loose.txt\t5\t", 1, true) ~= nil, listed.out .. listed.err)
 end
 
 local function test_create_refuses_paths_that_would_extract_outside(tmp: string)
   local src = make_tree(tmp)
   local up = in_dir(src, { "create", tmp .. "/u.zip", "../src/loose.txt" })
-  assert(up.code == 2 and up.err:find("extract outside", 1, true), up.err)
+  assert(up.code == 2 and up.err:find("extract outside", 1, true) ~= nil, up.err)
   local absolute = in_dir(src, { "create", tmp .. "/a.zip", src .. "/loose.txt" })
-  assert(absolute.code == 2 and absolute.err:find("extract outside", 1, true), absolute.err)
-  assert(not Fs.exists(tmp .. "/u.zip") and not Fs.exists(tmp .. "/a.zip"))
+  assert(absolute.code == 2 and absolute.err:find("extract outside", 1, true) ~= nil, absolute.err)
+  assert(Fs.exists(tmp .. "/u.zip") ~= true and Fs.exists(tmp .. "/a.zip") ~= true)
   local missing = in_dir(src, { "create", tmp .. "/m.zip", "nope" })
-  assert(missing.code == 1 and missing.err:find("nope", 1, true), missing.err)
+  assert(missing.code == 1 and missing.err:find("nope", 1, true) ~= nil, missing.err)
 end
 
 --- A zip holds a symlink as a tar does: its target is the entry's body,
@@ -686,10 +699,25 @@ local function test_create_leaves_an_existing_output_out_of_itself(tmp: string)
   assert(not second.out:find("again.zip", 1, true), second.out)
 end
 
+--- The output named as the only path leaves nothing to archive: refused
+--- before anything is written, so the file that was there survives.
+local function test_create_with_only_its_own_output_leaves_that_file_alone(tmp: string)
+  local src = make_tree(tmp)
+  assert(in_dir(src, { "create", "a.tar", "loose.txt" }).code == 0)
+  local before = assert(Fs.read(src .. "/a.tar"))
+  local ran = in_dir(src, { "create", "a.tar", "a.tar" })
+  assert(ran.code == 2, tostring(ran.code) .. " " .. ran.err)
+  assert(ran.err:find("a.tar: the archive being written is the only path given, and it is left out of itself; " ..
+      "name a file or directory to put in it", 1, true) ~= nil, ran.err)
+  assert(Fs.read(src .. "/a.tar") == before, "the existing archive was rewritten")
+  local both = in_dir(src, { "create", "a.tar", "a.tar", "loose.txt" })
+  assert(both.code == 0 and both.out == "loose.txt\n", both.out .. both.err)
+end
+
 local function test_a_failed_standard_output_exits_2(tmp: string)
   local path = make_tar(tmp .. "/w.tar", SAMPLE)
   local ran = run({ "list", path }, nil, false)
-  assert(ran.code == 2 and ran.err:find("standard output: no space left", 1, true), ran.err)
+  assert(ran.code == 2 and ran.err:find("standard output: no space left", 1, true) ~= nil, ran.err)
 end
 
 local function test_a_command_line_that_is_not_one_is_refused(tmp: string)
@@ -701,7 +729,7 @@ local function test_a_command_line_that_is_not_one_is_refused(tmp: string)
       { "list", "" }, { "extract", path, "" },
   } as {{string}}) do
     local ran = run(words)
-    assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. " exited " .. ran.code)
+    assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. " exited " .. tostring(ran.code))
     assert(ran.err:find("cosmic: archive: ", 1, true) == 1, ran.err)
     assert(ran.err:find("cosmic archive list", 1, true), ran.err)
   end
@@ -718,7 +746,9 @@ local function raw_entry(path: string, flag: string, linkname: string): string
     "        " .. flag .. field(linkname, 100) .. "ustar\0" .. "00"
   head = head .. string.rep("\0", 512 - #head)
   local sum = 0
-  for index = 1, #head do sum = sum + head:byte(index) end
+  for index = 1, #head do
+    sum = sum + assert(head:byte(index), "the header has a byte at " .. tostring(index))
+  end
   local check = string.format("%06o\0 ", sum)
   return head:sub(1, 148) .. check .. head:sub(157) .. string.rep("\0", 1024)
 end
@@ -730,10 +760,10 @@ local function test_a_fifo_in_a_directory_is_refused_by_name(tmp: string)
     local ran = in_dir(src, { "create", tmp .. "/" .. out, "tree" })
     assert(ran.code == 2 and ran.out == "", ran.out)
     assert(ran.err:find("tree/sub/pipe: neither a file, a directory nor a symlink", 1, true), ran.err)
-    assert(not Fs.exists(tmp .. "/" .. out), "nothing is written")
+    assert(Fs.exists(tmp .. "/" .. out) ~= true, "nothing is written")
   end
   local named = in_dir(src, { "create", tmp .. "/n.zip", "tree/sub/pipe" })
-  assert(named.code == 2 and named.err:find("tree/sub/pipe", 1, true), named.err)
+  assert(named.code == 2 and named.err:find("tree/sub/pipe", 1, true) ~= nil, named.err)
 end
 
 local function test_a_refusal_partway_leaves_the_entries_before_it(tmp: string)
@@ -743,20 +773,20 @@ local function test_a_refusal_partway_leaves_the_entries_before_it(tmp: string)
   local ran = run({ "extract", link, "-C", dest })
   assert(ran.code == 2, ran.err)
   assert(Fs.read(dest .. "/first.txt") == "1", "the entry before the refusal stays written")
-  assert(not Fs.exists(dest .. "/out") and not Fs.exists(dest .. "/last.txt"))
+  assert(Fs.exists(dest .. "/out") ~= true and Fs.exists(dest .. "/last.txt") ~= true)
   local dots = make_tar(tmp .. "/b.tar", { file_member("kept.txt", "1"),
     file_member("../gone.txt", "2") })
   assert(run({ "extract", dots, "-C", tmp .. "/dest2" }).code == 2)
   assert(Fs.read(tmp .. "/dest2/kept.txt") == "1")
-  assert(not Fs.exists(tmp .. "/gone.txt"))
+  assert(Fs.exists(tmp .. "/gone.txt") ~= true)
 end
 
 local function test_a_hard_link_is_refused(tmp: string)
   local path = tmp .. "/h.tar"
   assert(Fs.write(path, raw_entry("hard", "1", "target")))
   local ran = run({ "extract", path, "-C", tmp .. "/dest" })
-  assert(ran.code == 2 and ran.err:find("hardlink", 1, true), ran.err)
-  assert(not Fs.exists(tmp .. "/dest/hard"))
+  assert(ran.code == 2 and ran.err:find("hardlink", 1, true) ~= nil, ran.err)
+  assert(Fs.exists(tmp .. "/dest/hard") ~= true)
   assert(run({ "list", path }).out:find("hard -> target\t0\t0644\thardlink", 1, true))
 end
 
@@ -778,7 +808,7 @@ local function test_force_never_writes_through_a_symlink_in_the_target(tmp: stri
   local through = run({ "extract", "--force", make_tar(tmp .. "/b.tar",
     { file_member("dir/f.txt", "x") }), "-C", dest })
   assert(through.code == 2, through.err)
-  assert(not Fs.exists(tmp .. "/outdir/f.txt"))
+  assert(Fs.exists(tmp .. "/outdir/f.txt") ~= true)
 end
 
 local function test_symlink_chains_and_a_directory_then_a_link_are_refused(tmp: string)
@@ -786,7 +816,7 @@ local function test_symlink_chains_and_a_directory_then_a_link_are_refused(tmp: 
   local chain = run({ "extract", make_tar(tmp .. "/a.tar",
     { link_member("a", "b"), link_member("b", "..") }), "-C", tmp .. "/one/dest" })
   assert(chain.code == 2, chain.err)
-  assert(not Fs.exists(tmp .. "/one/dest/b"))
+  assert(Fs.exists(tmp .. "/one/dest/b") ~= true)
   -- b -> ., a -> b/..: a target through another link is refused.
   local hop = run({ "extract", make_tar(tmp .. "/b.tar",
     { link_member("b", "."), link_member("a", "b/..") }), "-C", tmp .. "/two/dest" })
@@ -796,12 +826,12 @@ local function test_symlink_chains_and_a_directory_then_a_link_are_refused(tmp: 
     { dir_member("d"), link_member("d", "."), file_member("d/f.txt", "x") }),
     "-C", tmp .. "/three/dest" })
   assert(dir_link.code == 2, dir_link.err)
-  assert(not Fs.exists(tmp .. "/three/dest/f.txt"))
+  assert(Fs.exists(tmp .. "/three/dest/f.txt") ~= true)
 end
 
 --- The names under `dir`, recursively, sorted: what a destination holds.
 local function tree_of(dir: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local function walk(at: string, prefix: string)
     local listed = Fs.list(at)
     if listed == nil then return end
@@ -818,11 +848,11 @@ end
 --- Runs `body` with [`Fs.mkdtemp`] counted: how many temporary
 --- directories it made, which is how many copies of standard input.
 local function counting_mkdtemp(body: function()): integer
-  local made = 0
+  local made = { value = 0 }
   local real = Fs.mkdtemp
   local patched = Fs as {string:any}
-  patched.mkdtemp = function(prefix: string): string | nil, string
-    made = made + 1
+  patched.mkdtemp = function(prefix: string): string?, string
+    made.value = made.value + 1
     return real(prefix)
   end
   local ok, err = pcall(function(): string
@@ -831,13 +861,13 @@ local function counting_mkdtemp(body: function()): integer
   end)
   patched.mkdtemp = real
   assert(ok, err)
-  return made
+  return made.value
 end
 
 local function test_extract_of_a_tar_stream_makes_no_temporary_copy(tmp: string)
   for _, gzip in ipairs({ false, true }) do
     local bytes = assert(Fs.read(make_tar(tmp .. "/t.tar", SAMPLE, gzip)))
-    local dest = tmp .. (gzip and "/tgz" or "/tar")
+    local dest = tmp .. (if gzip then "/tgz" else "/tar" end)
     local made = counting_mkdtemp(function()
       local ran = run({ "extract", "-", "-C", dest }, bytes)
       assert(ran.code == 0 and ran.err == "", ran.err)
@@ -845,7 +875,7 @@ local function test_extract_of_a_tar_stream_makes_no_temporary_copy(tmp: string)
     end)
     assert(made == 0, "a tar stream was written to a temporary file")
     assert(Fs.read(dest .. "/proj/sub/b.txt") == "bravo!")
-    assert(#Fs.list(tmp .. "/") >= 1 and not Fs.exists(dest .. "/stdin"))
+    assert(#assert(Fs.list(tmp .. "/")) >= 1 and Fs.exists(dest .. "/stdin") ~= true)
   end
   local zip = assert(Fs.read(make_zip(tmp .. "/z.zip", SAMPLE)))
   local made = counting_mkdtemp(function()
@@ -862,18 +892,18 @@ local function both_ways(tmp: string, name: string, bytes: string, words: {strin
                          prepare: function(string)): Ran, Ran, {string}, {string}
   assert(Fs.mkdirs(tmp))
   assert(Fs.write(tmp .. "/" .. name, bytes))
-  local results: {Ran} = {}
-  local trees: {{string}} = {}
+  local results: mut {Ran} = {}
+  local trees: mut {{string}} = {}
   for slot, from in ipairs({ "file", "stdin" }) do
     local dest = tmp .. "/" .. from .. "/dest"
     assert(Fs.mkdirs(tmp .. "/" .. from))
     prepare(dest)
-    local argv: {string} = { "extract", from == "file" and (tmp .. "/" .. name) or "-", "-C", dest }
+    local argv: mut {string} = { "extract", if from == "file" then (tmp .. "/" .. name) else "-" end, "-C", dest }
     for _, word in ipairs(words) do argv[#argv + 1] = word end
     results[slot] = run(argv, from == "stdin" and bytes or nil)
     trees[slot] = tree_of(tmp .. "/" .. from)
   end
-  return results[1], results[2], trees[1], trees[2]
+  return nth(results, 1), nth(results, 2), nth(trees, 1), nth(trees, 2)
 end
 
 --- `err` with the input file's path read as standard input's name, and
@@ -893,11 +923,12 @@ local function test_a_member_that_fails_mid_stream_leaves_the_destination_untouc
     thru = { file_member("first.txt", "1"), link_member("l", "sub"), file_member("l/f.txt", "2") },
   }
   for _, pair in ipairs(hostile) do
-    if archives[pair[1]] ~= nil then
-      local bytes = assert(Fs.read(make_tar(tmp .. "/" .. pair[1] .. ".tgz", archives[pair[1]], true)))
+    local members = archives[nth(pair, 1)]
+    if members ~= nil then
+      local bytes = assert(Fs.read(make_tar(tmp .. "/" .. nth(pair, 1) .. ".tgz", members, true)))
       -- No destination yet, and one that holds a file of its own.
       for _, holds in ipairs({ false, true }) do
-        local case = tmp .. "/" .. pair[1] .. (holds and "-holds" or "-new")
+        local case = tmp .. "/" .. nth(pair, 1) .. (if holds then "-holds" else "-new" end)
         assert(Fs.mkdirs(case))
         local dest = case .. "/deep/dest"
         if holds then
@@ -905,10 +936,10 @@ local function test_a_member_that_fails_mid_stream_leaves_the_destination_untouc
           assert(Fs.write(dest .. "/mine.txt", "mine"))
         end
         local ran = run({ "extract", "-", "-C", dest }, bytes)
-        assert(ran.code == 2 and ran.out == "", pair[1] .. ": " .. ran.code .. ran.err)
+        assert(ran.code == 2 and ran.out == "", nth(pair, 1) .. ": " .. tostring(ran.code) .. ran.err)
         local seen = tree_of(case)
-        local want = holds and "deep,deep/dest,deep/dest/mine.txt" or ""
-        assert(table.concat(seen, ",") == want, pair[1] .. " left " .. table.concat(seen, ","))
+        local want = if holds then "deep,deep/dest,deep/dest/mine.txt" else "" end
+        assert(table.concat(seen, ",") == want, nth(pair, 1) .. " left " .. table.concat(seen, ","))
       end
     end
   end
@@ -916,8 +947,8 @@ local function test_a_member_that_fails_mid_stream_leaves_the_destination_untouc
   local whole = assert(Fs.read(make_tar(tmp .. "/whole.tgz", { file_member("a", "1"),
     file_member("b", string.rep("x", 200000)) }, true)))
   local ran = run({ "extract", "-", "-C", tmp .. "/cut/dest" }, whole:sub(1, #whole // 2))
-  assert(ran.code == 2 and ran.err:find("standard input: ", 1, true), ran.err)
-  assert(not Fs.exists(tmp .. "/cut"), "a truncated stream wrote " .. table.concat(tree_of(tmp .. "/cut"), ","))
+  assert(ran.code == 2 and ran.err:find("standard input: ", 1, true) ~= nil, ran.err)
+  assert(Fs.exists(tmp .. "/cut") ~= true, "a truncated stream wrote " .. table.concat(tree_of(tmp .. "/cut"), ","))
   -- The same failure from a file leaves what was written before it.
   local direct = run({ "extract", tmp .. "/unsafe.tgz", "-C", tmp .. "/direct" })
   assert(direct.code == 2 and Fs.read(tmp .. "/direct/first.txt") == "1", direct.err)
@@ -989,8 +1020,8 @@ local function test_a_stream_is_moved_into_a_destination_that_holds_files(tmp: s
   local hostile = assert(Fs.read(make_tar(tmp .. "/h.tar", { file_member("aaa.txt", "1"),
     file_member("lnk/f.txt", "x") })))
   local refused_run = run({ "extract", "--force", "-", "-C", dest }, hostile)
-  assert(refused_run.code == 2 and refused_run.err:find("through a symlink", 1, true), refused_run.err)
-  assert(not Fs.exists(dest .. "/aaa.txt") and not Fs.exists(out .. "/f.txt"))
+  assert(refused_run.code == 2 and refused_run.err:find("through a symlink", 1, true) ~= nil, refused_run.err)
+  assert(Fs.exists(dest .. "/aaa.txt") ~= true and Fs.exists(out .. "/f.txt") ~= true)
   assert(#tree_of(out) == 0)
   for _, name in ipairs(Fs.list(dest) or {}) do
     assert(not name:find("cosmic-extract", 1, true), name)
@@ -1007,11 +1038,11 @@ local function test_a_move_that_fails_partway_is_undone(tmp: string)
   end
   local real = Fs.rename
   local patched = Fs as {string:any}
-  local into = 0
+  local into = { value = 0 }
   patched.rename = function(from: string, to: string): boolean, string
-    if to:find(dest .. "/", 1, true) == 1 and from:find("/tree/", 1, true) then
-      into = into + 1
-      if into == 3 then return false, from .. ": injected failure" end
+    if to:find(dest .. "/", 1, true) == 1 and from:find("/tree/", 1, true) ~= nil then
+      into.value = into.value + 1
+      if into.value == 3 then return false, from .. ": injected failure" end
     end
     return real(from, to)
   end
@@ -1047,7 +1078,7 @@ local function test_a_real_failure_in_the_move_restores_and_names_the_destinatio
   assert(Fs.chmod(dest .. "/sub", 0x16d))
   local ran = run({ "extract", "--force", "-", "-C", dest }, bytes)
   assert(Fs.chmod(dest .. "/sub", 0x1ed))
-  assert(ran.code == 2 and ran.err:find(dest .. "/sub/x.txt", 1, true), ran.err)
+  assert(ran.code == 2 and ran.err:find(dest .. "/sub/x.txt", 1, true) ~= nil, ran.err)
   assert(not ran.err:find("cosmic-extract", 1, true), ran.err)
   assert(Fs.read(dest .. "/a.txt") == "old a" and Fs.read(dest .. "/z.txt") == "old z")
   assert(table.concat(tree_of(tmp), ",") == "dest,dest/a.txt,dest/sub,dest/z.txt,r.tar", table.concat(tree_of(tmp), ","))
@@ -1059,12 +1090,13 @@ local function test_extract_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: st
   collectgarbage()
   local base = collectgarbage("count")
   local inner = assert(Stream.open(tmp .. "/big.tar.gz"))
-  local reads, peak = 0, 0.0
+  local reads = { value = 0 }
+  local peak = { value = 0.0 }
   local piped: Stream.Reader = {}
-  piped.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+  piped.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
     collectgarbage()
-    peak = math.max(peak, collectgarbage("count"))
-    reads = reads + 1
+    peak.value = math.max(peak.value, collectgarbage("count"))
+    reads.value = reads.value + 1
     return inner:read(max_bytes)
   end
   piped.close = function(_self: Stream.Reader): boolean, string return inner:close() end
@@ -1073,8 +1105,8 @@ local function test_extract_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: st
   assert(ran.code == 0 and ran.err == "", ran.err)
   local st = assert(sys.stat(dest .. "/big.bin"))
   assert(st.size == total, "extracted " .. tostring(st.size) .. " of " .. tostring(total))
-  assert(reads >= 100, "standard input was read " .. tostring(reads) .. " times")
-  local grown = (peak - base) / 1024
+  assert(reads.value >= 100, "standard input was read " .. tostring(reads.value) .. " times")
+  local grown = (peak.value - base) / 1024
   assert(grown < 4, ("memory grew %.1f MiB extracting %d MiB"):format(grown, total >> 20))
   assert(table.concat(tree_of(tmp), ",") == "big.tar.gz,dest,dest/big.bin", table.concat(tree_of(tmp), ","))
 end

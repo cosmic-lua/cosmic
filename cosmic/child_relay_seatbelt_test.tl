@@ -1,6 +1,6 @@
 --- [`Child.start`]'s `policy` with `connect` on macOS (cosmic/child.tl),
 --- where Seatbelt holds the program and its network relay
---- (cosmic/relay/main.tl): the relay listens at a port of the host's
+--- (cosmic/internal/relay_main.tl): the relay listens at a port of the host's
 --- loopback behind a token drawn for the start, and the program's profile
 --- lets it reach that port and nothing else. The program is this program's
 --- core on a database sealed for it, which speaks to the relay through the
@@ -10,13 +10,14 @@
 --- (cosmic/child_relay_test.tl is Linux's). A failure says what the program
 --- saw, the relay's decision lines and what Seatbelt denied.
 
+local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
-local Sandbox = require("cosmic.sandbox")
+local RelayStart = require("cosmic.internal.relay_start")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -215,7 +216,7 @@ end
 
 --- An echo server for `listener`, answering "echo:" and the four bytes each
 --- connection sends, as a task of the run, and counting the connections.
-local function echoing(listener: Net.Listener, count: {integer}): Poll.Task
+local function echoing(listener: Net.Listener, count: mut {integer}): Poll.Task
   return Poll.spawn(function()
     while true do
       local conn = listener:accept()
@@ -234,19 +235,37 @@ end
 
 --- What Seatbelt denied lately, as the system's log names it, which says
 --- what a profile lacks. Empty where the log cannot be read.
+-- TODO: bound the `log show` well under the time left to the test: its
+-- 60 s outlasts the test's 10 s timeout, so a check that fails on a busy
+-- runner can lose its message to the timeout.
 local function denials(): string
   local result = Child.run({ "/usr/bin/log", "show", "--last", "2m", "--style", "compact",
     "--predicate", "eventMessage CONTAINS \"Sandbox: \"" },
     { stdout = "capture", stderr = "capture", stdin = "null", timeout_ns = Clock.seconds(60) })
   if result == nil then return "" end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in (result.stdout or ""):gmatch("[^\n]+") do lines[#lines + 1] = line end
   return "\nlog: " .. table.concat(lines, "\n", math.max(1, #lines - 60), #lines)
 end
 
+--- `message`, and what Seatbelt denied where the check it explains
+--- `failed`. An assertion's message is built before the check runs, and
+--- the log is read only for a failure: each read takes a second or more on
+--- a busy host, and a test that read it for every check that holds
+--- outlasted its timeout.
+local function explained(failed: boolean, message: string): string
+  if not failed then return message end
+  return message .. denials()
+end
+
+--- Asserts `ok`, failing with `message` and what Seatbelt denied.
+local function holds(ok: boolean, message: string)
+  assert(ok, explained(not ok, message))
+end
+
 --- The lines `name<TAB>value` of a program's output, by name.
 local function fields(output: string): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for line in output:gmatch("([^\n]*)\n") do
     local name, value = line:match("^([^\t]+)\t(.*)$")
     if name ~= nil then out[name] = value end
@@ -271,31 +290,31 @@ local function flows(tmp: string): Flows
   local database = sealed_client(tmp)
   local log_path = tmp .. "/relay.log"
   local log = assert(sys.open(log_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
-  local seen: Flows
+  local seen: Flows? = nil
   Poll.run(function()
     local first = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local second = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local granted_count, ungranted_count = { 0 }, { 0 }
     local tasks = { echoing(first, granted_count), echoing(second, ungranted_count) }
-    local granted, ungranted = first.address.port, second.address.port
+    local granted, ungranted = assert(first.address.port), assert(second.address.port)
     local result, why = Child.run({ assert(Proc.executable()), "flows", tostring(granted), tostring(ungranted) },
       { policy = { database = { path = database }, profiles = { "system" },
-        connect = { "127.0.0.1:" .. granted, "localhost:" .. granted } },
+        connect = { "127.0.0.1:" .. tostring(granted), "localhost:" .. tostring(granted) } },
         stdout = "capture", stderr = "capture", relay_log = log, timeout_ns = Clock.seconds(90) })
     for _, task in ipairs(tasks) do task:cancel() end
     assert(first:close())
     assert(second:close())
     local relay_log = Fs.read(log_path) or ""
-    assert(result, tostring(why) .. "\nrelay: " .. relay_log .. denials())
+    assert(result, explained(result == nil, tostring(why) .. "\nrelay: " .. relay_log))
     local report = redacted("code " .. tostring(result.code) .. ", signal " .. tostring(result.signal) ..
         "\nstdout: " .. tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr) ..
         "\nrelay: " .. relay_log)
-    assert(result.ok, report .. denials())
+    holds(result.ok, report)
     seen = { said = fields(result.stdout or ""), log = relay_log, granted = granted, ungranted = ungranted,
-      reached = ungranted_count[1], report = report }
+      reached = assert(ungranted_count[1]), report = report }
   end)
   assert(sys.close(log))
-  return seen
+  return assert(seen)
 end
 
 --- A granted server is reached through the relay by HTTP CONNECT (by address
@@ -306,23 +325,23 @@ local function test_a_granted_server_is_reached_through_the_relay_and_an_ungrant
   macos_only()
   local seen = flows(tmp)
   local said, report = seen.said, seen.report
-  assert(said.connect == "HTTP/1.1 200 Connection established" and said.connect_echo == "echo:ping",
-    "CONNECT by address\n" .. report .. denials())
-  assert(said.connect_name == "HTTP/1.1 200 Connection established" and said.connect_name_echo == "echo:ping",
-    "CONNECT by a granted name\n" .. report .. denials())
-  assert(said.socks == "0" and said.socks_echo == "echo:ping", "SOCKS5\n" .. report .. denials())
-  assert(said.connect_v6 == "HTTP/1.1 200 Connection established" and said.connect_v6_echo == "echo:ping",
-    "CONNECT to the relay's port on ::1\n" .. report .. denials())
+  holds(said.connect == "HTTP/1.1 200 Connection established" and said.connect_echo == "echo:ping",
+    "CONNECT by address\n" .. report)
+  holds(said.connect_name == "HTTP/1.1 200 Connection established" and said.connect_name_echo == "echo:ping",
+    "CONNECT by a granted name\n" .. report)
+  holds(said.socks == "0" and said.socks_echo == "echo:ping", "SOCKS5\n" .. report)
+  holds(said.connect_v6 == "HTTP/1.1 200 Connection established" and said.connect_v6_echo == "echo:ping",
+    "CONNECT to the relay's port on ::1\n" .. report)
   assert(said.connect_v6_no_token == "HTTP/1.1 407 Proxy Authentication Required",
     "no token on ::1\n" .. report)
-  assert(tostring(said.connect_ungranted):find(" 403 not granted: --connect 127.0.0.1:" .. seen.ungranted, 1, true),
+  assert(tostring(said.connect_ungranted):find(" 403 not granted: --connect 127.0.0.1:" .. tostring(seen.ungranted), 1, true),
     "an ungranted CONNECT\n" .. report)
   assert(said.socks_ungranted == "2" and said.socks_ungranted_echo == nil, "an ungranted SOCKS5 request\n" .. report)
   assert(seen.reached == 0, "the ungranted server was reached\n" .. report)
   assert(said.connect_no_token == "HTTP/1.1 407 Proxy Authentication Required", "no token\n" .. report)
   assert(said.connect_wrong_token == "HTTP/1.1 407 Proxy Authentication Required", "a wrong token\n" .. report)
   assert(said.socks_wrong_token == "auth 0101", "a wrong SOCKS5 password\n" .. report)
-  assert(seen.log:find("not granted: --connect 127.0.0.1:" .. seen.ungranted, 1, true),
+  assert(seen.log:find("not granted: --connect 127.0.0.1:" .. tostring(seen.ungranted), 1, true),
     "the relay logs the refusal\n" .. report)
 end
 
@@ -334,8 +353,8 @@ local function test_the_program_reaches_nothing_but_the_relay_directly(tmp: stri
   local seen = flows(tmp)
   local said, report = seen.said, seen.report
   for _, name in ipairs({ "direct_granted", "direct_ungranted", "direct_outside" }) do
-    assert(tostring(said[name]):find("not permitted", 1, true), name .. " was not refused by Seatbelt (EPERM)\n" ..
-        report .. denials())
+    holds(tostring(said[name]):find("not permitted", 1, true) ~= nil, name .. " was not refused by Seatbelt (EPERM)\n" ..
+        report)
   end
 end
 
@@ -364,7 +383,7 @@ local function waiting(tmp: string): Child.Handle
   local handle, why = Child.start({ assert(Proc.executable()), "wait" }, { policy = {
     database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { "127.0.0.1:9" } },
     stdout = "null", stderr = "null" })
-  assert(handle, tostring(why) .. denials())
+  assert(handle, explained(handle == nil, tostring(why)))
   return handle
 end
 
@@ -395,19 +414,6 @@ local function test_the_relay_ends_with_its_program(tmp: string)
   end)
 end
 
-local type Searcher = function(string): any, any
-
---- The process table cosmic.child starts a child through.
-local function process_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process -- cast: the table core/process.h declares
-    end
-  end
-  error("cosmic.child has no process table")
-end
-
 --- How a program started under a profile ended.
 local record Ran
   --- Why the start failed, or "" where it ran.
@@ -422,7 +428,7 @@ local function run_under(held: raw_process.Seatbelt, argv: {string}, tmp: string
   local out_path = tmp .. "/run.out"
   local out = assert(sys.open(out_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
   local null = assert(sys.open("/dev/null", sys.O_RDONLY))
-  local process = process_table()
+  local process = RawTables.process()
   local pid, why = process.spawn(argv[1], argv, { COSMIC_STANDALONE = "1" }, "/", null, out, out, false, nil,
     { seatbelt = held })
   assert(sys.close(out))
@@ -482,9 +488,9 @@ local function test_the_program_holds_no_listener_of_the_relays(tmp: string)
   local result, why = Child.run({ assert(Proc.executable()), "listeners" }, { policy = {
     database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { "127.0.0.1:9" } },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(90) })
-  assert(result, tostring(why) .. denials())
+  assert(result, explained(result == nil, tostring(why)))
   local report = redacted(tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr))
-  assert(result.ok, report .. denials())
+  holds(result.ok, report)
   assert(fields(result.stdout or "").listeners == "none", "the program holds a listening socket\n" .. report)
 end
 
@@ -504,7 +510,7 @@ local function test_the_relay_is_held_by_a_profile_of_its_own(tmp: string)
     local relay = assert(handle._relay, "the start runs a relay")
     local held = assert(relay._seatbelt, "the relay was started under a profile")
     assert(held.profile:find("(deny default)", 1, true), held.profile)
-    assert(held.profile:find('(allow network-inbound (local tcp "localhost:' .. port .. '"))', 1, true), held.profile)
+    assert(held.profile:find('(allow network-inbound (local tcp "localhost:' .. tostring(port) .. '"))', 1, true), held.profile)
     assert(not held.profile:find("network-bind", 1, true) and not held.profile:find("(allow file-read*)", 1, true),
       held.profile)
     assert(select(2, held.profile:gsub("process%-exec", "")) == 1, "the relay runs its core alone: " .. held.profile)
@@ -528,8 +534,8 @@ local function test_the_relay_is_held_by_a_profile_of_its_own(tmp: string)
     assert(replaced, "no parameter names the relay's database")
     local core = assert(sys.realpath(assert(Proc.relaunch()).argv[1]))
     local probe = run_under(swapped, { core, "--database", real_client, "probe", secret }, tmp)
-    assert(probe.refused == "" and probe.code == 0, "the probe did not run under the relay's profile: " ..
-        probe.refused .. " " .. probe.output .. denials())
+    holds(probe.refused == "" and probe.code == 0, "the probe did not run under the relay's profile: " ..
+        probe.refused .. " " .. probe.output)
     local said = fields(probe.output)
     assert(said["read /etc/hosts"] == "read", "the relay's profile does not read /etc/hosts: " .. probe.output)
     assert(tostring(said["read " .. secret]):find("not permitted", 1, true),
@@ -563,10 +569,10 @@ local function test_a_public_name_is_resolved_and_reached_through_the_relay(tmp:
     stdout = "capture", stderr = "capture", relay_log = log, timeout_ns = Clock.seconds(90) })
   assert(sys.close(log))
   local relay_log = Fs.read(log_path) or ""
-  assert(result, tostring(why) .. "\nrelay: " .. relay_log .. denials())
+  assert(result, explained(result == nil, tostring(why) .. "\nrelay: " .. relay_log))
   local said = fields(result.stdout or "")
-  assert(said.public == "HTTP/1.1 200 Connection established", redacted(tostring(result.stdout)) ..
-      "\nrelay: " .. relay_log .. denials())
+  holds(said.public == "HTTP/1.1 200 Connection established", redacted(tostring(result.stdout)) ..
+      "\nrelay: " .. relay_log)
 end
 
 --- What the relay answered a CONNECT to `target` that a policy granting
@@ -579,9 +585,9 @@ local function connect_through(tmp: string, target: string): string, string
     stdout = "capture", stderr = "capture", relay_log = log, timeout_ns = Clock.seconds(90) })
   assert(sys.close(log))
   local relay_log = Fs.read(log_path) or ""
-  assert(result, tostring(why) .. "\nrelay: " .. relay_log .. denials())
-  assert(result.ok, redacted(tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr)) ..
-      "\nrelay: " .. relay_log .. denials())
+  assert(result, explained(result == nil, tostring(why) .. "\nrelay: " .. relay_log))
+  holds(result.ok, redacted(tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr)) ..
+      "\nrelay: " .. relay_log)
   return tostring(fields(result.stdout or "").public), relay_log
 end
 
@@ -604,7 +610,7 @@ end
 --- host has no such routable (not link-local) address or the name does not resolve to it alone.
 local function test_a_granted_name_of_another_host_address_is_refused_as_its_own(tmp: string)
   macos_only()
-  local address: string
+  local address: string?
   for _, entry in ipairs((assert(sys.getifaddrs()))) do
     if entry.family == "ipv4" and not entry.loopback and not entry.address:find("^169%.254%.") then
       address = entry.address
@@ -651,9 +657,9 @@ end
 --- with no write.
 local function test_the_relays_policy_grants_reads_alone(_tmp: string)
   macos_only()
-  local policy = Sandbox.Relay.seatbelt_policy("/tmp/relay.db", string.rep("0", 64))
-  assert(policy.database.path == "/tmp/relay.db" and policy.profiles[1] == "system")
-  for _, grant in ipairs(policy.grants) do
+  local policy = RelayStart.seatbelt_policy("/tmp/relay.db", string.rep("0", 64))
+  assert(assert(policy.database).path == "/tmp/relay.db" and assert(policy.profiles)[1] == "system")
+  for _, grant in ipairs(policy.grants or {}) do
     assert(grant.letters == "r", grant.path .. " is granted " .. grant.letters)
   end
   assert(#(policy.connect or {}) == 0 and #(policy.promises or {}) == 0)

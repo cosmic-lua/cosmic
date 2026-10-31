@@ -2,32 +2,18 @@
 --- core/allocation_test.tl because it needs a children file in this
 --- process's mounted /proc as well as the checked core's instruments.
 
-local _ = require("cosmic.child") -- in the closure: [`process_table`] searches for it by hand
+local RawTables = require("build.raw_tables")
+local _ = require("cosmic.child") -- in the closure: [`RawTables`] searches for it by hand
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
-local type raw_process = require("cosmic.internal.process")
 local Test = require("cosmic.test")
 
 Test.policy{
   requires = { "checked", "path:/proc/thread-self/children" },
-  grants = { { path = "/proc", letters = "r" } },
+  profiles = { "proc" },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw process table, as the store's searcher hands it to
---- [`cosmic.child`]'s loader.
-local function process_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process -- cast: the table core/process.h declares
-    end
-  end
-  error("cosmic.child is handed no raw table")
-end
-
-local process = process_table()
+local process = RawTables.process()
 
 --- Runs `work` once per allocation it makes, refusing that allocation,
 --- and a last time with none refused; answers how many runs a refusal
@@ -70,8 +56,8 @@ local function assert_c_heap(before_bytes: integer, before_blocks: integer, what
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   assert(bytes == before_bytes and blocks == before_blocks,
-    what .. " left " .. (blocks - before_blocks) .. " blocks (" ..
-      (bytes - before_bytes) .. " bytes) on the C heap")
+    what .. " left " .. tostring((blocks - before_blocks)) .. " blocks (" ..
+      tostring((bytes - before_bytes)) .. " bytes) on the C heap")
 end
 
 --- `children` reads its list into a block of the core's C heap, and
@@ -85,6 +71,6 @@ local function test_children_releases_its_block_whenever_an_allocation_fails(tmp
   end)
   assert(ended > 0, "listing the children allocates")
   collectgarbage("collect")
-  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
+  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
   assert_c_heap(bytes, blocks, "children under refusal")
 end

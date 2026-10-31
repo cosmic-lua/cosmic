@@ -12,10 +12,10 @@ local record hash
     update: function(Hasher, data: string)
     -- The raw digest, or code for an HMAC; the hasher is finished after
     -- this and every further call to it throws.
-    digest: function(Hasher): string | nil, string
+    digest: function(Hasher): string?, string
     -- `local h <close> = ...`: an unfinished digest is abandoned and
     -- the hasher finished.
-    metamethod __close: function(Hasher, any)
+    __close: function(Hasher, any)
   end
 
   -- The raw digest of data, 16 to 64 bytes by algorithm (md5, sha1,
@@ -27,15 +27,18 @@ local record hash
   hmac: function(algorithm: string, key: string, data: string): string
   -- Raises when no algorithm has that name; nil, error when the
   -- digest cannot start.
-  hasher: function(algorithm: string): Hasher | nil, string
+  hasher: function(algorithm: string): Hasher?, string
   -- An incremental HMAC under key, of any length, whose digest is what
   -- `hmac` answers over the whole of what was fed. Raises when no
   -- algorithm has that name; nil, error when it cannot start.
-  hmac_hasher: function(algorithm: string, key: string): Hasher | nil, string
+  hmac_hasher: function(algorithm: string, key: string): Hasher?, string
   -- The sum of the unsigned bytes of data[first..last] (1-based,
   -- inclusive; the whole string by default). Raises when first < 1,
   -- last > #data, or first > last + 1; an empty range sums to 0.
   byte_sum: function(data: string, first?: integer, last?: integer): integer
+  -- Whether a and b hold the same bytes, in a time that depends on their
+  -- length alone; different lengths answer false at once.
+  equal: function(a: string, b: string): boolean
   -- The raw SipHash tag of data under a 16-byte key: `compression` and
   -- `finalization` rounds (2 and 4 by default, 1 to 64), and `size`
   -- bytes (8 by default, or 16). Raises on any other key length, round

@@ -1,160 +1,27 @@
---- The properties `cosmic fix` has to hold whatever it is given.
----
---- Three of them, each for a reason. Idempotency, because a fix that
---- keeps finding something to fix never converges, and one run of the
---- verb has to be enough. Determinism, because the renderer walks
---- tables whose key order Lua does not fix, so a traversal that leaked
---- into the output would give two different files from one input. And
---- a semantic round-trip, because neither of the first two can tell a
---- consistently wrong renderer from a right one.
----
---- Self-hosting is not checked here: that every Teal source in the tree
---- renders, is canonical, and stays at the fixed point on a second
---- pass. [`fix.source`] runs the second pass itself (`build.fix.init`)
---- and refuses a file that is not a fixed point, so `cosmic fix
---- --check .`, which CI runs over the whole tree as its format-check
---- step, holds the tree to it. A copy of that walk here would cost
---- about half the suite's wall time.
+--- What `cosmic fix` chooses to cover, and how it reads what it chooses: the files a run names and the files a walk
+--- finds, which of them make the run whole, what `--changed` narrows to, and the links it checks in each kind of file.
 
 local Fs = require("cosmic.fs")
-local ast = require("build.ast")
-local equiv = require("build.fix.equiv")
 local fix = require("build.fix")
 local link_resolve = require("build.link_resolve")
 local type docs = require("build.docs")
-local render_mod = require("build.fix.render")
 local Sqlite = require("cosmic.sqlite")
-local teal = require("build.teal")
+local Ast = require("lang.ast")
+local Format = require("build.fix.format")
+local laid = require("build.fix.laid")
+local SyntaxNode = require("build.syntax_node")
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
-end
-
---- A fixture broad enough to reach most of the grammar at once, in one
---- string, so the properties below are checked over something with
---- real shape rather than over a one-liner.
-local fixture = table.concat({
-  "--- A doc comment on the module.",
-  "local Mod = {}",
-  "",
-  "-- why this is here",
-  "local counts <const>: {string:integer} = {",
-  "  first = 1,",
-  "  second = 2,",
-  "}",
-  "",
-  "--- What this does.",
-  "--- @param name string",
-  "local function look_up(name: string, fallback?: integer): integer | nil, string",
-  "  if counts[name] == nil then",
-  "    return fallback, \"no such name: \" .. name -- give back what we can",
-  "  end",
-  "  for key, value in pairs(counts) do",
-  "    if key == name then return value end",
-  "  end",
-  "  local total = 0",
-  "  for i = 1, #name, 2 do",
-  "    total = total + i",
-  "  end",
-  "  while total > 100 do",
-  "    total = total // 2",
-  "  end",
-  "  return total, \"\"",
-  "end",
-  "",
-  "function Mod.run(argv: {integer:string}): integer",
-  "  local first = argv[1] as string",
-  "  local found, trouble = look_up(first,",
-  "    3)",
-  "  return found ~= nil and found or #trouble",
-  "end",
-  "",
-  "return Mod",
-  "",
-}, "\n")
-
---- Run the whole pipeline, asserting it succeeded.
-local function fixed(source: string, name: string): string
-  local result, trouble = fix.source(built, source, name)
-  assert(result ~= nil, name .. ": fix refused it: " .. tostring(trouble))
-  return result.source
-end
-
---- Fixing what was already fixed changes nothing further.
-local function test_fixing_twice_is_the_same_as_fixing_once()
-  local once = fixed(fixture, "fixture.tl")
-  local twice = fixed(once, "fixture.tl")
-  assert(twice == once, "second pass differs:\n" .. twice .. "\nfirst:\n" .. once)
-end
-
---- A type alias of a function whose last return is variadic keeps its
---- `...`: the alias is written from its tokens, and the list of returns
---- ends at the `...`, not before it.
-local function test_a_variadic_return_in_a_type_alias_is_kept()
-  local source = table.concat({
-    "local type Call = function(...: any): any...",
-    "local type Pair = function(): string, integer...",
-    "local f: Call = nil",
-    "local g: Pair = nil",
-    "return { f = f, g = g }",
-    "",
-  }, "\n")
-  local result = fixed(source, "variadic.tl")
-  assert(result == source, "changed:\n" .. result)
-end
-
---- Rendering an already-canonical source leaves it byte for byte.
-local function test_a_canonical_source_is_left_alone()
-  local once = fixed(fixture, "fixture.tl")
-  local result, trouble = fix.source(built, once, "fixture.tl")
-  assert(result ~= nil, "fix refused it: " .. tostring(trouble))
-  assert(not result.changed, "a second pass reported a change")
-end
-
---- The same input gives the same bytes, run after run: nothing in the
---- renderer depends on the order Lua visits a table's keys.
-local function test_the_same_input_renders_the_same_bytes_every_time()
-  local first = fixed(fixture, "fixture.tl")
-  for round = 2, 8 do
-    local again = fixed(fixture, "fixture.tl")
-    assert(again == first, "round " .. round .. " differs from the first")
-  end
-end
-
---- What was rendered parses to the same tree, and carries the same
---- comments, as what it was rendered from. The verb checks this too;
---- it is checked here directly because golden strings alone cannot
---- establish it.
-local function test_rendering_keeps_the_tree_and_the_comments()
-  local before, before_trouble = ast.parse(built, fixture, "fixture.tl")
-  assert(before ~= nil, "parse failed: " .. tostring(before_trouble))
-  local after, after_trouble = ast.parse(built, fixed(fixture, "fixture.tl"),
-    "fixture.tl")
-  assert(after ~= nil, "reparse failed: " .. tostring(after_trouble))
-  local same, difference = equiv.same_tree(before.node, after.node)
-  assert(same, "the tree changed: " .. difference)
-  local kept, lost = equiv.same_comments(before.tokens, after.tokens)
-  assert(kept, "the comments changed: " .. lost)
-  assert(#equiv.comments(before.tokens) > 0, "the fixture carries no comments")
-end
-
---- Mangled spacing and indentation come back canonical, and still mean
---- the same thing. The properties above would all hold for a renderer
---- that changed nothing, and this shows that it does change things.
-local function test_mangled_spacing_and_indentation_are_repaired()
-  local mangled = "local   x <const>   = 5\nlocal t = {1,2}\nif  x  then\n" ..
-    "        print( x )\nend\n"
-  local want = "local x <const> = 5\nlocal t = { 1, 2 }\nif x then\n" ..
-    "  print(x)\nend\n"
-  local got = fixed(mangled, "mangled.tl")
-  assert(got == want, "got:\n" .. got .. "\nwant:\n" .. want)
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
 end
 
 --- A named path the verb will not take is a refusal among the files the
 --- run covers, not an end to the run: it comes back in `refused` with
 --- the others still listed, so the verb can report it and still end in
---- its verdict line.
+--- its summary.
 ---
 --- What a path is decided before what it is named. A path with nothing
 --- at it is missing, whatever its suffix: answering `nope` with a
@@ -173,15 +40,15 @@ local function test_a_path_that_is_not_there_is_missing_before_it_is_judged(tmp:
       tostring(trouble))
   assert(#picked.files == 1 and picked.files[1] == tmp .. "/real.tl",
     "the real source should still be listed")
-  assert(#picked.refused == 3, "expected three refusals, got " .. #picked.refused)
+  assert(#picked.refused == 3, "expected three refusals, got " .. tostring(#picked.refused))
   for i, what in ipairs({ "nope", "nosuchdir/" }) do
-    assert(picked.refused[i]:find("No such file", 1, true) ~= nil,
+    assert(nth(picked.refused, i):find("No such file", 1, true) ~= nil,
       what .. " should be reported as missing, not judged on its suffix: " ..
-        picked.refused[i])
+        nth(picked.refused, i))
   end
-  assert(picked.refused[3]:find("not a Teal, C or template source, YAML, Markdown or Zig", 1, true) ~= nil,
+  assert(nth(picked.refused, 3):find("not a Teal, C or template source, YAML, Markdown or Zig", 1, true) ~= nil,
     "a file that is there but is not Teal should be said so: " ..
-      picked.refused[3])
+      nth(picked.refused, 3))
 end
 
 --- A template is parsed and never rewritten: it is chosen apart from the
@@ -205,7 +72,7 @@ local function test_c_is_taken_only_in_cosmics_own_tree(tmp: string)
   assert(Fs.write(tmp .. "/a.c", "int a;\n"))
   local picked = assert(fix.chosen(tmp, { tmp .. "/a.c", tmp }))
   assert(#picked.c_files == 0, "a tree of another's has no C checked")
-  assert(picked.refused[1]:find("only in cosmic's own tree", 1, true) ~= nil,
+  assert(nth(picked.refused, 1):find("only in cosmic's own tree", 1, true) ~= nil,
     picked.refused[1])
 
   assert(Fs.mkdirs(tmp .. "/own/core"))
@@ -245,21 +112,19 @@ end
 
 --- A program's modules, as its own database holds them, which
 --- [`fix.narrowed`] reads: every module that checks each file alone,
---- the Teal layout's requiring cosmic.string.
+--- the reading of Teal's requiring cosmic.string.
 local function program_modules(): Sqlite.Handle
   local db = assert(Sqlite.memory())
   assert(Sqlite.run(db, "CREATE TABLE modules (path TEXT, file TEXT)"))
   assert(Sqlite.run(db, "CREATE TABLE imports (path TEXT, requires TEXT)"))
-  for _, module in ipairs({ "build.fix.rule", "build.fix.render", "build.fix.breaks",
-      "build.fix.equiv", "build.ast",
-      "build.teal", "build.flow", "build.c", "build.fix.near",
-      "build.analyzer", "build.verdict", "build.tree", "cosmic.flags",
+  for _, module in ipairs({ "build.syntax_node", "build.syntax_links", "build.syntax_analyzer",
+      "build.flow", "build.c", "build.fix.near", "build.fix.laid", "build.logger", "build.tree", "cosmic.flags",
       "cosmic.cli", "cosmic.template",
       "cosmic.string" }) do
     assert(Sqlite.run(db, "INSERT INTO modules VALUES (?1, ?2)",
       { { text = module }, { text = module:gsub("%.", "/") .. ".tl" } }))
   end
-  assert(Sqlite.run(db, "INSERT INTO imports VALUES ('build.fix.rule', 'cosmic.string')"))
+  assert(Sqlite.run(db, "INSERT INTO imports VALUES ('build.syntax_node', 'cosmic.string')"))
   return db
 end
 
@@ -285,7 +150,7 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
   assert(every.whole and #every.c_files == 2, "the fixture is no tree of cosmic's own")
   local db = program_modules()
   local function names(files: {string}): string
-    local sorted: {string} = {}
+    local sorted: mut {string} = {}
     for _, file in ipairs(files) do sorted[#sorted + 1] = file end
     table.sort(sorted)
     return table.concat(sorted, " ")
@@ -297,13 +162,15 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
   assert(narrowed.whole and narrowed.every == every, "a run of --changed is not whole")
   assert(names(narrowed.files) == "ci/a.tl cosmic/thing.tl", names(narrowed.files))
   assert(#narrowed.c_files == 0 and #narrowed.flow_files == 0, "it lays out C or YAML that did not change")
-  assert(names(narrowed.noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
-    "it notes " .. names(narrowed.noted))
+  local noted = assert(narrowed.noted)
+  assert(names(noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
+    "it notes " .. names(noted))
 
   narrowed = fix.narrowed(own, every, { "ci/a.tl", "lib/b.c" }, { db })
+  noted = assert(narrowed.noted)
   assert(narrowed.widened == nil and names(narrowed.files) == "ci/a.tl" and
-      names(narrowed.noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
-    "outside the standard library, it notes " .. names(narrowed.noted))
+      names(noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
+    "outside the standard library, it notes " .. names(noted))
   assert(names(narrowed.c_files) == "core/a.c lib/b.c", "one C file changed holds " ..
       names(narrowed.c_files) .. " to the rules")
 
@@ -313,10 +180,11 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
       { "build/patch.tl", "patched" }, { "ci/cosmic-driver.pin", "clang" },
       { ".", "the whole tree" }, { "/elsewhere/x.tl", "outside the tree" },
   }) do
-    local widened = fix.narrowed(own, every, { "ci/a.tl", case[1] }, { db })
-    assert(widened.widened ~= nil and widened.widened:find(case[2], 1, true) ~= nil and
+    local widened = fix.narrowed(own, every, { "ci/a.tl", nth(case, 1) }, { db })
+    local widened_widened = widened.widened
+    assert(widened_widened ~= nil and widened_widened:find(nth(case, 2), 1, true) ~= nil and
         #widened.files == #every.files and widened.noted == nil,
-      case[1] .. ": " .. tostring(widened.widened))
+      nth(case, 1) .. ": " .. tostring(widened_widened))
   end
   -- A test of the core is not what the program runs on; its links are
   -- checked with every other file's, and it is not laid out.
@@ -324,62 +192,10 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
   assert(tested.widened == nil and #tested.files == 0, tostring(tested.widened))
   local empty = assert(Sqlite.memory())
   local unknown = fix.narrowed(own, every, { "ci/a.tl" }, { empty })
-  assert(unknown.widened ~= nil and unknown.widened:find("not among the program's modules", 1, true) ~= nil,
-    tostring(unknown.widened))
+  local unknown_widened = unknown.widened
+  assert(unknown_widened ~= nil and unknown_widened:find("not among the program's modules", 1, true) ~= nil,
+    tostring(unknown_widened))
   assert(db:close() and empty:close())
-end
-
---- Changed output still has to parse and preserve both syntax and comments.
-local function test_changed_rendering_is_checked_before_it_is_accepted()
-  local original = render_mod.laid_out
-  local ok, trouble = pcall(function(): (any...)
-    local source = "-- keep this\nlocal x = 1\n"
-    local outputs = {
-      "-- keep this\nlocal x = 2\n",
-      "local x = 1\n",
-      "local local\n",
-    }
-    local errors = {
-      "rendering changed the program:",
-      "rendering changed the comments:",
-      "what was rendered does not parse:",
-    }
-    for i, output in ipairs(outputs) do
-      render_mod.laid_out = function(): render_mod.Layout | nil, string
-        return { text = output }
-      end
-      local result, why = fix.source(built, source, "probe.tl")
-      assert(result == nil, "corrupt rendering was accepted")
-      assert(why:find(errors[i], 1, true) ~= nil, why)
-    end
-  end)
-  render_mod.laid_out = original
-  assert(ok, tostring(trouble))
-end
-
---- A renderer whose output is not a fixed point is refused, even when
---- its first pass looks fine on its own: [`fix.source`] renders what it
---- produced a second time and requires the same bytes back. The first
---- pass changes the text, since one that leaves it untouched has
---- rendered the very tree and text a second pass would.
-local function test_a_renderer_that_is_not_a_fixed_point_is_refused()
-  local original = render_mod.laid_out
-  local ok, trouble = pcall(function(): (any...)
-    local source = "local x = 1\n"
-    local calls = 0
-    render_mod.laid_out = function(_: ast.Parsed, src: string): render_mod.Layout | nil, string
-      calls = calls + 1
-      if calls == 1 then
-        return { text = "local  x = 1\n" }
-      end
-      return { text = src .. "-- a second pass added this\n" }
-    end
-    local result, why = fix.source(built, source, "probe.tl")
-    assert(result == nil, "a renderer that is not a fixed point was accepted")
-    assert(why:find("not a fixed point", 1, true) ~= nil, why)
-  end)
-  render_mod.laid_out = original
-  assert(ok, tostring(trouble))
 end
 
 --- A YAML file named is laid out by [`build.flow`], in any tree; one
@@ -406,9 +222,9 @@ local function test_yaml_in_flow_style_is_taken(tmp: string)
   -- `.github/` named, or a directory under it, covers what it holds.
   for _, dir in ipairs({ tmp .. "/own/.github", tmp .. "/own/.github/actions", tmp .. "/own/.github/actions/" }) do
     picked = assert(fix.chosen(tmp .. "/own", { dir }))
-    assert(#picked.flow_files == 1 and picked.flow_files[1]:match("/%.github/actions/x/action%.yml$"),
+    assert(#picked.flow_files == 1 and picked.flow_files[1]:match("/%.github/actions/x/action%.yml$") ~= nil,
       dir .. ": " .. table.concat(picked.flow_files, " "))
-    assert(not picked.flow_files[1]:find("//", 1, true), picked.flow_files[1])
+    assert(not nth(picked.flow_files, 1):find("//", 1, true), picked.flow_files[1])
   end
   -- Whether a directory lies under `.github/` is read off its path in
   -- the tree, not above it; and `vendor/` is never covered.
@@ -425,7 +241,7 @@ local function test_yaml_in_flow_style_is_taken(tmp: string)
   for _, named in ipairs({ {}, { nested } }) do
     picked = assert(fix.chosen(nested, named))
     local got = table.concat(picked.flow_files, " ")
-    assert(#picked.flow_files == 1 and got:match("%.github/workflows/w%.yml$"), got)
+    assert(#picked.flow_files == 1 and got:match("%.github/workflows/w%.yml$") ~= nil, got)
   end
   for _, dir in ipairs({ nested .. "/vendor/lua", nested .. "/docs" }) do
     picked = assert(fix.chosen(nested, { dir }))
@@ -445,7 +261,7 @@ local function test_yaml_is_laid_out_in_place(tmp: string)
   changed = {}
   fix.lay_out({ path, tmp .. "/b.yml" }, false, changed, failures)
   assert(#changed == 1 and (Fs.read(path)) == "{a: 1, b: [1, 2]}\n", (Fs.read(path)))
-  assert(#failures == 1 and failures[1]:find("not in flow style", 1, true), failures[1])
+  assert(#failures == 1 and failures[1]:find("not in flow style", 1, true) ~= nil, failures[1])
   assert(Fs.read(tmp .. "/b.yml") == "a: 1\n")
   changed = {}
   fix.lay_out({ path }, true, changed, {})
@@ -488,13 +304,13 @@ end
 --- A world on disk under `root`, where no symbol is known but `known`.
 local function on_disk(root: string, known: {string: {link_resolve.Symbol}}): link_resolve.Context
   return link_resolve.on_disk(root,
-    function(query: string): {link_resolve.Symbol} | nil, string
+    function(query: string): {link_resolve.Symbol}?, string
       return known[query] or {}, ""
     end,
-    function(_: string, _: string): {link_resolve.Symbol} | nil, string
+    function(_: string, _: string): {link_resolve.Symbol}?, string
       return {}, ""
     end,
-    function(): string | nil return nil end)
+    function(): string? return nil end)
 end
 
 --- A link that resolves passes and one that does not fails, naming its
@@ -535,7 +351,7 @@ local function test_a_broken_link_fails_in_each_kind_of_file(tmp: string)
   }, "\n")))
   local context = on_disk(root, { ["Known.thing"] = { { module = "known", symbol = "Known.thing" } } })
   local files = { root .. "/doc/guide.md", root .. "/a.tl", root .. "/b.c", root .. "/build.zig" }
-  local found = table.concat(fix.links(context, built, files).broken, "\n")
+  local found = table.concat(fix.links(context, files).broken, "\n")
   local want = table.concat({
     root .. "/doc/guide.md:4: link: #nowhere does not resolve (no heading of guide.md has the anchor #nowhere)",
     root .. "/doc/guide.md:4: link: missing.md does not resolve (no declaration, symbol or file by that name)",
@@ -554,23 +370,24 @@ local function test_links_read_symbols_from_a_build_made_when_needed(tmp: string
   assert(Fs.write(root .. "/a.md", "[`m.one`] [`m.two`]\n"))
   assert(Fs.write(root .. "/b.md", "[b](b.md)\n"))
   for _, whole in ipairs({ false, true }) do
-    local rebuilt, opened = 0, 0
+    local rebuilt = { value = 0 }
+    local opened = { value = 0 }
     local source = fix.link_context(root, whole, true,
       function(_: string): boolean, string
-        rebuilt = rebuilt + 1
+        rebuilt.value = rebuilt.value + 1
         return true, ""
       end,
       function(): docs.Sources
-        opened = opened + 1
+        opened.value = opened.value + 1
         return { handles = {}, public = {}, opened = {} }
       end)
-    fix.links(source.context, built, { root .. "/b.md" })
-    assert(opened == 0 and rebuilt == 0, "a file with no symbol link opened the databases")
-    local found = fix.links(source.context, built, { root .. "/a.md" })
+    fix.links(source.context, { root .. "/b.md" })
+    assert(opened.value == 0 and rebuilt.value == 0, "a file with no symbol link opened the databases")
+    local found = fix.links(source.context, { root .. "/a.md" })
     source.close()
     assert(#found.broken == 2, table.concat(found.broken, "\n"))
-    assert(opened == 1, "opened " .. opened .. " times")
-    assert(rebuilt == (whole and 0 or 1), (whole and "whole" or "part") .. ": rebuilt " .. rebuilt)
+    assert(opened.value == 1, "opened " .. opened.value .. " times")
+    assert(rebuilt.value == (if whole then 0 else 1 end), (if whole then "whole" else "part" end) .. ": rebuilt " .. rebuilt.value)
   end
 end
 
@@ -582,11 +399,11 @@ local function test_links_keep_why_their_build_failed(tmp: string)
   for _, case in ipairs({ { ok = false, want = "a.tl: the compiler refused it" }, { ok = true } }) do
     local source = fix.link_context(root, false, true,
       function(_: string): boolean, string
-        return case.ok, case.ok and "" or "a.tl: the compiler refused it"
+        return case.ok, if case.ok then "" else "a.tl: the compiler refused it" end
       end,
       function(): docs.Sources return { handles = {}, public = {}, opened = {} } end)
     assert(source.unbuilt == nil, "before a link named a symbol")
-    fix.links(source.context, built, { root .. "/a.md" })
+    fix.links(source.context, { root .. "/a.md" })
     source.close()
     assert(source.unbuilt == case.want, tostring(source.unbuilt))
   end
@@ -603,10 +420,10 @@ local function test_links_to_symbols_wait_for_a_build(tmp: string)
   local source = fix.link_context(root, false, false,
     function(_: string): boolean, string return true, "" end,
     function(): docs.Sources return { handles = {}, public = {}, opened = {} } end)
-  local found = fix.links(source.context, built, { root .. "/a.md", root .. "/b.tl" })
+  local found = fix.links(source.context, { root .. "/a.md", root .. "/b.tl" })
   source.close()
-  assert(#found.broken == 1 and found.broken[1]:find("gone.md", 1, true), table.concat(found.broken, "\n"))
-  assert(#found.notes == 1 and found.notes[1]:find("3 links to a symbol not checked", 1, true),
+  assert(#found.broken == 1 and found.broken[1]:find("gone.md", 1, true) ~= nil, table.concat(found.broken, "\n"))
+  assert(#found.notes == 1 and found.notes[1]:find("3 links to a symbol not checked", 1, true) ~= nil,
     table.concat(found.notes, "\n"))
 end
 
@@ -618,15 +435,15 @@ local function test_an_unbuilt_project_still_checks_a_known_modules_members(tmp:
   assert(Fs.write(root .. "/a.tl", 'local Fs = require("cosmic.fs")\n\n--- See [`Fs.nosuch`].\n' ..
       'local function f(): string return (Fs.read("x")) end\n\nreturn f\n'))
   local context = link_resolve.on_disk(root,
-    function(query: string): {link_resolve.Symbol} | nil, string
+    function(query: string): {link_resolve.Symbol}?, string
       if query == "cosmic.fs" then return { { module = "cosmic.fs", symbol = "" } }, "" end
       return {}, ""
     end,
-    function(_: string, _: string): {link_resolve.Symbol} | nil, string return {}, "" end,
-    function(): string | nil return "not built" end)
-  local found = fix.links(context, built, { root .. "/a.tl" })
+    function(_: string, _: string): {link_resolve.Symbol}?, string return {}, "" end,
+    function(): string? return "not built" end)
+  local found = fix.links(context, { root .. "/a.tl" })
   assert(#found.broken == 1 and found.broken[1]:find("Fs.nosuch does not resolve (cosmic.fs has no nosuch)",
-    1, true), table.concat(found.broken, "\n"))
+    1, true) ~= nil, table.concat(found.broken, "\n"))
   assert(#found.notes == 0, table.concat(found.notes, "\n"))
 end
 
@@ -654,7 +471,7 @@ local function test_a_plain_span_would_link_and_a_fix_links_it(tmp: string)
   assert(Fs.write(root .. "/a.md", text))
   local context = on_disk(root, { ["Known.thing"] = { { module = "known", symbol = "Known.thing",
     file = "known.tl" } } })
-  local checking = fix.links(context, built, { root .. "/a.md" }, "check")
+  local checking = fix.links(context, { root .. "/a.md" }, "check")
   local said = table.concat(checking.would, "\n")
   assert(said == root .. "/a.md:1: link: `Known.thing` would link to known.Known.thing", said)
   assert(#checking.redefined == 1 and
@@ -662,11 +479,173 @@ local function test_a_plain_span_would_link_and_a_fix_links_it(tmp: string)
     table.concat(checking.redefined, "\n"))
   assert(#checking.broken == 0 and #checking.rewritten == 0, table.concat(checking.broken, "\n"))
   assert(assert(Fs.read(root .. "/a.md")) == text, "a check wrote the file")
-  local fixing = fix.links(context, built, { root .. "/a.md" }, "write")
+  local fixing = fix.links(context, { root .. "/a.md" }, "write")
   assert(#fixing.broken == 0 and #fixing.would == 0, table.concat(fixing.broken, "\n"))
   assert(#fixing.rewritten == 1, tostring(#fixing.rewritten))
   local written = assert(Fs.read(root .. "/a.md"))
   assert(written == "Use [`Known.thing`] here.\n\n[`Known.thing`]: known.tl\n", written)
-  local again = fix.links(context, built, { root .. "/a.md" }, "check")
+  local again = fix.links(context, { root .. "/a.md" }, "check")
   assert(#again.would == 0 and #again.broken == 0, table.concat(again.would, "\n"))
+end
+
+--- A project's `static/` is carried verbatim: no Teal, template, Markdown
+--- or other file under it is laid out, parsed or link-checked, whether the
+--- run names it or the whole tree.
+local function test_nothing_under_static_is_chosen(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/static/docs"))
+  assert(Fs.write(tmp .. "/static/a.tl", "this is   not Teal {{\n"))
+  assert(Fs.write(tmp .. "/static/p.tmpl", "{{ unclosed\n"))
+  assert(Fs.write(tmp .. "/static/docs/readme.md", "[dead](nowhere.md)\n"))
+  assert(Fs.write(tmp .. "/main.tl", "return 1\n"))
+  local every = assert(fix.chosen(tmp, {}))
+  assert(#every.files == 1 and every.files[1] == "main.tl", table.concat(every.files, " "))
+  assert(#every.templates == 0 and #every.checked == 0 and #every.refused == 0)
+  for _, path in ipairs({ tmp .. "/static", tmp .. "/static/a.tl", tmp .. "/static/docs/readme.md" }) do
+    local named = assert(fix.chosen(tmp, { path }))
+    assert(#named.files == 0 and #named.templates == 0 and #named.checked == 0, path)
+    assert(#named.refused == 1 and named.refused[1]:find("carried verbatim", 1, true) ~= nil, path)
+  end
+end
+
+--- A Teal file of `source` in `tmp`, laid out by [`fix.lay_out_source`] (`checking`, `kept` and `layout` as it takes
+--- them), and what it did.
+local function laid_in(tmp: string, name: string, source: string, checking: boolean, kept?: laid.Kept,
+                       layout?: Format.Layouter): fix.Laid, string
+  local file = tmp .. "/" .. name
+  assert(Fs.write(file, source))
+  local chunk = assert(SyntaxNode.parse(source, file))
+  return fix.lay_out_source(file, source, chunk, checking, kept, layout), file
+end
+
+--- A layout that is `text`, whatever the source: a faulty formatter.
+local function giving(text: string): Format.Layouter
+  return function(_source: string, _name: string, _dialect?: Ast.Dialect): string?, string
+    return text, ""
+  end
+end
+
+--- A plain run writes the layout of a file and what it left is laid out: laying it out again writes nothing.
+local function test_a_file_not_laid_out_is_written(tmp: string)
+  local done, file = laid_in(tmp, "a.tl", "local   x=1\nprint( x )\n", false)
+  assert(done.state == "written" and done.why == "", done.why)
+  assert(Fs.read(file) == "local x = 1\nprint(x)\n", "the layout was not written")
+  assert(done.text == "local x = 1\nprint(x)\n", "the later phases would read the text before")
+  assert(Fs.read(file) == done.text)
+  local again = fix.lay_out_source(file, done.text, done.chunk, false, nil)
+  assert(again.state == "laid", again.state)
+end
+
+--- A check says the file is not laid out and writes nothing: the later phases read the file as it is.
+local function test_a_check_leaves_a_file_not_laid_out_as_it_is(tmp: string)
+  local source = "local   x=1\n"
+  local done, file = laid_in(tmp, "a.tl", source, true)
+  assert(done.state == "unlaid" and done.text == source, done.state)
+  assert(Fs.read(file) == source, "a check wrote the file")
+  local laid_out = laid_in(tmp, "b.tl", "local x = 1\n", true)
+  assert(laid_out.state == "laid")
+end
+
+--- A faulty layout and why the formatter refuses it.
+local record Refusal
+  layout: string
+  reason: string
+end
+
+--- A layout that is not the file, or not a fixed point, is a fault of the formatter: the file is left as it is, in a
+--- plain run as in a check, with the formatter's reason.
+local function test_a_refusal_never_writes_and_says_why(tmp: string)
+  local source = "local x = 1 -- c\nlocal y = { 1, 2 }\n"
+  local cases: {Refusal} = {
+    { layout = "local x = 1\nlocal y = { 1, 2 }\n", reason = "the layout is not the same as the file" },
+    { layout = "local x = 1 -- c\nlocal y = { 1 }\n", reason = "the layout is not the same as the file" },
+    { layout = "local x = 1 -- c\nlocal y =  { 1, 2 }\n", reason = "not a fixed point" },
+  }
+  for _, case in ipairs(cases) do
+    for _, checking in ipairs({ true, false }) do
+      local done, file = laid_in(tmp, "r.tl", source, checking, nil, giving(case.layout))
+      assert(done.state == "refused", done.state)
+      assert(done.why:find(case.reason, 1, true) ~= nil and done.why:find("r.tl", 1, true) ~= nil, done.why)
+      assert(Fs.read(file) == source, "a refused file was written")
+      assert(done.text == source)
+    end
+  end
+end
+
+--- A file the memo holds as laid out is answered without the formatter, and one it does not is formatted: a memo that
+--- holds the code of another formatter, or another text, misses.
+local function test_the_memo_answers_a_file_it_holds_and_misses_one_it_does_not(tmp: string)
+  local db = assert(Sqlite.memory())
+  local kept = assert(laid.begin(db, "formatter one"))
+  local source = "local x = 1\n"
+  -- The faulty formatter would refuse a file laid out, if it were asked: the first run asks it.
+  local refused = laid_in(tmp, "m.tl", source, false, kept, giving("local x = 2\n"))
+  assert(refused.state == "refused", refused.state)
+  -- Asked without the faulty one, the file is found laid out and kept.
+  assert(laid_in(tmp, "m.tl", source, false, kept).state == "laid")
+  -- A hit is not asked of any formatter.
+  assert(laid_in(tmp, "m.tl", source, false, kept, giving("local x = 2\n")).state == "laid", "a hit asked the formatter")
+  -- Another formatter, or another text, misses.
+  laid.finish(kept, false)
+  local other = assert(laid.begin(db, "formatter two"))
+  assert(laid_in(tmp, "m.tl", source, false, other, giving("local x = 2\n")).state == "refused", "a formatter change hit")
+  laid.finish(other, false)
+  local again = assert(laid.begin(db, "formatter one"))
+  assert(laid_in(tmp, "m.tl", source, false, again, giving("local x = 2\n")).state == "laid")
+  assert(laid_in(tmp, "m.tl", "local x  =  1\n", false, again).state == "written", "a changed text hit")
+  laid.finish(again, false)
+end
+
+--- A declaration file is laid out as one, a program as a program: the dialect is the name's.
+local function test_a_declaration_file_is_laid_out_as_a_declaration_file(tmp: string)
+  local source = "local  record R\n  x:   integer\n  yy:  string\nend\n\nreturn R\n"
+  local done, file = laid_in(tmp, "r.d.tl", source, false)
+  assert(done.state == "written", done.why)
+  assert(Fs.read(file) == "local record R\n  x:   integer\n  yy:  string\nend\n\nreturn R\n", Fs.read(file))
+  local kept = assert(laid.begin(assert(Sqlite.memory()), "s"))
+  assert(laid_in(tmp, "r.d.tl", assert(Fs.read(file)), false, kept).state == "laid")
+  -- Kept for a declaration file, not for a program of the same text.
+  assert(laid_in(tmp, "r.tl", assert(Fs.read(file)), false, kept, giving("local record R\nend\n")).state == "refused")
+end
+
+--- A script that is executable stays so when its layout is written.
+local function test_a_file_written_keeps_its_mode(tmp: string)
+  local file = tmp .. "/script.tl"
+  assert(Fs.write(file, "local   x=1\n"))
+  assert(Fs.chmod(file, 0x1ed))
+  local source = assert(Fs.read(file))
+  local chunk = assert(SyntaxNode.parse(source, file))
+  assert(fix.lay_out_source(file, source, chunk, false, nil).state == "written")
+  assert(Fs.read(file) == "local x = 1\n")
+  assert(assert(Fs.stat(file)).mode & 0xfff == 0x1ed, "the mode was lost")
+end
+
+--- A link is not written: a write would replace it with a copy and leave its target as it was.
+local function test_a_link_is_not_written(tmp: string)
+  local target = tmp .. "/real.tl"
+  local link = tmp .. "/link.tl"
+  assert(Fs.write(target, "local   x=1\n"))
+  assert(Fs.symlink("real.tl", link))
+  local source = assert(Fs.read(link))
+  local chunk = assert(SyntaxNode.parse(source, link))
+  local done = fix.lay_out_source(link, source, chunk, false, nil)
+  assert(done.state == "linked" and done.why == "not written: " .. link .. " is a link; fix its target", done.why)
+  assert(Fs.readlink(link) == "real.tl", "the link was replaced")
+  assert(Fs.read(target) == "local   x=1\n")
+  -- A check says only that it is not laid out.
+  assert(fix.lay_out_source(link, source, chunk, true, nil).state == "unlaid")
+  -- The target is laid out by naming it.
+  assert(fix.lay_out_source(target, source, chunk, false, nil).state == "written")
+  assert(Fs.read(target) == "local x = 1\n")
+end
+
+--- A file edited since it was read is not overwritten.
+local function test_a_file_changed_while_being_laid_out_is_not_written(tmp: string)
+  local file = tmp .. "/edited.tl"
+  assert(Fs.write(file, "local   x=1\n"))
+  local source = assert(Fs.read(file))
+  local chunk = assert(SyntaxNode.parse(source, file))
+  assert(Fs.write(file, "local   x=2\n"))
+  local done = fix.lay_out_source(file, source, chunk, false, nil)
+  assert(done.state == "changed" and done.why == "not written: " .. file .. " changed while being laid out", done.why)
+  assert(Fs.read(file) == "local   x=2\n", "the edit was overwritten")
 end

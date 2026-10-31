@@ -6,7 +6,7 @@
 --- macOS and Windows; only the default zone (the host's own, which
 --- `TZ` and /etc/localtime name) is the host's.
 ---
---- Like `cosmic json` it ends in no verdict line: its standard output is
+--- Like `cosmic json` it prints no summary: its standard output is
 --- data for a pipe or a `$(...)`, and complaints go to standard error.
 --- Its exit status is the verdict: 0 done, 1 an `add` whose answer does
 --- not exist (the day its month lacks, a moment outside what the calendar
@@ -57,6 +57,12 @@ local verb_spec = require("build.verb_spec")
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
+  --- A moment the verb read: its epoch and the zone the text named, none for
+  --- an epoch or a date, which name an instant and no zone.
+  record Moment
+    ns: integer
+    zone?: Time.Zone
+  end
   --- Where `run` reads and writes: what a test stands in for.
   record Io
     --- Writes to standard output, as given: the caller adds newlines.
@@ -67,13 +73,13 @@ local record verb
     --- The wall clock, in nanoseconds since 1970.
     now: function(): integer
     --- The host's zone, or nil and why.
-    local_zone: function(): Time.Zone | nil, string
+    local_zone: function(): Time.Zone?, string
   end
 end
 
 local NS <const> = 1000000000
 
-local spec = Cli.verbs.time.spec
+local spec = Cli.verbs.time.spec or {}
 
 local usage = "cosmic time now [--zone Z] [--format F] [--json] | " ..
   "convert <time> [--from Z] [--to Z] [--format F] [--json] [--disambiguate H] | " ..
@@ -95,36 +101,35 @@ local arity: {string:integer} = { now = 0, convert = 1, between = 2, add = 2 }
 --- A negative duration or epoch begins with "-", which `Flags` reads as an
 --- option; these forms are set aside under a name no option has and put
 --- back.
-local function protect(argv: {integer:string}): {integer:string}, {string:string}
-  local out: {integer:string} = { [0] = argv[0] }
-  local kept: {string:string} = {}
-  local slot = 1
+local function protect(argv: {string}): {string}, {string:string}
+  local out: mut {string} = {}
+  local kept: mut {string:string} = {}
   local ended = false
-  while argv[slot] ~= nil do
-    local word = argv[slot]
+  for slot, original in ipairs(argv) do
+    local word = original
     if word == "--" then ended = true end
     local before = slot > 1 and argv[slot - 1] or ""
     local option = spec[before]
     local is_value = false
     if option is Flags.Option then is_value = option.value ~= nil end
     if not ended and slot > 2 and not is_value and word:match("^%-%d") ~= nil then
-      local name = "\1kept" .. slot
+      local name = "\1kept" .. tostring(slot)
       kept[name] = word
       word = name
     end
-    out[slot] = word
-    slot = slot + 1
+    out[#out + 1] = word
   end
   return out, kept
 end
 
 --- The words and options `argv` holds, or nil and why.
-local function arguments(argv: {integer:string}): Flags.Parsed | nil, string
+local function arguments(argv: {string}): Flags.Parsed?, string
   local safe, kept = protect(argv)
   local parsed, trouble = Flags.parse(safe, 2, spec)
   if parsed == nil then return nil, trouble end
   for index, word in ipairs(parsed.words) do
-    if kept[word] ~= nil then parsed.words[index] = kept[word] end
+    local restored = kept[word]
+    if restored ~= nil then parsed.words[index] = restored end
   end
   return parsed, ""
 end
@@ -142,7 +147,7 @@ local function record_of(seen: Seen): {string:any}
   return {
     epoch = seen.ns // NS,
     rfc3339 = Time.format_rfc3339(seen.ns, seen.zone),
-    zone = seen.zone.name == "Etc/UTC" and "UTC" or seen.zone.name,
+    zone = if seen.zone.name == "Etc/UTC" then "UTC" else seen.zone.name end,
     offset = c.offset,
     abbreviation = c.abbreviation,
     dst = c.dst,
@@ -166,7 +171,7 @@ local function epoch_text(ns: integer): string
     local trimmed = ("%09d"):format(fraction):gsub("0+$", "")
     text = text .. "." .. trimmed
   end
-  return (negative and "-" or "") .. text
+  return (if negative then "-" else "" end) .. text
 end
 
 -- TODO: [`fraction_ns`], the range bounds below and [`epoch_text`]'s
@@ -187,7 +192,7 @@ local RANGE <const> = "outside 1677-09-21T00:12:43.145224192Z through " ..
 --- The nanoseconds the digits of a fraction of a second spell, one to
 --- nine of them: `5` is 500000000.
 local function fraction_ns(digits: string): integer
-  return math.tointeger(tonumber(digits .. ("0"):rep(9 - #digits)))
+  return (assert(math.tointeger(tonumber(digits .. ("0"):rep(9 - #digits))), "one to nine digits spell an integer"))
 end
 
 --- What the text [`verb.parse_input`] reads may spell.
@@ -201,16 +206,16 @@ local function plain(why: string): string
 end
 
 --- [`verb.parse_input`] less the forms' names in its failures.
-local function read_input(text: string, zone: Time.Zone | nil,
-                          how: Time.Disambiguation): Time.Zoned | nil, string
+local function read_input(text: string, zone: Time.Zone?,
+                          how: Time.Disambiguation): verb.Moment?, string
   if text:sub(1, 1) == "@" then
     local sign, whole, dot, frac = text:match("^@([+-]?)(%d+)(%.?)(%d*)$")
-    if whole == nil or #whole > 10 or #frac > 9 or (dot == "." and frac == "") then
+    if whole == nil or frac == nil or #whole > 10 or #frac > 9 or (dot == "." and frac == "") then
       return nil, "@ and seconds since 1970, as @1700000000 or @-1.5, at most 10 digits " ..
         "(the calendar ends in 2262) and 9 of fraction"
     end
-    local s = math.tointeger(tonumber(whole))
-    local n = frac == "" and 0 or fraction_ns(frac)
+    local s = assert(math.tointeger(tonumber(whole)), "at most ten digits spell an integer")
+    local n = if frac == "" then 0 else fraction_ns(frac) end
     if sign == "-" then
       s = -s
       if n > 0 then s, n = s - 1, NS - n end
@@ -227,14 +232,14 @@ local function read_input(text: string, zone: Time.Zone | nil,
   end
   local year, month, day, hour, minute, tail = text:match(
     "^(%d%d%d%d)%-(%d%d)%-(%d%d)[Tt](%d%d):(%d%d)(.*)$")
-  if tail ~= nil and (tail == "" or tail:match("^:%d%d$") or tail:match("^:%d%d%.%d+$")) then
-    local c: Time.Civil = {
+  if tail ~= nil and (tail == "" or tail:match("^:%d%d$") ~= nil or tail:match("^:%d%d%.%d+$") ~= nil) then
+    local c: Time.CivilFields = {
       year = math.tointeger(tonumber(year)), month = math.tointeger(tonumber(month)),
       day = math.tointeger(tonumber(day)), hour = math.tointeger(tonumber(hour)),
       minute = math.tointeger(tonumber(minute)), second = 0, ns = 0,
     }
     if tail ~= "" then
-      c.second = math.tointeger(tonumber(tail:sub(2, 3)))
+      c.second = assert(math.tointeger(tonumber(tail:sub(2, 3))), "a tail of seconds starts with two digits")
       if c.second == 60 then
         return nil, "second 60 is not 0 through 59: cosmic time has no leap seconds"
       end
@@ -251,22 +256,22 @@ local function read_input(text: string, zone: Time.Zone | nil,
     return { ns = ns }, ""
   end
   -- Seconds are optional as in the local form: `T12:00Z` is `T12:00:00Z`.
-  local zoned, why: Time.Zoned | nil, string
+  local zoned, why: Time.Zoned?, string
   local minutes, rest = text:match("^(%d%d%d%d%-%d%d%-%d%d[Tt]%d%d:%d%d)([Zz+%-].*)$")
-  if minutes ~= nil then
+  if minutes ~= nil and rest ~= nil then
     zoned, why = Time.parse_rfc3339_zoned(minutes .. ":00" .. rest)
     if zoned == nil then
       -- The text parsed had ":00" at bytes 17 to 19: a byte past them is 3 earlier in the user's.
       why = why:gsub("byte (%d+)", function(n: string): string
         local at = math.tointeger(n) or 0
-        return "byte " .. (at >= 17 and at - 3 or at)
+        return "byte " .. tostring((if at >= 17 then at - 3 else at end))
       end)
     end
   else
     zoned, why = Time.parse_rfc3339_zoned(text)
   end
   if zoned == nil then return nil, plain(why) end
-  return zoned, ""
+  return { ns = zoned.ns, zone = zoned.zone }, ""
 end
 
 --- The moment a user's text names, in whichever form they wrote it, or
@@ -284,7 +289,7 @@ end
 --- names the forms, then the fault. The zone returned is nil for the
 --- last three, which name none. Any text answers a moment or a failure.
 --- Raises for a `zone` no function of [`cosmic.time`] made.
-function verb.parse_input(text: string, zone?: Time.Zone, how?: Time.Disambiguation): Time.Zoned | nil, string
+function verb.parse_input(text: string, zone?: Time.Zone, how?: Time.Disambiguation): verb.Moment?, string
   local zoned, why = read_input(text, zone, how or "compatible")
   if zoned == nil then return nil, INPUT_FORMS .. ": " .. why end
   return zoned, ""
@@ -308,12 +313,12 @@ end
 --- cannot read.
 --- @param argv the command line, `time` at slot 1
 --- @param io where the text is written and the clock read; the process's own when nil
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+function verb.run(argv: {string}, io?: verb.Io): integer
   local to: verb.Io = io or {
     out = bare.out,
     err = bare.err,
     now = Time.now_ns,
-    local_zone = function(): Time.Zone | nil, string
+    local_zone = function(): Time.Zone?, string
       return Time.local_zone()
     end,
   }
@@ -329,14 +334,15 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   if sub == nil then return refuse("name now, convert, between or add") end
   local allowed = takes[sub]
   if allowed == nil then return refuse("no subcommand " .. sub) end
-  local is_allowed: {string:boolean} = {}
+  local is_allowed: mut {string:boolean} = {}
   for _, name in ipairs(allowed) do is_allowed[name] = true end
   for _, name in ipairs(parsed.given) do
-    if not is_allowed[name] then return refuse(name .. " is not an option of " .. sub) end
+    if is_allowed[name] ~= true then return refuse(name .. " is not an option of " .. sub) end
   end
-  if #parsed.words - 1 ~= arity[sub] then
-    return refuse(("%s takes %d word%s, not %d"):format(sub, arity[sub],
-      arity[sub] == 1 and "" or "s", #parsed.words - 1))
+  local words_taken = assert(arity[sub], "takes and arity name the same subcommands")
+  if #parsed.words - 1 ~= words_taken then
+    return refuse(("%s takes %d word%s, not %d"):format(sub, words_taken,
+      if words_taken == 1 then "" else "s" end, #parsed.words - 1))
   end
   local as_json = parsed.set["--json"] or false
   local format = parsed.values["--format"] or "rfc3339"
@@ -355,21 +361,22 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return refuse("--disambiguate is reject, earlier, later or compatible, not " .. how)
   end
 
-  local host: Time.Zone | nil
-  local function local_zone(): Time.Zone | nil
-    if host == nil then
+  -- The host's zone once asked for, which is asked for once.
+  local host: mut {Time.Zone} = {}
+  local function local_zone(): Time.Zone?
+    if host[1] == nil then
       local zone, why = to.local_zone()
       if zone == nil then
         complain("the host's time zone: " .. plain(why) .. "; name one with --zone, --from or --to")
         return nil
       end
-      host = zone
+      host[1] = zone
     end
-    return host
+    return host[1]
   end
   --- The zone an option names, the host's when it is not given; nil after
   --- a complaint.
-  local function zone_of(name: string): Time.Zone | nil
+  local function zone_of(name: string): Time.Zone?
     local text = parsed.values[name]
     if text == nil then return local_zone() end
     if text == "" then
@@ -388,7 +395,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   local function print_seen(seen: Seen, digits?: integer): integer
     if as_json then
-      local encoded, why = Json.encode(record_of(seen), { pretty = true })
+      local encoded, why = Json.encode_any(record_of(seen), { pretty = true })
       if encoded == nil then
         complain(why)
         return bare.refused
@@ -398,7 +405,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return written(shown(seen, format, digits) .. "\n")
   end
   --- What a time argument names: nil after a complaint.
-  local function read_time(text: string, zone: Time.Zone): Time.Zoned | nil
+  local function read_time(text: string, zone: Time.Zone): verb.Moment?
     local zoned, why = verb.parse_input(text, zone, disambiguation)
     if zoned == nil then
       complain(("%q: %s"):format(text, why))
@@ -417,7 +424,8 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   if sub == "convert" then
     local from = zone_of("--from")
     if from == nil then return bare.refused end
-    local zoned = read_time(parsed.words[2], from)
+    local convert_word = assert(parsed.words[2], "convert takes one word, which the arity check holds it to")
+    local zoned = read_time(convert_word, from)
     if zoned == nil then return bare.refused end
     local target = zone_of("--to")
     if target == nil then return bare.refused end
@@ -428,18 +436,20 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   -- own zone, else the host's.
   local fallback = zone_of("--zone")
   if fallback == nil then return bare.refused end
-  local first = read_time(parsed.words[2], fallback)
+  local first_word = assert(parsed.words[2], "between and add take two words, which the arity check holds them to")
+  local second_word = assert(parsed.words[3], "between and add take two words, which the arity check holds them to")
+  local first = read_time(first_word, fallback)
   if first == nil then return bare.refused end
   local calendar = parsed.values["--zone"] ~= nil and fallback or first.zone or fallback
 
   if sub == "add" then
-    local duration, why = Time.parse_duration(parsed.words[3])
+    local duration, why = Time.parse_duration(second_word)
     if duration == nil then
-      complain(("%q: %s"):format(parsed.words[3], plain(why)))
+      complain(("%q: %s"):format(second_word, plain(why)))
       return bare.refused
     end
     local moved, moved_why = Time.add_calendar(first.ns, duration, calendar, {
-      overflow = parsed.set["--clamp"] and "clamp" or "reject", disambiguation = disambiguation,
+      overflow = if parsed.set["--clamp"] == true then "clamp" else "reject" end, disambiguation = disambiguation,
     })
     if moved == nil then
       complain((plain(moved_why):gsub('overflow "clamp" takes its last', "--clamp takes its last")))
@@ -448,11 +458,11 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return print_seen({ ns = moved, zone = calendar })
   end
 
-  local second = read_time(parsed.words[3], calendar)
+  local second = read_time(second_word, calendar)
   if second == nil then return bare.refused end
-  local modes: {string} = {}
+  local modes: mut {string} = {}
   for _, name in ipairs({ "--days", "--months", "--seconds" }) do
-    if parsed.set[name] then modes[#modes + 1] = name end
+    if parsed.set[name] == true then modes[#modes + 1] = name end
   end
   if #modes > 1 then
     return refuse("name one of " .. table.concat(modes, " and ") .. ", not both")
@@ -472,10 +482,10 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     value = whole
   else
     local span = Time.between(first.ns, second.ns, calendar)
-    value = unit == "months" and span.years * 12 + span.months or Time.format_duration(span)
+    value = if unit == "months" then (span.years or 0) * 12 + (span.months or 0) else Time.format_duration(span) end
   end
   if as_json then
-    local encoded, why = Json.encode({
+    local encoded, why = Json.encode_any({
       unit = unit, value = value,
       from = record_of({ ns = first.ns, zone = calendar }),
       to = record_of({ ns = second.ns, zone = calendar }),
@@ -495,7 +505,7 @@ verb.spec = {
   name = "time",
   guide = "a quick question about a time",
   tests = { "build.time_test", "build.time_tool_test" },
-  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a subcommand and its times",
   exits = "`time` prints its answer and nothing after, exiting 1 when an `add` has none.",

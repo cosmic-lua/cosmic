@@ -8,7 +8,18 @@
 
 local docs = require("build.docs")
 local fixture = require("build.docs_fixture")
-local teal = require("build.teal")
+local Pipeline = require("build.pipeline")
+-- The modules the test compiles a use of: required at the top level, so its closure carries them.
+local _net = require("cosmic.net")
+local _http = require("cosmic.http")
+local _sandbox = require("cosmic.sandbox")
+
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
 
 local function source(...: string): string
   return table.concat({ ... }, "\n") .. "\n"
@@ -36,13 +47,13 @@ end
 --- name, and the build's own [`build.codec`], whose [`verb.encoder`] the
 --- qualifier `Codec` also names as a module's last name.
 local function tree(extra?: {string: string}): {string: string}
-  local files: {string: string} = {
+  local files: mut {string: string} = {
     ["cosmic/net.tl"] = module("net", "Net"),
     ["cosmic/http.tl"] = module("http", "Http"),
     ["cosmic/codec.tl"] = module("codec", "Codec"),
     ["cosmic/env.tl"] = module("env", "Env", source(
       "--- One variable; this is the os.getenv operation.",
-      "function Env.get(name: string): string | nil",
+      "function Env.get(name: string): string?",
       "  return name",
       "end",
       "")),
@@ -68,7 +79,7 @@ end
 --- The page `query` answers, as `cosmic docs` prints it: every entry's
 --- lines in turn.
 local function page(view: docs.View, found: docs.Lookup): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, entry in ipairs(found) do
     for _, line in ipairs((assert(docs.render(view, entry)))) do
       out[#out + 1] = line
@@ -84,15 +95,15 @@ local function test_a_removed_member_answers_its_replacement(dir: string)
   local view = assert(docs.view({ fixture.database(dir, tree()) }))
   for _, query in ipairs({ "Net.pair", "net.pair", "cosmic.net.pair" }) do
     local found = assert(docs.lookup(view, query))
-    assert(found.exact and #found == 1 and found[1].kind == "removed", query)
-    assert(found[1].module == "cosmic.net", found[1].module)
+    assert(found.exact and #found == 1 and nth(found, 1).kind == "removed", query)
+    assert(nth(found, 1).module == "cosmic.net", nth(found, 1).module)
     local shown = page(view, found)
     assert(shown:find(query .. " was removed: listen at a socket file", 1, true), shown)
     assert(shown:find("Net.listen(Net.unix(path))", 1, true), shown)
     assert(not shown:find("Net.unix(path): string", 1, true), shown)
   end
   local found = assert(docs.lookup(view, "Codec.encoder"))
-  assert(found.exact and #found == 1 and found[1].kind == "removed")
+  assert(found.exact and #found == 1 and nth(found, 1).kind == "removed")
   local shown = page(view, found)
   assert(shown:find("Codec.encoder was removed: the streaming coders are", 1, true), shown)
   assert(not shown:find("verb.encoder", 1, true), shown)
@@ -103,7 +114,7 @@ end
 local function test_a_removed_type_answers_its_replacement(dir: string)
   local view = assert(docs.view({ fixture.database(dir, tree()) }))
   local found = assert(docs.lookup(view, "Net.Pair"))
-  assert(found.exact and #found == 1 and found[1].kind == "removed")
+  assert(found.exact and #found == 1 and nth(found, 1).kind == "removed")
   local shown = page(view, found)
   assert(shown:find("Net.Pair was removed: Net.pair is gone, and so its record", 1, true), shown)
   assert(not shown:find("Net.unix", 1, true), shown)
@@ -120,11 +131,21 @@ end
 local function test_a_removed_global_s_field_answers_its_replacement(dir: string)
   local view = assert(docs.view({ fixture.database(dir, tree()) }))
   local found = assert(docs.lookup(view, "os.getenv"))
-  assert(found.exact and #found == 1 and found[1].kind == "removed")
-  assert(found[1].module == "cosmic.removed", found[1].module)
+  assert(found.exact and #found == 1 and nth(found, 1).kind == "removed")
+  assert(nth(found, 1).module == "cosmic.removed", nth(found, 1).module)
   local shown = page(view, found)
   assert(shown:find("os.getenv is not available: use Env.get(name)", 1, true), shown)
   assert(not shown:find("One variable", 1, true), shown)
+end
+
+--- A removed field of `package` answers the catalog too, though
+--- `package` itself is no removed name: its other fields keep theirs.
+local function test_a_removed_package_field_answers_its_replacement(dir: string)
+  local view = assert(docs.view({ fixture.database(dir, tree()) }))
+  local found = assert(docs.lookup(view, "package.path"))
+  assert(found.exact and #found == 1 and nth(found, 1).kind == "removed")
+  assert(page(view, found):find("package.path is not available: there is no file search path",
+    1, true))
 end
 
 --- A name that is still documented keeps its own page, though the
@@ -139,38 +160,51 @@ local function test_a_live_name_keeps_its_page(dir: string)
     ""))
   local view = assert(docs.view({ fixture.database(dir, tree({ ["cosmic/net.tl"] = live })) }))
   local found = assert(docs.lookup(view, "Net.pair"))
-  assert(found.exact and #found == 1 and found[1].kind == "function", found[1].kind)
-  assert(found[1].source_symbol == "Net.pair", found[1].source_symbol)
+  assert(found.exact and #found == 1 and nth(found, 1).kind == "function", nth(found, 1).kind)
+  assert(nth(found, 1).source_symbol == "Net.pair", nth(found, 1).source_symbol)
   assert(not page(view, found):find("was removed", 1, true))
   local unlisted = assert(docs.lookup(view, "Net.unix"))
-  assert(unlisted[1].kind == "function" and unlisted[1].source_symbol == "Net.unix")
+  assert(nth(unlisted, 1).kind == "function" and nth(unlisted, 1).source_symbol == "Net.unix")
   local searched = assert(docs.lookup(view, "Net.nothing_of_the_kind"))
   for _, entry in ipairs(searched) do
     assert(entry.kind ~= "removed", entry.source_symbol)
   end
 end
 
---- The page says a member's replacement in the words the compiler's
---- hint does (build.teal's `replacement`, which reads the same catalog:
---- this test requires it through build.docs), so the sentence that is
---- spelled twice cannot drift.
+--- The page says a member's replacement in the words the new checker's refusal does (it reads the same catalog), so the
+--- sentence that is spelled twice cannot drift: the page's text is the refusal's own sentence, from the name to the
+--- `(local Module = require(...))` it ends with.
 local function test_the_page_says_what_the_compiler_hint_says(dir: string)
   local view = assert(docs.view({ fixture.database(dir, tree()) }))
+  local options = assert(Pipeline.alone())
+  local record Case
+    member: string
+    required: string
+    use: string
+  end
+  local function value_case(owner: string, name: string, required: string): Case
+    return { member = owner .. "." .. name, required = required, use = "local _x = " .. owner .. "." .. name }
+  end
+  local function type_case(owner: string, name: string, required: string): Case
+    return { member = owner .. "." .. name, required = required, use = "local _x: " .. owner .. "." .. name }
+  end
   for _, case in ipairs({
-      { "Net.pair", "invalid key 'pair' in record 'Net' of type Net", "cosmic.net" },
-      { "Http.upload", "invalid key 'upload' in record 'Http' of type Http", "cosmic.http" },
-      { "Http.serve", "invalid key 'serve' in record 'Http' of type Http", "cosmic.http" },
-      { "Sandbox.decode", "invalid key 'decode' in record 'Sandbox' of type Sandbox", "cosmic.sandbox" },
-      { "Net.Pair", "unknown type Net.Pair", "cosmic.net" },
-      { "Http.Request", "unknown type Http.Request", "cosmic.http" },
+      value_case("Net", "pair", "cosmic.net"),
+      value_case("Http", "upload", "cosmic.http"),
+      value_case("Http", "serve", "cosmic.http"),
+      value_case("Sandbox", "decode", "cosmic.sandbox"),
+      type_case("Net", "Pair", "cosmic.net"),
+      type_case("Http", "Request", "cosmic.http"),
   }) do
-    local owner = case[1]:match("^(%a+)%.")
-    local bound = "local " .. owner .. " = require(\"" .. case[3] .. "\")\nreturn " ..
-      case[1] .. "\n"
-    local hint = teal.replacement(case[2], bound, 2, 8)
-    local found = assert(docs.lookup(view, case[1]))
-    assert(hint ~= nil and found[1].text == hint,
-      case[1] .. ": " .. tostring(hint) .. " ~= " .. tostring(found[1].text))
+    local owner = assert(case.member:match("^(%a+)%."))
+    local text = "local " .. owner .. " = require(\"" .. case.required .. "\")\nlocal function main(): integer\n  " ..
+      case.use .. "\n  return 0\nend\nreturn main\n"
+    local refused = table.concat(Pipeline.checked_alone("hint.tl", text, options).lines, "\n")
+    local hint = refused:match(case.member:gsub("%.", "%%.") .. " was removed: [^\n]*")
+    local found = assert(docs.lookup(view, case.member))
+    assert(hint ~= nil, case.member .. ": the refusal says no hint: " .. refused)
+    local first = assert(found[1])
+    assert(first.text == hint, case.member .. ": " .. hint .. " ~= " .. first.text)
   end
 end
 
@@ -181,6 +215,6 @@ local function test_a_removed_member_is_answered_without_its_module(dir: string)
     ["cosmic/codec.tl"] = module("codec", "Codec"),
   }) }))
   local found = assert(docs.lookup(view, "Net.pair"))
-  assert(found.exact and #found == 1 and found[1].kind == "removed")
+  assert(found.exact and #found == 1 and nth(found, 1).kind == "removed")
   assert(page(view, found):find("Net.pair was removed: listen at a socket file", 1, true))
 end

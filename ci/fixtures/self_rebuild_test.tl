@@ -13,8 +13,13 @@ local Test = require("cosmic.test")
 --- driver says where the candidate and its products are
 --- (COSMIC_FIXTURE_*) and what the children it starts read
 --- ([`Fixture.inherited`], which each of them hands on and no more, and
---- which cosmic_ci/orchestration_test.tl holds this list to).
+--- which cosmic_ci/orchestration_test.tl holds this list to). It
+--- declares `tool`, as [`BuildPaths.directory`] starts the running
+--- program on the candidate's build/paths.tl, whose modules a worker run
+--- on its closure alone would lack.
 Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
   env = {
     "COSMIC_FIXTURE_COMPILES",
     "COSMIC_FIXTURE_RUNTIME",
@@ -57,7 +62,6 @@ Test.policy{
   },
 }
 
-local type Running = Process.Running
 local start, finish, supervised = Process.start, Process.finish, Process.supervised
 local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.release
 -- A call that finds the tool stale rebuilds it from the tree first. Every
@@ -66,14 +70,35 @@ local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.re
 -- they check is the rebuild's way through the lock, the artifact and the
 -- re-entry, which a compile of every module only slows. The docs verb's
 -- compiles the whole tree cold, as the product rebuilding itself on a
--- fresh checkout does: 55 to 60 s of one core for the tree's modules
--- (some 500 in October 2026), on a runner or under ci/run-local on a
--- four-core host, which this bound holds 2.5 times over: a macOS runner
--- took 90 s (run 37630361708 timed out at 90213 ms). Five cold
--- compiles at once on four cores would take 86 to 90 s each.
--- The driver bounds each test here at 180 s (orchestration.tl), which
+-- fresh checkout does, and that follows the tree: 140 to 177 s for its 952
+-- modules, on four cores of a development host (the same cold compile of
+-- 954 modules took 156 s), where it took 55 to 60 s for some 500 in
+-- October 2026. A macOS runner took 90 s then (run 37630361708 timed out
+-- at 90213 ms), and the merge queue run of #3102 XX
+-- on the linux-x86_64 leg. The bound keeps 1.5 times the slowest of those host timings, as
+-- #2834 did, and names a hung rebuild rather than a slow one. Five cold
+-- compiles at once on four cores would take far longer each.
+-- The driver bounds each test here at 300 s (orchestration.tl), which
 -- this leaves room inside.
-local rebuild_timeout_ns <const> = Clock.seconds(150)
+-- TODO: this bound follows the tree (about 5% a day the week of October
+-- 3) and will be passed again: report the docs case's elapsed time against
+-- it, so the growth shows before it fails a run, and bring it back down
+-- once a cold compile of the tree is quicker.
+local rebuild_timeout_ns <const> = Clock.seconds(270)
+
+-- The `rename`/`unlink` cases' run once the rebuilt tool is released: it
+-- builds the tree from the seeded compiles, runs four tests, and writes
+-- their coverage, which in a build directory as fresh as the case's finds
+-- the executable lines of every module of the tree, cached for none:
+-- some 18 s of one core for 800 modules, against 4 s for the rest, and
+-- it grows with the tree, so Process.finish's default 30 s is too short.
+-- A wait that runs out ends the child with SIGTERM, which says nothing
+-- on its streams; the assert after it reports the status and stderr.
+-- TODO: share a module's executable lines across checkouts as its
+-- compiles are (build/shared_compiles.tl), keyed by its source, so a
+-- fresh build directory's first `cosmic test` does not compute them for
+-- the whole tree; then this bound can come back down.
+local rerun_timeout_ns <const> = Clock.seconds(90)
 
 --- A copy of the leg's compiles (COSMIC_FIXTURE_COMPILES, orchestration.tl's
 --- `seed_compiles`) for one case's rebuild to take back
@@ -86,28 +111,34 @@ local record Seed
   rows: integer
 end
 
+--- A count, kept where the closure that adds to it can write.
+local record Tally
+  mut value: integer
+end
+
 --- How many compiles `path` holds, and how many of them a build took
 --- or made at `since_ns` or later. The table's name carries its
 --- format's version (build/cache_formats.tl), so each that matches is
 --- counted.
 local function compiles_in(path: string, since_ns: integer): integer, integer
   local db = assert(Sqlite.open(path))
-  local total, used = 0, 0
+  local total: Tally = { value = 0 }
+  local used: Tally = { value = 0 }
   local ok, failure = pcall(function(): boolean
     local tables = assert(Sqlite.text_rows(db,
       "SELECT name FROM sqlite_schema WHERE type = 'table' AND name GLOB 'compiled_v*'"))
     for _, row in ipairs(tables) do
       local counts = assert(Sqlite.text_rows(db, "SELECT count(*), " ..
-          "count(*) FILTER (WHERE used_ns >= ?1) FROM \"" .. row[1] .. "\"",
+          "count(*) FILTER (WHERE used_ns >= ?1) FROM \"" .. row:text(1) .. "\"",
         { { integer = since_ns } }))
-      total = total + math.tointeger(tonumber(counts[1][1]))
-      used = used + math.tointeger(tonumber(counts[1][2]))
+      total.value = total.value + assert(math.tointeger(tonumber(assert(counts[1]):text(1))))
+      used.value = used.value + assert(math.tointeger(tonumber(assert(counts[1]):text(2))))
     end
     return true
   end)
   local _, _ = db:close()
   if not ok then error(failure) end
-  return total, used
+  return total.value, used.value
 end
 
 local function seeded_compiles(case_root: string): Seed
@@ -163,7 +194,7 @@ end
 -- as every source file in the tree does: joining the result with "\n" and
 -- appending one final "\n" reproduces it.
 local function split_lines(text: string): {string}
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local at = 1
   while true do
     local newline = text:find("\n", at, true)
@@ -182,7 +213,7 @@ end
 -- edit unapplied.
 local function insert_after(lines: {string}, marker: string,
                             extra: {string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local found = false
   for _, line in ipairs(lines) do
     out[#out + 1] = line
@@ -202,7 +233,7 @@ local function archive_tree(tree: string)
   Fixture.source_tree(tree)
 end
 
--- Copies the fixture-only runtime into the archived tree's `o/bin/cosmic`,
+-- Copies the fixture-only runtime into the archived tree's tool,
 -- executable, and returns its path.
 local function place_runtime(fixture_dir: string, tree: string): string
   local program = BuildPaths.directory(tree) .. "/bin/cosmic"
@@ -218,7 +249,7 @@ local function apply_step8_edit(tree: string)
   lines = insert_after(lines, "local Clock = require(\"cosmic.clock\")",
     { "local step8_sys = require(\"cosmic.sys\")" })
   lines = insert_after(lines,
-    "local function run(argv: {integer:string}): integer", {
+    "local function run(argv: {string}): integer", {
       "  assert(argv[1] == \"test\")",
       "  assert(argv[2] == \"build/embed_test.tl\")",
       "  assert(argv[3] == \"argument with spaces\")",
@@ -240,7 +271,7 @@ local function apply_docs_marker_edit(tree: string)
   local path = tree .. "/build/docs.tl"
   local lines = split_lines(Fixture.read(path))
   lines = insert_after(lines,
-    "local function run(argv: {integer:string}): integer",
+    "local function run(argv: {string}): integer",
     { "  local _, _ = Fs.put(Fs.stdout, \"step8-docs-marker\\n\")" })
   Fixture.write(path, table.concat(lines, "\n") .. "\n")
 end
@@ -299,7 +330,7 @@ local function run_rebuild_case(fixture_dir: string,
 
   local seed = seeded_compiles(case_root)
   local since = Clock.now_ns()
-  supervised(function(active: {Running})
+  supervised(function(active: Process.Fleet)
     local values = Fixture.environment({
       COSMIC_BUILD_CACHE = seed.path,
       COSMIC_PORTABLE_CACHE = cache,
@@ -310,7 +341,7 @@ local function run_rebuild_case(fixture_dir: string,
     local child = start("rebuild-" .. action,
       { program, "test", "build/embed_test.tl", "argument with spaces" }, tree, values,
       diagnostics)
-    active[#active + 1] = child
+    Process.adopt(active, child)
 
     await_ready(case_root, diagnostics, "first-" .. action, ready, child)
     local entries_before = cache_entries(cache)
@@ -330,13 +361,15 @@ local function run_rebuild_case(fixture_dir: string,
       child, rebuild_timeout_ns)
     release(case_root, diagnostics, "second-" .. action, go)
 
-    local result = finish(child)
+    local result = finish(child, rerun_timeout_ns)
     assert(result.ok, action .. ": self-rebuild child did not exit " ..
-        "successfully")
+        "successfully (code " .. tostring(result.code) .. ", signal " ..
+        tostring(result.signal) .. ", timed out " .. tostring(result.timed_out) ..
+        "); it said:\n" .. Fixture.read(child.err))
 
     Fixture.assert_executable(program)
     assert(Fixture.read(child.out):match(
-      "test: PASS %([^;]+; [1-9][0-9]* ran, 0 stood"),
+      "test: %d+ tests? passed in [^;]+; [1-9][0-9]* ran, 0 stood"),
       action .. ": self-rebuild output did not match the expected pattern")
     local err = Fixture.read(child.err)
     took_compiles(action, seed, since, err)
@@ -400,8 +433,8 @@ local function run_rebuild_case(fixture_dir: string,
   end)
 end
 
--- One of the three ways a stale tool (a pinned tl version, an unapplied
--- patch, or an edited launcher generator) is refused outright, when
+-- One of the three ways a stale tool (a pinned Lua version, an edited
+-- checker, or an edited launcher generator) is refused outright, when
 -- COSMIC_AUTO_BOOT=0 says not to boot, without ever reaching `test.run` or
 -- touching the artifact.
 local function run_refusal_case(fixture_dir: string,
@@ -415,13 +448,12 @@ local function run_refusal_case(fixture_dir: string,
   local program = place_runtime(fixture_dir, tree)
   local before = Fixture.hash(program)
 
-  if name == "tl-pin" then
-    local pin = tree .. "/vendor/tl/PIN"
+  if name == "lua-pin" then
+    local pin = tree .. "/vendor/lua/PIN"
     Fixture.write(pin, Fixture.read(pin) .. "\n# refusal fixture\n")
-  elseif name == "tl-patch" then
-    Fixture.mkdir(tree .. "/patch/tl")
-    Fixture.write(tree .. "/patch/tl/refusal-fixture.patch",
-      "refusal fixture\n")
+  elseif name == "tl-checker" then
+    local checker = tree .. "/lang/check.tl"
+    Fixture.write(checker, Fixture.read(checker) .. "\n-- refusal fixture\n")
   elseif name == "launcher" then
     local launcher = tree .. "/build/launcher.tl"
     Fixture.write(launcher, Fixture.read(launcher) ..
@@ -468,7 +500,7 @@ end
 
 local function test_self_rebuild_refusals(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
-  for _, name in ipairs({ "tl-pin", "tl-patch", "launcher" }) do
+  for _, name in ipairs({ "lua-pin", "tl-checker", "launcher" }) do
     run_refusal_case(fixture_dir, tmp, name)
   end
 end
@@ -516,13 +548,29 @@ local function test_self_rebuild_docs_verb(tmp: string)
     "docs: second invocation reported staleness though the tool is fresh")
 end
 
+-- Marks `build/fix/init.tl`'s verb with an extra line, as the docs marker
+-- does for `docs`: a `fix` the stale tool ran itself would not print it.
+local function apply_fix_marker_edit(tree: string)
+  local path = tree .. "/build/fix/init.tl"
+  local lines = split_lines(Fixture.read(path))
+  lines = insert_after(lines,
+    "local function run(argv: {string}): integer",
+    { "  local _, _ = Fs.put(Fs.stdout, \"step8-fix-marker\\n\")" })
+  Fixture.write(path, table.concat(lines, "\n") .. "\n")
+end
+
 -- Runs of one stale tool started at once in one checkout -- an editor's,
 -- a watcher's and a terminal's -- rebuild it one at a time: each either
 -- rebuilds it or waits for the run that is and re-enters on the tool that
 -- run wrote, and every one shows the edit. Unserialized, their rebuilds
 -- would write o/cosmic.db, o/carried.db and the tool under one another,
 -- and end in "disk I/O error" or "portable program database has no SQLite
--- header" and a spurious "(the tool is stale)" failure.
+-- header" and a spurious "(the tool is stale)" failure. The runs are of
+-- `fix`, which writes the working database and so waits for a run that
+-- holds it. `docs` and `todos` only read, and wait for no run
+-- (build/reboot.tl's `stale_exit`): one started while another holds the
+-- working database says so and answers at once, from what that run last
+-- committed.
 local function test_self_rebuild_by_concurrent_runs(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local case_root = tmp .. "/case-concurrent"
@@ -534,25 +582,26 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
   local program = place_runtime(fixture_dir, tree)
   local before_hash = Fixture.hash(program)
   apply_docs_marker_edit(tree)
+  apply_fix_marker_edit(tree)
 
   local seed = seeded_compiles(case_root)
   local since = Clock.now_ns()
   local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache,
     COSMIC_BUILD_CACHE = seed.path })
-  local said: {string} = {}
-  supervised(function(active: {Running})
+  local said: mut {string} = {}
+  supervised(function(active: Process.Fleet)
     for n = 1, 3 do
-      active[#active + 1] = start("concurrent-" .. tostring(n),
-        { program, "docs", "cosmic.child" }, tree, values, diagnostics)
+      Process.adopt(active, start("concurrent-" .. tostring(n),
+        { program, "fix", "--check", "build/clock.tl" }, tree, values, diagnostics))
     end
     local rebuilt = 0
-    for _, child in ipairs(active) do
+    for _, child in ipairs(active.children) do
       local result = finish(child, rebuild_timeout_ns)
       local err = Fixture.read(child.err)
       assert(result.ok, child.label .. ": exit status " ..
           tostring(result.code) .. ", want 0; it said:\n" .. err)
       said[#said + 1] = err
-      Fixture.contains(child.out, "step8-docs-marker")
+      Fixture.contains(child.out, "step8-fix-marker")
       -- Started together, before any rebuild could land, each run meets
       -- the tool stale: it rebuilds, waits for the run that does (or for
       -- one writing o/cosmic.db, which holds the same lock), or finds
@@ -570,6 +619,25 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
   took_compiles("concurrent", seed, since, table.concat(said, "\n"))
   assert(Fixture.hash(program) ~= before_hash,
     "concurrent: no run changed the artifact")
+
+  -- Another run holding the working database's write lock, as a build
+  -- does while it stages and compiles.
+  local working = assert(Sqlite.open(BuildPaths.directory(tree) .. "/build.db", { writable = true }))
+  assert(working:exec("BEGIN IMMEDIATE"))
+  local read_ok, failure = pcall(function(): boolean
+    local reader = Fixture.call_with_environment("concurrent-reader",
+      { program, "docs", "cosmic.child" }, tree, diagnostics, values)
+    local err = Fixture.read(reader.err)
+    assert(reader.result.code == 0, "reader: exit status was " ..
+        tostring(reader.result.code) .. ", want 0; it said:\n" .. err)
+    Fixture.contains(reader.out, "step8-docs-marker")
+    Fixture.contains(reader.err, "not waiting for it, reading what it last committed")
+    assert(count_occurrences(err, "; waiting for it") == 0,
+      "reader: waited for the run holding the working database; it said:\n" .. err)
+    return true
+  end)
+  local _, _ = working:close()
+  if not read_ok then error(failure) end
 end
 
 -- A run a reboot entered (COSMIC_REBOOTED) that would refuse as still
@@ -610,17 +678,6 @@ local function test_a_rebooted_run_refuses_without_waiting(tmp: string)
   if not held_ok then error(failure) end
   assert(Fixture.hash(program) == before_hash,
     "rebooted: a refusing run changed the artifact")
-end
-
--- Marks `build/fix/init.tl`'s verb with an extra line, as the docs marker
--- does for `docs`: a `fix` the stale tool ran itself would not print it.
-local function apply_fix_marker_edit(tree: string)
-  local path = tree .. "/build/fix/init.tl"
-  local lines = split_lines(Fixture.read(path))
-  lines = insert_after(lines,
-    "local function run(argv: {integer:string}): integer",
-    { "  local _, _ = Fs.put(Fs.stdout, \"step8-fix-marker\\n\")" })
-  Fixture.write(path, table.concat(lines, "\n") .. "\n")
 end
 
 -- `fix` in cosmic's own tree fixes with the tree's rules and layout, so a
@@ -664,7 +721,8 @@ local function test_self_rebuild_fix_verb(tmp: string)
     "fix: second invocation reported staleness though the tool is fresh")
 end
 
--- A stale cosmic that is not the tree's own tool (one outside `o/`, as a
+-- A stale cosmic that is not the tree's own tool (one outside its build
+-- directory, as a
 -- release, the bootstrap cache's or one on PATH is) refuses rather than
 -- rebuild, since the rebuild would write the tree's tool over its own
 -- file. `docs` meets the refusal in `build.reboot.stale_exit`, `test` and
@@ -695,16 +753,16 @@ local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
   }) do
     local argv = { program }
     for _, word in ipairs(verb) do argv[#argv + 1] = word end
-    local outcome = Fixture.call_with_environment("foreign-" .. (verb[1]:gsub("/", "-")),
+    local outcome = Fixture.call_with_environment("foreign-" .. (assert(verb[1]):gsub("/", "-")),
       argv, tree, diagnostics, values)
-    assert(outcome.result.code == 3, verb[1] .. ": exit status was " ..
+    assert(outcome.result.code == 3, assert(verb[1]) .. ": exit status was " ..
         tostring(outcome.result.code) .. ", want 3")
     Fixture.contains(outcome.err, "is not the tree's own tool")
     assert(not Fixture.read(outcome.err):find("rebuilding it from the tree", 1, true),
-      verb[1] .. ": a tool outside the tree rebuilt itself")
+      assert(verb[1]) .. ": a tool outside the tree rebuilt itself")
     assert(Fixture.hash(program) == before_hash,
-      verb[1] .. ": a tool outside the tree was overwritten")
+      assert(verb[1]) .. ": a tool outside the tree was overwritten")
     assert(Fs.exists(BuildPaths.directory(tree) .. "/bin/cosmic") == false,
-      verb[1] .. ": a tool outside the tree wrote one into it")
+      assert(verb[1]) .. ": a tool outside the tree wrote one into it")
   end
 end

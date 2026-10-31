@@ -2,9 +2,16 @@
 --- applying the trim markers as it goes. Private to [`cosmic.template`].
 ---
 --- Outside an action everything is literal text, byte for byte. Inside
---- one, words are separated by whitespace and `|`; a word that starts
---- with `.` is a field path and any other a bare word. The lexer does not
---- know which words are keywords: `parse` decides that from position.
+--- one, words are separated by whitespace and by `|`, `,`, `:=` and `"`,
+--- and each of `|`, `,` and `:=` is a word of its own; a word that starts with
+--- `.` is a field path, one that starts with `$` a variable, and any other
+--- a bare word. A `"` starts a
+--- string, one token through the next unescaped `"`, so a `}}` in it does
+--- not end the action: its value is its bytes, where `\"` stands for `"`
+--- and `\\` for `\`. Any other backslash, and a newline before the
+--- closing quote, are refused, so a string is on one line and the action
+--- that holds it keeps the template's lines. The lexer does not know which
+--- words are keywords, nor where a string may stand: `parse` decides that.
 ---
 --- `{{-` (followed by whitespace) drops the whitespace before the action
 --- and `-}}` (preceded by whitespace) the whitespace after it, newlines
@@ -18,13 +25,14 @@ local types = require("cosmic.template.types")
 --- the offset that line started at. One cursor, advanced in place, so
 --- each helper keeps to the two result slots a fallible function has.
 local record Cursor
-  pos: integer
-  line: integer
-  start: integer
+  mut pos: integer
+  mut line: integer
+  mut start: integer
 end
 
---- Whether byte `b` is the whitespace trim markers and actions skip.
-local function blank(b: integer): boolean
+--- Whether byte `b` is the whitespace trim markers and actions skip; nil, a
+--- read past either end of the text, is not.
+local function blank(b: integer?): boolean
   return b == 32 or b == 9 or b == 10 or b == 13 or b == 12
 end
 
@@ -68,10 +76,48 @@ local function trimmed_end(text: string): string
   return text:sub(1, at)
 end
 
+--- `name:line:col: reason`.
+local function refuse(name: string, line: integer, col: integer, reason: string): string
+  return name .. ":" .. tostring(line) .. ":" .. tostring(col) .. ": " .. reason
+end
+
+--- Reads the string whose opening `"` is at `cur`, moving `cur` past its
+--- closing one: its value, or nil and the reason it is refused.
+local function quoted(src: string, cur: Cursor, name: string): string?, string
+  local col = cur.pos - cur.start + 1
+  local out: mut {string} = {}
+  local at = cur.pos + 1
+  while true do
+    local stop = src:find('[\\"\n]', at)
+    if stop == nil or (stop == #src and src:byte(stop) == 92) then
+      return nil, refuse(name, cur.line, col, "unterminated string: no closing \"")
+    end
+    local b = src:byte(stop)
+    if b == 10 or (b == 92 and src:byte(stop + 1) == 10) then
+      return nil, refuse(name, cur.line, col, "unterminated string: a newline before its closing \"")
+    end
+    out[#out + 1] = src:sub(at, stop - 1)
+    if b == 34 then
+      cur.pos = stop + 1
+      return table.concat(out), ""
+    end
+    local escaped = src:sub(stop + 1, stop + 1)
+    if escaped ~= '"' and escaped ~= "\\" then
+      return nil, refuse(name, cur.line, stop - cur.start + 1,
+        "unknown escape '\\" .. escaped .. "' in a string: only \\\" and \\\\ are escapes")
+    end
+    out[#out + 1] = escaped
+    at = stop + 2
+  end
+end
+
 --- Reads one action's words, from just after its `{{` (and `{{-`'s dash)
 --- to just after its `}}`, appending them to `tokens`. True when the
---- action ended in `-}}`; nil and the reason when it never closes.
-local function words(src: string, cur: Cursor, tokens: {types.Token}): boolean | nil, string
+--- action ended in `-}}`; nil and the reason, as `name:line:col: ...`,
+--- when a string in it is malformed or it never closes (at `line` and
+--- `col`, its `{{`).
+local function words(src: string, cur: Cursor, tokens: mut {types.Token}, name: string, open_line: integer,
+                     open_col: integer): boolean?, string
   local n = #src
   while cur.pos <= n do
     local b = src:byte(cur.pos)
@@ -88,22 +134,41 @@ local function words(src: string, cur: Cursor, tokens: {types.Token}): boolean |
     elseif b == 124 then
       tokens[#tokens + 1] = { kind = "pipe", value = "|", line = line, col = col }
       cur.pos = cur.pos + 1
+    elseif b == 44 then
+      tokens[#tokens + 1] = { kind = "comma", value = ",", line = line, col = col }
+      cur.pos = cur.pos + 1
+    elseif b == 58 and src:byte(cur.pos + 1) == 61 then
+      tokens[#tokens + 1] = { kind = "declare", value = ":=", line = line, col = col }
+      cur.pos = cur.pos + 2
+    elseif b == 34 then
+      local value, why = quoted(src, cur, name)
+      if value == nil then
+        return nil, why
+      end
+      tokens[#tokens + 1] = { kind = "string", value = value, line = line, col = col }
     else
       local stop = cur.pos
       while stop <= n do
         local c = src:byte(stop)
-        if blank(c) or c == 124 or (c == 125 and src:byte(stop + 1) == 125) then
+        if blank(c) or c == 124 or c == 34 or c == 44 or (c == 58 and src:byte(stop + 1) == 61) or
+            (c == 125 and src:byte(stop + 1) == 125) then
           break
         end
         stop = stop + 1
       end
       local word = src:sub(cur.pos, stop - 1)
-      tokens[#tokens + 1] = { kind = word:byte(1) == 46 and "field" or "word", value = word,
-        line = line, col = col }
+      local first = word:byte(1)
+      local kind: types.Part = "word"
+      if first == 46 then
+        kind = "field"
+      elseif first == 36 then
+        kind = "variable"
+      end
+      tokens[#tokens + 1] = { kind = kind, value = word, line = line, col = col }
       cur.pos = stop
     end
   end
-  return nil, "unterminated"
+  return nil, refuse(name, open_line, open_col, "unterminated action: no closing }}")
 end
 
 local record Lex
@@ -114,15 +179,15 @@ end
 --- @param name string The template's name, for messages
 --- @return types.Lexed|nil The items and the line count
 --- @return string The reason, as `name:line:col: ...`, on failure
-function Lex.lex(src: string, name: string): types.Lexed | nil, string
-  local items: {types.Item} = {}
+function Lex.lex(src: string, name: string): types.Lexed?, string
+  local items: mut {types.Item} = {}
   local cur: Cursor = { pos = 1, line = 1, start = 1 }
   local n = #src
   local trim_next = false
   while cur.pos <= n do
     local open = src:find("{{", cur.pos, true)
     local stop = open or n + 1
-    local last: types.Item = nil
+    local last: types.Item? = nil
     if stop > cur.pos then
       local text = src:sub(cur.pos, stop - 1)
       local skip = trim_next and leading(text) or 0
@@ -148,11 +213,11 @@ function Lex.lex(src: string, name: string): types.Lexed | nil, string
         items[#items] = nil
       end
     end
-    advance(src, cur, open + (dash and 3 or 2))
-    local tokens: {types.Token} = {}
-    local trimmed, _ = words(src, cur, tokens)
+    advance(src, cur, open + (if dash then 3 else 2 end))
+    local tokens: mut {types.Token} = {}
+    local trimmed, why = words(src, cur, tokens, name, line, col)
     if trimmed == nil then
-      return nil, name .. ":" .. line .. ":" .. col .. ": unterminated action: no closing }}"
+      return nil, why
     end
     trim_next = trimmed
     items[#items + 1] = { action = true, text = "", tokens = tokens, line = line, col = col,

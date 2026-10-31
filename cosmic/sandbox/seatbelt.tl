@@ -28,22 +28,22 @@ local record Seatbelt
     paths: {string:Path}
     --- The name of this program for the "cosmic" profile, with its
     --- resolved path and kind in `paths` like an explicit grant.
-    executable: string
+    executable?: string
     --- The name of the core a start of this program runs (past the
     --- launcher, which unpacks a core into a cache no profile grants), in
     --- `paths` like an explicit grant: granted `rx`. Required with the
     --- policy's `database`.
-    core: string
+    core?: string
     --- The name of the database that core runs on (`core --database <path>`),
     --- in `paths` like an explicit grant: granted `r`, and no more, since
     --- the core opens it read-only and immutable, which takes no lock, no
     --- `-wal` and no `-shm`. Required with the policy's `database`, which it
     --- names (resolved).
-    database: string
+    database?: string
     --- The resolved path of the pty slave that is the child's controlling
     --- terminal, or nil for none. With it the profile grants the slave and
     --- `/dev/tty`, and `/dev` to list, which no other profile does.
-    terminal: string
+    terminal?: string
     --- The port the network relay that serves the policy's `connect`
     --- listens at on the host's loopback ([`Child.start`]), which the
     --- profile lets the program connect to over TCP and nothing else of the
@@ -51,18 +51,18 @@ local record Seatbelt
     --- is `localhost:PORT`, which holds 127.0.0.1 and ::1 alike (the relay
     --- holds the port on both) and lets it bind and listen nowhere. Required with `connect`; a policy without
     --- `connect` is refused one.
-    relay_port: integer
+    mut relay_port?: integer
     --- The port of the host's loopback the network relay accepts at, for
     --- the relay's own profile; nil for any other. The relay may connect to
     --- any address and port (Seatbelt cannot name one by number, so the
-    --- relay's own checks of the grants decide where it connects,
-    --- [`cosmic.relay.server`]), accept at that port of the loopback and bind
+    --- relay's own checks of the grants decide where it connects),
+    --- accept at that port of the loopback and bind
     --- nothing (its starter binds its listeners and hands them over), look up
     --- the system's DNS configuration, the one Mach service the resolver
     --- reaches, and run no program but `core`: the rest of what it is granted
     --- `x` it may map as a library and not run. Only the start of the relay
     --- sets it.
-    serves_relay: integer
+    mut serves_relay?: integer
   end
 
   --- Text to pass to sandbox_init_with_parameters, values kept outside
@@ -78,7 +78,7 @@ local record Seatbelt
     --- which the caller sets, to the directory's real path, once it has made
     --- it and before it applies the profile; nil without `tmp`. Not in
     --- `parameters`.
-    tmp: string
+    tmp?: string
   end
 end
 
@@ -93,8 +93,8 @@ end
 --- An absolute, normalized path, not SBPL text. Quotes, parentheses and
 --- newlines are safe in parameters; a NUL cannot cross the C API.
 local function absolute(path: string): boolean
-  if path:sub(1, 1) ~= "/" or path:find("\0", 1, true) then return false end
-  if path ~= "/" and (path:sub(-1) == "/" or path:find("//", 1, true)) then return false end
+  if path:sub(1, 1) ~= "/" or path:find("\0", 1, true) ~= nil then return false end
+  if path ~= "/" and (path:sub(-1) == "/" or path:find("//", 1, true) ~= nil) then return false end
   for part in path:gmatch("[^/]+") do
     if part == "." or part == ".." then return false end
   end
@@ -117,11 +117,13 @@ local function unsupported(policy: rules.Policy): string
   for _, grant in ipairs(policy.grants or {}) do
     if grant.from ~= nil then return "grant from needs isolate file" end
   end
-  if policy.limits ~= nil and policy.limits.processes ~= nil then
+  local limits = policy.limits
+  if limits ~= nil and limits.processes ~= nil then
     return "limits.processes needs a user namespace of its own"
   end
   for name in pairs(policy.set_env_digests or {}) do
-    if policy.set_env == nil or policy.set_env[name] == nil then
+    local set_env = policy.set_env
+    if set_env == nil or set_env[name] == nil then
       return "set_env_digests holds a digest, not a value to set"
     end
   end
@@ -131,13 +133,13 @@ end
 --- Appends to `text` the rules `letters` give at `at`, an SBPL path filter;
 --- `fattr` adds the attribute writes a `w` or `c` then allows, and `map_only`
 --- makes an `x` a library's mapping alone, never a program's run.
-local function allow(text: {string}, fattr: boolean, letters: string, at: string, map_only?: boolean)
+local function allow(text: mut {string}, fattr: boolean, letters: string, at: string, map_only?: boolean)
   if letters:find("r", 1, true) then text[#text + 1] = "(allow file-read* " .. at .. ")" end
   if letters:find("w", 1, true) then
     text[#text + 1] = "(allow file-write-data " .. at .. ")"
   end
   if letters:find("x", 1, true) then
-    text[#text + 1] = (map_only and "(allow file-map-executable " or "(allow process-exec file-map-executable ") ..
+    text[#text + 1] = (if map_only == true then "(allow file-map-executable " else "(allow process-exec file-map-executable " end) ..
       at .. ")"
   end
   if letters:find("c", 1, true) then
@@ -146,7 +148,7 @@ local function allow(text: {string}, fattr: boolean, letters: string, at: string
   if letters:find("u", 1, true) then
     text[#text + 1] = "(allow network-outbound " .. at .. ")"
   end
-  if fattr and (letters:find("w", 1, true) or letters:find("c", 1, true)) then
+  if fattr and (letters:find("w", 1, true) or letters:find("c", 1, true)) ~= nil then
     text[#text + 1] = "(allow file-write-mode file-write-owner file-write-times " ..
       "file-write-flags file-write-xattr " .. at .. ")"
   end
@@ -170,21 +172,21 @@ end
 --- only: on macOS [`Child.start`] applies the profile and the limits in a
 --- process of this program that executes the child's program last, and
 --- [`Sandbox.restrict`] in the process that calls it.
-function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Seatbelt.Profile | nil, string
+function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Seatbelt.Profile?, string
   local valid, why = rules.check(policy)
   if not valid then return nil, why end
   local trouble = unsupported(policy)
   if trouble ~= "" then return refuse(trouble) end
   local relay_port = options and options.relay_port
   if #(policy.connect or {}) > 0 then
-    if math.type(relay_port) ~= "integer" or relay_port < 1 or relay_port > 65535 then
+    if relay_port == nil or math.type(relay_port) ~= "integer" or relay_port < 1 or relay_port > 65535 then
       return refuse("connect needs the port of the network relay that serves it")
     end
   elseif relay_port ~= nil then
     return refuse("a relay's port is given to a policy with no connect")
   end
-  local grants: {rules.Grant} = {}
-  local directories: {string:boolean} = {}
+  local grants: mut {rules.Grant} = {}
+  local directories: mut {string:boolean} = {}
   local paths = options and options.paths or {}
   local function add(path: string, letters: string): string
     local held = paths[path]
@@ -205,8 +207,10 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   for _, name in ipairs(policy.profiles or {}) do
     if name == "system" then
       for _, entry in ipairs(rules.system_paths("darwin")) do
-        if paths[entry[1]] ~= nil then
-          trouble = add(entry[1], entry[2])
+        local at = assert(entry[1], "a system path entry names its path")
+        local letters = assert(entry[2], "a system path entry names its letters")
+        if paths[at] ~= nil then
+          trouble = add(at, letters)
           if trouble ~= "" then return refuse(trouble) end
         end
       end
@@ -219,24 +223,27 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
       if trouble ~= "" then return refuse(trouble) end
     end
   end
+  local database = policy.database
+  local options_core = options and options.core
+  local options_database = options and options.database
   -- A policy's own `database` is the file its core runs on, which a start
   -- of this program names itself, so the two must be one file.
-  if policy.database ~= nil then
-    if options == nil or options.core == nil or options.database == nil then
+  if database ~= nil then
+    if options == nil or options_core == nil or options_database == nil then
       return refuse("database needs the core to run and the database it runs on")
     end
-    local named, held = options.paths[policy.database.path], options.paths[options.database]
+    local named, held = options.paths[database.path], options.paths[options_database]
     if named == nil or held == nil or named.path ~= held.path then
-      return refuse("database " .. string.format("%q", policy.database.path) ..
-          " is not the database the core is run on, " .. string.format("%q", options.database))
+      return refuse("database " .. string.format("%q", database.path) ..
+          " is not the database the core is run on, " .. string.format("%q", options_database))
     end
   end
-  if options ~= nil and options.core ~= nil then
-    trouble = add(options.core, "rx")
+  if options_core ~= nil then
+    trouble = add(options_core, "rx")
     if trouble ~= "" then return refuse(trouble) end
   end
-  if options ~= nil and options.database ~= nil then
-    trouble = add(options.database, "r")
+  if options_database ~= nil then
+    trouble = add(options_database, "r")
     if trouble ~= "" then return refuse(trouble) end
   end
   for _, grant in ipairs(policy.grants or {}) do
@@ -259,28 +266,35 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   --     the root's entries, and nothing below it.
   --   sysctl-read: the kernel's facts (hw.*, kern.osversion, ...) libSystem
   --     reads as it starts, which hold nothing of the user's.
-  local text: {string} = { "(version 1)", "(deny default)",
+  local text: mut {string} = { "(version 1)", "(deny default)",
     "(allow file-read-metadata)", '(allow file-read-data (literal (param "ROOT")))',
     "(allow sysctl-read)",
     "(allow signal (target self))", "(allow process-info-pidinfo (target self))" }
-  for _, promise in ipairs(merged.promises) do
+  for _, promise in ipairs(merged.promises or {}) do
     if promise == "fork" then text[#text + 1] = "(allow process-fork)" end
     if promise == "jit" then text[#text + 1] = "(allow dynamic-code-generation)" end
     if promise == "fattr" then fattr = true end
   end
-  local parameters: {string:string} = { ROOT = "/" }
+  local parameters: mut {string:string} = { ROOT = "/" }
   local serves = options and options.serves_relay
   -- The relay runs its core alone, which the start executes under the profile.
-  local runs: string
-  if serves ~= nil and options.core ~= nil then runs = paths[options.core].path end
-  for i, grant in ipairs(merged.grants) do
-    local name = "PATH_" .. i
+  local runs: string?
+  if serves ~= nil and options_core ~= nil then
+    -- `add` above refused a core the options name no path for.
+    local core_held = paths[options_core]
+    if core_held == nil then
+      return refuse("core " .. string.format("%q", options_core) .. " has no resolved path")
+    end
+    runs = core_held.path
+  end
+  for i, grant in ipairs(merged.grants or {}) do
+    local name = "PATH_" .. tostring(i)
     parameters[name] = grant.path
-    allow(text, fattr, grant.letters, '(' .. (directories[grant.path] and "subpath" or "literal") ..
+    allow(text, fattr, grant.letters, '(' .. (if directories[grant.path] == true then "subpath" else "literal" end) ..
         ' (param "' .. name .. '"))', serves ~= nil and grant.path ~= runs)
   end
-  local tmp: string
-  if policy.tmp then
+  local tmp: string?
+  if policy.tmp == true then
     tmp = TMP_PARAMETER
     allow(text, fattr, "rwc", '(subpath (param "' .. tmp .. '"))')
   end
@@ -299,8 +313,8 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   end
   if relay_port ~= nil then
     -- `localhost` is ::1 at the port as well: the start holds the port
-    -- there too ([`cosmic.sandbox.relay`]'s `loopback_listeners`).
-    text[#text + 1] = '(allow network-outbound (remote tcp "localhost:' .. relay_port .. '"))'
+    -- there too ([`cosmic.internal.relay_start`]'s `loopback_listeners`).
+    table.insert(text, '(allow network-outbound (remote tcp "localhost:' .. tostring(relay_port) .. '"))')
   end
   if serves ~= nil then
     if math.type(serves) ~= "integer" or serves < 1 or serves > 65535 then
@@ -311,11 +325,12 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     -- c-ares reads the system's name servers from configd's DNS
     -- configuration, through this one service.
     text[#text + 1] = '(allow network-outbound (remote ip "*:*"))'
-    text[#text + 1] = '(allow network-inbound (local tcp "localhost:' .. serves .. '"))'
+    table.insert(text, '(allow network-inbound (local tcp "localhost:' .. tostring(serves) .. '"))')
     text[#text + 1] = '(allow mach-lookup (global-name "com.apple.SystemConfiguration.DNSConfiguration"))'
   end
-  local rlimits: {string:integer} = { nofile = merged.limits.open_files or 1024, core = 0 }
-  rlimits.fsize, rlimits.cpu = merged.limits.file_bytes, merged.limits.cpu_seconds
+  local limits = merged.limits or {}
+  local rlimits: {string:integer} = { nofile = limits.open_files or 1024, core = 0 }
+  rlimits.fsize, rlimits.cpu = limits.file_bytes, limits.cpu_seconds
   return { text = table.concat(text, "\n") .. "\n", parameters = parameters, rlimits = rlimits,
     tmp = tmp }, ""
 end
@@ -331,16 +346,18 @@ function Seatbelt.credentials_unmet(merged: rules.Policy, user: integer, group: 
     return "this process is root, and a program of a policy never runs as root, which " ..
       "Seatbelt cannot change the user to: start as another user"
   end
-  local differs: {string} = {}
-  if merged.user ~= nil and merged.user ~= user then
-    differs[#differs + 1] = "user " .. merged.user
+  local differs: mut {string} = {}
+  local merged_user = merged.user
+  if merged_user ~= nil and merged_user ~= user then
+    differs[#differs + 1] = "user " .. tostring(merged_user)
   end
-  if merged.group ~= nil and merged.group ~= group then
-    differs[#differs + 1] = "group " .. merged.group
+  local merged_group = merged.group
+  if merged_group ~= nil and merged_group ~= group then
+    differs[#differs + 1] = "group " .. tostring(merged_group)
   end
   if #differs == 0 then return "" end
   return table.concat(differs, ", ") .. ": Seatbelt runs a program as this process's own user and " ..
-    "group, " .. user .. " and " .. group .. ", and cannot change them: name those or none"
+    "group, " .. tostring(user) .. " and " .. tostring(group) .. ", and cannot change them: name those or none"
 end
 
 --- The grants `policy` gives on macOS before the host is read: its own
@@ -348,11 +365,13 @@ end
 --- paths (not Linux's, which [`Sandbox.merge`] gives), each whether or not
 --- this host has it. For a check of which paths a policy reaches.
 function Seatbelt.grants(policy: rules.Policy): {rules.Grant}
-  local out: {rules.Grant} = {}
+  local out: mut {rules.Grant} = {}
   for _, name in ipairs(policy.profiles or {}) do
     if name == "system" then
       for _, entry in ipairs(rules.system_paths("darwin")) do
-        out[#out + 1] = { path = entry[1], letters = entry[2] }
+        local path = assert(entry[1], "a system path entry names its path")
+        local letters = assert(entry[2], "a system path entry names its letters")
+        out[#out + 1] = { path = path, letters = letters }
       end
     end
   end
@@ -369,8 +388,8 @@ end
 --- `terminal` is the pty slave's path, resolved through links for
 --- [`Seatbelt.Options.terminal`]. Nil and why where a grant's path is not there.
 function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: string,
-                          core?: string, database?: string, terminal?: string): Seatbelt.Options | nil, string
-  local paths: {string:Seatbelt.Path} = {}
+                          core?: string, database?: string, terminal?: string): Seatbelt.Options?, string
+  local paths: mut {string:Seatbelt.Path} = {}
   -- "" where `at` was resolved, or why not.
   local function look(name: string, at: string): string
     local real, trouble = sys.realpath(at)
@@ -384,7 +403,8 @@ function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: stri
     if name == "system" then
       -- A path this host lacks is one its system has none of.
       for _, entry in ipairs(rules.system_paths("darwin")) do
-        local _ = look(entry[1], entry[1])
+        local named = assert(entry[1], "a system path entry names its path")
+        local _ = look(named, named)
       end
     end
   end
@@ -402,13 +422,14 @@ function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: stri
       return refuse("executable " .. string.format("%q", executable) .. ": " .. trouble)
     end
   end
-  for _, name in ipairs({ core or "", database or "", policy.database and policy.database.path or "" }) do
+  local policy_database = policy.database
+  for _, name in ipairs({ core or "", database or "", policy_database and policy_database.path or "" }) do
     if name ~= "" then
       local trouble = look(name, name)
       if trouble ~= "" then return refuse(string.format("%q", name) .. ": " .. trouble) end
     end
   end
-  local real_terminal: string
+  local real_terminal: string?
   if terminal ~= nil then
     local real, trouble = sys.realpath(terminal)
     if real == nil then

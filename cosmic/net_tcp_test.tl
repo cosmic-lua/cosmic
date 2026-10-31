@@ -1,4 +1,4 @@
-local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
@@ -14,7 +14,8 @@ local function test_a_tcp_listener_at_port_zero_names_the_port_it_has()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
   local address = server.address
   assert(address.kind == "tcp" and address.host == "127.0.0.1", address.host)
-  assert(address.port > 0 and address.port <= 65535, tostring(address.port))
+  local listening = assert(address.port)
+  assert(listening > 0 and listening <= 65535, tostring(listening))
   local client <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
   local accepted <close> = assert(server:accept())
   assert(client:write("ping"))
@@ -43,7 +44,7 @@ local function test_a_tcp_listeners_address_is_built_again_from_its_host_and_por
   local given = { kind = "tcp", host = "127.0.0.1", port = 0, path = "unused" }
   local server <close> = assert(Net.listen(given))
   local address = server.address
-  assert(address.kind == "tcp" and address.host == "127.0.0.1" and address.port > 0)
+  assert(address.kind == "tcp" and address.host == "127.0.0.1" and assert(address.port) > 0)
   assert(address.path == nil, "a field past the kind's own was kept")
   assert(address ~= given, "the listener holds the caller's table")
 end
@@ -52,12 +53,12 @@ end
 --- listens there, and connecting is refused.
 local function test_a_port_held_is_refused_and_one_closed_refuses()
   local server = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-  local port = server.address.port
+  local port = assert(server.address.port)
   local again, taken = Net.listen(Net.tcp("127.0.0.1", port))
-  assert(again == nil and taken == "127.0.0.1:" .. port .. ": Address in use", taken)
+  assert(again == nil and taken == "127.0.0.1:" .. tostring(port) .. ": Address in use", taken)
   assert(server:close())
   local conn, why = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(5) })
-  assert(conn == nil and why == "127.0.0.1:" .. port .. ": Connection refused", why)
+  assert(conn == nil and why == "127.0.0.1:" .. tostring(port) .. ": Connection refused", why)
 end
 
 --- A host is a numeric address: a name is refused, saying so, and a
@@ -82,7 +83,7 @@ end
 --- long as its timeout, or until a guard catches a signal.
 local function test_a_connection_to_a_full_backlog_times_out_or_is_interrupted()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { backlog = 1 }))
-  local held: {Net.Conn} = {}
+  local held: mut {Net.Conn} = {}
   local why = ""
   for _ = 1, 16 do
     local conn, trouble = Net.connect(server.address, { timeout_ns = Clock.ms(50) })
@@ -92,9 +93,9 @@ local function test_a_connection_to_a_full_backlog_times_out_or_is_interrupted()
     end
     held[#held + 1] = conn
   end
-  local at = "127.0.0.1:" .. server.address.port .. ": "
+  local at = "127.0.0.1:" .. tostring(assert(server.address.port)) .. ": "
   assert(why == at .. Poll.TIMEOUT, why)
-  local guard = assert(Child.guard())
+  local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGINT))
   local conn, interrupted = Net.connect(server.address)
   assert(assert(guard:release()) == sys.SIGINT)
@@ -108,9 +109,10 @@ end
 local function test_in_a_run_a_tcp_connect_waits_through_the_run()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0),
     { backlog = 1, timeout_ns = Clock.seconds(5) }))
-  local held: {Net.Conn} = {}
-  local ticks, ticks_at_end = 0, -1
-  local why = ""
+  local held: mut {Net.Conn} = {}
+  local ticks: integer = 0
+  local ticks_at_end: integer = -1
+  local why: string = ""
   Poll.run(function()
     local first = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     held[#held + 1] = first
@@ -134,23 +136,23 @@ local function test_in_a_run_a_tcp_connect_waits_through_the_run()
     assert(filling:join())
   end)
   for _, conn in ipairs(held) do assert(conn:close()) end
-  assert(why == "127.0.0.1:" .. server.address.port .. ": " .. Poll.TIMEOUT, why)
+  assert(why == "127.0.0.1:" .. tostring(assert(server.address.port)) .. ": " .. Poll.TIMEOUT, why)
   assert(ticks_at_end > 0, "no other task ran while a connection waited")
-  local port = server.address.port
+  local port = assert(server.address.port)
   assert(server:close())
-  local refused: Net.Conn
+  local refused: Net.Conn? = nil
   Poll.run(function()
     refused, why = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(5) })
   end)
-  assert(refused == nil and why == "127.0.0.1:" .. port .. ": Connection refused", why)
+  assert(refused == nil and why == "127.0.0.1:" .. tostring(port) .. ": Connection refused", why)
 end
 
 --- One protocol serves every listener, a TCP one and a unix one alike,
 --- and on_ready is told the port the kernel chose for one at port 0.
 local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: string)
   if unix_socket.skipped(tmp) then return end
-  local bound: {Net.Address} = {}
-  local answers: {string} = {}
+  local bound = {} as {Net.Address}
+  local answers: mut {string} = {}
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0), Net.unix(tmp .. "/s.sock") },
     serve = function(conn: Net.Conn)
@@ -163,21 +165,23 @@ local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: 
       for _, address in ipairs(addresses) do
         local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
         assert(conn:write(address.kind .. "\n"))
-        answers[#answers + 1] = assert(Stream.lines(conn):read())
+        local appended = assert(Stream.lines(conn):read())
+        answers[#answers + 1] = appended
       end
       server:stop()
     end,
   })
   assert(bound[1].kind == "tcp" and bound[1].host == "127.0.0.1", bound[1].host)
-  assert(bound[1].port > 0 and bound[1].port <= 65535, tostring(bound[1].port))
+  local first_port = assert(bound[1].port)
+  assert(first_port > 0 and first_port <= 65535, tostring(first_port))
   assert(bound[2].kind == "unix" and bound[2].path == tmp .. "/s.sock", bound[2].path)
   assert(table.concat(answers, ",") == "TCP,UNIX", table.concat(answers, ","))
 end
 
 --- The same for two TCP listeners, which need no socket file.
 local function test_a_server_names_what_it_bound_and_serves_two_tcp_listeners()
-  local bound: {Net.Address} = {}
-  local answers: {string} = {}
+  local bound = {} as {Net.Address}
+  local answers: mut {string} = {}
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0), Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)
@@ -190,14 +194,16 @@ local function test_a_server_names_what_it_bound_and_serves_two_tcp_listeners()
       for _, address in ipairs(addresses) do
         local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
         assert(conn:write(address.kind .. "\n"))
-        answers[#answers + 1] = assert(Stream.lines(conn):read())
+        local appended = assert(Stream.lines(conn):read())
+        answers[#answers + 1] = appended
       end
       server:stop()
     end,
   })
   for i = 1, 2 do
     assert(bound[i].kind == "tcp" and bound[i].host == "127.0.0.1", bound[i].host)
-    assert(bound[i].port > 0 and bound[i].port <= 65535, tostring(bound[i].port))
+    local listening = assert(bound[i].port)
+    assert(listening > 0 and listening <= 65535, tostring(listening))
   end
   assert(bound[1].port ~= bound[2].port)
   assert(table.concat(answers, ",") == "TCP,TCP", table.concat(answers, ","))

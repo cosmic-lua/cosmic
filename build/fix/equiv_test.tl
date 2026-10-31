@@ -1,148 +1,139 @@
---- That [`build.fix.equiv`] actually reports a difference, which is the
---- half of it nothing else would notice going wrong.
----
---- `cosmic fix` refuses to write a file whose rendered text does not
---- parse back to the tree it came from, so a comparison that answered
---- "same" to everything would turn that guard off without a trace. Each
---- case here is a change a broken renderer could plausibly make (an
---- attribute dropped or swapped for the other, a comment lost, two
---- operands transposed) and each has to be caught. The spacing cases
---- go the other way: spacing alone is not a difference, or the guard
---- would refuse every file it fixed.
+--- What it takes for two sources to be the same ([`build.fix.equiv`]), and the changes a faulty layout could make
+--- that it must find. A check that answered "same" to everything would turn off the guard of [`build.fix.format`]
+--- without a trace, so each case here is a change a layout could plausibly make (a token dropped or altered, a
+--- comment lost, moved across code or parted from its declaration, the tree changed) and each must be found. The
+--- cases of whitespace and breaks go the other way: a layout changes those, and the check must not refuse it for that.
+local Equiv = require("build.fix.equiv")
+local Test = require("cosmic.test")
 
-local ast = require("build.ast")
-local equiv = require("build.fix.equiv")
-local teal = require("build.teal")
+Test.policy{}
 
-local built, load_trouble = teal.load()
-if built == nil then
-  error("could not load the compiler: " .. tostring(load_trouble))
+--- Why `after` differs from `before` (both parse), or nil.
+local function difference(before: string, after: string): string?
+  return Equiv.difference(Equiv.read(before, "a.tl", "tl"), Equiv.read(after, "b.tl", "tl"))
 end
 
---- A hand-built tree, for the two cases below that need a shape a
---- parse will not hand out on demand.
---- @param fields {any:any} The node's own fields and array part
---- @return ast.Node
-local function node(fields: {any:any}): ast.Node
-  return fields as ast.Node -- cast: hand-built, not from a parse
+--- Asserts that `after` is the same as `before`.
+local function same(before: string, after: string)
+  local why = difference(before, after)
+  assert(why == nil, string.format("%q and %q differ: %s", before, after, tostring(why)))
 end
 
---- Compare two sources as trees and as comment streams.
---- @return boolean Whether the trees match
---- @return boolean Whether the comments match
---- @return string What differed, when something did
-local function compare(before_src: string,
-                       after_src: string): boolean, boolean, string
-  local before, before_trouble = ast.parse(built, before_src, "before.tl")
-  assert(before ~= nil, "before did not parse: " .. tostring(before_trouble))
-  local after, after_trouble = ast.parse(built, after_src, "after.tl")
-  assert(after ~= nil, "after did not parse: " .. tostring(after_trouble))
-  local same, difference = equiv.same_tree(before.node, after.node)
-  local kept, lost = equiv.same_comments(before.tokens, after.tokens)
-  return same, kept, same and lost or difference
+--- Asserts that `after` differs from `before`, and that the reason holds `fragment`.
+local function differs(before: string, after: string, fragment: string)
+  local why = difference(before, after)
+  assert(why ~= nil, string.format("%q and %q were taken for the same", before, after))
+  assert(why:find(fragment, 1, true) ~= nil, string.format("%q and %q differ, but not as %q: %s", before, after, fragment, why))
 end
 
-local function test_a_dropped_variable_attribute_is_a_difference()
-  local same, _, difference = compare("local x <const> = 5\n", "local x = 5\n")
-  assert(not same, "dropping <const> was not noticed")
-  assert(difference:find("const", 1, true) ~= nil, "got: " .. difference)
+local function test_whitespace_breaks_and_blank_lines_are_no_difference()
+  same("local x=1\n", "local x = 1\n")
+  same("if a then\nb()\nend\n", "if a then b() end\n")
+  same("a = 1\n\n\n\nb = 2", "a = 1\n\nb = 2\n")
+  same("f(a,\n    b)\n", "f(a, b)\n")
+  same("#!/bin/cosmic\nx = 1\n", "#!/bin/cosmic\n\nx = 1\n")
+  same("", "\n")
 end
 
-local function test_one_attribute_swapped_for_the_other_is_a_difference()
-  local same = compare("local x <const> = 5\n", "local x <close> = 5\n")
-  assert(not same, "const becoming close was not noticed")
+local function test_the_comma_a_table_ends_with_is_no_difference_and_no_other_comma_is()
+  same("local t = { 1, 2 }\n", "local t = {\n  1,\n  2,\n}\n")
+  same("local t = { 1, 2, }\n", "local t = { 1, 2 }\n")
+  same("local t = { a = { 1, }, b }\n", "local t = { a = { 1 }, b, }\n")
+  differs("local t = { 1, 2 }\n", "local t = { 1 }\n", "the token at 1:14")
+  differs("local t = { 1, 2 }\n", "local t = { 1, 2, 3 }\n", "token")
+  -- A comma between two entries, or between two arguments, is not the one a table ends with.
+  differs("f(a, b)\n", "f(a)\n", "the token at 1:4")
+  differs("local t = { 1, 2 }\n", "local t = { 1, 3 }\n", "is")
+  assert(difference("local t = { 1, 2 }\n", "local t = { 1 2 }\n") ~= nil)
 end
 
-local function test_a_lost_comment_is_a_difference()
-  local _, kept, lost = compare("-- why\nlocal x = 5\n", "local x = 5\n")
-  assert(not kept, "a lost comment was not noticed")
-  assert(lost:find("2 comments", 1, true) == nil, "got: " .. lost)
+local function test_a_token_added_lost_or_changed_is_a_difference()
+  differs("local x = 1\n", "local x = 2\n", "\"1\"")
+  differs("local x = a + b\n", "local x = a - b\n", "\"+\"")
+  differs("local x <const> = 1\n", "local x = 1\n", "the token at 1:9")
+  differs("local x = 1\n", "local x <const> = 1\n", "the token at 1:9")
+  differs("local x <const> = 1\n", "local x <close> = 1\n", "\"const\"")
+  differs("local s = 'a'\n", "local s = \"a\"\n", "'a'")
+  differs("f(a)\n", "f(b)\n", "\"a\"")
+  differs("local x = a\n", "local y = a\n", "\"x\"")
 end
 
-local function test_a_reordered_expression_is_a_difference()
-  local same = compare("local a = x - y\n", "local a = y - x\n")
-  assert(not same, "transposed operands were not noticed")
+local function test_the_tree_changed_where_the_tokens_did_not_is_a_difference()
+  -- A line break the grammar reads: a line that begins with `(` is a statement, and after a call on the line before
+  -- it, joined to it, it would be a call of its result.
+  differs("f(a)\n(b).c = 1\n", "f(a) (b).c = 1\n", "the syntax tree changed")
 end
 
-local function test_a_changed_string_literal_is_a_difference()
-  local same = compare('local a = "one"\n', 'local a = "two"\n')
-  assert(not same, "a changed literal was not noticed")
+local function test_a_comment_added_lost_or_changed_is_a_difference()
+  differs("-- c\nx = 1\n", "x = 1\n", "lost")
+  differs("x = 1\n", "-- c\nx = 1\n", "added")
+  differs("-- c\nx = 1\n", "-- d\nx = 1\n", "changed")
+  differs("x = 1 -- c\n", "x = 1 -- c \n", "changed")
+  differs("x = 1 -- c\ny = 2 -- d\n", "x = 1 -- d\ny = 2 -- c\n", "changed")
+  differs("x = 1\n-- c\n", "-- c", "")
 end
 
-local function test_spacing_alone_is_not_a_difference()
-  local same, kept, difference = compare("local  a =  x -  y -- why\n",
-    "local a = x - y -- why\n")
-  assert(same, "spacing counted as a difference: " .. difference)
-  assert(kept, "spacing counted as a comment change: " .. difference)
+local function test_a_comment_moved_across_code_is_a_difference()
+  differs("-- c\nx = 1\ny = 2\n", "x = 1\n-- c\ny = 2\n", "comes after")
+  differs("x = 1 -- c\ny = 2\n", "x = 1\ny = 2 -- c\n", "comes after")
+  differs("f(a, -- c\n  b)\n", "f(a,\n  b) -- c\n", "comes after")
 end
 
---- A `;` that only parts two statements is no difference, since a line
---- break can take its place; one that decides how a `(` after it reads
---- is, in the tree itself.
-local function test_a_separating_semicolon_is_no_difference()
-  local same, _, difference = compare("f(); g()\n", "f()\ng()\n")
-  assert(same, "a separating ';' counted as a difference: " .. difference)
-  assert(not compare("local x = f; (g)()\n", "local x = f(g)()\n"),
-    "a ';' deciding a call was not noticed")
+--- A comment past the last token hangs on the end of the file, which a check of the comments before each token alone
+--- would not see.
+local function test_a_comment_lost_at_the_end_of_the_file_is_a_difference()
+  differs("x = 1\n-- c\n", "x = 1\n", "the comment at 2:1 was lost")
+  differs("x = 1\n-- c\n-- d\n", "x = 1\n-- c\n", "the comment at 3:1 was lost")
+  differs("-- only\n", "", "the comment at 1:1 was lost")
+  differs("x = 1 -- c\n", "x = 1\n", "the comment at 1:7 was lost")
+  same("x = 1\n-- c\n", "x = 1\n\n\n-- c")
 end
 
---- tl's parser output is not a tree: one table can sit at two places,
---- as `local record Node is {Node}` in [`build/ast/node.tl`] produces. A
---- comparison that stopped at a before-side table it had already
---- visited would look at only the first of the two things the after
---- tree holds opposite it and pass the second whatever it held.
-local function test_a_node_reached_by_two_routes_is_compared_on_both()
-  local shared: {any:any} = { kind = "string", tk = "\"one\"" }
-  local before: {any:any} = { kind = "statements" }
-  before[1] = shared
-  before[2] = shared
-  local after: {any:any} = { kind = "statements" }
-  after[1] = { kind = "string", tk = "\"one\"" }
-  after[2] = { kind = "string", tk = "\"two\"" }
-  local same, difference = equiv.same_tree(node(before), node(after))
-  assert(not same, "the second route to a shared node was never followed")
-  assert(difference:find("two", 1, true) ~= nil, "got: " .. difference)
+local function test_a_comment_before_an_operator_that_moves_behind_the_code_is_no_difference()
+  same("local x = a\n  -- c\n  + b\n", "local x = a +\n  -- c\n  b\n")
+  same("local x = a -- c\n  or b\n", "local x = a or -- c\n  b\n")
+  -- Moved behind two tokens, or in front of a token that is no operator, it is.
+  differs("local x = a\n  -- c\n  + b\n", "local x = a +\n  b -- c\n", "")
+  differs("local x = a\n  -- c\n  + b\n", "local x = a +\n  b\n  -- c\n", "comes after")
 end
 
---- The pair guard still stops a real cycle; without it this call would
---- not return.
-local function test_a_cycle_is_not_followed_forever()
-  local before: {any:any} = { kind = "statements" }
-  before["body"] = before
-  local after: {any:any} = { kind = "statements" }
-  after["body"] = after
-  local same, difference = equiv.same_tree(node(before), node(after))
-  assert(same, "a cycle was reported as a difference: " .. difference)
+local function test_a_comment_before_an_operator_after_a_parenthesis_or_a_cast_moves_with_it()
+  same("local x = (a)\n  -- c\n  + b\n", "local x = (a) +\n  -- c\n  b\n")
+  same("local x = a as T\n  -- c\n  or b\n", "local x = a as T or\n  -- c\n  b\n")
+  same("local x = f(a)\n  -- c\n  .. g(b)\n", "local x = f(a) ..\n  -- c\n  g(b)\n")
 end
 
-local function test_record_field_names_do_not_hide_type_changes()
-  for _, name in ipairs({ "ordinary", "x", "y", "xend", "yend", "f",
-      "typeid", "comments", "if_parent", "kind",
-      "typename", "op", "text" }) do
-    local prefix = "local record R\n kind: string\n typename: string\n "
-    if name == "kind" or name == "typename" then
-      prefix = "local record R\n "
-    end
-    local same = compare(prefix .. name .. ": string\nend\n",
-      prefix .. name .. ": integer\nend\n")
-    assert(not same, "changed field type was ignored: " .. name)
-  end
+local function test_a_doc_comment_parted_from_its_declaration_or_joined_to_one_is_a_difference()
+  same("--- doc\nlocal function f() end\n", "--- doc\nlocal function f() end\n")
+  differs("--- doc\nlocal function f() end\n", "--- doc\n\nlocal function f() end\n", "doc comment")
+  differs("-- doc\n\nlocal function f() end\n", "-- doc\nlocal function f() end\n", "doc comment")
+  differs("local record R\n  --- the name\n  name: string\nend\n", "local record R\n  --- the name\n\n  name: string\nend\n",
+    "doc comment")
+  -- A comment before code that is no declaration documents nothing, whatever lies between.
+  same("-- c\nx = 1\n", "-- c\n\nx = 1\n")
+  same("if a then\n  -- c\n  b()\nend\n", "if a then\n  -- c\n\n  b()\nend\n")
+  -- A comment at the end of a line of code is no doc comment, whatever follows.
+  same("x = 1 -- c\nlocal function f() end\n", "x = 1 -- c\nlocal function f() end\n")
+  differs("x = 1 -- c\nlocal function f() end\n", "x = 1\n-- c\nlocal function f() end\n", "")
 end
 
-local function test_record_spacing_alone_is_not_a_difference()
-  local same, kept, difference = compare(
-    "local record R\n -- field\n x: string\n f: integer\nend\n",
-    "local record R\n\n  -- field\n  x: string\n  f: integer\nend\n")
-  assert(same, "record spacing counted as a difference: " .. difference)
-  assert(kept, "record spacing changed comments: " .. difference)
+local function test_a_source_with_a_shebang_keeps_it()
+  differs("#!/bin/cosmic\nx = 1\n", "#!/bin/sh\nx = 1\n", "#!")
+  differs("#!/bin/cosmic\nx = 1\n", "x = 1\n", "#!")
 end
 
---- A list of type arguments carries where it closes, with no kind of
---- its own to say so: an indented generic moved left is the same tree.
-local function test_where_a_type_argument_list_closes_is_no_difference()
-  local same, _, difference = compare("  local function f<T>(x: T) end\n",
-    "local function f<T>(x: T) end\n")
-  assert(same, "got: " .. difference)
-  local record_same, _, record_difference = compare(" local record R<T> end\n", "local record R<T> end\n")
-  assert(record_same, "got: " .. record_difference)
+local function test_a_layout_that_does_not_parse_is_a_difference()
+  differs("x = 1\n", "x = = 1\n", "does not parse")
+  differs("x = 1\n", "x = 1 end\n", "does not parse")
+  local before = Equiv.read("x = = 1\n", "a.tl", "tl")
+  local why = Equiv.difference(before, Equiv.read("x = 1\n", "b.tl", "tl"))
+  assert(why ~= nil and why:find("the source does not parse", 1, true) ~= nil, tostring(why))
+end
+
+local function test_a_declaration_file_is_read_as_one()
+  local before = Equiv.read("local record R\n  x: integer\nend\n", "a.d.tl", "decl")
+  local after = Equiv.read("local record R x: integer end\n", "b.d.tl", "decl")
+  assert(Equiv.difference(before, after) == nil)
+  local other = Equiv.read("local record R x: string end\n", "b.d.tl", "decl")
+  assert(Equiv.difference(before, other) ~= nil)
 end

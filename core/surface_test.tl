@@ -6,6 +6,7 @@ local Fs = require("cosmic.fs")
 local Removed = require("cosmic.removed")
 local sys = require("cosmic.sys")
 local errors = require("cosmic.internal.errors")
+local Globals = require("cosmic.internal.globals")
 
 --- What `fn` printed to descriptor 1, which it was pointed at a file of
 --- `tmp` for, and restored after.
@@ -52,7 +53,7 @@ end
 --- The error a chunk of plain Lua raises, compiled past the checker by
 --- `load` the way any Lua a program is handed would be.
 local function raised(code: string): string
-  local chunk = assert(load(code, "=plain.lua", "t"))
+  local chunk = assert(load(code, "=plain.lua", "t", Globals.table()))
   local ok, trouble = pcall(chunk)
   assert(not ok, "expected " .. code .. " to raise")
   return tostring(trouble)
@@ -96,6 +97,39 @@ local function test_a_removed_function_says_what_replaced_it()
   end
 end
 
+--- The fields of `package` that are gone raise what replaced them,
+--- read or written, rather than yielding a nil that fails somewhere
+--- else; the fields that remain are untouched.
+local function test_a_removed_package_field_says_what_replaced_it()
+  for _, field in ipairs(Removed.package_fields) do
+    local expected = "plain.lua:1: " .. Removed.message("package", field)
+    local trouble = raised("return package." .. field)
+    assert(trouble == expected, trouble)
+    trouble = raised("package." .. field .. " = 'x'")
+    assert(trouble == expected, trouble)
+  end
+  local trouble = raised('return package.path .. "x"')
+  assert(trouble:find("there is no file search path", 1, true) ~= nil, trouble)
+  assert(package.loaded ~= nil and package.preload ~= nil and package.searchers ~= nil)
+  assert(package.config ~= nil)
+  local other = assert(load("package.frobnicate = 1\nlocal seen = package.frobnicate\n" ..
+      "package.frobnicate = nil\nreturn seen, package.frobnicate", "=other.lua", "t", Globals.table()))
+  local seen, gone = other()
+  assert(seen == 1 and gone == nil)
+end
+
+--- A `require` of a removed library says what replaced it, as the
+--- checker's `module not found` does.
+local function test_requiring_a_removed_library_says_what_replaced_it()
+  for _, name in ipairs({ "io", "os", "debug" }) do
+    local trouble = raised("return require('" .. name .. "')")
+    assert(trouble:find("no module '" .. name .. "' in the store", 1, true) ~= nil, trouble)
+    assert(trouble:find(Removed.message(name), 1, true) ~= nil, trouble)
+  end
+  local trouble = raised("return require('not_a_removed_library')")
+  assert(trouble:find("is not available", 1, true) == nil, trouble)
+end
+
 local function test_a_name_that_never_existed_is_nil()
   local globals = _G as {string: any}
   assert(globals["cosmic_surface_test_never_defined"] == nil)
@@ -110,21 +144,21 @@ local function test_big_strings_keep_their_bytes_through_reused_blocks()
   local sizes = { 30000, 33000, 40960, 40961, 65536, 65537, 100000, 1 << 20,
     (2 << 20) - 1, 2 << 20, (2 << 20) + 1, 3 << 20 }
   for round = 1, 3 do
-    local made: {string} = {}
+    local made: mut {string} = {}
     for index, size in ipairs(sizes) do
       local byte = string.char(65 + (index + round) % 26)
-      local pieces: {string} = {}
+      local pieces: mut {string} = {}
       for i = 1, size // 1000 do pieces[i] = string.rep(byte, 1000) end
       pieces[#pieces + 1] = string.rep(byte, size % 1000)
       local joined = table.concat(pieces)
       local repeated = string.rep(byte, size)
-      assert(#joined == size and joined == repeated, "size " .. size)
+      assert(#joined == size and joined == repeated, "size " .. tostring(size))
       made[index] = joined:sub(2) .. "!"
     end
     collectgarbage("collect")
     for index, size in ipairs(sizes) do
       local byte = string.char(65 + (index + round) % 26)
-      assert(made[index] == string.rep(byte, size - 1) .. "!", "size " .. size)
+      assert(made[index] == string.rep(byte, size - 1) .. "!", "size " .. tostring(size))
     end
   end
 end
@@ -144,4 +178,41 @@ local function test_trace_of_a_coroutine_that_raised_names_where()
   assert(errors.trace_of(co):find("stack traceback:", 1, true) == 1)
   local own = errors.trace_of((coroutine.running()))
   assert(own:find("stack traceback:\n\t[C]", 1, true) == nil, own)
+  -- Level 1, the default, is the binding's caller; 2 skips it.
+  local function at_site(level?: integer): string
+    local text = errors.trace_of((coroutine.running()), nil, level)
+    return text
+  end
+  local top = assert(at_site():match("stack traceback:\n\t([^\n]*)"), "a trace has a top frame")
+  assert(top:find("at_site", 1, true) ~= nil)
+  local skipped = assert(at_site(2):match("stack traceback:\n\t([^\n]*)"), "a trace has a top frame")
+  assert(skipped:find("at_site", 1, true) == nil)
+  -- A coroutine other than the running one is read from its top.
+  assert(errors.trace_of(co, nil, 5) == errors.trace_of(co))
+end
+
+--- `where` names the source and line of a Lua frame without a
+--- traceback: the caller at level 1, its caller at 2, and past a frame that
+--- runs C (a `pcall`) the first Lua one above it; nil where the stack ends.
+local function test_where_names_a_frame_by_source_and_line()
+  local here = errors.where() as string
+  assert(here:match("^.-:(%d+)$") ~= nil, here)
+  local function asks(level: integer): string?
+    local place = errors.where(level)
+    return place
+  end
+  local inner = asks(1) as string
+  local function number(place: string): integer
+    return math.tointeger(tonumber(place:match(":(%d+)$"))) or -1
+  end
+  assert(number(inner) == number(here) + 3, inner .. " against " .. here)
+  local up, same = asks(2), errors.where()
+  assert(up ~= nil and same ~= nil and number(up) == number(same), tostring(up) .. " " .. tostring(same))
+  -- Level 2 from a function `pcall` runs is the `pcall`, which runs C: the
+  -- first Lua frame above it is this one, at the line of the call.
+  local viewed = { value = nil as string? }
+  local ok, line = pcall(function() viewed.value = errors.where(2) end), number(errors.where() as string)
+  local viewed_value = viewed.value
+  assert(ok and viewed_value ~= nil and number(viewed_value) == line, tostring(viewed_value) .. " against " .. tostring(line))
+  assert(errors.where(1000) == nil)
 end

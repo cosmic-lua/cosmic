@@ -89,7 +89,7 @@ end
 --- with the standard `streams` on it, under `policy` where given, and how it
 --- ended.
 local function on_pty(binary: string, streams: {integer}, policy?: Sandbox.Policy): string, Child.Result
-  local on: {integer:boolean} = {}
+  local on: mut {integer:boolean} = {}
   for _, number in ipairs(streams) do on[number] = true end
   local opts: Child.Options = { policy = policy, timeout_ns = Clock.seconds(5) }
   if not on[0] then opts.stdin = "null" end
@@ -98,16 +98,17 @@ local function on_pty(binary: string, streams: {integer}, policy?: Sandbox.Polic
   -- Darwin drops what a slave wrote and the master had not read when the
   -- slave's last descriptor closes, which a child that writes and exits at
   -- once would cause: this holds the slave until all is read.
-  local said = ""
+  local said: string = ""
   local function read_some(wait_ns: integer): boolean
     local ready, _ = Poll.readable(started.master, wait_ns)
     if not ready then return false end
     local data, _ = sys.read(started.master, 4096)
-    if data == nil or data == "" then return false end
+    if data == nil then return false end
+    if data == "" then return false end
     said = said .. data
     return true
   end
-  local result: Child.Result
+  local result: Child.Result?
   while result == nil do
     local done, _ = Child.wait_any({ started.child }, Clock.ms(1))
     if done ~= nil then

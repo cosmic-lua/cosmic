@@ -152,7 +152,7 @@ local function test_unmet_policy_fields_are_refused()
   }
   for _, case in ipairs(cases) do
     local out, why = Seatbelt.compile(case[1] as Sandbox.Policy, { paths = {} })
-    assert(out == nil and why:find(case[2] as string, 1, true), why)
+    assert(out == nil and why:find(case[2] as string, 1, true) ~= nil, why)
   end
 end
 
@@ -164,10 +164,10 @@ local function test_connect_reaches_the_relay_port_alone()
   assert(out.text == BASE .. '(allow network-outbound (remote tcp "localhost:49152"))\n', out.text)
   for _, port in ipairs({ 0, 65536, -1 }) do
     local refused, why = Seatbelt.compile({ connect = { "example.com:443" } }, { paths = {}, relay_port = port })
-    assert(refused == nil and why:find("connect needs the port", 1, true), tostring(why))
+    assert(refused == nil and why:find("connect needs the port", 1, true) ~= nil, tostring(why))
   end
   local stray, why = Seatbelt.compile({}, { paths = {}, relay_port = 49152 })
-  assert(stray == nil and why:find("no connect", 1, true), tostring(why))
+  assert(stray == nil and why:find("no connect", 1, true) ~= nil, tostring(why))
 end
 
 --- The relay's own profile connects anywhere, as its grants decide,
@@ -193,7 +193,7 @@ local function test_the_relay_profile_connects_out_and_accepts_at_its_port()
 ]], 1, true), out.text)
   assert(not out.text:find("network-bind", 1, true), out.text)
   local refused, why = Seatbelt.compile({}, { paths = {}, serves_relay = 0 })
-  assert(refused == nil and why:find("serves_relay needs the port", 1, true), tostring(why))
+  assert(refused == nil and why:find("serves_relay needs the port", 1, true) ~= nil, tostring(why))
 end
 
 --- `tmp`'s directory is made after the profile, so the profile grants it
@@ -237,18 +237,18 @@ local function test_a_database_needs_the_core_and_the_file_the_core_runs_on(tmp:
   local database, other = tmp .. "/sealed.db", tmp .. "/other.db"
   assert(Fs.write(database, "a regular file"))
   assert(Fs.write(other, "another one"))
-  local paths: {string:Seatbelt.Path} = {
+  local paths: mut {string:Seatbelt.Path} = {
     ["/core"] = { path = "/private/core", directory = false },
     [database] = { path = database, directory = false },
     [other] = { path = other, directory = false },
   }
   local policy: Sandbox.Policy = { database = { path = database } }
   local out, why = Seatbelt.compile(policy, { paths = paths })
-  assert(out == nil and why:find("database needs the core", 1, true), tostring(why))
+  assert(out == nil and why:find("database needs the core", 1, true) ~= nil, tostring(why))
   out, why = Seatbelt.compile(policy, { paths = paths, core = "/core" })
-  assert(out == nil and why:find("database needs the core", 1, true), tostring(why))
+  assert(out == nil and why:find("database needs the core", 1, true) ~= nil, tostring(why))
   out, why = Seatbelt.compile(policy, { paths = paths, core = "/core", database = other })
-  assert(out == nil and why:find("is not the database the core is run on", 1, true), tostring(why))
+  assert(out == nil and why:find("is not the database the core is run on", 1, true) ~= nil, tostring(why))
   -- The same file by another name is the one.
   paths["/by-link"] = { path = database, directory = false }
   assert(Seatbelt.compile(policy, { paths = paths, core = "/core", database = "/by-link" }))
@@ -256,7 +256,7 @@ end
 
 --- What a policy reaches on macOS is macOS's "system" list, not Linux's.
 local function test_the_grants_a_policy_reaches_are_macoss_own()
-  local held: {string:string} = {}
+  local held: mut {string:string} = {}
   for _, grant in ipairs(Seatbelt.grants({ profiles = { "system" },
       grants = { { path = "/srv", letters = "r" } } })) do held[grant.path] = grant.letters end
   assert(held["/System/Library"] == "rx" and held["/sbin"] == "rx" and held["/srv"] == "r")
@@ -272,7 +272,7 @@ local function test_system_profile_means_the_same_raw_merged_and_through_json()
   local profile = rules.system_profile("darwin", function(_: string): boolean return true end)
   local merged = assert(Sandbox.merge(profile))
   local decoded = assert(PolicyJson.decode(PolicyJson.encode(merged)))
-  local paths: {string:Seatbelt.Path} = {}
+  local paths: mut {string:Seatbelt.Path} = {}
   for _, grant in ipairs(Seatbelt.grants(raw)) do
     paths[grant.path] = { path = "/real" .. grant.path, directory = true }
   end
@@ -280,8 +280,8 @@ local function test_system_profile_means_the_same_raw_merged_and_through_json()
   assert(want.parameters.PATH_1 ~= nil)
   for _, other in ipairs({ profile, merged, decoded }) do
     assert(other.profiles == nil)
-    local seen: {string:string} = {}
-    for _, grant in ipairs(other.grants) do seen[grant.path] = grant.letters end
+    local seen: mut {string:string} = {}
+    for _, grant in ipairs(other.grants or {}) do seen[grant.path] = grant.letters end
     assert(seen["/System/Library"] == "rx" and seen["/sbin"] == "rx" and seen["/lib64"] == nil)
     assert(seen["/private/var/db/dyld"] == "r" and seen["/dev/dtracehelper"] == "rw")
     local got = compile(other, paths)
@@ -292,15 +292,15 @@ end
 
 local function test_missing_or_noncanonical_host_paths_fail_closed()
   local out, why = Seatbelt.compile({ grants = { { path = "a", letters = "r" } } }, { paths = {} })
-  assert(out == nil and why:find("resolved host path", 1, true), why)
+  assert(out == nil and why:find("resolved host path", 1, true) ~= nil, why)
   for _, path in ipairs({ "relative", "/has/../parent", "/has/./dot", "/double//slash", "/trailing/", "/nul\0" }) do
     out, why = Seatbelt.compile({ grants = { { path = "a", letters = "r" } } },
       { paths = { a = { path = path, directory = false } } })
-    assert(out == nil and why:find("canonical host path", 1, true), why)
+    assert(out == nil and why:find("canonical host path", 1, true) ~= nil, why)
   end
   out, why = Seatbelt.compile({ grants = { { path = "a", letters = "r" }, { path = "b", letters = "w" } } },
     { paths = { a = { path = "/same", directory = true }, b = { path = "/same", directory = false } } })
-  assert(out == nil and why:find("two directory kinds", 1, true), why)
+  assert(out == nil and why:find("two directory kinds", 1, true) ~= nil, why)
 end
 
 local function test_compiling_does_not_mutate_the_policy_or_paths()
@@ -308,8 +308,10 @@ local function test_compiling_does_not_mutate_the_policy_or_paths()
   local paths: {string:Seatbelt.Path} = { ["a//b"] = { path = "/real", directory = false } }
   local out = compile(policy, paths)
   assert(out.parameters.PATH_1 == "/real")
-  assert(policy.grants[1].path == "a//b" and policy.grants[1].letters == "xr")
-  assert(policy.profiles[1] == "system" and paths["a//b"].path == "/real")
+  local grant = assert(assert(policy.grants)[1], "the policy kept its grant")
+  assert(grant.path == "a//b" and grant.letters == "xr")
+  local kept = assert(paths["a//b"], "the paths kept their entry")
+  assert(assert(policy.profiles)[1] == "system" and kept.path == "/real")
 end
 
 local function test_a_terminal_grants_its_slave_and_dev_tty_by_parameter_and_nothing_otherwise()
@@ -322,7 +324,6 @@ local function test_a_terminal_grants_its_slave_and_dev_tty_by_parameter_and_not
 ]], out.text)
   assert(out.parameters.TTY == "/dev/ttys004")
   assert(not out.text:find("ttys004", 1, true), out.text)
-  local why: string
-  out, why = Seatbelt.compile({}, { paths = {}, terminal = "ttys004" })
-  assert(out == nil and why:find("terminal needs an absolute canonical path", 1, true), why)
+  local refused, why = Seatbelt.compile({}, { paths = {}, terminal = "ttys004" })
+  assert(refused == nil and why:find("terminal needs an absolute canonical path", 1, true) ~= nil, why)
 end

@@ -18,8 +18,8 @@ local Test = require("cosmic.test")
 --- them, beside what it gives every worker; `nests`, since the plan reads
 --- the root a worker's process would confine.
 Test.policy{
-  profiles = { "system", "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" }, { path = "/proc", letters = "r" } },
+  profiles = { "system", "cosmic", "proc" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" } },
   promises = { "nest" },
 }
 
@@ -35,7 +35,7 @@ end
 --- paths by its policy's profile "system", which is no path of its plan.
 local function test_a_module_that_declares_system_is_given_the_system_profile(tmp: string)
   local root, scratch = tmp .. "/root", tmp .. "/scratch"
-  -- Laid out as build.test's `scratch` lays one out.
+  -- Laid out as build.test_key's `scratch` lays one out.
   for _, dir in ipairs({ root .. "/o", scratch .. "/real" }) do assert(Fs.mkdirs(dir)) end
   assert(Fs.symlink("real", scratch .. "/tmp"))
   assert(Fs.write(root .. "/o/cosmic.db", "x"))
@@ -43,7 +43,7 @@ local function test_a_module_that_declares_system_is_given_the_system_profile(tm
     network = {}, tool = false, store = false, system = true }
   local plan = test_sandbox.plan(root, scratch, inputs, {})
   assert(plan.trouble == "", plan.trouble)
-  assert(not holds(plan.sandbox.unveil.reads, "/usr"))
+  assert(not holds(assert(plan.sandbox.unveil).reads, "/usr"))
   local policy = assert(test_policy.worker(plan, inputs))
   assert(holds(policy.profiles or {}, "system"))
 end

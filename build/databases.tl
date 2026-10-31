@@ -1,4 +1,4 @@
---- What the databases under `o/` hold, table by table: rows,
+--- What the databases in the build directory hold, table by table: rows,
 --- pages and bytes, from SQLite's own `dbstat` table, and how the
 --- last few builds went. This is how growth gets named rather than
 --- noticed, and how a change to what the build stores is judged by
@@ -13,8 +13,10 @@ local clock = require("build.clock")
 local narrow = require("build.narrow")
 local plural = require("build.plural")
 local reboot = require("build.reboot")
+local work = require("build.work")
 
-local log = require("build.verdict").log
+local logger = require("build.logger")
+local log = logger.log
 local verb_spec = require("build.verb_spec")
 
 local record databases
@@ -35,7 +37,7 @@ end
 --- One database's tables and indexes, largest first, each with its
 --- rows (for a table), its pages, the bytes those pages take, and the
 --- bytes that are actually payload. Returns how many tables it saw.
-local function describe(path: string): integer | nil, string
+local function describe(path: string): integer?, string
   local db, open_trouble = Sqlite.open(path)
   if db == nil then
     return nil, open_trouble
@@ -53,31 +55,36 @@ local function describe(path: string): integer | nil, string
     local _, _ = db:close()
     return nil, table_trouble
   end
-  local is_table: {string:boolean} = {}
+  local is_table: mut {string:boolean} = {}
   for _, row in ipairs(tables) do
-    is_table[row[1]] = true
+    is_table[row:text(1)] = true
   end
   local st, _ = Fs.stat(path)
   log:say(path .. "  " .. plural.count(st ~= nil and st.size or 0, "byte"))
   log:say("  " .. column("rows", 8) .. column("pages", 8) ..
       column("bytes", 10) .. column("payload", 10) .. "  name")
   for _, row in ipairs(sizes) do
-    local name, pages, bytes, payload = row[1], row[2], row[3], row[4]
+    local name, pages, bytes, payload = row:text(1), row:text(2), row:text(3), row:text(4)
     local rows = ""
-    if is_table[name] then
+    if is_table[name] == true then
       local counted, count_trouble = Sqlite.text_rows(db,
         "SELECT count(*) FROM " .. quoted(name))
       if counted == nil then
         local _, _ = db:close()
         return nil, count_trouble
       end
-      rows = counted[1][1]
+      local only = counted[1]
+      if only == nil then
+        local _, _ = db:close()
+        return nil, "count(*) of " .. name .. " answered no row"
+      end
+      rows = only:text(1)
     end
     log:say("  " .. column(rows, 8) .. column(pages, 8) .. column(bytes, 10) ..
         column(payload, 10) .. "  " .. name)
   end
   local _, _ = db:close()
-  return #tables
+  return #tables, ""
 end
 
 --- The last few rows of the working database's `builds`.
@@ -95,9 +102,9 @@ local function builds(path: string): boolean, string
   end
   log:say("builds, latest first")
   for _, row in ipairs(rows) do
-    log:say("  run " .. row[1] .. "  " .. row[2] .. " ms  " .. plural.count(math.tointeger(tonumber(row[3])) or 0, "file") ..
-        " staged (" .. row[4] .. " read)  " .. row[5] .. " compiled, " ..
-        row[6] .. " cached  " .. row[7])
+    log:say("  run " .. row:text(1) .. "  " .. row:text(2) .. " ms  " .. plural.count(math.tointeger(tonumber(row:text(3))) or 0, "file") ..
+        " staged (" .. row:text(4) .. " read)  " .. row:text(5) .. " compiled, " ..
+        row:text(6) .. " cached  " .. row:text(7))
   end
   return true, ""
 end
@@ -119,18 +126,18 @@ local function slowest(path: string, about: function(string): boolean): boolean,
   if rows == nil then
     return false, trouble
   end
-  local kept: {{string}} = {}
+  local kept: Sqlite.Rows = {}
   for _, row in ipairs(rows) do
-    if #kept < slowest_kept and about(row[1]) then kept[#kept + 1] = row end
+    if #kept < slowest_kept and about(row:text(1)) then kept[#kept + 1] = row end
   end
   if #kept == 0 then
     return true, ""
   end
   log:say("slowest tests")
   for _, row in ipairs(kept) do
-    local ns = math.tointeger(tonumber(row[3]) or 0) or 0
-    log:say("  " .. string.format("%.1f", ns / 1e9) .. "s  " .. row[1] ..
-        " " .. row[2])
+    local ns = math.tointeger(tonumber(row:text(3)) or 0) or 0
+    log:say("  " .. string.format("%.1f", ns / 1e9) .. "s  " .. row:text(1) ..
+        " " .. row:text(2))
   end
   return true, ""
 end
@@ -141,18 +148,28 @@ end
 --- about the file with that hash.
 local source_columns = { "file", "from_file", "path", "source_hash", "sha256" }
 
+--- A database to read a file mapping from: its `path` and the `sql` that
+--- selects a key and the file it stands for.
+local record Source
+  path: string
+  sql: string
+end
+
 --- The source file each module name and each source hash stands for,
---- from whichever of the two databases hold one: `o/cosmic.db`'s modules
---- and `o/build.db`'s derived rows and staged files.
-local function module_files(root: string): {string:string} | nil, string
-  local files: {string:string} = {}
-  for _, source in ipairs({
-      { "cosmic.db", "SELECT path, file FROM modules" },
-      { "build.db", "SELECT path, file FROM derived" },
-      { "build.db", "SELECT source_hash, file FROM derived" },
-      { "build.db", "SELECT sha256, path FROM files" },
-  }) do
-    local path = build_paths.required(root) .. "/" .. source[1]
+--- from whichever of the two databases hold one: `cosmic.db`'s modules
+--- and `build.db`'s derived rows and staged files, unless `working`
+--- is false.
+local function module_files(root: string, working: boolean): {string:string}?, string
+  local files: mut {string:string} = {}
+  local layout = build_paths.resolve(root)
+  local sources: mut {Source} = { { path = layout.projection, sql = "SELECT path, file FROM modules" } }
+  if working then
+    table.insert(sources, { path = layout.working, sql = "SELECT path, file FROM derived" })
+    table.insert(sources, { path = layout.working, sql = "SELECT source_hash, file FROM derived" })
+    table.insert(sources, { path = layout.working, sql = "SELECT sha256, path FROM files" })
+  end
+  for _, source in ipairs(sources) do
+    local path = source.path
     local present, present_trouble = Fs.exists(path)
     if present == nil then
       return nil, present_trouble
@@ -162,12 +179,12 @@ local function module_files(root: string): {string:string} | nil, string
       if db == nil then
         return nil, open_trouble
       end
-      local rows, trouble = Sqlite.text_rows(db, source[2])
+      local rows, trouble = Sqlite.text_rows(db, source.sql)
       local _, _ = db:close()
       if rows == nil then
         return nil, path .. ": " .. trouble
       end
-      for _, row in ipairs(rows) do files[row[1]] = row[2] end
+      for _, row in ipairs(rows) do files[row:text(1)] = row:text(2) end
     end
   end
   return files, ""
@@ -176,7 +193,7 @@ end
 --- One database's tables that say which source each row is about, each
 --- with how many of its rows `about` keeps, for the tables that keep
 --- any. Returns how many rows it kept.
-local function describe_under(path: string, about: function(string): boolean): integer | nil, string
+local function describe_under(path: string, about: function(string): boolean): integer?, string
   local db, open_trouble = Sqlite.open(path)
   if db == nil then
     return nil, open_trouble
@@ -191,18 +208,18 @@ local function describe_under(path: string, about: function(string): boolean): i
   log:say("  " .. column("rows", 8) .. "  name")
   local kept = 0
   for _, row in ipairs(tables) do
-    local name = row[1]
+    local name = row:text(1)
     local columns, column_trouble = Sqlite.text_rows(db,
       "SELECT name FROM pragma_table_info(?1)", { { text = name } })
     if columns == nil then
       local _, _ = db:close()
       return nil, column_trouble
     end
-    local has: {string:boolean} = {}
-    for _, c in ipairs(columns) do has[c[1]] = true end
-    local chosen: string | nil = nil
+    local has: mut {string:boolean} = {}
+    for _, c in ipairs(columns) do has[c:text(1)] = true end
+    local chosen: string? = nil
     for _, candidate in ipairs(source_columns) do
-      if chosen == nil and has[candidate] then chosen = candidate end
+      if chosen == nil and has[candidate] == true then chosen = candidate end
     end
     if chosen ~= nil then
       local values, value_trouble = Sqlite.text_rows(db,
@@ -213,7 +230,7 @@ local function describe_under(path: string, about: function(string): boolean): i
       end
       local count = 0
       for _, value in ipairs(values) do
-        if about(value[1]) then count = count + 1 end
+        if about(value:text(1)) then count = count + 1 end
       end
       if count > 0 then
         log:say("  " .. column(tostring(count), 8) .. "  " .. name)
@@ -222,39 +239,68 @@ local function describe_under(path: string, about: function(string): boolean): i
     end
   end
   local _, _ = db:close()
-  return kept
+  return kept, ""
 end
 
---- `cosmic db [path...]`: describes `o/cosmic.db`, `o/carried.db` (what
---- the tool built from cosmic's own tree carries) and `o/build.db` under
---- the working directory, each one there is, and how many closure stores
---- `o/stores` holds and their bytes. It prints a verdict line and
---- returns the exit code. Paths narrow it to the rows about the sources
+--- Whether the working database at `path` is there and of this tool's
+--- schema, so that it is read. One of another schema is another tool's,
+--- whose rows this tool's code may misread: it is said once on stderr
+--- ([`work.tell_other_schema`]) and none of it beyond its schema is read.
+--- Nil and why where that cannot be told.
+local function readable(path: string): boolean?, string
+  local present, present_trouble = Fs.exists(path)
+  if present == nil then return nil, present_trouble end
+  if not present then return false, "" end
+  local db, open_trouble = Sqlite.open(path)
+  if db == nil then return nil, open_trouble end
+  local other, other_trouble = work.other_schema(db)
+  local _, _ = db:close()
+  if other == nil then
+    if other_trouble ~= "" then return nil, other_trouble end
+    return true, ""
+  end
+  work.tell_other_schema("db", path, other)
+  return false, ""
+end
+
+--- `cosmic db [path...]`: describes `cosmic.db`, `carried.db` (what
+--- the tool built from cosmic's own tree carries) and `build.db` under
+--- the working directory, each one there is but a `build.db` of another
+--- schema ([`readable`]), and how many closure stores
+--- the build directory's `stores` holds and their bytes. It ends in its
+--- summary on stderr and returns the exit code. Paths narrow it to the rows about the sources
 --- under them: each table's count of those rows, and the slowest of
 --- those tests. The coverage rows counted are every kept run's, not only
 --- the latest.
 --- @param argv the command line, re-entered if this binary embeds a
 ---   stale copy of [`build.databases`] itself -- see [`build.reboot.stale_exit`]
-local function run(argv: {integer:string}): integer
+local function run(argv: {string}): integer
   local started = Clock.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
     log:complain("db: " .. parse_trouble)
     return 2
   end
-  local root, root_trouble = Fs.absolute(".")
-  if root == nil then
+  local absolute, root_trouble = Fs.absolute(".")
+  if absolute == nil then
     log:complain(root_trouble)
     return 1
   end
-  local code = reboot.stale_exit(argv)
+  local root: string = absolute
+  local code = reboot.stale_exit(argv, true)
   if code ~= nil then
     return code
+  end
+  local layout = build_paths.resolve(root)
+  local working, working_trouble = readable(layout.working)
+  if working == nil then
+    log:complain(layout.working .. ": " .. working_trouble)
+    return 1
   end
   local paths = narrow.paths(root, parsed.words)
   local files: {string:string} = {}
   if #paths > 0 then
-    local found, files_trouble = module_files(root)
+    local found, files_trouble = module_files(root, working)
     if found == nil then
       log:complain(files_trouble)
       return 1
@@ -273,15 +319,16 @@ local function run(argv: {integer:string}): integer
   local seen = 0
   local tables = 0
   local rows = 0
-  for _, name in ipairs({ "cosmic.db", "carried.db", "build.db" }) do
-    local path = build_paths.required(root) .. "/" .. name
+  local described = { layout.projection, layout.carried }
+  if working then table.insert(described, layout.working) end
+  for _, path in ipairs(described) do
     local present, present_trouble = Fs.exists(path)
     if present == nil then
       log:complain(present_trouble)
       return 1
     end
     if present then
-      local counted, trouble: integer, string
+      local counted, trouble: integer?, string
       if #paths > 0 then
         counted, trouble = describe_under(path, about)
       else
@@ -297,7 +344,7 @@ local function run(argv: {integer:string}): integer
       else
         tables = tables + counted
       end
-      if name == "build.db" then
+      if path == layout.working then
         if #paths == 0 then
           local ok, build_trouble = builds(path)
           if not ok then
@@ -316,10 +363,10 @@ local function run(argv: {integer:string}): integer
   -- The stores of test modules' closures a sandboxed `cosmic test`
   -- gives its workers ([`build.closure_store`]'s `write`), as a whole:
   -- not the store of no module beside them (`base-<address>.db`,
-  -- build.test's `base_name`), which the census digests and no worker
+  -- build.test_key's `base_name`), which the census digests and no worker
   -- is given.
   if #paths == 0 then
-    local stores = build_paths.required(root) .. "/stores"
+    local stores = layout.stores
     local listed, _ = Fs.list(stores)
     local count, bytes = 0, 0
     for _, entry in ipairs(listed or {}) do
@@ -333,22 +380,22 @@ local function run(argv: {integer:string}): integer
     end
   end
   if seen == 0 then
-    log:verdict("db", false, "no database under " .. build_paths.required(root) .. "; build first, " ..
+    local _, _ = logger.summary("db", "no database under " .. layout.directory .. "; build first, " ..
         clock.took(started))
     return 1
   end
   if #paths > 0 then
     local under = table.concat(paths, ", ")
     if rows == 0 then
-      log:verdict("db", false, "no row is about " .. under .. ", " ..
+      local _, _ = logger.summary("db", "no row is about " .. under .. ", " ..
           clock.took(started))
       return 1
     end
-    log:verdict("db", true, plural.count(rows, "row") .. " about " .. under .. " in " ..
+    local _, _ = logger.summary("db", plural.count(rows, "row") .. " about " .. under .. " in " ..
         plural.count(seen, "database") .. ", " .. clock.took(started))
     return 0
   end
-  log:verdict("db", true, plural.count(tables, "table") .. " in " .. plural.count(seen, "database") .. ", " ..
+  local _, _ = logger.summary("db", plural.count(tables, "table") .. " in " .. plural.count(seen, "database") .. ", " ..
       clock.took(started))
   return 0
 end
@@ -356,10 +403,12 @@ end
 --- The `db` verb as [`build/verb_list.tl`] lists it.
 databases.spec = {
   name = "db",
+  summarizes_failure = true,
   guide = "none: reports on the tree's databases for its maintainers, described by `cosmic help db`",
   tests = { "build.verbs_store_test" },
   run = run,
   bare = false,
+  reads = true,
   takes = "the sources whose rows to count",
 }
 

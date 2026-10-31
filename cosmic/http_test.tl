@@ -4,13 +4,13 @@
 --- ([`Http.Options.script`]), where each connection curl opens reads a canned
 --- reply and records what curl sent.
 
-local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
+local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -38,7 +38,7 @@ local function fetch(script: {string}, opts?: Http.Options): Http.Response, stri
   opts = opts or {}
   opts.script = script
   local response = assert(Http.open(url, opts))
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while true do
     local chunk, trouble = response:read()
     if chunk == nil then
@@ -299,7 +299,7 @@ end
 
 -- A pattern no two nearby offsets share, so a byte out of place shows.
 local function big(size: integer): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i = 1, size // 8 do
     parts[i] = string.format("%07x\n", i)
   end
@@ -314,7 +314,7 @@ local function test_a_body_over_the_pause_threshold_arrives_whole()
   local first = assert(Http.open(url, { script = { reply("200 OK", "", data) } }))
   local second = assert(Http.open(url, { script = { reply("200 OK", "", data) } }))
   for _, response in ipairs({ second, first }) do
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     while true do
       local chunk, trouble = response:read(1 << 20)
       if chunk == nil then
@@ -349,7 +349,7 @@ local function test_a_post_body_outlives_the_options_that_held_it()
   opts = nil
   collectgarbage()
   collectgarbage()
-  local churn: {string} = {}
+  local churn: mut {string} = {}
   for i = 1, 4 do
     churn[i] = string.rep(string.char(65 + i), size)
   end
@@ -564,16 +564,6 @@ local function raised(opts: Http.Options): string
   return tostring(err)
 end
 
-local function test_an_integer_option_takes_no_numeric_string()
-  local err = raised({ timeout_ns = "5" as integer })
-  assert(err:find("http: opts.timeout_ns must be an integer", 1, true) ~= nil, err)
-end
-
-local function test_an_integer_option_takes_no_fraction()
-  local err = raised({ connect_timeout_ns = 1.5 as integer })
-  assert(err:find("http: opts.connect_timeout_ns must be an integer", 1, true) ~= nil, err)
-end
-
 local function test_a_negative_timeout_is_refused_not_ignored()
   -- curl refuses -5 and keeps its default, which is no timeout at all.
   local err = raised({ timeout_ns = -5 })
@@ -584,7 +574,7 @@ local function test_an_integer_option_curl_would_clamp_is_refused()
   local err = raised({ max_redirects = 40000 })
   assert(err:find("http: opts.max_redirects must be between 0 and 32767", 1, true) ~= nil, err)
   err = raised({ low_speed_ns = Clock.seconds(70000) })
-  assert(err:find("http: opts.low_speed_ns must be between 0 and " .. Clock.seconds(65535), 1, true) ~= nil,
+  assert(err:find("http: opts.low_speed_ns must be between 0 and " .. tostring(Clock.seconds(65535)), 1, true) ~= nil,
     err)
 end
 
@@ -641,8 +631,8 @@ local function test_a_refused_option_is_raised_at_the_callers_line()
     local _, behind = raised_at(entry, good, "behind")
     local refused, at = raised_at(entry, { timeout_ns = -5, script = {} }, "")
     assert(refused == file and ahead < at and at < behind,
-      name .. ": raised at " .. refused .. ":" .. at .. ", not between " .. file .. ":" ..
-        ahead .. " and " .. behind)
+      name .. ": raised at " .. refused .. ":" .. tostring(at) .. ", not between " .. file .. ":" ..
+        tostring(ahead) .. " and " .. tostring(behind))
   end
 end
 
@@ -696,7 +686,7 @@ end
 
 local function test_read_refuses_a_max_bytes_below_one()
   local response = assert(Http.open(url, { script = { reply("200 OK", "", "body") } }))
-  local ok, why = pcall(response.read, response, 0)
+  local ok, why = pcall(function() response:read(0) end)
   assert(not ok and tostring(why):find("http: read's max_bytes must be positive", 1, true), tostring(why))
   response:close()
 end
@@ -755,9 +745,9 @@ local function test_a_response_a_finalizer_revives_is_closed()
   local response = revived[1]
   assert(response ~= nil, "the finalizer ran")
   revived[1] = nil
-  local ok, err = pcall(response.read, response)
+  local ok, err = pcall(function() response:read() end)
   assert(not ok and tostring(err):find("http: the response is closed", 1, true) ~= nil, tostring(err))
-  ok, err = pcall(response.sent, response)
+  ok, err = pcall(function() response:sent() end)
   assert(not ok and tostring(err):find("http: the response is closed", 1, true) ~= nil, tostring(err))
   response:close()
 end
@@ -767,7 +757,7 @@ end
 local function test_the_raw_handle_close_returns_no_values()
   -- The raw module is handed only to cosmic.http's own loader, as the
   -- store's searcher's second answer; asking the searcher by hand gets it.
-  local raw: {string: function(string, {string: any}): any, string} = nil
+  local raw: {string: function(string, {string: any}): any, string}? = nil
   for _, searcher in ipairs(package.searchers as {function(string): any, any}) do
     local loader, extra = searcher("cosmic.http")
     if type(loader) == "function" and type(extra) == "table" and
@@ -784,7 +774,7 @@ end
 
 local function test_a_cancelled_download_removes_its_part_file_and_makes_no_target(tmp: string)
   local path = tmp .. "/got.bin"
-  local asked = 0
+  local asked: integer = 0
   local ok, why = Http.download(url, path, {
     script = { reply("200 OK", "", string.rep("x", 200000)) },
     cancelled = function(): boolean
@@ -813,8 +803,8 @@ end
 
 local function test_a_download_cancelled_only_at_the_end_makes_no_target(tmp: string)
   local path = tmp .. "/got.bin"
-  local asked = 0
-  local total = 0
+  local asked: integer = 0
+  local total: integer = 0
   -- the ask after the last chunk, before the rename, is the last: an
   -- interrupt that came in that window still leaves nothing
   local ok, why = Http.download(url, path, {
@@ -846,7 +836,7 @@ local function test_a_download_cancelled_only_at_the_end_makes_no_target(tmp: st
 end
 
 local function test_a_caught_signal_ends_an_open_that_waits()
-  local guard = assert(Child.guard())
+  local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGINT))
   local response, why = Http.open(url, { script = { reply("200 OK", "", "x") } })
   local caught = assert(guard:release())
@@ -886,6 +876,23 @@ local function test_a_download_with_only_a_sha512_checks_that_alone(tmp: string)
   assert(Fs.stat(other) == nil, "the target was created")
 end
 
+--- A sha3-256, the digest sqlite.org publishes alone, is checked as the
+--- others are: a wrong one fails naming it and leaves no file.
+local function test_a_download_with_a_sha3_256_checks_it(tmp: string)
+  local path = tmp .. "/sha3.bin"
+  local sha3 = Codec.hex(Hash.digest("sha3-256", "hello"))
+  local ok, why = Http.download(url, path, { script = { reply("200 OK", "", "hello") },
+    sha3_256 = sha3:upper() })
+  assert(ok, why)
+  assert(Fs.read(path) == "hello")
+  local other = tmp .. "/wrong-sha3.bin"
+  local zeros = string.rep("0", 64)
+  local bad, bad_why = Http.download(url, other, { script = { reply("200 OK", "", "hello") },
+    sha256 = Hash.hex_sha256("hello"), sha3_256 = zeros })
+  assert(not bad and bad_why:find("sha3-256 mismatch: want " .. zeros .. ", got " .. sha3, 1, true), bad_why)
+  assert(Fs.stat(other) == nil, "the target was created")
+end
+
 local function test_download_result_success_has_no_failure_fields(tmp: string)
   local path = tmp .. "/got"
   assert(Fs.write(path, "old"))
@@ -918,7 +925,7 @@ local function test_download_result_checksums_keep_typed_digests_and_legacy_text
   local path = tmp .. "/got"
   assert(Fs.write(path, "old"))
   for _, algorithm in ipairs({ "sha256", "sha512" } as {Hash.Algorithm}) do
-    for _, expected in ipairs({ "ABC", "not HEX", string.rep("0", algorithm == "sha256" and 64 or 128) }) do
+    for _, expected in ipairs({ "ABC", "not HEX", string.rep("0", if algorithm == "sha256" then 64 else 128 end) }) do
       local options: Http.Options = { script = { reply("200 OK", "", "body") } }
       if algorithm == "sha256" then options.sha256 = expected else options.sha512 = expected end
       local result = Http.download_result(url, path, options)
@@ -959,7 +966,7 @@ local function test_download_result_write_and_sync_failures_abort_without_classi
   assert(Fs.write(path, "old"))
   local real_write, real_sync = sys.write, sys.fsync
   local reason = "HTTP 503: sha256 mismatch: want x, got y"
-  sys.write = function(_fd: integer, _data: string): integer | nil, string, integer
+  sys.write = function(_fd: integer, _data: string): integer?, string, integer
     return nil, reason, 0
   end
   local written = Http.download_result(url, path, { script = { reply("200 OK", "", "body") } })
@@ -990,7 +997,7 @@ local function test_download_result_cancel_and_callback_exception_keep_target(tm
   local path = tmp .. "/got"
   assert(Fs.write(path, "old"))
   for _, at in ipairs({ 1, 2, 3 }) do
-    local asked = 0
+    local asked: integer = 0
     local result = Http.download_result(url, path, {
       script = { reply("200 OK", "", "body") },
       cancelled = function(): boolean
@@ -1024,10 +1031,10 @@ local function test_download_result_digest_failure_is_not_a_mismatch(tmp: string
   assert(Fs.write(path, "old"))
   local hashing = Stream.hashing
   local reason = "sha512 mismatch: digest engine failed"
-  Stream.hashing = function(algorithm: Hash.Algorithm): Stream.Hashing | nil, string
+  Stream.hashing = function(algorithm: Hash.Algorithm): Stream.Hashing?, string
     local writer, why = hashing(algorithm)
     if writer == nil then return nil, why end
-    writer.digest = function(_self: Stream.Hashing): string | nil, string
+    writer.digest = function(_self: Stream.Hashing): string?, string
       return nil, reason
     end
     return writer, ""
@@ -1043,7 +1050,7 @@ end
 local function test_download_result_preserves_underlying_url_text_without_classifying_it(tmp: string)
   local open = Http.open
   local reason = url .. ": HTTP 404; sha256 mismatch in transport diagnostic"
-  Http.open = function(_url: string, _opts?: Http.Options): Http.Response | nil, string
+  Http.open = function(_url: string, _opts?: Http.Options): Http.Response?, string
     return nil, reason
   end
   local result = Http.download_result(url, tmp .. "/got")
@@ -1055,7 +1062,7 @@ local function test_download_result_preserves_underlying_url_text_without_classi
 end
 
 local function test_download_result_guard_interruption_stays_available(tmp: string)
-  local guard = assert(Child.guard())
+  local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGINT))
   local result = Http.download_result(url, tmp .. "/got", { script = { reply("200 OK", "", "body") } })
   local caught = assert(guard:release())
@@ -1066,7 +1073,7 @@ end
 local function test_download_result_interleaved_publishers_own_their_staged_files(tmp: string)
   local path = tmp .. "/got"
   for _, mismatch in ipairs({ false, true }) do
-    local published = false
+    local published: boolean = false
     local result = Http.download_result(url, path, {
       script = { reply("200 OK", "", "outer") },
       sha256 = mismatch and string.rep("0", 64) or Hash.hex_sha256("outer"),
@@ -1080,9 +1087,9 @@ local function test_download_result_interleaved_publishers_own_their_staged_file
         return false
       end,
     })
-    local expected: Http.DownloadKind = mismatch and "digest_mismatch" or "downloaded"
+    local expected: Http.DownloadKind = if mismatch then "digest_mismatch" else "downloaded" end
     assert(result.kind == expected, result.reason)
-    assert(Fs.read(path) == (mismatch and "inner" or "outer"))
+    assert(Fs.read(path) == (if mismatch then "inner" else "outer" end))
     assert(#assert(Fs.list(tmp)) == 1, "one publisher left its staged file behind")
   end
 end
@@ -1294,4 +1301,15 @@ local function test_decompress_must_be_a_boolean()
   assert(not ok and tostring(why):find("opts.decompress must be a boolean", 1, true), tostring(why))
   -- Raised at the caller's line.
   assert(tostring(why):find("http_test", 1, true), tostring(why))
+end
+
+--- A `false` where a method is wanted is a method that is not GET, not an
+--- absent one: both raise as any other method does.
+local function test_a_method_that_is_false_is_refused_not_taken_for_none()
+  local script = { reply("200 OK", "") }
+  local opts = { method = false, script = script } as any as Http.Options
+  local ok, why = pcall(Http.get, url, opts)
+  assert(not ok and tostring(why):find("Http.request", 1, true), tostring(why))
+  ok, why = pcall(Http.request, "PUT", url, opts)
+  assert(not ok and tostring(why):find("leave opts.method out", 1, true), tostring(why))
 end

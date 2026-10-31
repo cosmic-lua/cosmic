@@ -18,7 +18,7 @@ end
 local function known_of(dir: string, files: {string: string},
                         wanted: {string}): {near.Known}, {string: near.Known}
   local found = assert(near.known({ fixture.database(dir, files) }))
-  local by_source: {string: near.Known} = {}
+  local by_source: mut {string: near.Known} = {}
   for _, entry in ipairs(found) do by_source[entry.source_symbol] = entry end
   for _, name in ipairs(wanted) do
     assert(by_source[name] ~= nil, name .. " is not among what the build offers")
@@ -187,6 +187,28 @@ local function test_a_parameter_is_not_a_stand_in(dir: string)
   assert(#near.notes("cosmic.stream", {
     { source_symbol = "Stream.sort", text = "Sorts lines.", line = 3 },
   }, list) == 0)
+end
+
+--- A method named like a command is called on a value and stands in for
+--- nothing.
+local function test_a_method_is_not_a_stand_in(dir: string)
+  local list = known_of(dir, { ["cosmic/fs.tl"] = joined(
+    "local record Fs",
+    "end",
+    "",
+    "--- Removes a file, as `unlink` does.",
+    "function Fs.remove(path: string): boolean",
+    "  return true",
+    "end",
+    "",
+    "return Fs") }, { "Fs.remove" })
+  local function noted(method: boolean): integer
+    return #near.notes("tools.lru", {
+      { source_symbol = "Lru.unlink", text = "Drops an entry.", line = 3, method = method },
+    }, list)
+  end
+  assert(noted(false) == 1)
+  assert(noted(true) == 0)
 end
 
 --- Two doc comments in nearly the same words are noted; short ones

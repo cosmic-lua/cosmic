@@ -34,6 +34,7 @@ Test.policy{
     { path = "vendor/mbedtls/", letters = "r" },
     { path = "vendor/miniz/", letters = "r" },
     { path = "vendor/sqlite/", letters = "r" },
+    { path = "vendor/sqlite-ext/", letters = "r" },
     { path = "vendor/xz/", letters = "r" },
     { path = "vendor/yyjson/", letters = "r" },
     { path = "vendor/zstd/", letters = "r" },
@@ -42,7 +43,7 @@ Test.policy{
 
 --- The vendored libraries build.zig compiles C from, each walked whole.
 local LIBRARIES <const> = { "bzip2", "cares", "curl", "lua", "mbedtls", "miniz", "sqlite",
-  "xz", "yyjson", "zstd" }
+  "sqlite-ext", "xz", "yyjson", "zstd" }
 
 --- The vendored trees build.zig patches that hold no C: the Teal
 --- compiler, which the core loads as Lua.
@@ -92,10 +93,18 @@ local SITES <const>: {string:Site} = {
   -- mbedtls's AES instructions: HWCAP_ASIMD and HWCAP_AES, and it runs
   -- pmull, which the kernel lists with aes.
   [AESCE] = { lines = "bb97ae0e43fe952e", reads = { aarch64 = { "asimd", "aes", "pmull" } } },
-  -- mbedtls's SHA-2 instructions, compiled out: no
-  -- MBEDTLS_SHA*_USE_* is set ([`test_the_sha_instructions_are_compiled_out`]).
-  [SHA256] = { lines = "348fc7a6aafc5db0", reads = {} },
-  [SHA512] = { lines = "08b640331951aadd", reads = {} },
+  -- mbedtls's Armv8 SHA-2 instructions, chosen at run time
+  -- ([`test_the_sha_instructions_are_chosen_at_run_time`]): HWCAP_SHA2 and
+  -- HWCAP_SHA512, and on Apple sysctl (hw.optional.armv8_2_sha512; SHA-256
+  -- is assumed there).
+  [SHA256] = { lines = "348fc7a6aafc5db0", reads = { aarch64 = { "sha2" } } },
+  [SHA512] = { lines = "08b640331951aadd", reads = { aarch64 = { "sha512" } } },
+  -- patch/mbedtls's SHA-NI SHA-256: cpuid leaf 7 EBX bit 29, with the
+  -- SSSE3 and SSE4.1 bits of leaf 1 its shuffles and blends need ...
+  ["patch/mbedtls/04-sha256-ni.txt"] = { lines = "a2bc2eeb6868491a",
+    reads = { x86_64 = { "sha_ni", "sse4_1", "ssse3" } } },
+  -- ... and the header that declares __get_cpuid_count.
+  ["patch/mbedtls/03-sha256-ni-select.txt"] = { lines = "bfdef8b0c7ebba67", reads = {} },
   -- xz's CRC32 and CRC64 by carry-less multiply: cpuid leaf 1, ECX
   -- bits 1, 9 and 19.
   ["vendor/xz/src/liblzma/check/crc_x86_clmul.h"] = { lines = "3df82a3bd7e3826c",
@@ -118,9 +127,15 @@ local SITES <const>: {string:Site} = {
   -- none chooses code by it. syscalls.c asks Apple's
   -- kern.maxfilesperproc too, for the descriptor limit a start raises
   -- to: no feature.
-  ["core/syscalls.c"] = { lines = "d4945a6faa1d47ab", reads = {} },
-  ["core/syscalls.h"] = { lines = "07f5fc6fd89b1e76", reads = {} },
-  ["core/syscalls_test.tl"] = { lines = "06265a36a78315f4", reads = {} },
+  ["core/syscalls.c"] = { lines = "6d6f8c1e9f60c406", reads = {} },
+  ["core/syscalls.h"] = { lines = "297b223c6bbcbc65", reads = {} },
+  ["core/syscalls_test.tl"] = { lines = "a1e4e0333713a274", reads = {} },
+  -- The int8 dot product of [`Vector.corpus`]: VNNI in its AVX-512 (256-bit
+  -- forms) and AVX encodings, by cpuid leaf 7. It also asks cpuid leaf 1
+  -- for OSXSAVE and xgetbv for the state the system saves, which are the
+  -- system's and no feature of the processor.
+  ["core/vector.c"] = { lines = "cd0767ce3aa41c0c",
+    reads = { x86_64 = { "avx512f", "avx512vl", "avx512_vnni", "avx_vnni" } } },
   -- The processor count on Apple (sysctlbyname("hw.ncpu")): no feature.
   ["vendor/sqlite/sqlite3.c"] = { lines = "7b27815aae63deac", reads = {} },
 }
@@ -149,7 +164,7 @@ local function asking(text: string): {string}
   -- Where each find starts: a line that holds one holds it there. A
   -- pattern's match may run on past its line's end, so the line each
   -- find is on is held to `asks` below.
-  local starts: {integer} = {}
+  local starts: mut {integer} = {}
   local function every(within: string, sought: string, plain: boolean)
     local from = 1
     while true do
@@ -168,11 +183,11 @@ local function asking(text: string): {string}
   -- end back (`reversed`); the lines between two finds are counted, not
   -- walked.
   local reversed = body:reverse()
-  local kept: {integer:string} = {}
+  local kept: mut {integer:string} = {}
   local number, counted, held = 1, 1, 0
   for _, at in ipairs(starts) do
     local before = reversed:find("\n", #body - at + 2, true)
-    local start = before == nil and 1 or #body - before + 2
+    local start = if before == nil then 1 else #body - before + 2 end
     if start > counted then
       local _, lines = body:sub(counted, start - 1):gsub("\n", "")
       number, counted = number + lines, start
@@ -188,23 +203,23 @@ local function asking(text: string): {string}
       end
     end
   end
-  local numbers: {integer} = {}
+  local numbers: mut {integer} = {}
   for j in pairs(kept) do numbers[#numbers + 1] = j end
   table.sort(numbers)
-  local found: {string} = {}
-  for i, j in ipairs(numbers) do found[i] = kept[j] end
+  local found: mut {string} = {}
+  for _, j in ipairs(numbers) do found[#found + 1] = kept[j] end
   return found
 end
 
 --- Each file under the trees build.zig compiles C from that holds a
 --- needle, as a path of the tree, with its lines that do (`asking`).
 local function sites(): {string:{string}}
-  local found: {string:{string}} = {}
+  local found: mut {string:{string}} = {}
   local function scan(path: string)
     local lines = asking((assert(Fs.read(path))))
     if #lines > 0 then found[path] = lines end
   end
-  local roots: {string} = { "core", "patch" }
+  local roots: mut {string} = { "core", "patch" }
   for _, library in ipairs(LIBRARIES) do roots[#roots + 1] = "vendor/" .. library end
   for _, root in ipairs(roots) do
     for _, relative in ipairs((assert(Fs.walk(root)))) do scan(root .. "/" .. relative) end
@@ -217,15 +232,15 @@ end
 --- each line `asks` holds and the `AFTER` after it, each once, in order.
 local function test_asking_keeps_what_a_line_at_a_time_would()
   local function by_line(text: string): {string}
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for line in String.lines(text) do lines[#lines + 1] = line end
-    local kept: {integer:boolean} = {}
+    local kept: mut {integer:boolean} = {}
     for i, line in ipairs(lines) do
       if asks(line) then
         for j = i, math.min(i + AFTER, #lines) do kept[j] = true end
       end
     end
-    local found: {string} = {}
+    local found: mut {string} = {}
     for i, line in ipairs(lines) do
       if kept[i] then found[#found + 1] = line end
     end
@@ -235,10 +250,10 @@ local function test_asking_keeps_what_a_line_at_a_time_would()
   -- holds; a find on a window's last line, which carries it on; two on
   -- one line; a find in any case; and the last line, with and without
   -- a newline after it.
-  local lines: {string} = { "#define MBEDTLS_AESNI_X", "0x1", "a", "cpuid" }
-  for i = 1, AFTER - 1 do lines[#lines + 1] = "filler " .. i end
+  local lines: mut {string} = { "#define MBEDTLS_AESNI_X", "0x1", "a", "cpuid" }
+  for i = 1, AFTER - 1 do lines[#lines + 1] = "filler " .. tostring(i) end
   lines[#lines + 1] = "xgetbv on the window's last line"
-  for i = 1, AFTER + 4 do lines[#lines + 1] = "more " .. i end
+  for i = 1, AFTER + 4 do lines[#lines + 1] = "more " .. tostring(i) end
   lines[#lines + 1] = "cpuid and cpuid, HwCaP too"
   lines[#lines + 1] = ""
   lines[#lines + 1] = "getauxval last"
@@ -246,29 +261,29 @@ local function test_asking_keeps_what_a_line_at_a_time_would()
   for _, each in ipairs({ text, text .. "\n", "", "\n\n", "cpuid" }) do
     local want, got = by_line(each), asking(each)
     assert(table.concat(got, "\n") == table.concat(want, "\n") and #got == #want,
-      "asking found " .. #got .. " lines where a line at a time finds " .. #want)
+      "asking found " .. tostring(#got) .. " lines where a line at a time finds " .. tostring(#want))
   end
   local found = asking(text)
-  assert(#found > AFTER * 2 and #found < #lines, "the case keeps " .. #found .. " lines")
+  assert(#found > AFTER * 2 and #found < #lines, "the case keeps " .. tostring(#found) .. " lines")
   assert(found[1] == "cpuid", "the case begins with " .. tostring(found[1]))
 end
 
 local function test_every_library_build_zig_compiles_is_walked()
   local source = assert(Fs.read("build.zig"))
-  local walked: {string:boolean} = {}
+  local walked: mut {string:boolean} = {}
   for _, library in ipairs(LIBRARIES) do walked[library] = true end
   local count = 0
-  for library in source:gmatch('patched%(b, trees, "([%w_]+)"%)') do
+  for library in source:gmatch('patched%(b, trees, "([%w_%-]+)"%)') do
     count = count + 1
     assert(walked[library] or NOT_C[library], "build.zig compiles vendor/" .. library ..
         ", which this test does not walk: add it to LIBRARIES and to Test.policy")
   end
-  assert(count >= #LIBRARIES, "build.zig names " .. count .. " patched trees")
+  assert(count >= #LIBRARIES, "build.zig names " .. tostring(count) .. " patched trees")
 end
 
 local function test_every_site_that_asks_the_processor_is_named()
   local found = sites()
-  local problems: {string} = {}
+  local problems: mut {string} = {}
   for path, lines in pairs(found) do
     local site = SITES[path]
     local digest = Hash.hex_sha256(table.concat(lines, "\n")):sub(1, 16)
@@ -294,7 +309,7 @@ local function test_every_site_that_asks_the_processor_is_named()
 end
 
 local function test_every_feature_a_site_reads_is_keyed()
-  local want: {string:{string:boolean}} = {}
+  local want: mut {string:{string:boolean}} = {}
   local function add(machine: string, flags: {string})
     want[machine] = want[machine] or {}
     for _, flag in ipairs(flags) do want[machine][flag] = true end
@@ -305,7 +320,7 @@ local function test_every_feature_a_site_reads_is_keyed()
   for machine, flags in pairs(want) do
     local keyed = declared_key.dispatched(machine)
     assert(keyed ~= nil, machine .. " has sites but no audited list")
-    local have: {string:boolean} = {}
+    local have: mut {string:boolean} = {}
     for _, flag in ipairs(keyed) do have[flag] = true end
     for flag in pairs(flags) do
       assert(have[flag], machine .. ": " .. flag .. " is read but not keyed")
@@ -322,17 +337,23 @@ local function test_every_feature_a_site_reads_is_keyed()
   end
 end
 
---- mbedtls's SHA-2 instruction paths are compiled only for a
---- MBEDTLS_SHA*_USE_* definition, which neither the configuration the
---- build names, build.zig nor a patch makes.
-local function test_the_sha_instructions_are_compiled_out()
-  local paths: {string} = { "core/mbedtls_cosmic_config.h", "build.zig" }
+--- mbedtls's Armv8 SHA-2 instruction paths are chosen at run time
+--- (`_IF_PRESENT`) by the configuration the build names, and no
+--- definition makes one the only path (`_ONLY`), which a processor
+--- without the instructions would fault on.
+local function test_the_sha_instructions_are_chosen_at_run_time()
+  local config = assert(Fs.read("core/mbedtls_cosmic_config.h"))
+  for _, name in ipairs({ "MBEDTLS_SHA256_USE_ARMV8_A_CRYPTO_IF_PRESENT",
+      "MBEDTLS_SHA512_USE_A64_CRYPTO_IF_PRESENT" }) do
+    assert(config:find("#define " .. name .. "\n", 1, true) ~= nil, "the configuration lacks " .. name)
+  end
+  local paths: mut {string} = { "core/mbedtls_cosmic_config.h", "build.zig" }
   for _, relative in ipairs((assert(Fs.walk("patch")))) do
     paths[#paths + 1] = "patch/" .. relative
   end
   for _, path in ipairs(paths) do
     local text = assert(Fs.read(path))
-    assert(text:find("MBEDTLS_SHA%d+_USE_") == nil, path .. " enables a SHA-2 instruction path")
+    assert(text:find("MBEDTLS_SHA%d+_USE_[%w_]*ONLY") == nil, path .. " makes an SHA-2 instruction path the only one")
   end
   for _, path in ipairs({ SHA256, SHA512 }) do
     local text = assert(Fs.read(path))

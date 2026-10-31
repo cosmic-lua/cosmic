@@ -20,14 +20,14 @@ local function test_a_decoder_that_stops_consuming_fails_the_ratio_check()
   local packed = assert(Compress.deflate("raw", "hello, cosmic!"))
   testing.fail_at("tinfl_decompress")
   local dec = assert(Compress.inflater("raw"))
-  local out, trouble: string, string
+  local out, trouble: string?, string?
   for _ = 1, 64 do
     out, trouble = dec:update(packed)
     if out == nil or not dec:pending() then break end
     packed = ""
   end
   assert(not testing.fail_at(), "the fault fired")
-  assert(out == nil and trouble:find("more output than deflate codes", 1, true) ~= nil, tostring(trouble))
+  assert(out == nil and tostring(trouble):find("more output than deflate codes", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_a_raise_inside_update_leaves_the_stream_finished()

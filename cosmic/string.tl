@@ -1,6 +1,6 @@
 --- Small text operations a program otherwise writes by hand: splitting
 --- on a separator, iterating over lines, trimming, testing a prefix or
---- suffix, and counting a noun. Every separator, prefix and suffix is plain
+--- suffix, reading a byte that must be there, and counting a noun. Every separator, prefix and suffix is plain
 --- text, never a Lua pattern, so a `.` or `%` in one means itself.
 ---
 ---     for line in String.lines("a\n\nb") do print(line) end -- a, "", b
@@ -19,7 +19,7 @@ function String.split(text: string, separator: string): {string}
   if separator == "" then
     error("string: split's separator is empty", 2)
   end
-  local pieces: {string} = {}
+  local pieces: mut {string} = {}
   local from = 1
   while true do
     local at, stop = text:find(separator, from, true)
@@ -36,8 +36,8 @@ end
 --- line, as "a\n" gives "a" and then "", and "" has one empty line. A "\r"
 --- before the "\n" stays on its line.
 --- @param text string The text to read
---- @return function(): string The next line, or nil after the last
-function String.lines(text: string): function(): string
+--- @return function(): string? The next line, or nil after the last
+function String.lines(text: string): function(): string?
   return (text .. "\n"):gmatch("([^\n]*)\n")
 end
 
@@ -72,6 +72,28 @@ function String.ends_with(text: string, suffix: string): boolean
   return suffix == "" or text:sub(-#suffix) == suffix
 end
 
+--- The byte of `text` at `index`, counted from 1, for code that has
+--- already checked the index against `#text` (a wire parser that read a
+--- length first, a loop over `1, #text`). `text:byte(index)` answers nil
+--- past either end, which a caller then adds or shifts; this raises,
+--- blaming its caller, so a length check that was missed fails where the
+--- read is. A negative index is refused rather than counted from the end,
+--- and so is 0.
+--- @param text string The bytes to read
+--- @param index integer The position, 1 to `#text`
+--- @return integer The byte, 0 to 255
+function String.byte_at(text: string, index: integer): integer
+  local byte = if index >= 1 then text:byte(index) else nil end
+  if byte == nil then
+    if #text == 0 then
+      error(("string: byte_at(%d) reads an empty text"):format(index), 2)
+    end
+    error(("string: byte_at(%d) is outside the text of %s (1 to %d)"):format(
+      index, String.counted(#text, "byte"), #text), 2)
+  end
+  return byte
+end
+
 --- `n` and `singular` as a count of things, "1 entry" or "2 entries": the
 --- noun is `several` unless `n` is 1, and `several` is `singular` with an
 --- `s` when not given. Only 1 takes the singular, so "0 entries" and
@@ -81,7 +103,7 @@ end
 --- @param several string | nil The noun for any other count; `singular` and an "s" when nil
 --- @return string The count, a space and the noun
 function String.counted(n: integer, singular: string, several?: string): string
-  return n .. " " .. (n == 1 and singular or several or singular .. "s")
+  return tostring(n) .. " " .. (n == 1 and singular or several or singular .. "s")
 end
 
 return String

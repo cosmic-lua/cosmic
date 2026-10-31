@@ -9,7 +9,7 @@ end
 --- The same, fed in the pieces `cuts` ends (offsets into `input`).
 local function pieces(input: string, cuts: {integer}): string, string
   local filter = TermFilter.new()
-  local passed, answered: {string}, {string} = {}, {}
+  local passed, answered: mut {string}, mut {string} = {}, {}
   local from = 1
   for _, cut in ipairs(cuts) do
     local out, replies = filter:feed(input:sub(from, cut))
@@ -32,9 +32,9 @@ local function check(name: string, input: string, passed: string, answered?: str
   for cut = 0, #input do
     local split_out, split_replies = pieces(input, { cut })
     assert(split_out == passed and split_replies == answered,
-      name .. ": cut at " .. cut .. " passed " .. string.format("%q", split_out))
+      name .. ": cut at " .. tostring(cut) .. " passed " .. string.format("%q", split_out))
   end
-  local every: {integer} = {}
+  local every: mut {integer} = {}
   for cut = 1, #input do every[cut] = cut end
   local byte_out, byte_replies = pieces(input, every)
   assert(byte_out == passed and byte_replies == answered, name .. ": a byte at a time")
@@ -44,10 +44,10 @@ end
 --- whole, and in halves.
 local function check_long(name: string, input: string, passed: string)
   local out = whole(input)
-  assert(out == passed, name .. ": passed " .. #out .. " bytes")
+  assert(out == passed, name .. ": passed " .. tostring(#out) .. " bytes")
   for _, cut in ipairs({ 1, #input // 2, #input - 1 }) do
     out = pieces(input, { cut })
-    assert(out == passed, name .. ": cut at " .. cut)
+    assert(out == passed, name .. ": cut at " .. tostring(cut))
   end
 end
 

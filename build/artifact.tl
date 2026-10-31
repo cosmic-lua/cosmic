@@ -23,7 +23,7 @@ local String = require("cosmic.string")
 local sha256, hex = hashing.sha256, key_parts.hex
 
 local extra: any = select(2, ...)
-local trusted_store: raw_store | nil = nil
+local trusted_store: raw_store? = nil
 if type(extra) == "table" then
   trusted_store = extra as raw_store
 end
@@ -45,7 +45,7 @@ end
 --- Reads the validated reusable prefix from the retained portable descriptor.
 --- This capability is injected only when this module is loaded from Cosmic's
 --- own trusted Store; the public cosmic.store wrapper does not carry it.
-function artifact.trusted_prefix(): string | nil, string
+function artifact.trusted_prefix(): string?, string
   if trusted_store == nil then
     return nil, "no retained portable artifact capability"
   end
@@ -54,11 +54,37 @@ end
 
 --- The running core's exact bytes and the identity its manifest names,
 --- checked against that digest, from the same trusted capability.
-function artifact.trusted_core(): raw_store.Core | nil, string
+function artifact.trusted_core(): raw_store.Core?, string
   if trusted_store == nil then
     return nil, "no retained portable artifact capability"
   end
   return trusted_store.trusted_core()
+end
+
+-- What every placeholder core begins with, which [`artifact.host_only`]
+-- looks for: the shebang and a comment no core of C holds.
+local placeholder_head = "#!/bin/sh\n# cosmic-host-only-placeholder-v1\n"
+
+--- The bytes a host-only boot puts in the artifact where the core of
+--- `target` goes, which it did not build: a script that says so and exits 1,
+--- so that the tool, copied to a host of that target, tells what it is
+--- instead of failing in some other way. It is an entry of the manifest
+--- like any, so the artifact is the portable layout the core accepts (which
+--- holds a core for every required target); [`artifact.host_only`] tells the
+--- tool it makes from one that is no portable program for that target.
+function artifact.placeholder(target: string): string
+  return placeholder_head ..
+    "echo 'cosmic: this tool was booted for the host it was built on alone, so it carries " ..
+    "no core for " .. target .. "; run bin/zig build boot -Dboot-cores=all in its checkout' >&2\n" ..
+    "exit 1\n"
+end
+
+--- Whether `prefix`, an artifact's bytes ahead of its database
+--- ([`artifact.trusted_prefix`]), holds a placeholder
+--- ([`artifact.placeholder`]) for some target's core: the tool it is of was
+--- booted for the host's core alone.
+function artifact.host_only(prefix: string): boolean
+  return prefix:find(placeholder_head, 1, true) ~= nil
 end
 
 local version = 1
@@ -81,12 +107,12 @@ local record Target
   target: string
   uname_os: string
   uname_arch: string
-  offset: integer
+  mut offset: integer
   length: integer
   digest: string
 end
 
-local function positive_u32(text: string): integer | nil
+local function positive_u32(text: string): integer?
   local value = math.tointeger(tonumber(text))
   if value == nil or value <= 0 or value > 0xffffffff then
     return nil
@@ -98,9 +124,9 @@ local function align(value: integer, boundary: integer): integer
   return ((value + boundary - 1) // boundary) * boundary
 end
 
-local function parse(records: string, cores: {string:string}): {Target} | nil, string
-  local targets: {Target} = {}
-  local identities: {string:boolean} = {}
+local function parse(records: string, cores: {string:string}): {Target}?, string
+  local targets: mut {Target} = {}
+  local identities: mut {string:boolean} = {}
   for line in records:gmatch("[^\n]+") do
     local id_text, configuration_id_text, configuration, target, uname_os, uname_arch =
       line:match("^(%d+)\t(%d+)\t([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)$")
@@ -113,7 +139,7 @@ local function parse(records: string, cores: {string:string}): {Target} | nil, s
     if target_id == nil or configuration_id == nil then
       return nil, "generated target id is outside the v1 range"
     end
-    local identity = target_id .. ":" .. configuration_id
+    local identity = tostring(target_id) .. ":" .. tostring(configuration_id)
     if identities[identity] then
       return nil, "duplicate generated target/configuration record"
     end
@@ -141,9 +167,9 @@ local function parse(records: string, cores: {string:string}): {Target} | nil, s
 end
 
 local function launcher(targets: {Target}, test_hooks: boolean,
-                        selected_configuration?: integer): string | nil, string
-  local arms: {string} = {}
-  local systems: {string:boolean} = {}
+                        selected_configuration?: integer): string?, string
+  local arms: mut {string} = {}
+  local systems: mut {string:boolean} = {}
   for _, target in ipairs(targets) do
     if selected_configuration == nil or
         target.configuration_id == selected_configuration then
@@ -175,7 +201,7 @@ end
 --- Builds reusable prefix bytes from build.zig's generated TSV and exact raw
 --- core bytes, keyed by the target-name column.
 function artifact.prefix(records: string, cores: {string:string},
-                         selected_configuration?: integer): string | nil, string
+                         selected_configuration?: integer): string?, string
   local targets, trouble = parse(records, cores)
   if targets == nil then
     return nil, trouble
@@ -193,7 +219,7 @@ function artifact.prefix(records: string, cores: {string:string},
     return nil, shell_trouble
   end
 
-  local parts: {string} = { shell }
+  local parts: mut {string} = { shell }
   at = shell_length
   for _, target in ipairs(targets) do
     if at < target.offset then
@@ -210,7 +236,7 @@ function artifact.prefix(records: string, cores: {string:string},
   end
   assert(at == manifest_offset)
 
-  local manifest: {string} = {
+  local manifest: mut {string} = {
     manifest_magic,
     string.pack(">I4I4I8I4I4", version, manifest_length, prefix_length,
       #targets, entry_length),
@@ -230,7 +256,7 @@ end
 
 --- Fixture-only constructor with deterministic FIFO synchronization points.
 --- The ordinary `prefix` output contains no hook code or hook field names.
-function artifact.test_prefix(records: string, cores: {string:string}): string | nil, string
+function artifact.test_prefix(records: string, cores: {string:string}): string?, string
   local targets, trouble = parse(records, cores)
   if targets == nil then return nil, trouble end
   local at = shell_length
@@ -245,7 +271,7 @@ function artifact.test_prefix(records: string, cores: {string:string}): string |
 end
 
 --- Appends a database and the v1 trailer to prefix bytes made by `prefix`.
-function artifact.program(prefix: string, database: string): string | nil, string
+function artifact.program(prefix: string, database: string): string?, string
   if #database < #sqlite_header or not String.starts_with(database, sqlite_header) then
     return nil, "portable program database has no SQLite header"
   end
@@ -273,7 +299,7 @@ end
 --- A host program: `core` at offset 0, zero-filled to the core alignment,
 --- a manifest naming it as the one entry, then `database` and a trailer
 --- whose magic says host. It runs only where that core does.
-function artifact.host_program(core: raw_store.Core, database: string): string | nil, string
+function artifact.host_program(core: raw_store.Core, database: string): string?, string
   if #database < #sqlite_header or not String.starts_with(database, sqlite_header) then
     return nil, "host program database has no SQLite header"
   end
@@ -303,7 +329,7 @@ end
 --- against the file: a version and lengths this writer uses, a v1
 --- manifest where it says, a database that starts right behind that
 --- manifest, runs to the trailer and begins with SQLite's header.
-function artifact.split(bytes: string): artifact.Split | nil, string
+function artifact.split(bytes: string): artifact.Split?, string
   if #bytes < trailer_length then
     return nil, "too short for an artifact trailer"
   end
@@ -372,10 +398,10 @@ function artifact.keyed_head(head: string): string
   local shell_end = -1
   local was_end = 0
   local imaged = false
-  local entries: {string} = {}
-  local gaps: {string} = {}
-  local arms: {{string}} = {}
-  local cores: {{string}} = {}
+  local entries: mut {string} = {}
+  local gaps: mut {string} = {}
+  local arms: mut {{string}} = {}
+  local cores: mut {{string}} = {}
   for _ = 1, count do
     local target, configuration, offset, length: integer, integer, integer, integer
     target, configuration, offset, length, at = string.unpack(">I4I4I8I8", head, at)
@@ -394,7 +420,7 @@ function artifact.keyed_head(head: string): string
     local image = core_image.digest(core)
     if image ~= nil then imaged = true end
     cores[#cores + 1] = { core, digest }
-    local keyed = image ~= nil and ("i" .. image) or ("b" .. digest)
+    local keyed = if image ~= nil then ("i" .. image) else ("b" .. digest) end
     entries[#entries + 1] = string.pack(">I4I4", target, configuration) .. keyed
     arms[#arms + 1] = { string.format("cosmic_offset=%d; cosmic_block=%d; cosmic_length=%d; " ..
         "cosmic_sha256=%s ", offset, offset // core_alignment, length, hex(digest)),
@@ -428,7 +454,7 @@ end
 --- The artifact `split` read `parts` from, with `database` in place of
 --- its own: the same head, and a trailer of the same kind whose last
 --- field is the new database's length.
-function artifact.rejoin(parts: artifact.Split, database: string): string | nil, string
+function artifact.rejoin(parts: artifact.Split, database: string): string?, string
   if not String.starts_with(database, sqlite_header) then
     return nil, "the new database has no SQLite header"
   end

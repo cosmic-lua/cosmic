@@ -1,5 +1,5 @@
 --- The paths a branch changed since its base on main, for a light run's
---- format check (ci.yml's `checked` job), which lays out only those and
+--- format check (ci.yml's `format` job), which lays out only those and
 --- makes every check spanning files over the whole tree (`cosmic fix
 --- --check --changed`, through cosmic_ci's orchestration):
 ---
@@ -30,10 +30,15 @@ local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 
 local record ChangedPaths
+  --- What a run of git came to: whether it exited 0, and what it wrote to standard output.
+  record Ran
+    ok: boolean
+    output: string
+  end
   --- Runs `git` with `argv`, ended after `seconds` (never for 0), and answers whether it
   --- exited 0 and what it wrote to standard output. Where git cannot run,
   --- or runs out of time, it answers false.
-  type Git = function(argv: {string}, seconds: integer): boolean, string
+  type Git = function(argv: {string}, seconds: integer): Ran
   --- [`ChangedPaths.Git`] for the host's `git`, found on `env`'s PATH,
   --- run in `env`.
   live_git: function(env: {string:string}): Git
@@ -45,7 +50,7 @@ end
 
 --- A whole number of `name` in `env`, `default` where it names none, nil
 --- and why where it is no whole number.
-local function whole(env: {string:string}, name: string, default: integer): integer | nil, string
+local function whole(env: {string:string}, name: string, default: integer): integer?, string
   local text = env[name]
   if text == nil or text == "" then return default, "" end
   local value = math.tointeger(tonumber(text))
@@ -58,52 +63,56 @@ end
 -- failed run read as false are met only in CI, where any of them going
 -- wrong reads as the whole tree rather than a wrong list.
 function ChangedPaths.live_git(env: {string:string}): ChangedPaths.Git
-  local git = Proc.find("git", env.PATH or "")
-  return function(argv: {string}, seconds: integer): boolean, string
-    if git == nil then return false, "" end
-    local words: {string} = { git }
+  local git, _ = Proc.find("git", env["PATH"] or "")
+  return function(argv: {string}, seconds: integer): ChangedPaths.Ran
+    if git == nil then return { ok = false, output = "" } end
+    local words: mut {string} = { git }
     for _, word in ipairs(argv) do words[#words + 1] = word end
-    local result = Child.run(words, { env = env, stdin = "null", stdout = "capture",
-      timeout_ns = seconds > 0 and Time.seconds(seconds) or nil })
-    if result == nil or not result.ok then return false, "" end
-    return true, result.stdout or ""
+    local timeout_ns: integer? = nil
+    if seconds > 0 then timeout_ns = Time.seconds(seconds) end
+    local result, _ = Child.run(words, { env = env, stdin = "null", stdout = "capture",
+      timeout_ns = timeout_ns })
+    if result == nil or not result.ok then return { ok = false, output = "" } end
+    return { ok = true, output = result.stdout or "" }
   end
 end
 
 function ChangedPaths.changed_paths(env: {string:string}, host: Github.Host, git: ChangedPaths.Git): integer
-  local out = env.OUT
+  local out = env["OUT"]
   if out == nil or out == "" then
     local _, _ = Fs.put(Fs.stderr, "changed-paths: OUT names the file to write the paths to\n")
     return 2
   end
   -- A stale list must not outlive a refusal: a later step reads OUT.
   local _, _ = Fs.remove(out)
+  local function whole_tree(reason: string): integer
+    host.print("the format check covers the whole tree: " .. reason)
+    return 0
+  end
   local limit, why = whole(env, "LIMIT", 400)
-  local wait: integer | nil
+  local wait: integer?
   if limit ~= nil then wait, why = whole(env, "FETCH_SECONDS", 60) end
   if limit == nil or wait == nil then
     local _, _ = Fs.put(Fs.stderr, "changed-paths: " .. why .. "\n")
     return 2
   end
-  local base = env.BASE or ""
-  local function whole_tree(reason: string): integer
-    host.print("the format check covers the whole tree: " .. reason)
-    return 0
-  end
+  local base = env["BASE"] or ""
   if not Github.is_commit(base) then return whole_tree("no base on main") end
-  if not git({ "fetch", "--quiet", "--no-tags", "--depth=1", "origin", base }, wait) then
+  if not git({ "fetch", "--quiet", "--no-tags", "--depth=1", "origin", base }, wait).ok then
     return whole_tree("could not fetch " .. base)
   end
-  local ok, listed = git({ "diff", "--no-renames", "--name-only", "-z", base, "HEAD", "--" }, 0)
-  if not ok then return whole_tree("could not list what changed since " .. base) end
+  local diffed = git({ "diff", "--no-renames", "--name-only", "-z", base, "HEAD", "--" }, 0)
+  if not diffed.ok then return whole_tree("could not list what changed since " .. base) end
+  local listed = diffed.output
   -- One NUL ends each path, so a path holding a line break is one line
   -- too many.
   if listed:find("\n", 1, true) then return whole_tree("a path changed holds a line break") end
   local _, paths = listed:gsub("\0", "\n")
   if paths > limit then
-    return whole_tree(Plural.count(paths, "path") .. " changed, more than " .. limit)
+    return whole_tree(Plural.count(paths, "path") .. " changed, more than " .. tostring(limit))
   end
-  if not Fs.write(out, (listed:gsub("\0", "\n"))) then
+  local written, _ = Fs.write(out, (listed:gsub("\0", "\n")))
+  if not written then
     return whole_tree("could not write " .. out)
   end
   host.output("paths=" .. out)

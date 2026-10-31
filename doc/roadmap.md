@@ -8,13 +8,41 @@ defines the target; once something ships, it leaves this file.
 
 ## language and self-check
 
-- implement the cast policy in design.md. a cast is legal only from `any`, from
-  a userdata record declared in `.d.tl`, or from the enclosing generic's type
-  variable. none of `patch/tl` enforces it yet, and the tree's own Teal holds
-  about seventy `as` casts to migrate or justify first. old's
-  `3p/tl/tl_patch/cast.tl` and `docs/design/cast-legality.md` are useful
-  implementation and migration evidence.
-- add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
+- declare cosmic.stream's interface methods with a named receiver
+  (`read: function(self: Reader, ...)`) and drop each implementing record's
+  redeclaration of them, so that the design note above `FromStringReader` in
+  [`cosmic/stream.tl`] shrinks. every interface of the module and every record
+  that implements one changes together, with the `skip?:` and `pending?:`
+  declarations the TODO at the top of that file names. it also closes the
+  hole a function-typed record field leaves: a callback field
+  `function(Event)` also takes a `function(k: KeyEvent)`, because the first
+  parameter of such a field, when it is a record or an interface, is the one
+  place a record parameter is compared in either direction.
+- make every guard read every place alike
+  ([narrowing by construction](plans/strict-teal.md#narrowing-by-construction)):
+  a path of fixed fields (`a.b.c`) is a place, and so is an index (`t[k]`, `k` a
+  literal or a local never reassigned), where a write to any index drops
+  every index place; `is` tests a field as it does a local; `x is A | B | C`
+  guards all its members, not the last pair; an assignment drops the place
+  assigned and its extensions only (`r.f = v` keeps `r.foo`).
+- make a metamethod's run a call wherever it can happen, which the checker
+  tells today by the operator or index it dispatches from: reading a
+  declared field of a record that declares `__index` or `__newindex` runs
+  it when the field is absent.
+- check a function that names a local not yet assigned where it escapes,
+  not where code may run: stored in a table field or an upvalue, passed as an
+  argument or returned counts as "may be called later" unless the local is
+  assigned by then, and a closure that names a local holding such a function
+  is pending too. a function held only in locals cannot be called after a
+  raise unwinds its frame, so `assert` and the operators that raise (division
+  by zero, indexing nil) need no rule of their own then. it replaces the
+  rule that any code that may run, and a call that never returns, lets it out,
+  and accepts what that refuses ([`lang/flow.tl`]).
+- list the standard library functions that run no code of the program's
+  in the declarations that say so ([`lang/stdlib.d.tl`]), and let a declaration of the
+  program's own say it too, so a call of one given arguments that cannot
+  dispatch keeps the narrowing as `tostring` and `table.concat` do.
+- add earned lint rules and their fixes to `build/fix/rule.tl`'s rule list.
   the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT
   [--min-file PCT]` fails a whole run whose overall or any one file's line
@@ -61,22 +89,11 @@ Contain a dead worker's escaped descendants on macOS. Linux adopts them as a
 child subreaper and [`Child.end_strays`] ends them; macOS has no subreaper, so a
 process group a timed-out test started for itself is left to launchd.
 
-Add build and test sandbox fencing: a [`cosmic.sandbox`] module and conformance
-matrix implementing the portable policy in design.md, required in CI, with
-degraded or skipped enforcement reported on hosts that cannot provide a section.
-[`cosmic.http`] now gives the core network egress, which makes the fence's
-network section matter sooner.
-
-Per-host egress policy is a separate Linux extension. Landlock can restrict a
-port but not a remote address. old's `cosmic/quicksand/` is a reference for a
-network namespace, guarded proxy, and declarative child runner; it should not
-be folded into the portable sandbox contract.
-
 Name the host's loopback for a sandboxed program, so that a service of the
 host and a service of the sandbox's own can share 127.0.0.1. Today a
 `connect` target at 127.0.0.1 or ::1 is the host's service and leaves
 `NO_PROXY`, so the sandbox's own services use another 127.x address and a
-policy naming both is refused (cosmic/relay/config.tl's `proxy_env`,
+policy naming both is refused (cosmic/internal/relay_config.tl's `proxy_env`,
 cosmic/sandbox/policy.tl). A grant of `localhost:P` does not move `localhost`
 out of `NO_PROXY`; only a literal 127.0.0.1 does. A reserved alias, such as `host.cosmic.internal`,
 that the relay maps to the host's loopback would let a program say which it
@@ -84,6 +101,43 @@ means by the name it dials, with no renumbering of the in-sandbox services:
 a `connect` target on the alias, the relay resolving it to 127.0.0.1 (and
 ::1) of the host and refusing it as a name nowhere else, and `NO_PROXY`
 untouched. Both meanings could then coexist.
+
+The sandbox's own next steps, none of which a caller needs yet:
+
+- let a test module's [`Test.policy`] name a `database` of its own. None needs
+  one, and the only coherent meaning is an overlay on the sealed database the
+  harness gives every worker, which the core's `--database` cannot layer. The
+  shape would be a path of the tree, whose digest is a `reads` entry of the
+  module's key, plus a core that opens a second database as a layer over the
+  first. [`Test.needs_of`] and build/analyzer.tl refuse the field until then.
+- add a `--proc` flag to `cosmic sandbox` for the profile "proc", beside
+  `--system` and `--cosmic`; `--path r:/proc` says it today.
+- hold a sandbox's memory and CPU as a whole, by a cgroup of its own.
+  [`Sandbox.Limits`] sets rlimits on each process and counts the
+  sandbox's processes by its user namespace; nothing bounds what the
+  processes spend together.
+- read a policy from a file. A file is input from elsewhere, so it may
+  only narrow what the command line grants, and is judged on the policy
+  after its profiles and paths resolve, not on the names it writes.
+  `cosmic sandbox` takes none until then (build/sandbox.tl).
+- carry UDP to the hosts `connect` grants. The relay takes only TCP: it
+  refuses SOCKS5's UDP ASSOCIATE, so a program held to `connect` reaches no
+  host over UDP.
+- forward plain HTTP. The relay ([`cosmic.internal.relay_server`]) takes
+  only CONNECT and SOCKS5's CONNECT, and answers a proxy request for an
+  `http://` URL 405.
+- a transparent network mode, for a program that ignores the proxy
+  variables: its connections carried to the relay without them, where
+  today such a program reaches nothing.
+- a DNS stub in the sandbox that answers the names the policy grants, for
+  a program that resolves a name before it uses the proxy. The sandbox has
+  no DNS of its own ([`cosmic.internal.relay_config`]).
+- nested sandboxes through a broker outside the sandbox, which starts a
+  narrower one on the program's behalf. Today a program builds its own
+  under the `nest` promise, which needs `isolate` "file" and gives up
+  Landlock's hold.
+- a report mode that allows what the policy would refuse and logs each
+  refusal, to learn the grants a program needs.
 
 Add a CI leg that runs the suite as root. Every leg's runner is
 unprivileged, so the path a root runner takes -- each sandboxed worker run
@@ -100,14 +154,24 @@ own, with a grant it cannot use idmapped or refused
 design.md's core tier names modules the tree does not have yet. the ones the
 promises lean on come first:
 
+- a public relay API. the relay's startup and wire machinery are internal
+  (relay_start, relay_config and relay_wire in cosmic/internal), and
+  the package's public modules are [`cosmic.relay.address`] and
+  [`cosmic.relay.grant`], and it has no entry. add a thin public
+  `start` in a new entry of cosmic/relay over [`cosmic.internal.relay_start`], taking a
+  narrow input (connect grants, the upstream proxy, a log destination) rather
+  than a [`Sandbox.Policy`], so that the entry never loads [`cosmic.sandbox`]
+  and the import cycle of #2841 does not return. where it must name a sandbox
+  type, it uses a type-only import (`local type`). no caller outside the tree
+  needs it yet.
 - convert the sites that still read a decoded JSON value without a
   [`cosmic.shape`] check. None casts it in a function that
-  [`build/contracts.tl`]'s `casts` names; what is left:
+  build/contracts.tl's `casts` names; what is left:
   - [`ci/cosmic_ci/prerelease.tl`] narrows the `gh` answers with `is` and an
-    `assert` per field (`release_ids`, `target`, `workflows_moved`,
-    `asset_names`, `flag`). `prerelease_test.tl` pins `release_ids`'
-    messages, and it asks for an `id` only of the releases that carry the tag,
-    which a record would ask of every one.
+    `assert` per field (`draft_ids`, `target`, `workflows_moved`,
+    `asset_names`, `flag`). `prerelease_test.tl` pins `draft_ids`'
+    messages, and it asks for an `id` only of the drafts that carry the tag,
+    which a record would ask of every release.
   - the workflow files, read as JSON5 and cast to maps in
     [`ci/cosmic_ci/queue_stage_test.tl`], [`build/workflows_test.tl`] and
     `ci/cosmic_ci/orchestration_test.tl`: a record per job, step and matrix
@@ -124,7 +188,7 @@ promises lean on come first:
   Pointer, so its tests match the field and the failure, not the path.
 - a hand-written spec that agrees with its record. [`Shape.record_of`] derives
   a spec from the record, and no [`Shape.record`] or [`Shape.strict_record`]
-  outside a test or an example is left (`o/bin/cosmic uses Shape.record`
+  outside a test or an example is left (`bin/cosmic uses Shape.record`
   lists them). Nothing yet checks that one names the fields of the record its
   answer is annotated as, so a field added to the record and not to such a
   spec is never set (and a strict one refuses the key outright): have `cosmic
@@ -132,13 +196,13 @@ promises lean on come first:
   with the record their `into` flows into.
 - `shape`'s `record_of`, past what landed in the first form (a string literal
   naming a record, resolved where the module is built, in
-  [`build/shape_specs.tl`]):
+  build/shape_specs.tl):
   - `Shape.of<T>()` is not Teal: a call takes no type arguments, so `T` cannot
     be handed to a function. The name is a string, and the build splices in a
     `function(): R return nil end` that gives the result its type; a nil cast
     to the record (`Shape.of(nil as R)`) would drop the string and the
     module's `require` of the record's module, at the cost of a cast in the
-    caller, which [`build/contracts.tl`]'s rule 7 refuses outside a `casts`
+    caller, which build/contracts.tl's rule 7 refuses outside a `casts`
     entry.
   - a program with no build gets none: `--standalone` has no declarations to
     read, and parsing one at run time needs the Teal compiler (about 300 KB of
@@ -157,9 +221,9 @@ promises lean on come first:
     the checker keeps an enum as a set. A message that lists them reads
     differently from a hand-written `one_of` in another order.
   - a `module.Record` is found only inside the module's returned record
-    ([`receivers.record_named`]): a record another module declares and does
+    (receivers.record_named): a record another module declares and does
     not hand out is refused. Reading it needs the checker's types of that
-    module's own scope, which [`build.receivers`] does not keep.
+    module's own scope, which build.receivers does not keep.
   - a spec of a record and a spec in a hand-written [`Shape.list`] or
     [`Shape.record`] meet through [`Typed.spec`]: a `Typed` is not a `Spec`, so
     `Shape.list(RECORD)` is `Shape.list(RECORD.spec)`. Teal has no
@@ -194,16 +258,19 @@ promises lean on come first:
   needs the caller to hand the body over again (a function answering a
   fresh Reader) behind `CURLOPT_SEEKFUNCTION`; curl answers "necessary data
   rewind was not possible" without one.
-- [`cosmic.url`] past escaping, unescaping, a path's segments and an
-  absolute URL's parts, each once a caller needs it: `Url.format(parts)`,
-  writing a [`Url.Parts`] back into a URL (an IPv6 host bracketed again);
-  a query string decoded into names and values (`+` as a space, a name
-  given more than once kept as a list), which [`Url.unescape`] leaves to
-  the caller since `+` is a form's rule; and a relative reference
-  resolved against a base URL (RFC 3986 section 5), which a client
-  following a `Location` or a crawler needs and [`Url.parse`] refuses;
-  and an IPv6 host with a zone (`[fe80::1%25eth0]`, RFC 6874), which
-  [`Url.parse`] refuses.
+- `cosmic.web.input` past what the first form binds, each once a route wants
+  it: `Input.empty_as_nil(spec)` (an optional string whose `""` is nil),
+  `require_nonempty`, `min_length` and `matches` over an [`Input.Invalid`],
+  `Input.form_or_json` for a route that takes either body with one spec, a
+  `list` of records read from `items.0.name` names, and a collect-all mode in
+  [`cosmic.shape`] so a JSON body reports every failure, as a form does.
+- [`cosmic.url`] past escaping, unescaping, query decoding, a path's
+  segments and an absolute URL's parts, each once a caller needs it:
+  `Url.format(parts)`, writing a [`Url.Parts`] back into a URL (an IPv6
+  host bracketed again); a relative reference resolved against a base URL
+  (RFC 3986 section 5), which a client following a `Location` or a crawler
+  needs and [`Url.parse`] refuses; and an IPv6 host with a zone
+  (`[fe80::1%25eth0]`, RFC 6874), which [`Url.parse`] refuses.
 - [`Server.serve`] past HTTP/1.1 over plain sockets, each once a caller
   needs it: TLS, for a server reached past the loopback (a certificate
   and key handed to the listener, over the TLS stack curl already
@@ -240,10 +307,10 @@ promises lean on come first:
   already carries) where a "tcp" `Address` takes a numeric one; TLS
   over a connection, for the
   loopback server build/fetch_test.tl's https `TODO:` waits on;
-  datagrams ("udp", "unixgram") as a
-  socket of their own with `send_to` and `receive_from` over the same
-  `Address`; a [`Net.serve`] listener taking a listen's own options
-  (`backlog`); a listen that takes over a socket file a listener left
+  datagrams ("udp", "unixgram"): UDP sockets return with a design,
+  once an application caller needs them (the UDP a test needs
+  lives in build/udp_fixture.tl); a [`Net.serve`] listener taking a
+  listen's own options (`backlog`); a listen that takes over a socket file a listener left
   behind (`reclaim`, for a daemon restarting at its socket file); a
   [`Net.serve`] in several processes of this program, which take
   connections from the listeners it hands them; a connection's `peer`
@@ -256,9 +323,39 @@ promises lean on come first:
   escaping for them is a different language's rule (old's #1654 and #1658 were
   its bugs there). Each needs an escaper made in C with a type of its own, as
   [`cosmic.html`]'s are, and the context tracker ([`cosmic/template/markup.tl`])
-  to say which one a slot is in. Likewise a slot after literal text in a URL
-  (`href="/a/{{.id}}"`), which wants an escaper for one component of a URL, a
-  path segment or a query value, beside [`cosmic.url`]'s.
+  to say which one a slot is in. A slot after literal text in a URL
+  (`href="/a/{{.id}}"`) is not on this list: [`Html.url_part`] escapes any one
+  component of a URL, and the template takes it.
+
+- refresh `vendor/htmx` and `vendor/htmx-ext-sse` from npm's `dist-tags` as
+  `cosmic refresh` does `cacert`, `onecrl` and `tzdata`, once a bump of a major library
+  can be reviewed from a release note the command prints; today it is a PIN
+  edit and `bin/vendor htmx htmx-ext-sse`.
+
+- [`cosmic.web`] past its first release, each once an app needs it:
+  - WebSockets over a `Reply.take` seam in [`cosmic.http.server`] that hands
+    the connection to a callback after the head is written, with `cosmic.web.ws` (the
+    handshake, an Origin allowlist, RFC 6455 frames, a fuzz test) on top. The seam
+    also gives event streams prompt disconnect detection: a stream finds
+    a client that left only by a write, a heartbeat later.
+  - `epoll` and `kqueue` under `Poll`, for the thousands of idle
+    streams a poll(2) loop rescans on every wake.
+  - An event hub across processes (a SQLite table or a Unix socket), and
+    a pool of worker processes for an app whose SQLite work outgrows one
+    cooperative process.
+  - File watching by `inotify` and `kqueue` in the development loop
+    ([`cosmic.web.dev`]) in place of the stat pass every 300 ms, once
+    [`cosmic.fs`] has a watch binding.
+  - Brotli for the precompressed assets, and a request-level
+    `Last-Modified` for a file a handler serves itself.
+  - File-based routing that generates the route table, and OpenAPI
+    documents made from typed routes.
+
+- go to definition and completion in `cosmic lsp` ([`build/lsp/session.tl`]), which
+  answers diagnostics, hover and formatting today. tl's type report answers
+  both: with `env.report_types` on, which build/compiler.d.tl declares,
+  its `get_types`, `symbols_in_scope` and `undeclared`, which it does not
+  declare yet.
 
 ## documentation and examples
 
@@ -331,19 +428,16 @@ four-producer provenance join.
 [`bin/vendor`]: ../bin/vendor
 [`bin/zig`]: ../bin/zig
 [`build.fuzz`]: ../build/fuzz/init.tl
-[`build.receivers`]: ../build/receivers.tl
 [`build/archive.tl`]: ../build/archive.tl
 [`build/archive_test.tl`]: ../build/archive_test.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/c_functions.tl`]: ../build/c_functions.tl
-[`build/contracts.tl`]: ../build/contracts.tl
 [`build/dataset.tl`]: ../build/dataset.tl
-[`build/fix/rule.tl`]: ../build/fix/rule.tl
 [`build/flow.tl`]: ../build/flow.tl
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
-[`build/shape_specs.tl`]: ../build/shape_specs.tl
+[`build/lsp/session.tl`]: ../build/lsp/session.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
@@ -352,24 +446,39 @@ four-producer provenance join.
 [`core/coverage.c`]: ../core/coverage.c
 [`core/json.c`]: ../core/json.c
 [`cosmic.compress`]: ../cosmic/compress.tl
+[`cosmic.fs`]: ../cosmic/fs.tl
 [`cosmic.html`]: ../cosmic/html.tl
+[`cosmic.http.server`]: ../cosmic/http/server.tl
 [`cosmic.http`]: ../cosmic/http/init.tl
+[`cosmic.internal.relay_config`]: ../cosmic/internal/relay_config.tl
+[`cosmic.internal.relay_server`]: ../cosmic/internal/relay_server.tl
+[`cosmic.internal.relay_start`]: ../cosmic/internal/relay_start.tl
 [`cosmic.net`]: ../cosmic/net.tl
+[`cosmic.relay.address`]: ../cosmic/relay/address.tl
+[`cosmic.relay.grant`]: ../cosmic/relay/grant.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`cosmic.template`]: ../cosmic/template/init.tl
 [`cosmic.test`]: ../cosmic/test.tl
 [`cosmic.url`]: ../cosmic/url.tl
+[`cosmic.web.dev`]: ../cosmic/web/dev.tl
+[`cosmic.web`]: ../cosmic/web/init.tl
 [`cosmic.zip`]: ../cosmic/zip.tl
 [`cosmic/errors.tl`]: ../cosmic/errors.tl
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl
 [`cosmic/shape_example.tl`]: ../cosmic/shape_example.tl
+[`cosmic/stream.tl`]: ../cosmic/stream.tl
 [`cosmic/template/markup.tl`]: ../cosmic/template/markup.tl
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
+[`Html.url_part`]: ../cosmic/html.tl
+[`Input.Invalid`]: ../cosmic/web/input.tl
 [`Json.decode`]: ../cosmic/json.tl
+[`lang/flow.tl`]: ../lang/flow.tl
+[`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
 [`Net.serve`]: ../cosmic/net.tl
-[`receivers.record_named`]: ../build/receivers.tl
+[`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
+[`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
 [`Server.none_match`]: ../cosmic/http/server.tl
 [`Server.range`]: ../cosmic/http/server.tl
 [`Server.serve`]: ../cosmic/http/server.tl
@@ -378,8 +487,9 @@ four-producer provenance join.
 [`Shape.record`]: ../cosmic/shape.tl
 [`Shape.Spec`]: ../cosmic/shape.tl
 [`Shape.strict_record`]: ../cosmic/shape.tl
+[`Test.needs_of`]: ../cosmic/test.tl
+[`Test.policy`]: ../cosmic/test.tl
 [`Typed.spec`]: ../cosmic/shape.tl
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl
 [`Url.segments`]: ../cosmic/url.tl
-[`Url.unescape`]: ../cosmic/url.tl

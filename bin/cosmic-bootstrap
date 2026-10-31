@@ -1,15 +1,24 @@
 #!/bin/sh
 # The one piece of shell the tree means to keep: fetch, verify and
 # cache the pinned bootstrap cosmic -- or take COSMIC_BOOTSTRAP's, below
-# -- then print its path (no arguments) or run it with the arguments
-# given. Every other build script is Teal this binary runs standalone
+# -- then print the entry point that runs it (no arguments; see print_entry),
+# print its own path (`--raw-path`) or run it with the arguments given.
+# Every other build script is Teal this binary runs standalone
 # -- build/zig.tl behind bin/zig, build/vendor.tl behind bin/vendor,
 # build/verify_codesign.tl behind bin/verify-codesign, each a one-line
 # `exec` of this script -- against its own embedded standard library,
-# so neither the tree's state nor o/ matters to it.
+# so neither the tree's state nor its build directory matters to it.
+#
+# What this runs is written in the new checker's grammar, and the release
+# reads that grammar when COSMIC_GRAMMAR=new, which this script sets for
+# whatever it runs (a stand-in too). `--standalone` on a file of this
+# checkout is refused unless ci/bootstrap-files.txt lists it (below); ci.yml's
+# checked job type-checks the listed files on the pinned driver
+# (`cosmic-driver cosmic_ci/driver.tl check-islands`), and `cosmic-driver
+# test cosmic_ci` compiles ci/ on the pinned release.
 #
 # COSMIC_BOOTSTRAP, when set, names another cosmic to stand in for the
-# pin's -- a tree-built o/bin/cosmic, say -- for every one of them, and
+# pin's -- the tree's own tool, say -- for every one of them, and
 # for CI's driver. It must be an executable file; anything else is an
 # error, never a silent fallback to the pin. Nothing is fetched then,
 # and the path printed or run is absolute, so a caller that changes
@@ -42,6 +51,141 @@ die() {
   exit 1
 }
 
+# The sha256 of the text on standard input.
+sha256_text() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 | cut -d' ' -f1
+  else
+    die "need sha256sum or shasum to name the entry point"
+  fi
+}
+
+# A file of this checkout runs on a cosmic the tree does not control standalone
+# only as `--standalone <file>`, or `<file>` under COSMIC_STANDALONE=1, which is
+# the same run, and only if ci/bootstrap-files.txt lists it: `check-islands`
+# (ci/README.md) type-checks exactly those on the pinned release. The one other
+# way a file reaches the release, `<file>` alone, builds the tree around it,
+# which is how CI runs its own driver (`cosmic-driver cosmic_ci/driver.tl`)
+# from ci/, a project `check-islands` checks as a whole: it is allowed for a file
+# under the checkout's ci/ and refused for any other of the checkout. The
+# target and the checkout are compared as `pwd -P` resolves them, a link in the
+# file's own name followed (`cd -P`, so a `..` after a linked directory is the
+# physical one), so a link from outside into the checkout does not
+# get around it, and a target whose directory cannot be resolved is refused,
+# not let by. A file outside the checkout is not this script's to hold. The
+# list is read as ci/cosmic_ci/islands.tl (`Islands.paths`) reads it, and as
+# build/ci_tree_test.tl, which cannot require ci/, copies it: one path a line,
+# what a `#` starts dropped, white space (a CR too) trimmed from both ends.
+check_listed() {
+  check_target "$1" listed
+}
+
+# check_target FILE listed|project: the refusals above for FILE.
+check_target() {
+  target=$1
+  hops=0
+  while [ -L "$target" ] && [ "$hops" -lt 40 ]; do
+    link=$(readlink "$target")
+    case $link in
+      /*) target=$link ;;
+      *) target=$(dirname -- "$target")/$link ;;
+    esac
+    hops=$((hops + 1))
+  done
+  tdir=$(CDPATH= cd -P -- "$(dirname -- "$target")" 2>/dev/null && pwd -P) ||
+    die "cannot resolve the directory of $1, so cannot tell whether it is a file of this checkout; refusing it"
+  physical=$(CDPATH= cd -P -- "$root" && pwd -P)
+  full=$tdir/$(basename -- "$target")
+  case $full in
+    "$physical"/*)
+      relative=${full#"$physical"/}
+      if [ "$2" = project ]; then
+        case $relative in
+          ci/*) return 0 ;;
+        esac
+        die "$relative is a file of the checkout outside ci/, which runs on the pinned release only as \`--standalone <file>\`, listed in ci/bootstrap-files.txt"
+      fi
+      [ -f "$root/ci/bootstrap-files.txt" ] ||
+        die "no $root/ci/bootstrap-files.txt, which lists the files of the checkout that may run --standalone"
+      if ! sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$root/ci/bootstrap-files.txt" |
+          grep -Fxq -- "$relative"; then
+        die "$relative is not in ci/bootstrap-files.txt, so it is not type-checked on the pinned release: list it there, then run \`cosmic-driver cosmic_ci/driver.tl check-islands\` from ci/"
+      fi
+      ;;
+  esac
+}
+
+case "${1-}" in
+  sandbox)
+    die "the sandbox verb runs any program, a file standalone among them, which this script cannot hold to ci/bootstrap-files.txt, so it is refused here"
+    ;;
+  --standalone)
+    [ "$#" -ge 2 ] && [ -n "$2" ] || die "--standalone names no file"
+    check_listed "$2"
+    ;;
+  *.tl)
+    if [ "${COSMIC_STANDALONE-}" = 1 ]; then
+      check_listed "$1"
+    else
+      check_target "$1" project
+    fi
+    ;;
+esac
+
+# With no arguments this script answers where to run the release, and what it
+# answers is an entry point that applies the check above to whatever it is run
+# with and then runs the release, never the release itself: a caller that holds
+# the entry point cannot run an unlisted file by the documented paths. (The
+# release's own path stays reachable, in the cache and to any process running
+# on it; `--raw-path` names it, for a caller that must read or copy the binary,
+# and ci/README.md lists those callers. Deliberate use of it is a review matter.)
+# The entry point is a small script, one for each checkout path and release, at
+# $XDG_CACHE_HOME/cosmic/bootstrap/entry-<sha256 of the two> (default
+# ~/.cache/...): they accumulate there, a few lines each, and are never pruned;
+# a stale `.entry-*.part` left by an interrupted run is removed after an hour.
+# It runs this script with COSMIC_BOOTSTRAP_ENTRY naming the release, so nothing
+# is fetched. That variable is this script's alone: it is dropped before the
+# release runs, so a release started through an entry point sees the environment
+# its caller gave, COSMIC_BOOTSTRAP unset (the tree's tools read it to mean a
+# stand-in toolchain, and keep no compile memo under it).
+print_entry() {
+  raw=$1
+  if [ -n "${XDG_CACHE_HOME:-}" ]; then
+    entries=$XDG_CACHE_HOME/cosmic/bootstrap
+  else
+    entries=${HOME:?HOME is unset}/.cache/cosmic/bootstrap
+  fi
+  mkdir -p "$entries"
+  find "$entries" -name '.entry-*.part' -mmin +60 -exec rm -f {} + 2>/dev/null || true
+  sum=$(printf '%s\n%s\n' "$root" "$raw" | sha256_text)
+  entry=$entries/entry-$sum
+  quote_raw=$(printf '%s' "$raw" | sed "s/'/'\\\\''/g")
+  quote_root=$(printf '%s' "$root" | sed "s/'/'\\\\''/g")
+  part=$entries/.entry-$sum.$$.part
+  {
+    printf '#!/bin/sh\n'
+    printf '# Generated by bin/cosmic-bootstrap: runs the release with the list check of that script.\n'
+    printf '[ "$#" -ne 0 ] || exec '"'%s'"'\n' "$quote_raw"
+    printf 'COSMIC_BOOTSTRAP_ENTRY='"'%s'"' exec '"'%s/bin/cosmic-bootstrap'"' "$@"\n' "$quote_raw" "$quote_root"
+  } > "$part"
+  chmod 755 "$part"
+  mv -f "$part" "$entry"
+  printf '%s\n' "$entry"
+}
+
+# Run by an entry point (print_entry): the release is named, the check above is
+# made, and the name is dropped from the environment before it runs.
+if [ -n "${COSMIC_BOOTSTRAP_ENTRY:-}" ]; then
+  release=$COSMIC_BOOTSTRAP_ENTRY
+  unset COSMIC_BOOTSTRAP_ENTRY
+  if [ ! -f "$release" ] || [ ! -x "$release" ]; then
+    die "the entry point's release $release is not an executable file"
+  fi
+  exec env COSMIC_GRAMMAR=new "$release" "$@"
+fi
+
 if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
   if [ -n "${COSMIC_BOOTSTRAP_VERIFY:-}" ]; then
     die "COSMIC_BOOTSTRAP and COSMIC_BOOTSTRAP_VERIFY are both set: a stand-in is no digest-checked cosmic"
@@ -49,15 +193,25 @@ if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
   if [ ! -f "$COSMIC_BOOTSTRAP" ] || [ ! -x "$COSMIC_BOOTSTRAP" ]; then
     die "COSMIC_BOOTSTRAP=$COSMIC_BOOTSTRAP is not an executable file"
   fi
+  # bin/cosmic asks this script where the tool is, so a stand-in of it
+  # would call itself without end.
+  if [ "$COSMIC_BOOTSTRAP" -ef "$root/bin/cosmic" ] ||
+      [ "$COSMIC_BOOTSTRAP" -ef "$root/bin/cosmic-bootstrap" ]; then
+    die "COSMIC_BOOTSTRAP=$COSMIC_BOOTSTRAP is this checkout's entrypoint, not a cosmic; name a built one"
+  fi
   case $COSMIC_BOOTSTRAP in
     /*) ;;
     *) COSMIC_BOOTSTRAP=$(pwd)/$COSMIC_BOOTSTRAP ;;
   esac
   if [ "$#" -eq 0 ]; then
+    print_entry "$COSMIC_BOOTSTRAP"
+    exit 0
+  fi
+  if [ "$#" -eq 1 ] && [ "$1" = --raw-path ]; then
     printf '%s\n' "$COSMIC_BOOTSTRAP"
     exit 0
   fi
-  exec "$COSMIC_BOOTSTRAP" "$@"
+  exec env COSMIC_GRAMMAR=new "$COSMIC_BOOTSTRAP" "$@"
 fi
 
 [ -f "$pin" ] || die "no pin at $pin"
@@ -161,7 +315,11 @@ if [ ! -x "$cached" ]; then
 fi
 
 if [ "$#" -eq 0 ]; then
+  print_entry "$cached"
+  exit 0
+fi
+if [ "$#" -eq 1 ] && [ "$1" = --raw-path ]; then
   printf '%s\n' "$cached"
   exit 0
 fi
-exec "$cached" "$@"
+exec env COSMIC_GRAMMAR=new "$cached" "$@"

@@ -32,6 +32,12 @@ A file's name says what it is.
 `cosmic docs cosmic.layout` and `cosmic docs cosmic.entrypoint` say
 the same in full.
 
+A module shares a value by returning it for another to `require`. A
+build refuses `global` (`global x`, `global function`, `global record`)
+and a `function f()` with no local `f` in scope, at the line and column
+of the declaration: put the value in a module and require it. It refuses
+them in a `.d.tl` file too.
+
 ## a library module
 
 The first line comment of a module, and the comment above each
@@ -87,16 +93,19 @@ end
 return Example
 ```
 
-## a record with methods
+## a class with methods
 
-A record is also how a module makes values that carry methods. The
-methods are functions on the record's own table, and each value finds
-them through a metatable whose `__index` is that table: a value made
-without `setmetatable` type-checks, then fails when a method is called,
-with `attempt to call a nil value (method 'add')`.
+A class is how a module makes values that carry methods. Its methods are
+declared inside it, with `self` as the first parameter, and a value is a
+table literal typed as the class: there is no metatable to set, and a
+method is always found. A module that offers such values declares what
+they do in an interface and returns a record that names it, so another
+module never sees the class itself.
 
 ```teal file=counts.tl
 --- How many times each word appears in some text.
+
+local Fs = require("cosmic.fs")
 
 local record Counts
   --- One word and how many times it appeared.
@@ -105,46 +114,71 @@ local record Counts
     times: integer
   end
 
-  --- Each word seen, and how many times.
-  seen: {string:integer}
+  --- What a count of words does.
+  interface Tally
+    add: function(self: Tally, text: string)
+    top: function(self: Tally): {Counts.Entry}
+  end
+
+  new: function(): Counts.Tally
+  open: function(path: string): Counts.Tally?, string
 end
 
--- A value's methods: those of the Counts table.
-local counts_mt: metatable<Counts> = { __index = Counts }
+--- Each word seen, and how many times.
+local class Seen is Counts.Tally
+  words: mut {string:integer}
+
+  --- Counts each word of `text`, split on whitespace.
+  function add(self, text: string)
+    for word in text:gmatch("%S+") do
+      self.words[word] = (self.words[word] or 0) + 1
+    end
+  end
+
+  --- Every word seen, the most frequent first, then in byte order.
+  function top(self): {Counts.Entry}
+    local out: mut {Counts.Entry} = {}
+    for word, times in pairs(self.words) do
+      out[#out + 1] = { word = word, times = times }
+    end
+    table.sort(out, function(a: Counts.Entry, b: Counts.Entry): boolean
+      if a.times ~= b.times then return a.times > b.times end
+      return a.word < b.word
+    end)
+    return out
+  end
+end
 
 --- Counts with no words in them yet.
-function Counts.new(): Counts
-  return setmetatable({ seen = {} }, counts_mt)
+function Counts.new(): Counts.Tally
+  local made: Seen = { words = {} }
+  return made
 end
 
---- Counts each word of `text`, split on whitespace.
-function Counts:add(text: string)
-  for word in text:gmatch("%S+") do
-    self.seen[word] = (self.seen[word] or 0) + 1
+--- Counts the words in the file at `path`, or nil and why it could not be
+--- read. A constructor that can fail returns `Counts.Tally?, string`.
+function Counts.open(path: string): Counts.Tally?, string
+  local text, why = Fs.read(path)
+  if text == nil then
+    return nil, why
   end
-end
-
---- Every word seen, the most frequent first, then in byte order.
-function Counts:top(): {Counts.Entry}
-  local out: {Counts.Entry} = {}
-  for word, times in pairs(self.seen) do
-    out[#out + 1] = { word = word, times = times }
-  end
-  table.sort(out, function(a: Counts.Entry, b: Counts.Entry): boolean
-    if a.times ~= b.times then return a.times > b.times end
-    return a.word < b.word
-  end)
-  return out
+  local made: Seen = { words = {} }
+  made:add(text)
+  return made, ""
 end
 
 return Counts
 ```
 
+`Counts.open` shows the usual shape of a constructor that can fail: it
+returns `Counts.Tally?, string`, and the class value may be returned
+straight from it.
+
 A record declared inside another, like `Entry` here, is `Counts.Entry`
 to every module; `record Counts.Entry` written outside the record's body
 is refused. Another module names the types through the same `require`:
-`local Counts = require("counts")` is the module, `Counts` the type of
-a value `Counts.new()` makes, and `Counts.Entry` the nested one. A
+`local Counts = require("counts")` is the module, `Counts.Tally` the type
+of a value `Counts.new()` makes, and `Counts.Entry` the nested one. A
 module that only names the types, and calls nothing, writes `local
 type Counts = require("counts")`.
 
@@ -155,8 +189,9 @@ local function test_top()
   local counts = Counts.new()
   counts:add("b a b")
   local top: {Counts.Entry} = counts:top()
-  assert(top[1].word == "b" and top[1].times == 2)
-  assert(top[2].word == "a" and top[2].times == 1)
+  local first, second = assert(top[1]), assert(top[2])
+  assert(first.word == "b" and first.times == 2)
+  assert(second.word == "a" and second.times == 1)
 end
 ```
 
@@ -184,7 +219,7 @@ local log = Log.new("tally")
 
 --- The file a command names, or standard input; nil once it has said
 --- why it could not read it.
-local function input(got: Flags.Parsed): string | nil
+local function input(got: Flags.Parsed): string?
   local text, trouble = Fs.read(got.words[1] or "/dev/stdin")
   if text == nil then
     log:complain(trouble)
@@ -193,7 +228,7 @@ local function input(got: Flags.Parsed): string | nil
 end
 
 local function show(entry: Counts.Entry)
-  print(entry.word .. "\t" .. entry.times)
+  print(entry.word .. "\t" .. tostring(entry.times))
 end
 
 local commands: {string:Flags.Command} = {
@@ -204,7 +239,7 @@ local commands: {string:Flags.Command} = {
     run = function(got: Flags.Parsed): integer
       local text = input(got)
       if text == nil then return 1 end
-      if got.set["--lines"] then
+      if got.set["--lines"] == true then
         local lines = 0
         for _ in text:gmatch("[^\n]+") do
           lines = lines + 1
@@ -262,7 +297,7 @@ the cat saw the dog
 cosmic fix                                format every file, and check it parses
 cosmic test                               run every test and example
 cosmic cmd/tally/main.tl words words.txt  run the program
-cosmic build                              write o/bin/tally
+cosmic build                              write the tally program
 cosmic docs tally                         what your own module offers
 ```
 
@@ -270,22 +305,33 @@ cosmic docs tally                         what your own module offers
 after editing. `cosmic test` builds the tree, then runs each test, and
 skips one whose code and inputs have not changed since it last passed.
 `cosmic cmd/tally/main.tl words words.txt` runs the program from source. `cosmic
-build` writes `o/bin/tally`, and `cosmic build cmd/tally` writes only that
-one. `cosmic docs` lists your own modules with the standard library's, and
+build` writes `tally` in the project's build directory, outside the project
+(`~/.cache/cosmic/trees/<key>/bin/tally`; `COSMIC_BUILD_HOME` moves it), and
+prints its path on a line of its own; `cosmic build cmd/tally` writes only that one. `cosmic docs` lists your own modules with the standard library's, and
 `cosmic docs Tally.words` shows a function with the examples that call it.
 
-`o/bin/tally` is the whole program: copy that one file to a Linux (x86-64
-or arm64) or arm64 macOS host with no cosmic on it and it runs, even with
-an empty environment (`env -i ./tally`). `file` calls it a shell script
-because it starts as one: a /bin/sh launcher with a core for each
-supported system and the program appended. On a host's first run the
+That `tally` is the whole program: copy that one file to a Linux (arm64
+with Armv8.2-A dot-product and half-precision floats: Cortex-A55 or
+Neoverse N1 and newer, Graviton2, Raspberry Pi 5, but not a Raspberry
+Pi 3 or 4; or x86-64 with AVX2, FMA, BMI1 and BMI2, F16C, LZCNT and
+MOVBE: Intel Haswell or AMD Excavator and newer mainstream cores, but
+not Atom-class or AVX-less Pentium and Celeron parts) or arm64 macOS
+host with no cosmic on it and it runs, even with an empty environment
+(`env -i ./tally`). `file` calls it a shell script because it starts as
+one: a /bin/sh launcher with a core for each supported system and the program
+appended. On a host's first run the
 launcher copies that host's core into a private cache
 (`~/.cache/cosmic/cores`, `~/Library/Caches/cosmic/cores` on macOS, or
 `/tmp/cosmic-cores-<uid>` with no `HOME`; `cosmic help build` lists the
-rest) and runs it from there. `cosmic build --host` writes instead a
-native executable for this system alone, which needs no shell and writes
-no cache: the choice for a container with no /bin/sh, or a host with
-nowhere to write.
+rest) and runs it from there; the launcher then `exec`s the core, so the process
+you start is the program's own and signals reach it directly. The file
+is in the project's build directory, `$XDG_CACHE_HOME/cosmic/trees/<key>/bin/tally`
+(`~/.cache/cosmic/trees/<key>/bin/tally`; `COSMIC_BUILD_HOME` moves the
+`<key>` directories), and `cosmic build` prints its path. `cosmic build
+--host` writes instead a native executable for this system alone, which
+needs no shell and writes no cache: the choice for a container with no
+/bin/sh, or a host with nowhere to write. It writes the same
+`bin/tally`, replacing the launcher build.
 
 ## trying it
 
@@ -300,7 +346,8 @@ local Proc = require("cosmic.proc")
 local Clock = require("cosmic.clock")
 
 local relaunch = assert(Proc.relaunch())
-local env = Env.all()
+local env: mut {string: string} = {}
+for name, value in pairs(Env.all()) do env[name] = value end
 for name, value in pairs(relaunch.env) do env[name] = value end
 env["COSMIC_TEST_SANDBOX"] = "0"
 local function cosmic_in(dir: string, ...: string): Child.Result
@@ -312,28 +359,31 @@ end
 local function cosmic(...: string): Child.Result
   return cosmic_in(tmp, ...)
 end
-local function verdict(said: Child.Result, verb: string)
-  print(((said.stderr or "") .. (said.stdout or "")):match(verb .. ": [A-Z]+"))
+-- The test summary where there is one, else how the verb exited.
+local function outcome(said: Child.Result, verb: string)
+  print((said.stdout or ""):match(verb .. ": %d+ tests? passed") or verb .. " exited " .. tostring(said.code))
 end
 
-verdict(cosmic("fix"), "fix")
-verdict(cosmic("test"), "test")
+outcome(cosmic("fix"), "fix")
+outcome(cosmic("test"), "test")
 print(((cosmic("cmd/tally/main.tl", "words", "words.txt").stdout or ""):gsub("\n$", "")))
 print(((cosmic("cmd/tally/main.tl", "top", "words.txt", "--limit", "2").stdout or ""):gsub("\n$", "")))
 local missing = cosmic("cmd/tally/main.tl", "words", "--nope")
 print(missing.code, ((missing.stderr or ""):gsub("\n$", "")))
 print(((cosmic("cmd/tally/main.tl", "--help").stdout or ""):gsub("\n$", "")))
-verdict(cosmic("build", "--host"), "build")
-local built = assert(Child.run({ tmp .. "/o/bin/tally", "words", "words.txt" },
+local wrote = cosmic("build", "--host")
+outcome(wrote, "build")
+local program = assert(("\n" .. (wrote.stdout or "")):match("\n(/[^\n]+)"))
+local built = assert(Child.run({ program, "words", "words.txt" },
   { cwd = tmp, stdout = "capture", timeout_ns = Clock.seconds(60) }))
 print(((built.stdout or ""):gsub("\n$", "")))
-verdict(cosmic_in(tmp .. "/cmd/tally", "test"), "test")
+outcome(cosmic_in(tmp .. "/cmd/tally", "test"), "test")
 print((cosmic("docs", "tally").stdout or ""):match("^[^\n]*"))
 ```
 
 ```output
-fix: PASS
-test: PASS
+fix exited 0
+test: 3 tests passed
 5
 the	2
 cat	1
@@ -345,11 +395,42 @@ commands:
   words  Counts the words of a file, or of standard input.
 
 Run `tally <command> --help` for a command's options.
-build: PASS
+build exited 0
 5
-test: PASS
+test: 3 tests passed
 tally (tally.tl)
 ```
+
+## moving a project to the new grammar
+
+The tool reads one grammar, the new checker's. A project written for the fork's checker (`T | nil`, `goto continue`,
+`function R:m()`, `c and a or b`) is refused by the compiler, which names the file, the line and the fix for each form it
+finds, and `COSMIC_GRAMMAR=teal` and `cosmic compile --grammar teal` are refused too.
+
+`cosmic migrate`, the verb that rewrote such a project in place, was removed. It still exists as a word that says so and
+exits 2, so that a script that runs it is told what happened. A project in the old grammar is rewritten to the new one by
+hand. Commit it first, then run `cosmic fix` and `cosmic test` and work through what they report; each finding says what
+to write instead. What changed, and what the finding for it asks of the file:
+
+- `T | nil` is `T?` (and `(A | B)?` for a union with nil; a function type in a union is parenthesized). `T...` as a
+  parameter's type is `...: T`, and `? T` is a named optional parameter, `name?: T`.
+- `goto continue` and its label `::continue::` are the statement `continue`.
+- A record with `function R:m()` statements outside it, and the field that declared each, is a `class` that holds them as
+  `function m(self, ...)`. The `metatable<R>` local that set its metatable goes, and a table literal of the class takes its
+  type from where it is written.
+- `local type X = record` is `local record X`; `metamethod __close: T` is the field `__close: T`; `readonly f: T` is `f: T`.
+- `c and a or b` is `if c then a else b end`; `and_ternary` names the sites. The two answer differently where `a` is false or
+  nil, which is why the checker asks for the `if` expression and does not rewrite it for you.
+- `-a ^ b` was read as `(-a) ^ b` and is read as Lua reads it, `-(a ^ b)`: write the parentheses the program meant.
+- A trailing `;`, a `--[[ ]]` comment, a digit separator (`1_000`) and a hexadecimal float are not in the grammar.
+- A collection that is written is declared `mut` (`names: mut {string}`), as a local, a parameter or a field of a record;
+  a field that is assigned after its record is made is declared `mut`. `view_written` and `field_fixed` name the places.
+- `local seen = {}` needs a type that says what it holds (`local seen: mut {string: boolean} = {}`), and `m.NAME` on a map is
+  written `m["NAME"]`.
+- A type and an interface it lists agree on which fields are `mut` (`interface_disagrees`).
+
+The checker holds a project outside the tree to every rule with no ceiling, so each finding must be fixed, not counted. No
+cast and no `any` is a fix.
 
 [`cosmic.child`]: ../../cosmic/child.tl
 [`cosmic.flags`]: ../../cosmic/flags.tl

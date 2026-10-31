@@ -1,11 +1,20 @@
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local todo_scan = require("build.todo_scan")
 local todos = require("build.todos")
+local invoke = require("build.invoke")
 local narrow = require("build.narrow")
 local work = require("build.work")
+
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
 
 --- Nothing beyond its closure: the trees these tests list are in no
 --- repository, so `cosmic todos` starts no git for them
@@ -24,16 +33,16 @@ local function test_a_todo_carries_on_through_its_paragraph()
   local found = todo_scan.scan(text({
     "local x = 1",
     "  -- TODO: drop the cast once the pin names a cosmic",
-    "  -- carrying patch/tl/24.",
+    "  -- carrying the fix.",
     "  --",
     "  -- Not part of it.",
     "  return x",
   }))
-  assert(#found == 1, "found " .. #found)
-  assert(found[1].line == 2 and found[1].last == 3)
-  assert(found[1].text ==
-      "drop the cast once the pin names a cosmic carrying patch/tl/24.",
-    found[1].text)
+  assert(#found == 1, "found " .. tostring(#found))
+  assert(nth(found, 1).line == 2 and nth(found, 1).last == 3)
+  assert(nth(found, 1).text ==
+      "drop the cast once the pin names a cosmic carrying the fix.",
+    nth(found, 1).text)
 end
 
 local function test_a_paragraph_ends_at_code_a_new_marker_or_the_next_todo()
@@ -46,10 +55,10 @@ local function test_a_paragraph_ends_at_code_a_new_marker_or_the_next_todo()
     "--- TODO: fourth",
     "-- another marker",
   }))
-  assert(#found == 4, "found " .. #found)
+  assert(#found == 4, "found " .. tostring(#found))
   for index, want in ipairs({ "first", "second", "third", "fourth" }) do
-    assert(found[index].text == want, found[index].text)
-    assert(found[index].last == found[index].line)
+    assert(nth(found, index).text == want, nth(found, index).text)
+    assert(nth(found, index).last == nth(found, index).line)
   end
 end
 
@@ -60,10 +69,11 @@ local function test_a_sentence_opened_on_a_new_line_starts_a_new_paragraph()
     "# as bin/zig is.",
     "# Runs this checkout's CI job on this machine.",
   }))
-  assert(#found == 1 and found[1].last == 3, found[1] and found[1].last)
-  assert(found[1].text ==
+  local todo = nth(found, 1)
+  assert(#found == 1 and todo.last == 3, tostring(todo.last))
+  assert(todo.text ==
       "replace with a Teal script run by `cosmic --standalone`, as bin/zig is.",
-    found[1].text)
+    todo.text)
 end
 
 local function test_a_c_comment_block()
@@ -88,11 +98,11 @@ local function test_block_comments_and_other_markers()
     "// TODO: a line comment",
     ";; TODO: lisp */",
   }))
-  assert(#found == 3, "found " .. #found)
-  assert(found[1].text == "a block comment that goes on", found[1].text)
-  assert(found[1].last == 2)
-  assert(found[2].text == "a line comment", found[2].text)
-  assert(found[3].text == "lisp", found[3].text)
+  assert(#found == 3, "found " .. tostring(#found))
+  assert(nth(found, 1).text == "a block comment that goes on", nth(found, 1).text)
+  assert(nth(found, 1).last == 2)
+  assert(nth(found, 2).text == "a line comment", nth(found, 2).text)
+  assert(nth(found, 3).text == "lisp", nth(found, 3).text)
 end
 
 local function test_todo_outside_a_comment_of_its_own_is_not_one()
@@ -104,12 +114,12 @@ local function test_todo_outside_a_comment_of_its_own_is_not_one()
     "-- a TODO: not at the start",
     "-> TODO: not a marker",
   }))
-  assert(#found == 0, "found " .. #found)
+  assert(#found == 0, "found " .. tostring(#found))
 end
 
 local function test_crlf_and_a_missing_final_newline()
   local found = todo_scan.scan("-- TODO: one\r\n-- two\r\nx")
-  assert(#found == 1 and found[1].text == "one two", found[1] and found[1].text)
+  assert(#found == 1 and found[1].text == "one two", found[1] and nth(found, 1).text)
   found = todo_scan.scan("# TODO: last line")
   assert(#found == 1 and found[1].text == "last line")
 end
@@ -154,7 +164,7 @@ end
 
 local function test_render_marks_unblamed_and_boundary_rows()
   local row: todos.Todo = {
-    file = "a.tl", line = 3, last = 3, text = "do it", commit = "",
+    id = 1, file = "a.tl", line = 3, last = 3, text = "do it", commit = "",
     author_time = 0, summary = "", boundary = false,
   }
   assert(todos.render(row) == "a.tl:3: ---------- ------- do it", todos.render(row))
@@ -176,11 +186,11 @@ local function test_a_tree_in_no_repository_starts_no_git(tmp: string)
   -- What [`cosmic.sys`]'s shared table is asked while the listing runs,
   -- each call's first argument: every lookup of a variable (`Env`) and
   -- of a path ([`Proc.find`], [`Fs.exists`]) goes through it.
-  local asked: {string} = {}
+  local asked: mut {string} = {}
   local calls = sys as {string:any}
-  local stood: {string:any} = {}
+  local stood: mut {string:any} = {}
   for _, name in ipairs({ "getenv", "stat", "lstat", "access", "open" }) do
-    local was = calls[name] as function(any...): any...
+    local was = calls[name] as function(...: any): any...
     stood[name] = was
     calls[name] = function(...: any): any...
       local given: any = ...
@@ -212,15 +222,15 @@ local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
   local listed = assert(todos.list(handle.db, root)).todos
-  assert(#listed == 1, "found " .. #listed)
-  assert(listed[1].file == "src/a.tl" and listed[1].line == 1)
-  assert(listed[1].text == "first" and listed[1].commit == "")
+  assert(#listed == 1, "found " .. tostring(#listed))
+  assert(nth(listed, 1).file == "src/a.tl" and nth(listed, 1).line == 1)
+  assert(nth(listed, 1).text == "first" and nth(listed, 1).commit == "")
 
   -- Bytes already indexed are not scanned again, so their rows stand.
   assert(Sqlite.run(handle.db, "UPDATE todos SET text = 'from the index'"))
   assert(work.stage(handle, false))
   listed = assert(todos.list(handle.db, root)).todos
-  assert(listed[1].text == "from the index", listed[1].text)
+  assert(nth(listed, 1).text == "from the index", nth(listed, 1).text)
 
   -- A file whose bytes changed is read again, and bytes no file holds
   -- are dropped.
@@ -230,7 +240,7 @@ local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
   listed = assert(todos.list(handle.db, root)).todos
   assert(#listed == 1 and listed[1].file == "src/b.tl" and listed[1].line == 2)
   local rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM todos"))
-  assert(rows[1][1] == "1", rows[1][1])
+  assert(nth(rows, 1):text(1) == "1", nth(rows, 1):text(1))
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end
@@ -245,20 +255,20 @@ local function test_a_file_the_build_does_not_consume_is_scanned_all_the_same()
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
   local listed = assert(todos.list(handle.db, root)).todos
-  assert(#listed == 1, "found " .. #listed)
-  assert(listed[1].file == "scripts/release.sh" and listed[1].line == 2)
-  assert(listed[1].text == "sign the archive", listed[1].text)
+  assert(#listed == 1, "found " .. tostring(#listed))
+  assert(nth(listed, 1).file == "scripts/release.sh" and nth(listed, 1).line == 2)
+  assert(nth(listed, 1).text == "sign the archive", nth(listed, 1).text)
   -- Scanned, not staged: nothing the build compiles or runs sees it.
   local rows = assert(Sqlite.text_rows(handle.db,
     "SELECT count(*) FROM files WHERE path = 'scripts/release.sh'"))
-  assert(rows[1][1] == "0", rows[1][1])
+  assert(nth(rows, 1):text(1) == "0", nth(rows, 1):text(1))
 
   assert(Fs.remove(root .. "/scripts/release.sh"))
   assert(work.stage(handle, false))
   listed = assert(todos.list(handle.db, root)).todos
-  assert(#listed == 0, "found " .. #listed)
+  assert(#listed == 0, "found " .. tostring(#listed))
   rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM scanned"))
-  assert(rows[1][1] == "0", rows[1][1])
+  assert(nth(rows, 1):text(1) == "0", nth(rows, 1):text(1))
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end
@@ -281,15 +291,15 @@ local function test_own_tree_scans_github_for_todos()
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
   local listed = assert(todos.list(handle.db, root)).todos
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   for _, todo in ipairs(listed) do
-    seen[#seen + 1] = todo.file .. ":" .. todo.line .. ": " .. todo.text
+    seen[#seen + 1] = todo.file .. ":" .. tostring(todo.line) .. ": " .. todo.text
   end
   assert(table.concat(seen, "|") == ".github/actions/driver/action.yml:2: lint these steps|" ..
       ".github/check.tl:1: not an input|.github/workflows/ci.yml:1: pin the runner", table.concat(seen, "|"))
   local rows = assert(Sqlite.text_rows(handle.db,
     "SELECT count(*) FROM files WHERE path LIKE '.github/%'"))
-  assert(rows[1][1] == "0", rows[1][1])
+  assert(nth(rows, 1):text(1) == "0", nth(rows, 1):text(1))
   assert(work.close(handle))
 
   -- Staged again as another project's tree, it is hidden, and what the
@@ -297,9 +307,9 @@ local function test_own_tree_scans_github_for_todos()
   local other = assert(work.open(root))
   assert(work.stage(other, false))
   listed = assert(todos.list(other.db, root)).todos
-  assert(#listed == 0, "found " .. #listed)
+  assert(#listed == 0, "found " .. tostring(#listed))
   rows = assert(Sqlite.text_rows(other.db, "SELECT count(*) FROM scanned"))
-  assert(rows[1][1] == "0", rows[1][1])
+  assert(nth(rows, 1):text(1) == "0", nth(rows, 1):text(1))
   assert(work.close(other))
   assert(Fs.remove_tree(root))
 end
@@ -322,12 +332,12 @@ local record_text = text({
 
 local function test_a_patch_record_s_todos_are_its_note_s_and_replace_block_s()
   local found = assert(todo_scan.scan_record(record_text))
-  assert(#found == 2, "found " .. #found)
-  assert(found[1].line == 2 and found[1].last == 2, found[1].line)
-  assert(found[1].text == "drop this once upstream takes it", found[1].text)
-  assert(found[2].line == 9 and found[2].last == 10, found[2].line .. "-" .. found[2].last)
-  assert(found[2].text == "ours, once ci/cosmic-driver.pin names a release carrying it",
-    found[2].text)
+  assert(#found == 2, "found " .. tostring(#found))
+  assert(nth(found, 1).line == 2 and nth(found, 1).last == 2, nth(found, 1).line)
+  assert(nth(found, 1).text == "drop this once upstream takes it", nth(found, 1).text)
+  assert(nth(found, 2).line == 9 and nth(found, 2).last == 10, tostring(nth(found, 2).line) .. "-" .. tostring(nth(found, 2).last))
+  assert(nth(found, 2).text == "ours, once ci/cosmic-driver.pin names a release carrying it",
+    nth(found, 2).text)
 
   -- A fence of its own; a note opening with the TODO; a TODO only
   -- the find block holds, and one in prose, are none.
@@ -342,10 +352,10 @@ local function test_a_patch_record_s_todos_are_its_note_s_and_replace_block_s()
     "=== end",
   })))
   assert(#found == 1 and found[1].line == 3 and found[1].text == "the whole note",
-    found[1] and found[1].text)
+    found[1] and nth(found, 1).text)
   found = assert(todo_scan.scan_record(text({ "file: a", "note: a TODO: mid-sentence",
     "--- find", "x", "--- replace", "y", "--- end" })))
-  assert(#found == 0, "found " .. #found)
+  assert(#found == 0, "found " .. tostring(#found))
   -- Text that is no record is none, nor is a record Patch.parse refuses.
   assert(todo_scan.scan_record(text({ "-- TODO: not a record" })) == nil)
   assert(todo_scan.scan_record((record_text:gsub("\n", "\r\n"))) == nil)
@@ -374,9 +384,9 @@ local function test_a_record_s_note_spans_lines_and_upstream_lines_stay_upstream
     "-- and ours",
     "--- end",
   })))
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   for _, each in ipairs(found) do
-    seen[#seen + 1] = each.line .. "-" .. each.last .. " " .. each.text
+    seen[#seen + 1] = tostring(each.line) .. "-" .. tostring(each.last) .. " " .. each.text
   end
   assert(table.concat(seen, "|") == "3-4 drop once upstream takes it|" ..
       "14-16 up stream and ours", table.concat(seen, "|"))
@@ -385,7 +395,7 @@ local function test_a_record_s_note_spans_lines_and_upstream_lines_stay_upstream
   -- replace block still, as Patch.parse reads it.
   found = assert(todo_scan.scan_record(text({ "file: a", "note: n",
     "--- find", "x", "--- replace", "--- end\r", "-- TODO: ours", "--- end" })))
-  assert(#found == 1 and found[1].line == 7, "found " .. #found)
+  assert(#found == 1 and found[1].line == 7, "found " .. tostring(#found))
 end
 
 --- In cosmic's own tree a patch record is listed with its own TODOs,
@@ -394,37 +404,39 @@ end
 --- file under `patch/` that is no record, and the vendored tree, are not.
 local function test_own_tree_lists_a_patch_record_s_own_todos()
   local root = assert(Fs.mkdtemp("cosmic-todos-test-"))
-  assert(Fs.mkdirs(root .. "/patch/tl"))
-  assert(Fs.mkdirs(root .. "/vendor/tl"))
-  assert(Fs.write(root .. "/patch/tl/01-x.txt", record_text))
+  assert(Fs.mkdirs(root .. "/patch/curl"))
+  assert(Fs.mkdirs(root .. "/vendor/curl"))
+  assert(Fs.write(root .. "/patch/curl/01-x.txt", record_text))
   -- The same bytes elsewhere, staged first, are scanned as the record is:
   -- a file's TODOs are kept by its bytes alone.
   assert(Fs.mkdirs(root .. "/aaa"))
   assert(Fs.write(root .. "/aaa/copy.txt", record_text))
-  assert(Fs.write(root .. "/patch/tl/notes.md", text({ "# TODO: not a record" })))
-  assert(Fs.write(root .. "/vendor/tl/PIN", text({ "# TODO: upstream's pin" })))
+  assert(Fs.write(root .. "/patch/curl/notes.md", text({ "# TODO: not a record" })))
+  assert(Fs.write(root .. "/vendor/curl/PIN", text({ "# TODO: upstream's pin" })))
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
   local listed = assert(todos.list(handle.db, root)).todos
-  local seen: {string} = {}
-  local id_of: {integer:string} = {}
+  local seen: mut {string} = {}
+  local id_of: mut {integer:string} = {}
   for _, todo in ipairs(listed) do
-    seen[#seen + 1] = todo.file .. ":" .. todo.line .. ": " .. todo.text
+    seen[#seen + 1] = todo.file .. ":" .. tostring(todo.line) .. ": " .. todo.text
     if todo.file:sub(1, 6) == "patch/" then
-      id_of[todo.id] = todo.file .. ":" .. todo.line
+      id_of[todo.id] = todo.file .. ":" .. tostring(todo.line)
     end
   end
   table.sort(seen)
   assert(table.concat(seen, "|") == "aaa/copy.txt:2: drop this once upstream takes it|" ..
       "aaa/copy.txt:9: ours, once ci/cosmic-driver.pin names a release carrying it|" ..
-      "patch/tl/01-x.txt:2: drop this once upstream takes it|" ..
-      "patch/tl/01-x.txt:9: ours, once ci/cosmic-driver.pin names a release carrying it",
+      "patch/curl/01-x.txt:2: drop this once upstream takes it|" ..
+      "patch/curl/01-x.txt:9: ours, once ci/cosmic-driver.pin names a release carrying it",
     table.concat(seen, "|"))
-  local hits: {string} = {}
+  local hits: mut {string} = {}
   for id in pairs((assert(todos.search(handle.db, "\"cosmic-driver.pin\"")))) do
-    hits[#hits + 1] = id_of[id]
+    local where = id_of[id]
+    assert(where, "a hit is a todo listed above")
+    hits[#hits + 1] = where
   end
-  assert(#hits == 1 and hits[1] == "patch/tl/01-x.txt:9", table.concat(hits, " "))
+  assert(#hits == 1 and hits[1] == "patch/curl/01-x.txt:9", table.concat(hits, " "))
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end
@@ -440,16 +452,20 @@ local function test_search_takes_fts5_syntax_and_falls_back_to_words()
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
   local all = assert(todos.list(handle.db, root)).todos
-  local line_of: {integer:string} = {}
+  local line_of: mut {integer:string} = {}
   for _, todo in ipairs(all) do
-    line_of[todo.id] = todo.file .. ":" .. todo.line
+    line_of[todo.id] = todo.file .. ":" .. tostring(todo.line)
   end
   local function found(query: string): {string}
     local ranks = assert(todos.search(handle.db, query))
-    local out: {string} = {}
-    for id, rank in pairs(ranks) do
-      out[rank] = line_of[id]
-    end
+    -- The ranks run 1 to the count, so the lines come in rank order.
+    local ids: mut {integer} = {}
+    for id in pairs(ranks) do ids[#ids + 1] = id end
+    table.sort(ids, function(a: integer, b: integer): boolean
+      return assert(ranks[a]) < assert(ranks[b])
+    end)
+    local out: mut {string} = {}
+    for _, id in ipairs(ids) do out[#out + 1] = assert(line_of[id]) end
     return out
   end
   local hits = found("ftruncate")
@@ -491,7 +507,7 @@ local function test_a_path_naming_the_tree_or_a_directory_in_it_is_a_path()
   -- Which of build/a.tl and core/b.tl the paths hold, then the words.
   local function split(argv: {string}): string
     local split_up = todos.arguments(root, argv)
-    local held: {string} = {}
+    local held: mut {string} = {}
     for _, file in ipairs({ "build/a.tl", "core/b.tl" }) do
       if narrow.holds(split_up.paths, file) then
         held[#held + 1] = file
@@ -521,4 +537,75 @@ local function test_a_path_naming_the_tree_or_a_directory_in_it_is_a_path()
   end
   assert(#todos.arguments(root, { "" }).words == 1)
   assert(Fs.remove_tree(root))
+end
+
+--- `cosmic todos` in a tree whose working database is of another
+--- schema, which no run holds, makes it again as a build does and lists
+--- the tree's TODOs, rather than refusing it as one another run may be
+--- using.
+local function test_todos_makes_a_free_database_of_another_schema_again(tmp: string)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/a.tl", text({ "-- TODO: listed all the same" })))
+  local made = assert(work.open(root))
+  assert(Sqlite.run(made.db, "UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  assert(work.close(made))
+  local result = invoke.run({ "todos" }, { cwd = root,
+    env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = assert(Env.get("COSMIC_BUILD_HOME")) } })
+  assert(result.code == 0, result.stdout .. result.stderr)
+  assert(result.stdout:find("a.tl:1: ", 1, true), result.stdout .. result.stderr)
+end
+
+--- `cosmic todos` in a tree whose working database is of another schema
+--- and held by another run refuses it, reading none of it: it may be
+--- another tool's rows, and what that run commits is not this tool's to
+--- read.
+local function test_todos_refuses_a_held_database_of_another_schema(tmp: string)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/a.tl", text({ "-- TODO: never listed" })))
+  local made = assert(work.open(root))
+  assert(Sqlite.run(made.db, "UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  local path = made.dir .. "/build.db"
+  assert(work.close(made))
+  local held = assert(Sqlite.open(path, { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local result = invoke.run({ "todos" }, { cwd = root,
+    env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = assert(Env.get("COSMIC_BUILD_HOME")) } })
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  assert(result.code == 1, tostring(result.code) .. ": " .. result.stdout .. result.stderr)
+  assert(result.stderr:find("another tool's", 1, true), result.stderr)
+  assert(not result.stdout:find("a.tl", 1, true), result.stdout)
+end
+
+--- `cosmic todos` in a tree whose working database another run holds
+--- reads what that run last committed where this tool's code staged it,
+--- and lists none of it where another tool's code did
+--- ([`work.other_code`]), saying so: the lock is no reason not to read,
+--- the other code is.
+local function test_todos_reads_a_held_database_only_where_its_own_code_staged_it(tmp: string)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/a.tl", text({ "-- TODO: listed while held" })))
+  local env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = assert(Env.get("COSMIC_BUILD_HOME")) }
+  local staged = invoke.run({ "todos" }, { cwd = root, env = env })
+  assert(staged.code == 0, staged.stdout .. staged.stderr)
+  local made = assert(work.open(root))
+  local path = made.dir .. "/build.db"
+  assert(work.close(made))
+  local held = assert(Sqlite.open(path, { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local own = invoke.run({ "todos" }, { cwd = root, env = env })
+  assert(held:exec("ROLLBACK"))
+  assert(own.code == 0, tostring(own.code) .. ": " .. own.stdout .. own.stderr)
+  assert(own.stdout:find("a.tl:1: ", 1, true), own.stdout .. own.stderr)
+  assert(held:exec("UPDATE meta SET value = 'another tool' WHERE key = 'staged_by'"))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local other = invoke.run({ "todos" }, { cwd = root, env = env })
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  assert(other.code == 1, tostring(other.code) .. ": " .. other.stdout .. other.stderr)
+  assert(other.stderr:find("was staged by the tool of boot hash another tool", 1, true), other.stderr)
+  assert(not other.stdout:find("a.tl", 1, true), other.stdout)
 end

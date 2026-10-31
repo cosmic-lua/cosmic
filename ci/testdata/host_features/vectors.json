@@ -1,7 +1,7 @@
 [
  {
   "cpuinfo": "processor\t: 0\nvendor_id\t: GenuineIntel\ncpu family\t: 6\nmodel\t\t: 207\nmodel name\t: Intel(R) Xeon(R) Processor @ 2.10GHz\nstepping\t: 2\nmicrocode\t: 0x1\ncpu MHz\t\t: 2100.000\ncache size\t: 266240 KB\nphysical id\t: 0\nsiblings\t: 4\ncore id\t\t: 0\ncpu cores\t: 4\napicid\t\t: 0\ninitial apicid\t: 0\nfpu\t\t: yes\nfpu_exception\t: yes\ncpuid level\t: 32\nwp\t\t: yes\nflags\t\t: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology nonstop_tsc cpuid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch cpuid_fault ssbd ibrs ibpb stibp ibrs_enhanced fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves avx_vnni avx512_bf16 wbnoinvd arat avx512vbmi umip avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid cldemote movdiri movdir64b fsrm md_clear serialize tsxldtrk amx_bf16 avx512_fp16 amx_tile amx_int8 arch_capabilities\nbugs\t\t: spectre_v1 spectre_v2 spec_store_bypass swapgs eibrs_pbrsb bhi ibpb_no_ret spectre_v2_user\nbogomips\t: 4200.00\nclflush size\t: 64\ncache_alignment\t: 64\naddress sizes\t: 52 bits physical, 57 bits virtual\npower management:\n\nprocessor\t: 1\nvendor_id\t: GenuineIntel\ncpu family\t: 6\nmodel\t\t: 207\nmodel name\t: Intel(R) Xeon(R) Processor @ 2.10GHz\nstepping\t: 2\nmicrocode\t: 0x1\ncpu MHz\t\t: 2100.000\ncache size\t: 266240 KB\nphysical id\t: 0\nsiblings\t: 4\ncore id\t\t: 1\ncpu cores\t: 4\napicid\t\t: 1\ninitial apicid\t: 1\nfpu\t\t: yes\nfpu_exception\t: yes\ncpuid level\t: 32\nwp\t\t: yes\nflags\t\t: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology nonstop_tsc cpuid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch cpuid_fault ssbd ibrs ibpb stibp ibrs_enhanced fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves avx_vnni avx512_bf16 wbnoinvd arat avx512vbmi umip avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid cldemote movdiri movdir64b fsrm md_clear serialize tsxldtrk amx_bf16 avx512_fp16 amx_tile amx_int8 arch_capabilities\nbugs\t\t: spectre_v1 spectre_v2 spec_store_bypass swapgs eibrs_pbrsb bhi ibpb_no_ret spectre_v2_user\nbogomips\t: 4200.00\nclflush size\t: 64\ncache_alignment\t: 64\naddress sizes\t: 52 bits physical, 57 bits virtual\npower management:\n\nprocessor\t: 2\nvendor_id\t: GenuineIntel\ncpu family\t: 6\nmodel\t\t: 207\nmodel name\t: Intel(R) Xeon(R) Processor @ 2.10GHz\nstepping\t: 2\nmicrocode\t: 0x1\ncpu MHz\t\t: 2100.000\ncache size\t: 266240 KB\nphysical id\t: 0\nsiblings\t: 4\ncore id\t\t: 2\ncpu cores\t: 4\napicid\t\t: 2\ninitial apicid\t: 2\nfpu\t\t: yes\nfpu_exception\t: yes\ncpuid level\t: 32\nwp\t\t: yes\nflags\t\t: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology nonstop_tsc cpuid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch cpuid_fault ssbd ibrs ibpb stibp ibrs_enhanced fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves avx_vnni avx512_bf16 wbnoinvd arat avx512vbmi umip avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid cldemote movdiri movdir64b fsrm md_clear serialize tsxldtrk amx_bf16 avx512_fp16 amx_tile amx_int8 arch_capabilities\nbugs\t\t: spectre_v1 spectre_v2 spec_store_bypass swapgs eibrs_pbrsb bhi ibpb_no_ret spectre_v2_user\nbogomips\t: 4200.00\nclflush size\t: 64\ncache_alignment\t: 64\naddress sizes\t: 52 bits physical, 57 bits virtual\npower management:\n\nprocessor\t: 3\nvendor_id\t: GenuineIntel\ncpu family\t: 6\nmodel\t\t: 207\nmodel name\t: Intel(R) Xeon(R) Processor @ 2.10GHz\nstepping\t: 2\nmicrocode\t: 0x1\ncpu MHz\t\t: 2100.000\ncache size\t: 266240 KB\nphysical id\t: 0\nsiblings\t: 4\ncore id\t\t: 3\ncpu cores\t: 4\napicid\t\t: 3\ninitial apicid\t: 3\nfpu\t\t: yes\nfpu_exception\t: yes\ncpuid level\t: 32\nwp\t\t: yes\nflags\t\t: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology nonstop_tsc cpuid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch cpuid_fault ssbd ibrs ibpb stibp ibrs_enhanced fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves avx_vnni avx512_bf16 wbnoinvd arat avx512vbmi umip avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid cldemote movdiri movdir64b fsrm md_clear serialize tsxldtrk amx_bf16 avx512_fp16 amx_tile amx_int8 arch_capabilities\nbugs\t\t: spectre_v1 spectre_v2 spec_store_bypass swapgs eibrs_pbrsb bhi ibpb_no_ret spectre_v2_user\nbogomips\t: 4200.00\nclflush size\t: 64\ncache_alignment\t: 64\naddress sizes\t: 52 bits physical, 57 bits virtual\npower management:\n\n",
-  "digest": "76038305182e5556",
+  "digest": "f096ae6e2072e404",
   "machine": "x86_64",
   "name": "this",
   "osrelease": "6.18.44-fc-v70\n",
@@ -36,7 +36,7 @@
   "version": "#22-Ubuntu SMP Thu Sep  4 00:00:00 UTC 2025\n"
  },
  {
-  "cpuinfo": "flags : aes pclmulqdq sse4_1 ssse3 avx512f\r\nprocessor : 1\r\n",
+  "cpuinfo": "flags : aes pclmulqdq sse4_1 ssse3 avx512bw\r\nprocessor : 1\r\n",
   "digest": "e709205be4810032",
   "machine": "x86_64",
   "name": "x86-crlf",
@@ -82,7 +82,7 @@
  },
  {
   "cpuinfo": "processor : 0\nCPU implementer : 0x41\nFeatures : fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics cpuid asimdrdm\nprocessor : 1\nFeatures : fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics\n",
-  "digest": "69879e047aa11846",
+  "digest": "2a6e8034148df4f1",
   "machine": "aarch64",
   "name": "arm",
   "osrelease": "6.17.0-1022-azure\n",
@@ -162,7 +162,7 @@
   "version": "#22-Ubuntu SMP Thu Sep  4 00:00:00 UTC 2025\n"
  },
  {
-  "cpuinfo": "flags : fpu sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms fma4 avx512f hypervisor md_clear\n",
+  "cpuinfo": "flags : fpu sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms fma4 avx512bw hypervisor md_clear\n",
   "digest": "e709205be4810032",
   "machine": "x86_64",
   "name": "x86-extra",
@@ -208,7 +208,7 @@
  },
  {
   "cpuinfo": "Features : fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics\n",
-  "digest": "69879e047aa11846",
+  "digest": "2a6e8034148df4f1",
   "machine": "aarch64",
   "name": "arm-base",
   "osrelease": "6.17.0-1022-azure\n",
@@ -217,7 +217,7 @@
  },
  {
   "cpuinfo": "Features : fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics sve sve2\n",
-  "digest": "69879e047aa11846",
+  "digest": "2a6e8034148df4f1",
   "machine": "aarch64",
   "name": "arm-extra",
   "osrelease": "6.17.0-1022-azure\n",
@@ -226,7 +226,7 @@
  },
  {
   "cpuinfo": "Features : fp asimd evtstrm pmull sha1 sha2 crc32 atomics\n",
-  "digest": "e18e43b8c5850b99",
+  "digest": "fe3d87144ce1eb2a",
   "machine": "aarch64",
   "name": "arm-no-aes",
   "osrelease": "6.17.0-1022-azure\n",
@@ -235,7 +235,7 @@
  },
  {
   "cpuinfo": "Features : fp evtstrm aes pmull sha1 sha2 crc32 atomics\n",
-  "digest": "a7ad5f4aa864ee9d",
+  "digest": "911a3b68e778a008",
   "machine": "aarch64",
   "name": "arm-no-asimd",
   "osrelease": "6.17.0-1022-azure\n",
@@ -244,7 +244,7 @@
  },
  {
   "cpuinfo": "Features : fp asimd evtstrm aes pmull sha1 sha2 atomics\n",
-  "digest": "858d584bf9a072ae",
+  "digest": "631933e48f297de5",
   "machine": "aarch64",
   "name": "arm-no-crc32",
   "osrelease": "6.17.0-1022-azure\n",
@@ -253,7 +253,7 @@
  },
  {
   "cpuinfo": "Features : fp asimd evtstrm aes sha1 sha2 crc32 atomics\n",
-  "digest": "5a8cc1ccef9a4ce7",
+  "digest": "f37e3d05e721bc3c",
   "machine": "aarch64",
   "name": "arm-no-pmull",
   "osrelease": "6.17.0-1022-azure\n",

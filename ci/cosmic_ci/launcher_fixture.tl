@@ -4,6 +4,7 @@
 local Clock = require("cosmic.clock")
 local Fixture = require("cosmic_ci.fixture")
 local Fs = require("cosmic.fs")
+local Maps = require("cosmic_ci.maps")
 local sys = require("cosmic.sys")
 
 local child_timeout_ns <const> = Clock.seconds(30)
@@ -26,6 +27,7 @@ local private_environment = {
   "COSMIC_PORTABLE_CORE_OFFSET", "COSMIC_PORTABLE_CORE_LENGTH",
   "COSMIC_PORTABLE_CORE_SHA256", "COSMIC_PORTABLE_TEST_HOOK",
   "COSMIC_PORTABLE_TEST_READY", "COSMIC_PORTABLE_TEST_GO",
+  "COSMIC_PORTABLE_TEST_CPUINFO",
   "PORTABLE_PAYLOAD_MARKER", "PORTABLE_PAYLOAD_EXIT",
   "PORTABLE_PAYLOAD_SIGNAL", "PORTABLE_EXPECT_CWD",
   "PORTABLE_EXPECT_UMASK", "PORTABLE_CHECK_IO",
@@ -35,15 +37,16 @@ local private_environment = {
 --- launcher's private contract, the cache `cache`, and `extra` over it.
 function LauncherFixture.environment(cache?: string,
                                      extra?: {string:string}): {string:string}
-  local values = Fixture.environment({
+  local values = Maps.without(Fixture.environment({
     PORTABLE_ORDINARY_ENV = "preserved",
     PORTABLE_CALLER_LOCALE = "preserved",
-  })
-  for _, name in ipairs(private_environment) do values[name] = nil end
-  values.COSMIC_PORTABLE_CACHE = cache
-  if extra then
-    for name, value in pairs(extra) do values[name] = value end
+  }), private_environment)
+  if cache ~= nil then
+    values = Maps.with(values, { COSMIC_PORTABLE_CACHE = cache })
+  else
+    values = Maps.without(values, { "COSMIC_PORTABLE_CACHE" })
   end
+  if extra then values = Maps.with(values, extra) end
   return values
 end
 
@@ -85,7 +88,7 @@ end
 --- The one public core a cache holds: a plain file whose name does not
 --- begin with ".", the launcher's or startup's own.
 function LauncherFixture.only_core(cache: string): string
-  local found: string | nil = nil
+  local found: string? = nil
   for _, name in ipairs((assert(Fs.list(cache)))) do
     local path = cache .. "/" .. name
     local st = assert(sys.lstat(path))

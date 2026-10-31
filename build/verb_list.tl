@@ -30,6 +30,8 @@ verb_list.entries = {
   { name = "fix", load = function(): verb_spec.Spec return require("build.fix").spec end },
   { name = "build", load = function(): verb_spec.Spec return require("build.embed").spec end },
   { name = "db", load = function(): verb_spec.Spec return require("build.databases").spec end },
+  { name = "lsp", load = function(): verb_spec.Spec return require("build.lsp").spec end },
+  { name = "migrate", load = function(): verb_spec.Spec return require("build.migrate").spec end },
   { name = "sql", load = function(): verb_spec.Spec return require("build.sql").spec end },
   { name = "cache", load = function(): verb_spec.Spec return require("build.cache").spec end },
   { name = "json", load = function(): verb_spec.Spec return require("build.json").spec end },
@@ -39,17 +41,19 @@ verb_list.entries = {
   { name = "fetch", load = function(): verb_spec.Spec return require("build.fetch").spec end },
   { name = "time", load = function(): verb_spec.Spec return require("build.time").spec end },
   { name = "rand", load = function(): verb_spec.Spec return require("build.rand").spec end },
+  { name = "compile", load = function(): verb_spec.Spec return require("build.compile").spec end },
   { name = "docs", load = function(): verb_spec.Spec return require("build.docs").spec end },
   { name = "uses", load = function(): verb_spec.Spec return require("build.docs").uses_spec end },
   { name = "todos", load = function(): verb_spec.Spec return require("build.todos").spec end },
   { name = "bom", load = function(): verb_spec.Spec return require("build.bom").spec end },
   { name = "refresh", load = function(): verb_spec.Spec return require("build.refresh").spec end },
+  { name = "release", load = function(): verb_spec.Spec return require("build.release").spec end },
   { name = "sandbox", load = function(): verb_spec.Spec return require("build.sandbox").spec end },
 }
 
 --- Every verb's spec, in help's order.
-function verb_list.specs(): {verb_spec.Spec}
-  local specs: {verb_spec.Spec} = {}
+function verb_list.specs(): mut {verb_spec.Spec}
+  local specs: mut {verb_spec.Spec} = {}
   for _, entry in ipairs(verb_list.entries) do
     specs[#specs + 1] = entry.load()
   end
@@ -58,7 +62,7 @@ end
 
 --- The spec of the verb `name`, loading that verb's module alone, or nil
 --- when no listed verb has that name.
-function verb_list.find(name: string): verb_spec.Spec | nil
+function verb_list.find(name: string): verb_spec.Spec?
   for _, entry in ipairs(verb_list.entries) do
     if entry.name == name then
       return entry.load()

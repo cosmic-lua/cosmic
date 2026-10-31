@@ -2,6 +2,7 @@ local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local Maps = require("cosmic_ci.maps")
 local GithubApi = require("cosmic_ci.github_api")
 local Report = require("cosmic_ci.report")
 local State = require("cosmic_ci.state")
@@ -21,36 +22,50 @@ local function test_seconds_of_reads_githubs_times()
   assert(Report.duration(nil) == "-")
 end
 
+--- Whether `said` holds the Shape failure at JSON Pointer `at` that wants `expected`
+--- (`string, got integer`): `$.a[0].b: want string, got integer` for the pointer `/a/0/b`.
+local function shape_failure(said: string, at: string, expected: string): boolean
+  local path = "$"
+  for segment in at:gmatch("/([^/]*)") do
+    path = path .. (if segment:find("^%d+$") then "[" .. segment .. "]" else "." .. segment end)
+  end
+  local rest = if expected:find(", got nothing$") then "missing" else "want " .. expected end
+  return said:find(path .. ": " .. rest, 1, true) ~= nil
+end
+
 --- The lists the API answers are checked against the records `Report`
 --- reads: a value of another shape is refused naming where it is, where
 --- the entries once read as empty, were skipped, or were taken as text.
 local function test_an_answer_of_another_shape_is_refused_by_path()
-  local function refused(read: function(string): any, text: string, list: string,
+  local function refused(read: function(string), text: string, list: string,
                          at: string, expected: string)
-    local ok, why = pcall(read, text)
+    local ok, why = pcall(function(): boolean
+      read(text)
+      return true
+    end)
     assert(not ok, "accepted " .. text)
     local said = tostring(why)
-    assert(said:find("the " .. list .. " list: ", 1, true) and said:find('pointer "' .. at .. '": expected ' .. expected, 1, true),
+    assert(said:find("the " .. list .. " list: ", 1, true) and shape_failure(said, at, expected),
       ("wanted %s at %s, expected %s; got %q"):format(list, at, expected, said))
   end
-  refused(Report.runs, "[]", "runs", "", "record, got array")
-  refused(Report.runs, '{"workflow_runs":[7]}', "runs", "/workflow_runs/0", "record, got integer")
-  refused(Report.runs, '{"workflow_runs":[{"event":"push","head_sha":"s"}]}', "runs",
+  refused(function(text: string) local _ = Report.runs(text) end, "[]", "runs", "", "record, got array")
+  refused(function(text: string) local _ = Report.runs(text) end, '{"workflow_runs":[7]}', "runs", "/workflow_runs/0", "record, got integer")
+  refused(function(text: string) local _ = Report.runs(text) end, '{"workflow_runs":[{"event":"push","head_sha":"s"}]}', "runs",
     "/workflow_runs/0/id", "integer, got nothing")
-  refused(Report.runs, '{"workflow_runs":[{"id":"7","event":"push","head_sha":"s"}]}', "runs",
+  refused(function(text: string) local _ = Report.runs(text) end, '{"workflow_runs":[{"id":"7","event":"push","head_sha":"s"}]}', "runs",
     "/workflow_runs/0/id", "integer, got string")
-  refused(Report.jobs, '{"jobs":[{"name":"a","steps":[7]}]}', "jobs", "/jobs/0/steps/0", "record, got integer")
-  refused(Report.jobs, '{"jobs":[{"name":"a","started_at":12}]}', "jobs", "/jobs/0/started_at",
+  refused(function(text: string) local _ = Report.jobs(text) end, '{"jobs":[{"name":"a","steps":[7]}]}', "jobs", "/jobs/0/steps/0", "record, got integer")
+  refused(function(text: string) local _ = Report.jobs(text) end, '{"jobs":[{"name":"a","started_at":12}]}', "jobs", "/jobs/0/started_at",
     "string, got integer")
-  refused(Report.driver_artifacts, '{"artifacts":[{"name":"ci-driver-x","id":"9"}]}', "artifacts",
+  refused(function(text: string) local _ = Report.driver_artifacts(text) end, '{"artifacts":[{"name":"ci-driver-x","id":"9"}]}', "artifacts",
     "/artifacts/0/id", "integer, got string")
-  refused(Report.driver_artifacts, '{"artifacts":{"a":1}}', "artifacts", "/artifacts",
+  refused(function(text: string) local _ = Report.driver_artifacts(text) end, '{"artifacts":{"a":1}}', "artifacts", "/artifacts",
     "list, got the string key")
   -- The nulls GitHub writes for what it has not got are nothing.
   local runs = Report.runs('{"workflow_runs":[{"id":7,"event":"push","head_sha":"s",' ..
       '"head_branch":null,"conclusion":null,"run_attempt":null}]}')
-  assert(runs[1].id == "7" and runs[1].branch == "" and runs[1].conclusion == "" and
-      runs[1].attempt == "", runs[1].branch)
+  assert(assert(runs[1]).id == "7" and assert(runs[1]).branch == "" and assert(runs[1]).conclusion == "" and
+      assert(runs[1]).attempt == "", assert(runs[1]).branch)
   assert(#Report.jobs('{"jobs":[{"name":"a","started_at":null,"completed_at":null}]}') == 1)
 end
 
@@ -79,10 +94,10 @@ local function test_reuse_and_seed_are_no_platform_jobs()
       { name = "ci", seconds = 120, steps = {} },
     } }
   assert(Report.slowest(run) == nil, "a seeded run's slowest platform job")
-  table.insert(run.jobs, { name = "linux-x86_64", seconds = 60, steps = {} })
-  assert((Report.slowest(run) as Report.Job).name == "linux-x86_64")
-  table.insert(run.jobs, { name = "linux-x86_64-checked", seconds = 61, steps = {} })
-  assert((Report.slowest(run) as Report.Job).name == "linux-x86_64-checked")
+  run.jobs[#run.jobs + 1] = { name = "linux-x86_64", seconds = 60, steps = {} }
+  assert(assert(Report.slowest(run)).name == "linux-x86_64")
+  run.jobs[#run.jobs + 1] = { name = "linux-x86_64-checked", seconds = 61, steps = {} }
+  assert(assert(Report.slowest(run)).name == "linux-x86_64-checked")
 end
 
 --- A run whose rows say what its restored cache held qualifies by
@@ -93,12 +108,15 @@ end
 --- earlier run.
 local function test_a_run_qualifies_by_what_its_restored_cache_held()
   local function run(id: string, harness: string, held?: string): Report.Run
-    local suites: {State.SuiteRun} = {}
+    local suites: mut {State.SuiteRun} = {}
     for _, suite in ipairs({ "local", "checked" }) do
-      suites[#suites + 1] = { worker = "linux-x86_64", suite = suite,
+      suites[#suites + 1] = { worker = "linux-x86_64", run = id, attempt = "1",
+        phase = suite, suite = suite, status = "pass", exit_code = 0,
         parts = { runtime = "rrrr", harness = harness }, held = held }
     end
-    return { id = id, conclusion = "success", jobs = {}, suites = suites, missing = {} }
+    return { id = id, event = "push", branch = "main", sha = string.rep("a", 40),
+      conclusion = "success", attempt = "1", jobs = {}, suites = suites, missing = {},
+      qualifies = false, why = "" }
   end
   local runs = {
     run("50", "h2", "10 rows under runtime rrrr, harness h2; 2 rows under no parts named"),
@@ -108,46 +126,50 @@ local function test_a_run_qualifies_by_what_its_restored_cache_held()
     run("10", "h9"),
   }
   Report.qualify(runs, 4)
-  assert(runs[1].qualifies, runs[1].why)
-  assert(runs[1].why == "runtime and harness epoch and timeout among the restored cache's " ..
-      "(linux-x86_64 checked: 10 of 12 rows; linux-x86_64 local: 10 of 12 rows)", runs[1].why)
-  assert(not runs[2].qualifies and runs[2].why == "linux-x86_64 checked: runtime or harness " ..
+  assert(assert(runs[1]).qualifies, assert(runs[1]).why)
+  assert(assert(runs[1]).why == "runtime and harness epoch and timeout among the restored cache's " ..
+      "(linux-x86_64 checked: 10 of 12 rows; linux-x86_64 local: 10 of 12 rows)", assert(runs[1]).why)
+  assert(not assert(runs[2]).qualifies and assert(runs[2]).why == "linux-x86_64 checked: runtime or harness " ..
       "not among the restored cache's (12 rows); linux-x86_64 local: runtime or harness not " ..
-      "among the restored cache's (12 rows)", runs[2].why)
-  assert(not runs[3].qualifies and
-      runs[3].why:find("linux-x86_64 local: the restored cache held no rows", 1, true), runs[3].why)
-  assert(not runs[4].qualifies and runs[4].why:find("harness moved", 1, true), runs[4].why)
+      "among the restored cache's (12 rows)", assert(runs[2]).why)
+  assert(not assert(runs[3]).qualifies and
+      assert(runs[3]).why:find("linux-x86_64 local: the restored cache held no rows", 1, true) ~= nil, assert(runs[3]).why)
+  assert(not assert(runs[4]).qualifies and assert(runs[4]).why:find("harness moved", 1, true) ~= nil, assert(runs[4]).why)
   -- Restored rows that name no parts (a cache kept from before rows
   -- named them) tell nothing: the earlier run decides, and the reason
   -- says so.
   local unnamed = "7 rows under no parts named"
   runs = { run("70", "h1", unnamed), run("60", "h1"), run("55", "h1", unnamed), run("50", "h0") }
   Report.qualify(runs, 3)
-  assert(runs[1].qualifies and runs[1].why == "restored rows name no parts; runtime and " ..
-      "harness epoch and timeout held since run 60", runs[1].why)
-  assert(not runs[3].qualifies and runs[3].why:find("linux-x86_64 local: restored rows name " ..
-      "no parts, harness moved", 1, true), runs[3].why)
+  assert(assert(runs[1]).qualifies and assert(runs[1]).why == "restored rows name no parts; runtime and " ..
+      "harness epoch and timeout held since run 60", assert(runs[1]).why)
+  assert(not assert(runs[3]).qualifies and assert(runs[3]).why:find("linux-x86_64 local: restored rows name " ..
+      "no parts, harness moved", 1, true) ~= nil, assert(runs[3]).why)
 end
 
 --- A fake GitHub: a `Send` answering from `answers`, by the path it was
 --- asked for, and logging each path in `calls`. An artifact's zip is
 --- served as GitHub does, a redirect to a link `fetch` writes from `zips`.
 local record Fake
-  answers: {string:string}
-  zips: {string:string}
-  calls: {string}
-  client: GithubApi.Client
-  env: {string:string}
+  answers: mut {string:string}
+  zips: mut {string:string}
+  calls: mut {string}
+  mut client: GithubApi.Client
+  mut env: {string:string}
   dir: string
 end
 
 local api <const> = "https://api.test/"
 
 local function fake(tmp: string): Fake
-  local f: Fake = { answers = {}, zips = {}, calls = {}, dir = tmp, env = Env.all() } as Fake
+  local f: Fake = { answers = {}, zips = {}, calls = {}, dir = tmp,
+    env = Maps.without(Env.all(), { "GITHUB_REPOSITORY" }),
+    client = { base = "", send = function(_request: GithubApi.Request): GithubApi.Reply?, string
+      return nil, "not yet"
+    end, fetch = function(_url: string, _to: string): boolean, string return false, "not yet" end } }
   f.client = {
     base = "https://api.test",
-    send = function(request: GithubApi.Request): GithubApi.Reply | nil, string
+    send = function(request: GithubApi.Request): GithubApi.Reply?, string
       assert(request.method == "GET" and request.url:sub(1, #api) == api, request.url)
       local path = request.url:sub(#api + 1)
       f.calls[#f.calls + 1] = path
@@ -166,30 +188,45 @@ local function fake(tmp: string): Fake
       return Fs.write(to, zip)
     end,
   }
-  f.env.GITHUB_REPOSITORY = nil
   return f
 end
 
-local function answer(f: Fake, endpoint: string, value: any)
-  f.answers[endpoint] = assert(Json.encode(value))
+--- The API's answer for `endpoint`, as JSON text.
+local function answer(f: Fake, endpoint: string, text: string)
+  f.answers[endpoint] = text
+end
+
+local function q(text: string): string return Json.quote(text) end
+
+--- A list as JSON, each item already JSON.
+local function list_of(items: {string}): string return "[" .. table.concat(items, ",") .. "]" end
+
+--- A step or a job of a run, as JSON, with its times (JSON, `null` for none).
+local function step_json(name: string, started: string, completed: string): string
+  return '{"name":' .. q(name) .. ',"started_at":' .. started .. ',"completed_at":' .. completed .. "}"
+end
+
+local function job_json(name: string, started: string, completed: string, steps: {string}): string
+  return '{"name":' .. q(name) .. ',"started_at":' .. started .. ',"completed_at":' .. completed ..
+    ',"steps":' .. list_of(steps) .. "}"
 end
 
 local function at(minutes: integer, seconds?: integer): string
-  return string.format("2026-09-28T10:%02d:%02dZ", minutes, seconds or 0)
+  return q(string.format("2026-09-28T10:%02d:%02dZ", minutes, seconds or 0))
 end
 
 --- A run's jobs: two legs and the join, the first leg `slow` minutes long.
 local function jobs(f: Fake, id: string, slow: integer)
-  answer(f, "repos/" .. repository .. "/actions/runs/" .. id .. "/jobs?per_page=100", { jobs = {
-    { name = "linux-x86_64", started_at = at(0), completed_at = at(slow), steps = {
-      { name = "set up", started_at = at(0), completed_at = at(0, 5) },
-      { name = "assemble", started_at = at(1), completed_at = at(slow - 1) },
-      { name = "build", started_at = at(0, 5), completed_at = at(1) },
-      { name = "skipped", started_at = Json.null, completed_at = Json.null },
-    } },
-    { name = "macos-aarch64", started_at = at(0), completed_at = at(8), steps = Json.array() },
-    { name = "ci", started_at = at(0), completed_at = at(59), steps = Json.array() },
-  } })
+  answer(f, "repos/" .. repository .. "/actions/runs/" .. id .. "/jobs?per_page=100", '{"jobs":' .. list_of({
+    job_json("linux-x86_64", at(0), at(slow), {
+      step_json("set up", at(0), at(0, 5)),
+      step_json("assemble", at(1), at(slow - 1)),
+      step_json("build", at(0, 5), at(1)),
+      step_json("skipped", "null", "null"),
+    }),
+    job_json("macos-aarch64", at(0), at(8), {}),
+    job_json("ci", at(0), at(59), {}),
+  }) .. "}")
 end
 
 --- A `ci-driver-linux-x86_64` artifact `id`, as the API serves it: a
@@ -202,9 +239,9 @@ local function artifact_zip(f: Fake, id: string, run: string, runtime: string,
   for _, suite in ipairs({ "local", "checked", "fixture runtime-regression" }) do
     local keyed = not suite:match("^fixture")
     State.suite(database, { worker = "linux-x86_64", run = run, attempt = "1",
-      phase = suite == "local" and "build" or "assemble", suite = suite, status = "pass",
+      phase = if suite == "local" then "build" else "assemble" end, suite = suite, status = "pass",
       exit_code = 0, tests = 100, ran = 100 - stood, stood = stood, elapsed_ms = 1000 * stood,
-      parts = keyed and { runtime = runtime, harness = harness } or {} })
+      parts = if keyed then { runtime = runtime, harness = harness } else {} end })
   end
   local path = f.dir .. "/zip-" .. id
   local stream = assert(Stream.create(path))
@@ -214,10 +251,16 @@ local function artifact_zip(f: Fake, id: string, run: string, runtime: string,
   f.zips["repos/" .. repository .. "/actions/artifacts/" .. id .. "/zip"] = assert(Fs.read(path))
 end
 
---- Run `run`'s artifacts list: `listed`, each {name, id, created, expired}.
-local function artifacts(f: Fake, run: string, listed: {{string:any}})
-  answer(f, "repos/" .. repository .. "/actions/runs/" .. run .. "/artifacts?per_page=100",
-    { artifacts = #listed > 0 and listed or Json.array() })
+--- One artifact of a run's list, as JSON.
+local function artifact_json(name: string, id: integer, expired: boolean, created: string?): string
+  local made = if created ~= nil then (',"created_at":' .. created) else "" end
+  return '{"name":' .. q(name) .. ',"id":' .. tostring(id) .. ',"expired":' .. tostring(expired) .. made .. "}"
+end
+
+--- Run `run`'s artifacts list: `listed`, each already JSON.
+local function artifacts(f: Fake, run: string, listed: {string})
+  local path = "repos/" .. repository .. "/actions/runs/" .. run .. "/artifacts?per_page=100"
+  answer(f, path, '{"artifacts":' .. list_of(listed) .. "}")
 end
 
 --- Run `run`'s one ci-driver artifact, and two it does not read.
@@ -226,18 +269,17 @@ local function artifact(f: Fake, run: string, runtime: string, harness: string,
   local id = run .. "1"
   artifact_zip(f, id, run, runtime, harness, stood)
   artifacts(f, run, {
-    { name = "ci-driver-linux-x86_64", id = math.tointeger(tonumber(id)), expired = false,
-      created_at = at(1) },
-    { name = "portable-product-linux-x86_64", id = 7, expired = false, created_at = at(1) },
-    { name = "ci-driver-macos-aarch64", id = 8, expired = true, created_at = at(1) },
+    artifact_json("ci-driver-linux-x86_64", assert(math.tointeger(tonumber(id))), false, at(1)),
+    artifact_json("portable-product-linux-x86_64", 7, false, at(1)),
+    artifact_json("ci-driver-macos-aarch64", 8, true, at(1)),
   })
 end
 
-local function run_entry(id: integer, conclusion: string, attempt: integer): {string:any}
-  return { id = id, event = "merge_group",
-    head_branch = "gh-readonly-queue/main/pr-" .. id,
-    head_sha = string.rep(tostring(id % 10), 40), conclusion = conclusion,
-    run_attempt = attempt }
+local function run_entry(id: integer, conclusion: string, attempt: integer): string
+  return '{"id":' .. tostring(id) .. ',"event":"merge_group","head_branch":' ..
+    q("gh-readonly-queue/main/pr-" .. tostring(id)) .. ',"head_sha":' ..
+    q(string.rep(tostring(id % 10), 40)) .. ',"conclusion":' .. q(conclusion) ..
+    ',"run_attempt":' .. tostring(attempt) .. "}"
 end
 
 local record Answer
@@ -249,12 +291,12 @@ end
 --- `driver.tl report` with `args`, in `f`'s environment; an unreadable
 --- line answers 2, as the driver's dispatch does.
 local function report(f: Fake, args: {string}): Answer, string
-  local argv: {integer:string} = { [0] = "report" }
-  for i, word in ipairs(args) do argv[i] = word end
-  local got, why = Flags.parse(argv, 1, Report.spec)
+  local argv: mut {string} = {}
+  for _, word in ipairs(args) do argv[#argv + 1] = word end
+  local got, why = Flags.parse(argv, 1, Report.spec())
   if got == nil then return { code = 2, ok = false, stdout = "" }, why end
-  local code, out, err = Report.answer(got, f.env, f.client)
-  return { code = code, ok = code == 0, stdout = out }, out .. err
+  local answered = Report.answer(got, f.env, f.client)
+  return { code = answered.code, ok = answered.code == 0, stdout = answered.out }, answered.out .. answered.err
 end
 
 --- Six merge-queue runs, newest first, four shown (--runs 4):
@@ -269,10 +311,10 @@ end
 local function test_report_reads_runs_jobs_and_suite_rows(tmp: string)
   local f = fake(tmp)
   answer(f, "repos/" .. repository .. "/actions/workflows/ci.yml/runs?status=completed" ..
-      "&per_page=14&event=merge_group", { workflow_runs = {
+      "&per_page=14&event=merge_group", '{"workflow_runs":' .. list_of({
         run_entry(40, "success", 1), run_entry(30, "success", 1),
         run_entry(25, "cancelled", 1), run_entry(22, "failure", 1),
-        run_entry(20, "success", 2), run_entry(10, "success", 1) } })
+        run_entry(20, "success", 2), run_entry(10, "success", 1) }) .. "}")
   jobs(f, "40", 13)
   jobs(f, "30", 11)
   jobs(f, "25", 12)
@@ -284,12 +326,12 @@ local function test_report_reads_runs_jobs_and_suite_rows(tmp: string)
   artifact_zip(f, "201", "20", "rrrr", "stale", 10)
   artifact_zip(f, "202", "20", "rrrr", "h1", 60)
   artifacts(f, "20", {
-    { name = "ci-driver-linux-x86_64", id = 201, expired = false, created_at = at(1) },
-    { name = "ci-driver-linux-x86_64", id = 202, expired = false, created_at = at(30) },
+    artifact_json("ci-driver-linux-x86_64", 201, false, at(1)),
+    artifact_json("ci-driver-linux-x86_64", 202, false, at(30)),
   })
   local result, said = report(f, { "--runs", "4", "--repo", repository })
   assert(result.ok, said)
-  local text = result.stdout or ""
+  local text = result.stdout
   local function has(needle: string)
     assert(text:find(needle, 1, true), "the report lacks " .. needle .. ":\n" .. text)
   end
@@ -332,15 +374,14 @@ end
 local function test_report_of_pushes_names_main_and_survives_a_lost_artifact(tmp: string)
   local f = fake(tmp)
   answer(f, "repos/cosmic-lua/cosmic/actions/workflows/ci.yml/runs?status=completed" ..
-      "&per_page=11&event=push&branch=main", { workflow_runs = {
-        { id = 5, event = "push", head_branch = "main", head_sha = string.rep("5", 40),
-          conclusion = "success", run_attempt = 1 } } })
-  answer(f, "repos/cosmic-lua/cosmic/actions/runs/5/jobs?per_page=100", { jobs = Json.array() })
+      "&per_page=11&event=push&branch=main", '{"workflow_runs":[{"id":5,"event":"push","head_branch":"main",' ..
+      '"head_sha":' .. q(string.rep("5", 40)) .. ',"conclusion":"success","run_attempt":1}]}')
+  answer(f, "repos/cosmic-lua/cosmic/actions/runs/5/jobs?per_page=100", '{"jobs":[]}')
   answer(f, "repos/cosmic-lua/cosmic/actions/runs/5/artifacts?per_page=100",
-    { artifacts = { { name = "ci-driver-linux-x86_64", id = 9, expired = false } } })
+    '{"artifacts":[' .. artifact_json("ci-driver-linux-x86_64", 9, false, nil) .. "]}")
   local result, said = report(f, { "--runs=1", "--event", "push" })
   assert(result.ok, said)
-  local text = result.stdout or ""
+  local text = result.stdout
   assert(text:find("- Not read: ci-driver-linux-x86_64: GET " ..
       "repos/cosmic-lua/cosmic/actions/artifacts/9/zip: HTTP 404: Not Found", 1, true), text)
   assert(text:find("- Wall: -", 1, true), text)
@@ -358,14 +399,14 @@ local function test_report_refuses_a_bad_line_and_a_missing_token(tmp: string)
   end
   -- GitHub's refusal is the report's failure, and names its status.
   local failed, why = report(f, { "--runs", "3" })
-  assert(failed.code == 1 and why:find("HTTP 404", 1, true), why)
+  assert(failed.code == 1 and why:find("HTTP 404", 1, true) ~= nil, why)
   -- A branch may hold "/", as a merge queue's and feature/x do.
   local branched, asked = report(f, { "--branch", "gh-readonly-queue/main/pr-1" })
-  assert(branched.code == 1 and asked:find("&branch=gh-readonly-queue/main/pr-1", 1, true), asked)
+  assert(branched.code == 1 and asked:find("&branch=gh-readonly-queue/main/pr-1", 1, true) ~= nil, asked)
   -- Without a client of its own, the report makes the live one from its
   -- environment, which needs a token.
-  local got = assert(Flags.parse({ [0] = "report" }, 1, Report.spec))
-  f.env.GH_TOKEN, f.env.GITHUB_TOKEN = nil, nil
-  local code, _, told = Report.answer(got, f.env)
-  assert(code == 1 and told:find("no GitHub token", 1, true), told)
+  local got = assert(Flags.parse({}, 1, Report.spec()))
+  f.env = Maps.without(f.env, { "GH_TOKEN", "GITHUB_TOKEN" })
+  local answered = Report.answer(got, f.env)
+  assert(answered.code == 1 and answered.err:find("no GitHub token", 1, true) ~= nil, answered.err)
 end

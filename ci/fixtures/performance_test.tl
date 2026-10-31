@@ -1,11 +1,35 @@
 --- Exercise the measurement fixture lifecycle; elapsed times are ignored and
---- thirty pairs are always exploratory, never performance acceptance evidence.
+--- a few pairs are always exploratory, never performance acceptance evidence.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Json = require("cosmic.json")
+local Hash = require("cosmic.hash")
 local Fixture = require("cosmic_ci.fixture")
+local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
+local sys = require("cosmic.sys")
+
+--- What the controller recorded of the run, as far as the test reads it.
+local record Metadata
+  record Fixture
+    id: string
+    root: string
+  end
+  protocol: string
+  exploratory: boolean
+  fixtures: {Metadata.Fixture}
+end
+local METADATA <const> = Shape.record_of("Metadata")
+
+--- One recorded observation of a fixture's uses: the six figures before and
+--- after, and where it ran.
+local record Observation
+  before: {string}
+  after: {string}
+  cwd: string
+end
+local OBSERVATION <const> = Shape.record_of("Observation")
+local OBSERVATIONS <const> = Shape.list(OBSERVATION.spec)
 
 --- The selected candidate, including its carried modules, and the controller
 --- source are both inputs. The CI driver is only the outer test supervisor;
@@ -18,13 +42,24 @@ Test.policy{
   profiles = { "system" },
 }
 
+-- The controller's entry is the lifecycle seam, which takes a few pairs where
+-- `Perf.benchmark` refuses fewer than 30.
 local function controller(): string
-  return (assert(Fs.read(Fixture.placed("performance") .. "/perf.tl")))
+  local source = assert(Fs.read(Fixture.placed("performance") .. "/perf.tl"))
+  -- The script answers its own entry rather than writing `Perf.main`, which is not `mut`: a run calls the function a
+  -- script returns as it calls a module's `main`.
+  local seam = "\nreturn function(argv: {string}): integer\n" ..
+    "  return Perf.rehearse(argv, (assert(arg[0])))\nend\n"
+  local changed, count = source:gsub("\nreturn Perf\n$", seam)
+  assert(count == 1)
+  return changed
 end
 
--- Four real timestamp-settlement waits add eight seconds of setup. The
--- checked core also executes 132 sampled commands; keep its child deadline
--- below the driver's 60-second per-test bound so diagnostics can be checked.
+-- Four real timestamp-settlement waits add eight seconds of setup. Six pairs
+-- still cross the three-warmup boundary and run both orders; the checked core
+-- executes 36 sampled commands. Keep its child deadline below the driver's
+-- 60-second per-test bound so diagnostics can be checked.
+local pairs_sampled <const> = 6
 local controller_timeout_ns <const> = Clock.seconds(45)
 
 local function diagnostic(result: Child.Result): string
@@ -40,33 +75,42 @@ local function run(tmp: string, source: string): Child.Result
   -- The sandbox exposes the shared core cache read-only; this candidate may
   -- carry a core the CI driver has never extracted.
   local env = Fixture.environment({ COSMIC_PORTABLE_CACHE = tmp .. "/cores" })
-  return (assert(Child.run({ binary, "--standalone", script, binary, binary, tmp .. "/results", "30", "uses" },
+  return (assert(Child.run({ binary, "--standalone", script, binary, binary, tmp .. "/results", tostring(pairs_sampled), "uses" },
     { cwd = tmp, env = env, stdout = "capture", stderr = "capture", timeout_ns = controller_timeout_ns })))
 end
 
 local function test_independent_fixture_histories_match_through_warmups_and_samples(tmp: string)
   local result = run(tmp, controller())
   assert(result.code == 2, diagnostic(result))
-  local metadata = assert(Json.decode_object((assert(Fs.read(tmp .. "/results/metadata.json")))))
+  local metadata, metadata_trouble: Metadata?, string =
+    METADATA:decode_into((assert(Fs.read(tmp .. "/results/metadata.json"))))
+  assert(metadata ~= nil, metadata_trouble)
   assert(metadata.protocol == "fixed-sample-v3" and metadata.exploratory == true)
   local root = assert(Fs.absolute(tmp .. "/results"))
   local names = { "aa-a", "aa-b", "ab-a", "ab-b" }
-  local manifest = metadata.fixtures as {{string:any}}
+  local manifest = metadata.fixtures
   assert(#manifest == 4)
   for i, name in ipairs(names) do
-    assert(manifest[i].id == name and manifest[i].root == root .. "/" .. name)
+    local recorded = manifest[i]
+    assert(recorded ~= nil and recorded.id == name and recorded.root == root .. "/" .. name)
   end
   for _, phase in ipairs({ "aa", "ab" }) do
-    local observations = assert(Json.decode((assert(Fs.read(tmp .. "/results/" .. phase .. "-a/o/perf/" .. phase .. "-uses.json"))))) as {{string:any}}
-    assert(#observations == 66)
+    -- The fixture's build directory, beside it (the tree's build/perf.tl
+    -- gives each COSMIC_BUILD_HOME=<fixture>-build), as build/paths.tl names it.
+    local real = (assert(sys.realpath(tmp .. "/results")))
+    local built = real .. "/" .. phase .. "-a-build/" .. Hash.hex_sha256(real .. "/" .. phase .. "-a")
+    local observations, observed_trouble: {Observation}?, string = Shape.decode_into(
+      (assert(Fs.read(built .. "/perf/" .. phase .. "-uses.json"))), OBSERVATIONS)
+    assert(observations ~= nil, observed_trouble)
+    assert(#observations == 2 * (pairs_sampled + 3))
     for i, observation in ipairs(observations) do
       local iteration = (i + 1) // 2
-      local before, after = observation.before as {string}, observation.after as {string}
+      local before, after = observation.before, observation.after
       assert(#before == 6 and #after == 6)
       assert(before[5] == tostring(3 + iteration) and before[6] == before[5])
       assert(after[5] == tostring(4 + iteration) and after[6] == after[5])
       assert(after[1] == "0" and after[2] == "6" and after[3] == "0")
-      assert(observation.cwd == root .. "/" .. phase .. "-" .. (i % 2 == 1 and "a" or "b"))
+      assert(observation.cwd == root .. "/" .. phase .. "-" .. (if i % 2 == 1 then "a" else "b" end))
     end
   end
 end
@@ -76,6 +120,6 @@ local function test_old_shared_parent_alias_is_rejected(tmp: string)
   local changed, count = source:gsub("local samples = run_pairs%(parent,", "parent = a\n    local samples = run_pairs(parent,")
   assert(count == 1)
   local result = run(tmp, changed)
-  assert(not result.ok and (result.stderr or ""):find("unbalanced fixture build history", 1, true),
+  assert(not result.ok and (result.stderr or ""):find("unbalanced fixture build history", 1, true) ~= nil,
     diagnostic(result))
 end

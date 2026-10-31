@@ -9,7 +9,7 @@ local Example = {}
 
 local record Release
   tag: string
-  draft: boolean
+  draft?: boolean
   assets: {string}
 end
 
@@ -30,12 +30,12 @@ function Example.into()
     draft = Shape.optional(Shape.boolean),
     assets = Shape.list(Shape.string),
   })
-  local release, err: Release | nil, string = Shape.into(decoded(), RELEASE)
+  local release, err: Release?, string = Shape.into(decoded(), RELEASE)
   assert(release ~= nil, err)
   print(release.tag, #release.assets, release.draft)
   assert(release.tag == "v1" and release.assets[2] == "zip" and release.draft == nil)
   -- The answer holds what the spec names and nothing else.
-  local text = Json.encode(release)
+  local text = Json.encode_any(release)
   print(text)
   assert(text == '{"assets":["lua","zip"],"tag":"v1"}', text)
 end
@@ -48,7 +48,7 @@ end
 function Example.record_of()
   local record Entry
     tag: string
-    draft: boolean | nil
+    draft: boolean?
     assets: {string}
   end
   local RELEASE <const> = Shape.record_of("Entry")
@@ -56,9 +56,10 @@ function Example.record_of()
   assert(release ~= nil, err)
   print(release.tag, #release.assets, release.draft)
   assert(release.tag == "v1" and release.assets[2] == "zip" and release.draft == nil)
-  local _, why = RELEASE:into({ tag = "v2", assets = { 1 } })
+  local wrong = Json.decode('{"tag": "v2", "assets": [1]}')
+  local _, why = RELEASE:into(wrong)
   print(why)
-  assert(why == "pointer \"/assets/0\": expected string, got integer", why)
+  assert(why == "Entry: $.assets[0]: want string, got integer", why)
 end
 
 --- Text that is JSON is decoded and checked in one call: the answer is a
@@ -69,14 +70,14 @@ function Example.decode_into()
     tag = Shape.string,
     assets = Shape.list(Shape.string),
   })
-  local release, err: Release | nil, string =
+  local release, err: Release?, string =
     Shape.decode_into('{"tag": "v1", "assets": ["lua"]}', RELEASE)
   assert(release ~= nil, err)
   print(release.tag, #release.assets)
   assert(release.tag == "v1" and release.assets[1] == "lua")
-  local _, shape: Release | nil, string = Shape.decode_into('{"tag": 1, "assets": []}', RELEASE)
+  local _, shape: Release?, string = Shape.decode_into('{"tag": 1, "assets": []}', RELEASE)
   print(shape)
-  assert(shape == "pointer \"/tag\": expected string, got integer", shape)
+  assert(shape == "$.tag: want string, got integer", shape)
 end
 
 --- A value that does not fit names the first place it went wrong.
@@ -85,9 +86,9 @@ function Example.into_failure()
     tag = Shape.string,
     assets = Shape.list(Shape.integer),
   })
-  local _, err: Release | nil, string = Shape.into(decoded(), RELEASE)
+  local _, err: Release?, string = Shape.into(decoded(), RELEASE)
   print(err)
-  assert(err == "pointer \"/assets/0\": expected integer, got string", err)
+  assert(err == "$.assets[0]: want integer, got string", err)
 end
 
 --- `into` answers the first value that does not fit, in the order the
@@ -100,19 +101,19 @@ function Example.first_failure_only()
     draft = Shape.string,
     assets = Shape.list(Shape.integer),
   })
-  local release, err: Release | nil, string = Shape.into(decoded(), RELEASE)
+  local release, err: Release?, string = Shape.into(decoded(), RELEASE)
   assert(release == nil)
   print(err)
-  assert(err == "pointer \"/assets/0\": expected integer, got string", err)
+  assert(err == "$.assets[0]: want integer, got string", err)
 end
 
 --- An enumeration: a level is one of a few strings, and anything else
 --- is refused by name.
 function Example.one_of()
   local LEVEL <const> = Shape.one_of("debug", "info", "warn")
-  local _, err: string | nil, string = Shape.into("loud", LEVEL)
+  local _, err: string?, string = Shape.into("loud", LEVEL)
   print(err)
-  assert(err == 'pointer "": expected one of "debug", "info", "warn", got "loud"', err)
+  assert(err == '$: want one of "debug", "info", "warn", got "loud"', err)
 end
 
 --- A config file refuses a key its spec does not name, so a misspelled
@@ -122,21 +123,21 @@ function Example.strict_record()
     host = Shape.string,
     port = Shape.optional(Shape.integer),
   })
-  local _, err: {string: any} | nil, string =
+  local _, err: {string: any}?, string =
     Shape.into(Json.decode('{"host": "localhost", "prot": 8080}'), SERVER)
   print(err)
-  assert(err == "pointer \"/prot\": unknown key", err)
+  assert(err == "$.prot: unknown key", err)
 end
 
 --- A map from names to numbers: `map` checks every value, and `number`
 --- takes an integer and a float alike.
 function Example.map()
   local WEIGHTS <const> = Shape.map(Shape.number)
-  local weights, err: {string: number} | nil, string =
+  local weights, err: {string: number}?, string =
     Shape.into(Json.decode('{"lua": 2, "teal": 0.5}'), WEIGHTS)
   assert(weights ~= nil, err)
-  print(weights.lua, weights.teal)
-  assert(weights.lua == 2 and weights.teal == 0.5)
+  print(weights["lua"], weights["teal"])
+  assert(weights["lua"] == 2 and weights["teal"] == 0.5)
 end
 
 --- A field that may be one string or a list of them: `any` takes the
@@ -152,14 +153,15 @@ function Example.any()
     retries = Shape.integer,
   })
   local NAMES <const> = Shape.list(Shape.string)
-  local target, err: Target | nil, string =
+  local target, err: Target?, string =
     Shape.into(Json.decode('{"names": ["a", "b"], "retries": 3}'), TARGET)
   assert(target ~= nil, err)
-  local names, why: {string} | nil, string = Shape.into(target.names, NAMES)
+  local names, why: {string}?, string = Shape.into(target.names, NAMES)
   assert(names ~= nil and #names == 2, why)
-  local _, bad: {string} | nil, string = Shape.into({ "a", 3 }, NAMES)
+  local mixed = Json.decode('["a", 3]')
+  local _, bad: {string}?, string = Shape.into(mixed, NAMES)
   print(bad)
-  assert(bad == "pointer \"/1\": expected string, got integer", bad)
+  assert(bad == "$[1]: want string, got integer", bad)
 end
 
 return Example

@@ -139,7 +139,7 @@ end
 --- `policy` beside the database: what it printed, or nil where the host gives
 --- no sandbox (skipped). The database is writable by anyone, so that only the
 --- mount can refuse a write, whoever the program runs as.
-local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {string:string} | nil
+local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {string:string}?
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
   assert(Fs.chmod(path, tonumber("666", 8)))
@@ -148,12 +148,13 @@ local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {s
   local scratch = tmp .. "/scratch"
   assert(Fs.mkdirs(scratch))
   searchable.share(scratch)
-  policy.database = policy.database or { path = path }
+  if policy.database == nil then policy.database = { path = path } end
   policy.isolate = { "file" }
   policy.promises = { "fork", "nest" }
   policy.set_env = { TMPDIR = scratch }
-  policy.grants = policy.grants or {}
-  table.insert(policy.grants, { path = scratch, letters = "rwc" })
+  local grants = policy.grants or {}
+  policy.grants = grants
+  table.insert(grants, { path = scratch, letters = "rwc" })
   local executable = assert(Proc.executable())
   local result, why = Child.run({ executable, executable, mode, scratch },
     { policy = policy, cwd = tmp, stdout = "capture", stderr = "capture",

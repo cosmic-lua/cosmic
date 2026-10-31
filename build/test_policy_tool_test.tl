@@ -23,8 +23,8 @@ local this_program = require("build.this_program")
 --- their own for the workers it starts (`nests`), and the variables the
 --- runs read, which hold them to sandboxing and to a path.
 Test.policy{
-  profiles = { "cosmic", "system" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" }, { path = "/proc", letters = "r" } },
+  profiles = { "cosmic", "system", "proc" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" } },
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
   requires = { "nest" },
@@ -60,7 +60,7 @@ end
 local function run(root: string, output: string, env: {string:string},
                    words: {string}): string, boolean
   local fd = assert(Fs.open_write(output))
-  local argv: {string} = { "test" }
+  local argv: mut {string} = { "test" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local started = this_program.program(argv, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
@@ -112,8 +112,8 @@ local function test_a_declared_read_is_held_as_a_policy_holds_it()
   local status = assert(Fs.read("/proc/self/status"))
   -- One filter beyond the ones inherited, which a container's runtime may
   -- have installed on every process.
-  local filters = math.tointeger(status:match("Seccomp_filters:\t(%d+)"))
-  local baseline = math.tointeger(sys.getenv("BASELINE_FILTERS"))
+  local filters = assert(math.tointeger(assert(status:match("Seccomp_filters:\t(%d+)"))))
+  local baseline = assert(math.tointeger(assert(sys.getenv("BASELINE_FILTERS"))))
   assert(filters == baseline + 1, "no filter holds this worker: " .. tostring(filters) ..
     " filters, " .. tostring(baseline) .. " inherited")
   -- The directory is in the root of the sandbox, for what is granted in it
@@ -155,7 +155,7 @@ local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_
   if unsandboxed(text) then return end
   assert(not ok, text)
   assert(names_policy_path(text), text)
-  assert(text:find("1 of 2 failed", 1, true), text)
+  assert(text:find("1 of 2 tests failed", 1, true), text)
   assert(text:find("FAIL  suite.held_test test_an_undeclared_read_fails", 1, true), text)
   assert(text:find("suite/secret.txt: No such file or directory", 1, true) and
       text:find("rerun: cosmic test suite/held_test.tl:", 1, true), text)
@@ -164,7 +164,7 @@ local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_
   -- it above.
   env.COSMIC_TEST_SANDBOX = "0"
   local plain, plain_ok = run(root, tmp .. "/plain", env, { "--all", "suite/held_test.tl" })
-  assert(not plain_ok and plain:find("; unsandboxed (COSMIC_TEST_SANDBOX=0)", 1, true), plain)
+  assert(not plain_ok and plain:find("; unsandboxed (COSMIC_TEST_SANDBOX=0)", 1, true) ~= nil, plain)
   assert(plain:find("test_a_declared_read_is_held_as_a_policy_holds_it", 1, true) and
       plain:find("no filter holds this worker", 1, true), plain)
   assert(plain:find("rerun: COSMIC_TEST_SANDBOX=0 cosmic test suite/held_test.tl:", 1, true), plain)
@@ -185,8 +185,8 @@ Test.policy {}
 
 local function test_the_program_is_refused()
   local launched = assert(Proc.relaunch())
-  local result, why = Child.run({ launched.argv[1], "-e", "return" })
-  assert(result == nil and tostring(why):find("Permission denied", 1, true), tostring(why))
+  local result, why = Child.run({ assert(launched.argv[1]), "-e", "return" })
+  assert(result == nil and tostring(why):find("Permission denied", 1, true) ~= nil, tostring(why))
 end
 ]]))
   local env = environment()
@@ -214,7 +214,7 @@ Test.policy {}
 
 local function test_the_directory_is_its_own_at_the_padded_name(tmp: string)
   local scratch = assert(sys.getenv("TMPDIR"))
-  assert(#scratch == 80 and scratch:find("/", 8, true) == nil and scratch:find("-", 1, true), scratch)
+  assert(#scratch == 80 and scratch:find("/", 8, true) == nil and scratch:find("-", 1, true) ~= nil, scratch)
   assert(tmp == scratch .. "/tmp", tmp)
   local link = assert(sys.lstat(tmp))
   assert(link.kind == "link" and assert(sys.readlink(tmp)) == "real")
@@ -227,7 +227,7 @@ local function test_the_directory_is_its_own_at_the_padded_name(tmp: string)
     if point == "/tmp" then
       seen_tmp = true
       assert(line:find(" - tmpfs ", 1, true), line)
-    elseif point ~= "/" and point ~= "/proc" and not line:find(" - proc ", 1, true) then
+    elseif point ~= nil and point ~= "/" and point ~= "/proc" and not line:find(" - proc ", 1, true) then
       local there = assert(sys.stat(point))
       assert(there.kind ~= "dir", "a directory of the host: " .. point)
     end
@@ -244,14 +244,14 @@ end
   if unsandboxed(text) then return end
   assert(not ok, text)
   assert(names_policy_path(text), text)
-  assert(text:find("1 of 2 failed", 1, true), text)
+  assert(text:find("1 of 2 tests failed", 1, true), text)
   assert(text:find("failed on purpose", 1, true), text)
   assert(text:find("its directory was a tmpfs of its worker's own, gone with it", 1, true), text)
   assert(not text:find("its directory is kept:", 1, true), text)
   -- Run unsandboxed, the host keeps it.
   env.COSMIC_TEST_SANDBOX = "0"
   local old, old_ok = run(root, tmp .. "/old", env, { "--all", "suite/own_test.tl" })
-  assert(not old_ok and old:find("its directory is kept: ", 1, true), old)
+  assert(not old_ok and old:find("its directory is kept: ", 1, true) ~= nil, old)
 end
 
 --- A module that declares `nests` starts and passes under the policy: its
@@ -284,12 +284,12 @@ local function test_the_verdicts_of_a_sandboxed_and_an_unsandboxed_run_stand_apa
   local root = tmp .. "/root"
   suite_tree(root)
   local env = environment()
-  local step = 0
+  local step = { value = 0 }
   local function said(sandboxed: boolean, wanted: string): string
-    step = step + 1
-    env.COSMIC_TEST_SANDBOX = not sandboxed and "0" or nil
-    local text, ok = run(root, tmp .. "/run" .. step, env, { "suite/plain_test.tl" })
-    assert(ok and text:find(wanted, 1, true), step .. ": " .. text)
+    step.value = step.value + 1
+    env.COSMIC_TEST_SANDBOX = if not sandboxed then "0" else nil end
+    local text, ok = run(root, tmp .. "/run" .. step.value, env, { "suite/plain_test.tl" })
+    assert(ok and text:find(wanted, 1, true) ~= nil, step.value .. ": " .. text)
     return text
   end
   local first = said(true, "1 ran, 0 stood")
@@ -314,7 +314,7 @@ local Proc = require("cosmic.proc")
 local function test_runs_the_core()
   local launched, _ = Proc.relaunch()
   if launched == nil then return end
-  local result, why = Child.run({ launched.argv[1], "-e", "" }, { process_group = false,
+  local result, why = Child.run({ assert(launched.argv[1]), "-e", "" }, { process_group = false,
     stdout = "capture", stderr = "stdout" })
   assert(result ~= nil, tostring(why))
 end
@@ -325,7 +325,7 @@ end
   local env = environment()
   local text, ok = run(root, tmp .. "/exec", env, { "--all" })
   if unsandboxed(text) then return end
-  assert(not ok and text:find("1 of 2 failed", 1, true), text)
+  assert(not ok and text:find("1 of 2 tests failed", 1, true) ~= nil, text)
   assert(text:find("FAIL  suite.plain_exec_test test_runs_the_core", 1, true), text)
   assert(text:find("Permission denied", 1, true), text)
   assert(not text:find("FAIL  suite.tool_exec_test", 1, true), text)

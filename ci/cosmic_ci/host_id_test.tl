@@ -8,7 +8,7 @@
 --- renames every verdict cache.
 local Fs = require("cosmic.fs")
 local HostId = require("cosmic_ci.host_id")
-local Json = require("cosmic.json")
+local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 
 --- The recorded hosts, which build/host_features_test.tl holds
@@ -21,41 +21,45 @@ local record Vector
   name: string
   sysname: string
   machine: string
-  cpuinfo: string | nil
-  osrelease: string | nil
-  version: string | nil
-  sysctl: {string:string} | nil
+  cpuinfo?: string
+  osrelease?: string
+  version?: string
+  sysctl?: {string:string}
   digest: string
 end
+local VECTOR <const> = Shape.record_of("Vector")
+local VECTORS <const> = Shape.list(VECTOR.spec)
 
 local function vectors(): {Vector}
   local text = assert(Fs.read("testdata/host_features/vectors.json"))
-  local found = assert(Json.decode_array(text))
-  local out: {Vector} = {}
-  for i, entry in ipairs(found) do out[i] = entry as Vector end
-  return out
+  local found, trouble: {Vector}?, string = Shape.decode_into(text, VECTORS)
+  assert(found ~= nil, trouble)
+  return found
 end
 
 --- The facts of the recorded host `vector`, where `docker` answers the
 --- engine's version (nil: it fails).
 local function facts_of(vector: Vector, docker?: string): HostId.Facts
-  local files: {string:string} = {}
+  local files: mut {string:string} = {}
+  local function put(path: string, content?: string)
+    if content ~= nil then files[path] = content end
+  end
   if vector.sysname == "Darwin" then
-    files["/System/Library/CoreServices/SystemVersion.plist"] = vector.osrelease
+    put("/System/Library/CoreServices/SystemVersion.plist", vector.osrelease)
   else
-    files["/proc/cpuinfo"] = vector.cpuinfo
-    files["/proc/sys/kernel/osrelease"] = vector.osrelease
-    files["/proc/sys/kernel/version"] = vector.version
+    put("/proc/cpuinfo", vector.cpuinfo)
+    put("/proc/sys/kernel/osrelease", vector.osrelease)
+    put("/proc/sys/kernel/version", vector.version)
   end
   return {
     sysname = vector.sysname,
     machine = vector.machine,
-    read = function(path: string): string | nil return files[path] end,
-    sysctl = function(name: string): string | nil
+    read = function(path: string): string? return files[path] end,
+    sysctl = function(name: string): string?
       local answer = (vector.sysctl or {})[name]
-      return answer ~= nil and answer .. "\n" or nil
+      return if answer ~= nil then answer .. "\n" else nil end
     end,
-    docker_version = function(): string | nil, string
+    docker_version = function(): string?, string
       if docker == nil then return nil, "Cannot connect" end
       return docker, ""
     end,
@@ -93,7 +97,7 @@ local function test_what_moves_the_features_of_a_host()
   end
   local start = features("flags : aes pclmulqdq sse4_1 ssse3\n", "6.17.0-1022-azure\n", "#22-Ubuntu SMP\n")
   -- Features no core chooses code by, and their order, name no new host.
-  assert(features("flags : sse4_1 aes ssse3 pclmulqdq avx512f\n", "6.17.0-1022-azure\n",
+  assert(features("flags : sse4_1 aes ssse3 pclmulqdq avx512bw\n", "6.17.0-1022-azure\n",
     "#22-Ubuntu SMP\n") == start)
   assert(features("flags : aes pclmulqdq sse4_1\n", "6.17.0-1022-azure\n", "#22-Ubuntu SMP\n") ~= start)
   assert(features("flags : aes pclmulqdq sse4_1 ssse3\n", "6.17.0-1023-azure\n", "#22-Ubuntu SMP\n") ~= start)
@@ -106,28 +110,32 @@ end
 local function test_a_host_with_no_files_is_still_named()
   local bare: HostId.Facts = {
     sysname = "", machine = "",
-    read = function(_path: string): string | nil return nil end,
-    sysctl = function(_name: string): string | nil return nil end,
-    docker_version = function(): string | nil, string return nil, "" end,
+    read = function(_path: string): string? return nil end,
+    sysctl = function(_name: string): string? return nil end,
+    docker_version = function(): string?, string return nil, "" end,
   }
   -- sha256 of nothing, 16 hex digits.
   assert(HostId.features(bare) == "e3b0c44298fc1c14", HostId.features(bare))
 end
 
-local runs = 0
+--- How many recorded runs have been made, where `named` can count it.
+local record Runs
+  mut value: integer
+end
+local runs: Runs = { value = 0 }
 
 --- What the command appends to $GITHUB_ENV and to $GITHUB_OUTPUT (nil
 --- where `files` is false: unset), what it said and wrote to standard
 --- output, and its status, run with `words` and `env` on the recorded
 --- host `host`, whose engine answers `docker`.
 local function named(tmp: string, host: string, words: {string}, env: {string:string}, docker?: string):
-    string | nil, string | nil, string, integer
-  runs = runs + 1
-  local dir = tmp .. "/run-" .. runs
+    string?, string?, string, integer
+  runs.value = runs.value + 1
+  local dir = tmp .. "/run-" .. tostring(runs.value)
   assert(Fs.mkdirs(dir))
-  local merged: {string:string} = { GITHUB_ENV = dir .. "/env", GITHUB_OUTPUT = dir .. "/output" }
+  local merged: mut {string:string} = { GITHUB_ENV = dir .. "/env", GITHUB_OUTPUT = dir .. "/output" }
   for name, value in pairs(env) do merged[name] = value end
-  local said: {string} = {}
+  local said: mut {string} = {}
   local code = HostId.leg_host_id(words, merged, facts_of(vector_named(host), docker),
     function(text: string) said[#said + 1] = text end)
   local env_text, _ = Fs.read(dir .. "/env")
@@ -158,11 +166,11 @@ end
 local function test_the_workflows_legs_are_named_as_the_script_named_them(tmp: string)
   local _, platform = named(tmp, "this", { "linux-x86_64", IMAGE, "ubuntu-24.04", STARTED }, {}, "28.0.4")
   assert(platform == "prefix=verdicts-linux-x86_64-cd38a6c7ffd72fed-\n" ..
-      "verdicts=verdicts-linux-x86_64-cd38a6c7ffd72fed-76038305182e5556-\n", platform)
+      "verdicts=verdicts-linux-x86_64-cd38a6c7ffd72fed-f096ae6e2072e404-\n", platform)
   local env, checked = named(tmp, "this", { "linux-x86_64-checked", IMAGE, "ubuntu-24.04", STARTED }, {}, "28.0.4")
   assert(env == "COSMIC_HOST_ID=" .. IMAGE .. " " .. STARTED .. " docker-28.0.4\n", env)
   assert(checked == "prefix=verdicts-linux-x86_64-checked-cd38a6c7ffd72fed-\n" ..
-      "verdicts=verdicts-linux-x86_64-checked-cd38a6c7ffd72fed-76038305182e5556-\n", checked)
+      "verdicts=verdicts-linux-x86_64-checked-cd38a6c7ffd72fed-f096ae6e2072e404-\n", checked)
   local none, light = named(tmp, "this", { "linux-x86_64", IMAGE, "ubuntu-24.04", STARTED },
     { GITHUB_ENV = "/dev/null" }, "28.0.4")
   assert(none == nil, "the environment file is /dev/null's")
@@ -170,15 +178,15 @@ local function test_the_workflows_legs_are_named_as_the_script_named_them(tmp: s
   local _, arm = named(tmp, "arm", { "linux-aarch64", "ghcr.io/c/arm@sha256:cd", "ubuntu-24.04-arm", "beef" },
     {}, "28.0.4")
   assert(arm == "prefix=verdicts-linux-aarch64-5d5805cd0d3eb351-\n" ..
-      "verdicts=verdicts-linux-aarch64-5d5805cd0d3eb351-69879e047aa11846-\n", arm)
+      "verdicts=verdicts-linux-aarch64-5d5805cd0d3eb351-2a6e8034148df4f1-\n", arm)
   -- A leg with no runner is named by its container alone, and a name
   -- is taken as given.
   local _, odd = named(tmp, "this", { "a b", "i", "r", "s" }, {}, "28.0.4")
   assert(odd == "prefix=verdicts-a b-561229c72f9f67eb-\nverdicts=verdicts-a b-561229c72f9f67eb-" ..
-      "76038305182e5556-\n", odd)
+      "f096ae6e2072e404-\n", odd)
   local _, bare = named(tmp, "this", { "alpine-x86_64", "img", "", "abc" }, {}, "28.0.4")
   assert(bare == "prefix=verdicts-alpine-x86_64-2b06a98f2cd61c3a-\nverdicts=verdicts-alpine-x86_64-" ..
-      "2b06a98f2cd61c3a-76038305182e5556-\n", bare)
+      "2b06a98f2cd61c3a-f096ae6e2072e404-\n", bare)
 end
 
 --- The macOS leg, with no image, is named by its runner, and names the
@@ -227,22 +235,29 @@ local function test_unset_files_say_their_lines_instead(tmp: string)
       "verdicts=verdicts-macos-aarch64-76f4af51eb54ac60-d86f880ad83e73ad-\n", mac)
 end
 
+--- One refused invocation: the words and the environment it was run with.
+local record Refused
+  args: {string}
+  env: {string:string}
+end
+
 --- A leg with no image and no runner, or with no image and a runner that
 --- names no image (ImageOS, ImageVersion), or the wrong count of words,
 --- is refused before anything is written.
 local function test_a_leg_named_by_nothing_is_refused(tmp: string)
   local image = { ImageOS = "macos15", ImageVersion = "20250922.1" }
   local mac = { "macos-aarch64", "", "macos-15", "cafe" }
-  for _, case in ipairs({
-      { args = { "macos-aarch64", "", "", "cafe" }, env = image },
-      { args = { "a", "b", "c" }, env = image },
-      { args = { "a", "b", "c", "d", "e" }, env = image },
-      { args = mac, env = {} },
-      { args = mac, env = { ImageOS = "macos15", ImageVersion = "" } },
-      { args = mac, env = { ImageOS = "", ImageVersion = "20250922.1" } },
-  }) do
+  local cases: {Refused} = {
+    { args = { "macos-aarch64", "", "", "cafe" }, env = image },
+    { args = { "a", "b", "c" }, env = image },
+    { args = { "a", "b", "c", "d", "e" }, env = image },
+    { args = mac, env = {} },
+    { args = mac, env = { ImageOS = "macos15", ImageVersion = "" } },
+    { args = mac, env = { ImageOS = "", ImageVersion = "20250922.1" } },
+  }
+  for _, case in ipairs(cases) do
     local env, output, said, code = named(tmp, "darwin-all", case.args, case.env, "28.0.4")
     assert(code == 2 and env == nil and output == nil and said == "",
-      table.concat(case.args, " ") .. ": " .. code)
+      table.concat(case.args, " ") .. ": " .. tostring(code))
   end
 end

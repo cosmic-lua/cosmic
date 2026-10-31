@@ -11,41 +11,28 @@
 --- the kernel refuses is the report, not a failure.
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
+local RawTables = require("build.raw_tables")
 local type raw_process = require("cosmic.internal.process")
 -- In the closure, so the store the worker is given carries it for the
--- store's searcher ([`raw_process_table`]).
+-- store's searcher ([`RawTables`]).
 local _ = require("cosmic.child")
 
-local type Searcher = function(string): any, any
-
---- The raw process table, as the store's searcher hands it to
---- [`cosmic.child`]'s loader (core/syscalls_test.tl finds it the same
---- way): no module requires it by name but under boot.
--- TODO: start each child with cosmic.child's sandbox option and drop
--- this function and its cast (build/contracts.tl's `casts`), once
--- cosmic.child offers spawn's sandbox as a Child option (the TODO in
--- cosmic/child.tl's start).
-local function raw_process_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then return extra as raw_process end
-  end
-  error("cosmic.child is handed no raw table")
-end
-
-local process = raw_process_table()
+-- TODO: start each child with cosmic.child's sandbox option and drop this
+-- module's use of build.raw_tables, once cosmic.child offers spawn's
+-- sandbox as a Child option (the TODO in cosmic/child.tl's start).
+local process = RawTables.process()
 
 local record SandboxProbe
-  main: function({integer:string}): integer
+  main: function({string}): integer
   --- One part of the sandbox, as tried.
   record Part
     name: string
     --- whether a test's confinement (build.confine's `confine`) needs it
     needed: boolean
-    held: boolean
+    mut held: boolean
     --- "held", or why not: an errno's name and message, or what the
     --- child said
-    said: string
+    mut said: string
   end
   record Report
     parts: {Part}
@@ -78,7 +65,7 @@ local function first_line(path: string): string
 end
 
 --- The value of the field `name` in /proc/self/status, or "absent".
-local function status_field(status: string | nil, name: string): string
+local function status_field(status: string?, name: string): string
   if status == nil then return "absent" end
   local value = status:match("\n" .. name .. ":%s*([^\n]*)")
   if value == nil then return "absent" end
@@ -108,8 +95,8 @@ local function host(): {{string}}
 end
 
 --- The system's own paths a shell needs, each where this host has it.
-local function system(): {string}
-  local found: {string} = {}
+local function system(): mut {string}
+  local found: mut {string} = {}
   for _, path in ipairs({ "/bin", "/sbin", "/usr", "/lib", "/lib64", "/etc", "/proc",
       "/dev/null" }) do
     local there, _ = sys.stat(path)
@@ -133,9 +120,9 @@ local function tried(tmp: string, script: string, sandbox: raw_process.Sandbox):
   if status.code == 0 then return true, "" end
   local said, _ = Fs.read(tmp .. "/said")
   local words = ((said or ""):gsub("%s+", " "):gsub("^ ", ""):gsub(" $", ""))
-  local how = status.code >= 0 and "exited " .. tostring(status.code) or
-    "killed by signal " .. tostring(status.signal)
-  return false, how .. (words ~= "" and ": " .. words:sub(1, 200) or "")
+  local how = if status.code >= 0 then "exited " .. tostring(status.code) else
+    "killed by signal " .. tostring(status.signal) end
+  return false, how .. (if words ~= "" then ": " .. words:sub(1, 200) else "" end)
 end
 
 --- `tried`, for a child that cannot read its own /proc: a ruleset does
@@ -144,7 +131,7 @@ end
 --- process's /proc, while the child waits on its stdin. It must run
 --- under a seccomp filter, one more than this process's own
 --- (`filters`), and have no network interface but lo.
-local function tried_from_outside(tmp: string, script: string, filters: string | nil,
+local function tried_from_outside(tmp: string, script: string, filters: string?,
                                   sandbox: raw_process.Sandbox): boolean, string
   local ends, pipe_trouble = process.pipe()
   if ends == nil then return false, pipe_trouble end
@@ -177,9 +164,9 @@ local function tried_from_outside(tmp: string, script: string, filters: string |
   if status.code ~= 0 then
     local text, _ = Fs.read(tmp .. "/said")
     local words = ((text or ""):gsub("%s+", " "):gsub("^ ", ""):gsub(" $", ""))
-    return false, (status.code >= 0 and "exited " .. tostring(status.code) or
-      "killed by signal " .. tostring(status.signal)) .. (words ~= "" and ": " ..
-        words:sub(1, 200) or "")
+    return false, (if status.code >= 0 then "exited " .. tostring(status.code) else
+      "killed by signal " .. tostring(status.signal) end) .. (if words ~= "" then ": " ..
+          words:sub(1, 200) else "" end)
   end
   if unfiltered then return false, "no seccomp filter of its own" end
   if networked then return false, "a network interface besides lo" end
@@ -216,15 +203,15 @@ function SandboxProbe.run(tmp: string): SandboxProbe.Report
   -- Pledged, it runs under a seccomp filter, one more than this
   -- process's own (a container's runtime may have given it some).
   local status, _ = Fs.read("/proc/self/status")
-  local filters: string | nil = nil
+  local filters: string? = nil
   if status ~= nil then filters = status:match("\nSeccomp_filters:%s*(%d+)") end
   local filtered = "grep -q '^Seccomp:[[:space:]]*2' /proc/self/status" ..
-    (filters and " && test \"$(sed -n 's/^Seccomp_filters:[[:space:]]*//p' /proc/self/status)\" -gt " ..
-      filters or "")
-  local parts: {SandboxProbe.Part} = {}
+    (if filters then " && test \"$(sed -n 's/^Seccomp_filters:[[:space:]]*//p' /proc/self/status)\" -gt " ..
+        filters else "" end)
+  local parts: mut {SandboxProbe.Part} = {}
   local function add(name: string, needed: boolean, held: boolean, why: string)
     parts[#parts + 1] = { name = name, needed = needed, held = held,
-      said = held and "held" or why }
+      said = if held then "held" else why end }
   end
 
   -- /dev/null is written to, as a shell's redirections do.
@@ -271,7 +258,7 @@ end
 --- Whether every part a confined test needs held, and, where one did
 --- not, which.
 function SandboxProbe.enforceable(report: SandboxProbe.Report): boolean, string
-  local missing: {string} = {}
+  local missing: mut {string} = {}
   for _, part in ipairs(report.parts) do
     if part.needed and not part.held then missing[#missing + 1] = part.name end
   end
@@ -287,38 +274,34 @@ end
 --- The report as Markdown: each part, what of the host bears on it, and
 --- one line saying whether a test can be confined here.
 function SandboxProbe.markdown(report: SandboxProbe.Report): string
-  local lines: {string} = { "| Part | Needed to confine a test | Result |\n",
+  local lines: mut {string} = { "| Part | Needed to confine a test | Result |\n",
     "|---|---|---|\n" }
   for _, part in ipairs(report.parts) do
-    lines[#lines + 1] = "| " .. cell(part.name) .. " | " .. (part.needed and "yes" or "no") ..
-      " | " .. (part.held and "held" or "**failed**: " .. cell(part.said)) .. " |\n"
+    lines[#lines + 1] = "| " .. cell(part.name) .. " | " .. (if part.needed then "yes" else "no" end) ..
+      " | " .. (if part.held then "held" else "**failed**: " .. cell(part.said) end) .. " |\n"
   end
   lines[#lines + 1] = "\n| Host | |\n|---|---|\n"
   for _, pair in ipairs(report.host) do
     lines[#lines + 1] = "| " .. cell(pair[1]) .. " | " .. cell(pair[2]) .. " |\n"
   end
   local ok, missing = SandboxProbe.enforceable(report)
-  lines[#lines + 1] = ok and "\nConfinement: available.\n" or
-    "\nConfinement: **unavailable** (" .. missing .. ").\n"
+  lines[#lines + 1] = if ok then "\nConfinement: available.\n" else
+    "\nConfinement: **unavailable** (" .. missing .. ").\n" end
   return table.concat(lines)
 end
 
 --- Probes this host and prints the report; 0 whatever it found.
-function SandboxProbe.main(_argv: {integer:string}): integer
+function SandboxProbe.main(_argv: {string}): integer
   local sandboxes, _, _ = process.sandbox_platform()
   if not sandboxes then
     assert(Fs.put(Fs.stdout, "Confinement: not probed; the sandbox is Linux's alone.\n"))
     return 0
   end
   local tmp = assert(Fs.mkdtemp("sandbox-probe-"))
-  local report: SandboxProbe.Report | nil = nil
-  local called, trouble = pcall(function(): boolean
-    report = SandboxProbe.run(tmp)
-    return true
-  end)
+  local called, outcome = pcall(SandboxProbe.run, tmp)
   local _, _ = Fs.remove_tree(tmp)
-  if not called or report == nil then error(trouble, 0) end
-  assert(Fs.put(Fs.stdout, SandboxProbe.markdown(report)))
+  if not called then error(outcome, 0) end
+  assert(Fs.put(Fs.stdout, SandboxProbe.markdown(outcome)))
   return 0
 end
 

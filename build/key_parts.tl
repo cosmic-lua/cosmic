@@ -17,14 +17,14 @@ local relative = Fs.relative
 
 local record key_parts
   hex: function(data: string): string
-  unhex: function(text: string): string | nil, string
+  unhex: function(text: string): string?, string
   compiler_readers: {string}
 end
 
 --- Every byte to its two lowercase hex digits, and every pair of hex
 --- digits, either case, to the byte it spells.
-local hex_of: {string:string} = {}
-local byte_of_hex: {string:string} = {}
+local hex_of: mut {string:string} = {}
+local byte_of_hex: mut {string:string} = {}
 do
   local digits, upper = "0123456789abcdef", "0123456789ABCDEF"
   for byte = 0, 255 do
@@ -48,7 +48,7 @@ key_parts.hex = hex
 
 --- The bytes hexadecimal text spells, in either case, or nil and why
 --- for an odd number of digits or a character that is none.
-local function unhex(text: string): string | nil, string
+local function unhex(text: string): string?, string
   if #text % 2 ~= 0 then
     return nil, ("hex text of odd length %d"):format(#text)
   end
@@ -71,9 +71,10 @@ local tree_marker <const> = "\0tree"
 
 --- A path as a key names it, the same in every checkout of one tree:
 --- one under `tree` -- as written, not climbing with ".." -- by its name
---- below it after a marker no path holds, and any other as it is. The
---- tree's own location is no input to what a test does there, so two
---- checkouts of the same content key the same read alike.
+--- below it after a marker no path holds, one under `output`, the
+--- tree's build directory, as `o` below that marker, and any other as it
+--- is. The tree's own location is no input to what a test does there, so
+--- two checkouts of the same content key the same read alike.
 ---
 --- That is a rule, not an accident of keying: a test may not turn on
 --- where the tree is -- a path length limit, a name it prints and
@@ -88,7 +89,7 @@ local tree_marker <const> = "\0tree"
 --- (build.declared_key's `program_answer`).
 ---
 --- Nothing here can see a test break either rule. CI enforces both by
---- moving its checkout, and the tool it runs, o/bin/cosmic, with it, to
+--- moving its checkout, before it builds the tool it runs, to
 --- a path the commit and the leg choose, new for each commit
 --- (ci/cosmic_ci/place_tree.tl) -- but on the gating runs of a leg
 --- whose unsandboxed workers' keys hold the tree's path (build.declared_key's
@@ -97,8 +98,16 @@ local tree_marker <const> = "\0tree"
 --- only on a run that runs the test: every run while CI stands only on
 --- what it runs itself, and once it stands on shared verdicts, only a
 --- run where the test's key changed.
-function key_parts.tree_name(path: string, tree: string): string
+function key_parts.tree_name(path: string, tree: string, output?: string): string
   if ("/" .. path .. "/"):find("/%.%./") ~= nil then return path end
+  -- The build directory, outside the tree, by the name a declaration
+  -- gives it (`o`), as a sandbox gives it wherever the host has it.
+  if output ~= nil then
+    local built, _ = relative(path, output)
+    if built ~= nil then
+      return tree_marker .. "/o" .. (if built == "." then "" else "/" .. built end)
+    end
+  end
   local rest, _ = relative(path, tree)
   if rest == nil then return path end
   if rest == "." then return tree_marker end
@@ -113,8 +122,8 @@ end
 --- [`build.tree_checks`] refuses the tree when a module of it reads it and
 --- is not named here.
 local compiler_readers <const>: {string} = {
-  "build.dispatch", "build.embed", "build.fix.spill", "build.importer", "build.reboot",
-  "build.rebuild", "build.test", "build.tree_checks", "core.allocation_test",
+  "build.dispatch", "build.embed", "build.importer", "build.reboot",
+  "build.rebuild", "build.rebuild_test", "build.test_key", "build.tree_checks", "core.allocation_test",
   "cosmic.store_handles_test", "doc.guides.portable-runtime",
 }
 
@@ -123,10 +132,10 @@ key_parts.compiler_readers = compiler_readers
 --- Whether an import closure, the names of its modules, holds a module
 --- that reads the compiler's identity (`compiler_readers`).
 function key_parts.reads_compiler(closure: {string}): boolean
-  local readers: {string:boolean} = {}
+  local readers: mut {string:boolean} = {}
   for _, name in ipairs(compiler_readers) do readers[name] = true end
   for _, name in ipairs(closure) do
-    if readers[name] then return true end
+    if readers[name] == true then return true end
   end
   return false
 end

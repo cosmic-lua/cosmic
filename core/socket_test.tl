@@ -2,6 +2,7 @@
 --- listener's socket file, from the moment the call makes them, so one
 --- dropped before [`cosmic.net`] has wrapped it leaks neither.
 
+local RawTables = require("build.raw_tables")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
@@ -10,20 +11,7 @@ local sys = require("cosmic.sys")
 local type _net = require("cosmic.net")
 local type raw_socket = require("cosmic.internal.socket")
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands [`cosmic.net`]'s loader.
-local function socket_table(): raw_socket
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.net")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_socket -- cast: the table core/socket.h declares
-    end
-  end
-  error("cosmic.net is handed no raw table")
-end
-
-local raw = socket_table()
+local raw = RawTables.socket()
 
 --- A TCP socket refused on the worker's own loopback.
 Test.policy{ loopback = { "127.0.0.1" } }
@@ -39,7 +27,7 @@ end
 --- Each sample includes the same temporary directory descriptor used
 --- to list it. Compare counts in this worker, never a host-wide baseline.
 local function descriptor_count(): integer
-  local path = assert(sys.uname()).sysname == "Darwin" and "/dev/fd" or "/proc/self/fd"
+  local path = if assert(sys.uname()).sysname == "Darwin" then "/dev/fd" else "/proc/self/fd" end
   local count = 0
   for name in pairs((assert(sys.readdir(path)))) do
     if name:match("^%d+$") ~= nil then count = count + 1 end
@@ -71,7 +59,7 @@ local function test_a_tcp_socket_dropped_unclosed_is_closed_by_the_collector(tmp
   end
   collectgarbage("collect")
   collectgarbage("collect")
-  assert(next_descriptor(tmp) == before, "a dropped socket left descriptor " .. before .. " open")
+  assert(next_descriptor(tmp) == before, "a dropped socket left descriptor " .. tostring(before) .. " open")
 end
 
 --- A listener, a connection to it and the one it accepted, dropped
@@ -91,7 +79,7 @@ local function test_a_socket_dropped_unclosed_is_closed_by_the_collector(tmp: st
   assert(Fs.stat(path) ~= nil, "no socket file")
   collectgarbage("collect")
   collectgarbage("collect")
-  assert(next_descriptor(tmp) == before, "a dropped socket left descriptor " .. before .. " open")
+  assert(next_descriptor(tmp) == before, "a dropped socket left descriptor " .. tostring(before) .. " open")
   assert(Fs.stat(path) == nil, "a dropped listener left its socket file")
 end
 
@@ -165,17 +153,17 @@ end
 local function test_an_address_is_read_once(tmp: string)
   if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
-  local reads = 0
+  local reads = { value = 0 }
   local fickle: metatable<raw_socket.Address> = {
     __index = function(_: raw_socket.Address, key: string): any
       if key == "kind" then return "unix" end
       if key ~= "path" then return nil end
-      reads = reads + 1
-      return reads == 1 and path or nil
+      reads.value = reads.value + 1
+      return reads.value == 1 and path or nil
     end,
   }
   local listener = assert(raw.listen(setmetatable({} as raw_socket.Address, fickle), 1))
-  assert(reads == 1, "the path was read " .. reads .. " times")
+  assert(reads.value == 1, "the path was read " .. reads.value .. " times")
   assert(Fs.stat(path) ~= nil, "no socket file")
   assert(listener:close())
   assert(Fs.stat(path) == nil, "the socket file was left")
@@ -273,7 +261,7 @@ local function test_a_full_unix_backlog_refuses_a_connection_at_once(tmp: string
   if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local _listener <close> = assert(raw.listen(unix(path), 1))
-  local held: {raw_socket.Socket} = {}
+  local held: mut {raw_socket.Socket} = {}
   for _ = 1, 16 do
     local client = raw.connect(unix(path), 0)
     if client == nil then break end
@@ -309,8 +297,8 @@ local function test_descriptor_passing_preserves_files_and_listener_ownership(tm
   assert(raw.sendfds(sender:fd(), { original:fd(), file }))
   assert(raw.wait(receiver:fd(), false, 5000))
   local passed = assert(raw.recvfds(receiver:fd(), 2))
-  local listening <close> = passed[1]
-  local reading <close> = passed[2]
+  local listening <close> = assert(passed[1], "two descriptors passed")
+  local reading <close> = assert(passed[2], "two descriptors passed")
   assert(listening:fd() ~= original:fd() and reading:fd() ~= file)
   assert(assert(sys.fd_flags(reading:fd())) & sys.FD_CLOEXEC ~= 0)
   assert(assert(sys.fd_flags(listening:fd())) & sys.FD_CLOEXEC ~= 0)
@@ -335,7 +323,7 @@ local function test_descriptor_passing_closes_extras_truncation_and_bad_frames(t
   collectgarbage("collect")
   local before = descriptor_count()
   for _, count in ipairs({ 2, 16 }) do
-    local descriptors: {integer} = {}
+    local descriptors: mut {integer} = {}
     for _ = 1, count do descriptors[#descriptors + 1] = original:fd() end
     assert(raw.sendfds(sender:fd(), descriptors))
     assert(raw.wait(receiver:fd(), false, 5000))
@@ -353,7 +341,7 @@ local function test_descriptor_passing_closes_extras_truncation_and_bad_frames(t
   assert(raw.sendfds(sender:fd(), { original:fd() }))
   assert(raw.wait(receiver:fd(), false, 5000))
   local passed = assert(raw.recvfds(receiver:fd(), 1))
-  assert(passed[1]:close())
+  assert(assert(passed[1], "one descriptor passed"):close())
   assert(descriptor_count() == before)
 end
 
@@ -397,7 +385,8 @@ local function test_received_descriptor_is_closed_by_collection(tmp: string)
   assert(raw.sendfds(sender:fd(), { original:fd() }))
   do
     local passed = assert(raw.recvfds(receiver:fd(), 1))
-    assert(passed[1]:fd() ~= original:fd())
+    local received = assert(passed[1], "one descriptor passed")
+    assert(received:fd() ~= original:fd())
   end
   collectgarbage("collect")
   collectgarbage("collect")

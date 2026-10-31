@@ -1,8 +1,10 @@
 --- [`build/vendor.tl`] over archives built here -- tar and zip -- and
 --- over a plain file for the single-file PIN: what the tree holds
 --- afterward, and what it refuses.
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Http = require("cosmic.http")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
@@ -49,7 +51,7 @@ local function run(dir: string, pin: string, files: {string:string},
   write_all(dir .. "/tree", { ["PIN"] = pin, ["old/gone.c"] = "stale" })
   local archive = dir .. "/archive.tar"
   write_tar(archive, files, modes)
-  return Vendor.main({ [1] = dir .. "/tree", [2] = archive })
+  return Vendor.run({ dir .. "/tree", archive }, "build/vendor.tl")
 end
 
 --- Nothing but the tree itself is left beside it: no scratch directory.
@@ -74,10 +76,10 @@ local function test_a_tree_keeps_what_the_pin_names(dir: string)
   local tree = dir .. "/tree"
   assert(Fs.read(tree .. "/src/one.c") == "one")
   assert(Fs.read(tree .. "/include/a/b.h") == "header")
-  assert(not Fs.exists(tree .. "/src/main.c"))
-  assert(not Fs.exists(tree .. "/src/deep"))
-  assert(not Fs.exists(tree .. "/doc"))
-  assert(not Fs.exists(tree .. "/old"), "the stale tree was not pruned")
+  assert(Fs.exists(tree .. "/src/main.c") ~= true)
+  assert(Fs.exists(tree .. "/src/deep") ~= true)
+  assert(Fs.exists(tree .. "/doc") ~= true)
+  assert(Fs.exists(tree .. "/old") ~= true, "the stale tree was not pruned")
   assert(Fs.read(tree .. "/PIN") ~= nil)
   only_the_tree(dir)
 end
@@ -87,7 +89,7 @@ local function test_a_link_to_a_directory_is_removed_not_followed(dir: string)
   write_all(dir .. "/tree", { ["PIN"] = "strip pkg/\nkeep src/*.c\n" })
   assert(Fs.symlink("../outside", dir .. "/tree/linked"))
   write_tar(dir .. "/archive.tar", { ["pkg/src/one.c"] = "one" })
-  assert(Vendor.main({ [1] = dir .. "/tree", [2] = dir .. "/archive.tar" }) == 0)
+  assert(Vendor.run({ dir .. "/tree", dir .. "/archive.tar" }, "build/vendor.tl") == 0)
   assert(Fs.readlink(dir .. "/tree/linked") == nil, "the link was left")
   assert(Fs.read(dir .. "/outside/kept.c") == "not the tree's", "the link was followed")
 end
@@ -112,7 +114,7 @@ local function test_an_escaping_entry_refuses_the_whole_archive(dir: string)
     ["a.c"] = "a",
     ["../escaped.c"] = "out",
   }) == 1)
-  assert(not Fs.exists(dir .. "/escaped.c"))
+  assert(Fs.exists(dir .. "/escaped.c") ~= true)
   assert(Fs.read(dir .. "/tree/old/gone.c") == "stale", "the tree changed")
   only_the_tree(dir)
 end
@@ -120,7 +122,7 @@ end
 local function test_a_keep_that_matches_nothing_changes_nothing(dir: string)
   assert(run(dir, "keep missing.c\n", { ["a.c"] = "a" }) == 1)
   assert(Fs.read(dir .. "/tree/old/gone.c") == "stale")
-  assert(not Fs.exists(dir .. "/tree/a.c"))
+  assert(Fs.exists(dir .. "/tree/a.c") ~= true)
 end
 
 local function test_a_pin_with_no_keep_at_all_is_refused(dir: string)
@@ -135,9 +137,9 @@ local function test_keeps_from_a_zip_archive_too(dir: string)
     ["pkg/src/one.c"] = "one",
     ["pkg/doc/readme.txt"] = "prose",
   })
-  assert(Vendor.main({ [1] = dir .. "/tree", [2] = archive }) == 0)
+  assert(Vendor.run({ dir .. "/tree", archive }, "build/vendor.tl") == 0)
   assert(Fs.read(dir .. "/tree/src/one.c") == "one")
-  assert(not Fs.exists(dir .. "/tree/doc"))
+  assert(Fs.exists(dir .. "/tree/doc") ~= true)
 end
 
 local function test_a_single_file_pin_vendors_the_download_as_its_file(dir: string)
@@ -147,17 +149,17 @@ local function test_a_single_file_pin_vendors_the_download_as_its_file(dir: stri
   })
   local download = dir .. "/upstream-name.pem"
   assert(Fs.write(download, "cert bytes"))
-  assert(Vendor.main({ [1] = dir .. "/tree", [2] = download }) == 0)
+  assert(Vendor.run({ dir .. "/tree", download }, "build/vendor.tl") == 0)
   assert(Fs.read(dir .. "/tree/cacert.pem") == "cert bytes")
-  assert(not Fs.exists(dir .. "/tree/old"), "the stale tree was not pruned")
+  assert(Fs.exists(dir .. "/tree/old") ~= true, "the stale tree was not pruned")
 end
 
 local function test_a_single_file_pin_whose_keep_misses_its_file_is_refused(dir: string)
   write_all(dir .. "/tree", { ["PIN"] = "file cacert.pem\nkeep other.pem\n" })
   local download = dir .. "/cacert.pem"
   assert(Fs.write(download, "cert bytes"))
-  assert(Vendor.main({ [1] = dir .. "/tree", [2] = download }) == 1)
-  assert(not Fs.exists(dir .. "/tree/cacert.pem"))
+  assert(Vendor.run({ dir .. "/tree", download }, "build/vendor.tl") == 1)
+  assert(Fs.exists(dir .. "/tree/cacert.pem") ~= true)
 end
 
 --- An archive [`cosmic.archive`] cannot read, under a PIN that names no
@@ -170,9 +172,9 @@ local function test_an_unreadable_archive_without_a_file_line_is_an_error(dir: s
   })
   local download = dir .. "/pkg.tar.gz"
   assert(Fs.write(download, "not an archive at all"))
-  assert(Vendor.main({ [1] = dir .. "/tree", [2] = download }) == 1)
+  assert(Vendor.run({ dir .. "/tree", download }, "build/vendor.tl") == 1)
   assert(Fs.read(dir .. "/tree/src/kept.c") == "the tree as it was")
-  assert(not Fs.exists(dir .. "/tree/pkg.tar.gz"))
+  assert(Fs.exists(dir .. "/tree/pkg.tar.gz") ~= true)
 end
 
 local function test_read_pin_takes_the_first_word_and_the_first_line()
@@ -181,13 +183,14 @@ local function test_read_pin_takes_the_first_word_and_the_first_line()
       "keep a/*.c \r\nkeep b.h\n"))
   assert(pin.url == "https://example.com/a.tar")
   assert(pin.sha256 == "abc123")
+  assert(pin.sha3_256 == "")
   assert(#pin.keep == 2 and pin.keep[1] == "a/*.c" and pin.keep[2] == "b.h")
 end
 
 local function test_is_direct_rewrite_needs_a_slash_in_the_first_argument()
-  assert(Vendor.is_direct_rewrite({ [1] = "vendor/curl", [2] = "/tmp/curl.tar.gz" }))
-  assert(not Vendor.is_direct_rewrite({ [1] = "curl" }))
-  assert(not Vendor.is_direct_rewrite({ [1] = "curl", [2] = "mbedtls" }))
+  assert(Vendor.is_direct_rewrite({ "vendor/curl", "/tmp/curl.tar.gz" }))
+  assert(not Vendor.is_direct_rewrite({ "curl" }))
+  assert(not Vendor.is_direct_rewrite({ "curl", "mbedtls" }))
   assert(not Vendor.is_direct_rewrite({}))
 end
 
@@ -213,10 +216,31 @@ local function test_matches_compares_sha256_case_insensitively(dir: string)
   local path = dir .. "/data"
   assert(Fs.write(path, "hello"))
   local digest = Hash.hex_sha256("hello")
-  assert(Vendor.matches(path, digest))
-  assert(Vendor.matches(path, digest:upper()))
-  assert(not Vendor.matches(path, (digest:gsub("^.", "0"))))
-  assert(not Vendor.matches(dir .. "/nothing-here", digest))
+  assert(Vendor.matches(path, { { algorithm = "sha256", hex = digest } }))
+  assert(Vendor.matches(path, { { algorithm = "sha256", hex = digest:upper() } }))
+  assert(not Vendor.matches(path, { { algorithm = "sha256", hex = (digest:gsub("^.", "0")) } }))
+  assert(not Vendor.matches(dir .. "/nothing-here", { { algorithm = "sha256", hex = digest } }))
+end
+
+--- sqlite.org publishes SHA3-256 alone, so a PIN may name it in
+--- sha256's place, or beside it, and every digest named must hold.
+local function test_a_pin_may_name_sha3_256_and_every_digest_must_match(dir: string)
+  local pin = Vendor.read_pin("url https://example.com/a.zip\nsha3-256 ABC\n")
+  assert(pin.sha3_256 == "ABC" and pin.sha256 == "", pin.sha3_256)
+  local digests = Vendor.digests(pin)
+  assert(#digests == 1 and digests[1].algorithm == "sha3-256", tostring(digests[1]))
+  local path = dir .. "/data"
+  assert(Fs.write(path, "hello"))
+  local sha256 = Hash.hex_sha256("hello")
+  local sha3 = Codec.hex(Hash.digest("sha3-256", "hello"))
+  assert(Vendor.matches(path, { { algorithm = "sha3-256", hex = sha3:upper() } }))
+  assert(Vendor.matches(path, { { algorithm = "sha256", hex = sha256 }, { algorithm = "sha3-256", hex = sha3 } }))
+  assert(not Vendor.matches(path, { { algorithm = "sha256", hex = sha256 }, { algorithm = "sha3-256", hex = (sha3:gsub("^.", "0")) } }),
+    "a right sha256 does not excuse a wrong sha3-256")
+  assert(not Vendor.matches(path, {}), "no digest matches nothing")
+  local fetched, trouble = Vendor.fetch("https://example.invalid/a.zip", path, {})
+  assert(fetched == nil and trouble:find("no digest", 1, true) ~= nil, trouble)
+  assert(Fs.read(path) == "hello", "a refused fetch leaves the cache alone")
 end
 
 --- A verified cached download is reused: the url is one no fetch
@@ -232,15 +256,16 @@ local function test_the_fetch_step_is_a_cache_hit_when_already_verified(dir: str
   local cached = dir .. "/cache/thing-1.tar"
   assert(Fs.mkdirs(dir .. "/cache"))
   assert(Fs.write(cached, data))
-  local fetched = assert(Vendor.fetch("https://example.invalid/thing-1.tar", cached, digest))
+  local fetched = assert(Vendor.fetch("https://example.invalid/thing-1.tar", cached,
+    { { algorithm = "sha256", hex = digest } }))
   assert(fetched == cached)
 
   local tree = dir .. "/vendor/thing"
   assert(Fs.mkdirs(tree))
   assert(Fs.write(tree .. "/PIN", "strip thing-1/\nkeep src/*.c\n"))
-  assert(Vendor.main({ [1] = tree, [2] = fetched }) == 0)
+  assert(Vendor.run({ tree, fetched }, "build/vendor.tl") == 0)
   assert(Fs.read(tree .. "/src/one.c") == "one")
-  assert(not Fs.exists(tree .. "/doc"))
+  assert(Fs.exists(tree .. "/doc") ~= true)
 end
 
 local function test_a_word_like_an_option_is_refused_not_read_as_a_name(dir: string)
@@ -249,12 +274,71 @@ local function test_a_word_like_an_option_is_refused_not_read_as_a_name(dir: str
   -- and fails with 1.
   assert(Fs.mkdirs(dir .. "/repo/build"))
   assert(Fs.write(dir .. "/repo/build/vendor.tl", ""))
-  assert(Vendor.main({ [0] = dir .. "/repo/build/vendor.tl", [1] = "--dry-run" }) == 2)
+  assert(Vendor.run({ "--dry-run" }, dir .. "/repo/build/vendor.tl") == 2)
 end
 
 local function test_help_is_answered_before_anything_is_fetched()
-  -- No script path at slot 0: without help first, this is exit 2 for a
+  -- No script path: without help first, this is exit 2 for a
   -- repository it cannot find.
-  assert(Vendor.main({ [1] = "--help" }) == 0)
-  assert(Vendor.main({ [1] = "curl", [2] = "-h" }) == 0)
+  assert(Vendor.run({ "--help" }, "build/vendor.tl") == 0)
+  assert(Vendor.run({ "curl", "-h" }, "build/vendor.tl") == 0)
+end
+
+--- A feed's PIN is rewritten to name the snapshot: its version the
+--- state's timestamp, its url the feed's asking for that timestamp, its
+--- sha256 the body's; every other line stays as it was.
+local function test_a_feed_pin_names_its_newest_snapshot()
+  local text = "version 1\nurl https://feed.test/changeset?_expected=1\n" ..
+    "feed https://feed.test/changeset?_expected=0\nsha256 aa\nfile f.json\nkeep f.json\nkind data\n"
+  local rewritten = Vendor.feed_pin(text, "1792622041776", "body").text
+  assert(rewritten == "version 1792622041776\nurl https://feed.test/changeset?_expected=1792622041776\n" ..
+      "feed https://feed.test/changeset?_expected=0\nsha256 " .. Hash.hex_sha256("body") ..
+      "\nfile f.json\nkeep f.json\nkind data\n", rewritten)
+  local bare = Vendor.feed_pin("version 1\nurl x\nfeed https://feed.test/all\nsha256 aa\n", "7", "b").text
+  assert(bare:find("\nurl https://feed.test/all?_expected=7\n", 1, true) ~= nil, bare)
+  local none = Vendor.feed_pin("version 1\nurl x\nsha256 aa\n", "7", "b")
+  assert(none.text == "" and none.why == "names no feed", none.why)
+  local short = Vendor.feed_pin("feed https://feed.test/all\nsha256 aa\n", "7", "b")
+  assert(short.text == "" and short.why == "names no version", short.why)
+end
+
+--- Unnamed, a feed's tree is kept while its file matches its PIN, and
+--- refused when it does not: its url cannot be fetched again to the
+--- same bytes.
+local function test_an_unnamed_feed_tree_is_kept_or_refused(dir: string)
+  local root = dir .. "/root"
+  assert(Fs.mkdirs(root .. "/vendor/feedy"))
+  assert(Fs.write(root .. "/vendor/feedy/f.json", "snapshot"))
+  assert(Fs.write(root .. "/vendor/feedy/PIN", "version 1\nurl https://feed.test/c?_expected=1\n" ..
+      "feed https://feed.test/c?_expected=0\nsha256 " .. Hash.hex_sha256("snapshot") .. "\nfile f.json\nkeep f.json\n"))
+  assert(Fs.mkdirs(root .. "/build"))
+  local script = root .. "/build/vendor.tl"
+  assert(Fs.write(script, ""))
+  assert(Vendor.run({}, script) == 0)
+  assert(Fs.read(root .. "/vendor/feedy/f.json") == "snapshot")
+  assert(Fs.write(root .. "/vendor/feedy/f.json", "changed by hand"))
+  assert(Vendor.run({}, script) == 1)
+end
+
+--- The download is held to every digest the PIN gives, whoever serves it, and trusts every root: a fetch without
+--- them would take a vendored archive from a host on its word.
+local record Seen
+  mut options?: Http.Options
+end
+
+local function test_fetch_holds_the_download_to_every_digest_the_pin_gives(dir: string)
+  local seen: Seen = {}
+  local real = Http.download
+  Http.download = function(_url: string, _path: string, options?: Http.Options): boolean, string
+    seen.options = options
+    return false, "stop here"
+  end
+  local fetched, trouble = Vendor.fetch("https://example.invalid/a.tar", dir .. "/a.tar",
+    { { algorithm = "sha256", hex = "aa" }, { algorithm = "sha3-256", hex = "bb" } })
+  Http.download = real
+  assert(fetched == nil and trouble == "stop here", tostring(trouble))
+  local options = assert(seen.options)
+  assert(options.sha256 == "aa", "the download is not held to the sha256")
+  assert(options.sha3_256 == "bb", "the download is not held to the sha3-256")
+  assert(options.roots == "mozilla")
 end

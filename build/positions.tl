@@ -42,11 +42,38 @@ local function home_of(file: string): string
   return dir
 end
 
+--- The members of a closed directory that cosmic's own tree may import
+--- from outside it: [`cosmic.http.server`] is a module of the standard
+--- library like any other, apart from the client that is the directory's
+--- entry only so that a program that fetches does not carry the
+--- networking stack, and [`cosmic.web`] is built on it; and
+--- [`cosmic.http.multipart`], a parser that `cosmic.web.input` reads
+--- uploads with and a program may use without the web package.
+--- [`cosmic.web.htmx`] is the app's htmx support, which a program requires
+--- by its own name beside [`cosmic.web`]. [`cosmic.relay.address`] and
+--- [`cosmic.relay.grant`] are what the sandbox's relay, its starter and
+--- the connector tests read addresses and `connect` targets with, and
+--- [`cosmic.sandbox.seatbelt`] is what [`cosmic.child`] holds a child by
+--- on macOS: each is required by its own name, not through an entry that
+--- stores it.
+local OPEN_MEMBERS <const>: {string:boolean} = {
+  ["cosmic.http.server"] = true, ["cosmic.http.multipart"] = true,
+  ["cosmic.web.htmx"] = true, ["cosmic.relay.address"] = true,
+  ["cosmic.relay.grant"] = true, ["cosmic.sandbox.seatbelt"] = true,
+}
+
 --- Whether a file may import `build.*`: one inside `build/` itself, the
 --- binary it implements (`cmd/`), a test, or test support (`test/`).
 local function may_import_build(m: positions.Module): boolean
   return m.kind == "test" or Fs.within(m.file, "build") or
     Fs.within(m.file, "cmd") or Fs.within(m.file, "test")
+end
+
+--- Whether a file may import `cosmic.internal.*` in cosmic's own tree:
+--- one in `cosmic/`, `build/`, `cmd/` or `test/`, or a test.
+local function may_import_internal(m: positions.Module): boolean
+  return m.kind == "test" or Fs.within(m.file, "cosmic") or
+    Fs.within(m.file, "build") or Fs.within(m.file, "cmd") or Fs.within(m.file, "test")
 end
 
 --- Whether every require in `modules` respects position, and if not,
@@ -65,14 +92,26 @@ end
 --- ([`build.work`]'s `is_tool`), and a test the tool carried for a
 --- module requiring it could change under that module unseen.
 ---
+--- `cosmic.internal.*` is the standard library's shared machinery that
+--- users do not see. A Teal module directly in `cosmic/internal/` is open
+--- to [`may_import_internal`]'s files in cosmic's own tree, and a project
+--- tree's module requiring one is refused: one of the tree's own, or a
+--- Teal module the running binary carries (`carried`). A raw
+--- table has neither, and its `.d.tl` is the reserved namespace's to
+--- guard. A nested directory under `cosmic/internal/` keeps the ordinary
+--- rule for a directory.
+---
 --- Declarations (`.d.tl`) never reach this check: `collect` leaves
 --- them out, and `cosmic/internal/`'s are guarded by the reserved
 --- `cosmic.internal.` namespace, which no ordinary `require` satisfies.
 --- @param modules every module the tree holds, with its requires
 --- @param own_tree whether the tree is cosmic's own
-function positions.check(modules: {positions.Module}, own_tree: boolean): boolean, string
-  local by_path: {string:positions.Module} = {}
-  local entries: {string:string} = {}
+--- @param carried whether the running binary carries a row of a module,
+---   which tells a project tree's Teal `cosmic.internal.*` from a raw table
+function positions.check(modules: {positions.Module}, own_tree: boolean,
+                         carried?: function(name: string): boolean): boolean, string
+  local by_path: mut {string:positions.Module} = {}
+  local entries: mut {string:string} = {}
   for _, m in ipairs(modules) do
     by_path[m.path] = m
     if basename(m.file) == "init.tl" or basename(m.file) == "init.tmpl" then
@@ -82,12 +121,23 @@ function positions.check(modules: {positions.Module}, own_tree: boolean): boolea
   for _, m in ipairs(modules) do
     for _, name in ipairs(m.requires) do
       local other = by_path[name]
+      local internal = name:sub(1, 16) == "cosmic.internal."
+      if internal and not own_tree and (other ~= nil or (carried ~= nil and carried(name))) then
+        return false, m.file .. ": " .. name .. " is internal to cosmic's own tree; " ..
+          "`cosmic.internal.*` is the standard library's, and a project may not require it"
+      end
+      if internal and other ~= nil and not may_import_internal(m) then
+        return false, m.file .. ": " .. name .. " is internal to cosmic; only cosmic/, " ..
+          "build/, cmd/, test/ and tests may import it"
+      end
       if other ~= nil then
         local home = home_of(other.file)
-        local open = home == "" or (not home:find("/", 1, true) and entries[home] == nil)
+        local open = home == "" or (not home:find("/", 1, true) and entries[home] == nil) or
+          (own_tree and (home == "cosmic/internal" or OPEN_MEMBERS[name] == true))
         if not open and not Fs.within(m.file, home) then
-          local entry = entries[home] ~= nil and ("its entry is " .. entries[home]) or
-            (home .. "/ has no init.tl entry")
+          local home_entry = entries[home]
+          local entry = if home_entry ~= nil then ("its entry is " .. home_entry) else
+            (home .. "/ has no init.tl entry") end
           return false, m.file .. ": " .. name .. " is private to " .. home ..
             "/; only a file inside it may import it (" .. entry .. ")"
         end

@@ -10,7 +10,6 @@
 
 local Fs = require("cosmic.fs")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local work = require("build.work")
 
 --- What a failed pin says, beside what moved and where to.
@@ -25,7 +24,6 @@ end
 --- of its own, which the graph holds both of. The fixture requires no
 --- module of the standard library, whose source a graph key holds too.
 local function test_the_graph_key_is_pinned(tmp: string)
-  local built = assert(teal.load())
   local root = tmp .. "/tree"
   assert(Fs.mkdirs(root))
   local files: {string:string} = {
@@ -41,16 +39,16 @@ local function test_the_graph_key_is_pinned(tmp: string)
   for name, text in pairs(files) do assert(Fs.write(root .. "/" .. name, text)) end
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "declared-key-pins-test"))
+  local result = assert(importer.compile(handle, "declared-key-pins-test"))
   assert(work.close(handle))
-  local keys: {string:string} = {}
+  local keys: mut {string:string} = {}
   for _, m in ipairs(result.modules) do keys[m.path] = m.graph_key end
   local pinned: {string:string} = {
     greet = "4d064f306aece5afe9d3df587cb38afac995022ee430af425021811044c42c1d",
     greet_test = "0a612f45ba0e340374c42b67687f0b2277e044b2dd33bb2cfcffafb51654fd2d",
     shape = "a80ca828ba28a296f986ab8789dc768160390738b4d7deffcb6a47dcc6f84036",
   }
-  local moved: {string} = {}
+  local moved: mut {string} = {}
   for name, want in pairs(pinned) do
     local got = tostring(keys[name])
     if got ~= want then moved[#moved + 1] = name .. " = \"" .. got .. "\"" end

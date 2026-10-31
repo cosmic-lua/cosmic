@@ -10,6 +10,7 @@
 --- does; the bytes read past one request stay in the [`Input`] for the
 --- next, which is how a pipelined request is kept.
 
+local Number = require("cosmic.number")
 local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
 local Url = require("cosmic.url")
@@ -31,13 +32,13 @@ local record wire
     --- Where the bytes come from: the connection.
     source: Stream.Reader
     --- Bytes read and not yet taken, from `at`.
-    buf: string
+    mut buf: string
     --- Where in `buf` the bytes not yet taken start.
-    at: integer
+    mut at: integer
     --- Every byte taken from it so far.
-    taken: integer
+    mut taken: integer
     --- Set where the last line asked for passed its budget.
-    long: boolean
+    mut long: boolean
   end
 
   --- A request's head, read whole.
@@ -53,11 +54,12 @@ local record wire
     query: string
     --- "HTTP/1.1" or "HTTP/1.0".
     version: string
-    --- By lowercased name, a repeated name's values joined with ", ".
+    --- By lowercased name, a repeated name's values joined with ", ",
+    --- but a repeated `cookie`'s with "; " (RFC 6265 5.4).
     headers: {string:string}
     --- The Content-Length, 0 for a request with neither it nor a
     --- chunked body, nil for a chunked one.
-    length: integer
+    length?: integer
     --- Whether the body is chunked.
     chunked: boolean
     --- Whether the connection closes after this request: the client
@@ -67,13 +69,13 @@ local record wire
     continue: boolean
     --- Bytes of the head, counted against `head_bytes` with a chunked
     --- body's chunk extensions and trailers.
-    spent: integer
+    mut spent: integer
   end
 
   --- What [`wire.read_head`] read: a head, or why there is none.
   record Read
     --- The head; nil where none was read.
-    head: Head
+    head?: Head
     --- The status a refused request is answered with, 0 where none was
     --- refused.
     status: integer
@@ -109,14 +111,14 @@ local record wire
   --- cannot read.
   interface Body is Stream.Reader
     --- How the body stands.
-    state: BodyState
+    mut state: BodyState
     --- Why it failed, as every read after answers; "" until then.
-    failure: string
+    mut failure: string
     --- Called once, before the first byte is read from the connection:
     --- where the server sends `100 Continue`.
     on_first_read: function()
     --- Whether anything was asked of it yet.
-    touched: boolean
+    mut touched: boolean
     --- Reads to the end, discarding: true once the body is done, false
     --- where it is over, bad or failed.
     drain: function(Body): boolean
@@ -129,22 +131,25 @@ local record wire
     --- Name to value, written as given, in name order, but for a
     --- Content-Length (any case of the name), which is the body's size
     --- as `length` is, and is written as the server frames the body.
-    headers: {string:string}
+    --- A list value writes one line per element, in order, for a
+    --- header that cannot be joined with ", " (Set-Cookie); an empty
+    --- list writes nothing, and a list of Content-Length is refused.
+    headers?: {string: string | {string}}
     --- nil for none, a string, or a Reader, which [`wire.send`] closes.
-    body: string | Stream.Reader
+    mut body?: string | Stream.Reader
     --- The body's size: a string's own, a Reader's, or, with no body,
     --- 0, but for a HEAD the size of a GET's body, and for a 304 a
     --- 200's. A Reader without it goes chunked to an HTTP/1.1 client,
     --- and to an HTTP/1.0 one until the connection closes.
-    length: integer
+    mut length?: integer
     --- Whether the connection closes after the reply.
-    close: boolean
+    close?: boolean
     --- The request's method; nil is taken for one that is not HEAD.
-    method: string
+    method?: string
     --- The request's version.
-    version: string
+    mut version?: string
     --- The Date header's value.
-    date: string
+    mut date: string
   end
 end
 
@@ -209,7 +214,7 @@ end
 
 --- Up to `most` bytes, from what is held first, then from the source:
 --- nil and "" at its end, or nil and why.
-local function take(input: wire.Input, most: integer): string | nil, string
+local function take(input: wire.Input, most: integer): string?, string
   if wire.buffered(input) then
     local piece = input.buf:sub(input.at, input.at + most - 1)
     input.at = input.at + #piece
@@ -227,21 +232,21 @@ end
 --- LF, `input.long` set; nil and "" where the source ends first, or nil
 --- and why. Each chunk read is searched once, so a line costs its
 --- length however it arrives.
-local function line(input: wire.Input, budget: integer): string | nil, string
-  local parts: {string} = {}
+local function line(input: wire.Input, budget: integer): string?, string
+  local parts: mut {string} = {}
   local size = 0
   input.long = false
   while true do
     local buf, at = input.buf, input.at
     local lf = buf:find("\n", at, true)
     local stop = lf or #buf + 1
-    size = size + (stop - at) + (lf ~= nil and 1 or 0)
+    size = size + (stop - at) + (if lf ~= nil then 1 else 0 end)
     if size > budget then
       input.long = true
       return nil, "a line passes the bytes left of limits.head_bytes"
     end
     parts[#parts + 1] = buf:sub(at, stop - 1)
-    input.taken = input.taken + (stop - at) + (lf ~= nil and 1 or 0)
+    input.taken = input.taken + (stop - at) + (if lf ~= nil then 1 else 0 end)
     if lf ~= nil then
       input.at = lf + 1
       return table.concat(parts), ""
@@ -255,7 +260,7 @@ end
 
 --- `text` without a CR at its end, or nil where it holds a CR anywhere
 --- else: a bare CR, which no line of HTTP holds.
-local function without_cr(text: string): string | nil
+local function without_cr(text: string): string?
   if text:sub(-1) == "\r" then text = text:sub(1, -2) end
   if text:find("\r", 1, true) then return nil end
   return text
@@ -286,7 +291,7 @@ end
 
 --- One header line as a [`Field`]; nil and why where it is no header
 --- line.
-local function field(text: string): Field | nil, string
+local function field(text: string): Field?, string
   local first = text:sub(1, 1)
   if first == " " or first == "\t" then
     return nil, "a header line is folded (obs-fold)"
@@ -312,7 +317,7 @@ end
 --- The comma-separated members of a header's value, trimmed, the
 --- empty ones dropped.
 local function members(value: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for member in value:gmatch("[^,]+") do
     local bare = trimmed(member)
     if bare ~= "" then out[#out + 1] = bare end
@@ -322,12 +327,12 @@ end
 
 --- The size a Content-Length's digits name, `math.maxinteger` for one
 --- past what an integer holds; nil where they are no digits.
-local function decimal(digits: string): integer | nil
+local function decimal(digits: string): integer?
   if not digits:find("^%d+$") then return nil end
   digits = digits:gsub("^0+", "")
   if digits == "" then return 0 end
   if #digits > 18 then return math.maxinteger end
-  return math.tointeger(tonumber(digits))
+  return Number.integer(digits)
 end
 
 --- A request target's path and query.
@@ -336,11 +341,11 @@ local record Target
   query: string
   --- An absolute-form target's host, and port when it names one; nil
   --- for another form.
-  authority: string
+  authority?: string
 end
 
 --- The request line's target as a [`Target`], or nil and why.
-local function target_parts(method: string, target: string): Target | nil, string
+local function target_parts(method: string, target: string): Target?, string
   if target == "*" then
     if method ~= "OPTIONS" then return nil, "the target * is for OPTIONS alone" end
     return { path = "*", query = "" }, ""
@@ -355,9 +360,10 @@ local function target_parts(method: string, target: string): Target | nil, strin
       return nil, "an absolute target's scheme is not http or https"
     end
     if parts.userinfo ~= nil then return nil, "an absolute target holds userinfo" end
-    local host = parts.host:find(":", 1, true) and "[" .. parts.host .. "]" or parts.host
+    local host = if parts.host:find(":", 1, true) then "[" .. parts.host .. "]" else parts.host end
+    local port = parts.port
     return { path = parts.path ~= "" and parts.path or "/", query = parts.query or "",
-      authority = parts.port ~= nil and host .. ":" .. parts.port or host }, ""
+      authority = if port ~= nil then host .. ":" .. tostring(port) else host end }, ""
   end
   local mark = target:find("?", 1, true)
   if mark == nil then return { path = target, query = "" }, "" end
@@ -373,36 +379,43 @@ end
 --- failed, "" where the source ended before the request's first byte.
 function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   local start = input.taken
-  local stop: wire.Read = nil
-  --- The next line of the head, without its CR; nil, `stop` set, where
+  -- Why the head is refused, once a line says so.
+  local stopped: mut {wire.Read} = {}
+  --- The refusal `next_line` has recorded: it answers nil only after one, and
+  --- a connection that ended is the answer should it ever not.
+  local function halted(): wire.Read
+    return stopped[1] or refused(0, "")
+  end
+  --- The next line of the head, without its CR; nil, `stopped` set, where
   --- there is none.
-  local function next_line(): string | nil
+  local function next_line(): string?
     local text, why = line(input, limits.head_bytes - (input.taken - start))
     if text == nil then
       if input.long then
-        stop = refused(431, "the head is longer than limits.head_bytes")
+        stopped[1] = refused(431, "the head is longer than limits.head_bytes")
       elseif why ~= "" then
-        stop = refused(0, why)
+        stopped[1] = refused(0, why)
       elseif input.taken == start then
-        stop = refused(0, "")
+        stopped[1] = refused(0, "")
       else
-        stop = refused(0, "the connection ended within a head")
+        stopped[1] = refused(0, "the connection ended within a head")
       end
       return nil
     end
     local bare = without_cr(text)
-    if bare == nil then stop = refused(400, "a line holds a bare CR") end
+    if bare == nil then stopped[1] = refused(400, "a line holds a bare CR") end
     return bare
   end
   -- A blank line or more before the request line is passed over (RFC
   -- 9112 2.2).
   local request_line: string
   repeat
-    request_line = next_line()
-    if request_line == nil then return stop end
+    local got_line = next_line()
+    if got_line == nil then return halted() end
+    request_line = got_line
   until request_line ~= ""
   local method, target, version = request_line:match("^([^ ]+) ([^ ]+) ([^ ]+)$")
-  if method == nil then
+  if method == nil or target == nil or version == nil then
     return refused(400, "the request line is not method, target and version")
   end
   if not method:find(TOKEN) then return refused(400, "the method is no token") end
@@ -414,11 +427,11 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   if parts == nil then return refused(400, target_why) end
   -- Each name's values, joined once the head is read: joined as each
   -- came, a name repeated through the head would cost the square of it.
-  local values: {string:{string}} = {}
-  local names: {string} = {}
+  local values: mut {string:{string}} = {}
+  local names: mut {string} = {}
   while true do
     local text = next_line()
-    if text == nil then return stop end
+    if text == nil then return halted() end
     if text == "" then break end
     local got, why = field(text)
     if got == nil then return refused(400, why) end
@@ -430,14 +443,21 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
     end
     list[#list + 1] = got.value
   end
-  local headers: {string:string} = {}
-  for _, name in ipairs(names) do headers[name] = table.concat(values[name], ", ") end
+  local headers: mut {string:string} = {}
+  for _, name in ipairs(names) do
+    -- Cookie pairs are separated by "; " (RFC 6265 5.4, RFC 9113 8.2.3).
+    local list = values[name]
+    if list ~= nil then
+      headers[name] = table.concat(list, if name == "cookie" then "; " else ", " end)
+    end
+  end
   local spent = input.taken - start
-  local hosts = values["host"] ~= nil and #values["host"] or 0
+  local host_values = values["host"]
+  local hosts = if host_values ~= nil then #host_values else 0 end
   if hosts > 1 or (version == "HTTP/1.1" and hosts == 0) then
     return refused(400, "an HTTP/1.1 request names exactly one Host")
   end
-  local length: integer = 0
+  local length: integer? = 0
   local chunked = false
   local te = headers["transfer-encoding"]
   local cl = headers["content-length"]
@@ -464,13 +484,14 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
     local lengths = members(cl)
     if #lengths == 0 then return refused(400, "Content-Length is empty") end
     local first = decimal(lengths[1])
+    if first == nil then return refused(400, "Content-Length is not digits") end
     for _, value in ipairs(lengths) do
       local n = decimal(value)
       if n == nil then return refused(400, "Content-Length is not digits") end
       if n ~= first then return refused(400, "Content-Length's values differ") end
     end
     length = first
-    if length > limits.body_bytes then
+    if first > limits.body_bytes then
       return refused(413, "the body is longer than limits.body_bytes")
     end
   end
@@ -478,48 +499,30 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   for _, option in ipairs(members((headers["connection"] or ""):lower())) do
     if option == "close" then close = true end
   end
-  local continue = false
+  local expects_continue = false
   local expect = headers["expect"]
   if version == "HTTP/1.1" and expect ~= nil then
     for _, expectation in ipairs(members(expect:lower())) do
       if expectation ~= "100-continue" then
         return refused(417, "this server meets no expectation but 100-continue")
       end
-      continue = true
+      expects_continue = true
     end
   end
+  local authority = parts.authority
   -- An absolute-form target names the host, and Host is replaced by it
   -- (RFC 9112 3.2.2).
-  if parts.authority ~= nil then headers["host"] = parts.authority end
+  if authority ~= nil then headers["host"] = authority end
   return { status = 0, why = "", head = {
     method = method, target = target, path = parts.path, query = parts.query, version = version,
     headers = headers, length = length, chunked = chunked, close = close,
-    continue = continue, spent = spent,
+    continue = expects_continue, spent = spent,
   } }
 end
 
 -- The Body over Content-Length and over chunked framing are records of
 -- their own, as a Stream's Readers are (see the note on objects in
 -- cosmic/stream.tl).
-
-local record BodyReader is wire.Body
-  input: wire.Input
-  limits: wire.Limits
-  head: wire.Head
-  --- Bytes left of the Content-Length, or of the chunk being read.
-  left: integer
-  --- Chunked only: "size", "data", "data end", "trailers".
-  phase: string
-  --- Bytes of the body read so far.
-  total: integer
-  failure: string
-  closed: boolean
-  read: function(BodyReader, max_bytes?: integer): string | nil, string
-  close: function(BodyReader): boolean, string
-  drain: function(BodyReader): boolean
-end
-
-local body_reader_mt: metatable<BodyReader> = { __index = BodyReader }
 
 --- Fails the body for good: `state` says how, `why` what every later
 --- read answers.
@@ -540,7 +543,7 @@ end
 --- a trailer against it, and a size line's extension and the zeros
 --- before its size ([`next_chunk`]), but not the framing every chunk
 --- has, so many small chunks pass as one large one does.
-local function meta_line(self: BodyReader): string | nil, string
+local function meta_line(self: BodyReader): string?, string
   local text, why = line(self.input, self.limits.head_bytes)
   if text == nil then
     if self.input.long then
@@ -562,8 +565,10 @@ local function next_chunk(self: BodyReader): boolean, string
   local text, why = meta_line(self)
   if text == nil then return false, why end
   local hex, rest = text:match("^(%x+)(.*)$")
-  if hex == nil then return stopped(self, "bad", "http: a chunk's size is not hex") end
-  if rest ~= "" and (not rest:find("^[ \t]*;") or rest:find(VALUE_CONTROL)) then
+  if hex == nil or rest == nil then
+    return stopped(self, "bad", "http: a chunk's size is not hex")
+  end
+  if rest ~= "" and (not rest:find("^[ \t]*;") or rest:find(VALUE_CONTROL) ~= nil) then
     return stopped(self, "bad", "http: a chunk's extension is malformed")
   end
   -- Zeros before a size are counted too: a size line of nothing else
@@ -577,7 +582,7 @@ local function next_chunk(self: BodyReader): boolean, string
   if #hex > 15 then
     return stopped(self, "over", "http: the body is longer than limits.body_bytes")
   end
-  local size = hex == "" and 0 or math.tointeger(tonumber(hex, 16))
+  local size = if hex == "" then 0 else Number.integer(hex, 16) end
   if size == 0 then
     self.phase = "trailers"
     return true, ""
@@ -610,73 +615,87 @@ local function trailers(self: BodyReader): boolean, string
   end
 end
 
-function BodyReader:read(max_bytes?: integer): string | nil, string
-  if self.closed then return nil, "http: the request body is closed" end
-  if self.failure ~= "" then return nil, self.failure end
-  if self.state == "done" then return nil, "" end
-  local most = max_bytes or CHUNK
-  if most < 1 then error("http: read's max_bytes must be positive", 2) end
-  if not self.touched then
-    self.touched = true
-    if self.on_first_read ~= nil then self.on_first_read() end
-  end
-  if not self.head.chunked then
-    if self.left == 0 then
-      self.state = "done"
-      return nil, ""
+local class BodyReader is wire.Body
+  input: wire.Input
+  limits: wire.Limits
+  head: wire.Head
+  --- Bytes left of the Content-Length, or of the chunk being read.
+  mut left: integer
+  --- Chunked only: "size", "data", "data end", "trailers".
+  mut phase: string
+  --- Bytes of the body read so far.
+  mut total: integer
+  mut failure: string
+  mut closed: boolean
+
+  function read(self, max_bytes?: integer): string?, string
+    if self.closed then return nil, "http: the request body is closed" end
+    if self.failure ~= "" then return nil, self.failure end
+    if self.state == "done" then return nil, "" end
+    local most = max_bytes or CHUNK
+    if most < 1 then error("http: read's max_bytes must be positive", 2) end
+    if not self.touched then
+      self.touched = true
+      if self.on_first_read ~= nil then self.on_first_read() end
     end
-    local piece, why = take(self.input, math.min(most, self.left))
-    if piece == nil then
-      return fail(self, "failed", why ~= "" and why or "http: the request body ended early")
-    end
-    self.left = self.left - #piece
-    self.total = self.total + #piece
-    if self.left == 0 then self.state = "done" end
-    return piece, ""
-  end
-  while true do
-    if self.phase == "size" then
-      local ok, why = next_chunk(self)
-      if not ok then return nil, why end
-    elseif self.phase == "data" then
+    if not self.head.chunked then
+      if self.left == 0 then
+        self.state = "done"
+        return nil, ""
+      end
       local piece, why = take(self.input, math.min(most, self.left))
       if piece == nil then
         return fail(self, "failed", why ~= "" and why or "http: the request body ended early")
       end
       self.left = self.left - #piece
       self.total = self.total + #piece
-      if self.left == 0 then self.phase = "data end" end
+      if self.left == 0 then self.state = "done" end
       return piece, ""
-    elseif self.phase == "data end" then
-      local text, why = meta_line(self)
-      if text == nil then return nil, why end
-      if text ~= "" then return fail(self, "bad", "http: a chunk's data runs past its size") end
-      self.phase = "size"
-    else
-      local ok, why = trailers(self)
-      if not ok then return nil, why end
-      return nil, ""
+    end
+    while true do
+      if self.phase == "size" then
+        local ok, why = next_chunk(self)
+        if not ok then return nil, why end
+      elseif self.phase == "data" then
+        local piece, why = take(self.input, math.min(most, self.left))
+        if piece == nil then
+          return fail(self, "failed", why ~= "" and why or "http: the request body ended early")
+        end
+        self.left = self.left - #piece
+        self.total = self.total + #piece
+        if self.left == 0 then self.phase = "data end" end
+        return piece, ""
+      elseif self.phase == "data end" then
+        local text, why = meta_line(self)
+        if text == nil then return nil, why end
+        if text ~= "" then return fail(self, "bad", "http: a chunk's data runs past its size") end
+        self.phase = "size"
+      else
+        local ok, why = trailers(self)
+        if not ok then return nil, why end
+        return nil, ""
+      end
     end
   end
-end
 
---- Closing the body leaves the connection be: what of it is unread,
---- the server discards before the next request.
-function BodyReader:close(): boolean, string
-  self.closed = true
-  return true, ""
-end
-
-function BodyReader:drain(): boolean
-  -- Read past a close: the server discards what the handler left.
-  local closed = self.closed
-  self.closed = false
-  while self.state == "open" do
-    local piece, _ = self:read()
-    if piece == nil then break end
+  --- Closing the body leaves the connection be: what of it is unread,
+  --- the server discards before the next request.
+  function close(self): boolean, string
+    self.closed = true
+    return true, ""
   end
-  self.closed = closed
-  return self.state == "done"
+
+  function drain(self): boolean
+    -- Read past a close: the server discards what the handler left.
+    local closed = self.closed
+    self.closed = false
+    while self.state == "open" do
+      local piece, _ = self:read()
+      if piece == nil then break end
+    end
+    self.closed = closed
+    return self.state == "done"
+  end
 end
 
 --- The body of the request `head` describes, read from `input` as the
@@ -684,25 +703,35 @@ end
 --- first read, which calls `on_first_read` (nil for none).
 function wire.body(input: wire.Input, head: wire.Head, limits: wire.Limits,
                    on_first_read?: function()): wire.Body
-  local r: BodyReader = setmetatable({
+  local r: BodyReader = {
     input = input, limits = limits, head = head, left = head.length or 0,
     phase = "size", total = 0, failure = "", closed = false, touched = false,
     on_first_read = on_first_read,
-    state = (not head.chunked and (head.length or 0) == 0) and "done" or "open",
-  }, body_reader_mt)
+    state = if (not head.chunked and (head.length or 0) == 0) then "done" else "open" end,
+  }
   return r
 end
 
 --- Why the server cannot send `headers` as given, or "": a name that is
 --- no token, a value holding CR, LF or NUL, or a header the server
 --- writes itself.
-local function headers_trouble(headers: {string:string}): string
+local function headers_trouble(headers: {string: string | {string}}): string
   for name, value in pairs(headers) do
     if not name:find(TOKEN) then return ("header %q: its name is no token"):format(name) end
-    if value:find("[\r\n%z]") then
-      return ("header %s: its value holds CR, LF or NUL"):format(name)
+    if value is string then
+      if value:find("[\r\n%z]") then
+        return ("header %s: its value holds CR, LF or NUL"):format(name)
+      end
+    else
+      for _, entry in ipairs(value) do
+        if entry:find("[\r\n%z]") then
+          return ("header %s: its value holds CR, LF or NUL"):format(name)
+        end
+      end
     end
-    if OWNED[name:lower()] then return ("header %s: the server writes it itself"):format(name) end
+    if OWNED[name:lower()] == true then
+      return ("header %s: the server writes it itself"):format(name)
+    end
   end
   return ""
 end
@@ -715,8 +744,8 @@ end
 --- The size a reply's Content-Length header gives, under any case of
 --- its name, nil for none; or nil and why it cannot be sent: no digits,
 --- a size past 18 of them, or the name given twice in different cases.
-local function given_length(headers: {string:string}): integer | nil, string
-  local names: {string} = {}
+local function given_length(headers: {string: string | {string}}): integer?, string
+  local names: mut {string} = {}
   for name in pairs(headers) do
     if name:lower() == "content-length" then names[#names + 1] = name end
   end
@@ -726,6 +755,10 @@ local function given_length(headers: {string:string}): integer | nil, string
     return nil, ("headers %s: Content-Length is given twice"):format(table.concat(names, " and "))
   end
   local name, value = names[1], headers[names[1]]
+  if value is {string} then
+    return nil, ("header %s: Content-Length is one value, not a list"):format(name)
+  end
+  assert(value, "wire: a name collected from the headers holds a value")
   local size = decimal(value)
   if size == nil then return nil, ("header %s: %q is not digits"):format(name, value) end
   if size == math.maxinteger then return nil, ("header %s: %s is too large"):format(name, value) end
@@ -734,7 +767,7 @@ end
 
 --- The size `reply`, which [`wire.check`] passed, declares: its
 --- Content-Length header's or its `length`, nil for neither.
-local function declared(reply: wire.Reply): integer | nil
+local function declared(reply: wire.Reply): integer?
   local size, _ = given_length(reply.headers or {})
   return size or reply.length
 end
@@ -784,7 +817,7 @@ end
 
 --- How a reply is framed: the Content-Length to write (nil for none),
 --- whether it goes chunked, and whether the connection closes after it.
-local function framing(reply: wire.Reply): integer | nil, boolean, boolean
+local function framing(reply: wire.Reply): integer?, boolean, boolean
   local close = reply.close == true
   local size = declared(reply)
   if bodiless(reply.status) then return reply.status == 304 and size or nil, false, close end
@@ -799,19 +832,27 @@ local function framing(reply: wire.Reply): integer | nil, boolean, boolean
 end
 
 --- The head of `reply`, framed by `length` and `chunked`.
-local function head_text(reply: wire.Reply, length: integer | nil, chunked: boolean,
+local function head_text(reply: wire.Reply, length: integer?, chunked: boolean,
                          close: boolean): string
-  local lines: {string} = {
+  local lines: mut {string} = {
     ("HTTP/1.1 %d %s"):format(reply.status, wire.reason(reply.status)),
     "Date: " .. reply.date,
   }
-  local names: {string} = {}
-  for name in pairs(reply.headers or {}) do
+  local names: mut {string} = {}
+  local headers = reply.headers or {}
+  for name in pairs(headers) do
     if name:lower() ~= "content-length" then names[#names + 1] = name end
   end
   table.sort(names)
-  for _, name in ipairs(names) do lines[#lines + 1] = name .. ": " .. reply.headers[name] end
-  if length ~= nil then lines[#lines + 1] = "Content-Length: " .. length end
+  for _, name in ipairs(names) do
+    local value = headers[name]
+    if value is string then
+      lines[#lines + 1] = name .. ": " .. value
+    elseif value ~= nil then
+      for _, entry in ipairs(value) do lines[#lines + 1] = name .. ": " .. entry end
+    end
+  end
+  if length ~= nil then lines[#lines + 1] = "Content-Length: " .. tostring(length) end
   if chunked then lines[#lines + 1] = "Transfer-Encoding: chunked" end
   if close then lines[#lines + 1] = "Connection: close" end
   return table.concat(lines, "\r\n") .. "\r\n\r\n"
@@ -821,7 +862,7 @@ end
 --- it ends: "" and "" once sent; the writer's failure first, or the
 --- Reader's second, where one failed. A Reader that ends short of
 --- `length`, or fails, cuts the reply short.
-local function copy_body(w: Stream.Writer, body: Stream.Reader, length: integer | nil,
+local function copy_body(w: Stream.Writer, body: Stream.Reader, length: integer?,
                          chunked: boolean): string, string
   local left = length
   while left == nil or left > 0 do
@@ -867,14 +908,14 @@ function wire.send(w: Stream.Writer, reply: wire.Reply): wire.Sent
   local length, chunked, close = framing(reply)
   local head = head_text(reply, length, chunked, close)
   local body = reply.body
-  local reader: Stream.Reader = nil
+  local reader: Stream.Reader? = nil
   if body ~= nil and not body is string then reader = body end
   local write_why, body_why = "", ""
   if reply.method == "HEAD" or bodiless(reply.status) then
     local ok, why = w:write(head)
     if not ok then write_why = why end
   elseif reader == nil then
-    local ok, why = w:write(body is string and head .. body or head)
+    local ok, why = w:write(if body is string then head .. body else head end)
     if not ok then write_why = why end
   else
     local ok, why = w:write(head)

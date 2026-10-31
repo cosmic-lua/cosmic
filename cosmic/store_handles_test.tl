@@ -34,7 +34,7 @@ local function test_the_binary_s_database_inflates_its_source()
   local binary = databases[#databases]
   local rows = assert(Sqlite.text_rows(binary,
     "SELECT CAST(inflate(source) AS TEXT) FROM modules WHERE path = 'cosmic.store'"))
-  assert(#rows == 1 and rows[1][1] == assert(Store.source("cosmic.store")),
+  assert(#rows == 1 and rows[1]:text(1) == assert(Store.source("cosmic.store")),
     "the query and Store.source read the same text")
 end
 
@@ -97,8 +97,9 @@ end
 local function test_alone_searches_only_the_binarys_own_database()
   local before = #Store.databases()
   assert(before >= 2, "a test's tree is attached ahead of the binary's")
-  local inside = 0
-  local attached, nested = true, true
+  local inside: integer = 0
+  local attached: boolean = true
+  local nested: boolean = true
   Store.alone(function()
     inside = #Store.databases()
     attached = pcall(Store.attach, "/nonexistent/cosmic.db")

@@ -1,0 +1,2 @@
+local v: Nope = nil
+print(v)

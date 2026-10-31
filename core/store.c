@@ -29,6 +29,8 @@
 #include "portable.h"
 #include "sqlite.h"
 #include "startup.h"
+#include "surface.h"
+#include "vector.h"
 
 #define STORE_LIST "cosmic.store.databases"
 #define STORE_ARTIFACT "cosmic.store.artifact"
@@ -83,17 +85,30 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * does not offer. [`build.assertions`] gets the counting `assert`.
  * [`build.fuzz`] gets the instruction budget alone, which shares the
  * coverage collector's hook but none of its collection. The process table is [`cosmic.child`]'s,
- * [`cosmic.proc`]'s, [`cosmic.sandbox`]'s (to restrict this process and
+ * [`cosmic.signal`]'s (to hold this process's signals), [`cosmic.proc`]'s,
+ * [`cosmic.sandbox`]'s (to restrict this process and
  * to know its children) and [`build.confine`]'s, whose stand-in for its
  * `spawn` confines each child a test starts. [`build.digest`] shares
  * [`cosmic.hash`]'s, so the code that computes a verdict key hashes
  * through no raw function a test can replace: it takes them as it
  * loads, and only a hasher's `update` and `digest`, in the runner alone,
- * are still looked up on its metatable. [`cosmic.sandbox.relay`] shares
- * [`cosmic.net`]'s socket table, to resolve the relay's upstream for
- * [`cosmic.child`], which cosmic.net requires and so cannot require, and
- * [`cosmic.relay.resolv`] shares it to list the name servers, which
- * cosmic.net and the relay's starter both read. */
+ * are still looked up on its metatable. [`cosmic.zip`] shares
+ * [`cosmic.compress`]'s, for the CRC-32 of a body, and [`cosmic.tar`]
+ * shares [`cosmic.hash`]'s, for a header's byte sum: neither is a
+ * compressor's or a hash, so neither Compress nor Hash exports it.
+ * [`cosmic.internal.connector`],
+ * the one client of the native connector's wire protocol, is handed the
+ * process table (to start and reap the connector) and the socket table
+ * (to speak to it) together, as a table of both: a wrapper listed twice
+ * gets the fields of each of its raw values in one table. Its callers,
+ * [`cosmic.net`], [`cosmic.child`] and [`cosmic.internal.relay_start`], reach the
+ * protocol through it. cosmic.internal.relay_start shares cosmic.net's socket
+ * table to open the relay's loopback listeners, and
+ * [`cosmic.internal.relay_resolv`] shares it to list the name servers, which
+ * cosmic.net and the relay's starter both read. [`cosmic.html`] is
+ * handed the JSON raw value beside its own, so that checking a template
+ * that imports it loads no `cosmic.json`, whose types reach
+ * [`cosmic.stream`]. */
 static const struct raw_module {
   const char *wrapper;
   const char *raw;
@@ -107,17 +122,24 @@ static const struct raw_module {
   {"cosmic.sqlite", "cosmic.internal.sqlite", cosmic_open_sqlite},
   {"cosmic.hash", "cosmic.internal.hash", cosmic_open_hash},
   {"cosmic.html", "cosmic.internal.html", cosmic_open_html},
+  {"cosmic.vector", "cosmic.internal.vector", cosmic_open_vector},
   {"build.digest", "cosmic.internal.hash", NULL},
   {"cosmic.child", "cosmic.internal.process", cosmic_open_process},
   {"cosmic.proc", "cosmic.internal.process", NULL},
   {"cosmic.sandbox", "cosmic.internal.process", NULL},
   {"build.confine", "cosmic.internal.process", NULL},
+  {"cosmic.signal", "cosmic.internal.process", NULL},
   {"cosmic.compress", "cosmic.internal.compress", cosmic_open_compress},
+  {"cosmic.zip", "cosmic.internal.compress", NULL},
+  {"cosmic.tar", "cosmic.internal.hash", NULL},
   {"cosmic.http", "cosmic.internal.http", cosmic_open_http},
   {"cosmic.net", "cosmic.internal.socket", cosmic_open_socket},
-  {"cosmic.sandbox.relay", "cosmic.internal.socket", NULL},
-  {"cosmic.relay.resolv", "cosmic.internal.socket", NULL},
+  {"cosmic.internal.connector", "cosmic.internal.process", NULL},
+  {"cosmic.internal.connector", "cosmic.internal.socket", NULL},
+  {"cosmic.internal.relay_start", "cosmic.internal.socket", NULL},
+  {"cosmic.internal.relay_resolv", "cosmic.internal.socket", NULL},
   {"cosmic.json", "cosmic.internal.json", cosmic_open_json},
+  {"cosmic.html", "cosmic.internal.json", NULL},
   {"build.fuzz", "cosmic.internal.budget", cosmic_open_budget},
   {"build.assertions", "cosmic.internal.assertions", cosmic_open_assertions},
 };
@@ -165,6 +187,56 @@ static int raw_value (lua_State *L, const char *name) {
   }
   lua_remove(L, -2);
   return 1;
+}
+
+/* Copies every field of the table at `from` into the table at `into`,
+ * both absolute stack indices, for the wrapper `name`. A key `into`
+ * already holds with another value raises: two raw tables that disagree
+ * on a name would hand the wrapper whichever came last. */
+static void copy_fields (lua_State *L, int into, int from, const char *name) {
+  lua_pushnil(L);
+  while (lua_next(L, from) != 0) {
+    lua_pushvalue(L, -2);
+    lua_rawget(L, into);
+    if (!lua_isnil(L, -1) && !lua_rawequal(L, -1, -2)) {
+      luaL_error(L, "raw_modules: the raw values of %s disagree on %s", name,
+                 lua_type(L, -3) == LUA_TSTRING ? lua_tostring(L, -3) : "a key");
+    }
+    lua_pop(L, 1);
+    lua_pushvalue(L, -2);
+    lua_insert(L, -2);
+    lua_rawset(L, into);
+  }
+}
+
+/* The raw value handed to the loader of `name`: the value of its one row
+ * in `raw_modules`, or, for a wrapper listed for two raw values, a new
+ * table with the fields of both. A wrapper has at most two rows; a third
+ * raises. Pushes it and returns 1, or pushes nothing and returns 0 where
+ * no row of the wrapper has a value. */
+static int wrapper_raw (lua_State *L, const char *name) {
+  int rows = 0;
+  for (size_t m = 0; m < RAW_MODULE_COUNT; m++) {
+    if (strcmp(name, raw_modules[m].wrapper) != 0 ||
+        !raw_value(L, raw_modules[m].raw)) {
+      continue;
+    }
+    rows++;
+    if (rows > 2) {
+      luaL_error(L, "raw_modules: %s lists more than two raw values", name);
+    }
+    if (rows == 2) {
+      /* The combined table replaces both values. */
+      int first = lua_absindex(L, -2);
+      lua_newtable(L);
+      int combined = lua_absindex(L, -1);
+      copy_fields(L, combined, first, name);
+      copy_fields(L, combined, first + 1, name);
+      lua_replace(L, first);
+      lua_settop(L, first);
+    }
+  }
+  return rows > 0;
 }
 
 /* A loader that answers with its own upvalue, ignoring whatever it was
@@ -282,11 +354,8 @@ static int store_searcher (lua_State *L) {
     int trusted = 0;
     int found = load_from(L, db, name, i == count, &trusted);
     if (found == 1) {
-      for (size_t m = 0; trusted && m < RAW_MODULE_COUNT; m++) {
-        if (strcmp(name, raw_modules[m].wrapper) == 0 &&
-            raw_value(L, raw_modules[m].raw)) {
-          return 2;
-        }
+      if (trusted && wrapper_raw(L, name)) {
+        return 2;
       }
       lua_pushstring(L, name);
       return 2;
@@ -297,6 +366,12 @@ static int store_searcher (lua_State *L) {
   }
 
   lua_pushfstring(L, "\n\tno module '%s' in the store", name);
+  if (cosmic_surface_push_removed_library(L, name)) {
+    /* cosmic.removed's words, as a refused compile of the same name says them. */
+    lua_pushliteral(L, "\n\t");
+    lua_insert(L, -2);
+    lua_concat(L, 3);
+  }
   return 1;
 }
 
@@ -425,7 +500,7 @@ static int lookup (lua_State *L, sqlite3 *db, const char *sql,
 }
 
 /* One module's compiled bytes, for a caller that must load a chunk in
- * an environment of its own -- which is how the vendored compiler runs
+ * an environment of its own -- which is how the compiler runs
  * without the names the surface removed. */
 static int store_bytecode (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
@@ -597,7 +672,10 @@ static bool core_identity_holds (const struct cosmic_artifact *artifact) {
 
 /* One entry of metadata. Runtime values come only from the validated artifact
  * context and its own final database, never from a project database searched
- * ahead of it. Other build metadata keeps ordinary database search order. */
+ * ahead of it, and so does `ca_roots_default`, the roots its requests trust by
+ * default (cosmic/http/init.tl's [`Http.default_roots`]), which a database
+ * searched first must not widen. Other build metadata keeps ordinary database
+ * search order. */
 static int store_meta (lua_State *L) {
   const char *key = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
@@ -617,6 +695,7 @@ static int store_meta (lua_State *L) {
       lua_pushnil(L);
     return 1;
   }
+  if (strcmp(key, "ca_roots_default") == 0) return push_binary_meta(L, list, key);
   if (strcmp(key, "host") == 0 || strcmp(key, "host_image") == 0 ||
       strcmp(key, "runtime") == 0 || strcmp(key, "runtime_basis") == 0 ||
       strcmp(key, "artifact") == 0) {

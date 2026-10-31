@@ -32,7 +32,7 @@ local record Proc
     kind: Kind
     --- The selected spelling when resolved, or the first regular file
     --- this process cannot execute. Nil when no candidate was found.
-    path: string | nil
+    path?: string
     --- Empty when resolved; the reason lookup refused otherwise.
     reason: string
   end
@@ -57,7 +57,7 @@ local record Proc
     fds: {integer:integer}
     --- The working directory this process started in, for the child's
     --- [`Child.Options.cwd`]; nil where it could not be read then.
-    cwd: string
+    cwd?: string
   end
 end
 
@@ -66,12 +66,20 @@ end
 local ARTIFACT_FD <const> = 254
 local CORE_FD <const> = 255
 
-local relaunch: Proc.Relaunch
+local record Cached
+  mut relaunch?: Proc.Relaunch
+end
+
+local cached: Cached = {}
 
 --- Ends the process with a status. This is the explicit replacement for
 --- os.exit; it does not run finalizers and does not return.
-function Proc.exit(status: integer)
-  sys.exit(status) -- exits: a process boundary has no caller to return to
+--
+-- TODO: once cosmic.sys is declared (lang/declarations.tl lists the bindings) with `exit` as `never`, the new
+-- checker reports this function's end as reachable (`missing_return`): the C binding [`sys.exit`] is not known to end
+-- control, and declaring it removes the gap.
+function Proc.exit(status: integer): never
+  sys.exit(status)
 end
 
 --- The process's own identifier: `getpid`, or the shell's `$$`.
@@ -81,7 +89,7 @@ end
 
 --- The logical path that directly relaunches this program. A portable program
 --- returns its artifact path rather than the private cached native core.
-function Proc.executable(): string | nil, string
+function Proc.executable(): string?, string
   local path, trouble = sys.executable()
   if path == nil then
     return nil, trouble
@@ -91,12 +99,12 @@ end
 
 --- Looks up an explicitly named account, answering its uid and primary
 --- gid. A missing account is nil and an empty reason; a lookup failure
---- is nil and its reason. Empty names, NUL bytes and nonstrings raise.
+--- is nil and its reason. Empty names and NUL bytes raise.
 --- This consults the host's account service in the calling process, so
 --- resolve names before entering a sandbox or starting a child. The
 --- caller buffer grows up to 1 MiB; that limits neither libc's own
 --- allocation nor the time a directory service may take.
-function Proc.user(name: string): Proc.User | nil, string
+function Proc.user(name: string): Proc.User?, string
   local user, trouble = raw.user(name)
   if user == nil then return nil, trouble end
   return user, ""
@@ -121,27 +129,29 @@ end
 --- child's own arguments to `argv`, add `env` to its environment, and pass
 --- `fds` to [`Child.start`]. Returns nil and why when this process has no
 --- artifact to start again, or its executable or core cannot be reopened.
-function Proc.relaunch(): Proc.Relaunch | nil, string
+function Proc.relaunch(): Proc.Relaunch?, string
+  local relaunch = cached.relaunch
   if relaunch ~= nil then return relaunch, "" end
   local found, trouble = raw.relaunch(ARTIFACT_FD, CORE_FD)
   if found == nil then return nil, trouble end
-  if found.database ~= nil then
-    relaunch = { argv = { found.path, "--database", found.database }, env = {}, fds = {}, cwd = found.cwd }
-    return relaunch, ""
+  local database = found.database
+  if database ~= nil then
+    cached.relaunch = { argv = { found.path, "--database", database }, env = {}, fds = {}, cwd = found.cwd }
+    return cached.relaunch, ""
   end
-  if found.host then
-    relaunch = { argv = { found.path }, env = {}, fds = {}, cwd = found.cwd }
-    return relaunch, ""
+  if found.host == true then
+    cached.relaunch = { argv = { found.path }, env = {}, fds = {}, cwd = found.cwd }
+    return cached.relaunch, ""
   end
   -- One core descriptor serves every relaunch; it is closed on exec, so
   -- nothing but a child it is handed to ever inherits it.
-  relaunch = {
+  cached.relaunch = {
     argv = { found.path, "--artifact", assert(found.artifact) },
     env = assert(found.environment),
     fds = { [ARTIFACT_FD] = assert(found.artifact_fd), [CORE_FD] = assert(found.core_fd) },
     cwd = found.cwd,
   }
-  return relaunch, ""
+  return cached.relaunch, ""
 end
 
 -- The search list `find` uses when PATH is unset, as execvp does.
@@ -166,9 +176,9 @@ function Proc.find_result(name: string, path?: string): Proc.FindResult
     return { kind = "resolved", path = name, reason = "" }
   end
   local search = path or Env.get("PATH") or DEFAULT_PATH
-  local unrunnable: string = nil
+  local unrunnable: string? = nil
   for dir in (search .. ":"):gmatch("([^:]*):") do
-    local candidate = (dir == "" and "." or dir) .. "/" .. name
+    local candidate = (if dir == "" then "." else dir end) .. "/" .. name
     local st, _ = sys.stat(candidate)
     if st ~= nil and st.kind == "file" then
       -- Asked of this process, as execvp asks: an execute bit only
@@ -191,7 +201,7 @@ end
 --- refusal. A slash-containing name passes through without being checked;
 --- an empty name raises. The refusal distinguishes no such program from
 --- a regular file this process cannot execute (a shell's 127 and 126).
-function Proc.find(name: string, path?: string): string | nil, string
+function Proc.find(name: string, path?: string): string?, string
   if name == "" then
     error("proc: find's name is empty", 2)
   end

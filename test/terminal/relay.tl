@@ -34,7 +34,7 @@ local record Caller
   master: integer
   slave: integer
   before: string
-  shown: string
+  mut shown: string
 end
 
 --- Whether two termios states (opaque bytes from tcgetattr) are the same
@@ -54,7 +54,9 @@ local function same(a: string, b: string): boolean
 end
 
 local function hex(bytes: string): string
-  return (bytes:gsub(".", function(c: string): string return string.format("%02x", c:byte()) end))
+  return (bytes:gsub(".", function(c: string): string
+    return string.format("%02x", assert(c:byte()))
+  end))
 end
 
 --- The terminal's state is as it was at the start.
@@ -95,7 +97,8 @@ local function drain(caller: Caller)
     local ready, _ = Poll.readable(caller.master, Clock.ms(200))
     if not ready then return end
     local data, _ = sys.read(caller.master, 4096)
-    if data == nil or data == "" then return end
+    if data == nil then return end
+    if data == "" then return end
     caller.shown = caller.shown .. data
   end
 end
@@ -105,15 +108,17 @@ local function shown_of(caller: Caller): string
 end
 
 --- `cosmic sandbox` running `script` under sh, with the caller's streams
---- as `opts` says (a terminal where it names the slave).
+--- as `opts` says (a terminal where it names the slave). Every
+--- other option of `opts` is passed on to `cosmic sandbox`'s own start, `timeout_ns` and `cwd` apart.
 local function start(script: string, opts: Child.Options): Child.Handle
-  opts.timeout_ns = Clock.seconds(60)
   -- The root, which the system profile lets a program read: a shell
   -- started in a directory the profile does not grant prints a getcwd
   -- error of its own on macOS, into what these tests compare byte for byte.
-  opts.cwd = "/"
+  local started: Child.Options = { env = opts.env, stdin = opts.stdin, input = opts.input, stdout = opts.stdout,
+    stderr = opts.stderr, fds = opts.fds, capture_limit = opts.capture_limit, process_group = opts.process_group,
+    sandbox = opts.sandbox, policy = opts.policy, timeout_ns = Clock.seconds(60), cwd = "/" }
   local child, why = Child.start({ exe, "sandbox", "--system", "--env", "PATH", "--promise", "fork",
-    "--", "/bin/sh", "-c", script }, opts)
+    "--", "/bin/sh", "-c", script }, started)
   assert(child, why)
   return child
 end
@@ -240,7 +245,7 @@ do
   assert(child, why)
   local result = assert(child:wait())
   drain(caller)
-  if result.code == 125 and caller.shown:find("relay", 1, true) then
+  if result.code == 125 and caller.shown:find("relay", 1, true) ~= nil then
     -- A host that cannot give the program a network of its own (no user
     -- namespaces) cannot start the relay: nothing here is about that.
     print("relay: SKIP the relay's lines on the terminal: the relay cannot start here:" .. shown_of(caller))
@@ -280,6 +285,31 @@ do
   assert(result.signal == sys.SIGTERM, "the sandbox did not end by SIGTERM: " ..
       tostring(result.signal) .. "/" .. tostring(result.code) .. shown_of(caller))
   assert(restored(caller), termios_note(caller, "the caller's termios was not restored"))
+  finish(caller)
+end
+
+-- A SIGTERM while the caller's terminal takes no output: the program floods
+-- it and nobody reads, so the relay's writes cannot be delivered. The signal
+-- is still served, the terminal's mode is as it was, and the terminal is
+-- restored without waiting for the output to drain.
+do
+  local caller = new_caller()
+  local blocking_before = (assert(sys.fd_status(caller.slave))) & sys.O_NONBLOCK
+  local child = start("echo flooding\nexec yes", { stdin = caller.slave, stdout = caller.slave, stderr = caller.slave })
+  -- The terminal's queue fills while nothing reads it; what the program wrote
+  -- before that is read here to know the run has begun.
+  wait_for(caller, "flooding", 30)
+  assert(sys.nanosleep(Clock.ms(500)))
+  assert(not restored(caller))
+  assert(child:stop(sys.SIGTERM))
+  local waited = Clock.monotonic_ns()
+  local result = assert(child:wait(Clock.seconds(10)))
+  assert(result.signal == sys.SIGTERM and not result.timed_out, "the sandbox did not end by SIGTERM while " ..
+      "the terminal took no output: " .. tostring(result.signal) .. "/" .. tostring(result.code))
+  assert(Clock.monotonic_ns() - waited < Clock.seconds(10))
+  assert(restored(caller), termios_note(caller, "the caller's termios was not restored"))
+  assert((assert(sys.fd_status(caller.slave))) & sys.O_NONBLOCK == blocking_before,
+    "the terminal's blocking mode was not put back")
   finish(caller)
 end
 

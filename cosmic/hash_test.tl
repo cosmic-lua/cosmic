@@ -9,7 +9,7 @@ local Sqlite = require("cosmic.sqlite")
 local fox = "The quick brown fox jumps over the lazy dog"
 
 local record Holder
-  h: Hash.Hasher
+  mut h: Hash.Hasher
 end
 
 local vectors: {{string}} = {
@@ -38,6 +38,34 @@ local macs: {{string}} = {
     "b42af09057bac1e2d41708e48a902e09b5ff7f12ab428a4fe86653c73dd248fb" ..
       "82f948a549f7b791a5b41915ee4d1ec3935357e4e2317250d0372afa2ebeeb3a" },
 }
+
+local function test_equal_compares_every_byte()
+  local mac = Hash.hmac("sha256", "key", fox)
+  assert(Hash.equal(mac, mac))
+  assert(Hash.equal(mac, Hash.hmac("sha256", "key", fox)))
+  assert(Hash.equal("", ""))
+  assert(Hash.equal("a\0b", "a\0b"))
+  assert(not Hash.equal("a\0b", "a\0c"))
+  -- Each byte position decides: a flip at the first, a middle and the
+  -- last byte, and in the high bit, is unequal.
+  for _, at in ipairs({ 1, 16, 32 }) do
+    for _, flip in ipairs({ 1, 0x80, 0xff }) do
+      local flipped: mut {integer} = {}
+      for i, byte in ipairs({ mac:byte(1, -1) }) do
+        flipped[#flipped + 1] = if i == at then byte ~ flip else byte end
+      end
+      assert(not Hash.equal(mac, string.char(table.unpack(flipped))),
+        "byte " .. tostring(at) .. " flipped by " .. tostring(flip))
+    end
+  end
+end
+
+local function test_equal_refuses_a_length_mismatch()
+  assert(not Hash.equal("abc", "ab"))
+  assert(not Hash.equal("ab", "abc"))
+  assert(not Hash.equal("", "a"))
+  assert(not Hash.equal("a\0", "a"))
+end
 
 local function test_digests_match_published_vectors()
   for _, v in ipairs(vectors) do
@@ -86,7 +114,7 @@ local function test_incremental_hmac_matches_published_vectors()
     local algorithm = case[1] as Hash.Algorithm
     for _, step in ipairs({ 1, 3, 64, 1000 }) do
       assert(Codec.hex(chunked_hmac(algorithm, case[2], case[3], step)) == case[4],
-        case[1] .. " in chunks of " .. step)
+        case[1] .. " in chunks of " .. tostring(step))
     end
   end
 end
@@ -106,7 +134,7 @@ local function test_incremental_hmac_agrees_with_hmac_for_every_algorithm()
       local want = Hash.hmac(algorithm, key, message)
       for _, step in ipairs({ 1, 7, 128, #message }) do
         assert(chunked_hmac(algorithm, key, message, step) == want,
-          algorithm .. " key " .. length .. " chunks of " .. step)
+          algorithm .. " key " .. tostring(length) .. " chunks of " .. tostring(step))
       end
       -- An empty message: no update at all, and one empty update.
       local none = assert(Hash.hmac_hasher(algorithm, key))
@@ -123,15 +151,15 @@ end
 --- so the slot must be released at once. A slot left behind would make
 --- the thirty-third live hasher fail to start.
 local function test_many_unfinished_incremental_hmacs_can_be_live_at_once()
-  local live: {Hash.Hasher} = {}
+  local live: mut {Hash.Hasher} = {}
   for i = 1, 100 do
-    local mac, trouble = Hash.hmac_hasher("sha256", "key" .. i)
-    assert(mac ~= nil, "hasher " .. i .. ": " .. trouble)
-    mac:update("message " .. i)
+    local mac, trouble = Hash.hmac_hasher("sha256", "key" .. tostring(i))
+    assert(mac ~= nil, "hasher " .. tostring(i) .. ": " .. trouble)
+    mac:update("message " .. tostring(i))
     live[i] = mac
   end
   for i, mac in ipairs(live) do
-    assert(mac:digest() == Hash.hmac("sha256", "key" .. i, "message " .. i), "hasher " .. i)
+    assert(mac:digest() == Hash.hmac("sha256", "key" .. tostring(i), "message " .. tostring(i)), "hasher " .. tostring(i))
   end
 end
 
@@ -192,7 +220,7 @@ local function test_a_closed_incremental_hmac_is_finished()
 end
 
 local function test_an_incremental_hmac_revived_by_a_finalizer_is_finished()
-  local saved: Hash.Hasher
+  local saved: Hash.Hasher? = nil
   local holder: Holder = setmetatable({} as Holder, {
     __gc = function(self: Holder) saved = self.h end,
   } as metatable<Holder>)
@@ -200,9 +228,9 @@ local function test_an_incremental_hmac_revived_by_a_finalizer_is_finished()
   holder = nil
   collectgarbage()
   collectgarbage()
-  assert(saved ~= nil, "the finalizer ran")
-  assert(not pcall(saved.update, saved, "abc"))
-  assert(not pcall(saved.digest, saved))
+  local kept = assert(saved, "the finalizer ran")
+  assert(not pcall(kept.update, kept, "abc"))
+  assert(not pcall(kept.digest, kept))
 end
 
 --- Two incremental HMACs under different keys, fed alternately, do not
@@ -258,7 +286,7 @@ local function test_hmac_takes_a_key_of_any_length()
     assert(Codec.hex(Hash.hmac(algorithm, case[2], case[3])) == case[4], label)
     local rows = assert(Sqlite.text_rows(db, "SELECT lower(hex(hmac(?1, ?2, ?3)))",
       { { text = case[1] }, { blob = case[2] }, { text = case[3] } }))
-    assert(rows[1][1] == case[4], "SQL, " .. label)
+    assert(rows[1]:text(1) == case[4], "SQL, " .. label)
   end
   db:close()
 end
@@ -275,18 +303,18 @@ local function test_sql_knows_the_same_digests()
   for _, v in ipairs(vectors) do
     local rows = assert(Sqlite.text_rows(db,
       "SELECT lower(hex(digest(?1, ?2)))", { { text = v[1] }, { text = v[2] } }))
-    assert(rows[1][1] == v[3], v[1])
+    assert(rows[1]:text(1) == v[3], v[1])
   end
   for _, v in ipairs(macs) do
     local rows = assert(Sqlite.text_rows(db,
       "SELECT lower(hex(hmac(?1, 'key', ?2)))", { { text = v[1] }, { text = fox } }))
-    assert(rows[1][1] == v[2], v[1])
+    assert(rows[1]:text(1) == v[2], v[1])
   end
   local same = assert(Sqlite.text_rows(db, "SELECT sha256('abc') = digest('sha256', 'abc')"))
-  assert(same[1][1] == "1")
+  assert(same[1]:text(1) == "1")
   local nulls = assert(Sqlite.text_rows(db,
     "SELECT digest(NULL, 'abc') IS NULL, hmac('sha256', NULL, 'abc') IS NULL"))
-  assert(nulls[1][1] == "1" and nulls[1][2] == "1")
+  assert(nulls[1]:text(1) == "1" and nulls[1]:text(2) == "1")
   local rows, trouble = Sqlite.text_rows(db, "SELECT digest('sha0', 'abc')")
   assert(rows == nil)
   assert(trouble:find("no such digest algorithm", 1, true) ~= nil, trouble)
@@ -317,8 +345,8 @@ local function test_hasher_throws_after_digest()
   local hasher = assert(Hash.hasher("sha256"))
   hasher:update("abc")
   assert(hasher:digest())
-  local ok, trouble = pcall(function(): string, string
-    return hasher:update("more")
+  local ok, trouble = pcall(function()
+    hasher:update("more")
   end)
   assert(not ok and tostring(trouble):find("finished", 1, true) ~= nil)
   local ok2 = pcall(function(): string, string
@@ -343,7 +371,7 @@ local function test_hasher_and_digest_carry_an_empty_error()
 end
 
 local function test_a_hasher_revived_by_a_finalizer_is_finished()
-  local saved: Hash.Hasher
+  local saved: Hash.Hasher? = nil
   local holder: Holder = setmetatable({} as Holder, {
     __gc = function(self: Holder) saved = self.h end,
   } as metatable<Holder>)
@@ -351,13 +379,13 @@ local function test_a_hasher_revived_by_a_finalizer_is_finished()
   holder = nil
   collectgarbage()
   collectgarbage()
-  assert(saved ~= nil, "the finalizer ran")
+  local kept = assert(saved, "the finalizer ran")
   local ok, why = pcall(function(): any
-    saved:update("abc")
+    kept:update("abc")
     return nil
   end)
   assert(not ok and tostring(why):find("finished", 1, true), tostring(why))
-  assert(not pcall(saved.digest, saved))
+  assert(not pcall(kept.digest, kept))
 end
 
 local function test_a_closed_hasher_is_finished()
@@ -374,30 +402,6 @@ local function test_a_closed_hasher_is_finished()
     local hasher <close> = assert(Hash.hasher("md5"))
     assert(hasher:digest())
   end
-end
-
-local function test_byte_sum_adds_unsigned_bytes_over_a_range()
-  assert(Hash.byte_sum("") == 0)
-  assert(Hash.byte_sum("\0\1\2\255") == 258)
-  assert(Hash.byte_sum("abc", 2) == 98 + 99)
-  assert(Hash.byte_sum("abc", 1, 2) == 97 + 98)
-  assert(Hash.byte_sum("abc", 2, 2) == 98)
-  assert(Hash.byte_sum("abc", 3, 2) == 0)
-  assert(Hash.byte_sum("abc", 4) == 0)
-  -- A tar header's checksum: every byte, with the checksum field's own
-  -- eight counted as spaces.
-  local block = ("x"):rep(148) .. ("\255"):rep(8) .. ("\0"):rep(356)
-  assert(Hash.byte_sum(block, 1, 148) + 8 * 32 + Hash.byte_sum(block, 157, 512) ==
-      148 * 120 + 8 * 32)
-  assert(Hash.byte_sum(block) == 148 * 120 + 8 * 255)
-end
-
-local function test_byte_sum_raises_on_a_range_outside_the_string()
-  assert(not pcall(Hash.byte_sum, "abc", 0))
-  assert(not pcall(Hash.byte_sum, "abc", 1, 4))
-  assert(not pcall(Hash.byte_sum, "abc", 1, -1))
-  assert(not pcall(Hash.byte_sum, "abc", 5))
-  assert(not pcall(Hash.byte_sum, "abc", 3, 1))
 end
 
 --- SipHash under the key 00 01 .. 0f, of the first n bytes of 00 01 ..
@@ -434,7 +438,7 @@ local function test_siphash_matches_reference_vectors()
     local tags = case[2] as {string}
     for i, n in ipairs(siphash_lengths) do
       local got = Codec.hex(Hash.siphash(key, message:sub(1, n), options))
-      assert(got == tags[i], n .. " bytes: " .. got .. " ~= " .. tags[i])
+      assert(got == tags[i], tostring(n) .. " bytes: " .. got .. " ~= " .. tags[i])
     end
   end
 end

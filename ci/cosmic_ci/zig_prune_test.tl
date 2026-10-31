@@ -2,6 +2,12 @@ local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local ZigPrune = require("cosmic_ci.zig_prune")
 
+--- [`ZigPrune.command`], its answer as three values.
+local function prune_command(env: {string:string}): integer, string, string
+  local command = ZigPrune.command(env)
+  return command.code, command.out, command.err
+end
+
 --- Manifests zig 0.17 wrote, each with the output it made: what a
 --- manifest vouches for is zig's to say, so a hash read wrongly here
 --- fails these rather than pruning what a build would hit.
@@ -27,8 +33,8 @@ local function test_a_manifest_vouches_for_the_output_zig_made()
       "60b2f3b2be10737eb5f6979227bf0540" },
   }
   for _, case in ipairs(cases) do
-    local got, trouble = ZigPrune.vouches(case[1], case[2])
-    assert(got == case[3], case[1] .. ": " .. tostring(got) .. " " .. trouble)
+    local got, trouble = ZigPrune.vouches(assert(case[1]), assert(case[2]))
+    assert(got == case[3], assert(case[1]) .. ": " .. tostring(got) .. " " .. trouble)
   end
   -- What is not zig's manifest vouches for nothing.
   assert(ZigPrune.vouches("timestamp", "\0") == nil)
@@ -50,8 +56,8 @@ local function test_the_answers_are_the_pinned_zigs()
   local root = assert(cwd:match("^(.*)/[^/]+$"), cwd)
   local pin = assert(Fs.read(root .. "/bin/zig.pin"))
   local version = pin:match("^version (%S+)")
-  assert(version == ZigPrune.zig_version, "bin/zig.pin names zig " .. tostring(version) ..
-      ", and cosmic_ci/zig_prune.tl reads " .. ZigPrune.zig_version .. "'s caches")
+  assert(version == ZigPrune.zig_version(), "bin/zig.pin names zig " .. tostring(version) ..
+      ", and cosmic_ci/zig_prune.tl reads " .. ZigPrune.zig_version() .. "'s caches")
 end
 
 --- A cache under `root`, as zig lays one out, with no manifest yet.
@@ -67,12 +73,13 @@ end
 --- in), with the output it vouches for holding `outputs`; the output's
 --- name.
 local function step(root: string, name: string, files: {string}, outputs: {string}): string
-  local records: {string} = {}
+  local records: mut {string} = {}
   for i, file in ipairs(files) do
     local prefix, path = file:match("^(%d+) (.*)$")
+    assert(prefix ~= nil and path ~= nil, file)
     records[#records + 1] = string.pack("<i8i8i8", 1, i, 1) ..
-      Codec.unhex(string.rep(name:sub(-1), 32)) ..
-      string.char(math.tointeger(prefix) << 2) .. path .. "\0"
+      assert(Codec.unhex(string.rep(name:sub(-1), 32))) ..
+      string.char(assert(math.tointeger(prefix)) << 2) .. path .. "\0"
   end
   local text = table.concat(records) .. "\0"
   assert(Fs.write(root .. "/h/" .. name, text))
@@ -129,13 +136,13 @@ local function test_a_core_change_prunes_the_old_core_alone(tmp: string)
     table.concat(plan.manifests, " "))
   assert(table.concat(plan.outputs, " ") == table.concat(want_outputs, " "),
     table.concat(plan.outputs, " "))
-  assert(plan.orphans == 2 and plan.orphans_kept == 1, plan.orphans .. " " .. plan.orphans_kept)
+  assert(plan.orphans == 2 and plan.orphans_kept == 1, tostring(plan.orphans) .. " " .. tostring(plan.orphans_kept))
   assert(plan.manifests_seen == 7 and plan.outputs_seen == 9,
-    plan.manifests_seen .. " " .. plan.outputs_seen)
+    tostring(plan.manifests_seen) .. " " .. tostring(plan.outputs_seen))
 
   assert(ZigPrune.apply(plan))
-  for _, gone in ipairs(want_outputs) do assert(not Fs.exists(gone), gone) end
-  for _, gone in ipairs(want_manifests) do assert(not Fs.exists(gone), gone) end
+  for _, gone in ipairs(want_outputs) do assert(Fs.exists(gone) ~= true, gone) end
+  for _, gone in ipairs(want_manifests) do assert(Fs.exists(gone) ~= true, gone) end
   for _, kept in ipairs({ p .. "/o/" .. copies .. "/core/a.c", p .. "/o/" .. object .. "/a.o",
       p .. "/o/" .. core .. "/cosmic-core", p .. "/o/" .. dependencies .. "/dependencies.zig",
       p .. "/o/" .. runner .. "/build", g .. "/o/" .. libc .. "/libc.a", p .. "/h/timestamp" }) do
@@ -199,7 +206,7 @@ local function test_the_maker_goes_with_its_manifest(tmp: string)
   table.sort(want)
   assert(table.concat(plan.outputs, " ") == table.concat(want, " "), table.concat(plan.outputs, " "))
   assert(ZigPrune.apply(plan))
-  assert(Fs.exists(g .. "/o/" .. libc .. "/libc.a") and Fs.exists(g .. "/h/" .. hex("c")))
+  assert(Fs.exists(g .. "/o/" .. libc .. "/libc.a") == true and Fs.exists(g .. "/h/" .. hex("c")) == true)
 end
 
 --- `zig build`'s configuration is a file of the cache's `c/`, which its
@@ -228,7 +235,7 @@ local function test_a_configuration_goes_with_its_manifest(tmp: string)
   table.sort(want_outputs)
   assert(table.concat(plan.outputs, " ") == table.concat(want_outputs, " "),
     table.concat(plan.outputs, " "))
-  assert(plan.orphans == 1 and plan.orphans_kept == 0, plan.orphans .. " " .. plan.orphans_kept)
+  assert(plan.orphans == 1 and plan.orphans_kept == 0, tostring(plan.orphans) .. " " .. tostring(plan.orphans_kept))
   assert(ZigPrune.apply(plan))
   for _, kept in ipairs({ p .. "/c/" .. configured, p .. "/h/" .. hex("b") }) do
     assert(Fs.exists(kept), kept)
@@ -257,8 +264,8 @@ local function test_an_older_zigs_manifests_go_before_their_outputs(tmp: string)
     table.concat(plan.outputs, " "))
   assert(plan.manifests_seen == 2, tostring(plan.manifests_seen))
   assert(ZigPrune.apply(plan))
-  assert(not Fs.exists(older) and not Fs.exists(p .. "/o/" .. older_object))
-  assert(Fs.exists(p .. "/o/" .. object .. "/a.o") and Fs.exists(p .. "/h/" .. hex("a")))
+  assert(Fs.exists(older) ~= true and Fs.exists(p .. "/o/" .. older_object) ~= true)
+  assert(Fs.exists(p .. "/o/" .. object .. "/a.o") == true and Fs.exists(p .. "/h/" .. hex("a")) == true)
 end
 
 --- A manifest not read as zig's, or one whose output is not there, says
@@ -281,11 +288,11 @@ local function test_nothing_is_removed_where_a_manifest_is_not_understood(tmp: s
       assert(Fs.write(p .. "/h/" .. hex("f"), "\0"))
     end
     local plan, trouble = ZigPrune.plan({ project, shared })
-    assert(plan == nil and trouble:find(hex("f"), 1, true), trouble)
-    local code, out, err = ZigPrune.command({ COSMIC_ZIG_CACHE_SEED = root,
+    assert(plan == nil and trouble:find(hex("f"), 1, true) ~= nil, trouble)
+    local code, out, err = prune_command({ COSMIC_ZIG_CACHE_SEED = root,
       COSMIC_ZIG_GLOBAL_CACHE = shared.path })
-    assert(code == 0 and out == "" and err:find("^zig%-prune: kept whole: "), err)
-    assert(Fs.exists(p .. "/o/" .. old_copies) and Fs.exists(p .. "/o/" .. old_object))
+    assert(code == 0 and out == "" and err:find("^zig%-prune: kept whole: ") ~= nil, err)
+    assert(Fs.exists(p .. "/o/" .. old_copies) == true and Fs.exists(p .. "/o/" .. old_object) == true)
   end
 end
 
@@ -293,11 +300,11 @@ end
 --- `zig-cache` under COSMIC_ZIG_CACHE_SEED, and COSMIC_ZIG_GLOBAL_CACHE)
 --- and never fails: where neither is there it has nothing to do.
 local function test_the_command_prunes_the_caches_the_builds_use(tmp: string)
-  local code, out, err = ZigPrune.command({})
-  assert(code == 0 and out:find("nothing to prune", 1, true) and err == "", out .. err)
-  code, out, err = ZigPrune.command({ COSMIC_ZIG_CACHE_SEED = tmp .. "/absent",
+  local code, out, err = prune_command({})
+  assert(code == 0 and out:find("nothing to prune", 1, true) ~= nil and err == "", out .. err)
+  code, out, err = prune_command({ COSMIC_ZIG_CACHE_SEED = tmp .. "/absent",
     COSMIC_ZIG_GLOBAL_CACHE = tmp .. "/absent/zig-global" })
-  assert(code == 0 and out:find("nothing to prune", 1, true) and err == "", out .. err)
+  assert(code == 0 and out:find("nothing to prune", 1, true) ~= nil and err == "", out .. err)
 
   local project = cache(tmp .. "/seed/zig-cache")
   local shared = cache(tmp .. "/seed/zig-global")
@@ -305,9 +312,9 @@ local function test_the_command_prunes_the_caches_the_builds_use(tmp: string)
   local old_copies = orphan(p, hex("9"), { "core/a.c" })
   step(p, hex("a"), { "1 core/a.c" }, { "core/a.c" })
   local old_object = step(p, hex("c"), { "2 o/" .. old_copies .. "/core/a.c" }, { "a.o" })
-  code, out, err = ZigPrune.command({ COSMIC_ZIG_CACHE_SEED = tmp .. "/seed",
+  code, out, err = prune_command({ COSMIC_ZIG_CACHE_SEED = tmp .. "/seed",
     COSMIC_ZIG_GLOBAL_CACHE = shared.path })
   assert(code == 0 and err == "", err)
   assert(out == "zig-prune: removed 1 manifest of 2 and 2 outputs of 3 (1 orphan, 0 kept)\n", out)
-  assert(not Fs.exists(p .. "/o/" .. old_object) and not Fs.exists(p .. "/o/" .. old_copies))
+  assert(Fs.exists(p .. "/o/" .. old_object) ~= true and Fs.exists(p .. "/o/" .. old_copies) ~= true)
 end

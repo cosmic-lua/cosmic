@@ -5,7 +5,8 @@
 --- (core/testing.h), and CI runs this suite on it; on any other the
 --- walk returns at once.
 
-local _ = require("cosmic.child") -- in the closure: [`process_table`] searches for it by hand
+local RawTables = require("build.raw_tables")
+local _ = require("cosmic.child") -- in the closure: [`RawTables`] searches for it by hand
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
@@ -17,21 +18,7 @@ local Test = require("cosmic.test")
 --- spawn refusal names it, and never starts it).
 Test.policy{ requires = { "checked" }, profiles = { "cosmic" } }
 
-local type Searcher = function(string): any, any
-
---- The raw process table, as the store's searcher hands it to
---- [`cosmic.child`]'s loader.
-local function process_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process -- cast: the table core/process.h declares
-    end
-  end
-  error("cosmic.child is handed no raw table")
-end
-
-local process = process_table()
+local process = RawTables.process()
 
 --- Runs `work` once per allocation it makes, refusing that allocation,
 --- and a last time with none refused; answers how many runs a refusal
@@ -64,10 +51,11 @@ end
 --- always runs from a portable artifact.
 local function spawn_again(chunk: string): integer
   local relaunch = assert(Proc.relaunch())
-  local argv: {string} = { table.unpack(relaunch.argv) }
+  local program = assert(relaunch.argv[1], "the relaunch names a program")
+  local argv: mut {string} = { table.unpack(relaunch.argv) }
   argv[#argv + 1] = "-e"
   argv[#argv + 1] = chunk
-  return (assert(process.spawn(argv[1], argv, relaunch.env, nil, nil, nil, nil, false,
+  return (assert(process.spawn(program, argv, relaunch.env, nil, nil, nil, nil, false,
     relaunch.fds)))
 end
 
@@ -76,18 +64,20 @@ end
 local function test_waitpid_never_loses_a_status_to_a_failed_allocation()
   -- A chunk that exits 7: a real status to reap.
   local pid = spawn_again("return 7")
-  local received: raw_process.ChildStatus
-  local reaped: raw_process.ChildStatus
+  local received = { value = nil as raw_process.ChildStatus? }
+  local reaped = { value = nil as raw_process.ChildStatus? }
   under_every_failure(function()
-    if reaped == nil then received = process.waitpid(pid, false) end
+    if reaped.value == nil then received.value = process.waitpid(pid, false) end
   end, function()
-    if received ~= nil then
-      reaped = received
-      received = nil
+    local value = received.value
+    if value ~= nil then
+      reaped.value = value
+      received.value = nil
     end
   end)
-  assert(reaped ~= nil, "the child's status was lost to a refused allocation")
-  assert(reaped.pid == pid and reaped.code == 7 and reaped.signal == -1)
+  local reaped_value = reaped.value
+  assert(reaped_value ~= nil, "the child's status was lost to a refused allocation")
+  assert(reaped_value.pid == pid and reaped_value.code == 7 and reaped_value.signal == -1)
 end
 
 --- An exit watch owns its descriptor from the call that opens it: a
@@ -103,18 +93,19 @@ local function test_an_exit_watch_leaves_no_descriptor_whenever_an_allocation_fa
     return fd
   end
   local before = next_descriptor()
-  local received: integer
-  local opened = 0
+  local received = { value = nil as integer? }
+  local opened = { value = 0 }
   under_every_failure(function()
-    received = process.exit_watch(pid)
+    received.value = process.exit_watch(pid)
   end, function()
-    if received ~= nil then
-      sys.close(received)
-      received = nil
-      opened = opened + 1
+    local value = received.value
+    if value ~= nil then
+      sys.close(value)
+      received.value = nil
+      opened.value = opened.value + 1
     end
   end)
-  assert(opened >= 1, "the run with nothing refused opens a watch")
+  assert(opened.value >= 1, "the run with nothing refused opens a watch")
   assert(sys.kill(pid, sys.SIGKILL))
   assert(process.waitpid(pid, false))
   -- Reaped, the child has no watch to give, and its failure is made
@@ -123,5 +114,5 @@ local function test_an_exit_watch_leaves_no_descriptor_whenever_an_allocation_fa
     local none, _, errno = process.exit_watch(pid)
     assert(none == nil and errno == sys.ESRCH)
   end)
-  assert(next_descriptor() == before, "a refused allocation left descriptor " .. before .. " open")
+  assert(next_descriptor() == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end

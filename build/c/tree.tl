@@ -48,27 +48,29 @@ local record tree
     --- A child slot the kind leaves empty is a node of kind "<<<NULL>>>".
     kind: string
     --- Its address, which is how a reference names what it refers to.
-    id: string
-    --- Where it begins, as spelled.
-    file: string
-    line: integer
-    col: integer
+    --- Nil for a node the dump gives none, such as a null slot.
+    id?: string
+    --- Where it begins, as spelled; nil for a node the dump gives no
+    --- position.
+    file?: string
+    line?: integer
+    col?: integer
     --- Everything the line prints after its range and position: types,
     --- names, a cast's kind, an operator.
     text: string
-    children: {tree.Node}
-    parent: tree.Node
+    children: mut {tree.Node}
+    mut parent?: tree.Node
     --- What [`referent`], [`callee`], [`canonical_type`] and [`operator`]
     --- answered the first time, so a rule that asks again reads it.
     --- Each has a flag saying it was asked, since nil is an answer.
-    referent_cache: tree.Referent
-    referent_asked: boolean
-    callee_cache: string
-    callee_asked: boolean
-    canonical_cache: string
-    canonical_asked: boolean
-    operator_cache: string
-    operator_asked: boolean
+    mut referent_cache?: tree.Referent
+    mut referent_asked?: boolean
+    mut callee_cache?: string
+    mut callee_asked?: boolean
+    mut canonical_cache?: string
+    mut canonical_asked?: boolean
+    mut operator_cache?: string
+    mut operator_asked?: boolean
   end
   --- What a reference refers to, as the dump spells it.
   record Referent
@@ -83,7 +85,7 @@ end
 --- Whether `file`, as the dump names it, is C of this tree's own rather
 --- than a system header, a vendored library, or a position the compiler
 --- made up (`<built-in>`, `<scratch space>`).
-local function own(file: string): boolean
+local function own(file: string?): boolean
   if file == nil or file == "" then return false end
   local first = file:sub(1, 1)
   if first == "/" or first == "<" then return false end
@@ -91,7 +93,7 @@ local function own(file: string): boolean
 end
 
 --- `file` as the tree names it: relative to `root` when it is under it.
-local function normalized(file: string, root: string): string
+local function normalized(file: string, root: string?): string
   while file:sub(1, 2) == "./" do
     file = file:sub(3)
   end
@@ -104,14 +106,14 @@ end
 --- The running position of the dump: what an abbreviated position is
 --- read against.
 local record Cursor
-  file: string
-  line: integer
-  root: string
+  mut file: string
+  mut line: integer
+  root: string?
 end
 
 --- Reads one position against `at`, moves `at` to it, and returns it.
 --- Anything that is not a position (`invalid sloc`) leaves `at` alone.
-local function located(at: Cursor, s: string): string, integer, integer
+local function located(at: Cursor, s: string): string?, integer?, integer?
   -- Most positions are one of the two short forms, and the first byte
   -- says which one a position could be.
   local first = s:byte(1)
@@ -122,16 +124,18 @@ local function located(at: Cursor, s: string): string, integer, integer
     end
   elseif first == 108 then -- l
     local line, lcol = s:match("^line:(%d+):(%d+)$")
-    if line ~= nil then
-      at.line = math.tointeger(tonumber(line))
-      return at.file, at.line, math.tointeger(tonumber(lcol))
+    local line_number = if line ~= nil then math.tointeger(tonumber(line)) else nil end
+    if line_number ~= nil then
+      at.line = line_number
+      return at.file, line_number, math.tointeger(tonumber(lcol))
     end
   end
   local file, fline, fcol = s:match("^(.+):(%d+):(%d+)$")
-  if file ~= nil then
+  local file_line = if fline ~= nil then math.tointeger(tonumber(fline)) else nil end
+  if file ~= nil and file_line ~= nil then
     at.file = normalized(file, at.root)
-    at.line = math.tointeger(tonumber(fline))
-    return at.file, at.line, math.tointeger(tonumber(fcol))
+    at.line = file_line
+    return at.file, file_line, math.tointeger(tonumber(fcol))
   end
   return nil, nil, nil
 end
@@ -143,11 +147,20 @@ local function is_position(word: string): boolean
     word:match("^[^']+:%d+:%d+$") ~= nil
 end
 
---- Splits `rest`, what follows a node's kind, into its address, range and
---- the text after them, reading every position against `at` on the way.
---- Returns the address, the begin position, and where the remaining
---- text starts in `rest`.
-local function header(at: Cursor, rest: string): string, string, integer, integer, integer
+--- What a node's line gives before its text; nil for what the dump leaves out.
+local record Header
+  id: string?
+  file: string?
+  line: integer?
+  col: integer?
+  --- Where the remaining text starts in the line.
+  text_at: integer
+end
+
+--- Splits `rest`, what follows a node's kind, into its address, begin
+--- position and the offset of the text after them, reading every position
+--- against `at` on the way.
+local function header(at: Cursor, rest: string): Header
   local id = rest:match("^ (0x%x+)")
   local pos = 1
   if id ~= nil then
@@ -159,7 +172,7 @@ local function header(at: Cursor, rest: string): string, string, integer, intege
     if skipped == nil then break end
     pos = pos + #skipped
   end
-  local file, line, col: string, integer, integer
+  local file, line, col: string?, integer?, integer?
   if rest:sub(pos, pos + 1) == " <" then
     -- The range is balanced: `<<built-in>:1:1, col:5>` nests one.
     local _, stop = rest:find("^%b<>", pos + 1)
@@ -188,7 +201,7 @@ local function header(at: Cursor, rest: string): string, string, integer, intege
       pos = pos + #word + 1
     end
   end
-  return id, file, line, col, pos + 1
+  return { id = id, file = file, line = line, col = col, text_at = pos + 1 }
 end
 
 --- Reads the positions of the line in `dump` that ends before `stop` and
@@ -196,7 +209,7 @@ end
 --- alone: what a line of a declaration that is dropped has to give.
 local function moved(at: Cursor, dump: string, kind_end: integer, stop: integer)
   local _, id_end = dump:find("^ 0x%x+", kind_end)
-  local pos = id_end and id_end + 1 or kind_end
+  local pos = if id_end then id_end + 1 else kind_end end
   while true do
     local _, skipped = dump:find("^ %a+ 0x%x+", pos)
     if skipped == nil then break end
@@ -224,10 +237,10 @@ end
 --- is given, is named relative to it, as a compile from the root names it.
 function tree.parse(dump: string, root?: string): {tree.Node}
   local at: Cursor = { file = "", line = 0, root = root }
-  local out: {tree.Node} = {}
+  local out: mut {tree.Node} = {}
   -- The innermost open node at each depth; depth 1 is a top-level
   -- declaration, and nil while one that is not kept is being skipped.
-  local open: {integer: tree.Node} = {}
+  local open: mut {integer: tree.Node} = {}
   local keeping = false
   local size = #dump
   local pos = 1
@@ -265,15 +278,15 @@ function tree.parse(dump: string, root?: string): {tree.Node}
         kind_end = dump:find("%s", first) or stop
         local kind = dump:sub(first, kind_end - 1)
         local rest = dump:sub(kind_end, stop - 1)
-        local id, file, line, col, text_at = header(at, rest)
+        local head = header(at, rest)
         if depth == 1 then
-          keeping = own(file)
+          keeping = own(head.file)
         end
         if depth >= 1 and keeping then
           local parent = open[depth - 1]
           local node: tree.Node = {
-            kind = kind, id = id, file = file, line = line, col = col,
-            text = rest:sub(text_at), children = {}, parent = parent,
+            kind = kind, id = head.id, file = head.file, line = head.line, col = head.col,
+            text = rest:sub(head.text_at), children = {}, parent = parent,
           }
           if depth == 1 then
             node.parent = nil
@@ -291,17 +304,17 @@ end
 
 --- The first single-quoted string in a node's text: an expression's type,
 --- or a declaration's name's type, as written (`'lua_Integer':'long
---- long'` gives "lua_Integer").
-function tree.type_of(node: tree.Node): string
+--- long'` gives "lua_Integer"); nil for a node whose text quotes none.
+function tree.type_of(node: tree.Node): string?
   return node.text:match("'([^']*)'")
 end
 
 --- The type `node` has once every typedef is seen through: the second of
---- a sugared pair (`'lua_Integer':'long long'`), or the only one.
-function tree.canonical_type(node: tree.Node): string
-  if node.canonical_asked then return node.canonical_cache end
+--- a sugared pair (`'lua_Integer':'long long'`), or the only one; nil for a node whose text quotes none.
+function tree.canonical_type(node: tree.Node): string?
+  if node.canonical_asked == true then return node.canonical_cache end
   local written, canonical = node.text:match("^[^']*'([^']*)':'([^']*)'")
-  local answer: string = canonical or written or tree.type_of(node)
+  local answer: string? = canonical or written or tree.type_of(node)
   node.canonical_cache = answer
   node.canonical_asked = true
   return answer
@@ -309,8 +322,8 @@ end
 
 --- The operator of a unary or binary operator node: the last quoted word
 --- of its text, as `'='` or `'<'`; nil when its text has none.
-function tree.operator(node: tree.Node): string
-  if node.operator_asked then return node.operator_cache end
+function tree.operator(node: tree.Node): string?
+  if node.operator_asked == true then return node.operator_cache end
   local op = node.text:match("'([^']*)'$")
   node.operator_cache = op
   node.operator_asked = true
@@ -318,12 +331,14 @@ function tree.operator(node: tree.Node): string
 end
 
 --- What a reference refers to, or nil for a node that is not one.
-function tree.referent(node: tree.Node): tree.Referent | nil
+function tree.referent(node: tree.Node): tree.Referent?
   if node == nil or node.kind ~= "DeclRefExpr" then return nil end
-  if node.referent_asked then return node.referent_cache end
+  if node.referent_asked == true then return node.referent_cache end
   local kind, id, name = node.text:match(" (%a+) (0x%x+) '([^']*)'")
-  local found: tree.Referent = nil
-  if kind ~= nil then found = { kind = kind, id = id, name = name } end
+  local found: tree.Referent? = nil
+  if kind ~= nil and id ~= nil and name ~= nil then
+    found = { kind = kind, id = id, name = name }
+  end
   node.referent_cache = found
   node.referent_asked = true
   return found
@@ -341,11 +356,11 @@ end
 
 --- The name of the function a call calls directly, or nil for a call
 --- through a pointer.
-function tree.callee(call: tree.Node): string
+function tree.callee(call: tree.Node): string?
   if call.kind ~= "CallExpr" or #call.children == 0 then return nil end
-  if call.callee_asked then return call.callee_cache end
+  if call.callee_asked == true then return call.callee_cache end
   local r = tree.referent(tree.bare(call.children[1]))
-  local name: string = nil
+  local name: string? = nil
   if r ~= nil and r.kind == "Function" then name = r.name end
   call.callee_cache = name
   call.callee_asked = true
@@ -354,7 +369,7 @@ end
 
 --- The first node under `node`, itself included, that was spelled in
 --- this tree's own C.
-local function own_within(node: tree.Node): tree.Node
+local function own_within(node: tree.Node): tree.Node?
   if own(node.file) then return node end
   for _, child in ipairs(node.children) do
     local found = own_within(child)
@@ -368,7 +383,7 @@ end
 --- placed where the macro was used: at the first of its arguments that
 --- was written there, or else at the nearest enclosing node that was.
 --- Nil when none was.
-function tree.placed(node: tree.Node): tree.Node | nil
+function tree.placed(node: tree.Node): tree.Node?
   local within = own_within(node)
   if within ~= nil then return within end
   local at = node.parent

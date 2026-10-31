@@ -1,5 +1,5 @@
 --- Fixed synthetic validation; no executable measurements are inputs.
---- Run: o/bin/cosmic build/perf_validation.tl /tmp/perf-validation.json
+--- Run: bin/cosmic build/perf_validation.tl /tmp/perf-validation.json
 local Perf = require("build.perf")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
@@ -8,7 +8,7 @@ local record Validation
 end
 
 local record Source
-  state: integer
+  mut state: integer
 end
 
 local function uniform(source: Source): number
@@ -52,25 +52,25 @@ local record Case
 end
 
 local function cases(): {Case}
-  local result: {Case} = {}
+  local result: mut {Case} = {}
   local names = { "normal", "exponential", "lognormal", "mixture" }
-  for population = 1, 4 do
-    result[#result + 1] = { name = "null_" .. names[population], population = population,
+  for population, label in ipairs(names) do
+    result[#result + 1] = { name = "null_" .. label, population = population,
       shift = 0, tail_multiplier = 1, sizes = { 30, 100, 200, 400 }, gate = "null", stress = 0 }
   end
   result[#result + 1] = { name = "normal_shift_1sd", population = 1, shift = 10,
     tail_multiplier = 1, sizes = { 200 }, gate = "shift", stress = 0 }
   result[#result + 1] = { name = "mixture_tail_double", population = 4, shift = 0,
     tail_multiplier = 2, sizes = { 400 }, gate = "tail", stress = 0 }
-  for population = 1, 4 do
+  for population, label in ipairs(names) do
     for _, fraction in ipairs({ 0.05, 0.10 }) do
-      result[#result + 1] = { name = names[population] .. "_shift_" .. fraction,
+      result[#result + 1] = { name = label .. "_shift_" .. tostring(fraction),
         population = population, shift = median(population) * fraction,
         tail_multiplier = 1, sizes = { 200, 400 }, gate = "advisory", stress = 0 }
     end
   end
   for _, multiplier in ipairs({ 1.2, 1.5 }) do
-    result[#result + 1] = { name = "mixture_tail_" .. multiplier, population = 4,
+    result[#result + 1] = { name = "mixture_tail_" .. tostring(multiplier), population = 4,
       shift = 0, tail_multiplier = multiplier, sizes = { 200, 400 }, gate = "advisory", stress = 0 }
   end
   result[#result + 1] = { name = "paired_common_delay", population = 1, shift = 0,
@@ -81,10 +81,10 @@ local function cases(): {Case}
 end
 
 local function samples(source: Source, case: Case, n: integer, calibration: boolean): {Perf.Pair}
-  local result: {Perf.Pair} = {}
+  local result: mut {Perf.Pair} = {}
   for i = 1, n do
     local a = draw(source, case.population, 1)
-    local b = draw(source, case.population, calibration and 1 or case.tail_multiplier)
+    local b = draw(source, case.population, if calibration then 1 else case.tail_multiplier end)
     if not calibration then b = b + case.shift end
     if case.stress == 1 then
       local delay = 40 * uniform(source)
@@ -99,12 +99,12 @@ local function samples(source: Source, case: Case, n: integer, calibration: bool
 end
 
 local record Count
-  hits: integer
-  total: integer
-  finite: integer
+  mut hits: integer
+  mut total: integer
+  mut finite: integer
 end
 
-local function observe(counts: {string:Count}, name: string, hit: boolean, finite?: boolean)
+local function observe(counts: mut {string:Count}, name: string, hit: boolean, finite?: boolean)
   local count = counts[name]
   if count == nil then
     count = { hits = 0, total = 0, finite = 0 }
@@ -115,11 +115,11 @@ local function observe(counts: {string:Count}, name: string, hit: boolean, finit
   if finite ~= false then count.finite = count.finite + 1 end
 end
 
-local function inside(low: number | nil, high: number | nil, truth: number): boolean
+local function inside(low: number?, high: number?, truth: number): boolean
   return (low == nil or low <= truth) and (high == nil or high >= truth)
 end
 
-local function cover(counts: {string:Count}, name: string, bounds: Perf.Interval, truth: number)
+local function cover(counts: mut {string:Count}, name: string, bounds: Perf.Interval, truth: number)
   observe(counts, name, inside(bounds.low, bounds.high, truth), bounds.lower_bounded and bounds.upper_bounded)
 end
 
@@ -139,11 +139,16 @@ local reason_keys = { "exploratory_sample_count", "unbounded_tail_interval", "bi
 local coverage_keys = { "coverage_median_a", "coverage_median_b", "coverage_median_delta",
   "coverage_aa_median", "coverage_tail_delta", "coverage_aa_tail" }
 
+--- The hits counted under `key`, which the trials have counted something under.
+local function hits_of(counts: {string:Count}, key: string): integer
+  return assert(counts[key], "the trials counted " .. key).hits
+end
+
 local function simulate(case: Case, index: integer, n: integer): {string:any}, boolean
   local bases = { 104729, 130363, 155921, 196613 }
-  local counts: {string:Count} = {}
+  local counts: mut {string:Count} = {}
   for trial = 1, 5000 do
-    local source: Source = { state = (bases[(index - 1) % 4 + 1] + 1009 * index +
+    local source: Source = { state = (assert(bases[(index - 1) % 4 + 1], "the modulus picks one of the four bases") + 1009 * index +
       9176 * n + 104729 * trial) % 2147483646 + 1 }
     local calibration = samples(source, case, n, true)
     local candidate = samples(source, case, n, false)
@@ -155,7 +160,7 @@ local function simulate(case: Case, index: integer, n: integer): {string:any}, b
     observe(counts, "aa_median_positive", reading.calibration.low > 0)
     local aa_tail_low = reading.calibration_tail_interval.low
     observe(counts, "aa_tail_positive", aa_tail_low ~= nil and aa_tail_low > 0)
-    local reasons: {string:boolean} = {}
+    local reasons: mut {string:boolean} = {}
     for _, reason in ipairs(reading.reasons) do reasons[reason] = true end
     for _, reason in ipairs(reason_keys) do
       observe(counts, "reason_" .. reason, reasons[reason] == true)
@@ -177,48 +182,50 @@ local function simulate(case: Case, index: integer, n: integer): {string:any}, b
       end
     end
   end
-  local failures: {string} = {}
+  local failures: mut {string} = {}
   if case.gate == "null" then
     if n < 200 then
-      if counts["pass"].hits ~= 0 then failures[#failures + 1] = "exploratory_pass" end
+      if hits_of(counts, "pass") ~= 0 then failures[#failures + 1] = "exploratory_pass" end
     else
       for _, key in ipairs(coverage_keys) do
-        if counts[key].hits / 5000 < 0.94 then failures[#failures + 1] = key end
+        if hits_of(counts, key) / 5000 < 0.94 then failures[#failures + 1] = key end
       end
-      if counts["regression"].hits / 5000 > 0.06 then
+      if hits_of(counts, "regression") / 5000 > 0.06 then
         failures[#failures + 1] = "false_regression"
       end
-      if counts["pass"].hits / 5000 < 0.80 then failures[#failures + 1] = "null_pass_rate" end
+      if hits_of(counts, "pass") / 5000 < 0.80 then failures[#failures + 1] = "null_pass_rate" end
     end
   elseif case.gate == "shift" then
-    if counts["blocked"].hits / 5000 < 0.95 then failures[#failures + 1] = "shift_detection" end
+    if hits_of(counts, "blocked") / 5000 < 0.95 then failures[#failures + 1] = "shift_detection" end
   elseif case.gate == "tail" then
-    if counts["blocked"].hits / 5000 < 0.85 then failures[#failures + 1] = "tail_detection" end
+    if hits_of(counts, "blocked") / 5000 < 0.85 then failures[#failures + 1] = "tail_detection" end
   end
-  local rates: {string:{string:number}} = {}
+  local rates: mut {string:{string:number}} = {}
   for name, count in pairs(counts) do rates[name] = rate(count) end
   return { case = index, name = case.name, n = n, gate = case.gate, rates = rates,
     failures = failures, passed = #failures == 0 }, #failures == 0
 end
 
 --- Run the frozen numerical populations and persist every case as it finishes.
-function Validation.main(argv: {integer:string}): integer
-  assert(argv[1] ~= nil and argv[2] == nil, "usage: cosmic build/perf_validation.tl NEW_REPORT.json")
-  local exists, trouble = Fs.exists(argv[1])
+function Validation.main(argv: {string}): integer
+  local usage = "usage: cosmic build/perf_validation.tl NEW_REPORT.json"
+  local report = assert(argv[1], usage)
+  assert(argv[2] == nil, usage)
+  local exists, trouble = Fs.exists(report)
   assert(exists ~= nil, trouble)
   assert(not exists, "report already exists")
-  local results: {{string:any}} = {}
+  local results: mut {{string:any}} = {}
   local passed = true
   for index, case in ipairs(cases()) do
     for _, n in ipairs(case.sizes) do
       local result, ok = simulate(case, index, n)
       results[#results + 1], passed = result, passed and ok
-      assert(Fs.write(argv[1], assert(Json.encode({ protocol = "doc/performance/validation.md",
+      assert(Fs.write(report, assert(Json.encode_any({ protocol = "doc/performance/validation.md",
         trials_per_case = 5000, results = results, passed = passed }, { pretty = true })) .. "\n"))
-      print(case.name .. " n=" .. n .. ": " .. (ok and "PASS" or "FAIL"))
+      print(case.name .. " n=" .. tostring(n) .. ": " .. (if ok then "PASS" else "FAIL" end))
     end
   end
-  return passed and 0 or 2
+  return if passed then 0 else 2 end
 end
 
 return Validation

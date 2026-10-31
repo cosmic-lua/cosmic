@@ -42,7 +42,8 @@ function Example.create()
 
   local entries = assert(Archive.list(path))
   for _, entry in ipairs(entries) do print(entry.path, entry.kind, entry.size) end
-  assert(#entries == 2 and entries[2].path == "site/index.html" and entries[2].size == 14)
+  local page = assert(entries[2])
+  assert(#entries == 2 and page.path == "site/index.html" and page.size == 14)
   assert(Fs.remove_tree(dir))
 end
 
@@ -58,7 +59,8 @@ function Example.list_reader()
   local reader = assert(Archive.open_stream(Stream.from_string(out:result())))
   local entries = assert(Archive.list_reader(reader))
   for _, entry in ipairs(entries) do print(entry.path, entry.kind, entry.size) end
-  assert(#entries == 2 and entries[1].path == "README" and entries[2].kind == "dir")
+  local readme, docs = assert(entries[1]), assert(entries[2])
+  assert(#entries == 2 and readme.path == "README" and docs.kind == "dir")
 end
 
 return Example

@@ -25,21 +25,21 @@ local record Rand
   record Source
     --- An integer drawn uniformly from `min` through `max`, both
     --- included. Raises when `min` is greater than `max`.
-    int: function(self: Source, min: integer, max: integer): integer
+    mut int: function(self: Source, min: integer, max: integer): integer
 
     --- A float drawn uniformly from [0, 1), a multiple of 2^-53.
-    float: function(self: Source): number
+    mut float: function(self: Source): number
 
     --- `count` bytes drawn uniformly. Raises when `count` is negative.
-    bytes: function(self: Source, count: integer): string
+    mut bytes: function(self: Source, count: integer): string
   end
 end
 
 local record State
-  s0: integer
-  s1: integer
-  s2: integer
-  s3: integer
+  mut s0: integer
+  mut s1: integer
+  mut s2: integer
+  mut s3: integer
 end
 
 local function rotl(x: integer, k: integer): integer
@@ -112,37 +112,34 @@ end
 --- @param seed integer The seed
 --- @return Source A fresh source
 function Rand.new(seed: integer): Rand.Source
-  local st: State = {}
+  local s0, s1, s2, s3: integer, integer, integer, integer
   local x = seed
-  x, st.s0 = splitmix(x)
-  x, st.s1 = splitmix(x)
-  x, st.s2 = splitmix(x)
-  local _, s3 = splitmix(x)
-  st.s3 = s3
+  x, s0 = splitmix(x)
+  x, s1 = splitmix(x)
+  x, s2 = splitmix(x)
+  local _, last = splitmix(x)
+  s3 = last
+  local st: State = { s0 = s0, s1 = s1, s2 = s2, s3 = s3 }
 
-  local source: Rand.Source = {}
-
-  source.int = function(_self: Rand.Source, min: integer, max: integer): integer
-    return Rand.uniform(function(): integer return next64(st) end, min, max)
-  end
-
-  source.float = function(_self: Rand.Source): number
-    return (next64(st) >> 11) * (1.0 / 9007199254740992.0)
-  end
-
-  source.bytes = function(_self: Rand.Source, count: integer): string
-    if count < 0 then
-      error(("rand: bytes(%d): count is negative"):format(count), 2)
-    end
-    local parts: {string} = {}
-    local words = (count + 7) // 8
-    for i = 1, words do
-      parts[i] = string.pack("<i8", next64(st))
-    end
-    return table.concat(parts):sub(1, count)
-  end
-
-  return source
+  return {
+    int = function(_self: Rand.Source, min: integer, max: integer): integer
+      return Rand.uniform(function(): integer return next64(st) end, min, max)
+    end,
+    float = function(_self: Rand.Source): number
+      return (next64(st) >> 11) * (1.0 / 9007199254740992.0)
+    end,
+    bytes = function(_self: Rand.Source, count: integer): string
+      if count < 0 then
+        error(("rand: bytes(%d): count is negative"):format(count), 2)
+      end
+      local parts: mut {string} = {}
+      local words = (count + 7) // 8
+      for i = 1, words do
+        parts[i] = string.pack("<i8", next64(st))
+      end
+      return table.concat(parts):sub(1, count)
+    end,
+  }
 end
 
 --- `count` bytes from the operating system's entropy source
@@ -152,7 +149,7 @@ end
 --- @param count integer How many bytes
 --- @return string | nil The bytes
 --- @return string Why none were drawn, or "" when they were
-function Rand.entropy(count: integer): string | nil, string
+function Rand.entropy(count: integer): string?, string
   local bytes, trouble = sys.entropy(count)
   if bytes == nil then
     return nil, "rand: entropy: " .. trouble

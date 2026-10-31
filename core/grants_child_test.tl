@@ -8,6 +8,7 @@
 --- a start refuses of a grant before any ruleset is made is
 --- core/grants_refused_test.tl's, which needs none.
 
+local RawTables = require("build.raw_tables")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -29,18 +30,7 @@ Test.policy{
   requires = { "landlock" },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 --- What a script left on stdout and stderr, and how its program ended.
 local record Outcome
@@ -48,8 +38,8 @@ local record Outcome
   signal: integer
   said: string
   --- Why the start was refused, when it was.
-  refused: string
-  errno: integer
+  refused?: string
+  errno?: integer
 end
 
 --- Starts `program` with `script` under `grants`, in `tmp`'s directory:
@@ -72,8 +62,9 @@ end
 --- Whether `outcome` is a start refused for want of a sandbox: no Landlock
 --- on this kernel, or none on this platform (ENOSYS).
 local function unsandboxable(outcome: Outcome): boolean
-  return outcome.refused ~= nil and (outcome.errno == sys.ENOSYS or
-    outcome.refused:find("Landlock is not available", 1, true) ~= nil)
+  local refused = outcome.refused
+  return refused ~= nil and (outcome.errno == sys.ENOSYS or
+    refused:find("Landlock is not available", 1, true) ~= nil)
 end
 
 --- The kernel's Landlock ABI, skipping the test where the call, which alone
@@ -81,17 +72,18 @@ end
 local function abi_or_skip(): integer
   local abi, trouble = process.landlock_abi()
   if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
-  return abi
+  local found = assert(abi, "Test.skip ends the test where the call found no Landlock")
+  return found
 end
 
 --- The same, held to the grants of `program` itself (`rx`, which a
 --- child needs to run at all) and `more`. Skips the test where the start
 --- is refused for want of Landlock.
 local function under(tmp: string, program: string, more: {raw_process.Grant}, script: string): Outcome
-  local grants: {raw_process.Grant} = { { path = program, access = "rx" } }
+  local grants: mut {raw_process.Grant} = { { path = program, access = "rx" } }
   for _, grant in ipairs(more) do grants[#grants + 1] = grant end
   local outcome = start(tmp, program, grants, script)
-  if unsandboxable(outcome) then Test.skip(outcome.refused) end
+  if unsandboxable(outcome) then Test.skip(assert(outcome.refused)) end
   assert(outcome.refused == nil, "the start was refused: " .. tostring(outcome.refused))
   return outcome
 end
@@ -104,23 +96,23 @@ local function test_a_granted_path_is_read_and_its_sibling_is_not(tmp: string)
   assert(Fs.write(tmp .. "/ro/a", "alpha\n") and Fs.write(tmp .. "/other/b", "beta\n"))
   local read = under(tmp, probe, { { path = tmp .. "/ro", access = "r" } },
     "cat " .. tmp .. "/ro/a; ls " .. tmp .. "/ro")
-  assert(read.code == 0 and read.said == "alpha\na\n", read.code .. ": " .. read.said)
+  assert(read.code == 0 and read.said == "alpha\na\n", tostring(read.code) .. ": " .. read.said)
   local sibling = under(tmp, probe, { { path = tmp .. "/ro", access = "r" } },
     "cat " .. tmp .. "/other/b")
-  assert(sibling.code == 1 and sibling.said:find(DENIED, 1, true), "refused: " .. sibling.said)
+  assert(sibling.code == 1 and sibling.said:find(DENIED, 1, true) ~= nil, "refused: " .. sibling.said)
   local listing = under(tmp, probe, { { path = tmp .. "/ro", access = "r" } }, "ls " .. tmp .. "/other")
-  assert(listing.code == 1 and listing.said:find(DENIED, 1, true), "refused: " .. listing.said)
+  assert(listing.code == 1 and listing.said:find(DENIED, 1, true) ~= nil, "refused: " .. listing.said)
   -- A grant on one file reaches that file and not its sibling.
   local file = under(tmp, probe, { { path = tmp .. "/ro/a", access = "r" } },
     "cat " .. tmp .. "/ro/a")
   assert(file.code == 0 and file.said == "alpha\n", file.said)
   local beside = under(tmp, probe, { { path = tmp .. "/other/b", access = "r" } },
     "cat " .. tmp .. "/ro/a")
-  assert(beside.code == 1 and beside.said:find(DENIED, 1, true), beside.said)
+  assert(beside.code == 1 and beside.said:find(DENIED, 1, true) ~= nil, beside.said)
   -- Without `r`, a write grant does not read.
   local blind = under(tmp, probe, { { path = tmp .. "/ro/a", access = "w" } },
     "cat " .. tmp .. "/ro/a")
-  assert(blind.code == 1 and blind.said:find(DENIED, 1, true), blind.said)
+  assert(blind.code == 1 and blind.said:find(DENIED, 1, true) ~= nil, blind.said)
 end
 
 local function test_a_write_needs_w_and_a_truncate_too(tmp: string)
@@ -129,9 +121,9 @@ local function test_a_write_needs_w_and_a_truncate_too(tmp: string)
   assert(Fs.write(file, "kept"))
   local without = under(tmp, probe, { { path = file, access = "r" } },
     "writable " .. file)
-  assert(without.code == 1 and without.said:find(DENIED, 1, true), "refused: " .. without.said)
+  assert(without.code == 1 and without.said:find(DENIED, 1, true) ~= nil, "refused: " .. without.said)
   local blocked = under(tmp, probe, { { path = file, access = "r" } }, "truncate " .. file)
-  assert(blocked.code == 1 and blocked.said:find(DENIED, 1, true), "refused: " .. blocked.said)
+  assert(blocked.code == 1 and blocked.said:find(DENIED, 1, true) ~= nil, "refused: " .. blocked.said)
   assert(Fs.read(file) == "kept")
   local with = under(tmp, probe, { { path = file, access = "w" } },
     "writable " .. file .. " && truncate " .. file)
@@ -141,7 +133,7 @@ local function test_a_write_needs_w_and_a_truncate_too(tmp: string)
   assert(Fs.mkdirs(tmp .. "/d"))
   local made = under(tmp, probe, { { path = tmp .. "/d", access = "rw" } },
     "create " .. tmp .. "/d/new x")
-  assert(made.code == 1 and made.said:find(DENIED, 1, true), "refused: " .. made.said)
+  assert(made.code == 1 and made.said:find(DENIED, 1, true) ~= nil, "refused: " .. made.said)
 end
 
 local function test_c_creates_and_removes_where_granted_and_nowhere_else(tmp: string)
@@ -154,16 +146,16 @@ local function test_c_creates_and_removes_where_granted_and_nowhere_else(tmp: st
       tmp .. "/open/fifo; rename " .. tmp .. "/open/new " .. tmp .. "/open/renamed; rm " ..
       tmp .. "/open/renamed; rmdir " .. tmp .. "/open/sub/deeper")
   assert(made.code == 0, "created and removed: " .. made.said)
-  assert(not Fs.exists(tmp .. "/open/new") and not Fs.exists(tmp .. "/open/renamed"))
-  assert(Fs.exists(tmp .. "/open/fifo") and Fs.is_dir(tmp .. "/open/sub"))
+  assert(Fs.exists(tmp .. "/open/new") == false and Fs.exists(tmp .. "/open/renamed") == false)
+  assert(Fs.exists(tmp .. "/open/fifo") == true and Fs.is_dir(tmp .. "/open/sub") == true)
   for _, script in ipairs({
       "create " .. tmp .. "/shut/new x", "mkdirs " .. tmp .. "/shut/sub", "rm " .. tmp .. "/shut/old",
       "mkfifo " .. tmp .. "/shut/fifo",
   }) do
     local refused = under(tmp, probe, grants, script)
-    assert(refused.code == 1 and refused.said:find(DENIED, 1, true), script .. ": " .. refused.said)
+    assert(refused.code == 1 and refused.said:find(DENIED, 1, true) ~= nil, script .. ": " .. refused.said)
   end
-  assert(Fs.exists(tmp .. "/shut/old") and not Fs.exists(tmp .. "/shut/new"))
+  assert(Fs.exists(tmp .. "/shut/old") == true and Fs.exists(tmp .. "/shut/new") == false)
 end
 
 local function test_a_rename_between_grants_needs_c_on_both(tmp: string)
@@ -173,16 +165,16 @@ local function test_a_rename_between_grants_needs_c_on_both(tmp: string)
   local both: {raw_process.Grant} = { { path = tmp .. "/a", access = "c" }, { path = tmp .. "/b", access = "c" } }
   local moved = under(tmp, probe, both, "rename " .. tmp .. "/a/f " .. tmp .. "/b/f")
   assert(moved.code == 0, "renamed: " .. moved.said)
-  assert(Fs.exists(tmp .. "/b/f") and not Fs.exists(tmp .. "/a/f"))
+  assert(Fs.exists(tmp .. "/b/f") == true and Fs.exists(tmp .. "/a/f") == false)
   -- Into a directory granted to read alone: refused, as any creation there is.
   local read_only: {raw_process.Grant} = { { path = tmp .. "/a", access = "c" }, { path = tmp .. "/c", access = "r" } }
   local refused = under(tmp, probe, read_only, "rename " .. tmp .. "/a/g " .. tmp .. "/c/g")
-  assert(refused.code == 1 and refused.said:find(DENIED, 1, true), "refused: " .. refused.said)
+  assert(refused.code == 1 and refused.said:find(DENIED, 1, true) ~= nil, "refused: " .. refused.said)
   -- A file may not move to where it would gain rights it has not where it is
   -- (no read in a, one in b): Landlock answers EXDEV.
   local more: {raw_process.Grant} = { { path = tmp .. "/a", access = "c" }, { path = tmp .. "/b", access = "rc" } }
   local gained = under(tmp, probe, more, "rename " .. tmp .. "/a/g " .. tmp .. "/b/g")
-  assert(gained.code == 1 and gained.said:find("Cross-device link", 1, true), "EXDEV: " .. gained.said)
+  assert(gained.code == 1 and gained.said:find("Cross-device link", 1, true) ~= nil, "EXDEV: " .. gained.said)
   assert(Fs.exists(tmp .. "/a/g"))
 end
 
@@ -192,9 +184,9 @@ local function test_x_runs_a_granted_program_and_no_other(tmp: string)
   local other = assert(stand_in.build(tmp .. "/bin/other"))
   local script = "run " .. other .. " print inner"
   local without = under(tmp, probe, { { path = other, access = "r" } }, script)
-  assert(without.code == 127 and without.said == "", "not run: " .. without.code .. " " .. without.said)
+  assert(without.code == 127 and without.said == "", "not run: " .. tostring(without.code) .. " " .. without.said)
   local with = under(tmp, probe, { { path = other, access = "rx" } }, script)
-  assert(with.code == 0 and with.said == "inner\n", "run: " .. with.code .. " " .. with.said)
+  assert(with.code == 0 and with.said == "inner\n", "run: " .. tostring(with.code) .. " " .. with.said)
 end
 
 local function test_a_grant_that_does_not_exist_fails_the_start_naming_it(tmp: string)
@@ -202,8 +194,9 @@ local function test_a_grant_that_does_not_exist_fails_the_start_naming_it(tmp: s
   local missing = tmp .. "/missing"
   local outcome = start(tmp, probe, { { path = probe, access = "rx" }, { path = missing, access = "r" } },
     "print never")
-  if unsandboxable(outcome) then Test.skip(outcome.refused) end
-  assert(outcome.refused ~= nil and outcome.refused:find(missing, 1, true), "names the path: " .. tostring(outcome.refused))
+  if unsandboxable(outcome) then Test.skip(assert(outcome.refused)) end
+  local refused = outcome.refused
+  assert(refused ~= nil and refused:find(missing, 1, true) ~= nil, "names the path: " .. tostring(refused))
   assert(outcome.errno == sys.ENOENT, "ENOENT: " .. tostring(outcome.errno))
   assert(outcome.said == "")
 end
@@ -228,10 +221,11 @@ local function test_u_connects_to_a_granted_socket_where_the_kernel_can_hold_it(
   local grants: {raw_process.Grant} = { { path = probe, access = "rx" }, { path = socket, access = "u" } }
   local with = start(tmp, probe, grants, script)
   if abi < 9 then
+    local refused = with.refused
     -- Below ABI 9 the start fails, naming the ABI that is needed and the one given.
-    assert(with.refused ~= nil and with.errno == sys.EOPNOTSUPP, "EOPNOTSUPP: " .. tostring(with.refused))
-    assert(with.refused:find("Landlock ABI 9 is needed", 1, true) and
-        with.refused:find("this kernel gives " .. abi, 1, true), with.refused)
+    assert(refused ~= nil and with.errno == sys.EOPNOTSUPP, "EOPNOTSUPP: " .. tostring(refused))
+    assert(refused:find("Landlock ABI 9 is needed", 1, true) and
+        refused:find("this kernel gives " .. tostring(abi), 1, true), refused)
     return
   end
   assert(with.refused == nil, "the start was refused: " .. tostring(with.refused))
@@ -266,16 +260,19 @@ local function test_a_signal_to_a_process_outside_is_refused_where_the_kernel_sc
   local sleeper = assert(process.spawn(probe, { probe, "sleep-forever" }, nil, nil, nil, nil, nil,
     false))
   -- The start may skip the test, which must not leave the sleeper running.
-  local started, result = pcall(under, tmp, probe, {}, "signal KILL " .. sleeper)
+  local sent: Outcome? = nil
+  local started, result = pcall(function()
+    sent = under(tmp, probe, {}, "signal KILL " .. tostring(sleeper))
+  end)
   sys.kill(sleeper, sys.SIGKILL)
   assert(assert(process.waitpid(sleeper, false)).signal == sys.SIGKILL)
   if not started then error(result, 0) end
-  local sent = result as Outcome -- cast: pcall answers `any`
+  local landed = assert(sent, "pcall ran `under` to its end")
   if abi >= 6 then
-    assert(sent.code == 1 and sent.said:find("not permitted", 1, true), "scoped: " .. sent.said)
+    assert(landed.code == 1 and landed.said:find("not permitted", 1, true) ~= nil, "scoped: " .. landed.said)
   else
     -- Nothing scopes a signal below ABI 6: the child's kill lands.
-    assert(sent.code == 0, "sent: " .. sent.said)
+    assert(landed.code == 0, "sent: " .. landed.said)
   end
 end
 
@@ -285,7 +282,7 @@ end
 local function forking(tmp: string, program: string, script: string): Outcome
   local outcome = start(tmp, program, { { path = program, access = "rx" },
     { path = tmp, access = "rwcx" } }, script, { "fork" })
-  if unsandboxable(outcome) then Test.skip(outcome.refused) end
+  if unsandboxable(outcome) then Test.skip(assert(outcome.refused)) end
   assert(outcome.refused == nil, "the start was refused: " .. tostring(outcome.refused))
   return outcome
 end
@@ -304,10 +301,10 @@ local function test_a_forked_process_signals_itself_where_the_kernel_scopes_sign
   -- The grandchild's pid is not the one the filter was built for.
   local own = forking(tmp, probe, "run " .. probe .. " signal TERM")
   if abi >= 6 then
-    assert(own.code == 128 + sys.SIGTERM, "its own signal lands: " .. own.code .. " " .. own.said)
+    assert(own.code == 128 + sys.SIGTERM, "its own signal lands: " .. tostring(own.code) .. " " .. own.said)
   else
-    assert(own.code == 1 and own.said:find("not permitted", 1, true),
-      "below ABI 6 the filter keeps it to the starting pid: " .. own.code .. " " .. own.said)
+    assert(own.code == 1 and own.said:find("not permitted", 1, true) ~= nil,
+      "below ABI 6 the filter keeps it to the starting pid: " .. tostring(own.code) .. " " .. own.said)
   end
 end
 
@@ -321,10 +318,10 @@ local function test_a_process_signals_what_it_forked_where_the_kernel_scopes_sig
       "; signal KILL @" .. pidfile)
   end_left_by(pidfile)
   if abi >= 6 then
-    assert(killed.code == 0, "its child is its to signal: " .. killed.code .. " " .. killed.said)
+    assert(killed.code == 0, "its child is its to signal: " .. tostring(killed.code) .. " " .. killed.said)
   else
-    assert(killed.code == 1 and killed.said:find("not permitted", 1, true),
-      "below ABI 6 the filter refuses it: " .. killed.code .. " " .. killed.said)
+    assert(killed.code == 1 and killed.said:find("not permitted", 1, true) ~= nil,
+      "below ABI 6 the filter refuses it: " .. tostring(killed.code) .. " " .. killed.said)
   end
 end
 
@@ -334,15 +331,19 @@ local function test_a_signal_outside_the_domain_is_refused_though_the_filter_let
   local sleeper = assert(process.spawn(probe, { probe, "sleep-forever" }, nil, nil, nil, nil, nil,
     false))
   -- The start may skip the test, which must not leave the sleeper running.
-  local started, result = pcall(forking, tmp, probe, "signal KILL " .. sleeper)
+  local sent: Outcome? = nil
+  local started, result = pcall(function()
+    sent = forking(tmp, probe, "signal KILL " .. tostring(sleeper))
+  end)
   local alive = sys.kill(sleeper, 0)
   sys.kill(sleeper, sys.SIGKILL)
   assert(assert(process.waitpid(sleeper, false)).signal == sys.SIGKILL)
   if not started then error(result, 0) end
-  local sent = result as Outcome -- cast: pcall answers `any`
+  local refused = assert(sent, "pcall ran `forking` to its end")
   -- Above ABI 6 the filter takes any pid and Landlock's EPERM is the answer;
   -- below, the filter's own is.
-  assert(sent.code == 1 and sent.said:find("not permitted", 1, true), "refused: " .. sent.said)
+  assert(refused.code == 1 and refused.said:find("not permitted", 1, true) ~= nil,
+    "refused: " .. refused.said)
   assert(alive, "the process outside the sandbox was not signalled")
 end
 
@@ -352,7 +353,10 @@ local function test_a_ruleset_descriptor_keeps_the_filter_to_the_starting_pid(tm
   abi_or_skip()
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local ruleset, trouble = process.landlock_ruleset({ probe }, { tmp })
-  if ruleset == nil then Test.skip("no ruleset: " .. tostring(trouble)) end
+  if ruleset == nil then
+    Test.skip("no ruleset: " .. tostring(trouble))
+    return
+  end
   local path = tmp .. "/said"
   local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local pid, why = process.spawn(probe, { probe, "run " .. probe .. " signal TERM" }, nil, nil, nil,
@@ -362,17 +366,18 @@ local function test_a_ruleset_descriptor_keeps_the_filter_to_the_starting_pid(tm
   local status = assert(process.waitpid(pid, false))
   sys.close(output)
   local said = Fs.read(path) or ""
-  assert(status.code == 1 and said:find("not permitted", 1, true),
-    "its own pid only: " .. status.code .. " " .. said)
+  assert(status.code == 1 and said:find("not permitted", 1, true) ~= nil,
+    "its own pid only: " .. tostring(status.code) .. " " .. said)
 end
 
 local function test_no_grants_grant_nothing_and_the_program_needs_its_own(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local none = start(tmp, probe, {}, "print never")
-  if unsandboxable(none) then Test.skip(none.refused) end
+  if unsandboxable(none) then Test.skip(assert(none.refused)) end
+  local refused = none.refused
   -- Held to nothing, the child cannot run its own program: the start fails, and says why.
-  assert(none.refused ~= nil and none.errno == sys.EACCES, "EACCES: " .. tostring(none.refused))
-  assert(none.refused:find("`rx` grant", 1, true), none.refused)
+  assert(refused ~= nil and none.errno == sys.EACCES, "EACCES: " .. tostring(refused))
+  assert(refused:find("`rx` grant", 1, true), refused)
   local read_only = start(tmp, probe, { { path = probe, access = "r" } }, "print never")
   assert(read_only.errno == sys.EACCES, "execute is its own letter: " .. tostring(read_only.refused))
 end
@@ -384,8 +389,8 @@ local function test_c_on_a_file_grants_nothing(tmp: string)
   -- A file takes no creation right, so the grant adds no rule: the start goes on and
   -- the file is as ungranted as if it were not named.
   local read = under(tmp, probe, { { path = file, access = "c" } }, "cat " .. file)
-  assert(read.code == 1 and read.said:find(DENIED, 1, true), "not read: " .. read.said)
+  assert(read.code == 1 and read.said:find(DENIED, 1, true) ~= nil, "not read: " .. read.said)
   local removed = under(tmp, probe, { { path = file, access = "c" } }, "rm " .. file)
-  assert(removed.code == 1 and removed.said:find(DENIED, 1, true), "not removed: " .. removed.said)
+  assert(removed.code == 1 and removed.said:find(DENIED, 1, true) ~= nil, "not removed: " .. removed.said)
   assert(Fs.read(file) == "kept\n")
 end

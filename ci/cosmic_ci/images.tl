@@ -8,8 +8,21 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Seams = require("cosmic_ci.seams")
 
 local record Images
+  --- How a command came out: 0 and "", or docker's failing status and why.
+  record Outcome
+    mut code: integer
+    mut trouble: string
+  end
+
+  --- The words after `docker` for each of publish's three commands.
+  record PublishArgvs
+    login: {string}
+    create: {string}
+    inspect: {string}
+  end
 end
 
 --- `env[name]`, which must be set and not empty. Unlike the rest of the
@@ -35,7 +48,7 @@ function Images.build_argv(env: {string:string}): {string}
   local image = required(env, "IMAGE")
   local arch = required(env, "ARCH")
   local sha = required(env, "GITHUB_SHA")
-  local argv: {string} = {
+  local argv: mut {string} = {
     "buildx", "build",
     "--platform", "linux/" .. arch, "--provenance=false",
     "--label", "org.opencontainers.image.source=" ..
@@ -55,24 +68,24 @@ end
 --- architecture in the blank-separated `arches` under `name:sha`, and
 --- the inspection of the index that join made.
 function Images.publish_argvs(name: string, actor: string, sha: string,
-                              arches: string): {string}, {string}, {string}
+                              arches: string): Images.PublishArgvs
   local login: {string} = { "login", "ghcr.io", "-u", actor, "--password-stdin" }
-  local create: {string} = { "buildx", "imagetools", "create", "--tag",
+  local create: mut {string} = { "buildx", "imagetools", "create", "--tag",
     name .. ":" .. sha }
   for arch in arches:gmatch("[^ \t\n]+") do
     create[#create + 1] = name .. ":" .. sha .. "-" .. arch
   end
   local inspect: {string} = { "buildx", "imagetools", "inspect", name .. ":" .. sha }
-  return login, create, inspect
+  return { login = login, create = create, inspect = inspect }
 end
 
 --- The digest `imagetools inspect` reports: the second field of the first
 --- line whose first is `Digest:`, as `awk '$1 == "Digest:"'` reads it,
 --- and nil unless it is a sha256 one.
-function Images.digest(output: string): string | nil
+function Images.digest(output: string): string?
   for line in output:gmatch("[^\n]*") do
     local first, second = line:match("^[ \t]*([^ \t]+)[ \t]*([^ \t]*)")
-    if first == "Digest:" then
+    if first == "Digest:" and second ~= nil then
       if second:sub(1, 7) == "sha256:" then return second end
       return nil
     end
@@ -83,7 +96,7 @@ end
 --- The environment docker runs in: the job's, less the token, which only
 --- the login's stdin carries.
 local function docker_environment(env: {string:string}): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for name, value in pairs(env) do
     if name ~= "TOKEN" then out[name] = value end
   end
@@ -95,17 +108,20 @@ end
 --- answers its stdout as well.
 local function docker(env: {string:string}, words: {string},
                       input?: string, capture?: boolean): integer, string, string
-  local found, missing = Proc.find("docker", env.PATH)
+  local found, missing = Proc.find("docker", env["PATH"])
   if found == nil then return 127, "docker: " .. missing, "" end
   -- A relative PATH entry names docker from the driver's cwd, not the
   -- checkout's root it runs in.
   found = assert(Fs.absolute(found))
-  local argv: {string} = { found }
+  local argv: mut {string} = { found }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
-  local options: Child.Options = { cwd = required(env, "GITHUB_WORKSPACE"),
-    env = docker_environment(env) }
-  if input then options.input = input end
-  if capture then options.stdout = "capture" end
+  local cwd = required(env, "GITHUB_WORKSPACE")
+  local options: Child.Options
+  if capture == true then
+    options = { cwd = cwd, env = docker_environment(env), input = input, stdout = "capture" }
+  else
+    options = { cwd = cwd, env = docker_environment(env), input = input }
+  end
   -- Named by the words before its first option, which hold no secret.
   local label = "docker"
   for i = 1, 3 do
@@ -125,9 +141,9 @@ end
 
 --- Builds one image for one architecture, pushing it when PUBLISH is
 --- true: 0, or docker's failing status and why.
-function Images.build(env: {string:string}): integer, string
+function Images.build(env: {string:string}): Images.Outcome
   local code, trouble = docker(env, Images.build_argv(env))
-  return code, trouble
+  return { code = code, trouble = trouble }
 end
 
 --- Joins one image's architectures under `name:SOURCE_COMMIT`, the
@@ -135,43 +151,44 @@ end
 --- in ci-images-publish.yml's workflow_run is main's head), writes its
 --- `name@digest` to `out`, and appends it to the step summary: 0, or a
 --- failing status and why.
-function Images.publish(env: {string:string}, out: integer): integer, string
+function Images.publish(env: {string:string}, out: integer): Images.Outcome
   local image = required(env, "IMAGE")
   local name = Images.name(required(env, "GITHUB_REPOSITORY"), image)
   local sha = required(env, "SOURCE_COMMIT")
   local summary = required(env, "GITHUB_STEP_SUMMARY")
   local token = required(env, "TOKEN")
-  local login, create, inspect = Images.publish_argvs(name,
+  local argvs = Images.publish_argvs(name,
     required(env, "GITHUB_ACTOR"), sha, required(env, "ARCHES"))
-  local code, trouble = docker(env, login, token .. "\n")
-  if code ~= 0 then return code, trouble end
-  code, trouble = docker(env, create)
-  if code ~= 0 then return code, trouble end
+  local code, trouble = docker(env, argvs.login, token .. "\n")
+  if code ~= 0 then return { code = code, trouble = trouble } end
+  code, trouble = docker(env, argvs.create)
+  if code ~= 0 then return { code = code, trouble = trouble } end
   local report: string
-  code, trouble, report = docker(env, inspect, nil, true)
-  if code ~= 0 then return code, trouble end
+  code, trouble, report = docker(env, argvs.inspect, nil, true)
+  if code ~= 0 then return { code = code, trouble = trouble } end
   local digest = Images.digest(report)
-  if digest == nil then return 1, "no digest for " .. name .. ":" .. sha end
+  if digest == nil then return { code = 1, trouble = "no digest for " .. name .. ":" .. sha } end
   local reference = name .. "@" .. digest
-  local put, put_trouble = Fs.put(out, reference .. "\n")
-  if not put then return 1, put_trouble end
-  local appended, append_trouble = Fs.append(summary,
+  local seams = Seams.calls()
+  local put, put_trouble = seams.fs_put(out, reference .. "\n")
+  if not put then return { code = 1, trouble = put_trouble } end
+  local appended, append_trouble = seams.fs_append(summary,
     image .. ": `" .. reference .. "`\n")
-  if not appended then return 1, append_trouble end
-  return 0, ""
+  if not appended then return { code = 1, trouble = append_trouble } end
+  return { code = 0, trouble = "" }
 end
 
 local function command(name: string, argv: {string},
-                       run: function({string:string}): integer, string): integer
+                       run: function({string:string}): Images.Outcome): integer
   if #argv > 0 then
     local _, _ = Fs.put(Fs.stderr, "driver.tl " .. name .. ": takes no arguments\n")
     return 2
   end
-  local code, trouble = run(Env.all())
-  if code ~= 0 then
-    local _, _ = Fs.put(Fs.stderr, name .. ": " .. trouble .. "\n")
+  local outcome = run(Env.all())
+  if outcome.code ~= 0 then
+    local _, _ = Fs.put(Fs.stderr, name .. ": " .. outcome.trouble .. "\n")
   end
-  return code
+  return outcome.code
 end
 
 function Images.build_command(argv: {string}): integer
@@ -179,7 +196,7 @@ function Images.build_command(argv: {string}): integer
 end
 
 function Images.publish_command(argv: {string}): integer
-  return command("image-publish", argv, function(env: {string:string}): integer, string
+  return command("image-publish", argv, function(env: {string:string}): Images.Outcome
     return Images.publish(env, Fs.stdout)
   end)
 end

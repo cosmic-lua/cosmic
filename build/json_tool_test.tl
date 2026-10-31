@@ -1,5 +1,5 @@
 --- `cosmic json` run as this program: real standard input, and the
---- rule that it prints its value and no verdict line, exiting 0, 1 or 2.
+--- rule that it prints its value and no summary, exiting 0, 1 or 2.
 --- These start this program, so they need `tool`; the lookups themselves
 --- are in `json_test.tl`.
 
@@ -27,7 +27,7 @@ local function cosmic(dir: string, words: {string}, input?: string): Ran
   return { code = result.code, out = result.stdout or "", err = result.stderr or "" }
 end
 
-local function test_it_reads_standard_input_and_prints_no_verdict(tmp: string)
+local function test_it_reads_standard_input_and_prints_no_summary(tmp: string)
   local ran = cosmic(tmp, { "json", "$.a[1]" }, '{"a": [1, {"b": "c"}]}')
   assert(ran.code == 0, ran.err)
   assert(ran.out == '{\n  "b": "c"\n}\n', ran.out)

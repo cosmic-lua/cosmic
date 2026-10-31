@@ -26,7 +26,7 @@ local BLOCK_PIECES <const> = {
 }
 
 local function gen_text(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local count = 0
   -- One input in four draws them, so the rest reach a reference.
   local blocks = src:int(0, 3) == 0
@@ -45,37 +45,39 @@ local FORMS <const>: {string: boolean} = {
 
 local function parse_holds(input: string): boolean, string
   local found = link_text.parse(input)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in String.lines(input) do lines[#lines + 1] = line end
   if #found == 0 then
     Fuzz.label("none")
   end
   for _, link in ipairs(found) do
     Fuzz.label(link.form)
-    if not FORMS[link.form] then return false, "an unknown form: " .. link.form end
+    if FORMS[link.form] ~= true then return false, "an unknown form: " .. link.form end
     local line = lines[link.line]
-    if line == nil then return false, "a link past the last line: " .. link.line end
+    if line == nil then return false, "a link past the last line: " .. tostring(link.line) end
     if line:sub(link.column, link.column) ~= "[" then
-      return false, "no [ at line " .. link.line .. ", column " .. link.column
+      return false, "no [ at line " .. tostring(link.line) .. ", column " .. tostring(link.column)
     end
     if link.target == nil and link.form ~= "reference" then
       return false, "a " .. link.form .. " with no target"
     end
     if link.target == "" then return false, "an empty target" end
   end
-  local shown: {string} = {}
+  local shown: mut {string} = {}
   for line in String.lines(link_text.without_code(input)) do shown[#shown + 1] = line end
-  if #shown ~= #lines then return false, "without_code made " .. #lines .. " lines " .. #shown end
+  if #shown ~= #lines then
+    return false, "without_code made " .. tostring(#lines) .. " lines " .. tostring(#shown)
+  end
   for number, line in ipairs(shown) do
     local was = lines[number]
     if line ~= "" and #line ~= #was then
-      return false, "without_code moved the bytes of line " .. number
+      return false, "without_code moved the bytes of line " .. tostring(number)
     end
     -- A line it keeps is the same, but for a comment's bytes blanked.
     for at = 1, #line do
       local c = line:sub(at, at)
       if c ~= was:sub(at, at) and c ~= " " then
-        return false, "without_code changed byte " .. at .. " of line " .. number
+        return false, "without_code changed byte " .. tostring(at) .. " of line " .. tostring(number)
       end
     end
     if line ~= was then Fuzz.label("hidden") end

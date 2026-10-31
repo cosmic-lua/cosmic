@@ -6,6 +6,7 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local c = require("build.c")
 local rules = require("build.c.rules")
+local tree = require("build.c.tree")
 
 --- The core's C and the headers it includes, which zig parses to a syntax
 --- tree, and what bin/zig reads to find or fetch zig, which the system's
@@ -18,6 +19,7 @@ Test.policy{
     { path = "bin/zig", letters = "r" },
     { path = "bin/zig.pin", letters = "r" },
     { path = "ci/cosmic-driver.pin", letters = "r" },
+    { path = "ci/bootstrap-files.txt", letters = "r" },
     { path = "core/", letters = "r" },
     { path = "vendor/bzip2/", letters = "r" },
     { path = "vendor/cares/include/", letters = "r" },
@@ -44,21 +46,24 @@ local root = assert(Fs.absolute("."))
 local function findings(tmp: string, source: string): {rules.Finding}
   assert(Fs.write(tmp .. "/case.c", source))
   local outcome = c.check(root, { "case.c" }, tmp)[1]
-  assert(outcome.findings ~= nil, outcome.trouble)
-  return outcome.findings
+  local outcome_findings = outcome.findings
+  assert(outcome_findings ~= nil, outcome.trouble)
+  return outcome_findings
 end
 
 --- Asserts `found` is exactly one finding of `rule`, on `line`.
 local function one(found: {rules.Finding}, rule: string, line: integer)
-  local said: {string} = {}
-  for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule end
+  local said: mut {string} = {}
+  for _, f in ipairs(found) do said[#said + 1] = tostring(f.line) .. " " .. f.rule end
   assert(#found == 1 and found[1].rule == rule and found[1].line == line,
-    "expected " .. line .. " " .. rule .. ", found: " .. table.concat(said, ", "))
+    "expected " .. tostring(line) .. " " .. rule .. ", found: " .. table.concat(said, ", "))
 end
 
 local function none(found: {rules.Finding})
-  local said: {string} = {}
-  for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule .. ": " .. f.message end
+  local said: mut {string} = {}
+  for _, f in ipairs(found) do
+    said[#said + 1] = tostring(f.line) .. " " .. f.rule .. ": " .. f.message
+  end
   assert(#found == 0, "expected nothing, found: " .. table.concat(said, "; "))
 end
 
@@ -126,6 +131,50 @@ int f(lua_State *L) {
   return 1;
 }
 ]]), "held-across-raise", 9)
+end
+
+--- Clang accepts `$` in an identifier; a function named with one was once
+--- skipped by every function-level rule.
+local function test_a_dollar_named_function_is_checked_under_its_whole_name(tmp: string)
+  local held = findings(tmp, header .. [[
+int f$(lua_State *L) {
+  char *p = malloc(8);
+  lua_pushstring(L, "allocates");
+  free(p);
+  return 1;
+}
+]])
+  one(held, "held-across-raise", 8)
+  for _, f in ipairs(held) do assert(f.within == "f$", f.within) end
+  local narrowed = findings(tmp, header .. [[
+int $g(lua_State *L) {
+  return (int)luaL_checkinteger(L, 1);
+}
+]])
+  one(narrowed, "narrowed-integer", 7)
+  for _, f in ipairs(narrowed) do assert(f.within == "$g", f.within) end
+end
+
+--- A defined function whose name is not read is trouble naming its place,
+--- not a function the rules pass over. C cannot spell one, so the dump is
+--- written out.
+local function test_a_defined_function_with_no_name_is_trouble()
+  local decls = tree.parse(table.concat({
+    "TranslationUnitDecl 0x1 <<invalid sloc>> <invalid sloc>",
+    "|-FunctionDecl 0x3 <core/a.c:4:1, line:7:1> line:4:12 'int (lua_State *)' static",
+    "| `-CompoundStmt 0x5 <col:28, line:7:1>",
+    "`-FunctionDecl 0x6 <line:9:1, col:20> col:5 g 'int (void)'",
+  }, "\n"))
+  local trouble = assert(rules.unreadable(decls))
+  assert(trouble:find("core/a.c:4", 1, true) ~= nil, trouble)
+  -- A name that is read, and a declaration with no body, are not trouble.
+  local named = tree.parse(table.concat({
+    "TranslationUnitDecl 0x1 <<invalid sloc>> <invalid sloc>",
+    "|-FunctionDecl 0x6 <core/a.c:9:1, line:11:1> line:9:5 $g 'int (void)'",
+    "| `-CompoundStmt 0x7 <col:14, line:11:1>",
+    "`-FunctionDecl 0x8 <line:13:1, col:20> col:5 h 'int (void)'",
+  }, "\n"))
+  assert(rules.unreadable(named) == nil)
 end
 
 local function test_memory_released_first_or_guarded_is_not(tmp: string)
@@ -224,7 +273,7 @@ local function test_c_clang_cannot_read_is_refused(tmp: string)
   assert(Fs.write(tmp .. "/case.c", "int f(void) { return undeclared; }\n"))
   local outcome = c.check(root, { "case.c" }, tmp)[1]
   assert(outcome.findings == nil)
-  assert(outcome.trouble:find("undeclared", 1, true) ~= nil, outcome.trouble)
+  assert(assert(outcome.trouble):find("undeclared", 1, true) ~= nil, outcome.trouble)
 end
 
 --- A pointer into a string counted from the top is good only while the
@@ -295,12 +344,12 @@ COSMIC_SYSCALL(open, 3) {
 ]])
   assert(#found == 2 and found[1].rule == "returned-shape" and found[1].line == 11 and
       found[2].rule == "returned-shape" and found[2].line == 18,
-    "expected two returned-shape findings, found " .. #found)
+    "expected two returned-shape findings, found " .. tostring(#found))
 end
 
 --- The findings of `rule` alone among `found`.
 local function only(found: {rules.Finding}, rule: string): {rules.Finding}
-  local out: {rules.Finding} = {}
+  local out: mut {rules.Finding} = {}
   for _, f in ipairs(found) do
     if f.rule == rule then out[#out + 1] = f end
   end
@@ -322,8 +371,8 @@ COSMIC_SYSCALL(entropy, 1) {
   return cosmic_ok(L);
 }
 ]])
-  local said: {string} = {}
-  for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule end
+  local said: mut {string} = {}
+  for _, f in ipairs(found) do said[#said + 1] = tostring(f.line) .. " " .. f.rule end
   assert(#found == 3 and found[1].rule == "failure-shape" and found[1].line == 9 and
       found[2].line == 13 and found[3].line == 14,
     "expected three failure-shape findings, found: " .. table.concat(said, ", "))
@@ -355,8 +404,8 @@ COSMIC_SYSCALL(execve, 3) {
   return worse(L, ENOENT);
 }
 ]])
-  local said: {string} = {}
-  for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule end
+  local said: mut {string} = {}
+  for _, f in ipairs(found) do said[#said + 1] = tostring(f.line) .. " " .. f.rule end
   assert(#found == 2 and found[1].rule == "failure-shape" and found[1].line == 12 and
       found[2].line == 13, "found: " .. table.concat(said, ", "))
 end
@@ -409,8 +458,8 @@ static int helper (lua_State *L) {
   return 1;
 }
 ]]), "descriptor-argument")
-  local said: {string} = {}
-  for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.within end
+  local said: mut {string} = {}
+  for _, f in ipairs(found) do said[#said + 1] = tostring(f.line) .. " " .. f.within end
   assert(#found == 5 and found[1].line == 9 and found[1].within == "cosmic_sys_read" and
       found[2].line == 10 and found[3].line == 15 and found[3].within == "cosmic_sys_dup2" and
       found[4].line == 22 and found[4].within == "helper" and
@@ -475,8 +524,8 @@ int held (int x) {
   return fits;
 }
 ]]), "pass-fail-int")
-  local said: {string} = {}
-  for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.within end
+  local said: mut {string} = {}
+  for _, f in ipairs(found) do said[#said + 1] = tostring(f.line) .. " " .. f.within end
   assert(#found == 3 and found[1].line == 7 and found[2].line == 14 and
       found[3].line == 19, "found: " .. table.concat(said, ", "))
 end
@@ -587,10 +636,11 @@ local function checked(tmp: string, sources: {string: string}, files: {string}):
   for name, source in pairs(sources) do
     assert(Fs.write(tmp .. "/" .. name, source))
   end
-  local out: {rules.Finding} = {}
+  local out: mut {rules.Finding} = {}
   for _, outcome in ipairs(c.check(root, files, tmp)) do
-    assert(outcome.findings ~= nil, outcome.trouble)
-    for _, f in ipairs(outcome.findings) do out[#out + 1] = f end
+    local outcome_findings = outcome.findings
+    assert(outcome_findings ~= nil, outcome.trouble)
+    for _, f in ipairs(outcome_findings) do out[#out + 1] = f end
   end
   return out
 end
@@ -631,13 +681,13 @@ local function test_a_tree_larger_than_the_limit_is_refused(tmp: string)
   assert(Fs.write(tmp .. "/case.c", header .. "int f(void) { return 0; }\n"))
   local outcome = c.check(root, { "case.c" }, tmp, 4096)[1]
   assert(outcome.findings == nil, "a cut tree was checked")
-  assert(outcome.trouble:find("larger than 4096", 1, true) ~= nil, outcome.trouble)
+  assert(assert(outcome.trouble):find("larger than 4096", 1, true) ~= nil, outcome.trouble)
 end
 
 --- A file that could not be read leaves what it refers to unknown, so
 --- nothing is said of sharing.
 local function test_an_unreadable_file_says_nothing_of_sharing(tmp: string)
-  local sources: {string: string} = {}
+  local sources: mut {string: string} = {}
   for name, source in pairs(two_files) do sources[name] = source end
   sources["b.c"] = "int total (void) { return undeclared; }\n"
   for name, source in pairs(sources) do
@@ -645,7 +695,7 @@ local function test_an_unreadable_file_says_nothing_of_sharing(tmp: string)
   end
   local outcomes = c.check(root, { "a.c", "b.c" }, tmp)
   assert(outcomes[2].findings == nil, "b.c was read")
-  none(only(outcomes[1].findings, "single-file"))
+  none(only(assert(outcomes[1].findings), "single-file"))
 end
 
 --- A compiler reads nothing it was not given: a header named by a path
@@ -661,8 +711,9 @@ local function test_a_compiler_reads_no_path_it_was_not_given(tmp: string)
   -- own, where the kernel gives one.
   local sandboxed = root == "/tree"
   local outcome = c.check(root, { "case.c" }, tmp)[1]
-  local not_found = outcome.findings == nil and outcome.trouble ~= nil and
-    outcome.trouble:find("AGENTS.md' file not found", 1, true) ~= nil
+  local trouble = outcome.trouble
+  local not_found = outcome.findings == nil and trouble ~= nil and
+    trouble:find("AGENTS.md' file not found", 1, true) ~= nil
   if not sandboxed and not not_found then
     -- The kernel could confine none: the compiler read what it found,
     -- which, not being C, it answers with errors rather than findings.
@@ -672,5 +723,55 @@ local function test_a_compiler_reads_no_path_it_was_not_given(tmp: string)
     return
   end
   assert(outcome.findings == nil, "the header was read")
-  assert(outcome.trouble:find("AGENTS.md' file not found", 1, true), outcome.trouble)
+  assert(assert(outcome.trouble):find("AGENTS.md' file not found", 1, true), outcome.trouble)
+end
+
+--- A violation under a guard of one target or of the checked core is
+--- found there, with the variants it was found under named.
+local function guarded(tmp: string, condition: string): c.Outcome
+  assert(Fs.write(tmp .. "/case.c", '#include "lauxlib.h"\n#if ' .. condition ..
+      '\nint f(lua_State *L) { return (int)luaL_checkinteger(L, 1); }\n#endif\n'))
+  return c.check(root, { "case.c" }, tmp)[1]
+end
+
+local function test_a_violation_under_each_target_is_found(tmp: string)
+  for condition, variant in pairs({
+      ["1"] = "x86_64-linux-musl",
+      ["defined(__APPLE__)"] = "aarch64-macos",
+      ["defined(__aarch64__) && defined(__linux__)"] = "aarch64-linux-musl",
+      ["defined(COSMIC_CHECKED)"] = "x86_64-linux-musl checked",
+  }) do
+    local outcome = guarded(tmp, condition)
+    local outcome_findings = outcome.findings
+    assert(outcome_findings ~= nil, outcome.trouble)
+    local found = only(outcome_findings, "narrowed-integer")
+    assert(#found == 1, condition .. ": " .. tostring(#found) .. " findings")
+    local named = table.concat(assert(found[1].variants), ",")
+    assert(named:find(variant, 1, true), condition .. " was found under " .. named)
+  end
+end
+
+--- Code no variant sees is checked once; a header's guard counts for the
+--- file that includes it.
+local function test_a_file_no_guard_reaches_is_checked_once(tmp: string)
+  assert(Fs.write(tmp .. "/case.c", "int total(void) { return 1; }\n"))
+  local variants = assert(c.check(root, { "case.c" }, tmp)[1].variants)
+  assert(#variants == 1, table.concat(variants, ","))
+  assert(Fs.write(tmp .. "/guard.h", "#ifdef __APPLE__\n#endif\n"))
+  assert(Fs.write(tmp .. "/case.c", '#include "guard.h"\nint total(void) { return 1; }\n'))
+  variants = assert(c.check(root, { "case.c" }, tmp)[1].variants)
+  assert(#variants == #c.variants - 1, table.concat(variants, ","))
+  assert(Fs.write(tmp .. "/guard.h", "#ifdef COSMIC_CHECKED\n#endif\n"))
+  variants = assert(c.check(root, { "case.c" }, tmp)[1].variants)
+  assert(variants[#variants] == c.variants[#c.variants].name, table.concat(variants, ","))
+  assert(#variants == 2, table.concat(variants, ","))
+end
+
+--- A target that cannot compile the file fails it, naming the target.
+local function test_a_variant_that_cannot_compile_a_file_is_named(tmp: string)
+  assert(Fs.write(tmp .. "/case.c",
+    "#ifdef __APPLE__\nint broken = ;\n#endif\nint total(void) { return 1; }\n"))
+  local outcome = c.check(root, { "case.c" }, tmp)[1]
+  assert(outcome.findings == nil)
+  assert(assert(outcome.trouble):find("aarch64-macos: ", 1, true), outcome.trouble)
 end

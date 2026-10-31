@@ -3,20 +3,8 @@ local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
-local type raw_process = require("cosmic.internal.process")
 
-local type Searcher = function(string): any, any
-local function process_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers may return the raw loader argument
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process -- cast: core/process.h declares this loader argument
-    end
-  end
-  error("cosmic.child has no process table")
-end
-
-local function assert_terminal_refusal(child: Child.Handle | nil, trouble: string, slot: string)
+local function assert_terminal_refusal(child: Child.Handle?, trouble: string, slot: string)
   assert(child == nil)
   assert(trouble:find("terminal " .. slot, 1, true), trouble)
 end
@@ -86,7 +74,7 @@ elseif arg[1] == "inherited" then
     streams, slot = { 0, 1 }, "stdio[2]"
   elseif case == "alias" then
     -- stderr is stdout's, which is the terminal this process holds.
-    streams, slot, opts.stderr = { 0 }, "stdio[1]", "stdout"
+    streams, slot, opts = { 0 }, "stdio[1]", { policy = { profiles = { "system" } }, stderr = "stdout" }
   end
   local child, refusal = Child.start_on_pty(program, opts, { streams = streams })
   assert(child == nil, "a terminal this process holds reached a policy child")
@@ -94,38 +82,33 @@ elseif arg[1] == "inherited" then
   print("inherited: PASS")
   sys.exit(0)
 else
-  local session = assert(Child.run({ assert(Proc.executable()), arg[0], "session" },
+  local script_path = assert(arg[0], "this script is run by a path")
+  local session = assert(Child.run({ assert(Proc.executable()), script_path, "session" },
     { process_group = false, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) }))
   assert(session.ok, session.stderr)
   assert((assert(session.stdout)):find("pty: PASS", 1, true))
   do
-    pty = assert(sys.openpty())
-    assert(sys.tcraw(pty.slave))
-    local process = process_table()
-    local pid = assert(process.spawn("/bin/sh", { "/bin/sh", "-c",
-      "test -t 0 && test -t 1 && test -t 2 && printf controlling-terminal >/dev/tty" }, nil, nil,
-      pty.slave, pty.slave, pty.slave, true, nil, nil, nil, (assert(sys.ttyname(pty.slave)))))
+    -- The pty is the child's own terminal, as the start that opens one makes it: the
+    -- shell holds it on every standard stream and as its controlling terminal.
+    local on_pty = assert(Child.start_on_pty({ "/bin/sh", "-c",
+      "test -t 0 && test -t 1 && test -t 2 && printf controlling-terminal >/dev/tty" }, {},
+      { streams = { 0, 1, 2 }, keep_slave = true }))
     -- The slave stays open until the output is read: macOS drops what the
     -- master has not read when the last slave descriptor closes.
-    assert(Poll.readable(pty.master, Clock.seconds(5)))
-    assert((assert(sys.read(pty.master, 100))) == "controlling-terminal")
-    assert((assert(process.waitpid(pid, false))).code == 0)
-    assert(sys.close(pty.slave))
-    assert(sys.close(pty.master))
+    assert(Poll.readable(on_pty.master, Clock.seconds(5)))
+    assert((assert(sys.read(on_pty.master, 100))) == "controlling-terminal")
+    assert((assert(on_pty.child:wait())).code == 0)
+    assert(sys.close(on_pty.slave))
+    assert(sys.close(on_pty.master))
 
     pty = assert(sys.openpty())
     for number = 0, 2 do
       local options: Child.Options = { policy = { profiles = { "system" } },
-        stdin = "null", stdout = "null", stderr = "null" }
-      if number == 0 then
-        options.stdin = pty.slave
-      elseif number == 1 then
-        options.stdout = pty.slave
-      else
-        options.stderr = pty.slave
-      end
+        stdin = if number == 0 then pty.slave else "null" end,
+        stdout = if number == 1 then pty.slave else "null" end,
+        stderr = if number == 2 then pty.slave else "null" end }
       local child, trouble = Child.start({ "/bin/sh", "-c", "exit 0" }, options)
-      assert_terminal_refusal(child, trouble, "stdio[" .. number .. "]")
+      assert_terminal_refusal(child, trouble, "stdio[" .. tostring(number) .. "]")
     end
     local child, trouble = Child.start({ "/bin/sh", "-c", "exit 0" }, {
       policy = { profiles = { "system" } },
@@ -144,8 +127,10 @@ else
     -- a directory it does not grant prints a getcwd error on macOS.
     local held_policy: Child.Options = { policy = { profiles = { "system" } }, cwd = "/" }
     local function refused_on_pty(opts: Child.Options, streams: {integer}, slot: string)
-      opts.policy = held_policy.policy
-      local started, refusal = Child.start_on_pty(program, opts, { streams = streams })
+      local held: Child.Options = { env = opts.env, stdin = opts.stdin, input = opts.input, stdout = opts.stdout,
+        stderr = opts.stderr, fds = opts.fds, capture_limit = opts.capture_limit, process_group = opts.process_group,
+        timeout_ns = opts.timeout_ns, sandbox = opts.sandbox, policy = held_policy.policy, cwd = held_policy.cwd }
+      local started, refusal = Child.start_on_pty(program, held, { streams = streams })
       assert(started == nil)
       assert_terminal_refusal(nil, refusal, slot)
     end
@@ -155,17 +140,21 @@ else
     refused_on_pty({ stdout = "null", stderr = "null", fds = { [3] = real.slave } },
       { 0 }, "fds[3]")
     local also, also_why = pcall(Child.start_on_pty, program, { stdin = real.slave }, { streams = { 0 } })
-    assert(not also and tostring(also_why):find("takes no stdin, input, stdout or stderr of its own", 1, true),
+    assert(not also and tostring(also_why):find("takes no stdin, input, stdout or stderr of its own", 1, true) ~= nil,
       tostring(also_why))
 
     -- A stream not on the pty that is this process's own terminal, which no
     -- option names: the refusal looks at the descriptor the child would get.
     local function inherited(case: string, opts: Child.Options)
-      opts.timeout_ns = Clock.seconds(20)
-      local ran = assert(Child.run({ assert(Proc.executable()), arg[0], "inherited", case }, opts))
+      local started: Child.Options = { env = opts.env, cwd = opts.cwd, stdin = opts.stdin, input = opts.input,
+        stdout = opts.stdout, stderr = opts.stderr, fds = opts.fds, capture_limit = opts.capture_limit,
+        process_group = opts.process_group, sandbox = opts.sandbox, policy = opts.policy,
+        timeout_ns = Clock.seconds(20) }
+      local ran = assert(Child.run({ assert(Proc.executable()), script_path, "inherited", case }, started))
       local said = "code " .. tostring(ran.code) .. " signal " .. tostring(ran.signal) ..
         " stderr " .. tostring(ran.stderr) .. " stdout " .. tostring(ran.stdout)
-      if not ran.ok or (ran.stdout ~= nil and not ran.stdout:find("inherited: PASS", 1, true)) then
+      local stdout = ran.stdout
+      if not ran.ok or (stdout ~= nil and not stdout:find("inherited: PASS", 1, true)) then
         error(said, 0)
       end
     end

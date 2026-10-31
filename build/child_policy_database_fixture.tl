@@ -116,12 +116,12 @@ return function(args)
 end
 ]==]
 
-local attached = false
+local attached: boolean = false
 
 --- Attaches a database holding `fixture.main`, which requires two modules
 --- of the binary, once; a fixture module is never in the binary.
 local function attach(tmp: string)
-  if attached then return end
+  if attached == true then return end
   local path = tmp .. "/fixture.db"
   local db = assert(Sqlite.open(path, { writable = true }))
   for _, statement in ipairs({
@@ -159,7 +159,7 @@ end
 --- The core to start bare, or nil where this process has none to relaunch
 --- (a host program, which a bare core is not).
 --- @return the core's path, or nil where this process has none to relaunch
-function child_policy_database_fixture.core_path(): string | nil
+function child_policy_database_fixture.core_path(): string?
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return nil end
   return relaunch.argv[1]
@@ -169,7 +169,7 @@ end
 --- @param output what the program printed
 --- @return its fields by name
 function child_policy_database_fixture.fields(output: string): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for line in output:gmatch("([^\n]*)\n") do
     local name, value = line:match("^([^\t]+)\t(.*)$")
     if name ~= nil then out[name] = value end

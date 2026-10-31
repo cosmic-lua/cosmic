@@ -30,24 +30,24 @@ local function test_the_client_and_the_server_agree(tmp: string)
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 return function(argv: {string}): integer
-  local base = argv[1]
-  local said: {string} = {}
+  local base = (argv[1] or "")
+  local said: mut {string} = {}
   local missing = assert(Http.get(base .. "/items/a"))
-  said[#said + 1] = missing.status .. " " .. missing.body
+  said[#said + 1] = tostring(missing.status) .. " " .. missing.body
   local put = assert(Http.request("PUT", base .. "/items/a", { body = "first value" }))
-  said[#said + 1] = put.status .. " " .. put.body
+  said[#said + 1] = tostring(put.status) .. " " .. put.body
   local got = assert(Http.get(base .. "/items/a?x=1"))
-  said[#said + 1] = got.status .. " " .. got.body .. " " .. got.headers["content-type"]
+  said[#said + 1] = tostring(got.status) .. " " .. got.body .. " " .. (got.headers["content-type"] or "")
   local head = assert(Http.request("HEAD", base .. "/items/a"))
-  said[#said + 1] = head.status .. " [" .. head.body .. "] " .. head.headers["content-length"]
+  said[#said + 1] = tostring(head.status) .. " [" .. head.body .. "] " .. (head.headers["content-length"] or "")
   local gone = assert(Http.request("DELETE", base .. "/items/a"))
   said[#said + 1] = tostring(gone.status)
-  Fs.put(Fs.stdout, table.concat(said, "\n"))
+  local _, _ = Fs.put(Fs.stdout, table.concat(said, "\n"))
   return 0
 end
 ]]))
-  local items: {string:string} = {}
-  local result: Child.Result = nil
+  local items: mut {string:string} = {}
+  local result: Child.Result? = nil
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     handle = function(req: Server.Request): Server.Reply
@@ -65,18 +65,21 @@ end
       return { status = 200, headers = { ["Content-Type"] = "text/plain" }, body = value }
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local base = "http://127.0.0.1:" .. addresses[1].port
+      local listening = assert(addresses[1], "the server listens")
+      local base = "http://127.0.0.1:" .. tostring(assert(listening.port))
       local started = this_program.program({ "--standalone", script, base },
         { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
       result = assert(Child.run(started.argv, started.options))
       server:stop()
     end,
   })
-  assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
+  local result_value = result
+  assert(result_value ~= nil, "the server never became ready")
+  assert(result_value.code == 0, tostring(result_value.code) .. " " .. tostring(result_value.stderr))
   local expected = table.concat({
     "404 no a", "201 stored", "200 first value text/plain", "200 [] 11", "204",
   }, "\n")
-  assert(result.stdout == expected, result.stdout)
+  assert(result_value.stdout == expected, result_value.stdout)
   assert(items.a == nil)
 end
 
@@ -94,17 +97,17 @@ local function test_a_name_joined_unescaped_reaches_the_server_escaped(tmp: stri
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 return function(argv: {string}): integer
-  local said: {string} = {}
+  local said: mut {string} = {}
   for _, name in ipairs({ "two words.txt", "caf\xc3\xa9.txt", "two%20words.txt", "a=b&c;d?e=f" }) do
-    local got = assert(Http.get(argv[1] .. "/" .. name))
-    said[#said + 1] = got.status .. " " .. got.body
+    local got = assert(Http.get((argv[1] or "") .. "/" .. name))
+    said[#said + 1] = tostring(got.status) .. " " .. got.body
   end
-  Fs.put(Fs.stdout, table.concat(said, "\n"))
+  local _, _ = Fs.put(Fs.stdout, table.concat(said, "\n"))
   return 0
 end
 ]]))
-  local targets: {string} = {}
-  local result: Child.Result = nil
+  local targets: mut {string} = {}
+  local result: Child.Result? = nil
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     handle = function(req: Server.Request): Server.Reply
@@ -115,20 +118,23 @@ end
       return { status = 200, body = body }
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local base = "http://127.0.0.1:" .. addresses[1].port
+      local listening = assert(addresses[1], "the server listens")
+      local base = "http://127.0.0.1:" .. tostring(assert(listening.port))
       local started = this_program.program({ "--standalone", script, base },
         { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
       result = assert(Child.run(started.argv, started.options))
       server:stop()
     end,
   })
-  assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
+  local result_value = result
+  assert(result_value ~= nil, "the server never became ready")
+  assert(result_value.code == 0, tostring(result_value.code) .. " " .. tostring(result_value.stderr))
   assert(table.concat(targets, " ") == "/two%20words.txt /caf%C3%A9.txt /two%20words.txt /a=b&c;d?e=f",
     table.concat(targets, " "))
   local expected = table.concat({
     "200 this is two words.txt", "200 this is caf\xc3\xa9.txt", "200 this is two words.txt", "404 ",
   }, "\n")
-  assert(result.stdout == expected, result.stdout)
+  assert(result_value.stdout == expected, result_value.stdout)
 end
 
 --- SIGTERM stops a server in a process of its own, which exits 0: an
@@ -149,12 +155,12 @@ return function(argv: {string}): integer
     handle = function(_req: Server.Request): Server.Reply return { status = 200, body = "up" } end,
     on_ready = function(addresses: {Net.Address}, _server: Net.Server)
       -- Written whole, then renamed in, so the test never reads half a port.
-      assert(Fs.write(argv[1] .. ".tmp", tostring(addresses[1].port)))
-      assert(Fs.rename(argv[1] .. ".tmp", argv[1]))
+      assert(Fs.write((argv[1] or "") .. ".tmp", tostring(assert(addresses[1]).port)))
+      assert(Fs.rename((argv[1] or "") .. ".tmp", (argv[1] or "")))
     end,
   }
   if not ok then
-    Fs.put(Fs.stderr, why)
+    local _, _ = Fs.put(Fs.stderr, why)
     return 1
   end
   return 0

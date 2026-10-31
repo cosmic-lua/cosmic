@@ -2,6 +2,7 @@
 --- would otherwise write a shell script, each of its verbs, and what it
 --- reads its script and words from.
 
+local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -11,20 +12,6 @@ local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
 local stand_in = require("build.stand_in")
 local artifact = require("build.artifact")
-local type raw_socket = require("cosmic.internal.socket")
-
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands cosmic.net's loader.
-local function raw_net(): raw_socket
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.net")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_socket -- cast: the table core/socket.h declares
-    end
-  end
-  error("cosmic.net is handed no raw table")
-end
 
 --- The loopback is for the stand-in's `connect-tcp`, whose connection to a
 --- port nothing listens on is refused.
@@ -75,7 +62,7 @@ local function test_a_placed_copy_runs_its_script_with_its_words(tmp: string)
   -- One placed without a script runs its first argument, as the probe
   -- itself does.
   assert(stand_in.place(probe, tmp .. "/bin/bare"))
-  assert(not Fs.exists(tmp .. "/bin/bare.do"))
+  assert(Fs.exists(tmp .. "/bin/bare.do") ~= true)
   local bare = run({ tmp .. "/bin/bare", "print $@; exit 4", "x", "y" })
   assert(bare.code == 4 and bare.stdout == "x y\n", tostring(bare.stdout))
   local empty = run({ probe })
@@ -242,7 +229,7 @@ local function test_the_process_verbs(tmp: string)
   -- `sockets-open` counts the sockets it holds from descriptor 3, as it has them.
   local none = run({ probe, "sockets-open" })
   assert(none.ok and none.stdout == "sockets 0\n", tostring(none.stdout))
-  local raw = raw_net()
+  local raw = RawTables.socket()
   local held = assert(raw.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 8))
   local counted = assert(Child.run({ probe, "sockets-open" },
     { env = {}, fds = { [3] = held:fd() }, stdout = "capture", stderr = "capture",
@@ -285,7 +272,7 @@ local function test_commands_chain_as_a_shell_s_do(tmp: string)
   -- Only the failure that ended it is said.
   local said = assert(r.stderr)
   local _, count = said:gsub("probe: ", "")
-  assert(count == 1 and said:find(missing, 1, true), said)
+  assert(count == 1 and said:find(missing, 1, true) ~= nil, said)
 end
 
 --- The verbs that ask of a path: whether it is there, whether it opens
@@ -314,10 +301,10 @@ local function test_the_verbs_that_ask_of_a_path(tmp: string)
   assert(r.ok, tostring(r.stderr))
   assert(r.stdout == "there\nabsent\nopens\na-directory-does-not\nnor-a-missing-file\n750\n" ..
       d .. "/sub/deeper/f\n", r.stdout)
-  assert(not Fs.exists(d .. "/missing"), "writable made the file")
+  assert(Fs.exists(d .. "/missing") ~= true, "writable made the file")
   assert(Fs.read(d .. "/sub/deeper/f") == "x", "writable wrote to the file")
   local absent = run({ probe, "present " .. d .. "/missing" })
-  assert(absent.code == 1 and assert(absent.stderr):find(d .. "/missing", 1, true),
+  assert(absent.code == 1 and assert(absent.stderr):find(d .. "/missing", 1, true) ~= nil,
     tostring(absent.stderr))
 end
 
@@ -336,7 +323,7 @@ local function test_what_start_and_run_leave_running_runs_on(tmp: string)
     local r = assert(Child.run({ probe, how .. "; print gone on" },
       { env = {}, process_group = false, stdout = "capture", timeout_ns = Clock.seconds(30) }))
     assert(r.ok and r.stdout == "gone on\n", tostring(r.stdout))
-    assert(not Fs.exists(tmp .. "/bin/done-" .. word), "it did not wait")
+    assert(Fs.exists(tmp .. "/bin/done-" .. word) ~= true, "it did not wait")
     assert(Fs.write(tmp .. "/bin/go-" .. word, ""))
     await(tmp .. "/bin/done-" .. word)
   end
@@ -376,17 +363,17 @@ local function test_it_writes_to_a_descriptor_and_names_a_variable(tmp: string)
   local refused = run({ probe, "connect-tcp 127.0.0.1 1" }, {})
   assert(refused.ok and refused.stdout == "127.0.0.1:1: Connection refused\n", refused.stdout)
   local portless = run({ probe, "connect-tcp 127.0.0.1 70000" })
-  assert(portless.code == 1 and assert(portless.stderr):find("no port 70000", 1, true),
+  assert(portless.code == 1 and assert(portless.stderr):find("no port 70000", 1, true) ~= nil,
     tostring(portless.stderr))
   -- `bind-tcp` listens and says `bound`, and refuses a port that is none.
   local bound = run({ probe, "bind-tcp 127.0.0.1 0" }, {})
   assert(bound.ok and bound.stdout == "bound\n", tostring(bound.stdout))
   local unbound = run({ probe, "bind-tcp 127.0.0.1 70000" })
-  assert(unbound.code == 1 and assert(unbound.stderr):find("no port 70000", 1, true),
+  assert(unbound.code == 1 and assert(unbound.stderr):find("no port 70000", 1, true) ~= nil,
     tostring(unbound.stderr))
   assert(sys.close(fd))
   local unnamed = run({ probe, "write-fd x y" })
-  assert(unnamed.code == 1 and assert(unnamed.stderr):find("no descriptor x", 1, true),
+  assert(unnamed.code == 1 and assert(unnamed.stderr):find("no descriptor x", 1, true) ~= nil,
     tostring(unnamed.stderr))
 end
 
@@ -435,7 +422,7 @@ local function test_the_stand_in_s_main_loads_as_a_built_program_s(tmp: string)
   local db = assert(Sqlite.open(path))
   local function one(sql: string): string
     local rows = assert(Sqlite.text_rows(db, sql))
-    return rows[1] and rows[1][1] or ""
+    return rows[1] and rows[1]:text(1) or ""
   end
   assert(one("SELECT value FROM meta WHERE key = 'main'") == "stand_in.main")
   assert(one("SELECT kind FROM modules WHERE path = 'stand_in.main'") == "main")

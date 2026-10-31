@@ -15,8 +15,9 @@
 --- THE POLICY is each flag's field of a [`Sandbox.Policy`], written as the
 --- JSON a policy holds and read back by [`PolicyJson.decode`], so a flag is
 --- judged by the strict decoder, which names what it refuses by JSON
---- Pointer. There are no policy files: they wait on the design's
---- narrow-only form, since a file is input from elsewhere.
+--- Pointer. There are no policy files: a file is input from elsewhere, so
+--- one waits on a form that can only narrow what the command line grants
+--- (doc/roadmap.md).
 ---
 --- A SEALED RUN: `--database`, `--modules` and `--closure` each name the
 --- database the program runs on ([`Sandbox.Policy`]'s `database`), the
@@ -39,8 +40,8 @@
 --- [`build.term_filter`] (build/term_filter.tl) on its way to the caller's
 --- terminal, and where stdin is the terminal it is held raw for the run
 --- and put back as it was. A stream that is a pipe or a file is the
---- program's own, unfiltered. Linux only: elsewhere the start fails, saying so, until the
---- design's phase 8 gives a program held by Seatbelt a controlling terminal.
+--- program's own, unfiltered. On macOS the program's Seatbelt profile
+--- grants it that pty ([`Child.start_on_pty`]).
 ---
 --- THE RELAY: a `--connect` starts the network relay of [`Child.start`], whose
 --- decision line for each connection it allows or refuses (a refusal naming
@@ -54,7 +55,7 @@
 --- ProxyCommand runs inside the sandbox; a program of that name is run after
 --- an option or a `--`.
 ---
---- Like `cosmic json` it ends in no verdict line, and prints nothing of
+--- Like `cosmic json` it prints no summary, and nothing of
 --- its own when the program starts: its exit status is the program's.
 --- That is the program's code; 128 and the signal's number when a signal
 --- ended it, as a shell reports it; 124 when `--timeout` ended it. Of its
@@ -73,12 +74,11 @@ local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
-local ast = require("build.ast")
+local Globals = require("cosmic.internal.globals")
 local bare = require("build.bare")
 local connect_client = require("build.sandbox_connect")
 local plural = require("build.plural")
 local standalone = require("build.standalone")
-local teal = require("build.teal")
 local TermRelay = require("build.term_relay")
 local verb_spec = require("build.verb_spec")
 
@@ -92,11 +92,11 @@ local record verb
     err: function(line: string)
     --- Runs the program to its end, as [`Child.run`] does, which is what
     --- it is when nil.
-    run: function(argv: {string}, opts: Child.Options): Child.Result | nil, string
+    run?: function(argv: {string}, opts: Child.Options): Child.Result?, string
     --- Runs `cosmic sandbox connect`'s client on the words after `connect`
     --- and answers its exit status, as [`build.sandbox_connect`]'s `run`
     --- does, which is what it is when nil.
-    connect: function(args: {string}): integer
+    connect?: function(args: {string}): integer
   end
 end
 
@@ -110,7 +110,7 @@ local NOT_EXECUTABLE <const> = 126
 --- The exit status of a program that is not there.
 local NOT_FOUND <const> = 127
 
-local spec = Cli.verbs.sandbox.spec
+local spec = Cli.verbs.sandbox.spec or {}
 
 --- The longest `--timeout`, a year, well inside what a start accepts.
 local MOST_SECONDS <const> = 31536000
@@ -128,7 +128,7 @@ end
 --- the rest. Everything from the program on is the program's own.
 --- @param argv the command line, the verb at slot 1
 --- @return the program's slot, or nil
-function verb.program_slot(argv: {integer:string}): integer | nil
+function verb.program_slot(argv: {string}): integer?
   local slot = 2
   while argv[slot] ~= nil do
     local word = argv[slot]
@@ -146,7 +146,7 @@ function verb.program_slot(argv: {integer:string}): integer | nil
 end
 
 --- A whole number from `least` to `most` in decimal, or nil.
-local function whole(text: string, least: integer, most: integer): integer | nil
+local function whole(text: string, least: integer, most: integer): integer?
   if not text:match("^%d+$") or #text > 18 then return nil end
   local number = math.tointeger(tonumber(text))
   if number == nil or number < least or number > most then return nil end
@@ -167,30 +167,30 @@ local record Request
   --- The policy the flags give, as the table a policy's JSON holds.
   policy: {string:any}
   --- `--database`'s path as given, or nil.
-  database: string | nil
+  mut database?: string
   --- `--modules`' names, the first the main, or nil.
-  modules: {string} | nil
+  mut modules?: {string}
   --- Whether `--closure` was given: the program's first argument is the
   --- script to seal and run.
   closure: boolean
   --- The descriptors to hand the program.
-  fds: {integer:integer}
+  fds: mut {integer:integer}
   --- The wall-clock limit, in nanoseconds, or nil for none.
-  timeout_ns: integer | nil
+  mut timeout_ns?: integer
   --- The directory the program starts in, which a relative grant or
   --- program is taken from; nil for this process's own.
-  cwd: string | nil
+  mut cwd?: string
   --- The program and its arguments.
-  argv: {string}
+  argv: mut {string}
 end
 
 --- The policy `parsed` names, as the table a policy's JSON holds.
-local function table_of(parsed: Flags.Parsed): {string:any} | nil, string
-  local policy: {string:any} = {}
+local function table_of(parsed: Flags.Parsed): {string:any}?, string
+  local policy: mut {string:any} = {}
   local function list(name: string): {string}
     return parsed.all[name] or {}
   end
-  local grants: {{string:string}} = {}
+  local grants: mut {{string:string}} = {}
   local function grant(name: string, letters: string)
     for _, path in ipairs(list(name)) do
       grants[#grants + 1] = { path = path, letters = letters }
@@ -207,9 +207,9 @@ local function table_of(parsed: Flags.Parsed): {string:any} | nil, string
     grants[#grants + 1] = { path = path, letters = letters }
   end
   if #grants > 0 then policy.grants = grants end
-  local profiles: {string} = {}
-  if parsed.set["--system"] then profiles[#profiles + 1] = "system" end
-  if parsed.set["--cosmic"] then profiles[#profiles + 1] = "cosmic" end
+  local profiles: mut {string} = {}
+  if parsed.set["--system"] == true then profiles[#profiles + 1] = "system" end
+  if parsed.set["--cosmic"] == true then profiles[#profiles + 1] = "cosmic" end
   if #profiles > 0 then policy.profiles = profiles end
   local function copy(name: string, field: string)
     if #list(name) > 0 then policy[field] = list(name) end
@@ -219,8 +219,8 @@ local function table_of(parsed: Flags.Parsed): {string:any} | nil, string
   copy("--connect", "connect")
   copy("--loopback", "loopback")
   copy("--env", "env")
-  if parsed.set["--tmp"] then policy.tmp = true end
-  local set_env: {string:string} = {}
+  if parsed.set["--tmp"] == true then policy.tmp = true end
+  local set_env: mut {string:string} = {}
   for _, text in ipairs(list("--set-env")) do
     local name, value = text:match("^([^=]+)=(.*)$")
     if name == nil then
@@ -232,7 +232,7 @@ local function table_of(parsed: Flags.Parsed): {string:any} | nil, string
     set_env[name] = value
   end
   if next(set_env) ~= nil then policy.set_env = set_env end
-  local held: {string:integer} = {}
+  local held: mut {string:integer} = {}
   for _, entry in ipairs(limits) do
     local name, field, least = entry[1], entry[2], math.tointeger(tonumber(entry[3]))
     local given = list(name)
@@ -262,18 +262,18 @@ local function table_of(parsed: Flags.Parsed): {string:any} | nil, string
 end
 
 --- The last slot of `argv` that holds a word, the verb's own at slot 1.
-local function last_slot(argv: {integer:string}): integer
+local function last_slot(argv: {string}): integer
   local slot = 1
   while argv[slot + 1] ~= nil do slot = slot + 1 end
   return slot
 end
 
 --- What `argv` asks for, or nil and why it is refused.
-local function request_of(argv: {integer:string}): Request | nil, string
+local function request_of(argv: {string}): Request?, string
   local at = verb.program_slot(argv)
-  local last = at ~= nil and at - 1 or last_slot(argv)
-  local words: {integer:string} = {}
-  for slot = 2, last do words[slot - 1] = argv[slot] end
+  local last = if at ~= nil then at - 1 else last_slot(argv) end
+  local words: mut {string} = {}
+  for slot = 2, last do words[#words + 1] = argv[slot] end
   local parsed, trouble = Flags.parse(words, 1, spec)
   if parsed == nil then return nil, trouble end
   local policy, why = table_of(parsed)
@@ -287,21 +287,21 @@ local function request_of(argv: {integer:string}): Request | nil, string
   local listed = parsed.all["--modules"] or {}
   if #listed > 1 then return nil, "--modules is given more than once" end
   if listed[1] ~= nil then
-    local names: {string} = {}
-    local seen: {string:boolean} = {}
+    local names: mut {string} = {}
+    local seen: mut {string:boolean} = {}
     for name in (listed[1] .. ","):gmatch("([^,]*),") do
       if name == "" then
         return nil, "--modules takes module names separated by commas, as cosmic.json,cosmic.fs, " ..
           "not " .. listed[1]
       end
-      if not seen[name] then
+      if seen[name] ~= true then
         seen[name] = true
         names[#names + 1] = name
       end
     end
     request.modules = names
   end
-  local given: {string} = {}
+  local given: mut {string} = {}
   if request.closure then given[#given + 1] = "--closure" end
   if request.modules ~= nil then given[#given + 1] = "--modules" end
   if request.database ~= nil then given[#given + 1] = "--database" end
@@ -309,7 +309,7 @@ local function request_of(argv: {integer:string}): Request | nil, string
     return nil, table.concat(given, " and ") .. " are exclusive: each names the database the " ..
       "program runs on, which only one can"
   end
-  if request.closure and parsed.set["--cosmic"] then
+  if request.closure and parsed.set["--cosmic"] == true then
     return nil, "--closure and --cosmic are exclusive: --closure runs the script on a database of " ..
       "its own, which holds the modules it requires and not this program's file"
   end
@@ -340,7 +340,7 @@ local function request_of(argv: {integer:string}): Request | nil, string
   if seconds[1] ~= nil then
     local number = whole(seconds[1], 1, MOST_SECONDS)
     if number == nil then
-      return nil, "--timeout takes a whole number of seconds, 1 to " .. MOST_SECONDS ..
+      return nil, "--timeout takes a whole number of seconds, 1 to " .. tostring(MOST_SECONDS) ..
         ", not " .. seconds[1]
     end
     request.timeout_ns = number * 1000000000
@@ -356,7 +356,7 @@ end
 
 --- The policy `request` holds, on `database` where it runs on one, or nil
 --- and why it is refused.
-local function policy_of(request: Request, database: string | nil): Sandbox.Policy | nil, string
+local function policy_of(request: Request, database: string?): Sandbox.Policy?, string
   local fields = request.policy
   if database ~= nil then
     -- The text holds the file's digest as well as its path.
@@ -364,14 +364,14 @@ local function policy_of(request: Request, database: string | nil): Sandbox.Poli
     if named == nil then return nil, named_trouble end
     fields.database = named
   end
-  local json, json_why = Json.encode(fields)
+  local json, json_why = Json.encode_any(fields)
   if json == nil then return nil, json_why end
   return PolicyJson.decode(json)
 end
 
 --- `path` as the policy holds a database: absolute, with no "..", from
 --- `cwd` (this process's own directory where nil).
-local function absolute(path: string, cwd: string | nil): string | nil, string
+local function absolute(path: string, cwd: string?): string?, string
   if cwd ~= nil and path:sub(1, 1) ~= "/" then path = cwd .. "/" .. path end
   local real, why = sys.realpath(path)
   if real == nil then return nil, path .. ": " .. why end
@@ -384,7 +384,7 @@ end
 --- [`Fs.mkdtemp`] makes (and the cache's) is shut to. The directory's
 --- parents are the temporary directory's, which must be open to that user
 --- too; the start says which is not.
-local function scratch(held: {string}): string | nil, string
+local function scratch(held: mut {string}): string?, string
   if held[1] ~= nil then return held[1], "" end
   local dir, why = Fs.mkdtemp("sandbox-")
   if dir == nil then return nil, why end
@@ -414,7 +414,7 @@ end
 
 --- `names` without the core's own modules.
 local function stored(names: {string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, name in ipairs(names) do
     if not preloaded(name) then out[#out + 1] = name end
   end
@@ -424,7 +424,7 @@ end
 --- What sealing a program came to: the database's path, or why there is
 --- none, and whether the command line is to blame.
 local record Sealing
-  path: string | nil
+  path?: string
   why: string
   refused: boolean
 end
@@ -433,7 +433,7 @@ end
 --- of this run's own ([`scratch`]), and answers the database's path there,
 --- or why not, and whether the command line is to blame (a name no store
 --- holds).
-local function sealed(names: {string}, opts: Store.SealOptions, held: {string}): Sealing
+local function sealed(names: {string}, opts: Store.SealOptions, held: mut {string}): Sealing
   local dir, dir_why = scratch(held)
   if dir == nil then return { why = dir_why, refused = false } end
   local path = dir .. "/program.db"
@@ -450,24 +450,22 @@ end
 --- the modules its source requires by a literal name (not a type-only
 --- require, which Teal erases), and the file compiled as the standalone
 --- compiler does, as the main. The database's path, or why not.
-local function seal_script(file: string, cwd: string | nil, held: {string}): Sealing
+local function seal_script(file: string, cwd: string?, held: mut {string}): Sealing
   local at = file
   if cwd ~= nil and file:sub(1, 1) ~= "/" then at = cwd .. "/" .. file end
   local source, read_trouble = Fs.read(at)
   if source == nil then return { why = read_trouble, refused = false } end
   local code, trouble = standalone.code(file, source)
   if code == nil then return { why = trouble, refused = false } end
-  local built, load_trouble = teal.load()
-  if built == nil then return { why = load_trouble, refused = false } end
-  local parsed, parse_trouble = ast.parse(built, source, file)
-  if parsed == nil then return { why = parse_trouble, refused = false } end
-  local found, roots_trouble = ast.all_requires(built, parsed)
+  -- The requires are read by the checker that compiled the file: the new one's syntax tree under COSMIC_GRAMMAR=new, the fork's
+  -- otherwise ([`standalone.requires`]).
+  local found, roots_trouble = standalone.requires(file, source)
   if found == nil then return { why = roots_trouble, refused = false } end
   -- What the generated Lua names is what the program loads.
-  local roots: {string} = {}
+  local roots: mut {string} = {}
   for _, name in ipairs(found) do
     if not preloaded(name) and (code:find('"' .. name .. '"', 1, true) or
-        code:find("'" .. name .. "'", 1, true)) then
+        code:find("'" .. name .. "'", 1, true)) ~= nil then
       roots[#roots + 1] = name
     end
   end
@@ -475,7 +473,7 @@ local function seal_script(file: string, cwd: string | nil, held: {string}): Sea
   if not ok then
     return { why = file .. ": " .. (tostring(names):gsub("^.-:%d+: store: ", "")), refused = true }
   end
-  local chunk, chunk_trouble = load(script_chunk(file, code), "@" .. file, "t")
+  local chunk, chunk_trouble = load(script_chunk(file, code), "@" .. file, "t", Globals.table())
   if chunk == nil then return { why = file .. ": " .. tostring(chunk_trouble), refused = false } end
   return sealed(names, { extra = {
     name = "main", bytecode = string.dump(chunk), source = source, requires = roots } }, held)
@@ -493,13 +491,13 @@ end
 --- 126 where it is there and this process cannot run it, and otherwise 125,
 --- whatever else the program's state is (a grant it lacks, a missing
 --- directory).
-local function failed_start(program: string, cwd: string | nil, why: string): integer, string
+local function failed_start(program: string, cwd: string?, why: string): integer, string
   local said = without_hint(why)
   if program:find("/", 1, true) then
     if cwd ~= nil and program:sub(1, 1) ~= "/" then program = cwd .. "/" .. program end
     local ok, _, errno = sys.access(program, sys.X_OK)
     if not ok and errno == sys.ENOENT and
-        said:find(Fs.basename(program) .. ": No such file or directory", 1, true) then
+        said:find(Fs.basename(program) .. ": No such file or directory", 1, true) ~= nil then
       return NOT_FOUND, said
     elseif not ok and errno == sys.EACCES then
       return NOT_EXECUTABLE, said
@@ -507,8 +505,10 @@ local function failed_start(program: string, cwd: string | nil, why: string): in
     return START_FAILED, said
   end
   local found = Proc.find_result(program)
-  if found.kind == "not_found" and said:find(found.reason, 1, true) then return NOT_FOUND, said end
-  if found.kind == "not_executable" and said:find(found.reason, 1, true) then
+  if found.kind == "not_found" and said:find(found.reason, 1, true) ~= nil then
+    return NOT_FOUND, said
+  end
+  if found.kind == "not_executable" and said:find(found.reason, 1, true) ~= nil then
     return NOT_EXECUTABLE, said
   end
   return START_FAILED, said
@@ -528,12 +528,12 @@ end
 -- gives a caller one whose write end can be a child's standard error (a
 -- `relay_log` of "stream" read through the handle): a host whose temporary
 -- directory is no place for a named pipe fails the start today.
-local function notes_pipe(): Notes | nil, string
+local function notes_pipe(): Notes?, string
   local dir, dir_why = Fs.mkdtemp("sandbox-notes-")
   if dir == nil then return nil, dir_why end
   local path = dir .. "/lines"
   local made, make_why = sys.mkfifo(path, tonumber("600", 8))
-  local reader, writer: integer | nil, integer | nil
+  local reader, writer: integer?, integer?
   local why = make_why
   if made then
     local opened, open_why = sys.open(path, sys.O_RDONLY | sys.O_NONBLOCK, 0)
@@ -570,11 +570,13 @@ end
 --- terminal: where that is one, the relay writes to a pipe instead and
 --- [`TermRelay.run`] shows them on the terminal, beside the program's
 --- output and not through it.
-local function run_here(argv: {string}, opts: Child.Options): Child.Result | nil, string
+local function run_here(argv: {string}, opts: Child.Options): Child.Result?, string
   if not (sys.isatty(0) or sys.isatty(1) or sys.isatty(2)) then return Child.run(argv, opts) end
-  local terminal: TermRelay.Terminal | nil
-  local notes: Notes | nil
-  local connects = opts.policy ~= nil and opts.policy.connect ~= nil and #opts.policy.connect > 0
+  local terminal: TermRelay.Terminal?
+  local notes: Notes?
+  local policy = opts.policy
+  local connect = policy and policy.connect
+  local connects = policy ~= nil and connect ~= nil and #connect > 0
   if opts.relay_log == "inherit" and connects and sys.isatty(2) then
     local made, why = notes_pipe()
     if made == nil then return nil, "the relay's log: " .. why end
@@ -595,14 +597,14 @@ local standard: verb.Io = { err = bare.err, run = run_here }
 
 --- [`verb.run`], with the directories it makes for a sealed database put
 --- in `held`.
-local function execute(argv: {integer:string}, io: verb.Io | nil, held: {string}): integer
+local function execute(argv: {string}, io: verb.Io?, held: mut {string}): integer
   local to = io or standard
   local complain = bare.complainer("sandbox", to.err)
   -- The word right after the verb is the relay's client, the command ssh's
   -- ProxyCommand runs inside a sandbox. A program of that name is still
   -- run after an option or a `--`: `cosmic sandbox -- connect`.
   if argv[2] == "connect" then
-    local words: {string} = {}
+    local words: mut {string} = {}
     for slot = 3, last_slot(argv) do words[#words + 1] = argv[slot] end
     return (to.connect or connect_client.run)(words)
   end
@@ -611,19 +613,22 @@ local function execute(argv: {integer:string}, io: verb.Io | nil, held: {string}
     complain(trouble .. "; see `cosmic help sandbox`")
     return bare.refused
   end
-  local database: string | nil
-  local sealing: Sealing | nil
-  if request.database ~= nil then
-    local path, why = absolute(request.database, request.cwd)
+  local database: string?
+  local sealing: Sealing?
+  local request_database = request.database
+  local request_modules = request.modules
+  if request_database ~= nil then
+    local path, why = absolute(request_database, request.cwd)
     sealing = { path = path, why = why, refused = true }
-  elseif request.modules ~= nil then
+  elseif request_modules ~= nil then
+    local modules = request_modules
     -- The first is the main, which the core runs; the rest are what it
     -- requires, as the program's whole set.
-    if preloaded(request.modules[1]) then
-      sealing = { why = request.modules[1] .. " is the core's own, which has no main to run",
+    if preloaded(modules[1]) then
+      sealing = { why = modules[1] .. " is the core's own, which has no main to run",
         refused = true }
     else
-      sealing = sealed(stored(request.modules), { main = request.modules[1] }, held)
+      sealing = sealed(stored(modules), { main = modules[1] }, held)
     end
   elseif request.closure then
     sealing = seal_script(request.argv[2], request.cwd, held)
@@ -631,11 +636,12 @@ local function execute(argv: {integer:string}, io: verb.Io | nil, held: {string}
     if sealing.path ~= nil then table.remove(request.argv, 2) end
   end
   if sealing ~= nil then
-    if sealing.path == nil then
-      complain(sealing.refused and sealing.why .. "; see `cosmic help sandbox`" or sealing.why)
+    local sealing_path = sealing.path
+    if sealing_path == nil then
+      complain(if sealing.refused then sealing.why .. "; see `cosmic help sandbox`" else sealing.why end)
       return sealing.refused and bare.refused or START_FAILED
     end
-    database = sealing.path
+    database = sealing_path
   end
   local policy, why = policy_of(request, database)
   if policy == nil then
@@ -663,7 +669,7 @@ local function execute(argv: {integer:string}, io: verb.Io | nil, held: {string}
     return code
   end
   if result.timed_out then
-    complain("timed out after " .. plural.count(request.timeout_ns // 1000000000, "second"))
+    complain("timed out after " .. plural.count(assert(request.timeout_ns) // 1000000000, "second"))
     return TIMED_OUT
   end
   return Child.shell_status(result)
@@ -674,10 +680,10 @@ end
 --- @param argv the command line
 --- @param io where it complains and starts, or the process's own
 --- @return the exit status
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+function verb.run(argv: {string}, io?: verb.Io): integer
   -- The directory a sealed database was written in, removed whatever the
   -- run's end.
-  local held: {string} = {}
+  local held: mut {string} = {}
   local status = execute(argv, io, held)
   if held[1] ~= nil then
     local _, _ = Fs.remove_tree(held[1])
@@ -691,7 +697,7 @@ verb.spec = {
   tests = { "build.sandbox_test", "build.sandbox_tool_test", "build.sandbox_connect_test",
     "build.sandbox_connect_tool_test", "build.sandbox_seal_tool_test",
     "build.sandbox_closure_tool_test", "build.sandbox_refusal_tool_test" },
-  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   program_slot = verb.program_slot,
   takes = "options, then a program and its arguments",

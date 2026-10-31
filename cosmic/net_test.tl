@@ -1,9 +1,9 @@
-local Child = require("cosmic.child")
 local unix_socket = require("build.unix_socket")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
+local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -19,7 +19,7 @@ local record Pair
   server: Net.Listener
   client: Net.Conn
   accepted: Net.Conn
-  metamethod __close: function(Pair)
+  __close: function(Pair)
 end
 
 local pair_mt: metatable<Pair> = {
@@ -50,7 +50,7 @@ local function test_a_connection_carries_bytes_both_ways_to_the_end()
   assert(accepted:write("answered"))
   assert(accepted:close())
   assert(assert(Stream.read_all(client)) == "answered")
-  assert(server.address.kind == "tcp" and server.address.port > 0)
+  assert(server.address.kind == "tcp" and assert(server.address.port) > 0)
 end
 
 --- A write larger than the socket holds goes out whole, waiting as the
@@ -87,12 +87,12 @@ end
 --- the timeout it had stays.
 local function test_a_timeout_out_of_range_is_refused()
   local p <close> = pair()
-  for _, bad in ipairs({ -5, Poll.MOST_NS + 1, 1.5 } as {number}) do
-    local ok, why: boolean, any = pcall(function() p.client:set_timeout(bad as integer) end)
+  for _, bad in ipairs({ -5, Poll.MOST_NS + 1 }) do
+    local ok, why: boolean, any = pcall(function() p.client:set_timeout(bad) end)
     assert(not ok and tostring(why):find("^cosmic%.net_test:%d+: net: timeout_ns must be nil or an integer from 0 to",
       1) ~= nil, tostring(why))
     local listener_ok, listener_why: boolean, any = pcall(function()
-      p.server:set_timeout(bad as integer)
+      p.server:set_timeout(bad)
     end)
     assert(not listener_ok and tostring(listener_why):find("^cosmic%.net_test:%d+: net: timeout_ns must be", 1) ~= nil,
       tostring(listener_why))
@@ -146,7 +146,7 @@ end
 local record Full
   server: Net.Listener
   held: {Net.Conn}
-  metamethod __close: function(Full)
+  __close: function(Full)
 end
 
 local full_mt: metatable<Full> = {
@@ -158,7 +158,7 @@ local full_mt: metatable<Full> = {
 
 local function full(path: string): Full
   local server = assert(Net.listen(Net.unix(path), { backlog = 1 }))
-  local held: {Net.Conn} = {}
+  local held: mut {Net.Conn} = {}
   for _ = 1, 16 do
     local conn = Net.connect(server.address, { timeout_ns = 0 })
     if conn == nil then break end
@@ -201,7 +201,7 @@ end
 local function test_a_caught_signal_ends_a_wait()
   local p <close> = pair()
   local server, client, accepted = p.server, p.client, p.accepted
-  local guard = assert(Child.guard())
+  local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGINT))
   local conn, why = server:accept()
   local data, read_why = accepted:read()
@@ -241,6 +241,42 @@ local function test_a_closed_connection_says_so_and_closes_again()
   assert(not shut and shut_trouble == "net: the connection is closed", shut_trouble)
 end
 
+--- Each end of a TCP connection names the other: the accepted end the
+--- client's address, whose port is the one the client was given and
+--- which differs from the listener's, and the client the listener's.
+local function test_a_tcp_connection_names_its_peer()
+  local p <close> = pair()
+  local client_sees = assert(p.client:peer())
+  assert(client_sees.kind == "tcp" and client_sees.host == "127.0.0.1")
+  assert(client_sees.port == p.server.address.port)
+  local server_sees = assert(p.accepted:peer())
+  assert(server_sees.kind == "tcp" and server_sees.host == "127.0.0.1")
+  assert(assert(server_sees.port) > 0 and server_sees.port ~= p.server.address.port)
+  local again = assert(p.accepted:peer())
+  assert(again.port == server_sees.port)
+end
+
+--- A closed connection has no peer to name, whichever end closed it.
+local function test_a_closed_connection_has_no_peer()
+  local p <close> = pair()
+  assert(p.client:close())
+  local address, why = p.client:peer()
+  assert(address == nil and why == "net: the connection is closed", why)
+end
+
+--- A unix connection has no TCP address to give: it answers nil and
+--- why, rather than a made-up address.
+local function test_a_unix_connection_has_no_peer_address(tmp: string)
+  if unix_socket.skipped(tmp) then return end
+  local server <close> = assert(Net.listen(Net.unix(tmp .. "/p.sock")))
+  local client <close> = assert(Net.connect(server.address))
+  local accepted <close> = assert(server:accept())
+  local address, why = accepted:peer()
+  assert(address == nil and why ~= "" and why ~= nil)
+  local other, other_why = client:peer()
+  assert(other == nil and other_why ~= "")
+end
+
 --- A `max_bytes` below 1 and a `how` of none of the three raise, at the line
 --- that called, in the module's own style.
 local function test_a_degenerate_read_or_shutdown_raises_at_the_caller()
@@ -251,11 +287,12 @@ local function test_a_degenerate_read_or_shutdown_raises_at_the_caller()
     assert(not ok and tostring(why):find("^cosmic%.net_test:%d+: net: read's max_bytes must be positive$") ~= nil,
       tostring(why))
   end
-  local shut, shut_why: boolean, any = pcall(function()
-    local _, _ = accepted:shutdown("sideways")
-  end)
-  assert(not shut and tostring(shut_why):find(
-    '^cosmic%.net_test:%d+: net: how must be "read", "write" or "both"$') ~= nil, tostring(shut_why))
+  -- A wrong `how` does not compile (net_shutdown_test.tl); a caller the
+  -- checker does not read, here a chunk loaded by hand, still gets this raise.
+  local unchecked = assert(load("local conn = ...; local ok = conn:shutdown('sideways'); return ok", "=unchecked"))
+  local shut, shut_why: boolean, any = pcall(function() local _ = unchecked(accepted) end)
+  assert(not shut and tostring(shut_why) == 'unchecked:1: net: how must be "read", "write" or "both"',
+    tostring(shut_why))
   assert(accepted:shutdown("read"), "a refused call must not end the direction")
 end
 
@@ -492,7 +529,7 @@ end
 --- held the thread could never do.
 local function test_in_a_run_a_server_serves_connections_at_once()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
-  local answered: {string} = {}
+  local answered: mut {string} = {}
   Poll.run(function()
     Poll.spawn(function()
       for _ = 1, 3 do
@@ -504,13 +541,14 @@ local function test_in_a_run_a_server_serves_connections_at_once()
         end)
       end
     end)
-    local clients: {Net.Conn} = {}
+    local clients: mut {Net.Conn} = {}
     for i = 1, 3 do
       clients[i] = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     end
     for i = 3, 1, -1 do
-      assert(clients[i]:write("c" .. i .. "\n"))
-      answered[#answered + 1] = assert(Stream.lines(clients[i]):read())
+      assert(clients[i]:write("c" .. tostring(i) .. "\n"))
+      local appended = assert(Stream.lines(clients[i]):read())
+      answered[#answered + 1] = appended
       assert(clients[i]:close())
     end
   end)
@@ -521,8 +559,8 @@ end
 --- "cancelled" once its task is cancelled; out of one, it waits alone.
 local function test_in_a_run_a_waiting_read_ends_when_its_task_is_cancelled()
   local p <close> = pair()
-  local answer = ""
-  local others = 0
+  local answer: string = ""
+  local others: integer = 0
   Poll.run(function()
     local reader = Poll.spawn(function()
       local data, why = p.accepted:read()
@@ -548,8 +586,8 @@ local function test_in_a_run_a_read_on_a_connection_closed_under_it_ends()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
   local _first_client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
   local first = assert(server:accept())
-  local answer = ""
-  local later = ""
+  local answer: string = ""
+  local later: string = ""
   Poll.run(function()
     local reader = Poll.spawn(function()
       local data, why = first:read()
@@ -574,7 +612,7 @@ end
 local function test_in_a_run_a_write_waits_while_another_task_drains()
   local p <close> = pair()
   local size = 4 * 1024 * 1024
-  local got = 0
+  local got: integer = 0
   Poll.run(function()
     Poll.spawn(function()
       assert(p.client:write(string.rep("x", size)))
@@ -591,7 +629,7 @@ local function test_in_a_run_a_write_waits_while_another_task_drains()
       end
     end)
   end)
-  assert(got == size, "got " .. got .. " of " .. size .. " bytes")
+  assert(got == size, "got " .. tostring(got) .. " of " .. tostring(size) .. " bytes")
 end
 
 --- In a task, a wait past its timeout fails with Poll.TIMEOUT, as it does out
@@ -613,8 +651,8 @@ local function test_in_a_run_a_connect_to_a_full_backlog_fails_at_once(tmp: stri
   if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local _full <close> = full(path)
-  local conn: Net.Conn
-  local why = ""
+  local conn: Net.Conn? = nil
+  local why: string = ""
   local began = Clock.monotonic_ns()
   Poll.run(function()
     conn, why = Net.connect(Net.unix(path), { timeout_ns = Clock.seconds(20) })

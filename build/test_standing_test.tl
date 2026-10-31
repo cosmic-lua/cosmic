@@ -19,7 +19,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 local function run(root: string, output: string, env: {string:string}, fails?: boolean,
                    words?: {string}): string
   local fd = assert(Fs.open_write(output))
-  local args: {string} = { "test" }
+  local args: mut {string} = { "test" }
   for _, word in ipairs(words or { "suite" }) do args[#args + 1] = word end
   local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
@@ -28,7 +28,7 @@ local function run(root: string, output: string, env: {string:string}, fails?: b
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
   local text = assert(Fs.read(output))
-  assert(result ~= nil and result.ok == not fails, tostring(trouble) .. text)
+  assert(result ~= nil and result.ok == fails ~= true, tostring(trouble) .. text)
   return text
 end
 
@@ -91,12 +91,12 @@ end
   -- Declared, a host file is keyed by its contents, and a variable by
   -- its value.
   assert(Fs.write(tmp .. "/outside/f", "changed\n"))
-  said("host", {}, "1 of 2 failed", true)
+  said("host", {}, "1 of 2 tests failed", true)
   assert(Fs.write(tmp .. "/outside/f", "out\n"))
   said("restored", {}, "0 ran, 2 stood")
   env.FLAVOUR = "sour"
-  said("sour", {}, "1 of 2 failed", true)
-  said("failed", {}, "1 of 2 failed", true)
+  said("sour", {}, "1 of 2 tests failed", true)
+  said("failed", {}, "1 of 2 tests failed", true)
   env.FLAVOUR = "sweet"
   said("sweet", {}, "0 ran, 2 stood")
 end

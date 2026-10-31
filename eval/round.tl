@@ -1,0 +1,456 @@
+--- Runs one round of evals: lays an arena per task, runs the solvers up
+--- to `--jobs` at a time, and only then grades each arena, one after
+--- another, so the load of solvers still running cannot flake a check
+--- that times something. Each arena then has its summary and its
+--- result.json, and <out>/index.txt a line per task.
+---
+---     cosmic --standalone eval/round.tl <task,...|all> --model M [--tool PATH]
+---         [--out DIR] [--run N] [--jobs N] [--max-turns N] [--timeout S]
+---
+--- It runs [`eval/arena`], [`eval/solve`], the task's `eval/check/<task>`,
+--- [`eval/summarize`] and [`eval/result`] as programs, each of which
+--- stays usable by hand (eval/README.md). [`eval/round`] runs this on the
+--- bootstrap cosmic: it requires `cosmic.*` modules only, so nothing here
+--- can call those scripts' functions. [`Round.plan`] is the round as data;
+--- [`Round.execute`] carries it out through a [`Round.System`], which a test
+--- replaces with a fake.
+local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
+local Json = require("cosmic.json")
+local Proc = require("cosmic.proc")
+
+local record Round
+  --- What the command line asked for.
+  record Options
+    tasks: {string}
+    model: string
+    --- The cosmic binary under test; nil for this checkout's.
+    tool?: string
+    --- Where the round's arenas and index go; nil for the default.
+    out?: string
+    run: integer
+    jobs: integer
+    max_turns: integer
+    timeout: integer
+  end
+
+  --- One task's part of a round: its arena and the commands that lay,
+  --- solve, summarize and grade it, as argument lists.
+  record Entry
+    task: string
+    arena: string
+    lay: {string}
+    solve: {string}
+    summarize: {string}
+    grade: {string}
+    --- The head of [`eval/result`]'s command line; the grade's status and
+    --- log follow once known.
+    result: {string}
+  end
+
+  record Plan
+    out: string
+    jobs: integer
+    entries: {Entry}
+  end
+
+  --- The tasks `all` stands for: one for each eval/task/<task>.md
+  --- ([`eval/round_test.tl`] holds the list to them).
+  mut all_tasks: {string}
+
+  --- A finished command's exit status and its output (standard
+  --- output and error together).
+  record Output
+    code: integer
+    text: string
+  end
+
+  --- Which numbered command ended, and its exit status.
+  record Done
+    id: integer
+    code: integer
+  end
+
+  --- What a round does to the world. Tests give a fake.
+  record System
+    --- Runs a command to its end.
+    run: function({string}): Round.Output
+    --- Starts a command, its output kept in the file `log`: a number
+    --- naming it, nil when it could not start.
+    start: function({string}, string): integer?
+    --- Waits for the first of the numbered commands to end.
+    wait: function({integer}): Round.Done
+    read: function(string): string?
+    write: function(string, string): boolean
+    mkdirs: function(string): boolean
+  end
+end
+
+Round.all_tasks = { "jobs", "kv", "ledger", "mirror", "notes", "pack", "relay" }
+
+local USAGE <const> = "usage: eval/round <task,...|all> --model M [--tool PATH] [--out DIR] " ..
+  "[--run N] [--jobs N] [--max-turns N] [--timeout S]"
+
+local function positive(text: string): integer?
+  if not text:match("^[1-9]%d*$") then return nil end
+  return math.tointeger(tonumber(text))
+end
+
+--- Reads the command line: the tasks, then the options; `--run` is 1,
+--- `--jobs` 3, `--max-turns` 150 and `--timeout` 600 (eval/solve's own
+--- defaults, stated so result.json records them) unless given.
+function Round.parse(argv: {string}): Round.Options?, string
+  local tasks: mut {string}? = nil
+  local model: string? = nil
+  local tool: string? = nil
+  local out: string? = nil
+  local run, jobs, max_turns, timeout = 1, 3, 150, 600
+  local i = 1
+  while true do
+    local word = argv[i]
+    if word == nil then break end
+    if word:sub(1, 2) == "--" then
+      local value = argv[i + 1]
+      if value == nil then return nil, word .. " needs a value" end
+      if word == "--model" then
+        model = value
+      elseif word == "--tool" then
+        tool = value
+      elseif word == "--out" then
+        out = value
+      elseif word == "--run" or word == "--jobs" or word == "--max-turns" or word == "--timeout" then
+        local n = positive(value)
+        if n == nil then return nil, word .. " takes a positive integer: " .. value end
+        if word == "--run" then
+          run = n
+        elseif word == "--jobs" then
+          jobs = n
+        elseif word == "--max-turns" then
+          max_turns = n
+        else
+          timeout = n
+        end
+      else
+        return nil, "unknown option " .. word
+      end
+      i = i + 2
+    elseif tasks ~= nil then
+      return nil, "one list of tasks only: " .. word
+    else
+      local picked: mut {string} = {}
+      tasks = picked
+      local seen: mut {string: boolean} = {}
+      local names: mut {string} = {}
+      if word == "all" then
+        for _, each in ipairs(Round.all_tasks) do names[#names + 1] = each end
+      else
+        for name in word:gmatch("[^,]+") do names[#names + 1] = name end
+      end
+      for _, name in ipairs(names) do
+        local known = false
+        for _, each in ipairs(Round.all_tasks) do known = known or each == name end
+        if not known then return nil, "no task " .. name end
+        if seen[name] ~= true then
+          seen[name] = true
+          picked[#picked + 1] = name
+        end
+      end
+      i = i + 1
+    end
+  end
+  if tasks == nil or #tasks == 0 then return nil, "tasks are required" end
+  if model == nil or model == "" then return nil, "--model is required" end
+  return { tasks = tasks, model = model, tool = tool, out = out, run = run, jobs = jobs,
+    max_turns = max_turns, timeout = timeout }, ""
+end
+
+--- The default `--out`: /tmp/cosmic-evals/<model>-<commit>, the model's
+--- name with anything but letters, digits, `.`, `_` and `-` as `-`.
+function Round.default_out(model: string, commit: string): string
+  return "/tmp/cosmic-evals/" .. (model:gsub("[^%w%._-]", "-")) .. "-" .. commit
+end
+
+--- The round as data, for `options` with `root` the checkout, `tool` the
+--- binary under test, `commit` the checkout's short commit and `out` the
+--- round's directory (all absolute): each task's arena at
+--- <out>/<task>/run-<NNN> and its commands.
+function Round.plan(options: Round.Options, root: string, tool: string, commit: string,
+                    out: string): Round.Plan
+  local entries: mut {Round.Entry} = {}
+  for _, task in ipairs(options.tasks) do
+    local arena = out .. "/" .. task .. "/" .. string.format("run-%03d", options.run)
+    local solve = { root .. "/eval/solve", arena, "--model", options.model }
+    local result = { root .. "/eval/result", arena, "--model", options.model }
+    local function both(flag: string, value: integer?)
+      if value == nil then return end
+      for _, argv in ipairs({ solve, result }) do
+        argv[#argv + 1] = flag
+        table.insert(argv, tostring(value))
+      end
+    end
+    both("--max-turns", options.max_turns)
+    both("--timeout", options.timeout)
+    if options.tool == nil then
+      result[#result + 1] = "--commit"
+      result[#result + 1] = commit
+    end
+    entries[#entries + 1] = {
+      task = task, arena = arena,
+      lay = { root .. "/eval/arena", task, tool, arena },
+      solve = solve,
+      summarize = { root .. "/eval/summarize", arena .. "/transcript.jsonl" },
+      grade = { root .. "/eval/check/" .. task, arena },
+      result = result,
+    }
+  end
+  return { out = out, jobs = options.jobs, entries = entries }
+end
+
+local function say(line: string)
+  local _, _ = Fs.put(Fs.stdout, line .. "\n")
+end
+
+--- The index line for an arena: its task, and its result.json's status,
+--- turns, cost and verdict, `null` where it has none.
+local function index_line(system: Round.System, entry: Round.Entry): string
+  local text = system.read(entry.arena .. "/result.json")
+  local fields: {string: Json.Value} = {}
+  if text ~= nil then
+    local decoded, _ = Json.decode(text)
+    local object, _ = Json.to_object(decoded)
+    if object ~= nil then fields = object end
+  end
+  local function field(key: string): string
+    local value = fields[key]
+    if value == nil then return "null" end
+    return tostring(value)
+  end
+  local spent = fields["cost_usd"]
+  local cost = "null"
+  if spent is number then cost = string.format("$%.2f", spent) end
+  return entry.task .. " status=" .. field("status") .. " turns=" .. field("turns") ..
+    " cost=" .. cost .. " verdict=" .. field("grade_verdict")
+end
+
+--- Carries `plan` out: lays each arena, runs the solvers `plan.jobs` at
+--- a time, then -- the last solver done -- summarizes, grades and
+--- writes the result of each arena in turn, and writes <out>/index.txt.
+--- An arena that cannot be laid is not solved, graded or reported but
+--- gets an index line saying so. Answers the number of lines that did
+--- not end `verdict=PASS`: 0 when everything passed.
+function Round.execute(plan: Round.Plan, system: Round.System): integer
+  if not system.mkdirs(plan.out) then
+    say("round: cannot make " .. plan.out)
+    return 2
+  end
+  local lines: mut {string} = {}
+  local laid: mut {Round.Entry} = {}
+  for _, entry in ipairs(plan.entries) do
+    local made = system.run(entry.lay)
+    if made.code == 0 then
+      laid[#laid + 1] = entry
+    else
+      lines[#lines + 1] = entry.task .. " status=lay_failed turns=null cost=null verdict=null"
+      say("round: " .. entry.task .. ": " .. (made.text:gsub("\n+$", "")))
+    end
+  end
+  local waiting: mut {Round.Entry} = {}
+  for _, entry in ipairs(laid) do waiting[#waiting + 1] = entry end
+  local running: mut {integer} = {}
+  local owner: mut {integer: Round.Entry} = {}
+  while #waiting > 0 or #running > 0 do
+    while #waiting > 0 and #running < plan.jobs do
+      local removed = table.remove(waiting, 1)
+      local entry = assert(removed, "the loop runs while an entry waits")
+      local handle = system.start(entry.solve, entry.arena .. "/solve.log")
+      if handle ~= nil then
+        running[#running + 1] = handle
+        owner[handle] = entry
+        say("round: " .. entry.task .. ": solving in " .. entry.arena)
+      else
+        say("round: " .. entry.task .. ": could not start the solver")
+      end
+    end
+    if #running > 0 then
+      local done = system.wait(running)
+      for i, handle in ipairs(running) do
+        if handle == done.id then
+          table.remove(running, i)
+          break
+        end
+      end
+      local finished_entry = assert(owner[done.id], "a solver that finished was started by this round")
+      say("round: " .. finished_entry.task .. ": solver exit " .. tostring(done.code))
+    end
+  end
+  local failures = 0
+  for _, entry in ipairs(laid) do
+    local summary = system.run(entry.summarize)
+    system.write(entry.arena .. "/summary.txt", summary.text)
+    local graded = system.run(entry.grade)
+    local logs = graded.text:match("check: logs ([^\n]+)")
+    local log = if logs ~= nil then logs .. "/grade.log" else entry.arena .. "/grade.log" end
+    system.write(log, graded.text)
+    say("round: " .. entry.task .. ": grade exit " .. tostring(graded.code) .. " (" .. log .. ")")
+    local result: mut {string} = {}
+    for _, word in ipairs(entry.result) do result[#result + 1] = word end
+    -- The log is named from the arena, as the transcript is.
+    local relative = log
+    if log:sub(1, #entry.arena + 1) == entry.arena .. "/" then
+      relative = log:sub(#entry.arena + 2)
+    end
+    for _, word in ipairs({ "--grade-exit", tostring(graded.code), "--grade-log", relative }) do
+      result[#result + 1] = word
+    end
+    local wrote = system.run(result)
+    if wrote.code ~= 0 then
+      say("round: " .. entry.task .. ": result: " .. (wrote.text:gsub("\n+$", "")))
+    end
+    lines[#lines + 1] = index_line(system, entry)
+  end
+  for _, line in ipairs(lines) do
+    say(line)
+    if not line:find(" verdict=PASS", 1, true) then failures = failures + 1 end
+  end
+  system.write(plan.out .. "/index.txt", table.concat(lines, "\n") .. "\n")
+  return failures
+end
+
+--- The System that runs commands for real.
+--- The checkout's short commit: `git rev-parse --short HEAD` in `root`,
+--- git found on `path` (PATH by default), "unknown" where there is none.
+function Round.short_commit(root: string, path?: string): string
+  local git, _ = Proc.find("git", path)
+  if git == nil then return "unknown" end
+  local ran, _ = Child.run({ git, "-C", root, "rev-parse", "--short", "HEAD" },
+    { stdout = "capture", stderr = "null", stdin = "null", timeout_ns = Clock.seconds(10) })
+  local sha: string? = nil
+  if ran ~= nil and ran.ok then sha = (ran.stdout or ""):match("^(%x+)\n$") end
+  return sha or "unknown"
+end
+
+local function real_system(): Round.System
+  local handles: mut {integer: Child.Handle} = {}
+  local streams: mut {integer: integer} = {}
+  local started = 0
+  return {
+    run = function(argv: {string}): Round.Output
+      local result, trouble = Child.run(argv, { stdout = "capture", stderr = "stdout",
+        stdin = "null", timeout_ns = Clock.minutes(15) })
+      if result == nil then return { code = 127, text = trouble } end
+      return { code = Child.shell_status(result), text = result.stdout or "" }
+    end,
+    start = function(argv: {string}, log: string): integer?
+      local fd, _ = Fs.open_write(log)
+      if fd == nil then return nil end
+      local handle, _ = Child.start(argv, { stdout = fd, stderr = fd, stdin = "null" })
+      if handle == nil then
+        local _, _ = Fs.close(fd)
+        return nil
+      end
+      started = started + 1
+      handles[started] = handle
+      streams[started] = fd
+      return started
+    end,
+    wait = function(numbers: {integer}): Round.Done
+      local live: mut {Child.Handle} = {}
+      for _, number in ipairs(numbers) do
+        live[#live + 1] = assert(handles[number], "start handed out this number")
+      end
+      local done, _ = Child.wait_any(live)
+      assert(done, "wait_any")
+      local finished = 0
+      for _, number in ipairs(numbers) do
+        if handles[number] == done then finished = number end
+      end
+      local result, _ = done:wait()
+      local stream = assert(streams[finished], "wait_any answered a handle that start made")
+      local _, _ = Fs.close(stream)
+      local code = 127
+      if result ~= nil then code = Child.shell_status(result) end
+      return { id = finished, code = code }
+    end,
+    read = function(path: string): string?
+      local text, _ = Fs.read(path)
+      return text
+    end,
+    write = function(path: string, text: string): boolean
+      local wrote, _ = Fs.write(path, text)
+      return wrote
+    end,
+    mkdirs = function(path: string): boolean
+      local made, _ = Fs.mkdirs(path)
+      return made
+    end,
+  }
+end
+
+local function complain(message: string)
+  local _, _ = Fs.put(Fs.stderr, "round: " .. message .. "\n")
+end
+
+--- @param argv the words after the script's path
+--- @param program this script's own path
+local function run(argv: {string}, program: string): integer
+  local options, trouble = Round.parse(argv)
+  if options == nil then
+    complain(trouble)
+    local _, _ = Fs.put(Fs.stderr, USAGE .. "\n")
+    return 2
+  end
+  local script, strouble = Fs.absolute(program)
+  local root: string? = nil
+  if script ~= nil then root = script:match("^(.*)/eval/[^/]+%.tl$") end
+  if root == nil then
+    if script == nil then
+      complain(strouble)
+    else
+      complain(program .. ": expected to run as .../eval/round.tl")
+    end
+    return 2
+  end
+  local system = real_system()
+  local short = Round.short_commit(root)
+  local tool: string
+  local options_tool = options.tool
+  if options_tool ~= nil then
+    tool = options_tool
+  else
+    local built = system.run({ root .. "/bin/cosmic-bootstrap", "--standalone",
+      root .. "/build/paths.tl", root })
+    if built.code ~= 0 then
+      complain("cannot find this checkout's build directory (bin/zig build boot first?): " .. built.text)
+      return 2
+    end
+    tool = built.text:gsub("%s+$", "") .. "/bin/cosmic"
+  end
+  local absolute, atrouble = Fs.absolute(tool)
+  if absolute == nil then
+    complain(atrouble)
+    return 2
+  end
+  local out = options.out or Round.default_out(options.model, short)
+  -- Fs.absolute resolves a path that is there.
+  local made, mtrouble = Fs.mkdirs(out)
+  if not made then
+    complain(mtrouble)
+    return 2
+  end
+  local absolute_out, otrouble = Fs.absolute(out)
+  if absolute_out == nil then
+    complain(otrouble)
+    return 2
+  end
+  local plan = Round.plan(options, root, absolute, short, absolute_out)
+  local failures = Round.execute(plan, system)
+  return if failures == 0 then 0 else 1 end
+end
+
+--- The entry point: [`run`] with this script's path, Lua's `arg[0]`.
+function Round.main(argv: {string}): integer
+  return run(argv, (assert(arg[0], "round: no script path")))
+end
+
+return Round

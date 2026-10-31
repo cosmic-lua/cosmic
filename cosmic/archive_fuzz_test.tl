@@ -23,7 +23,7 @@ local PARTS <const> = { "a", "b", "link", "..", ".", "", "@OUT@" }
 local TARGETS <const> = { "a", "b", "..", "../..", "link", "link/..", "a/../..", "/", "@OUT@", "@OUT@/x", "../outside" }
 
 local function gen_path(src: Fuzz.Source, from: {string}): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   repeat parts[#parts + 1] = Fuzz.pick(src, from) until not Fuzz.more(src, #parts, 3)
   return table.concat(parts, "/")
 end
@@ -54,7 +54,7 @@ local SAFE_TARGETS <const> = { "a", "b", "link", ".", "link/.." }
 local function gen_extraction(src: Fuzz.Source): string
   local format = Fuzz.pick(src, { "tar", "tar.gz", "zip" })
   -- Links, what containment is most about, are drawn twice as often.
-  local fields: {string} = { format, Fuzz.pick(src, { "skip", "create", "create" }), Fuzz.pick(src, { "", "1", "a" }) }
+  local fields: mut {string} = { format, Fuzz.pick(src, { "skip", "create", "create" }), Fuzz.pick(src, { "", "1", "a" }) }
   local hostile_left = true
   repeat
     -- One entry in eight, until one is; the high end is the hostile
@@ -75,7 +75,7 @@ local function gen_extraction(src: Fuzz.Source): string
 end
 
 --- The archive `fields` describe, with `@OUT@` spelled as `outside`.
-local function build(fields: {string}, outside: string): string | nil
+local function build(fields: {string}, outside: string): string?
   local out = Stream.collect()
   local format = fields[1]
   local function place(s: string): string
@@ -116,7 +116,7 @@ end
 
 --- `path` with `.` and `..` resolved by name alone.
 local function lexical(path: string): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for part in path:gmatch("[^/]+") do
     if part == ".." then
       parts[#parts] = nil
@@ -134,7 +134,7 @@ end
 --- Every link under `dir`, as paths, walking real directories only:
 --- `readdir` names a link as one, so a link to a directory is found,
 --- not walked into.
-local function links_under(dir: string, found: {string})
+local function links_under(dir: string, found: mut {string})
   local entries = sys.readdir(dir)
   if entries == nil then return end
   for name, kind in pairs(entries) do
@@ -169,11 +169,11 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
       Fuzz.label("built")
       local file = case .. "/archive"
       assert(Fs.write(file, archive))
-      local strip_components: integer = fields[3] == "1" and 1 or nil
-      local strip_prefix: string = fields[3] == "a" and "a" or nil
+      local strip_components: integer = if fields[3] == "1" then 1 else nil end
+      local strip_prefix: string = if fields[3] == "a" then "a" else nil end
       -- A shrunk input may hold any string here; extract treats every
       -- mode but "create" as "skip".
-      local mode: Archive.Links = fields[2] == "create" and "create" or "skip"
+      local mode: Archive.Links = if fields[2] == "create" then "create" else "skip" end
       local written, trouble = Archive.extract(file, dest, { links = mode, strip_prefix = strip_prefix,
         strip_components = strip_components })
       if written ~= nil and #written > 0 then Fuzz.label("extracted") end
@@ -212,13 +212,16 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
       end
       local real_dest = Fs.absolute(dest)
       if real_dest == nil then return true, "" end
-      local links: {string} = {}
+      local links: mut {string} = {}
       links_under(real_dest, links)
       for _, link in ipairs(links) do
         local target = Fs.readlink(link)
         if target == nil then return false, "cannot read the link " .. link end
-        local resolved = Fs.absolute(link)
-        if resolved == nil then
+        local absolute = Fs.absolute(link)
+        local resolved: string
+        if absolute ~= nil then
+          resolved = absolute
+        else
           local from = link:match("^(.*)/[^/]*$") or real_dest
           if target:sub(1, 1) == "/" then
             resolved = lexical(target)
@@ -284,7 +287,7 @@ end
 --- decompressor refuses a bad chunk whole), so `trouble` stands for
 --- the walk, not for what was read before it.
 local function walk_summary(reader: Archive.Reader): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local ended = "ok"
   for _ = 1, 10000 do
     local e, why = reader:next()
@@ -296,7 +299,7 @@ local function walk_summary(reader: Archive.Reader): string
       break
     end
     local entry: Archive.Entry = e
-    lines[#lines + 1] = entry.kind .. " " .. entry.path .. " " .. tostring(entry.size)
+    table.insert(lines, entry.kind .. " " .. entry.path .. " " .. tostring(entry.size))
   end
   reader:close()
   lines[#lines + 1] = ended
@@ -307,9 +310,10 @@ end
 --- itself spells (1 to 300, cycling), so the sniff and the tar's header
 --- reads land across reads wherever the input puts them.
 local function chunked(bytes: string): Stream.Reader
-  local at, turn = 1, 0
+  local at: integer = 1
+  local turn: integer = 0
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
     if at > #bytes then return nil, "" end
     turn = turn + 1
     local size = bytes:byte(turn % math.max(#bytes, 1) + 1) % 300 + 1
@@ -365,7 +369,7 @@ local function test_open_stream_answers_as_open_does_for_the_same_bytes(tmp: str
       end
       local opened = Archive.open(file)
       if (opened == nil) ~= (streamed == nil) then
-        return false, "open " .. (opened == nil and "refused" or "took") .. " what open_stream " .. (streamed == nil and "refused" or "took")
+        return false, "open " .. (if opened == nil then "refused" else "took" end) .. " what open_stream " .. (if streamed == nil then "refused" else "took" end)
       end
       if opened == nil or streamed == nil then return true, "" end
       local from_file, from_stream = walk_summary(opened), walk_summary(streamed)
@@ -381,7 +385,7 @@ end
 --- What `dir` holds, as lines: every path with its kind and its body or
 --- link target, sorted.
 local function snapshot(dir: string): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local function walk(at: string, prefix: string)
     local entries = sys.readdir(at)
     if entries == nil then return end
@@ -429,9 +433,9 @@ local function test_extract_reader_answers_as_extract_does_for_the_same_bytes(tm
       local file = case .. "/archive"
       assert(Fs.write(file, archive))
       local opts: Archive.ExtractOptions = {
-        links = fields[2] == "create" and "create" or "skip",
-        strip_prefix = fields[3] == "a" and "a" or nil,
-        strip_components = fields[3] == "1" and 1 or nil,
+        links = if fields[2] == "create" then "create" else "skip" end,
+        strip_prefix = if fields[3] == "a" then "a" else nil end,
+        strip_components = if fields[3] == "1" then 1 else nil end,
       }
       local from_file, file_why = Archive.extract(file, case .. "/by-file", opts)
       local reader = Archive.open_stream(chunked(archive))
@@ -453,7 +457,7 @@ local function test_extract_reader_answers_as_extract_does_for_the_same_bytes(tm
       if by_file ~= by_stream then
         return false, "file:\n" .. by_file .. "\nstream:\n" .. by_stream
       end
-      Fuzz.label(from_file ~= nil and "both wrote" or "both refused")
+      Fuzz.label(if from_file ~= nil then "both wrote" else "both refused" end)
       return true, ""
     end,
   })
@@ -464,7 +468,7 @@ end
 --- fill per file. The fills compress to almost nothing, so a body is
 --- far larger than the archive that holds it, as a bomb is.
 local function gen_capped(src: Fuzz.Source): string
-  local fields: {string} = { Fuzz.pick(src, { "tar", "tar.gz", "zip" }) }
+  local fields: mut {string} = { Fuzz.pick(src, { "tar", "tar.gz", "zip" }) }
   -- None is the low end, so a shrunk input falls back to the defaults.
   local function cap(small: integer, large: integer): string
     local kind = src:int(0, 2)
@@ -483,7 +487,7 @@ local function gen_capped(src: Fuzz.Source): string
 end
 
 --- The limit a field spells, nil for none or for text no limit is.
-local function limit_of(field: string): integer | nil
+local function limit_of(field: string): integer?
   local n = math.tointeger(tonumber(field))
   if n ~= nil and n >= 0 then return n end
   return nil
@@ -491,7 +495,7 @@ end
 
 --- The archive `fields` describe, as [`gen_capped`] draws them, and the
 --- sizes of its files in order.
-local function build_capped(fields: {string}): string | nil, {integer}
+local function build_capped(fields: {string}): string?, {integer}
   local out = Stream.collect()
   local zip = fields[1] == "zip"
   local w: Stream.ArchiveWriter
@@ -500,14 +504,14 @@ local function build_capped(fields: {string}): string | nil, {integer}
   else
     w = Tar.writer(out, { deterministic = true })
   end
-  local sizes: {integer} = {}
+  local sizes: mut {integer} = {}
   for i = 4, #fields - 1, 2 do
     local size = math.tointeger(tonumber(fields[i])) or 0
     if size < 0 then size = 0 end
-    local unit = fields[i + 1] == "z" and "\0" or "pq1"
+    local unit = if fields[i + 1] == "z" then "\0" else "pq1" end
     local body = unit:rep(size // #unit + 1):sub(1, size)
     sizes[#sizes + 1] = size
-    if not w:add_file("f" .. #sizes, body) then return nil, sizes end
+    if not w:add_file("f" .. tostring(#sizes), body) then return nil, sizes end
   end
   if not w:close() then return nil, sizes end
   local archive = out:result()
@@ -527,14 +531,14 @@ end
 --- alone would pass any body.
 local function understating(reader: Archive.Reader): Archive.Reader
   local r: Archive.Reader = {}
-  r.next = function(_self: Archive.Reader): Archive.Entry | nil, string
+  r.next = function(_self: Archive.Reader): Archive.Entry?, string
     local entry, why = reader:next()
     if entry == nil then return nil, why end
     local real: Archive.Entry = entry
     local lie: Archive.Entry = {
       path = real.path, kind = real.kind, mode = real.mode, size = 0, mtime = real.mtime,
       linkpath = real.linkpath,
-      open = function(_self: Archive.Entry): Stream.Reader | nil, string return real:open() end,
+      open = function(_self: Archive.Entry): Stream.Reader?, string return real:open() end,
     }
     return lie, ""
   end
@@ -559,8 +563,9 @@ local function test_extraction_stays_under_its_byte_limits(tmp: string)
       assert(Fs.mkdirs(case))
       local fields = Fuzz.unpack(input)
       if #fields < 5 then return true, "" end
-      local archive, sizes = build_capped(fields)
-      if archive == nil then return true, "" end
+      local built, sizes = build_capped(fields)
+      if built == nil then return true, "" end
+      local archive: string = built
       local file = case .. "/archive"
       assert(Fs.write(file, archive))
       local per_file, total = limit_of(fields[2]), limit_of(fields[3])
@@ -573,9 +578,9 @@ local function test_extraction_stays_under_its_byte_limits(tmp: string)
       -- the other limit first, as it does when both are in reach.
       local either: {string} = {}
       for i, size in ipairs(sizes) do
-        local entry_says = "archive: f" .. i .. " is larger than max_entry_bytes (" ..
+        local entry_says = "archive: f" .. tostring(i) .. " is larger than max_entry_bytes (" ..
           String.counted(per_file or 0, "byte") .. ")"
-        local total_says = "archive: extracting f" .. i .. " would write more than max_bytes (" ..
+        local total_says = "archive: extracting f" .. tostring(i) .. " would write more than max_bytes (" ..
           String.counted(total or 0, "byte") .. ")"
         if per_file ~= nil and size > per_file then
           refusal = entry_says
@@ -593,34 +598,36 @@ local function test_extraction_stays_under_its_byte_limits(tmp: string)
       end
       if refusal == "" then Fuzz.label("extracted") end
 
-      local function check_dest(dest: string, written: {string} | nil, trouble: string,
+      local function check_dest(dest: string, written: {string}?, trouble: string,
                                 says: {string}): boolean, string
         if (written == nil) ~= (refusal ~= "") then
-          return false, "extract " .. (written == nil and "refused" or "took") .. " what the limits " ..
-            (refusal ~= "" and "refuse" or "allow") .. ": " .. trouble
+          return false, "extract " .. (if written == nil then "refused" else "took" end) .. " what the limits " ..
+            (if refusal ~= "" then "refuse" else "allow" end) .. ": " .. trouble
         end
         if written == nil and trouble ~= says[1] and trouble ~= says[2] then
           return false, "refused as '" .. trouble .. "', not '" .. table.concat(says, "' or '") .. "'"
         end
         local names = Fs.list(dest) or {}
         table.sort(names)
-        local want: {string} = {}
-        for i = 1, kept do want[i] = "f" .. i end
+        local want: mut {string} = {}
+        for i = 1, kept do want[i] = "f" .. tostring(i) end
         table.sort(want)
         if table.concat(names, ",") ~= table.concat(want, ",") then
           return false, "left " .. table.concat(names, ",") .. ", not " .. table.concat(want, ",")
         end
         local wrote = 0
         for i = 1, kept do
-          local body = Fs.read(dest .. "/f" .. i)
-          if body == nil or #body ~= sizes[i] then return false, "f" .. i .. " is not whole" end
+          local body = Fs.read(dest .. "/f" .. tostring(i))
+          if body == nil or #body ~= sizes[i] then
+            return false, "f" .. tostring(i) .. " is not whole"
+          end
           wrote = wrote + #body
           if per_file ~= nil and #body > per_file then
-            return false, "f" .. i .. " passes max_entry_bytes"
+            return false, "f" .. tostring(i) .. " passes max_entry_bytes"
           end
         end
         if total ~= nil and wrote > total then
-          return false, "wrote " .. wrote .. ", past max_bytes"
+          return false, "wrote " .. tostring(wrote) .. ", past max_bytes"
         end
         return true, ""
       end

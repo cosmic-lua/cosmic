@@ -155,11 +155,13 @@ local function test_an_ipv6_address_carrying_ipv4_is_refused_outright_whatever_i
     "8.8.8.8", "93.184.216.34",
   }
   for _, carrier in ipairs(carriers) do
+    local phrase = assert(carrier[1], "a carrier names what the relay calls it")
+    local form = assert(carrier[2], "a carrier gives the form of its addresses")
     for _, v4 in ipairs(samples) do
-      local address = carrier[2]:format(v4)
+      local address = form:format(v4)
       local no, why = refused(address)
       assert(no, address .. " is decoded to " .. v4)
-      assert(why:find(address .. " is " .. carrier[1], 1, true), why)
+      assert(why:find(address .. " is " .. phrase, 1, true), why)
       assert(not why:find("carrying", 1, true), why)
     end
   end
@@ -180,10 +182,10 @@ local function test_the_local_use_nat64_prefix_is_refused_whatever_follows_it()
   -- well-known /96 beside it is a NAT64 prefix of its own.
   for _, address in ipairs({ "64:ff9b:2:a00:0:100:0:0", "64:ff9b:0:1::a00:1", "64:ff9a::a00:1", "64:ff9c:1::" }) do
     local no, why = refused(address)
-    assert(no and why:find("outside 2000::/3", 1, true), address .. ": " .. why)
+    assert(no and why:find("outside 2000::/3", 1, true) ~= nil, address .. ": " .. why)
   end
   local no, why = refused("64:ff9b::808:808")
-  assert(no and why:find("a NAT64 address", 1, true), why)
+  assert(no and why:find("a NAT64 address", 1, true) ~= nil, why)
 end
 
 local function test_ipv4_compatible_and_translated_forms_are_refused_outright()
@@ -206,10 +208,10 @@ local function test_ipv4_compatible_and_translated_forms_are_refused_outright()
   -- Its neighbours carry nothing, and are outside 2000::/3.
   for _, address in ipairs({ "::ffff:1:a00:1", "::fffe:0:a00:1", "0:0:0:1:ffff:0:a00:1" }) do
     local no, why = refused(address)
-    assert(no and why:find("outside 2000::/3", 1, true), address .. ": " .. why)
+    assert(no and why:find("outside 2000::/3", 1, true) ~= nil, address .. ": " .. why)
   end
   local no, why = refused("::ffff:10.0.0.1")
-  assert(no and why:find("an IPv4-mapped address, which the relay does not decode", 1, true), why)
+  assert(no and why:find("an IPv4-mapped address, which the relay does not decode", 1, true) ~= nil, why)
 end
 
 local function test_the_neighbours_of_each_embedding_prefix_carry_nothing()
@@ -217,7 +219,7 @@ local function test_the_neighbours_of_each_embedding_prefix_carry_nothing()
   for _, address in ipairs({ "::fffe:10.0.0.1", "::ffff:1:10.0.0.1", "::1:0:10.0.0.1", "64:ff9b:0:0:1::10.0.0.1",
       "64:ff9c::10.0.0.1", "1::ffff:10.0.0.1" }) do
     local no, why = refused(address)
-    assert(no and why:find("outside 2000::/3", 1, true), address .. ": " .. why)
+    assert(no and why:find("outside 2000::/3", 1, true) ~= nil, address .. ": " .. why)
   end
 end
 
@@ -235,7 +237,7 @@ local function test_6to4_and_teredo_are_refused_outright_with_their_own_reasons(
   assert(refused("2001:0:ffff:ffff:ffff:ffff:ffff:ffff"))
   -- 2001::/23 is refused beyond Teredo, as an assignment of its own kind.
   no, why = refused("2001:1::")
-  assert(no and why:find("a special-purpose address", 1, true), why)
+  assert(no and why:find("a special-purpose address", 1, true) ~= nil, why)
   assert(refused("2001:1ff::"))
   -- 2001:200::, 2000:ffff:: and 2003:: are neither.
   assert(not refused("2001:200::"))
@@ -292,7 +294,9 @@ end
 
 local function test_an_ipv4_mapped_own_address_is_the_ipv4_address()
   local own = relay_address.own_addresses({ "::ffff:1.2.3.4", "::ffff:a00:1" })
-  assert(#own[1] == 4 and #own[2] == 4)
+  local first = assert(own[1], "expected the first own address")
+  local second = assert(own[2], "expected the second own address")
+  assert(#first == 4 and #second == 4)
   local ok, why = relay_address.check("1.2.3.4", 80, NONE, own)
   assert(not ok)
   assert(why:find("one of this host's own addresses", 1, true), why)
@@ -351,7 +355,7 @@ local function test_the_longest_address_text_parses_and_one_more_does_not()
   assert(relay_address.parse(longest) ~= nil)
   assert(relay_address.parse("0" .. longest) == nil)
   local no, why = refused(longest)
-  assert(no and why:find("a multicast address", 1, true), why)
+  assert(no and why:find("a multicast address", 1, true) ~= nil, why)
 end
 
 local function test_a_bracketed_ipv4_or_a_star_host_grant_opens_nothing()
@@ -412,7 +416,7 @@ local function test_selection_refuses_when_no_answer_is_allowed_and_says_why_for
   assert(why:find("169.254.169.254 is a metadata address", 1, true), why)
   assert(why:find("\"bogus\" is not a numeric address", 1, true), why)
   allowed, why = relay_address.permitted({}, 80, NONE, NO_OWN)
-  assert(allowed == nil and why:find("no addresses", 1, true), why)
+  assert(allowed == nil and why:find("no addresses", 1, true) ~= nil, why)
 end
 
 local function test_granted_names_only_a_literal_grant_of_the_address_and_port()

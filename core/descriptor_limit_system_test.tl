@@ -31,22 +31,22 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
-local function shell_limit()
+local function shell_limit(): string
   local r = assert(Child.run({ "/bin/sh", "-c", "ulimit -Sn" }, { stdout = "capture" }))
   return (assert(r.stdout):gsub("%s+$", ""))
 end
 local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
 print(limits.soft)
 local relaunch = assert(Proc.relaunch())
-local argv = {}
+local argv: mut {string} = {}
 for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
 argv[#argv + 1] = "-e"
 argv[#argv + 1] = "print('relaunched')"
-local env = Env.all()
+local env: mut {string:string} = Env.all()
 for name, value in pairs(relaunch.env) do env[name] = value end
 local r, why = Child.run(argv, { env = env, fds = relaunch.fds, stdout = "capture",
   stderr = "capture" })
-print(r ~= nil and (assert(r.stdout):gsub("%s+$", "")) or why)
+if r ~= nil then print((assert(r.stdout):gsub("%s+$", ""))) else print(why) end
 print(shell_limit())
 print(assert(sys.getrlimit(sys.RLIMIT_NOFILE)).soft)
 assert(sys.setrlimit(sys.RLIMIT_NOFILE, 300, limits.hard))
@@ -56,7 +56,7 @@ print(shell_limit())
 --- The lines the program printed running `chunk`, started by the shell at a soft limit
 --- of LOW; nil where this host's hard limit leaves no room to raise it,
 --- or where there is no artifact to relaunch.
-local function started_low(tmp: string, chunk: string): {string} | nil
+local function started_low(tmp: string, chunk: string): {string}?
   if Proc.relaunch() == nil then return nil end -- a native start has nothing to relaunch
   local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
   if limits.hard < 2 * LOW then return nil end
@@ -66,7 +66,7 @@ local function started_low(tmp: string, chunk: string): {string} | nil
   for _, word in ipairs(started.argv) do argv[#argv + 1] = word end
   local r = assert(Child.run(argv, started.options))
   assert(r.code == 0, tostring(r.stdout) .. tostring(r.stderr))
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in assert(r.stdout):gmatch("[^\n]+") do lines[#lines + 1] = line end
   return lines
 end
@@ -77,9 +77,10 @@ end
 local function test_a_start_at_a_low_limit_raises_it_and_relaunches(tmp: string)
   local lines = started_low(tmp, CHUNK)
   if lines == nil then return end
+  local limit = assert(lines[1], "the child reports its soft limit")
   assert(lines[2] == "relaunched", lines[2])
-  local raised = assert(math.tointeger(tonumber(lines[1])), lines[1])
-  assert(raised > LOW, "the soft limit stayed " .. lines[1])
+  local raised = assert(math.tointeger(tonumber(limit)), limit)
+  assert(raised > LOW, "the soft limit stayed " .. limit)
 end
 
 --- A start that gives its child the limit the program started with
@@ -87,7 +88,8 @@ end
 local function test_a_start_leaves_this_program_s_limit_raised(tmp: string)
   local lines = started_low(tmp, CHUNK)
   if lines == nil then return end
-  assert(lines[4] == lines[1], tostring(lines[4]) .. " after starting, not " .. lines[1])
+  local limit = assert(lines[1], "the child reports its soft limit")
+  assert(lines[4] == limit, tostring(lines[4]) .. " after starting, not " .. limit)
 end
 
 --- A host program gets the limit the program started with, not the one

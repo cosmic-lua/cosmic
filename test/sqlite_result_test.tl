@@ -2,6 +2,13 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 
+--- The first of `rows`, which the statement is known to yield.
+local function first_row(rows: Sqlite.Rows): Sqlite.Row
+  local found = rows[1]
+  assert(found, "the statement yields a row")
+  return found
+end
+
 local function test_open_and_prepare_outcomes_outlive_cleanup(tmp: string)
   local missing = Sqlite.open_result(tmp .. "/absent", { writable = true, create = false })
   assert(missing.handle == nil and missing.code == 14 and missing.extended_code == 14)
@@ -25,11 +32,11 @@ local function test_bound_values_keep_kinds_and_invalid_lists_release_the_statem
     { integer = 42 }, { number = 1.5 }, { text = "a\0b" }, { blob = "a\0b" }, {},
   })
   assert(result.code == Sqlite.OK and result.extended_code == Sqlite.OK and result.reason == "")
-  local row = result.rows[1]
-  assert(row[1].integer == 42 and row[2].number == 1.5 and row[3].text == "a\0b")
-  assert(row[4].blob == "a\0b" and row[5].kind == "null")
+  local row = first_row(assert(result.rows))
+  assert(row:integer(1) == 42 and row:number(2) == 1.5 and row:text(3) == "a\0b")
+  assert(row:blob(4) == "a\0b" and row:kind(5) == "null")
   local invalid: {any} = {
-    false, 42, {}, { {}, {} }, { [0] = {} }, { { text = "a", blob = "b" } },
+    {}, { {}, {} }, { [0] = {} }, { { text = "a", blob = "b" } },
     { { ["text\0junk"] = "bad" } }, { { integer = 1.5 } }, { { text = false } },
   }
   for _, values in ipairs(invalid) do
@@ -37,7 +44,7 @@ local function test_bound_values_keep_kinds_and_invalid_lists_release_the_statem
     assert(not ok, "invalid bound values were accepted")
   end
   local texts = Sqlite.text_rows_result(db, "SELECT ?1", { { integer = 42 } })
-  assert(texts.code == Sqlite.OK and texts.rows[1][1] == "42")
+  assert(texts.code == Sqlite.OK and first_row(assert(texts.rows)):text(1) == "42")
   assert(db:close(), "invalid parameters retained a prepared statement")
 end
 
@@ -102,7 +109,7 @@ local function test_busy_and_locked_are_distinct_and_no_operation_is_retried(tmp
   assert(busy.code == Sqlite.BUSY and not busy.cancelled)
   assert(first:exec("ROLLBACK"))
   local rows = Sqlite.rows_result(first, "SELECT count(*) FROM t")
-  assert(rows.rows[1][1].integer == 1)
+  assert(first_row(assert(rows.rows)):integer(1) == 1)
   local reader = assert(first:prepare("SELECT * FROM t"))
   assert(reader:step_result() == "row")
   local locked = Sqlite.run_result(first, "DROP TABLE t")

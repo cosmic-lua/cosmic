@@ -5,7 +5,7 @@
 --- time, so a file of any size takes the same memory; only a sums file
 --- and an HMAC key are read whole.
 ---
---- Like `cosmic json` it ends in no verdict line: its standard output is
+--- Like `cosmic json` it prints no summary: its standard output is
 --- data (or, with `--check`, the per-file lines), and its exit status is
 --- the verdict: 0 all well, 1 a check failed or a listed file could not
 --- be read, 2 a command line, a file to hash or a sums file it cannot
@@ -48,7 +48,7 @@ local record verb
     --- Writes one complaint line, without its newline.
     err: function(line: string)
     --- A Reader over standard input, or nil and why.
-    stdin: function(): Stream.Reader | nil, string
+    stdin: function(): Stream.Reader?, string
   end
 
   --- One line of a sums file that named a file and its digest.
@@ -71,8 +71,8 @@ local record verb
 
   --- What a sums file holds.
   record Sums
-    entries: {Entry}
-    bad: {Bad}
+    entries: mut {Entry}
+    bad: mut {Bad}
   end
 end
 
@@ -91,7 +91,7 @@ local SIZE <const>: {string:integer} = {
   ["sha3-224"] = 28, ["sha3-256"] = 32, ["sha3-384"] = 48, ["sha3-512"] = 64,
 }
 
-local spec = Cli.verbs.hash.spec
+local spec = Cli.verbs.hash.spec or {}
 
 local usage = "cosmic hash [--sha256 | --sha512 | --sha1 | --md5 | ...] [--json] " ..
   "[--hmac <key> | --hmac-file <path>] [<file>|-]...; " ..
@@ -103,7 +103,7 @@ local usage = "cosmic hash [--sha256 | --sha512 | --sha1 | --md5 | ...] [--json]
 local function escape_name(name: string): string, boolean
   if not name:find("[\\\n\r]") then return name, false end
   local escaped = name:gsub("[\\\n\r]", function(c: string): string
-    return c == "\n" and "\\n" or c == "\r" and "\\r" or "\\\\"
+    return if c == "\n" then "\\n" elseif c == "\r" then "\\r" else "\\\\" end
   end)
   return escaped, true
 end
@@ -113,12 +113,12 @@ end
 --- @param name the file's name; `-` for standard input
 function verb.format_line(digest: string, name: string): string
   local escaped, changed = escape_name(name)
-  return (changed and "\\" or "") .. digest .. "  " .. escaped
+  return (if changed then "\\" else "" end) .. digest .. "  " .. escaped
 end
 
 --- `text` with the escapes of [`format_line`] undone, or nil for any other.
-local function unescape(text: string): string | nil
-  local parts: {string} = {}
+local function unescape(text: string): string?
+  local parts: mut {string} = {}
   local at = 1
   while at <= #text do
     local c = text:sub(at, at)
@@ -153,7 +153,7 @@ function verb.parse_sums(text: string, digest_size: integer): verb.Sums
   local sums: verb.Sums = { entries = {}, bad = {} }
   local width = digest_size * 2
   local number = 0
-  for line in (text .. (text:sub(-1) == "\n" and "" or "\n")):gmatch("([^\n]*)\n") do
+  for line in (text .. (if text:sub(-1) == "\n" then "" else "\n" end)):gmatch("([^\n]*)\n") do
     number = number + 1
     local function refuse(why: string)
       sums.bad[#sums.bad + 1] = { line = number, why = why }
@@ -165,22 +165,22 @@ function verb.parse_sums(text: string, digest_size: integer): verb.Sums
       local body = escaped and line:sub(2) or line
       local digest = body:sub(1, width)
       if #digest ~= width or not digest:match("^%x+$") then
-        refuse("improperly formatted: no " .. width .. "-digit hex digest")
+        refuse("improperly formatted: no " .. tostring(width) .. "-digit hex digest")
       elseif body:sub(width + 1, width + 1) ~= " " or not body:sub(width + 2, width + 2):match("^[ *]$") then
         refuse("improperly formatted: no space and marker after the digest")
       elseif #body < width + 3 then
         refuse("improperly formatted: no file name")
       else
         local written = body:sub(width + 3)
-        local name: string | nil = written
+        local name: string? = written
         if escaped then name = unescape(written) end
         if name == nil then
           refuse("improperly formatted: bad escape in the file name")
         else
-          sums.entries[#sums.entries + 1] = {
+          table.insert(sums.entries, {
             digest = digest:lower(), name = name, line = number,
             binary = body:sub(width + 2, width + 2) == "*",
-          }
+          })
         end
       end
     end
@@ -190,7 +190,7 @@ end
 
 --- The lower-case hex digest, or HMAC when `key` is given, of everything
 --- `reader` yields, a chunk at a time; nil and why when it fails.
-local function digest_of(reader: Stream.Reader, algorithm: Algorithm, key: string | nil): string | nil, string
+local function digest_of(reader: Stream.Reader, algorithm: Algorithm, key: string?): string?, string
   local inner, why = Stream.hashing(algorithm, key)
   if inner == nil then return nil, why end
   local copied, trouble = Stream.copy(reader, inner)
@@ -204,25 +204,25 @@ end
 local record Request
   algorithm: Algorithm
   --- The files to hash, `-` for standard input; empty for `--check`.
-  files: {string}
+  mut files: {string}
   --- The sums file to check, `-` for standard input; nil to hash.
-  check: string | nil
+  check: string?
   quiet: boolean
   json: boolean
   --- The HMAC key; nil for a plain digest.
-  key: string | nil
+  mut key?: string
   --- A complaint to make before running, or "".
-  warning: string
+  mut warning: string
 end
 
 --- What `argv` asks for, or nil and why it is refused.
-local function arguments(argv: {integer:string}): Request | nil, string
+local function arguments(argv: {string}): Request?, string
   local parsed, trouble = Flags.parse(argv, 2, spec)
   if parsed == nil then return nil, trouble end
-  local chosen: {Algorithm} = {}
-  local spelled: {string} = {}
+  local chosen: mut {Algorithm} = {}
+  local spelled: mut {string} = {}
   for _, name in ipairs(ALGORITHMS) do
-    if parsed.set["--" .. name] then
+    if parsed.set["--" .. name] == true then
       chosen[#chosen + 1] = name
       spelled[#spelled + 1] = "--" .. name
     end
@@ -235,10 +235,11 @@ local function arguments(argv: {integer:string}): Request | nil, string
     files = parsed.words, check = parsed.values["--check"],
     warning = "", quiet = parsed.set["--quiet"] or false, json = parsed.set["--json"] or false,
   }
-  if request.check == "" then return nil, "--check needs a sums file, or - for standard input" end
-  if request.check ~= nil then
+  local request_check = request.check
+  if request_check == "" then return nil, "--check needs a sums file, or - for standard input" end
+  if request_check ~= nil then
     if #parsed.words > 0 then
-      return nil, "--check reads the files its sums file lists, not " .. #parsed.words .. " named on the command line"
+      return nil, "--check reads the files its sums file lists, not " .. tostring(#parsed.words) .. " named on the command line"
     end
     if request.json then return nil, "--json prints digests, which --check does not" end
   elseif request.quiet then
@@ -268,7 +269,7 @@ end
 
 --- The Reader over standard input, refusing a terminal, where nothing
 --- would ever end the bytes.
-local function open_stdin(): Stream.Reader | nil, string
+local function open_stdin(): Stream.Reader?, string
   return bare.stdin_reader("no file given and standard input is a terminal; give a file, or pipe bytes in")
 end
 
@@ -287,8 +288,8 @@ end
 
 --- The digest of the file `name`, or of standard input for `-`; nil and
 --- why when it cannot be read. The reader is closed either way.
-local function digest_named(to: verb.Io, request: Request, name: string): string | nil, string
-  local reader: Stream.Reader | nil
+local function digest_named(to: verb.Io, request: Request, name: string): string?, string
+  local reader: Stream.Reader?
   local why: string
   if name == "-" then
     reader, why = to.stdin()
@@ -299,7 +300,7 @@ local function digest_named(to: verb.Io, request: Request, name: string): string
   local digest, trouble = digest_of(reader, request.algorithm, request.key)
   local _, _ = reader:close()
   if digest == nil then
-    return nil, (name == "-" and "standard input" or name) .. ": " .. trouble
+    return nil, (if name == "-" then "standard input" else name end) .. ": " .. trouble
   end
   return digest, ""
 end
@@ -310,7 +311,7 @@ end
 --- write it cannot use.
 --- @param argv the command line, `hash` at slot 1
 --- @param io where the text is read and written; the process's own when nil
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("hash", to.err)
   local request, trouble = arguments(argv)
@@ -319,11 +320,12 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return bare.refused
   end
   if request.warning ~= "" then complain(request.warning) end
-  local label = request.key ~= nil and "hmac-" .. request.algorithm or request.algorithm
+  local label = if request.key ~= nil then "hmac-" .. request.algorithm else request.algorithm end
   local code = bare.ok
 
-  if request.check == nil then
-    local rows: {string} = {}
+  local check = request.check
+  if check == nil then
+    local rows: mut {string} = {}
     for _, name in ipairs(request.files) do
       local digest, why = digest_named(to, request, name)
       if digest == nil then
@@ -344,7 +346,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       end
     end
     if request.json then
-      local text = #rows == 0 and "[]\n" or "[\n" .. table.concat(rows, ",\n") .. "\n]\n"
+      local text = if #rows == 0 then "[]\n" else "[\n" .. table.concat(rows, ",\n") .. "\n]\n" end
       if not bare.delivered(complain, to.out(text)) then
         return bare.refused
       end
@@ -353,43 +355,44 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
 
   -- A sums file is a list, small beside what it names: read whole.
-  local sums_name = request.check
-  local text: string | nil
+  local sums_name = check
+  local text: string
   if sums_name == "-" then
     local reader, why = to.stdin()
     if reader == nil then
       complain(why)
       return bare.refused
     end
-    text, why = Stream.read_all(reader)
-    if text == nil then
-      complain("standard input: " .. why)
+    local read, read_why = Stream.read_all(reader)
+    if read == nil then
+      complain("standard input: " .. read_why)
       return bare.refused
     end
+    text = read
   else
-    local why: string
-    text, why = Fs.read(sums_name)
-    if text == nil then
-      complain(why)
+    local read, read_why = Fs.read(sums_name)
+    if read == nil then
+      complain(read_why)
       return bare.refused
     end
+    text = read
   end
-  local sums = verb.parse_sums(text, SIZE[request.algorithm])
+  local sums = verb.parse_sums(text, (assert(SIZE[request.algorithm], "every algorithm has its digest size")))
   for _, bad in ipairs(sums.bad) do
-    complain((sums_name == "-" and "standard input" or sums_name) .. ":" .. bad.line .. ": " .. bad.why)
+    complain((if sums_name == "-" then "standard input" else sums_name end) .. ":" .. tostring(bad.line) .. ": " .. bad.why)
   end
   if #sums.entries == 0 then
     if #sums.bad == 0 then
-      complain((sums_name == "-" and "standard input" or sums_name) .. ": no checksum lines found")
+      complain((if sums_name == "-" then "standard input" else sums_name end) .. ": no checksum lines found")
     end
     return bare.refused
   end
   local failed, unread = 0, 0
   for _, entry in ipairs(sums.entries) do
-    local digest: string | nil
+    local digest: string?
     local why: string
     local listed, changed = escape_name(entry.name)
-    local shown = (changed and "\\" or "") .. listed
+    local shown = (if changed then "\\" else "" end) .. listed
     if entry.name == "-" and sums_name == "-" then
       why = "-: standard input holds the sums file"
     elseif entry.name ~= "-" and not is_regular(entry.name) then
@@ -397,7 +400,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     else
       digest, why = digest_named(to, request, entry.name)
     end
-    local line: string | nil
+    local line: string?
     if digest == nil then
       complain(why)
       unread = unread + 1
@@ -415,10 +418,10 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     end
   end
   if failed > 0 then
-    complain(failed .. " of " .. #sums.entries .. " computed " .. (failed == 1 and "checksum" or "checksums") .. " did NOT match")
+    complain(tostring(failed) .. " of " .. tostring(#sums.entries) .. " computed " .. (if failed == 1 then "checksum" else "checksums" end) .. " did NOT match")
   end
   if unread > 0 then
-    complain(unread .. " listed " .. (unread == 1 and "file" or "files") .. " could not be read")
+    complain(tostring(unread) .. " listed " .. (if unread == 1 then "file" else "files" end) .. " could not be read")
   end
   if #sums.bad > 0 then return 2 end
   return (failed > 0 or unread > 0) and bare.failed or bare.ok
@@ -430,7 +433,7 @@ verb.spec = {
   name = "hash",
   guide = "the digest of a file",
   tests = { "build.hash_test", "build.hash_tool_test" },
-  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "the files to digest",
   exits = "`hash` prints digests, and exits 1 when a `--check` fails.",

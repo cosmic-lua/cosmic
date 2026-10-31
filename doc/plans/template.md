@@ -87,7 +87,10 @@ As built (`cosmic/template/`), where it differs from the above:
 - A URL slot must begin the attribute's value (`href="{{.u}}"`, not
   `href="/a/{{.id}}"`: a piece of a URL needs an escaper for a piece,
   [`doc/roadmap.md`]), and the literal text after it, up to the first `/`,
-  `?` or `#`, may not hold `:` or `&`, which could complete a scheme.
+  `?` or `#`, may not hold `:` or `&`, which could complete a scheme, and
+  may not begin with `/` or `\`, which after a value of `/` would make a
+  protocol-relative `//host`. A URL that is a base and a path is built in a
+  typed function and passed whole.
   A `{{range}}` body is walked twice, so a URL it began is not fresh the
   second time round; the arms of a block must end in the same place in the
   markup.
@@ -96,8 +99,9 @@ As built (`cosmic/template/`), where it differs from the above:
   `SafeUrl`.
 - `<title>` and `<textarea>` slots take a string or a number, escaped,
   never `SafeHtml`: trusted markup would end the element.
-- `{{with}}` runs its body when the value is truthy and takes
-  `{{else}}`; `{{range}}{{else}}` and `{{with}}{{else if}}` are refused.
+- `{{with}}` runs its body when the value is truthy. `{{with}}` and
+  `{{range}}` take one `{{else}}` (a range's runs when the list has no
+  first element); `{{else if}}` in them is refused.
 - Refused as well as the places above: `srcdoc`, `srcset` and `ping`
   attributes; the `content` of a `<meta>` that has `http-equiv` (anywhere
   in the tag) and the `charset` of a `<meta>`; every attribute of
@@ -141,7 +145,7 @@ something reads columns (a plain comment in `codegen.tl`).
 As [`test/visibility_test.tl`] and [`cosmic/fs_kind_test.tl`] do, a test
 writes a small project (a `page.tmpl` and its data module) into its
 temporary directory, stages it, and compiles it with [`build.work`],
-[`build.importer`] and [`build.teal`], asserting either a clean compile or
+[`build.importer`] and build.pipeline, asserting either a clean compile or
 a refusal naming `page.tmpl:<line>` and the Safe type.
 
 ## The sequence
@@ -156,7 +160,6 @@ a refusal naming `page.tmpl:<line>` and the Safe type.
    and the project guide, the in-process type-check tests, an example.
 
 [`build.importer`]: ../../build/importer.tl
-[`build.teal`]: ../../build/teal.tl
 [`build.work`]: ../../build/work.tl
 [`build/derivation.tl`]: ../../build/derivation.tl
 [`cosmic.html`]: ../../cosmic/html.tl

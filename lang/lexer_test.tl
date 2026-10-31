@@ -1,0 +1,836 @@
+--- The lexer of the new checker's grammar ([`lang.lexer`]): the token of
+--- each lexical form, its place, and each form the grammar refuses with its
+--- code and the fix it gives. Every source here is also held to
+--- [`lang.lexer_cover`], which asks that its tokens and comments tile it.
+local Lexer = require("lang.lexer")
+local Speed = require("lang.speed")
+local Cover = require("lang.lexer_cover")
+
+--- The letter e with an acute accent, in UTF-8, so that this file holds
+--- only ASCII.
+local E_ACUTE <const> = "\195\169"
+
+--- A source and what it is wanted to give.
+local record Case
+  source: string
+  want: string
+end
+
+local function lex(source: string): Lexer.Lexed
+  local lexed = Lexer.lex(source, "t.tl")
+  local ok, why = Cover.check(source, lexed)
+  assert(ok, why)
+  return lexed
+end
+
+--- The tokens as `kind:text`, without the final `$EOF$`.
+local function shape(source: string): string
+  local parts: mut {string} = {}
+  local tokens = lex(source).tokens
+  for i = 1, Lexer.count(tokens) - 1 do
+    parts[#parts + 1] = Lexer.kind(tokens, i) .. ":" .. Lexer.text(tokens, i)
+  end
+  return table.concat(parts, " ")
+end
+
+--- The one error of `source`, which has exactly one.
+local function only_error(source: string): Lexer.Error
+  local errors = lex(source).errors
+  local only = errors[1]
+  assert(#errors == 1 and only ~= nil, "expected one error, found " .. tostring(#errors) .. " in " .. source)
+  return only
+end
+
+--- The token at `index`, which exists.
+local function token(source: string, index: integer): Lexer.Token
+  local tokens = lex(source).tokens
+  assert(index <= Lexer.count(tokens), "no token " .. tostring(index) .. " in " .. source)
+  return Lexer.token(tokens, index)
+end
+
+local function test_names_and_reserved_words_are_told_apart()
+  assert(shape("local x_1 = nil") == "keyword:local identifier:x_1 op:= keyword:nil")
+  assert(shape("_ __a9 A") == "identifier:_ identifier:__a9 identifier:A")
+end
+
+local function test_every_reserved_word_is_a_keyword()
+  for word in pairs(Lexer.reserved) do
+    assert(token("x." .. word, 3).kind == "keyword", word .. " after a dot")
+    assert(shape(word) == "keyword:" .. word, word)
+  end
+  assert(Lexer.reserved["global"] and Lexer.reserved["goto"], "Lua 5.5 reserves goto and global")
+  assert(not Lexer.reserved["record"] and not Lexer.reserved["type"])
+end
+
+local function test_the_words_the_grammar_adds_are_reserved()
+  assert(table.concat(Lexer.added, " ") == "match continue mut is asserts userdata as")
+  for _, word in ipairs(Lexer.added) do
+    assert(Lexer.reserved[word], word)
+    assert(shape(word) == "keyword:" .. word)
+  end
+end
+
+local function test_declaration_words_stay_names()
+  assert(table.concat(Lexer.declaration_words, " ") == "record interface class enum type")
+  assert(shape("record interface class enum type never self") ==
+      "identifier:record identifier:interface identifier:class identifier:enum identifier:type " ..
+      "identifier:never identifier:self")
+end
+
+local function test_a_reserved_word_stands_where_a_field_name_does()
+  local sources = {
+    "s:match(p)", "t.continue", "t.userdata", "{ match = 1, as = 2 }", "userdata: boolean",
+    "mut mut: T", "end: string", "x.goto", "{ goto = 1 }", "goto: boolean", "goto ?: T",
+  }
+  for _, source in ipairs(sources) do
+    local lexed = lex(source)
+    assert(#lexed.errors == 0, source)
+    local found = false
+    for i = 1, Lexer.count(lexed.tokens) do
+      if Lexer.kind(lexed.tokens, i) == "keyword" then
+        found = true
+      end
+    end
+    assert(found, "no keyword in " .. source)
+  end
+end
+
+local function test_every_operator_and_punctuator_is_kept()
+  assert(shape("+ - * / // % ^ # & ~ | << >> == ~= <= >= < > = ..") ==
+      "op:+ op:- op:* op:/ op:// op:% op:^ op:# op:& op:~ op:| op:<< op:>> op:== op:~= op:<= op:>= op:< op:> op:= op:..")
+  assert(shape(". : , ? ( ) { } [ ] ...") == ".:. ::: ,:, ?:? (:( ):) {:{ }:} [:[ ]:] ...:...")
+  assert(shape("a~b a~=b a-b a--b\n") == "identifier:a op:~ identifier:b identifier:a op:~= identifier:b " ..
+      "identifier:a op:- identifier:b identifier:a")
+end
+
+local function test_two_closing_type_brackets_are_one_token()
+  assert(shape("Cache<K, List<V>>") ==
+      "identifier:Cache op:< identifier:K ,:, identifier:List op:< identifier:V op:>>")
+  assert(shape("a >> b > > c") == "identifier:a op:>> identifier:b op:> op:> identifier:c")
+end
+
+local record Written
+  text: string
+  kind: Lexer.Kind
+  value: number
+end
+
+local function test_integers_and_floats_have_their_values()
+  local expected: {Written} = {
+    { text = "0", kind = "integer", value = 0 }, { text = "12", kind = "integer", value = 12 },
+    { text = "0xFF", kind = "integer", value = 255 }, { text = "0Xa", kind = "integer", value = 10 },
+    { text = "1e3", kind = "number", value = 1000.0 }, { text = "2.5", kind = "number", value = 2.5 },
+    { text = ".5", kind = "number", value = 0.5 }, { text = "5.", kind = "number", value = 5.0 },
+    { text = "3e-2", kind = "number", value = 0.03 }, { text = "1E+2", kind = "number", value = 100.0 },
+    { text = "0xffffffffffffffff", kind = "integer", value = -1 },
+    { text = "9223372036854775807", kind = "integer", value = 9223372036854775807 },
+  }
+  for _, row in ipairs(expected) do
+    local found = token(row.text, 1)
+    assert(found.kind == row.kind, row.text .. " is " .. found.kind)
+    assert(found.number == row.value, row.text)
+    assert(found.text == row.text)
+  end
+end
+
+local function test_a_decimal_integer_too_big_for_64_bits_is_a_float_as_in_lua()
+  local found = token("9223372036854775808", 1)
+  assert(found.kind == "number" and found.number == 9223372036854775808.0)
+end
+
+local function test_a_number_stops_before_what_cannot_continue_it()
+  assert(shape("t[1]") == "identifier:t [:[ integer:1 ]:]")
+  assert(shape("f(1,2)") == "identifier:f (:( integer:1 ,:, integer:2 ):)")
+  assert(shape("1 .. 2") == "integer:1 op:.. integer:2")
+  assert(shape("for i=1,#t do") == "keyword:for identifier:i op:= integer:1 ,:, op:# identifier:t keyword:do")
+end
+
+local function test_strings_hold_their_text_and_their_value()
+  local single = token("'a\"b'", 1)
+  assert(single.kind == "string" and single.text == "'a\"b'" and single.value == "a\"b")
+  local double = token("\"it's\"", 1)
+  assert(double.text == "\"it's\"" and double.value == "it's")
+  local empty = token("''", 1)
+  assert(empty.kind == "string" and empty.value == "" and empty.length == 2)
+  assert(single.long == nil and token("x", 1).value == nil)
+end
+
+local function test_every_escape_of_lua_is_decoded()
+  local cases: {Case} = {
+    { source = [[\a\b\f\n\r\t\v]], want = "\a\b\f\n\r\t\v" },
+    { source = [[\\\"\']], want = "\\\"'" },
+    { source = [[\x41\x7a\xFF]], want = "Az\255" },
+    { source = [[\65\066\0\255]], want = "AB\0\255" },
+    { source = [[\u{41}\u{20AC}\u{7FFFFFFF}]], want = "A\226\130\172\253\191\191\191\191\191" },
+    { source = "a\\\nb", want = "a\nb" },
+    { source = "a\\z  \n\t b", want = "ab" },
+    { source = [[\z]], want = "" },
+  }
+  for _, case in ipairs(cases) do
+    local found = token("\"" .. case.source .. "\"", 1)
+    assert(found.kind == "string", case.source)
+    assert(found.value == case.want, case.source)
+  end
+end
+
+local function test_a_string_across_lines_moves_the_lines_that_follow()
+  local lexed = lex("x = \"a\\\nb\" y")
+  local str, y = Lexer.token(lexed.tokens, 3), Lexer.token(lexed.tokens, 4)
+  assert(str.y == 1 and str.x == 5 and str.yend == 2 and str.xend == 2)
+  assert(y.y == 2 and y.x == 4 and y.offset == 12)
+  local skipped = lex("\"a\\z\n\n  b\" c").tokens
+  assert(Lexer.yend(skipped, 1) == 3 and Lexer.xend(skipped, 1) == 4 and skipped.y[2] == 3 and Lexer.x(skipped, 2) == 6)
+end
+
+local function test_long_strings_of_every_level()
+  assert(token("[[a]]", 1).value == "a")
+  assert(token("[==[a]]b]=]c]==]", 1).value == "a]]b]=]c")
+  assert(token("[[\nabc]]", 1).value == "abc", "the first line break is not part of the string")
+  assert(token("[[\n\nabc]]", 1).value == "\nabc")
+  assert(token("[[\r\nabc\r\ndef]]", 1).value == "abc\ndef", "a line break is one \\n")
+  assert(token("[=[]]]=]", 1).value == "]]")
+  local found = token("[[a]]", 1)
+  assert(found.kind == "string" and found.long == true and found.text == "[[a]]")
+end
+
+local function test_a_long_string_spans_lines_and_moves_the_lines_that_follow()
+  local lexed = lex("local s = [==[\nab\ncd]==] .. x")
+  local str, dots = Lexer.token(lexed.tokens, 4), Lexer.token(lexed.tokens, 5)
+  assert(str.y == 1 and str.x == 11 and str.yend == 3 and str.xend == 6, tostring(str.yend) .. ":" .. tostring(str.xend))
+  assert(str.length == 14)
+  assert(dots.y == 3 and dots.x == 8 and dots.text == "..")
+end
+
+local function test_a_bracket_that_opens_no_long_string_is_a_bracket()
+  assert(shape("t[ [1] ]") == "identifier:t [:[ [:[ integer:1 ]:] ]:]")
+  assert(shape("a[=1]") == "identifier:a [:[ op:= integer:1 ]:]")
+  assert(shape("{[1]=2}") == "{:{ [:[ integer:1 ]:] op:= integer:2 }:}")
+end
+
+local function test_comments_are_kept_on_the_token_after_them()
+  local lexed = lex("-- a\n  -- b\nx -- c\n-- d")
+  local x, eof = Lexer.token(lexed.tokens, 1), Lexer.token(lexed.tokens, 2)
+  local before = assert(x.comments)
+  assert(#before == 2 and before[1].text == "-- a" and before[2].text == "-- b")
+  assert(before[1].y == 1 and before[1].x == 1 and before[1].offset == 1 and before[1].length == 4)
+  assert(before[2].y == 2 and before[2].x == 3 and before[2].offset == 8)
+  local after = assert(eof.comments)
+  assert(#after == 2 and after[1].text == "-- c" and after[2].text == "-- d")
+  assert(eof.kind == "$EOF$")
+  assert(token("x", 1).comments == nil)
+end
+
+local function test_a_comment_is_a_dash_dash_to_the_end_of_the_line()
+  local lexed = lex("---[[ x\n--[ y\n--[= z\n--#pragmatic w\n--\nq")
+  local comments = assert(Lexer.token(lexed.tokens, 1).comments)
+  local texts: mut {string} = {}
+  for _, c in ipairs(comments) do
+    texts[#texts + 1] = c.text
+  end
+  assert(table.concat(texts, "|") == "---[[ x|--[ y|--[= z|--#pragmatic w|--")
+  assert(#lexed.errors == 0, "none of them is a long comment")
+end
+
+local function test_a_token_knows_its_bytes_and_its_places()
+  local lexed = lex("local s =\n\t\"" .. E_ACUTE .. "\" + 12\n")
+  local places: mut {string} = {}
+  for i = 1, Lexer.count(lexed.tokens) do
+    local t = Lexer.token(lexed.tokens, i)
+    places[#places + 1] = string.format("%s@%d+%d=%d:%d-%d:%d", t.kind, t.offset, t.length, t.y, t.x, t.yend, t.xend)
+  end
+  assert(table.concat(places, " ") ==
+      "keyword@1+5=1:1-1:5 identifier@7+1=1:7-1:7 op@9+1=1:9-1:9 string@12+4=2:2-2:5 op@17+1=2:7-2:7 " ..
+      "integer@19+2=2:9-2:10 $EOF$@22+0=3:1-3:0", table.concat(places, " "))
+end
+
+local function test_the_end_of_input_is_an_empty_token()
+  local empty = lex("").tokens
+  assert(Lexer.count(empty) == 1 and Lexer.kind(empty, 1) == "$EOF$" and Lexer.offset(empty, 1) == 1 and Lexer.length(empty, 1) == 0)
+  assert(Lexer.y(empty, 1) == 1 and Lexer.x(empty, 1) == 1)
+  local blank = lex("  \n  \n").tokens
+  assert(Lexer.count(blank) == 1 and Lexer.y(blank, 1) == 3 and Lexer.x(blank, 1) == 1 and Lexer.offset(blank, 1) == 7)
+end
+
+local function test_goto_is_a_keyword_wherever_it_stands_and_the_parser_refuses_the_statement()
+  for _, source in ipairs({ "goto continue", "x.goto", "{ goto = 1 }", "goto: boolean", "goto\nx = 1", "t = { goto -- c" }) do
+    local lexed = lex(source)
+    assert(#lexed.errors == 0, source)
+    local kind = ""
+    for i = 1, Lexer.count(lexed.tokens) do
+      if Lexer.text(lexed.tokens, i) == "goto" then
+        kind = Lexer.kind(lexed.tokens, i)
+      end
+    end
+    assert(kind == "keyword", source)
+  end
+end
+
+local function test_a_label_is_refused()
+  local e = only_error("do\n  ::continue::\nend")
+  assert(e.code == "label_or_goto" and e.msg == "the label `::continue::` is not in the grammar")
+  assert(e.fix == "delete the label, and write `continue` where a `goto continue` skipped the rest of a pass " ..
+      "of a loop; restructure any other jump with an `if` around the code to skip, or move the code into a " ..
+      "function and `return` from it")
+  assert(e.y == 2 and e.x == 3 and e.length == 12)
+  assert(token("::next::", 1).kind == "$ERR$")
+  assert(only_error("::").msg == "`::` is not in the grammar")
+end
+
+local function test_a_semicolon_is_refused()
+  local e = only_error("local x = 1; local y")
+  assert(e.code == "semicolon" and e.msg == "`;` is not in the grammar")
+  assert(e.fix == "delete the `;`: a statement needs no terminator and the fields of a table are separated by `,`")
+  assert(e.y == 1 and e.x == 12 and e.offset == 12 and e.length == 1)
+  assert(token("local x = 1; local y", 5).kind == "$ERR$")
+end
+
+local function test_a_long_comment_is_refused_and_kept_as_a_comment()
+  local lexed = lex("a --[==[ one\ntwo ]==] b")
+  assert(#lexed.errors == 1)
+  local e = lexed.errors[1]
+  assert(e.code == "long_comment" and e.msg == "long comments are not in the grammar")
+  assert(e.fix == "write line comments: begin each line of the comment with `--`")
+  assert(e.y == 1 and e.x == 3 and e.offset == 3 and e.length == 19)
+  local b = Lexer.token(lexed.tokens, 2)
+  assert(b.text == "b" and b.y == 2 and b.x == 10, "the lines after it are counted")
+  local comment = assert(b.comments, "the comment before `b`")[1]
+  assert(comment ~= nil and comment.text == "--[==[ one\ntwo ]==]")
+end
+
+local function test_an_unfinished_long_comment_is_an_error_token_to_the_end()
+  local e = only_error("a --[[ one\ntwo")
+  assert(e.code == "unterminated_long_comment" and e.msg == "unfinished long comment")
+  assert(e.fix == "write line comments, which begin each line with `--`; a long comment is not in the grammar " ..
+      "and this one has no closing `]]`")
+  local lexed = lex("a --[=[ one\ntwo")
+  assert(Lexer.token(lexed.tokens, 2).kind == "$ERR$" and Lexer.token(lexed.tokens, 2).yend == 2 and Lexer.token(lexed.tokens, 3).kind == "$EOF$")
+  local unclosed = lexed.errors[1]
+  assert(unclosed ~= nil and unclosed.fix:find("`]=]`", 1, true) ~= nil)
+end
+
+local function test_a_hashbang_first_line_is_skipped_and_the_lines_after_it_keep_their_numbers()
+  local lexed = lex("#!/usr/bin/env cosmic\nlocal x")
+  assert(#lexed.errors == 0)
+  local first = Lexer.token(lexed.tokens, 1)
+  assert(first.text == "local" and first.y == 2 and first.x == 1 and first.offset == 23, first.text)
+  assert(Lexer.token(lexed.tokens, 2).text == "x" and Lexer.token(lexed.tokens, 2).y == 2)
+  -- no token and no comment is left of the line
+  assert(first.comments == nil)
+  -- each line break Lua reads ends it, and a file of nothing else is empty
+  for _, source in ipairs({ "#!x\r\nlocal y", "#!x\rlocal y", "#!x\n\rlocal y" }) do
+    local found = Lexer.token(lex(source).tokens, 1)
+    assert(found.text == "local" and found.y == 2, source)
+  end
+  assert(#lex("#!x").errors == 0 and Lexer.token(lex("#!x").tokens, 1).kind == "$EOF$")
+  assert(Lexer.token(lex("#!").tokens, 1).kind == "$EOF$")
+end
+
+local function test_a_hashbang_first_line_does_not_hide_an_error_on_the_next()
+  local lexed = lex("#!/usr/bin/env cosmic\nlocal x = 1_000")
+  assert(#lexed.errors == 1)
+  local refused = assert(lexed.errors[1])
+  assert(refused.code == "digit_separator" and refused.y == 2)
+end
+
+local function test_a_pragma_comment_is_an_ordinary_comment()
+  for _, written in ipairs({ "--#pragma", "--#pragma arity", "--#pragma arity off", "--#pragma\tfoo bar", "--#pragma\v" }) do
+    local lexed = lex("local x = 1\n" .. written .. "\nlocal y = 2")
+    assert(#lexed.errors == 0, written)
+    -- the comment is kept on the token that follows it, as any other
+    local comments = assert(Lexer.token(lexed.tokens, 5).comments)
+    assert(#comments == 1 and comments[1].text == written and comments[1].y == 2, written)
+  end
+  -- at the end of the file, and after another comment
+  assert(#lex("--#pragma").errors == 0)
+  assert(#lex("-- a\n--#pragma x").errors == 0)
+end
+
+local function test_a_hashbang_only_begins_the_file()
+  local lexed = lex("x\n#!y")
+  assert(#lexed.errors == 1 and lexed.errors[1].code == "stray_byte")
+  -- not after a blank line or a space either: byte 0 and the first line alone
+  for _, source in ipairs({ "\n#!y", " #!y" }) do
+    local refused = lex(source).errors
+    assert(#refused >= 1 and assert(refused[1]).code == "stray_byte", string.format("%q", source))
+  end
+end
+
+local function test_a_digit_separator_is_refused_and_the_number_kept()
+  local e = only_error("x = 1_000")
+  assert(e.code == "digit_separator" and e.msg == "`_` in a number is not in the grammar")
+  assert(e.fix == "write the number without `_`: `1000`")
+  assert(e.y == 1 and e.x == 5 and e.length == 5)
+  local found = token("x = 1_000", 3)
+  assert(found.kind == "integer" and found.number == 1000 and found.text == "1_000")
+  assert(only_error("0xFF_FF").fix == "write the number without `_`: `0xFFFF`")
+  assert(token("1_0.5", 1).kind == "number")
+end
+
+local function test_a_hexadecimal_float_is_refused_and_the_number_kept()
+  local e = only_error("x = 0x1p4")
+  assert(e.code == "hex_float" and e.msg == "a hexadecimal float is not in the grammar")
+  assert(e.fix == "write the value in decimal: `16.0`")
+  assert(e.y == 1 and e.x == 5 and e.length == 5)
+  local found = token("x = 0x1p4", 3)
+  assert(found.kind == "number" and found.number == 16.0)
+  assert(only_error("0x.8").fix == "write the value in decimal: `0.5`")
+  assert(only_error("0x1P-1").fix == "write the value in decimal: `0.5`")
+end
+
+local function test_a_malformed_number_is_an_error_token()
+  local fix = "write decimal digits with an optional fraction and exponent (`12`, `1.5`, `2e10`) or `0x` and " ..
+    "hexadecimal digits (`0xFF`), and put a space between a number and the name or operator after it"
+  for _, bad in ipairs({ "3x", "0x", "1e", "1e+", "12abc", "1..2", "1.2.3", "0xg", "1__0e" }) do
+    local e = only_error("a = " .. bad)
+    assert(e.code == "malformed_number", bad)
+    assert(e.msg == "malformed number `" .. bad .. "`", bad)
+    assert(e.fix == fix, bad)
+    assert(e.x == 5 and e.length == #bad, bad)
+    local found = token("a = " .. bad, 3)
+    assert(found.kind == "$ERR$" and found.text == bad and found.number == nil, bad)
+  end
+  assert(only_error(".5x").code == "malformed_number")
+end
+
+local function test_a_string_with_no_closing_quote_is_an_error_token_to_the_end_of_its_line()
+  local e = only_error("x = \"abc\ny = 1")
+  assert(e.code == "unterminated_string" and e.msg == "unterminated string")
+  assert(e.fix == "close the string with a matching `\"` before the end of its line; to carry it onto the next " ..
+      "line end this line with `\\`, or write a long string `[[ ... ]]`")
+  assert(e.y == 1 and e.x == 5 and e.length == 4)
+  local lexed = lex("x = 'abc\ny = 1")
+  assert(Lexer.token(lexed.tokens, 3).kind == "$ERR$" and Lexer.token(lexed.tokens, 3).text == "'abc")
+  assert(Lexer.token(lexed.tokens, 4).text == "y" and Lexer.token(lexed.tokens, 4).y == 2, "lexing goes on")
+  local unfinished = lexed.errors[1]
+  assert(unfinished ~= nil and unfinished.fix:find("matching `'`", 1, true) ~= nil)
+  assert(only_error("'abc").length == 4, "the end of input ends a string too")
+  assert(only_error("'abc\\").code == "unterminated_string")
+end
+
+local function test_a_long_string_with_no_closing_bracket_is_an_error_token_to_the_end()
+  local e = only_error("x = [==[ abc\n]] def")
+  assert(e.code == "unterminated_long_string" and e.msg == "unterminated long string")
+  assert(e.fix == "close the string with `]==]`")
+  assert(e.y == 1 and e.x == 5)
+  local lexed = lex("x = [[ abc")
+  assert(Lexer.token(lexed.tokens, 3).kind == "$ERR$" and Lexer.token(lexed.tokens, 4).kind == "$EOF$")
+end
+
+local function test_a_bad_escape_says_which_escapes_there_are()
+  local general = "write `\\\\q` for a backslash followed by `q`, or `q` alone. The escapes are `\\a \\b \\f \\n " ..
+    "\\r \\t \\v \\\\ \\\" \\' \\z`, `\\xNN`, `\\ddd` up to 255, `\\u{NNN}` and a backslash before a line break"
+  local e = only_error("x = \"a\\qb\"")
+  assert(e.code == "bad_escape" and e.msg == "invalid escape `\\q`")
+  assert(e.fix == general)
+  assert(e.y == 1 and e.x == 7 and e.offset == 7 and e.length == 2)
+  local found = token("x = \"a\\qb\"", 3)
+  assert(found.kind == "$ERR$" and found.text == "\"a\\qb\"" and found.value == nil)
+  local cases: {Case} = {
+    { source = [[\x4]], want = "`\\x` takes exactly two hexadecimal digits: write `\\x41` for `A`" },
+    { source = [[\xg1]], want = "`\\x` takes exactly two hexadecimal digits: write `\\x41` for `A`" },
+    { source = [[\256]], want = "a decimal escape is at most `\\255`: write a character past 255 as `\\u{...}`, as `\\u{100}`" },
+    { source = [[\u41]], want = "`\\u` takes hexadecimal digits in braces: write `\\u{20AC}` for the euro sign" },
+    { source = [[\u{}]], want = "`\\u` takes hexadecimal digits in braces: write `\\u{20AC}` for the euro sign" },
+    { source = [[\u{80000000}]], want = "a code point in `\\u{...}` is at most `7FFFFFFF`: write `\\u{20AC}` for the euro sign" },
+  }
+  for _, case in ipairs(cases) do
+    local bad = only_error("\"" .. case.source .. "\"")
+    assert(bad.code == "bad_escape", case.source)
+    assert(bad.fix == case.want, case.source .. ": " .. bad.fix)
+  end
+  assert(#lex("'\\u{0000000041}\\u{7FFFFFFF}'").errors == 0, "leading zeros do not count")
+end
+
+local function test_only_the_first_bad_escape_of_a_string_is_reported()
+  local e = only_error("\"\\q\\w\"")
+  assert(e.msg == "invalid escape `\\q`")
+end
+
+local function test_a_stray_byte_is_an_error_token_and_lexing_goes_on()
+  local e = only_error("a @ b")
+  assert(e.code == "stray_byte" and e.msg == "stray `@`")
+  assert(e.fix == "delete it; a character outside Lua's syntax can stand only inside a string or a comment")
+  assert(e.y == 1 and e.x == 3 and e.length == 1)
+  assert(shape("a @ b") == "identifier:a $ERR$:@ identifier:b")
+  assert(only_error("a $ b").msg == "stray `$`")
+  assert(only_error("a \\ b").msg == "stray `\\`")
+  assert(only_error("a `b").msg == "stray backtick")
+end
+
+local function test_bang_says_what_to_write()
+  assert(only_error("a != b").fix == "write `~=` for \"not equal\"")
+  assert(only_error("!a").fix == "write `not` for negation")
+end
+
+local function test_a_non_ascii_character_is_one_error_token()
+  local e = only_error("x = \"ok\" -- " .. E_ACUTE .. "\ny = " .. E_ACUTE)
+  assert(e.code == "stray_byte" and e.msg == "stray `" .. E_ACUTE .. "`" and e.length == 2 and e.y == 2 and e.x == 5)
+  assert(e.fix == "names are ASCII letters, digits and `_`; a character like this can stand only inside a string " ..
+      "or a comment")
+  local bom = only_error("\239\187\191local x")
+  assert(bom.fix == "delete the byte order mark at the start of the file" and bom.length == 3)
+end
+
+local function test_a_control_byte_is_shown_as_hex()
+  assert(only_error("a \1 b").msg == "stray `\\x01`")
+  assert(only_error("a \0 b").msg == "stray `\\x00`")
+end
+
+local function test_one_run_reports_every_problem()
+  local lexed = lex("::a:: ; @ 1_0 'x\nlocal y = 0x1p1 --[[c]] [[z")
+  local codes: mut {string} = {}
+  for _, e in ipairs(lexed.errors) do
+    codes[#codes + 1] = e.code
+  end
+  assert(table.concat(codes, " ") ==
+      "label_or_goto semicolon stray_byte digit_separator unterminated_string hex_float long_comment " ..
+      "unterminated_long_string", table.concat(codes, " "))
+  assert(Lexer.token(lexed.tokens, Lexer.count(lexed.tokens) - 1).kind == "$ERR$" and
+      Lexer.token(lexed.tokens, Lexer.count(lexed.tokens)).kind == "$EOF$")
+  local ordered = true
+  local previous: Lexer.Error? = nil
+  for _, problem in ipairs(lexed.errors) do
+    if previous ~= nil and previous.offset >= problem.offset then
+      ordered = false
+    end
+    previous = problem
+  end
+  assert(ordered, "errors come in source order")
+end
+
+local function test_an_error_names_the_file()
+  local e = Lexer.lex("@", "build/x.tl").errors[1]
+  assert(e ~= nil and e.filename == "build/x.tl")
+end
+
+--- One source for each code, whose first error has that code.
+local REFUSALS <const>: {Lexer.Code: string} = {
+  label_or_goto = "::continue::",
+  semicolon = ";",
+  long_comment = "--[[ x ]]",
+  unterminated_long_comment = "--[[ x",
+  digit_separator = "1_000",
+  hex_float = "0x1p4",
+  malformed_number = "3x",
+  unterminated_string = "'x",
+  unterminated_long_string = "[[x",
+  bad_escape = "'\\q'",
+  stray_byte = "@",
+}
+
+local function test_every_code_has_a_refusal_with_a_message_and_a_fix()
+  assert(#Lexer.codes == 11)
+  for _, code in ipairs(Lexer.codes) do
+    local source = REFUSALS[code]
+    assert(source ~= nil, code .. " has no refusal here")
+    local errors = lex(source).errors
+    assert(#errors >= 1 and errors[1].code == code, code)
+    assert(errors[1].msg ~= "" and errors[1].fix ~= "", code)
+    assert(errors[1].filename == "t.tl")
+  end
+end
+
+local function test_a_whole_program_lexes_with_its_places()
+  local source = table.concat({
+    "--- doc",
+    "local record Reply",
+    "  body: string",
+    "end",
+    "",
+    "local function show(r: Reply?): string",
+    "  match fetch() do",
+    "    | (true, body) then return body",
+    "  end",
+    "  return if r then r.body else \"\" end",
+    "end",
+    "",
+  }, "\n")
+  local lexed = lex(source)
+  assert(#lexed.errors == 0)
+  assert(shape(source):find("keyword:match identifier:fetch (:( ):) keyword:do op:| (:( keyword:true", 1, true))
+  assert(shape(source):find("keyword:return keyword:if identifier:r keyword:then", 1, true))
+end
+
+--- The error of `source`, which has exactly one and it is a bad escape.
+local function bad_escape_at(source: string): Lexer.Error
+  local e = only_error(source)
+  assert(e.code == "bad_escape", e.code)
+  return e
+end
+
+local function test_a_bad_escape_is_placed_on_its_own_line_in_a_string_across_lines()
+  local first = bad_escape_at("x = 'a\\q\\\nb'")
+  assert(first.y == 1 and first.x == 7 and first.offset == 7, tostring(first.y) .. ":" .. tostring(first.x))
+  local second = bad_escape_at("x = 'a\\\nb\\q'")
+  assert(second.y == 2 and second.x == 2 and second.offset == 10, tostring(second.y) .. ":" .. tostring(second.x))
+  local across = bad_escape_at("x = 'a\\z\n\n  \\q'")
+  assert(across.y == 3 and across.x == 3, tostring(across.y) .. ":" .. tostring(across.x))
+end
+
+--- A long line lexes in time that holds the line's length once: a search
+--- for the next line break that ran to the end of the source at every
+--- string or long token made one line of 200 KB take 30 times as long as
+--- the same tokens one to a line (about 9 times at the 60 KB here). Both
+--- sides are the same size, so the bound of 4 is a ratio to that, not a
+--- clock, and a slow machine slows both alike.
+local function test_one_long_line_lexes_as_fast_as_the_same_tokens_on_lines_of_their_own()
+  local forms: {string} = { "'ab',", "--[[c]]", "[[x]]", "'a\\q'", "x = 1" }
+  for _, form in ipairs(forms) do
+    local one_line = (form .. " "):rep(10000)
+    local own_lines = (form .. "\n"):rep(10000)
+    local function lexes(source: string)
+      local lexed = Lexer.lex(source, "t.tl")
+      assert(Lexer.count(lexed.tokens) > 1 or #lexed.errors > 1)
+    end
+    local ok, why = Speed.within(function()
+      lexes(own_lines)
+    end, function()
+      lexes(one_line)
+    end, 4)
+    assert(ok, form .. ": one line " .. why)
+  end
+end
+
+local STYLES <const>: {string} = { "\n", "\r", "\r\n", "\n\r" }
+
+--- The string Lua itself reads for the expression `literal`.
+local function lua_string(literal: string): string
+  local chunk, why = load("return " .. literal, "=t")
+  assert(chunk ~= nil, tostring(why))
+  local value = chunk()
+  assert(value is string, "not a string")
+  return value
+end
+
+--- The line Lua reports for the error `source` ends in.
+local function lua_line(source: string): integer
+  local chunk, why = load(source, "=t")
+  assert(chunk == nil, "Lua accepted " .. source)
+  local line = math.tointeger(tonumber(tostring(why):match("^t:(%d+):")))
+  assert(line ~= nil, tostring(why))
+  return line
+end
+
+local function test_every_kind_of_line_break_is_one_as_in_lua()
+  for _, first in ipairs(STYLES) do
+    for _, second in ipairs(STYLES) do
+      local endings: {string} = {
+        "x =" .. first .. second .. "@",
+        "-- c" .. first .. second .. "@",
+        "x = 'a\\" .. first .. "b'" .. second .. "@",
+        "x = [[a" .. first .. "b]]" .. second .. "@",
+        "x = 1 --[[a" .. first .. "b]]" .. second .. "@",
+        "x = 'a\\z" .. first .. "  b'" .. second .. "@",
+        "x = [==[" .. first .. "a" .. second .. "]==]" .. first .. "@",
+      }
+      for _, source in ipairs(endings) do
+        local errors = lex(source).errors
+        local last = errors[#errors]
+        assert(last ~= nil and last.code == "stray_byte", source)
+        assert(last.y == lua_line(source), string.format("%q: line %d, Lua's %d", source, last.y, lua_line(source)))
+      end
+    end
+  end
+end
+
+local function test_a_line_break_in_a_string_has_the_value_lua_gives_it()
+  for _, brk in ipairs(STYLES) do
+    local escaped = "'a\\" .. brk .. "b'"
+    assert(token(escaped, 1).value == lua_string(escaped), string.format("%q", escaped))
+    local zapped = "\"a\\z" .. brk .. brk .. "  b\""
+    assert(token(zapped, 1).value == "ab" and lua_string(zapped) == "ab")
+    for _, long in ipairs({
+        "[[" .. brk .. "x" .. brk .. "y]]",
+        "[==[" .. brk .. brk .. "x" .. brk .. "]==]",
+        "[[x" .. brk .. brk .. "y" .. brk .. "]]",
+        "[[" .. brk .. "]]",
+    }) do
+      local found = token(long, 1)
+      assert(found.value == lua_string(long),
+        string.format("%q is %q, Lua's %q", long, tostring(found.value), lua_string(long)))
+    end
+  end
+  assert(token("[[\r\n\r\nx]]", 1).value == lua_string("[[\r\n\r\nx]]"))
+  assert(token("[[\n\r\n\rx]]", 1).value == lua_string("[[\n\r\n\rx]]"))
+  assert(token("[[\r\r\nx]]", 1).value == lua_string("[[\r\r\nx]]"))
+end
+
+local function test_a_line_break_that_is_not_escaped_ends_a_short_string_as_in_lua()
+  for _, brk in ipairs(STYLES) do
+    local source = "x = 'a" .. brk .. "b'"
+    local chunk, why = load(source, "=t")
+    assert(chunk == nil and tostring(why):find("unfinished string", 1, true) ~= nil)
+    local first = lex(source).errors[1]
+    assert(first ~= nil and first.code == "unterminated_string" and first.length == 2, string.format("%q", source))
+  end
+end
+
+local function test_a_comment_ends_before_its_line_break_whatever_the_style()
+  for _, brk in ipairs(STYLES) do
+    local comments = assert(token("-- a" .. brk .. "x", 1).comments)
+    local first = comments[1]
+    assert(first ~= nil and first.text == "-- a" and first.length == 4, string.format("%q", brk))
+  end
+  -- a `#!` first line is skipped, and ends before its break as a comment does
+  local after = lex("#!/bin/cosmic\r\nx")
+  assert(#after.errors == 0 and Lexer.token(after.tokens, 1).text == "x" and Lexer.token(after.tokens, 1).y == 2)
+end
+
+local function test_a_hexadecimal_float_out_of_range_is_not_told_to_write_inf()
+  local e = only_error("x = 0x1p99999")
+  assert(e.code == "hex_float")
+  assert(e.fix == "the value is out of range for a float: write a value a float holds, in decimal")
+  assert(e.fix:find("inf", 1, true) == nil or e.fix:find("out of range", 1, true) ~= nil)
+end
+
+local function test_the_decimal_a_hexadecimal_float_is_told_reads_back_as_the_same_float()
+  for _, text in ipairs({ "0x1p4", "0x.8", "0x1.8p1", "0xAp-3", "0x1p-1074", "0x1.fffffffffffffp1023", "0x.1", "0x3p0" }) do
+    local e = only_error(text)
+    local written = e.fix:match("`(.-)`$")
+    assert(written ~= nil, e.fix)
+    local back = tonumber(written)
+    assert(back ~= nil and math.type(back) == "float" and back == token(text, 1).number, text .. " -> " .. written)
+  end
+end
+
+local function test_a_byte_order_mark_inside_a_file_is_not_said_to_start_it()
+  local bom = "\239\187\191"
+  local inside = only_error("x = 1 " .. bom)
+  assert(inside.msg == "stray byte order mark" and not inside.fix:find("at the start of the file", 1, true))
+  assert(inside.fix == "delete the byte order mark; one marks the start of a file and is no part of a program")
+  assert(only_error(bom .. "x = 1").fix == "delete the byte order mark at the start of the file")
+end
+
+--- Lua's loader skips a byte order mark and then a `#!` line; here the mark is refused, once, and the line is still skipped,
+--- so its bytes raise no error of their own and the lines after it keep their numbers.
+local function test_a_hashbang_line_after_a_byte_order_mark_is_skipped_with_one_error()
+  local bom = "\239\187\191"
+  for _, break_ in ipairs({ "\n", "\r\n", "\r" }) do
+    local lexed = lex(bom .. "#!/usr/bin/env cosmic" .. break_ .. "local y")
+    assert(#lexed.errors == 1, tostring(#lexed.errors))
+    local err = assert(lexed.errors[1])
+    assert(err.code == "stray_byte" and err.msg == "stray byte order mark" and err.y == 1 and err.length == 3)
+    local mark, word, name = Lexer.token(lexed.tokens, 1), Lexer.token(lexed.tokens, 2), Lexer.token(lexed.tokens, 3)
+    assert(mark.kind == "$ERR$" and word.text == "local" and word.y == 2 and name.text == "y" and name.y == 2)
+  end
+  assert(#lex(bom .. "#!x").errors == 1 and Lexer.token(lex(bom .. "#!x").tokens, 2).kind == "$EOF$")
+  -- only a `#!` line directly after the mark is skipped: a `#` elsewhere is still the stray byte it was
+  assert(#lex(bom .. " #!x").errors > 1)
+end
+
+local function test_a_bad_escape_names_the_whole_character_it_backslashes()
+  local e = bad_escape_at("x = '\\" .. E_ACUTE .. "'")
+  assert(e.msg == "invalid escape `\\" .. E_ACUTE .. "`" and e.length == 3, e.msg)
+  assert(e.fix:find("`\\\\" .. E_ACUTE .. "`", 1, true))
+  assert(e.x == 6, tostring(e.x))
+  local raw = bad_escape_at("x = '\\\200'")
+  assert(raw.msg == "invalid escape `\\\\xC8`", raw.msg)
+  local control = bad_escape_at("x = '\\\1'")
+  assert(control.msg == "invalid escape `\\\\x01`", control.msg)
+  local stray = only_error("x = \200")
+  assert(stray.msg == "stray `\\xC8`", stray.msg)
+end
+
+local function test_a_string_value_is_not_a_long_string_unless_it_is_one()
+  assert(token("'a'", 1).long == nil and token("\"a\"", 1).long == nil and token("[[a]]", 1).long == true)
+  assert(token("x", 1).long == nil)
+end
+
+local function test_a_token_that_ends_in_a_line_break_ends_on_the_line_it_began_the_break_on()
+  local long = token("x = [[a\r\n", 3)
+  assert(long.kind == "$ERR$" and long.y == 1 and long.x == 5 and long.yend == 1 and long.xend == 9)
+  local short = token("x = 'a\\\n", 3)
+  assert(short.kind == "$ERR$" and short.yend == 1 and short.xend == 8)
+  local comment = token("--[[ c\n\n", 1)
+  assert(comment.kind == "$ERR$" and comment.yend == 2 and comment.xend == 1)
+end
+
+--- `lines` lines of every kind of token but a comment: names, keywords, operators, brackets, a string, a
+--- number and a long string that spans lines.
+local function program(lines: integer): string
+  return ("local t = { f(a, b) + 0x10 * 2.5, \"s\", [[long\nstring]] } ~= #u\n"):rep(lines)
+end
+
+local TOKENS_PER_LINE <const> = 22
+local LINES <const> = 2000
+
+--- The bytes the tokens of a source hold per token. The arrays of [`Lexer.Tokens`] hold about 60, and a few tables
+--- whatever the size of the source; even an empty table for each token adds about 60 more, so the ceiling is below that.
+local BYTES_PER_TOKEN_CEILING <const> = 100
+
+local record Link
+  token: Lexer.Token
+  rest: Link?
+end
+
+--- Garbage collects twice, so that what is counted is what is kept.
+local function settled(): number
+  collectgarbage("collect")
+  collectgarbage("collect")
+  return collectgarbage("count") * 1024
+end
+
+local function test_lexing_makes_a_few_tables_whatever_the_number_of_tokens()
+  local source = program(LINES)
+  local before = settled()
+  local lexed = Lexer.lex(source, "t.tl")
+  local after = settled()
+  local count = Lexer.count(lexed.tokens)
+  assert(count == LINES * TOKENS_PER_LINE + 1, tostring(count))
+  local per_token = (after - before) / count
+  assert(per_token < BYTES_PER_TOKEN_CEILING, string.format("%.1f bytes for each of %d tokens", per_token, count))
+end
+
+local function test_a_table_for_each_token_is_found_to_hold_more_than_the_ceiling()
+  local source = program(LINES)
+  local tokens = Lexer.lex(source, "t.tl").tokens
+  local count = Lexer.count(tokens)
+  local before = settled()
+  -- A linked list holds a table for each token, which it makes without writing an array.
+  local planted: Link? = nil
+  for i = 1, count do
+    planted = { token = Lexer.token(tokens, i), rest = planted }
+  end
+  local after = settled()
+  local per_token = (after - before) / count
+  assert(planted ~= nil and per_token > 2 * BYTES_PER_TOKEN_CEILING, string.format("%.1f bytes for each token", per_token))
+end
+
+local function test_a_token_copied_out_of_the_arrays_reads_as_the_arrays_do()
+  local tokens = Lexer.lex("local s =\n\t\"a\" .. [[\nb]] + 1.5 -- c\nx", "t.tl").tokens
+  for i = 1, Lexer.count(tokens) do
+    local copy = Lexer.token(tokens, i)
+    assert(copy.kind == tokens.kind[i] and copy.text == tokens.text[i] and copy.offset == tokens.offset[i])
+    local written = tokens.text[i]
+    assert(written ~= nil and copy.length == Lexer.length(tokens, i) and copy.length == #written)
+    assert(copy.y == tokens.y[i] and copy.x == Lexer.x(tokens, i))
+    assert(copy.yend == Lexer.yend(tokens, i) and copy.xend == Lexer.xend(tokens, i))
+    assert(copy.value == tokens.value[i] and copy.number == tokens.number[i] and copy.comments == tokens.comments[i])
+    assert((copy.long == true) == Lexer.long(tokens, i))
+  end
+  -- Only the tokens that end off their line or off their length have an end of their own.
+  local ends = ""
+  for i = 1, Lexer.count(tokens) do
+    if tokens.yend[i] ~= nil or tokens.xend[i] ~= nil then
+      ends = ends .. tostring(i) .. ","
+    end
+  end
+  assert(ends == "6,", ends)
+end
+
+local function test_the_line_table_holds_where_each_line_begins_whatever_the_line_breaks_and_where_they_stand()
+  local function starts(source: string): string
+    return table.concat(lex(source).tokens.line, ",")
+  end
+  assert(starts("") == "1")
+  assert(starts("a\nb\r\nc\n\rd\re\n") == "1,3,6,9,11,13")
+  -- A break inside a long string, a string's escaped line break and a long comment starts a line as well.
+  local across = "x = [[a\nb\r\nc]] y = 'p\\\nq' --[[ c\nd ]] z\nw"
+  assert(starts(across) == "1,9,12,24,34,41", starts(across))
+  assert(starts("x = [[a\n") == "1,9")
+  assert(starts("--[[ a\nb") == "1,8")
+  assert(starts("#!/bin/cosmic\nx") == "1,15")
+  -- A column is counted from the start of its line.
+  local tokens = lex("ab\n  cd").tokens
+  assert(Lexer.x(tokens, 1) == 1 and Lexer.x(tokens, 2) == 3 and tokens.y[2] == 2)
+end

@@ -2,42 +2,33 @@
 --- alone, each connection made by the native connector, which reaches the
 --- name servers of its table and nothing else. A lookup that a server of
 --- the test's own answers runs in a process of its own (this program,
---- standalone) while this one is the server, on a loopback port it
+--- running the child of this module) while this one is the server, on a loopback port it
 --- listens at for TCP and binds for UDP, to see that no datagram is
 --- sent. Lookups no server answers, and those in a task beside others,
 --- run here.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local RawTables = require("build.raw_tables")
+local Config = require("cosmic.internal.relay_config")
+local Connector = require("cosmic.internal.connector")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
+local Resolv = require("cosmic.internal.relay_resolv")
 local Poll = require("cosmic.poll")
-local Relay = require("cosmic.relay")
-local Sandbox = require("cosmic.sandbox")
+local RelayStart = require("cosmic.internal.relay_start")
 local sys = require("cosmic.sys")
+local test_child = require("build.test_child")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
-local _ = require("build.standalone")
-local type raw_process = require("cosmic.internal.process")
-local type raw_socket = require("cosmic.internal.socket")
+local Udp = require("build.udp_fixture")
 
 --- The program itself, which runs a lookup; a loopback alone answers; the
 --- connector is a process the lookup's forks.
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, promises = { "fork" } }
 
-local type Searcher = function(string): any, any
-
---- The raw table `require` hands `wrapper`'s loader.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error("no raw table behind " .. wrapper)
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: core/process.h's table
-local socket = raw_behind("cosmic.net") as raw_socket -- cast: core/socket.h's table
+local process = RawTables.process()
+local socket = RawTables.socket()
 
 --- A lookup's request of `tag` for the table's endpoint `index` at
 --- `port`: no wait of its own, family or address.
@@ -55,15 +46,17 @@ local function require_native_connector()
 end
 
 --- The resolver options of a connector of the name servers `opts` names,
---- waiting for each as cosmic.sandbox.relay chooses: its `connector` and the
+--- waiting for each as cosmic.internal.relay_start chooses: its `connector` and the
 --- same servers as `servers`. Nil and why where they cannot be read.
-local function name_server_options(opts: Sandbox.Relay.NameServerOptions): Net.ResolveOptions | nil, string
-  local plan, why = Sandbox.Relay.name_servers(opts)
+local function name_server_options(opts: RelayStart.NameServerOptions): Net.ResolveOptions?, string
+  local plan, why = RelayStart.name_servers(opts)
   if plan == nil then return nil, why end
-  local connector, trouble = Net.connector(plan.servers, { timeout_ns = plan.wait_ns })
+  local servers: mut {Net.Endpoint} = {}
+  for i, server in ipairs(plan.servers) do
+    servers[i] = { host = server.host, port = server.port }
+  end
+  local connector, trouble = Net.connector(servers, { timeout_ns = plan.wait_ns })
   if connector == nil then return nil, trouble end
-  local servers: {Net.Address} = {}
-  for i, server in ipairs(plan.servers) do servers[i] = Net.udp(server.host, server.port) end
   return { connector = connector, servers = servers }, ""
 end
 
@@ -71,7 +64,7 @@ local TYPE_A <const> = 1
 
 --- The name and type a query asks, and where its question ends.
 local function question(query: string): string, integer, integer
-  local labels: {string} = {}
+  local labels: mut {string} = {}
   local at = 13
   while true do
     local size = query:byte(at)
@@ -94,55 +87,50 @@ local function answer(query: string): string
     string.pack(">I2I2I2I4s2", 0xC00C, qtype, 1, 60, data)
 end
 
---- Resolves argv[1] through a connector whose table is 127.0.0.1 at each
+--- The child of the lookups below: resolves argv[1] through a connector whose table is 127.0.0.1 at each
 --- port of argv[2] (comma-separated) and nothing else, waiting argv[3]
 --- milliseconds for each connection (or, where argv[3] is "relay", as
---- cosmic.sandbox.relay chooses for its default lookup time), twice, so the second asks the same
+--- cosmic.internal.relay_start chooses for its default lookup time), twice, so the second asks the same
 --- process again: the first within argv[4] milliseconds, if given, the
 --- second within five seconds. Prints each answer's addresses, sorted, on
 --- a line, and then how many milliseconds each lookup took, on a line.
-local SCRIPT <const> = [[
-local Clock = require("cosmic.clock")
-local Fs = require("cosmic.fs")
-local Net = require("cosmic.net")
-local Sandbox = require("cosmic.sandbox")
-return function(argv: {string}): integer
-  local endpoints: {Net.Endpoint} = {}
-  local servers: {Net.Address} = {}
-  for text in argv[2]:gmatch("[^,]+") do
+test_child.register("resolve", function(argv: {string}): integer
+  local asked: mut {Config.Endpoint} = {}
+  local servers: mut {Net.Endpoint} = {}
+  for text in (argv[2] or ""):gmatch("[^,]+") do
     local port = assert(math.tointeger(tonumber(text)))
-    endpoints[#endpoints + 1] = { host = "127.0.0.1", port = port }
-    servers[#servers + 1] = Net.udp("127.0.0.1", port)
+    asked[#asked + 1] = { host = "127.0.0.1", port = port }
+    servers[#servers + 1] = { host = "127.0.0.1", port = port }
   end
+  local names: RelayStart.NameServerOptions = { servers = asked }
   local dns: Net.Connector
   if argv[3] == "relay" then
-    local plan = assert(Sandbox.Relay.name_servers({ servers = endpoints }))
-    dns = assert(Net.connector(plan.servers, { timeout_ns = plan.wait_ns }))
+    local plan = assert(RelayStart.name_servers(names))
+    dns = assert(Net.connector(servers, { timeout_ns = plan.wait_ns }))
   else
-    dns = assert(Net.connector(endpoints, { timeout_ns = Clock.ms(assert(math.tointeger(tonumber(argv[3])))) }))
+    dns = assert(Net.connector(servers, { timeout_ns = Clock.ms(assert(math.tointeger(tonumber(argv[3])))) }))
   end
-  local said: {string} = {}
-  local took: {string} = {}
+  local said: mut {string} = {}
+  local took: mut {string} = {}
   for round = 1, 2 do
     local began = Clock.monotonic_ns()
-    local limit = round == 1 and argv[4] ~= nil and Clock.ms(assert(math.tointeger(tonumber(argv[4])))) or
-      Clock.seconds(5)
-    local found, why = Net.resolve(argv[1], { timeout_ns = limit, connector = dns, servers = servers })
+    local limit = if round == 1 and argv[4] ~= nil then Clock.ms(assert(math.tointeger(tonumber(argv[4])))) else
+      Clock.seconds(5) end
+    local found, why = Net.resolve(argv[1] or "", { timeout_ns = limit, connector = dns, servers = servers })
     took[#took + 1] = tostring((Clock.monotonic_ns() - began) // 1000000)
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, resolved in ipairs(found or {}) do lines[#lines + 1] = resolved.address end
     table.sort(lines)
-    said[#said + 1] = found == nil and "error " .. why or table.concat(lines, ",")
+    said[#said + 1] = if found == nil then "error " .. why else table.concat(lines, ",") end
   end
   assert(dns:close())
   said[#said + 1] = table.concat(took, ",")
-  Fs.put(Fs.stdout, table.concat(said, "\n"))
+  local _, _ = Fs.put(Fs.stdout, table.concat(said, "\n"))
   return 0
-end
-]]
+end)
 
 --- Reads exactly `count` bytes of `conn`, or nil at its end.
-local function read_exact(conn: Net.Conn, count: integer): string | nil
+local function read_exact(conn: Net.Conn, count: integer): string?
   local out = ""
   while #out < count do
     local data, _ = conn:read(count - #out)
@@ -152,31 +140,29 @@ local function read_exact(conn: Net.Conn, count: integer): string | nil
   return out
 end
 
---- What a run of SCRIPT saw: the lines it printed, and what the test's
+--- What a run of the child saw: the lines it printed, and what the test's
 --- name server saw.
 local record Served
-  lines: {string}
+  lines: mut {string}
   --- Each query, "type name", sorted.
-  queries: {string}
-  datagrams: integer
-  connections: integer
+  queries: mut {string}
+  mut datagrams: integer
+  mut connections: integer
 end
 
---- Runs SCRIPT for `name` against a TCP name server of the test's own on
+--- Runs the child for `name` against a TCP name server of the test's own on
 --- 127.0.0.1, which a UDP socket at the same port watches for datagrams.
 --- `before` gives the ports of the connector's table that come before
 --- the server's, made in the run; `wait_ms` is the connector's wait, and
 --- `first_ms` the first lookup's time.
 local function served(tmp: string, name: string, wait_ms: integer | string, before?: function(): {integer},
                       first_ms?: integer): Served
-  local script = tmp .. "/resolve.tl"
-  assert(Fs.write(script, SCRIPT))
   local out: Served = { lines = {}, queries = {}, datagrams = 0, connections = 0 }
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local port = listener.address.port
+    local port = assert(listener.address.port)
     -- The same port for UDP, where a lookup that sent a datagram would.
-    local udp = assert(Net.datagram(Net.udp("127.0.0.1", port), { timeout_ns = Clock.ms(20) }))
+    local udp = assert(Udp.bind("127.0.0.1", port))
     local serving = Poll.spawn(function()
       while true do
         local conn = listener:accept()
@@ -190,7 +176,7 @@ local function served(tmp: string, name: string, wait_ms: integer | string, befo
             local query = read_exact(conn, (string.unpack(">I2", head)))
             if query == nil then break end
             local asked, qtype = question(query)
-            out.queries[#out.queries + 1] = qtype .. " " .. asked
+            table.insert(out.queries, tostring(qtype) .. " " .. asked)
             assert(conn:write(string.pack(">s2", answer(query))))
           end
           local _, _ = conn:close()
@@ -199,7 +185,7 @@ local function served(tmp: string, name: string, wait_ms: integer | string, befo
     end)
     local watching = Poll.spawn(function()
       while true do
-        local packet, why = udp:receive()
+        local packet, why = Udp.receive(udp, Clock.ms(20))
         if packet ~= nil then
           out.datagrams = out.datagrams + 1
         elseif why ~= Poll.TIMEOUT then
@@ -207,17 +193,17 @@ local function served(tmp: string, name: string, wait_ms: integer | string, befo
         end
       end
     end)
-    local ports: {string} = {}
+    local ports: mut {string} = {}
     for _, other in ipairs(before ~= nil and before() or {}) do
       ports[#ports + 1] = tostring(other)
     end
     ports[#ports + 1] = tostring(port)
-    local argv = { "--standalone", script, name, table.concat(ports, ","), tostring(wait_ms) }
-    if first_ms ~= nil then argv[#argv + 1] = tostring(first_ms) end
-    local started = this_program.program(argv,
+    local args = { name, table.concat(ports, ","), tostring(wait_ms) }
+    if first_ms ~= nil then args[#args + 1] = tostring(first_ms) end
+    local started = this_program.program(test_child.words(tmp, "cosmic.net_resolve_through_test", "resolve", args),
       { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
     local child <close> = assert(Child.start(started.argv, started.options))
-    local result: Child.Result
+    local result: Child.Result?
     while result == nil do
       local state = assert(child:try_wait())
       if state.finished then
@@ -226,14 +212,15 @@ local function served(tmp: string, name: string, wait_ms: integer | string, befo
         assert(Poll.delay(Clock.ms(10)))
       end
     end
-    assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
-    for line in ((result.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do
+    local finished = assert(result)
+    assert(finished.code == 0, tostring(finished.code) .. " " .. tostring(finished.stderr))
+    for line in ((finished.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do
       out.lines[#out.lines + 1] = line
     end
     serving:cancel()
     watching:cancel()
     assert(listener:close())
-    assert(udp:close())
+    Udp.close(udp)
   end)
   table.sort(out.queries)
   return out
@@ -244,17 +231,17 @@ local function test_a_name_resolves_over_tcp_through_the_connector_and_sends_no_
   local seen = served(tmp, "tcp.example.test", 10000)
   assert(seen.lines[1] == "192.0.2.7,2001:db8::7", tostring(seen.lines[1]))
   assert(seen.lines[2] == "192.0.2.7,2001:db8::7", tostring(seen.lines[2]))
-  assert(seen.datagrams == 0, seen.datagrams .. " datagrams were sent")
+  assert(seen.datagrams == 0, tostring(seen.datagrams) .. " datagrams were sent")
   assert(table.concat(seen.queries, ",") ==
       "1 tcp.example.test,1 tcp.example.test,28 tcp.example.test,28 tcp.example.test", table.concat(seen.queries, ","))
-  assert(seen.connections == 2, seen.connections .. " connections")
+  assert(seen.connections == 2, tostring(seen.connections) .. " connections")
 end
 
 --- Fills the backlog of a listener of its own, so that the kernel drops
 --- what else asks it to connect: a name server that never takes a
 --- connection. `held` gets a closer for the listener and each connection the
 --- queue took.
-local function stuck_server(held: {function()}): {integer}
+local function stuck_server(held: mut {function()}): {integer}
   local stuck = assert(Net.listen(Net.tcp("127.0.0.1", 0), { backlog = 1 }))
   held[#held + 1] = function() local _, _ = stuck:close() end
   -- The queue takes the backlog and one more; the rest wait unanswered.
@@ -266,7 +253,7 @@ local function stuck_server(held: {function()}): {integer}
       taken = taken + 1
     end
   end
-  assert(taken >= 1 and taken < 4, taken .. " connections were taken")
+  assert(taken >= 1 and taken < 4, tostring(taken) .. " connections were taken")
   return { stuck.address.port }
 end
 
@@ -286,7 +273,7 @@ local function test_a_server_that_never_answers_its_connect_fails_over_to_the_ne
     local ms = assert(math.tointeger(tonumber(took)))
     assert(ms >= 400 and ms < 5000, seen.lines[3] .. " ms")
   end
-  assert(seen.datagrams == 0, seen.datagrams .. " datagrams were sent")
+  assert(seen.datagrams == 0, tostring(seen.datagrams) .. " datagrams were sent")
 end
 
 --- A lookup whose time runs out while the connector still waits on a
@@ -303,40 +290,63 @@ local function test_a_lookup_out_of_time_still_takes_the_connectors_reply(tmp: s
   assert(seen.lines[1] == "error " .. Poll.TIMEOUT, tostring(seen.lines[1]))
   assert(seen.lines[2] == "192.0.2.7,2001:db8::7", tostring(seen.lines[2]))
   local first = assert(math.tointeger(tonumber(seen.lines[3]:match("^(%d+)"))))
-  assert(first >= 100 and first < 480, "the first lookup ended after " .. first .. " ms, not at its deadline")
+  assert(first >= 100 and first < 480, "the first lookup ended after " .. tostring(first) .. " ms, not at its deadline")
+end
+
+--- A lookup's deadline is never earlier than the time it was given, wherever
+--- in a millisecond it began: begun with 1 ms in the last tenth of a
+--- millisecond, it still asks for its connect while most of that time is
+--- left, and does not refuse it as past its deadline.
+local function test_a_lookup_begun_late_in_a_millisecond_still_asks_for_its_connect()
+  require_native_connector()
+  local judged = 0
+  for _ = 1, 200 do
+    while Clock.monotonic_ns() % 1000000 < 900000 do end
+    local began = Clock.monotonic_ns()
+    local lookup = assert(socket.lookup("deadline.example.test", 1, nil, nil, { { host = "127.0.0.1", port = 9, index = 1 } }))
+    local _, _, _, _, wants = lookup:step(nil, nil)
+    local took = Clock.monotonic_ns() - began
+    lookup:close()
+    -- A start delayed past the millisecond has no claim on one want.
+    if took < Clock.ms(1) then
+      judged = judged + 1
+      assert(#wants == 1, tostring(#wants) .. " connects were asked for, in " .. tostring(took) .. " ns of 1 ms")
+    end
+  end
+  assert(judged > 0, "no lookup began and asked within its millisecond")
 end
 
 local function test_an_unreachable_name_server_fails_the_lookup()
   require_native_connector()
   -- A port that was free a moment ago.
   local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-  local port = free.address.port
+  local port = assert(free.address.port)
   assert(free:close())
   local dns <close> = assert(Net.connector({ { host = "127.0.0.1", port = port } }))
   local found, why = Net.resolve("down.example.test", { timeout_ns = Clock.seconds(20), connector = dns,
-    servers = { Net.udp("127.0.0.1", port) } })
+    servers = { { host = "127.0.0.1", port = port } } })
   assert(found == nil and why == "Connection refused", tostring(why))
   -- The connector answered each request, so it is asked again.
   found, why = Net.resolve("down.example.test", { timeout_ns = Clock.seconds(20), connector = dns,
-    servers = { Net.udp("127.0.0.1", port) } })
+    servers = { { host = "127.0.0.1", port = port } } })
   assert(found == nil and why == "Connection refused", tostring(why))
   -- A numeric address answers itself and asks no one.
-  local literal = assert(Net.resolve("192.0.2.1", { connector = dns, servers = { Net.udp("127.0.0.1", port) } }))
+  local literal = assert(Net.resolve("192.0.2.1", { connector = dns, servers = { { host = "127.0.0.1", port = port } } }))
   assert(#literal == 1 and literal[1].address == "192.0.2.1")
 end
 
 local function test_a_name_server_the_connector_lacks_is_refused_before_anything_is_asked()
   require_native_connector()
   local dns <close> = assert(Net.connector({ { host = "127.0.0.1", port = 53 } }))
-  local found, why = Net.resolve("example.test", { connector = dns, servers = { Net.udp("127.0.0.1", 5353) } })
+  local found, why = Net.resolve("example.test", { connector = dns, servers = { { host = "127.0.0.1", port = 5353 } } })
   assert(found == nil and why == "net: the name server 127.0.0.1:5353 is not in the connector's table", why)
-  found, why = Net.resolve("example.test", { connector = dns, servers = { Net.udp("192.0.2.53", 53) } })
+  found, why = Net.resolve("example.test", { connector = dns, servers = { { host = "192.0.2.53", port = 53 } } })
   assert(found == nil and why:find("is not in the connector's table", 1, true) ~= nil, why)
-  local each <close> = assert(Net.connector())
-  found, why = Net.resolve("example.test", { connector = each, servers = { Net.udp("127.0.0.1", 53) } })
-  assert(found == nil and why:find("with a table", 1, true) ~= nil, why)
+  local public <close> = assert(Net.connector({}, { public = { deny = {} } }))
+  found, why = Net.resolve("example.test", { connector = public, servers = { { host = "127.0.0.1", port = 53 } } })
+  assert(found == nil and why:find("is not in the connector's table", 1, true) ~= nil, why)
   assert(dns:close())
-  found, why = Net.resolve("example.test", { connector = dns, servers = { Net.udp("127.0.0.1", 53) } })
+  found, why = Net.resolve("example.test", { connector = dns, servers = { { host = "127.0.0.1", port = 53 } } })
   assert(found == nil and why == "net: the connector is closed", why)
   local stand_in: any = { connect = function() end }
   assert(not pcall(Net.resolve, "example.test", { connector = stand_in as Net.Connector }))
@@ -349,15 +359,18 @@ local function test_the_name_servers_connector_refuses_what_is_no_name_server(tm
   require_native_connector()
   local conf = tmp .. "/resolv.conf"
   assert(Fs.write(conf, "nameserver 127.0.0.1\n"))
-  local servers = assert(Relay.nameservers(conf))
+  local servers = assert(Resolv.nameservers(conf))
   assert(#servers == 1 and servers[1].host == "127.0.0.1" and servers[1].port == 53)
-  local dns <close> = assert(Net.connector(servers))
-  local conn, why = dns:connect("127.0.0.1", 80, Clock.seconds(5))
+  local rows = servers
+  local table_rows: mut {Net.Endpoint} = {}
+  for i, server in ipairs(servers) do table_rows[i] = { host = server.host, port = server.port } end
+  local dns <close> = assert(Net.connector(table_rows))
+  local conn, why = dns:connect(Net.tcp("127.0.0.1", 80), { timeout_ns = Clock.seconds(5) })
   assert(conn == nil and why:find("is not in the connector's table", 1, true) ~= nil, tostring(why))
-  conn, why = dns:connect("192.0.2.1", 53, Clock.seconds(5))
+  conn, why = dns:connect(Net.tcp("192.0.2.1", 53), { timeout_ns = Clock.seconds(5) })
   assert(conn == nil and why:find("is not in the connector's table", 1, true) ~= nil, tostring(why))
   -- The process itself, asked past the checks of its Lua side.
-  local started <close> = assert(Child.start_connector(servers, 1000))
+  local started <close> = assert(Connector.start(rows, 1000))
   local function read_whole(count: integer): string
     local reply = ""
     while #reply < count do
@@ -379,7 +392,7 @@ local function test_the_name_servers_connector_refuses_what_is_no_name_server(tm
       (address or "") .. string.rep("\0", 16 - #(address or ""))
     assert(sys.write(started.fd, wire) == #wire)
     local replied, errno = string.unpack(">I4I4", read_whole(8))
-    assert(replied == tag, "the reply carries another tag: " .. replied)
+    assert(replied == tag, "the reply carries another tag: " .. tostring(replied))
     return errno
   end
   assert(asked(7, 1, 80) == sys.EPERM)
@@ -397,39 +410,40 @@ local function test_a_name_server_reset_as_it_is_made_leaves_the_stream_in_step(
     Test.skip("a lookup through a connector is Linux only, as the connector is")
   end
   local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-  local port = free.address.port
+  local port = assert(free.address.port)
   assert(free:close())
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
-  local pair = assert(process.connector_pair())
-  assert(sys.set_nonblocking(pair[1], true))
-  assert(sys.set_nonblocking(pair[2], true))
-  assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
-  local dns <close> = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
-  local asked: string
-  local found, why: {Net.Resolved} | nil, string
+  local pair = RawTables.connector_pair()
+  assert(sys.set_nonblocking(pair.controller, true))
+  assert(sys.set_nonblocking(pair.connector, true))
+  assert(sys.write(pair.connector, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
+  local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local asked: string? = nil
+  local found: {Net.Resolved}? = nil
+  local why: string? = nil
   Poll.run(function()
     -- The reply to the lookup's one request, tagged from 1: a socket the
     -- server reset as it was made.
     Poll.spawn(function()
-      assert(Poll.readable(pair[2], Clock.seconds(5)))
-      asked = assert(sys.read(pair[2], 4096))
+      assert(Poll.readable(pair.connector, Clock.seconds(5)))
+      asked = assert(sys.read(pair.connector, 4096))
       local reset = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = port }))
       assert(socket.wait(reset:fd(), true, 5000))
-      assert(sys.write(pair[2], string.pack(">I4I4", 1, 0)) == 8)
-      assert(socket.sendfds(pair[2], { reset:fd() }))
+      assert(sys.write(pair.connector, string.pack(">I4I4", 1, 0)) == 8)
+      assert(socket.sendfds(pair.connector, { reset:fd() }))
       assert(reset:close())
     end)
     found, why = Net.resolve("reset.example.test", { timeout_ns = Clock.seconds(2), connector = dns,
-      servers = { Net.udp("127.0.0.1", 53) }, hosts_file = hosts })
+      servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })
   end)
   assert(found == nil and why ~= "", tostring(why))
   assert(asked == request(1, 1, 53), ("%q"):format(asked))
   -- Shut down, the stream would read as ended here; in step, nothing waits.
-  local more, _, number = sys.read(pair[2], 1)
+  local more, _, number = sys.read(pair.connector, 1)
   assert(more == nil and number == sys.EAGAIN, "the lookup shut the stream down: " .. tostring(more))
   assert(not dns:ended())
-  assert(sys.close(pair[2]))
+  assert(sys.close(pair.connector))
 end
 
 --- A lookup through a connector whose stream says another word first asks
@@ -441,15 +455,15 @@ local function test_a_lookup_reads_the_connectors_hello_before_it_asks(tmp: stri
   end
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
-  local other = assert(process.connector_pair())
-  assert(sys.write(other[2], string.pack(">I4", 0x434e4301)) == 4)
-  local dns <close> = assert(Net.connector_from(other[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local other = RawTables.connector_pair()
+  assert(sys.write(other.connector, string.pack(">I4", 0x434e4301)) == 4)
+  local dns <close> = assert(Connector.adopted(other.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local none, trouble = Net.resolve("hello.example.test", { timeout_ns = Clock.seconds(2), connector = dns,
-    servers = { Net.udp("127.0.0.1", 53) }, hosts_file = hosts })
+    servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })
   assert(none == nil and trouble == "net: the connector speaks another protocol than this program's: " ..
       "it said 0x434e4301, not 0x434e4302", tostring(trouble))
   assert(dns:ended())
-  assert(sys.close(other[2]))
+  assert(sys.close(other.connector))
 end
 
 --- A reply that came whole with a socket connected to another address
@@ -467,30 +481,31 @@ local function test_a_connector_that_passes_the_wrong_descriptor_is_given_up(tmp
   assert(socket.wait(elsewhere:fd(), true, 5000))
   local null = assert(sys.open("/dev/null", sys.O_RDONLY))
   for _, passed in ipairs({ elsewhere:fd(), null }) do
-    local pair = assert(process.connector_pair())
-    assert(sys.set_nonblocking(pair[1], true))
-    assert(sys.set_nonblocking(pair[2], true))
-    assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
-    local dns <close> = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
-    local asked: string
-    local found, why: {Net.Resolved} | nil, string
+    local pair = RawTables.connector_pair()
+    assert(sys.set_nonblocking(pair.controller, true))
+    assert(sys.set_nonblocking(pair.connector, true))
+    assert(sys.write(pair.connector, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
+    local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+    local asked: string? = nil
+    local found: {Net.Resolved}? = nil
+    local why: string? = nil
     Poll.run(function()
       Poll.spawn(function()
-        assert(Poll.readable(pair[2], Clock.seconds(5)))
-        asked = assert(sys.read(pair[2], 4096))
-        assert(sys.write(pair[2], string.pack(">I4I4", 1, 0)) == 8)
-        assert(socket.sendfds(pair[2], { passed }))
+        assert(Poll.readable(pair.connector, Clock.seconds(5)))
+        asked = assert(sys.read(pair.connector, 4096))
+        assert(sys.write(pair.connector, string.pack(">I4I4", 1, 0)) == 8)
+        assert(socket.sendfds(pair.connector, { passed }))
       end)
       found, why = Net.resolve("wrong.example.test", { timeout_ns = Clock.seconds(2), connector = dns,
-        servers = { Net.udp("127.0.0.1", 53) }, hosts_file = hosts })
+        servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })
     end)
     assert(found == nil and why ~= "", tostring(why))
     assert(asked == request(1, 1, 53), "the stream was asked again: " .. ("%q"):format(asked))
     assert(dns:ended())
     -- Given up, the stream reads as ended.
-    local more, trouble = sys.read(pair[2], 1)
+    local more, trouble = sys.read(pair.connector, 1)
     assert(more == "", "the lookup left the stream in step: " .. tostring(more) .. " " .. tostring(trouble))
-    assert(sys.close(pair[2]))
+    assert(sys.close(pair.connector))
   end
   assert(sys.close(null))
   assert(elsewhere:close())
@@ -501,13 +516,13 @@ end
 --- no longer: the request is given up on and stays pending on the stream,
 --- which is in step for the next lookup, asked again under a tag of its own.
 local function test_a_connector_that_never_replies_ends_the_lookup_and_is_not_asked_again()
-  local pair = assert(process.connector_pair())
-  local peer = pair[2]
+  local pair = RawTables.connector_pair()
+  local peer = pair.connector
   assert(sys.write(peer, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
   -- Its process would wait 100 ms to connect and a grace more: the lookup ends at its own deadline.
-  local dns <close> = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local opts: Net.ResolveOptions = { timeout_ns = Clock.ms(200), connector = dns,
-    servers = { Net.udp("127.0.0.1", 53) } }
+    servers = { { host = "127.0.0.1", port = 53 } } }
   local began = Clock.monotonic_ns()
   local found, why = Net.resolve("stalled.example.test", opts)
   local took = (Clock.monotonic_ns() - began) // 1000000
@@ -519,7 +534,7 @@ local function test_a_connector_that_never_replies_ends_the_lookup_and_is_not_as
   end
   assert(found == nil and why == Poll.TIMEOUT, tostring(why))
   -- The process's wait given (100 ms) and a second's grace, not the default ten seconds.
-  assert(took >= 150 and took < 3000, took .. " ms")
+  assert(took >= 150 and took < 3000, tostring(took) .. " ms")
   -- What was asked: the table's first endpoint at port 53, its hello read first.
   local sent = assert(sys.read(peer, 64))
   assert(sent == request(1, 1, 53), ("%q"):format(sent))
@@ -533,23 +548,25 @@ end
 local function test_nameservers_reads_the_servers_resolv_conf_names(tmp: string)
   local conf = tmp .. "/resolv.conf"
   assert(Fs.write(conf, "nameserver 192.0.2.53\nnameserver 2001:db8::53\nnameserver fe80::1%lo\n"))
-  local servers, why = Relay.nameservers(conf)
+  local servers, why = Resolv.nameservers(conf)
   assert(servers ~= nil and #servers >= 1, why)
   for _, server in ipairs(servers) do
     assert(server.host:find("%", 1, true) == nil and server.port >= 1, server.host)
   end
   local scoped = tmp .. "/scoped.conf"
   assert(Fs.write(scoped, "nameserver fe80::1%lo\n"))
-  local none, trouble = Relay.nameservers(scoped)
-  local missing = Relay.nameservers(tmp .. "/missing.conf")
-  local bad, invalid = Relay.nameservers(tmp .. "/x\0y")
+  local none, trouble = Resolv.nameservers(scoped)
+  local missing = Resolv.nameservers(tmp .. "/missing.conf")
+  local bad, invalid = Resolv.nameservers(tmp .. "/x\0y")
   assert(bad == nil and invalid == "Invalid argument", tostring(invalid))
   -- On macOS the system's DNS configuration comes before any resolv.conf.
   if assert(sys.uname()).sysname ~= "Linux" then
     Test.skip("the system's DNS configuration answers before resolv.conf here")
   end
-  local listed: {string} = {}
-  for _, server in ipairs(servers) do listed[#listed + 1] = server.host .. " " .. server.port end
+  local listed: mut {string} = {}
+  for _, server in ipairs(servers) do
+    listed[#listed + 1] = server.host .. " " .. tostring(server.port)
+  end
   assert(table.concat(listed, ",") == "192.0.2.53 53,2001:db8::53 53", table.concat(listed, ","))
   -- A link-local server is never answered: refused, or, where the resolver
   -- cannot find its interface (a sandbox's own network), dropped by it in
@@ -574,9 +591,10 @@ local function test_the_relays_name_servers_stand_when_the_system_names_others(t
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, "198.51.100.9 kept.example.test\n"))
   local opts = assert(name_server_options({ resolv_conf = conf }))
-  local _dns <close> = opts.connector
-  assert(#opts.servers == 1 and opts.servers[1].host == "192.0.2.53" and opts.servers[1].port == 53)
-  local system = Relay.nameservers()
+  local _dns <close> = assert(opts.connector)
+  local servers = assert(opts.servers)
+  assert(#servers == 1 and servers[1].host == "192.0.2.53" and servers[1].port == 53)
+  local system = Resolv.nameservers()
   assert(system == nil or system[1].host ~= "192.0.2.53", "the system names the test's server")
   local found, why = Net.resolve("kept.example.test",
     { connector = opts.connector, servers = opts.servers, hosts_file = hosts, timeout_ns = Clock.seconds(5) })
@@ -585,7 +603,7 @@ local function test_the_relays_name_servers_stand_when_the_system_names_others(t
   found, why = Net.resolve("kept.example.test", { connector = opts.connector, hosts_file = hosts })
   assert(found == nil, "the system's servers were asked through the table")
   -- Unreadable servers are a reason, not a raise.
-  local none, trouble = Sandbox.Relay.name_servers({ resolv_conf = tmp .. "/x\0y" })
+  local none, trouble = RelayStart.name_servers({ resolv_conf = tmp .. "/x\0y" })
   assert(none == nil and trouble == "Invalid argument", tostring(trouble))
 end
 
@@ -608,12 +626,12 @@ local function test_the_relays_wait_leaves_the_second_server_time_to_answer(tmp:
 end
 
 --- `count` name servers that never take a connection, through a connector
---- of the name servers, waiting as cosmic.sandbox.relay chooses, for a lookup of `lookup_ms`: the lookup fails
+--- of the name servers, waiting as cosmic.internal.relay_start chooses, for a lookup of `lookup_ms`: the lookup fails
 --- as out of time, by its deadline, one connector wait and the grace.
 local function silent_lookup(count: integer, lookup_ms: integer)
   require_native_connector()
-  local held: {function()} = {}
-  local endpoints: {Net.Endpoint} = {}
+  local held: mut {function()} = {}
+  local endpoints: mut {Resolv.Endpoint} = {}
   for _ = 1, count do
     local port = stuck_server(held)[1]
     endpoints[#endpoints + 1] = { host = "127.0.0.1", port = port }
@@ -624,10 +642,10 @@ local function silent_lookup(count: integer, lookup_ms: integer)
   local found, why = Net.resolve("silent.example.test",
     { connector = opts.connector, servers = opts.servers, timeout_ns = Clock.ms(lookup_ms) })
   local took = (Clock.monotonic_ns() - began) // 1000000
-  assert(opts.connector:close())
+  assert(assert(opts.connector):close())
   for _, close in ipairs(held) do close() end
   assert(found == nil and why == Poll.TIMEOUT, tostring(why))
-  assert(took >= wait and took < lookup_ms + wait + 1000 + 300, took .. " ms")
+  assert(took >= wait and took < lookup_ms + wait + 1000 + 300, tostring(took) .. " ms")
 end
 
 local function test_a_silent_name_server_times_the_lookup_out_within_its_bound()
@@ -638,22 +656,22 @@ local function test_three_silent_name_servers_time_the_lookup_out_within_its_bou
   silent_lookup(3, 1500)
 end
 
-local function test_name_servers_and_a_connector_from_refuse_what_is_out_of_range()
+local function test_name_servers_and_an_adopted_connector_refuse_what_is_out_of_range()
   local zero: any = 0
-  assert(not pcall(Sandbox.Relay.name_servers, { resolve = zero as integer }))
-  assert(not pcall(Sandbox.Relay.name_servers, { resolve = -1 }))
-  local pair = assert(process.connector_pair())
-  assert(not pcall(Net.connector_from, pair[1], nil, false, 5))
-  assert(not pcall(Net.connector_from, pair[1], nil, false, Clock.seconds(61)))
-  assert(sys.close(pair[1]))
-  assert(sys.close(pair[2]))
+  assert(not pcall(RelayStart.name_servers, { resolve = zero as integer }))
+  assert(not pcall(RelayStart.name_servers, { resolve = -1 }))
+  local pair = RawTables.connector_pair()
+  assert(not pcall(Connector.adopted, pair.controller, nil, false, 5))
+  assert(not pcall(Connector.adopted, pair.controller, nil, false, Clock.seconds(61)))
+  assert(sys.close(pair.controller))
+  assert(sys.close(pair.connector))
 end
 
 local function test_more_name_servers_than_a_connector_holds_is_a_failure()
   require_native_connector()
   local dns <close> = assert(Net.connector({ { host = "127.0.0.1", port = 53 } }))
-  local servers: {Net.Address} = {}
-  for i = 1, 129 do servers[i] = Net.udp("127.0.0.1", 1000 + i) end
+  local servers: mut {Net.Endpoint} = {}
+  for i = 1, 129 do servers[i] = { host = "127.0.0.1", port = 1000 + i } end
   local found, why = Net.resolve("many.example.test", { connector = dns, servers = servers })
   assert(found == nil and why:find("at most 128", 1, true) ~= nil, tostring(why))
 end
@@ -661,10 +679,10 @@ end
 --- The lowest descriptor number a new one takes: the same before a lookup
 --- and after it is ended means it left none open.
 local function lowest_free_descriptor(): integer
-  local pair = assert(process.connector_pair())
-  local lowest = math.min(pair[1], pair[2])
-  assert(sys.close(pair[1]))
-  assert(sys.close(pair[2]))
+  local pair = RawTables.connector_pair()
+  local lowest = math.min(pair.controller, pair.connector)
+  assert(sys.close(pair.controller))
+  assert(sys.close(pair.connector))
   return lowest
 end
 
@@ -672,7 +690,8 @@ end
 --- longest gap between its ticks, in milliseconds, with how long the
 --- lookup took.
 local function ticking_beside(lookup: function()): integer, integer
-  local worst, took = 0, 0
+  local worst: integer = 0
+  local took: integer = 0
   Poll.run(function()
     local running = true
     local ticker = Poll.spawn(function()
@@ -698,16 +717,17 @@ end
 local function test_a_lookup_nobody_answers_stalls_no_other_task(tmp: string)
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
-  local silent = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
-  local found, why: {Net.Resolved} | nil, string
+  local silent = assert(Udp.bind("127.0.0.1", 0))
+  local found: {Net.Resolved}? = nil
+  local why: string? = nil
   local worst, took = ticking_beside(function()
-    found, why = Net.resolve("silent.example.test", { timeout_ns = Clock.ms(600), servers = { silent.address },
+    found, why = Net.resolve("silent.example.test", { timeout_ns = Clock.ms(600), servers = { { host = "127.0.0.1", port = silent.address.port } },
       hosts_file = hosts })
   end)
-  assert(silent:close())
+  Udp.close(silent)
   assert(found == nil and why == Poll.TIMEOUT, tostring(why))
-  assert(took >= 500 and took < 4000, took .. " ms")
-  assert(worst < 450, "another task waited " .. worst .. " ms behind the lookup")
+  assert(took >= 500 and took < 4000, tostring(took) .. " ms")
+  assert(worst < 450, "another task waited " .. tostring(worst) .. " ms behind the lookup")
 end
 
 --- The same through a connector that never replies: the connect it was
@@ -718,19 +738,20 @@ local function test_a_lookup_through_a_silent_connector_stalls_no_other_task(tmp
   end
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
-  local pair = assert(process.connector_pair())
-  assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
-  local dns <close> = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
-  local found, why: {Net.Resolved} | nil, string
+  local pair = RawTables.connector_pair()
+  assert(sys.write(pair.connector, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
+  local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local found: {Net.Resolved}? = nil
+  local why: string? = nil
   local worst, took = ticking_beside(function()
     found, why = Net.resolve("silent.example.test", { timeout_ns = Clock.ms(600), connector = dns,
-      servers = { Net.udp("127.0.0.1", 53) }, hosts_file = hosts })
+      servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })
   end)
   assert(found == nil and why == Poll.TIMEOUT, tostring(why))
-  assert(took >= 500 and took < 4000, took .. " ms")
-  assert(worst < 450, "another task waited " .. worst .. " ms behind the lookup")
+  assert(took >= 500 and took < 4000, tostring(took) .. " ms")
+  assert(worst < 450, "another task waited " .. tostring(worst) .. " ms behind the lookup")
   assert(not dns:ended())
-  assert(sys.close(pair[2]))
+  assert(sys.close(pair.connector))
 end
 
 --- Cancels a lookup of `opts` in its wait: how long the task took to end,
@@ -738,8 +759,8 @@ end
 --- and after.
 local function cancelled_lookup(opts: Net.ResolveOptions): integer, string, integer, integer
   local before = lowest_free_descriptor()
-  local outcome = ""
-  local waited = 0
+  local outcome: string = ""
+  local waited: integer = 0
   Poll.run(function()
     local task = Poll.spawn(function()
       local found, why = Net.resolve("cancelled.example.test", opts)
@@ -760,13 +781,13 @@ end
 local function test_a_cancelled_lookup_closes_everything_it_held(tmp: string)
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
-  local silent = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
+  local silent = assert(Udp.bind("127.0.0.1", 0))
   local waited, outcome, before, after = cancelled_lookup(
-    { timeout_ns = Clock.seconds(30), servers = { silent.address }, hosts_file = hosts })
+    { timeout_ns = Clock.seconds(30), servers = { { host = "127.0.0.1", port = silent.address.port } }, hosts_file = hosts })
   assert(outcome == Poll.CANCELLED, outcome)
-  assert(waited < 1500, "a cancelled lookup took " .. waited .. " ms to end")
+  assert(waited < 1500, "a cancelled lookup took " .. tostring(waited) .. " ms to end")
   assert(after == before, "a cancelled lookup left a descriptor open")
-  assert(silent:close())
+  Udp.close(silent)
 end
 
 --- The same through a connector, whose stand-ins for the sockets it was
@@ -777,14 +798,14 @@ local function test_a_cancelled_lookup_through_a_connector_closes_everything_it_
   end
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
-  local pair = assert(process.connector_pair())
-  assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
-  local dns <close> = assert(Net.connector_from(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local pair = RawTables.connector_pair()
+  assert(sys.write(pair.connector, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
+  local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local waited, outcome, before, after = cancelled_lookup({ timeout_ns = Clock.seconds(30), connector = dns,
-    servers = { Net.udp("127.0.0.1", 53) }, hosts_file = hosts })
+    servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })
   assert(outcome == Poll.CANCELLED, outcome)
-  assert(waited < 1500, "a cancelled lookup took " .. waited .. " ms to end")
+  assert(waited < 1500, "a cancelled lookup took " .. tostring(waited) .. " ms to end")
   assert(after == before, "a cancelled lookup left a descriptor open")
   assert(not dns:ended())
-  assert(sys.close(pair[2]))
+  assert(sys.close(pair.connector))
 end

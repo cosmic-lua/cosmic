@@ -13,12 +13,15 @@
 ---
 --- - the tree at [`test_sandbox.tree`], /tree, wherever the host keeps
 ---   it, and its working directory there. Each read-only, it holds only
----   the store at o/cosmic.db (the store of its module's import closure,
+---   its module's import closure as source files, the fuzz corpora for a
+---   module that uses [`build.fuzz`], and what the module declares it
+---   `reads`;
+--- - the tree's build directory at [`test_sandbox.output`], wherever the
+---   host keeps it, read-only, holding only the store at its `cosmic.db`
+---   (the store of its module's import closure,
 ---   [`build.closure_store`]'s `write`, or the whole projection for a
----   module that declares `store`), its module's import closure as
----   source files, the fuzz corpora for a module that uses
----   [`build.fuzz`], what the module declares it `reads`, and o/bin for
----   one that declares `tool`;
+---   module that declares `store`), and its `bin` for one that declares
+---   `tool`, each `o/...` as a module declares it;
 --- - its scratch directory at [`test_sandbox.scratch`], beneath /tmp at
 ---   a name padded to `scratch_length`, writable: the test's own
 ---   directory (`tmp` there, a link to `real` beside it), where
@@ -31,6 +34,9 @@
 ---   `own_scratch`), so its root shows files alone, which holds a unix
 ---   socket it makes below Landlock ABI 9, and, for a module that declares
 ---   `nests` (whose worker has no Landlock ruleset), at any ABI;
+--- - the files above the project the module declares (`/parent/` grants,
+---   [`cosmic.test`]'s `parent`), each read-only at its relative path
+---   beneath /tree-up;
 --- - the host caches the module declares ([`build.caches`]), writable,
 ---   each at its own name, made first where missing, and the variables
 ---   that locate them -- but for the cores a portable cosmic extracts,
@@ -70,13 +76,14 @@ local test_inputs = require("build.test_inputs")
 local caches = require("build.caches")
 local String = require("cosmic.string")
 
-local build_directory = build_paths.required
+local build_layout = build_paths.resolve
 
 local record test_sandbox
   --- Where a sandboxed worker has the tree, and runs.
   tree: string
   --- Where it has its scratch directory.
   scratch: string
+  output: string
   --- How long, at least, the path of every test's scratch directory is,
   --- on every host. macOS's own is 75 bytes, its temporary directory
   --- resolved (/private/var/folders/<2>/<30>/T/) and [`build.test`]'s
@@ -104,16 +111,16 @@ local record test_sandbox
     trouble: string
     --- The name the worker has the program by -- the artifact path its
     --- relaunch names (`--artifact`), which [`Proc.executable()`] answers
-    --- -- where the program is the tree's own o/bin/cosmic:
-    --- /tree/o/bin/cosmic, as the rest of the tree is; where it is the
+    --- -- where the program is the tree's own tool: that in the
+    --- worker's build directory ([`test_sandbox.output`]); where it is the
     --- runner's own beneath /tree, /program/<its name> ([`program_name`]);
     --- nil where it keeps the runner's, as a worker whose module does
     --- not declare `tool` does.
-    program: string | nil
+    program?: string
     --- The host
     --- paths among `sandbox.unveil.reads` that are run, which the policy
     --- grants `x` as well: the program and its core, and what its module
-    --- declares it reads of the tree or the host (o/bin for `tool`) that
+    --- declares it reads of the tree or the host (`o/bin` for `tool`) that
     --- the mode of a file lets run.
     runs: {string:boolean}
     --- Whether the worker's scratch
@@ -141,6 +148,19 @@ test_sandbox.scratch = test_sandbox.padded("/tmp/cosmic-test-padded-to-a-macos-l
   test_sandbox.scratch_length)
 test_sandbox.switch = "COSMIC_TEST_SANDBOX"
 
+--- The base of the build directories a sandboxed worker has
+--- (COSMIC_BUILD_HOME), beneath its scratch directory: its tree's, at
+--- [`output`], is given there, and a project the worker builds is built
+--- there, never in the host's. A fixed name, as /tree is, so no key
+--- holds where the host keeps its build directories.
+local build_home <const> = test_sandbox.scratch .. "/build"
+
+--- Where a sandboxed worker has its tree's build directory: the one
+--- [`build.paths`] names for /tree under [`build_home`], so the worker
+--- finds it there as the host finds its own. A declaration names it
+--- `o` ([`build.declared_key`]).
+test_sandbox.output = build_paths.in_home(test_sandbox.tree, build_home)
+
 --- Where a sandboxed worker has the program that runs it, when that is
 --- neither the tree's own nor to be had at its own name
 --- ([`Plan.program`]).
@@ -153,7 +173,7 @@ local UNVEIL_MAX <const> = confine.unveil_max
 --- each worker sandboxed wherever one can be; "on", "1", for every
 --- worker sandboxed or the run failing; "off", "0", for none. Any other
 --- value is an error, so a misspelt one never passes for any of them.
-function test_sandbox.mode(): string | nil, string
+function test_sandbox.mode(): string?, string
   local value = Env.get(test_sandbox.switch)
   if value == nil or value == "" then return "auto", "" end
   if value == "1" then return "on", "" end
@@ -167,16 +187,23 @@ end
 --- its scratch directory, which a portable cosmic it starts makes.
 local own_cores <const> = test_sandbox.scratch .. "/cores"
 
+--- Where a sandboxed worker has the files above the project, one at its
+--- relative path beneath: beside /tree, at a fixed name like it, so no
+--- key holds where the host keeps them.
+local parent_place <const> = "/tree-up"
+
 --- A sandboxed worker's environment: of `environment`, the runner's
 --- view of a worker's ([`build.test`]'s `worker_environment`), the pinned
 --- variables and those `effective` declares, and TMPDIR, set to its
 --- scratch directory, the one it can write to.
 function test_sandbox.environment(environment: {string:string},
                                   effective: test_inputs.Effective): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for name in pairs(effective.env) do out[name] = environment[name] end
-  out.COSMIC_TEST_NOEXEC = effective.noexec_ready and "/noexec" or nil
+  out.COSMIC_TEST_NOEXEC = if effective.noexec_ready then "/noexec" else nil end
+  out.COSMIC_TEST_PARENT = #(effective.parent or {}) > 0 and parent_place or nil
   out.TMPDIR = test_sandbox.scratch
+  out.COSMIC_BUILD_HOME = build_home
   -- The cores of its own a worker that declares the `bootstrap` cache
   -- writes (`cache_writes`).
   for _, name in ipairs(effective.caches or {}) do
@@ -198,6 +225,7 @@ function test_sandbox.unenforced_view(environment: {string:string},
                                       effective: test_inputs.Effective): {string:string}
   local out = test_sandbox.environment(environment, effective)
   out.COSMIC_TEST_NOEXEC = nil
+  out.COSMIC_TEST_PARENT = nil
   if out.COSMIC_PORTABLE_CACHE == own_cores then
     out.COSMIC_PORTABLE_CACHE = environment.COSMIC_PORTABLE_CACHE
   end
@@ -206,13 +234,36 @@ end
 
 --- The environment such a worker is given: its key's
 --- ([`unenforced_view`]), but with TMPDIR `scratch`, its own scratch
---- directory on the host, where the key names a sandbox's.
+--- directory on the host, where the key names a sandbox's, and
+--- COSMIC_BUILD_HOME beneath it, as [`unenforced_home`] makes it, and, for a
+--- module that declares files above the project, COSMIC_TEST_PARENT the
+--- directory above the project's `root`.
 function test_sandbox.unenforced_environment(environment: {string:string},
                                              effective: test_inputs.Effective,
-                                             scratch: string): {string:string}
+                                             scratch: string, root: string): {string:string}
   local out = test_sandbox.unenforced_view(environment, effective)
+  if #(effective.parent or {}) > 0 then out.COSMIC_TEST_PARENT = root .. "/.." end
   out.TMPDIR = scratch
+  out.COSMIC_BUILD_HOME = scratch .. "/build"
   return out
+end
+
+--- Makes the base of the build directories a worker of the tree at `root`
+--- run unsandboxed has, beneath its scratch directory `scratch`, as a
+--- sandbox gives one at [`build_home`]: a project the worker builds is
+--- built there, not in the host's base, and its tree's build directory
+--- is a link there to the host's, so the worker finds it as the runner
+--- does. False and why where it cannot be made.
+function test_sandbox.unenforced_home(root: string, scratch: string): boolean, string
+  local home = scratch .. "/build"
+  local made, trouble, errno = sys.mkdir(home, 0x1c0)
+  if not made and errno ~= sys.EEXIST then return false, home .. ": " .. trouble end
+  local canonical, root_trouble = sys.realpath(root)
+  if canonical == nil then return false, root .. ": " .. root_trouble end
+  local link = build_paths.in_home(canonical, home)
+  local linked, link_trouble, link_errno = sys.symlink(build_layout(root).directory, link)
+  if not linked and link_errno ~= sys.EEXIST then return false, link .. ": " .. link_trouble end
+  return true, ""
 end
 
 --- The host caches a sandboxed worker of `effective` writes, with
@@ -226,7 +277,7 @@ end
 function test_sandbox.cache_writes(effective: test_inputs.Effective,
                                    environment: {string:string}): {string}
   local cores = caches.cores(environment)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, path in ipairs(effective.cache_paths or {}) do
     if path ~= cores then out[#out + 1] = path end
   end
@@ -235,7 +286,7 @@ end
 
 --- What of `path` lies beneath `dir` -- "" for `dir` itself, else the
 --- rest from its "/" on -- or nil for a path not beneath it.
-local function beneath(path: string, dir: string): string | nil
+local function beneath(path: string, dir: string): string?
   if path == dir then return "" end
   if dir == "/" then return path:sub(1, 1) == "/" and path or nil end
   if String.starts_with(path, dir .. "/") then return path:sub(#dir + 1) end
@@ -267,24 +318,25 @@ end
 --- by, where the program is a portable artifact ([`Proc.relaunch`] names
 --- its artifact's path, which the worker's startup takes as it is
 --- given: core/startup.c's `cosmic_startup_adopt`), and whether that is
---- the tree's own, by where each resolves. The tree's own o/bin/cosmic
---- is /tree/o/bin/cosmic, where a worker whose module declares `tool`
---- has it, as it has the rest of o/bin. Another program keeps its own
+--- the tree's own, by where each resolves. The tree's own tool is in
+--- the worker's build directory ([`output`]), where a worker whose
+--- module declares `tool` has it, as it has the rest of its bin
+--- directory, `o/bin` as the module declares it. Another program keeps its own
 --- name -- a release run on the tree -- but for one beneath /tree
 --- itself, a run started in a sandboxed worker of another tree, whose
 --- worker has a tree of its own there: it is given at
 --- /program/<its name> instead (`program_place`). Nil where it
 --- keeps its own name.
-local function program_name(root: string): string | nil, boolean
+local function program_name(root: string): string?, boolean
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil or relaunch.argv[2] ~= "--artifact" then return nil, false end
   local program = confine.executable()
   if program == nil then return nil, false end
   local real = confine.resolution(program)
-  if real ~= "" and real == confine.resolution(build_directory(root) .. "/bin/cosmic") then
-    return test_sandbox.tree .. "/o/bin/cosmic", true
+  if real ~= "" and real == confine.resolution(build_layout(root).tool) then
+    return build_paths.under(test_sandbox.output).tool, true
   end
-  if Fs.within(program, test_sandbox.tree) then
+  if Fs.within(program, test_sandbox.tree) or Fs.within(program, build_home) then
     return program_place .. "/" .. Fs.basename(program), false
   end
   return nil, false
@@ -293,7 +345,7 @@ end
 --- `path` with no "/" after it but for "/" itself.
 local function trimmed(path: string): string
   local out = path:gsub("/+$", "")
-  return out == "" and "/" or out
+  return if out == "" then "/" else out end
 end
 
 --- Why a worker of `effective` is not given a scratch directory of its own
@@ -310,21 +362,22 @@ end
 --- @param reads the host paths the plan binds
 --- @return why, "" for none
 local function why_shared_scratch(effective: test_inputs.Effective, reads: {string}): string
-  if effective.system then
+  if effective.system == true then
     return "it declares `system`, which gives it the system's directories"
   end
   if effective.tool then return "it declares `tool`, which gives it the directory o/bin" end
-  if effective.noexec then
+  if effective.noexec == true then
     return "it declares `noexec`, whose private scratch is a bind of a host directory"
   end
-  if #(effective.caches or {}) > 0 then
-    return "it declares the host cache " .. effective.caches[1] .. ", a directory it writes"
+  local cache = (effective.caches or {})[1]
+  if cache ~= nil then
+    return "it declares the host cache " .. cache .. ", a directory it writes"
   end
   for _, path in ipairs(reads) do
     local there, _ = sys.stat(path)
     if there ~= nil and (there.kind == "dir" or there.kind == "socket") and
         path ~= "/proc" then
-      return "it reads " .. path .. ", " .. (there.kind == "dir" and "a directory" or "a socket") ..
+      return "it reads " .. path .. ", " .. (if there.kind == "dir" then "a directory" else "a socket" end) ..
         " (a grant of its Test.policy): grant the files it reads, not a directory"
     end
   end
@@ -351,12 +404,13 @@ end
 --- The paths of a worker of the tree at `root` that runs a test of the module
 --- `effective` holds the inputs of in, its scratch directory `scratch`,
 --- with the runner's view of a worker's environment `environment`, and
---- at o/cosmic.db the closure store at `closure_store`
+--- at its build directory's cosmic.db the closure store at `closure_store`
 --- ([`build.closure_store`]'s `write`) where the module does not declare
 --- `store`, else the whole projection. A caller keys the store as it gives it
 --- ([`build.declared_key`]): the whole projection by its contents only
 --- where the module declares `store`, so it gives one that does not the
---- store of its closure, keyed by its bytes.
+--- store of its closure, keyed by its bytes. `projection` names the whole
+--- projection where it is not at the build directory's cosmic.db.
 ---
 --- The plan holds the paths of a worker started under a [`cosmic.sandbox`]
 --- policy ([`build.test_policy`]) but for what a policy gives of itself --
@@ -364,23 +418,29 @@ end
 --- the user it runs as, which a policy chooses. Its `sandbox` holds the
 --- paths alone (`unveil`), and `runs` says which reads are run.
 function test_sandbox.plan(root: string, scratch: string, effective: test_inputs.Effective,
-                           environment: {string:string}, closure_store?: string): test_sandbox.Plan
+                           environment: {string:string}, closure_store?: string,
+                           projection?: string): test_sandbox.Plan
   -- The program is given at its own name only where the worker does
-  -- not have it as the tree's own, at /tree/o/bin/cosmic. A worker
+  -- not have it as the tree's own, in its build directory. A worker
   -- whose module does not declare `tool` has no name to read it by, so
   -- it keeps the runner's, which it cannot open either.
-  local program, own_program: string | nil, boolean = nil, false
+  local program, own_program: string?, boolean = nil, false
   if effective.tool then program, own_program = program_name(root) end
   local executable = confine.executable()
-  local base = confine.worker_unveil(root, nil, scratch, false, effective.tool and not own_program)
-  local reads: {string} = {}
-  local at: {string:string} = {}
-  local seen: {string:boolean} = {}
-  local runs: {string:boolean} = {}
+  local layout = build_layout(root)
+  local output = layout.directory
+  -- The projection the run was made of, which is the build directory's
+  -- cosmic.db but for a run that writes its own beside it (`projection`).
+  local store = projection or layout.projection
+  local base = confine.worker_unveil(nil, scratch, false, effective.tool and not own_program, store)
+  local reads: mut {string} = {}
+  local at: mut {string:string} = {}
+  local seen: mut {string:boolean} = {}
+  local runs: mut {string:boolean} = {}
   -- With `run` where the path is run, as it may be by a worker's test; a
   -- read of a path of the closure is not.
   local function give(path: string, inside?: string, run?: boolean)
-    if seen[path] then return end
+    if seen[path] == true then return end
     local there, _ = sys.stat(path)
     if there == nil then return end -- a read of it finds nothing, as it would
     seen[path] = true
@@ -388,13 +448,11 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     if inside ~= nil then at[path] = inside end
     -- A file no one may run is no file to grant `x` on: the start refuses
     -- a grant its user could not use by the file's mode.
-    if run and (there.kind == "dir" or there.mode & 0x49 ~= 0) then
+    if run == true and (there.kind == "dir" or there.mode & 0x49 ~= 0) then
       runs[path] = true
     end
   end
-  local output = build_directory(root)
-  local store = output .. "/cosmic.db"
-  -- The store at o/cosmic.db is the one its worker attaches to load
+  -- The store at its build directory's cosmic.db is the one its worker attaches to load
   -- every module of the closure ([`build.test_worker`]): `closure_store`
   -- where the module does not declare `store`, and the whole projection
   -- where it does.
@@ -420,8 +478,8 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
       -- A policy's sandbox has a /proc of its own, which a grant of the
       -- host's would replace.
     elseif path == store then
-      give(given_store, test_sandbox.tree .. "/o/cosmic.db")
-    elseif path == executable and program ~= nil and not own_program then
+      give(given_store, build_paths.under(test_sandbox.output).projection)
+    elseif executable ~= nil and path == executable and program ~= nil and not own_program then
       give(path, program)
     else
       give(path)
@@ -432,18 +490,18 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     if plain == "." then
       give(root, test_sandbox.tree, run)
     elseif plain:sub(1, 1) ~= "/" and plain:sub(1, 3) ~= "../" and plain ~= ".." then
-      local source = root .. "/" .. plain
-      -- o is the worker's stable virtual build directory; the host's output
-      -- may live elsewhere, and only the declared entry is bound.
+      local source, inside = root .. "/" .. plain, test_sandbox.tree .. "/" .. plain
+      -- `o` in a declaration names the build directory: the host's, given
+      -- at the worker's ([`output`]), only each declared entry of it.
       if plain == "o" then
-        source = output
+        source, inside = output, test_sandbox.output
       elseif plain:sub(1, 2) == "o/" then
-        source = output .. plain:sub(2)
+        source, inside = output .. plain:sub(2), test_sandbox.output .. plain:sub(2)
       end
-      give(source, test_sandbox.tree .. "/" .. plain, run)
+      give(source, inside, run)
     end
   end
-  local files: {string} = {}
+  local files: mut {string} = {}
   for file in pairs(effective.files) do files[#files + 1] = file end
   table.sort(files)
   -- The closure's files, which the module's key holds already.
@@ -451,10 +509,11 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- What a module declares it reads of the tree it may run too, as it may
   -- unsandboxed, whose files are all runnable.
   -- TODO: run only the paths a test declares it runs, once [`Test.policy`]
-  -- grants `x` (step (c) of the sandbox plan): today a policy's grant of a
-  -- path takes only "r", and a path a test starts must be run.
+  -- takes a grant of `x` on a path of the tree: today such a grant takes
+  -- only "r", and a path a test starts must be run.
   for _, relative in ipairs(effective.reads) do of_tree(relative, true) end
-  -- The tool is o/bin/cosmic, given as the directory it is in: where
+  -- The tool is in the build directory's bin, `o/bin` as a module
+  -- declares it, given as the directory it is in: where
   -- it is the program, the worker has it there alone ([`program_name`]),
   -- and a test that starts [`Proc.executable()`] starts it there; another
   -- program is given at its own name too (`worker_unveil`'s
@@ -466,7 +525,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- `lua`, whose children would read what it holds. One that declares
   -- `store` is given the real one; any other runs on a sealed database
   -- ([`build.test`]'s `sealed_for`) and is given none.
-  if (effective.nests or effective.lua) and effective.store and not effective.tool then
+  if (effective.nests == true or effective.lua == true) and effective.store and not effective.tool then
     local launched, _ = Proc.relaunch()
     if launched ~= nil and launched.argv[2] == "--artifact" and launched.argv[3] ~= nil then
       -- Given by a name a grant may name, which the worker is told it by
@@ -495,7 +554,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
           if refused == "" and where ~= "" and own ~= "" and
               ((mine and Fs.within(where, own)) or Fs.within(own, where)) then
             refused = string.format("Test.policy grant of the host path %q: %s is where its " ..
-                "sandbox has %s", path, plain, mine and "its scratch directory" or own)
+                "sandbox has %s", path, plain, if mine then "its scratch directory" else own end)
           end
         end
       end
@@ -504,7 +563,22 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
       if plain ~= "/proc" then give(trimmed(path), nil, true) end
     end
   end
-  local writes: {string} = { scratch }
+  -- Each file above the project, read-only at its relative path beneath
+  -- [`parent_place`]. A file the host lacks is none, as the test
+  -- finds ([`test_inputs.resolve`] fails its tests before it starts).
+  local above = #(effective.parent or {}) > 0 and test_inputs.parent_directory(root) or ""
+  for _, relative in ipairs(effective.parent or {}) do
+    local source = above .. "/" .. relative
+    -- One host path is bound at one place: a file the plan gives already
+    -- (the tree's own, or a `reads` or `host` entry) is not given again.
+    if seen[source] == true and refused == "" then
+      refused = string.format("Test.policy grant of /parent/%s: %s is given another way " ..
+          "(a file of the tree, a `reads` or a `host` entry); a file is bound at one place",
+        relative, source)
+    end
+    give(source, parent_place .. "/" .. relative)
+  end
+  local writes: mut {string} = { scratch }
   at[scratch] = test_sandbox.scratch
   -- Each host cache the module declares, writable at its own name, made
   -- first where it is not there yet, so a fresh host has one to bind.
@@ -535,7 +609,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- `host` directory would meet the same ENOENT were the host to rename
   -- another over it as a worker starts, which nothing in a run does
   -- today.
-  local given_reads: {string} = {}
+  local given_reads: mut {string} = {}
   for _, path in ipairs(reads) do
     local held_by_cache = false
     if at[path] == nil then
@@ -552,7 +626,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   end
   reads = {}
   for _, path in ipairs(given_reads) do
-    if not runs[path] and shown_by(path, given_reads, at) then
+    if runs[path] ~= true and shown_by(path, given_reads, at) then
       at[path] = nil
     else
       reads[#reads + 1] = path
@@ -567,6 +641,14 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     writes = {}
     at[scratch] = nil
   end
+  -- TODO: count a worker's grants as its start counts them
+  -- ([`cosmic.child`]'s `unmet` and `held_to`, [`build.test_policy`]'s
+  -- worker): the sandbox's own /proc, /tmp where the scratch is the
+  -- worker's own, /noexec where the scratch is shared (a module that
+  -- declares `noexec` never has its own), the system profile's paths,
+  -- and a sealed worker's core and database. Counted as here, a plan passes its own
+  -- check and still fails at start. The fix: count as the start counts,
+  -- and refuse a plan past the most saying how many paths over.
   local over = math.max(0, #reads + #writes - UNVEIL_MAX)
   -- Offline, always: a module declares only loopback addresses, which
   -- the worker's own loopback answers as the host's would. Keying it is
@@ -607,23 +689,25 @@ end
 --- with no `trouble` is rebound; the copy shares nothing with `plan`.
 function test_sandbox.rebind(plan: test_sandbox.Plan, from: string, scratch: string,
                              effective: test_inputs.Effective): test_sandbox.Plan
-  local unveil = plan.sandbox.unveil
-  local reads: {string} = {}
-  for i, path in ipairs(unveil.reads) do reads[i] = path end
-  local writes: {string} = {}
-  for i, path in ipairs(unveil.writes) do writes[i] = path == from and scratch or path end
-  local at: {string:string} = {}
-  for path, inside in pairs(unveil.at) do at[path == from and scratch or path] = inside end
-  local env: {string:string} = {}
+  local unveil = assert(plan.sandbox.unveil)
+  local reads: mut {string} = {}
+  for _, path in ipairs(unveil.reads) do reads[#reads + 1] = path end
+  local writes: mut {string} = {}
+  for _, path in ipairs(unveil.writes or {}) do
+    writes[#writes + 1] = path == from and scratch or path
+  end
+  local at: mut {string:string} = {}
+  for path, inside in pairs(unveil.at or {}) do at[path == from and scratch or path] = inside end
+  local env: mut {string:string} = {}
   for name, value in pairs(plan.env) do env[name] = value end
-  local runs: {string:boolean} = {}
+  local runs: mut {string:boolean} = {}
   for path in pairs(plan.runs) do runs[path] = true end
   local made, trouble = make_own_cores(effective, scratch)
   return {
     sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = plan.sandbox.offline },
     env = env,
     over = plan.over,
-    trouble = made and "" or "a cache it declares: " .. trouble,
+    trouble = if made then "" else "a cache it declares: " .. trouble end,
     program = plan.program,
     runs = runs,
     own_scratch = plan.own_scratch,
@@ -662,7 +746,7 @@ end
 --- process whose environment dropped [`confine.held_variable`], which
 --- would have named it.
 function test_sandbox.refusal(trouble: string): string
-  local why: string = nil
+  local why: string? = nil
   if trouble:find("No space left on device", 1, true) then
     why = "this host allows no user namespaces (user.max_user_namespaces is 0)"
   elseif trouble:find("Operation not permitted", 1, true) or

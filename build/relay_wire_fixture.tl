@@ -1,22 +1,22 @@
---- Builders for the tests of [`cosmic.relay.wire`]: the bytes a program
+--- Builders for the tests of [`cosmic.internal.relay_wire`]: the bytes a program
 --- sends the relay, whole or damaged by a test.
 
 local record relay_wire_fixture
   --- What a synthetic ClientHello holds.
   record HelloOptions
     --- The host name its server_name extension carries, none when nil.
-    name: string
+    name?: string
     --- Length of the session id, 0 to 255.
-    session: integer
+    session?: integer
     --- Cipher suites, each two bytes; 1 when nil.
-    suites: integer
+    suites?: integer
     --- Extensions written after the server_name one, whole, in order.
-    extra: {string}
+    extra?: {string}
     --- The server_name extension's data in place of one built from `name`.
-    server_name: string
+    server_name?: string
     --- Bytes the hello's body is to hold, made up with a padding extension
     --- last; nil for no padding.
-    size: integer
+    size?: integer
   end
 end
 
@@ -29,7 +29,7 @@ end
 
 --- A big-endian integer of `width` bytes.
 function relay_wire_fixture.be(value: integer, width: integer): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i = width - 1, 0, -1 do
     out[#out + 1] = string.char((value >> (8 * i)) & 255)
   end
@@ -53,11 +53,13 @@ function relay_wire_fixture.hello(opts?: relay_wire_fixture.HelloOptions): strin
   local be = relay_wire_fixture.be
   opts = opts or {}
   local suites = opts.suites or 1
-  local exts: {string} = {}
-  if opts.server_name ~= nil then
-    exts[#exts + 1] = relay_wire_fixture.extension(0, opts.server_name)
-  elseif opts.name ~= nil then
-    exts[#exts + 1] = relay_wire_fixture.extension(0, relay_wire_fixture.server_name(opts.name))
+  local exts: mut {string} = {}
+  local server_name = opts.server_name
+  local name = opts.name
+  if server_name ~= nil then
+    exts[#exts + 1] = relay_wire_fixture.extension(0, server_name)
+  elseif name ~= nil then
+    exts[#exts + 1] = relay_wire_fixture.extension(0, relay_wire_fixture.server_name(name))
   end
   for _, extra in ipairs(opts.extra or {}) do
     exts[#exts + 1] = extra
@@ -65,8 +67,9 @@ function relay_wire_fixture.hello(opts?: relay_wire_fixture.HelloOptions): strin
   local fixed = "\3\3" .. ("r"):rep(32) .. be(opts.session or 0, 1) .. ("s"):rep(opts.session or 0) ..
     be(2 * suites, 2) .. ("\0\47"):rep(suites) .. "\1\0"
   local joined = table.concat(exts)
-  if opts.size ~= nil then
-    local pad = opts.size - (#fixed + 2 + #joined + 4)
+  local size = opts.size
+  if size ~= nil then
+    local pad = size - (#fixed + 2 + #joined + 4)
     if pad < 0 then
       error("hello: size is smaller than the hello's own fields", 2)
     end
@@ -83,10 +86,10 @@ end
 --- the next `sizes[2]`, and the last all that is left. `version` is the
 --- records' legacy version, 0x0301 when nil.
 function relay_wire_fixture.records(message: string, sizes?: {integer}, version?: integer): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local at = 1
   local function record(payload: string)
-    out[#out + 1] = "\22" .. relay_wire_fixture.be(version or 0x0301, 2) .. relay_wire_fixture.be(#payload, 2) .. payload
+    table.insert(out, "\22" .. relay_wire_fixture.be(version or 0x0301, 2) .. relay_wire_fixture.be(#payload, 2) .. payload)
   end
   for _, size in ipairs(sizes or {}) do
     if at > #message then
@@ -111,10 +114,10 @@ function relay_wire_fixture.connect(target: string, headers?: {string}, version?
 end
 
 --- The sixteen bytes of the IPv6 address `text`, which is in the form
---- [`cosmic.relay.wire`] writes (lower case, `::` at most once).
+--- [`cosmic.internal.relay_wire`] writes (lower case, `::` at most once).
 function relay_wire_fixture.ipv6_bytes(text: string): string
   local function side(part: string): {integer}
-    local out: {integer} = {}
+    local out: mut {integer} = {}
     for piece in part:gmatch("[^:]+") do
       out[#out + 1] = math.tointeger(tonumber(piece, 16))
     end
@@ -123,7 +126,7 @@ function relay_wire_fixture.ipv6_bytes(text: string): string
   local gap = text:find("::", 1, true)
   local left = side(gap and text:sub(1, gap - 1) or text)
   local right = gap and side(text:sub(gap + 2)) or {}
-  local all: {integer} = {}
+  local all: mut {integer} = {}
   for _, g in ipairs(left) do
     all[#all + 1] = g
   end
@@ -133,7 +136,7 @@ function relay_wire_fixture.ipv6_bytes(text: string): string
   for _, g in ipairs(right) do
     all[#all + 1] = g
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, g in ipairs(all) do
     out[#out + 1] = relay_wire_fixture.be(g, 2)
   end

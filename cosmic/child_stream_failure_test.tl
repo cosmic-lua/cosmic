@@ -3,6 +3,7 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -48,12 +49,13 @@ local function test_a_read_failure_follows_queued_stdout_and_stderr()
   for _, child_fd in ipairs({ 1, 2 }) do
     local h <close> = output(child_fd)
     local reader = assert(child_fd == 1 and h.stdout_stream or h.stderr_stream)
-    local fd = h._streams[1].fd
+    local fd = assert(h._streams)[1].fd
     local reason = "read: injected terminal failure"
-    local bytes, refused = 0, false
+    local bytes: integer = 0
+    local refused: boolean = false
     patched(function()
       local read = sys.read
-      sys.read = function(which: integer, count: integer): string | nil, string, integer
+      sys.read = function(which: integer, count: integer): string?, string, integer
         if which == fd and bytes == 6 then
           refused = true
           return nil, reason, sys.EBADF
@@ -76,13 +78,13 @@ end
 --- another operation found it before the Reader was used.
 local function test_a_raw_poll_failure_follows_queued_bytes()
   local h <close> = output(1)
-  local pipe = h._streams[1]
+  local pipe = assert(h._streams)[1]
   local fd = pipe.fd
   local reason = "poll: injected terminal failure"
-  local refused = false
+  local refused: boolean = false
   patched(function()
     local poll = sys.poll
-    sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer} | nil, string, integer
+    sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer}?, string, integer
       if pipe.size == 6 and not refused then
         for _, which in ipairs(fds) do
           if which == fd then
@@ -108,7 +110,7 @@ local function test_a_raw_poll_failure_before_any_output_is_sticky()
   local h <close> = output(1)
   local reason = "poll: no output could be read"
   patched(function()
-    sys.poll = function(_fds: {integer}, _events: {integer}, _ms: integer): {integer} | nil, string, integer
+    sys.poll = function(_fds: {integer}, _events: {integer}, _ms: integer): {integer}?, string, integer
       return nil, reason, sys.EBADF
     end
     assert(h:try_wait())
@@ -124,18 +126,18 @@ end
 local function test_a_source_failure_does_not_replace_sticky_guard_cancellation()
   local h <close> = output(1)
   local reader = assert(h.stdout_stream)
-  local g = assert(Child.guard())
+  local g = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   local chunk, cancellation = reader:read()
   assert(g:release() == sys.SIGTERM)
   assert(chunk == nil and cancellation == "child: cancelled by signal " .. tostring(sys.SIGTERM))
-  local pipe = h._streams[1]
+  local pipe = assert(h._streams)[1]
   local fd = pipe.fd
   local reason = "read: cancelled by signal is only diagnostic text here"
-  local refused = false
+  local refused: boolean = false
   patched(function()
     local read = sys.read
-    sys.read = function(which: integer, count: integer): string | nil, string, integer
+    sys.read = function(which: integer, count: integer): string?, string, integer
       if which == fd then
         refused = true
         return nil, reason, sys.EBADF
@@ -152,11 +154,11 @@ end
 --- failure nor EOF, so the output remains readable.
 local function test_transient_read_errors_leave_the_stream_readable()
   local h <close> = output(1)
-  local fd = h._streams[1].fd
-  local transient = 0
+  local fd = assert(h._streams)[1].fd
+  local transient: integer = 0
   patched(function()
     local read = sys.read
-    sys.read = function(which: integer, count: integer): string | nil, string, integer
+    sys.read = function(which: integer, count: integer): string?, string, integer
       if which == fd and transient < 2 then
         transient = transient + 1
         return nil, "transient read", transient == 1 and sys.EAGAIN or sys.EINTR
@@ -177,12 +179,12 @@ end
 local function test_a_failed_pump_does_not_close_a_reused_descriptor()
   local h <close> = output(1)
   local reader = assert(h.stdout_stream)
-  local fd = h._streams[1].fd
-  local replacement: integer
+  local fd = assert(h._streams)[1].fd
+  local replacement: integer? = nil
   local ok, why: boolean, any = pcall(function()
     patched(function()
       local poll = sys.poll
-      sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer} | nil, string, integer
+      sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer}?, string, integer
         if replacement ~= nil then return poll(fds, events, ms) end
         assert(reader:close())
         replacement = assert(Fs.open_read("/dev/null"))
@@ -191,10 +193,11 @@ local function test_a_failed_pump_does_not_close_a_reused_descriptor()
       end
       assert(h:try_wait())
     end)
-    assert(sys.fstat(replacement), "the stale pump closed the replacement descriptor")
+    assert(sys.fstat(assert(replacement)), "the stale pump closed the replacement descriptor")
     local chunk, trouble = reader:read()
     assert(chunk == nil and trouble == "child: the reader is closed", trouble)
   end)
-  if replacement ~= nil then assert(Fs.close(replacement)) end
+  local replacement_value = replacement
+  if replacement_value ~= nil then assert(Fs.close(replacement_value)) end
   assert(ok, tostring(why))
 end

@@ -12,29 +12,25 @@ local Json = require("cosmic.json")
 local Stream = require("cosmic.stream")
 
 --- A Reader that answers `text` in chunks of `size` bytes.
-local record Chunked is Stream.Reader
+local class Chunked is Stream.Reader
   text: string
-  at: integer
+  mut at: integer
   size: integer
-  read: function(Chunked, max_bytes?: integer): string | nil, string
-  close: function(Chunked): boolean, string
-end
 
-local chunked_mt: metatable<Chunked> = { __index = Chunked }
+  function read(self, _max_bytes?: integer): string?, string
+    if self.at > #self.text then return nil, "" end
+    local chunk = self.text:sub(self.at, self.at + self.size - 1)
+    self.at = self.at + self.size
+    return chunk, ""
+  end
 
-function Chunked:read(_max_bytes?: integer): string | nil, string
-  if self.at > #self.text then return nil, "" end
-  local chunk = self.text:sub(self.at, self.at + self.size - 1)
-  self.at = self.at + self.size
-  return chunk, ""
-end
-
-function Chunked:close(): boolean, string
-  return true, ""
+  function close(self): boolean, string
+    return true, ""
+  end
 end
 
 local function chunked(text: string, size: integer): Stream.Reader
-  local r: Chunked = setmetatable({ text = text, at = 1, size = size }, chunked_mt)
+  local r: Chunked = { text = text, at = 1, size = size }
   return r
 end
 
@@ -104,11 +100,11 @@ local function gen(src: Fuzz.Source): string
   local flags = src:int(0, 3)
   local shape = src:int(0, 9)
   if shape < 1 then
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     while Fuzz.more(src, #parts, 30) do parts[#parts + 1] = Fuzz.pick(src, TOKENS) end
     text = table.concat(parts)
   elseif shape < 2 then
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     while Fuzz.more(src, #parts, 30) do
       parts[#parts + 1] = src:int(0, 1) == 0 and Fuzz.pick(src, EXTENDED_TOKENS) or Fuzz.pick(src, TOKENS)
     end
@@ -120,11 +116,11 @@ local function gen(src: Fuzz.Source): string
       text = Fuzz.pick(src, src:int(0, 4) < 2 and BROKEN or EXTENDED)
     end
     local edits = src:int(0, 5)
-    if edits > 3 then text = Fuzz.mutate(src, text, edits == 4 and 1 or 6) end
+    if edits > 3 then text = Fuzz.mutate(src, text, if edits == 4 then 1 else 6 end) end
   else
     text = Fuzz.pick(src, SAMPLES)
     local edits = src:int(0, 2)
-    if edits > 0 then text = Fuzz.mutate(src, text, edits == 1 and 1 or 6) end
+    if edits > 0 then text = Fuzz.mutate(src, text, if edits == 1 then 1 else 6 end) end
   end
   return Fuzz.pack({ text, tostring(src:int(1, 9)), tostring(flags) })
 end
@@ -132,10 +128,10 @@ end
 --- The tokens of `text` read `size` bytes at a time, one to a line, and
 --- the failure that ended them; nil and why when the reader raised.
 local function token_lines(text: string, size: integer, opts: Json.ReaderOptions,
-                           peeks?: integer): string | nil, string
+                           peeks?: integer): string?, string
   local ok, result, err = pcall(function(): string, string
     local r = Json.reader(chunked(text, size), opts)
-    local out: {string} = {}
+    local out: mut {string} = {}
     while true do
       -- A caller that peeks before it reads gets the same tokens.
       for _ = 1, peeks or 0 do r:peek() end
@@ -150,11 +146,11 @@ end
 
 --- The values the tokens of `text` build, each with the null stand-in;
 --- nil and the failure that ended them.
-local function token_values(text: string, size: integer, opts: Json.ReaderOptions): {any} | nil, string
+local function token_values(text: string, size: integer, opts: Json.ReaderOptions): {any}?, string
   local r = Json.reader(chunked(text, size), opts)
-  local values: {any} = {}
-  local stack: {{any: any}} = {}
-  local keys: {string} = {}
+  local values: mut {any} = {}
+  local stack: mut {{any: any}} = {}
+  local keys: mut {integer: string} = {}
   local function place(v: any)
     local top = stack[#stack]
     if top == nil then
@@ -172,7 +168,8 @@ local function token_values(text: string, size: integer, opts: Json.ReaderOption
       return values, ""
     end
     if t.kind == "object" or t.kind == "array" then
-      local container: {any: any} = t.kind == "array" and Json.array() as {any: any} or {}
+      local container: {any: any}
+      if t.kind == "array" then container = Json.array() as {any: any} else container = {} end
       place(container)
       stack[#stack + 1] = container
     elseif t.kind == "end_object" or t.kind == "end_array" then
@@ -268,7 +265,7 @@ local function holds(input: string): boolean, string
     local peeked, peek_raised = token_lines(text, size, opts, peeks)
     if peeked == nil then return false, peek_raised end
     if peeked ~= whole then
-      return false, "peeking " .. peeks .. " times:\n" .. peeked .. "\nnot:\n" .. whole
+      return false, "peeking " .. tostring(peeks) .. " times:\n" .. peeked .. "\nnot:\n" .. whole
     end
   end
   local decoded, err = Json.decode(text, dopts)

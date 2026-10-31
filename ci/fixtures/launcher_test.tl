@@ -1,9 +1,9 @@
-local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local sys = require("cosmic.sys")
 local Fixture = require("cosmic_ci.fixture")
 local LauncherFixture = require("cosmic_ci.launcher_fixture")
+local Maps = require("cosmic_ci.maps")
 local Process = require("cosmic_ci.process")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
@@ -64,18 +64,19 @@ end
 
 local function test_launcher_cold_warm_and_default_paths(tmp: string)
   local ctx = setup(tmp)
+  local artifact_hash = Fixture.hash(ctx.artifact)
   local cache = ctx.work .. "/cache \\ override"
   local marker = ctx.work .. "/basic.marker"
   local input = ctx.work .. "/input"
   Fixture.write(input, "input stays intact\n")
-  Process.supervised(function(active: {Process.Running})
+  Process.supervised(function(active: Process.Fleet)
     local values = environment(cache, { PORTABLE_PAYLOAD_MARKER = marker,
       PORTABLE_EXPECT_CWD = ctx.work .. "/run alias",
       PORTABLE_EXPECT_UMASK = "0027", PORTABLE_CHECK_IO = "1" })
     local child = Process.start("basic", { "/bin/sh", "-c",
       "umask 027; exec \"$@\"", "sh", ctx.artifact, "a b", "", "--literal" },
       ctx.work .. "/run alias", values, ctx.diagnostics, input)
-    active[#active + 1] = child
+    Process.adopt(active, child)
     local result = Process.finish(child)
     assert(result.ok, "cold launcher failed")
     Fixture.contains(child.out, "pid=" .. tostring(child.handle.pid) .. "\n")
@@ -104,23 +105,20 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   local home, xdg = ctx.work .. "/home", ctx.work .. "/xdg"
   Fixture.mkdir(home)
   Fixture.mkdir(xdg)
-  local default_env = environment()
-  default_env.COSMIC_PORTABLE_CACHE = nil
-  default_env.XDG_CACHE_HOME = nil
-  default_env.HOME = home
+  local default_env = Maps.with(
+    Maps.without(environment(), { "COSMIC_PORTABLE_CACHE", "XDG_CACHE_HOME" }),
+    { HOME = home })
   local default = Fixture.call_with_environment("default-cache",
     { ctx.artifact }, ctx.work,
     ctx.diagnostics, default_env)
   outcome_ok(default, "default cache")
-  local default_cache = ctx.target == "aarch64-macos" and
-    home .. "/Library/Caches/cosmic/cores" or home .. "/.cache/cosmic/cores"
+  local default_cache = if ctx.target == "aarch64-macos" then
+    home .. "/Library/Caches/cosmic/cores" else home .. "/.cache/cosmic/cores" end
   local default_exists = Predicate.is_dir(default_cache)
   assert(default_exists and permissions(default_cache) == 0x1c0,
     "default cache is missing or not 0700: " .. default_cache)
-  local xdg_env = environment()
-  xdg_env.COSMIC_PORTABLE_CACHE = nil
-  xdg_env.XDG_CACHE_HOME = xdg
-  xdg_env.HOME = home
+  local xdg_env = Maps.with(Maps.without(environment(), { "COSMIC_PORTABLE_CACHE" }),
+    { XDG_CACHE_HOME = xdg, HOME = home })
   outcome_ok(Fixture.call_with_environment("xdg-cache",
     { ctx.artifact }, ctx.work,
     ctx.diagnostics, xdg_env), "XDG cache")
@@ -128,10 +126,8 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   assert(xdg_exists, "XDG cache was not made under " .. xdg)
   local relative_home = ctx.work .. "/relative-home"
   Fixture.mkdir(relative_home)
-  local relative_xdg = environment()
-  relative_xdg.COSMIC_PORTABLE_CACHE = nil
-  relative_xdg.XDG_CACHE_HOME = "relative"
-  relative_xdg.HOME = relative_home
+  local relative_xdg = Maps.with(Maps.without(environment(), { "COSMIC_PORTABLE_CACHE" }),
+    { XDG_CACHE_HOME = "relative", HOME = relative_home })
   outcome_ok(Fixture.call_with_environment("relative-xdg",
     { ctx.artifact }, ctx.work,
     ctx.diagnostics, relative_xdg), "relative XDG fallback")
@@ -140,29 +136,30 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
       { "empty-cache", "", home, "must be an absolute path" },
       { "relative-cache", "relative", home, "must be an absolute path" },
   }) do
-    local values = environment(case[2])
-    values.HOME = case[3]
-    local answer = Fixture.call_with_environment(case[1],
+    local values = Maps.with(environment(case[2]), { HOME = assert(case[3]) })
+    local answer = Fixture.call_with_environment(assert(case[1]),
       { ctx.artifact }, ctx.work,
       ctx.diagnostics, values)
-    assert(not answer.result.ok, case[1] .. " unexpectedly succeeded")
-    Fixture.contains(answer.err, case[4])
+    assert(not answer.result.ok, assert(case[1]) .. " unexpectedly succeeded")
+    Fixture.contains(answer.err, assert(case[4]))
   end
   for _, name in ipairs({ "relative-home", "unset-home" }) do
     local temp = ctx.work .. "/" .. name .. "-tmp"
     Fixture.mkdir(temp)
-    local values = environment()
-    values.COSMIC_PORTABLE_CACHE = nil
-    values.XDG_CACHE_HOME = name == "relative-home" and "relative" or nil
-    values.HOME = name == "relative-home" and "relative" or nil
-    values.TMPDIR = temp
+    local bare = Maps.without(environment(), { "COSMIC_PORTABLE_CACHE" })
+    local values: {string:string}
+    if name == "relative-home" then
+      values = Maps.with(bare, { XDG_CACHE_HOME = "relative", HOME = "relative", TMPDIR = temp })
+    else
+      values = Maps.with(Maps.without(bare, { "XDG_CACHE_HOME", "HOME" }), { TMPDIR = temp })
+    end
     outcome_ok(Fixture.call_with_environment(name,
       { ctx.artifact }, ctx.work,
       ctx.diagnostics, values), name .. " temp fallback")
     local made = assert(Fs.list(temp))
-    assert(#made == 1 and made[1]:match("^cosmic%-cores%-%d+$") ~= nil,
+    assert(#made == 1 and assert(made[1]):match("^cosmic%-cores%-%d+$") ~= nil,
       name .. " did not make its own cache leaf in TMPDIR")
-    assert(permissions(temp .. "/" .. made[1]) == 0x1c0,
+    assert(permissions(temp .. "/" .. assert(made[1])) == 0x1c0,
       name .. " cache leaf is not private")
   end
   -- `cosmic help build` says a program runs with an empty environment:
@@ -179,8 +176,10 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
       PORTABLE_CALLER_LOCALE = "preserved",
     }), "empty environment")
   local bare_made = assert(Fs.list(bare))
-  assert(#bare_made == 1 and bare_made[1]:match("^cosmic%-cores%-%d+$") ~= nil,
+  assert(#bare_made == 1 and assert(bare_made[1]):match("^cosmic%-cores%-%d+$") ~= nil,
     "an empty environment did not make its cache leaf in TMPDIR")
+  -- Cold, warm and every environment above ran the artifact; none wrote it.
+  assert(Fixture.hash(ctx.artifact) == artifact_hash, "launcher artifact changed")
 end
 
 --- Whether `path` took `mode`, which has a special bit. A worker under a
@@ -237,7 +236,7 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   local base = ctx.work .. "/base-cache"
   outcome_ok(run(ctx, "base-cold", base), "base cold launch")
   local core = only_core(base)
-  local key = core:match("([^/]+)$") as string
+  local key = assert(core:match("([^/]+)$"))
   local core_bytes, core_hash = Fixture.read(core), Fixture.hash(core)
   local sentinel = ctx.work .. "/sentinel"
   Fixture.write(sentinel, "untouched\n")
@@ -284,10 +283,10 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   assert(Fixture.hash(core) == core_hash, "short repair core digest differs")
 
   -- A launcher arm is the quoted `uname -sm` answer it selects.
-  local host = ctx.target == "aarch64-macos" and "'Darwin arm64'" or
-    (ctx.target == "aarch64-linux-musl" and "'Linux aarch64'" or "'Linux x86_64'")
+  local host = if ctx.target == "aarch64-macos" then "'Darwin arm64'" else
+    (if ctx.target == "aarch64-linux-musl" then "'Linux aarch64'" else "'Linux x86_64'" end) end
   local artifact = Fixture.read(ctx.artifact)
-  local selected: string | nil = nil
+  local selected: string? = nil
   for line in artifact:sub(1, 16384):gmatch("[^\n]+") do
     if String.starts_with(line, "  " .. host) then
       assert(selected == nil, "duplicate selected launcher header")
@@ -313,7 +312,7 @@ end
 
 local function test_launcher_publication_and_interruption(tmp: string)
   local ctx = setup(tmp)
-  Process.supervised(function(active: {Process.Running})
+  Process.supervised(function(active: Process.Fleet)
     local race = ctx.work .. "/race-cache"
     local ready1 = Process.fifo(ctx.work, ctx.diagnostics, "race-ready1")
     local go1 = Process.fifo(ctx.work, ctx.diagnostics, "race-go1")
@@ -322,12 +321,12 @@ local function test_launcher_publication_and_interruption(tmp: string)
     local first = Process.start("race1", { ctx.artifact }, ctx.work,
       hook_environment(race, "before_publish", ready1, go1),
       ctx.diagnostics)
-    active[#active + 1] = first
+    Process.adopt(active, first)
     Process.await_ready(ctx.work, ctx.diagnostics, "race1", ready1, first)
     local second = Process.start("race2", { ctx.artifact }, ctx.work,
       hook_environment(race, "before_publish", ready2, go2),
       ctx.diagnostics)
-    active[#active + 1] = second
+    Process.adopt(active, second)
     Process.await_ready(ctx.work, ctx.diagnostics, "race2", ready2, second)
     Process.release(ctx.work, ctx.diagnostics, "race1", go1)
     Process.release(ctx.work, ctx.diagnostics, "race2", go2)
@@ -345,7 +344,7 @@ local function test_launcher_publication_and_interruption(tmp: string)
     local waiting = Process.start("late-waiting", { ctx.artifact }, ctx.work,
       hook_environment(late, "before_recheck", late_ready, late_go),
       ctx.diagnostics)
-    active[#active + 1] = waiting
+    Process.adopt(active, waiting)
     Process.await_ready(ctx.work, ctx.diagnostics, "late-waiting", late_ready, waiting)
     outcome_ok(run(ctx, "late-publisher", late), "late publisher")
     Process.release(ctx.work, ctx.diagnostics, "late-waiting", late_go)
@@ -359,7 +358,7 @@ local function test_launcher_publication_and_interruption(tmp: string)
     local publisher = Process.start("interrupted", { ctx.artifact }, ctx.work,
       hook_environment(interrupted, "before_publish", ready, go),
       ctx.diagnostics)
-    active[#active + 1] = publisher
+    Process.adopt(active, publisher)
     Process.await_ready(ctx.work, ctx.diagnostics, "interrupt", ready, publisher)
     assert(publisher.handle:stop(sys.SIGTERM))
     assert(not Process.finish(publisher).ok, "interrupted publisher succeeded")
@@ -374,7 +373,7 @@ local function test_launcher_publication_and_interruption(tmp: string)
       ctx.work,
       hook_environment(interrupted, "after_repair_lock", repair_ready, repair_go),
       ctx.diagnostics)
-    active[#active + 1] = repair
+    Process.adopt(active, repair)
     Process.await_ready(ctx.work, ctx.diagnostics, "repair", repair_ready, repair)
     assert(repair.handle:stop(sys.SIGTERM))
     assert(not Process.finish(repair).ok, "interrupted repair succeeded")
@@ -387,12 +386,12 @@ local function test_launcher_publication_and_interruption(tmp: string)
     local killed = Process.start("repair-killed", { ctx.artifact }, ctx.work,
       hook_environment(interrupted, "after_repair_lock", kill_ready, kill_go),
       ctx.diagnostics)
-    active[#active + 1] = killed
+    Process.adopt(active, killed)
     Process.await_ready(ctx.work, ctx.diagnostics, "kill", kill_ready, killed)
     assert(killed.handle:stop(sys.SIGKILL))
     assert(not Process.finish(killed).ok, "killed repair succeeded")
     expect_failure(ctx, "stale-lock", "cache repair is already locked:", interrupted)
-    local stale: string | nil = nil
+    local stale: string? = nil
     for _, name in ipairs((assert(Fs.list(interrupted)))) do
       if name:sub(1, 8) == ".repair-" then
         assert(stale == nil, "multiple stale repair owners")
@@ -442,18 +441,18 @@ printf 'after\n' >&9
 exit "$result"
 ]], "9" },
   }) do
-    local guard = ctx.work .. "/" .. one[1] .. ".guard"
-    local err = ctx.work .. "/" .. one[1] .. ".err"
-    local answer = Fixture.call_with_environment(one[1],
-      { "/bin/sh", "-c", one[2], "sh",
+    local guard = ctx.work .. "/" .. assert(one[1]) .. ".guard"
+    local err = ctx.work .. "/" .. assert(one[1]) .. ".err"
+    local answer = Fixture.call_with_environment(assert(one[1]),
+      { "/bin/sh", "-c", assert(one[2]), "sh",
         ctx.artifact, guard, err }, ctx.work, ctx.diagnostics,
-      environment(ctx.work .. "/" .. one[1] .. "-cache"))
-    assert(not answer.result.ok, one[1] .. " unexpectedly succeeded")
+      environment(ctx.work .. "/" .. assert(one[1]) .. "-cache"))
+    assert(not answer.result.ok, assert(one[1]) .. " unexpectedly succeeded")
     Fixture.contains(err,
       "fewer than two private descriptors are available in 3 through 9")
     assert(Fixture.read(guard) == "before\nafter\n" and
-        Fs.exists(ctx.work .. "/" .. one[1] .. "-cache") == false,
-      one[1] .. " disturbed the caller's descriptors or made a cache")
+        Fs.exists(ctx.work .. "/" .. assert(one[1]) .. "-cache") == false,
+      assert(one[1]) .. " disturbed the caller's descriptors or made a cache")
   end
 
   local exit_marker = ctx.work .. "/exit.marker"
@@ -468,19 +467,92 @@ exit "$result"
     "payload signal was not passed through")
 end
 
+-- The x86_64 core is built for x86-64-v3: the launcher names what an older
+-- CPU lacks and exits 126 before it makes the cache or extracts a core. The
+-- fixture launcher reads COSMIC_PORTABLE_TEST_CPUINFO where the release one
+-- reads /proc/cpuinfo (build/launcher.tl).
+local function test_launcher_refuses_a_cpu_below_x86_64_v3(tmp: string)
+  local ctx = setup(tmp)
+  if ctx.target ~= "x86_64-linux-musl" then
+    Test.skip("only the x86_64 Linux launcher checks the CPU")
+    return
+  end
+  local function cpuinfo(name: string, flags: string): {string:string}
+    local path = ctx.work .. "/" .. name
+    Fixture.write(path, "processor\t: 0\nvendor_id\t: Test\nflags\t\t: " .. flags ..
+        "\nvmx flags\t: ept\n\nprocessor\t: 1\nflags\t\t: sse2\n")
+    return { COSMIC_PORTABLE_TEST_CPUINFO = path }
+  end
+  local v3 = "fpu sse4_2 avx avx2 fma bmi1 bmi2 movbe f16c abm xsave"
+
+  local old = ctx.work .. "/old-cache"
+  local refused = run(ctx, "cpu-old", old, cpuinfo("old", "fpu sse4_2 avx xsave abm"))
+  assert(not refused.result.ok and refused.result.code == 126,
+    "a CPU below x86-64-v3 was not refused with 126")
+  Fixture.contains(refused.err,
+    "cosmic portable: this CPU lacks avx2 fma bmi1 bmi2 movbe f16c;")
+  assert(sys.lstat(old) == nil, "a refused launch made the cache")
+
+  -- Each feature counts, whole: "avx2" does not stand for "avx", nor
+  -- "bmi1" for "bmi2".
+  local bit = run(ctx, "cpu-no-bmi2", ctx.work .. "/bit-cache",
+    cpuinfo("bit", (v3:gsub(" bmi2", ""))))
+  assert(not bit.result.ok, "a CPU without bmi2 was not refused")
+  Fixture.contains(bit.err, "this CPU lacks bmi2;")
+
+  -- A launch past the check runs the payload (outcome_ok) and has made the
+  -- cache, which a refused launch never does.
+  local v3_cache = ctx.work .. "/v3-cache"
+  outcome_ok(run(ctx, "cpu-v3", v3_cache, cpuinfo("v3", v3)), "a CPU with x86-64-v3")
+  only_core(v3_cache)
+  -- Nothing to read (no /proc): the check cannot tell and does not refuse.
+  local unknown_cache = ctx.work .. "/unknown-cache"
+  outcome_ok(run(ctx, "cpu-unknown", unknown_cache,
+    { COSMIC_PORTABLE_TEST_CPUINFO = ctx.work .. "/absent" }), "an unreadable cpuinfo")
+  only_core(unknown_cache)
+end
+
+-- The aarch64 Linux core is built for Armv8.2-A with dot-product and
+-- half-precision floats: the same refusal as above, over the Features line
+-- of an Arm /proc/cpuinfo.
+local function test_launcher_refuses_a_cpu_below_armv8_2_on_aarch64_linux(tmp: string)
+  local ctx = setup(tmp)
+  if ctx.target ~= "aarch64-linux-musl" then
+    Test.skip("only the aarch64 Linux launcher checks the CPU")
+    return
+  end
+  local function cpuinfo(name: string, features: string): {string:string}
+    local path = ctx.work .. "/" .. name
+    Fixture.write(path, "processor\t: 0\nBogoMIPS\t: 50.00\nFeatures\t: " .. features ..
+        "\nCPU implementer\t: 0x41\n\nprocessor\t: 1\nFeatures\t: fp asimd\n")
+    return { COSMIC_PORTABLE_TEST_CPUINFO = path }
+  end
+  local v82 = "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid " ..
+    "asimdrdm lrcpc dcpop asimddp"
+
+  local old = ctx.work .. "/old-cache"
+  local refused = run(ctx, "cpu-old", old,
+    cpuinfo("old", "fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid"))
+  assert(not refused.result.ok and refused.result.code == 126,
+    "a CPU below Armv8.2-A was not refused with 126")
+  Fixture.contains(refused.err,
+    "cosmic portable: this CPU lacks asimddp asimdhp fphp atomics asimdrdm;")
+  assert(sys.lstat(old) == nil, "a refused launch made the cache")
+
+  -- Each feature counts, whole: "asimd" does not stand for "asimdhp".
+  local bit = run(ctx, "cpu-no-asimdhp", ctx.work .. "/bit-cache",
+    cpuinfo("bit", (v82:gsub(" asimdhp", ""))))
+  assert(not bit.result.ok, "a CPU without asimdhp was not refused")
+  Fixture.contains(bit.err, "this CPU lacks asimdhp;")
+
+  local v82_cache = ctx.work .. "/v82-cache"
+  outcome_ok(run(ctx, "cpu-v82", v82_cache, cpuinfo("v82", v82)), "a CPU with Armv8.2-A")
+  only_core(v82_cache)
+  local unknown_cache = ctx.work .. "/unknown-cache"
+  outcome_ok(run(ctx, "cpu-unknown", unknown_cache,
+    { COSMIC_PORTABLE_TEST_CPUINFO = ctx.work .. "/absent" }), "an unreadable cpuinfo")
+  only_core(unknown_cache)
+end
+
 -- The noexec case, which needs the host's own noexec mount, is
 -- launcher_noexec_test.tl's.
-local function test_launcher_timing_and_immutability(tmp: string)
-  local ctx = setup(tmp)
-  local before = Fixture.hash(ctx.artifact)
-  local timing = ctx.work .. "/timing cache"
-  local cold_started = Clock.monotonic_ns()
-  outcome_ok(run(ctx, "timing-cold", timing), "cold timing launch")
-  local cold_ms = (Clock.monotonic_ns() - cold_started) // 1000000
-  local warm_started = Clock.monotonic_ns()
-  outcome_ok(run(ctx, "timing-warm", timing), "warm timing launch")
-  local warm_ms = (Clock.monotonic_ns() - warm_started) // 1000000
-  assert(Fs.put(Fs.stderr, "portable launcher timing: cold=" ..
-      tostring(cold_ms) .. "ms warm=" .. tostring(warm_ms) .. "ms\n"))
-  assert(Fixture.hash(ctx.artifact) == before, "launcher artifact changed")
-end

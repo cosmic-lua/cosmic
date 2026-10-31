@@ -19,7 +19,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 --- whether the name was visible and whether the first and second
 --- windows each hold that line.
 local function windows(tmp: string, startup: boolean): string
-  local dir = tmp .. (startup and "/startup" or "/plain")
+  local dir = tmp .. (if startup then "/startup" else "/plain" end)
   assert(Fs.mkdirs(dir))
   assert(Fs.write(dir .. "/windows.tl", [[
 local Coverage = require("cosmic.coverage")
@@ -30,19 +30,19 @@ local loaded = true
 local function holds_load_line(): string
   local session = assert(Coverage.start())
   local hits = assert(Coverage.stop(session))
-  return (hits["windows"] or {})[4] and "held" or "missed"
+  return if (hits["windows"] or {})[4] == true then "held" else "missed" end
 end
 
 return function(): integer
   assert(loaded)
-  local seen = Env.get("COSMIC_COVERAGE_STARTUP") ~= nil and "seen" or "unseen"
+  local seen = if Env.get("COSMIC_COVERAGE_STARTUP") ~= nil then "seen" else "unseen" end
   local first = holds_load_line()
   print(seen, first, holds_load_line())
   return 0
 end
 ]]))
   local env = this_program.environment()
-  env.COSMIC_COVERAGE_STARTUP = startup and "1" or nil
+  env.COSMIC_COVERAGE_STARTUP = if startup then "1" else nil end
   local started = this_program.program({ "windows.tl" },
     { env = env, cwd = dir, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(30) })

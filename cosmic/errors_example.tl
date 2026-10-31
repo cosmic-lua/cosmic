@@ -22,6 +22,22 @@ function Example.trace()
   assert(text:find("traceback", 1, true) ~= nil, text)
 end
 
+--- Where a coroutine stopped when it raised: `coroutine.resume` answers
+--- the error alone, and the stack it was raised from is read before the
+--- coroutine is closed.
+function Example.trace_of()
+  local function fail_deep()
+    error("disk full")
+  end
+  local worker = coroutine.create(function() fail_deep() end)
+  local ok, err = coroutine.resume(worker)
+  assert(not ok)
+  local text = Errors.trace_of(worker, tostring(err))
+  print(text)
+  assert(text:find("disk full", 1, true) ~= nil, text)
+  assert(text:find("fail_deep", 1, true) ~= nil, text)
+end
+
 --- What cosmic prints beneath an error nothing caught: the doc comment
 --- of the function the message came from, found in the error catalog by
 --- the words the two share.
@@ -34,29 +50,21 @@ function Example.guidance()
 end
 
 --- What to do about an error Lua itself raised, read from its message:
---- here a method called on a record's value made as a table literal,
---- which never gets the record's methods without a metatable, and the
---- same value made as the hint says. An error nothing caught prints
---- this beneath it, and a failed test under its failure line.
+--- here a method called on a value made as a table literal, which never
+--- gets the record's methods without a metatable. An error nothing
+--- caught prints this beneath it, and a failed test under its failure
+--- line.
 function Example.hint()
-  local record Counter
-    n: integer
-  end
-  function Counter:bump()
-    self.n = self.n + 1
-  end
-  local bare: Counter = { n = 0 }
-  local ok, err = pcall(function() bare:bump() end)
+  local chunk = assert(load("local bare = { n = 0 }\nbare:bump()"))
+  local ok, raised = pcall(function() chunk() end)
   assert(not ok)
-  local text = Errors.hint(tostring(err))
+  local err = tostring(raised)
+  local text = assert(Errors.hint(err))
   print(text)
   assert(text == "'bump' is nil on that value: either it was made as a table literal, " ..
       "which gets none of R's methods (make it with `setmetatable({ ... }, { __index = R })`), " ..
-      "or R declares 'bump' and nothing defines `function R:bump`", tostring(text))
-  assert(Errors.guidance(tostring(err)) == "cosmic: hint: " .. text .. "\n")
-  local made: Counter = setmetatable({ n = 0 }, { __index = Counter })
-  made:bump()
-  assert(made.n == 1)
+      "or R declares 'bump' and nothing defines `function R:bump`", text)
+  assert(Errors.guidance(err) == "cosmic: hint: " .. text .. "\n")
   assert(Errors.hint("nothing whatever like any message") == nil)
   assert(Errors.hint("wrapped: x.tl:3: attempt to call a nil value (method 'bump'): retried") == nil)
 end

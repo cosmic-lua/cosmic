@@ -11,7 +11,7 @@ local Sqlite = require("cosmic.sqlite")
 -- output, collecting every update's output plus finish's, and returns
 -- it with the error `finish` gives, if any.
 local function drive(stream: Compress.Stream, data: string, size?: integer): string, string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local step = size or #data
   if step < 1 then step = 1 end
   local pos = 1
@@ -45,7 +45,7 @@ local function roundtrip(format: Compress.Format, plain: string, chunk_size?: in
   local dec = assert(Compress.inflater(format))
   local out, dec_trouble = drive(dec, packed, chunk_size)
   assert(dec_trouble == "", dec_trouble)
-  assert(out == plain, format .. ": " .. #out .. " vs " .. #plain)
+  assert(out == plain, format .. ": " .. tostring(#out) .. " vs " .. tostring(#plain))
   assert(dec:done())
 end
 
@@ -169,31 +169,35 @@ local function test_bits_that_name_no_code_are_refused()
   -- none: then the decoder waits for more, and `finish` finds the stream
   -- cut short. One update each, so a decoder answering zeros for them
   -- fails here rather than looping.
-  local cases: {{string, string}} = {
-    { string.rep("\0", 8), "compress: corrupt compressed data" },
-    { string.rep("\0", 2), "compress: corrupt compressed data" },
-    { string.rep("\0", 3), "compress: corrupt compressed data" },
-    { "", "truncated" },
+  local record Case
+    tail: string
+    want: string
+  end
+  local cases: {Case} = {
+    { tail = string.rep("\0", 8), want = "compress: corrupt compressed data" },
+    { tail = string.rep("\0", 2), want = "compress: corrupt compressed data" },
+    { tail = string.rep("\0", 3), want = "compress: corrupt compressed data" },
+    { tail = "", want = "truncated" },
   }
   for _, case in ipairs(cases) do
-    local tail, want = case[1], case[2]
+    local tail, want = case.tail, case.want
     dec = assert(Compress.inflater("raw"))
     out, trouble = dec:update(EOB_ONLY .. "\95" .. tail)
     if out ~= nil then
-      assert(out == "" and not dec:pending(), #tail .. ": " .. #out .. " bytes out")
+      assert(out == "" and not dec:pending(), tostring(#tail) .. ": " .. tostring(#out) .. " bytes out")
       out, trouble = dec:finish()
     end
     -- The patch's own words, not the ratio check's, which would also
     -- stop a decoder answering zeros, but only after a window of them.
     assert(out == nil and (trouble == want or want == "truncated" and trouble:find(want, 1, true) ~= nil),
-      #tail .. ": " .. trouble)
+      tostring(#tail) .. ": " .. trouble)
   end
 end
 
 --- Every piece of `packed` fed through `dec`, `size` bytes at a time,
 --- counting what comes out rather than keeping it: the bytes out, or
 --- nil and why not.
-local function count_out(dec: Compress.Stream, packed: string, size: integer): integer | nil, string
+local function count_out(dec: Compress.Stream, packed: string, size: integer): integer?, string
   local total = 0
   for pos = 1, #packed, size do
     local piece = packed:sub(pos, pos + size - 1)
@@ -216,37 +220,17 @@ local function test_the_ratio_check_passes_deflates_most_compressible_stream()
   local size = 100 << 20
   for _, format in ipairs({ "raw", "gzip" } as {Compress.Format}) do
     local enc = assert(Compress.deflater(format, 9))
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     local zeros = string.rep("\0", 1 << 20)
     for _ = 1, size >> 20 do parts[#parts + 1] = assert(enc:update(zeros)) end
     parts[#parts + 1] = assert(enc:finish())
     local packed = table.concat(parts)
-    assert(#packed * 1000 < size, format .. " packed to " .. #packed)
+    assert(#packed * 1000 < size, format .. " packed to " .. tostring(#packed))
     for _, piece in ipairs({ #packed, 1 }) do
       local total, trouble = count_out(assert(Compress.inflater(format)), packed, piece)
-      assert(total == size, format .. " in pieces of " .. piece .. ": " .. tostring(total) .. " " .. trouble)
+      assert(total == size, format .. " in pieces of " .. tostring(piece) .. ": " .. tostring(total) .. " " .. trouble)
     end
   end
-end
-
-local function test_crc32_matches_the_known_value_and_continues()
-  -- crc32("hello, cosmic!") from Python's binascii.crc32.
-  local whole = Compress.crc32("hello, cosmic!")
-  local half = Compress.crc32("hello, ")
-  local continued = Compress.crc32("cosmic!", half)
-  assert(whole == continued)
-  assert(whole == 3327618652, tostring(whole))
-  assert(Compress.crc32("") == 0)
-  -- Long, and at an unaligned start: the hardware paths fold 16 bytes
-  -- at a time and handle the ragged ends apart (binascii.crc32 again).
-  local bytes: {string} = {}
-  for i = 0, 255 do bytes[#bytes + 1] = string.char(i) end
-  local long = table.concat(bytes):rep(40)
-  assert(Compress.crc32(long) == 3150855069)
-  assert(Compress.crc32(long:sub(4, 1000)) == 2769185661)
-  local folded = 0
-  for i = 1, #long, 37 do folded = Compress.crc32(long:sub(i, i + 36), folded) end
-  assert(folded == 3150855069)
 end
 
 local function test_bz2_known_vector_decodes_one_byte_at_a_time()
@@ -389,6 +373,12 @@ local zstd_bomb = assert(Codec.unhex(
 
 local type Maker = function(): Compress.Stream
 
+--- A compressed bomb and the decoder that opens it.
+local record Bomb
+  packed: string
+  make: Maker
+end
+
 local function gzip_decoder(): Compress.Stream return (assert(Compress.inflater("gzip"))) end
 local function bz2_decoder(): Compress.Stream return (assert(Compress.bz2_decoder())) end
 local function xz_decoder(): Compress.Stream return (assert(Compress.xz_decoder())) end
@@ -398,10 +388,10 @@ local function zstd_decoder(): Compress.Stream return (assert(Compress.zstd_deco
 -- asserting no call returns more than `max_bytes` bytes. Returns the whole
 -- output, and what `finish` alone gave.
 local function drain(stream: Compress.Stream, data: string, max_bytes: integer): string, string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local out = assert(stream:update(data, max_bytes))
   while true do
-    assert(#out <= max_bytes, #out .. " bytes from one update, limit " .. max_bytes)
+    assert(#out <= max_bytes, tostring(#out) .. " bytes from one update, limit " .. tostring(max_bytes))
     parts[#parts + 1] = out
     if not stream:pending() then break end
     out = assert(stream:update("", max_bytes))
@@ -413,26 +403,26 @@ end
 
 local function test_a_decompression_bomb_comes_out_in_bounded_pieces()
   local zeros = string.rep("\0", 8 << 20)
-  local cases: {{string, Maker}} = {
-    { xz_bomb, xz_decoder },
-    { bz2_bomb, bz2_decoder },
-    { zstd_bomb, zstd_decoder },
+  local cases: mut {Bomb} = {
+    { packed = xz_bomb, make = xz_decoder },
+    { packed = bz2_bomb, make = bz2_decoder },
+    { packed = zstd_bomb, make = zstd_decoder },
   }
   local formats: {Compress.Format} = { "raw", "zlib", "gzip" }
   for _, format in ipairs(formats) do
     local enc = assert(Compress.deflater(format, 9))
     local packed = assert(enc:update(zeros)) .. assert(enc:finish())
-    assert(#packed < 16 * 1024, format .. " packed to " .. #packed)
-    cases[#cases + 1] = { packed, function(): Compress.Stream
+    assert(#packed < 16 * 1024, format .. " packed to " .. tostring(#packed))
+    cases[#cases + 1] = { packed = packed, make = function(): Compress.Stream
       return (assert(Compress.inflater(format)))
     end }
   end
   for _, case in ipairs(cases) do
-    local out, tail = drain(case[2](), case[1], 1 << 20)
+    local out, tail = drain(case.make(), case.packed, 1 << 20)
     assert(out == zeros, tostring(#out))
-    assert(tail == "", "a drained stream left " .. #tail .. " bytes for finish")
+    assert(tail == "", "a drained stream left " .. tostring(#tail) .. " bytes for finish")
     -- The default limit bounds a plain update too.
-    local first = assert(case[2]():update(case[1]))
+    local first = assert(case.make():update(case.packed))
     assert(#first == 1 << 20, tostring(#first))
   end
 end
@@ -455,14 +445,14 @@ end
 local function test_finish_refuses_while_output_is_pending()
   -- finish would otherwise hand over the whole held-back expansion at
   -- once: it raises instead, and the stream stays usable.
-  local cases: {{string, Maker}} = {
-    { bz2_bomb, bz2_decoder },
-    { xz_bomb, xz_decoder },
-    { zstd_bomb, zstd_decoder },
+  local cases: {Bomb} = {
+    { packed = bz2_bomb, make = bz2_decoder },
+    { packed = xz_bomb, make = xz_decoder },
+    { packed = zstd_bomb, make = zstd_decoder },
   }
   for _, case in ipairs(cases) do
-    local dec = case[2]()
-    local total = #assert(dec:update(case[1], 1024))
+    local dec = case.make()
+    local total = #assert(dec:update(case.packed, 1024))
     assert(dec:pending())
     local ok, why = pcall(dec.finish, dec)
     assert(not ok and tostring(why):find("pending", 1, true), tostring(why))
@@ -473,11 +463,11 @@ local function test_finish_refuses_while_output_is_pending()
 end
 
 local function test_every_success_carries_an_empty_error()
-  local constructors: {function(): Compress.Stream | nil, string} = {
-    function(): Compress.Stream | nil, string return Compress.inflater("gzip") end,
-    function(): Compress.Stream | nil, string return Compress.deflater("gzip") end,
-    function(): Compress.Stream | nil, string return Compress.xz_decoder() end,
-    function(): Compress.Stream | nil, string return Compress.bz2_decoder() end,
+  local constructors: {function(): Compress.Stream?, string} = {
+    function(): Compress.Stream?, string return Compress.inflater("gzip") end,
+    function(): Compress.Stream?, string return Compress.deflater("gzip") end,
+    function(): Compress.Stream?, string return Compress.xz_decoder() end,
+    function(): Compress.Stream?, string return Compress.bz2_decoder() end,
   }
   for _, construct in ipairs(constructors) do
     local s, trouble = construct()
@@ -497,40 +487,45 @@ local function test_every_success_carries_an_empty_error()
 end
 
 -- Each kind of stream, freshly made, and a first chunk for it.
-local function every_kind(): {{Compress.Stream, string}}
+local record Kind
+  stream: Compress.Stream
+  chunk: string
+end
+
+local function every_kind(): {Kind}
   return {
-    { gzip_decoder(), hello_gz },
-    { bz2_decoder(), hello_bz2 },
-    { xz_decoder(), hello_xz },
-    { (assert(Compress.inflater("zlib"))), "x\156\203" },
-    { (assert(Compress.deflater("gzip"))), "hello" },
+    { stream = gzip_decoder(), chunk = hello_gz },
+    { stream = bz2_decoder(), chunk = hello_bz2 },
+    { stream = xz_decoder(), chunk = hello_xz },
+    { stream = (assert(Compress.inflater("zlib"))), chunk = "x\156\203" },
+    { stream = (assert(Compress.deflater("gzip"))), chunk = "hello" },
   }
 end
 
 local record Holder
-  s: Compress.Stream
+  mut s: Compress.Stream
 end
 
 local function test_a_stream_revived_by_a_finalizer_is_finished()
   for _, case in ipairs(every_kind()) do
-    local saved: Compress.Stream
+    local saved: Compress.Stream? = nil
     local holder: Holder = setmetatable({} as Holder, {
       __gc = function(self: Holder) saved = self.s end,
     } as metatable<Holder>)
-    holder.s = case[1]
+    holder.s = case.stream
     -- The stream is collected in the same cycle as the table whose
     -- finalizer hands it back: an update on it must not read freed
     -- codec state.
-    case[1] = nil
+    case.stream = nil
     holder = nil
     collectgarbage()
     collectgarbage()
-    assert(saved ~= nil, "the finalizer ran")
-    local ok, why = pcall(saved.update, saved, case[2])
+    local kept = assert(saved, "the finalizer ran")
+    local ok, why = pcall(kept.update, kept, case.chunk)
     assert(not ok and tostring(why):find("compress: the stream is finished", 1, true), tostring(why))
-    assert(not pcall(saved.finish, saved))
-    assert(not saved:pending())
-    assert(saved:rest() == "")
+    assert(not pcall(kept.finish, kept))
+    assert(not kept:pending())
+    assert(kept:rest() == "")
   end
 end
 
@@ -550,7 +545,7 @@ local function test_a_closed_stream_is_finished_and_keeps_rest()
   assert(not pcall(kept.finish, kept))
   -- Closing a finished stream, or closing twice, is harmless.
   for _, case in ipairs(every_kind()) do
-    local s <close> = case[1]
+    local s <close> = case.stream
     local closer = getmetatable(s as {any: any}).__close as function(any, any)
     closer(s, nil)
     closer(s, nil)
@@ -584,9 +579,9 @@ local function every_split(make: Maker, data: string, want: string, rest: string
     local dec = make()
     local out = assert(dec:update(data:sub(1, cut))) .. assert(dec:update(data:sub(cut + 1)))
     local last, trouble = dec:finish()
-    assert(last ~= nil, "cut " .. cut .. ": " .. tostring(trouble))
-    assert(out .. last == want, "cut " .. cut)
-    assert(dec:rest() == rest, "cut " .. cut .. ": rest " .. dec:rest())
+    assert(last ~= nil, "cut " .. tostring(cut) .. ": " .. tostring(trouble))
+    assert(out .. last == want, "cut " .. tostring(cut))
+    assert(dec:rest() == rest, "cut " .. tostring(cut) .. ": rest " .. dec:rest())
     assert(dec:done())
   end
 end
@@ -594,15 +589,20 @@ end
 local function test_trailing_bytes_become_rest_however_the_input_is_split()
   -- For each format: a member, and trailers that begin with none of
   -- its magic, with part of it, and with all but its last byte.
-  local cases: {{Maker, string, {string}}} = {
-    { gzip_decoder, hello_gz, { "TRAILER", "\31\0tar padding", "\31" } },
-    { bz2_decoder, hello_bz2, { "TRAILER", "BZh0", "BZ" } },
-    { xz_decoder, hello_xz, { "TRAILER", "\253\55\122\88\90\1", "\253\55" } },
-    { zstd_decoder, hello_zst, { "TRAILER", "\40\181\47\0", "\40\181\47", "\80\42\77" } },
+  local record Member
+    make: Maker
+    member: string
+    trailers: {string}
+  end
+  local cases: {Member} = {
+    { make = gzip_decoder, member = hello_gz, trailers = { "TRAILER", "\31\0tar padding", "\31" } },
+    { make = bz2_decoder, member = hello_bz2, trailers = { "TRAILER", "BZh0", "BZ" } },
+    { make = xz_decoder, member = hello_xz, trailers = { "TRAILER", "\253\55\122\88\90\1", "\253\55" } },
+    { make = zstd_decoder, member = hello_zst, trailers = { "TRAILER", "\40\181\47\0", "\40\181\47", "\80\42\77" } },
   }
   for _, case in ipairs(cases) do
-    local make, member = case[1], case[2]
-    for _, trailer in ipairs(case[3]) do
+    local make, member = case.make, case.member
+    for _, trailer in ipairs(case.trailers) do
       every_split(make, member .. trailer, "hello, cosmic!", trailer)
       every_split(make, member .. member .. trailer, "hello, cosmic!hello, cosmic!", trailer)
     end
@@ -611,15 +611,19 @@ local function test_trailing_bytes_become_rest_however_the_input_is_split()
 end
 
 local function test_trailing_bytes_in_the_same_chunk_mark_done_at_once()
-  local cases: {{Maker, string}} = {
-    { gzip_decoder, hello_gz },
-    { bz2_decoder, hello_bz2 },
-    { xz_decoder, hello_xz },
-    { zstd_decoder, hello_zst },
+  local record Member
+    make: Maker
+    member: string
+  end
+  local cases: {Member} = {
+    { make = gzip_decoder, member = hello_gz },
+    { make = bz2_decoder, member = hello_bz2 },
+    { make = xz_decoder, member = hello_xz },
+    { make = zstd_decoder, member = hello_zst },
   }
   for _, case in ipairs(cases) do
-    local dec = case[1]()
-    assert(dec:update(case[2] .. "TRAILER") == "hello, cosmic!")
+    local dec = case.make()
+    assert(dec:update(case.member .. "TRAILER") == "hello, cosmic!")
     assert(dec:done(), "done after a member and a trailer")
     assert(dec:rest() == "TRAILER")
     assert(dec:update("more") == "")
@@ -661,15 +665,19 @@ local function test_raw_and_zlib_truncation_is_reported_as_truncation()
 end
 
 local function test_the_first_member_must_carry_the_magic()
-  local cases: {{Maker, string}} = {
-    { gzip_decoder, "compress: not a gzip stream" },
-    { bz2_decoder, "compress: not a bzip2 stream" },
-    { xz_decoder, "compress: not an xz stream" },
-    { zstd_decoder, "compress: not a zstd stream" },
+  local record Refusal
+    make: Maker
+    trouble: string
+  end
+  local cases: {Refusal} = {
+    { make = gzip_decoder, trouble = "compress: not a gzip stream" },
+    { make = bz2_decoder, trouble = "compress: not a bzip2 stream" },
+    { make = xz_decoder, trouble = "compress: not an xz stream" },
+    { make = zstd_decoder, trouble = "compress: not a zstd stream" },
   }
   for _, case in ipairs(cases) do
-    local out, trouble = case[1]():update("TRAILER")
-    assert(out == nil and trouble == case[2], trouble)
+    local out, trouble = case.make():update("TRAILER")
+    assert(out == nil and trouble == case.trouble, trouble)
   end
   -- A partial magic and nothing else is a truncated stream.
   local dec = gzip_decoder()
@@ -690,8 +698,6 @@ local function test_argument_shape_errors_raise()
   assert((Compress.zstd_decoder(1024)))
   assert((Compress.zstd_encoder(1)))
   assert((Compress.zstd_encoder(19)))
-  assert(not pcall(Compress.crc32, "x", -1))
-  assert(not pcall(Compress.crc32, "x", 1 << 32))
   local dec = assert(Compress.inflater("raw"))
   assert(not pcall(dec.update, dec, "x", 0))
   assert((Compress.deflater("raw", 0)))
@@ -726,11 +732,8 @@ local function test_inflate_validates_max_bytes()
   local out, trouble = Compress.inflate("zlib", packed, 2)
   assert(out == nil and trouble == "stream: output is larger than 2 bytes", trouble)
   assert(Compress.inflate("zlib", (assert(Compress.deflate("zlib", ""))), 0) == "")
-  for _, bad in ipairs({ -1, 1.5 } as {any}) do
-    local ok, why = pcall(Compress.inflate, "zlib", packed, bad as integer)
-    assert(not ok and tostring(why):find("compress: max_bytes", 1, true) ~= nil,
-      tostring(why))
-  end
+  local ok, why = pcall(Compress.inflate, "zlib", packed, -1)
+  assert(not ok and tostring(why):find("compress: max_bytes", 1, true) ~= nil, tostring(why))
 end
 
 --- Each one-shot call frames its bytes as `format` says, the same
@@ -779,19 +782,19 @@ local function test_sql_deflate_and_inflate_speak_raw_deflate()
   for _, input in ipairs({ text, "", "x" }) do
     local rows = assert(Sqlite.rows(db,
       "SELECT deflate(?1), inflate(deflate(?1))", { { text = input } }))
-    local stored = rows[1][1].blob
+    local stored = rows[1]:blob(1)
     assert(stored == assert(Compress.deflate("raw", input)),
       "SQL and Compress deflate alike")
     assert(assert(Compress.inflate("raw", stored)) == input)
-    assert(rows[1][2].kind == "blob" and rows[1][2].blob == input)
+    assert(rows[1]:kind(2) == "blob" and rows[1]:blob(2) == input)
     local back = assert(Sqlite.rows(db, "SELECT inflate(?1)",
       { { blob = assert(Compress.deflate("raw", input)) } }))
-    assert(back[1][1].blob == input, "SQL inflates what Compress deflated")
+    assert(back[1]:blob(1) == input, "SQL inflates what Compress deflated")
   end
   assert(#assert(Compress.deflate("raw", text)) < #text // 10)
   local nulls = assert(Sqlite.text_rows(db,
     "SELECT deflate(NULL) IS NULL, inflate(NULL) IS NULL"))
-  assert(nulls[1][1] == "1" and nulls[1][2] == "1")
+  assert(nulls[1]:text(1) == "1" and nulls[1]:text(2) == "1")
   local stream = assert(Compress.deflate("raw", text))
   for _, case in ipairs({
       { stream:sub(1, #stream - 4), "truncated deflate stream" },

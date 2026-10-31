@@ -29,6 +29,12 @@
 --- - `checked`: this core is the checked build (`checked`, which the runner
 ---   reads from [`cosmic.internal.testing`]'s `configuration`): another
 ---   core has none of the instruments such a test uses, so it is n/a there;
+--- - `all_cores`: the tool carries a core for every release target, which
+---   `bin/zig build boot -Dboot-cores=all` gives it and a bare boot does not
+---   (a placeholder stands where each other core goes: [`host_only`], which the
+---   runner answers from the tool's prefix): only such a tool makes a
+---   portable program. What tests one is skipped where it is not, saying
+---   so, and a leg that promises `all_cores` fails the run that skips;
 --- - `root`: the run's user is root;
 --- - `unix_socket`: this host permits creation of a Unix stream socket,
 ---   without asserting permission to bind a path or connect to a peer;
@@ -94,6 +100,23 @@ local record host_requires
     "refused"
   end
 
+  --- The outcome a probe answers: whether present, and what a key holds or
+  --- why not.
+  record Found
+    present: boolean
+    text: string
+  end
+
+  --- A requirement's table entry.
+  record Entry
+    --- Of a `platform` entry, whether this platform ever has it, where the
+    --- answer is no probe's but the platform's own; the outcome is `na`
+    --- where it does not.
+    platform_has?: function(host: host_requires.Host): boolean
+    --- The probe, handed its argument ("" for none) and the host.
+    probe: function(argument: string, host: host_requires.Host): Found
+  end
+
   --- One requirement's outcome.
   record Answer
     --- The requirement as written.
@@ -134,39 +157,45 @@ local record host_requires
   --- What the caller hands in that the table cannot probe itself.
   record Context
     --- A stand-in for the Unix stream socket creation probe; nil asks the host.
-    unix_socket: function(): boolean, string
+    unix_socket?: function(): boolean, string
     --- Whether a worker can run sandboxed here: the runner's own
     --- [`build.test_sandbox_probe`]'s `available` answer. Without it `sandbox` is
     --- refused, since no cheaper probe answers the same.
-    sandbox: function(): host_requires.Sandbox
+    sandbox?: function(): host_requires.Sandbox
     --- Whether this run is a portable artifact, which the runner reads from
     --- the program's `runtime_context` ("portable-v1", as its launcher key
     --- does): this module cannot read the store, which the harness would
     --- carry with it. Nil is a native start.
-    portable: boolean
+    portable?: boolean
     --- Whether this core is the checked build, which the runner reads from
     --- `configuration` ("sanitized"); nil is no.
-    checked: boolean
+    checked?: boolean
+    --- Whether the tool carries no core for some target, as a boot without
+    --- `-Dboot-cores=all` leaves it, or no portable prefix at all: asked only
+    --- of a module that requires `all_cores`, since the answer reads the
+    --- whole prefix, which this module cannot reach. Nil is a tool of every
+    --- core.
+    host_only?: function(): boolean
     --- Whether the platform is Linux, which is the platform's own answer
     --- ([`confine.sandbox_platform`]) where nil. A test of the runner
     --- sets it false to make every Linux requirement not applicable on a
     --- host that has them.
-    linux: boolean
+    linux?: boolean
     --- The paths a worker with the profile "system" is given, which a
     --- `program:` must be under; [`confine.system_paths`] by default.
-    system: {string}
+    system?: {string}
     --- The search list `program:` looks in; PATH by default
     --- ([`Proc.find`]).
-    path: string
+    path?: string
     --- Reads a file for the settings `userns` and `nest` read, which a
     --- test stands in for.
-    read: function(path: string): host_requires.Read
+    read?: function(path: string): host_requires.Read
   end
 
   --- The probes of one run: each requirement is asked of the host once.
   record Host
     context: Context
-    found: {string:host_requires.Answer}
+    found: mut {string:host_requires.Answer}
   end
 
 end
@@ -179,22 +208,8 @@ local function linux(host: host_requires.Host): boolean
   return sandbox_platform()
 end
 
---- The outcome a probe answers: whether present, and what a key holds or
---- why not.
-local record Found
-  present: boolean
-  text: string
-end
-
---- A requirement's table entry.
-local record Entry
-  --- Of a `platform` entry, whether this platform ever has it, where the
-  --- answer is no probe's but the platform's own; the outcome is `na`
-  --- where it does not.
-  platform_has: function(host: host_requires.Host): boolean
-  --- The probe, handed its argument ("" for none) and the host.
-  probe: function(argument: string, host: host_requires.Host): Found
-end
+local type Found = host_requires.Found
+local type Entry = host_requires.Entry
 
 --- Whether `path` is there; raises where the host cannot say, as for a
 --- directory it may not search.
@@ -231,12 +246,12 @@ local MOST_BYTES <const> = 64 << 20
 local record Opened
   --- What it is, as fstat of the open descriptor says ("file", "dir",
   --- "fifo", ...); "" where it could not be opened.
-  kind: string
+  mut kind: string
   --- Its bytes where it is a regular file within `MOST_BYTES`.
-  data: string
+  mut data: string
   --- Why there is none, "" where there is; and the errno of a failed open.
-  why: string
-  errno: integer
+  mut why: string
+  mut errno: integer
 end
 
 --- Opens `path` once, without waiting (a FIFO with no writer would
@@ -256,7 +271,7 @@ local function slurp(path: string): Opened
   end
   local opened: Opened = { kind = st.kind, data = "", why = "", errno = 0 }
   if st.kind == "file" then
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     local total = 0
     while true do
       local chunk, failure, read_errno = sys.read(fd, 1 << 20)
@@ -286,7 +301,7 @@ end
 --- `path`'s bytes, or nil and the rule a file that is no regular one or too
 --- large breaks; raises where it cannot be opened or read, since a key that
 --- could not hold the file would stand on whatever it held.
-local function bytes_of(path: string): string | nil, string
+local function bytes_of(path: string): string?, string
   local opened = slurp(path)
   if opened.kind == "" then error("host_requires: " .. opened.why, 0) end
   if opened.why ~= "" then return nil, opened.why end
@@ -306,7 +321,7 @@ end
 --- The sysctl at `path` as a number, or nil where the host has none: the read
 --- answers that there is no such file. Any other failure, or text that is
 --- no number, raises: neither is the setting's absence.
-local function sysctl(host: host_requires.Host, path: string): integer | nil
+local function sysctl(host: host_requires.Host, path: string): integer?
   local read = reader(host)(path)
   if read.why ~= "" then
     if read.missing then return nil end
@@ -357,7 +372,7 @@ local function userns_allowed(host: host_requires.Host): Found
     end
     return absent("the kernel has no user.max_user_namespaces: user namespaces are not built in")
   end
-  if limit <= 0 then return absent("user.max_user_namespaces is " .. limit) end
+  if limit <= 0 then return absent("user.max_user_namespaces is " .. tostring(limit)) end
   if not admin(host) then
     if sysctl(host, "/proc/sys/kernel/unprivileged_userns_clone") == 0 then
       return absent("kernel.unprivileged_userns_clone is 0")
@@ -376,29 +391,29 @@ end
 --- binary loads are not keyed, so a library changed under an unchanged
 --- program moves no key. Nil and the rule where the file is no regular
 --- one or too large.
-local function program_key(path: string, search: string | nil): string | nil, string
+local function program_key(path: string, search: string?): string?, string
   local data, why = bytes_of(path)
   if data == nil then return nil, why end
   local key = "sha256:" .. hex_sha256(data)
   local line = data:match("^#![ \t]*([^\n]*)")
   if line == nil then return key, "" end
-  local words: {string} = {}
+  local words: mut {string} = {}
   for word in line:gmatch("%S+") do words[#words + 1] = word end
   --- The digest of the file at `named`, as an interpreter's, or a marker where it cannot be keyed.
-  local function interpreter_digest(named: string | nil): string
+  local function interpreter_digest(named: string?): string
     if named == nil then return "absent" end
     local opened = slurp(named)
     if opened.kind == "" or opened.why ~= "" then return "unkeyed" end
     return "sha256:" .. hex_sha256(opened.data)
   end
   key = key .. ";interpreter=" .. interpreter_digest(words[1])
-  if words[1] ~= nil and words[1]:match("/env$") then
+  if words[1] ~= nil and words[1]:match("/env$") ~= nil then
     local index = 2
     while words[index] ~= nil do
       local word = words[index]
       if word == "-u" or word == "-C" or word == "--unset" or word == "--chdir" then
         index = index + 2
-      elseif word:sub(1, 1) == "-" or word:match("^[%w_]+=") then
+      elseif word:sub(1, 1) == "-" or word:match("^[%w_]+=") ~= nil then
         index = index + 1
       else
         break
@@ -420,17 +435,17 @@ end
 --- mounted elsewhere is caught by the regular-file check and the size cap,
 --- which a file that never ends or changes as it is read breaks, not by
 --- where it is.
-local function file_key(path: string): string | nil, string
+local function file_key(path: string): string?, string
   local real, trouble = realpath(path)
   if real == nil then error("host_requires: " .. trouble, 0) end
   for _, virtual in ipairs({ "/proc", "/sys" }) do
-    if real == virtual or real:sub(1, #virtual + 1) == virtual .. "/" then return "present" end
+    if real == virtual or real:sub(1, #virtual + 1) == virtual .. "/" then return "present", "" end
   end
   local opened = slurp(real)
   if opened.kind == "" then error("host_requires: " .. opened.why, 0) end
-  if opened.kind == "dir" then return "dir" end
+  if opened.kind == "dir" then return "dir", "" end
   if opened.why ~= "" then return nil, opened.why end
-  return "sha256:" .. hex_sha256(opened.data)
+  return "sha256:" .. hex_sha256(opened.data), ""
 end
 
 --- Whether `path` is under a path of the "system" profile a worker is given.
@@ -464,11 +479,13 @@ local table_of: {string:Entry} = {
     end },
   landlock = { platform_has = linux,
     probe = function(argument: string, _: host_requires.Host): Found
-      local wanted = argument == "" and 1 or assert(math.tointeger(tonumber(argument)))
+      local wanted = if argument == "" then 1 else assert(math.tointeger(tonumber(argument))) end
       local abi, why = landlock_abi()
       if abi == nil then return absent("no Landlock: " .. why) end
-      if abi < wanted then return absent("Landlock ABI " .. abi .. " is below " .. wanted) end
-      return present("abi=" .. abi)
+      if abi < wanted then
+        return absent("Landlock ABI " .. tostring(abi) .. " is below " .. tostring(wanted))
+      end
+      return present("abi=" .. tostring(abi))
     end },
   userns = { platform_has = linux,
     probe = function(_: string, host: host_requires.Host): Found return userns_allowed(host) end },
@@ -479,7 +496,7 @@ local table_of: {string:Entry} = {
       if getuid() == 0 and not may_map_ids() then
         return absent("root without CAP_SETUID, CAP_SETGID and CAP_SETFCAP cannot map the user a sandbox runs as")
       end
-      return present(getuid() == 0 and "root" or "user")
+      return present(if getuid() == 0 then "root" else "user" end)
     end },
   own_proc = { platform_has = linux,
     probe = function(_: string, _: host_requires.Host): Found
@@ -509,10 +526,18 @@ local table_of: {string:Entry} = {
     probe = function(_: string, _: host_requires.Host): Found
       return present("checked")
     end },
+  all_cores = { platform_has = function(_: host_requires.Host): boolean return true end,
+    probe = function(_: string, host: host_requires.Host): Found
+      local only = host.context.host_only
+      if only ~= nil and only() then
+        return absent("this tool carries the host's core alone; boot it with bin/zig build boot -Dboot-cores=all")
+      end
+      return present("all")
+    end },
   root = {
     probe = function(_: string, _: host_requires.Host): Found
       if getuid() == 0 then return present("root") end
-      return absent("the run's user is " .. getuid() .. ", not root")
+      return absent("the run's user is " .. tostring(getuid()) .. ", not root")
     end },
   path = {
     probe = function(argument: string, _: host_requires.Host): Found
@@ -557,9 +582,11 @@ end
 --- any other asks its probe, once per `host`, and answers `present` with
 --- its key text, or `skipped`. Raises where a probe cannot tell.
 --- @param names requirements as written
+--- @param entries the table to read in place of the real one, for a test
 --- @return an answer for each
-function host_requires.answer(host: host_requires.Host, names: {string}): {host_requires.Answer}
-  local out: {host_requires.Answer} = {}
+function host_requires.answer(host: host_requires.Host, names: {string},
+                              entries?: {string: host_requires.Entry}): {host_requires.Answer}
+  local out: mut {host_requires.Answer} = {}
   for i, name in ipairs(names) do
     local cached = host.found[name]
     if cached == nil then
@@ -567,8 +594,12 @@ function host_requires.answer(host: host_requires.Host, names: {string}): {host_
       if spec == nil then
         cached = { name = name, class = "host", kind = "refused", key = "", why = why }
       else
-        local entry = table_of[spec.base]
-        if spec.class == "platform" and not entry.platform_has(host) then
+        local entry = (entries or table_of)[spec.base]
+        local has = entry.platform_has
+        if spec.class == "platform" and has == nil then
+          error("host_requires: " .. spec.base .. " is a platform requirement with no platform_has", 0)
+        end
+        if has ~= nil and spec.class == "platform" and not has(host) then
           cached = { name = name, class = spec.class, kind = "na", key = "", why = spec.base .. ": this platform has none" }
         else
           local found = entry.probe(spec.argument, host)

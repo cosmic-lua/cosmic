@@ -105,7 +105,7 @@ end
 local function test_checked_manifest_keeps_release_entries_but_selects_checked()
   local checked_records = records ..
     "1\t2\tsanitized\tsanitized-x86\tLinux\tx86_64\n"
-  local checked_cores: {string:string} = {
+  local checked_cores: mut {string:string} = {
     x86 = cores.x86,
     arm = cores.arm,
     mac = cores.mac,
@@ -132,6 +132,31 @@ local function test_checked_manifest_keeps_release_entries_but_selects_checked()
     artifact.prefix(duplicate_system, checked_cores, 2)
   assert(ambiguous == nil and
       ambiguous_trouble:find("duplicate generated uname", 1, true) ~= nil)
+end
+
+--- A host-only boot puts a script where it built no core, and a prefix with
+--- one says so: it is the ordinary layout (every target has an entry, as the
+--- core requires), found by what each placeholder begins with, which no
+--- real core does.
+local function test_a_placeholder_core_marks_a_host_only_prefix()
+  local placeholder = artifact.placeholder("arm")
+  assert(String.starts_with(placeholder, "#!/bin/sh\n"), "it runs as a script")
+  assert(placeholder:find("arm", 1, true) ~= nil, "it names the target")
+  assert(placeholder:find("-Dboot-cores=all", 1, true) ~= nil, "it names the boot that builds the core")
+  assert(artifact.placeholder("arm") == placeholder and artifact.placeholder("mac") ~= placeholder,
+    "it is a function of the target")
+  local own, other = "ELF-x86\0a core of this host", "ELF-arm-another"
+  local whole = assert(artifact.prefix(records, { x86 = own, arm = other, mac = other }))
+  assert(not artifact.host_only(whole), "a prefix of every core is no host-only boot's")
+  local only = assert(artifact.prefix(records, { x86 = own, arm = placeholder,
+    mac = artifact.placeholder("mac") }))
+  assert(artifact.host_only(only), "a prefix with placeholders is")
+  local partly = assert(artifact.prefix(records, { x86 = own, arm = other,
+    mac = artifact.placeholder("mac") }))
+  assert(artifact.host_only(partly), "one placeholder is enough")
+  local program = assert(artifact.program(only, "SQLite format 3\0db"))
+  local parts = assert(artifact.split(program))
+  assert(parts.head == only and not parts.host, "a program of it splits as any does")
 end
 
 --- A portable and a host program alike split at their database, and
@@ -173,11 +198,11 @@ local function test_split_refuses_a_trailer_that_does_not_fit()
   }
   for i, bytes in ipairs(refused) do
     local parts, trouble = artifact.split(bytes)
-    assert(parts == nil and trouble ~= "", "case " .. i)
+    assert(parts == nil and trouble ~= "", "case " .. tostring(i))
   end
   local not_sqlite = assert(artifact.split(program))
   local joined, trouble = artifact.rejoin(not_sqlite, "not sqlite")
-  assert(joined == nil and trouble:find("SQLite", 1, true), trouble)
+  assert(joined == nil and trouble:find("SQLite", 1, true) ~= nil, trouble)
 end
 
 --- A head is keyed whole where no core carries DWARF, as every release

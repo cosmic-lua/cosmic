@@ -575,7 +575,7 @@ COSMIC_SYSCALL(fd_flags, 1);
 COSMIC_SYSCALL(cpu_count, 0);
 
 /*
- * --- The processor's features the core's vendored code may choose code by, each by the name Linux's /proc/cpuinfo lists it under, in byte order: on x86_64 "aes", "pclmulqdq", "sse4_1" and "ssse3", from cpuid; on aarch64 "aes", "asimd", "crc32" and "pmull", from the auxiliary vector's hardware capabilities on Linux and sysctlbyname's hw.optional names on Darwin. Those this processor lacks are left out, and every one on any other machine.
+ * --- The processor's features the core's own and vendored code may choose code by, each by the name Linux's /proc/cpuinfo lists it under, in byte order: on x86_64 "aes", "avx512_vnni", "avx512f", "avx512vl", "avx_vnni", "pclmulqdq", "sha_ni", "sse4_1" and "ssse3", from cpuid; on aarch64 "aes", "asimd", "crc32", "pmull", "sha2" and "sha512", from the auxiliary vector's hardware capabilities on Linux and sysctlbyname's hw.optional names on Darwin. Those this processor lacks are left out, and every one on any other machine.
  * ---@return {string} features the features this processor has
  */
 COSMIC_SYSCALL(cpu_features, 0);
@@ -609,7 +609,7 @@ COSMIC_SYSCALL(uname, 0);
  */
 
 /*
- * --- The IPv4 and IPv6 addresses of the host's interfaces, as `getifaddrs(3)` lists them, in its order; an entry of another family (a link-layer address) is left out. Darwin only: elsewhere ENOSYS. Linux's `getifaddrs` asks the kernel over a netlink socket, which a sandboxed process's filter refuses, so a caller there reads /proc/self/net instead ([`cosmic.relay.config`]'s `host_addresses`).
+ * --- The IPv4 and IPv6 addresses of the host's interfaces, as `getifaddrs(3)` lists them, in its order; an entry of another family (a link-layer address) is left out. Darwin only: elsewhere ENOSYS. Linux's `getifaddrs` asks the kernel over a netlink socket, which a sandboxed process's filter refuses, so a caller there reads /proc/self/net instead (as the sandbox relay does).
  * ---@return {InterfaceAddress}|nil addresses every address, or nil on failure
  * ---@return string error what went wrong, when addresses is nil
  * ---@return integer errno the error number, when addresses is nil: ENOSYS off Darwin
@@ -848,7 +848,7 @@ COSMIC_SYSCALL(ftruncate, 2);
  * --- every other lock, "shared" only with an exclusive one, and
  * --- "unlock" releases what this open holds. A conflicting lock is
  * --- waited for until `timeout_ms` has passed, "Operation timed out",
- * --- or the innermost open `Child.guard` catches SIGINT or SIGTERM, "Interrupted system
+ * --- or the innermost open `Signal.guard` catches SIGINT or SIGTERM, "Interrupted system
  * --- call", each seen within a tenth of a second. Over NFS or SMB, an
  * --- exclusive lock needs a descriptor open for writing.
  * ---@param fd integer the descriptor, open on the file to lock
@@ -904,6 +904,18 @@ COSMIC_SYSCALL(mkfifo, 2);
  * ---@return integer errno the error number, when ok is false
  */
 COSMIC_SYSCALL(set_nonblocking, 2);
+
+/*
+ * --- An open file's status flags, `fcntl(fd, F_GETFL)`: O_NONBLOCK is set
+ * --- while `set_nonblocking` has it on, so a caller can put the mode back
+ * --- as it found it. The flags belong to the open file, which every
+ * --- descriptor duplicated from it shares.
+ * ---@param fd integer the descriptor to ask about
+ * ---@return integer|nil flags the open file's status flags, or nil on failure
+ * ---@return string error what went wrong, when flags is nil
+ * ---@return integer errno the error number, when flags is nil
+ */
+COSMIC_SYSCALL(fd_status, 1);
 
 /*
  * --- Waits until one of the descriptors is ready or the timeout passes,

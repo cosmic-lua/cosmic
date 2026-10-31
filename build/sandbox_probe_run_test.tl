@@ -6,15 +6,14 @@ local Test = require("cosmic.test")
 --- the system's paths (`system`). The parts it tries unveil a root of
 --- the shell's own (`nests`).
 Test.policy{
-  profiles = { "system" },
-  grants = { { path = "/proc", letters = "r" } },
+  profiles = { "system", "proc" },
   promises = { "nest" },
 }
 
 --- Every part is tried, and each either held or says why not.
 local function test_every_part_is_tried(tmp: string)
   local report = SandboxProbe.run(tmp)
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, part in ipairs(report.parts) do
     names[#names + 1] = part.name
     assert(part.held == (part.said == "held") and part.said ~= "", part.name .. ": " .. part.said)

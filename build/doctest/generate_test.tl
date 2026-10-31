@@ -9,9 +9,9 @@ local generate = require("build.doctest.generate")
 local type Block = markdown.Block
 local type Modifiers = markdown.Modifiers
 
-local function mods(continue: boolean, file: string | nil,
-                    skip: string | nil): Modifiers
-  return { continue = continue, file = file, skip = skip }
+local function mods(continued: boolean, file: string?,
+                    skip: string?): Modifiers
+  return { continue = continued, file = file, skip = skip }
 end
 
 local function block(lang: string, content: string, m: Modifiers): Block
@@ -28,6 +28,20 @@ local function test_a_bare_example_with_no_output_is_named_example_n()
     "got:\n" .. code)
   assert(code:find("local _ = example_1", 1, true) ~= nil, "got:\n" .. code)
   assert(code:find("local x = 1", 1, true) ~= nil, "got:\n" .. code)
+end
+
+--- What the generator writes to catch `print` is code the new checker takes with no ceiling to hold it: what it caught is a field
+--- of a record, and no array is written nor local assigned by a closure.
+local function test_the_capture_of_print_writes_no_array_and_assigns_no_captured_local()
+  local blocks: {Block} = {
+    block("teal", 'print("hi")', no_mods),
+    block("output", "hi", no_mods),
+  }
+  local code, trouble = generate.from_blocks(blocks, "fixture.md")
+  assert(code ~= nil, "generate failed: " .. tostring(trouble))
+  assert(code:find("local record __doctest_caught", 1, true) ~= nil, "got:\n" .. code)
+  assert(code:find("caught.text = caught.text ..", 1, true) ~= nil, "got:\n" .. code)
+  assert(code:find("parts[", 1, true) == nil and code:find("lines[", 1, true) == nil, "got:\n" .. code)
 end
 
 local function test_an_example_with_output_is_named_test_n_and_asserts()
@@ -187,7 +201,7 @@ end
 --- A doc's `policy` line becomes its module's top-level declaration,
 --- which the build reads as a test module's; a second is refused.
 local function test_a_docs_policy_becomes_its_declaration()
-  local blocks: {Block} = {
+  local blocks: mut {Block} = {
     { lang = "policy", modifiers = no_mods, content = "env = { \"A\" }", line = 3 },
     block("teal", "local x = 1", no_mods),
   }

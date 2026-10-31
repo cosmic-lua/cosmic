@@ -8,26 +8,21 @@
 --- with the program, are core/promises_child_test.tl's, and a dynamic
 --- program's core/promises_system_test.tl's.
 
+local RawTables = require("build.raw_tables")
 local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
 local type _ = require("cosmic.child")
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader, as
---- `require` would hand it.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 local AUDIT: {string: integer} = { x86_64 = 0xc000003e, aarch64 = 0xc00000b7 }
+
+--- The audit architecture number of `arch`, one of ARCHES.
+local function audit_of(arch: string): integer
+  local number = assert(AUDIT[arch], arch .. " has no audit architecture")
+  return number
+end
 local ARCHES: {string} = { "x86_64", "aarch64" }
 
 local ALLOW <const> = 0x7fff0000
@@ -183,7 +178,7 @@ local numbers: {string: {integer}} = {
   ["fchmodat2"] = { 452, 452 },
 }
 
-local type Insn = record
+local record Insn
   code: integer
   jt: integer
   jf: integer
@@ -195,9 +190,10 @@ end
 local function decode(program: string): {Insn}
   assert(#program > 0 and #program % 8 == 0, "a program is whole instructions")
   assert(#program // 8 <= 4096, "the kernel takes 4096 instructions at most")
-  local insns: {Insn} = {}
+  local insns: mut {Insn} = {}
   for at = 1, #program, 8 do
     local jt, jf = string.byte(program, at + 2, at + 3)
+    assert(jt ~= nil and jf ~= nil, "an instruction is eight bytes")
     insns[#insns + 1] = {
       code = string.unpack("<I2", program, at), jt = jt, jf = jf,
       k = string.unpack("<I4", program, at + 4),
@@ -224,7 +220,7 @@ local function run(insns: {Insn}, arch: integer, number: integer, args: {integer
   local pc = 1
   while true do
     local insn = insns[pc]
-    assert(insn ~= nil, "the program ran off its end at " .. pc)
+    assert(insn ~= nil, "the program ran off its end at " .. tostring(pc))
     local code, k = insn.code, insn.k
     pc = pc + 1
     if code == 0x20 then
@@ -258,12 +254,12 @@ local function verdict(value: integer): string
     if errno == 1 then return "EPERM" end
     if errno == 25 then return "ENOTTY" end
     if errno == 38 then return "ENOSYS" end
-    return "errno " .. errno
+    return "errno " .. tostring(errno)
   end
   return string.format("0x%x", value)
 end
 
-local type Case = record
+local record Case
   name: string
   want: string
   args: {integer}
@@ -284,8 +280,8 @@ local function holds(promises: {string}, arch: string, cases: {Case},
     assert(both ~= nil, case.name .. " is in no table of this test")
     local number = arch == "x86_64" and both[1] or both[2]
     if number ~= nil then
-      local got = verdict(run(insns, AUDIT[arch], number, case.args))
-      local shown: {string} = {}
+      local got = verdict(run(insns, audit_of(arch), number, case.args))
+      local shown: mut {string} = {}
       for _, value in ipairs(case.args) do shown[#shown + 1] = tostring(value) end
       assert(got == case.want, string.format("%s: %s(%s) on %s with {%s} is %s, not %s",
         table.concat(promises, "+"), case.name, tostring(number), arch,
@@ -336,7 +332,7 @@ local NESTED: {string} = {
 }
 
 local function never(): {Case}
-  local cases: {Case} = {}
+  local cases: mut {Case} = {}
   for _, name in ipairs(NEVER) do cases[#cases + 1] = call(name, "EPERM") end
   for _, name in ipairs(NESTED) do cases[#cases + 1] = call(name, "EPERM") end
   return cases
@@ -380,17 +376,19 @@ local function test_a_call_above_the_reviewed_table_answers_ENOSYS()
     local insns = decode(process.promise_filter({ "fork", "jit", "fattr" }, arch))
     local reviewed = process.PROMISE_CALLS_REVIEWED
     for _, number in ipairs({ reviewed, reviewed + 1, 1000, 0x7fffffff, 0xffffffff }) do
-      local got = verdict(run(insns, AUDIT[arch], number, {}))
-      assert(got == "ENOSYS", arch .. " call " .. number .. " is " .. got)
+      local got = verdict(run(insns, audit_of(arch), number, {}))
+      assert(got == "ENOSYS", arch .. " call " .. tostring(number) .. " is " .. got)
     end
     -- The highest call reviewed is within the table, so a call there is
     -- judged, not answered as unknown.
-    local last = verdict(run(insns, AUDIT[arch], reviewed - 1, {}))
-    assert(last == "EPERM", arch .. " call " .. (reviewed - 1) .. " is " .. last)
+    local last = verdict(run(insns, audit_of(arch), reviewed - 1, {}))
+    assert(last == "EPERM", arch .. " call " .. tostring(reviewed - 1) .. " is " .. last)
   end
   -- x32's calls share x86_64's architecture and set a high bit.
   local insns = decode(process.promise_filter({ "fork", "jit", "fattr" }, "x86_64"))
-  assert(verdict(run(insns, AUDIT.x86_64, 0x40000000 + numbers.read[1], {})) == "ENOSYS")
+  local read_calls = assert(numbers["read"], "numbers names read")
+  local read = assert(read_calls[1], "read has a number on x86_64")
+  assert(verdict(run(insns, audit_of("x86_64"), 0x40000000 + read, {})) == "ENOSYS")
 end
 
 local function test_clone3_and_openat2_answer_ENOSYS_whatever_was_promised()
@@ -403,7 +401,7 @@ end
 local function test_a_call_of_another_architecture_ends_the_process()
   for _, arch in ipairs(ARCHES) do
     local insns = decode(process.promise_filter({}, arch))
-    local other = arch == "x86_64" and AUDIT.aarch64 or AUDIT.x86_64
+    local other = if arch == "x86_64" then audit_of("aarch64") else audit_of("x86_64") end
     assert(verdict(run(insns, other, 0, {})) == "kill")
     assert(verdict(run(insns, 0x40000003, 0, {})) == "kill", "i386 on x86_64 is another architecture")
   end
@@ -411,11 +409,11 @@ end
 
 local function test_the_same_number_is_another_call_on_the_other_architecture()
   -- x86_64's open is 2, which aarch64 has as io_submit: not a call it allows.
-  assert(verdict(run(decode(process.promise_filter({}, "x86_64")), AUDIT.x86_64, 2, { 0, 0, 0 })) == "allow")
-  assert(verdict(run(decode(process.promise_filter({}, "aarch64")), AUDIT.aarch64, 2, { 0, 0, 0 })) == "EPERM")
+  assert(verdict(run(decode(process.promise_filter({}, "x86_64")), audit_of("x86_64"), 2, { 0, 0, 0 })) == "allow")
+  assert(verdict(run(decode(process.promise_filter({}, "aarch64")), audit_of("aarch64"), 2, { 0, 0, 0 })) == "EPERM")
   -- And aarch64's read, 63, is x86_64's uname, which it allows too; its openat, 56, is x86_64's clone.
-  assert(verdict(run(decode(process.promise_filter({}, "x86_64")), AUDIT.x86_64, 56, { 0, 0, 0 })) == "EPERM")
-  assert(verdict(run(decode(process.promise_filter({}, "aarch64")), AUDIT.aarch64, 56, { 0, 0, 0 })) == "allow")
+  assert(verdict(run(decode(process.promise_filter({}, "x86_64")), audit_of("x86_64"), 56, { 0, 0, 0 })) == "EPERM")
+  assert(verdict(run(decode(process.promise_filter({}, "aarch64")), audit_of("aarch64"), 56, { 0, 0, 0 })) == "allow")
 end
 
 local function test_a_refused_ioctl_answers_ENOTTY()
@@ -488,7 +486,7 @@ local function test_jit_grants_executable_memory()
 end
 
 local function test_fork_grants_processes_but_no_namespace()
-  local refused: {Case} = {}
+  local refused: mut {Case} = {}
   for _, flag in ipairs(NAMESPACES) do
     refused[#refused + 1] = call("clone", "EPERM", flag | SIGCHLD)
     refused[#refused + 1] = call("clone", "EPERM", flag | THREAD)
@@ -509,7 +507,7 @@ local function test_fork_grants_processes_but_no_namespace()
 end
 
 local function test_without_fork_a_clone_must_be_a_thread()
-  local missing: {Case} = {}
+  local missing: mut {Case} = {}
   for _, drop in ipairs({ 0x100, 0x400, 0x800, 0x10000 }) do
     missing[#missing + 1] = call("clone", "EPERM", THREAD & ~drop)
   end
@@ -563,7 +561,7 @@ local NEST_REFUSED: {integer} = { 0x02000000, 0x04000000, 0x80 }
 
 local function test_nest_grants_the_calls_a_sandbox_is_built_with()
   local pid = 4242
-  local cases: {Case} = {}
+  local cases: mut {Case} = {}
   local everything = 0
   for _, flag in ipairs(NEST_NAMESPACES) do
     cases[#cases + 1] = call("unshare", "allow", flag)
@@ -611,14 +609,14 @@ local function test_nest_grants_the_calls_a_sandbox_is_built_with()
   cases[#cases + 1] = call("clone", "EPERM", 0x10000000 | SIGCHLD)
   cases[#cases + 1] = call("clone", "allow", THREAD)
   holds_on_both({ "nest" }, cases, { pid = pid })
-  local still: {Case} = {}
+  local still: mut {Case} = {}
   for _, name in ipairs(NEVER) do still[#still + 1] = call(name, "EPERM") end
   holds_on_both({ "nest" }, still)
   holds_on_both({ "nest", "fork" }, still)
 end
 
 local function test_nest_beside_fork_lets_a_process_start_in_the_namespaces()
-  local cases: {Case} = {
+  local cases: mut {Case} = {
     call("fork", "allow"), call("clone", "allow", SIGCHLD), call("clone", "allow", THREAD),
     -- A sandbox's init is cloned as the sibling of the process that starts it.
     call("clone", "allow", 0x4000 | 0x100 | 0x8000 | SIGCHLD),
@@ -658,7 +656,7 @@ local function test_nest_adds_the_interface_flag_ioctls_and_no_other()
 end
 
 local function test_the_namespace_calls_are_refused_without_nest()
-  local cases: {Case} = {}
+  local cases: mut {Case} = {}
   for _, name in ipairs(NESTED) do cases[#cases + 1] = call(name, "EPERM") end
   cases[#cases + 1] = call("unshare", "EPERM", 0x10000000)
   cases[#cases + 1] = call("setrlimit", "EPERM")
@@ -881,7 +879,7 @@ end
 local function test_every_call_gets_an_answer()
   for _, arch in ipairs(ARCHES) do
     for mask = 0, 15 do
-      local promises: {string} = {}
+      local promises: mut {string} = {}
       if mask & 1 ~= 0 then promises[#promises + 1] = "fork" end
       if mask & 2 ~= 0 then promises[#promises + 1] = "jit" end
       if mask & 4 ~= 0 then promises[#promises + 1] = "fattr" end
@@ -891,9 +889,9 @@ local function test_every_call_gets_an_answer()
           local insns = decode(process.promise_filter(promises, arch,
             { pid = 9, unix = unix, inet = inet }))
           for number = 0, process.PROMISE_CALLS_REVIEWED + 2 do
-            local got = verdict(run(insns, AUDIT[arch], number, {}))
+            local got = verdict(run(insns, audit_of(arch), number, {}))
             assert(got == "allow" or got == "EPERM" or got == "ENOSYS" or got == "ENOTTY",
-              arch .. " " .. number .. " is " .. got)
+              arch .. " " .. tostring(number) .. " is " .. got)
           end
         end
       end
@@ -907,11 +905,11 @@ local function test_a_promise_only_adds()
   for _, arch in ipairs(ARCHES) do
     local base = decode(process.promise_filter({}, arch))
     local full = decode(process.promise_filter({ "fork", "jit", "fattr", "nest" }, arch))
-    assert(#full > #base and #full < 1500, #base .. " and " .. #full .. " instructions")
+    assert(#full > #base and #full < 1500, tostring(#base) .. " and " .. tostring(#full) .. " instructions")
     for number = 0, process.PROMISE_CALLS_REVIEWED - 1 do
-      local before = verdict(run(base, AUDIT[arch], number, { 0, 0, 0, 0 }))
-      local after = verdict(run(full, AUDIT[arch], number, { 0, 0, 0, 0 }))
-      assert(before ~= "allow" or after == "allow", arch .. " " .. number .. " lost to a promise")
+      local before = verdict(run(base, audit_of(arch), number, { 0, 0, 0, 0 }))
+      local after = verdict(run(full, audit_of(arch), number, { 0, 0, 0, 0 }))
+      assert(before ~= "allow" or after == "allow", arch .. " " .. tostring(number) .. " lost to a promise")
     end
   end
 end
@@ -927,8 +925,8 @@ end
 local function test_the_headers_name_no_call_beyond_the_reviewed_table()
   local headers = process.PROMISE_CALLS_HEADERS
   assert(headers <= process.PROMISE_CALLS_REVIEWED,
-    "the headers name system calls up to " .. (headers - 1) .. ", past the " ..
-      (process.PROMISE_CALLS_REVIEWED - 1) .. " core/promises_calls.h is reviewed to: judge them, " ..
+    "the headers name system calls up to " .. tostring(headers - 1) .. ", past the " ..
+      tostring(process.PROMISE_CALLS_REVIEWED - 1) .. " core/promises_calls.h is reviewed to: judge them, " ..
       "add them to its tables and core/promises.c's, and raise PROMISE_CALLS_REVIEWED")
 end
 

@@ -1,0 +1,311 @@
+global Coroutine userdata
+global FILE userdata
+  method close: function(FILE): boolean?, string?, integer?
+  method flush: function(FILE): boolean?, string?, integer?
+  method lines: function(FILE): (function(): string)
+  method lines: function(FILE, ...: FileNumberMode): (function(): number...)
+  method lines: function(FILE, ...: number | FileStringMode): (function(): string...)
+  method lines: function(FILE, ...: number | FileMode): (function(): number | string...)
+  method lines: function(FILE, ...: number | string): (function(): string...)
+  method read: function(FILE): string?
+  method read: function(FILE, ...: FileNumberMode): number...
+  method read: function(FILE, ...: number | FileStringMode): string...
+  method read: function(FILE, ...: number | FileMode): number | string...
+  method read: function(FILE, ...: number | string): string...
+  method seek: function(FILE, p2?: FILE.SeekWhence, p3?: integer): integer?, string?, integer?
+  method setvbuf: function(FILE, FILE.SetVBufMode, p3?: integer): boolean?, string?, integer?
+  method write: function(FILE, ...: number | string): FILE?, string?, integer?
+  method __close: function(FILE)
+global Yielder userdata
+  method yield: function(Yielder<?0.0, ?0.1>, ?0.0): ?0.1
+global coroutine record
+  field close: function<T, U, V>(Coroutine<T, U, V>): (true) | (false, any)
+  field create: function<T, U>(function(Yielder<T, U>, U)): Coroutine<T, nil, U>
+  field create: function<T, U, V>(function(Yielder<T, V>, V): U): Coroutine<T, U, V>
+  field create: function<T>(function(Yielder<T, nil>)): Coroutine<T, nil, nil>
+  field create: function<T, U>(function(Yielder<T, nil>): U): Coroutine<T, U, nil>
+  field create: function(function()): Coroutine<never, nil, nil>
+  field create: function<T>(function(): T): Coroutine<never, T, nil>
+  field isyieldable: function(): boolean
+  field resume: function<T, U>(Coroutine<T, U, nil>): (true, T | U) | (false, any)
+  field resume: function<T, U, V>(Coroutine<T, U, V>, V): (true, T | U) | (false, any)
+  field status: function<T, U, V>(Coroutine<T, U, V>): coroutine.Status
+  field wrap: function<T, U>(function(Yielder<T, U>, U)): (function(U): T?)
+  field wrap: function<T, U, V>(function(Yielder<T, V>, V): U): (function(V): T | U)
+  field wrap: function<T>(function(Yielder<T, nil>)): (function(): T?)
+  field wrap: function<T, U>(function(Yielder<T, nil>): U): (function(): T | U)
+  field wrap: function(function()): (function())
+  field wrap: function<T>(function(): T): (function(): T)
+global debug record
+  field debug: function()
+  field gethook: function<T, U, V>(p1?: Coroutine<T, U, V>): ((function(debug.HookEvent, integer))?, integer)
+  field getinfo: function<T, U, V>(Coroutine<T, U, V>, (function(...: any): any...), p3?: string): debug.GetInfoTable
+  field getinfo: function<T, U, V>(Coroutine<T, U, V>, integer, p3?: string): debug.GetInfoTable?
+  field getinfo: function((function(...: any): any...), p2?: string): debug.GetInfoTable
+  field getinfo: function(integer, p2?: string): debug.GetInfoTable?
+  field getlocal: function<T, U, V>(Coroutine<T, U, V>, (function(...: any): any...), integer): string?
+  field getlocal: function<T, U, V>(Coroutine<T, U, V>, integer, integer): string?, any
+  field getlocal: function((function(...: any): any...), integer): string?
+  field getlocal: function(integer, integer): string?, any
+  field getmetatable: function<T>(T): metatable<T>?
+  field getregistry: function(): any
+  field getupvalue: function((function(...: any): any...), integer): string?, any
+  field getuservalue: function(debug.Userdata, p2?: integer): any, boolean
+  field sethook: function<T, U, V>(Coroutine<T, U, V>, (function(debug.HookEvent, integer)), string, p4?: integer)
+  field sethook: function((function(debug.HookEvent, integer)), string, p3?: integer)
+  field setlocal: function<T, U, V>(Coroutine<T, U, V>, integer, integer, any): string?
+  field setlocal: function(integer, integer, any): string?
+  field setmetatable: function<T>(T, metatable<T>): T
+  field setupvalue: function((function(...: any): any...), integer, any): string?
+  field setuservalue: function(debug.Userdata, any, integer): debug.Userdata
+  field traceback: function<T, U, V>(Coroutine<T, U, V>, p2?: string, p3?: integer): string
+  field traceback: function(p1?: string, p2?: integer): string
+  field traceback: function(any): any
+  field upvalueid: function((function(...: any): any...), integer): debug.Userdata?
+  field upvaluejoin: function((function(...: any): any...), integer, (function(...: any): any...), integer)
+global io record
+  field close: function(p1?: FILE)
+  field input: function(p1?: string | FILE): FILE
+  field flush: function()
+  field lines: function(p1?: string): (function(): string)
+  field lines: function(p1?: string, ...: FileNumberMode): (function(): number...)
+  field lines: function(p1?: string, ...: number | FileStringMode): (function(): string...)
+  field lines: function(p1?: string, ...: number | FileMode): (function(): number | string...)
+  field lines: function(p1?: string, ...: number | string): (function(): string...)
+  field open: function(string, p2?: io.OpenMode): FILE?, string?, integer?
+  field output: function(p1?: string | FILE): FILE
+  field popen: function(string, p2?: io.OpenMode): FILE?, string?, integer?
+  field read: function(): string?
+  field read: function(...: FileNumberMode): number...
+  field read: function(...: number | FileStringMode): string...
+  field read: function(...: number | FileMode): number | string...
+  field read: function(...: number | string): string...
+  field stderr: FILE
+  field stdin: FILE
+  field stdout: FILE
+  field tmpfile: function(): FILE?, string?, integer?
+  field type: function(any): io.FileType?
+  field write: function(...: number | string): FILE?, string?, integer?
+global math record
+  field abs: function(integer): integer
+  field abs: function(number): number
+  field acos: function(number): number
+  field asin: function(number): number
+  field atan: function(number, p2?: number): number
+  field atan2: function(number, number): number
+  field ceil: function(number): integer
+  field cos: function(number): number
+  field cosh: function(number): number
+  field deg: function(number): number
+  field exp: function(number): number
+  field floor: function(number): integer
+  field fmod: function(integer, integer): integer
+  field fmod: function(number, number): number
+  field frexp: function(number): number, integer
+  field huge: number
+  field ldexp: function(number, integer): number
+  field log: function(number, p2?: number): number
+  field log10: function(number): number
+  field max: function(integer, ...: integer): integer
+  field max: function(number, ...: number): number
+  field maxinteger: integer
+  field min: function(integer, ...: integer): integer
+  field min: function(number, ...: number): number
+  field mininteger: integer
+  field modf: function(number): integer, number
+  field pi: number
+  field pow: function(number, number): number
+  field rad: function(number): number
+  field random: function(integer, p2?: integer): integer
+  field random: function(): number
+  field randomseed: function(p1?: integer, p2?: integer): integer, integer
+  field sin: function(number): number
+  field sinh: function(number): number
+  field sqrt: function(number): number
+  field tan: function(number): number
+  field tanh: function(number): number
+  field tointeger: function(any): integer?
+  field type: function(any): string?
+  field ult: function(number, number): boolean
+global metatable record
+  field __call: function(?0.0, ...: any): any...
+  field __mode: metatable.Mode
+  field __name: string
+  field __tostring: function(?0.0): string
+  field __pairs: function<T, U>(?1.0): (function(): T, U)
+  field __index: any
+  field __newindex: any
+  field __gc: function(?0.0)
+  field __close: function(?0.0)
+  field __add: function<T, U, V>(T, U): V
+  field __sub: function<T, U, V>(T, U): V
+  field __mul: function<T, U, V>(T, U): V
+  field __div: function<T, U, V>(T, U): V
+  field __idiv: function<T, U, V>(T, U): V
+  field __mod: function<T, U, V>(T, U): V
+  field __pow: function<T, U, V>(T, U): V
+  field __band: function<T, U, V>(T, U): V
+  field __bor: function<T, U, V>(T, U): V
+  field __bxor: function<T, U, V>(T, U): V
+  field __shl: function<T, U, V>(T, U): V
+  field __shr: function<T, U, V>(T, U): V
+  field __concat: function<T, U, V>(T, U): V
+  field __len: function<T>(?1.0): T
+  field __unm: function<T>(?1.0): T
+  field __bnot: function<T>(?1.0): T
+  field __eq: function<T, U>(T, U): boolean
+  field __lt: function<T, U>(T, U): boolean
+  field __le: function<T, U>(T, U): boolean
+global os record
+  field clock: function(): number
+  field date: function(os.DateMode, p2?: number): os.DateTable
+  field date: function(p1?: string, p2?: number): string
+  field difftime: function(integer, integer): number
+  field execute: function(string): boolean?, string, integer
+  field exit: function(p1?: integer | boolean, p2?: boolean)
+  field getenv: function(string): string?
+  field remove: function(string): boolean?, string?, integer?
+  field rename: function(string, string): boolean?, string?, integer?
+  field setlocale: function(string, p2?: string): string?
+  field time: function(p1?: os.DateTable): integer
+  field tmpname: function(): string
+global package record
+  field config: string
+  field cpath: string
+  field loaded: {string: any}
+  field loadlib: function(string, string): ((function(...: any): any...)?, string?, string?)
+  field loaders: {function(string): ((function(p1?: string, p2?: any): any), any)}
+  field path: string
+  field preload: {string: function(p1?: string, p2?: any): any}
+  field searchers: {function(string): ((function(p1?: string, p2?: any): any), any)}
+  field searchpath: function(string, string, p3?: string, p4?: string): string?, string?
+global string record
+  field byte: function(string, p2?: integer): integer?
+  field byte: function(string, integer, p3?: integer): integer...
+  field char: function(...: integer): string
+  field dump: function((function(...: any): any), p2?: boolean): string
+  field find: function(string, string, p3?: integer, p4?: boolean): integer?, integer?, string...
+  field format: function(string, ...: any): string
+  field gmatch: function(string, string, p3?: integer): (function(): string...)
+  field gsub: function(string, string, string, p4?: integer): string, integer
+  field gsub: function(string, string, {string: number | string}, p4?: integer): string, integer
+  field gsub: function(string, string, {integer: number | string}, p4?: integer): string, integer
+  field gsub: function(string, string, (function(): (number | string)?), p4?: integer): string, integer
+  field gsub: function(string, string, (function(string): (number | string)?), p4?: integer): string, integer
+  field gsub: function(string, string, (function(string, string): (number | string)?), p4?: integer): string, integer
+  field gsub: function(string, string, (function(string, string, string): (number | string)?), p4?: integer): string, integer
+  field len: function(string): integer
+  field lower: function(string): string
+  field match: function(string, string, p3?: integer): string...
+  field pack: function(string, ...: any): string
+  field packsize: function(string): integer
+  field rep: function(string, integer, p3?: string): string
+  field reverse: function(string): string
+  field sub: function(string, integer, p3?: integer): string
+  field unpack: function(string, string, p3?: integer): any...
+  field upper: function(string): string
+global table record
+  field concat: function({number | string}, p2?: string, p3?: integer, p4?: integer): string
+  field insert: function<T>(mut {T}, integer, T)
+  field insert: function<T>(mut {T}, T)
+  field move: function<T>(mut {T}, integer, integer, integer): mut {T}
+  field move: function<T>({T}, integer, integer, integer, mut {T}): mut {T}
+  field pack: function<T>(...: T): table.PackTable<T>
+  field pack: function(...: any): table.PackTable<any>
+  field remove: function<T>(mut {T}, p2?: integer): T?
+  field sort: function(mut {integer}, p2?: function(integer, integer): boolean)
+  field sort: function(mut {number}, p2?: function(number, number): boolean)
+  field sort: function(mut {string}, p2?: function(string, string): boolean)
+  field sort: function<T>(mut {T}, function(T, T): boolean)
+  field unpack: function<T>({T}, p2?: number, p3?: number): T...
+global utf8 record
+  field char: function(...: number): string
+  field charpattern: string
+  field codepoint: function(string, p2?: number, p3?: number, p4?: boolean): integer...
+  field codes: function(string, p2?: boolean): ((function(string, p2?: integer): integer, integer), string, integer)
+  field len: function(string, p2?: number, p3?: number, p4?: boolean): integer?, integer?
+  field offset: function(string, number, p3?: number): integer?
+value _VERSION: string
+value arg: {string}
+value assert: function<T>(T?): T
+value assert: function<T, U>(T?, U, ...: any): T, U, any...
+value collectgarbage: function(p1?: StandardLibrary.CollectGarbageCommand): number
+value collectgarbage: function(StandardLibrary.CollectGarbageStep, p2?: integer): boolean
+value collectgarbage: function(StandardLibrary.CollectGarbageMode, p2?: integer, p3?: integer, p4?: integer): string
+value collectgarbage: function(StandardLibrary.CollectGarbageSetValue, integer): number
+value collectgarbage: function(StandardLibrary.CollectGarbageIsRunning): boolean
+value collectgarbage: function(string, p2?: number): number | string | boolean
+value dofile: function(p1?: string): any...
+value error: function(p1?: any, p2?: integer): never
+value getmetatable: function<T>(T): metatable<T>?
+value ipairs: function<T>({T}): ((function({T}, integer): integer, T), {T}, integer)
+value load: function(string | (function(): string?), p2?: string, p3?: StandardLibrary.LoadMode, p4?: {string: any}): ((function(...: any): any...)?, string?)
+value load: function(string | (function(): string?), p2?: string, p3?: string, p4?: {string: any}): ((function(...: any): any...)?, string?)
+value load: function<T>(string | (function(): string?), p2?: string, p3?: StandardLibrary.LoadMode, p4?: {string: T}): ((function(...: any): any...)?, string?)
+value load: function<T>(string | (function(): string?), p2?: string, p3?: string, p4?: {string: T}): ((function(...: any): any...)?, string?)
+value loadfile: function(p1?: string, p2?: StandardLibrary.LoadMode, p3?: {string: any}): ((function(...: any): any...)?, string?)
+value loadfile: function(p1?: string, p2?: string, p3?: {string: any}): ((function(...: any): any...)?, string?)
+value loadfile: function<T>(p1?: string, p2?: StandardLibrary.LoadMode, p3?: {string: T}): ((function(...: any): any...)?, string?)
+value loadfile: function<T>(p1?: string, p2?: string, p3?: {string: T}): ((function(...: any): any...)?, string?)
+value next: function<T, U>({T: U}, p2?: T): T?, U?
+value next: function<T>({T}, p2?: integer): integer?, T?
+value pairs: function<T, U>({T: U}): ((function({T: U}, p2?: T): T, U), {T: U}, T)
+value pcall: function(function()): (true) | (false, any)
+value pcall: function<T>(function(): T): (true, T) | (false, any)
+value pcall: function<T, U>(function(): T, U): (true, T, U) | (false, any)
+value pcall: function<T, U, V>(function(): T, U, V): (true, T, U, V) | (false, any)
+value pcall: function<T>((function(T)), T): (true) | (false, any)
+value pcall: function<T, U>((function(T): U), T): (true, U) | (false, any)
+value pcall: function<T, U, V>((function(T): U, V), T): (true, U, V) | (false, any)
+value pcall: function<T, U, V, W>((function(T): U, V, W), T): (true, U, V, W) | (false, any)
+value pcall: function<T, U>((function(T, U)), T, U): (true) | (false, any)
+value pcall: function<T, U, V>((function(T, U): V), T, U): (true, V) | (false, any)
+value pcall: function<T, U, V, W>((function(T, U): V, W), T, U): (true, V, W) | (false, any)
+value pcall: function<T, U, V, W, X>((function(T, U): V, W, X), T, U): (true, V, W, X) | (false, any)
+value pcall: function<T, U, V>((function(T, U, V)), T, U, V): (true) | (false, any)
+value pcall: function<T, U, V, W>((function(T, U, V): W), T, U, V): (true, W) | (false, any)
+value pcall: function<T, U, V, W, X>((function(T, U, V): W, X), T, U, V): (true, W, X) | (false, any)
+value pcall: function<T, U, V, W, X, Y>((function(T, U, V): W, X, Y), T, U, V): (true, W, X, Y) | (false, any)
+value pcall: function<T, U, V, W>((function(T, U, V, W)), T, U, V, W): (true) | (false, any)
+value pcall: function<T, U, V, W, X>((function(T, U, V, W): X), T, U, V, W): (true, X) | (false, any)
+value pcall: function<T, U, V, W, X, Y>((function(T, U, V, W): X, Y), T, U, V, W): (true, X, Y) | (false, any)
+value pcall: function<T, U, V, W, X, Y, Z>((function(T, U, V, W): X, Y, Z), T, U, V, W): (true, X, Y, Z) | (false, any)
+value pcall: function<T, U, V, W, X>((function(T, U, V, W, X)), T, U, V, W, X): (true) | (false, any)
+value pcall: function<T, U, V, W, X, Y>((function(T, U, V, W, X): Y), T, U, V, W, X): (true, Y) | (false, any)
+value pcall: function<T, U, V, W, X, Y, Z>((function(T, U, V, W, X): Y, Z), T, U, V, W, X): (true, Y, Z) | (false, any)
+value pcall: function<T, U, V, W, X, Y, Z, A>((function(T, U, V, W, X): Y, Z, A), T, U, V, W, X): (true, Y, Z, A) | (false, any)
+value pcall: function<T, U, V, W, X, Y>((function(T, U, V, W, X, Y)), T, U, V, W, X, Y): (true) | (false, any)
+value pcall: function<T, U, V, W, X, Y, Z>((function(T, U, V, W, X, Y): Z), T, U, V, W, X, Y): (true, Z) | (false, any)
+value pcall: function<T, U, V, W, X, Y, Z, A>((function(T, U, V, W, X, Y): Z, A), T, U, V, W, X, Y): (true, Z, A) | (false, any)
+value pcall: function<T, U, V, W, X, Y, Z, A, B>((function(T, U, V, W, X, Y): Z, A, B), T, U, V, W, X, Y): (true, Z, A, B) | (false, any)
+value print: function(...: any)
+value rawequal: function(any, any): boolean
+value rawget: function<T, U>({T: U}, T): U?
+value rawget: function(any, any): any
+value rawlen: function<T>({T}): integer
+value rawset: function<T, U>(mut {T: U}, T, U): mut {T: U}
+value require: function(string): any
+value select: function<T>(integer, ...: T): T...
+value select: function(integer, ...: any): any...
+value select: function(string, ...: any): integer
+value setmetatable: function<T>(T, metatable<T>): T
+value tonumber: function(any): number?
+value tonumber: function(any, integer): integer?
+value tostring: function(any): string
+value type: function(any): string
+value xpcall: function<T>((function()), function(any): T): (true) | (false, string | T)
+value xpcall: function<T, U>((function(): T), function(any): U): (true, T) | (false, string | U)
+value xpcall: function<T, U, V>((function(): T, U), function(any): V): (true, T, U) | (false, string | V)
+value xpcall: function<T, U, V, W>((function(): T, U, V), function(any): W): (true, T, U, V) | (false, string | W)
+value xpcall: function<T, U>((function(T)), (function(any): U), T): (true) | (false, string | U)
+value xpcall: function<T, U, V>((function(T): U), (function(any): V), T): (true, U) | (false, string | V)
+value xpcall: function<T, U, V, W>((function(T): U, V), (function(any): W), T): (true, U, V) | (false, string | W)
+value xpcall: function<T, U, V, W, X>((function(T): U, V, W), (function(any): X), T): (true, U, V, W) | (false, string | X)
+value xpcall: function<T, U, V>((function(T, U)), (function(any): V), T, U): (true) | (false, string | V)
+value xpcall: function<T, U, V, W>((function(T, U): V), (function(any): W), T, U): (true, V) | (false, string | W)
+value xpcall: function<T, U, V, W, X>((function(T, U): V, W), (function(any): X), T, U): (true, V, W) | (false, string | X)
+value xpcall: function<T, U, V, W, X, Y>((function(T, U): V, W, X), (function(any): Y), T, U): (true, V, W, X) | (false, string | Y)
+value xpcall: function<T, U, V, W>((function(T, U, V)), (function(any): W), T, U, V): (true) | (false, string | W)
+value xpcall: function<T, U, V, W, X>((function(T, U, V): W), (function(any): X), T, U, V): (true, W) | (false, string | X)
+value xpcall: function<T, U, V, W, X, Y>((function(T, U, V): W, X), (function(any): Y), T, U, V): (true, W, X) | (false, string | Y)
+value xpcall: function<T, U, V, W, X, Y, Z>((function(T, U, V): W, X, Y), (function(any): Z), T, U, V): (true, W, X, Y) | (false, string | Z)

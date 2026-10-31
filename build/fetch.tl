@@ -21,7 +21,7 @@
 --- checked, and every one must match; a mismatch names the algorithm, the
 --- digest wanted and the one got.
 ---
---- Like `cosmic json` it ends in no verdict line -- its standard output
+--- Like `cosmic json` it prints no summary -- its standard output
 --- is the body -- and its exit status is the verdict: 0 the body was
 --- delivered, 1 the fetch failed (no connection, a status outside 2xx,
 --- a digest that does not match, a body that broke off, an `-o` write
@@ -63,7 +63,7 @@
 ---
 --- An interrupt (SIGINT or SIGTERM) during an `-o` download removes the
 --- temporary file, never creates the target, and exits by that signal:
---- the verb holds a [`Child.guard`] for the download, [`Http.download`]
+--- the verb holds a [`Signal.guard`] for the download, [`Http.download`]
 --- asks it between chunks and a wait for data ends when it catches one,
 --- and closing the guard delivers the signal again. A kill nothing can
 --- catch (SIGKILL) or that the verb does not hold (SIGHUP) leaves the
@@ -71,13 +71,21 @@
 --- gap.
 ---
 --- Certificates are always verified; there is no option that turns that
---- off, and none will be added.
+--- off, and none will be added. What they are verified against is
+--- [`Http.Options`]'s to choose: `--roots` names the CA roots (`minimal`, the default, `mozilla`,
+--- `none`, or root digests joined by commas), `--cacert` trusts a file's
+--- certificates besides them, and `--pin` holds the server's key to a
+--- public key pin, once for each pin it may match. A value of the wrong
+--- shape, or a `--cacert` file that cannot be read, is exit 2 before any
+--- request; a choice that leaves nothing to trust, or a `--cacert` that
+--- holds no certificate, fails the fetch (exit 1).
 
 local bare = require("build.bare")
-local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Cli = require("cosmic.cli")
 local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
+local Fs = require("cosmic.fs")
 local plural = require("build.plural")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
@@ -99,26 +107,26 @@ local record verb
     err: function(line: string)
     --- [`Http.Options.script`], for a test: canned replies in place of a
     --- connection.
-    script: {string}
+    script?: {string}
     --- What `-o` asks between chunks, for a test: true ends the download
-    --- as an interrupt does. The verb's own is its [`Child.guard`]'s.
-    cancelled: function(): boolean
+    --- as an interrupt does. The verb's own is its [`Signal.guard`]'s.
+    cancelled?: function(): boolean
   end
   --- The schemes a redirect of `url` may lead to, for
   --- `Http.Options.redirect_protocols`: https only when `url` is https
   --- and `allow_downgrade` is not given, nil (both) otherwise.
-  redirect_protocols: function(url: string, allow_downgrade: boolean): {string}
+  redirect_protocols: function(url: string, allow_downgrade: boolean): {string}?
   --- What to print for `why`, an `Http` failure, when the fetch was
   --- limited to https redirects: a plain sentence where curl's is
   --- `Protocol "http" is disabled (in redirect)`; `why` as given
   --- otherwise, or when `protocols` is nil.
-  refusal: function(why: string, protocols: {string}): string
+  refusal: function(why: string, protocols: {string}?): string
 end
 
-local spec = Cli.verbs.fetch.spec
+local spec = Cli.verbs.fetch.spec or {}
 
 local usage = "cosmic fetch <url[#sha256=<hex>]> [-o <file>] [--sha256 <hex>] [--sha512 <hex>] " ..
-  "[--allow-downgrade] [--head [--json]]"
+  "[--allow-downgrade] [--head [--json]] [--roots <set>] [--cacert <file>] [--pin <pin>]"
 
 --- The digests a fetch can be held to: the flag `--<name>`, the fragment
 --- keys that name it in a URL (`#sha256=<hex>`, the form pip reads, and
@@ -133,20 +141,21 @@ local algorithms: {Algorithm} = {
   { name = "sha512", digits = 128, keys = { "sha512", "sha512sum" } },
 }
 
-function verb.redirect_protocols(url: string, allow_downgrade: boolean): {string}
-  if allow_downgrade or url:match("^(%a+)://"):lower() ~= "https" then return nil end
+function verb.redirect_protocols(url: string, allow_downgrade: boolean): {string}?
+  local scheme = assert(url:match("^(%a+)://"), "is_url refused a URL without a scheme")
+  if allow_downgrade or scheme:lower() ~= "https" then return nil end
   return { "https" }
 end
 
-function verb.refusal(why: string, protocols: {string}): string
-  if protocols ~= nil and why:find('Protocol "http" is disabled (in redirect)', 1, true) then
+function verb.refusal(why: string, protocols: {string}?): string
+  if protocols ~= nil and why:find('Protocol "http" is disabled (in redirect)', 1, true) ~= nil then
     return "refused a redirect from https to http (--allow-downgrade follows it)"
   end
   return why
 end
 
 --- Whether `key` is a fragment key that names one of `algorithms`.
-local function recognized(key: string): boolean
+local function recognized(key: string?): boolean
   for _, algorithm in ipairs(algorithms) do
     for _, name in ipairs(algorithm.keys) do
       if key == name then return true end
@@ -161,13 +170,33 @@ end
 --- Dropping such a parameter as an ordinary fragment would fetch unverified
 --- what the user believes is checked.
 local function looks_like_a_checksum(parameter: string): boolean
-  local name = (parameter:match("^[^=:]*"):lower():gsub("[-_ ]", ""))
+  local head = assert(parameter:match("^[^=:]*"), "the pattern matches an empty name at worst")
+  local name = (head:lower():gsub("[-_ ]", ""))
   local patterns: {string} = { "^sha%d", "^sha$", "^md%d", "^blake", "^crc%d", "^ripemd", "^whirlpool",
     "^hash$", "^hash%d", "^checksum", "^digest$", "^integrity$" }
   for _, pattern in ipairs(patterns) do
     if name:find(pattern) then return true end
   end
   return false
+end
+
+--- `--roots`'s value as [`Http.Options`]'s `roots`, or nil and why: a
+--- set's name, or root digests joined by commas, each 64 hex digits
+--- with or without a `:` between bytes.
+local function roots_of(value: string): ((string | {string})?, string)
+  if value == "mozilla" or value == "minimal" or value == "none" then
+    return value, ""
+  end
+  local digests: mut {string} = {}
+  for digest in (value .. ","):gmatch("([^,]*),") do
+    local bare_hex = digest:gsub(":", "")
+    if #bare_hex ~= 64 or bare_hex:find("[^%x]") ~= nil then
+      return nil, "--roots takes mozilla, minimal, none or root sha256 digests joined by commas, not " ..
+        digest:sub(1, 80)
+    end
+    digests[#digests + 1] = bare_hex
+  end
+  return digests, ""
 end
 
 --- `body`'s digest in hex, by the name of one of `algorithms`.
@@ -182,9 +211,10 @@ end
 local function is_url(url: string): boolean
   local authority = url:match("^%a+://([^/?#]*)")
   if authority == nil then return false end
-  local scheme = url:match("^(%a+)://"):lower()
+  local scheme = assert(url:match("^(%a+)://"), "the authority matched after a scheme"):lower()
   if scheme ~= "http" and scheme ~= "https" then return false end
   local host = authority:match("([^@]*)$")
+  assert(host ~= nil, "the pattern matches an empty tail at worst")
   if host:sub(1, 1) == "[" then
     return host:match("^%[.+%]") ~= nil
   end
@@ -212,7 +242,7 @@ end
 --- `cosmic fetch <url> [options]`: returns the exit code.
 --- @param argv the command line, `fetch` at slot 1
 --- @param io where the body and complaints go; the process's own when nil
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   -- `shown` is the URL as it may be printed; a complaint that carries
   -- the URL as given in a transport diagnostic is rewritten to it.
@@ -237,8 +267,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   -- The fragment never reaches a request, a redirect or a message: it
   -- is taken off first, and only the digests it names are kept.
-  local url, fragment = parsed.words[1]:match("^([^#]*)#(.*)$")
-  if url == nil then url = parsed.words[1] end
+  local word = parsed.words[1]
+  local before, fragment = word:match("^([^#]*)#(.*)$")
+  local url = before or word
   shown, given = bare.redact_url(url), url
   if not is_url(url) then
     return refuse(url .. " is not an http:// or https:// URL")
@@ -248,16 +279,17 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return refuse("an empty file name after -o")
   end
   -- What the body must hash to, by algorithm, and where each came from.
-  local wants: {string:string} = {}
-  local from: {string:string} = {}
-  local function want_digest(algorithm: Algorithm, digest: string, source: string, sep: string): string
+  local wants: mut {string:string} = {}
+  local from: mut {string:string} = {}
+  local function want_digest(algorithm: Algorithm, digest: string, source: string, sep: string): string?
     local name = algorithm.name
-    if #digest ~= algorithm.digits or digest:find("[^%x]") then
+    if #digest ~= algorithm.digits or digest:find("[^%x]") ~= nil then
       return source .. " wants " .. plural.count(algorithm.digits, "hex digit") .. ", not " .. digest
     end
     digest = digest:lower()
-    if wants[name] ~= nil and wants[name] ~= digest then
-      return from[name] .. " and " .. source .. sep .. digest .. " name different " .. name .. " digests"
+    local earlier = wants[name]
+    if earlier ~= nil and earlier ~= digest then
+      return assert(from[name], "a wanted digest has its source") .. " and " .. source .. sep .. digest .. " name different " .. name .. " digests"
     end
     wants[name], from[name] = digest, source .. sep .. digest
     return nil
@@ -272,13 +304,14 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   for parameter in (fragment or ""):gmatch("[^&]+") do
     local key, value = parameter:match("^([^=]+)=(.*)$")
     if looks_like_a_checksum(parameter) and not recognized(key) then
-      return refuse("#" .. parameter:match("^[^=]*"):sub(1, 40) ..
+      local named = assert(parameter:match("^[^=]*"), "the pattern matches an empty name at worst")
+      return refuse("#" .. named:sub(1, 40) ..
           " looks like a checksum but is not one this verb checks (it reads #sha256=, " ..
           "#sha256sum=, #sha512= and #sha512sum=, in lowercase), and the body would go unverified")
     end
     for _, algorithm in ipairs(algorithms) do
       for _, name in ipairs(algorithm.keys) do
-        if key == name then
+        if key ~= nil and value ~= nil and key == name then
           local why = want_digest(algorithm, value, "#" .. key, "=")
           if why ~= nil then return refuse(why) end
         end
@@ -294,10 +327,33 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return refuse("--head prints no body, so there is nothing for -o or a digest")
   end
 
-  local options: Http.Options = { script = to.script }
+  local roots: (string | {string})? = nil
+  local given_roots = parsed.values["--roots"]
+  if given_roots ~= nil then
+    local chosen, why = roots_of(given_roots)
+    if chosen == nil then return refuse(why) end
+    roots = chosen
+  end
+  local ca: string? = nil
+  local cacert = parsed.values["--cacert"]
+  if cacert ~= nil then
+    local text, why = Fs.read(cacert)
+    if text == nil then return refuse("--cacert: " .. why) end
+    ca = text
+  end
+  local pins = parsed.all["--pin"]
+  if pins ~= nil then
+    for _, pin in ipairs(pins) do
+      if #pin ~= 52 or pin:match("^sha256//[%w+/]+=$") == nil then
+        return refuse("--pin takes sha256// and the base64 of 32 bytes, as Http.public_key_pin makes, not " ..
+            pin:sub(1, 80))
+      end
+    end
+  end
+  local options: Http.Options = { script = to.script, roots = roots, ca = ca, pin = pins }
   options.redirect_protocols = verb.redirect_protocols(url, parsed.set["--allow-downgrade"] or false)
   local function failed_status(status: integer): integer
-    complain(shown .. ": HTTP " .. status)
+    complain(shown .. ": HTTP " .. tostring(status))
     return bare.failed
   end
   local function written(ok: boolean, why: string): integer
@@ -319,7 +375,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     -- process still dies of it. A guard that cannot be had (no
     -- descriptor left for its pipe) leaves the download uninterruptible
     -- as it was.
-    local held, _ = Child.guard()
+    local held, _ = Signal.guard()
     if held == nil then
       return download(function(): boolean return false end)
     end
@@ -335,7 +391,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local ok2 = response.status >= 200 and response.status < 300
 
   if head then
-    local names: {string} = {}
+    local names: mut {string} = {}
     for name in pairs(response.headers) do names[#names + 1] = name end
     table.sort(names)
     local text: string
@@ -351,10 +407,10 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       text = encoded .. "\n"
     else
       -- The reason phrase is not kept, so the status line is `HTTP <code>`.
-      local lines: {string} = { "HTTP " .. response.status }
+      local lines: mut {string} = { "HTTP " .. tostring(response.status) }
       for _, name in ipairs(names) do
         -- A repeated Set-Cookie arrives joined with "\n": a line each.
-        for value in String.lines(response.headers[name]) do
+        for value in String.lines((assert(response.headers[name], "a header named is a header held"))) do
           lines[#lines + 1] = escaped(name .. ": " .. value)
         end
       end
@@ -380,10 +436,12 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     end
     for _, algorithm in ipairs(algorithms) do
       local wanted = wants[algorithm.name]
-      local got = wanted ~= nil and digest_of(algorithm.name, body)
-      if wanted ~= nil and got ~= wanted then
-        complain(shown .. ": " .. algorithm.name .. " mismatch: want " .. wanted .. ", got " .. got)
-        return bare.failed
+      if wanted ~= nil then
+        local got = digest_of(algorithm.name, body)
+        if got ~= wanted then
+          complain(shown .. ": " .. algorithm.name .. " mismatch: want " .. wanted .. ", got " .. got)
+          return bare.failed
+        end
       end
     end
     return written(to.out(body))
@@ -414,7 +472,7 @@ verb.spec = {
   name = "fetch",
   guide = "questions about a data file",
   tests = { "build.fetch_test", "build.fetch_tool_test" },
-  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a URL",
   exits = "`fetch` prints the body and nothing after, and exits 0 when it was delivered, 1 when the fetch failed, 2 for a command line or URL it refused.",

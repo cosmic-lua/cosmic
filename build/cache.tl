@@ -20,22 +20,22 @@ local usage = "cosmic cache trim compiles PATH --since-ns N [--restored PATH] [-
   "cosmic cache trim verdicts PATH... (--since-ns N | --whole) [--json]"
 
 --- Runs the explicit operation; neither a cache path nor a cutoff is inferred.
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("cache", to.err)
   local function refuse(why: string): integer
     complain(why .. "; " .. usage)
     return 2
   end
-  local parsed, why = Flags.parse(argv, 2, Cli.verbs.cache.spec)
+  local parsed, why = Flags.parse(argv, 2, assert(Cli.verbs.cache.spec))
   if parsed == nil then return refuse(why) end
   if parsed.words[1] ~= "trim" then return refuse("give the trim operation") end
   local family = parsed.words[2]
   if not (family is maintenance.Family) then return refuse("give compiles or verdicts") end
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   for i = 3, #parsed.words do
     local path = parsed.words[i]
-    if path:sub(1, 1) ~= "/" or path:find("\0", 1, true) then
+    if path == nil or path:sub(1, 1) ~= "/" or path:find("\0", 1, true) ~= nil then
       return refuse("cache paths must be absolute and contain no NUL")
     end
     paths[#paths + 1] = path
@@ -44,7 +44,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return refuse("compiles takes one path; verdicts takes one or more")
   end
   local whole = parsed.set["--whole"] == true
-  local since: integer
+  local since: integer?
   local raw_since = parsed.values["--since-ns"]
   if raw_since ~= nil then
     if not raw_since:match("^%d+$") then return refuse("since-ns must be a nonnegative integer") end
@@ -56,7 +56,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   local restored = parsed.values["--restored"]
   if restored ~= nil and (family ~= "compiles" or restored:sub(1, 1) ~= "/" or
-      restored:find("\0", 1, true)) then
+      restored:find("\0", 1, true) ~= nil) then
     return refuse("restored is an absolute snapshot path for compiles only")
   end
   local options: maintenance.Options = {
@@ -79,11 +79,12 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     end
     output = assert(Json.encode(report)) .. "\n"
   else
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, file in ipairs(report.files) do
       local line = file.path .. ": " .. file.state
-      if file.kept ~= nil then
-        line = line .. "; kept " .. file.kept .. ", removed " .. file.removed
+      local kept, removed = file.kept, file.removed
+      if kept ~= nil and removed ~= nil then
+        line = line .. "; kept " .. tostring(kept) .. ", removed " .. tostring(removed)
       end
       if #file.unknown_tables > 0 then
         line = line .. "; unknown tables kept: " .. table.concat(file.unknown_tables, ", ")
@@ -93,12 +94,14 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       end
       lines[#lines + 1] = line
     end
-    if report.digest ~= nil then lines[#lines + 1] = "digest " .. report.digest end
-    if report.fresh ~= nil then lines[#lines + 1] = "fresh " .. report.fresh end
+    local digest = report.digest
+    if digest ~= nil then lines[#lines + 1] = "digest " .. digest end
+    local fresh = report.fresh
+    if fresh ~= nil then lines[#lines + 1] = "fresh " .. tostring(fresh) end
     output = table.concat(lines, "\n") .. "\n"
   end
   if not bare.delivered(complain, to.out(output)) then return 1 end
-  return complete and 0 or 1
+  return if complete then 0 else 1 end
 end
 
 verb.spec = {

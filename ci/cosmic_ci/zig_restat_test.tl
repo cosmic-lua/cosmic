@@ -4,14 +4,23 @@ local ZigPrune = require("cosmic_ci.zig_prune")
 local ZigRestat = require("cosmic_ci.zig_restat")
 local sys = require("cosmic.sys")
 
+--- [`ZigRestat.command`], its answer as three values.
+local function restat_command(project: string, shared: string?, root: string,
+                              lib?: string): integer, string, string
+  local command = ZigRestat.command(project, shared, root, lib)
+  return command.code, command.out, command.err
+end
+
 local name <const> = string.rep("a", 32)
 
 --- A record of `path` under `prefix` (flags `flags`, 0 when absent),
 --- with the stat and digest the file at `file` has now.
 local function record(file: string, prefix: integer, path: string, flags?: integer): string
   local stat = assert(sys.stat(file))
-  local digest = stat.kind == "dir" and string.rep("\0", 16) or
-    ZigPrune.siphash128(ZigPrune.key, (assert(Fs.read(file))))
+  local digest = string.rep("\0", 16)
+  if stat.kind ~= "dir" then
+    digest = ZigPrune.siphash128(ZigPrune.key(), (assert(Fs.read(file))))
+  end
   return string.pack("<i8i8i8", stat.size, stat.ino, stat.mtime * 1000000000 + stat.mtime_ns) ..
     digest .. string.char((prefix << 2) | (flags or 0)) .. path .. "\0"
 end
@@ -67,20 +76,20 @@ local function test_a_restored_file_takes_its_new_inode(tmp: string)
     { path = shared, prefix = 3 } }, { [0] = tree, [3] = shared, [4] = tree }))
   assert(result.records == 5 and result.adopted == 1 and result.rehashed == 1 and
       result.left == 3 and result.manifests == 1,
-    result.records .. " " .. result.adopted .. " " .. result.rehashed .. " " ..
-      result.left .. " " .. result.manifests)
+    tostring(result.records) .. " " .. tostring(result.adopted) .. " " .. tostring(result.rehashed) .. " " ..
+      tostring(result.left) .. " " .. tostring(result.manifests))
   local after = assert(Fs.read(project .. "/h/" .. name))
   assert(#after == #text)
   assert(ZigPrune.vouches(name, after) == before)
   local records = assert(ZigPrune.records(after))
   for i, path in ipairs({ project .. "/o/1/a.c", tree .. "/b.c" }) do
     local stat = assert(sys.stat(path))
-    assert(records[i].inode == stat.ino and records[i].size == stat.size and
-        records[i].mtime == stat.mtime * 1000000000 + stat.mtime_ns, path)
+    assert(assert(records[i]).inode == stat.ino and assert(records[i]).size == stat.size and
+        assert(records[i]).mtime == stat.mtime * 1000000000 + stat.mtime_ns, path)
   end
   local old = assert(ZigPrune.records(text))
   for i = 3, 5 do
-    assert(records[i].inode == old[i].inode and records[i].mtime == old[i].mtime, tostring(i))
+    assert(assert(records[i]).inode == assert(old[i]).inode and assert(records[i]).mtime == assert(old[i]).mtime, tostring(i))
   end
 
   -- What holds already is left as it is: a second pass rewrites nothing.
@@ -94,11 +103,12 @@ end
 local function test_changed_bytes_with_preserved_mtime_are_left(tmp: string)
   local project, shared, tree = layout(tmp)
   local roots: {integer:string} = { [0] = tree, [1] = tree, [3] = shared, [4] = tree }
-  local files: {string} = {}
-  local pieces: {string} = {}
+  local files: mut {string} = {}
+  local pieces: mut {string} = {}
   for prefix = 0, 4 do
-    local root = prefix == 2 and project or roots[prefix]
-    local path = "input" .. prefix .. ".c"
+    local root = project
+    if prefix ~= 2 then root = assert(roots[prefix]) end
+    local path = "input" .. tostring(prefix) .. ".c"
     local file = root .. "/" .. path
     assert(Fs.write(file, "int a;"))
     files[#files + 1] = file
@@ -119,9 +129,9 @@ local function test_changed_bytes_with_preserved_mtime_are_left(tmp: string)
   assert(result.records == 7 and result.adopted == 1 and result.rehashed == 0 and
       result.left == 6 and result.manifests == 1)
   local after = assert(Fs.read(project .. "/h/" .. name))
-  assert(after:sub(1, #text - #pieces[7] - 1) == text:sub(1, #text - #pieces[7] - 1))
+  assert(after:sub(1, #text - #assert(pieces[7]) - 1) == text:sub(1, #text - #assert(pieces[7]) - 1))
   local records = assert(ZigPrune.records(after))
-  assert(records[7].inode == (assert(sys.stat(unchanged))).ino)
+  assert(assert(records[7]).inode == (assert(sys.stat(unchanged))).ino)
 end
 
 --- A path's cached digest is compared to each record: manifests from
@@ -148,7 +158,7 @@ local function test_a_cached_digest_is_compared_to_each_manifest(tmp: string)
   assert(result.records == 2 and result.adopted == 1 and result.left == 1 and result.manifests == 1)
   assert(Fs.read(project .. "/h/" .. name) == first)
   local records = assert(ZigPrune.records((assert(Fs.read(project .. "/h/" .. other)))))
-  assert(records[1].inode == (assert(sys.stat(file))).ino)
+  assert(assert(records[1]).inode == (assert(sys.stat(file))).ino)
 end
 
 --- A file under a prefix no root is named for, zig's lib directory here,
@@ -173,7 +183,7 @@ local function test_what_cannot_be_checked_is_left(tmp: string)
   restored(tree .. "/lib.zig")
   local written = assert(Fs.read(project .. "/h/" .. name))
   local result2, trouble = ZigRestat.restat({ { path = project, prefix = 2 } }, { [1] = tree })
-  assert(result2 == nil and trouble:find(string.rep("d", 32), 1, true), trouble)
+  assert(result2 == nil and trouble:find(string.rep("d", 32), 1, true) ~= nil, trouble)
   assert(Fs.read(project .. "/h/" .. name) == written)
 end
 
@@ -181,19 +191,19 @@ end
 --- where there is one, and never fails; where the project cache holds
 --- no manifests it has nothing to do.
 local function test_the_command_says_what_it_did(tmp: string)
-  local code, out, err = ZigRestat.command(tmp .. "/absent", nil, tmp)
-  assert(code == 0 and out:find("nothing to restat", 1, true) and err == "", out .. err)
+  local code, out, err = restat_command(tmp .. "/absent", nil, tmp)
+  assert(code == 0 and out:find("nothing to restat", 1, true) ~= nil and err == "", out .. err)
   local project, shared, tree = layout(tmp .. "/seed")
   assert(Fs.write(project .. "/o/1/a.c", "int a;"))
   assert(Fs.write(project .. "/h/" .. name, record(project .. "/o/1/a.c", 2, "o/1/a.c") .. "\0"))
   restored(project .. "/o/1/a.c")
-  code, out, err = ZigRestat.command(project, shared, tree)
+  code, out, err = restat_command(project, shared, tree)
   assert(code == 0 and err == "", err)
   assert(out == "zig-restat: 1 file listed: 1 given their new inode, 0 re-hashed and " ..
       "taken, 0 left; 1 manifest rewritten\n", out)
   restored(project .. "/o/1/a.c")
-  code, out, err = ZigRestat.command(project, nil, tree)
-  assert(code == 0 and err == "" and out:find("1 given their new inode", 1, true), out .. err)
+  code, out, err = restat_command(project, nil, tree)
+  assert(code == 0 and err == "" and out:find("1 given their new inode", 1, true) ~= nil, out .. err)
 end
 
 --- A file of another size is changed whatever its mtime says: left.
@@ -216,5 +226,5 @@ local function test_the_lib_directory_comes_from_zig_env()
   local env = '.{\n    .zig_exe = "/z/zig",\n    .lib_dir = "/z/lib",\n    .std_dir = "/z/lib/std",\n}\n'
   assert(ZigRestat.lib_dir(env) == "/z/lib")
   assert(ZigRestat.lib_dir("") == nil)
-  assert(Codec.hex(ZigPrune.key) == "02e9fafee0958155f55a15cb4af40009")
+  assert(Codec.hex(ZigPrune.key()) == "02e9fafee0958155f55a15cb4af40009")
 end

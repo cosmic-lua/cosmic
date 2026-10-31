@@ -33,7 +33,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local _, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ns = Clock.seconds(2) })
-Fs.put(Fs.stdout, trouble or "")
+local _, _ = Fs.put(Fs.stdout, trouble)
 ]]))
   local started = this_program.program({ "--standalone", script },
     { env = { SSL_CERT_FILE = cert_file, XDG_CACHE_HOME = tmp .. "/cache" },
@@ -76,20 +76,20 @@ local function interrupted(tmp: string, body: string,
                            serve: function(Net.Conn, string)): string
   local script = tmp .. "/client.tl"
   assert(Fs.write(script, [[
-local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Signal = require("cosmic.signal")
 return function(argv: {string}): integer
-  local url, marker = argv[1], argv[2]
-  local guard = assert(Child.guard())
+  local url, marker = (argv[1] or ""), (argv[2] or "")
+  local guard = assert(Signal.guard())
 ]] .. body .. [[
   local caught = assert(guard:release())
-  Fs.put(Fs.stdout, " " .. tostring(caught))
+  local _, _ = Fs.put(Fs.stdout, " " .. tostring(caught))
   return 0
 end
 ]]))
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(20) }))
-  local url = "http://127.0.0.1:" .. server.address.port .. "/"
+  local url = "http://127.0.0.1:" .. tostring(assert(server.address.port)) .. "/"
   local marker = tmp .. "/marker"
   local started = this_program.program({ "--standalone", script, url, marker },
     { stdout = "capture", stderr = "capture" })
@@ -117,11 +117,11 @@ local function test_a_caught_signal_ends_a_read_that_waits(tmp: string)
   assert(assert(response:read()) == "part")
   assert(Fs.write(marker, ""))
   local data, why = response:read()
-  Fs.put(Fs.stdout, tostring(data) .. " " .. why)
+  local _, _ = Fs.put(Fs.stdout, tostring(data) .. " " .. why)
 ]], function(conn: Net.Conn, _head: string)
   assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\npart"))
 end)
-  assert(said == "nil interrupted " .. sys.SIGINT, said)
+  assert(said == "nil interrupted " .. tostring(sys.SIGINT), said)
 end
 
 --- A download that waits on a server that sent part of the body and
@@ -137,11 +137,11 @@ local function test_a_caught_signal_ends_a_download_that_waits(tmp: string)
       return guard:cancelled() ~= 0
     end,
   })
-  Fs.put(Fs.stdout, tostring(ok) .. " " .. why)
+  local _, _ = Fs.put(Fs.stdout, tostring(ok) .. " " .. why)
 ]], function(conn: Net.Conn, _head: string)
   assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\npart"))
 end)
-  assert(said == "false interrupted " .. sys.SIGINT, said)
+  assert(said == "false interrupted " .. tostring(sys.SIGINT), said)
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(not name:find(".target", 1, true), "left behind: " .. name)
   end
@@ -160,13 +160,14 @@ local function served(tmp: string, method: string, body?: string): string, strin
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 return function(argv: {string}): integer
-  local got, trouble = Http.request(argv[1], argv[2], { body = argv[3] })
-  Fs.put(Fs.stdout, got ~= nil and tostring(got.status) .. " " .. got.body or trouble)
+  local body = argv[3]
+  local got, trouble = Http.request((argv[1] or ""), (argv[2] or ""), if body ~= nil then { body = body } else {} end)
+  local _, _ = Fs.put(Fs.stdout, if got ~= nil then tostring(got.status) .. " " .. got.body else trouble end)
   return 0
 end
 ]]))
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(20) }))
-  local url = "http://127.0.0.1:" .. server.address.port .. "/items/1"
+  local url = "http://127.0.0.1:" .. tostring(assert(server.address.port)) .. "/items/1"
   local args = { "--standalone", script, method, url }
   if body ~= nil then args[#args + 1] = body end
   local started = this_program.program(args, { stdout = "capture", stderr = "capture" })

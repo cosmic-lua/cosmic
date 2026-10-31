@@ -18,8 +18,8 @@ local PAX_TAR_B64 <const> =
 
 --- Every entry a reader visits, draining its body when `read_bodies`,
 --- in a stable summary a test can assert on directly.
-local function summary(r: Tar.Reader, read_bodies: boolean): {string} | nil, string
-  local lines: {string} = {}
+local function summary(r: Tar.Reader, read_bodies: boolean): {string}?, string
+  local lines: mut {string} = {}
   while true do
     local entry, trouble = r:next()
     if entry == nil then
@@ -35,8 +35,8 @@ local function summary(r: Tar.Reader, read_bodies: boolean): {string} | nil, str
       assert(#data == entry.size, entry.path .. ": size mismatch")
     end
     lines[#lines + 1] = entry.kind .. " " .. entry.path ..
-      (entry.kind == "symlink" and (" -> " .. entry.linkpath) or "") ..
-      (body ~= "" and (" [" .. body .. "]") or "")
+      (if entry.kind == "symlink" then (" -> " .. entry.linkpath) else "" end) ..
+      (if body ~= "" then (" [" .. body .. "]") else "" end)
   end
   return lines, ""
 end
@@ -173,8 +173,8 @@ end
 --- 12-byte GNU base-256 numeric field (the marker bit comes for free:
 --- a negative number's sign-extension bytes are already 0xFF).
 local function base256_field_12(n: integer): string
-  local bytes: {string} = {}
-  local fill = n < 0 and 0xFF or 0x00
+  local bytes: mut {string} = {}
+  local fill = if n < 0 then 0xFF else 0x00 end
   for _ = 1, 4 do bytes[#bytes + 1] = string.char(fill) end
   for k = 7, 0, -1 do
     bytes[#bytes + 1] = string.char((n >> (k * 8)) & 0xFF)
@@ -359,16 +359,16 @@ end
 local function test_global_pax_headers_keep_only_the_keys_the_reader_uses()
   -- Forty global headers, each naming a distinct 256 KiB key, would
   -- stay in memory for the reader's lifetime if every key were kept.
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local big = string.rep("v", 256 * 1024)
   for i = 1, 40 do
     local rec = pax_rec("comment." .. tostring(i), big)
-    parts[#parts + 1] = header("PaxHeaders/g", "g", #rec) .. padded(rec)
+    table.insert(parts, header("PaxHeaders/g", "g", #rec) .. padded(rec))
   end
   local sparse = pax_rec("GNU.sparse.name", "x")
   local mtime = pax_rec("mtime", "12345")
-  parts[#parts + 1] = header("PaxHeaders/g", "g", #sparse + #mtime) .. padded(sparse .. mtime)
-  parts[#parts + 1] = header("f", "0", 0) .. END
+  table.insert(parts, header("PaxHeaders/g", "g", #sparse + #mtime) .. padded(sparse .. mtime))
+  table.insert(parts, header("f", "0", 0) .. END)
   local r = Tar.reader(Stream.from_string(table.concat(parts)))
   parts = nil
   collectgarbage()
@@ -400,8 +400,8 @@ local function test_typeflag_7_is_a_file_and_sparse_or_unknown_ones_are_other()
     header("fifo", "6", 0) ..
     header("after", "0", 4) .. padded("tail") .. END
   local r = Tar.reader(Stream.from_string(raw))
-  local kinds: {string} = {}
-  local last: Tar.Entry
+  local kinds: mut {string} = {}
+  local last: Tar.Entry?
   while true do
     local entry, trouble = r:next()
     assert(trouble == "", trouble)
@@ -412,7 +412,7 @@ local function test_typeflag_7_is_a_file_and_sparse_or_unknown_ones_are_other()
   end
   assert(table.concat(kinds, ",") ==
       "contig=file,gnu-sparse=other,pax-sparse=other,fifo=other,after=file", table.concat(kinds, ","))
-  assert(last.typeflag == "0")
+  assert(last ~= nil and last.typeflag == "0")
 end
 
 local function test_mtimes_outside_the_octal_field_round_trip_through_pax()
@@ -423,7 +423,7 @@ local function test_mtimes_outside_the_octal_field_round_trip_through_pax()
   assert(w:add_file("now", "x", { mtime = 1700000000 }))
   assert(w:close())
   local r = Tar.reader(Stream.from_string(c:result()))
-  local seen: {string:integer} = {}
+  local seen: mut {string:integer} = {}
   while true do
     local entry = r:next()
     if entry == nil then break end
@@ -511,7 +511,7 @@ end
 local function trickle(data: string, step: integer): Stream.Reader
   local inner = Stream.from_string(data)
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
     local want = max_bytes or step
     if want > step then want = step end
     return inner:read(want)
@@ -573,7 +573,7 @@ end
 
 local function test_a_failing_body_names_what_the_writer_was_doing()
   local bad: Stream.Reader = {}
-  bad.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
+  bad.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
     return nil, "disk on fire"
   end
   bad.close = function(_self: Stream.Reader): boolean, string return true, "" end
@@ -605,4 +605,29 @@ local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
   assert(not ok and trouble == "disk full", trouble)
   ok, trouble = w:close()
   assert(not ok and trouble == "disk full", trouble)
+end
+
+local function test_a_header_checksum_counts_unsigned_bytes_and_its_own_field_as_spaces()
+  local name = ("\255"):rep(20) .. "x"
+  local c = Stream.collect()
+  local w = Tar.writer(c)
+  assert(w:add_file(name, "data"))
+  assert(w:close())
+  local block = c:result():sub(1, 512)
+  local expected = 8 * 32
+  for i = 1, 512 do
+    if i < 149 or i > 156 then expected = expected + block:byte(i) end
+  end
+  assert(expected > 20 * 255)
+  assert(tonumber(block:sub(149, 154), 8) == expected, block:sub(149, 156))
+  local r = Tar.reader(Stream.from_string(c:result()))
+  local entry = assert(r:next())
+  assert(entry.path == name, entry.path)
+end
+
+local function test_a_header_with_a_checksum_over_high_bytes_is_read()
+  local block = header(("\200"):rep(30), "0", 0)
+  local r = Tar.reader(Stream.from_string(block .. END))
+  local entry = assert(r:next())
+  assert(entry.path == ("\200"):rep(30), entry.path)
 end

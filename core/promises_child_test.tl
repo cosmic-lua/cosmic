@@ -10,6 +10,7 @@
 --- The refusals of what no start could keep, which need no filter, are
 --- core/promises_refused_test.tl's.
 
+local RawTables = require("build.raw_tables")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -23,22 +24,11 @@ local type _ = require("cosmic.child")
 -- These tests need a seccomp filter alone, which `sandbox` asks for with
 -- more (core/promises_system_test.tl's TODO names the narrower requirement).
 Test.policy{
-  grants = { { path = "/proc", letters = "r" } },
+  profiles = { "proc" },
   requires = { "sandbox" },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 --- What a script left on stdout and stderr, and how its program ended.
 local record Outcome
@@ -60,7 +50,7 @@ local function under(tmp: string, promises: {string}, script: string, probe?: st
     sys.close(output)
     Test.skip("the kernel gives no seccomp filter: " .. tostring(trouble))
   end
-  local status = assert(process.waitpid(pid, false))
+  local status = assert(process.waitpid(assert(pid), false))
   sys.close(output)
   return { code = status.code, signal = status.signal, said = (Fs.read(path)) or "" }
 end
@@ -75,7 +65,7 @@ local function test_the_static_core_runs_under_the_basics(tmp: string)
         "append " .. tmp .. "/f again; cat " .. tmp .. "/f; mkdirs " .. tmp .. "/d/e; " ..
         "mkfifo " .. tmp .. "/fifo; mode " .. tmp .. "/f; ls " .. tmp .. "/d; " ..
         "status-field Seccomp; status-field NoNewPrivs")
-    assert(outcome.code == 0, "a core under the basics ends with " .. outcome.code .. ": " .. outcome.said)
+    assert(outcome.code == 0, "a core under the basics ends with " .. tostring(outcome.code) .. ": " .. outcome.said)
     assert(outcome.said:find("hello\nworld\nagain\n", 1, true) == 1, outcome.said)
     assert(outcome.said:find("Seccomp:\t2\nNoNewPrivs:\t1\n", 1, true) ~= nil, outcome.said)
     assert(Fs.exists(tmp .. "/fifo"), "mknod of a fifo is a basic")
@@ -90,21 +80,21 @@ local function test_a_signal_to_itself_ends_it_and_to_another_is_refused(tmp: st
   -- Another process, one of this test's own: the filter answers EPERM, and it lives.
   local sleeper = assert(process.spawn(probe, { probe, "sleep-forever" }, nil, nil, nil, nil, nil,
     false))
-  local other = under(tmp, {}, "signal KILL " .. sleeper, probe)
+  local other = under(tmp, {}, "signal KILL " .. tostring(sleeper), probe)
   assert(sys.kill(sleeper, 0), "the other process is still there")
   assert(sys.kill(sleeper, sys.SIGKILL))
   assert(assert(process.waitpid(sleeper, false)).signal == sys.SIGKILL)
   assert(other.code == 1 and other.said:find("not permitted", 1, true) ~= nil,
-    "refused with EPERM: " .. other.code .. " " .. other.said)
+    "refused with EPERM: " .. tostring(other.code) .. " " .. other.said)
 end
 
 local function test_a_child_forks_only_with_fork(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local without = under(tmp, {}, "run " .. probe .. " print inner", probe)
-  assert(without.code == 127 and without.said == "", "a clone is refused: " .. without.code .. " " .. without.said)
+  assert(without.code == 127 and without.said == "", "a clone is refused: " .. tostring(without.code) .. " " .. without.said)
   for _, promises in ipairs({ { "fork" }, { "fork", "jit" }, { "fork", "jit", "fattr" } }) do
     local with = under(tmp, promises, "run " .. probe .. " print inner", probe)
-    assert(with.code == 0 and with.said == "inner\n", "forks: " .. with.code .. " " .. with.said)
+    assert(with.code == 0 and with.said == "inner\n", "forks: " .. tostring(with.code) .. " " .. with.said)
   end
   -- What it starts is held as it is: a grandchild has the filter too.
   local grandchild = under(tmp, { "fork" }, "run " .. probe .. " status-field Seccomp", probe)
@@ -117,7 +107,7 @@ local function test_the_mode_of_a_file_changes_only_with_fattr(tmp: string)
   assert(Fs.write(file, "x", 420))
   local without = under(tmp, { "fork", "jit" }, "chmod " .. file .. " 600", probe)
   assert(without.code == 1 and without.said:find("not permitted", 1, true) ~= nil,
-    "chmod is refused: " .. without.code .. " " .. without.said)
+    "chmod is refused: " .. tostring(without.code) .. " " .. without.said)
   assert(assert(sys.stat(file)).mode & 0xfff == 420)
   local with = under(tmp, { "fattr" }, "chmod " .. file .. " 600", probe)
   assert(with.code == 0, with.said)
@@ -126,7 +116,7 @@ local function test_the_mode_of_a_file_changes_only_with_fattr(tmp: string)
   for _, bits in ipairs({ "4755", "2755", "1755" }) do
     local special = under(tmp, { "fattr" }, "chmod " .. file .. " " .. bits, probe)
     assert(special.code == 1 and special.said:find("not permitted", 1, true) ~= nil,
-      bits .. " is refused: " .. special.code .. " " .. special.said)
+      bits .. " is refused: " .. tostring(special.code) .. " " .. special.said)
     assert(assert(sys.stat(file)).mode & 0xfff == 384)
   end
 end
@@ -150,7 +140,7 @@ local function test_no_socket_is_made_but_a_socketpair(tmp: string)
   local said = assert(Fs.read(tmp .. "/plain"))
   local own = assert(Fs.read("/proc/self/status")):match("\nSeccomp:%s*(%d+)") == "2"
   assert((said:find("not permitted", 1, true) ~= nil) == own,
-    (own and "the worker's own filter holds what it starts: " or "unfiltered: ") .. said)
+    (if own then "the worker's own filter holds what it starts: " else "unfiltered: " end) .. said)
 end
 
 --- Whether this process has CAP_SYS_RESOURCE in its permitted set, which
@@ -167,14 +157,14 @@ local function test_a_child_that_cannot_raise_a_hard_limit_sets_its_own_limits(t
   local raises = under(tmp, {}, "setrlimit nofile 64; setrlimit nofile 128", probe)
   if holds_resource_capability() then
     -- A child that can raise a hard limit keeps the filter's refusal.
-    assert(lowers.code == 1 and lowers.said:find("not permitted", 1, true), lowers.said)
-    assert(raises.code == 1 and raises.said:find("not permitted", 1, true), raises.said)
+    assert(lowers.code == 1 and lowers.said:find("not permitted", 1, true) ~= nil, lowers.said)
+    assert(raises.code == 1 and raises.said:find("not permitted", 1, true) ~= nil, raises.said)
     return
   end
   assert(lowers.code == 0 and lowers.said == "set\n", "it lowers its limits: " .. lowers.said)
   -- The first is let through, and the kernel refuses the raised hard limit.
   assert(raises.code == 1 and raises.said:find("set\n", 1, true) == 1 and
-      raises.said:find("not permitted", 1, true), "it raises none: " .. raises.said)
+      raises.said:find("not permitted", 1, true) ~= nil, "it raises none: " .. raises.said)
   -- Never another's, which the filter holds to the process itself.
   local other = under(tmp, {}, "rlimit nofile", probe)
   assert(other.code == 0, other.said)
@@ -182,7 +172,7 @@ end
 
 --- How many seccomp filters `probe` reports when started with `sandbox`:
 --- nil when the start is refused.
-local function filters(tmp: string, probe: string, sandbox?: raw_process.Sandbox): integer | nil
+local function filters(tmp: string, probe: string, sandbox?: raw_process.Sandbox): integer?
   local path = tmp .. "/filters"
   local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local pid = process.spawn(probe, { probe, "status-field Seccomp_filters" }, nil, nil, nil,
@@ -205,8 +195,11 @@ local function test_the_filter_stacks_with_a_pledge(tmp: string)
   under(tmp, {}, "status-field Seccomp", probe) -- skips where the kernel gives no filter
   local inherited = assert(filters(tmp, probe, nil))
   local both = filters(tmp, probe, { promises = {}, pledge = {} })
-  if both == nil then Test.skip("the kernel gives no seccomp filter beside a pledge") end
-  assert(both == inherited + 2, "filters: " .. inherited .. " inherited, " .. both .. " under both")
+  if both == nil then
+    Test.skip("the kernel gives no seccomp filter beside a pledge")
+    return
+  end
+  assert(both == inherited + 2, "filters: " .. tostring(inherited) .. " inherited, " .. tostring(both) .. " under both")
 end
 
 --- No grants, no Landlock domain, so no scope: the filter keeps its signal
@@ -214,6 +207,6 @@ end
 local function test_promises_without_grants_keep_the_filter_to_the_starting_pid(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local outcome = under(tmp, { "fork" }, "run " .. probe .. " signal TERM", probe)
-  assert(outcome.code == 1 and outcome.said:find("not permitted", 1, true),
-    "its own pid only: " .. outcome.code .. " " .. outcome.said)
+  assert(outcome.code == 1 and outcome.said:find("not permitted", 1, true) ~= nil,
+    "its own pid only: " .. tostring(outcome.code) .. " " .. outcome.said)
 end

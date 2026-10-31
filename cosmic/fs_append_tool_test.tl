@@ -37,7 +37,7 @@ local function test_append_concurrent_processes_preserve_both_ordered_streams(tm
   local b = assert(second:wait(Clock.seconds(10)))
   assert(a.ok, a.stderr)
   assert(b.ok, b.stderr)
-  local next_index: {string:integer} = { a = 1, b = 1 }
+  local next_index: mut {string:integer} = { a = 1, b = 1 }
   local data = assert(Fs.read(tmp .. "/log"))
   assert(#data == 14000)
   for name, index in data:gmatch("([ab]):(%d%d%d%d)\n") do

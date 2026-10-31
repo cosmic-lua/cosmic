@@ -42,6 +42,27 @@ local record Run
   tails: {string}
 end
 
+--- What the reference tokenizer holds while it reads: its state, the text
+--- gathered for the next token, the tag, attribute and comment being read,
+--- and the name of the last start tag.
+local record Machine
+  mut state: string
+  mut chars: string
+  mut last_tag: string
+  mut tag_kind: string
+  mut tag_name: string
+  mut tag_self: boolean
+  mut tag_attrs: mut {string: string}
+  mut attr_name: string
+  mut attr_value: string
+  mut attr_dup: boolean
+  mut has_attr: boolean
+  mut comment: string
+  mut temp: string
+  mut target: string
+  mut pi_data: string
+end
+
 local function is_alpha(c: string): boolean
   return c:find("^%a$") ~= nil
 end
@@ -53,16 +74,16 @@ end
 --- The canonical text of a tag token: its name, its attributes in name
 --- order and whether it closes itself.
 local function tag_text(kind: string, name: string, attrs: {string: string}, self: boolean): string
-  local names: {string} = {}
+  local names: mut {string} = {}
   for k in pairs(attrs) do
     names[#names + 1] = k
   end
   table.sort(names)
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, k in ipairs(names) do
     parts[#parts + 1] = k .. "=" .. attrs[k]
   end
-  return kind .. ":" .. name .. ":" .. table.concat(parts, "&") .. (self and ":/" or "")
+  return kind .. ":" .. name .. ":" .. table.concat(parts, "&") .. (if self then ":/" else "" end)
 end
 
 --- The tokens, and the state at every cut, that the HTML standard's
@@ -75,489 +96,485 @@ end
 --- its `>`, which every one of the standard's doctype states ends at.
 local function tokenize(input: string, initial: string, last_tag: string): Run
   local n = #input
-  local tokens: {string} = {}
-  local states: {string} = {}
-  local attr_at: {string} = {}
-  local tails: {string} = {}
-  local state = initial
-  local chars = ""
-  -- The tag being read.
-  local tag_kind, tag_name, tag_self = "S", "", false
-  local tag_attrs: {string: string} = {}
-  local attr_name, attr_value, attr_dup = "", "", false
-  local has_attr = false
-  local comment = ""
-  local temp = ""
-  local target, pi_data = "", ""
+  local tokens: mut {string} = {}
+  local states: mut {string} = {}
+  local attr_at: mut {string} = {}
+  local tails: mut {string} = {}
+  local m: Machine = {
+    state = initial, chars = "", last_tag = last_tag,
+    tag_kind = "S", tag_name = "", tag_self = false, tag_attrs = {},
+    attr_name = "", attr_value = "", attr_dup = false, has_attr = false,
+    comment = "", temp = "", target = "", pi_data = "",
+  }
 
   local function flush()
-    if chars ~= "" then
-      tokens[#tokens + 1] = "C:" .. chars
-      chars = ""
+    if m.chars ~= "" then
+      tokens[#tokens + 1] = "C:" .. m.chars
+      m.chars = ""
     end
   end
   local function finish_attr()
-    if has_attr and not attr_dup then
-      tag_attrs[attr_name] = attr_value
+    if m.has_attr and not m.attr_dup then
+      m.tag_attrs[m.attr_name] = m.attr_value
     end
-    has_attr, attr_dup = false, false
+    m.has_attr, m.attr_dup = false, false
   end
   local function emit_tag()
     finish_attr()
     flush()
-    if tag_kind == "S" then
-      last_tag = tag_name
-      tokens[#tokens + 1] = tag_text("S", tag_name, tag_attrs, tag_self)
+    if m.tag_kind == "S" then
+      m.last_tag = m.tag_name
+      table.insert(tokens, tag_text("S", m.tag_name, m.tag_attrs, m.tag_self))
     else
-      tokens[#tokens + 1] = "E:" .. tag_name
+      tokens[#tokens + 1] = "E:" .. m.tag_name
     end
   end
   local function new_tag(kind: string)
-    tag_kind, tag_name, tag_self, tag_attrs = kind, "", false, {}
-    has_attr, attr_dup = false, false
+    m.tag_kind, m.tag_name, m.tag_self, m.tag_attrs = kind, "", false, {}
+    m.has_attr, m.attr_dup = false, false
   end
   local function new_attr(first: string)
     finish_attr()
-    attr_name, attr_value, has_attr = first, "", true
-    attr_dup = tag_attrs[first] ~= nil
+    m.attr_name, m.attr_value, m.has_attr = first, "", true
+    m.attr_dup = m.tag_attrs[first] ~= nil
   end
   local function emit_comment()
     flush()
-    tokens[#tokens + 1] = "M:" .. comment
-    comment = ""
+    tokens[#tokens + 1] = "M:" .. m.comment
+    m.comment = ""
   end
   local function appropriate(): boolean
-    return tag_kind == "E" and tag_name == last_tag
+    return m.tag_kind == "E" and m.tag_name == m.last_tag
   end
 
   --- Reads `c` in the current state; true when the state it left must
   --- read `c` again.
   local function step(c: string): boolean
-    local s = state
+    local s = m.state
     if s == "data" then
-      if c == "<" then state = "tag_open" else chars = chars .. c end
+      if c == "<" then m.state = "tag_open" else m.chars = m.chars .. c end
     elseif s == "rcdata" or s == "rawtext" or s == "script" then
-      if c == "<" then state = s .. "_lt" else chars = chars .. c end
+      if c == "<" then m.state = s .. "_lt" else m.chars = m.chars .. c end
     elseif s == "rcdata_lt" or s == "rawtext_lt" or s == "script_lt" then
       local back = s:sub(1, -4)
       if c == "/" then
-        temp, state = "", back .. "_end_open"
+        m.temp, m.state = "", back .. "_end_open"
       elseif c == "!" and back == "script" then
-        chars = chars .. "<!"
-        state = "script_escape_start"
+        m.chars = m.chars .. "<!"
+        m.state = "script_escape_start"
       else
-        chars = chars .. "<"
-        state = back
+        m.chars = m.chars .. "<"
+        m.state = back
         return true
       end
     elseif s:find("_end_open$") then
       local back = s:sub(1, -10)
       if is_alpha(c) then
         new_tag("E")
-        state = back .. "_end_name"
+        m.state = back .. "_end_name"
         return true
       end
-      chars = chars .. "</"
-      state = back
+      m.chars = m.chars .. "</"
+      m.state = back
       return true
     elseif s:find("_end_name$") then
       local back = s:sub(1, -10)
       if is_space(c) and appropriate() then
-        state = "before_attr_name"
+        m.state = "before_attr_name"
       elseif c == "/" and appropriate() then
-        state = "self_closing"
+        m.state = "self_closing"
       elseif c == ">" and appropriate() then
         emit_tag()
-        state = "data"
+        m.state = "data"
       elseif is_alpha(c) then
-        tag_name = tag_name .. c:lower()
-        temp = temp .. c
+        m.tag_name = m.tag_name .. c:lower()
+        m.temp = m.temp .. c
       else
-        chars = chars .. "</" .. temp
-        state = back
+        m.chars = m.chars .. "</" .. m.temp
+        m.state = back
         return true
       end
     elseif s == "plaintext" then
-      chars = chars .. c
+      m.chars = m.chars .. c
     elseif s == "script_escape_start" then
       if c == "-" then
-        chars = chars .. c
-        state = "script_escape_start_dash"
+        m.chars = m.chars .. c
+        m.state = "script_escape_start_dash"
       else
-        state = "script"
+        m.state = "script"
         return true
       end
     elseif s == "script_escape_start_dash" then
       if c == "-" then
-        chars = chars .. c
-        state = "script_escaped_dash_dash"
+        m.chars = m.chars .. c
+        m.state = "script_escaped_dash_dash"
       else
-        state = "script"
+        m.state = "script"
         return true
       end
     elseif s == "script_escaped" then
       if c == "-" then
-        chars = chars .. c
-        state = "script_escaped_dash"
+        m.chars = m.chars .. c
+        m.state = "script_escaped_dash"
       elseif c == "<" then
-        state = "script_escaped_lt"
+        m.state = "script_escaped_lt"
       else
-        chars = chars .. c
+        m.chars = m.chars .. c
       end
     elseif s == "script_escaped_dash" then
       if c == "-" then
-        chars = chars .. c
-        state = "script_escaped_dash_dash"
+        m.chars = m.chars .. c
+        m.state = "script_escaped_dash_dash"
       elseif c == "<" then
-        state = "script_escaped_lt"
+        m.state = "script_escaped_lt"
       else
-        chars = chars .. c
-        state = "script_escaped"
+        m.chars = m.chars .. c
+        m.state = "script_escaped"
       end
     elseif s == "script_escaped_dash_dash" then
       if c == "-" then
-        chars = chars .. c
+        m.chars = m.chars .. c
       elseif c == "<" then
-        state = "script_escaped_lt"
+        m.state = "script_escaped_lt"
       elseif c == ">" then
-        chars = chars .. c
-        state = "script"
+        m.chars = m.chars .. c
+        m.state = "script"
       else
-        chars = chars .. c
-        state = "script_escaped"
+        m.chars = m.chars .. c
+        m.state = "script_escaped"
       end
     elseif s == "script_escaped_lt" then
       if c == "/" then
-        temp, state = "", "script_escaped_end_open"
+        m.temp, m.state = "", "script_escaped_end_open"
       elseif is_alpha(c) then
-        temp = ""
-        chars = chars .. "<"
-        state = "script_double_escape_start"
+        m.temp = ""
+        m.chars = m.chars .. "<"
+        m.state = "script_double_escape_start"
         return true
       else
-        chars = chars .. "<"
-        state = "script_escaped"
+        m.chars = m.chars .. "<"
+        m.state = "script_escaped"
         return true
       end
     elseif s == "script_double_escape_start" then
       if is_space(c) or c == "/" or c == ">" then
-        state = temp == "script" and "script_double_escaped" or "script_escaped"
-        chars = chars .. c
+        m.state = if m.temp == "script" then "script_double_escaped" else "script_escaped" end
+        m.chars = m.chars .. c
       elseif is_alpha(c) then
-        temp = temp .. c:lower()
-        chars = chars .. c
+        m.temp = m.temp .. c:lower()
+        m.chars = m.chars .. c
       else
-        state = "script_escaped"
+        m.state = "script_escaped"
         return true
       end
     elseif s == "script_double_escaped" then
-      chars = chars .. c
+      m.chars = m.chars .. c
       if c == "-" then
-        state = "script_double_escaped_dash"
+        m.state = "script_double_escaped_dash"
       elseif c == "<" then
-        state = "script_double_escaped_lt"
+        m.state = "script_double_escaped_lt"
       end
     elseif s == "script_double_escaped_dash" then
-      chars = chars .. c
+      m.chars = m.chars .. c
       if c == "-" then
-        state = "script_double_escaped_dash_dash"
+        m.state = "script_double_escaped_dash_dash"
       elseif c == "<" then
-        state = "script_double_escaped_lt"
+        m.state = "script_double_escaped_lt"
       else
-        state = "script_double_escaped"
+        m.state = "script_double_escaped"
       end
     elseif s == "script_double_escaped_dash_dash" then
-      chars = chars .. c
+      m.chars = m.chars .. c
       if c == "<" then
-        state = "script_double_escaped_lt"
+        m.state = "script_double_escaped_lt"
       elseif c == ">" then
-        state = "script"
+        m.state = "script"
       elseif c ~= "-" then
-        state = "script_double_escaped"
+        m.state = "script_double_escaped"
       end
     elseif s == "script_double_escaped_lt" then
       if c == "/" then
-        temp = ""
-        chars = chars .. c
-        state = "script_double_escape_end"
+        m.temp = ""
+        m.chars = m.chars .. c
+        m.state = "script_double_escape_end"
       else
-        state = "script_double_escaped"
+        m.state = "script_double_escaped"
         return true
       end
     elseif s == "script_double_escape_end" then
       if is_space(c) or c == "/" or c == ">" then
-        state = temp == "script" and "script_escaped" or "script_double_escaped"
-        chars = chars .. c
+        m.state = if m.temp == "script" then "script_escaped" else "script_double_escaped" end
+        m.chars = m.chars .. c
       elseif is_alpha(c) then
-        temp = temp .. c:lower()
-        chars = chars .. c
+        m.temp = m.temp .. c:lower()
+        m.chars = m.chars .. c
       else
-        state = "script_double_escaped"
+        m.state = "script_double_escaped"
         return true
       end
     elseif s == "tag_open" then
       if c == "!" then
-        state = "markup_declaration"
+        m.state = "markup_declaration"
       elseif c == "/" then
-        state = "end_tag_open"
+        m.state = "end_tag_open"
       elseif is_alpha(c) then
         new_tag("S")
-        state = "tag_name"
+        m.state = "tag_name"
         return true
       elseif c == "?" then
-        state = "pi_start"
+        m.state = "pi_start"
       else
-        chars = chars .. "<"
-        state = "data"
+        m.chars = m.chars .. "<"
+        m.state = "data"
         return true
       end
     elseif s == "end_tag_open" then
       if is_alpha(c) then
         new_tag("E")
-        state = "tag_name"
+        m.state = "tag_name"
         return true
       elseif c == ">" then
-        state = "data"
+        m.state = "data"
       else
-        comment = ""
-        state = "bogus_comment"
+        m.comment = ""
+        m.state = "bogus_comment"
         return true
       end
     elseif s == "tag_name" then
       if is_space(c) then
-        state = "before_attr_name"
+        m.state = "before_attr_name"
       elseif c == "/" then
-        state = "self_closing"
+        m.state = "self_closing"
       elseif c == ">" then
         emit_tag()
-        state = "data"
+        m.state = "data"
       else
-        tag_name = tag_name .. c:lower()
+        m.tag_name = m.tag_name .. c:lower()
       end
     elseif s == "before_attr_name" then
       if c == "/" or c == ">" then
-        state = "after_attr_name"
+        m.state = "after_attr_name"
         return true
       elseif c == "=" then
         new_attr("=")
-        state = "attr_name"
+        m.state = "attr_name"
       elseif not is_space(c) then
         new_attr("")
-        state = "attr_name"
+        m.state = "attr_name"
         return true
       end
     elseif s == "attr_name" then
       if is_space(c) or c == "/" or c == ">" then
-        state = "after_attr_name"
+        m.state = "after_attr_name"
         return true
       elseif c == "=" then
-        state = "before_attr_value"
+        m.state = "before_attr_value"
       else
-        attr_name = attr_name .. c:lower()
-        attr_dup = tag_attrs[attr_name] ~= nil
+        m.attr_name = m.attr_name .. c:lower()
+        m.attr_dup = m.tag_attrs[m.attr_name] ~= nil
       end
     elseif s == "after_attr_name" then
       if c == "/" then
-        state = "self_closing"
+        m.state = "self_closing"
       elseif c == "=" then
-        state = "before_attr_value"
+        m.state = "before_attr_value"
       elseif c == ">" then
         emit_tag()
-        state = "data"
+        m.state = "data"
       elseif not is_space(c) then
         new_attr("")
-        state = "attr_name"
+        m.state = "attr_name"
         return true
       end
     elseif s == "before_attr_value" then
       if c == '"' then
-        state = "value_dq"
+        m.state = "value_dq"
       elseif c == "'" then
-        state = "value_sq"
+        m.state = "value_sq"
       elseif c == ">" then
         emit_tag()
-        state = "data"
+        m.state = "data"
       elseif not is_space(c) then
-        state = "value_unq"
+        m.state = "value_unq"
         return true
       end
     elseif s == "value_dq" or s == "value_sq" then
-      if c == (s == "value_dq" and '"' or "'") then
-        state = "after_value"
+      if c == (if s == "value_dq" then '"' else "'" end) then
+        m.state = "after_value"
       else
-        attr_value = attr_value .. c
+        m.attr_value = m.attr_value .. c
       end
     elseif s == "value_unq" then
       if is_space(c) then
-        state = "before_attr_name"
+        m.state = "before_attr_name"
       elseif c == ">" then
         emit_tag()
-        state = "data"
+        m.state = "data"
       else
-        attr_value = attr_value .. c
+        m.attr_value = m.attr_value .. c
       end
     elseif s == "after_value" then
       if is_space(c) then
-        state = "before_attr_name"
+        m.state = "before_attr_name"
       elseif c == "/" then
-        state = "self_closing"
+        m.state = "self_closing"
       elseif c == ">" then
         emit_tag()
-        state = "data"
+        m.state = "data"
       else
-        state = "before_attr_name"
+        m.state = "before_attr_name"
         return true
       end
     elseif s == "self_closing" then
       if c == ">" then
-        tag_self = true
+        m.tag_self = true
         emit_tag()
-        state = "data"
+        m.state = "data"
       else
-        state = "before_attr_name"
+        m.state = "before_attr_name"
         return true
       end
     elseif s == "pi_start" then
       if is_alpha(c) then
-        target, pi_data = "", ""
-        state = "pi_target"
+        m.target, m.pi_data = "", ""
+        m.state = "pi_target"
         return true
       end
-      comment = "?"
-      state = "bogus_comment"
+      m.comment = "?"
+      m.state = "bogus_comment"
       return true
     elseif s == "pi_target" then
       if is_space(c) then
-        state = "pi_data"
+        m.state = "pi_data"
       elseif c == ">" then
         flush()
-        tokens[#tokens + 1] = "P:" .. target .. ":"
-        state = "data"
+        tokens[#tokens + 1] = "P:" .. m.target .. ":"
+        m.state = "data"
       else
-        target = target .. c
+        m.target = m.target .. c
       end
     elseif s == "pi_data" then
       if c == "?" then
-        state = "pi_question"
+        m.state = "pi_question"
       elseif c == ">" then
         flush()
-        tokens[#tokens + 1] = "P:" .. target .. ":" .. pi_data
-        state = "data"
+        tokens[#tokens + 1] = "P:" .. m.target .. ":" .. m.pi_data
+        m.state = "data"
       else
-        pi_data = pi_data .. c
+        m.pi_data = m.pi_data .. c
       end
     elseif s == "pi_question" then
       if c == ">" then
         flush()
-        tokens[#tokens + 1] = "P:" .. target .. ":" .. pi_data
-        state = "data"
+        tokens[#tokens + 1] = "P:" .. m.target .. ":" .. m.pi_data
+        m.state = "data"
       elseif c == "?" then
-        pi_data = pi_data .. "?"
+        m.pi_data = m.pi_data .. "?"
       else
-        pi_data = pi_data .. "?" .. c
-        state = "pi_data"
+        m.pi_data = m.pi_data .. "?" .. c
+        m.state = "pi_data"
       end
     elseif s == "bogus_comment" then
       if c == ">" then
         emit_comment()
-        state = "data"
+        m.state = "data"
       else
-        comment = comment .. c
+        m.comment = m.comment .. c
       end
     elseif s == "doctype" then
       if c == ">" then
         flush()
         tokens[#tokens + 1] = "D"
-        state = "data"
+        m.state = "data"
       end
     elseif s == "comment_start" then
       if c == "-" then
-        state = "comment_start_dash"
+        m.state = "comment_start_dash"
       elseif c == ">" then
         emit_comment()
-        state = "data"
+        m.state = "data"
       else
-        state = "comment"
+        m.state = "comment"
         return true
       end
     elseif s == "comment_start_dash" then
       if c == "-" then
-        state = "comment_end"
+        m.state = "comment_end"
       elseif c == ">" then
         emit_comment()
-        state = "data"
+        m.state = "data"
       else
-        comment = comment .. "-"
-        state = "comment"
+        m.comment = m.comment .. "-"
+        m.state = "comment"
         return true
       end
     elseif s == "comment" then
       if c == "<" then
-        comment = comment .. c
-        state = "comment_lt"
+        m.comment = m.comment .. c
+        m.state = "comment_lt"
       elseif c == "-" then
-        state = "comment_end_dash"
+        m.state = "comment_end_dash"
       else
-        comment = comment .. c
+        m.comment = m.comment .. c
       end
     elseif s == "comment_lt" then
       if c == "!" then
-        comment = comment .. c
-        state = "comment_lt_bang"
+        m.comment = m.comment .. c
+        m.state = "comment_lt_bang"
       elseif c == "<" then
-        comment = comment .. c
+        m.comment = m.comment .. c
       else
-        state = "comment"
+        m.state = "comment"
         return true
       end
     elseif s == "comment_lt_bang" then
       if c == "-" then
-        state = "comment_lt_bang_dash"
+        m.state = "comment_lt_bang_dash"
       else
-        state = "comment"
+        m.state = "comment"
         return true
       end
     elseif s == "comment_lt_bang_dash" then
       if c == "-" then
-        state = "comment_lt_bang_dash_dash"
+        m.state = "comment_lt_bang_dash_dash"
       else
-        state = "comment_end_dash"
+        m.state = "comment_end_dash"
         return true
       end
     elseif s == "comment_lt_bang_dash_dash" then
-      state = "comment_end"
+      m.state = "comment_end"
       return true
     elseif s == "comment_end_dash" then
       if c == "-" then
-        state = "comment_end"
+        m.state = "comment_end"
       else
-        comment = comment .. "-"
-        state = "comment"
+        m.comment = m.comment .. "-"
+        m.state = "comment"
         return true
       end
     elseif s == "comment_end" then
       if c == ">" then
         emit_comment()
-        state = "data"
+        m.state = "data"
       elseif c == "!" then
-        state = "comment_end_bang"
+        m.state = "comment_end_bang"
       elseif c == "-" then
-        comment = comment .. "-"
+        m.comment = m.comment .. "-"
       else
-        comment = comment .. "--"
-        state = "comment"
+        m.comment = m.comment .. "--"
+        m.state = "comment"
         return true
       end
     elseif s == "comment_end_bang" then
       if c == "-" then
-        comment = comment .. "--!"
-        state = "comment_end_dash"
+        m.comment = m.comment .. "--!"
+        m.state = "comment_end_dash"
       elseif c == ">" then
         emit_comment()
-        state = "data"
+        m.state = "data"
       else
-        comment = comment .. "--!"
-        state = "comment"
+        m.comment = m.comment .. "--!"
+        m.state = "comment"
         return true
       end
     else
@@ -567,74 +584,75 @@ local function tokenize(input: string, initial: string, last_tag: string): Run
   end
 
   local function tail(): string
-    if state == "rcdata_lt" then
+    if m.state == "rcdata_lt" then
       return "<"
-    elseif state == "rcdata_end_open" then
+    elseif m.state == "rcdata_end_open" then
       return "</"
-    elseif state == "rcdata_end_name" then
-      return "</" .. temp
+    elseif m.state == "rcdata_end_name" then
+      return "</" .. m.temp
     end
     return ""
   end
 
-  states[1] = state
+  states[1] = m.state
   attr_at[1] = ""
   tails[1] = ""
   local i = 1
   while i <= n do
     local c = input:sub(i, i)
-    if state == "markup_declaration" then
+    if m.state == "markup_declaration" then
       -- The standard looks ahead here: `--`, `DOCTYPE` or `[CDATA[` are
       -- taken whole; the cuts inside them stand in this state.
       local width = 0
       local next_state = "bogus_comment"
-      comment = ""
+      m.comment = ""
       if input:sub(i, i + 1) == "--" then
         width, next_state = 2, "comment_start"
       elseif input:sub(i, i + 6):upper() == "DOCTYPE" then
         width, next_state = 7, "doctype"
       elseif input:sub(i, i + 6) == "[CDATA[" then
         -- Outside foreign content, which the tests never reach.
-        width, next_state, comment = 7, "bogus_comment", "[CDATA["
+        width, next_state, m.comment = 7, "bogus_comment", "[CDATA["
       end
-      for k = 1, width - 1 do
-        states[i + k] = "markup_declaration"
-        attr_at[i + k] = ""
-        tails[i + k] = ""
+      for _ = 1, width - 1 do
+        states[#states + 1] = "markup_declaration"
+        attr_at[#attr_at + 1] = ""
+        tails[#tails + 1] = ""
       end
       if width > 0 then
         i = i + width
-        state = next_state
-        states[i] = state
-        attr_at[i] = ""
-        tails[i] = ""
+        m.state = next_state
+        states[#states + 1] = m.state
+        attr_at[#attr_at + 1] = ""
+        tails[#tails + 1] = ""
       else
-        state = next_state
+        m.state = next_state
       end
     else
       while step(c) do
       end
       i = i + 1
-      states[i] = state
-      attr_at[i] = (state == "value_dq" or state == "value_sq") and attr_name or ""
-      tails[i] = tail()
+      local rest = tail()
+      states[#states + 1] = m.state
+      attr_at[#attr_at + 1] = (m.state == "value_dq" or m.state == "value_sq") and m.attr_name or ""
+      tails[#tails + 1] = rest
     end
   end
 
   -- The end of the input, in whatever state it leaves the tokenizer:
   -- what a state held back is text, and an open comment or doctype ends.
-  local s = state
+  local s = m.state
   if s == "tag_open" or s == "rcdata_lt" or s == "rawtext_lt" or s == "script_lt" or
       s == "script_escaped_lt" then
-    chars = chars .. "<"
+    m.chars = m.chars .. "<"
   elseif s:find("_end_open$") then
-    chars = chars .. "</"
+    m.chars = m.chars .. "</"
   elseif s == "end_tag_open" then
-    chars = chars .. "</"
+    m.chars = m.chars .. "</"
   elseif s:find("_end_name$") then
-    chars = chars .. "</" .. temp
+    m.chars = m.chars .. "</" .. m.temp
   elseif s == "markup_declaration" then
-    comment = ""
+    m.comment = ""
     emit_comment()
   elseif s == "bogus_comment" or s:find("^comment") then
     emit_comment()
@@ -687,7 +705,7 @@ local URL_ATTRS <const>: {string: boolean} = {
 
 --- What a slot is, from the Teal the template compiles to.
 local function kind_of(out: string): string
-  for _, kind in ipairs({ "text", "rtext", "attr", "url" }) do
+  for _, kind in ipairs({ "text", "rtext", "ftext", "attr", "url", "part" }) do
     if out:find("parts[#parts + 1] = _" .. kind .. "(", 1, true) then
       return kind
     end
@@ -704,12 +722,13 @@ end
 
 --- Whether a slot of `kind` may stand where the tokenizer is in `state`
 --- (reading the attribute `attr`, when in a quoted value): in text, one
---- the escaper for text is right for; in RCDATA, the one for it; in a
---- quoted attribute value, a URL's where the attribute takes one and an
---- attribute's elsewhere, and never in one that is code; nowhere else.
+--- the escaper for text is right for (`ftext` too, which takes less); in
+--- RCDATA, the one for it; in a quoted attribute value, a URL's where the
+--- attribute takes one and an attribute's elsewhere, and never in one
+--- that is code; nowhere else.
 local function allowed(state: string, kind: string, attr: string, tail: string, tag: string): boolean
   if state == "data" then
-    return kind == "text"
+    return kind == "text" or kind == "ftext"
   elseif state == "rcdata" then
     return kind == "rtext"
   elseif state == "rcdata_lt" or state == "rcdata_end_open" or state == "rcdata_end_name" then
@@ -720,9 +739,9 @@ local function allowed(state: string, kind: string, attr: string, tail: string, 
     if is_code(attr) then
       return false
     elseif URL_ATTRS[attr] then
-      return kind == "url"
+      return kind == "url" or kind == "part"
     end
-    return kind == "attr" or (kind == "url" and attr == "archive")
+    return kind == "attr" or ((kind == "url" or kind == "part") and attr == "archive")
   end
   return false
 end
@@ -746,10 +765,10 @@ local MARKUP_CLOSERS <const>: {string} = { "", ">", "\">", "'>", "-->" }
 --- plain text (an `html` template must end there), or nil if none of the
 --- ones tried does. What follows a slot cannot change where the slot
 --- stands, so any that compiles will do, and one is found with no slot.
-local function closer_for(wrapper: string, input: string): string | nil
+local function closer_for(wrapper: string, input: string): string?
   local tag = wrapper:match("^<(%a+)>$")
   for _, base in ipairs(MARKUP_CLOSERS) do
-    for _, tail in ipairs({ "", tag and ("</" .. tag .. ">") or "" }) do
+    for _, tail in ipairs({ "", if tag then ("</" .. tag .. ">") else "" end }) do
       local closer = base .. tail
       if Template.compile(HEAD .. wrapper .. input .. closer, "t.tmpl") ~= nil then
         return closer
@@ -761,18 +780,18 @@ end
 
 --- What the checks reached, so the test can hold a floor under them.
 local record Reach
-  cases: integer
-  unclosed: integer
-  closers: integer
-  validated: integer
-  positions: integer
-  accepted: {string: integer}
-  failures: {string}
+  mut cases: integer
+  mut unclosed: integer
+  mut closers: integer
+  mut validated: integer
+  mut positions: integer
+  accepted: mut {string: integer}
+  failures: mut {string}
 end
 
 --- The tokens a case expects, as `tokenize` writes them.
 local function expected_tokens(output: {any}): {string}
-  local tokens: {string} = {}
+  local tokens: mut {string} = {}
   local chars = ""
   for _, raw in ipairs(output) do
     local item = raw as {any}
@@ -785,7 +804,7 @@ local function expected_tokens(output: {any}): {string}
         chars = ""
       end
       if kind == "StartTag" then
-        local attrs: {string: string} = {}
+        local attrs: mut {string: string} = {}
         for k, v in pairs(item[3] as {string: any}) do
           attrs[k] = v as string
         end
@@ -820,7 +839,7 @@ local function same_tokens(a: {string}, b: {string}): boolean
 end
 
 local function check_case(
-    description: string, input: string, initial: string, last_tag: string | nil,
+    description: string, input: string, initial: string, last_tag: string?,
     output: {any}, reach: Reach)
   local state = STATES[initial]
   if state == nil or input:find("{{", 1, true) or input:find("[&%z\r]") then
@@ -833,11 +852,15 @@ local function check_case(
   -- stands only if its tokens are the same.
   local borrowed = false
   if state ~= "data" then
-    if last == nil or not WRAPPERS[state][last] then
+    local named: string
+    if last ~= nil and WRAPPERS[state][last] then
+      named = last
+    else
       borrowed = last ~= nil
-      last = DEFAULT_WRAPPER[state]
+      named = DEFAULT_WRAPPER[state]
     end
-    wrapper = "<" .. last .. ">"
+    last = named
+    wrapper = "<" .. named .. ">"
   end
   reach.cases = reach.cases + 1
   local run = tokenize(input, state, last or "")
@@ -845,7 +868,7 @@ local function check_case(
     if borrowed then
       return
     end
-    reach.failures[#reach.failures + 1] = ("reference tokenizer: %s (%s): %q"):format(description, initial, input)
+    table.insert(reach.failures, ("reference tokenizer: %s (%s): %q"):format(description, initial, input))
     return
   end
   -- The input after the end tag that leaves RCDATA, RAWTEXT or script
@@ -885,8 +908,8 @@ local function check_case(
         local key = where .. "/" .. kind
         reach.accepted[key] = (reach.accepted[key] or 0) + 1
         if not allowed(where, kind, run.attrs[at + 1], run.tails[at + 1], last or "") then
-          reach.failures[#reach.failures + 1] = ("%s (%s): slot %s at %d of %q: tokenizer is in %s"):format(
-            description, initial, kind, at, input, where)
+          table.insert(reach.failures, ("%s (%s): slot %s at %d of %q: tokenizer is in %s"):format(
+            description, initial, kind, at, input, where))
         end
       end
     end
@@ -925,11 +948,11 @@ local function test_a_slot_is_accepted_only_where_the_tokenizer_is_in_the_state_
       end
     end
   end
-  assert(#reach.failures == 0, #reach.failures .. " failures:\n" ..
+  assert(#reach.failures == 0, tostring(#reach.failures) .. " failures:\n" ..
       table.concat(reach.failures, "\n", 1, math.min(#reach.failures, 30)))
-  local summary: {string} = {}
+  local summary: mut {string} = {}
   for key, count in pairs(reach.accepted) do
-    summary[#summary + 1] = key .. "=" .. count
+    summary[#summary + 1] = key .. "=" .. tostring(count)
   end
   table.sort(summary)
   print(("tokenizer: %d cases, %d validated, %d unclosed, %d positions; accepted %s"):format(
@@ -937,10 +960,10 @@ local function test_a_slot_is_accepted_only_where_the_tokenizer_is_in_the_state_
   -- It reaches 2148 cases, 2086 validated, 21803 positions, and accepts
   -- 2841 slots of text, 134 of rtext, 21 of rtext in the name of an end
   -- tag that cannot be the element's, and 209 in attributes.
-  assert(reach.cases >= 2050 and reach.validated >= 2050, "only " .. reach.validated .. " cases were validated")
+  assert(reach.cases >= 2050 and reach.validated >= 2050, "only " .. tostring(reach.validated) .. " cases were validated")
   -- The template's ending is held to: many cases need a closer to compile.
-  assert(reach.closers >= 1000, "only " .. reach.closers .. " cases needed a closer")
-  assert(reach.positions >= 20500, "only " .. reach.positions .. " positions were checked")
+  assert(reach.closers >= 1000, "only " .. tostring(reach.closers) .. " cases needed a closer")
+  assert(reach.positions >= 20500, "only " .. tostring(reach.positions) .. " positions were checked")
   local attrs = (reach.accepted["value_dq/attr"] or 0) + (reach.accepted["value_sq/attr"] or 0)
   assert((reach.accepted["data/text"] or 0) >= 2600 and (reach.accepted["rcdata/rtext"] or 0) >= 120 and
       (reach.accepted["rcdata_end_name/rtext"] or 0) >= 15 and attrs >= 190,

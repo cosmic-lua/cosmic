@@ -25,7 +25,7 @@ artifact. SQLite reads only the validated database range.
 
 [`build.zig`](../../build.zig) owns native compilation. Its `cores` step builds
 the same C sources for `x86_64-linux-musl`, `aarch64-linux-musl`, and
-`aarch64-macos`. It also writes `o/targets.tsv`. Each record gives a stable
+`aarch64-macos`. It also writes `targets.tsv` in the build directory. Each record gives a stable
 numeric identity, configuration, target name, and `uname` pair.
 
 The generated records are the authority shared by Zig, the artifact writer,
@@ -40,17 +40,17 @@ Cosmic executable exists.
 
 ## separate working and shipped state
 
-Boot opens `o/build.db` through [`build.work`](../../build/work.tl). This is a
+Boot opens the build directory's `build.db` through [`build.work`](../../build/work.tl). This is a
 mutable working database. It holds staged source, parsed forms, compiled
 modules, test verdicts, coverage, and recent build records. Raw cores remain
-files under `o/core`; they are never database rows.
+files under the build directory's `core/`; they are never database rows.
 
 [`build.importer`](../../build/importer.tl) derives generated modules and
 compiles the staged tree. [`build.writer`](../../build/writer.tl) projects the
-result into `o/cosmic.db`, a fresh host-neutral database. The projection has a
+result into the build directory's `cosmic.db`, a fresh host-neutral database. The projection has a
 smaller schema, deterministic insertion order, natural keys, and no working
 history. In cosmic's own tree, the database the tool carries is
-`o/carried.db`, which [`writer.carried`] derives from the projection by leaving
+`carried.db`, which [`writer.carried`] derives from the projection by leaving
 out the tree's own tests and examples, and every row about one, and every
 docs, uses and examples row but the public standard library's (and the doc
 rows the error catalog's guidance joins to).
@@ -58,7 +58,7 @@ rows the error catalog's guidance joins to).
 The writer hashes the planned modules, declarations, build identities, main
 module, and format name. It stores that signature inside the projection. A
 later write skips work only when the file at the output path carries the same
-signature. A side record in `o/build.db` cannot make a replaced output look
+signature. A side record in `build.db` cannot make a replaced output look
 current.
 
 [`cosmic.store`](../../cosmic/store.tl) exposes these identities: each
@@ -137,8 +137,15 @@ replacement, and database-only rebuilds.
 ## select and cache one core
 
 The generated shell in [`build.launcher`](../../build/launcher.tl) maps
-`uname -sm` to a generated release record. It opens the artifact
-before changing the cache. It validates the cache leaf's kind, owner, mode,
+`uname -sm` to a generated release record. On Linux x86_64 it then reads
+the `flags` line of `/proc/cpuinfo` and exits 126, naming the missing
+features, when the CPU lacks what the core's x86-64-v3 build needs (AVX,
+AVX2, FMA, BMI1 and BMI2, F16C, MOVBE, LZCNT, XSAVE). On Linux aarch64 it
+does the same with the `Features` line, for what the core's Armv8.2-A
+build needs: `asimddp` (dot-product), `asimdhp` and `fphp` (half-precision
+floats), `atomics` (LSE), `asimdrdm` and `crc32`. A host with no such line
+is not refused. It opens the artifact before changing the
+cache. It validates the cache leaf's kind, owner, mode,
 and contents. The cache parent is the user's trust boundary.
 
 On a cold start, the launcher copies the selected manifest range to a private
@@ -238,7 +245,7 @@ journal beside the artifact. [`core/store.c`](../../core/store.c) installs the
 database as the last module source and derives runtime metadata from validated
 startup context plus the projection's `runtime_basis`.
 
-This immutable shipped database is distinct from `o/build.db`. The latter is
+This immutable shipped database is distinct from the build directory's `build.db`. The latter is
 ordinary mutable developer state and can have SQLite journals. Investigation
 of delayed cold-journal materialization for that working database remains a
 follow-up. It has no established cause or fix, and does not change the
@@ -300,7 +307,7 @@ separately; the core only reads it.
 ## build a project with the same prefix
 
 `cosmic build` enters [`build.embed`](../../build/embed.tl). It stages and
-compiles the project into the project's `o/cosmic.db`. The projection copies
+compiles the project into its build directory's `cosmic.db`. The projection copies
 needed standard-library modules, then adds project modules, files, and a main
 entry.
 
@@ -321,7 +328,7 @@ identity that digest is part of, and reports none if the manifest names another
 digest: the kernel ran these bytes, so a check at startup would prove nothing a
 changed image could not also claim. A host program runs only where its core
 does, and cannot supply the portable prefix, so `cosmic build` from one writes
-host programs only.
+host programs only (`--host`), and refuses to write a portable one.
 
 ## rebuild without replacing cores
 
@@ -334,8 +341,9 @@ original arguments and environment once.
 
 The logical artifact is the path returned by [`Proc.executable()`]. Running a
 copy outside the checkout rewrites that copy; it does not redirect the rebuild
-to `o/bin/cosmic`. A read-only logical path therefore fails. Rename and unlink
-remain supported because the running process reads the retained descriptor.
+to the tree's own tool in its build directory. A read-only logical path
+therefore fails. Rename and unlink remain supported because the running
+process reads the retained descriptor.
 
 A marker rejects a second rebuild loop. A core-input change cannot reuse the
 prefix, so the tool runs `bin/zig build boot` itself and re-enters the command
@@ -343,6 +351,21 @@ prefix, so the tool runs `bin/zig build boot` itself and re-enters the command
 database-only rebuild fast without claiming old native code matches new C,
 Zig, or vendor inputs. Retained-descriptor access also lets a database-only
 rebuild finish after the starting artifact is renamed or unlinked.
+
+`bin/zig build boot -Dboot-cores=all` writes the portable artifact above,
+every release core behind the launcher, which is what CI verifies and what a
+release is. A bare `bin/zig build boot` builds the host's core alone and
+writes the same layout with a placeholder where each other core goes: a
+script that says the tool was booted for its host alone and exits 1
+([`artifact.placeholder`]), an entry of the manifest like any, so the core
+accepts it (it requires a core for every target) and runs as it does from any
+artifact. It runs every verb the same, and a rebuild reuses its prefix, so it
+stays what it is, and a boot it starts is a bare one when its prefix holds a
+placeholder ([`artifact.host_only`]) and `-Dboot-cores=all` when not. What
+needs another target's core refuses and names that boot: `cosmic build` of a
+portable program, which would run on this host alone and say nothing of it
+(`--host` is all such a tool writes), and the tests of one, which declare
+`all_cores` and are skipped, saying so.
 
 ## test identity and transport
 
@@ -354,7 +377,7 @@ kernel allows it, a worker sees only those inputs, so a test that reads what it
 does not declare fails rather than standing on a verdict; a test that reaches
 the network beyond loopback has no key and runs every time. An unchanged application database cannot hide a
 changed core or runtime basis. Verdict and coverage history live only in
-`o/build.db` and are bounded.
+`build.db` and are bounded.
 
 The fixtures under [`ci/fixtures`](../../ci/fixtures/), run by the pinned CI
 driver in isolated projects (see [`ci`](../../ci/)'s own README), with
@@ -453,7 +476,7 @@ local fixture = require("test.portable")
 local path = assert(Proc.executable())
 local artifact = assert(fixture.read(path))
 local running = assert(Store.meta("host_image"))
-local selected: fixture.Entry = nil
+local selected: fixture.Entry? = nil
 for _, entry in ipairs(artifact.entries) do
   if Codec.hex(entry.digest) == running then
     assert(selected == nil, "two manifest entries carry the running digest")
@@ -471,6 +494,8 @@ print("manifest: names the running core")
 manifest: names the running core
 ```
 
+[`artifact.host_only`]: ../../build/artifact.tl
+[`artifact.placeholder`]: ../../build/artifact.tl
 [`artifact.program`]: ../../build/artifact.tl
 [`build.artifact.trusted_prefix`]: ../../build/artifact.tl
 [`Child.start`]: ../../cosmic/child.tl

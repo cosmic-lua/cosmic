@@ -20,9 +20,10 @@ local NS <const> = 1000000000
 local CARRIED <const> = { "America/New_York", "Asia/Kolkata", "Australia/Lord_Howe", "Pacific/Apia",
   "Europe/Dublin", "Antarctica/Troll", "UTC", "America/Sao_Paulo", "Pacific/Chatham" }
 
-local samples: {string} = {}
+local samples: mut {string} = {}
 for _, name in ipairs(CARRIED) do
-  samples[#samples + 1] = assert(Store.zoneinfo(name))
+  local appended = assert(Store.zoneinfo(name))
+  samples[#samples + 1] = appended
 end
 
 --- Moments every zone read is asked about: the range's ends, the epoch,
@@ -58,8 +59,8 @@ end
 --- then the 64-bit block and the footer.
 local function write(version: string, times: {integer}, indices: {integer}, types: {Type},
                      footer: string): string
-  local chars: {string} = {}
-  local at: {string:integer} = {}
+  local chars: mut {string} = {}
+  local at: mut {string:integer} = {}
   local length = 0
   for _, t in ipairs(types) do
     if at[t.abbreviation] == nil then
@@ -71,10 +72,12 @@ local function write(version: string, times: {integer}, indices: {integer}, type
   local function block(wide: boolean, count: integer): string
     local parts = { "TZif", version, ("\0"):rep(15),
       string.pack(">I4I4I4I4I4I4", 0, 0, 0, count, #types, length) }
-    for i = 1, count do parts[#parts + 1] = string.pack(wide and ">i8" or ">i4", times[i]) end
+    for i = 1, count do
+      parts[#parts + 1] = string.pack(if wide then ">i8" else ">i4" end, times[i])
+    end
     for i = 1, count do parts[#parts + 1] = string.char(indices[i] - 1) end
     for _, t in ipairs(types) do
-      parts[#parts + 1] = string.pack(">i4BB", t.offset, t.dst and 1 or 0, at[t.abbreviation])
+      parts[#parts + 1] = string.pack(">i4BB", t.offset, if t.dst then 1 else 0 end, at[t.abbreviation])
     end
     parts[#parts + 1] = table.concat(chars)
     return table.concat(parts)
@@ -87,21 +90,21 @@ end
 --- element at a time, so shrinking can cut any of them.
 local function draw(src: Fuzz.Source): Drawn
   local version = Fuzz.pick(src, { "\0", "2", "3", "4" })
-  local types: {Type} = {}
+  local types: mut {Type} = {}
   repeat
     types[#types + 1] = {
-      offset = src:int(0, 1) == 0 and src:int(-56, 56) * 900 or src:int(-89999, 93599),
+      offset = if src:int(0, 1) == 0 then src:int(-56, 56) * 900 else src:int(-89999, 93599) end,
       dst = src:int(0, 1) == 1,
       abbreviation = Fuzz.pick(src, ABBREVIATIONS),
     }
   until not Fuzz.more(src, #types, 6)
-  local times: {integer} = {}
-  local indices: {integer} = {}
+  local times: mut {integer} = {}
+  local indices: mut {integer} = {}
   -- 32-bit times for a version 1 file, and any for later ones.
   local wide = version ~= "\0"
   local t = wide and src:int(-(1 << 40), 1 << 34) or src:int(-(1 << 31), 0)
   while Fuzz.more(src, #times, 12) do
-    t = t + src:int(1, wide and 1 << 30 or 1 << 26)
+    t = t + src:int(1, if wide then 1 << 30 else 1 << 26 end)
     if not wide and t > (1 << 31) - 1 then break end
     times[#times + 1] = t
     indices[#indices + 1] = src:int(1, #types)
@@ -133,7 +136,7 @@ end
 --- cost that grows faster than the length, which the reference would
 --- share, still leaves it short of the largest drawn read. Taken the
 --- first time a read is slow enough to ask.
-local reference_ns: integer = nil
+local reference_ns: integer? = nil
 local function reference(): integer
   if reference_ns == nil then
     local count = 4000
@@ -148,7 +151,7 @@ local function reference(): integer
     end
     reference_ns = 10 * least
   end
-  return reference_ns
+  return assert(reference_ns)
 end
 
 --- Whatever `data` is, reading it and asking the zone about moments
@@ -215,11 +218,11 @@ local function reads_back(input: string): boolean, string
   local zone, why = Time.zone_from_tzif(bytes, "Fuzz/Zone")
   if zone == nil then return false, "a written file was refused: " .. why end
   Fuzz.label("read")
-  local types: {Type} = {}
+  local types: mut {Type} = {}
   for offset, dst, abbreviation in types_text:gmatch("(%S+) (%S+) (%S+)\n") do
     types[#types + 1] = { offset = math.tointeger(offset), dst = dst == "true", abbreviation = abbreviation }
   end
-  local function holds(ns: integer, t: Type): string
+  local function holds(ns: integer, t: Type): string?
     local c = Time.civil(ns, zone)
     if c.offset ~= t.offset or c.dst ~= t.dst or c.abbreviation ~= t.abbreviation then
       return ("at %d: %d %s %s, want %d %s %s"):format(ns, c.offset, tostring(c.dst),
@@ -256,9 +259,9 @@ local function test_a_written_file_reads_back_as_drawn(tmp: string)
     dir = tmp,
     gen = function(src: Fuzz.Source): string
       local drawn = draw(src)
-      local times: {string} = {}
+      local times: mut {string} = {}
       for i, t in ipairs(drawn.times) do times[i] = ("%d %d\n"):format(t, drawn.indices[i]) end
-      local types: {string} = {}
+      local types: mut {string} = {}
       for i, t in ipairs(drawn.types) do
         types[i] = ("%d %s %s\n"):format(t.offset, tostring(t.dst), t.abbreviation)
       end

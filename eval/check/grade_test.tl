@@ -2,6 +2,7 @@
 --- the journal it requires, an arena with nothing to grade, and a build
 --- that vouches for no executable.
 local Fs = require("cosmic.fs")
+local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
@@ -52,7 +53,8 @@ local function test_reset_clears_the_runs_and_keeps_the_rest(dir: string)
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, "select count(*) from inputs", {}))
   db:close()
-  assert(rows[1][1] == "1")
+  local counted = assert(rows[1], "expected the count row")
+  assert(counted:text(1) == "1")
 end
 
 local function test_a_missing_database_resets_but_is_no_evidence(dir: string)
@@ -60,7 +62,7 @@ local function test_a_missing_database_resets_but_is_no_evidence(dir: string)
   assert(Grader.reset_evidence(path))
   assert(not Fs.exists(path))
   local evidence, trouble = Grader.evidence(path)
-  assert(evidence == nil and trouble:find("no build database", 1, true), trouble)
+  assert(evidence == nil and trouble:find("no build database", 1, true) ~= nil, trouble)
 end
 
 local function test_a_failure_in_cosmic_is_one_a_line_of_stderr_opens_with()
@@ -73,17 +75,21 @@ end
 --- written to stdout -- taken into a file there, and answers its
 --- status and those lines. The hidden API tests are under
 --- `dir`/testdata.
-local function graded(name: string, dir: string): integer, string
+local function graded(name: string, dir: string, env?: {string:string},
+                      deadline_ns?: integer): integer, string
   local lines = dir .. "/graded.out"
   local out = assert(sys.open(lines, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 420))
   local saved = assert(sys.dup(1))
   assert(sys.dup2(out, 1))
   assert(sys.close(out))
-  local ok, status = pcall(Grader.grade, name, dir, dir .. "/testdata")
+  local ok, status = pcall(Grader.grade, name, dir, dir .. "/testdata", env, deadline_ns)
   assert(sys.dup2(saved, 1))
   assert(sys.close(saved))
   if not ok then error(status, 0) end
-  return status as integer, (assert(Fs.read(lines)))
+  if not status is integer then
+    error("Grader.grade answered " .. tostring(status) .. ", not an integer status", 0)
+  end
+  return status, (assert(Fs.read(lines)))
 end
 
 --- A build that fails leaves an earlier o/bin/notes where it was, and
@@ -99,7 +105,7 @@ local function test_a_failed_build_does_not_run_an_earlier_binary(dir: string)
   -- The stand-in cosmic ran, and failed the build alone.
   assert(said:find("check: ok   " .. dir .. "/bin/cosmic test\n", 1, true), said)
   assert(said:find("check: FAIL " .. dir .. "/bin/cosmic build\n", 1, true), said)
-  assert(said:find("skip o/bin/notes: cosmic build failed", 1, true), said)
+  assert(said:find("skip " .. dir .. "/project/o/bin/notes: cosmic build failed", 1, true), said)
   assert(not Fs.exists(dir .. "/empty"), "the earlier binary was run")
   assert(Fs.exists(dir .. "/project/o/bin/notes"), "the solver's binary was removed")
 end
@@ -117,16 +123,33 @@ local function test_a_build_that_did_not_write_notes_does_not_run_an_earlier_one
   assert(status == 1, said)
   -- The stand-in cosmic ran, and passed the build without naming notes.
   assert(said:find("check: ok   " .. dir .. "/bin/cosmic build\n", 1, true), said)
-  assert(said:find("check: FAIL cosmic build did not produce o/bin/notes", 1, true), said)
+  assert(said:find("check: FAIL cosmic build did not produce " .. dir .. "/project/o/bin/notes", 1, true),
+    said)
   assert(not Fs.exists(dir .. "/empty"), "the earlier binary was run")
+end
+
+--- The grader asks the arena's cosmic where it builds the project, and
+--- takes the project's o/ from one that answers nothing.
+local function test_the_build_directory_is_the_arena_cosmics_answer(dir: string)
+  local probe = assert(stand_in.build(dir .. "/stand-in"))
+  assert(stand_in.place(probe, dir .. "/answers", "print /elsewhere/trees/key"))
+  assert(Grader.build_directory(dir .. "/answers", dir .. "/project") == "/elsewhere/trees/key")
+  assert(stand_in.place(probe, dir .. "/quiet", "exit 0"))
+  assert(Grader.build_directory(dir .. "/quiet", dir .. "/project") == dir .. "/project/o")
 end
 
 local function test_built_reads_the_build_line()
   assert(Grader.built("build: 4 modules\nbuild: PASS (o/bin/notes, 433 ms)\n", "notes"))
   assert(Grader.built("build: PASS (o/bin/hello, o/bin/notes, 12 ms)\n", "notes"))
   assert(not Grader.built("build: PASS (o/bin/notes2, 12 ms)\n", "notes"))
+  assert(Grader.built("build: PASS (/c/cosmic/trees/k/bin/notes, 12 ms)\n", "notes"))
+  assert(not Grader.built("build: PASS (/c/cosmic/trees/k/bin/notesy, 12 ms)\n", "notes"))
   assert(not Grader.built("build: PASS (no executable: no cmd/<name>/main.tl)\n", "notes"))
   assert(not Grader.built("build: FAIL\n", "notes"))
+  assert(Grader.built("/c/cosmic/trees/k/bin/hello\n/c/cosmic/trees/k/bin/notes\n" ..
+      "build: PASS (x)\n", "notes"))
+  assert(not Grader.built("/c/cosmic/trees/k/bin/notesy\n", "notes"))
+  assert(not Grader.built("test: FAIL  /bin/notes\n", "notes"))
 end
 
 local function test_an_arena_without_a_project_fails_every_task(dir: string)
@@ -148,7 +171,7 @@ local function test_a_failed_build_runs_no_binary_for_any_task(dir: string)
     assert(stand_in.place(probe, dir .. "/project/o/bin/" .. name, "print 1"))
     local status, said = graded(name, dir)
     assert(status == 1, said)
-    assert(said:find("skip o/bin/" .. name .. ": cosmic build failed", 1, true), said)
+    assert(said:find("skip " .. dir .. "/project/o/bin/" .. name .. ": cosmic build failed", 1, true), said)
     -- A copy of the checked core is 39.5 MB and a worker's directory is in
     -- a 256 MiB tmpfs: one task's stand-in at a time stays inside it.
     assert(Fs.remove(dir .. "/project/o/bin/" .. name))
@@ -158,9 +181,9 @@ local function test_a_failed_build_runs_no_binary_for_any_task(dir: string)
 end
 
 local function test_an_unknown_task_is_a_usage_error()
-  assert(Grader.main({ "chess", "/nowhere" }) == 2)
-  assert(Grader.main({ "notes" }) == 2)
-  assert(Grader.main({ "notes", "/nowhere", "extra" }) == 2)
+  assert(Grader.run({ "chess", "/nowhere" }, "eval/check/grade.tl") == 2)
+  assert(Grader.run({ "notes" }, "eval/check/grade.tl") == 2)
+  assert(Grader.run({ "notes", "/nowhere", "extra" }, "eval/check/grade.tl") == 2)
 end
 
 local function test_a_journal_is_a_regular_file_with_something_in_it(dir: string)
@@ -191,7 +214,7 @@ end
 --- `journal` (none when nil), with a stand-in cosmic whose every
 --- command passes and whose `fix` fails where the journal was not set
 --- aside; answers the status and lines.
-local function graded_with_journal(dir: string, journal: string | nil): integer, string
+local function graded_with_journal(dir: string, journal: string?): integer, string
   assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project"))
   if journal ~= nil then
     assert(Fs.write(dir .. "/project/JOURNAL.md", journal))
@@ -261,7 +284,7 @@ local function test_api_failures_names_each_failing_test_and_refused_line()
     "  its directory is kept: /tmp/x/real",
     "test: FAIL  kv_api_test test_keys: kv_api_test:20: boom",
     "second line",
-    "test: FAIL (2 of 3 failed, 0 infrastructure errors, 336 ms; sandboxed)",
+    "test: 2 of 3 tests failed, 0 infrastructure errors, 336 ms; sandboxed",
   }, "\n"))
   assert(#failures == 2, table.concat(failures, "; "))
   assert(failures[1] == "test_lru: kv_api_test:10: evicted b", failures[1])
@@ -271,9 +294,9 @@ local function test_api_failures_names_each_failing_test_and_refused_line()
   assert(#failures == 1, table.concat(failures, "; "))
   assert(failures[1] == "does not compile: kv_api_test.tl:1:12: module not found: 'kv'",
     failures[1])
-  local refusals: {string} = { "cosmic: kv_api_test.tl: the compiler refused it" }
+  local refusals: mut {string} = { "cosmic: kv_api_test.tl: the compiler refused it" }
   for i = 1, 7 do
-    refusals[#refusals + 1] = "kv_api_test.tl:" .. i .. ":1: unknown type kv.Lru"
+    refusals[#refusals + 1] = "kv_api_test.tl:" .. tostring(i) .. ":1: unknown type kv.Lru"
   end
   failures = Grader.api_failures(table.concat(refusals, "\n"))
   assert(#failures == 6, table.concat(failures, "; "))
@@ -281,6 +304,8 @@ local function test_api_failures_names_each_failing_test_and_refused_line()
   assert(failures[6] == "does not compile: 2 more lines", failures[6])
   failures = Grader.api_failures("cosmic: killed\n")
   assert(#failures == 1 and failures[1] == "cosmic test failed: cosmic: killed", failures[1])
+  assert(#Grader.api_failures("test: 3 tests passed in 1 module; 3 ran\n") == 0)
+  -- As a tool built from an older commit says it.
   assert(#Grader.api_failures("test: PASS (3 tests, 1 module; 3 ran)\n") == 0)
 end
 
@@ -289,22 +314,27 @@ end
 --- directory's path, and answers `lines` and `code`: as a hidden API
 --- test that ran on a copy of the project. Answers the status and the
 --- grader's lines.
-local function graded_api(dir: string, lines: {string}, code: integer): integer, string
+local function graded_api(dir: string, lines: {string}, code: integer,
+                          env?: {string:string}, probes?: {string}): integer, string
   assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project/o") and
       Fs.mkdirs(dir .. "/testdata"))
   assert(Fs.write(dir .. "/project/kv.tl", "return {}\n"))
   assert(Fs.write(dir .. "/project/o/marker", "built\n"))
   assert(Fs.write(dir .. "/testdata/kv_api_test.tl", "-- hidden\n"))
-  local script = { "[test] present kv_api_test.tl || exit 0", "[test] ls .",
-    "[test] write leftover.txt written by the hidden test", "[test] cwd " .. dir .. "/copy.txt" }
+  local script: mut {string} = {}
+  for _, probe in ipairs(probes or {}) do script[#script + 1] = "[test] env-of " .. probe end
+  for _, line in ipairs({ "[test] present kv_api_test.tl || exit 0", "[test] ls .",
+      "[test] write leftover.txt written by the hidden test", "[test] cwd " .. dir .. "/copy.txt" }) do
+    script[#script + 1] = line
+  end
   for _, line in ipairs(lines) do
     script[#script + 1] = "[test] print " .. line
   end
-  script[#script + 1] = "[test] exit " .. code
+  script[#script + 1] = "[test] exit " .. tostring(code)
   script[#script + 1] = "exit 0"
   local probe = assert(stand_in.build(dir .. "/stand-in"))
   assert(stand_in.place(probe, dir .. "/bin/cosmic", table.concat(script, "\n")))
-  return graded("kv", dir)
+  return graded("kv", dir, env)
 end
 
 --- The hidden test runs on a copy of the project without its o/, and
@@ -313,11 +343,11 @@ end
 local function test_a_hidden_test_runs_on_a_copy_and_reports_each_failure(dir: string)
   local status, said = graded_api(dir, {
     "test: FAIL  kv_api_test test_lru: kv_api_test:3: evicted the wrong key",
-    "test: FAIL (1 of 1 failed)" }, 1)
+    "test: 1 of 1 test failed" }, 1)
   assert(status == 1, said)
   assert(said:find("check: FAIL hidden api: test_lru: kv_api_test:3: evicted the wrong key\n",
     1, true), said)
-  local listed = assert(Fs.read(dir .. "/check-5.out"))
+  local listed = assert(Fs.read(dir .. "/grades/1/check-5.out"))
   assert(listed:find("kv_api_test.tl\n", 1, true) and listed:find("kv.tl\n", 1, true), listed)
   assert(not listed:find("\no\n", 1, true) and not listed:match("^o\n"), listed)
   assert(not Fs.exists(dir .. "/project/kv_api_test.tl"), "the hidden test reached the project")
@@ -327,8 +357,38 @@ local function test_a_hidden_test_runs_on_a_copy_and_reports_each_failure(dir: s
   assert(copy ~= dir .. "/project" and not Fs.exists(copy), "the copy is left at " .. copy)
 end
 
+local function test_cosmic_test_steps_run_unsandboxed_whatever_the_caller_holds()
+  local held: {string:string} = { PATH = "/bin", COSMIC_TEST_SANDBOX = "1", COSMIC_SANDBOX = "must",
+    COSMIC_CI_REQUIRE_SANDBOX = "1" }
+  local env = Grader.unsandboxed(held)
+  assert(env["COSMIC_TEST_SANDBOX"] == "0", tostring(env["COSMIC_TEST_SANDBOX"]))
+  assert(env["COSMIC_SANDBOX"] == nil and env["COSMIC_CI_REQUIRE_SANDBOX"] == nil, "a held run stayed")
+  assert(env["PATH"] == "/bin", "the rest of the environment is kept")
+  assert(held["COSMIC_TEST_SANDBOX"] == "1" and held["COSMIC_SANDBOX"] == "must", "the input was changed")
+  assert(Grader.unsandboxed({})["COSMIC_TEST_SANDBOX"] == "0")
+end
+
+--- A grader holding its tests to sandboxing still runs both `cosmic
+--- test` steps, the project's own and the hidden one, unsandboxed.
+local function test_both_cosmic_test_steps_get_the_unsandboxed_environment(dir: string)
+  local names = { "COSMIC_TEST_SANDBOX", "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX" }
+  local held: {string:string} = { COSMIC_TEST_SANDBOX = "1", COSMIC_SANDBOX = "must",
+    COSMIC_CI_REQUIRE_SANDBOX = "1" }
+  graded_api(dir, {}, 0, held, names)
+  local expected = "COSMIC_TEST_SANDBOX=0\nCOSMIC_SANDBOX unset\nCOSMIC_CI_REQUIRE_SANDBOX unset\n"
+  local seen = 0
+  for n = 1, 8 do
+    local out = Fs.read(dir .. "/grades/1/check-" .. tostring(n) .. ".out")
+    if out ~= nil and out:find("COSMIC_TEST_SANDBOX", 1, true) ~= nil then
+      seen = seen + 1
+      assert(out:sub(1, #expected) == expected, "grades/1/check-" .. tostring(n) .. ".out: " .. out)
+    end
+  end
+  assert(seen == 2, "env-of ran in " .. tostring(seen) .. " steps, not the test step and the hidden one")
+end
+
 local function test_a_hidden_test_that_passes_is_one_check_that_passes(dir: string)
-  local _, said = graded_api(dir, { "test: PASS (3 tests, 1 module, 3 ran)" }, 0)
+  local _, said = graded_api(dir, { "test: 3 tests passed in 1 module, 3 ran" }, 0)
   assert(said:find("check: ok   hidden api: kv_api_test.tl passes\n", 1, true), said)
   assert(not said:find("FAIL hidden api", 1, true), said)
 end
@@ -339,4 +399,53 @@ local function test_a_missing_hidden_test_fails(dir: string)
   assert(status == 1, said)
   assert(said:find("check: FAIL hidden api: ", 1, true), said)
   assert(not said:find("check: ok   hidden api", 1, true), said)
+end
+
+--- A grade that outlasts its deadline stops where it is, says TIMEOUT
+--- rather than FAIL and exits 124.
+local function test_a_grade_past_its_deadline_is_a_timeout_not_a_failure(dir: string)
+  assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project"))
+  local probe = assert(stand_in.build(dir .. "/stand-in"))
+  assert(stand_in.place(probe, dir .. "/bin/cosmic", "[test] sleep 5000\n[test] exit 0\nexit 0"))
+  assert(Fs.write(dir .. "/project/JOURNAL.md", "**Log**\n"))
+  local clock = require("cosmic.clock")
+  local started = clock.monotonic_ns()
+  local status, said = graded("notes", dir, nil, clock.ms(700))
+  assert(status == 124, said)
+  assert(said:find("check: TIMEOUT", 1, true), said)
+  assert(not said:find("check: FAIL\n", 1, true) and not said:find("check: PASS", 1, true), said)
+  assert(clock.monotonic_ns() - started < clock.seconds(4), "the deadline did not cut the stand-in short")
+end
+
+--- Each grade keeps its check-*.out in a directory of its own.
+local function test_a_regrade_keeps_the_evidence_of_the_one_before(dir: string)
+  assert(Grader.next_logs(dir) == dir .. "/grades/1")
+  assert(Fs.write(dir .. "/grades/1/check-1.out", "first\n"))
+  assert(Grader.next_logs(dir) == dir .. "/grades/2")
+  assert(Fs.read(dir .. "/grades/1/check-1.out") == "first\n")
+  assert(Grader.next_logs(dir) == dir .. "/grades/3", "each call makes its directory")
+  assert(Fs.is_dir(dir .. "/grades/2") and Fs.is_dir(dir .. "/grades/3"))
+end
+
+--- A grade's cosmic runs with its HOME and cache home inside the arena,
+--- and no shared cache or build directory of the evaluator's.
+local function test_a_grade_runs_with_a_home_inside_the_arena()
+  local held: {string:string} = { HOME = "/root", XDG_CACHE_HOME = "/root/.cache", PATH = "/bin",
+    COSMIC_BUILD_HOME = "/elsewhere", COSMIC_BUILD_CACHE = "/x", COSMIC_VERDICT_CACHE = "/y" }
+  local env = Grader.isolated(held, "/arena")
+  assert(env["HOME"] == "/arena/grade-home" and env["XDG_CACHE_HOME"] == "/arena/grade-home/.cache")
+  assert(env["COSMIC_BUILD_HOME"] == nil and env["COSMIC_BUILD_CACHE"] == nil and env["COSMIC_VERDICT_CACHE"] == nil)
+  assert(env["PATH"] == "/bin" and held["HOME"] == "/root", "the input was changed or the rest dropped")
+end
+
+local function test_a_list_that_holds_a_null_is_valid_json_and_a_bare_null_is_said_so()
+  local list = assert(Grader.decoded("[1,null,3]"))
+  local items = assert(Json.to_array(list))
+  assert(#items == 3 and items[2] == Json.null and items[3] == 3)
+  local bare = Grader.decoded("null")
+  assert(bare == Json.null, "a bare null is the value null, not a failure with no words")
+  local none, trouble = Grader.decoded("")
+  assert(none == nil and trouble ~= "", trouble)
+  local broken, why = Grader.decoded("{")
+  assert(broken == nil and why ~= "", why)
 end

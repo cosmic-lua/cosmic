@@ -1,12 +1,13 @@
 --- Every verb [`cosmic.cli`] names, held to the same command-line contract:
 --- an option it does not know and an argument it does not take are
 --- refused with exit 2, and every exit -- a pass, a failure, a refused
---- command line -- ends in the verb's verdict line. The verbs come from
+--- command line -- says how it went (build/verbs_fixture.tl's `expect`).
+--- The verbs come from
 --- [`Cli.order`], so a new verb is held to this the moment it is listed.
 ---
 --- Its cases start this program, so it declares `tool`; those that read
 --- its store beyond their module's closure (help, docs, and the verbs'
---- verdicts run in this process) are in build/verbs_store_test.tl, and
+--- cases run in this process) are in build/verbs_store_test.tl, and
 --- build/verbs_test.tl holds what needs neither, every verb classified
 --- among it, over the tables all read ([`build.verb_cases`]). One case
 --- here starts nothing -- each verb refusing in this process what it
@@ -23,7 +24,7 @@ local verbs_fixture = require("build.verbs_fixture")
 --- to find or fetch zig.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "vendor/cacert/cacert.pem", letters = "r" } },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "vendor/cacert/certdata.txt", letters = "r" } },
   env = { "ALL_PROXY", "COSMIC_BOOTSTRAP", "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",
     "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE", "CURL_CA_BUNDLE", "HTTPS_PROXY",
     "HTTP_PROXY", "NO_PROXY", "SSL_CERT_DIR", "SSL_CERT_FILE", "all_proxy", "http_proxy",
@@ -35,13 +36,13 @@ local surplus = verb_cases.surplus
 
 --- The vendored bundle, which `refresh` reads with no network; the
 --- tree's root is where a test module loads.
-local bundle = assert(Fs.absolute("vendor/cacert/cacert.pem"))
+local bundle = assert(Fs.absolute("vendor/cacert/certdata.txt"))
 
 local cases = verb_cases.cases(bundle)
 
 --- Asserts each verb whose cases start this program passes and fails its case,
---- each run ending in its verdict line.
-local function ends_in_a_verdict(tmp: string)
+--- each run saying how it went.
+local function says_how_it_went(tmp: string)
   local tree = verbs_fixture.write_tree(tmp)
   -- `db` passes once the tree has a database.
   local _ = verbs_fixture.expect(tree, "build", { "build" }, 0)
@@ -51,7 +52,8 @@ local function ends_in_a_verdict(tmp: string)
       local _ = verbs_fixture.expect(tree, verb, case.pass, 0)
       local fail = case.fail
       if fail is {string} then
-        local dir = case.fail_in ~= nil and tmp .. "/" .. case.fail_in or tree
+        local fail_in = case.fail_in
+        local dir = if fail_in ~= nil then tmp .. "/" .. fail_in else tree end
         local _ = verbs_fixture.expect(dir, verb, fail, 1)
       end
     end
@@ -81,8 +83,8 @@ local function test_every_started_verb_refuses_what_it_does_not_take(tmp: string
   refuses_what_it_does_not_take(tmp, verbs_fixture.started)
 end
 
-local function test_every_started_verb_ends_in_a_verdict(tmp: string)
-  ends_in_a_verdict(tmp)
+local function test_every_started_verb_says_how_it_went(tmp: string)
+  says_how_it_went(tmp)
 end
 
 local function test_each_selector_must_match(tmp: string)

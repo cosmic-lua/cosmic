@@ -18,8 +18,8 @@ local Clock = require("cosmic.clock")
 --- itself, which its tests start; and `nests`, for the child it confines
 --- in a root of its own.
 Test.policy{
-  profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
+  profiles = { "cosmic", "proc" },
+  grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },
 }
 
@@ -35,7 +35,7 @@ local function test_a_started_process_reports_its_c(tmp: string)
   assert(Fs.write(tmp .. "/child/child.tl", [[
 local Env = require("cosmic.env")
 return function(): integer
-  print(Env.get("COSMIC_COVERAGE_CHILDREN") == nil and "unseen" or "seen")
+  print(if Env.get("COSMIC_COVERAGE_CHILDREN") == nil then "unseen" else "seen" end)
   return 0
 end
 ]]))
@@ -48,21 +48,29 @@ end
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Coverage = require("cosmic.coverage")
+local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
 return function(argv: {string}): integer
-  Coverage.children(argv[1])
+  Coverage.children((argv[1] or ""))
   -- This program again, past its launcher, as `this_program.program`
   -- starts it (a file run cannot reach build/), in an empty environment
-  -- but for how to start the core: only the core can carry the
-  -- directory.
-  local relaunch = Proc.relaunch()
-  local words: {string} = {}
-  for _, word in ipairs(relaunch ~= nil and relaunch.argv or { assert(Proc.executable()) }) do
-    words[#words + 1] = word
+  -- but for how to start the core and where to build its file: only the
+  -- core can carry the directory.
+  local relaunch, _ = Proc.relaunch()
+  local words: mut {string} = {}
+  local env: mut {string:string} = {}
+  local fds: mut {integer:integer} = {}
+  if relaunch ~= nil then
+    for _, word in ipairs(relaunch.argv) do words[#words + 1] = word end
+    for name, value in pairs(relaunch.env) do env[name] = value end
+    for target, source in pairs(relaunch.fds) do fds[target] = source end
+  else
+    words[#words + 1] = assert(Proc.executable())
   end
-  words[#words + 1] = argv[2]
-  local r = assert(Child.run(words, { env = relaunch ~= nil and relaunch.env or {},
-    fds = relaunch ~= nil and relaunch.fds or {}, cwd = argv[3], stdout = "capture",
+  words[#words + 1] = (argv[2] or "")
+  env["COSMIC_BUILD_HOME"] = assert(Env.get("COSMIC_BUILD_HOME"))
+  local r = assert(Child.run(words, { env = env,
+    fds = fds, cwd = (argv[3] or ""), stdout = "capture",
     stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, tostring(r.stderr))
   print(assert(r.stdout):match("^(%a+)"))
@@ -105,50 +113,36 @@ local function test_processes_confined_apart_report_apart(tmp: string)
   -- The inner process, this program again, is given what it needs to
   -- start -- itself alone, every Linux core being static
   -- (core/linkage_test.tl) -- and the directory it reports to.
-  local reads: {string} = {}
+  local reads: mut {string} = {}
   for _, path in ipairs(confine.itself()) do reads[#reads + 1] = path end
   for _, path in ipairs({ "/proc", "/dev/null" }) do
     if Fs.exists(path) then reads[#reads + 1] = path end
   end
   assert(Fs.write(tmp .. "/parent/parent.tl", [[
+local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
-local type Searcher = function(string): any, any
-local record Status
-  code: integer
-end
-local record Process
-  spawn: function(string, {string}, {string:string}, string, integer, integer, integer, boolean,
-    {integer:integer}, any): integer, string, integer
-  waitpid: function(integer, boolean): Status
-end
 return function(argv: {string}): integer
-  local reports, reads: string, {string} = argv[1], {}
-  for path in argv[2]:gmatch("[^\n]+") do reads[#reads + 1] = path end
+  local reports, reads: string, mut {string} = (argv[1] or ""), {}
+  for path in (argv[2] or ""):gmatch("[^\n]+") do reads[#reads + 1] = path end
   Coverage.children(reports)
-  local process: Process = nil
-  for _, searcher in ipairs(package.searchers as {Searcher}) do
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then process = extra as Process end
-  end
   local relaunch = assert(Proc.relaunch())
-  local words: {string} = {}
+  local words: mut {string} = {}
   for _, word in ipairs(relaunch.argv) do words[#words + 1] = word end
   words[#words + 1] = "-e"
   words[#words + 1] = "return 0"
-  local fds: {integer:integer} = {}
+  local fds: mut {integer:integer} = {}
   for target, source in pairs(relaunch.fds) do fds[target] = source end
-  local own = sys.stat("/proc/sys") == nil
-  local pid, trouble, errno = process.spawn(words[1], words, relaunch.env, "/", nil, nil, nil,
-    false, fds, { unveil = { reads = reads, writes = { reports } }, offline = true })
-  if pid == nil then
-    local unconfinable = errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
-      errno == sys.EINVAL or errno == sys.ENOSPC
-    print((unconfinable and "unconfinable " or own and "refused " or "host-proc ") .. trouble)
+  local proc_sys, _ = sys.stat("/proc/sys")
+  local own = proc_sys == nil
+  local r, trouble = Child.run(words, { env = relaunch.env, fds = fds, cwd = "/", process_group = false,
+    sandbox = { unveil = { reads = reads, writes = { reports } }, offline = true } })
+  if r == nil then
+    print("refused " .. (if own then "own" else "host" end) .. " " .. trouble)
     return 0
   end
-  print("exited " .. tostring(process.waitpid(pid, false).code))
+  print("exited " .. tostring(r.code))
   return 0
 end
 ]]))
@@ -162,7 +156,12 @@ end
   -- confines nothing (no user namespaces for this user, or no Linux:
   -- ENOSYS), as the sandbox's other tests take it: skipped where the
   -- platform could confine (Test.skip).
-  if said:find("^host%-proc ") or said:find("^unconfinable ") then
+  local own_proc, trouble = said:match("^refused (%a+) (.-)\n$")
+  local unconfinable = false
+  for _, errno in ipairs({ sys.ENOSYS, sys.EPERM, sys.EACCES, sys.EINVAL, sys.ENOSPC }) do
+    if trouble == "child: start: " .. sys.errno_message(errno) then unconfinable = true end
+  end
+  if own_proc ~= nil and (own_proc == "host" or unconfinable) then
     if assert(sys.uname()).sysname == "Linux" then
       Test.skip("the parent could not confine its child: " .. said)
     end
@@ -192,7 +191,7 @@ local function test_a_process_of_another_build_does_not_report(tmp: string)
   end
   for index, value in ipairs({ "0000000000000000:" .. tmp .. "/foreign",
       tmp .. "/unsigned" }) do
-    local dir = value:match("[^:]*$")
+    local dir = assert(value:match("[^:]*$"), "a value ends in a path")
     assert(Fs.mkdirs(dir))
     local env = this_program.environment()
     env.COSMIC_COVERAGE_CHILDREN = value

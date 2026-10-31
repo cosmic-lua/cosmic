@@ -10,10 +10,12 @@
 --- $RUNNER_TEMP/build-cache), each as <X>_PREFIX and <X>_DIGEST, where
 --- the digest is not empty and the key is not <X>_RESTORED, the entry the
 --- run restored (a job that saves no compiles, ci.yml's `checked`, sets
---- no COMPILES_*); `verdicts-sha`, the verdicts' copy keyed by the commit,
---- <VERDICTS_PREFIX>sha-<SHA>, where the digest is not empty, even where it
---- names the entry restored (the commit's own key is saved on every push
---- to main, for a branch based on it: `driver.tl merge-base`); and
+--- no COMPILES_*); `verdicts-sha`, the name of the verdicts' entry under
+--- the commit, <VERDICTS_PREFIX>sha-<SHA>-<VERDICTS_DIGEST>, from
+--- $RUNNER_TEMP/seed/verdicts-commit, a file `key` of that entry's own key,
+--- where the digest is not empty, even where it names the entry restored
+--- (every push to main names its entry under the commit, for a branch
+--- based on it: `driver.tl merge-base`); and
 --- `driver-checked` (from $RUNNER_TEMP/driver-checked), the key its marker
 --- holds, where the driver check ran and passed; and `zig-build` (from
 --- $RUNNER_TEMP/zig-build, as $RUNNER_TEMP/seed-zig/zig-build.tar, an
@@ -65,8 +67,10 @@ local record QueueStage
 end
 
 local function sorted(names: {string}): {string}
-  table.sort(names)
-  return names
+  local out: mut {string} = {}
+  for _, name in ipairs(names) do out[#out + 1] = name end
+  table.sort(out)
+  return out
 end
 
 --- Adds the tree at `path` to `writer` as `member`.
@@ -83,10 +87,11 @@ local function add(writer: Archive.Writer, path: string, member: string): boolea
     -- has no link entry), which costs size only; zig's caches hold none.
     local reader, trouble = Stream.open(path)
     if reader == nil then return false, trouble end
-    entry.size = st.size
-    local ok, added = writer:add_file(member, reader, entry)
+    local file_entry: Stream.EntryOptions = { mode = entry.mode, mtime = entry.mtime, size = st.size }
+    local ok, added = writer:add_file(member, reader, file_entry)
     local _, _ = reader:close()
-    return ok, added
+    if not ok then return false, added end
+    return true, ""
   elseif st.kind == "dir" then
     local names, trouble = Fs.list(path)
     if names == nil then return false, trouble end
@@ -124,7 +129,7 @@ end
 --- and DIGEST unless the digest is empty or the key is RESTORED. Returns
 --- the key line it adds, "" where it adds none, or nil and why.
 local function entry(temp: string, seed: string, name: string, dir: string,
-                     prefix: string, digest: string, restored: string): string | nil, string
+                     prefix: string, digest: string, restored: string): string?, string
   if digest == "" or prefix .. digest == restored then return "", "" end
   local ok, why = Fs.copy_tree(temp .. "/" .. dir, seed .. "/" .. dir)
   if not ok then return nil, why end
@@ -137,7 +142,8 @@ end
 --- none kept costs only time.
 local function zig_build(host: QueueStage.Host, temp: string, zig: string,
                          key: string, exact: string, restored: string): string
-  if key == "" or not Fs.is_dir(temp .. "/zig-build") then return "" end
+  local built, _ = Fs.is_dir(temp .. "/zig-build")
+  if key == "" or built ~= true then return "" end
   if restored:sub(1, #exact) == exact then return "" end
   local tar = zig .. "/zig-build.tar"
   local ok, why = Fs.mkdirs(zig)
@@ -152,14 +158,14 @@ local function zig_build(host: QueueStage.Host, temp: string, zig: string,
 end
 
 function QueueStage.stage(env: {string:string}, host: QueueStage.Host): integer
-  local temp = env.RUNNER_TEMP
+  local temp = env["RUNNER_TEMP"]
   if temp == nil or temp == "" then
     host.warn("queue-stage: RUNNER_TEMP is not set")
     return 1
   end
   local function get(name: string): string return env[name] or "" end
   local seed, zig = temp .. "/seed", temp .. "/seed-zig"
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   local function failed(why: string): integer
     host.warn("queue-stage: " .. why)
     return 1
@@ -172,7 +178,7 @@ function QueueStage.stage(env: {string:string}, host: QueueStage.Host): integer
   if not ok then return failed(why) end
 
   local verdicts_digest = get("VERDICTS_DIGEST")
-  local line: string | nil
+  local line: string?
   line, why = entry(temp, seed, "verdicts", "verdicts", get("VERDICTS_PREFIX"), verdicts_digest,
     get("VERDICTS_RESTORED"))
   if line == nil then return failed(why) end
@@ -182,15 +188,17 @@ function QueueStage.stage(env: {string:string}, host: QueueStage.Host): integer
   if line == nil then return failed(why) end
   keys[#keys + 1] = line
   if verdicts_digest ~= "" and get("SHA") ~= "" then
-    if not Fs.is_dir(seed .. "/verdicts") then
-      ok, why = Fs.copy_tree(temp .. "/verdicts", seed .. "/verdicts")
-      if not ok then return failed(why) end
+    ok, why = Fs.mkdirs(seed .. "/verdicts-commit")
+    if ok then
+      ok, why = Fs.write(seed .. "/verdicts-commit/key", get("VERDICTS_PREFIX") .. verdicts_digest .. "\n")
     end
-    keys[#keys + 1] = "verdicts-sha=" .. get("VERDICTS_PREFIX") .. "sha-" .. get("SHA") .. "\n"
+    if not ok then return failed(why) end
+    keys[#keys + 1] = "verdicts-sha=" .. get("VERDICTS_PREFIX") .. "sha-" .. get("SHA") .. "-" ..
+      verdicts_digest .. "\n"
   end
   keys[#keys + 1] = zig_build(host, temp, zig, get("ZIG_BUILD_KEY"), get("ZIG_BUILD_EXACT"),
     get("ZIG_BUILD_RESTORED"))
-  local marker = Fs.stat(temp .. "/driver-checked/key")
+  local marker, _ = Fs.stat(temp .. "/driver-checked/key")
   if marker ~= nil and marker.kind == "file" then
     ok, why = Fs.copy_tree(temp .. "/driver-checked", seed .. "/driver-checked")
     if not ok then return failed(why) end

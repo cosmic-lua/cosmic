@@ -16,6 +16,9 @@
 --- - `portable`: this run is a portable artifact, not a native start;
 --- - `checked`: this core is the checked (sanitized) build, whose instruments
 ---   refuse an allocation or fire a fault on demand (core/testing.h);
+--- - `all_cores`: this tool carries a core for every release target, not the
+---   host's alone (`bin/zig build boot -Dboot-cores=all`), which a test of
+---   the portable programs it makes needs;
 --- - `root`: the run's user is root;
 --- - `unix_socket`: this host permits creation of a Unix stream socket;
 --- - `path:<absolute path>`: a file or directory of the host;
@@ -47,11 +50,11 @@ local record host_names
   --- as far as it says what the worker is given.
   record Inputs
     --- Whether the profile "system" is joined.
-    system: boolean
+    system?: boolean
     --- The absolute paths granted as host files.
-    host: {string}
+    host?: {string}
     --- The variables passed through, by name.
-    env: {string}
+    env?: {string}
   end
 
   --- A name taken apart.
@@ -83,6 +86,7 @@ local shapes: {string:Shape} = {
   proc = { class = "platform", argument = false, optional = false },
   portable = { class = "platform", argument = false, optional = false },
   checked = { class = "platform", argument = false, optional = false },
+  all_cores = { class = "host", argument = false, optional = false },
   root = { class = "host", argument = false, optional = false },
   path = { class = "host", argument = true, optional = false },
   program = { class = "host", argument = true, optional = false },
@@ -98,7 +102,7 @@ table.sort(host_names.names)
 --- a `path:` that is not absolute, a `program:` that names a path.
 --- @param name a requirement as written
 --- @return its table name and argument, or nil and why it is refused
-function host_names.parse(name: string): host_names.Spec | nil, string
+function host_names.parse(name: string): host_names.Spec?, string
   local base, argument = name:match("^([^:]*):(.*)$")
   if base == nil then base, argument = name, nil end
   local entry = shapes[base]
@@ -109,9 +113,9 @@ function host_names.parse(name: string): host_names.Spec | nil, string
   if argument == nil then
     if entry.argument and not entry.optional then
       return nil, string.format("%q needs an argument: `%s:<%s>`", name, base,
-        base == "path" and "absolute path" or "name")
+        if base == "path" then "absolute path" else "name" end)
     end
-    return { base = base, argument = "", class = entry.class }
+    return { base = base, argument = "", class = entry.class }, ""
   end
   if not entry.argument then
     return nil, string.format("%q: `%s` takes no argument", name, base)
@@ -128,20 +132,20 @@ function host_names.parse(name: string): host_names.Spec | nil, string
       return nil, string.format("%q: `path:` takes a path with no NUL byte", name)
     end
   elseif base == "program" then
-    if argument == "" or argument:find("/", 1, true) or argument:find("\0", 1, true) then
+    if argument == "" or argument:find("/", 1, true) ~= nil or argument:find("\0", 1, true) ~= nil then
       return nil, string.format("%q: `program:` takes the name of a program the PATH finds, with no \"/\" (a file of a known place is `path:`)", name)
     end
   end
-  return { base = base, argument = argument, class = entry.class }
+  return { base = base, argument = argument, class = entry.class }, ""
 end
 
 --- The class of a requirement, or nil where `name` is refused.
 --- @param name a requirement as written
 --- @return its class, or nil and why it is refused
-function host_names.class(name: string): host_names.Class | nil, string
+function host_names.class(name: string): host_names.Class?, string
   local spec, why = host_names.parse(name)
   if spec == nil then return nil, why end
-  return spec.class
+  return spec.class, ""
 end
 
 --- The requirements a run's leg promises, as the variable
@@ -150,18 +154,18 @@ end
 --- An empty text promises nothing.
 --- @param text the variable's value
 --- @return the names, or nil and the rule one breaks
-function host_names.read_promises(text: string): {string} | nil, string
-  local out: {string} = {}
-  if text == "" then return out end
-  local seen: {string:boolean} = {}
+function host_names.read_promises(text: string): {string}?, string
+  local out: mut {string} = {}
+  if text == "" then return out, "" end
+  local seen: mut {string:boolean} = {}
   for name in (text .. ","):gmatch("([^,]*),") do
     local spec, why = host_names.parse(name)
     if spec == nil then return nil, why end
-    if seen[name] then return nil, string.format("%q is promised twice", name) end
+    if seen[name] == true then return nil, string.format("%q is promised twice", name) end
     seen[name] = true
     out[#out + 1] = name
   end
-  return out
+  return out, ""
 end
 
 --- The least Landlock ABI version a `landlock` or `landlock:N` asks for.
@@ -192,8 +196,7 @@ end
 -- once a requirement can bind less than a whole module: inferred now, it
 -- would make n/a off Linux every test of modules that run there today
 -- (child_tool_test, syscalls_tool_test, declared_key_test and
--- declared_unenforced_test of ci/darwin-tests.txt, must_confine_test's
--- refusal checks). Split such modules first.
+-- declared_unenforced_test of ci/darwin-tests.txt). Split such modules first.
 
 --- Whether `path` is /proc or beneath it, which a grant may name as a
 --- directory.
@@ -217,11 +220,13 @@ end
 --- @param inputs the rest of the policy
 --- @return true, or false and why
 function host_names.check(declared: {string}, inputs: host_names.Inputs): boolean, string
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, name in ipairs(declared) do
     local spec, why = host_names.parse(name)
     if spec == nil then return false, "requires: " .. why end
-    if seen[name] then return false, string.format("requires: %q is written twice", name) end
+    if seen[name] == true then
+      return false, string.format("requires: %q is written twice", name)
+    end
     seen[name] = true
     if spec.base == "path" then
       local granted = false
@@ -229,15 +234,19 @@ function host_names.check(declared: {string}, inputs: host_names.Inputs): boolea
         if grants(path, spec.argument) then granted = true end
       end
       if not granted then
+        local grant = string.format("grants = { { path = %q, letters = \"r\" } }", spec.argument)
+        if spec.argument == "/proc" or spec.argument:sub(1, 6) == "/proc/" then
+          grant = "profiles = { \"proc\" }"
+        end
         return false, string.format("requires: %q needs a host grant of the path, which is what the " ..
-            "worker sees of it: grants = { { path = %q, letters = \"r\" } }", name, spec.argument)
+            "worker sees of it: %s", name, grant)
       end
     elseif spec.base == "program" then
       local path_named = false
       for _, variable in ipairs(inputs.env or {}) do
         if variable == "PATH" then path_named = true end
       end
-      if not (inputs.system and path_named) then
+      if not (inputs.system == true and path_named) then
         return false, string.format("requires: %q needs the profile \"system\" and env = { \"PATH\" }, " ..
             "so the worker can find and run what the runner found", name)
       end

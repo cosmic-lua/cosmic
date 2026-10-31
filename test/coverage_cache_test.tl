@@ -1,4 +1,12 @@
+local Globals = require("cosmic.internal.globals")
 local Hits = require("build.coverage_hits")
+
+--- The hits `snapshot` holds for the chunk `name`.
+local function hits_of(snapshot: {string: {integer: boolean}}, name: string): {integer: boolean}
+  local found = snapshot[name]
+  assert(found, name .. " has hits in the snapshot")
+  return found
+end
 
 local function test_distinct_long_strings_with_same_source_merge_hits()
   local name = "coverage.same." .. string.rep("long", 40)
@@ -8,12 +16,12 @@ local function test_distinct_long_strings_with_same_source_merge_hits()
   local second = assert(load(string.rep("\n", 8192) .. "local n = 2\nreturn n", "@" .. name, "t"))
   assert(second() == 2)
   local after = Hits.snapshot()
-  assert(after[name][1] == true)
-  assert(after[name][8193] == true, "equal source names must union their hits")
-  assert(before[name][8193] == nil, "snapshots must not acquire later hits")
-  after[name][1] = nil
+  assert(hits_of(after, name)[1] == true)
+  assert(hits_of(after, name)[8193] == true, "equal source names must union their hits")
+  assert(hits_of(before, name)[8193] == nil, "snapshots must not acquire later hits")
+  hits_of(after, name)[1] = nil
   after[name] = {}
-  assert(Hits.snapshot()[name][1] == true, "snapshot mutation must not change collection")
+  assert(hits_of(Hits.snapshot(), name)[1] == true, "snapshot mutation must not change collection")
 end
 
 local function test_source_identity_survives_collection_and_stack_reuse()
@@ -29,7 +37,7 @@ local function test_source_identity_survives_collection_and_stack_reuse()
   local hits = Hits.snapshot()
   for i = 1, 40 do
     local name = "coverage.retained." .. tostring(i) .. string.rep("long", 40)
-    assert(hits[name][1] == true, "collected chunks must retain their source identity")
+    assert(hits_of(hits, name)[1] == true, "collected chunks must retain their source identity")
   end
 end
 
@@ -46,7 +54,7 @@ local function check_fresh_session_and_coroutine()
   local ok, value = coroutine.resume(shared_thread)
   assert(ok and value == 42, "a coroutine must survive collector session changes")
   local after = Hits.snapshot()
-  assert(after["coverage.coroutine.sessions"][2] == true)
+  assert(hits_of(after, "coverage.coroutine.sessions")[2] == true)
 end
 
 local function test_first_coroutine_session()
@@ -70,6 +78,6 @@ local function test_coverage_does_not_retain_captured_values()
     "collectgarbage('collect')",
     "collectgarbage('collect')",
     "assert(weak[1] == nil, 'coverage must not retain a closure environment')",
-  }, "\n"), "@coverage.capture.check", "t"))
+  }, "\n"), "@coverage.capture.check", "t", Globals.table()))
   probe()
 end

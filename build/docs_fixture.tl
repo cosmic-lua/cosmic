@@ -7,14 +7,15 @@
 --- as ([`Proc.find`]), a use recorded without the module's record. Rows
 --- written by hand drift from that shape silently. Here each source is
 --- staged into a working database as [`build.work`] stages a tree, parsed
---- by [`build.importer.derive`] -- the same [`build.analyzer`] analysis a
+--- by [`build.importer.derive`] -- the same [`build.syntax_analyzer`] analysis a
 --- build runs -- and projected by [`build.writer.write_result`], the
---- function that writes `o/cosmic.db`.
+--- function that writes `cosmic.db`.
 
 local Sqlite = require("cosmic.sqlite")
+local build_paths = require("build.paths")
 local importer = require("build.importer")
 local link_index = require("build.link_index")
-local teal = require("build.teal")
+local rebuild = require("build.rebuild")
 local work = require("build.work")
 local writer = require("build.writer")
 
@@ -23,20 +24,22 @@ end
 
 --- How many databases this process has written, so each has a file of
 --- its own under a directory one test shares.
-local written = 0
+local written: integer = 0
 
 --- The shipped database the tree `files` would build to, written as a
 --- file of its own under `dir` and opened read-only. `files` maps each file's path
 --- in the tree ([`cosmic/fs.tl`], [`cosmic/fs_example.tl`], `app/main.tl`,
 --- [`core/syscalls.h`]) to its contents; a path decides a module's import
 --- path and kind as it does in a tree. Nothing is compiled, so a source
---- need not type-check, and every module the tree holds is planned.
+--- need not type-check, and every module the tree holds is planned; the
+--- projection names as its compiler (`compiled_by`) the one a build in
+--- this process compiles under ([`rebuild.compiled_by`]), as a build's does.
 function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Handle
   local db = assert(Sqlite.memory())
   for _, statement in ipairs(work.schema) do
     assert(db:exec(statement))
   end
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   for path in pairs(files) do paths[#paths + 1] = path end
   table.sort(paths)
   for _, path in ipairs(paths) do
@@ -45,14 +48,13 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
         "VALUES (?1, length(CAST(?2 AS BLOB)), 0, 0, 0, lower(hex(sha256(?2))), ?2)",
       { { text = path }, { text = files[path] } }))
   end
-  local handle: work.Handle = { db = db, root = dir, dir = dir .. "/o", run = 1, inside = false }
-  local built = assert(teal.load())
-  assert(importer.derive(handle, true, built))
+  local handle: work.Handle = { db = db, root = dir, dir = build_paths.required(dir), run = 1, inside = false }
+  assert(importer.derive(handle, true))
   -- [`build.importer.compile`] plans each module under its key, beside
   -- its compile; this stands in for both, planning every module with
   -- nothing compiled, which no table the fixture is for reads.
   -- TODO: a use through a typed value (`w:add_file(...)`, which
-  -- [`build.receivers`] finds) is recorded only while a module compiles,
+  -- [`build.syntax_receivers`] finds) is recorded only while a module compiles,
   -- so no fixture has one; plan through [`importer.compile`] once it can
   -- compile a tree staged without a root on disk.
   assert(db:exec(
@@ -63,11 +65,15 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
     "INSERT INTO compiled (key, tool, lua, bytecode, seen) " ..
       "SELECT key, '', '', '', 0 FROM plan"))
   written = written + 1
-  local path = dir .. "/cosmic-" .. written .. ".db"
+  local path = dir .. "/cosmic-" .. tostring(written) .. ".db"
   -- A fixture's tree stands in for cosmic's own, whose links name its
-  -- own standard library and not the binary's.
+  -- own standard library and not the binary's. Its result names the
+  -- compiler a build in this process names, though nothing was compiled,
+  -- so a lookup takes the projection for its own code's
+  -- ([`writer.other_code`]).
   assert(writer.write_result(handle, path, {
-    modules = {}, tool = "", refused = {}, compiled = 0, cached = 0, shared = 0,
+    modules = {}, tool = rebuild.compiled_by("new"), refused = {}, left_out = {}, compiled = 0, cached = 0, shared = 0,
+    parses = { parsed = 0, shared = 0 },
   }, nil, link_index.none))
   assert(db:close())
   return (assert(Sqlite.open(path)))

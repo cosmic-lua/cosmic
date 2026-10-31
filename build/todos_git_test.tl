@@ -12,6 +12,13 @@ local Test = require("cosmic.test")
 local todos = require("build.todos")
 local work = require("build.work")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 Test.policy{ grants = { { path = "testdata/todos_git", letters = "r" } } }
 
 local DATA <const> = "testdata/todos_git"
@@ -33,7 +40,7 @@ local record Replay
 end
 
 --- A recorded file of the replay's step.
-local function recorded(replay: Replay, name: string): string | nil
+local function recorded(replay: Replay, name: string): string?
   local data, _ = Fs.read(DATA .. "/" .. replay.scenario .. "/" .. replay.step .. "/" .. name)
   return data
 end
@@ -42,7 +49,7 @@ end
 --- replay's step: a call the recording holds no answer to, or one in
 --- another shape than the verb's, fails the test, where git would
 --- have said something the test cannot know.
-local function answer(replay: Replay, root: string, args: {string}): string | nil
+local function answer(replay: Replay, root: string, args: {string}): string?
   local said = table.concat(args, " ")
   local head = assert(recorded(replay, "head"), "no head recorded: " .. said)
   local verb = args[1]
@@ -52,11 +59,11 @@ local function answer(replay: Replay, root: string, args: {string}): string | ni
   elseif verb == "merge-base" then
     assert(#args == 4 and args[2] == "--is-ancestor" and args[4] .. "\n" == head, said)
     local ancestors = assert(recorded(replay, "ancestors"))
-    return ("\n" .. ancestors):find("\n" .. args[3] .. "\n", 1, true) and "" or nil
+    return if ("\n" .. ancestors):find("\n" .. nth(args, 3) .. "\n", 1, true) then "" else nil end
   elseif verb == "diff" then
     assert(#args == 7 and table.concat(args, " ", 1, 4) == "diff --name-only --no-renames --relative" and
-        args[6] .. "\n" == head and args[7] == "--", said)
-    return (assert(recorded(replay, "diff-" .. args[5]), "no diff recorded: " .. said))
+        nth(args, 6) .. "\n" == head and args[7] == "--", said)
+    return (assert(recorded(replay, "diff-" .. nth(args, 5)), "no diff recorded: " .. said))
   elseif verb == "blame" then
     local at = 3
     assert(args[2] == "--line-porcelain", said)
@@ -64,23 +71,23 @@ local function answer(replay: Replay, root: string, args: {string}): string | ni
       assert(args[3] == "--ignore-revs-file" and args[4] == root .. "/.git-blame-ignore-revs", said)
       at = 5
     end
-    local asked: {string} = {}
+    local asked: mut {string} = {}
     while args[at] == "-L" do
-      asked[#asked + 1] = args[at + 1]
+      asked[#asked + 1] = nth(args, at + 1)
       at = at + 2
     end
     assert(table.concat(asked, " ") == replay.ranges and #args == at + 1 and args[at] == "--", said)
-    return (assert(recorded(replay, args[at + 1]:gsub("/", "_") .. ".blame"), "no blame recorded: " .. said))
+    return (assert(recorded(replay, nth(args, at + 1):gsub("/", "_") .. ".blame"), "no blame recorded: " .. said))
   end
   error("unexpected git call: " .. said)
 end
 
 --- A repository's marker in `root`, which is all the verb looks for
 --- before it asks git, and a replay of `scenario` to ask.
-local function replaying(root: string, scenario: string): Replay, function(string, {string}): string | nil
+local function replaying(root: string, scenario: string): Replay, function(string, {string}): string?
   assert(Fs.mkdirs(root .. "/.git"))
   local replay: Replay = { scenario = scenario, step = "1", ignored = false, ranges = "1,1" }
-  return replay, function(at: string, args: {string}): string | nil
+  return replay, function(at: string, args: {string}): string?
     return answer(replay, at, args)
   end
 end
@@ -98,25 +105,25 @@ local function test_blame_carries_across_commits_that_leave_a_file_alone()
     return listing.todos, listing.blamed
   end
   local all, blamed = listed("1")
-  assert(blamed == 2, "blamed " .. blamed)
-  assert(all[1].commit ~= "" and all[1].summary == "one", all[1].summary)
+  assert(blamed == 2, "blamed " .. tostring(blamed))
+  assert(nth(all, 1).commit ~= "" and nth(all, 1).summary == "one", nth(all, 1).summary)
 
   -- A commit that touches neither file blames neither again.
   assert(Fs.write(root .. "/c.tl", text({ "local c = 3" })))
   all, blamed = listed("2")
-  assert(blamed == 0, "blamed " .. blamed)
-  assert(all[2].summary == "one" and all[2].commit ~= "", all[2].summary)
+  assert(blamed == 0, "blamed " .. tostring(blamed))
+  assert(nth(all, 2).summary == "one" and nth(all, 2).commit ~= "", nth(all, 2).summary)
 
   -- One that touches a file blames that file alone.
   assert(Fs.write(root .. "/b.tl", text({ "-- TODO: second, reworded" })))
   all, blamed = listed("3")
-  assert(blamed == 1, "blamed " .. blamed)
-  assert(all[1].summary == "one" and all[2].summary == "three", all[2].summary)
+  assert(blamed == 1, "blamed " .. tostring(blamed))
+  assert(nth(all, 1).summary == "one" and nth(all, 2).summary == "three", nth(all, 2).summary)
 
   -- A rewritten history may have dropped the commits a row names.
   all, blamed = listed("4")
-  assert(blamed == 2, "blamed " .. blamed)
-  assert(all[2].summary == "three again", all[2].summary)
+  assert(blamed == 2, "blamed " .. tostring(blamed))
+  assert(nth(all, 2).summary == "three again", nth(all, 2).summary)
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end
@@ -135,20 +142,20 @@ local function test_blame_passes_over_the_commits_the_tree_ignores()
     return assert(todos.list(handle.db, root, run_git)).todos
   end
   local all = listed()
-  assert(all[1].summary == "sweep", all[1].summary)
-  assert(todos.render(all[1]):find("see `x`$") ~= nil, todos.render(all[1]))
+  assert(nth(all, 1).summary == "sweep", nth(all, 1).summary)
+  assert(todos.render(nth(all, 1)):find("see `x`$") ~= nil, todos.render(nth(all, 1)))
   replay.step = "2"
   replay.ignored = true
   assert(Fs.write(root .. "/.git-blame-ignore-revs", assert(recorded({ scenario = "ignores", step = "1",
     ignored = false, ranges = "1,1" }, "head"))))
   all = listed()
-  assert(all[1].summary == "one" and all[1].commit ~= "", all[1].summary)
+  assert(nth(all, 1).summary == "one" and nth(all, 1).commit ~= "", nth(all, 1).summary)
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end
 
 --- Lists the tree at `dir` once, staged first, and closes it.
-local function list_once(dir: string, run_git: function(string, {string}): string | nil): todos.Listing
+local function list_once(dir: string, run_git: function(string, {string}): string?): todos.Listing
   local handle = assert(work.open(dir))
   assert(work.stage(handle, false))
   local listing = assert(todos.list(handle.db, dir, run_git))
@@ -166,8 +173,8 @@ local function test_a_tree_in_a_repository_below_its_root_or_in_a_worktree_is_bl
   replay.step = "below"
   assert(Fs.write(root .. "/sub/a.tl", text({ "-- TODO: below the root" })))
   local below = list_once(root .. "/sub", run_git)
-  assert(below.blamed == 1, "blamed " .. below.blamed)
-  assert(#below.todos == 1 and below.todos[1].summary == "one", below.todos[1].summary)
+  assert(below.blamed == 1, "blamed " .. tostring(below.blamed))
+  assert(#below.todos == 1 and below.todos[1].summary == "one", nth(below.todos, 1).summary)
 
   local checkout = tmp .. "/worktree"
   assert(Fs.mkdirs(checkout .. "/sub"))
@@ -176,8 +183,8 @@ local function test_a_tree_in_a_repository_below_its_root_or_in_a_worktree_is_bl
   assert(Fs.write(checkout .. "/sub/a.tl", text({ "-- TODO: below the root" })))
   replay.step = "worktree"
   local listing = list_once(checkout, run_git)
-  assert(listing.blamed == 1, "blamed " .. listing.blamed)
-  assert(#listing.todos == 1 and listing.todos[1].summary == "one", listing.todos[1].summary)
+  assert(listing.blamed == 1, "blamed " .. tostring(listing.blamed))
+  assert(#listing.todos == 1 and listing.todos[1].summary == "one", nth(listing.todos, 1).summary)
 end
 
 --- A file's several TODOs are blamed in one call, a range to each, and
@@ -188,7 +195,7 @@ local function test_a_files_todos_are_blamed_in_one_call_by_line()
   replay.ranges = "1,1 3,3"
   assert(Fs.write(root .. "/a.tl", text({ "-- TODO: first", "local x = 1", "-- TODO: third" })))
   local listing = list_once(root, run_git)
-  assert(listing.blamed == 1, "blamed " .. listing.blamed)
+  assert(listing.blamed == 1, "blamed " .. tostring(listing.blamed))
   assert(#listing.todos == 2, #listing.todos)
   assert(listing.todos[1].summary == "one" and listing.todos[2].summary == "two",
     listing.todos[1].summary .. listing.todos[2].summary)

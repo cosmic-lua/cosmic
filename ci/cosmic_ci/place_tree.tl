@@ -7,7 +7,7 @@
 ---                                      $GITHUB_WORKSPACE's parent
 ---     driver.tl place-tree --restore   move it back, if it moved
 ---
---- A test must not depend on where the tree is (AGENTS.md): a verdict is
+--- A test must not depend on where the tree is (doc/testing.md): a verdict is
 --- shared between checkouts, which key an in-tree path by its name under
 --- the tree. So the tree moves beside $GITHUB_WORKSPACE, to a directory
 --- whose name, its length and its digits, a sha256 of the commit
@@ -76,11 +76,16 @@ local record PlaceTree
     warn: function(line: string)
   end
   --- The command's options, as [`Flags.parse`] reads a spec.
-  spec: {string:boolean | Flags.Option}
+  spec: function(): {string:boolean | Flags.Option}
+  --- The directory name chosen for a commit and leg, and the reason it was chosen, for the log.
+  record Placed
+    name: string
+    chosen: string
+  end
   --- The directory name for the commit and leg `env` holds, and the
   --- reason it was chosen, for the log; nil and why where an input is
   --- unset.
-  name: function(env: {string:string}): string | nil, string
+  name: function(env: {string:string}): Placed?, string
   --- Runs the command: `mode` is "", "--name" or "--restore". Answers the
   --- exit status: 2 for a missing input, 1 for a workspace linked
   --- elsewhere or a move that failed.
@@ -89,10 +94,12 @@ local record PlaceTree
   command: function(got: Flags.Parsed): integer
 end
 
-PlaceTree.spec = {
-  ["--name"] = { about = "only print the directory name under the workspace's parent" },
-  ["--restore"] = { about = "move the tree back to the workspace, if it moved" },
-}
+function PlaceTree.spec(): {string:boolean | Flags.Option}
+  return {
+    ["--name"] = { about = "only print the directory name under the workspace's parent" },
+    ["--restore"] = { about = "move the tree back to the workspace, if it moved" },
+  }
+end
 
 local USAGE <const> = "usage: place-tree [--name | --restore]"
 
@@ -101,16 +108,16 @@ local function digest(text: string): string
   return Hash.hex_sha256(text)
 end
 
-function PlaceTree.name(env: {string:string}): string | nil, string
-  local sha, worker = env.GITHUB_SHA or "", env.COSMIC_WORKER or ""
+function PlaceTree.name(env: {string:string}): PlaceTree.Placed?, string
+  local sha, worker = env["GITHUB_SHA"] or "", env["COSMIC_WORKER"] or ""
   if sha == "" then return nil, "place-tree: GITHUB_SHA is not set" end
   if worker == "" then return nil, "place-tree: COSMIC_WORKER is not set" end
   -- TODO: put a space in a name too, to catch a path left unquoted, once
   -- ci/run-local runs the driver from a path with one (its drop_env is
   -- split on spaces) and shows its phases take it: the suite itself does.
   local seed, chosen: string, string
-  local event = env.GITHUB_EVENT_NAME or ""
-  if env.COSMIC_CI_DECLARED_KEYS == "1" and (event == "push" or event == "merge_group") then
+  local event = env["GITHUB_EVENT_NAME"] or ""
+  if env["COSMIC_CI_DECLARED_KEYS"] == "1" and (event == "push" or event == "merge_group") then
     seed = digest("leg " .. worker .. "\n")
     chosen = "leg " .. worker .. ", a gating run keyed by the path"
   else
@@ -118,27 +125,30 @@ function PlaceTree.name(env: {string:string}): string | nil, string
     chosen = "commit " .. sha .. ", leg " .. worker
   end
   -- The first byte of the seed, as two hex digits, sets the length.
-  local length = (math.tointeger(tonumber(seed:sub(1, 2), 16)) as integer) % 24 + 1
-  return digest(seed .. " 1\n"):sub(1, length), chosen
+  local first = math.tointeger(tonumber(seed:sub(1, 2), 16))
+  assert(first ~= nil, "the seed does not begin with two hex digits")
+  local length = first % 24 + 1
+  return { name = digest(seed .. " 1\n"):sub(1, length), chosen = chosen }, ""
 end
 
 function PlaceTree.run(host: PlaceTree.Host, mode: string): integer
-  local relative, chosen = PlaceTree.name(host.env)
-  if relative == nil then
-    host.warn(chosen)
+  local placed, why_not = PlaceTree.name(host.env)
+  if placed == nil then
+    host.warn(why_not)
     return 2
   end
+  local relative, chosen = placed.name, placed.chosen
   if mode == "--name" then
     host.print(relative)
     return 0
   end
-  local workspace = host.env.GITHUB_WORKSPACE or ""
+  local workspace = host.env["GITHUB_WORKSPACE"] or ""
   if workspace == "" then
     host.warn("place-tree: GITHUB_WORKSPACE is not set")
     return 2
   end
   local tree = Fs.dirname(workspace) .. "/" .. relative
-  local link = Fs.readlink(workspace)
+  local link, _ = Fs.readlink(workspace)
 
   if mode == "--restore" then
     if link ~= nil then
@@ -152,7 +162,9 @@ function PlaceTree.run(host: PlaceTree.Host, mode: string): integer
         return 1
       end
     end
-    if not Fs.exists(workspace) and Fs.is_dir(tree) then
+    local exists_already, _ = Fs.exists(workspace)
+    local is_tree, _ = Fs.is_dir(tree)
+    if exists_already ~= true and is_tree == true then
       local moved, why = Fs.rename(tree, workspace)
       if not moved then
         host.warn("place-tree: " .. why)
@@ -169,7 +181,8 @@ function PlaceTree.run(host: PlaceTree.Host, mode: string): integer
     return 0
   end
   -- The rename would replace an empty directory already at `tree`.
-  if Fs.exists(tree) then
+  local tree_exists, _ = Fs.exists(tree)
+  if tree_exists == true then
     host.warn("place-tree: " .. tree .. " exists already")
     return 1
   end
@@ -194,11 +207,17 @@ function PlaceTree.command(got: Flags.Parsed): integer
     print = function(line: string) local _, _ = Fs.put(Fs.stdout, line .. "\n") end,
     warn = function(line: string) local _, _ = Fs.put(Fs.stderr, line .. "\n") end,
   }
-  if #got.words > 0 or (given["--name"] and given["--restore"]) then
+  if #got.words > 0 or (given["--name"] == true and given["--restore"] == true) then
     live.warn(USAGE)
     return 2
   end
-  return PlaceTree.run(live, given["--name"] and "--name" or given["--restore"] and "--restore" or "")
+  local mode = ""
+  if given["--name"] == true then
+    mode = "--name"
+  elseif given["--restore"] == true then
+    mode = "--restore"
+  end
+  return PlaceTree.run(live, mode)
 end
 
 return PlaceTree

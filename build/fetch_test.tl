@@ -1,10 +1,10 @@
 --- `cosmic fetch` in process, over [`cosmic.http`]'s scripted transport
---- ([`Io.script`]: a canned reply per connection, so no test reaches the
+--- ([`build.fetch.Io.script`]: a canned reply per connection, so no test reaches the
 --- network), and refusals on a local port closed for them. Like
 --- cosmic/http_test.tl it declares only loopback, so it is keyed and
 --- runs offline. The program run as a process is build/fetch_tool_test.tl's.
 
-local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -40,11 +40,11 @@ end
 
 --- Runs `fetch` with `words` after the verb, over `script`; `fail_out`
 --- makes every write to standard output fail.
-local function run(words: {string}, script: {string}, fail_out?: string): Ran
-  local argv: {integer:string} = { "fetch" }
+local function run(words: {string}, script?: {string}, fail_out?: string): Ran
+  local argv: mut {string} = { "fetch" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
-  local out: {string} = {}
-  local err: {string} = {}
+  local out: mut {string} = {}
+  local err: mut {string} = {}
   local code = fetch.run(argv, {
     script = script,
     out = function(text: string): boolean, string
@@ -106,7 +106,7 @@ local function test_a_bad_status_fails_and_names_it(tmp: string)
   assert(ran.err:find("HTTP 404", 1, true), ran.err)
   local path = tmp .. "/page.html"
   local filed = run({ url, "-o", path }, { reply("500 Oops", "", "x") })
-  assert(filed.code == 1 and filed.err:find("HTTP 500", 1, true), filed.err)
+  assert(filed.code == 1 and filed.err:find("HTTP 500", 1, true) ~= nil, filed.err)
   assert(Fs.exists(path) == false)
 end
 
@@ -119,7 +119,7 @@ local function test_a_redirect_is_followed()
 end
 
 local function test_a_redirect_loop_fails()
-  local script: {string} = {}
+  local script: mut {string} = {}
   for _ = 1, 12 do script[#script + 1] = reply("302 Found", "Location: /again\r\n") end
   local ran = run({ url }, script)
   assert(ran.code == 1 and ran.out == "", ran.err)
@@ -159,7 +159,7 @@ local function test_a_bad_url_or_command_line_is_a_usage_error()
       { url, "--head", "-o", "x" }, { url, "-o", "" },
   } as {{string}}) do
     local ran = run(words, {})
-    assert(ran.code == 2, table.concat(words, " ") .. " exited " .. ran.code .. ": " .. ran.err)
+    assert(ran.code == 2, table.concat(words, " ") .. " exited " .. tostring(ran.code) .. ": " .. ran.err)
     assert(ran.out == "" and ran.err:find("cosmic: fetch: ", 1, true) == 1, ran.err)
   end
 end
@@ -167,14 +167,14 @@ end
 --- A port a listener held and closed, which nothing listens at now.
 local function closed_port(): integer
   local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-  local port = listener.address.port
+  local port = assert(listener.address.port)
   assert(listener:close())
   return port
 end
 
 local function test_a_refused_connection_fails()
-  local refused = "http://127.0.0.1:" .. closed_port() .. "/"
-  local ran = run({ refused }, nil)
+  local refused = "http://127.0.0.1:" .. tostring(closed_port()) .. "/"
+  local ran = run({ refused })
   assert(ran.code == 1, tostring(ran.code) .. ran.err)
   assert(ran.out == "" and ran.err:find("cosmic: fetch: " .. refused, 1, true) == 1, ran.err)
 end
@@ -205,7 +205,7 @@ local function test_credentials_never_reach_a_message_or_the_json(tmp: string)
   local json = run({ "--head", "--json", secret }, { reply("200 OK", "") })
   assert(json.code == 0 and not json.out:find("hunter2", 1, true), json.out)
   assert(json.out:find("***@cosmic.test", 1, true), json.out)
-  local refused = run({ "http://user:hunter2@127.0.0.1:" .. closed_port() .. "/" }, nil)
+  local refused = run({ "http://user:hunter2@127.0.0.1:" .. tostring(closed_port()) .. "/" })
   assert(refused.code == 1 and not refused.err:find("hunter2", 1, true), refused.err)
 end
 
@@ -238,9 +238,9 @@ end
 -- so only the decision (`redirect_protocols`, `refusal`) and
 -- cosmic/http_test.tl's scripted http cases are covered.
 local function test_an_https_start_limits_redirects_to_https_unless_allowed()
-  local limited = fetch.redirect_protocols("https://example.test/a", false)
+  local limited = assert(fetch.redirect_protocols("https://example.test/a", false))
   assert(#limited == 1 and limited[1] == "https")
-  limited = fetch.redirect_protocols("HTTPS://example.test/a", false)
+  limited = assert(fetch.redirect_protocols("HTTPS://example.test/a", false))
   assert(#limited == 1 and limited[1] == "https")
   assert(fetch.redirect_protocols("https://example.test/a", true) == nil)
   assert(fetch.redirect_protocols("http://example.test/a", false) == nil)
@@ -267,8 +267,8 @@ end
 
 local function test_a_cancelled_download_leaves_no_file_and_fails(tmp: string)
   local path = tmp .. "/got.txt"
-  local argv: {integer:string} = { "fetch", url, "-o", path }
-  local err: {string} = {}
+  local argv: {string} = { "fetch", url, "-o", path }
+  local err: mut {string} = {}
   local code = fetch.run(argv, {
     script = { reply("200 OK", "", string.rep("y", 200000)) },
     out = function(_text: string): boolean, string return true, "" end,
@@ -285,15 +285,15 @@ end
 
 --- The guard `-o` holds is closed on every way out, a complaint that
 --- raises included: left open, it would hold SIGINT and SIGTERM for the
---- rest of the process, and a later [`Child.guard`] would be refused.
+--- rest of the process, and a later [`Signal.guard`] would be refused.
 local function test_the_guard_is_closed_when_a_complaint_raises(tmp: string)
-  local ok, trouble = pcall(fetch.run, { "fetch", url, "-o", tmp .. "/got" } as {integer:string}, {
+  local ok, trouble = pcall(fetch.run, { "fetch", url, "-o", tmp .. "/got" }, {
     script = { reply("404 Not Found", "", "no") },
     out = function(_text: string): boolean, string return true, "" end,
     err = function(_line: string) error("stderr is gone") end,
   })
   assert(not ok and tostring(trouble):find("stderr is gone", 1, true) ~= nil, tostring(trouble))
-  local guard, why = Child.guard()
+  local guard, why = Signal.guard()
   assert(guard ~= nil, "the guard was left open: " .. tostring(why))
   assert(guard:close())
 end
@@ -332,7 +332,7 @@ local function test_a_sha512_alone_checks_a_download_to_a_file(tmp: string)
   assert(filed.code == 0 and Fs.read(path) == "hello", filed.err)
   local other = tmp .. "/wrong512.txt"
   local bad = run({ "--sha512", string.rep("0", 128), "-o", other, url }, { reply("200 OK", "", "hello") })
-  assert(bad.code == 1 and bad.err:find("sha512 mismatch", 1, true), bad.err)
+  assert(bad.code == 1 and bad.err:find("sha512 mismatch", 1, true) ~= nil, bad.err)
   assert(not bad.err:find("sha256", 1, true), bad.err)
   assert(Fs.stat(other) == nil, "the target was created")
 end
@@ -376,10 +376,10 @@ local function test_different_algorithms_must_both_match(tmp: string)
   assert(ran.code == 0 and ran.out == "hello", ran.err)
   local wrong512 = run({ "--sha256", s256, url .. "#sha512=" .. string.rep("0", 128) },
     { reply("200 OK", "", "hello") })
-  assert(wrong512.code == 1 and wrong512.out == "" and wrong512.err:find("sha512 mismatch", 1, true), wrong512.err)
+  assert(wrong512.code == 1 and wrong512.out == "" and wrong512.err:find("sha512 mismatch", 1, true) ~= nil, wrong512.err)
   local wrong256 = run({ "--sha512", s512, url .. "#sha256=" .. string.rep("0", 64) },
     { reply("200 OK", "", "hello") })
-  assert(wrong256.code == 1 and wrong256.err:find("sha256 mismatch", 1, true), wrong256.err)
+  assert(wrong256.code == 1 and wrong256.err:find("sha256 mismatch", 1, true) ~= nil, wrong256.err)
   local path = tmp .. "/both.txt"
   local filed = run({ url .. "#sha256=" .. s256, "--sha512", string.rep("0", 128), "-o", path },
     { reply("200 OK", "", "hello") })
@@ -432,4 +432,53 @@ local function test_download_status_uses_typed_code_instead_of_diagnostic_text(t
   Http.download_result = download
   assert(ran.code == 1 and ran.err == "cosmic: fetch: " .. url .. ": HTTP 503\n", ran.err)
   assert(ran.out == "" and #assert(Fs.list(tmp)) == 0)
+end
+
+--- `--roots`, `--cacert` and `--pin` of a shape the verb cannot use,
+--- or a `--cacert` it cannot read, are exit 2 before any request.
+local function test_trust_flags_it_cannot_use_are_usage_errors(tmp: string)
+  local record Case
+    flag: string
+    value: string
+  end
+  local cases: {Case} = {
+    { flag = "--roots", value = "everything" },
+    { flag = "--roots", value = "minimal," },
+    { flag = "--roots", value = string.rep("a", 63) },
+    { flag = "--pin", value = "sha256//short=" },
+    { flag = "--pin", value = "C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=" },
+    { flag = "--cacert", value = tmp .. "/missing.pem" },
+  }
+  for _, case in ipairs(cases) do
+    local ran = run({ case.flag, case.value, url }, {})
+    assert(ran.code == 2, case.flag .. " " .. case.value .. ": " .. tostring(ran.code) .. " " .. ran.err)
+    assert(ran.err:find(case.flag, 1, true) ~= nil, ran.err)
+  end
+end
+
+--- The trust flags reach the request: a choice that trusts nothing, or a
+--- `--cacert` that holds no certificate, fails it (exit 1); a set and
+--- pins that can be used leave a plain http fetch as it was.
+local function test_trust_flags_reach_the_request(tmp: string)
+  local nothing = run({ "--roots", "none", url }, { reply("200 OK", "", "hello") })
+  assert(nothing.code == 1 and nothing.err:find("no CA roots to trust", 1, true) ~= nil, nothing.err)
+  local junk = tmp .. "/junk.pem"
+  assert(Fs.write(junk, "not a certificate"))
+  local unread = run({ "--cacert", junk, url }, { reply("200 OK", "", "hello") })
+  assert(unread.code == 1 and unread.err:find("opts.ca:", 1, true) ~= nil, unread.err)
+  local pin = "sha256//C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M="
+  local usable: {{string}} = {
+    { "--roots", "minimal" },
+    { "--roots", "mozilla" },
+    { "--roots", "minimal", "--pin", pin, "--pin", pin },
+  }
+  for _, words in ipairs(usable) do
+    words[#words + 1] = url
+    local ran = run(words, { reply("200 OK", "", "hello") })
+    assert(ran.code == 0 and ran.out == "hello", table.concat(words, " ") .. ": " .. ran.err)
+  end
+  -- Digests, with or without colons, take the shape whatever they name.
+  local digests = run({ "--roots", string.rep("ab:", 31) .. "ab," .. Hash.hex_sha256("x"), "--head", url },
+    { reply("200 OK", "") })
+  assert(digests.code ~= 2, digests.err)
 end

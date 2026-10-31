@@ -7,9 +7,11 @@
 #
 # bin/cosmic-bootstrap fetches and verifies the pinned release into
 # $XDG_CACHE_HOME/cosmic/bootstrap, where bin/zig finds it again, and
-# checks a restored cache against the pin first. The driver is linked in
-# as cosmic-driver on the job's PATH. `zig-cache` also points the job's
-# later steps at the caches the platform job restores.
+# checks a restored cache against the pin first. The driver is put
+# on the job's PATH as cosmic-driver, through a two-line wrapper that runs the
+# entry point bin/cosmic-bootstrap prints: it holds a `--standalone` run to
+# ci/bootstrap-files.txt and sets COSMIC_GRAMMAR=new for the release. `zig-cache` also points the job's later steps at the
+# caches the platform job restores.
 set -eu
 
 case "${1-}" in
@@ -23,7 +25,14 @@ mkdir -p "$RUNNER_TEMP/bin"
 if [ -e "$RUNNER_TEMP/bin/cosmic-driver" ] || [ -L "$RUNNER_TEMP/bin/cosmic-driver" ]; then
   echo "$RUNNER_TEMP/bin/cosmic-driver already exists" >&2; exit 1
 fi
-ln -s "$driver" "$RUNNER_TEMP/bin/cosmic-driver"
+# A wrapper, not a link, so the path of the entry point is one a shell reads
+# once, quoted.
+# The path is written single-quoted, with each ' in it closed, escaped and
+# reopened, so no character of it (a ", $, backtick or newline) is read as
+# shell.
+quoted=$(printf '%s' "$driver" | sed "s/'/'\\\\''/g")
+printf '#!/bin/sh\nexec '"'%s'"' "$@"\n' "$quoted" > "$RUNNER_TEMP/bin/cosmic-driver"
+chmod 755 "$RUNNER_TEMP/bin/cosmic-driver"
 echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
 if [ "${1-}" = zig-cache ]; then
@@ -48,8 +57,7 @@ if [ "${1-}" = zig-cache ]; then
   # macOS leg keyed by declared inputs unenforced, as the tree's tool
   # and pinned driver key every unsandboxed run -- and none in a manual or
   # scheduled run.
-  # The portable suite keeps its own file beside this one
-  # (`suite_verdicts`), in the same cache.
+  # The portable suite stands on this file too (`suite_verdicts`).
   echo "COSMIC_VERDICT_CACHE=$RUNNER_TEMP/verdicts/verdicts.db" >> "$GITHUB_ENV"
   # The compiles and parses every build of the leg shares
   # (build/shared_compiles.tl), in a cache of their own that ci.yml

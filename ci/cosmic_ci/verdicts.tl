@@ -2,9 +2,9 @@
 --- directory of the file COSMIC_VERDICT_CACHE names
 --- (build/shared_verdicts.tl in the candidate), which ci.yml restores
 --- before the leg's suites and saves after them. It holds `verdicts.db`,
---- the native suite's; `portable.db` beside it, the portable suite's;
+--- the native suite's and the portable suite's alike;
 --- `fixtures.db`, the sandboxed fixtures' (cosmic_ci/orchestration.tl's
---- `sandboxed_fixtures`); or, in ci.yml's checked job, which runs no
+--- `sandboxed_fixtures`); or, in ci.yml's checked jobs, which run no
 --- other suite, `checked.db` alone, the checked suite's
 --- (COSMIC_CI_CHECKED_SUITE; cosmic_ci/orchestration.tl's
 --- `suite_verdicts`).
@@ -23,10 +23,9 @@
 --- wrote with the time (`used_ns`), and take out a row whose test
 --- failed.
 ---
---- A file none of whose rows the run reached (the portable suite's, on
---- a run that has none, or on a leg that skips it,
---- COSMIC_CI_PORTABLE_SUITE; the fixtures', on a run whose scope runs
---- none) keeps them all: that is no sign they are dead. Like the suites, which never fail over the cache, a trim that
+--- A file none of whose rows the run reached (the fixtures', on a run
+--- whose scope runs none) keeps them all: that is no sign they are dead.
+--- Like the suites, which never fail over the cache, a trim that
 --- cannot read it never fails the leg (cosmic_ci/cache_trim.tl).
 
 local CacheTrim = require("cosmic_ci.cache_trim")
@@ -36,6 +35,11 @@ local Sqlite = require("cosmic.sqlite")
 local Plural = require("cosmic_ci.plural")
 
 local record Verdicts
+end
+
+--- Whether the merge attached the run ahead's database, kept where the function that runs it can read it.
+local record Attached
+  mut attached: boolean
 end
 
 --- The tables of build/shared_verdicts.tl's formats: `declared_v<n>`;
@@ -50,7 +54,7 @@ local patterns: {string} = { "declared_v[0-9]*", "stores_v[0-9]*", "verdicts_v[0
 --- was set aside beside them, which the maintenance command removes.
 local function caches(dir: string): {string}
   local listed, _ = Fs.list(dir)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, entry in ipairs(listed or {}) do
     if entry:sub(-3) == ".db" then out[#out + 1] = dir .. "/" .. entry end
   end
@@ -60,29 +64,33 @@ end
 
 --- Trims the sorted save set through the running driver. Any incomplete
 --- file withholds the aggregate key; unreadable active files stay put.
-function Verdicts.command(argv: {string}, env: {string:string}): integer, string, string
+function Verdicts.command(argv: {string}, env: {string:string}): CacheTrim.Command
   local whole = argv[1] == "whole"
   local since = CacheTrim.since(argv)
   if since == nil and not whole then
-    return 2, "", "verdicts-trim: SINCE must be bounded Unix seconds, or whole\n"
+    return { code = 2, out = "", err = "verdicts-trim: SINCE must be bounded Unix seconds, or whole\n" }
   end
-  local path = env.COSMIC_VERDICT_CACHE or ""
+  local path = env["COSMIC_VERDICT_CACHE"] or ""
   if path:sub(1, 1) ~= "/" then
-    return 0, "verdicts-trim: COSMIC_VERDICT_CACHE names no file; nothing to trim\n", ""
+    return { code = 0, out = "verdicts-trim: COSMIC_VERDICT_CACHE names no file; nothing to trim\n", err = "" }
   end
-  if path:find("\0", 1, true) then return 2, "", "verdicts-trim: cache path contains NUL\n" end
+  if path:find("\0", 1, true) then
+    return { code = 2, out = "", err = "verdicts-trim: cache path contains NUL\n" }
+  end
   local found = caches(Fs.dirname(path))
-  if #found == 0 then return 0, "verdicts-trim: no cache; nothing to trim\n", "" end
-  local out, err = CacheTrim.run({ family = "verdicts", paths = found,
+  if #found == 0 then
+    return { code = 0, out = "verdicts-trim: no cache; nothing to trim\n", err = "" }
+  end
+  local trimmed = CacheTrim.run({ family = "verdicts", paths = found,
     since_ns = since, whole = whole }, env)
-  return 0, out, err
+  return { code = 0, out = trimmed.out, err = trimmed.err }
 end
 
 --- Writes what a command said, and answers its status.
-local function said(code: integer, out: string, err: string): integer
-  if out ~= "" then local _, _ = Fs.put(Fs.stdout, out) end
-  if err ~= "" then local _, _ = Fs.put(Fs.stderr, err) end
-  return code
+local function said(command: CacheTrim.Command): integer
+  if command.out ~= "" then local _, _ = Fs.put(Fs.stdout, command.out) end
+  if command.err ~= "" then local _, _ = Fs.put(Fs.stderr, command.err) end
+  return command.code
 end
 
 --- `driver.tl verdicts-trim SINCE|whole`, in the driver's environment
@@ -101,25 +109,25 @@ end
 
 --- The columns of `schema`'s table `name`, in order, and which of them
 --- the primary key holds; nil and why where they could not be read.
-local function columns(db: Sqlite.Handle, schema: string, name: string): {string} | nil, boolean, string
+local function columns(db: Sqlite.Handle, schema: string, name: string): {string}?, boolean, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT name, pk FROM pragma_table_info(?1, ?2) ORDER BY cid",
     { { text = name }, { text = schema } })
   if rows == nil then return nil, false, trouble end
-  local out: {string} = {}
+  local out: mut {string} = {}
   local keyed = false
   for _, row in ipairs(rows) do
-    out[#out + 1] = row[1]
-    keyed = keyed or row[2] ~= "0"
+    out[#out + 1] = row:text(1)
+    keyed = keyed or row:text(2) ~= "0"
   end
   return out, keyed, ""
 end
 
 --- A count the query answers, or nil and why.
-local function counted(db: Sqlite.Handle, sql: string): integer | nil, string
+local function counted(db: Sqlite.Handle, sql: string): integer?, string
   local rows, trouble = Sqlite.text_rows(db, sql)
   if rows == nil then return nil, trouble end
-  return math.tointeger(tonumber(rows[1][1])) or 0, ""
+  return math.tointeger(tonumber(assert(rows[1]):text(1))) or 0, ""
 end
 
 --- Adds to the cache at `into` (made where it is not there) the rows of
@@ -142,19 +150,19 @@ local function merge_file(from: string, into: string): string, string
     return "", "verdicts-merge: " .. into .. ": " .. open_trouble .. "; nothing merged\n"
   end
   local db: Sqlite.Handle = opened
-  local skipped: {string} = {}
-  local added: {string} = {}
-  local differing: {string} = {}
-  local attached = false
+  local skipped: mut {string} = {}
+  local added: mut {string} = {}
+  local differing: mut {string} = {}
+  local session: Attached = { attached = false }
   local function work(): boolean, string
-    local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. busy_ms)
+    local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. tostring(busy_ms))
     if not timed then return false, time_trouble end
     local ok, attach_trouble = Sqlite.run(db, "ATTACH DATABASE ?1 AS ahead", { { text = from } })
     if not ok then return false, attach_trouble end
-    attached = true
+    session.attached = true
     local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
     if not begun then return false, begin_trouble end
-    local globs: {string} = {}
+    local globs: mut {string} = {}
     for _, pattern in ipairs(patterns) do
       globs[#globs + 1] = "name GLOB '" .. pattern .. "'"
     end
@@ -162,7 +170,7 @@ local function merge_file(from: string, into: string): string, string
         "WHERE type = 'table' AND (" .. table.concat(globs, " OR ") .. ") ORDER BY name")
     if names == nil then return false, trouble end
     for _, row in ipairs(names) do
-      local name, sql = row[1], row[2]
+      local name, sql = row:text(1), row:text(2)
       local q = quote(name)
       local theirs, keyed, their_trouble = columns(db, "ahead", name)
       if theirs == nil then return false, their_trouble end
@@ -182,29 +190,29 @@ local function merge_file(from: string, into: string): string, string
               "WHERE type = 'index' AND tbl_name = ?1 AND sql IS NOT NULL ORDER BY name", { { text = name } })
           if indexes == nil then return false, index_trouble end
           for _, index in ipairs(indexes) do
-            if index[1]:sub(1, 13) == "CREATE INDEX " then
-              local indexed, indexed_trouble = db:exec(index[1])
+            if index:text(1):sub(1, 13) == "CREATE INDEX " then
+              local indexed, indexed_trouble = db:exec(index:text(1))
               if not indexed then return false, indexed_trouble end
             end
           end
         end
-        local list: {string} = {}
-        local values: {string} = {}
-        for i, column in ipairs(theirs) do
-          list[i] = quote(column)
-          values[i] = column == "used_ns" and "0" or quote(column)
+        local list: mut {string} = {}
+        local values: mut {string} = {}
+        for _, column in ipairs(theirs) do
+          list[#list + 1] = quote(column)
+          values[#values + 1] = if column == "used_ns" then "0" else quote(column) end
         end
         -- The digests of closure stores (build/shared_verdicts.tl's
         -- `stores`): one address names one store's bytes, so a digest
         -- the run ahead kept for an address ours holds otherwise says
         -- a store's writer made two stores of it. Ours is kept.
-        if #ours > 0 and name:match("^stores_v%d+$") then
+        if #ours > 0 and name:match("^stores_v%d+$") ~= nil then
           local other, other_trouble = counted(db, "SELECT count(*) FROM main." .. q ..
               " AS m JOIN ahead." .. q .. " AS a ON a.address = m.address " ..
               "WHERE a.digest <> m.digest")
           if other == nil then return false, other_trouble end
           if other > 0 then
-            differing[#differing + 1] = Plural.count(other, "address", "addresses") .. " of " .. name
+            table.insert(differing, Plural.count(other, "address", "addresses") .. " of " .. name)
           end
         end
         local before, before_trouble = counted(db, "SELECT count(*) FROM main." .. q)
@@ -215,7 +223,7 @@ local function merge_file(from: string, into: string): string, string
         if not inserted then return false, insert_trouble end
         local after, after_trouble = counted(db, "SELECT count(*) FROM main." .. q)
         if after == nil then return false, after_trouble end
-        added[#added + 1] = Plural.count(after - before, "row") .. " to " .. name
+        table.insert(added, Plural.count(after - before, "row") .. " to " .. name)
       end
     end
     local committed, commit_trouble = db:exec("COMMIT")
@@ -224,7 +232,7 @@ local function merge_file(from: string, into: string): string, string
   end
   local ok, trouble = work()
   if not ok then local _, _ = db:exec("ROLLBACK") end
-  if attached then local _, _ = db:exec("DETACH DATABASE ahead") end
+  if session.attached then local _, _ = db:exec("DETACH DATABASE ahead") end
   local _, _ = db:close()
   if not ok then
     return "", "verdicts-merge: " .. from .. " into " .. into .. ": " .. trouble ..
@@ -240,7 +248,8 @@ local function merge_file(from: string, into: string): string, string
       "holds, and this cache's is kept: a store's bytes must follow from its address " ..
       "alone (build/closure_store.tl's `address`), so a writer made two stores of one\n"
   end
-  local what = #added > 0 and table.concat(added, ", ") or "no table of the tool's"
+  local what = "no table of the tool's"
+  if #added > 0 then what = table.concat(added, ", ") end
   return "verdicts-merge: added " .. what .. "; " .. from .. " -> " .. into .. "\n", err
 end
 
@@ -256,30 +265,30 @@ end
 --- names no file or DIR holds no cache. Only a missing DIR argument
 --- fails it (2): a cache it cannot merge is reported on standard error,
 --- and this run goes on with what it restored.
-function Verdicts.merge(argv: {string}, env: {string:string}): integer, string, string
+function Verdicts.merge(argv: {string}, env: {string:string}): CacheTrim.Command
   local from = argv[1] or ""
   if from == "" or argv[2] ~= nil then
-    return 2, "", "usage: verdicts-merge DIR\n"
+    return { code = 2, out = "", err = "usage: verdicts-merge DIR\n" }
   end
-  local path = env.COSMIC_VERDICT_CACHE or ""
+  local path = env["COSMIC_VERDICT_CACHE"] or ""
   if path:sub(1, 1) ~= "/" then
-    return 0, "verdicts-merge: COSMIC_VERDICT_CACHE names no file ('" .. path ..
-      "'); nothing to merge\n", ""
+    return { code = 0, out = "verdicts-merge: COSMIC_VERDICT_CACHE names no file ('" .. path ..
+        "'); nothing to merge\n", err = "" }
   end
   local found = caches(from)
   if #found == 0 then
-    return 0, "verdicts-merge: " .. from .. " holds no cache; nothing to merge\n", ""
+    return { code = 0, out = "verdicts-merge: " .. from .. " holds no cache; nothing to merge\n", err = "" }
   end
   local dir = Fs.dirname(path)
   local made, trouble = Fs.mkdirs(dir)
   if not made then
-    return 0, "", "verdicts-merge: " .. dir .. ": " .. trouble .. "; nothing merged\n"
+    return { code = 0, out = "", err = "verdicts-merge: " .. dir .. ": " .. trouble .. "; nothing merged\n" }
   end
-  local outs, errs: {string}, {string} = {}, {}
+  local outs, errs: mut {string}, mut {string} = {}, {}
   for _, cache in ipairs(found) do
     outs[#outs + 1], errs[#errs + 1] = merge_file(cache, dir .. "/" .. Fs.basename(cache))
   end
-  return 0, table.concat(outs), table.concat(errs)
+  return { code = 0, out = table.concat(outs), err = table.concat(errs) }
 end
 
 --- `driver.tl verdicts-merge DIR`, in the driver's environment

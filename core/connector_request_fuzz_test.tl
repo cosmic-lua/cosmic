@@ -9,23 +9,14 @@
 --- so nothing past this worker's own loopback is reached. `FUZZ_SEED` and
 --- `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 local Fuzz = require("build.fuzz")
-local type raw_process = require("cosmic.internal.process")
-local type raw_socket = require("cosmic.internal.socket")
+local RawTables = require("build.raw_tables")
 local type _ = require("cosmic.child")
 local type _net = require("cosmic.net")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 Test.policy{ loopback = { "127.0.0.1" }, promises = { "fork" } }
-local type Searcher = function(string): any, any
-local function table_for(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: a loader's extra is the raw table
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error("no raw table")
-end
-local process = table_for("cosmic.child") as raw_process -- cast: core/process.h's table
-local socket = table_for("cosmic.net") as raw_socket -- cast: core/socket.h's table
+local process = RawTables.process()
+local socket = RawTables.socket()
 
 local PUBLIC <const> = 0xffffffff
 --- A drawn port that stands for the listener's, which is known only once
@@ -53,7 +44,7 @@ local function gen_request(src: Fuzz.Source): string
     family = Fuzz.pick(src, { 0, 0, 0, 0, 0, 4, word(src) })
     address = Fuzz.pick(src, { zeros, zeros, zeros, string.rep("\0", 15) .. "\1" })
   else
-    index = shape == 1 and PUBLIC or word(src)
+    index = if shape == 1 then PUBLIC else word(src) end
     family = Fuzz.pick(src, { 4, 4, 4, 6, 5, 0, word(src) })
     address = Fuzz.pick(src, {
       zeros,
@@ -84,7 +75,7 @@ local function expected(request: string, listener: integer): {integer: boolean},
     if index ~= 1 or port ~= listener then return { [sys.EPERM] = true }, false, "outside" end
     return { [0] = true }, true, "table"
   end
-  local length = family == 4 and 4 or family == 6 and 16 or 0
+  local length = if family == 4 then 4 elseif family == 6 then 16 else 0 end
   if length == 0 or port > 65535 or not zero(length + 1) then
     return { [sys.EINVAL] = true }, false, "malformed"
   end
@@ -115,26 +106,26 @@ local function require_native_connector()
   if result == nil and (number == sys.ENOSYS or number == sys.EOPNOTSUPP) then
     Test.skip("this host has no native connector confinement: " .. why)
   end
-  assert(result == sys.EPERM, "native connector setup failed: " .. (why or ""))
+  assert(result == sys.EPERM, "native connector setup failed: " .. tostring(why))
 end
 
 local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
   require_native_connector()
   local listener <close> = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 64))
-  local port = assert(socket.bound(listener:fd())).port
-  local pair = assert(process.connector_pair())
-  local child, why = process.connector_start({ { host = "127.0.0.1", port = port } }, pair[2], 2000,
+  local port = RawTables.bound_port(listener)
+  local pair = RawTables.connector_pair()
+  local child, why = process.connector_start({ { host = "127.0.0.1", port = port } }, pair.connector, 2000,
     { deny = DENY })
-  assert(sys.close(pair[2]))
+  assert(sys.close(pair.connector))
   assert(child, why)
-  assert(string.unpack(">I4", read_whole(pair[1], 4)) == socket.CONNECTOR_HELLO, "the connector said no hello")
+  assert(string.unpack(">I4", read_whole(pair.controller, 4)) == socket.CONNECTOR_HELLO, "the connector said no hello")
   local seen = Fuzz.run({
     name = "connector requests are answered once with their own tag",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      local list: {string} = {}
+      local list: mut {string} = {}
       while Fuzz.more(src, #list, 12) do list[#list + 1] = gen_request(src) end
-      local cuts: {string} = {}
+      local cuts: mut {string} = {}
       while Fuzz.more(src, #cuts, 8) do cuts[#cuts + 1] = string.pack(">I2", src:int(1, 40)) end
       return Fuzz.pack({ table.concat(list), table.concat(cuts) })
     end,
@@ -147,17 +138,19 @@ local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
       if #fields ~= 2 or #fields[1] % 36 ~= 0 or #fields[2] % 2 ~= 0 then
         return false, "a malformed input"
       end
-      local waiting: {integer: {integer: boolean}} = {}
-      local passes: {integer: boolean} = {}
-      local stream: {string} = {}
+      local waiting: mut {integer: {integer: boolean}} = {}
+      local passes: mut {integer: boolean} = {}
+      local stream: mut {string} = {}
       local count = 0
-      for at = 1, #fields[1], 36 do
-        local request = fields[1]:sub(at, at + 35)
+      local requests = assert(fields[1], "the generator packs the requests first")
+      local cuts = assert(fields[2], "the generator packs the cuts second")
+      for at = 1, #requests, 36 do
+        local request = requests:sub(at, at + 35)
         local tag, index, drawn = string.unpack(">I4I4I4", request)
         -- Tags are the request's own to choose; the check keeps them
         -- apart, so each reply names one request.
         while waiting[tag] ~= nil do tag = (tag + 1) & 0xffffffff end
-        local wire = string.pack(">I4I4I4", tag, index, drawn == LISTENER and port or drawn) .. request:sub(13)
+        local wire = string.pack(">I4I4I4", tag, index, (if drawn == LISTENER then port else drawn end)) .. request:sub(13)
         local allowed, passed, kind = expected(wire, port)
         waiting[tag], passes[tag] = allowed, passed
         Fuzz.label(kind)
@@ -167,29 +160,32 @@ local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
       local bytes = table.concat(stream)
       -- Written in pieces cut where the input says, the rest at once.
       local from = 1
-      for at = 1, #fields[2], 2 do
+      for at = 1, #cuts, 2 do
         if from > #bytes then break end
-        local size = string.unpack(">I2", fields[2], at)
+        local size = string.unpack(">I2", cuts, at)
         local piece = bytes:sub(from, from + size - 1)
         if (from - 1) % 36 ~= 0 or (from - 1 + #piece) % 36 ~= 0 then Fuzz.label("split") end
-        assert(sys.write(pair[1], piece) == #piece)
+        assert(sys.write(pair.controller, piece) == #piece)
         from = from + #piece
       end
-      if from <= #bytes then assert(sys.write(pair[1], bytes:sub(from)) == #bytes - from + 1) end
+      if from <= #bytes then
+        assert(sys.write(pair.controller, bytes:sub(from)) == #bytes - from + 1)
+      end
       for _ = 1, count do
-        local tag, errno = string.unpack(">I4I4", read_whole(pair[1], 8))
+        local tag, errno = string.unpack(">I4I4", read_whole(pair.controller, 8))
         local allowed = waiting[tag]
         if allowed == nil then
-          return false, "a reply for tag " .. tag .. ", which no request waits for"
+          return false, "a reply for tag " .. tostring(tag) .. ", which no request waits for"
         end
         waiting[tag] = nil
-        if not allowed[errno] then
-          return false, "tag " .. tag .. " was answered errno " .. errno
+        if allowed[errno] ~= true then
+          return false, "tag " .. tostring(tag) .. " was answered errno " .. tostring(errno)
         end
-        if errno == 0 and passes[tag] then
-          local received = assert(socket.recvfds(pair[1], 1))
-          local peer = socket.peer(received[1]:fd())
-          assert(received[1]:close())
+        if errno == 0 and passes[tag] == true then
+          local received = assert(socket.recvfds(pair.controller, 1))
+          local passed_socket = assert(received[1], "recvfds answers the one descriptor it was asked for")
+          local peer = socket.peer(passed_socket:fd())
+          assert(passed_socket:close())
           if peer ~= nil and peer.port == port and peer.host == "127.0.0.1" then
             -- What the listener took is let go, so its queue never fills.
             assert(socket.wait(listener:fd(), false, 2000))
@@ -202,6 +198,6 @@ local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
     end,
   })
   assert(seen >= 0)
-  assert(sys.close(pair[1]))
+  assert(sys.close(pair.controller))
   assert(assert(process.waitpid(child, false)).code == 0)
 end

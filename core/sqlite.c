@@ -3,7 +3,9 @@
 #include <errno.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
+#include <sys/uio.h>
 
 #include "check.h"
 #include "compress.h"
@@ -14,9 +16,15 @@
 #include "memory.h"
 #include "process.h"
 #include "sqlite3.h"
+#include "vector.h"
 
 #define HANDLE_TYPE "cosmic.sqlite.handle"
 #define STATEMENT_TYPE "cosmic.sqlite.statement"
+
+/* How many databases a connection opened here may attach until it raises
+ * the limit: SQLite's own default, well below the ceiling build.zig
+ * compiles in (SQLITE_MAX_ATTACHED). */
+#define ATTACHED_DEFAULT 10
 
 struct handle {
   sqlite3 *db;
@@ -49,18 +57,54 @@ static int wait_busy (void *context, int previous) {
   (void)previous;
   struct handle *h = context;
   if (h->deadline_ms < 0) {
-    int64_t now = cosmic_now_ms();
-    h->deadline_ms = h->busy_ms > INT64_MAX - now ? INT64_MAX : now + h->busy_ms;
+    h->deadline_ms = cosmic_deadline_ms(h->busy_ms);
   }
   int status = cosmic_paused(h->deadline_ms, &h->pause_ms);
   if (status == EINTR) h->cancelled = true;
   return status == 0;
 }
 
+/* A limit's compiled ceiling, which sqlite3_limit lowers a larger value
+ * to without saying so. The limit is left as it was. */
+static int limit_ceiling (sqlite3 *db, int id) {
+  int old = sqlite3_limit(db, id, INT_MAX);
+  return sqlite3_limit(db, id, old);
+}
+
+#define TOO_MANY_ATTACHED "too many attached databases"
+#define HINT_SIZE 80
+
+/* What SQLite's refusal of an ATTACH past the limit leaves unsaid: that
+ * the limit is the connection's to raise, and how far. Empty for any
+ * other reason, for a limit already at its ceiling, and for a limit of 0,
+ * which a caller sets to refuse every ATTACH. */
+static void attach_hint (sqlite3 *db, const char *reason, char hint[HINT_SIZE]) {
+  hint[0] = '\0';
+  if (strncmp(reason, TOO_MANY_ATTACHED, sizeof TOO_MANY_ATTACHED - 1) != 0) return;
+  int limit = sqlite3_limit(db, SQLITE_LIMIT_ATTACHED, -1);
+  int ceiling = limit_ceiling(db, SQLITE_LIMIT_ATTACHED);
+  if (limit == 0 || limit >= ceiling) return;
+  snprintf(hint, HINT_SIZE, "; handle:limit(\"attached\", n) raises it, to at most %d",
+           ceiling);
+}
+
+/* The reason the connection's last call failed, copied before anything
+ * that allocates. */
+static void push_reason (lua_State *L, sqlite3 *db) {
+  char hint[HINT_SIZE];
+  const char *reason = sqlite3_errmsg(db);
+  attach_hint(db, reason, hint);
+  lua_pushstring(L, reason);
+  if (hint[0] != '\0') {
+    lua_pushstring(L, hint);
+    lua_concat(L, 2);
+  }
+}
+
 static int failed (lua_State *L, sqlite3 *db, int rc) {
   lua_pushnil(L);
   if (db != NULL) {
-    lua_pushstring(L, sqlite3_errmsg(db));
+    push_reason(L, db);
   } else {
     lua_pushstring(L, sqlite3_errstr(rc));
   }
@@ -70,7 +114,7 @@ static int failed (lua_State *L, sqlite3 *db, int rc) {
 static int failed_effect (lua_State *L, sqlite3 *db, int rc) {
   lua_pushboolean(L, 0);
   if (db != NULL) {
-    lua_pushstring(L, sqlite3_errmsg(db));
+    push_reason(L, db);
   } else {
     lua_pushstring(L, sqlite3_errstr(rc));
   }
@@ -97,13 +141,17 @@ static void capture (lua_State *L, struct outcome *out, sqlite3 *db, int rc,
   out->cancelled = out->code == SQLITE_BUSY && cancelled;
   if (rc != SQLITE_OK) {
     const char *reason = db == NULL ? sqlite3_errstr(rc) : sqlite3_errmsg(db);
-    size_t size = strlen(reason) + 1;
+    char hint[HINT_SIZE] = "";
+    if (db != NULL) attach_hint(db, reason, hint);
+    size_t length = strlen(reason);
+    size_t size = length + strlen(hint) + 1;
     out->message->resource = cosmic_malloc(size);
     if (out->message->resource == NULL) {
       luaL_error(L, "not enough memory");
       return;
     }
-    memcpy(out->message->resource, reason, size);
+    memcpy(out->message->resource, reason, length);
+    memcpy((char *)out->message->resource + length, hint, size - length);
   }
 }
 
@@ -283,8 +331,39 @@ static const struct function functions[] = {
   {"inflate", 1, inflate_function},
 };
 
+/* The entry points of SQLite's own extensions, from vendor/sqlite-ext/
+ * and compiled into the core (build.zig). Each takes a connection, a
+ * slot for an error message, and a loader's table, which a compiled-in
+ * extension ignores. */
+typedef int (*extension_init)(sqlite3 *, char **,
+                              const sqlite3_api_routines *);
+int sqlite3_basexx_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_compress_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_csv_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_decimal_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_ieee_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_regexp_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_series_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_sha_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_shathree_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_totype_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_uint_init (sqlite3 *, char **, const sqlite3_api_routines *);
+int sqlite3_uuid_init (sqlite3 *, char **, const sqlite3_api_routines *);
+
+static const extension_init extensions[] = {
+  sqlite3_basexx_init, sqlite3_compress_init, sqlite3_csv_init,
+  sqlite3_decimal_init,
+  sqlite3_ieee_init, sqlite3_regexp_init, sqlite3_series_init,
+  sqlite3_sha_init, sqlite3_shathree_init, sqlite3_totype_init,
+  sqlite3_uint_init, sqlite3_uuid_init,
+};
+
 int cosmic_sqlite_functions (sqlite3 *db) {
-  int rc = SQLITE_OK;
+  /* A database a caller opens is not trusted: its views and triggers may
+   * call only what SQLite marks innocuous, never a pragma_* table such as
+   * pragma_optimize, which runs ANALYZE. */
+  int rc = sqlite3_db_config(db, SQLITE_DBCONFIG_TRUSTED_SCHEMA, 0,
+                             (int *)NULL);
   for (size_t i = 0; rc == SQLITE_OK && i < sizeof functions / sizeof *functions;
        i++) {
     rc = sqlite3_create_function(
@@ -292,6 +371,13 @@ int cosmic_sqlite_functions (sqlite3 *db) {
         SQLITE_UTF8 | SQLITE_DETERMINISTIC | SQLITE_DIRECTONLY, NULL,
         functions[i].call, NULL, NULL);
   }
+  for (size_t i = 0;
+       rc == SQLITE_OK && i < sizeof extensions / sizeof *extensions; i++) {
+    char *trouble = NULL;
+    rc = extensions[i](db, &trouble, NULL);
+    sqlite3_free(trouble);
+  }
+  if (rc == SQLITE_OK) rc = cosmic_vector_functions(db);
   return rc;
 }
 
@@ -393,6 +479,7 @@ static int open_database (lua_State *L, bool result) {
   /* Another process may hold the file's lock: two builds of one tree, or a
    * reader meeting a writer's commit. Wait for it rather than failing. */
   if (rc == SQLITE_OK) rc = sqlite3_busy_timeout(h->db, 60000);
+  if (rc == SQLITE_OK) sqlite3_limit(h->db, SQLITE_LIMIT_ATTACHED, ATTACHED_DEFAULT);
   if (rc == SQLITE_OK) rc = cosmic_sqlite_functions(h->db);
   if (result) {
     capture(L, &out, h->db, rc, false);
@@ -538,7 +625,7 @@ static int prepare_statement (lua_State *L, bool result) {
       return 1;
     }
     lua_pushnil(L);
-    lua_pushstring(L, sqlite3_errmsg(h->db));
+    push_reason(L, h->db);
     sqlite3_finalize(s->stmt);
     s->stmt = NULL;
     return 2;
@@ -639,7 +726,14 @@ static int handle_limit (lua_State *L) {
   int value = cosmic_checkint(L, 3);
   for (int i = 0; limit_names[i].name != NULL; i++) {
     if (strcmp(name, limit_names[i].name) == 0) {
-      lua_pushinteger(L, sqlite3_limit(h->db, limit_names[i].id, value));
+      int id = limit_names[i].id;
+      int old = sqlite3_limit(h->db, id, value);
+      if (value >= 0 && sqlite3_limit(h->db, id, -1) < value) {
+        int ceiling = sqlite3_limit(h->db, id, old);
+        return luaL_error(L, "sqlite: the %s limit is at most %d, not %d", name,
+                          ceiling, value); /* a bug, not a failure */
+      }
+      lua_pushinteger(L, old);
       return 1;
     }
   }
@@ -708,6 +802,108 @@ static int statement_bind_blob (lua_State *L) {
                s->db);
 }
 
+/* A Value's array for carray() is one of these kinds, past SQLite's own
+ * value kinds, each 16 above the SQLITE_CARRAY_ type it binds as. */
+#define ARRAY_KIND(type) (16 + (type))
+#define ARRAY_TYPE(kind) ((kind) - 16)
+
+/* The kind a Value field names, or SQLITE_NULL for none: an array's
+ * field, as "integers", or SQLite's own. */
+static int array_kind (const char *name, size_t size) {
+  if (size == 8 && memcmp(name, "integers", 8) == 0) return ARRAY_KIND(SQLITE_CARRAY_INT64);
+  if (size == 7 && memcmp(name, "numbers", 7) == 0) return ARRAY_KIND(SQLITE_CARRAY_DOUBLE);
+  if (size == 5 && memcmp(name, "texts", 5) == 0) return ARRAY_KIND(SQLITE_CARRAY_TEXT);
+  if (size == 5 && memcmp(name, "blobs", 5) == 0) return ARRAY_KIND(SQLITE_CARRAY_BLOB);
+  return SQLITE_NULL;
+}
+
+/* Raises unless the list at `index` holds elements 1 to its length, each
+ * of the array kind's type: an integer, a number, a string without a NUL
+ * (carray reads a text to its first NUL), or a string. Answers its
+ * length, which carray takes as an int. */
+static int array_checked (lua_State *L, int index, int kind) {
+  lua_Unsigned n = lua_rawlen(L, index);
+  if (n > INT_MAX) luaL_error(L, "sqlite: an array Value holds more than %d elements", INT_MAX);
+  for (lua_Unsigned i = 1; i <= n; i++) {
+    lua_rawgeti(L, index, (lua_Integer)i);
+    bool fits;
+    switch (ARRAY_TYPE(kind)) {
+      case SQLITE_CARRAY_INT64: fits = lua_isinteger(L, -1); break;
+      case SQLITE_CARRAY_DOUBLE: fits = lua_type(L, -1) == LUA_TNUMBER; break;
+      case SQLITE_CARRAY_TEXT: {
+        size_t len;
+        fits = lua_type(L, -1) == LUA_TSTRING;
+        if (fits && strlen(lua_tolstring(L, -1, &len)) != len)
+          luaL_error(L, "sqlite: element %d of a texts Value holds a NUL; bind it in blobs", (int)i);
+        break;
+      }
+      default: fits = lua_type(L, -1) == LUA_TSTRING; break;
+    }
+    if (!fits)
+      luaL_error(L, "sqlite: element %d of an array Value is not of its type", (int)i);
+    lua_pop(L, 1);
+  }
+  return (int)n;
+}
+
+/* Binds the list at `index`, which array_checked has passed, for carray()
+ * at parameter `param`. SQLite copies the elements, strings and all,
+ * before this returns. An empty list binds a static empty array: the copy
+ * would allocate 0 bytes, which SQLite answers as out of memory. */
+static int bind_array (lua_State *L, sqlite3_stmt *stmt, int param, int index, int kind) {
+  static sqlite3_int64 none;
+  int n = array_checked(L, index, kind);
+  int type = ARRAY_TYPE(kind);
+  if (n == 0) return sqlite3_carray_bind_v2(stmt, param, &none, 0, type, SQLITE_STATIC, NULL);
+  size_t each = type == SQLITE_CARRAY_INT64 ? sizeof(sqlite3_int64) :
+                type == SQLITE_CARRAY_DOUBLE ? sizeof(double) :
+                type == SQLITE_CARRAY_TEXT ? sizeof(char *) : sizeof(struct iovec);
+  void *data = lua_newuserdatauv(L, each * (size_t)n, 0);
+  for (int i = 0; i < n; i++) {
+    lua_rawgeti(L, index, i + 1);
+    switch (type) {
+      case SQLITE_CARRAY_INT64: ((sqlite3_int64 *)data)[i] = lua_tointeger(L, -1); break;
+      case SQLITE_CARRAY_DOUBLE: ((double *)data)[i] = lua_tonumber(L, -1); break;
+      case SQLITE_CARRAY_TEXT: ((const char **)data)[i] = lua_tostring(L, -1); break;
+      default: {
+        size_t len;
+        const char *bytes = lua_tolstring(L, -1, &len);
+        ((struct iovec *)data)[i] = (struct iovec){ .iov_base = (void *)bytes, .iov_len = len };
+        break;
+      }
+    }
+    /* The string stays alive in the list, which the stack holds. */
+    lua_pop(L, 1);
+  }
+  int rc = sqlite3_carray_bind_v2(stmt, param, data, n, type, SQLITE_TRANSIENT, NULL);
+  lua_pop(L, 1);
+  return rc;
+}
+
+/* Binds the list at argument 3 for carray() as `kind`. */
+static int bind_list (lua_State *L, int kind) {
+  struct statement *s = checked_statement(L);
+  int index = cosmic_checkint(L, 2);
+  luaL_checktype(L, 3, LUA_TTABLE);
+  return bound(L, bind_array(L, s->stmt, index, 3, kind), s->db);
+}
+
+static int statement_bind_integers (lua_State *L) {
+  return bind_list(L, ARRAY_KIND(SQLITE_CARRAY_INT64));
+}
+
+static int statement_bind_numbers (lua_State *L) {
+  return bind_list(L, ARRAY_KIND(SQLITE_CARRAY_DOUBLE));
+}
+
+static int statement_bind_texts (lua_State *L) {
+  return bind_list(L, ARRAY_KIND(SQLITE_CARRAY_TEXT));
+}
+
+static int statement_bind_blobs (lua_State *L) {
+  return bind_list(L, ARRAY_KIND(SQLITE_CARRAY_BLOB));
+}
+
 /* Values are read raw: neither a metatable nor a coercion may run Lua
  * between checking this statement and binding its parameters. */
 static int value_kind (lua_State *L, int index) {
@@ -723,7 +919,12 @@ static int value_kind (lua_State *L, int index) {
     else if (size == 6 && memcmp(name, "number", 6) == 0 && lua_type(L, -1) == LUA_TNUMBER) kind = SQLITE_FLOAT;
     else if (size == 4 && memcmp(name, "text", 4) == 0 && lua_type(L, -1) == LUA_TSTRING) kind = SQLITE_TEXT;
     else if (size == 4 && memcmp(name, "blob", 4) == 0 && lua_type(L, -1) == LUA_TSTRING) kind = SQLITE_BLOB;
-    else luaL_error(L, "sqlite: a Value needs an integer, number, text or blob field of that type");
+    else if (array_kind(name, size) != SQLITE_NULL && lua_type(L, -1) == LUA_TTABLE) {
+      kind = array_kind(name, size);
+      array_checked(L, lua_gettop(L), kind);
+    }
+    else luaL_error(L, "sqlite: a Value needs an integer, number, text or blob field of that type, "
+                       "or an integers, numbers, texts or blobs list");
     lua_pop(L, 1);
   }
   return kind;
@@ -756,7 +957,8 @@ static int statement_bind_values_result (lua_State *L) {
     } else {
       lua_pushnil(L);
       lua_next(L, -2);
-      if (kind == SQLITE_INTEGER) rc = sqlite3_bind_int64(s->stmt, index, lua_tointeger(L, -1));
+      if (kind >= ARRAY_KIND(0)) rc = bind_array(L, s->stmt, index, lua_gettop(L), kind);
+      else if (kind == SQLITE_INTEGER) rc = sqlite3_bind_int64(s->stmt, index, lua_tointeger(L, -1));
       else if (kind == SQLITE_FLOAT) rc = sqlite3_bind_double(s->stmt, index, lua_tonumber(L, -1));
       else {
         size_t len;
@@ -942,6 +1144,10 @@ static const luaL_Reg statement_methods[] = {
   {"bind_number", statement_bind_number},
   {"bind_text", statement_bind_text},
   {"bind_blob", statement_bind_blob},
+  {"bind_integers", statement_bind_integers},
+  {"bind_numbers", statement_bind_numbers},
+  {"bind_texts", statement_bind_texts},
+  {"bind_blobs", statement_bind_blobs},
   {"step", statement_step},
   {"step_result", statement_step_result},
   {"bind_values_result", statement_bind_values_result},

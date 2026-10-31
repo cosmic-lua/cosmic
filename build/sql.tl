@@ -13,27 +13,28 @@
 --- undone ahead of a write in the same call. What the database holds is
 --- never changed, though SQLite may leave files beside it (see
 --- [`sql.open`]). Nothing is built, staged or scanned: the only directory
---- looked in is `o/` under the working directory, never one above it.
+--- looked in is the working directory's build directory, never a
+--- project's above it.
 ---
 --- A cell, and a column's name, is written as text. NULL is `\N` and a
 --- blob is `X'<hex>'`. Inside text, a backslash is `\\`, a tab, newline
 --- or carriage return is `\t`, `\n` or `\r`, and any other control byte
 --- is `\xHH`. So one row is always one line, no stored escape sequence
 --- reaches the terminal, and undoing those escapes gives the stored
---- bytes back. The verdict line comes last on stdout, as every verb's
---- does (see build/verbs_tool_test.tl), so a pipe that wants only the
---- rows drops the first line and the last. Complaints go to stderr.
+--- bytes back. Stdout holds the header line and the rows alone, so a
+--- pipe that wants only the rows drops the first line. Complaints and the
+--- summary go to stderr.
 ---
 --- `--from <file|->` asks the same of a data file instead of a database.
 --- Each `--from` is loaded as a table of an in-memory database
 --- ([`build.dataset`] says how: the columns, how a value is stored, the
 --- `_json` column), and the statement runs on that, under the same
---- read-only guard, with the same rows and verdict. `--as <format>`,
+--- read-only guard, with the same rows and summary. `--as <format>`,
 --- `--at '<path>'` and `--raw` belong to the `--from` they follow. With
 --- no statement the verb prints each table's name, row count, columns
 --- with the SQLite types seen, and a sample row. `no such column` and
 --- `no such table` are answered with the names that exist. The database
---- is built from the data alone, so nothing under o/ is read.
+--- is built from the data alone, so no build directory is read.
 
 local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
@@ -46,10 +47,11 @@ local Store = require("cosmic.store")
 local bare = require("build.bare")
 local clock = require("build.clock")
 local dataset = require("build.dataset")
-local verdicts = require("build.verdict")
+local logger = require("build.logger")
 local verb_spec = require("build.verb_spec")
+local work = require("build.work")
 
-local log = verdicts.log
+local log = logger.log
 
 --- The `cosmic sql` verb: `run` is what [`build/dispatch.tl`] calls;
 --- `source`, `open` and `query` are its steps, each testable on its
@@ -59,28 +61,30 @@ local record sql
   spec: verb_spec.Spec
   --- Where a statement runs.
   record Source
-    --- What the verdict line and a complaint call it.
+    --- What the summary and a complaint call it.
     name: string
     --- The database file; nil for the binary's own database.
-    path: string | nil
+    path?: string
     --- Said after "no such database" when the file is missing.
-    hint: string | nil
+    hint?: string
   end
 
-  --- Where `run` writes: a row line, a complaint, and the verdict.
+  --- Where `run` writes: a row line, a complaint, and the summary.
   --- `out` and `err` take a line without its newline. `out` answers
   --- false and why when it could not write the line (a closed pipe),
   --- and the statement is stepped no further.
   record Output
     out: function(line: string): boolean, string
     err: function(line: string)
-    verdict: function(passed: boolean, detail: string)
+    --- How a run that passed went: the rows it wrote and where from. A
+    --- failure's complaint says why, and it gets no summary.
+    summary: function(detail: string)
   end
 
   --- One `--from`: a data file to load as a table.
   record Input
     --- The file; nil for standard input.
-    path: string | nil
+    path: string?
     --- What a complaint calls it: the path, or "standard input".
     label: string
     --- The table's name.
@@ -88,9 +92,9 @@ local record sql
     --- The format's name, as [`dataset.read`] takes it.
     format: string
     --- Where in the document the rows are; nil for all of it.
-    at: Json.Steps
+    at?: Json.Steps
     --- Keep every cell of a CSV or TSV as text.
-    raw: boolean
+    raw?: boolean
   end
 
   --- A database `open` made read-only.
@@ -104,43 +108,57 @@ end
 
 --- The options `cosmic sql` takes: each names a database, and at most
 --- one may be given.
-local spec = Cli.verbs.sql.spec
+local spec = Cli.verbs.sql.spec or {}
 
 --- The database a command line names under `root`, the working
---- directory: `--db <path>`, `--build` (o/build.db), `--store` (the
---- binary's own database), or, with none of them, the project's own
---- o/cosmic.db when there is one and the binary's own otherwise. Nil
+--- directory: `--db <path>`, `--build` (its build directory's
+--- build.db), `--store` (the binary's own database), or, with none of
+--- them, the project's own cosmic.db when there is one and the binary's
+--- own otherwise, each named by its path. Nil
 --- and why when the line gives more than one of them, or one of them
 --- twice, or `--db` names the empty path.
-function sql.source(root: string, parsed: Flags.Parsed): sql.Source | nil, string
-  if #parsed.given > 1 then
-    return nil, "name one database, not " .. table.concat(parsed.given, " and ")
+function sql.source(root: string, parsed: Flags.Parsed): sql.Source?, string
+  local named: mut {string} = {}
+  for _, option in ipairs(parsed.given) do
+    if option == "--db" or option == "--build" or option == "--store" then
+      named[#named + 1] = option
+    end
+  end
+  if #named > 1 then
+    return nil, "name one database, not " .. table.concat(named, " and ")
   end
   local chosen = parsed.values["--db"]
   if chosen ~= nil then
     if chosen == "" then
       return nil, "--db needs a path, not an empty one"
     end
-    return { name = chosen, path = chosen }
+    return { name = chosen, path = chosen }, ""
   end
-  local within = "; o/ is looked for only in the working directory, " ..
-    "never above it"
-  if parsed.set["--build"] then
-    return { name = "o/build.db", path = build_paths.required(root) .. "/build.db",
-      hint = build_paths.required(root) .. "/build.db" .. within }
+  local within = "; the build directory is the working directory's, " ..
+    "never a project's above it"
+  if parsed.set["--build"] == true then
+    local directory, trouble = build_paths.directory(root)
+    if directory == nil then return nil, trouble end
+    local working = build_paths.under(directory).working
+    return { name = working, path = working, hint = working .. within }, ""
   end
-  if parsed.set["--store"] then
-    return { name = "the binary's own database" }
+  if parsed.set["--store"] == true then
+    return { name = "the binary's own database" }, ""
   end
-  local project = build_paths.required(root) .. "/cosmic.db"
+  local directory, directory_trouble = build_paths.optional(root)
+  if directory == nil then
+    if directory_trouble ~= "" then return nil, directory_trouble end
+    return { name = "the binary's own database" }, ""
+  end
+  local project = build_paths.under(directory).projection
   local present, trouble = Fs.exists(project)
   if present == nil then
     return nil, trouble
   end
   if present then
-    return { name = "o/cosmic.db", path = project }
+    return { name = project, path = project }, ""
   end
-  return { name = "the binary's own database" }
+  return { name = "the binary's own database" }, ""
 end
 
 --- A handle on the source's database that SQLite will not let write.
@@ -150,16 +168,17 @@ end
 --- Nil and why when the file is missing, is not a regular file (after
 --- following symbolic links: SQLite would wait forever on a FIFO), or
 --- will not open.
-function sql.open(source: sql.Source, between?: function()): sql.Opened | nil, string
-  local path = source.path
-  if path == nil then
+function sql.open(source: sql.Source, between?: function()): sql.Opened?, string
+  local named = source.path
+  if named == nil then
     local all = Store.databases()
     local db = all[#all]
     if db == nil then
       return nil, "this binary carries no database"
     end
-    return { db = db, owned = false }
+    return { db = db, owned = false }, ""
   end
+  local path: string = named
   local present, trouble = Fs.exists(path)
   if present == nil then
     return nil, trouble
@@ -189,7 +208,7 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened | nil, s
   -- accepts. Only holding its lock would prevent that, and avoiding that
   -- lock is what an immutable open is for.
   local wal = path .. "-wal"
-  local function has_frames(): boolean | nil, string
+  local function has_frames(): boolean?, string
     local there, exists_trouble = Fs.exists(wal)
     if there == nil then
       return nil, exists_trouble
@@ -237,7 +256,7 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened | nil, s
     local _, _ = db:close()
     return nil, pragma_trouble
   end
-  return { db = db, owned = true }
+  return { db = db, owned = true }, ""
 end
 
 --- The shortest `%g` form that reads back as `x`, marked as a real
@@ -246,7 +265,7 @@ end
 local function real(x: number): string
   local text = string.format("%.17g", x)
   for digits = 15, 16 do
-    local shorter = string.format("%." .. digits .. "g", x)
+    local shorter = string.format("%." .. tostring(digits) .. "g", x)
     if tonumber(shorter) == x then
       text = shorter
       break
@@ -276,22 +295,172 @@ local function cell_text(statement: Sqlite.Statement, index: integer): string
     return escape(statement:bytes(index))
   elseif kind == "blob" then
     return "X'" .. (statement:bytes(index):gsub(".", function(byte: string): string
-      return string.format("%02X", byte:byte())
+      return string.format("%02X", (assert(byte:byte(), "gsub hands over one byte")))
     end)) .. "'"
   end
   return "\\N"
 end
 
+--- How a statement's rows are written: its column names' line, if any,
+--- and a row's line, or nil and why when the row has no line in it.
+local record Writer
+  header: function(names: {string}): string?
+  row: function(statement: Sqlite.Statement, width: integer): string?, string
+end
+
+--- The default: a tab-separated line of names, then of each row's cells
+--- as [`cell_text`] writes them.
+local row_lines: Writer = {
+  header = function(names: {string}): string?
+    local cells: mut {string} = {}
+    for index, name in ipairs(names) do
+      cells[index] = escape(name)
+    end
+    return table.concat(cells, "\t")
+  end,
+  row = function(statement: Sqlite.Statement, width: integer): string?, string
+    local cells: mut {string} = {}
+    for index = 0, width - 1 do
+      local text = cell_text(statement, index)
+      cells[#cells + 1] = text
+    end
+    return table.concat(cells, "\t"), ""
+  end,
+}
+
+--- One CSV field, quoted when it holds a comma, a quote or a line break,
+--- or is empty, so an empty text is told from NULL's empty field.
+local function csv_field(text: string): string
+  if text == "" or text:find('[,"\r\n]') ~= nil then
+    return '"' .. text:gsub('"', '""') .. '"'
+  end
+  return text
+end
+
+--- `--to csv`: RFC 4180, a header of the column names, then a record per
+--- row: NULL an empty field, '' a quoted empty one, a number as a row
+--- line writes it, and text and a blob's bytes as they are.
+local csv_writer: Writer = {
+  header = function(names: {string}): string?
+    local fields: mut {string} = {}
+    for index, name in ipairs(names) do
+      fields[index] = csv_field(name)
+    end
+    return table.concat(fields, ",")
+  end,
+  row = function(statement: Sqlite.Statement, width: integer): string?, string
+    local fields: mut {string} = {}
+    for index = 0, width - 1 do
+      local kind = statement:kind(index)
+      if kind == "null" then
+        fields[#fields + 1] = ""
+      elseif kind == "integer" or kind == "number" then
+        local text = cell_text(statement, index)
+        fields[#fields + 1] = text
+      else
+        local text = csv_field(statement:bytes(index))
+        fields[#fields + 1] = text
+      end
+    end
+    return table.concat(fields, ","), ""
+  end,
+}
+
+--- Names made unique as JSON keys, which tell case apart: a name an
+--- earlier one already is gets `_2` after it, then `_3` and on.
+local function unique(names: {string}): {string}
+  local taken: mut {string:boolean} = {}
+  local out: mut {string} = {}
+  for index, name in ipairs(names) do
+    local candidate, number = name, 1
+    while taken[candidate] == true do
+      number = number + 1
+      candidate = name .. "_" .. tostring(number)
+    end
+    taken[candidate] = true
+    out[index] = candidate
+  end
+  return out
+end
+
+--- `--to ndjson`: a JSON object per row, its members the columns in
+--- order, names made unique; an integer or a real a number, text a
+--- string, NULL null. A result of one column named `_json`, as `--from`
+--- gives each row, writes that column's text, a JSON object, as it is.
+--- Nil and why for a blob, an infinity, text or a column name that is not
+--- UTF-8, and a `_json` that is not a JSON object's text on one line.
+local function ndjson_writer(): Writer
+  local keys: {string} = {}
+  local unnamable_key: string = ""
+  local whole_json: boolean = false
+  return {
+    header = function(names: {string}): string?
+      whole_json = #names == 1 and names[1] == "_json"
+      for index, name in ipairs(unique(names)) do
+        local encoded, _ = Json.encode(name)
+        if encoded == nil then
+          unnamable_key = "column " .. tostring(index) .. "'s name is not UTF-8, which a JSON key must be"
+        end
+        keys[index] = encoded or ""
+      end
+      return nil
+    end,
+    row = function(statement: Sqlite.Statement, width: integer): string?, string
+      if unnamable_key ~= "" then
+        return nil, unnamable_key
+      end
+      if whole_json then
+        local text = statement:kind(0) == "text" and statement:bytes(0) or nil
+        local object, _ = Json.decode_object(text or "")
+        if text == nil or text:find("[\r\n]") ~= nil or object == nil then
+          return nil, "_json is not a JSON object's text on one line"
+        end
+        return text, ""
+      end
+      local members: mut {string} = {}
+      for index = 0, width - 1 do
+        local kind = statement:kind(index)
+        local value: any = Json.null
+        if kind == "integer" then
+          value = statement:integer(index)
+        elseif kind == "number" then
+          value = statement:number(index)
+        elseif kind == "text" then
+          value = statement:bytes(index)
+        elseif kind == "blob" then
+          return nil, "column " .. tostring((index + 1)) .. " is a blob, which JSON has no value for; " ..
+            "select its hex() or base64()"
+        end
+        local encoded, trouble = Json.encode_any(value)
+        if encoded == nil then
+          return nil, "column " .. tostring((index + 1)) .. ": " .. trouble
+        end
+        members[#members + 1] = assert(keys[index + 1], "every column has a key") .. ":" .. encoded
+      end
+      return "{" .. table.concat(members, ",") .. "}", ""
+    end,
+  }
+end
+
+--- The writers `--to` names.
+local writers: {string: function(): Writer} = {
+  csv = function(): Writer return csv_writer end,
+  ndjson = ndjson_writer,
+}
+
 --- Runs one statement on `db`, giving `emit` its column names as one
 --- line (none for a statement without columns), then each row it yields
---- as one line, the moment it is stepped. Answers how many rows it
+--- as one line, the moment it is stepped, each as `writer` writes it
+--- (row lines by default). Answers how many rows it
 --- yielded, or nil and why when the statement takes a parameter, or
 --- SQLite's own reason when it will not prepare or run (a write among
---- them). The lines before a failure have been given by then. `emit`
+--- them), or `writer`'s reason, after the row's number, when it could not
+--- write a row. The lines before a failure have been given by then. `emit`
 --- answers false and why when it could not write the line; the
 --- statement is stepped no further, and that is the failure answered.
 local function stream(db: Sqlite.Handle, statement: string,
-                      emit: function(string): boolean, string): integer | nil, string
+                      emit: function(string): boolean, string, writer?: Writer): integer?, string
+  local write = writer or row_lines
   local prepared, prepare_trouble = db:prepare(statement)
   if prepared == nil then
     return nil, prepare_trouble
@@ -300,19 +469,23 @@ local function stream(db: Sqlite.Handle, statement: string,
   local wanted = prepared:parameters()
   if wanted > 0 then
     prepared:finalize()
-    return nil, "the statement takes " .. wanted ..
-      (wanted == 1 and " parameter" or " parameters") .. "; cosmic sql binds none"
+    return nil, "the statement takes " .. tostring(wanted) ..
+      (if wanted == 1 then " parameter" else " parameters" end) .. "; cosmic sql binds none"
   end
   local width = prepared:columns()
-  local cells: {string} = {}
+  local names: mut {string} = {}
   for index = 0, width - 1 do
-    cells[index + 1] = escape(prepared:name(index))
+    local name = prepared:name(index)
+    names[#names + 1] = name
   end
   if width > 0 then
-    local written, write_trouble = emit(table.concat(cells, "\t"))
-    if not written then
-      prepared:finalize()
-      return nil, write_trouble
+    local header = write.header(names)
+    if header ~= nil then
+      local written, write_trouble = emit(header)
+      if not written then
+        prepared:finalize()
+        return nil, write_trouble
+      end
     end
   end
   local rows = 0
@@ -325,11 +498,13 @@ local function stream(db: Sqlite.Handle, statement: string,
     if state == "done" then
       break
     end
-    for index = 0, width - 1 do
-      cells[index + 1] = cell_text(prepared, index)
-    end
     rows = rows + 1
-    local written, write_trouble = emit(table.concat(cells, "\t"))
+    local line, refused = write.row(prepared, width)
+    if line == nil then
+      prepared:finalize()
+      return nil, "row " .. tostring(rows) .. ": " .. refused
+    end
+    local written, write_trouble = emit(line)
     if not written then
       prepared:finalize()
       return nil, write_trouble
@@ -341,8 +516,8 @@ end
 
 --- `stream`'s lines held: the column names' line, if any, then a line
 --- per row; nil and why when it failed.
-function sql.query(db: Sqlite.Handle, statement: string): {string} | nil, string
-  local lines: {string} = {}
+function sql.query(db: Sqlite.Handle, statement: string): {string}?, string
+  local lines: mut {string} = {}
   local rows, trouble = stream(db, statement, function(line: string): boolean, string
     lines[#lines + 1] = line
     return true, ""
@@ -361,9 +536,7 @@ local store_hint = "; the binary's own database answers a query and no PRAGMA " 
   "but data_version: `SELECT * FROM <table> LIMIT 0` names a table's columns, " ..
   "and sqlite_schema holds each table's SQL"
 
---- Rows to stdout, then the verdict line through [`build.verdict`]'s
---- logger, which tells [`build/dispatch.tl`] one was given; complaints
---- to stderr.
+--- Rows to stdout; complaints and the summary to stderr.
 local standard: sql.Output = {
   out = function(line: string): boolean, string
     return log:say(line)
@@ -371,13 +544,13 @@ local standard: sql.Output = {
   err = function(line: string)
     local _, _ = Fs.put(Fs.stderr, line .. "\n")
   end,
-  verdict = function(passed: boolean, detail: string)
-    local _, _ = log:verdict("sql", passed, detail)
+  summary = function(detail: string)
+    local _, _ = logger.summary("sql", detail)
   end,
 }
 
 --- The usage of `--from`, in a complaint about the line.
-local from_usage = "cosmic sql --from <file|-> [--as json|ndjson|csv|tsv] [--at '<path>'] [--raw] " ..
+local from_usage = "cosmic sql --from <file|-> [--as json|ndjson|csv|tsv] [--at '<path>'] [--raw] [--to csv|ndjson] " ..
   "[--from ...] ['<statement>']"
 
 --- A table name from a file name: its stem (without the last
@@ -385,7 +558,7 @@ local from_usage = "cosmic sql --from <file|-> [--as json|ndjson|csv|tsv] [--at 
 --- an underscore, and a leading underscore when it would begin with a
 --- digit. `data` when nothing is left.
 local function stem_of(path: string): string
-  local base = path:match("[^/]*$")
+  local base = assert(path:match("[^/]*$"), "the pattern matches an empty tail at worst")
   local stem = base:match("^(.+)%.[^.]*$") or base
   stem = stem:gsub("[^%w_]+", "_")
   if stem == "" or stem == "_" then
@@ -408,23 +581,25 @@ end
 --- or `--at` before any `--from`, names an unknown format or a bad
 --- path, two tables the same name (case aside), or a file no format
 --- reads.
-local function read_inputs(parsed: Flags.Parsed): {sql.Input} | nil, string
-  local inputs: {sql.Input} = {}
+local function read_inputs(parsed: Flags.Parsed): {sql.Input}?, string
+  local inputs: mut {sql.Input} = {}
   local given_as: {integer:boolean} = {}
   local given_at: {integer:boolean} = {}
-  local given_raw: {integer:boolean} = {}
+  local given_raw: mut {integer:boolean} = {}
   local stdin_seen = false
-  local seen: {string:integer} = {}
-  local counts: {string:integer} = {}
+  local seen: mut {string:integer} = {}
+  local counts: mut {string:integer} = {}
   for _, name in ipairs(parsed.given) do
     local index = (counts[name] or 0) + 1
     counts[name] = index
-    local value = parsed.all[name] and parsed.all[name][index]
+    local listed = parsed.all[name]
+    local value = if listed ~= nil then listed[index] else nil end
     if name == "--from" then
+      assert(value ~= nil, "Flags.parse gives each --from its value")
       local label = value
-      local table_name: string | nil
+      local table_name: string?
       local given_name, rest = value:match("^([%w_]+)=(.*)$")
-      if given_name ~= nil then
+      if given_name ~= nil and rest ~= nil then
         if not given_name:match("^[%a_]") then
           return nil, "a table name begins with a letter or underscore, not " .. given_name
         end
@@ -441,11 +616,12 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input} | nil, string
         stdin_seen = true
         input.path, input.label = nil, "standard input"
       end
-      input.table = table_name or (input.path and stem_of(input.path) or "stdin")
+      local from = input.path
+      input.table = table_name or (from and stem_of(from) or "stdin")
       local clash = seen[input.table:lower()]
       if clash ~= nil then
         return nil, "two tables are named " .. input.table .. " (" ..
-          inputs[clash].label .. " and " .. input.label .. "); name one: --from <name>=<file>"
+          assert(inputs[clash], "a table seen has its input").label .. " and " .. input.label .. "); name one: --from <name>=<file>"
       end
       inputs[#inputs + 1] = input
       seen[input.table:lower()] = #inputs
@@ -454,7 +630,7 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input} | nil, string
       if input == nil then
         return nil, "--raw belongs to the --from before it; give --from first"
       end
-      if given_raw[#inputs] then
+      if given_raw[#inputs] == true then
         return nil, "--raw is given twice for " .. input.label
       end
       given_raw[#inputs] = true
@@ -464,8 +640,9 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input} | nil, string
       if input == nil then
         return nil, name .. " belongs to the --from before it; give --from first"
       end
+      assert(value ~= nil, "Flags.parse gives each --as and --at its value")
       local given = name == "--as" and given_as or given_at
-      if given[#inputs] then
+      if given[#inputs] == true then
         return nil, name .. " is given twice for " .. input.label
       end
       given[#inputs] = true
@@ -489,11 +666,12 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input} | nil, string
   end
   for _, input in ipairs(inputs) do
     if input.format == "" then
-      if input.path == nil then
+      local input_path = input.path
+      if input_path == nil then
         return nil, "standard input has no extension to read a format from; " ..
           "give --as (" .. table.concat(dataset.names(), ", ") .. ") after its --from -"
       end
-      local format, why = dataset.format_of(input.path)
+      local format, why = dataset.format_of(input_path)
       if format == nil then
         return nil, input.label .. ": " .. why .. "; or give --as after its --from"
       end
@@ -515,7 +693,7 @@ local function column_lists(tables: {dataset.Table}): string
   if #tables == 1 then
     return plain(table.concat(tables[1].columns, ", "))
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, each in ipairs(tables) do
     parts[#parts + 1] = plain(each.name .. ": " .. table.concat(each.columns, ", "))
   end
@@ -529,7 +707,7 @@ local function hinted(trouble: string, tables: {dataset.Table}): string
   if trouble:find("^no such column") then
     return trouble .. "; columns: " .. column_lists(tables)
   elseif trouble:find("^no such table") then
-    local names: {string} = {}
+    local names: mut {string} = {}
     for _, each in ipairs(tables) do
       names[#names + 1] = each.name
     end
@@ -543,10 +721,10 @@ end
 --- SQLite types stored in it (`integer`, `real`, `text`, `null`, joined
 --- by `|`; none for a table without rows), and the first row as JSON,
 --- cut at 200 bytes. Nil and why when SQLite fails.
-local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string} | nil, string
-  local lines: {string} = {}
+local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string}?, string
+  local lines: mut {string} = {}
   for _, each in ipairs(tables) do
-    lines[#lines + 1] = each.name .. ": " .. each.count .. (each.count == 1 and " row" or " rows")
+    lines[#lines + 1] = each.name .. ": " .. tostring(each.count) .. (if each.count == 1 then " row" else " rows" end)
     local width = 0
     for _, column in ipairs(each.columns) do
       width = math.max(width, #plain(column))
@@ -558,9 +736,9 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string} | 
       if rows == nil then
         return nil, trouble
       end
-      local types: {string} = {}
+      local types: mut {string} = {}
       for _, row in ipairs(rows) do
-        types[#types + 1] = row[1]
+        types[#types + 1] = row:text(1)
       end
       local name = plain(column)
       local line = "  " .. name .. string.rep(" ", width - #name) .. "  " .. (#types > 0 and table.concat(types, "|") or "-")
@@ -574,8 +752,9 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string} | 
     if sample == nil then
       return nil, trouble
     end
-    if sample[1] ~= nil then
-      local text = plain(sample[1][1])
+    local first_sample = sample[1]
+    if first_sample ~= nil then
+      local text = plain(first_sample:text(1))
       if #text > 200 then
         text = text:sub(1, 200) .. "..."
       end
@@ -587,7 +766,7 @@ end
 
 --- The bytes of standard input, refusing a terminal, where nothing
 --- would ever end them.
-local function read_stdin(): string | nil, string
+local function read_stdin(): string?, string
   return bare.stdin_text("standard input is a terminal; pipe the data in")
 end
 
@@ -597,17 +776,16 @@ end
 --- other option beside `--from`, which names the database instead --
 --- and 1 for a file it cannot read, load or a statement that fails.
 local function run_from(parsed: Flags.Parsed, to: sql.Output,
-                        verdict: function(passed: boolean, detail: string),
+                        summarize: function(detail: string),
                         complain: function(line: string),
-                        stdin: function(): string | nil, string): integer
+                        stdin: function(): string?, string, writer: Writer?): integer
   local usage = from_usage
   local function refuse(why: string): integer
     complain(why .. "; " .. usage)
-    verdict(false, "usage: see `cosmic help sql`")
     return 2
   end
   for _, other in ipairs({ "--db", "--build", "--store" }) do
-    if parsed.set[other] or parsed.all[other] then
+    if parsed.set[other] == true or parsed.all[other] ~= nil then
       return refuse("--from is a database of its own, not to be given with " .. other)
     end
   end
@@ -619,7 +797,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
     return refuse(trouble)
   end
   local inputs: {sql.Input} = found
-  local labels: {string} = {}
+  local labels: mut {string} = {}
   for index, input in ipairs(inputs) do
     labels[index] = input.label
   end
@@ -627,34 +805,30 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
   local opened, memory_trouble = Sqlite.memory()
   if opened == nil then
     complain(memory_trouble)
-    verdict(false, source)
     return 1
   end
   local db: Sqlite.Handle = opened
   local function fail(why: string): integer
     local _, _ = db:close()
     complain(why)
-    verdict(false, source)
     return 1
   end
-  local tables: {dataset.Table} = {}
+  local tables: mut {dataset.Table} = {}
   for _, input in ipairs(inputs) do
-    local text: string | nil
+    local text: string?
     local read_trouble: string
-    if input.path == nil then
+    local path = input.path
+    if path == nil then
       text, read_trouble = stdin()
     else
-      text, read_trouble = Fs.read(input.path)
+      text, read_trouble = Fs.read(path)
     end
     if text == nil then
       -- A file's failure already names the file; standard input's does not.
-      return fail(input.path == nil and input.label .. ": " .. read_trouble or read_trouble)
+      return fail(if input.path == nil then input.label .. ": " .. read_trouble else read_trouble end)
     end
-    local rows, format_trouble = dataset.read(input.format, text, { at = input.at, raw = input.raw })
-    if rows == nil then
-      return fail(input.label .. ": " .. format_trouble)
-    end
-    local loaded, load_trouble = dataset.load(db, input.table, rows)
+    local loaded, load_trouble = dataset.load_text(db, input.table, input.format, text,
+      { at = input.at, raw = input.raw }, input.path)
     if loaded == nil then
       return fail(input.label .. ": " .. load_trouble)
     end
@@ -668,7 +842,8 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
     return fail(guard_trouble)
   end
   local counted: string
-  if parsed.words[1] == nil then
+  local statement_word = parsed.words[1]
+  if statement_word == nil then
     local lines, describe_trouble = describe(db, tables)
     if lines == nil then
       return fail(source .. ": " .. hinted(describe_trouble, tables))
@@ -679,16 +854,16 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
         return fail(source .. ": " .. write_trouble)
       end
     end
-    counted = #tables .. (#tables == 1 and " table" or " tables")
+    counted = tostring(#tables) .. (if #tables == 1 then " table" else " tables" end)
   else
-    local rows, statement_trouble = stream(db, parsed.words[1], to.out)
+    local rows, statement_trouble = stream(db, statement_word, to.out, writer)
     if rows == nil then
       return fail(source .. ": " .. hinted(statement_trouble, tables))
     end
-    counted = rows .. (rows == 1 and " row" or " rows")
+    counted = tostring(rows) .. (if rows == 1 then " row" else " rows" end)
   end
   local _, _ = db:close()
-  verdict(true, counted .. " from " .. source)
+  summarize(counted .. " from " .. source)
   return 0
 end
 
@@ -698,42 +873,64 @@ end
 --- failure), 1 when the database or the statement failed, 2 for a
 --- command line it cannot read.
 --- @param argv the command line, `sql` at slot 1
---- @param root the directory whose o/ holds the databases; the working
+--- @param root the directory whose build directory holds the databases; the working
 ---   directory when nil
---- @param output where rows, complaints and the verdict go; stdout,
----   stderr and [`build.verdict`]'s logger when nil
+--- @param output where rows, complaints and the summary go; stdout and
+---   stderr when nil
 --- @param stdin the whole of standard input for `--from -`, or nil and
 ---   why; the process's own when nil
-function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
-                 stdin?: function(): string | nil, string): integer
+function sql.run(argv: {string}, root?: string, output?: sql.Output,
+                 stdin?: function(): string?, string): integer
   local started = Clock.monotonic_ns()
   local to = output or standard
   local function complain(line: string)
     to.err("cosmic: sql: " .. line)
   end
-  local function verdict(passed: boolean, detail: string)
-    to.verdict(passed, detail .. ", " .. clock.took(started))
+  local function summarize(detail: string)
+    to.summary(detail .. ", " .. clock.took(started))
   end
-  local usage = "cosmic sql [--db <path> | --build | --store] '<statement>' | " .. from_usage
+  local usage = "cosmic sql [--db <path> | --build | --store] [--to csv|ndjson] '<statement>' | " ..
+    from_usage
   local parsed, parse_trouble = Flags.parse(argv, 2, spec)
   if parsed == nil then
     complain(parse_trouble .. "; " .. usage)
-    verdict(false, "usage: see `cosmic help sql`")
     return 2
   end
-  if parsed.all["--from"] or parsed.all["--as"] or parsed.all["--at"] or parsed.set["--raw"] then
-    return run_from(parsed, to, verdict, complain, stdin or read_stdin)
+  local writer: Writer? = nil
+  local format = parsed.values["--to"]
+  if format ~= nil then
+    local times = 0
+    for _, option in ipairs(parsed.given) do
+      if option == "--to" then times = times + 1 end
+    end
+    if times > 1 then
+      complain("give --to once; " .. usage)
+      return 2
+    end
+    local make = writers[format]
+    if make == nil then
+      complain("--to writes csv or ndjson, not " .. format .. "; " .. usage)
+      return 2
+    end
+    if #parsed.words == 0 then
+      complain("--to writes a statement's rows: give one; " .. usage)
+      return 2
+    end
+    writer = make()
   end
-  if #parsed.words ~= 1 then
+  if parsed.all["--from"] ~= nil or parsed.all["--as"] ~= nil or parsed.all["--at"] ~= nil or
+      parsed.set["--raw"] == true then
+    return run_from(parsed, to, summarize, complain, stdin or read_stdin, writer)
+  end
+  local statement_text = parsed.words[1]
+  if #parsed.words ~= 1 or statement_text == nil then
     complain("give one statement, quoted as one argument: " .. usage)
-    verdict(false, "usage: see `cosmic help sql`")
     return 2
   end
   if root == nil then
     local here, trouble = Fs.absolute(".")
     if here == nil then
       complain(trouble)
-      verdict(false, "no working directory")
       return 1
     end
     root = here
@@ -741,43 +938,67 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
   local source, source_trouble = sql.source(root, parsed)
   if source == nil then
     complain(source_trouble .. "; " .. usage)
-    verdict(false, "usage: see `cosmic help sql`")
     return 2
   end
   local opened, open_trouble = sql.open(source)
   if opened == nil then
     complain(source.name .. ": " .. open_trouble)
-    verdict(false, source.name)
     return 1
   end
-  local rows, trouble = stream(opened.db, parsed.words[1], to.out)
+  -- A debugging read: another tool's working database is read as it
+  -- is, unlike every other verb ([`work.tell_other_schema`]), but said.
+  if parsed.set["--build"] == true then
+    local other, _ = work.other_schema(opened.db)
+    if other ~= nil then
+      complain(source.name .. " is of schema " .. other ..
+          ", not this tool's; reading it as it is, as another tool wrote it")
+    end
+  end
+  local unwritable: boolean = false
+  local written: Writer? = nil
+  if writer ~= nil then
+    local inner = writer
+    written = {
+      header = inner.header,
+      row = function(statement: Sqlite.Statement, width: integer): string?, string
+        local line, why = inner.row(statement, width)
+        if line == nil then
+          unwritable = true
+          return nil, why
+        end
+        return line, ""
+      end,
+    }
+  end
+  local rows, trouble = stream(opened.db, statement_text, to.out, written)
   if opened.owned then
     local _, _ = opened.db:close()
   end
   if rows == nil then
-    if source.path == nil then
+    -- The hint is for SQLite's refusals, not for a row `--to` cannot write.
+    if source.path == nil and unwritable ~= true then
       trouble = trouble .. store_hint
     end
     complain(source.name .. ": " .. trouble)
-    verdict(false, source.name)
     return 1
   end
-  verdict(true, rows .. (rows == 1 and " row" or " rows") .. " from " .. source.name)
+  summarize(tostring(rows) .. (if rows == 1 then " row" else " rows" end) .. " from " .. source.name)
   return 0
 end
 
 --- The `sql` verb as [`build/verb_list.tl`] lists it. Never stale-checked,
---- unlike `db`: a staleness check stages the tree, and this verb reads o/
---- and nothing else under it. It gives its own verdict on every exit, a
---- usage error included, so the check main runs after a verdictless exit
---- 2 never runs for it (build/verbs_store_test.tl's
+--- unlike `db`, not even after a refused command line: a staleness check
+--- stages the tree, and this verb reads the build directory's databases
+--- and nothing of the tree (build/verbs_store_test.tl's
 --- test_sql_never_stages_the_tree).
 sql.spec = {
   name = "sql",
   guide = "questions about a data file",
   tests = { "build.sql_test", "build.sql_tool_test", "build.sql_store_test" },
-  run = function(argv: {integer:string}): integer return sql.run(argv) end,
+  run = function(argv: {string}): integer return sql.run(argv) end,
   bare = false,
+  reads = true,
+  recheck_on_refusal = false,
   takes = "one statement",
 }
 

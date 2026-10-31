@@ -38,15 +38,19 @@ end
 --- root caller's child runs as must reach the database sealed beneath
 --- TMPDIR. Skips the test, where the host refused the sandbox the start
 --- asked for.
-local function cosmic(dir: string, words: {string}): Ran
+local function cosmic(dir: string, words: {string}, grammar?: string): Ran
   searchable.open(dir)
+  local env = this_program.environment()
+  if grammar ~= nil then
+    env["COSMIC_GRAMMAR"] = grammar
+  end
   local started = this_program.program(words, {
-    cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(120),
+    cwd = dir, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(120),
   })
   local result = assert(Child.run(started.argv, started.options))
   local ran: Ran = { code = result.code or -1, out = result.stdout or "", err = result.stderr or "" }
   if ran.code == 125 and (ran.err:find("Landlock", 1, true) or ran.err:find("seccomp", 1, true) or
-      ran.err:find("not implemented", 1, true)) then
+      ran.err:find("not implemented", 1, true)) ~= nil then
     Test.skip(ran.err)
   end
   return ran
@@ -54,21 +58,28 @@ end
 
 --- What a run left of the directories it seals into, under TMPDIR.
 local function left_over(): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, name in ipairs((assert(Fs.list((assert(sys.getenv("TMPDIR"))))))) do
     if name:find("^sandbox%-") then found[#found + 1] = name end
   end
   return found
 end
 
---- A script that requires one module of this program and reports what a
---- `require` of another finds.
+--- A script that requires one module of this program, probes another with `pcall(require, ...)`, which is followed as a
+--- `require` is, and reports whether a `require` finds a third, whose name it builds inside a chunk of Lua: neither the
+--- parser nor the closure's search of the generated code finds a name so made.
 local SCRIPT <const> = [[
 local Json = require("cosmic.json")
-print("json", (Json.encode({ a = 1 })))
+local text, _ = Json.encode({ a = 1 })
+print("json", text)
 print("args", arg[0], arg[1], arg[2])
-print("outside", (pcall(require, "cosmic.archive")))
-return function(args: {integer:string}): integer
+match pcall(require, "cosmic.archive") do
+  | (true, _) then print("probed", true)
+  | (false, _) then print("probed", false)
+end
+local outside = assert(load("return (pcall(require, 'cosmic.' .. 'template'))", "=outside"))
+print("outside", (outside()))
+return function(args: {string}): integer
   print("main", args[1])
   return 3
 end
@@ -79,12 +90,42 @@ local function test_closure_runs_a_script_on_the_modules_it_requires(tmp: string
   searchable.share(tmp .. "/run.tl")
   local program = (assert(Proc.executable()))
   local ran = cosmic(tmp, { "sandbox", "--closure", "--", program, "run.tl", "x", "y" })
-  assert(ran.code == 3, ran.code .. ": " .. ran.out .. ran.err)
-  assert(ran.out == 'json\t{"a":1}\nargs\trun.tl\tx\ty\noutside\tfalse\nmain\tx\n', ran.out)
+  assert(ran.code == 3, tostring(ran.code) .. ": " .. ran.out .. ran.err)
+  assert(ran.out == 'json\t{"a":1}\nargs\trun.tl\tx\ty\nprobed\ttrue\noutside\tfalse\nmain\tx\n', ran.out)
   -- No cache or directory was made for it beforehand, and none is left.
   assert(#left_over() == 0, table.concat(left_over(), " "))
   local again = cosmic(tmp, { "sandbox", "--closure", "--", program, "run.tl" })
-  assert(again.code == 3 and again.out:find("main\tnil", 1, true), again.out .. again.err)
+  assert(again.code == 3 and again.out:find("main\tnil", 1, true) ~= nil, again.out .. again.err)
+end
+
+--- A script in the new grammar (`mut`) is compiled by the new checker, and the modules it requires are read from its syntax
+--- tree: the closure is sealed from them. The fork's grammar, which `COSMIC_GRAMMAR=teal` names, is gone.
+local NEW_SCRIPT <const> = [[
+local Json = require("cosmic.json")
+local words: mut {string} = {}
+local text, _ = Json.encode({ a = 1 })
+words[#words + 1] = assert(text)
+print("json", words[1])
+match pcall(require, "cosmic.archive") do
+  | (true, _) then print("probed", true)
+  | (false, _) then print("probed", false)
+end
+return function(args: {string}): integer
+  print("main", args[1])
+  return 3
+end
+]]
+
+local function test_closure_takes_the_requires_of_a_script_in_the_new_grammar_from_the_new_checker(tmp: string)
+  assert(Fs.write(tmp .. "/new.tl", NEW_SCRIPT))
+  searchable.share(tmp .. "/new.tl")
+  local program = (assert(Proc.executable()))
+  local ran = cosmic(tmp, { "sandbox", "--closure", "--", program, "new.tl", "x" }, "new")
+  assert(ran.code == 3 and ran.out == 'json\t{"a":1}\nprobed\ttrue\nmain\tx\n', tostring(ran.code) .. ": " .. ran.out .. ran.err)
+  assert(#left_over() == 0, table.concat(left_over(), " "))
+  local forked = cosmic(tmp, { "sandbox", "--closure", "--", program, "new.tl", "x" }, "teal")
+  assert(forked.code == 125 and forked.err:find("COSMIC_GRAMMAR=teal: the fork's grammar is gone; " ..
+      "rewrite a project to the new grammar by hand, as doc/guides/project.md says", 1, true) ~= nil, tostring(forked.code) .. ": " .. forked.err)
 end
 
 --- The core's own modules ([`cosmic.sys`]) are no database's, and a require
@@ -94,12 +135,13 @@ local function test_closure_takes_the_cores_modules_and_leaves_type_requires_out
 local sys = require("cosmic.sys")
 local type Archive = require("cosmic.archive")
 local Fs = require("cosmic.fs")
-local _: Archive = nil
-print("sys", type(sys.getpid), type(Fs.read), (pcall(require, "cosmic." .. "archive")))
+local _: Archive? = nil
+local outside = assert(load("return (pcall(require, 'cosmic.' .. 'archive'))", "=outside"))
+print("sys", type(sys.getpid), type(Fs.read), (outside()))
 ]]))
   searchable.share(tmp .. "/sys.tl")
   local ran = cosmic(tmp, { "sandbox", "--closure", "--", (assert(Proc.executable())), "sys.tl" })
-  assert(ran.code == 0 and ran.out == "sys\tfunction\tfunction\tfalse\n", ran.code .. ran.out .. ran.err)
+  assert(ran.code == 0 and ran.out == "sys\tfunction\tfunction\tfalse\n", tostring(ran.code) .. ran.out .. ran.err)
 end
 
 --- A database that [`Store.seal`] wrote runs as it names, with no command
@@ -112,20 +154,20 @@ local function test_database_runs_a_sealed_file(tmp: string)
   searchable.share(tmp .. "/p.db")
   local program = (assert(Proc.executable()))
   local ran = cosmic(tmp, { "sandbox", "--database", "p.db", "--", program, "a" })
-  assert(ran.code == 4 and ran.out:find("^db\ta\tfalse"), ran.code .. ran.out .. ran.err)
+  assert(ran.code == 4 and ran.out:find("^db\ta\tfalse") ~= nil, tostring(ran.code) .. ran.out .. ran.err)
   local bare = cosmic(tmp, { "sandbox", "--database=" .. tmp .. "/p.db" })
-  assert(bare.code == 4 and bare.out:find("^db\tnil\tfalse"), bare.code .. bare.out .. bare.err)
+  assert(bare.code == 4 and bare.out:find("^db\tnil\tfalse") ~= nil, tostring(bare.code) .. bare.out .. bare.err)
   assert(#left_over() == 0, "--database seals nothing")
   -- Only this program runs on a database.
   local other = cosmic(tmp, { "sandbox", "--system", "--database", "p.db", "--", "true" })
-  assert(other.code == 125 and other.err:find("is not this program", 1, true), other.code .. other.err)
+  assert(other.code == 125 and other.err:find("is not this program", 1, true) ~= nil, tostring(other.code) .. other.err)
   -- A path no one can search is refused, naming it.
   assert(Fs.mkdirs(tmp .. "/shut"))
   assert(Fs.write(tmp .. "/shut/p.db", (assert(Fs.read(tmp .. "/p.db")))))
   assert(sys.chmod(tmp .. "/shut", 0))
   local shut = cosmic(tmp, { "sandbox", "--database", tmp .. "/shut/p.db" })
   assert(sys.chmod(tmp .. "/shut", 448))
-  assert(shut.code == 2 and shut.err:find("shut", 1, true), shut.code .. shut.err)
+  assert(shut.code == 2 and shut.err:find("shut", 1, true) ~= nil, tostring(shut.code) .. shut.err)
 end
 
 --- `--modules` seals exactly the modules it names, the first the main:
@@ -134,21 +176,21 @@ local function test_modules_seals_exactly_the_named_modules(tmp: string)
   local program = (assert(Proc.executable()))
   local main = "build.stand_in_probe"
   local alone = cosmic(tmp, { "sandbox", "--modules", main, "--", program, "exit 3" })
-  assert(alone.code ~= 0 and alone.code < 125 and alone.err:find("cosmic.child", 1, true),
-    alone.code .. alone.err)
-  local names: {string} = { main }
+  assert(alone.code ~= 0 and alone.code < 125 and alone.err:find("cosmic.child", 1, true) ~= nil,
+    tostring(alone.code) .. alone.err)
+  local names: mut {string} = { main }
   for _, name in ipairs(Store.closure({ main })) do
     if name ~= main then names[#names + 1] = name end
   end
   local whole = cosmic(tmp, { "sandbox", "--modules", table.concat(names, ","), "--", program,
     "exit 3" })
-  assert(whole.code == 3, whole.code .. ": " .. whole.out .. whole.err)
+  assert(whole.code == 3, tostring(whole.code) .. ": " .. whole.out .. whole.err)
   assert(#left_over() == 0, "the sealed database goes with the run")
   -- The core's own module needs no database; as the main it has none to run.
   local core = cosmic(tmp, { "sandbox", "--modules", "cosmic.fs,cosmic.env,cosmic.sys", "--", program })
-  assert(core.code ~= 125 and core.err:find("not a function", 1, true), core.code .. core.err)
+  assert(core.code ~= 125 and core.err:find("not a function", 1, true) ~= nil, tostring(core.code) .. core.err)
   local own = cosmic(tmp, { "sandbox", "--modules", "cosmic.sys,cosmic.fs,cosmic.env", "--", program })
-  assert(own.code == 2 and own.err:find("cosmic.sys", 1, true), own.code .. own.err)
+  assert(own.code == 2 and own.err:find("cosmic.sys", 1, true) ~= nil, tostring(own.code) .. own.err)
   local missing = cosmic(tmp, { "sandbox", "--modules", "nowhere.module", "--", program })
-  assert(missing.code == 2 and missing.err:find("nowhere.module", 1, true), missing.code .. missing.err)
+  assert(missing.code == 2 and missing.err:find("nowhere.module", 1, true) ~= nil, tostring(missing.code) .. missing.err)
 end

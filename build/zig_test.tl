@@ -12,9 +12,19 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
+local build_paths = require("build.paths")
 local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
 local Zig = require("build.zig")
+local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
+
+--- `root`'s build directory ([`build.paths`]), made, with `root` made
+--- first where it is not there yet.
+local function build_dir(root: string): string
+  assert(Fs.mkdirs(root))
+  return (assert(build_paths.prepare(root)))
+end
 
 local function test_read_pin_parses_version_and_hosts()
   local pin = assert(Zig.read_pin(
@@ -63,7 +73,7 @@ local function test_host_agrees_with_the_running_host()
 end
 
 local function test_build_args_adds_cache_flags_only_for_build()
-  local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "-Doptimize=ReleaseFast" }, 4)
+  local got = Zig.build_args("/repo", "/cache/zig-project", "/repo/o", { "build", "-Doptimize=ReleaseFast" }, 4)
   assert(#got == 10)
   assert(got[1] == "build")
   assert(got[2] == "--build-file" and got[3] == "/repo/build.zig")
@@ -80,12 +90,12 @@ local function test_build_args_run_steps_past_the_processor_count()
   assert(Zig.build_jobs(1) == 8)
   assert(Zig.build_jobs(4) == 8)
   assert(Zig.build_jobs(16) == 32)
-  local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "boot" }, 16)
+  local got = Zig.build_args("/repo", "/cache/zig-project", "/repo/o", { "build", "boot" }, 16)
   assert(got[9] == "-j32" and got[10] == "boot")
 end
 
 local function test_build_args_keep_the_callers_jobs()
-  local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "-j2", "boot" }, 16)
+  local got = Zig.build_args("/repo", "/cache/zig-project", "/repo/o", { "build", "-j2", "boot" }, 16)
   assert(#got == 10)
   assert(got[9] == "-j2" and got[10] == "boot")
 end
@@ -102,18 +112,18 @@ local function test_lib_key_names_the_records()
 end
 
 local function test_build_args_passes_other_subcommands_through()
-  local got = Zig.build_args("/repo", "/cache/zig-project", { "version" }, 4)
+  local got = Zig.build_args("/repo", "/cache/zig-project", "/repo/o", { "version" }, 4)
   assert(#got == 1 and got[1] == "version")
 end
 
 --- A zig command other than `build` runs with zig's caches where `build`
 --- puts them, unless the caller names its own.
 local function test_other_subcommands_use_the_build_s_caches()
-  local got = Zig.passthrough_environment("/repo", { COSMIC_ZIG_GLOBAL_CACHE = "/g",
+  local got = Zig.passthrough_environment("/repo/o", { COSMIC_ZIG_GLOBAL_CACHE = "/g",
     COSMIC_ZIG_CACHE = "/p", PATH = "/bin" })
   assert(got.ZIG_GLOBAL_CACHE_DIR == "/g" and got.ZIG_LOCAL_CACHE_DIR == "/p" and
       got.PATH == "/bin")
-  local kept = Zig.passthrough_environment("/repo", { COSMIC_ZIG_GLOBAL_CACHE = "/g",
+  local kept = Zig.passthrough_environment("/repo/o", { COSMIC_ZIG_GLOBAL_CACHE = "/g",
     COSMIC_ZIG_CACHE = "/p", ZIG_GLOBAL_CACHE_DIR = "/mine" })
   assert(kept.ZIG_GLOBAL_CACHE_DIR == "/mine" and kept.ZIG_LOCAL_CACHE_DIR == "/p")
 end
@@ -134,19 +144,19 @@ end
 -- The global cache is shared: named outright, else in this user's cache
 -- directory, and in the checkout only when there is no cache directory.
 local function test_global_cache_is_named_then_shared_then_local(tmp: string)
-  assert(Zig.global_cache("/repo", { COSMIC_ZIG_GLOBAL_CACHE = "/ci/zig-global",
+  assert(Zig.global_cache("/repo/o", { COSMIC_ZIG_GLOBAL_CACHE = "/ci/zig-global",
     XDG_CACHE_HOME = tmp }) == "/ci/zig-global")
-  assert(Zig.global_cache("/repo", { XDG_CACHE_HOME = tmp }) == tmp .. "/cosmic/zig-global")
-  assert(Zig.global_cache("/repo", {}) == "/repo/o/zig-global")
+  assert(Zig.global_cache("/repo/o", { XDG_CACHE_HOME = tmp }) == tmp .. "/cosmic/zig-global")
+  assert(Zig.global_cache("/repo/o", {}) == "/repo/o/zig-global")
 end
 
 -- The project cache is shared as the global one is: a fresh worktree then
 -- compiles nothing under vendor/ that another checkout already has.
 local function test_project_cache_is_named_then_shared_then_local(tmp: string)
-  assert(Zig.project_cache("/repo", { COSMIC_ZIG_CACHE = "/ci/zig-cache",
+  assert(Zig.project_cache("/repo/o", { COSMIC_ZIG_CACHE = "/ci/zig-cache",
     XDG_CACHE_HOME = tmp }) == "/ci/zig-cache")
-  assert(Zig.project_cache("/repo", { XDG_CACHE_HOME = tmp }) == tmp .. "/cosmic/zig-project")
-  assert(Zig.project_cache("/repo", {}) == "/repo/o/zig-cache")
+  assert(Zig.project_cache("/repo/o", { XDG_CACHE_HOME = tmp }) == tmp .. "/cosmic/zig-project")
+  assert(Zig.project_cache("/repo/o", {}) == "/repo/o/zig-cache")
 end
 
 local function test_repo_root_from_the_scripts_own_path(tmp: string)
@@ -244,7 +254,7 @@ end
 
 local function test_snapshot_holds_what_a_build_reads_and_nothing_else(tmp: string)
   local seen = assert(Zig.snapshot(sources(tmp)))
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   for path in pairs(seen) do
     paths[#paths + 1] = path
   end
@@ -299,13 +309,46 @@ end
 local function test_race_report_names_five_paths_then_counts_the_rest()
   assert(Zig.race_report({ "core/a.c" }) ==
       "sources changed during the build: core/a.c; run it again")
-  local many: {string} = {}
+  local many: mut {string} = {}
   for i = 1, 8 do
     many[i] = "core/" .. tostring(i) .. ".c"
   end
   assert(Zig.race_report(many) == "sources changed during the build: " ..
       "core/1.c, core/2.c, core/3.c, core/4.c, core/5.c and 3 more; run it again",
     Zig.race_report(many))
+end
+
+local function test_a_build_a_source_moved_during_is_run_again_and_only_so_often(tmp: string)
+  local root = sources(tmp)
+  local record Held
+    mut runs: integer
+    mut edits: integer
+  end
+  local held: Held = { runs = 0, edits = 0 }
+  -- Each of the first `racing` runs is made to race an edit, as the
+  -- command of one does in passing.
+  local function build(racing: integer, status: integer): integer, integer
+    held.runs, held.edits = 0, 0
+    local result = Zig.watched_build(root, function(): {string}?
+      held.edits = held.edits + 1
+      if held.edits <= racing then
+        assert(Fs.write(root .. "/core/a.c", "edit " .. tostring(held.edits)))
+      end
+      return { "zig" }
+    end, function(_argv: {string}): integer
+      held.runs = held.runs + 1
+      return status
+    end)
+    return result, held.runs
+  end
+  local status, ran = build(0, 0)
+  assert(status == 0 and ran == 1, "an undisturbed build ran " .. tostring(ran))
+  status, ran = build(1, 0)
+  assert(status == 0 and ran == 2, "a build disturbed once ran " .. tostring(ran))
+  status, ran = build(9, 0)
+  assert(status ~= 0 and ran == 3, "a build always disturbed ran " .. tostring(ran))
+  status, ran = build(9, 7)
+  assert(status == 7 and ran == 1, "a build that failed ran " .. tostring(ran))
 end
 
 local function test_run_answers_as_the_child_did(tmp: string)
@@ -343,16 +386,17 @@ end
 --- no process answers to or this one's own.
 local function test_a_boot_names_a_holder_as_the_tool_does(tmp: string)
   local root = tmp .. "/tree"
-  assert(Fs.mkdirs(root .. "/o"))
-  local contents: {string} = { "1\nnone\n", "1\n", "", "x\ntest\n",
+  assert(build_dir(root))
+  local contents: mut {string} = { "1\nnone\n", "1\n", "", "x\ntest\n",
     tostring(sys.getpid()) .. "\ntest\n" }
   for _, role in ipairs({ "test", "rebuild", "write" }) do
     contents[#contents + 1] = "1\n" .. role .. "\n"
   end
   for _, text in ipairs(contents) do
-    assert(Fs.write(root .. "/o/rebuild.lock.pid", text))
-    assert(Zig.holder(root) == rebuild_lock.holder(root), text .. ": " ..
-        Zig.holder(root) .. " against " .. rebuild_lock.holder(root))
+    assert(Fs.write(build_dir(root) .. "/rebuild.lock.pid", text))
+    local output = build_paths.required(root)
+    assert(Zig.holder(output) == rebuild_lock.holder(root), text .. ": " ..
+        Zig.holder(output) .. " against " .. rebuild_lock.holder(root))
   end
 end
 
@@ -362,14 +406,14 @@ end
 --- to see.
 local function test_a_boot_refuses_a_lock_file_it_cannot_write(tmp: string)
   local root = tmp .. "/tree"
-  assert(Fs.mkdirs(root .. "/o"))
-  assert(Fs.write(root .. "/o/rebuild.lock", "", 0x124))
-  local fd, _ = sys.open(root .. "/o/rebuild.lock", sys.O_RDWR, 0)
+  assert(build_dir(root))
+  assert(Fs.write(build_dir(root) .. "/rebuild.lock", "", 0x124))
+  local fd, _ = sys.open(build_dir(root) .. "/rebuild.lock", sys.O_RDWR, 0)
   if fd ~= nil then
     assert(sys.close(fd))
     return
   end
-  local status = Zig.with_lock(root, {}, function(): integer
+  local status = Zig.with_lock(build_paths.required(root), {}, function(): integer
     error("a boot ran without a writable lock")
   end)
   assert(status == 1)
@@ -379,26 +423,26 @@ local function test_lookup_exit_status_uses_kind_without_another_lookup(tmp: str
   assert(Fs.mkdirs(tmp .. "/build"))
   assert(Fs.write(tmp .. "/build/zig.tl", "-- stand-in"))
   local real_find, real_get = Proc.find_result, Env.get
-  local calls = 0
+  local calls = { value = 0 }
   local reply: Proc.FindResult = { kind = "not_executable", path = "tool", reason = "tool: not found" }
   Proc.find_result = function(_name: string, _path?: string): Proc.FindResult
-    calls = calls + 1
+    calls.value = calls.value + 1
     return reply
   end
-  Env.get = function(name: string): string | nil
+  Env.get = function(name: string): string?
     if name == "COSMIC_ZIG" then return "tool" end
     return nil
   end
-  local denied = Zig.main({ [0] = tmp .. "/build/zig.tl", "version" })
+  local denied = Zig.enter({ "version" }, tmp .. "/build/zig.tl")
   reply = { kind = "not_found", reason = "tool: not executable" }
-  local missing = Zig.main({ [0] = tmp .. "/build/zig.tl", "version" })
+  local missing = Zig.enter({ "version" }, tmp .. "/build/zig.tl")
   Proc.find_result, Env.get = real_find, real_get
-  assert(denied == 126 and missing == 127 and calls == 2)
+  assert(denied == 126 and missing == 127 and calls.value == 2)
 end
 
 local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: string)
   local real_open, real_kind = Sqlite.open, sys.flock_kind
-  sys.flock_kind = function(_fd: integer): string | nil, string, integer
+  sys.flock_kind = function(_fd: integer): string?, string, integer
     return "apart", "", 0
   end
   local outcomes: {Sqlite.ExecResult} = {
@@ -407,30 +451,40 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
     { code = 1, extended_code = 1, reason = "busy appears in this unrelated failure" },
     { code = Sqlite.BUSY, extended_code = Sqlite.BUSY, reason = "interrupted", cancelled = true },
   }
-  local statuses, attempts, closures: {integer}, {integer}, {integer} = {}, {}, {}
-  for i, outcome in ipairs(outcomes) do
-    local calls, closes = 0, 0
-    Sqlite.open = function(_path: string, _opts?: Sqlite.OpenOptions): Sqlite.Handle | nil, string
-      local fake = {
-        busy_timeout = function(_self: any, ns: integer) assert(ns >= 0) end,
-        exec_result = function(_self: any, sql: string): Sqlite.ExecResult
-          assert(sql == "BEGIN IMMEDIATE")
-          calls = calls + 1
-          if calls == 1 then return outcome end
-          return { code = Sqlite.OK, extended_code = Sqlite.OK, reason = "" }
-        end,
-        close = function(_self: any): boolean, string
-          closes = closes + 1
-          return true, ""
-        end,
-      }
-      return fake as Sqlite.Handle, ""
-    end
-    statuses[i] = Zig.with_lock(tmp .. "/" .. i, {}, function(_env: {string:string}): integer
+  local statuses, attempts, closures: mut {integer}, mut {integer}, mut {integer} = {}, {}, {}
+  -- A handle is a userdata whose methods live in its metatable's `__index`,
+  -- the one table every handle shares: the lock gets a real handle, and the
+  -- three methods it calls answer what the outcome says for this test alone.
+  local sample = assert(Sqlite.memory())
+  local methods = (assert(getmetatable(sample)) as {string:any}).__index as {string:any}
+  local real_busy, real_exec, real_close = methods.busy_timeout, methods.exec_result, methods.close
+  local calls = { value = 0 }
+  local closes = { value = 0 }
+  local outcome: Sqlite.ExecResult?
+  methods.busy_timeout = function(_self: any, ns: integer) assert(ns >= 0) end
+  methods.exec_result = function(_self: any, sql: string): Sqlite.ExecResult
+    assert(sql == "BEGIN IMMEDIATE")
+    calls.value = calls.value + 1
+    if calls.value == 1 then return outcome end
+    return { code = Sqlite.OK, extended_code = Sqlite.OK, reason = "" }
+  end
+  methods.close = function(self: any): boolean, string
+    closes.value = closes.value + 1
+    return (real_close as function(any): boolean, string)(self)
+  end
+  Sqlite.open = function(_path: string, _opts?: Sqlite.OpenOptions): Sqlite.Handle?, string
+    return Sqlite.memory()
+  end
+  for i, each in ipairs(outcomes) do
+    outcome, calls.value, closes.value = each, 0, 0
+    statuses[i] = Zig.with_lock(build_dir(tmp .. "/" .. tostring(i)), {}, function(_env: {string:string}): integer
       return 7
     end)
-    attempts[i], closures[i] = calls, closes
+    attempts[#attempts + 1] = calls.value
+    closures[#closures + 1] = closes.value
   end
+  methods.busy_timeout, methods.exec_result, methods.close = real_busy, real_exec, real_close
+  assert(sample:close())
   Sqlite.open, sys.flock_kind = real_open, real_kind
   assert(statuses[1] == 7 and attempts[1] == 2)
   assert(statuses[2] == 1 and attempts[2] == 1)
@@ -444,12 +498,12 @@ local function test_snapshot_names_a_same_size_rewrite_with_preserved_mtime(tmp:
   local path = root .. "/core/a.c"
   assert(Fs.set_mtime(path, 0, 0))
   local stat = sys.stat
-  local tick = 1
-  sys.stat = function(name: string): sys.Stat | nil, string, integer
+  local tick = { value = 1 }
+  sys.stat = function(name: string): sys.Stat?, string, integer
     local st, trouble, errno = stat(name)
     if st ~= nil and name == path then
       st.ctime = 100
-      st.ctime_ns = tick
+      st.ctime_ns = tick.value
     end
     return st, trouble, errno
   end
@@ -464,7 +518,7 @@ local function test_snapshot_names_a_same_size_rewrite_with_preserved_mtime(tmp:
     assert(was.ino == after.ino and was.size == after.size and
         was.mtime == after.mtime and was.mtime_ns == after.mtime_ns)
     -- A nanosecond-only change is distinct even on a coarse filesystem.
-    tick = 2
+    tick.value = 2
     assert(table.concat(Zig.changed(before, (assert(Zig.snapshot(root)))), " ") == "core/a.c")
   end)
   sys.stat = stat
@@ -473,22 +527,87 @@ end
 
 local function test_selected_output_controls_installation_and_lock(tmp: string)
   local root, output = tmp .. "/tree", tmp .. "/output"
-  local args = Zig.build_args(root, tmp .. "/cache", { "build", "boot" }, 1, {}, output)
+  local args = Zig.build_args(root, tmp .. "/cache", output, { "build", "boot" }, 1, {})
   assert(args[6] == "--prefix" and args[7] == output)
-  local status = Zig.with_lock(root, {}, function(env: {string:string}): integer
+  local status = Zig.with_lock(output, {}, function(env: {string:string}): integer
     assert(env.COSMIC_REBUILD_LOCK_HANDED == output .. "/rebuild.lock")
     assert(Fs.exists(output .. "/rebuild.lock"))
-    assert(Zig.holder(root, output):find("is rebuilding the tool", 1, true))
+    assert(Zig.holder(output):find("is rebuilding the tool", 1, true))
     return 7
-  end, output)
+  end)
   assert(status == 7)
-  assert(not Fs.exists(root .. "/o"))
+  assert(Fs.exists(root .. "/o") ~= true)
 end
 
 local function test_cache_fallbacks_follow_selected_output()
-  assert(Zig.global_cache("/repo", {}, "/selected") == "/selected/zig-global")
-  assert(Zig.project_cache("/repo", {}, "/selected") == "/selected/zig-cache")
-  local environment = Zig.passthrough_environment("/repo", {}, "/selected")
+  assert(Zig.global_cache("/selected", {}) == "/selected/zig-global")
+  assert(Zig.project_cache("/selected", {}) == "/selected/zig-cache")
+  local environment = Zig.passthrough_environment("/selected", {})
   assert(environment.ZIG_GLOBAL_CACHE_DIR == "/selected/zig-global")
   assert(environment.ZIG_LOCAL_CACHE_DIR == "/selected/zig-cache")
+end
+
+--- The open descriptors of this process, each with what it names.
+local function descriptors(): string
+  local out: mut {string} = {}
+  -- /dev/fd where there is no /proc (macOS, the BSDs).
+  local directory = "/proc/self/fd"
+  if Fs.is_dir(directory) ~= true then directory = "/dev/fd" end
+  for _, number in ipairs((assert(Fs.list(directory)))) do
+    local target, _ = Fs.readlink(directory .. "/" .. number)
+    out[#out + 1] = number .. "=" .. (target or "?")
+  end
+  table.sort(out)
+  return table.concat(out, "\n")
+end
+
+--- A raised error in the callback of [`Zig.with_lock`] must still let go of the lock: a descriptor left open holds the
+--- rebuild lock for the life of the process.
+local function test_with_lock_lets_go_when_the_callback_raises(tmp: string)
+  local output = build_dir(tmp .. "/tree")
+  assert(Zig.with_lock(output, {}, function(_env: {string:string}): integer return 0 end) == 0)
+  local before = descriptors()
+  local ok, trouble = pcall(Zig.with_lock, output, {}, function(_env: {string:string}): integer
+    error("the callback raised")
+  end)
+  assert(not ok and tostring(trouble):find("the callback raised", 1, true) ~= nil, tostring(trouble))
+  assert(descriptors() == before, "a descriptor of the lock stayed open")
+  assert(Zig.with_lock(output, {}, function(_env: {string:string}): integer return 3 end) == 3)
+  assert(descriptors() == before, "the lock leaked on the normal path")
+end
+
+local record Tally
+  mut closed: integer
+  mut released: integer
+end
+
+--- An error that leaves the supervision of [`Zig.run`] must close the signal guard, which restores the signals the
+--- process held: a guard left open keeps SIGINT and SIGTERM caught for the rest of its life.
+local function test_run_closes_the_signal_guard_when_supervising_raises()
+  local real_start, real_guard = Child.start, Signal.guard
+  local tally: Tally = { closed = 0, released = 0 }
+  Child.start = function(_argv: {string}, _options?: Child.Options): Child.Handle?, string
+    error("the start raised")
+  end
+  Signal.guard = function(): Signal.Guard?, string
+    local guard, trouble = real_guard()
+    if guard ~= nil then
+      local watched: Signal.Guard = guard
+      local real_close, real_release = watched.close, watched.release
+      watched.close = function(self: Signal.Guard): boolean, string
+        tally.closed = tally.closed + 1
+        return real_close(self)
+      end
+      watched.release = function(self: Signal.Guard): integer?, string
+        tally.released = tally.released + 1
+        return real_release(self)
+      end
+    end
+    return guard, trouble
+  end
+  local ok, trouble = pcall(Zig.run, { "/bin/true" })
+  Child.start, Signal.guard = real_start, real_guard
+  assert(not ok and tostring(trouble):find("the start raised", 1, true) ~= nil, tostring(trouble))
+  assert(tally.closed == 1, "the guard was closed " .. tostring(tally.closed) .. " times")
+  assert(tally.released == 0, "the guard was released on a raise")
 end

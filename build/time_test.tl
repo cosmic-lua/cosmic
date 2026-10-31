@@ -14,15 +14,15 @@ local NS <const> = 1000000000
 local NOW <const> = 1772971200 * NS + 123456789
 
 local record Ran
-  code: integer
-  out: string
-  err: string
+  mut code: integer
+  mut out: string
+  mut err: string
 end
 
 --- One run of `cosmic time` with `words`, the clock at NOW and Tokyo the host's zone.
 local function run(words: {string}, writes?: boolean): Ran
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "time" }
-  for index, word in ipairs(words) do argv[index + 1] = word end
+  local argv: mut {string} = { "time" }
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = time_verb.run(argv, {
     out = function(text: string): boolean, string
@@ -32,7 +32,7 @@ local function run(words: {string}, writes?: boolean): Ran
     end,
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
     now = function(): integer return NOW end,
-    local_zone = function(): Time.Zone | nil, string
+    local_zone = function(): Time.Zone?, string
       return Time.zone("Asia/Tokyo")
     end,
   })
@@ -64,7 +64,7 @@ local function test_now_has_four_formats()
   assert(said({ "now", "--format", "epoch" }) == "1772971200\n")
   assert(said({ "now", "--format", "rfc3339", "--zone", "UTC" }) == "2026-03-08T12:00:00+00:00\n")
   local bad = run({ "now", "--format", "unix" })
-  assert(bad.code == 2 and bad.out == "" and bad.err:find("--format is rfc3339", 1, true), bad.err)
+  assert(bad.code == 2 and bad.out == "" and bad.err:find("--format is rfc3339", 1, true) ~= nil, bad.err)
 end
 
 local function test_now_json_is_a_record_of_the_moment()
@@ -90,7 +90,7 @@ end
 
 local function test_a_time_in_a_gap_lands_after_it_by_default()
   local function gap(...: string): string
-    local words: {string} = { "convert", "2026-03-08T02:30", "--from", "America/New_York", "--to", "UTC" }
+    local words: mut {string} = { "convert", "2026-03-08T02:30", "--from", "America/New_York", "--to", "UTC" }
     for _, word in ipairs({ ... }) do words[#words + 1] = word end
     return said(words)
   end
@@ -106,7 +106,7 @@ end
 
 local function test_a_time_in_an_overlap_is_the_earlier_by_default()
   local function overlap(...: string): string
-    local words: {string} = { "convert", "2026-11-01T01:30", "--from", "America/New_York", "--to", "UTC" }
+    local words: mut {string} = { "convert", "2026-11-01T01:30", "--from", "America/New_York", "--to", "UTC" }
     for _, word in ipairs({ ... }) do words[#words + 1] = word end
     return said(words)
   end
@@ -115,7 +115,7 @@ local function test_a_time_in_an_overlap_is_the_earlier_by_default()
   assert(overlap("--disambiguate", "earlier") == "2026-11-01T05:30:00+00:00\n")
   assert(overlap("--disambiguate", "later") == "2026-11-01T06:30:00+00:00\n")
   local rejected = run({ "convert", "2026-11-01T01:30", "--from", "America/New_York", "--disambiguate", "reject" })
-  assert(rejected.code == 2 and rejected.err:find("happens twice", 1, true), rejected.err)
+  assert(rejected.code == 2 and rejected.err:find("happens twice", 1, true) ~= nil, rejected.err)
   -- An offset in the text says which one it is.
   assert(said({ "convert", "2026-11-01T01:30:00-05:00", "--to", "UTC", "--disambiguate", "reject" }) ==
       "2026-11-01T06:30:00+00:00\n")
@@ -162,7 +162,7 @@ end
 --- two hours go by while the date moves from the 29th to the 31st.
 local function test_between_across_a_day_a_zone_skipped()
   local function between(...: string): string
-    local words: {string} = { "between", "2011-12-29T23:00", "2011-12-31T01:00", "--zone", "Pacific/Apia" }
+    local words: mut {string} = { "between", "2011-12-29T23:00", "2011-12-31T01:00", "--zone", "Pacific/Apia" }
     for _, word in ipairs({ ... }) do words[#words + 1] = word end
     return said(words)
   end
@@ -221,7 +221,7 @@ local function test_an_add_with_no_answer_exits_1()
   assert(exact.code == 1 and exact.out == "", exact.out)
   -- A result in a gap under "reject".
   local gap = run({ "add", "2026-03-07T02:30", "1d", "--zone", "America/New_York", "--disambiguate", "reject" })
-  assert(gap.code == 1 and gap.err:find("does not exist", 1, true), gap.err)
+  assert(gap.code == 1 and gap.err:find("does not exist", 1, true) ~= nil, gap.err)
   says_time_once(gap.err)
   assert(said({ "add", "2026-03-07T02:30", "1d", "--zone", "America/New_York" }) == "2026-03-08T03:30:00-04:00\n")
 end
@@ -286,7 +286,7 @@ local function test_a_command_line_it_cannot_read_is_refused()
       { "convert", "@0", "--disambiguate", "sometimes" }, { "add", "@0", "1d", "--from", "UTC" },
   }) do
     local ran = run(words)
-    assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. ran.code .. ran.out)
+    assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. tostring(ran.code) .. ran.out)
     assert(ran.err:find("cosmic: time: ", 1, true) and ran.err:find("cosmic time now", 1, true), ran.err)
   end
 end
@@ -336,9 +336,9 @@ local function test_an_input_reads_every_form()
   local z = assert(time_verb.parse_input("2026-03-08T12:00:00Z", utc))
   assert(z.ns == 1772971200 * NS and z.zone == Time.UTC, z.ns)
   local offset = assert(time_verb.parse_input("2026-03-08T12:00:00+05:30", utc))
-  assert(offset.ns == (1772971200 - 19800) * NS and offset.zone.name == "+05:30")
+  assert(offset.ns == (1772971200 - 19800) * NS and assert(offset.zone).name == "+05:30")
   local named = assert(time_verb.parse_input("2026-03-08T12:00:00-04:00[America/New_York]", utc))
-  assert(named.zone.name == "America/New_York")
+  assert(assert(named.zone).name == "America/New_York")
   local epoch = assert(time_verb.parse_input("@1772971200", utc))
   assert(epoch.ns == 1772971200 * NS and epoch.zone == nil)
   assert((assert(time_verb.parse_input("@-1.5", utc))).ns == -1500000000)
@@ -356,12 +356,12 @@ local function test_seconds_are_optional_in_rfc_3339_as_in_local_text()
   local short = assert(time_verb.parse_input("2026-03-08T12:00Z", utc))
   assert(short.ns == full.ns and short.zone == Time.UTC)
   local offset = assert(time_verb.parse_input("2026-03-08T12:00+05:30", utc))
-  assert(offset.ns == (1772971200 - 19800) * NS and offset.zone.name == "+05:30")
+  assert(offset.ns == (1772971200 - 19800) * NS and assert(offset.zone).name == "+05:30")
   local named = assert(time_verb.parse_input("2026-03-08T08:00-04:00[America/New_York]", utc))
-  assert(named.ns == full.ns and named.zone.name == "America/New_York")
+  assert(named.ns == full.ns and assert(named.zone).name == "America/New_York")
   assert(assert(time_verb.parse_input("2026-03-08t12:00z", utc)).ns == full.ns)
   local none, why = time_verb.parse_input("2026-03-08T12:00+5", utc)
-  assert(none == nil and why:find("RFC 3339", 1, true) and why:find("offset", 1, true), why)
+  assert(none == nil and why:find("RFC 3339", 1, true) ~= nil and why:find("offset", 1, true) ~= nil, why)
 end
 
 local function test_an_error_after_the_minutes_counts_bytes_of_the_users_text()
@@ -384,7 +384,7 @@ end
 
 local function test_a_gap_and_an_overlap_are_resolved_as_asked()
   local ny = assert(Time.zone("America/New_York"))
-  local function read(text: string, how?: Time.Disambiguation): integer | nil, string
+  local function read(text: string, how?: Time.Disambiguation): integer?, string
     local got, why = time_verb.parse_input(text, ny, how)
     if got == nil then return nil, why end
     return got.ns, ""
@@ -397,13 +397,13 @@ local function test_a_gap_and_an_overlap_are_resolved_as_asked()
   assert(hour((assert(read("2026-03-08T02:30", "later")))) == "2026-03-08T03:30:00-04:00")
   assert(hour((assert(read("2026-03-08T02:30", "earlier")))) == "2026-03-08T01:30:00-05:00")
   local none, why = read("2026-03-08T02:30", "reject")
-  assert(none == nil and why:find("does not exist", 1, true), why)
+  assert(none == nil and why:find("does not exist", 1, true) ~= nil, why)
   -- 2026-11-01 01:30 happens twice: EDT, then EST.
   assert(hour((assert(read("2026-11-01T01:30")))) == "2026-11-01T01:30:00-04:00")
   assert(hour((assert(read("2026-11-01T01:30", "earlier")))) == "2026-11-01T01:30:00-04:00")
   assert(hour((assert(read("2026-11-01T01:30", "later")))) == "2026-11-01T01:30:00-05:00")
   local twice, twice_why = read("2026-11-01T01:30", "reject")
-  assert(twice == nil and twice_why:find("happens twice", 1, true), twice_why)
+  assert(twice == nil and twice_why:find("happens twice", 1, true) ~= nil, twice_why)
 end
 
 local function test_a_bad_input_is_refused_naming_the_forms()

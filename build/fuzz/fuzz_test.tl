@@ -15,17 +15,17 @@ local function any_bytes(src: Fuzz.Source): string
 end
 
 local function test_a_property_that_holds_runs_every_iteration()
-  local seen = 0
+  local seen = { value = 0 }
   local n = Fuzz.run({
     name = "holds",
     iters = 20,
     gen = any_bytes,
     check = function(_input: string): boolean, string
-      seen = seen + 1
+      seen.value = seen.value + 1
       return true, ""
     end,
   })
-  assert(n == 20 and seen == 20, ("ran %d, checked %d"):format(n, seen))
+  assert(n == 20 and seen.value == 20, ("ran %d, checked %d"):format(n, seen.value))
 end
 
 -- Any byte of 200 or more fails: the simplest failing input is that one
@@ -97,6 +97,37 @@ local function test_a_check_that_never_ends_spends_its_budget()
   assert(total > 0)
 end
 
+-- A checked run's code spends instructions on its checks, which the
+-- budget does not count: a run that defines the hook allows four times
+-- the budget.
+local function test_a_checked_run_allows_the_checks_their_instructions()
+  local function property(): Fuzz.Property
+    return {
+      name = "spends",
+      iters = 1,
+      budget = 100000,
+      gen = any_bytes,
+      check = function(_input: string): boolean, string
+        local total = 0
+        for i = 1, 60000 do total = total + i end
+        return total > 0, ""
+      end,
+    }
+  end
+  -- A checked run has the hook already: take it away, and give it back.
+  local globals = _G as {string:any}
+  local saved = globals.__cosmic_tc
+  globals.__cosmic_tc = nil
+  local unhooked_ok, unhooked_held, unhooked_why = pcall(Fuzz.replay, property(), "input")
+  -- A hook that answers the values, as `select` does.
+  globals.__cosmic_tc = select
+  local ok, hooked_held, hooked_why = pcall(Fuzz.replay, property(), "input")
+  globals.__cosmic_tc = saved
+  assert(unhooked_ok and unhooked_held == false and
+      tostring(unhooked_why):find("spent its budget of 100000 VM instructions", 1, true) ~= nil, tostring(unhooked_why))
+  assert(ok and hooked_held == true, tostring(hooked_why))
+end
+
 local function test_a_failing_input_is_kept_in_the_property_dir(tmp: string)
   local err = report({
     name = "keeps it",
@@ -127,7 +158,7 @@ local function test_a_zero_budget_edit_count_leaves_the_sample()
 end
 
 local function test_mutate_stays_deterministic_and_changes_its_sample()
-  local changed = 0
+  local changed = { value = 0 }
   local err = report({
     name = "mutates",
     iters = 100,
@@ -135,11 +166,11 @@ local function test_mutate_stays_deterministic_and_changes_its_sample()
       return Fuzz.mutate(src, "ustar\0" .. string.rep("0", 20), 4)
     end,
     check = function(input: string): boolean, string
-      if input ~= "ustar\0" .. string.rep("0", 20) then changed = changed + 1 end
+      if input ~= "ustar\0" .. string.rep("0", 20) then changed.value = changed.value + 1 end
       return #input < 40, "grew"
     end,
   })
-  assert(changed > 0)
+  assert(changed.value > 0)
   assert(err:find("grew", 1, true), err)
 end
 
@@ -147,7 +178,7 @@ end
 -- or more, so the simplest failing list is that one value, alone.
 local function test_shrink_cuts_and_lowers_draws()
   local function fails(values: {integer}): boolean, {shrink.Draw}
-    local used: {shrink.Draw} = {}
+    local used: mut {shrink.Draw} = {}
     local failed = false
     for i, v in ipairs(values) do
       used[i] = { min = 0, max = 100, value = v }
@@ -155,7 +186,7 @@ local function test_shrink_cuts_and_lowers_draws()
     end
     return failed, used
   end
-  local draws: {shrink.Draw} = {}
+  local draws: mut {shrink.Draw} = {}
   for i, v in ipairs({ 3, 90, 2, 55, 1 }) do draws[i] = { min = 0, max = 100, value = v } end
   local shrunk = shrink.shrink(draws, fails, 1000)
   local best, tries = shrunk.draws, shrunk.tries
@@ -175,9 +206,9 @@ local function test_max_iters_caps_the_count_but_not_a_named_one()
   local function holds(_input: string): boolean, string return true, "" end
   local asked = math.tointeger(tonumber(Env.get_or("FUZZ_ITERS", "64"))) or 64
   local capped = Fuzz.run({ name = "capped", max_iters = 5, gen = any_bytes, check = holds })
-  assert(capped == math.min(asked, 5), "ran " .. capped)
+  assert(capped == math.min(asked, 5), "ran " .. tostring(capped))
   local named = Fuzz.run({ name = "named", iters = 9, max_iters = 5, gen = any_bytes, check = holds })
-  assert(named == 9, "ran " .. named)
+  assert(named == 9, "ran " .. tostring(named))
 end
 
 -- A corpus is checked before anything is drawn: an input kept there
@@ -188,7 +219,7 @@ local function test_a_corpus_input_is_checked_before_any_draw(tmp: string)
   assert(Fs.mkdirs(corpus))
   assert(Fs.write(corpus .. "/a.input", "fine"))
   assert(Fs.write(corpus .. "/README", "not an input!"))
-  local checked: {string} = {}
+  local checked: mut {string} = {}
   local function no_bang(input: string): boolean, string
     checked[#checked + 1] = input
     return input:find("!", 1, true) == nil, "a bang"
@@ -236,7 +267,7 @@ local function test_a_required_label_no_input_reached_fails_the_run(tmp: string)
     requires = { "checked", "long" } })
   assert(err == 'fuzz never long: seed=1: no input of 64 reached "long", which the ' ..
       "property requires: its inputs do not exercise what it is meant to", err)
-  assert(not Fs.exists(tmp .. "/never-long.input"))
+  assert(Fs.exists(tmp .. "/never-long.input") ~= true)
 end
 
 -- A label the property requires a share of fails a run in which fewer
@@ -253,7 +284,7 @@ local function test_a_label_under_its_required_share_fails_the_run(tmp: string)
     shares = { ["a quarter"] = 0.6 } })
   assert(err:find('^fuzz too rare: seed=1: %d+ inputs of 64 reached "a quarter", under the share of 0.6 ' ..
       "the property requires: its inputs exercise it too rarely$"), err)
-  assert(not Fs.exists(tmp .. "/too-rare.input"))
+  assert(Fs.exists(tmp .. "/too-rare.input") ~= true)
 end
 
 -- A share outside (0, 1], NaN among them, is refused before anything is
@@ -321,14 +352,14 @@ end
 -- that one input -- the one that failed -- and nothing else: not the
 -- other iterations, not another property, not a corpus.
 local function test_a_case_checks_the_one_input_it_names(tmp: string)
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   local function no_nul(input: string): boolean, string
     seen[#seen + 1] = input
     return input:find("\0", 1, true) == nil, "a NUL"
   end
   local err = report({ name = "one case", iters = 200, gen = any_bytes, check = no_nul })
   local case = assert(err:match("reproduce: FUZZ_CASE=(%S+)"), err)
-  local first: string
+  local first: string?
   for i = 1, #seen do
     if seen[i]:find("\0", 1, true) then
       first = seen[i]
@@ -352,18 +383,18 @@ local function test_a_case_that_is_not_one_raises()
     local ok, err = pcall(Fuzz.run, { name = "p", gen = any_bytes, case = case,
       check = function(_input: string): boolean, string return true, "" end })
     assert(not ok and tostring(err):find(("FUZZ_CASE=%q is not <property>:<case seed>"):format(case),
-      1, true), case .. ": " .. tostring(err))
+      1, true) ~= nil, case .. ": " .. tostring(err))
   end
 end
 
 -- A check that fails an input once and then holds for it depends on
 -- something beside the input: the report says so rather than shrinking.
 local function test_a_check_that_fails_once_is_reported_flaky()
-  local failed = false
+  local failed = { value = false }
   local err = report({ name = "once", iters = 5, gen = any_bytes,
     check = function(_input: string): boolean, string
-      if failed then return true, "" end
-      failed = true
+      if failed.value == true then return true, "" end
+      failed.value = true
       return false, "the first time"
     end })
   assert(err:find("fuzz once: seed=1 iteration=1: flaky: failed (the first time), then held " ..
@@ -375,12 +406,12 @@ end
 -- again is not reported as the smallest: the input that first failed
 -- is, and the report says why.
 local function test_a_shrunk_input_that_then_holds_is_named_flaky()
-  local seen_alone = false
+  local seen_alone = { value = false }
   local err = report({ name = "shrunk once", iters = 200, gen = any_bytes,
     check = function(input: string): boolean, string
       if input == "\200" then
-        if seen_alone then return true, "" end
-        seen_alone = true
+        if seen_alone.value == true then return true, "" end
+        seen_alone.value = true
         return false, "a high byte"
       end
       return input:find("[\200-\255]") == nil, "a high byte"
@@ -395,7 +426,7 @@ end
 local function test_shrinking_cuts_elements_from_the_middle()
   local err = report({ name = "in order", iters = 300,
     gen = function(src: Fuzz.Source): string
-      local parts: {string} = {}
+      local parts: mut {string} = {}
       while Fuzz.more(src, #parts, 40) do
         parts[#parts + 1] = Fuzz.pick(src, { "a", "b", "c", "d" }) .. string.char(src:int(0, 9) + 48)
       end

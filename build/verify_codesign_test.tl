@@ -16,7 +16,7 @@ end
 local function fake_codesign(probe: string, dir: string, status: integer): string
   local log = dir .. "/calls"
   assert(stand_in.place(probe, dir .. "/codesign",
-    "append " .. log .. " $@\nexit " .. status))
+    "append " .. log .. " $@\nexit " .. tostring(status)))
   return log
 end
 
@@ -76,8 +76,8 @@ end
 local function test_main_answers_help_and_refuses_an_option()
   -- Help is answered wherever it is asked, and nothing is verified: a
   -- second word is no usage error and "-x" is not the binary's path.
-  assert(VerifyCodesign.main({ [1] = "a", [2] = "--help" }) == 0)
-  assert(VerifyCodesign.main({ [1] = "-h" }) == 0)
-  assert(VerifyCodesign.main({ [1] = "-x" }) == 2)
+  assert(VerifyCodesign.main({ "a", "--help" }) == 0)
+  assert(VerifyCodesign.main({ "-h" }) == 0)
+  assert(VerifyCodesign.main({ "-x" }) == 2)
   assert(VerifyCodesign.main({}) == 2)
 end

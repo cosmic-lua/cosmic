@@ -1,9 +1,9 @@
 local Grant = require("cosmic.relay.grant")
 local Sandbox = require("cosmic.sandbox")
-local Relay = require("cosmic.relay")
+local RelayStart = require("cosmic.internal.relay_start")
+local Address = require("cosmic.relay.address")
 
-local Wire = Relay.Wire
-local Address = Relay.Address
+local Wire = require("cosmic.internal.relay_wire")
 
 --- The text of a target that parses, else a failed assert naming `text`.
 local function canonical(text: string): string
@@ -35,9 +35,9 @@ local function test_kinds()
   local any = assert(Grant.parse("*:*"))
   assert(any.kind == "any" and any.port == 0)
   local v6 = assert(Grant.parse("[::1]:*"))
-  assert(v6.kind == "ipv6" and #v6.bytes == 16 and v6.port == 0)
+  assert(v6.kind == "ipv6" and #assert(v6.bytes) == 16 and v6.port == 0)
   local v4 = assert(Grant.parse("10.0.0.1:1"))
-  assert(v4.kind == "ipv4" and #v4.bytes == 4)
+  assert(v4.kind == "ipv4" and #assert(v4.bytes) == 4)
 end
 
 local function test_refuses_what_the_relay_cannot_use()
@@ -72,7 +72,7 @@ end
 local function test_policy_refuses_at_the_connect_pointer()
   local ok, why = Sandbox.check({ connect = { "example.com:443", "*.example.com:443" } })
   assert(not ok)
-  assert(why:find("/connect/1", 1, true), why)
+  assert(why:find("$.connect[1]", 1, true), why)
   ok, why = Sandbox.check({ connect = { "example.com:443", "Example.COM.:*", "[::1]:80", "*:*" } })
   assert(ok, why)
 end
@@ -88,10 +88,10 @@ local function test_every_accepted_name_is_a_request_host()
 end
 
 local function test_consumers_read_one_canonical_meaning()
-  local plan = assert(Sandbox.Relay.plan({ "[0:0:0:0:0:0:0:1]:80", "[::1]:80", "Example.COM.:443" }, {}))
+  local plan = assert(RelayStart.plan({ "[0:0:0:0:0:0:0:1]:80", "[::1]:80", "Example.COM.:443" }, {}))
   assert(#plan.literals == 1 and plan.names, "one literal, however it is spelt")
   -- Targets the request readers always refuse open no name (the plan once took them for names).
-  local none = assert(Sandbox.Relay.plan({ "bad_name:443", "-bad.example:443", ".:443", "*.example.com:443" }, {}))
+  local none = assert(RelayStart.plan({ "bad_name:443", "-bad.example:443", ".:443", "*.example.com:443" }, {}))
   assert(not none.names and #none.literals == 0)
   assert(Address.granted("::1", 80, { "[0:0:0:0:0:0:0:1]:80" }))
   assert(not Address.granted("::1", 81, { "[::1]:80" }))

@@ -73,6 +73,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local probe = ...
+if probe == nil then return 2 end
 -- Feeding a child its input is what makes this process ignore
 -- SIGPIPE, so a write to a child that has gone cannot end it.
 local fed = assert(Child.start({ probe, "exit 0" }, { input = "" }))
@@ -96,7 +97,7 @@ end
 --- the [`Proc.exec`] call it makes, `outer` the variable the chunk's own
 --- process has.
 local function becomes(tmp: string, probe: string, exec: string): string
-  local chunk = 'local Proc = require("cosmic.proc")\nlocal probe = ...\n' ..
+  local chunk = 'local Proc = require("cosmic.proc")\nlocal probe = ...\nif probe == nil then return 2 end\n' ..
     "local _, trouble = " .. exec .. "\nprint(trouble)\nrequire(\"cosmic.sys\").exit(1)\n"
   local env = this_program.environment()
   env.FOO = "outer"
@@ -135,7 +136,7 @@ local function test_the_relaunch_cwd_is_where_the_program_started(tmp: string)
     Test.skip("a native start has nothing to relaunch")
     return
   end
-  local chunk = "local Proc = require('cosmic.proc'); require('cosmic.sys').chdir('/'); " ..
+  local chunk = "local Proc = require('cosmic.proc') require('cosmic.sys').chdir('/') " ..
     "print(assert(Proc.relaunch()).cwd)"
   local started = this_program.program({ "-e", chunk },
     { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })

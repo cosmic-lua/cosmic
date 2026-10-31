@@ -36,7 +36,7 @@ end
 local function test_parse_names_each_record_it_skips()
   local parsed = assert(ledger.parse(CSV))
   local skipped: {ledger.Skip} = parsed.skipped
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, skip in ipairs(skipped) do
     assert(skip.reason ~= nil and skip.reason ~= "", "no reason for line " .. skip.line)
     lines[#lines + 1] = tostring(skip.line)

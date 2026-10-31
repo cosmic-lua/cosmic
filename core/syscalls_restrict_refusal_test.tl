@@ -1,25 +1,14 @@
 --- A restriction refuses a named descriptor that is not open before
 --- inspecting /proc or applying any limit or filter.
 
+local RawTables = require("build.raw_tables")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
 local type _ = require("cosmic.child")
 
-local type Searcher = function(string): any, any
-
-local function raw_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process -- cast: the table core/process.h declares
-    end
-  end
-  error("cosmic.child is handed no raw table")
-end
-
 local function test_unix_socket_creation_reports_the_hosts_permission()
-  local fd, why, errno = raw_table().unix_socket()
+  local fd, why, errno = RawTables.process().unix_socket()
   if fd ~= nil then
     local flags = assert(sys.fd_flags(fd))
     assert(sys.close(fd))
@@ -39,26 +28,26 @@ local function test_a_named_descriptor_that_is_not_open_refuses_before_inspectio
   if assert(sys.uname()).sysname == "Darwin" then
     restriction.seatbelt = { profile = "(version 1)", parameters = {} }
   end
-  local ok, why, errno = raw_table().restrict_self(restriction, { fd })
+  local ok, why, errno = RawTables.process().restrict_self(restriction, { fd })
   assert(not ok)
   if errno == sys.ENOSYS then
     assert(why == "Function not implemented", why)
   else
-    assert(errno == sys.EBADF and why == "descriptor " .. fd .. ", which fds names, is not open", why)
+    assert(errno == sys.EBADF and why == "descriptor " .. tostring(fd) .. ", which fds names, is not open", why)
   end
 end
 
 local function test_an_execute_restriction_refuses_a_path_that_is_not_a_string()
-  local apply = raw_table().landlock_restrict_execute
+  local apply = RawTables.process().landlock_restrict_execute
   local ok, why = pcall(apply, { false } as {string}) -- cast: a deliberately degenerate argument
-  assert(not ok and tostring(why):find("path must be a string", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("path must be a string", 1, true) ~= nil, tostring(why))
 end
 
 --- No user namespace is needed for a filter on a child that does not
 --- unveil: the filter is installed before exec reports the absent file.
 local function test_a_promises_filter_is_applied_before_an_absent_program_is_refused(tmp: string)
   local path = tmp .. "/absent"
-  local pid, why, errno = raw_table().spawn(path, { path }, nil, nil, nil, nil, nil,
+  local pid, why, errno = RawTables.process().spawn(path, { path }, nil, nil, nil, nil, nil,
     false, nil, { promises = {} })
   assert(pid == nil)
   local names = assert(sys.uname())
@@ -77,7 +66,7 @@ end
 local function test_a_regular_file_descriptor_is_not_a_ruleset(tmp: string)
   local fd = assert(sys.open(tmp .. "/regular", sys.O_CREAT | sys.O_RDWR | sys.O_EXCL, 420))
   local path = tmp .. "/absent"
-  local pid, why, errno = raw_table().spawn(path, { path }, nil, nil, nil, nil, nil,
+  local pid, why, errno = RawTables.process().spawn(path, { path }, nil, nil, nil, nil, nil,
     false, nil, { ruleset = fd })
   assert(sys.close(fd))
   assert(pid == nil)

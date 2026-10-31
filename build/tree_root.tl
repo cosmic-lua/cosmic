@@ -3,26 +3,29 @@
 --- at its root is the root's, not a new tree of `greet/`'s own, whose
 --- `require("greet")` finds nothing.
 ---
---- A tree is established where a build wrote `o/cosmic.db`, and a
---- working directory is in one when that tree's last build also staged
---- a source at or under it (`o/build.db`'s `files`). `o/build.db` alone
---- is left by a run that failed, in the wrong directory too, so it names
---- no tree; and a new project made below a built tree has staged
---- nothing there, so it stays a root of its own. The working directory
---- that holds `o/cosmic.db` is the tree; else the nearest ancestor that
---- holds one and staged the working directory is, never the home
---- directory or anything above it; and where none does, the working
---- directory is the tree as before -- a first `cosmic test` starts a
---- project where it is run. `COSMIC_TREE=<dir>` names the root instead,
---- `.` for the working directory.
+--- A tree is established where its build directory ([`build.paths`])
+--- holds the projection, `cosmic.db`, and a working directory is in one
+--- when that tree's last build also staged a source at or under it
+--- (`build.db`'s `files`), or walked a file of the tool's own there (its
+--- `tool`, which holds lang/check.tl). Nothing in the tree marks it: the climb asks
+--- the resolver of each ancestor in turn. `build.db` alone is left by a
+--- run that failed, in the wrong directory too, so it names no tree; and
+--- a new project made below a built tree has staged nothing there, so it
+--- stays a root of its own. The working directory whose build directory
+--- holds a projection is the tree; else the nearest ancestor that holds
+--- one and staged the working directory is, never the home directory or
+--- anything above it; and where none does, the working directory is the
+--- tree as before -- a first `cosmic test` starts a project where it is
+--- run. `COSMIC_TREE=<dir>` names the root instead, `.` for the working
+--- directory.
 ---
 --- A word a `test` or `todos` line gives that names an existing path
 --- is taken as that path, read from where the verb was started, and not
 --- as a module name or search words.
 ---
 --- `cosmic <file.tl>` (build.dispatch's `run`) does not choose this way:
---- run in a subdirectory it still writes an `o/` there, which then makes
---- that directory a root of its own.
+--- run in a subdirectory it builds that directory as a project, which
+--- then makes it a root of its own.
 
 local build_paths = require("build.paths")
 local Flags = require("cosmic.flags")
@@ -37,13 +40,13 @@ local record tree_root
     root: string
     --- The command line, its path arguments read from where the verb
     --- was started and now relative to `root`.
-    argv: {integer:string}
+    argv: {string}
   end
 
   --- What `move` decides.
   record Answer
     --- The move, or nil where the verb runs where it was started.
-    move: Move | nil
+    move?: Move
     --- Why the command line is refused (`COSMIC_TREE` names no
     --- directory), or empty.
     refused: string
@@ -52,31 +55,37 @@ local record tree_root
   end
 end
 
---- Whether a build wrote a database under `dir`'s `o/`.
+--- Whether a build wrote the projection of the project rooted at `dir`.
+--- A directory with no build directory to have one in -- one the base
+--- lies within, as an ancestor of COSMIC_BUILD_HOME does -- or whose
+--- build directory cannot be named is no tree.
 local function established(dir: string): boolean
-  local found, _ = Fs.exists(build_paths.required(dir) .. "/cosmic.db")
+  local directory, _ = build_paths.optional(dir)
+  if directory == nil then return false end
+  local found, _ = Fs.exists(build_paths.under(directory).projection)
   return found == true
 end
 
 --- Whether `root`'s last build staged a source at `path` or under it,
---- `path` relative to `root`; nil and why when its `o/build.db` cannot
---- be read, which is not an answer either way.
+--- `path` relative to `root`, or a file of the tool's own there (`tool`); nil and why when its `build.db` cannot be
+--- read, which is not an answer either way.
 -- TODO: climb from a directory the last build staged no Teal under --
 -- prose alone (`doc/`, whose Markdown the walk skips), or one made
 -- since -- which is now a root of its own: `cosmic fix` there fails
--- `../x.tl` as outside the project and writes an `o/` there. The fix is
+-- `../x.tl` as outside the project and builds it as one. The fix is
 -- for the build to record the directories it walked, less the trees of
 -- their own within it (`ci/`, [`build.identity.is_foreign_tree`]), and to climb
 -- on that record.
-local function staged(root: string, path: string): boolean | nil, string
-  local file = build_paths.required(root) .. "/build.db"
+local function staged(root: string, path: string): boolean?, string
+  local file = build_paths.resolve(root).working
   local db, open_trouble = Sqlite.open(file)
   if db == nil then return nil, open_trouble end
-  local rows, trouble = Sqlite.rows(db, "SELECT 1 FROM files WHERE path = ?1 OR " ..
+  local rows, trouble = Sqlite.rows(db, "SELECT 1 FROM (SELECT path FROM files UNION ALL " ..
+      "SELECT path FROM tool) WHERE path = ?1 OR " ..
       "substr(path, 1, length(?2)) = ?2 LIMIT 1", { { text = path }, { text = path .. "/" } })
   local _, _ = db:close()
   if rows == nil then return nil, file .. ": " .. trouble end
-  return #rows > 0
+  return #rows > 0, ""
 end
 
 --- The nearest ancestor of `dir`, absolute, that a build established and
@@ -87,7 +96,7 @@ end
 --- read, so `dir` is left a root of its own for that reason.
 --- @param dir an absolute directory
 --- @param home the home directory, resolved, or nil for none
-local function above(dir: string, home: string | nil): string | nil, string
+local function above(dir: string, home: string?): string?, string
   if established(dir) then return nil, "" end
   local here = dir
   while true do
@@ -119,7 +128,7 @@ local paths <const>: {string:string} = {
 --- `word` read from the directory `from`, unnormalized.
 local function joined_to(from: string, word: string): string
   if word:sub(1, 1) == "/" then return word end
-  return (from == "/" and "" or from) .. "/" .. word
+  return (if from == "/" then "" else from end) .. "/" .. word
 end
 
 --- `word`, read from `from`, as a path from `root`: absolute where it is
@@ -136,19 +145,19 @@ end
 --- @param options the verb's options, as [`cosmic.cli`] names them in `verbs`
 --- @param home the home directory, or nil for none, where the climb ends
 --- @param named `COSMIC_TREE`, or nil: the root, `.` for the working directory
-function tree_root.move(argv: {integer:string},
-                        options: {string:boolean | Flags.Option}, home: string | nil,
+function tree_root.move(argv: {string},
+                        options: {string:boolean | Flags.Option}, home: string?,
                         named?: string): tree_root.Answer
   local kind = paths[argv[1]]
   if kind == nil then return { refused = "", note = "" } end
   local from, _ = Fs.absolute(".")
   if from == nil then return { refused = "", note = "" } end
-  local root: string | nil
+  local root: string?
   local note = ""
   if named ~= nil and named ~= "" then
     root = narrow.lexical(joined_to(from, named))
     local directory, _ = Fs.is_dir(root)
-    if not directory then
+    if directory ~= true then
       return { refused = "COSMIC_TREE=" .. named .. " is not a directory", note = "" }
     end
     local there, _ = Fs.absolute(root)
@@ -156,7 +165,7 @@ function tree_root.move(argv: {integer:string},
   else
     -- The home directory as `from` is spelled: resolved, else as given
     -- less its trailing slashes.
-    local resolved: string | nil = nil
+    local resolved: string? = nil
     if home ~= nil and home ~= "" then
       local real, _ = Fs.absolute(home)
       resolved = real or narrow.lexical(home)
@@ -165,8 +174,7 @@ function tree_root.move(argv: {integer:string},
   end
   if root == nil then return { refused = "", note = note } end
 
-  local line: {integer:string} = {}
-  for slot, word in pairs(argv) do line[slot] = word end
+  local rewrites: mut {integer: string} = {}
   local seen = 0
   local slot = 2
   local literal = false
@@ -190,11 +198,13 @@ function tree_root.move(argv: {integer:string},
       end
       if takes then
         local rewritten = from_root(name, from, root)
-        line[slot] = rewritten .. word:sub(#name + 1)
+        rewrites[slot] = rewritten .. word:sub(#name + 1)
       end
     end
     slot = slot + 1
   end
+  local line: mut {string} = {}
+  for at, word in ipairs(argv) do line[#line + 1] = rewrites[at] or word end
   return { move = { root = root, argv = line }, refused = "", note = "" }
 end
 

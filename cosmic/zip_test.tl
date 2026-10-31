@@ -5,7 +5,6 @@
 --- external program.
 
 local Codec = require("cosmic.codec")
-local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
@@ -13,6 +12,19 @@ local Zip = require("cosmic.zip")
 
 local ZIP_B64 <const> =
   "UEsDBAoAAAAAADItN13z+cmLFAAAABQAAAANABwAc3JjL3Nob3J0LnR4dFVUCQADkGazapBms2p1eAsAAQQAAAAABAAAAABzaG9ydCBmaWxlIGNvbnRlbnRzClBLAwQKAAAAAAAyLTddI9j0uAkAAAAJAAAADgAcAHNyYy9hZGlyL2FsaW5rVVQJAAOQZrNqkGazanV4CwABBAAAAAAEAAAAAHNob3J0LnR4dFBLAwQUAAAACAA4LTdd0RXq2CAAAACZCAAACwAcAHNyYy9iaWcudHh0VVQJAAOcZrNqn2azanV4CwABBAAAAAAEAAAAAEtJTctJLElVyE1VSBlljjJHmaPMUeYoc5Q5yhxIJhcAUEsDBAoAAAAAADgtN13z+cmLFAAAABQAAAAUABwAc3JjL3Nob3J0X3N0b3JlZC50eHRVVAkAA5xms2qfZrNqdXgLAAEEAAAAAAQAAAAAc2hvcnQgZmlsZSBjb250ZW50cwpQSwECHgMKAAAAAAAyLTdd8/nJixQAAAAUAAAADQAYAAAAAAABAAAApIEAAAAAc3JjL3Nob3J0LnR4dFVUBQADkGazanV4CwABBAAAAAAEAAAAAFBLAQIeAwoAAAAAADItN10j2PS4CQAAAAkAAAAOABgAAAAAAAAAAAD/oVsAAABzcmMvYWRpci9hbGlua1VUBQADkGazanV4CwABBAAAAAAEAAAAAFBLAQIeAxQAAAAIADgtN13RFerYIAAAAJkIAAALABgAAAAAAAEAAACkgawAAABzcmMvYmlnLnR4dFVUBQADnGazanV4CwABBAAAAAAEAAAAAFBLAQIeAwoAAAAAADgtN13z+cmLFAAAABQAAAAUABgAAAAAAAAAAACkgREBAABzcmMvc2hvcnRfc3RvcmVkLnR4dFVUBQADnGazanV4CwABBAAAAAAEAAAAAFBLBQYAAAAABAAEAFIBAABzAQAAAAA="
+
+--- The CRC-32 (IEEE) of `data`, a byte at a time: a reference that
+--- shares nothing with the core's.
+local function crc32_reference(data: string): integer
+  local c = 0xFFFFFFFF
+  for i = 1, #data do
+    c = c ~ data:byte(i)
+    for _ = 1, 8 do
+      c = (c >> 1) ~ (0xEDB88320 & -(c & 1))
+    end
+  end
+  return c ~ 0xFFFFFFFF
+end
 
 --- Every entry of `r`, which has no reason to fail here.
 local function entries_of(r: Zip.Reader): {Zip.Entry}
@@ -266,9 +278,9 @@ local function test_a_zip64_size_past_2_63_is_refused_at_open()
     le32(0) .. le32(0) .. le16(1) .. le16(0) .. "a"
   local extra = le16(1) .. le16(8) .. le64(1 << 63)
   for _, which in ipairs({ "usize", "csize", "offset" }) do
-    local csize = which == "csize" and 0xFFFFFFFF or 0
-    local usize = which == "usize" and 0xFFFFFFFF or 0
-    local offset = which == "offset" and 0xFFFFFFFF or 0
+    local csize = if which == "csize" then 0xFFFFFFFF else 0 end
+    local usize = if which == "usize" then 0xFFFFFFFF else 0 end
+    local offset = if which == "offset" then 0xFFFFFFFF else 0 end
     local cdfh = "PK\1\2" .. le16(20) .. le16(20) .. le16(0) .. le16(0) .. le16(0) .. le16(0) ..
       le32(0) .. le32(csize) .. le32(usize) .. le16(1) .. le16(#extra) .. le16(0) .. le16(0) ..
       le16(0) .. le32(0) .. le32(offset) .. "a" .. extra
@@ -287,16 +299,22 @@ local function test_an_entry_past_the_end_of_the_archive_is_refused_at_open(tmp:
   -- "Invalid argument").
   local lfh = "PK\3\4" .. le16(20) .. le16(0) .. le16(0) .. le16(0) .. le16(0) .. le32(0) ..
     le32(0) .. le32(0) .. le16(1) .. le16(0) .. "a"
-  local cases: {{string, integer, integer, integer}} = {
-    { "offset into the central directory", 0, #lfh, -1 },
-    { "32-bit offset", 0, 0xFFFFFFFE, -1 },
-    { "32-bit csize", 1000, 0, -1 },
-    { "zip64 offset", 0, 0xFFFFFFFF, math.maxinteger - 10 },
-    { "zip64 csize", 0xFFFFFFFF, 0, 1 << 40 },
+  local record Case
+    which: string
+    csize: integer
+    offset: integer
+    wide: integer
+  end
+  local cases: {Case} = {
+    { which = "offset into the central directory", csize = 0, offset = #lfh, wide = -1 },
+    { which = "32-bit offset", csize = 0, offset = 0xFFFFFFFE, wide = -1 },
+    { which = "32-bit csize", csize = 1000, offset = 0, wide = -1 },
+    { which = "zip64 offset", csize = 0, offset = 0xFFFFFFFF, wide = math.maxinteger - 10 },
+    { which = "zip64 csize", csize = 0xFFFFFFFF, offset = 0, wide = 1 << 40 },
   }
   for i, case in ipairs(cases) do
-    local which, csize, offset, wide = case[1], case[2], case[3], case[4]
-    local extra = wide >= 0 and le16(1) .. le16(8) .. le64(wide) or ""
+    local which, csize, offset, wide = case.which, case.csize, case.offset, case.wide
+    local extra = if wide >= 0 then le16(1) .. le16(8) .. le64(wide) else "" end
     local cdfh = "PK\1\2" .. le16(20) .. le16(20) .. le16(0) .. le16(0) .. le16(0) .. le16(0) ..
       le32(0) .. le32(csize) .. le32(0) .. le16(1) .. le16(#extra) .. le16(0) .. le16(0) ..
       le16(0) .. le32(0) .. le32(offset) .. "a" .. extra
@@ -438,9 +456,9 @@ end
 --- extra field of `extra_len` bytes that the central directory's does
 --- not.
 local function zip_with_local_extra(name: string, body: string, extra_len: integer): string
-  local crc = Compress.crc32(body)
-  local extra = extra_len > 0 and (le16(0xCAFE) .. le16(extra_len - 4) ..
-    string.rep("x", extra_len - 4)) or ""
+  local crc = crc32_reference(body)
+  local extra = if extra_len > 0 then (le16(0xCAFE) .. le16(extra_len - 4) ..
+    string.rep("x", extra_len - 4)) else "" end
   local lfh = "PK\3\4" .. le16(20) .. le16(0) .. le16(0) .. le16(0) .. le16(0x21) ..
     le32(crc) .. le32(#body) .. le32(#body) .. le16(#name) .. le16(#extra) .. name .. extra
   local cd = "PK\1\2" .. le16((3 << 8) | 20) .. le16(20) .. le16(0) .. le16(0) .. le16(0) ..
@@ -480,9 +498,9 @@ end
 --- A Reader over `rounds` copies of `chunk`, that calls `each(n)` before
 --- its n-th read.
 local function repeating(chunk: string, rounds: integer, each?: function(integer)): Stream.Reader
-  local n = 0
+  local n: integer = 0
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
     if n >= rounds then return nil, "" end
     n = n + 1
     if each ~= nil then each(n) end
@@ -495,6 +513,7 @@ end
 local function test_a_streamed_body_round_trips_through_the_reader()
   local chunk = "streamed body, "
   local whole = string.rep(chunk, 5000)
+  local whole_crc = crc32_reference(whole)
   for _, method in ipairs({ "deflate", "store" } as {Zip.Method}) do
     local c = Stream.collect()
     local w = Zip.writer(c)
@@ -511,8 +530,8 @@ local function test_a_streamed_body_round_trips_through_the_reader()
     assert(Stream.read_all((assert(by_path(entries, "plain"):open()))) == "after a stream", method)
     assert(Stream.read_all((assert(by_path(entries, "sized"):open()))) == whole, method)
     local a = by_path(entries, "a")
-    assert(a.size == #whole and a.crc32 == Compress.crc32(whole))
-    assert(a.method == (method == "store" and 0 or 8))
+    assert(a.size == #whole and a.crc32 == whole_crc)
+    assert(a.method == (if method == "store" then 0 else 8 end))
     if method == "deflate" then assert(a.compressed_size < #whole // 10) end
   end
 end
@@ -533,7 +552,7 @@ local function test_a_streamed_entry_carries_a_data_descriptor_after_its_body()
   -- directory records.
   local at = 31 + #"d.txt" + #body
   assert(bytes:sub(at, at + 3) == "PK\7\8", "data descriptor signature")
-  assert(rd32(bytes, at + 4) == Compress.crc32(body))
+  assert(rd32(bytes, at + 4) == crc32_reference(body))
   assert(rd32(bytes, at + 8) == #body and rd32(bytes, at + 12) == #body)
   local r = assert(Zip.open_string(bytes))
   local entry = by_path(entries_of(r), "d.txt")
@@ -547,7 +566,7 @@ end
 --- Everything written to it, kept as a list of pieces; `close` and
 --- `abort` are noted.
 local function recording(): Stream.Writer, {string}
-  local pieces: {string} = {}
+  local pieces: mut {string} = {}
   local w: Stream.Writer = {}
   w.write = function(_self: Stream.Writer, data: string): boolean, string
     pieces[#pieces + 1] = data
@@ -613,7 +632,7 @@ end
 local function test_a_failing_body_fails_and_aborts_the_writer()
   local w = Zip.writer(Stream.collect())
   local bad: Stream.Reader = {}
-  bad.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
+  bad.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
     return nil, "disk on fire"
   end
   bad.close = function(_self: Stream.Reader): boolean, string return true, "" end
@@ -626,7 +645,7 @@ end
 local function test_a_streamed_body_takes_bounded_memory()
   local block = {} as {integer}
   for i = 1, 65536 do block[i] = (i * 131 + (i >> 8) + (i >> 3) * 7) & 255 end
-  local pieces: {string} = {}
+  local pieces: mut {string} = {}
   for first = 1, #block, 4096 do
     pieces[#pieces + 1] = string.char(table.unpack(block, first, first + 4095))
   end
@@ -634,7 +653,7 @@ local function test_a_streamed_body_takes_bounded_memory()
   local rounds = 48 -- 3 MiB through each method
   local warm = 6
   for _, method in ipairs({ "deflate", "store" } as {Zip.Method}) do
-    local written = 0
+    local written: integer = 0
     local sink: Stream.Writer = {}
     sink.write = function(_self: Stream.Writer, data: string): boolean, string
       written = written + #data
@@ -645,11 +664,16 @@ local function test_a_streamed_body_takes_bounded_memory()
     collectgarbage()
     collectgarbage()
     local base = collectgarbage("count")
-    local early, late = 0.0, 0.0
+    local early: number = 0.0
+    local late: number = 0.0
     local body = repeating(chunk, rounds, function(n: integer)
       collectgarbage()
       local grown = collectgarbage("count") - base
-      if n <= warm then early = math.max(early, grown) else late = math.max(late, grown) end
+      if n <= warm then
+        early = math.max(early, grown)
+      else
+        late = math.max(late, grown)
+      end
     end)
     local w = Zip.writer(sink)
     assert(w:add_file("big", body, { method = method }))
@@ -677,7 +701,7 @@ local function test_a_symlink_round_trips_with_its_target_mode_and_time()
   assert(by_path(entries, "deep/link").linkpath == "../a.txt")
   assert(by_path(entries, "a.txt").kind == "file" and by_path(entries, "a.txt").linkpath == "")
   -- `next` says the same of each entry.
-  local seen: {string:string} = {}
+  local seen: mut {string:string} = {}
   while true do
     local entry = r:next()
     if entry == nil then break end
@@ -784,4 +808,39 @@ local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
   assert(not ok and trouble == "disk full", trouble)
   ok, trouble = w:close()
   assert(not ok and trouble == "disk full", trouble)
+end
+
+--- The CRC-32 a zip records for `body` written whole as a string, or,
+--- with `rounds`, streamed as that many copies of it.
+local function recorded_crc(body: string, rounds?: integer): integer
+  local c = Stream.collect()
+  local w = Zip.writer(c)
+  local data: string | Stream.Reader = body
+  if rounds ~= nil then data = repeating(body, rounds) end
+  assert(w:add_file("f", data, { method = "store" }))
+  assert(w:close())
+  return by_path(entries_of((assert(Zip.open_string(c:result())))), "f").crc32
+end
+
+local function test_the_recorded_crc32_matches_the_known_value_and_continues()
+  -- crc32("hello, cosmic!") from Python's binascii.crc32.
+  assert(recorded_crc("hello, cosmic!") == 3327618652)
+  assert(recorded_crc("") == 0)
+  -- Long, and at an unaligned start: the hardware paths fold 16 bytes
+  -- at a time and handle the ragged ends apart (binascii.crc32 again).
+  local bytes: mut {string} = {}
+  for i = 0, 255 do bytes[#bytes + 1] = string.char(i) end
+  local block = table.concat(bytes)
+  local long = block:rep(40)
+  assert(recorded_crc(long) == 3150855069)
+  assert(recorded_crc(long:sub(4, 1000)) == 2769185661)
+  -- Streamed in 256-byte reads, each continuing the last's sum.
+  assert(recorded_crc(block, 40) == 3150855069)
+  -- Reads of 37 bytes, past the 16 the hardware paths fold at a time and
+  -- not a multiple of it.
+  local odd = long:sub(1, 37)
+  assert(recorded_crc(odd, 28) == crc32_reference(odd:rep(28)))
+  assert(recorded_crc("cosmic!", 3) == crc32_reference("cosmic!cosmic!cosmic!"))
+  assert(crc32_reference("hello, cosmic!") == 3327618652)
+  assert(crc32_reference(long) == 3150855069)
 end

@@ -55,15 +55,15 @@ end
 
 --- Every token of `s`, in order.
 function c_tokens.lex(s: string): {c_tokens.Token}
-  local out: {c_tokens.Token} = {}
+  local out: mut {c_tokens.Token} = {}
   local i = 1
   local line_start = true
   while i <= #s do
     local c = s:sub(i, i)
     local stop: integer
     local kind: string
-    if line_start and s:match("^[ \t]*#", i) then
-      local hash = s:find("#", i, true)
+    if line_start and s:match("^[ \t]*#", i) ~= nil then
+      local hash = assert(s:find("#", i, true), "the line holds the # its match saw")
       if hash > i then
         out[#out + 1] = { kind = "space", text = s:sub(i, hash - 1) }
       end
@@ -75,20 +75,20 @@ function c_tokens.lex(s: string): {c_tokens.Token}
       stop, kind = (s:find("[^ \t]", i) or #s + 1) - 1, "space"
     elseif s:sub(i, i + 1) == "/*" then
       local close = s:find("*/", i + 2, true)
-      stop, kind = close ~= nil and close + 1 or #s, "comment"
+      stop, kind = if close ~= nil then close + 1 else #s end, "comment"
     elseif s:sub(i, i + 1) == "//" then
       stop, kind = (s:find("\n", i, true) or #s + 1) - 1, "comment"
     elseif c == "\"" or c == "'" then
       stop, kind = literal_end(s, i), "literal"
     elseif c:match("[%a_]") then
       stop, kind = (s:find("[^%w_]", i) or #s + 1) - 1, "word"
-    elseif c:match("%d") or (c == "." and s:sub(i + 1, i + 1):match("%d")) then
+    elseif c:match("%d") ~= nil or (c == "." and s:sub(i + 1, i + 1):match("%d") ~= nil) then
       local j = i + 1
       while j <= #s do
         local d = s:sub(j, j)
         if d:match("[%w_.]") then
           j = j + 1
-        elseif (d == "+" or d == "-") and s:sub(j - 1, j - 1):match("[eEpP]") then
+        elseif (d == "+" or d == "-") and s:sub(j - 1, j - 1):match("[eEpP]") ~= nil then
           j = j + 1
         else
           break
@@ -114,7 +114,7 @@ end
 --- Every comment of `s`, `//` or `/* */`, markers and all, with the
 --- line it starts on.
 function c_tokens.comments(s: string): {c_tokens.Comment}
-  local out: {c_tokens.Comment} = {}
+  local out: mut {c_tokens.Comment} = {}
   local line = 1
   for _, t in ipairs(c_tokens.lex(s)) do
     if t.kind == "comment" then

@@ -54,7 +54,7 @@ end
 
 --- A grant of the program itself, which a child needs to run at all.
 local function itself(program: string, more?: {Sandbox.Grant}): {Sandbox.Grant}
-  local grants: {Sandbox.Grant} = { { path = program, letters = "rx" } }
+  local grants: mut {Sandbox.Grant} = { { path = program, letters = "rx" } }
   for _, grant in ipairs(more or {}) do grants[#grants + 1] = grant end
   return grants
 end
@@ -66,7 +66,7 @@ local function test_a_granted_path_is_read_and_its_sibling_is_not(tmp: string)
   local policy: Sandbox.Policy = { grants = itself(probe, { { path = tmp .. "/ro", letters = "r" } }) }
   local read = under(probe, policy, "cat " .. tmp .. "/ro/a")
   if read == nil then return end
-  assert(read.code == 0 and read.said == "alpha\n", read.code .. ": " .. read.said)
+  assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
   local sibling = under(probe, policy, "cat " .. tmp .. "/other/b")
   assert(sibling.code == 1 and sibling.said:find(DENIED, 1, true), "refused: " .. sibling.said)
   -- Nothing is written where only read is given.
@@ -81,7 +81,7 @@ local function test_a_relative_grant_is_relative_to_the_childs_directory(tmp: st
   local policy: Sandbox.Policy = { grants = itself(probe, { { path = "ro", letters = "r" } }) }
   local read = under(probe, policy, "cat ro/a", { cwd = tmp .. "/work" })
   if read == nil then return end
-  assert(read.code == 0 and read.said == "alpha\n", read.code .. ": " .. read.said)
+  assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
   local shut = under(probe, policy, "cat shut/b", { cwd = tmp .. "/work" })
   assert(shut.code == 1 and shut.said:find(DENIED, 1, true), shut.said)
 end
@@ -139,7 +139,7 @@ local function test_the_environment_is_the_policys_alone(tmp: string)
   local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
   local passed = sys.getenv("TMPDIR")
   assert(passed ~= nil, "the test has no TMPDIR to pass through")
-  local hidden: string
+  local hidden: string?
   for name in pairs(sys.environ()) do
     if name ~= "TMPDIR" and hidden == nil then hidden = name end
   end
@@ -183,7 +183,7 @@ end
 
 --- The directories a policy's `tmp` made that are still in the temporary directory.
 local function sandbox_directories(): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(sys.getenv("TMPDIR") or "/tmp")))) do
     if name:find("^cosmic%-sandbox%-") then found[#found + 1] = name end
   end
@@ -298,12 +298,12 @@ local function test_only_the_descriptors_named_reach_the_program(tmp: string)
   local policy: Sandbox.Policy = { grants = itself(probe) }
   local named = under(probe, policy, "fd-closed 3", { fds = { [3] = kept } })
   -- The descriptor this process has open and does not name is shut in the child.
-  local unnamed = under(probe, policy, "fd-closed " .. dropped, { fds = { [3] = kept } })
+  local unnamed = under(probe, policy, "fd-closed " .. tostring(dropped), { fds = { [3] = kept } })
   local _, _ = sys.close(kept), sys.close(dropped)
   if named == nil then return end
   -- fd-closed ends with status 1 for a descriptor that is open.
   assert(named.code == 1, "descriptor 3 should be open: " .. named.said)
-  assert(dropped ~= 3 and unnamed.code == 0, "descriptor " .. dropped .. " reached the child: " .. unnamed.said)
+  assert(dropped ~= 3 and unnamed.code == 0, "descriptor " .. tostring(dropped) .. " reached the child: " .. unnamed.said)
 end
 
 local function test_the_tmp_directory_is_absolute_and_usable_from_another_directory(tmp: string)

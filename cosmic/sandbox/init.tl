@@ -10,7 +10,7 @@
 ---   joins the letters of a path, unions the lists, and refuses two values
 ---   for one `set_env` name or one limit.
 --- - [`Sandbox.profile`] is what a named profile holds on this host:
----   "system" and "cosmic".
+---   "system", "cosmic" and "proc".
 --- - [`Sandbox.loaders`] is what a program needs read and run to start.
 --- - [`Sandbox.restrict`] holds the calling process, and what it starts,
 ---   to a policy for good.
@@ -38,14 +38,15 @@
 --- child's start runs ([`Child.start`]): in the child's own network on
 --- Linux, and on macOS on the host's loopback behind a token. On macOS a
 --- Seatbelt profile holds a child and the running process alike
---- ([`Seatbelt.compile`]).
+--- ([`Seatbelt.compile`]); the module that writes it, [`cosmic.sandbox.seatbelt`],
+--- is required by its own name.
 
 local Proc = require("cosmic.proc")
 local rules = require("cosmic.sandbox.policy")
-local Relay = require("cosmic.sandbox.relay")
 local Seatbelt = require("cosmic.sandbox.seatbelt")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
 -- What holds the running process lives in the raw process table, under
@@ -85,21 +86,6 @@ local record Sandbox
   --- its bytes where the policy is to hold to that ([`rules.Database`]).
   type Database = rules.Database
 
-  --- What holds a program by a policy on macOS: the package's
-  --- [`cosmic.sandbox.seatbelt`], whose `compile` makes a policy's Seatbelt
-  --- profile, `resolve` reads the host paths it names and `grants` lists
-  --- what it reaches, each documented there. [`Child.start`] holds a child
-  --- by it, and [`Sandbox.restrict`] the running process.
-  Seatbelt: Seatbelt
-
-  --- What the starter of a policy's network relay reads and decides before
-  --- the relay runs: the package's [`cosmic.sandbox.relay`], whose `policy`
-  --- is the relay's own (`seatbelt_policy` on macOS), `plan` what a policy's `connect` targets open,
-  --- `table`, `public` and `name_servers` the connectors [`Child.start`]
-  --- hands the relay, and `upstream_addresses` the one lookup of the
-  --- upstream proxy (`resolved_upstream` on macOS), each documented there.
-  Relay: Relay
-
   --- What [`Sandbox.reach`] finds.
   record Reach
     --- Who gives the user its rights: "user" (its own bits, as owner or
@@ -119,17 +105,14 @@ local record Sandbox
   end
 end
 
-Sandbox.Seatbelt = Seatbelt
-Sandbox.Relay = Relay
-
 --- What a failure of this module answers: nil and `why` under its name.
 local function refuse(why: string): nil, string
   return nil, "sandbox: " .. why
 end
 
 --- Whether the values of `p` are ones a policy may hold: `true`, or
---- `false` and why, naming the field by its JSON Pointer
---- (`pointer "/grants/0/letters": ...`, arrays counted from 0). What a
+--- `false` and why, naming the field by its path
+--- (`$.grants[0].letters: ...`, arrays counted from 0). What a
 --- type holds is not looked at again, only what it does not stop: an
 --- unknown profile, a letter outside "rwxcu", a malformed address, a
 --- ".." in a path. With `exact`, a grant's `letters` must also be in the
@@ -137,7 +120,7 @@ end
 --- [`Sandbox.merge`] takes any order and writes this one.
 ---
 ---     local ok, why = Sandbox.check({ grants = { { path = "x", letters = "xr" } } }, true)
----     print(ok, why) -- false  sandbox: pointer "/grants/0/letters": "xr" is not in the order of "rwxcu", each letter once: "rx"
+---     print(ok, why) -- false  sandbox: $.grants[0].letters: "xr" is not in the order of "rwxcu", each letter once: "rx"
 function Sandbox.check(p: Sandbox.Policy, exact?: boolean): boolean, string
   return rules.check(p, exact)
 end
@@ -157,12 +140,19 @@ end
 --- the first host's paths; "cosmic"
 --- grants `rx` on the path this program is started by ([`Proc.executable`]),
 --- which is its launcher where it has one: what [`Child.start`] runs as
---- this program's core, by a relaunch.
+--- this program's core, by a relaunch; "proc" is the kernel's process
+--- information: `r` on /proc, where the host has one (Linux), and nothing
+--- on macOS, where sysctl answers with no file to grant, so a policy that
+--- names it reads the same on both. That is every process's entries
+--- there, not this one's alone; `isolate` "proc" is the other thing, a
+--- /proc of the sandbox's own.
 --- Nil and why for a name it has not, or one this host cannot give.
 ---
 ---     local system = assert(Sandbox.profile("system"))
 ---     print(system.grants[1].path, system.grants[1].letters) -- /usr  rx (Linux and macOS)
-function Sandbox.profile(name: string): Sandbox.Policy | nil, string
+---     local proc = assert(Sandbox.profile("proc"))
+---     print(proc.grants and proc.grants[1].path) -- /proc (nil on macOS)
+function Sandbox.profile(name: string): Sandbox.Policy?, string
   return rules.profile(name)
 end
 
@@ -174,7 +164,7 @@ end
 ---
 ---     local db = assert(Sandbox.database("/etc/hostname"))
 ---     print(#db.sha256) -- 64
-function Sandbox.database(path: string): Sandbox.Database | nil, string
+function Sandbox.database(path: string): Sandbox.Database?, string
   return rules.database(path)
 end
 
@@ -203,7 +193,7 @@ end
 ---     local b = { grants = { { path = "/srv", letters = "r" } }, promises = { "fork", "jit" } }
 ---     local merged = assert(Sandbox.merge(a, b))
 ---     print(merged.grants[1].letters, table.concat(merged.promises, ",")) -- rx  fork,jit
-function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy | nil, string
+function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy?, string
   return rules.merge(...)
 end
 
@@ -222,7 +212,7 @@ local PT_INTERP <const> = 3
 local function unsigned(bytes: string, position: integer, width: integer, little: boolean): integer
   local value = 0
   for i = 0, width - 1 do
-    local byte = bytes:byte(little and position + width - 1 - i or position + i)
+    local byte = String.byte_at(bytes, if little then position + width - 1 - i else position + i end)
     value = value << 8 | byte
   end
   return value
@@ -231,16 +221,17 @@ end
 --- The ELF interpreter `head` (the start of the file `fd` is open on) names,
 --- from its PT_INTERP segment; nil for a file that is not an ELF, has none,
 --- or whose segment this cannot read.
-local function elf_interpreter(fd: integer, head: string): string | nil
+local function elf_interpreter(fd: integer, head: string): string?
   if head:sub(1, 4) ~= "\127ELF" or #head < 64 then return nil end
   local class, data = head:byte(5), head:byte(6)
   if (class ~= 1 and class ~= 2) or (data ~= 1 and data ~= 2) then return nil end
   local little = data == 1
   local wide = class == 2
   local offset = wide and unsigned(head, 33, 8, little) or unsigned(head, 29, 4, little)
-  local size = unsigned(head, wide and 55 or 43, 2, little)
-  local count = unsigned(head, wide and 57 or 45, 2, little)
-  if size < 32 or count > 256 then return nil end
+  local size = unsigned(head, if wide then 55 else 43 end, 2, little)
+  local count = unsigned(head, if wide then 57 else 45 end, 2, little)
+  -- An entry too small for its class would be read past its end below.
+  if size < (if wide then 56 else 32 end) or count > 256 then return nil end
   for i = 0, count - 1 do
     local entry, _ = sys.pread(fd, size, offset + i * size)
     if entry == nil or #entry < size then return nil end
@@ -257,24 +248,24 @@ local function elf_interpreter(fd: integer, head: string): string | nil
 end
 
 --- `path` made absolute against `cwd` (the process's own when nil).
-local function absolute(path: string, cwd?: string): string | nil, string
-  if path:sub(1, 1) == "/" then return path end
+local function absolute(path: string, cwd?: string): string?, string
+  if path:sub(1, 1) == "/" then return path, "" end
   local base = cwd
   if base == nil then
     local got, why = sys.getcwd()
     if got == nil then return nil, why end
     base = got
   end
-  return base .. "/" .. path
+  return base .. "/" .. path, ""
 end
 
 --- The file the kernel reads to start a program, past its own bytes: the
 --- `#!` interpreter or the ELF interpreter it names, as written.
-local function interpreter_of(path: string): string | nil
+local function interpreter_of(path: string): string?
   local fd, _ = sys.open(path, sys.O_RDONLY)
   if fd == nil then return nil end
   local head, _ = sys.read(fd, HEAD)
-  local found: string | nil
+  local found: string?
   if head ~= nil then
     found = head:match("^#!%s*([^%s]+)") or elf_interpreter(fd, head)
   end
@@ -299,16 +290,16 @@ end
 ---
 ---     local files = assert(Sandbox.loaders("/bin/sh"))
 ---     print(#files >= 1) -- true
-function Sandbox.loaders(path: string, cwd?: string): {string} | nil, string
-  local files: {string} = {}
-  local seen: {string:boolean} = {}
+function Sandbox.loaders(path: string, cwd?: string): {string}?, string
+  local files: mut {string} = {}
+  local seen: mut {string:boolean} = {}
   local at = path
   for _ = 0, MAX_CHAIN do
     local whole, why = absolute(at, cwd)
     if whole == nil then return refuse(why) end
     local real, trouble = sys.realpath(whole)
     if real == nil then return refuse(whole .. ": " .. trouble) end
-    if seen[real] then break end
+    if seen[real] == true then break end
     seen[real] = true
     files[#files + 1] = real
     local next_file = interpreter_of(real)
@@ -348,28 +339,32 @@ end
 --- names that only a child can have, which is made in a namespace the
 --- process is not in, or by a relay it has not.
 local function not_in_process(merged: Sandbox.Policy): string
-  if merged.database ~= nil then
-    return "database \"" .. merged.database.path .. "\" is the program a child runs on, which a " ..
+  local database = merged.database
+  if database ~= nil then
+    return "database \"" .. database.path .. "\" is the program a child runs on, which a " ..
       "running process cannot change: start a child with Child.start and a policy instead"
   end
-  if #merged.isolate > 0 then
-    return "isolate \"" .. merged.isolate[1] .. "\" needs a namespace of its own: start " ..
+  -- A merged policy holds every list, empty where it names none.
+  local isolate, connect, loopback = merged.isolate or {}, merged.connect or {}, merged.loopback or {}
+  local env = merged.env or {}
+  if #isolate > 0 then
+    return "isolate \"" .. isolate[1] .. "\" needs a namespace of its own: start " ..
       "a child with Child.start and a policy instead"
   end
-  if #merged.connect > 0 then
-    return "connect \"" .. merged.connect[1] .. "\" needs a relay in a network namespace of " ..
+  if #connect > 0 then
+    return "connect \"" .. connect[1] .. "\" needs a relay in a network namespace of " ..
       "its own: start a child with Child.start and a policy instead"
   end
-  if #merged.loopback > 0 then
-    return "loopback \"" .. merged.loopback[1] .. "\" needs a network namespace of its own: " ..
+  if #loopback > 0 then
+    return "loopback \"" .. loopback[1] .. "\" needs a network namespace of its own: " ..
       "start a child with Child.start and a policy instead"
   end
-  for _, promise in ipairs(merged.promises) do
+  for _, promise in ipairs(merged.promises or {}) do
     if promise == "nest" then
       return "promises \"nest\" needs isolate file, which only a child can have"
     end
   end
-  for _, grant in ipairs(merged.grants) do
+  for _, grant in ipairs(merged.grants or {}) do
     if grant.from ~= nil then
       return "grant \"" .. grant.path .. "\" has from, which needs isolate file, which only a " ..
         "child can have"
@@ -389,28 +384,31 @@ local function not_in_process(merged: Sandbox.Policy): string
         "a socket the filter allows: start a child with Child.start and a policy instead"
     end
   end
-  if next(merged.env) ~= nil then
-    return "env \"" .. merged.env[1] .. "\" is the environment of a child, which a running " ..
+  local first_env = env[1]
+  if first_env ~= nil then
+    return "env \"" .. first_env .. "\" is the environment of a child, which a running " ..
       "process already has"
   end
-  for name, _ in pairs(merged.set_env) do
+  for name, _ in pairs(merged.set_env or {}) do
     return "set_env \"" .. name .. "\" is the environment of a child, which a running " ..
       "process already has"
   end
-  for name, _ in pairs(merged.set_env_digests) do
+  for name, _ in pairs(merged.set_env_digests or {}) do
     return "set_env_digests \"" .. name .. "\" holds a digest, not a value to set"
   end
-  if merged.tmp then
+  if merged.tmp == true then
     return "tmp is a directory made for a child, which a running process makes for itself"
   end
-  if merged.limits.processes ~= nil then
+  if (merged.limits or {}).processes ~= nil then
     return "limits.processes counts the processes of a user namespace of its own, which only " ..
       "a child has"
   end
-  if merged.user ~= nil and (merged.user ~= sys.getuid() or
-      (merged.group ~= nil and merged.group ~= sys.getgid())) then
-    return "user " .. merged.user .. " is who a child runs as; a running process stays the " ..
-      "user it is (" .. sys.getuid() .. ")"
+  local user = merged.user
+  local group = merged.group
+  if user ~= nil and (user ~= sys.getuid() or
+      (group ~= nil and group ~= sys.getgid())) then
+    return "user " .. tostring(user) .. " is who a child runs as; a running process stays the " ..
+      "user it is (" .. tostring(sys.getuid()) .. ")"
   end
   return ""
 end
@@ -460,11 +458,11 @@ end
 -- had without opening it: [`Proc.relaunch`] names it, but holds a descriptor
 -- on it from then on, which the restriction's check of descriptors refuses.
 local function runtime_grants(): {Sandbox.Grant}
-  local grants: {Sandbox.Grant} = {}
+  local grants: mut {Sandbox.Grant} = {}
   for _, path in ipairs(store_paths()) do
     local found, _ = stat(path)
     if found ~= nil then
-      grants[#grants + 1] = { path = path, letters = path:sub(-4) == "-shm" and "rw" or "r" }
+      grants[#grants + 1] = { path = path, letters = if path:sub(-4) == "-shm" then "rw" else "r" end }
     end
   end
   local executable, _ = executable_path()
@@ -478,7 +476,7 @@ end
 --- which [`not_in_process`] passed: the profile resolves "system" to
 --- macOS's paths, not the Linux ones [`Sandbox.merge`] gives.
 local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): boolean, string
-  local grants: {Sandbox.Grant} = {}
+  local grants: mut {Sandbox.Grant} = {}
   for _, grant in ipairs(policy.grants or {}) do grants[#grants + 1] = grant end
   for _, grant in ipairs(runtime_grants()) do grants[#grants + 1] = grant end
   local held: Sandbox.Policy = { profiles = policy.profiles, grants = grants,
@@ -491,8 +489,8 @@ local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): boolea
   local parameters = 0
   for _, _ in pairs(profile.parameters) do parameters = parameters + 1 end
   if parameters > raw.SEATBELT_PARAMETER_MAX then
-    return denied("grants: the paths the profile holds, " .. parameters .. ", are past the " ..
-        "most it takes, " .. raw.SEATBELT_PARAMETER_MAX .. "; grant a directory above them instead")
+    return denied("grants: the paths the profile holds, " .. tostring(parameters) .. ", are past the " ..
+        "most it takes, " .. tostring(raw.SEATBELT_PARAMETER_MAX) .. "; grant a directory above them instead")
   end
   local done, why, failure = raw.restrict_self({ grants = {}, promises = {},
     rlimits = profile.rlimits, seatbelt = { profile = profile.text, parameters = profile.parameters } },
@@ -575,7 +573,7 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
   if merged == nil then return false, why end
   local trouble = not_in_process(merged)
   if trouble ~= "" then return denied(trouble) end
-  local kept: {integer} = {}
+  local kept: mut {integer} = {}
   for _, fd in ipairs(options and options.fds or {}) do
     if math.type(fd) ~= "integer" or fd < 3 then
       return denied("fds names " .. tostring(fd) .. ", which is not a descriptor above 2")
@@ -585,16 +583,17 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
   local logged = store_unheld()
   if logged ~= "" then return denied(logged) end
   if darwin() then return held_by_seatbelt(policy, kept) end
-  local grants: {raw_process.Grant} = {}
-  for _, grant in ipairs(merged.grants) do
+  local grants: mut {raw_process.Grant} = {}
+  for _, grant in ipairs(merged.grants or {}) do
     grants[#grants + 1] = { path = grant.path, access = grant.letters }
   end
-  local rlimits: {string:integer} = { nofile = merged.limits.open_files or DEFAULT_OPEN_FILES,
+  local limits = merged.limits or {}
+  local rlimits: {string:integer} = { nofile = limits.open_files or DEFAULT_OPEN_FILES,
     core = 0 }
-  rlimits.fsize = merged.limits.file_bytes
-  rlimits.cpu = merged.limits.cpu_seconds
-  local promises: {string} = {}
-  for _, promise in ipairs(merged.promises) do promises[#promises + 1] = promise end
+  rlimits.fsize = limits.file_bytes
+  rlimits.cpu = limits.cpu_seconds
+  local promises: mut {string} = {}
+  for _, promise in ipairs(merged.promises or {}) do promises[#promises + 1] = promise end
   local done, held, failure = raw.restrict_self({ grants = grants, promises = promises,
     rlimits = rlimits }, kept)
   if not done then
@@ -637,8 +636,8 @@ function Sandbox.maps_id(text: string, id: integer): boolean
 end
 
 --- The highest id `text`, a uid_map or gid_map, maps, or nil for none.
-local function highest_mapped(text: string): integer | nil
-  local top: integer | nil
+local function highest_mapped(text: string): integer?
+  local top: integer?
   for line in text:gmatch("[^\n]+") do
     local first, _, count = line:match("^%s*(%d+)%s+(%d+)%s+(%d+)")
     if first ~= nil then
@@ -670,7 +669,7 @@ end
 ---
 ---     local id = assert(Sandbox.user_id("0 0 4294967295\n", "0 0 4294967295\n", 0))
 ---     print(id) -- 4294963198
-function Sandbox.user_id(uid_map: string, gid_map: string, serial: integer): integer | nil, string
+function Sandbox.user_id(uid_map: string, gid_map: string, serial: integer): integer?, string
   local uid_top, gid_top = highest_mapped(uid_map), highest_mapped(gid_map)
   if uid_top == nil or gid_top == nil then
     return refuse("this user namespace maps no user or no group")
@@ -679,11 +678,11 @@ function Sandbox.user_id(uid_map: string, gid_map: string, serial: integer): int
   if top == 65534 or top == 65535 then top = 65533 end
   local first = top - USER_POOL + 1
   if first < 1 or not mapped_run(uid_map, first, top) or not mapped_run(gid_map, first, top) then
-    return refuse("this user namespace maps no run of " .. USER_POOL .. " ids ending at " ..
-        top .. ", from which a sandbox's own user is taken: a root caller's program never " ..
+    return refuse("this user namespace maps no run of " .. tostring(USER_POOL) .. " ids ending at " ..
+        tostring(top) .. ", from which a sandbox's own user is taken: a root caller's program never " ..
         "runs as root, so it needs a namespace that maps more ids, as a host's does")
   end
-  return first + serial % USER_POOL
+  return first + serial % USER_POOL, ""
 end
 
 --- Whether `id` is one of the pool [`Sandbox.user_id`] takes a root
@@ -737,9 +736,9 @@ function Sandbox.reach(letters: string, st: sys.Stat, uid?: integer, gid?: integ
   for i = 1, #letters do
     local letter = letters:sub(i, i)
     if letter == "r" then
-      need = need | 4 | (isdir and 1 or 0)
+      need = need | 4 | (if isdir then 1 else 0 end)
     elseif letter == "w" or letter == "c" then
-      need = need | 2 | (isdir and 1 or 0)
+      need = need | 2 | (if isdir then 1 else 0 end)
     elseif letter == "x" then
       need = need | 1
     elseif letter == "u" then
@@ -750,7 +749,7 @@ function Sandbox.reach(letters: string, st: sys.Stat, uid?: integer, gid?: integ
   local group = (st.mode >> 3) & 7
   local owner = (st.mode >> 6) & 7
   local function lacking(bits: integer, whom: string): Sandbox.Reach
-    local names: {string} = {}
+    local names: mut {string} = {}
     for bit, name in ipairs({ "execute", "write", "read" }) do
       if need & (1 << (bit - 1)) ~= 0 and bits & (1 << (bit - 1)) == 0 then
         names[#names + 1] = name
@@ -761,12 +760,12 @@ function Sandbox.reach(letters: string, st: sys.Stat, uid?: integer, gid?: integ
   end
   if uid ~= nil and st.uid == uid then
     if owner & need == need then return { by = "user", lacks = "" } end
-    return lacking(owner, "its owner, user " .. uid .. ",")
+    return lacking(owner, "its owner, user " .. tostring(uid) .. ",")
   end
   if gid ~= nil and st.gid == gid then
     if group & need == need then return { by = "user", lacks = "" } end
     if owner & need == need then return { by = "owner", lacks = "" } end
-    return lacking(group, "its group, " .. gid .. ",")
+    return lacking(group, "its group, " .. tostring(gid) .. ",")
   end
   if other & need == need then return { by = "other", lacks = "" } end
   if owner & need == need then return { by = "owner", lacks = "" } end

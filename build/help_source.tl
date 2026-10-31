@@ -6,25 +6,31 @@
 --- nothing, so dispatch's own load -- which every `cosmic -e` and
 --- `--standalone` run pays -- loads none of the checks to set it.
 
-local help_source = {}
+local record HelpSource
+end
 
 --- What makes the texts `cosmic help` prints, set by [`provide`].
-local source: function(): {string: string} | nil = nil
+local record Provided
+  mut source?: function(): {string: string}
+end
+
+local provided: Provided = {}
 
 --- Names what makes the texts `cosmic help` prints, for [`texts`].
-function help_source.provide(made_by: function(): {string: string})
-  source = made_by
+function HelpSource.provide(made_by: function(): {string: string})
+  provided.source = made_by
 end
 
 --- What `cosmic help` prints, by what asks for it: `""` the index,
 --- `exit`, and each verb's own; the input `references` reads help from.
 --- Nil and why until [`build.dispatch`] has loaded and called
 --- [`provide`].
-function help_source.texts(): {string: string} | nil, string
+function HelpSource.texts(): {string: string}?, string
+  local source = provided.source
   if source == nil then
     return nil, "build.dispatch has not provided the texts of `cosmic help`"
   end
   return source(), ""
 end
 
-return help_source
+return HelpSource

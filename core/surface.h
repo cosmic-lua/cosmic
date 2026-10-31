@@ -8,6 +8,8 @@
 #ifndef COSMIC_SURFACE_H
 #define COSMIC_SURFACE_H
 
+#include <stdbool.h>
+
 #include "lua.h"
 
 /* Creates the state and opens the surface. `logical_executable` is the path a
@@ -18,5 +20,10 @@ lua_State *cosmic_surface_open (const char *logical_executable);
 /* Closes a state cosmic_surface_open made, and frees the big blocks its
  * allocator kept for reuse. */
 void cosmic_surface_close (lua_State *L);
+
+/* If `name` is a library the surface removed (io, os, debug), pushes
+ * what to write instead and returns true; otherwise pushes nothing and
+ * returns false. */
+bool cosmic_surface_push_removed_library (lua_State *L, const char *name);
 
 #endif

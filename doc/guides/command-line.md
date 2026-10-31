@@ -11,9 +11,14 @@ start needs no shell.
 
 ## a one-liner
 
-`cosmic -e '<chunk>'` runs a chunk of Lua, as `lua -e` does, against
-the standard library. No tree is built. The words after the chunk are
-its `...`, and an integer it returns is the exit code.
+`cosmic -e '<chunk>'` runs a chunk of Teal against the standard
+library. No tree is built. The chunk is checked as a file is, and one
+the checker refuses does not run: its messages are printed and `-e`
+exits 1. It takes the library by `require("cosmic.json")`, with a
+literal name, as a file does, and the tool's own modules the same way;
+nothing is bound for it. The words after
+the chunk are its `...`, each a `string?`, and an integer it returns is
+the exit code.
 
 ```teal
 local Child = require("cosmic.child")
@@ -42,15 +47,31 @@ print("exit " .. tostring(exited.code))
 exit 3
 ```
 
-A chunk prints only what it prints. It gets no verdict line, as a
-file run gets none.
+A chunk prints only what it prints. It gets no summary, as a file run
+gets none.
+
+## a script run by its name
+
+A file can be run by its own name, as a shell script is: mark it
+executable and make its first line `#!/usr/bin/env cosmic`. The language
+skips that line, as Lua does, so the lines after it keep their numbers in
+errors and tracebacks. Only the first line of the file, from its first
+byte, is skipped, and only when it begins `#!`; a `#!` anywhere else is a
+syntax error. The language
+server leaves the line as it is.
+
+The file is Teal, in a file that ends in `.tl`. A `.lua` file is not run,
+and no `require` finds one: `cosmic hello.lua` says that cosmic runs
+Teal, checked, and to rename the file to `hello.tl` and run `cosmic fix`
+on it to see what the checker asks of it.
 
 ## help for one verb
 
 `cosmic help` prints a short index, a line per verb. `cosmic help <verb>`
-prints that verb's full text and options, then a verdict line; `--help`
-or `-h` anywhere on a verb's line, before a `--`, does the same.
-`cosmic help exit` says what the verdict lines and exit codes mean.
+prints that verb's full text and options; `--help` or `-h` anywhere on a
+verb's line, before a `--`, does the same. Like every verb's, its summary
+goes to stderr, so stdout holds the text alone. `cosmic help exit` says
+what the exit codes and summaries mean.
 
 ```teal
 local Child = require("cosmic.child")
@@ -68,7 +89,8 @@ local argv = { table.unpack(relaunch.argv) }
 argv[#argv + 1] = "help"
 argv[#argv + 1] = "db"
 local result = assert(Child.run(argv,
-  { env = env, fds = relaunch.fds, cwd = dir, stdout = "capture", timeout_ns = Clock.seconds(10) }))
+  { env = env, fds = relaunch.fds, cwd = dir, stdout = "capture", stderr = "capture",
+    timeout_ns = Clock.seconds(10) }))
 assert(Fs.remove_tree(dir))
 local out = result.stdout or ""
 print(out:match("^`cosmic db[^`]*`"))
@@ -76,14 +98,14 @@ local verbs = 0
 for line in out:gmatch("[^\n]+") do
   if line:sub(1, 8) == "`cosmic " then verbs = verbs + 1 end
 end
-print(verbs .. " verb")
-print(out:match("help: PASS %(1 verb") ~= nil)
+print(("%d verb"):format(verbs))
+print(out:find("help: ", 1, true) == nil, (result.stderr or ""):match("^help: 1 verb, ") ~= nil)
 ```
 
 ```output
 `cosmic db [path...]`
 1 verb
-true
+true	true
 ```
 
 ## paths narrow a verb
@@ -121,10 +143,12 @@ for _, word in ipairs({ "build", "--host", "cmd/hi" }) do argv[#argv + 1] = word
 local built = assert(Child.run(argv,
   { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", timeout_ns = Clock.seconds(60) }))
 print("exit " .. tostring(built.code))
-local hi, _ = Fs.exists(tmp .. "/o/bin/hi")
-local bye, _ = Fs.exists(tmp .. "/o/bin/bye")
-print("hi: " .. tostring(hi) .. ", bye: " .. tostring(bye))
-local ran = assert(Child.run({ tmp .. "/o/bin/hi" }, { stdout = "capture", timeout_ns = Clock.seconds(10) }))
+-- The build prints each program it wrote, a path per line.
+local program = assert(("\n" .. (built.stdout or "")):match("\n(/[^\n]+)"))
+local hi, _ = Fs.exists(program)
+local bye, _ = Fs.exists(Fs.dirname(program) .. "/bye")
+print(Fs.basename(program) .. ": " .. tostring(hi) .. ", bye: " .. tostring(bye))
+local ran = assert(Child.run({ program }, { stdout = "capture", timeout_ns = Clock.seconds(10) }))
 print(((ran.stdout or ""):gsub("\n$", "")))
 ```
 

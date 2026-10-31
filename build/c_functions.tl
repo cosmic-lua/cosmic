@@ -22,19 +22,19 @@ local record c_functions
   --- How a run's hits measure up against every C function.
   record Tally
     --- The functions no test entered and none exempts, by [`key_of`], sorted.
-    unentered: {string}
+    unentered: mut {string}
     --- How many were entered.
-    entered: integer
+    mut entered: integer
     --- How many are exempt and were not entered.
-    exempted: integer
+    mut exempted: integer
     --- How many functions there are.
     total: integer
     --- The exempt functions a test entered after all, by [`key_of`], sorted:
     --- this core no longer needs their exemption, though another may.
-    stale: {string}
+    stale: mut {string}
     --- The functions this host cannot enter, each with its missing
     --- requirement and the probe's reason. An entered function stays entered.
-    unavailable: {string}
+    unavailable: mut {string}
   end
 end
 
@@ -54,6 +54,10 @@ local maps_ids <const> =
 local connector_only <const> =
   "runs only in the native connector, whose filter forbids coverage files and whose inherited descriptors are " ..
   "closed: the connector's live kernel probes and TCP handoff tests enter it, but it cannot report coverage"
+
+local vnni_only <const> =
+  "runs only on a CPU with that encoding of VNNI, which not every x86_64 host has (an aarch64 core builds neither); " ..
+  "cosmic/vector_storage_test.tl's kernel comparison enters each a host has"
 
 --- The C functions no test can enter, by [`key_of`], and why.
 local exempt: {string: string} = {
@@ -97,6 +101,12 @@ local exempt: {string: string} = {
   ["core/syscalls.c:make_mirrored"] = sandbox_only,
   ["core/syscalls.c:cosmic_mountinfo_local_flock"] = "a release core calls it only for a file on NFS, which no " ..
     "test's host has; the checked core's testing table reaches it (`mountinfo_local_flock`), and its run enters it",
+  -- TODO: once build/host_names.tl names a CPU feature a module can require
+  -- (`avx512_vnni`, `avx_vnni`), move these two to `prerequisites`, so that
+  -- a host which has the feature is held to entering the kernel; today
+  -- the host that has it only reports the exemption as entered.
+  ["core/vector.c:dot_i8_avx512_vnni"] = vnni_only,
+  ["core/vector.c:dot_i8_avx_vnni"] = vnni_only,
   ["core/store.c:die_unreadable"] = "the store's own database cannot be read, and the process ends",
   ["core/crypto.c:mbedtls_psa_external_get_random"] = "mbedtls asks for randomness only to make keys, which the core never does",
   ["core/vfs.c:vfs_delete"] = forwarded,
@@ -143,8 +153,8 @@ local prerequisites: {string: string} = {
 --- Each function's required host name, copied so a caller cannot change
 --- the obligations [`tally`] holds. The runner probes them before workers
 --- start, and the whole-tree check requires a CI leg to promise each.
-function c_functions.prerequisites(): {string: string}
-  local out: {string: string} = {}
+function c_functions.prerequisites(): mut {string: string}
+  local out: mut {string: string} = {}
   for key, name in pairs(prerequisites) do out[key] = name end
   return out
 end
@@ -153,7 +163,7 @@ end
 --- held run's list, nil for an unheld one: no promised absence, refused
 --- name or failed probe can remove a function's obligation.
 function c_functions.unavailable(answers: {host_requires.Answer}, promises?: {string}): {string: string}
-  local out: {string: string} = {}
+  local out: mut {string: string} = {}
   for _, answer in ipairs(answers) do
     if (answer.kind == "skipped" or answer.kind == "na") and
         (promises == nil or not host_names.promised(promises, answer.name)) then
@@ -170,7 +180,7 @@ end
 
 --- Whether `here`, one file's hits, holds a line from `first` up to but
 --- not including `stop` (nil for the end of the file).
-local function hit_between(here: {integer: boolean}, first: integer, stop: integer | nil): boolean
+local function hit_between(here: {integer: boolean}, first: integer, stop: integer?): boolean
   for line in pairs(here) do
     if line >= first and (stop == nil or line < stop) then return true end
   end
@@ -181,11 +191,11 @@ end
 --- `lines`, its file's source: the tree's C layout closes a function
 --- with a `}` alone at the start of a line, or on its first line when
 --- that line opens and closes it. Nil when no such line follows.
-local function after_end(lines: {string}, first: integer): integer | nil
+local function after_end(lines: {string}, first: integer): integer?
   local text = lines[first]
   if text ~= nil and text:match("^%S.*{.*}%s*$") ~= nil then return first + 1 end
   for at = first + 1, #lines do
-    if lines[at]:match("^}") ~= nil then return at + 1 end
+    if assert(lines[at], "at is within lines"):match("^}") ~= nil then return at + 1 end
   end
   return nil
 end
@@ -194,14 +204,14 @@ end
 --- the tree's C layout starts a definition at the start of a line and
 --- writes `name (`, and a declaration that reaches `;` before `{` is only
 --- a prototype.
-local function definition(lines: {string}, name: string): integer | nil
+local function definition(lines: {string}, name: string): integer?
   local spaced = " " .. name .. " ("
   local pointed = "*" .. name .. " ("
   for at, text in ipairs(lines) do
     if text:match("^[%a_]") ~= nil and
         (text:find(spaced, 1, true) ~= nil or text:find(pointed, 1, true) ~= nil) then
       for ahead = at, #lines do
-        local rest = lines[ahead]
+        local rest = assert(lines[ahead], "ahead is within lines")
         if rest:find("{", 1, true) ~= nil then return at end
         if rest:match(";%s*$") ~= nil then break end
       end
@@ -213,12 +223,12 @@ end
 --- The lines of each C file `functions` names, read under `root`, by
 --- path; a file that cannot be read is left out.
 function c_functions.sources(root: string, functions: {Coverage.Function}): {string: {string}}
-  local sources: {string: {string}} = {}
+  local sources: mut {string: {string}} = {}
   for _, fn in ipairs(functions) do
     if sources[fn.path] == nil and fn.path:match("%.c$") ~= nil then
       local text, _ = Fs.read(root .. "/" .. fn.path)
       if text ~= nil then
-        local lines: {string} = {}
+        local lines: mut {string} = {}
         for line in String.lines(text) do lines[#lines + 1] = line end
         sources[fn.path] = lines
       end
@@ -252,7 +262,7 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
   local function exempts(key: string): boolean
     return exempt[key] ~= nil or here_exempt[key] ~= nil
   end
-  local starts: {string: {integer}} = {}
+  local starts: mut {string: {integer}} = {}
   for _, fn in ipairs(functions) do
     local lines = starts[fn.path]
     if lines == nil then
@@ -262,19 +272,19 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
     lines[#lines + 1] = fn.line
   end
   for _, lines in pairs(starts) do table.sort(lines) end
-  local entered: {string: boolean} = {}
+  local entered: mut {string: boolean} = {}
   for _, fn in ipairs(functions) do
     if fn.path:match("%.c$") ~= nil then
       local key = key_of(fn)
       local here = hits[fn.path]
       local source = sources ~= nil and sources[fn.path] or nil
       local first = fn.line
-      local stop: integer | nil = nil
+      local stop: integer? = nil
       if source ~= nil then
         first = definition(source, fn.name) or fn.line
         stop = after_end(source, first)
       else
-        for _, line in ipairs(starts[fn.path]) do
+        for _, line in ipairs((assert(starts[fn.path], "every function's file has its starts"))) do
           if line > fn.line then
             stop = line
             break
@@ -285,7 +295,7 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
         (here ~= nil and hit_between(here, first, stop))
     end
   end
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   for key in pairs(entered) do
     keys[#keys + 1] = key
   end
@@ -293,15 +303,17 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
   local tally: c_functions.Tally = { unentered = {}, entered = 0, exempted = 0,
     total = #keys, stale = {}, unavailable = {} }
   for _, key in ipairs(keys) do
-    if entered[key] then
+    local prerequisite = prerequisites[key]
+    local absent = if prerequisite ~= nil and unavailable ~= nil then unavailable[prerequisite] else nil end
+    if entered[key] == true then
       tally.entered = tally.entered + 1
       if exempts(key) then
         tally.stale[#tally.stale + 1] = key
       end
     elseif exempts(key) then
       tally.exempted = tally.exempted + 1
-    elseif prerequisites[key] ~= nil and unavailable ~= nil and unavailable[prerequisites[key]] ~= nil then
-      tally.unavailable[#tally.unavailable + 1] = key .. ": " .. unavailable[prerequisites[key]]
+    elseif absent ~= nil then
+      tally.unavailable[#tally.unavailable + 1] = key .. ": " .. absent
     else
       tally.unentered[#tally.unentered + 1] = key
     end

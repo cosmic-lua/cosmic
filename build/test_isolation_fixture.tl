@@ -24,11 +24,12 @@ end
 
 function fixture.invoke(root: string, output: string, args: {string},
                         env?: {string:string}): Child.Result
-  local words: {string} = { "test" }
+  local words: mut {string} = { "test" }
   for _, value in ipairs(args) do words[#words + 1] = value end
   local fd = assert(Fs.open_write(output))
+  local environment = env or fixture.environment()
   local started = this_program.program(words, {
-    cwd = root, env = env or fixture.environment(), stdout = fd, stderr = fd, timeout_ns = Clock.seconds(60),
+    cwd = root, env = environment, stdout = fd, stderr = fd, timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
@@ -55,14 +56,14 @@ local Test = require("cosmic.test")
 
 Test.policy { grants = { { path = "bin/probe", letters = "r" } } }
 
-local held: {Child.Handle} = {}
+local held: mut {Child.Handle} = {}
 local function test_hangs()
-  held[1] = assert(Child.start({ "bin/probe", "sleep-forever", "MARKER" }))
+  table.insert(held, (assert(Child.start({ "bin/probe", "sleep-forever", "MARKER" }))))
   -- Still running a moment on, so what is found gone below was there:
   -- a probe that never started, or ended at once, fails this instead
   -- of timing out.
   local _, _ = sys.nanosleep(300 * 1000 * 1000)
-  local state = assert(held[1]:try_wait())
+  local state = assert(assert(held[1]):try_wait())
   assert(not state.finished, "the probe is not running")
   while true do end
 end
@@ -90,7 +91,7 @@ end
 --- one this process can see, in its own pid namespace and those
 --- beneath it.
 local function running(marker: string): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   local names, _ = Fs.list("/proc")
   for _, name in ipairs(names or {}) do
     if name:match("^%d+$") ~= nil then
@@ -105,14 +106,14 @@ end
 --- Checks deadline isolation in the selected worker mode. With `probe`, the hung
 --- worker also leaves an orphan in its own group: its caller requires the
 --- kernel's children list, which lets the runner find and end that orphan.
-function fixture.hung_runs(tmp: string, probe: string, sandbox_workers: boolean)
+function fixture.hung_runs(tmp: string, probe: string?, sandbox_workers: boolean)
   -- Why the sandboxed case ran unsandboxed, which skips the test once
   -- that case has checked what the unsandboxed one does. The workers
   -- nest in this test's own sandbox, which a host may refuse: the
   -- kernel lets root nest one only two deep (core/syscalls.c's
   -- `map_ids`). CI's unprivileged runners nest them.
-  local unsandboxed: string = nil
-  for _, mode in ipairs({ sandbox_workers and "" or "0" }) do
+  local unsandboxed: string? = nil
+  for _, mode in ipairs({ if sandbox_workers then "" else "0" end }) do
     local marker = "cosmic-hang-" .. tostring(Clock.monotonic_ns())
     local here = tmp .. "/mode" .. mode
     local root = fixture.project(here, marker, probe)
@@ -135,14 +136,14 @@ function fixture.hung_runs(tmp: string, probe: string, sandbox_workers: boolean)
         "before it reported", 1, true), text)
     assert(text:find("  | said something", 1, true), text)
     assert(not text:find("quiet", 1, true), text)
-    assert(text:find("2 of 3 failed", 1, true), text)
+    assert(text:find("2 of 3 tests failed", 1, true), text)
     local sandboxed = text:find("; sandboxed", 1, true) ~= nil
     if mode == "0" then
       assert(not sandboxed, text)
     elseif not sandboxed and assert(sys.uname()).sysname == "Linux" then
       unsandboxed = confine.unsandboxed_reason(text)
     end
-    assert(text:find(sandboxed and "its pid namespace was ended" or "its process group was ended",
+    assert(text:find(if sandboxed then "its pid namespace was ended" else "its process group was ended" end,
       1, true), text)
     -- Where the runner can find what a dead worker left behind (Linux),
     -- the process the hung test left running is gone too.

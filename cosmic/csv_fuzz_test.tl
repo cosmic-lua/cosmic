@@ -3,13 +3,15 @@
 --- `parse` and `table` are total on any bytes, and what they read is a fixed point
 --- of writing and reading again; and a defect put into well-formed text is
 --- refused naming the line and column it was put at; and `table` answers
---- the line each row was written to begin on.
+--- the line each row was written to begin on; `records` refuses what `parse`
+--- refuses, reads its records, and puts each at the line `table` gives its row;
+--- and `load`, reading through SQLite's CSV table, copies what `table` reads.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Csv = require("cosmic.csv")
 local Fuzz = require("build.fuzz")
 
-local DELIMITERS <const> = { ",", "\t", ";", "|" }
+local DELIMITERS <const> = { ",", "\t", ";", "|", "\xa7" }
 
 local BOM <const> = "\xEF\xBB\xBF"
 
@@ -27,13 +29,13 @@ end
 --- `records` as text, one per line ended by LF, that `parse` reads back
 --- as they were; nil and why when a record has no fields, which text
 --- cannot hold.
-local function encode(records: {{string}}, delimiter: string): string | nil, string
-  local lines: {string} = {}
+local function encode(records: {{string}}, delimiter: string): string?, string
+  local lines: mut {string} = {}
   for number, record in ipairs(records) do
     if #record == 0 then
-      return nil, "record " .. number .. " has no fields"
+      return nil, "record " .. tostring(number) .. " has no fields"
     end
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     for index, field in ipairs(record) do
       parts[index] = field_text(field, delimiter, #record == 1)
     end
@@ -43,7 +45,7 @@ local function encode(records: {{string}}, delimiter: string): string | nil, str
 end
 
 --- The rows [`Csv.table`] reads, or nil and why.
-local function rows_of(text: string, opts?: Csv.Options): {{string:string}} | nil, string
+local function rows_of(text: string, opts?: Csv.Options): {{string:string}}?, string
   local made, why = Csv.table(text, opts)
   if made == nil then
     return nil, why
@@ -65,7 +67,7 @@ end
 --- `r` to start a record and `f<text>` to add a field to it. Drawn with
 --- [`Fuzz.more`], so shrinking can cut any record or field.
 local function gen_records(src: Fuzz.Source): string
-  local parts: {string} = { Fuzz.pick(src, DELIMITERS) }
+  local parts: mut {string} = { Fuzz.pick(src, DELIMITERS) }
   local records = 0
   while Fuzz.more(src, records, 6) do
     records = records + 1
@@ -83,8 +85,8 @@ end
 --- field is dropped, as text cannot hold it.
 local function records_from(input: string): string, {{string}}
   local parts = Fuzz.unpack(input)
-  local records: {{string}} = {}
-  local current: {string} = {}
+  local records: mut {{string}} = {}
+  local current: mut {string} = {}
   local started = false
   for index = 2, #parts do
     if parts[index] == "r" then
@@ -95,7 +97,7 @@ local function records_from(input: string): string, {{string}}
         records[#records + 1] = current
         started = true
       end
-      current[#current + 1] = parts[index]:sub(2)
+      table.insert(current, parts[index]:sub(2))
     end
   end
   return parts[1] or ",", records
@@ -147,18 +149,19 @@ local SAMPLES <const> = {
   "a,b,\n,,\n", 'a"b\n', '"a"b\n', '"never closed', "a\rb\n", "\n\n\n", '""\n', "a\tb\n1\t2\n",
 }
 
-local TOKENS <const> = { ",", '"', "\n", "\r\n", "\r", "\t", ";", "a", "1", " ", '""', "\0", "\xff", "\xEF\xBB\xBF" }
+local TOKENS <const> = { ",", '"', "\n", "\r\n", "\r", "\t", ";", "|", "\xa7", "a", "1", " ", '""', "\0", "\xff",
+  "\xEF\xBB\xBF" }
 
 local function gen_text(src: Fuzz.Source): string
   local text: string
   if src:int(0, 3) == 0 then
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     while Fuzz.more(src, #parts, 24) do
       parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS)
     end
     text = table.concat(parts)
   else
-    text = Fuzz.mutate(src, Fuzz.pick(src, SAMPLES), src:int(0, 1) == 0 and 0 or 4)
+    text = Fuzz.mutate(src, Fuzz.pick(src, SAMPLES), if src:int(0, 1) == 0 then 0 else 4 end)
   end
   return Fuzz.pack({ Fuzz.pick(src, DELIMITERS), text })
 end
@@ -183,9 +186,36 @@ local function test_parse_and_table_are_total_on_any_bytes(tmp: string)
         Fuzz.label("refused")
         if not why:find("line %d+, column %d+") then return false, "no place in: " .. why end
         if rows ~= nil then return false, "table read what parse refused" end
+        local none_ok, none, none_why = pcall(Csv.records, fields[2], options)
+        if not none_ok then return false, "records raised: " .. tostring(none) end
+        if none ~= nil or none_why ~= why then
+          return false, "records said " .. tostring(none_why) .. ", not " .. why
+        end
         return true, ""
       end
       Fuzz.label("read")
+      local located = Csv.records(fields[2], options)
+      local made = Csv.table(fields[2], options)
+      if located == nil or #located ~= #records then
+        return false, "records disagrees with parse"
+      end
+      for index, row in ipairs(located) do
+        if not same({ row.fields }, { records[index] }) or (index > 1 and row.line <= located[index - 1].line) then
+          return false, "records differs from parse at record " .. tostring(index)
+        end
+      end
+      -- Where table reads a header of two or more columns, its row i is
+      -- the record after the header's and begins on the same line.
+      if made ~= nil and #located > 0 and #located[1].fields > 1 then
+        if #made.lines ~= #located - 1 then
+          return false, "table has " .. tostring(#made.lines) .. " rows"
+        end
+        for index, began in ipairs(made.lines) do
+          if located[index + 1].line ~= began then
+            return false, "record " .. tostring(index + 1) .. " at line " .. tostring(located[index + 1].line) .. ", table's " .. tostring(began)
+          end
+        end
+      end
       local text = assert(encode(records, fields[1]))
       local again = Csv.parse(text, options)
       if again == nil or not same(again, records) then
@@ -231,16 +261,16 @@ local function test_a_defect_is_refused_at_the_place_it_was_put(tmp: string)
       local where = math.tointeger(tonumber(fields[2])) or 1
       local kind = math.tointeger(tonumber(fields[3])) or 1
       local filler = fields[4] or ""
-      local out: {string} = {}
+      local out: mut {string} = {}
       for line = 1, lines do
-        local text = "k" .. line .. "," .. filler .. "v"
+        local text = "k" .. tostring(line) .. "," .. filler .. "v"
         if line == where then
           if kind == 1 then
-            text = "k" .. line .. "," .. filler .. 'v"w'
+            text = "k" .. tostring(line) .. "," .. filler .. 'v"w'
           elseif kind == 2 then
-            text = "k" .. line .. ',"' .. filler .. "v"
+            text = "k" .. tostring(line) .. ',"' .. filler .. "v"
           else
-            text = "k" .. line .. "," .. filler .. "v,extra"
+            text = "k" .. tostring(line) .. "," .. filler .. "v,extra"
           end
         end
         out[line] = text
@@ -249,7 +279,7 @@ local function test_a_defect_is_refused_at_the_place_it_was_put(tmp: string)
       if kind == 3 then
         Fuzz.label("ragged")
         local rows, why = rows_of("h1,h2\n" .. text)
-        local expected = "csv: line " .. (where + 1) .. ", column 1: the record has 3 fields, the header 2"
+        local expected = "csv: line " .. tostring((where + 1)) .. ", column 1: the record has 3 fields, the header 2"
         if rows ~= nil or why ~= expected then
           return false, "rows said " .. tostring(why) .. ", not " .. expected
         end
@@ -259,14 +289,14 @@ local function test_a_defect_is_refused_at_the_place_it_was_put(tmp: string)
         end
         return true, ""
       end
-      local column = #("k" .. where .. "," .. filler .. "v") - (kind == 1 and 0 or #filler + 1)
+      local column = #("k" .. tostring(where) .. "," .. filler .. "v") - (if kind == 1 then 0 else #filler + 1 end)
       local expected: string
       if kind == 1 then
         Fuzz.label("stray")
-        expected = "csv: a quote inside an unquoted field at line " .. where .. ", column " .. (column + 1)
+        expected = "csv: a quote inside an unquoted field at line " .. tostring(where) .. ", column " .. tostring((column + 1))
       else
         Fuzz.label("unclosed")
-        expected = "csv: unclosed quote opened at line " .. where .. ", column " .. (#("k" .. where) + 2)
+        expected = "csv: unclosed quote opened at line " .. tostring(where) .. ", column " .. tostring((#("k" .. tostring(where)) + 2))
       end
       local records, why = Csv.parse(text)
       if records ~= nil or why ~= expected then
@@ -279,9 +309,9 @@ end
 
 --- One-column records, as packed strings: each field empty or drawn.
 local function gen_column(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while Fuzz.more(src, #parts, 8) do
-    parts[#parts + 1] = src:int(0, 2) == 0 and "" or field(src)
+    parts[#parts + 1] = if src:int(0, 2) == 0 then "" else field(src) end
   end
   return Fuzz.pack(parts)
 end
@@ -297,14 +327,18 @@ local function test_a_one_column_file_reads_back_its_rows(tmp: string)
     shares = { ["empty row"] = 0.2, ["last empty"] = 0.05 },
     check = function(input: string): boolean, string
       local values = Fuzz.unpack(input)
-      local records: {{string}} = { { "h" } }
+      local records: mut {{string}} = { { "h" } }
       for _, value in ipairs(values) do records[#records + 1] = { value } end
       local text = assert(encode(records, ","))
       local rows, why = rows_of(text)
       if rows == nil then return false, "rows refused its own text: " .. why end
-      if #rows ~= #values then return false, #rows .. " rows for " .. #values .. " in " .. text end
+      if #rows ~= #values then
+        return false, tostring(#rows) .. " rows for " .. tostring(#values) .. " in " .. text
+      end
       for index, value in ipairs(values) do
-        if rows[index].h ~= value then return false, "row " .. index .. " differs in " .. text end
+        if rows[index].h ~= value then
+          return false, "row " .. tostring(index) .. " differs in " .. text
+        end
         if value == "" then Fuzz.label("empty row") end
       end
       if #values == 0 then Fuzz.label("no rows") else Fuzz.label("rows") end
@@ -316,9 +350,9 @@ end
 
 --- Raw one-column lines, each blank or `x`, packed after the header.
 local function gen_lines(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while Fuzz.more(src, #parts, 12) do
-    parts[#parts + 1] = src:int(0, 1) == 0 and "" or "x"
+    parts[#parts + 1] = if src:int(0, 1) == 0 then "" else "x" end
   end
   return Fuzz.pack(parts)
 end
@@ -339,16 +373,16 @@ local function test_blank_lines_count_by_the_headers_width(tmp: string)
       for index, line in ipairs(lines) do
         if line ~= "" then last = index else blanks = blanks + 1 end
       end
-      local text = "h\n" .. table.concat(lines, "\n") .. (#lines > 0 and "\n" or "")
+      local text = "h\n" .. table.concat(lines, "\n") .. (if #lines > 0 then "\n" else "" end)
       local rows = rows_of(text)
       if rows == nil or #rows ~= last then
-        return false, "one column: " .. (rows ~= nil and tostring(#rows) or "refused") .. " rows, not " .. last
+        return false, "one column: " .. (rows ~= nil and tostring(#rows) or "refused") .. " rows, not " .. tostring(last)
       end
       if last > 0 and blanks - (#lines - last) > 0 then Fuzz.label("interior") end
       if #lines > last then Fuzz.label("trailing") end
-      local wide: {string} = {}
-      for index, line in ipairs(lines) do wide[index] = line == "" and "" or "x,y" end
-      local two = rows_of("h,g\n" .. table.concat(wide, "\n") .. (#lines > 0 and "\n" or ""))
+      local wide: mut {string} = {}
+      for index, line in ipairs(lines) do wide[index] = if line == "" then "" else "x,y" end end
+      local two = rows_of("h,g\n" .. table.concat(wide, "\n") .. (if #lines > 0 then "\n" else "" end))
       if two == nil or #two ~= #lines - blanks then
         return false, "two columns did not skip the blanks"
       end
@@ -363,7 +397,7 @@ end
 --- `b` LF and a blank line), and `f<text>` per field. The first record
 --- with a field is the header; the check fits each after it to its width.
 local function gen_located(src: Fuzz.Source): string
-  local parts: {string} = { Fuzz.pick(src, DELIMITERS), src:int(0, 3) == 0 and "b" or "-" }
+  local parts: mut {string} = { Fuzz.pick(src, DELIMITERS), if src:int(0, 3) == 0 then "b" else "-" end }
   local records = 0
   while Fuzz.more(src, records, 6) do
     records = records + 1
@@ -390,15 +424,15 @@ local function test_each_row_is_at_the_line_its_record_was_written_on(tmp: strin
     check = function(input: string): boolean, string
       local parts = Fuzz.unpack(input)
       local delimiter = parts[1] or ","
-      local out: {string} = { parts[2] == "b" and BOM or "" }
+      local out: mut {string} = { parts[2] == "b" and BOM or "" }
       local width = 0
-      local written: {string} = {}
-      local expected: {integer} = {}
+      local written: mut {string} = {}
+      local expected: mut {integer} = {}
       local line = 1
       local index = 3
       while index <= #parts do
         local ending = parts[index]:sub(2)
-        local fields: {string} = {}
+        local fields: mut {string} = {}
         index = index + 1
         while index <= #parts and parts[index]:sub(1, 1) == "f" do
           fields[#fields + 1] = parts[index]:sub(2)
@@ -406,7 +440,7 @@ local function test_each_row_is_at_the_line_its_record_was_written_on(tmp: strin
         end
         if #fields > 0 then
           if width == 0 then width = #fields end
-          local texts: {string} = {}
+          local texts: mut {string} = {}
           for at = 1, width do texts[at] = field_text(fields[at] or "", delimiter, width == 1) end
           local record = table.concat(texts, delimiter)
           if #out > 1 then
@@ -415,34 +449,119 @@ local function test_each_row_is_at_the_line_its_record_was_written_on(tmp: strin
           end
           -- A blank line in a one-column file is a row, not a gap.
           local blank = ending == "b" and width > 1
-          out[#out + 1] = record .. (ending == "c" and "\r\n" or "\n") .. (blank and "\n" or "")
+          out[#out + 1] = record .. (if ending == "c" then "\r\n" else "\n" end) .. (if blank then "\n" else "" end)
           local _, breaks = record:gsub("\n", "")
           if breaks > 0 and #out > 2 then Fuzz.label("quoted break") end
           if blank then Fuzz.label("blank") end
           if ending == "c" then Fuzz.label("crlf") end
-          line = line + 1 + breaks + (blank and 1 or 0)
+          line = line + 1 + breaks + (if blank then 1 else 0 end)
         end
       end
       local text = table.concat(out)
       local made, why = Csv.table(text, { delimiter = delimiter })
       if made == nil then return false, "table refused its own text: " .. why end
       if #made.lines ~= #made.rows or #made.rows ~= #expected then
-        return false, #made.lines .. " lines, " .. #made.rows .. " rows, " .. #expected .. " written"
+        return false, tostring(#made.lines) .. " lines, " .. tostring(#made.rows) .. " rows, " .. tostring(#expected) .. " written"
       end
-      local starts: {integer} = { #out[1] + 1 }
+      local starts: mut {integer} = { #out[1] + 1 }
       for at in text:gmatch("\n()") do starts[#starts + 1] = at end
       for number, began in ipairs(made.lines) do
         if began ~= expected[number] then
-          return false, "row " .. number .. " at line " .. began .. ", written at " .. expected[number]
+          return false, "row " .. tostring(number) .. " at line " .. tostring(began) .. ", written at " .. expected[number]
         end
         if number > 1 and began <= made.lines[number - 1] then return false, "lines do not rise" end
         local first = written[number]
         if text:sub(starts[began], starts[began] + #first - 1) ~= first then
-          return false, "line " .. began .. " does not begin with row " .. number .. "'s first field"
+          return false, "line " .. tostring(began) .. " does not begin with row " .. tostring(number) .. "'s first field"
         end
       end
       if #expected > 0 then Fuzz.label("rows") end
       return true, ""
     end,
+  })
+end
+
+--- Text for [`Csv.load`], read as text or from a file, with one of the
+--- delimiters: some padded so
+--- what follows lands where SQLite's CSV table refills its 1024-byte
+--- buffer from a file.
+local function gen_load(src: Fuzz.Source): string
+  local fields = Fuzz.unpack(gen_text(src))
+  local text = fields[2]
+  if src:int(0, 3) == 0 then
+    text = "a\n" .. string.rep("b", src:int(1018, 1030)) .. "\n" .. text
+  end
+  return Fuzz.pack({ if src:int(0, 1) == 0 then "text" else "path" end, text, fields[1] })
+end
+
+--- What [`Csv.load`] copies with `raw` is what [`Csv.table`] reads, row for
+--- row and cell for cell, and it refuses what `table` refuses: one reading
+--- of CSV, whichever reader reads it. Text holding a NUL, which SQLite's
+--- CSV table cannot read, it refuses.
+local function test_load_reads_what_table_reads(tmp: string)
+  local Sqlite = require("cosmic.sqlite")
+  local Fs = require("cosmic.fs")
+  local db = assert(Sqlite.memory())
+  local path = tmp .. "/load.csv"
+  Fuzz.run({
+    name = "csv load agrees with table",
+    dir = tmp,
+    gen = gen_load,
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local how, text = fields[1], fields[2]
+      -- An input kept before inputs held a delimiter reads with a comma.
+      local delimiter = fields[3] or ","
+      local source: Csv.Source = { raw = true, delimiter = delimiter }
+      if how == "text" then
+        source.text = text
+      else
+        assert(Fs.write(path, text))
+        source.path = path
+      end
+      local made, refused = Csv.table(text, { delimiter = delimiter })
+      local loaded, why = Csv.load(db, "loaded", source)
+      local copied = loaded and loaded.count
+      local cells: Sqlite.Rows = {}
+      if copied ~= nil then
+        cells = assert(Sqlite.text_rows(db, "SELECT * FROM loaded ORDER BY rowid"))
+      end
+      local _, _ = db:exec("DROP TABLE IF EXISTS loaded")
+      local temps = assert(Sqlite.text_rows(db, "SELECT count(*) FROM sqlite_temp_schema"))
+      if temps[1]:text(1) ~= "0" then return false, "load left its CSV table behind" end
+      if text:find("\0", 1, true) ~= nil then
+        Fuzz.label("a NUL")
+        if copied ~= nil then
+          return false, string.format("load read %q, which holds a NUL", text)
+        end
+        return true, ""
+      end
+      if made == nil or #made.columns == 0 then
+        Fuzz.label("refused")
+        if copied ~= nil then
+          return false, string.format("load read %q, which table refuses: %s", text, refused)
+        end
+        return true, ""
+      end
+      if copied == nil then
+        return false, string.format("load refused %q, which table reads: %s", text, why)
+      end
+      Fuzz.label("read")
+      if copied ~= #made.rows then
+        return false, string.format("load copied %d rows of %q, table read %d", copied, text, #made.rows)
+      end
+      for number, row in ipairs(made.rows) do
+        for index, column in ipairs(made.columns) do
+          if cells[number]:text(index) ~= row[column] then
+            return false, string.format("load read row %d column %d of %q as %q, table as %q",
+              number, index, text, tostring(cells[number]:text(index)), row[column])
+          end
+        end
+      end
+      if how == "path" then Fuzz.label("from a file") end
+      if delimiter ~= "," then Fuzz.label("another delimiter") end
+      return true, ""
+    end,
+    requires = { "read", "refused", "a NUL", "from a file", "another delimiter" },
   })
 end

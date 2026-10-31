@@ -14,6 +14,7 @@ local Proc = require("cosmic.proc")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
+local child_lua_fixture = require("build.child_lua_fixture")
 local child_tool_fixture = require("build.child_tool_fixture")
 local this_program = require("build.this_program")
 
@@ -22,8 +23,8 @@ local this_program = require("build.this_program")
 --- launcher so that no host program is read; and `nests`, for a child
 --- sandboxed in a root of its own.
 Test.policy{
-  profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/proc", letters = "r" } },
+  profiles = { "cosmic", "proc" },
+  grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },
 }
 
@@ -39,7 +40,7 @@ end
 --- (a `sandbox` that unveils); then the process is found by the last
 --- number of its NSpid, and the result is nil if none matches. A process
 --- started without one is in the worker's namespace, sandboxed or not.
-local function host_pid(within: integer, pid: integer): integer | nil
+local function host_pid(within: integer, pid: integer): integer?
   local own, _ = sys.readlink("/proc/self/ns/pid")
   local theirs, _ = sys.readlink("/proc/" .. tostring(within) .. "/ns/pid")
   if theirs == nil or theirs == own then return pid end
@@ -61,17 +62,17 @@ local function output(dir: string, name: string): integer, string
 end
 
 --- This program again, past its launcher ([`this_program.program`]),
---- running the Lua chunk `chunk` with `args` as its `...`: the child
+--- running the Teal chunk `chunk` with `args` as its `...`: the child
 --- each test starts, where a shell would need the system's. The argv
 --- and options, for [`Child.run`] or [`Child.start`].
 local function lua(chunk: string, args?: {string}, opts?: Child.Options): {string}, Child.Options
-  local words: {string} = { "-e", chunk }
+  local words: mut {string} = { "-e", chunk }
   for _, word in ipairs(args or {}) do words[#words + 1] = word end
   local started = this_program.program(words, opts)
   return started.argv, started.options
 end
 
-local sleeping, AGAIN = child_tool_fixture.sleeping, child_tool_fixture.AGAIN
+local sleeping, AGAIN = child_tool_fixture.sleeping, child_lua_fixture.AGAIN
 
 --- A child that catches nothing is ended by a timeout's SIGTERM, not
 --- left for the SIGKILL after the grace period. The same of a child in a
@@ -90,25 +91,28 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local relaunch = assert(Proc.relaunch())
 local function this(chunk: string, word?: string): {string}
-  local argv = { table.unpack(relaunch.argv) }
+  local argv: mut {string} = { table.unpack(relaunch.argv) }
   argv[#argv + 1] = "-e"
   argv[#argv + 1] = chunk
-  argv[#argv + 1] = word
+  if word ~= nil then argv[#argv + 1] = word end
   return argv
 end
 return function(argv: {string}): integer
-  Fs.close(11)
-  local invalid = Child.start(this(""), { stdout = 11, env = relaunch.env, fds = relaunch.fds })
-  if invalid then invalid:close(); return 20 end
+  local _, _ = Fs.close(11)
+  local invalid, _ = Child.start(this(""), { stdout = 11, env = relaunch.env, fds = relaunch.fds })
+  if invalid ~= nil then
+    local _, _ = invalid:close()
+    return 20
+  end
   -- A file of its own, not /dev/null: a child whose fd 0 exec closed
   -- starts with /dev/null there, and would read nothing.
   assert(Fs.close(0))
-  local fd = assert(Fs.open_read(argv[1]))
+  local fd = assert(Fs.open_read((argv[1] or "")))
   assert(fd == 0)
   local result = assert(Child.run(this("local Fs = require('cosmic.fs') " ..
-    "return Fs.take(0, 64) == ... and 0 or 1", "stdin's own"),
+    "local expected = ... if Fs.take(0, 64) == expected then return 0 end return 1", "stdin's own"),
     { stdin = fd, process_group = false, env = relaunch.env, fds = relaunch.fds }))
-  return result.ok and 0 or 21
+  return if result.ok then 0 else 21 end
 end
 ]]))
   local stdin = tmp .. "/stdin"
@@ -133,9 +137,10 @@ return function(argv: {string}): integer
   words[#words + 1] = "-e"
   words[#words + 1] = AGAIN .. "local h = again('" .. ]] .. string.format("%q", sleeping(30000)) .. [[ ..
     "', { process_group = false }) local Fs = require('cosmic.fs') local pid, ready = ... " ..
+    "if pid == nil or ready == nil then return 2 end " ..
     "assert(Fs.write(pid, tostring(h.pid))) assert(Fs.write(ready, 'ready')) h:wait()"
-  words[#words + 1] = argv[1]
-  words[#words + 1] = argv[2]
+  words[#words + 1] = (argv[1] or "")
+  words[#words + 1] = (argv[2] or "")
   local result, trouble = Child.run(words, { env = relaunch.env, fds = relaunch.fds })
   if not result then error(trouble) end
   local finished = assert(result)
@@ -260,6 +265,7 @@ local function test_guard_keeps_a_signal_and_delivers_it_on_close(tmp: string)
   local fixture = tmp .. "/guarded.tl"
   assert(Fs.write(fixture, [[
 local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Clock = require("cosmic.clock")
@@ -267,14 +273,14 @@ local sys = require("cosmic.sys")
 local Proc = require("cosmic.proc")
 local relaunch = assert(Proc.relaunch())
 local function this(chunk: string): Child.Handle
-  local words = { table.unpack(relaunch.argv) }
+  local words: mut {string} = { table.unpack(relaunch.argv) }
   words[#words + 1] = "-e"
   words[#words + 1] = chunk
   return (assert(Child.start(words, { env = relaunch.env, fds = relaunch.fds })))
 end
 return function(argv: {string}): integer
   do
-    local guard <close> = assert(Child.guard())
+    local guard = assert(Signal.guard())
     local timed = this("require('cosmic.clock').sleep_ns(30000000000)")
     local untimed = this("require('cosmic.clock').sleep_ns(30000000000)")
     local done = this("return 3")
@@ -291,27 +297,30 @@ return function(argv: {string}): integer
       local stat_path = "/proc/" .. tostring(done.pid) .. "/stat"
       local by = Clock.monotonic_ns() + Clock.seconds(8)
       while true do
-        local stat = Fs.read(stat_path)
+        local stat, _ = Fs.read(stat_path)
         if stat == nil or stat:match("^%d+ %b() Z") ~= nil then break end
         assert(Clock.monotonic_ns() < by, "the child did not exit")
-        Clock.sleep_ns(Clock.ms(10))
+        local _, _ = Clock.sleep_ns(Clock.ms(10))
       end
     end
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
-    local answers: {string} = {}
-    for _, wait in ipairs({ function(): Child.Result | nil, string return timed:wait(0) end,
-        function(): Child.Result | nil, string return untimed:wait() end }) do
+    local answers: mut {string} = {}
+    for _, wait in ipairs({ function(): Child.Result?, string return timed:wait(0) end,
+        function(): Child.Result?, string return untimed:wait() end }) do
       local r, trouble = wait()
       answers[#answers + 1] = tostring(r == nil) .. " " .. trouble
     end
-    answers[#answers + 1] = tostring(not sys.kill(timed.pid, 0))
-    answers[#answers + 1] = tostring(not sys.kill(untimed.pid, 0))
+    local timed_alive, _ = sys.kill(timed.pid, 0)
+    answers[#answers + 1] = tostring(not timed_alive)
+    local untimed_alive, _ = sys.kill(untimed.pid, 0)
+    answers[#answers + 1] = tostring(not untimed_alive)
     local later, _ = timed:wait()
     answers[#answers + 1] = tostring(later ~= nil)
     local finished = assert(done:wait())
     answers[#answers + 1] = tostring(finished.code) .. " " .. tostring(finished.timed_out)
     answers[#answers + 1] = tostring(guard:cancelled())
-    assert(Fs.write(argv[1], table.concat(answers, "|")))
+    assert(Fs.write((argv[1] or ""), table.concat(answers, "|")))
+    assert(guard:close())
   end
   return 0
 end
@@ -324,171 +333,6 @@ end
     "3 false", tostring(sys.SIGTERM) }, "|")
   local got = Fs.read(report)
   assert(got == expected, tostring(got) .. " " .. tostring(r.stderr))
-  assert(r.signal == sys.SIGTERM, "code=" .. tostring(r.code) .. " " .. tostring(r.stderr))
-end
-
---- A released guard hands its signal back rather than delivering it,
---- and a later close -- here the `<close>` scope's -- delivers nothing
---- either. The nested cosmic outlives the SIGTERM it sent itself.
-local function test_guard_release_keeps_the_signal_from_close(tmp: string)
-  local report = tmp .. "/report"
-  local fixture = tmp .. "/released.tl"
-  assert(Fs.write(fixture, [[
-local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
-return function(argv: {string}): integer
-  local answers: {string} = {}
-  do
-    local guard <close> = assert(Child.guard())
-    assert(sys.kill(sys.getpid(), sys.SIGTERM))
-    answers[#answers + 1] = tostring(guard:cancelled())
-    answers[#answers + 1] = tostring((guard:release()))
-    answers[#answers + 1] = tostring((guard:release()))
-    answers[#answers + 1] = tostring((guard:close()))
-  end
-  assert(Fs.write(argv[1], table.concat(answers, "|")))
-  return 0
-end
-]]))
-  local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ns = Clock.seconds(30) })
-  local r = assert(Child.run(started.argv, started.options))
-  assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
-      " " .. tostring(r.stderr))
-  local term = tostring(sys.SIGTERM)
-  local got = Fs.read(report)
-  assert(got == table.concat({ term, term, term, "true" }, "|"), tostring(got))
-end
-
---- A guard keeps taking signals after its first: a SIGTERM after a
---- Ctrl-C the child handled is what a supervisor must pass on next,
---- and release answers the last one delivered rather than losing it. The nested
---- cosmic outlives both.
-local function test_guard_release_answers_the_last_signal(tmp: string)
-  local report = tmp .. "/report"
-  local fixture = tmp .. "/latest.tl"
-  assert(Fs.write(fixture, [[
-local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
-return function(argv: {string}): integer
-  local answers: {string} = {}
-  local guard = assert(Child.guard())
-  assert(sys.kill(sys.getpid(), sys.SIGINT))
-  answers[#answers + 1] = tostring(guard:cancelled())
-  assert(sys.kill(sys.getpid(), sys.SIGTERM))
-  answers[#answers + 1] = tostring(guard:cancelled())
-  assert(sys.kill(sys.getpid(), sys.SIGINT))
-  assert(sys.kill(sys.getpid(), sys.SIGTERM))
-  answers[#answers + 1] = tostring((guard:release()))
-  assert(Fs.write(argv[1], table.concat(answers, "|")))
-  return 0
-end
-]]))
-  local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ns = Clock.seconds(30) })
-  local r = assert(Child.run(started.argv, started.options))
-  assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
-      " " .. tostring(r.stderr))
-  local int, term = tostring(sys.SIGINT), tostring(sys.SIGTERM)
-  local got = Fs.read(report)
-  assert(got == table.concat({ int, term, term }, "|"), tostring(got))
-end
-
---- `take` answers each signal once, a repeat of the same one included,
---- while `cancelled` keeps answering the last: a supervisor passes a
---- second SIGTERM on after its child handled the first.
-local function test_guard_take_answers_a_repeated_signal_again(tmp: string)
-  local report = tmp .. "/report"
-  local fixture = tmp .. "/take.tl"
-  assert(Fs.write(fixture, [[
-local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
-return function(argv: {string}): integer
-  local answers: {string} = {}
-  local guard = assert(Child.guard())
-  assert(sys.kill(sys.getpid(), sys.SIGTERM))
-  answers[#answers + 1] = tostring(guard:take())
-  assert(sys.kill(sys.getpid(), sys.SIGTERM))
-  answers[#answers + 1] = tostring(guard:cancelled())
-  answers[#answers + 1] = tostring(guard:take())
-  answers[#answers + 1] = tostring(guard:take())
-  answers[#answers + 1] = tostring(guard:cancelled())
-  answers[#answers + 1] = tostring((guard:release()))
-  assert(Fs.write(argv[1], table.concat(answers, "|")))
-  return 0
-end
-]]))
-  local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ns = Clock.seconds(30) })
-  local r = assert(Child.run(started.argv, started.options))
-  assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
-      " " .. tostring(r.stderr))
-  local term = tostring(sys.SIGTERM)
-  local got = Fs.read(report)
-  assert(got == table.concat({ term, term, term, "0", term, term }, "|"), tostring(got))
-end
-
---- Only the last guard to close delivers: an inner guard's close, the
---- outer open, leaves the signal it caught to the outer, whose close
---- delivers it. The nested cosmic dies of it there, not before.
-local function test_only_the_last_guard_to_close_delivers(tmp: string)
-  local report = tmp .. "/report"
-  local fixture = tmp .. "/nested.tl"
-  assert(Fs.write(fixture, [[
-local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
-return function(argv: {string}): integer
-  local answers: {string} = {}
-  local outer <close> = assert(Child.guard())
-  do
-    local inner <close> = assert(Child.guard())
-    assert(sys.kill(sys.getpid(), sys.SIGTERM))
-    answers[#answers + 1] = tostring(inner:cancelled())
-  end
-  answers[#answers + 1] = "alive"
-  answers[#answers + 1] = tostring(outer:cancelled())
-  assert(Fs.write(argv[1], table.concat(answers, "|")))
-  return 0
-end
-]]))
-  local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ns = Clock.seconds(30) })
-  local r = assert(Child.run(started.argv, started.options))
-  local term = tostring(sys.SIGTERM)
-  local got = Fs.read(report)
-  assert(got == table.concat({ term, "alive", term }, "|"), tostring(got) .. " " .. tostring(r.stderr))
-  assert(r.signal == sys.SIGTERM, "code=" .. tostring(r.code) .. " " .. tostring(r.stderr))
-end
-
---- A guard closed while a later one is still open leaves its signal
---- to that one, which never saw it, since it opened after: closing it,
---- the last, delivers the signal all the same.
-local function test_the_last_guard_delivers_one_closed_before_it(tmp: string)
-  local report = tmp .. "/report"
-  local fixture = tmp .. "/crossed.tl"
-  assert(Fs.write(fixture, [[
-local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
-return function(argv: {string}): integer
-  local first = assert(Child.guard())
-  assert(sys.kill(sys.getpid(), sys.SIGTERM))
-  local second = assert(Child.guard())
-  assert(first:close())
-  assert(Fs.write(argv[1], tostring(first:cancelled()) .. "|" .. tostring(second:cancelled())))
-  assert(second:close())
-  return 0
-end
-]]))
-  local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ns = Clock.seconds(30) })
-  local r = assert(Child.run(started.argv, started.options))
-  local got = Fs.read(report)
-  assert(got == tostring(sys.SIGTERM) .. "|0", tostring(got) .. " " .. tostring(r.stderr))
   assert(r.signal == sys.SIGTERM, "code=" .. tostring(r.code) .. " " .. tostring(r.stderr))
 end
 
@@ -505,17 +349,18 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
 local relaunch = assert(Proc.relaunch())
 local function this(chunk: string): {string}
-  local words = { table.unpack(relaunch.argv) }
+  local words: mut {string} = { table.unpack(relaunch.argv) }
   words[#words + 1] = "-e"
   words[#words + 1] = chunk
   return words
 end
 return function(argv: {string}): integer
-  local answers: {string} = {}
-  local guard = assert(Child.guard())
+  local answers: mut {string} = {}
+  local guard = assert(Signal.guard())
   local options: Child.Options = { env = relaunch.env, fds = relaunch.fds, timeout_ns = Clock.seconds(30) }
   local r, why = Child.run(this("local sys = require('cosmic.sys') " ..
     "assert(sys.kill(" .. tostring(sys.getpid()) .. ", sys.SIGTERM)) " ..
@@ -524,8 +369,9 @@ return function(argv: {string}): integer
   answers[#answers + 1] = tostring(guard:cancelled())
   local after = assert(Child.run(this("return 4"), options))
   answers[#answers + 1] = tostring(after.code)
-  answers[#answers + 1] = tostring((guard:release()))
-  assert(Fs.write(argv[1], table.concat(answers, "|")))
+  local released, _ = guard:release()
+  answers[#answers + 1] = tostring(released)
+  assert(Fs.write((argv[1] or ""), table.concat(answers, "|")))
   return 0
 end
 ]]))

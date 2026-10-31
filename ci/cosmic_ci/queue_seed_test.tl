@@ -11,30 +11,30 @@ local Time = require("cosmic.time")
 
 local SHA <const> = "0123456789abcdef0123456789abcdef01234567"
 local QUEUE <const> = "gh-readonly-queue/main/pr-7-fedcba"
-local START <const> = GithubFake.START
+local START <const> = GithubFake.start()
 
 --- A run, as the API lists it: of `event`, else merge_group.
-local function run(id: string, status: string, conclusion: string | nil, sha: string, branch: string,
+local function run(id: string, status: string, conclusion: string?, sha: string, branch: string,
                    event?: string): string
   return '{"id":' .. id .. ',"event":"' .. (event or "merge_group") .. '","status":"' .. status .. '","conclusion":' ..
-    (conclusion and ('"' .. conclusion .. '"') or "null") .. ',"head_sha":"' .. sha ..
+    (if conclusion then ('"' .. conclusion .. '"') else "null" end) .. ',"head_sha":"' .. sha ..
     '","head_branch":"' .. branch .. '","html_url":"https://github.com/o/r/actions/runs/' .. id .. '"}'
 end
 
 --- The API's list of the runs given.
 local function listed(...: string): string
-  return '{"total_count":' .. select("#", ...) .. ',"workflow_runs":[' .. table.concat({ ... }, ",") .. "]}"
+  return '{"total_count":' .. tostring(select("#", ...)) .. ',"workflow_runs":[' .. table.concat({ ... }, ",") .. "]}"
 end
 
 --- The API's list of a run's artifacts: each of `names`, those in
 --- `expired` expired.
 local function artifacts(names: {string}, expired: {string: boolean}): string
-  local items: {string} = {}
+  local items: mut {string} = {}
   for i, name in ipairs(names) do
-    items[#items + 1] = '{"id":' .. i .. ',"name":"' .. name .. '","expired":' ..
+    items[#items + 1] = '{"id":' .. tostring(i) .. ',"name":"' .. name .. '","expired":' ..
       tostring(expired[name] == true) .. "}"
   end
-  return '{"total_count":' .. #items .. ',"artifacts":[' .. table.concat(items, ",") .. "]}"
+  return '{"total_count":' .. tostring(#items) .. ',"artifacts":[' .. table.concat(items, ",") .. "]}"
 end
 
 local SEEDED <const> = artifacts({ "ci-driver-a", "seed-a", "seed-b", "portable-product-a" }, {})
@@ -49,20 +49,20 @@ local SUITE <const> = "run the leg's suite"
 --- given, the status of its step SUITE (after the step that finds the
 --- run ahead, queued or not).
 local function jobs(...: string): string
-  local items: {string} = {}
+  local items: mut {string} = {}
   for _, job in ipairs({ ... }) do
     local status, name, ago, suite = job:match("^(%S+) (%S+) ?(%d*) ?(%S*)$")
-    local started = ago ~= "" and ('"' .. Time.format_rfc3339((START - math.tointeger(tonumber(ago))) * 1000000000,
-      nil, { digits = 0 }) .. '"') or "null"
+    local started = if ago ~= "" then ('"' .. Time.format_rfc3339((START - assert(math.tointeger(tonumber(ago)))) * 1000000000,
+      nil, { digits = 0 }) .. '"') else "null" end
     local steps = ""
     if suite ~= "" then
       steps = ',"steps":[{"name":"find the run ahead in the queue","status":"' ..
-        (suite == "queued" and "in_progress" or "completed") .. '"},{"name":"' .. SUITE ..
-        '","status":"' .. suite .. '"}]'
+        (if suite == "queued" then "in_progress" else "completed" end) .. '"},{"name":"' .. SUITE ..
+        '","status":"' .. assert(suite) .. '"}]'
     end
-    items[#items + 1] = '{"name":"' .. name .. '","status":"' .. status .. '","started_at":' .. started .. steps .. "}"
+    items[#items + 1] = '{"name":"' .. assert(name) .. '","status":"' .. assert(status) .. '","started_at":' .. started .. steps .. "}"
   end
-  return '{"total_count":' .. #items .. ',"jobs":[' .. table.concat(items, ",") .. "]}"
+  return '{"total_count":' .. tostring(#items) .. ',"jobs":[' .. table.concat(items, ",") .. "]}"
 end
 
 --- What the fake API holds: the answers to the lookups of the runs, one
@@ -73,30 +73,40 @@ end
 --- its jobs answers `jobs["<id>"]` (none where there is none).
 local record Spec
   runs: {string}
-  artifacts: {string: string}
-  jobs: {string: string}
-  fail_once: {string}
+  artifacts?: {string: string}
+  jobs?: {string: string}
+  fail_once?: {string}
+end
+
+--- How many run listings have been asked for.
+local record Asked
+  mut value: integer
 end
 
 local function serve(spec: Spec): GithubFake.Fake
-  local runs_asked = 0
-  local kept: {string: integer} = {}
-  local failing: {string: boolean} = {}
+  local runs_asked: Asked = { value = 0 }
+  local kept: mut {string: integer} = {}
+  local failing: mut {string: boolean} = {}
   for _, id in ipairs(spec.fail_once or {}) do failing[id] = true end
-  return GithubFake.new(function(path: string, _nth: integer): string | nil
+  return GithubFake.new(function(path: string, _nth: integer): string?
     local id = path:match("/runs/(%d+)/artifacts")
     if id ~= nil then
-      if failing[id] then
+      if failing[id] == true then
         failing[id] = nil
         return nil
       end
       kept[id] = (kept[id] or 0) + 1
-      return spec.artifacts[id .. "-" .. kept[id]] or spec.artifacts[id] or artifacts({}, {})
+      local held = spec.artifacts
+      local answer = held and (held[id .. "-" .. tostring(assert(kept[id]))] or held[id])
+      return answer or artifacts({}, {})
     end
     id = path:match("/runs/(%d+)/jobs")
-    if id ~= nil then return spec.jobs and spec.jobs[id] or jobs() end
-    runs_asked = runs_asked + 1
-    local text = spec.runs[math.min(runs_asked, #spec.runs)]
+    if id ~= nil then
+      local by_run = spec.jobs
+      return by_run and by_run[id] or jobs()
+    end
+    runs_asked.value = runs_asked.value + 1
+    local text = spec.runs[math.min(runs_asked.value, #spec.runs)]
     if text == "FAIL" then return nil end
     return text
   end)
@@ -160,13 +170,13 @@ local function test_no_passing_seeded_queue_run_is_none()
     { runs = listed(run("45", "completed", "success", SHA, QUEUE)), why = "a run whose seed expired" },
   }
   for _, case in ipairs(cases) do
-    local fake, code = find({ runs = { case.runs }, artifacts = {
+    local fake, code = find({ runs = { assert(case["runs"]) }, artifacts = {
       ["42"] = SEEDED, ["43"] = artifacts({ "portable-product-a" }, {}),
       ["44"] = artifacts({ "seed-a", "portable-product-b" }, {}),
       ["45"] = artifacts({ "seed-a", "seed-b" }, { ["seed-b"] = true }),
     } })
-    assert(code == 0, case.why .. ": " .. said(fake))
-    assert(outputs(fake) == NONE, case.why .. ": " .. outputs(fake))
+    assert(code == 0, assert(case["why"]) .. ": " .. said(fake))
+    assert(outputs(fake) == NONE, assert(case["why"]) .. ": " .. outputs(fake))
     assert(said(fake):find("the full scope runs", 1, true), said(fake))
   end
   -- A run missing a leg's seed names the leg.
@@ -249,7 +259,7 @@ local KEPT <const> = artifacts({ "ci-driver-a", "verdicts-a", "verdicts-b" }, {}
 --- sets more of the environment: the fake, and the status.
 local function ahead(base: string, spec: Spec, extra?: {string: string}): GithubFake.Fake, integer
   local fake = serve(spec)
-  local env: {string: string} = { REPOSITORY = "o/r", BASE = base, JOB = "a", ARTIFACT = "verdicts-a",
+  local env: mut {string: string} = { REPOSITORY = "o/r", BASE = base, JOB = "a", ARTIFACT = "verdicts-a",
     WAIT_SECONDS = "1", WITHIN_SECONDS = "5" }
   for name, value in pairs(extra or {}) do env[name] = value end
   return fake, QueueSeed.ahead(env, fake.host)
@@ -267,7 +277,7 @@ local function test_the_run_ahead_is_found_with_its_verdicts()
         "&per_page=20", fake.calls[1])
     assert(fake.calls[2] == "GET repos/o/r/actions/runs/42/artifacts?per_page=100", fake.calls[2])
     assert(lookups(fake) == 1 and GithubFake.count(fake, "/jobs") == 0, table.concat(fake.calls, "\n"))
-    assert(said(fake):find("this run takes its verdicts", 1, true), said(fake))
+    assert(said(fake):find("this run takes it.", 1, true), said(fake))
   end
 end
 
@@ -305,12 +315,12 @@ local function test_a_run_ahead_done_without_its_verdicts_is_none_at_once()
     { runs = listed(run("44", "completed", "success", SHA, QUEUE)), why = "an expired artifact" },
   }
   for _, case in ipairs(cases) do
-    local fake, code = ahead(SHA, { runs = { case.runs },
+    local fake, code = ahead(SHA, { runs = { assert(case["runs"]) },
       artifacts = { ["43"] = artifacts({ "verdicts-b" }, {}), ["44"] = artifacts({ "verdicts-a" }, { ["verdicts-a"] = true }) },
       jobs = { ["43"] = jobs("in_progress b", "completed a") } })
-    assert(code == 0 and outputs(fake) == "run=\n", case.why .. ": " .. outputs(fake) .. said(fake))
-    assert(lookups(fake) == 1 and #fake.sleeps == 0, case.why .. ": " .. table.concat(fake.calls, "\n"))
-    assert(said(fake):find("completed without verdicts-a", 1, true), case.why .. ": " .. said(fake))
+    assert(code == 0 and outputs(fake) == "run=\n", assert(case["why"]) .. ": " .. outputs(fake) .. said(fake))
+    assert(lookups(fake) == 1 and #fake.sleeps == 0, assert(case["why"]) .. ": " .. table.concat(fake.calls, "\n"))
+    assert(said(fake):find("completed without verdicts-a", 1, true), assert(case["why"]) .. ": " .. said(fake))
   end
 end
 
@@ -323,9 +333,9 @@ local function test_a_job_ahead_that_cannot_keep_them_in_time_is_not_waited_for(
   local ready: {string: string} = { READY_SECONDS = "420", WITHIN_SECONDS = "90" }
   for _, case in ipairs({ { job = "in_progress a 60", why = "only after the wait" },
       { job = "queued a", why = "has not started" }, { job = "queued b", why = "has not started" } }) do
-    local fake, code = ahead(SHA, { runs = { running }, artifacts = {}, jobs = { ["42"] = jobs(case.job) } }, ready)
-    assert(code == 0 and outputs(fake) == "run=\n" and lookups(fake) == 1, case.job .. ": " .. outputs(fake))
-    assert(said(fake):find(case.why, 1, true), case.job .. ": " .. said(fake))
+    local fake, code = ahead(SHA, { runs = { running }, artifacts = {}, jobs = { ["42"] = jobs(assert(case["job"])) } }, ready)
+    assert(code == 0 and outputs(fake) == "run=\n" and lookups(fake) == 1, assert(case["job"]) .. ": " .. outputs(fake))
+    assert(said(fake):find(assert(case["why"]), 1, true), assert(case["job"]) .. ": " .. said(fake))
   end
   local fake, code = ahead(SHA, { runs = { running }, artifacts = { ["42-1"] = artifacts({}, {}), ["42"] = KEPT },
     jobs = { ["42"] = jobs("in_progress a 400") } }, ready)
@@ -390,7 +400,7 @@ local function test_a_change_that_moves_the_harness_takes_nothing()
   fake.moved = true
   code = QueueSeed.ahead({ REPOSITORY = "o/r", BASE = SHA, JOB = "a", ARTIFACT = "verdicts-a" }, fake.host)
   assert(code == 0 and outputs(fake) == "run=\n" and #fake.calls == 0, outputs(fake) .. table.concat(fake.calls, "\n"))
-  assert(said(fake):find("every test runs (--all)", 1, true), said(fake))
+  assert(said(fake):find("a suite runs every test (--all)", 1, true), said(fake))
 end
 
 --- The step's words reach where the live host writes them: $GITHUB_OUTPUT

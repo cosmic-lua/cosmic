@@ -21,7 +21,7 @@ local function test_it_counts_each_call_through_a_tail_call_a_helper_and_a_captu
   capture(true)
   tail(true)
   pcall(tail, false, "x")
-  assert(Assertions.count() == before + 4, "counted " .. Assertions.count())
+  assert(Assertions.count() == before + 4, "counted " .. tostring(Assertions.count()))
 end
 
 local function test_reset_starts_from_zero()
@@ -66,13 +66,12 @@ local function test_a_message_that_is_not_a_string_is_raised_as_it_is()
 end
 
 local function test_no_condition_is_a_bad_argument()
-  local message = position_of(function() (assert as function)() end)
+  local message = position_of(function() (assert as function(...: any): any...)() end)
   assert(tostring(message):find("bad argument #1 to 'assert' (value expected)", 1, true), tostring(message))
 end
 
 --- Values packed with their count, as `table.pack` gives them.
-local record Packed
-  {any}
+local record Packed is {any}
   n: integer
 end
 
@@ -92,7 +91,7 @@ local function same(a: Packed, b: Packed, case: string)
   local an, bn = a.n, b.n
   assert(an == bn, case .. ": " .. tostring(an) .. " results against " .. tostring(bn))
   for i = 1, an do
-    assert(rawequal(a[i], b[i]), case .. ": result " .. i .. " is " .. tostring(a[i]) ..
+    assert(rawequal(a[i], b[i]), case .. ": result " .. tostring(i) .. " is " .. tostring(a[i]) ..
         " against Lua's " .. tostring(b[i]))
   end
 end
@@ -102,6 +101,7 @@ end
 --- upgrade that changes `luaB_assert` fails here rather than drifting.
 local function test_it_answers_as_luas_own_assert_does()
   local value = {}
+  local function hole(): any return nil end
   local cases: {string: Packed} = {
     ["true"] = table.pack(true) as Packed,
     ["values"] = table.pack(1, "two", nil, 4) as Packed,
@@ -113,7 +113,7 @@ local function test_it_answers_as_luas_own_assert_does()
     ["a format in the message"] = table.pack(false, "%d %s") as Packed,
     ["a number message"] = table.pack(false, 42) as Packed,
     ["a table message"] = table.pack(false, value) as Packed,
-    ["a nil message and more"] = table.pack(false, nil, "x") as Packed,
+    ["a nil message and more"] = table.pack(false, hole(), "x") as Packed,
   }
   local lua_assert = Assertions.lua_assert as function(...: any): any...
   -- Taken after install, it would be the counting one, held to itself.

@@ -1,5 +1,5 @@
 --- A worker whose module declares `nests` (the promise "nest") and neither `store` nor
---- `tool` runs on a sealed database of its closure like any other (build/test.tl's
+--- `tool` runs on a sealed database of its closure like any other (build/test_key.tl's
 --- `sealed_for`), its policy carrying `nest` beside the `database`: a module
 --- beyond the closure is not in the program it reads, and a process it
 --- confines in a root of its own starts on that same database and reads no
@@ -21,7 +21,7 @@ Test.policy{ profiles = { "cosmic" }, promises = { "nest" }, requires = { "nest"
 
 --- Whether this worker runs on a sealed database ([`sealed`] of
 --- build/sealed_worker_test.tl, for a worker that nests).
-local function sealed(): Proc.Relaunch | nil
+local function sealed(): Proc.Relaunch?
   local relaunch = Proc.relaunch()
   local on_database = relaunch ~= nil and relaunch.argv[2] == "--database"
   if Env.get(confine.held_variable) ~= nil then
@@ -41,7 +41,7 @@ end
 local function test_a_worker_that_nests_confines_a_child_on_the_same_database()
   local relaunch = sealed()
   if relaunch == nil then return end
-  local argv: {string} = {}
+  local argv: mut {string} = {}
   for i, word in ipairs(relaunch.argv) do argv[i] = word end
   argv[#argv + 1] = "-e"
   argv[#argv + 1] = [[

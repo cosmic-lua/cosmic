@@ -109,7 +109,8 @@ in all supported platform environments.
 
 `self_rebuild_test.tl` archives a fresh `git archive HEAD` tree per case
 (`COSMIC_FIXTURE_ROOT`) and places the fixture-only runtime
-(`COSMIC_FIXTURE_RUNTIME`) at its `o/bin/cosmic`. Each child selects only
+(`COSMIC_FIXTURE_RUNTIME`) as its tool, in the build directory its
+[`build/paths.tl`] names. Each child selects only
 `embed_test.tl`, so unrelated tests remain untouched and cannot run. It uses
 the same fixture-only startup pause to
 rename and unlink the artifact after descriptor adoption. In each case a
@@ -119,8 +120,8 @@ and an ordinary environment value checked on arrival. The rebuilt file keeps
 the retained prefix and cache entry count, and its bytes change. A subsequent
 core input edit ([`core/startup.h`]) is refused, under `COSMIC_AUTO_BOOT=0`,
 with the named `bin/zig build boot` remedy and touches neither the artifact
-nor the cache. Three further cases -- a pinned `vendor/tl` version, an
-unapplied `patch/tl` entry, and an edited [`build/launcher.tl`] -- are refused
+nor the cache. Three further cases -- an edited [`vendor/lua/PIN`], an
+edited [`lang/check.tl`] and an edited [`build/launcher.tl`] -- are refused
 outright, before `test.run` or the artifact is ever reached. A last,
 dependency-free case exercises the prefix comparison itself: an exact match, a
 too-short program, and a single mutated byte.
@@ -137,6 +138,9 @@ command contracts are documented in `ci`.
 [`build.artifact`]: ../../build/artifact.tl
 [`build/artifact.tl`]: ../../build/artifact.tl
 [`build/launcher.tl`]: ../../build/launcher.tl
+[`build/paths.tl`]: ../../build/paths.tl
 [`core/portable.c`]: ../../core/portable.c
 [`core/startup.h`]: ../../core/startup.h
+[`lang/check.tl`]: ../../lang/check.tl
 [`test.portable`]: init.tl
+[`vendor/lua/PIN`]: ../../vendor/lua/PIN

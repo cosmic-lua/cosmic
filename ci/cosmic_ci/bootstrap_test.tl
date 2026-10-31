@@ -2,10 +2,13 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Grammar = require("cosmic_ci.grammar")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
+local Maps = require("cosmic_ci.maps")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
+local sys = require("cosmic.sys")
 
 -- These tests start this program (the pinned driver's own cosmic, or a copy of it
 -- as the bootstrap), which a worker on a sealed database does not have whole.
@@ -16,13 +19,10 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 --- COSMIC_BOOTSTRAP exported where the tests run is no part of them),
 --- with `extra` over it.
 local function environment(extra?: {string:string}): {string:string}
-  local values = Env.all()
-  values.COSMIC_BOOTSTRAP, values.COSMIC_BOOTSTRAP_VERIFY = nil, nil
-  values.COSMIC_BOOTSTRAP_ATTEMPTS = nil
-  if extra then
-    for name, value in pairs(extra) do values[name] = value end
-  end
-  return values
+  local values = Maps.without(Env.all(), { "COSMIC_BOOTSTRAP",
+    "COSMIC_BOOTSTRAP_VERIFY", "COSMIC_BOOTSTRAP_ATTEMPTS" })
+  if extra then return Grammar.driver(Maps.with(values, extra)) end
+  return Grammar.driver(values)
 end
 
 --- How long a spawned driver.tl may take. It compiles every cosmic_ci
@@ -83,14 +83,15 @@ local function bootstrap_root(tmp: string, commit: string, digest: string): stri
 end
 
 --- Runs bin/cosmic-bootstrap under `root` as CI does, re-verifying its
---- cache, with `extra` in its environment.
+--- cache, with `extra` in its environment, asking for the release's own path (`--raw-path`): with no argument it
+--- answers an entry point, which test_the_entry_point_... holds.
 local function bootstrap(tmp: string, root: string, output: string,
                          extra?: {string:string}): Child.Result
-  local env: {string:string} = { XDG_CACHE_HOME = tmp .. "/xdg", COSMIC_BOOTSTRAP_VERIFY = "1" }
+  local env: mut {string:string} = { XDG_CACHE_HOME = tmp .. "/xdg", COSMIC_BOOTSTRAP_VERIFY = "1" }
   if extra then
     for name, value in pairs(extra) do env[name] = value end
   end
-  return call({ "/bin/sh", root .. "/bin/cosmic-bootstrap" }, tmp, output, env)
+  return call({ "/bin/sh", root .. "/bin/cosmic-bootstrap", "--raw-path" }, tmp, output, env)
 end
 
 --- A curl on a PATH of its own that writes `$DOWNLOAD_SOURCE` wherever
@@ -145,7 +146,7 @@ end
 --- and passes it as `call`'s extra env instead.
 local function driver_context(candidate: string, runner_temp: string,
                               extra?: {string:string}): {string:string}
-  local env: {string:string} = {
+  local env: mut {string:string} = {
     GITHUB_WORKSPACE = candidate,
     GITHUB_RUN_ID = "run-1",
     GITHUB_RUN_ATTEMPT = "1",
@@ -158,7 +159,7 @@ local function driver_context(candidate: string, runner_temp: string,
   return env
 end
 
---- The self-check holds a write transaction on `ci/o/build.db` while
+--- The self-check holds a write transaction on `ci/`'s `build.db` while
 --- tests run, so a test that spawns the host on `driver.tl` must never
 --- give it project root `ci/` -- it copies the namespace into its own
 --- tmp project first, the way `orchestration_test.tl`'s `command()`
@@ -167,7 +168,7 @@ local function driver_project(tmp: string): string
   local project = tmp .. "/project"
   assert(Fs.mkdirs(project))
   assert(assert(Child.run({ "/bin/cp", "-R",
-    Fs.absolute(".") .. "/cosmic_ci", project })).ok)
+    assert(Fs.absolute(".")) .. "/cosmic_ci", project })).ok)
   return project
 end
 
@@ -318,15 +319,14 @@ local function physical(dir: string): string
   return ((assert(got.stdout)):gsub("\n$", ""))
 end
 
---- COSMIC_BOOTSTRAP stands in for the pin's cosmic: printed when there
---- are no arguments, run with them when there are, and nothing fetched
+--- COSMIC_BOOTSTRAP stands in for the pin's cosmic: printed for `--raw-path`, run with the arguments when there are, and nothing fetched
 --- either way -- the pin here names bytes no download could give.
 local function test_bootstrap_runs_cosmic_bootstrap_in_place_of_the_pin(tmp: string)
   local root, _ = bootstrap_root(tmp, string.rep("d", 40), string.rep("0", 64))
   local cosmic = stand_in(tmp)
-  local env: {string:string} = { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = tmp .. "/missing",
+  local env: mut {string:string} = { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = tmp .. "/missing",
     CALLS = tmp .. "/calls", COSMIC_BOOTSTRAP = cosmic }
-  local printed = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap" },
+  local printed = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap", "--raw-path" },
     tmp, tmp .. "/printed.out", env)
   local out = assert(Fs.read(tmp .. "/printed.out"))
   assert(printed.ok and out == cosmic .. "\n", out)
@@ -335,14 +335,14 @@ local function test_bootstrap_runs_cosmic_bootstrap_in_place_of_the_pin(tmp: str
   out = assert(Fs.read(tmp .. "/ran.out"))
   assert(ran.ok and out == "ran\n" .. physical(tmp) .. "\na b\nc\n", out)
   -- A relative one is answered absolute, for a caller that moves on.
-  env.COSMIC_BOOTSTRAP = "stand-in"
-  local relative = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap" },
+  env["COSMIC_BOOTSTRAP"] = "stand-in"
+  local relative = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap", "--raw-path" },
     tmp, tmp .. "/relative.out", env)
   out = assert(Fs.read(tmp .. "/relative.out"))
   assert(relative.ok and out:sub(1, 1) == "/" and out:find("/stand%-in\n$") ~= nil, out)
   -- With COSMIC_BOOTSTRAP_VERIFY, which asks for the pin's checked one,
   -- a stand-in is refused rather than answered unchecked.
-  env.COSMIC_BOOTSTRAP, env.COSMIC_BOOTSTRAP_VERIFY = cosmic, "1"
+  env["COSMIC_BOOTSTRAP"], env["COSMIC_BOOTSTRAP_VERIFY"] = cosmic, "1"
   local verified = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap" },
     tmp, tmp .. "/verified.out", env)
   out = assert(Fs.read(tmp .. "/verified.out"))
@@ -377,7 +377,9 @@ local function test_each_tool_runs_its_script_through_the_bootstrap(tmp: string)
   local root, _ = bootstrap_root(tmp, string.rep("f", 40), string.rep("0", 64))
   local cosmic = stand_in(tmp)
   local here = checkout_root()
-  for tool, script in pairs({ zig = "zig.tl", vendor = "vendor.tl",
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/ci/bootstrap-files.txt", "# listed\nbuild/zig.tl\nbuild/vendor.tl\nbuild/verify_codesign.tl\n"))
+  for tool, script in pairs({ ["zig"] = "zig.tl", ["vendor"] = "vendor.tl",
       ["verify-codesign"] = "verify_codesign.tl" }) do
     assert(Fs.write(root .. "/bin/" .. tool,
       (assert(Fs.read(here .. "/bin/" .. tool))), 0x1ed))
@@ -388,6 +390,165 @@ local function test_each_tool_runs_its_script_through_the_bootstrap(tmp: string)
     assert(result.ok and out == "ran\n" .. physical(tmp) .. "\n--standalone\n" ..
         root .. "/build/" .. script .. "\nx\ny z\n", tool .. ": " .. out)
   end
+end
+
+--- The list as the wrapper reads it: comments, a CR, leading and trailing space, and entries that are only a prefix of
+--- a path.
+local list_text = "# why\n  build/listed.tl  # trailing\r\nbuild/crlf.tl\r\n  build/space.tl \n# build/commented.tl\nbuild/paths.tl\n"
+
+local refusal = "bin/cosmic-bootstrap: build/unlisted.tl is not in ci/bootstrap-files.txt, so it is not type-checked " ..
+  "on the pinned release: list it there, then run `cosmic-driver cosmic_ci/driver.tl check-islands` from ci/\n"
+
+--- A checkout at `tmp/root` whose list is `list_text` and whose files are all there, with files outside it.
+local function listed_checkout(tmp: string): string
+  local root, _ = bootstrap_root(tmp, string.rep("1", 40), string.rep("0", 64))
+  assert(Fs.mkdirs(root .. "/build/sub") and Fs.mkdirs(tmp .. "/outside"))
+  -- ci/d is a link to build/sub: `ci/d/..` is build/ where it stands, and ci/ only to a reader that takes `..` before the link.
+  assert(Fs.symlink("../build/sub", root .. "/ci/d"))
+  assert(Fs.write(root .. "/ci/bootstrap-files.txt", list_text))
+  for _, name in ipairs({ "listed.tl", "crlf.tl", "space.tl", "commented.tl", "paths.tl", "paths.tl.evil", "paths",
+      "unlisted.tl" }) do
+    assert(Fs.write(root .. "/build/" .. name, "return 1\n"))
+  end
+  assert(Fs.write(tmp .. "/outside/free.tl", "return 1\n"))
+  assert(Fs.symlink(root .. "/build/unlisted.tl", tmp .. "/outside/link.tl"))
+  assert(Fs.symlink(root .. "/build", tmp .. "/outside/dir"))
+  return root
+end
+
+--- `argv` run by `program` in `tmp` with the stand-in as COSMIC_BOOTSTRAP (or none), its output, and whether it
+--- succeeded.
+local function ran(tmp: string, program: {string}, stand_in_path: string?, argv: {string}, extra?: {string:string}): string, boolean
+  local env: mut {string:string} = { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = tmp .. "/missing", CALLS = tmp .. "/calls",
+    XDG_CACHE_HOME = tmp .. "/xdg" }
+  if stand_in_path ~= nil then env["COSMIC_BOOTSTRAP"] = stand_in_path end
+  for name, value in pairs(extra or {}) do env[name] = value end
+  local words: mut {string} = {}
+  for _, word in ipairs(program) do words[#words + 1] = word end
+  for _, word in ipairs(argv) do words[#words + 1] = word end
+  local result = call(words, tmp, tmp .. "/s.out", env)
+  return assert(Fs.read(tmp .. "/s.out")), result.ok
+end
+
+--- `--standalone` on a file of the checkout runs only if ci/bootstrap-files.txt lists it, in the pin's branch and the
+--- stand-in's alike, however the path is spelled; a file outside the checkout, and a listed one, run.
+local function test_standalone_runs_only_the_files_the_list_names(tmp: string)
+  local root = listed_checkout(tmp)
+  local cosmic = stand_in(tmp)
+  local wrapper = { "/bin/sh", root .. "/bin/cosmic-bootstrap" }
+  -- Refused before anything is fetched or run: the pin's branch, the stand-in's, a relative path, links into the
+  -- checkout from outside it (to the file, and to its directory), an entry that is only a prefix of a path.
+  local files = { root .. "/build/unlisted.tl", "root/build/unlisted.tl", tmp .. "/outside/link.tl",
+    tmp .. "/outside/dir/unlisted.tl", root .. "/build/commented.tl", root .. "/build/paths.tl.evil", root .. "/build/paths",
+    root .. "/build", root .. "/build/gone.tl" }
+  for _, file in ipairs(files) do
+    for _, stand in ipairs({ "", cosmic }) do
+      local given: string? = nil
+      if stand ~= "" then given = stand end
+      local out, ok = ran(tmp, wrapper, given, { "--standalone", file })
+      assert(not ok and out:find("^bin/cosmic%-bootstrap: ") ~= nil and out:find("is not in ci/bootstrap-files.txt", 1, true) ~= nil,
+        file .. ": " .. out)
+    end
+  end
+  local out, ok = ran(tmp, wrapper, cosmic, { "--standalone", root .. "/build/unlisted.tl" })
+  assert(not ok and out == refusal, out)
+  assert(not Predicate.exists(tmp .. "/calls"), "a refused run fetched the pin's cosmic")
+  -- A `..` after a linked directory is the physical one: ci/d/../x.tl is build/x.tl, not ci/x.tl, for the list and for
+  -- the first-word form alike.
+  out, ok = ran(tmp, wrapper, cosmic, { "--standalone", root .. "/ci/d/../unlisted.tl" })
+  assert(not ok and out == refusal, out)
+  out, ok = ran(tmp, wrapper, cosmic, { root .. "/ci/d/../unlisted.tl" })
+  assert(not ok and out:find("outside ci/", 1, true) ~= nil, out)
+  out, ok = ran(tmp, wrapper, cosmic, { "--standalone", root .. "/ci/d/../listed.tl" })
+  assert(ok and out == "ran\n" .. physical(tmp) .. "\n--standalone\n" .. root .. "/ci/d/../listed.tl\n", out)
+  -- The sandbox verb runs any program, so it is refused through the wrapper.
+  out, ok = ran(tmp, wrapper, cosmic, { "sandbox", "--", "true" })
+  assert(not ok and out:find("the sandbox verb runs any program", 1, true) ~= nil, out)
+  -- A target whose directory cannot be resolved, and no target at all, are refused too.
+  out, ok = ran(tmp, wrapper, cosmic, { "--standalone", tmp .. "/nowhere/x.tl" })
+  assert(not ok and out:find("cannot resolve the directory of", 1, true) ~= nil, out)
+  for _, argv in ipairs({ { "--standalone" }, { "--standalone", "" } }) do
+    out, ok = ran(tmp, wrapper, cosmic, argv)
+    assert(not ok and out == "bin/cosmic-bootstrap: --standalone names no file\n", out)
+  end
+  -- A file given as the first word builds the tree around it, which is how CI runs its own driver from ci/: allowed for a
+  -- file under the checkout's ci/ and outside the checkout, refused for any other file of the checkout, listed or not.
+  assert(Fs.write(root .. "/ci/driver.tl", "return 1\n"))
+  for _, file in ipairs({ root .. "/build/unlisted.tl", root .. "/build/listed.tl" }) do
+    out, ok = ran(tmp, wrapper, cosmic, { file })
+    assert(not ok and out:find("outside ci/, which runs on the pinned release only as `--standalone <file>`", 1, true) ~= nil,
+      file .. ": " .. out)
+  end
+  for _, file in ipairs({ root .. "/ci/driver.tl", tmp .. "/outside/free.tl" }) do
+    out, ok = ran(tmp, wrapper, cosmic, { file, "platform" })
+    assert(ok and out == "ran\n" .. physical(tmp) .. "\n" .. file .. "\nplatform\n", file .. ": " .. out)
+  end
+  -- Under COSMIC_STANDALONE=1 the same first word is a standalone run, held to the list: an unlisted file of ci/ too.
+  for _, file in ipairs({ root .. "/build/unlisted.tl", root .. "/ci/driver.tl" }) do
+    out, ok = ran(tmp, wrapper, cosmic, { file }, { COSMIC_STANDALONE = "1" })
+    assert(not ok and out:find("is not in ci/bootstrap-files.txt", 1, true) ~= nil, file .. ": " .. out)
+  end
+  for _, file in ipairs({ root .. "/build/listed.tl", tmp .. "/outside/free.tl" }) do
+    out, ok = ran(tmp, wrapper, cosmic, { file }, { COSMIC_STANDALONE = "1" })
+    assert(ok and out == "ran\n" .. physical(tmp) .. "\n" .. file .. "\n", file .. ": " .. out)
+  end
+  -- The listed files, whatever the list's spelling of them (a comment before, a CR, white space), and one outside the
+  -- checkout, run.
+  for _, file in ipairs({ root .. "/build/listed.tl", root .. "/build/crlf.tl", root .. "/build/space.tl",
+      root .. "/build/paths.tl", tmp .. "/outside/free.tl" }) do
+    out, ok = ran(tmp, wrapper, cosmic, { "--standalone", file })
+    assert(ok and out == "ran\n" .. physical(tmp) .. "\n--standalone\n" .. file .. "\n", file .. ": " .. out)
+  end
+  -- With no list at all, the checkout's files are refused rather than let by.
+  assert(Fs.remove(root .. "/ci/bootstrap-files.txt"))
+  out, ok = ran(tmp, wrapper, cosmic, { "--standalone", root .. "/build/listed.tl" })
+  assert(not ok and out:find("ci/bootstrap-files.txt, which lists the files of the checkout that may run --standalone", 1, true) ~= nil, out)
+end
+
+--- What `$(bin/cosmic-bootstrap)` answers is an entry point, which holds the same list and then runs the release without
+--- fetching it again, in an environment of its own cache and with COSMIC_BOOTSTRAP_VERIFY set; `--raw-path` is the
+--- release itself.
+local function test_the_entry_point_holds_the_list_and_the_raw_path_is_asked_for_by_name(tmp: string)
+  local root = listed_checkout(tmp)
+  local cosmic = stand_in(tmp)
+  local wrapper = { "/bin/sh", root .. "/bin/cosmic-bootstrap" }
+  local printed, ok = ran(tmp, wrapper, cosmic, {})
+  local entry = printed:gsub("\n$", "")
+  assert(ok and entry ~= cosmic and entry:find(tmp .. "/xdg/cosmic/bootstrap/entry-", 1, true) == 1, printed)
+  -- Named by a sha256 of the checkout and the release, not a short checksum two of them could share.
+  assert(entry:match("/entry%-(%x+)$") ~= nil and #assert(entry:match("/entry%-(%x+)$")) == 64, entry)
+  local raw, raw_ok = ran(tmp, wrapper, cosmic, { "--raw-path" })
+  assert(raw_ok and raw == cosmic .. "\n", raw)
+  -- It refuses what the wrapper does, without running the release, and runs what the list names.
+  local out, run_ok = ran(tmp, { entry }, nil, { "--standalone", root .. "/build/unlisted.tl" })
+  assert(not run_ok and out == refusal, out)
+  out, run_ok = ran(tmp, { entry }, nil, { "--standalone", root .. "/build/listed.tl" }, { COSMIC_BOOTSTRAP_VERIFY = "1" })
+  assert(run_ok and out == "ran\n" .. physical(tmp) .. "\n--standalone\n" .. root .. "/build/listed.tl\n", out)
+  out, run_ok = ran(tmp, { entry }, nil, { "x y" })
+  assert(run_ok and out == "ran\n" .. physical(tmp) .. "\nx y\n", out)
+  out, run_ok = ran(tmp, { entry }, nil, {})
+  assert(run_ok and out == "ran\n" .. physical(tmp) .. "\n", out)
+  assert(not Predicate.exists(tmp .. "/calls"), "the entry point fetched the pin's cosmic")
+end
+
+--- The release an entry point runs gets its caller's environment: COSMIC_BOOTSTRAP, which the tree's tools read to mean
+--- a stand-in toolchain (and keep no compile memo under), is not set by the entry point, nor is the variable the entry
+--- point runs bin/cosmic-bootstrap with. (CI's every `cosmic-driver` is the release run through one.)
+local function test_the_entry_point_leaves_no_bootstrap_variable_in_the_releases_environment(tmp: string)
+  local root = listed_checkout(tmp)
+  local reporter = tmp .. "/reporter"
+  assert(Fs.write(reporter, "#!/bin/sh\necho \"COSMIC_BOOTSTRAP=${COSMIC_BOOTSTRAP-unset}\"\necho \"ENTRY=${COSMIC_BOOTSTRAP_ENTRY-unset}\"\necho \"VERIFY=${COSMIC_BOOTSTRAP_VERIFY-unset}\"\n", 0x1ed))
+  local printed, ok = ran(tmp, { "/bin/sh", root .. "/bin/cosmic-bootstrap" }, reporter, {})
+  assert(ok, printed)
+  local entry = printed:gsub("\n$", "")
+  local out, run_ok = ran(tmp, { entry }, nil, { "x" })
+  assert(run_ok and out == "COSMIC_BOOTSTRAP=unset\nENTRY=unset\nVERIFY=unset\n", out)
+  -- Nor does it drop what the caller set, COSMIC_BOOTSTRAP_VERIFY included.
+  out, run_ok = ran(tmp, { entry }, nil, { "x" }, { COSMIC_BOOTSTRAP_VERIFY = "1" })
+  assert(run_ok and out == "COSMIC_BOOTSTRAP=unset\nENTRY=unset\nVERIFY=1\n", out)
+  -- What the caller set stays, as it does for a release run through the wrapper.
+  out, run_ok = ran(tmp, { entry }, "/given", { "x" })
+  assert(run_ok and out == "COSMIC_BOOTSTRAP=/given\nENTRY=unset\nVERIFY=unset\n", out)
 end
 
 local function test_driver_records_success_failures_timeout_and_interruption(tmp: string)
@@ -446,10 +607,11 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   end
 
   -- Inside the candidate, so the boundary check fires on the resolved
-  -- target, but under its gitignored ci/o so a regression can only
-  -- ever touch a throwaway file.
-  local sentinel = candidate .. "/ci/o/sentinel.db"
-  assert(Fs.mkdirs(candidate .. "/ci/o") and Fs.write(sentinel, "sentinel"))
+  -- target, but in a hidden directory of its own, taken out after, so a
+  -- regression can only ever touch a throwaway file.
+  local inside = assert(sys.mkdtemp(candidate .. "/ci/.sentinel.XXXXXX"))
+  local sentinel = inside .. "/sentinel.db"
+  assert(Fs.write(sentinel, "sentinel"))
   local before = Hash.hex_sha256((assert(Fs.read(sentinel))))
   local symlink_runner_temp = tmp .. "/symlink-runner-temp"
   assert(Fs.mkdirs(symlink_runner_temp .. "/cosmic-ci"))
@@ -461,6 +623,7 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   assert(not linked.ok, "symlink operation database was accepted")
   assert(Hash.hex_sha256((assert(Fs.read(sentinel)))) == before,
     "rejected symlink changed its target")
+  assert(Fs.remove_tree(inside))
 end
 
 -- `summarize` runs `if: always()`, including after a failed checkout or a
@@ -498,17 +661,17 @@ local function test_driver_answers_help_and_refuses_an_unknown_command(tmp: stri
   local one = call({ runner, driver, "run", "--help" }, project, tmp .. "/run-help.out", env,
     driver_timeout)
   local run_help = assert(Fs.read(tmp .. "/run-help.out"))
-  assert(one.code == 0 and run_help:find("driver.tl run PHASE TIMEOUT_NS -- EXECUTABLE", 1, true),
+  assert(one.code == 0 and run_help:find("driver.tl run PHASE TIMEOUT_NS -- EXECUTABLE", 1, true) ~= nil,
     run_help)
   local refused = call({ runner, driver, "platfrom" }, project, tmp .. "/unknown.out", env,
     driver_timeout)
   local why = assert(Fs.read(tmp .. "/unknown.out"))
-  assert(refused.code == 2 and why:find("no such command: platfrom", 1, true), why)
+  assert(refused.code == 2 and why:find("no such command: platfrom", 1, true) ~= nil, why)
   -- The form without "--" is refused with the usage that shows where it
   -- goes.
   local old = call({ runner, driver, "run", "p", "100", "/bin/sh", "-c", "exit 0" }, project,
     tmp .. "/old-run.out", env, driver_timeout)
   local told = assert(Fs.read(tmp .. "/old-run.out"))
-  assert(old.code == 2 and told:find("usage: driver.tl run PHASE TIMEOUT_NS -- EXECUTABLE", 1, true),
+  assert(old.code == 2 and told:find("usage: driver.tl run PHASE TIMEOUT_NS -- EXECUTABLE", 1, true) ~= nil,
     told)
 end

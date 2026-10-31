@@ -14,16 +14,16 @@ local codec = require("build.codec")
 local String = require("cosmic.string")
 
 local record Ran
-  code: integer
-  out: string
-  err: string
+  mut code: integer
+  mut out: string
+  mut err: string
 end
 
 --- One run: `words` after `cosmic codec`, and `stdin` standing in for
 --- standard input.
 local function run(words: {string}, stdin?: string): Ran
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "codec" }
-  for index, word in ipairs(words) do argv[index + 1] = word end
+  local argv: mut {string} = { "codec" }
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = codec.run(argv, {
     out = function(text: string): boolean, string
@@ -31,7 +31,7 @@ local function run(words: {string}, stdin?: string): Ran
       return true, ""
     end,
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
-    stdin = function(): string | nil, string
+    stdin = function(): string?, string
       if stdin == nil then return nil, "no standard input in this test" end
       return stdin, ""
     end,
@@ -78,7 +78,7 @@ local function test_a_file_and_dash_are_read(tmp: string)
   assert(run({ "base64", path }).out == "Zm9vYmFy\n")
   assert(run({ "base64", "-" }, "foobar").out == "Zm9vYmFy\n")
   local missing = run({ "base64", tmp .. "/nope" })
-  assert(missing.code == 2 and missing.out == "" and missing.err:find("^cosmic: codec: "), missing.err)
+  assert(missing.code == 2 and missing.out == "" and missing.err:find("^cosmic: codec: ") ~= nil, missing.err)
 end
 
 local function test_wrap_breaks_lines_and_defaults_to_none()
@@ -169,16 +169,16 @@ end
 
 local function test_a_failed_write_exits_2_and_says_so()
   for _, words in ipairs({ { "hex" }, { "base64", "-d" } } as {{string}}) do
-    local complaints = ""
-    local argv: {integer:string} = { [0] = "cosmic", [1] = "codec" }
-    for index, word in ipairs(words) do argv[index + 1] = word end
+    local complaints = { value = "" }
+    local argv: mut {string} = { "codec" }
+    for _, word in ipairs(words) do argv[#argv + 1] = word end
     local code = codec.run(argv, {
       out = function(_: string): boolean, string return false, "No space left on device" end,
-      err = function(line: string) complaints = complaints .. line .. "\n" end,
-      stdin = function(): string | nil, string return "Zm9v", "" end,
+      err = function(line: string) complaints.value = complaints.value .. line .. "\n" end,
+      stdin = function(): string?, string return "Zm9v", "" end,
     })
     assert(code == 2, code)
-    assert(complaints == "cosmic: codec: standard output: No space left on device\n", complaints)
+    assert(complaints.value == "cosmic: codec: standard output: No space left on device\n", complaints.value)
   end
 end
 
@@ -190,11 +190,11 @@ end
 --- rest.
 local function stream(words: {string}, chunk: string, rounds: integer, expect: string, newline: boolean):
     integer, boolean, number, number
-  local sent = 0
+  local sent = { value = 0 }
   local input: Stream.Reader = {}
-  input.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
-    if sent == rounds then return nil, "" end
-    sent = sent + 1
+  input.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
+    if sent.value == rounds then return nil, "" end
+    sent.value = sent.value + 1
     return chunk, ""
   end
   input.close = function(_self: Stream.Reader): boolean, string
@@ -203,30 +203,36 @@ local function stream(words: {string}, chunk: string, rounds: integer, expect: s
   collectgarbage()
   collectgarbage()
   local base = collectgarbage("count")
-  local written, writes = 0, 0
-  local early, late = 0.0, 0.0
-  local same = true
+  local written = { value = 0 }
+  local writes = { value = 0 }
+  local early = { value = 0.0 }
+  local late = { value = 0.0 }
+  local same = { value = true }
   local repeated = expect:rep(2)
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "codec" }
-  for index, word in ipairs(words) do argv[index + 1] = word end
+  local argv: mut {string} = { "codec" }
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local code = codec.run(argv, {
-    input = function(): Stream.Reader | nil, string return input, "" end,
+    input = function(): Stream.Reader?, string return input, "" end,
     out = function(text: string): boolean, string
       local body = text
       if newline and body:sub(-1) == "\n" then body = body:sub(1, -2) end
-      local from = written % #expect
-      if repeated:sub(from + 1, from + #body) ~= body then same = false end
-      written = written + #body
-      writes = writes + 1
+      local from = written.value % #expect
+      if repeated:sub(from + 1, from + #body) ~= body then same.value = false end
+      written.value = written.value + #body
+      writes.value = writes.value + 1
       collectgarbage()
       local grown = collectgarbage("count") - base
-      if writes <= 4 then early = math.max(early, grown) else late = math.max(late, grown) end
+      if writes.value <= 4 then
+        early.value = math.max(early.value, grown)
+      else
+        late.value = math.max(late.value, grown)
+      end
       return true, ""
     end,
     err = function(line: string) error(line) end,
   })
   assert(code == 0, code)
-  return written, same, early, late
+  return written.value, same.value, early.value, late.value
 end
 
 local function test_a_large_stream_is_coded_in_bounded_memory()
@@ -252,7 +258,7 @@ local function test_a_fault_past_the_first_chunk_names_its_offset_in_the_input()
   local text = string.rep("Zm9v\n", 30000) .. "Zm-v\n"
   local at = #text - 3 -- the "-", 0-based
   local ran = run({ "base64", "-d" }, text)
-  assert(ran.code == 2 and ran.err:find(("byte 0x2d at offset %d is not in the base64 alphabet"):format(at), 1, true),
+  assert(ran.code == 2 and ran.err:find(("byte 0x2d at offset %d is not in the base64 alphabet"):format(at), 1, true) ~= nil,
     ran.err)
   -- What was decoded before the fault, less the chunk it lies in, was written.
   assert(#ran.out > 0 and ran.out == ("foo"):rep(#ran.out // 3), #ran.out)
@@ -265,13 +271,14 @@ end
 --- A Reader that gives `text` a few bytes a read, one to four in turn,
 --- as a pipe does.
 local function trickle(text: string): Stream.Reader
-  local at, turn = 1, 0
+  local at = { value = 1 }
+  local turn = { value = 0 }
   local reader: Stream.Reader = {}
-  reader.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
-    if at > #text then return nil, "" end
-    turn = turn % 4 + 1
-    local piece = text:sub(at, at + math.min(turn, max_bytes or turn) - 1)
-    at = at + #piece
+  reader.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+    if at.value > #text then return nil, "" end
+    turn.value = turn.value % 4 + 1
+    local piece = text:sub(at.value, at.value + math.min(turn.value, max_bytes or turn.value) - 1)
+    at.value = at.value + #piece
     return piece, ""
   end
   reader.close = function(_self: Stream.Reader): boolean, string
@@ -281,11 +288,11 @@ local function trickle(text: string): Stream.Reader
 end
 
 local function run_trickled(words: {string}, text: string): Ran
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "codec" }
-  for index, word in ipairs(words) do argv[index + 1] = word end
+  local argv: mut {string} = { "codec" }
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = codec.run(argv, {
-    input = function(): Stream.Reader | nil, string return trickle(text), "" end,
+    input = function(): Stream.Reader?, string return trickle(text), "" end,
     out = function(text_out: string): boolean, string
       ran.out = ran.out .. text_out
       return true, ""
@@ -300,7 +307,7 @@ local function test_short_reads_do_not_release_what_a_refusal_would_take_back()
   local refused = run_trickled({ "base64", "-d" }, "QUJDREVG!!!!")
   assert(refused.code == 2 and refused.out == "", refused.out)
   local short = run_trickled({ "base64", "-d" }, "QUJDREVGR")
-  assert(short.code == 2 and short.out == "" and short.err:find("length 9", 1, true), short.out .. short.err)
+  assert(short.code == 2 and short.out == "" and short.err:find("length 9", 1, true) ~= nil, short.out .. short.err)
   local fine = run_trickled({ "base64", "-d" }, "QUJD REVG\nR0hJ")
   assert(fine.code == 0 and fine.out == "ABCDEFGHI", fine.err)
   local encoded = run_trickled({ "hex", "--wrap", "4" }, "hello")
@@ -308,23 +315,23 @@ local function test_short_reads_do_not_release_what_a_refusal_would_take_back()
 end
 
 local function test_an_encoder_writes_as_it_reads_but_a_decoder_holds_a_chunk()
-  local writes = 0
-  local sent = 0
+  local writes = { value = 0 }
+  local sent = { value = 0 }
   local input: Stream.Reader = {}
-  input.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
-    if sent == 3 then return nil, "" end
-    sent = sent + 1
+  input.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+    if sent.value == 3 then return nil, "" end
+    sent.value = sent.value + 1
     return ("a"):rep(max_bytes or 1), ""
   end
   input.close = function(_self: Stream.Reader): boolean, string
     return true, ""
   end
-  local seen: {integer} = {}
-  local code = codec.run({ [0] = "cosmic", [1] = "codec", [2] = "hex" }, {
-    input = function(): Stream.Reader | nil, string return input, "" end,
+  local seen: mut {integer} = {}
+  local code = codec.run({ "codec", "hex" }, {
+    input = function(): Stream.Reader?, string return input, "" end,
     out = function(_text: string): boolean, string
-      writes = writes + 1
-      seen[#seen + 1] = sent
+      writes.value = writes.value + 1
+      seen[#seen + 1] = sent.value
       return true, ""
     end,
     err = function(line: string) error(line) end,
@@ -335,18 +342,18 @@ local function test_an_encoder_writes_as_it_reads_but_a_decoder_holds_a_chunk()
 end
 
 local function test_no_input_given_is_an_error_not_a_crash()
-  local complaint = ""
-  local code = codec.run({ [0] = "cosmic", [1] = "codec", [2] = "hex" }, {
+  local complaint = { value = "" }
+  local code = codec.run({ "codec", "hex" }, {
     out = function(_text: string): boolean, string return true, "" end,
-    err = function(line: string) complaint = line end,
+    err = function(line: string) complaint.value = line end,
   })
-  assert(code == 2 and complaint:find("^cosmic: codec: "), complaint)
+  assert(code == 2 and complaint.value:find("^cosmic: codec: "), complaint.value)
 end
 
 local NAMES <const>: {codec.Name} = { "hex", "base64", "base64url" }
 
 --- The whole-string decoder for each encoding.
-local function whole_decode(name: codec.Name, text: string): string | nil, string
+local function whole_decode(name: codec.Name, text: string): string?, string
   if name == "hex" then return Codec.unhex(text) end
   if name == "base64" then return Codec.unbase64(text) end
   return Codec.unbase64url(text)
@@ -360,8 +367,8 @@ end
 
 --- What `coder` answers to `pieces` in turn and then `finish`: the
 --- output joined, or nil and the reason.
-local function through(coder: codec.Coder, pieces: {string}): string | nil, string
-  local out: {string} = {}
+local function through(coder: codec.Coder, pieces: {string}): string?, string
+  local out: mut {string} = {}
   for _, piece in ipairs(pieces) do
     local part, why = coder:update(piece)
     assert(part ~= nil, "update refused: " .. why)
@@ -375,7 +382,7 @@ end
 
 --- `s` cut into pieces of `size` bytes, the last one shorter.
 local function pieces_of(s: string, size: integer): {string}
-  local pieces: {string} = {}
+  local pieces: mut {string} = {}
   for first = 1, #s, size do pieces[#pieces + 1] = s:sub(first, first + size - 1) end
   return pieces
 end
@@ -383,7 +390,7 @@ end
 --- Every way of cutting `s` in two (empty halves included), and into
 --- pieces of each size up to three, as lists of pieces.
 local function cuts(s: string): {{string}}
-  local all: {{string}} = {}
+  local all: mut {{string}} = {}
   for at = 0, #s do all[#all + 1] = { s:sub(1, at), s:sub(at + 1) } end
   for size = 1, 3 do all[#all + 1] = pieces_of(s, size) end
   return all
@@ -465,13 +472,13 @@ local function test_a_finished_coder_raises_and_an_unknown_name_is_refused()
   for _, make in ipairs({ codec.encoder, codec.decoder }) do
     local c = make("base64")
     assert(c:update("") == "" and c:finish() == "")
-    assert(not pcall(c.update, c, "x"))
-    assert(not pcall(c.finish, c))
+    assert(not pcall(function() c:update("x") end))
+    assert(not pcall(function() c:finish() end))
   end
   local bad = codec.decoder("hex")
   assert(bad:update("z") == "")
   assert(bad:finish() == nil)
-  assert(not pcall(bad.finish, bad))
+  assert(not pcall(function() bad:finish() end))
   assert(not pcall(codec.encoder, "base32" as codec.Name))
   assert(not pcall(codec.decoder, "base32" as codec.Name))
 end
@@ -479,7 +486,7 @@ end
 local function test_a_long_stream_takes_bounded_memory()
   local block = {} as {integer}
   for i = 1, 65536 do block[i] = (i * 131 + (i >> 8)) & 255 end
-  local pieces: {string} = {}
+  local pieces: mut {string} = {}
   for first = 1, #block, 4096 do
     pieces[#pieces + 1] = string.char(table.unpack(block, first, first + 4095))
   end
@@ -494,29 +501,29 @@ local function test_a_long_stream_takes_bounded_memory()
     -- The peak growth (KiB) of live memory over the first `warm` chunks, and over the
     -- rest: a coder that kept what it saw would climb the whole way.
     local early, late = 0.0, 0.0
-    local held = ""
-    local matched = 0
+    local held = { value = "" }
+    local matched = { value = 0 }
     local function drain()
-      while #held >= #chunk do
-        assert(String.starts_with(held, chunk), name)
-        held = held:sub(#chunk + 1)
-        matched = matched + 1
+      while #held.value >= #chunk do
+        assert(String.starts_with(held.value, chunk), name)
+        held.value = held.value:sub(#chunk + 1)
+        matched.value = matched.value + 1
       end
     end
     -- The decoder is fed what the encoder writes, and its output is
     -- compared with what went in, a chunk at a time and not kept.
     for round = 1, rounds do
       local text = assert(enc:update(chunk))
-      held = held .. assert(dec:update(text))
+      held.value = held.value .. assert(dec:update(text))
       drain()
       collectgarbage()
       local grown = collectgarbage("count") - base
       if round <= warm then early = math.max(early, grown) else late = math.max(late, grown) end
     end
     local text = assert(enc:finish())
-    held = held .. assert(dec:update(text)) .. assert(dec:finish())
+    held.value = held.value .. assert(dec:update(text)) .. assert(dec:finish())
     drain()
-    assert(held == "" and matched == rounds, name)
+    assert(held.value == "" and matched.value == rounds, name)
     assert(early < 128 and late < early + 64,
       ("%s grew %.0f KiB, then %.0f KiB, over %d KiB of input"):format(
         name, early, late, #chunk * rounds // 1024))

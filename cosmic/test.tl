@@ -28,10 +28,11 @@
 --- test that starts a host program declares `system = true`.
 ---
 --- The closure is what the build finds `require`d by a literal name,
---- anywhere in the module and in each it requires. Under `cosmic test`,
---- a `require` of any other module of the tree -- a name computed, or
---- handed to `pcall(require, ...)` -- fails, naming the module: require
---- it statically, at the top level. The modules the core itself
+--- or handed to `pcall(require, "<name>")`, anywhere in the module and
+--- in each it requires. A name that is computed is refused when the
+--- module is compiled; under `cosmic test`, a `require` of any other
+--- module of the tree that gets past that (a `require` held in a
+--- variable) fails, naming the module: require it by its literal name. The modules the core itself
 --- carries, which no file of the tree is, load as ever.
 ---
 --- The build reads the declaration from the source, without running
@@ -76,7 +77,7 @@ local record Test
   record Needs
     --- Paths of the tree, relative to its root, each a file or a
     --- directory and everything beneath it.
-    reads: {string}
+    reads?: {string}
     --- Absolute paths outside the tree, each a file of the host's -- or
     --- /proc, or a path beneath it, which every worker is given and no
     --- key could hold by what it holds. A directory is refused: one
@@ -84,9 +85,9 @@ local record Test
     --- that is a directory on the host fails each test of the module,
     --- naming it, as does a path that is the tree's, or above it.
     --- Declare the files the tests read.
-    host: {string}
+    host?: {string}
     --- Environment variables beyond the pinned ones.
-    env: {string}
+    env?: {string}
     --- The loopback addresses the tests reach, each a dotted quad of
     --- 127/8, `127.a.b.c`, as a request names it: a sandboxed worker
     --- runs offline, with a loopback of its own that answers them, and
@@ -97,15 +98,15 @@ local record Test
     --- sets up IPv6 -- and a spelling no request's host is (a port,
     --- brackets, a leading zero) are refused, naming this rule, as the
     --- build refuses them before the module runs.
-    network: {string}
+    network?: {string}
     --- What the tests need of the host, as `requires` of [`Policy`]
     --- says.
-    requires: {string}
-    --- Whether the tests read the tool itself, `o/bin/cosmic`, or the
+    requires?: {string}
+    --- Whether the tests read the tool itself, in the build directory, or the
     --- program running them, or start either: it gives them the program
     --- and nothing else -- not the store beyond their closure (`store`),
     --- nor a root of their own for what they start (`nests`).
-    tool: boolean
+    tool?: boolean
     --- Whether the tests start this program only to run Lua in it: a
     --- `-e` chunk, past its launcher or by [`Proc.relaunch`] -- and a
     --- file `--standalone` too, where the test module requires at its top
@@ -126,7 +127,7 @@ local record Test
     --- program carries is not held to the closure. It is refused beside
     --- `tool`, `store`, `system` or `caches`: a host program, or a cosmic
     --- a cache holds, could start a program of its own.
-    lua: boolean
+    lua?: boolean
     --- Whether the tests confine a process in a root of its own: a
     --- `sandbox` that unveils ([`cosmic.child`]), or a `cosmic test` they
     --- start whose workers are sandboxed. A sandboxed worker whose
@@ -138,26 +139,27 @@ local record Test
     --- Linux sandbox -- on macOS, or with COSMIC_TEST_SANDBOX=0 -- no
     --- worker is held, so a test that
     --- confines without it passes there and fails on a Linux leg.
-    nests: boolean
+    nests?: boolean
     --- Requests private writable scratch at COSMIC_TEST_NOEXEC whose
     --- files cannot execute. Ordinary scratch is unchanged. Reading,
     --- interpreting or copying the bytes elsewhere remains possible.
     --- Unsupported hosts skip these tests; a held-sandbox run fails them.
-    noexec: boolean
-    --- Whether the tests read the tree's projection, `o/cosmic.db`, or
+    noexec?: boolean
+    --- Whether the tests read the tree's projection, `cosmic.db` in its
+    --- build directory (`o/cosmic.db`, as a grant names it), or
     --- the rows of modules of the tree outside their import closure.
-    --- Without it, a sandboxed worker is given at o/cosmic.db the store
+    --- Without it, a sandboxed worker is given there the store
     --- of its module's import closure alone, which its key holds, and a
     --- `require` reaches only that closure; unsandboxed, the worker
     --- attaches that store in the projection's place, though what it
-    --- starts reads o/cosmic.db. A test that type-checks a snippet reads
+    --- starts reads the projection. A test that type-checks a snippet reads
     --- `cosmic.*` sources and declarations from that store: a module the
     --- snippet requires goes in the test's closure
     --- (`local type _ = require(...)`), or the test declares `store`.
     --- `tool` lets a test start the program, but not read its database
     --- through the descriptor a portable start keeps on it: that read is
     --- refused, whatever the test declares.
-    store: boolean
+    store?: boolean
     -- The descriptor is refused by core/check.h's `cosmic_checkfd`, and a
     -- sandboxed worker that does not declare `tool` has no name to open the
     -- program by.
@@ -173,10 +175,10 @@ local record Test
     --- stood on one host stands on another of the same kernel and
     --- processor. A test that starts this program's core directly, past
     --- its launcher, needs none; one that runs the launcher itself
-    --- (o/bin/cosmic, `#!/bin/sh`) needs it. One that reads a file or two
+    --- (a `#!/bin/sh` script) needs it. One that reads a file or two
     --- of the system rather names them in `host`, which keys a file by
     --- its contents.
-    system: boolean
+    system?: boolean
     --- Host caches the tests, or the processes they start, write, by
     --- name: `"zig"` (the pinned zig, and zig's global and project
     --- caches) or `"bootstrap"` (the bootstrap cosmic, and the cores a
@@ -187,32 +189,41 @@ local record Test
     --- verdict's key. A sandboxed
     --- worker has each writable at its own path, with the variables that
     --- locate it.
-    caches: {string}
+    caches?: {string}
+    --- Files of the project root's parent directory the tests read, each
+    --- a path relative to that directory of plain names (none empty, `.` or
+    --- `..`, and no `$` anywhere) with no trailing "/": for a project that lives in a directory of
+    --- another (the CI driver's `ci/`) and reads that tree's files. A
+    --- sandboxed worker has each, read-only, at its fixed place beside
+    --- /tree ([`Test.parent`] names it), and its key holds the file's
+    --- contents and its relative path, never where the project is. A file
+    --- the host lacks fails the module's tests.
+    parent?: {string}
   end
 
   --- One path a test may reach, and how: [`cosmic.sandbox`]'s [`Grant`].
   record Grant
     --- A path of the tree, relative to its root (the worker's directory),
     --- or an absolute path of the host's.
-    path: string
+    path?: string
     --- What the test may do there: letters of "rwxcu". Only "r" takes
     --- effect so far.
-    letters: string
+    letters?: string
     --- The host's path where it differs from `path`. Not yet taken.
-    from: string
+    from?: string
   end
 
   --- The resource limits of a policy: [`cosmic.sandbox`]'s [`Limits`]. None
   --- is taken yet.
   record Limits
     --- The most descriptors a process may hold open.
-    open_files: integer
+    open_files?: integer
     --- The most bytes a process may write to one file.
-    file_bytes: integer
+    file_bytes?: integer
     --- The CPU seconds a process may spend.
-    cpu_seconds: integer
+    cpu_seconds?: integer
     --- The most processes and threads of the whole sandbox.
-    processes: integer
+    processes?: integer
   end
 
   --- What the tests of one module are held to: the fields of
@@ -221,40 +232,43 @@ local record Test
   --- cosmic.sandbox -- every worker would load it -- so the record is
   --- written out here, and a test holds it to the same fields.
   record Policy
-    --- Named policies to join in: "system" (`system` of [`Needs`]) and
-    --- "cosmic" (`lua`; `tool` with the grant of o/bin beside it).
-    profiles: {string}
+    --- Named policies to join in: "system" (`system` of [`Needs`]),
+    --- "cosmic" (`lua`; `tool` with the grant of o/bin beside it) and
+    --- "proc" (the host path /proc, read, in `host` of [`Needs`]: the
+    --- kernel's process information, every process's entries).
+    profiles?: {string}
     --- The paths the tests read: a grant of "r" on a path of the tree is
     --- a read of it, on an absolute path a host file.
-    grants: {Grant}
+    grants?: {Grant}
     --- How far the worker is isolated. Not yet taken.
-    isolate: {string}
+    isolate?: {string}
     --- What the tests may do beyond their basics: "nest" is `nests`;
     --- "fork", "jit" and "fattr" are accepted and change nothing yet.
-    promises: {string}
+    promises?: {string}
     --- The hosts the tests reach. Refused: no test reaches a host but
     --- loopback.
-    connect: {string}
+    connect?: {string}
     --- The loopback addresses the tests reach: `network` of [`Needs`].
-    loopback: {string}
+    loopback?: {string}
     --- The variables passed through: `env` of [`Needs`].
-    env: {string}
+    env?: {string}
     --- The variables set, by name. Not yet taken.
-    set_env: {string:string}
+    set_env?: {string:string}
     --- Digests of values set. Refused: a digest holds no value to set.
-    set_env_digests: {string:string}
+    set_env_digests?: {string:string}
     --- Whether the tests have a temporary directory of their own, as
     --- every test has: `false` is not yet taken.
-    tmp: boolean
+    tmp?: boolean
     --- The resources the tests may spend. Not yet taken.
-    limits: Limits
+    limits?: Limits
     --- The user the tests run as. Refused: the harness chooses a worker's.
-    user: integer
+    user?: integer
     --- The group the tests run as. Refused, as `user` is.
-    group: integer
-    --- The database the tests' program runs on. Refused: no worker runs
-    --- on one yet.
-    database: string
+    group?: integer
+    --- The database the tests' program runs on. Refused: the harness
+    --- chooses it (a sealed one of the closure, or the program's whole for
+    --- `store` and `tool`).
+    database?: string
     --- What the tests need of the host that no other field says, by name
     --- from a closed table: `portable`, `root`, `unix_socket` (Unix stream
     --- socket creation), `path:<absolute path>` and
@@ -267,7 +281,7 @@ local record Test
     --- fails the build. A `path:` needs a `host` grant of that
     --- path and a `program:` the profile "system" and the variable PATH in
     --- `env`, so the worker can see what the runner found.
-    requires: {string}
+    requires?: {string}
   end
 end
 
@@ -287,8 +301,15 @@ local function runner_in(module: any): {string:any}
   return nil
 end
 
---- Where the one `policy` call came from, once it has come.
-local called_at: string = nil
+local record Declared
+  --- The files of the parent directory this module's policy declared
+  --- ([`Needs.parent`]), by their relative paths.
+  mut parents: mut {string:boolean}
+  --- Where the one `policy` call came from, once it has come.
+  mut called_at?: string
+end
+
+local declared: Declared = { parents = {} }
 
 --- Where `policy` was called from, as the chunk and line a
 --- traceback names -- its frame four up: this, `declare`, the call, its
@@ -306,11 +327,14 @@ local function declare(needs: Test.Needs)
   if installed ~= nil and installed.loaded == true then
     error("test: policy is called at the top of a test module, while it loads", 3)
   end
+  local called_at = declared.called_at
   if called_at ~= nil then
     error("test: policy is called once, and " .. called_at .. " called it already; " ..
         "a test module never requires another that calls it", 3)
   end
-  called_at = caller()
+  declared.called_at = caller()
+  declared.parents = {}
+  for _, relative in ipairs(needs.parent or {}) do declared.parents[relative] = true end
   local handed = installed ~= nil and installed.handed or nil
   if handed is function(Test.Needs) then handed(needs) end
 end
@@ -344,6 +368,14 @@ local NOT_YET <const> = "is not yet taken: a worker is held to, and a key made o
 --- cache written at its own name. [`Test.needs_of`] and the build's read
 --- of a policy both take them as the field, and refuse other letters or
 --- a `from` on their paths.
+---
+--- `o/` in a grant is a name of the policy language for the tree's build
+--- directory, not a path in the tree: the harness gives what it names
+--- from wherever build/paths.tl puts that directory, the sandbox at its
+--- own fixed place. It stays `o/` for good: every module that declares
+--- `store` or `tool` spells it, and every verdict key holds it, so
+--- another name would move every such key and every such declaration for
+--- no change in what a test is given.
 local STORE_PATH <const> = "o/cosmic.db"
 local NOEXEC_PATH <const> = "/noexec"
 local STORE_FORM <const> = ".path o/cosmic.db is the store, granted " ..
@@ -352,6 +384,24 @@ local NOEXEC_FORM <const> = ".path /noexec is the private scratch the harness gi
   "granted { path = \"/noexec\", letters = \"rwc\" }: writable, never executable, with no from"
 local CACHE_FORM <const> = ".path /cache/<name> is a host cache, granted " ..
   "{ path = \"/cache/<name>\", letters = \"rwxc\" } with no from"
+local PARENT_FORM <const> = ".path /parent/<file> is a file of the project root's parent " ..
+  "directory, granted { path = \"/parent/<file>\", letters = \"r\" } with no from"
+
+--- Why `relative`, the part of a `/parent/` grant after the prefix, names no
+--- file of the parent directory a grant may hold, or "": it is a plain
+--- relative path of files, with no empty, `.` or `..` name, no `$`, no
+--- trailing "/" and no NUL.
+local function parent_fault(relative: string): string
+  if relative == "" then return "names no file" end
+  if relative:find("\0", 1, true) then return "holds a NUL" end
+  if relative:find("$", 1, true) then return "holds a $" end
+  if relative:sub(-1) == "/" then return "ends in a \"/\": it names a file, not a directory" end
+  for name in (relative .. "/"):gmatch("([^/]*)/") do
+    if name == "" then return "has an empty name" end
+    if name == "." or name == ".." then return "has a \"" .. name .. "\" name" end
+  end
+  return ""
+end
 
 --- The grant that turns the profile "cosmic" from `lua` into `tool`: the
 --- directory o/bin the program is in, read and run.
@@ -369,8 +419,9 @@ local LUA_FIX <const> = "; grant { path = \"o/bin\", letters = \"rx\" } beside t
 
 --- The profiles a policy joins in, and the flag each stands for: "system"
 --- is `system`; "cosmic" is `lua`, the program run from an artifact of the module's closure,
---- and `tool`, the program itself, where the grant of o/bin is made beside.
-local PROFILE_FLAGS <const>: {string:string} = { system = "system", cosmic = "cosmic" }
+--- and `tool`, the program itself, where the grant of o/bin is made beside;
+--- "proc" is the host path /proc, as the grant of it by hand is.
+local PROFILE_FLAGS <const>: {string:string} = { system = "system", cosmic = "cosmic", proc = "proc" }
 
 --- The promises a policy makes, and whether one has a `needs` field.
 local PROMISE_FIELDS <const>: {string:string} = {
@@ -378,25 +429,34 @@ local PROMISE_FIELDS <const>: {string:string} = {
 }
 
 --- `value` as a list of strings, or nil and why, naming `field`.
-local function strings_of(field: string, value: any): {string} | nil, string
-  local out: {string} = {}
+local function strings_of(field: string, value: any): {string}?, string
+  local out: mut {string} = {}
   if value is {any:any} then
     local count = 0
+    local held: mut {integer:string} = {}
     for i, item in pairs(value) do
       if not (i is integer and item is string) then
         return nil, field .. " takes a list of strings"
       end
       count = count + 1
-      out[i] = item
+      held[i] = item
     end
-    if count == #out then return out, "" end
+    -- A list holds the keys 1 to its count and no others.
+    for i = 1, count do
+      local item = held[i]
+      if item == nil then
+        return nil, field .. " takes a list of strings"
+      end
+      out[#out + 1] = item
+    end
+    return out, ""
   end
   return nil, field .. " takes a list of strings"
 end
 
 --- `value` as a table of names to strings, or nil and why, naming `field`.
-local function names_of(field: string, value: any): {string:string} | nil, string
-  local out: {string:string} = {}
+local function names_of(field: string, value: any): {string:string}?, string
+  local out: mut {string:string} = {}
   if value is {any:any} then
     for k, v in pairs(value) do
       if not (k is string and v is string) then
@@ -410,11 +470,11 @@ local function names_of(field: string, value: any): {string:string} | nil, strin
 end
 
 --- `value` as a [`Policy`]'s grants, or nil and why.
-local function grants_of(value: any): {Test.Grant} | nil, string
-  local out: {Test.Grant} = {}
+local function grants_of(value: any): {Test.Grant}?, string
+  local out: mut {Test.Grant} = {}
   if not value is {any} then return nil, "grants takes a list of grants" end
   for i, given in ipairs(value) do
-    local at = "grants[" .. i .. "]"
+    local at = "grants[" .. tostring(i) .. "]"
     if not given is {any:any} then return nil, at .. " takes a table" end
     local grant: Test.Grant = {}
     for key, field in pairs(given) do
@@ -436,11 +496,11 @@ local function grants_of(value: any): {Test.Grant} | nil, string
 end
 
 --- `value` as a [`Policy`]'s limits, or nil and why.
-local function limits_of(value: any): Test.Limits | nil, string
+local function limits_of(value: any): Test.Limits?, string
   local out: Test.Limits = {}
   if value is {any:any} then
     for key, field in pairs(value) do
-      if not (key is string and LIMIT_FIELDS[key] and field is integer) then
+      if not (key is string and LIMIT_FIELDS[key] == true and field is integer) then
         return nil, "limits takes open_files, file_bytes, cpu_seconds and processes, " ..
           "each an integer"
       end
@@ -461,7 +521,7 @@ end
 
 --- What was handed to `policy` as a [`Policy`], or nil and why, naming
 --- the field.
-local function policy_of(given: any): Test.Policy | nil, string
+local function policy_of(given: any): Test.Policy?, string
   if not given is {any:any} then
     return nil, "takes a table, got " .. type(given)
   end
@@ -540,30 +600,32 @@ end
 --- @param given any What `policy` was handed, or the build read of it
 --- @return Needs|nil The `needs` it stands for
 --- @return string Why there is none, naming the field
-function Test.needs_of(given: any): Test.Needs | nil, string
+function Test.needs_of(given: any): Test.Needs?, string
   local policy, why = policy_of(given)
   if policy == nil then return nil, why end
   local out: Test.Needs = {}
   local reads: {string} = {}
-  local host: {string} = {}
-  local caches: {string} = {}
-  local flags: {string:boolean} = {}
+  local host: mut {string} = {}
+  local caches: mut {string} = {}
+  local parents: mut {string} = {}
+  local flags: mut {string:boolean} = {}
   local bin = false
   for _, profile in ipairs(policy.profiles or {}) do
     local flag = PROFILE_FLAGS[profile]
     if flag == nil then
-      return nil, "profiles: no profile " .. profile .. "; the profiles are cosmic, system"
+      return nil, "profiles: no profile " .. profile .. "; the profiles are cosmic, proc, system"
     end
     flags[flag] = true
   end
   for i, grant in ipairs(policy.grants or {}) do
-    local at = "grants[" .. i .. "]"
-    local path, letters = grant.path, grant.letters
-    if path == nil or path == "" then return nil, at .. ".path takes a path" end
-    if letters == nil or letters == "" or letters:find("^r?w?x?c?u?$") == nil then
+    local at = "grants[" .. tostring(i) .. "]"
+    local path, letters = grant.path or "", grant.letters or ""
+    if path == "" then return nil, at .. ".path takes a path" end
+    if letters == "" or letters:find("^r?w?x?c?u?$") == nil then
       return nil, at .. ".letters takes letters of rwxcu, in that order"
     end
     local named = path:match("^/cache/(.*)$")
+    local above = path:match("^/parent/(.*)$")
     if path == STORE_PATH then
       if letters ~= "r" or grant.from ~= nil then return nil, at .. STORE_FORM end
       out.store = true
@@ -577,6 +639,11 @@ function Test.needs_of(given: any): Test.Needs | nil, string
       if letters ~= "rwxc" or grant.from ~= nil then return nil, at .. CACHE_FORM end
       if named == "" then return nil, at .. ".path /cache/ names no cache" end
       caches[#caches + 1] = named
+    elseif above ~= nil then
+      if letters ~= "r" or grant.from ~= nil then return nil, at .. PARENT_FORM end
+      local fault = parent_fault(above)
+      if fault ~= "" then return nil, at .. ".path /parent/" .. above .. " " .. fault end
+      parents[#parents + 1] = above
     else
       if grant.from ~= nil then return nil, at .. ".from " .. NOT_YET end
       if letters ~= "r" then
@@ -605,34 +672,38 @@ function Test.needs_of(given: any): Test.Needs | nil, string
     return nil, "connect is refused: no test reaches a host but loopback, whose answer no " ..
       "key holds; declare the addresses in loopback and start the service in the test"
   end
-  -- TODO: take `database` once a module's [`Test.policy`] may name a database
-  -- of its own, whose digest the key then holds: the harness gives every
-  -- worker its own sealed database already, which a module's cannot replace.
+  -- A module's own `database` is a limit decided for good: no test needs
+  -- one, and the only coherent meaning is an overlay on the sealed database
+  -- the harness gives every worker, which the core's `--database` cannot
+  -- layer (doc/roadmap.md holds the shape, should one be wanted).
   if policy.database ~= nil then
-    return nil, "database " .. NOT_YET .. "; a module cannot declare a database of its own yet"
+    return nil, "database is refused: the harness chooses the database a worker runs on " ..
+      "(a sealed one of its closure, or the whole program's for `store` and `tool`)"
   end
   if policy.tmp == false then
     return nil, "tmp = false " .. NOT_YET .. "; every test has a temporary directory today"
   end
   if policy.user ~= nil or policy.group ~= nil then
-    return nil, (policy.user ~= nil and "user" or "group") .. " is refused: the harness " ..
+    return nil, (if policy.user ~= nil then "user" else "group" end) .. " is refused: the harness " ..
       "chooses the user a worker runs as"
   end
-  if bin and not flags.cosmic then
+  if bin and flags.cosmic ~= true then
     return nil, "grants: .path o/bin is the program's directory, " ..
       "granted only beside the profile \"cosmic\"; add the profile, or drop the grant"
   end
-  out.tool = flags.cosmic and bin or nil
-  out.lua = flags.cosmic and not bin or nil
-  if out.lua then
-    local beside = out.store and "o/cosmic.db" or flags.system and "system" or
-      #caches > 0 and "/cache/" .. caches[1] or nil
+  out.tool = if flags.cosmic == true and bin then true else nil end
+  out.lua = if flags.cosmic == true and not bin then true else nil end
+  if out.lua == true then
+    local beside = if out.store == true then "o/cosmic.db" elseif flags.system == true then "system" elseif
+      #caches > 0 then "/cache/" .. caches[1] else nil end
     if beside ~= nil then return nil, LUA_BESIDE .. beside .. LUA_FIX end
   end
   out.system, out.nests = flags.system, flags.nests
+  if flags.proc == true then host[#host + 1] = "/proc" end
   if #reads > 0 then out.reads = reads end
   if #host > 0 then out.host = host end
   if #caches > 0 then out.caches = caches end
+  if #parents > 0 then out.parent = parents end
   for _, name in ipairs(policy.env or {}) do
     if name == "*" then
       return nil, 'env: a policy names each variable it passes through; no wildcard "*" in a policy'
@@ -665,18 +736,23 @@ end
 --- table written out as a literal, once, at the top of the module. A
 --- grant with a path of the tree is a read of it, an absolute
 --- path a read of that host file; the profile "system" is `system`,
---- "cosmic" is `lua`; the promise "nest" is `nests`; `loopback` is
---- `network`. Four grants, written exactly so, are the fields they
+--- "cosmic" is `lua`, "proc" is the host path /proc (the grant
+--- `{ path = "/proc", letters = "r" }`; on macOS, which has no /proc, a host
+--- path not there is given and keyed as none); the promise "nest" is `nests`; `loopback` is
+--- `network`. Five grants, written exactly so, are the fields they
 --- stand for rather than reads: `{ path = "o/cosmic.db", letters = "r" }`
 --- is `store = true`, `{ path = "/noexec", letters = "rwc" }` is
 --- `noexec = true`, `{ path = "/cache/<name>", letters = "rwxc" }`
 --- is `caches = { "<name>" }` for a cache [`Needs.caches`] names (the
---- variables that locate it are passed as they are for `caches`), and
+--- variables that locate it are passed as they are for `caches`),
+--- `{ path = "/parent/<file>", letters = "r" }` is `parent = { "<file>" }`,
+--- a file of the project root's parent directory ([`Test.parent`] says where
+--- the worker reads it), and
 --- `{ path = "o/bin", letters = "rx" }`, the directory the program is in,
 --- makes `tool` of the "cosmic" profile and is refused without it, which
 --- is `lua` without the grant: refused beside the store, the system or
 --- a cache, as `lua` is. Each refuses other letters and a `from`.
---- "/noexec", "/cache/..." and "o/bin" are paths the test harness
+--- "/noexec", "/cache/...", "/parent/..." and "o/bin" are paths the test harness
 --- reserves: no other grant is made at them. What
 --- has no `needs` to stand for -- any other grant to write, run or
 --- connect to, `isolate`, `limits`, `set_env`, `connect` -- fails the
@@ -697,14 +773,47 @@ function Test.policy(policy: Test.Policy)
   declare(needs)
 end
 
+--- Where this worker reads `relative`, a file of the project root's parent
+--- directory that the module's policy declared with a grant
+--- `{ path = "/parent/<relative>", letters = "r" }`: for the project `ci/`
+--- of the main tree, `Test.parent(".github/workflows/ci.yml")` is the main
+--- tree's workflow. A sandboxed worker has it read-only at a fixed place
+--- beside /tree; an unsandboxed one has it in the real parent directory.
+--- Raises for a path the module did not declare, which is a mistake of the
+--- test, and outside a runner, where no parent is given.
+---
+---     local Test = require("cosmic.test")
+---     Test.policy { grants = { { path = "/parent/bin/zig", letters = "r" } } }
+---     local function test_names_the_parents_zig()
+---       local path = Test.parent("bin/zig") -- "/tree-up/bin/zig" sandboxed
+---     end
+--- @param relative the file, as the grant spells it after "/parent/"
+--- @return the path the worker reads it at
+function Test.parent(relative: string): string
+  if not (relative is string) then error("test: parent takes a string", 2) end
+  if declared.parents[relative] ~= true then
+    error(string.format("test: parent(%q) is not declared; grant " ..
+        "{ path = \"/parent/%s\", letters = \"r\" } in Test.policy", relative, relative), 2)
+  end
+  local installed = runner_in(Test)
+  local base = installed ~= nil and installed.parent or nil
+  if not (base is string) then
+    error("test: parent is given by a runner only, and this one gives none", 2)
+  end
+  return base .. "/" .. relative
+end
+
 --- Ends the running test as skipped: this host cannot check what it
 --- exists to check -- a kernel that refuses the sandbox it is about,
---- say -- for `reason`, which the run prints beside its name. It raises
---- a value the runner takes for a skip rather than a failure, so
---- nothing after the call runs, as in
+--- say -- for `reason`, which the run prints beside its name. Under a
+--- runner it raises a value the runner takes for a skip rather than a
+--- failure, so nothing after the call runs; the checker does not know
+--- that, so a `return` follows it where later code needs a value the
+--- skip guards, as in
 ---
 ---     if ruleset == nil then
 ---       Test.skip("no Landlock: " .. trouble)
+---       return
 ---     end
 ---     use(ruleset)
 ---
@@ -726,14 +835,12 @@ end
 --- lacks it, and run, under a key that holds the answer, where it is
 --- present. A test that returns silently for a missing host tool or
 --- platform feature passes having made no call to `assert`, which
---- `cosmic test` lists as having made no call to `assert` and a held run fails. Raises for a reason
---- that is not a string or is empty and, under a runner, for a call as
---- the module loads rather than from a test. Outside a runner it
+--- `cosmic test` lists as having made no call to `assert` and a held run fails. Raises for an
+--- empty reason and, under a runner, for a call as the module loads rather than from a test. Outside a runner it
 --- returns and does nothing: no one there takes what it would raise for
 --- a skip, so a raise would be a failure of a test that only cannot be
 --- checked, and the caller that wants to stop returns itself.
 function Test.skip(reason: string)
-  if not (reason is string) then error("test: skip's reason is not a string", 2) end
   if reason == "" then error("test: skip's reason is empty", 2) end
   local installed = runner_in(Test)
   if installed == nil then return end
@@ -754,11 +861,10 @@ end
 --- held run fails. Unlike a skip it keeps its verdict, since the pass is a
 --- function of what its key holds. Reserved for the fuzz runner, which
 --- `cosmic fix --check .` holds it to; a test that cannot check what it is
---- about skips or declares `requires`. Raises for a reason that is not a
---- string or is empty; outside a runner it does nothing.
+--- about skips or declares `requires`. Raises for an empty
+--- reason; outside a runner it does nothing.
 --- @param reason what the run drew or read that left nothing to check
 function Test.passed_unchecked(reason: string)
-  if not (reason is string) then error("test: passed_unchecked's reason is not a string", 2) end
   if reason == "" then error("test: passed_unchecked's reason is empty", 2) end
   local installed = runner_in(Test)
   if installed == nil then return end

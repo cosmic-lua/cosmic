@@ -48,7 +48,7 @@ local function test_open_detects_a_plain_tar_by_its_ustar_magic(tmp: string)
   local path = tmp .. "/a.tar"
   make_tar(path)
   local entries = assert(Archive.list(path))
-  local by: {string:Archive.Entry} = {}
+  local by: mut {string:Archive.Entry} = {}
   for _, e in ipairs(entries) do by[e.path] = e end
   assert(by["adir/"].kind == "dir")
   assert(by["adir/short.txt"].kind == "file" and by["adir/short.txt"].size == 11)
@@ -59,7 +59,7 @@ local function test_open_detects_a_zip_by_its_local_header_signature(tmp: string
   local path = tmp .. "/a.zip"
   make_zip(path)
   local entries = assert(Archive.list(path))
-  local by: {string:Archive.Entry} = {}
+  local by: mut {string:Archive.Entry} = {}
   for _, e in ipairs(entries) do by[e.path] = e end
   assert(by["adir/"].kind == "dir")
   assert(by["adir/short.txt"].kind == "file" and by["adir/short.txt"].size == 11)
@@ -67,7 +67,7 @@ end
 
 --- The entries of `reader`, by path, and closes it.
 local function walked(reader: Archive.Reader): {string:Archive.Entry}
-  local by: {string:Archive.Entry} = {}
+  local by: mut {string:Archive.Entry} = {}
   while true do
     local e, why = reader:next()
     if e == nil then
@@ -85,9 +85,9 @@ local function test_open_stream_reads_a_plain_tar_from_a_stream_one_byte_at_a_ti
   make_tar(path)
   local bytes = assert(Fs.read(path))
   -- A source that answers a byte per read splits the peek across reads.
-  local at = 1
+  local at: integer = 1
   local source: Stream.Reader = {}
-  source.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
+  source.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
     if at > #bytes then return nil, "" end
     at = at + 1
     return bytes:sub(at - 1, at - 1), ""
@@ -149,7 +149,7 @@ local function test_a_gzip_block_with_no_codes_fails_next_rather_than_spinning(t
   }
   for i, r in ipairs(readers) do
     local e, why = r:next()
-    assert(e == nil and why:find("corrupt compressed data", 1, true) ~= nil, i .. ": " .. why)
+    assert(e == nil and why:find("corrupt compressed data", 1, true) ~= nil, tostring(i) .. ": " .. why)
     r:close()
   end
 end
@@ -208,9 +208,13 @@ local function test_extract_strips_by_a_whole_float(tmp: string)
   local written = assert(Archive.extract(archive, tmp .. "/out", { strip_components = float(1.0) }))
   assert(#written == 2, table.concat(written, ","))
   assert(Fs.read(tmp .. "/out/tool") == "#!/bin/sh\necho hi\n")
-  local refusals: {{integer, string}} = { { float(1.5), "whole number" }, { -1, "negative" } }
+  local record Refusal
+    count: integer
+    says: string
+  end
+  local refusals: {Refusal} = { { count = float(1.5), says = "whole number" }, { count = -1, says = "negative" } }
   for _, refusal in ipairs(refusals) do
-    local count, says = refusal[1], refusal[2]
+    local count, says = refusal.count, refusal.says
     local ok, why = pcall(Archive.extract, archive, tmp .. "/bad", { strip_components = count })
     assert(not ok and tostring(why):find(says, 1, true) ~= nil, tostring(why))
     assert(Fs.exists(tmp .. "/bad") == false)
@@ -611,7 +615,7 @@ local function test_extract_restores_an_mtime_past_2262(tmp: string)
   assert(Archive.extract(archive, dest))
   local far = assert(Fs.stat(dest .. "/far"))
   assert(far.mtime == want.mtime and far.mtime_ns == want.mtime_ns,
-    far.mtime .. "." .. far.mtime_ns .. " ~= " .. want.mtime .. "." .. want.mtime_ns)
+    tostring(far.mtime) .. "." .. tostring(far.mtime_ns) .. " ~= " .. tostring(want.mtime) .. "." .. tostring(want.mtime_ns))
 end
 
 local function test_extract_stops_at_max_entries(tmp: string)
@@ -653,7 +657,7 @@ end
 
 --- Nothing is left in `dir` but `kept`: no file of a refused entry and
 --- no temporary beside where it would have gone.
-local function holds_only(dir: string, kept: {string})
+local function holds_only(dir: string, kept: mut {string})
   local names = assert(Fs.list(dir))
   table.sort(names)
   table.sort(kept)
@@ -712,21 +716,21 @@ end
 --- A reader of one regular file `path` of size `size` as its header says,
 --- whose body answers each `read` with `answer(asked)`.
 local function reader_of_one_file(path: string, size: integer,
-                                  answer: function(integer): string | nil, string): Archive.Reader
+                                  answer: function(integer): string?, string): Archive.Reader
   local entry: Archive.Entry = {
     path = path, kind = "file", mode = 0x1a4, size = size, mtime = 0, linkpath = "",
-    open = function(_self: Archive.Entry): Stream.Reader | nil, string
+    open = function(_self: Archive.Entry): Stream.Reader?, string
       local r: Stream.Reader = {}
-      r.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+      r.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
         return answer(max_bytes or 65536)
       end
       r.close = function(_self: Stream.Reader): boolean, string return true, "" end
-      return r
+      return r, ""
     end,
   }
-  local given = false
+  local given: boolean = false
   return {
-    next = function(_self: Archive.Reader): Archive.Entry | nil, string
+    next = function(_self: Archive.Reader): Archive.Entry?, string
       if given then return nil, "" end
       given = true
       return entry, ""
@@ -736,8 +740,8 @@ local function reader_of_one_file(path: string, size: integer,
 end
 
 local function test_extract_counts_the_bytes_it_writes_not_the_size_a_header_records(tmp: string)
-  local sent = 0
-  local reader = reader_of_one_file("grows", 1, function(asked: integer): string | nil, string
+  local sent: integer = 0
+  local reader = reader_of_one_file("grows", 1, function(asked: integer): string?, string
     sent = sent + asked
     return string.rep("x", asked), ""
   end)
@@ -746,7 +750,7 @@ local function test_extract_counts_the_bytes_it_writes_not_the_size_a_header_rec
   assert(why:find("grows is larger than max_entry_bytes (1000 bytes)", 1, true), why)
   -- A body that answers whatever it is asked is never asked for more than
   -- one byte past the limit.
-  assert(sent <= 1001, "asked for " .. sent .. " bytes")
+  assert(sent <= 1001, "asked for " .. tostring(sent) .. " bytes")
   holds_only(tmp .. "/out", {})
 end
 
@@ -771,8 +775,8 @@ local function test_extract_refusing_a_file_keeps_the_one_already_at_its_path(tm
 end
 
 local function test_extract_a_body_that_fails_to_read_leaves_no_file(tmp: string)
-  local reads = 0
-  local reader = reader_of_one_file("half", 10, function(_asked: integer): string | nil, string
+  local reads: integer = 0
+  local reader = reader_of_one_file("half", 10, function(_asked: integer): string?, string
     reads = reads + 1
     if reads == 1 then return "12345", "" end
     return nil, "disk on fire"
@@ -865,20 +869,21 @@ local function test_extract_byte_limits_that_are_not_whole_numbers_of_bytes_rais
   end)
   local float = assert(load("return ...")) as function(number): integer
   for _, name in ipairs({ "max_bytes", "max_entry_bytes" }) do
-    local function try(value: integer): string
+    local function try(count: number): string
+      local value = float(count)
       local opts: Archive.ExtractOptions = {}
       if name == "max_bytes" then opts.max_bytes = value else opts.max_entry_bytes = value end
       local ok, why = pcall(function(): boolean
         Archive.extract(archive, tmp .. "/o", opts)
         return true
       end)
-      assert(not ok, name .. " = " .. value .. " was taken")
+      assert(not ok, name .. " = " .. tostring(value) .. " was taken")
       return tostring(why)
     end
     assert(try(-1):find("archive_test:%d+: archive: " .. name .. " is negative"))
-    assert(try(float(1.5)):find("archive: " .. name .. " is not a whole number of bytes", 1, true))
-    assert(try(float(0 / 0)):find("archive: " .. name .. " is not a whole number of bytes", 1, true))
-    assert(try(float(-math.huge)):find("archive: " .. name .. " is not a whole number of bytes", 1, true))
+    assert(try(1.5):find("archive: " .. name .. " is not a whole number of bytes", 1, true))
+    assert(try(0 / 0):find("archive: " .. name .. " is not a whole number of bytes", 1, true))
+    assert(try(-math.huge):find("archive: " .. name .. " is not a whole number of bytes", 1, true))
   end
   local reader = assert(Archive.open(archive))
   local ok, why = pcall(function(): boolean
@@ -924,7 +929,7 @@ local function test_extract_creates_a_zip_symlink_as_a_symlink(tmp: string)
   local archive = tmp .. "/sys.zip"
   assert(Fs.write(archive, (assert(Codec.unbase64(ZIP_B64)))))
   local entries = assert(Archive.list(archive))
-  local kinds: {string:string} = {}
+  local kinds: mut {string:string} = {}
   for _, e in ipairs(entries) do kinds[e.path] = e.kind end
   assert(kinds["src/adir/alink"] == "symlink")
   local dest = tmp .. "/out"
@@ -1005,9 +1010,9 @@ local function test_extract_reader_closes_the_reader_when_it_refuses(tmp: string
   assert(tw:add_file("../out", "2"))
   assert(tw:close())
   local inner = assert(Archive.open_stream(Stream.from_string(sink:result())))
-  local closes = 0
+  local closes: integer = 0
   local counting: Archive.Reader = {
-    next = function(_self: Archive.Reader): Archive.Entry | nil, string return inner:next() end,
+    next = function(_self: Archive.Reader): Archive.Entry?, string return inner:next() end,
     close = function(_self: Archive.Reader): boolean, string
       closes = closes + 1
       return inner:close()
@@ -1015,7 +1020,7 @@ local function test_extract_reader_closes_the_reader_when_it_refuses(tmp: string
   }
   local written, why = Archive.extract_reader(counting, tmp .. "/dest")
   assert(written == nil and why:find("unsafe entry path", 1, true), why)
-  assert(closes == 1, "closed " .. closes .. " times")
+  assert(closes == 1, "closed " .. tostring(closes) .. " times")
   assert(not pcall(Archive.extract_reader, counting, tmp .. "/dest", { max_entries = -1 }))
 end
 
@@ -1027,7 +1032,7 @@ local function test_extract_resolve_in_lets_a_link_target_pass_through_the_real_
   local bytes = sink:result()
   -- Staged apart, `held` is nowhere: refused, unless the real
   -- destination it will be moved into holds it.
-  local function unpack(stage: string, opts: Archive.ExtractOptions): {string} | nil, string
+  local function unpack(stage: string, opts: Archive.ExtractOptions): {string}?, string
     return Archive.extract_reader((assert(Archive.open_stream(Stream.from_string(bytes)))), stage,
       opts)
   end
@@ -1119,9 +1124,9 @@ local function test_list_reader_lists_a_reader_to_its_end_and_closes_it()
   assert(tw:add_file("a", "one"))
   assert(tw:add_file("b", "two"))
   assert(tw:close())
-  local function counting(inner: Archive.Reader, closes: {integer}): Archive.Reader
+  local function counting(inner: Archive.Reader, closes: mut {integer}): Archive.Reader
     return {
-      next = function(_self: Archive.Reader): Archive.Entry | nil, string return inner:next() end,
+      next = function(_self: Archive.Reader): Archive.Entry?, string return inner:next() end,
       close = function(_self: Archive.Reader): boolean, string
         closes[1] = closes[1] + 1
         return inner:close()
@@ -1167,7 +1172,7 @@ local function test_create_writes_the_format_its_name_asks_for_and_open_reads_it
     pack((assert(Archive.create(path))))
     assert(sniffed(path) == format, name .. ": " .. sniffed(path))
     local r = assert(Archive.open(path))
-    local seen: {string} = {}
+    local seen: mut {string} = {}
     while true do
       local e, why = r:next()
       if e == nil then
@@ -1211,7 +1216,7 @@ end
 local function test_create_deterministic_writes_the_same_bytes_whatever_the_times(tmp: string)
   for _, name in ipairs({ "a.tar", "a.tar.gz", "a.tar.zst", "a.zip" }) do
     for i, mtime in ipairs({ 1700000000, 1234567890 }) do
-      local w = assert(Archive.create(tmp .. "/" .. i .. name, { deterministic = true }))
+      local w = assert(Archive.create(tmp .. "/" .. tostring(i) .. name, { deterministic = true }))
       assert(w:add_file("x", "y", { mtime = mtime }))
       assert(w:close())
     end

@@ -96,7 +96,6 @@ drop tf-psa-crypto/extras/lmots.c
 drop tf-psa-crypto/extras/lmots.h
 drop tf-psa-crypto/extras/lms.c
 drop tf-psa-crypto/extras/nist_kw.c
-drop tf-psa-crypto/extras/pkwrite.c
 drop tf-psa-crypto/include/.gitignore
 drop tf-psa-crypto/include/CMakeLists.txt
 drop tf-psa-crypto/include/mbedtls/lms.h

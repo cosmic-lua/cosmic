@@ -24,11 +24,19 @@ local record Process
     handle: Child.Handle
     out_fd: integer
     err_fd: integer
-    input_fd: integer | nil
+    input_fd?: integer
     out: string
     err: string
-    closed: boolean
+    mut closed: boolean
   end
+  record Fleet
+    children: mut {Process.Running}
+  end
+end
+
+--- Whether the child exited before the reader did, kept where the function that waits can read it.
+local record Early
+  mut exited: boolean
 end
 
 function Process.chmod(path: string, mode: integer)
@@ -54,27 +62,28 @@ function Process.start(label: string, argv: {string}, cwd: string,
   local out_fd = assert(Fs.open_write(out))
   local err_fd, err_trouble = Fs.open_write(err)
   if err_fd == nil then
-    Fs.close(out_fd)
+    local _, _ = Fs.close(out_fd)
     error(label .. ": " .. err_trouble)
   end
-  local input_fd: integer | nil = nil
+  local input_fd: integer? = nil
   if input then
     local opened, input_trouble = Fs.open_read(input)
     if opened == nil then
-      Fs.close(out_fd)
-      Fs.close(err_fd)
+      local _, _ = Fs.close(out_fd)
+      local _, _ = Fs.close(err_fd)
       error(label .. ": " .. input_trouble)
     end
     input_fd = opened
   end
-  local options: Child.Options = { cwd = cwd, env = values,
+  local options: Child.Options = { cwd = cwd, env = values, stdin = input_fd,
     stdout = out_fd, stderr = err_fd, process_group = false }
-  if input_fd then options.stdin = input_fd end
   local handle, trouble = Child.start(argv, options)
   if handle == nil then
-    if input_fd then Fs.close(input_fd) end
-    Fs.close(out_fd)
-    Fs.close(err_fd)
+    if input_fd then
+      local _, _ = Fs.close(input_fd)
+    end
+    local _, _ = Fs.close(out_fd)
+    local _, _ = Fs.close(err_fd)
     error(label .. ": " .. trouble)
   end
   return { label = label, handle = handle, out_fd = out_fd, err_fd = err_fd,
@@ -85,8 +94,9 @@ local function close_descriptors(running: Process.Running)
   if not running.closed then
     running.closed = true
     local input_closed, input_trouble = true, ""
-    if running.input_fd then
-      input_closed, input_trouble = Fs.close(running.input_fd)
+    local input_fd = running.input_fd
+    if input_fd then
+      input_closed, input_trouble = Fs.close(input_fd)
     end
     local out_closed, out_trouble = Fs.close(running.out_fd)
     local err_closed, err_trouble = Fs.close(running.err_fd)
@@ -99,7 +109,7 @@ end
 function Process.finish(running: Process.Running, timeout?: integer): Child.Result
   local result, trouble = running.handle:wait(timeout or child_wait_timeout_ns)
   if result == nil then
-    running.handle:close()
+    local _, _ = running.handle:close()
     close_descriptors(running)
     error(running.label .. ": child wait failed: " .. trouble)
   end
@@ -109,20 +119,25 @@ end
 
 local function cleanup(running: Process.Running)
   if not running.closed then
-    running.handle:close()
+    local _, _ = running.handle:close()
     close_descriptors(running)
   end
 end
 
--- Runs `action`, then ends every child it added to the list it was
+-- Adds `running` to the fleet [`Process.supervised`] hands its action.
+function Process.adopt(fleet: Process.Fleet, running: Process.Running)
+  fleet.children[#fleet.children + 1] = running
+end
+
+-- Runs `action`, then ends every child it adopted into the fleet it was
 -- given, whether or not it raised.
-function Process.supervised(action: function({Process.Running}))
-  local active: {Process.Running} = {}
+function Process.supervised(action: function(Process.Fleet))
+  local active: Process.Fleet = { children = {} }
   local called, failure = pcall(function(): boolean
     action(active)
     return true
   end)
-  for _, running in ipairs(active) do cleanup(running) end
+  for _, running in ipairs(active.children) do cleanup(running) end
   if not called then error(failure) end
 end
 
@@ -142,24 +157,25 @@ function Process.await_ready(work: string, diagnostics: string, label: string,
   local deadline = Clock.monotonic_ns() + bound
   local reader = Process.start("ready-" .. label,
     { "/usr/bin/env", "cat", path }, work, Fixture.environment(), diagnostics)
-  local exited = false
+  local early: Early = { exited = false }
   local called, failure = pcall(function(): boolean
     local first, trouble = Child.wait_any({ reader.handle, child.handle }, bound)
     if first == nil then
       error(label .. ": no readiness from " .. child.label .. ": " .. trouble)
     end
-    exited = first ~= reader.handle
+    early.exited = first ~= reader.handle
     -- The child may have written before it exited, and the reader be
     -- about to end; or it never opened the pipe, and the reader waits in
     -- its open (or is yet to reach it) for a writer that will never
     -- come. An open of our own that does not wait lets that one through
     -- to an end of file; it fails (ENXIO) while no reader has the pipe
     -- open, so it is tried until the reader ends.
-    local done = not exited
+    local done = not early.exited
     while not done and Clock.monotonic_ns() < deadline do
-      local fd = sys.open(path, sys.O_WRONLY | sys.O_NONBLOCK)
+      local fd, _ = sys.open(path, sys.O_WRONLY | sys.O_NONBLOCK)
       if fd then assert(Fs.close(fd)) end
-      done = Child.wait_any({ reader.handle }, Clock.ms(10)) ~= nil
+      local waited, _ = Child.wait_any({ reader.handle }, Clock.ms(10))
+      done = waited ~= nil
     end
     -- Settled by now, unless the deadline passed: then this ends it.
     local read = Process.finish(reader, Clock.ms(1))
@@ -169,7 +185,7 @@ function Process.await_ready(work: string, diagnostics: string, label: string,
   cleanup(reader)
   if not called then error(failure, 0) end
   local answer = Fixture.small(reader.out, 128)
-  if answer == "" and exited then
+  if answer == "" and early.exited then
     local ended = assert(child.handle:wait())
     error(label .. ": " .. child.label .. " exited before it was ready (code=" ..
         tostring(ended.code) .. "; signal=" .. tostring(ended.signal) ..

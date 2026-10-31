@@ -1,0 +1,28 @@
+file: ext/misc/csv.c
+note: With schema= and no columns=, the column count is the first record's field count, unbounded: a first line of 32768 commas fails an assert that the cursor's columns fit, past 2^31 the count overflows, and a cursor allocates a slot per column. Fields past the schema's columns are never read, so the count stops at SQLITE_LIMIT_COLUMN. The connect also fails, with the reader's message, when the first record could not be read, rather than going on with a partial one. Upstream counts so as of 3.54.0.
+--- find
+  }else if( nCol<0 ){
+    do{
+      csv_read_one_field(&sRdr);
+      pNew->nCol++;
+    }while( sRdr.cTerm==',' );
+  }else{
+    pNew->nCol = nCol;
+  }
+  pNew->zFilename = CSV_FILENAME;  CSV_FILENAME = 0;
+  pNew->zData = CSV_DATA;          CSV_DATA = 0;
+#ifdef SQLITE_TEST
+--- replace
+  }else if( nCol<0 ){
+    do{
+      csv_read_one_field(&sRdr);
+      if( pNew->nCol<sqlite3_limit(db,SQLITE_LIMIT_COLUMN,-1) ) pNew->nCol++;
+    }while( sRdr.cTerm==',' );
+  }else{
+    pNew->nCol = nCol;
+  }
+  if( sRdr.zErr[0] ) goto csvtab_connect_error;
+  pNew->zFilename = CSV_FILENAME;  CSV_FILENAME = 0;
+  pNew->zData = CSV_DATA;          CSV_DATA = 0;
+#ifdef SQLITE_TEST
+--- end

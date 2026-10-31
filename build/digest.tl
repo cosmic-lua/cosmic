@@ -4,7 +4,7 @@
 --- `raw_modules`).
 ---
 --- It stands in for cosmic.hash and cosmic.codec in the modules that
---- compute a verdict key and in what a test worker loads (build.test's
+--- compute a verdict key and in what a test worker loads (build.test_key's
 --- `harness`), so a key's value turns on this module and the core's C,
 --- which the runtime's identity keys, and no edit to either library
 --- moves the harness. Nothing here is taken through a table a test can
@@ -46,7 +46,7 @@ end
 
 --- An incremental SHA-256, whose digest equals `sha256` over the whole
 --- of what was fed to it; or nil and why when it cannot start.
-function digest.sha256_hasher(): digest.Hasher | nil, string
+function digest.sha256_hasher(): digest.Hasher?, string
   return hasher_of("sha256")
 end
 

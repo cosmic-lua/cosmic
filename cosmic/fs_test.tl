@@ -1,3 +1,4 @@
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -60,16 +61,16 @@ local function test_interleaved_writers_have_distinct_temporary_files(tmp: strin
   assert(Fs.write(path, "old"))
   local real_open_temporary = sys.open_temporary
   local real_write = sys.write
-  local temporaries: {string} = {}
-  local nested = false
-  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile | nil, string, integer
+  local temporaries: mut {string} = {}
+  local nested: boolean = false
+  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then
       temporaries[#temporaries + 1] = file.path
     end
     return file, trouble, number
   end
-  sys.write = function(fd: integer, data: string): integer | nil, string, integer
+  sys.write = function(fd: integer, data: string): integer?, string, integer
     if not nested then
       nested = true
       assert(Fs.write(path, "inner"))
@@ -88,14 +89,14 @@ local function test_write_failure_preserves_destination_and_cleans_its_temp(tmp:
   local path = tmp .. "/target"
   assert(Fs.write(path, "old"))
   local real_write = sys.write
-  local created = ""
+  local created: string = ""
   local real_open_temporary = sys.open_temporary
-  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile | nil, string, integer
+  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then created = file.path end
     return file, trouble, number
   end
-  sys.write = function(_fd: integer, _data: string): integer | nil, string, integer
+  sys.write = function(_fd: integer, _data: string): integer?, string, integer
     return nil, "injected write failure", 0
   end
   local ok, trouble = Fs.write(path, "new")
@@ -111,9 +112,9 @@ local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp:
   assert(Fs.write(path, "old"))
   local real_close = sys.close
   local real_open_temporary = sys.open_temporary
-  local created = ""
-  local injected_fd = -1
-  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile | nil, string, integer
+  local created: string = ""
+  local injected_fd: integer = -1
+  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then
       created = file.path
@@ -142,8 +143,8 @@ local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp
   assert(Fs.write(path, "old"))
   local real_rename = sys.rename
   local real_open_temporary = sys.open_temporary
-  local created = ""
-  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile | nil, string, integer
+  local created: string = ""
+  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then created = file.path end
     return file, trouble, number
@@ -186,7 +187,7 @@ local function test_create_failures_name_the_path_and_stay(tmp: string)
   local path = tmp .. "/target"
   local real_write = sys.write
   local file = assert(Fs.create(path))
-  sys.write = function(_fd: integer, _data: string): integer | nil, string, integer
+  sys.write = function(_fd: integer, _data: string): integer?, string, integer
     return nil, "injected write failure", 0
   end
   local ok, trouble = file:write("data")
@@ -208,7 +209,7 @@ local function test_put_rejects_zero_progress(tmp: string)
   local path = tmp .. "/stream"
   local fd = assert(Fs.open_write(path))
   local real_write = sys.write
-  sys.write = function(_fd: integer, _data: string): integer | nil, string, integer
+  sys.write = function(_fd: integer, _data: string): integer?, string, integer
     return 0, "", 0
   end
   local ok, trouble = Fs.put(fd, "data")
@@ -300,8 +301,8 @@ local function test_set_mtime_sets_nanoseconds_and_leaves_the_access_time(tmp: s
   local set, trouble = Fs.set_mtime(path, 2000, 123456789)
   assert(set and trouble == "")
   local st = assert(sys.stat(path))
-  assert(st.mtime == 2000 and st.mtime_ns == 123456789, st.mtime .. "." .. st.mtime_ns)
-  assert(st.atime == 1000 and st.atime_ns == 7, st.atime .. "." .. st.atime_ns)
+  assert(st.mtime == 2000 and st.mtime_ns == 123456789, tostring(st.mtime) .. "." .. tostring(st.mtime_ns))
+  assert(st.atime == 1000 and st.atime_ns == 7, tostring(st.atime) .. "." .. tostring(st.atime_ns))
 end
 
 --- A whole second is the default, and nanoseconds out of range are a
@@ -312,7 +313,7 @@ local function test_set_mtime_defaults_to_a_whole_second_and_checks_ns(tmp: stri
   assert(Fs.set_mtime(path, 3000, 5))
   assert(Fs.set_mtime(path, 4000))
   local st = assert(sys.stat(path))
-  assert(st.mtime == 4000 and st.mtime_ns == 0, st.mtime .. "." .. st.mtime_ns)
+  assert(st.mtime == 4000 and st.mtime_ns == 0, tostring(st.mtime) .. "." .. tostring(st.mtime_ns))
   local ok, why = pcall(Fs.set_mtime, path, 4000, 1000000000)
   assert(not ok and tostring(why):find("fs: nanoseconds are outside [0, 1e9)", 1, true), tostring(why))
   assert(not pcall(Fs.set_mtime, path, 4000, -1))
@@ -390,15 +391,37 @@ local function test_scratch_holds_its_owner_lock_while_open(tmp: string)
   local _, _ = sys.close(other)
 end
 
+--- A lock wait of 0 asks once and does not wait: a lock held answers at
+--- once, where a wait rounded up to the next millisecond would take one.
+--- Only the quickest of many is held to it, so a stall cannot fail it.
+local function test_a_flock_of_zero_milliseconds_does_not_wait(tmp: string)
+  local path = tmp .. "/held"
+  assert(Fs.write(path, ""))
+  local holder = assert(sys.open(path, sys.O_RDWR))
+  local other = assert(sys.open(path, sys.O_RDWR))
+  assert(sys.flock(holder, "exclusive", 0))
+  local quickest = Clock.ms(1)
+  for _ = 1, 200 do
+    local began = Clock.monotonic_ns()
+    local locked = sys.flock(other, "exclusive", 0)
+    local took = Clock.monotonic_ns() - began
+    assert(not locked, "the lock is held")
+    if took < quickest then quickest = took end
+  end
+  local _, _ = sys.close(other)
+  local _, _ = sys.close(holder)
+  assert(quickest < Clock.ms(1) // 2, "the quickest of 200 tries took " .. tostring(quickest) .. " ns")
+end
+
 local function test_a_second_close_of_a_scratch_leaves_a_reused_descriptor(tmp: string)
   local scratch = assert(Fs.scratch(tmp))
   local close = (getmetatable(scratch) as metatable<Fs.Scratch>).__close as function(Fs.Scratch)
   local owner = scratch.owner
   close(scratch)
-  local opened: {integer} = {}
-  local reused: integer
+  local opened: mut {integer} = {}
+  local reused: integer?
   for i = 1, 64 do
-    local fd = assert(sys.open(tmp .. "/reused" .. i, sys.O_RDWR | sys.O_CREAT, 0x180))
+    local fd = assert(sys.open(tmp .. "/reused" .. tostring(i), sys.O_RDWR | sys.O_CREAT, 0x180))
     opened[#opened + 1] = fd
     if fd == owner then
       reused = fd
@@ -464,11 +487,11 @@ local function test_remove_tree_of_a_link_removes_the_link_and_walks_a_deep_tree
   -- A directory of links to directories, and one of wide and deep names.
   local tree = tmp .. "/deep"
   local path = tree
-  for i = 1, 40 do path = path .. "/d" .. i end
+  for i = 1, 40 do path = path .. "/d" .. tostring(i) end
   assert(Fs.mkdirs(path))
   for i = 1, 300 do
-    assert(Fs.write(tree .. "/f" .. i, "x"))
-    assert(Fs.symlink(outside .. "/inner", tree .. "/l" .. i))
+    assert(Fs.write(tree .. "/f" .. tostring(i), "x"))
+    assert(Fs.symlink(outside .. "/inner", tree .. "/l" .. tostring(i)))
   end
   assert(Fs.remove_tree(tree))
   assert(Fs.exists(tree) == false and Fs.read(outside .. "/inner/keep") == "kept")
@@ -534,8 +557,8 @@ local function test_read_takes_a_file_in_the_one_read_its_size_asks_for(tmp: str
   local data = string.rep("0123456789abcdef", 20000)
   assert(Fs.write(path, data))
   local real_read = sys.read
-  local reads = 0
-  sys.read = function(fd: integer, count: integer): string | nil, string, integer
+  local reads: integer = 0
+  sys.read = function(fd: integer, count: integer): string?, string, integer
     reads = reads + 1
     return real_read(fd, count)
   end
@@ -543,14 +566,14 @@ local function test_read_takes_a_file_in_the_one_read_its_size_asks_for(tmp: str
   local file_reads = reads
   sys.read = real_read
   assert(read == data, trouble)
-  assert(file_reads == 2, "one read for the bytes and one for the end, not " .. file_reads)
+  assert(file_reads == 2, "one read for the bytes and one for the end, not " .. tostring(file_reads))
 end
 
 --- A write the kernel takes part of goes on from where it stopped.
 local function test_write_resumes_a_short_write(tmp: string)
   local path = tmp .. "/short"
   local real_write = sys.write
-  sys.write = function(fd: integer, bytes: string): integer | nil, string, integer
+  sys.write = function(fd: integer, bytes: string): integer?, string, integer
     return real_write(fd, bytes:sub(1, 3))
   end
   local ok, trouble = Fs.write(path, "abcdefghij")
@@ -580,7 +603,7 @@ local function test_copy_tree_keeps_bytes_modes_times_and_links(tmp: string)
   assert(assert(Fs.read(to .. "/big")) == big)
   local big_st = assert(Fs.stat(to .. "/big"))
   assert(big_st.mtime == 1000000000 and big_st.mtime_ns == 123456789,
-    big_st.mtime .. "." .. big_st.mtime_ns)
+    tostring(big_st.mtime) .. "." .. tostring(big_st.mtime_ns))
   assert(assert(Fs.stat(to .. "/sub/run")).mode & 0xfff == 0x1e8)
   local secret = assert(Fs.stat(to .. "/sub/secret"))
   assert(secret.mode & 0xfff == 0x180)
@@ -588,14 +611,14 @@ local function test_copy_tree_keeps_bytes_modes_times_and_links(tmp: string)
   -- (ext4), its own last time where it counts nanoseconds (APFS).
   local kept = assert(Fs.stat(from .. "/sub/secret"))
   assert(secret.mtime == kept.mtime and secret.mtime_ns == kept.mtime_ns,
-    secret.mtime .. "." .. secret.mtime_ns)
-  assert(secret.atime == 1000000000 and secret.atime_ns == 42, secret.atime .. "." .. secret.atime_ns)
+    tostring(secret.mtime) .. "." .. tostring(secret.mtime_ns))
+  assert(secret.atime == 1000000000 and secret.atime_ns == 42, tostring(secret.atime) .. "." .. tostring(secret.atime_ns))
   assert(assert(Fs.stat(to .. "/sub")).mode & 0xfff == 0x16d)
   assert(assert(Fs.is_dir(to .. "/sub/empty")))
   assert(assert(Fs.readlink(to .. "/sub/link")) == "../big")
   local link_st = assert(sys.lstat(to .. "/sub/link"))
   assert(link_st.mtime == 1500000000 and link_st.mtime_ns == 5,
-    link_st.mtime .. "." .. link_st.mtime_ns)
+    tostring(link_st.mtime) .. "." .. tostring(link_st.mtime_ns))
   assert(assert(Fs.readlink(to .. "/dangling")) == "nowhere")
   assert(sys.chmod(from .. "/sub", 0x1ed) and sys.chmod(to .. "/sub", 0x1ed))
 end
@@ -754,7 +777,7 @@ local function test_walk_following_tells_skip_a_link_is_one(tmp: string)
   assert(Fs.mkdirs(root .. "/sub"))
   assert(Fs.write(root .. "/sub/f", "f"))
   assert(Fs.symlink("sub", root .. "/to_dir"))
-  local kinds: {string} = {}
+  local kinds: mut {string} = {}
   local found, trouble = Fs.walk_following(root, function(entry: string, _name: string, kind: Fs.Kind): boolean
     kinds[#kinds + 1] = entry .. "=" .. kind
     return kind == "link"

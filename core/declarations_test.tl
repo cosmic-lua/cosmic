@@ -15,16 +15,18 @@
 -- function, nothing of a function's signature, and never looks inside
 -- a declared value such as json.null.
 
+local RawTables = require("build.raw_tables")
 local Fs = require("cosmic.fs")
-local ast = require("build.ast")
+local Ast = require("lang.ast")
 local gen_syscalls = require("build.gen_syscalls")
-local teal = require("build.teal")
+local Lexer = require("lang.lexer")
+local Parser = require("lang.parser")
 local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
 
 -- Every wrapper core/store.c hands a raw module to (`wrappers`, below),
 -- required so it is of the closure: the store's searcher, asked by hand
--- ([`raw_behind`]), hands its raw value only for a module the closure
+-- ([`RawTables`]), hands its raw value only for a module the closure
 -- holds.
 local type _artifact = require("build.artifact")
 local type _digest = require("build.digest")
@@ -33,6 +35,7 @@ local type _confine = require("build.confine")
 local type _fuzz = require("build.fuzz")
 local type _coverage_hits = require("build.coverage_hits")
 local type _child = require("cosmic.child")
+local type _connector = require("cosmic.internal.connector")
 local type _compress = require("cosmic.compress")
 local type _coverage = require("cosmic.coverage")
 local type _hash = require("cosmic.hash")
@@ -44,6 +47,9 @@ local type _proc = require("cosmic.proc")
 local type _sandbox = require("cosmic.sandbox")
 local type _sqlite = require("cosmic.sqlite")
 local type _store = require("cosmic.store")
+local type _tar = require("cosmic.tar")
+local type _vector = require("cosmic.vector")
+local type _zip = require("cosmic.zip")
 
 --- Every declaration of the core's raw modules, the headers the process
 --- and socket tables' are derived from, and core/store.c, whose `raw_modules` names
@@ -58,8 +64,6 @@ Test.policy{
   loopback = { "127.0.0.1" },
 }
 
-local built = assert(teal.load())
-
 --- A value of the core's, read by name.
 local function members(value: any): {string: any}
   local t = type(value)
@@ -67,7 +71,6 @@ local function members(value: any): {string: any}
   return value as {string: any} -- cast: checked above to be indexable
 end
 
-local type Searcher = function(string): any, any
 local type Call = function(...: any): any...
 
 --- Calls a function of the core's, whatever its declared signature.
@@ -80,66 +83,75 @@ end
 --- function; each metamethod the same way; and, for a userdata record
 --- nested in it, the same again under its name.
 local record Surface
-  fields: {string: boolean}
-  metamethods: {string: boolean}
+  fields: mut {string: boolean}
+  metamethods: mut {string: boolean}
   userdata: boolean
-  nested: {string: Surface}
+  nested: mut {string: Surface}
 end
 
-local function surface_of(def: ast.TypeNode): Surface
-  local s: Surface = { fields = {}, metamethods = {}, userdata = def.is_userdata == true,
-    nested = {} }
-  for _, name in ipairs(def.field_order or {}) do
-    local field = (def.fields or {})[name]
-    if field.typename == "typedecl" then
-      local inner = field.def
-      if inner ~= nil and inner.typename == "record" then
-        s.nested[name] = surface_of(inner)
-      end
-    else
-      s.fields[name] = field.typename == "function"
+--- Whether `members` hold the `userdata` marker of a record.
+local function marks_userdata(items: {Ast.Member}): boolean
+  for _, inner in ipairs(items) do
+    if inner.kind == "Userdata" then
+      return true
     end
   end
-  for _, name in ipairs(def.meta_field_order or {}) do
-    s.metamethods[name] = (def.meta_fields or {})[name].typename == "function"
+  return false
+end
+
+local function surface_of(items: {Ast.Member}, is_userdata: boolean): Surface
+  local s: Surface = { fields = {}, metamethods = {}, userdata = is_userdata, nested = {} }
+  for _, member in ipairs(items) do
+    if member.kind == "FieldDecl" then
+      local name = member.name.name
+      local is_function = member.type.kind == "TypeFunction"
+      if name:sub(1, 2) == "__" then
+        s.metamethods[name] = is_function
+      else
+        s.fields[name] = is_function
+      end
+    elseif member.kind == "Record" then
+      s.nested[member.name.name] = surface_of(member.members, marks_userdata(member.members))
+    end
   end
   return s
 end
 
 --- The record a declaration's source returns.
 local function declared(source: string, file: string): Surface
-  local parsed = assert(ast.parse(built, source, file))
-  local chunk = parsed.node
-  local last = chunk[#chunk]
-  assert(last.kind == "return" and last.exps ~= nil, file .. " returns no record")
-  local returned = last.exps[1].tk
-  for _, stmt in ipairs(chunk) do
-    local value = stmt.value
-    local typedecl = value ~= nil and value.kind == "newtype" and value.newtype or nil
-    if stmt.kind == "local_type" and stmt.var ~= nil and stmt.var.tk == returned and
-        typedecl ~= nil and typedecl.def ~= nil then
-      return surface_of(typedecl.def)
+  local parsed = Parser.parse(Lexer.lex(source, file), file, "decl")
+  local first_error = parsed.errors[1]
+  assert(#parsed.errors == 0, file .. ": " .. (if first_error ~= nil then first_error.msg else "" end))
+  local body = parsed.chunk.body.stats
+  local last = body[#body]
+  assert(last ~= nil and last.kind == "Return", file .. " returns no record")
+  local first = last.values[1]
+  assert(first ~= nil and first.kind == "Name", file .. " returns no record")
+  local returned = first.text
+  for _, stmt in ipairs(body) do
+    if stmt.kind == "Record" and stmt.name.name == returned then
+      return surface_of(stmt.members, marks_userdata(stmt.members))
     end
   end
-  error(file .. " returns " .. tostring(returned) .. ", which is no record it declares")
+  error(file .. " returns " .. returned .. ", which is no record it declares")
 end
 
 --- Where each of `actual`'s members disagrees with `fields`, as lines
 --- naming `where`.
 local function compare(where: string, fields: {string: boolean}, actual: {string: any},
-                       problems: {string})
+                       problems: mut {string})
   for name, is_function in pairs(fields) do
     local value = actual[name]
     if value == nil then
       problems[#problems + 1] = where .. name .. " is declared but not registered"
     elseif (type(value) == "function") ~= is_function then
-      problems[#problems + 1] = where .. name .. " is declared as a " ..
-        (is_function and "function" or "value") .. " but registered as a " .. type(value)
+      table.insert(problems, where .. name .. " is declared as a " ..
+          (if is_function then "function" else "value" end) .. " but registered as a " .. type(value))
     end
   end
   for name in pairs(actual) do
     if fields[name] == nil then
-      problems[#problems + 1] = where .. tostring(name) .. " is registered but not declared"
+      table.insert(problems, where .. tostring(name) .. " is registered but not declared")
     end
   end
 end
@@ -162,15 +174,15 @@ end
 local function disagreements(module: string, source: string, raw: any,
                              instances: {string: any}): {string}
   local surface = declared(source, module .. ".d.tl")
-  local problems: {string} = {}
+  local problems: mut {string} = {}
   compare(module .. ".", surface.fields, members(raw), problems)
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name, nested in pairs(surface.nested) do
     if nested.userdata then names[#names + 1] = name end
   end
   table.sort(names)
   for _, name in ipairs(names) do
-    local nested = surface.nested[name]
+    local nested = assert(surface.nested[name], "the names are those of surface.nested")
     local where = module .. "." .. name
     local instance = instances[name]
     if instance == nil then
@@ -186,8 +198,8 @@ local function disagreements(module: string, source: string, raw: any,
     else
       local mt = members(getmetatable(instance))
       local index = mt.__index
-      local methods: {string: any} = {}
-      local metamethods: {string: any} = {}
+      local methods: mut {string: any} = {}
+      local metamethods: mut {string: any} = {}
       if index == mt then
         -- One table for both, as `mt.__index = mt` makes it: a name
         -- with a leading `__` is a metamethod, any other a method.
@@ -221,19 +233,7 @@ end
 
 local function nothing() end
 
-local preloaded <const>: {string: boolean} = { errors = true, testing = true }
-
---- The raw value the store's searcher hands `wrapper`'s loader, the
---- way `require` hands it, or nil when it hands none.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra
-    end
-  end
-  return nil
-end
+local preloaded <const>: {string: boolean} = { errors = true, globals = true, testing = true }
 
 local function reply(): string
   return "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -257,7 +257,7 @@ local makers: {string: function(raw: {string: any}): Made} = {
   end,
   html = function(raw: {string: any}): Made
     return { instances = { SafeHtml = call(raw.escape, "<"), SafeAttr = call(raw.escape_attr, "<"),
-      SafeUrl = call(raw.href, "/") },
+      SafeUrl = call(raw.href, "/"), SafeUrlPart = call(raw.url_part, "x"), SafeJson = call(raw.trust_json, "1") },
       release = nothing }
   end,
   http = function(raw: {string: any}): Made
@@ -265,6 +265,9 @@ local makers: {string: function(raw: {string: any}): Made} = {
       { script = { reply() } }))
     return { instances = { Handle = handle },
       release = function() call(members(handle).close, handle) end }
+  end,
+  json = function(raw: {string: any}): Made
+    return { instances = { Null = raw["null"] }, release = nothing }
   end,
   socket = function(raw: {string: any}): Made
     -- A TCP listener on the worker's own loopback: a unix one needs a `u`
@@ -277,6 +280,9 @@ local makers: {string: function(raw: {string: any}): Made} = {
         call(members(socket).close, socket)
         call(members(lookup).close, lookup)
       end }
+  end,
+  vector = function(raw: {string: any}): Made
+    return { instances = { Corpus = call(raw["corpus"], 4) }, release = nothing }
   end,
   sqlite = function(raw: {string: any}): Made
     local handle = assert(call(raw.open, ":memory:", true))
@@ -310,11 +316,23 @@ local wrappers <const>: {string: string} = {
   ["cosmic.json"] = "json",
   ["cosmic.net"] = "socket",
   ["cosmic.proc"] = "process",
-  ["cosmic.relay.resolv"] = "socket",
-  ["cosmic.sandbox.relay"] = "socket",
+  ["cosmic.internal.relay_resolv"] = "socket",
+  ["cosmic.internal.relay_start"] = "socket",
   ["cosmic.sandbox"] = "process",
+  ["cosmic.signal"] = "process",
   ["cosmic.sqlite"] = "sqlite",
   ["cosmic.store"] = "store",
+  ["cosmic.tar"] = "hash",
+  ["cosmic.vector"] = "vector",
+  ["cosmic.zip"] = "compress",
+}
+
+--- The wrappers core/store.c lists for several raw values, which the
+--- loader is handed as one table of all their fields, and the raw
+--- modules they are handed, in the order `raw_modules` lists them.
+local merged <const>: {string: {string}} = {
+  ["cosmic.internal.connector"] = { "process", "socket" },
+  ["cosmic.html"] = { "html", "json" },
 }
 
 --- The raw module a declaration names, as the running core registers it.
@@ -324,7 +342,7 @@ local function raw_module(name: string): any
     assert(open ~= nil, "cosmic.internal." .. name .. " is not preloaded")
     return open("cosmic.internal." .. name)
   end
-  local wrapper: string = nil
+  local wrapper: string? = nil
   for candidate, declaration in pairs(wrappers) do
     if declaration == name and (wrapper == nil or candidate < wrapper) then
       wrapper = candidate
@@ -332,14 +350,29 @@ local function raw_module(name: string): any
   end
   assert(wrapper ~= nil, "cosmic/internal/" .. name .. ".d.tl declares a module " ..
       "this test does not know how to reach")
-  return (assert(raw_behind(wrapper), wrapper .. " is handed no raw value " ..
-      "(require it with `local type` at the top so it is in the closure)"))
+  local raw = RawTables.fields(wrapper)
+  local joined = merged[wrapper]
+  if joined == nil then return raw end
+  -- The wrapper is handed the fields of all its raw modules in one
+  -- table: leave this one's own, the fields of no other.
+  local own: mut {string: any} = {}
+  for key, value in pairs(raw) do
+    own[key] = value
+  end
+  for _, other in ipairs(joined) do
+    if other ~= name then
+      for key in pairs(raw_module(other) as {string: any}) do -- cast: as above
+        own[key] = nil
+      end
+    end
+  end
+  return own
 end
 
 --- The raw modules whose declaration the build derives from a header
 --- (build/gen_syscalls.tl) rather than a cosmic/internal/*.d.tl, by
 --- name, and the target that derives it.
-local derived <const>: {string: gen_syscalls.Target} = {}
+local derived <const>: mut {string: gen_syscalls.Target} = {}
 for _, derivation in ipairs(gen_syscalls.targets) do
   local name = derivation.path:match("^cosmic%.internal%.(.+)$")
   if name ~= nil then derived[name] = derivation.target end
@@ -358,8 +391,8 @@ end
 --- Every declaration under cosmic/internal, and each the build derives
 --- from a header, is what the running core registers.
 local function test_every_declaration_is_what_the_core_registers()
-  local problems: {string} = {}
-  local names: {string} = {}
+  local problems: mut {string} = {}
+  local names: mut {string} = {}
   for _, entry in ipairs((assert(Fs.list("cosmic/internal")))) do
     local name = entry:match("^(.+)%.d%.tl$")
     if name ~= nil then names[#names + 1] = name end
@@ -382,21 +415,22 @@ local function test_every_declaration_is_what_the_core_registers()
       testing.configuration .. " core):\n  " .. table.concat(problems, "\n  "))
 end
 
---- The `raw_modules` table of core/store.c's `source`: the raw module
+--- The `raw_modules` table of core/store.c's `source`: the raw modules
 --- each wrapper is handed, by the wrapper's name, less the
---- `cosmic.internal.` prefix; or nil and why when the table is not all
+--- `cosmic.internal.` prefix, in the order listed; or nil and why when the table is not all
 --- entries of the shape this reads -- a macro, a comment, an entry
 --- spelled otherwise -- rather than answer part of it.
-local function raw_modules_in(source: string): {string: string} | nil, string
+local function raw_modules_in(source: string): {string: {string}}?, string
   local body = source:match("%} raw_modules%[%] = {\n(.-)\n};")
   if body == nil then
     return nil, "core/store.c declares no raw_modules table this test can read"
   end
-  local out: {string: string} = {}
+  local out: mut {string: {string}} = {}
   local read = 0
   local entry = '{"([%w_.]+)",%s*"cosmic%.internal%.([%w_]+)",%s*[%w_]+%s*},'
   for wrapper, raw in body:gmatch(entry) do
-    out[wrapper] = raw
+    out[wrapper] = out[wrapper] or {}
+    table.insert(out[wrapper], raw)
     read = read + 1
   end
   local rest = body:gsub(entry, ""):gsub("%s", "")
@@ -405,7 +439,7 @@ local function raw_modules_in(source: string): {string: string} | nil, string
       "entry: " .. rest
   end
   if read < 10 then
-    return nil, "read only " .. read .. " raw_modules entries of core/store.c"
+    return nil, "read only " .. tostring(read) .. " raw_modules entries of core/store.c"
   end
   return out, ""
 end
@@ -416,14 +450,36 @@ end
 --- each one its raw value.
 local function test_every_raw_module_has_a_declaration()
   local in_c = assert(raw_modules_in((assert(Fs.read("core/store.c")))))
-  for wrapper, raw in pairs(in_c) do
-    assert(wrappers[wrapper] == raw, wrapper .. " is handed cosmic.internal." .. raw ..
-        ", which `wrappers` here names as " .. tostring(wrappers[wrapper]))
+  for wrapper, raws in pairs(in_c) do
+    local expected = merged[wrapper]
+    if expected == nil then
+      local wrapped = assert(wrappers[wrapper], wrapper .. " is a wrapper")
+      expected = { wrapped }
+    end
+    assert(table.concat(raws, ",") == table.concat(expected, ","), wrapper .. " is handed cosmic.internal." ..
+        table.concat(raws, ", cosmic.internal.") .. ", which `wrappers` and `merged` here name as " ..
+        table.concat(expected, ", "))
   end
   for wrapper in pairs(wrappers) do
     assert(in_c[wrapper] ~= nil, wrapper .. " is no wrapper of core/store.c's raw_modules")
-    assert(raw_behind(wrapper) ~= nil, wrapper .. " is handed no raw value " ..
-        "(require it with `local type` at the top so it is in the closure)")
+    local _ = RawTables.fields(wrapper)
+  end
+  for wrapper, names in pairs(merged) do
+    assert(in_c[wrapper] ~= nil, wrapper .. " is no wrapper of core/store.c's raw_modules")
+    local combined = RawTables.fields(wrapper)
+    -- A name two of the raw values share must be one value, or the
+    -- combined table (core/store.c's wrapper_raw) refuses to load.
+    local first_name = assert(names[1], wrapper .. " merges two raw values")
+    local second_name = assert(names[2], wrapper .. " merges two raw values")
+    local first = raw_module(first_name) as {string: any} -- cast: as above
+    for key, value in pairs(raw_module(second_name) as {string: any}) do -- cast: as above
+      assert(first[key] == nil or rawequal(first[key], value), wrapper .. ": " .. key .. " differs between the raw values")
+    end
+    for _, name in ipairs(names) do
+      for key, value in pairs(raw_module(name) as {string: any}) do -- cast: as above
+        assert(combined[key] == value, wrapper .. " is handed no " .. key .. " of cosmic.internal." .. name)
+      end
+    end
   end
 end
 
@@ -466,7 +522,7 @@ local record m
   record Thing
     userdata
     poke: function(Thing): integer
-    metamethod __close: function(Thing)
+    __close: function(Thing)
   end
   type Alias = {string: integer}
   open: function(): Thing
@@ -477,7 +533,7 @@ return m
 
 --- Makes a thing whose metatable holds `methods` and `metamethods`.
 local function thing(methods: {string: any}, metamethods: {string: any}): any
-  local mt: {string: any} = { __index = methods, __name = "thing", __gc = nothing }
+  local mt: mut {string: any} = { __index = methods, __name = "thing", __gc = nothing }
   for key, value in pairs(metamethods) do mt[key] = value end
   local stand_in: any = {}
   return setmetatable(stand_in, mt as metatable<any>) -- cast: a stand-in userdata

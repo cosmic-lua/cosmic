@@ -1,8 +1,8 @@
 --- Turns the block sequence [`build.doctest.markdown`] reads out of a doc
---- into one Teal source string: the compiled file doc/meta.md promises,
+--- into one Teal source string: the compiled file doc/writing.md promises,
 --- shaped like a hand-written `_test.tl`. Every example is a top-level
 --- function. Running them and discovering them stay [`build.test`]'s and
---- [`build.analyzer`]'s jobs.
+--- [`build.syntax_analyzer`]'s jobs.
 local markdown = require("build.doctest.markdown")
 local String = require("cosmic.string")
 
@@ -15,19 +15,19 @@ local record FileWrite
 end
 
 local record Example
-  files: {FileWrite}
+  files: mut {FileWrite}
   --- Each opening statement (`teal`/`lua`) or `continue` block's own
   --- content, in doc order, joined with a blank line between them when
   --- rendered.
-  statements: {string}
-  has_output: boolean
+  statements: mut {string}
+  mut has_output: boolean
   --- The `output` block's own text, exactly as authored; comparison
   --- semantics (right-trimmed, otherwise exact) live in `render`.
-  output_text: string
+  mut output_text: string
   --- `test_<n>` when `has_output`, `example_<n>` otherwise; assigned
   --- once every block has been read, so numbering never depends on
   --- which examples turn out runnable.
-  name: string
+  mut name: string
   --- The doc line of the block that opens it.
   line: integer
 end
@@ -35,8 +35,8 @@ end
 local record Item
   --- `"comment"` or `"example"`.
   kind: string
-  text: string | nil
-  example: Example | nil
+  text?: string
+  example?: Example
 end
 
 local record generate
@@ -80,10 +80,10 @@ end
 ---   `continue` with nothing open to attach to, or a
 ---   `file=` block no entry block ever claims
 --- @return string why, naming the source line the block sits at
-local function to_items(blocks: {Block}): {Item} | nil, string
-  local items: {Item} = {}
-  local pending_files: {FileWrite} = {}
-  local current: Example | nil = nil
+local function to_items(blocks: {Block}): {Item}?, string
+  local items: mut {Item} = {}
+  local pending_files: mut {FileWrite} = {}
+  local current: Example? = nil
 
   for _, b in ipairs(blocks) do
     if b.lang == "policy" then
@@ -92,18 +92,19 @@ local function to_items(blocks: {Block}): {Item} | nil, string
       current = nil
     elseif b.lang == "output" then
       if current == nil then
-        return nil, "line " .. b.line ..
+        return nil, "line " .. tostring(b.line) ..
           ": an output block must immediately follow an example"
       end
       if current.has_output then
-        return nil, "line " .. b.line .. ": this example already has an output block"
+        return nil, "line " .. tostring(b.line) .. ": this example already has an output block"
       end
       current.has_output = true
       current.output_text = b.content
       current = nil
     else
       -- b.lang is "teal" or "lua": markdown.parse_tag refuses anything else.
-      local shebang_here = b.modifiers.file == nil and is_shebang(b.content)
+      local file_modifier = b.modifiers.file
+      local shebang_here = file_modifier == nil and is_shebang(b.content)
       if b.modifiers.skip ~= nil or shebang_here then
         local reason: string
         if shebang_here then
@@ -115,13 +116,13 @@ local function to_items(blocks: {Block}): {Item} | nil, string
         items[#items + 1] = { kind = "comment", text = "-- skipped: " .. reason }
         pending_files = {}
         current = nil
-      elseif b.modifiers.file ~= nil then
+      elseif file_modifier ~= nil then
         -- A `file=` block attaches to the open example, so a later
         -- `continue` or `output` still finds that example open. With
         -- none open (before any entry in its run, or after the run
         -- closed) it waits in `pending_files` for the next entry, and is
         -- refused below if none follows.
-        local write: FileWrite = { path = b.modifiers.file, content = b.content,
+        local write: FileWrite = { path = file_modifier, content = b.content,
           line = b.line }
         if current ~= nil then
           current.files[#current.files + 1] = write
@@ -130,7 +131,7 @@ local function to_items(blocks: {Block}): {Item} | nil, string
         end
       elseif b.modifiers.continue then
         if current == nil then
-          return nil, "line " .. b.line ..
+          return nil, "line " .. tostring(b.line) ..
             ": 'teal continue' has no open example to continue"
         end
         current.statements[#current.statements + 1] = b.content
@@ -151,7 +152,7 @@ local function to_items(blocks: {Block}): {Item} | nil, string
   end
 
   if #pending_files > 0 then
-    return nil, "line " .. pending_files[1].line ..
+    return nil, "line " .. tostring(pending_files[1].line) ..
       ": a file= block has no entry block to attach it to"
   end
 
@@ -160,7 +161,7 @@ local function to_items(blocks: {Block}): {Item} | nil, string
     local example = item.example
     if item.kind == "example" and example ~= nil then
       n = n + 1
-      example.name = (example.has_output and "test_" or "example_") .. n
+      example.name = (if example.has_output then "test_" else "example_" end) .. tostring(n)
     end
   end
   return items, ""
@@ -171,12 +172,12 @@ end
 --- check can hold each to compiling on its own.
 --- @return {generate.Entry} | nil nil on the grammar error [`from_blocks`] names
 --- @return string why
-function generate.entries(blocks: {Block}): {generate.Entry} | nil, string
+function generate.entries(blocks: {Block}): {generate.Entry}?, string
   local items, trouble = to_items(blocks)
   if items == nil then
     return nil, trouble
   end
-  local out: {generate.Entry} = {}
+  local out: mut {generate.Entry} = {}
   for _, item in ipairs(items) do
     local example = item.example
     if item.kind == "example" and example ~= nil then
@@ -191,7 +192,7 @@ end
 --- Appends the lines of `text` to `out`, indenting every non-blank one
 --- so a build failure quoting the generated source reads like a
 --- function body. Teal does not care.
-local function emit_indented(out: {string}, text: string)
+local function emit_indented(out: mut {string}, text: string)
   for line in String.lines(text) do
     if line == "" then
       out[#out + 1] = ""
@@ -204,12 +205,12 @@ end
 --- Renders one example's function: its companion files first, then its
 --- statements verbatim, then, only when it has an `output` block, the
 --- print capture and the assertion on it.
-local function emit_example(out: {string}, file: string, example: Example)
+local function emit_example(out: mut {string}, file: string, example: Example)
   out[#out + 1] = "local function " .. example.name .. "(tmp: string)"
   out[#out + 1] = "  local _ = tmp"
   for _, f in ipairs(example.files) do
-    out[#out + 1] = "  __doctest_write(tmp, " .. quote(f.path) .. ", " ..
-      quote(f.content) .. ")"
+    table.insert(out, "  __doctest_write(tmp, " .. quote(f.path) .. ", " ..
+        quote(f.content) .. ")")
   end
   if example.has_output then
     out[#out + 1] = "  local print, __doctest_get = __doctest_capture()"
@@ -220,16 +221,16 @@ local function emit_example(out: {string}, file: string, example: Example)
   end
   if example.has_output then
     out[#out + 1] = "  local __doctest_got = __doctest_get()"
-    out[#out + 1] = "  local __doctest_want = " .. quote(example.output_text)
+    table.insert(out, "  local __doctest_want = " .. quote(example.output_text))
     out[#out + 1] =
       '  assert((__doctest_got):gsub("%s+$", "") == (__doctest_want):gsub("%s+$", ""),'
-    out[#out + 1] = '    "doctest: " .. ' .. quote(file) ..
-      ' .. ": output did not match\\nwant:\\n" .. __doctest_want ..'
+    table.insert(out, '    "doctest: " .. ' .. quote(file) ..
+        ' .. ": output did not match\\nwant:\\n" .. __doctest_want ..')
     out[#out + 1] = '      "\\ngot:\\n" .. __doctest_got)'
   end
   out[#out + 1] = "end"
   if not example.has_output then
-    -- Nothing calls an `example_` function: [`build.analyzer.analyze`]
+    -- Nothing calls an `example_` function: [`build.syntax_analyzer`]'s `analysis_of`
     -- discovers only `^test_`. Reading it here keeps tl from warning
     -- that it is unused, as `local _ = tmp` does for an argument no
     -- statement reads.
@@ -242,7 +243,7 @@ end
 --- of a table literal as it is, or "" when it can: a brace closing one
 --- it did not open, one left open, or a comment or long bracket that
 --- would swallow the close. Strings are skipped; the build reads what
---- is left field by field ([`build.analyzer`]), so this holds only that
+--- is left field by field ([`build.syntax_analyzer`]), so this holds only that
 --- the line stays one literal.
 local function unspliceable(fields: string): string
   local depth = 0
@@ -279,8 +280,8 @@ end
 --- it, its first paragraph in the list of modules. "" for a doc with no
 --- prose.
 function generate.prose(source: string): string
-  local kept: {string} = {}
-  local fence: string | nil = nil
+  local kept: mut {string} = {}
+  local fence: string? = nil
   local titled = false
   for line in String.lines(source) do
     -- A fence closes with the opener's own marker in a run at least as
@@ -296,7 +297,7 @@ function generate.prose(source: string): string
       kept[#kept + 1] = line
     elseif line:match("^<!%-%- policy:.*%-%->%s*$") then
       -- Renders as nothing.
-    elseif not titled and line:match("^#%s") then
+    elseif not titled and line:match("^#%s") ~= nil then
       titled = true
     else
       if line ~= "" then titled = true end
@@ -320,20 +321,20 @@ end
 ---   already does that for every module, doc-derived or not
 --- @param prose the doc's prose ([`generate.prose`]), written first as
 ---   the module's own documentation; "" or absent for none
-function generate.from_blocks(blocks: {Block}, file: string, prose?: string): string | nil, string
+function generate.from_blocks(blocks: {Block}, file: string, prose?: string): string?, string
   local items, trouble = to_items(blocks)
   if items == nil then
     return nil, trouble
   end
-  local declared: Block = nil
+  local declared: Block? = nil
   for _, b in ipairs(blocks) do
     if b.lang == "policy" and declared ~= nil then
-      return nil, "line " .. b.line .. ": a doc declares its policy once; line " ..
-        declared.line .. " did already"
+      return nil, "line " .. tostring(b.line) .. ": a doc declares its policy once; line " ..
+        tostring(declared.line) .. " did already"
     elseif b.lang == "policy" then
       local why = unspliceable(b.content)
       if why ~= "" then
-        return nil, "line " .. b.line .. ": the policy line " .. why
+        return nil, "line " .. tostring(b.line) .. ": the policy line " .. why
       end
       declared = b
     end
@@ -353,10 +354,10 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
     end
   end
 
-  local out: {string} = {}
+  local out: mut {string} = {}
   if prose ~= nil and prose ~= "" then
     for line in String.lines(prose) do
-      out[#out + 1] = line == "" and "---" or "--- " .. line
+      out[#out + 1] = if line == "" then "---" else "--- " .. line end
     end
     out[#out + 1] = ""
   end
@@ -373,7 +374,7 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
     -- Not `Fs`, which a doc's entry would choose for its own
     -- `require("cosmic.fs")`: declaring it again there would shadow this
     -- local. tl's warning for shadowing a local carries a source
-    -- position, so [`build.compilation`]'s discount (which matches only the
+    -- position, so [`build.pipeline`]'s `discounted` (which matches only the
     -- message for the global `print`, see `__doctest_capture` below)
     -- would not drop it.
     out[#out + 1] = 'local __doctest_fs = require("cosmic.fs")'
@@ -402,29 +403,37 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
   end
 
   if needs_capture then
-    out[#out + 1] =
-      "--- A fresh `print` and a way to read back everything it caught, one"
-    out[#out + 1] =
-      "--- pair per running example. `core/surface.c`'s `surface_print` is a"
-    out[#out + 1] =
-      "--- plain global -- tab-separating its arguments and ending every call"
-    out[#out + 1] = "--- in one newline -- and this mirrors that exactly."
-    out[#out + 1] =
-      "local function __doctest_capture(): function(any...), function(): string"
-    out[#out + 1] = "  local lines: {string} = {}"
-    out[#out + 1] = "  local into = function(...: any): ()"
-    out[#out + 1] = "    local parts: {string} = {}"
-    out[#out + 1] = '    local n = select("#", ...)'
-    out[#out + 1] = "    for i = 1, n do"
-    out[#out + 1] = "      parts[i] = tostring((select(i, ...)))"
-    out[#out + 1] = "    end"
-    out[#out + 1] = '    lines[#lines + 1] = table.concat(parts, "\\t") .. "\\n"'
-    out[#out + 1] = "  end"
-    out[#out + 1] = "  local get = function(): string"
-    out[#out + 1] = "    return table.concat(lines)"
-    out[#out + 1] = "  end"
-    out[#out + 1] = "  return into, get"
-    out[#out + 1] = "end"
+    -- What it caught is a field of a record, which a closure may write and the new checker takes (an array written, or a
+    -- local a closure assigns, it refuses), as a guide's example is a project's code and no ceiling holds it. One text,
+    -- since each line written to `out` is a write the checker counts.
+    out[#out + 1] = [==[
+local record __doctest_caught
+  mut text: string
+end
+
+--- A fresh `print` and a way to read back everything it caught, one
+--- pair per running example. `core/surface.c`'s `surface_print` is a
+--- plain global -- tab-separating its arguments and ending every call
+--- in one newline -- and this mirrors that exactly.
+local function __doctest_capture(): function(...: any), function(): string
+  local caught: __doctest_caught = { text = "" }
+  local into = function(...: any): ()
+    local line = ""
+    local n = select("#", ...)
+    for i = 1, n do
+      if i > 1 then
+        line = line .. "\t"
+      end
+      line = line .. tostring((select(i, ...)))
+    end
+    caught.text = caught.text .. line .. "\n"
+  end
+  local get = function(): string
+    return caught.text
+  end
+  return into, get
+end
+]==]
     out[#out + 1] = ""
   end
 
@@ -444,11 +453,11 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
   end
 
   -- Where each example opens in the doc, which `cosmic docs` shows in
-  -- place of this file's own lines ([`build.derivation`]'s `origin_lines`).
+  -- place of this file's own lines ([`build.syntax_derivation`]'s `origin_lines`).
   for _, item in ipairs(items) do
     local example = item.example
     if item.kind == "example" and example ~= nil then
-      out[#out + 1] = "-- line " .. example.name .. " " .. example.line
+      table.insert(out, "-- line " .. example.name .. " " .. tostring(example.line))
     end
   end
 
