@@ -15,6 +15,7 @@ here, so they run anywhere. A real file is read the same way from
 drops with `local_names`.
 
 ```teal
+local Csv = require("cosmic.csv")
 local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
 local Url = require("cosmic.url")
@@ -34,7 +35,8 @@ local parts: {{string}} = {
     "</Relationships>" },
   { "xl/sharedStrings.xml", "<sst " .. main .. "><si><t>Region</t></si><si><t>Total</t></si>" ..
     "<si><r><t>North</t></r><r><t> East</t></r>" ..
-    '<rPh sb="0" eb="5"><t>nosu</t></rPh></si></sst>' },
+    '<rPh sb="0" eb="5"><t>nosu</t></rPh></si>' ..
+    '<si><t>Fish, "fresh"\ndaily</t></si></sst>' },
   { "xl/styles.xml", "<styleSheet " .. main .. '><numFmts><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm"/>' ..
     '<numFmt numFmtId="165" formatCode="[h]:mm"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="14"/>' ..
     '<xf numFmtId="164"/><xf numFmtId="165"/></cellXfs></styleSheet>' },
@@ -43,6 +45,7 @@ local parts: {{string}} = {
     '<row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2"><v>1250.5</v></c><c r="D2" t="b"><v>1</v></c><c><v>7</v></c></row>' ..
     '<row r="3"><c r="A3" s="1"><v>45658</v></c><c r="B3" s="2"><v>45658.5</v></c>' ..
     '<c r="C3" s="1" t="e"><v>#N/A</v></c><c r="D3" s="3"><v>1.5</v></c></row>' ..
+    '<row r="4"><c r="A4" t="s"><v>3</v></c><c r="B4"><v>3</v></c></row><row r="5"/>' ..
     "</sheetData></worksheet>" },
 }
 local out = Stream.collect()
@@ -194,7 +197,12 @@ end
 
 A sheet can hold a great many rows, so it is read a row at a time:
 [`Xml.subtrees`] answers each `row` whole as the parser reaches its
-end, from the sheet's body read in chunks.
+end, from the sheet's body read in chunks. Each row is written as CSV with
+[`Csv.encode`], which quotes a cell that holds a comma, a quote or a line
+break, as Alt-Enter puts in one, so the columns stay where they were. It
+ends the record with a line break, which `print` would double, so that is
+taken off; and it raises for a record with no fields, as a row with no
+cells has, so such a row, which CSV has no line for, is left out.
 
 ```teal continue
 local workbook = part("/xl/workbook.xml")
@@ -214,7 +222,7 @@ for _, sheet in ipairs(Xml.children(assert(Xml.child(workbook, "sheets")), "shee
         local text = value(c)
         cells[#cells + 1] = text
       end
-      print(table.concat(cells, ","))
+      if #cells > 0 then print((Csv.encode({ cells }):gsub("\n$", ""))) end
     end
   end
   while true do
@@ -235,6 +243,8 @@ Sales
 Region,Total
 North East,1250.5,,TRUE,7
 2025-01-01,2025-01-01T12:00:00,#N/A,1.5
+"Fish, ""fresh""
+daily",3
 ```
 
 ## going further
@@ -267,6 +277,7 @@ And some of what a reader of any file meets:
 [`cosmic.url`]: ../../cosmic/url.tl
 [`cosmic.xml`]: ../../cosmic/xml.tl
 [`cosmic.zip`]: ../../cosmic/zip.tl
+[`Csv.encode`]: ../../cosmic/csv.tl
 [`Time.parse_date`]: ../../cosmic/time.tl
 [`Url.resolve`]: ../../cosmic/url.tl
 [`Xml.subtrees`]: ../../cosmic/xml.tl
