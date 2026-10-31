@@ -88,10 +88,13 @@ assert(zip:add_file("xl/_rels/workbook.xml.rels", wrapped("Relationships", { xml
 ## a date's style
 
 A date is a number, the days since 1899-12-30, and only its style says it
-is a date. The styles part lists the styles a cell's `s` indexes: here
-style 0 is plain and style 1 shows built-in format 14, a date. The
-fonts, fills and borders, and the `Normal` style each style is based on,
-are the fewest a spreadsheet program asks for.
+is a date. That count holds from 1900-03-01 on: Excel counts 1900 as a
+leap year, so an earlier date is a day off, as [reading a
+spreadsheet](xlsx.md) says. The styles part lists the styles a cell's `s`
+indexes: here style 0 is plain and style 1 shows built-in format 14, a
+date. The fonts, fills and borders are the fewest a spreadsheet program
+asks for, and the `Normal` style each style is based on keeps a reader
+from warning that the workbook has none.
 
 ```teal continue
 assert(zip:add_file("xl/styles.xml", wrapped("styleSheet", { xmlns = main }, {
@@ -121,7 +124,8 @@ end
 
 A cell's `r` names its place: its column's letters and its row's number.
 Text is written in the cell as an inline string, which needs no shared
-strings part; a number goes in `v`; a boolean is `t="b"` and 0 or 1; a
+strings part; a number goes in `v`, in the fewest digits that read back
+to it; a boolean is `t="b"` and 0 or 1; a
 date is its serial with style 1.
 
 A sheet can be large, so it is written with [`Xml.writer`], a row at a
@@ -138,6 +142,17 @@ local function column(n: integer): string
   return letters
 end
 
+--- A number as the fewest digits that read back to it; a cell holds no NaN or
+--- infinity, which no spreadsheet reads.
+local function number_text(n: number): string
+  assert(n == n and n ~= math.huge and n ~= -math.huge, "a cell holds no NaN or infinity")
+  for digits = 15, 16 do
+    local text = string.format("%." .. tostring(digits) .. "g", n)
+    if tonumber(text) == n then return text end
+  end
+  return string.format("%.17g", n)
+end
+
 local function cell(ref: string, value: Value): {Xml.Event}
   if value is string then
     return {
@@ -152,7 +167,7 @@ local function cell(ref: string, value: Value): {Xml.Event}
     attributes["t"] = "b"
     v = if value then "1" else "0" end
   elseif value is number then
-    v = tostring(value)
+    v = number_text(value)
   else
     attributes["s"] = "1"
     v = tostring(serial(value.date))
@@ -221,6 +236,8 @@ South,980,0,45702 (style 1)
   spreadsheet](xlsx.md) reads them.
 - More sheets are more `sheet` elements, relationships, content type
   overrides and sheet parts, each named alike.
+- Text that begins or ends with spaces keeps them only where its `t`
+  says `xml:space="preserve"`.
 
 [`cosmic.time`]: ../../cosmic/time.tl
 [`cosmic.xml`]: ../../cosmic/xml.tl
