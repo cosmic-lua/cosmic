@@ -683,7 +683,9 @@ local class EntryReader is Zip.Reader
       index = made
     end
     local found = index[if fold then path:lower() else path end]
-    if found == nil then return refuse("no entry " .. string.format("%q", path)) end
+    if found == nil then
+      return refuse("no entry " .. string.format("%q", path) .. (if fold then " in any case" else "" end))
+    end
     return found, ""
   end
 
