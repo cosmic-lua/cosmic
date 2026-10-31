@@ -75,6 +75,9 @@ local function launch_with_mode(program: string, tmp: string, name: string, mode
   env["COSMIC_PORTABLE_CACHE"] = cache
   local r = assert(Child.run({ program, "ok.tl" }, { env = env, cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
+  -- The test's directory is removed afterwards, by a user who cannot list
+  -- a leaf its owner took every bit from.
+  assert(Fs.chmod(cache, 0x1c0))
   return r, r.stderr or ""
 end
 
