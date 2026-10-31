@@ -34,10 +34,13 @@ Test.policy{ grants = {
 --- The standard library of the checker's own tests, as the globals of every module, and the `cosmic.*` modules the cases name.
 local STANDARD <const>: {string: string} = {
   ["cosmic.shape"] = table.concat({
-    "local record Shape",
-    "  record_of: function(string, ...: any): any",
+    "local record Raw",
     "  record: function(any): any",
     "  integer: any",
+    "end",
+    "local record Shape",
+    "  record_of: function(string, ...: any): any",
+    "  raw: Raw",
     "end",
     "return Shape",
     "",

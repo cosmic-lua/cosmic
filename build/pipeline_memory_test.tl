@@ -23,10 +23,13 @@ local BUDGET <const> = 1000
 --- The [`cosmic.shape`] of the cases that resolve a record: the calls of `record_of` are given what the build knows of the record.
 local SHAPE <const>: {string: string} = {
   ["cosmic.shape"] = table.concat({
-    "local record Shape",
-    "  record_of: function(string, ...: any): any",
+    "local record Raw",
     "  record: function(any): any",
     "  integer: any",
+    "end",
+    "local record Shape",
+    "  record_of: function(string, ...: any): any",
+    "  raw: Raw",
     "end",
     "return Shape",
     "",
