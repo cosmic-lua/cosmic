@@ -612,47 +612,6 @@ local function test_a_source_is_deflated_again_by_a_core_of_another_image(tmp: s
   assert(assert(rows[1]):text(1) == "1", "another core's compressed source was shipped")
 end
 
---- A paired declaration describes the interface; only its implementation
---- contributes executable rows and runtime dependencies.
-local function test_paired_declaration_projects_each_source_in_its_role(tmp: string)
-  local db = fixture.database(tmp, {
-    ["decl_dep.tl"] = "local record Dep\n  declared: integer\nend\nreturn Dep\n",
-    ["impl_dep.tl"] = "local record Dep\n  executed: integer\nend\nreturn Dep\n",
-    ["foo.d.tl"] = 'local Dep = require("decl_dep")\n' ..
-      "--- Public interface.\n--- See [`Dep.declared`].\nlocal record Foo\n  answer: integer\n" ..
-      "  fail: function(): nil, string\nend\nreturn Foo\n",
-    ["foo.tl"] = 'local Dep = require("impl_dep")\n' ..
-      "--- Private implementation.\n--- See [`Dep.executed`].\nlocal record Foo\n  answer: integer\nend\n" ..
-      'local x = Dep.executed\nfunction Foo.fail(): nil, string\n' ..
-      '  return nil, "implementation error"\nend\nlocal value: Foo = { answer = 42 }\nreturn value\n',
-    ["only.d.tl"] = "--- Declaration alone.\nlocal record Only\nend\nreturn Only\n",
-  })
-  local function rows(sql: string): Sqlite.Rows
-    return (assert(Sqlite.text_rows(db, sql)))
-  end
-  local module = rows("SELECT file, kind, inflate(source) FROM modules WHERE path = 'foo'")
-  assert(#module == 1 and module[1]:text(1) == "foo.tl" and nth(module, 1):text(2) ~= "decl")
-  assert(nth(module, 1):text(3):find("answer = 42", 1, true), nth(module, 1):text(3))
-  assert(nth(rows("SELECT count(*) FROM decls WHERE path IN ('foo', 'only')"), 1):text(1) == "2")
-  assert(nth(rows("SELECT count(*) FROM modules WHERE path = 'only'"), 1):text(1) == "0")
-  local imports = rows("SELECT requires FROM imports WHERE path = 'foo'")
-  assert(#imports == 1 and imports[1]:text(1) == "impl_dep")
-  local bound = rows("SELECT requires FROM bound WHERE path = 'foo' AND name = 'Dep'")
-  assert(#bound == 1 and bound[1]:text(1) == "decl_dep")
-  local docs = rows("SELECT file, text FROM docs WHERE module = 'foo' AND symbol = 'Foo'")
-  assert(#docs == 1 and docs[1]:text(1) == "foo.d.tl" and nth(docs, 1):text(2):find("Public interface.", 1, true) ~= nil)
-  local uses = rows("SELECT module, symbol, from_file FROM uses WHERE from_module = 'foo'")
-  assert(#uses == 1 and uses[1]:text(1) == "impl_dep" and nth(uses, 1):text(2) == "executed" and
-      nth(uses, 1):text(3) == "foo.tl")
-  local catalog = rows("SELECT message, file FROM catalog WHERE module = 'foo'")
-  assert(#catalog == 1 and catalog[1]:text(1) == "implementation error" and nth(catalog, 1):text(2) == "foo.tl")
-  local links = rows("SELECT module, symbol, from_file FROM links WHERE from_module = 'foo'")
-  assert(#links == 1 and links[1]:text(1) == "decl_dep" and nth(links, 1):text(2) == "declared" and
-      nth(links, 1):text(3) == "foo.d.tl")
-  assert(nth(rows("SELECT count(*) FROM docs WHERE module = 'only'"), 1):text(1) ~= "0")
-  assert(db:close())
-end
-
 --- A module's edge to a name the plan does not ship, a declaration with
 --- no implementation, is kept for the checker in `decl_imports` and
 --- left out of `imports`, which the program's closures are made of.
@@ -661,7 +620,6 @@ local function test_an_edge_to_a_declaration_is_kept_beside_the_runtime_edges(tm
     ["only.d.tl"] = "local record Only\n  n: integer\nend\nreturn Only\n",
     ["dep.tl"] = "local record Dep\nend\nreturn Dep\n",
     ["paired.d.tl"] = 'local type Dep = require("dep")\nlocal record Paired\n  dep: Dep\nend\nreturn Paired\n',
-    ["paired.tl"] = "local record Paired\nend\nreturn Paired\n",
     ["foo.tl"] = 'local type Only = require("only")\nlocal Dep = require("dep")\n' ..
       "local record Foo\n  only: Only\nend\nreturn Foo\n",
   })
@@ -677,7 +635,7 @@ local function test_an_edge_to_a_declaration_is_kept_beside_the_runtime_edges(tm
   assert(names("decl_imports") == "dep,only", names("decl_imports"))
   local paired = assert(Sqlite.text_rows(db,
     "SELECT requires FROM decl_imports WHERE path = 'paired' AND requires <> ''"))
-  assert(#paired == 1 and paired[1]:text(1) == "dep", "a pair keeps its declaration's edges")
+  assert(#paired == 1 and paired[1]:text(1) == "dep", "a declaration keeps its edges")
   local leaf = assert(Sqlite.text_rows(db,
     "SELECT requires FROM decl_imports WHERE path = 'dep'"))
   assert(#leaf == 1 and leaf[1]:text(1) == "", "a module with no edge has the empty row")

@@ -317,6 +317,9 @@ end
 --- whether its stubs are the running analyzer's ([`trusted`]); none of
 --- them where other code than this session's staged it
 --- ([`staged_by_other`]).
+---
+-- TODO: report a `.d.tl` beside a `.tl` ([`build.driver.paired`]) as a diagnostic of both files; the build refuses the pair, and
+-- the document that requires their module is told that the project has no such module.
 local function listed(src: source.View, staged: boolean)
   local db, _ = database(src)
   if db == nil then return end

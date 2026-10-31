@@ -20,8 +20,7 @@ end
 
 --- A module's graph key -- the kinds, sources and requires of its
 --- import graph -- over a fixed tree: a test module, the library it
---- requires, and a module that library reaches through a declaration
---- of its own, which the graph holds both of. The fixture requires no
+--- requires, and a declaration that library reaches. The fixture requires no
 --- module of the standard library, whose source a graph key holds too.
 local function test_the_graph_key_is_pinned(tmp: string)
   local root = tmp .. "/tree"
@@ -31,8 +30,6 @@ local function test_the_graph_key_is_pinned(tmp: string)
       'function greet.hello(): string\n  return "hello, " .. shape.name()\nend\n' ..
       "return greet\n",
     ["shape.d.tl"] = "local record shape\n  name: function(): string\nend\nreturn shape\n",
-    ["shape.tl"] = 'local record shape\nend\nfunction shape.name(): string\n  return "shape"\n' ..
-      "end\nreturn shape\n",
     ["greet_test.tl"] = 'local greet = require("greet")\nlocal function test_hello()\n' ..
       '  assert(greet.hello() ~= "")\nend\n',
   }
@@ -44,9 +41,8 @@ local function test_the_graph_key_is_pinned(tmp: string)
   local keys: mut {string:string} = {}
   for _, m in ipairs(result.modules) do keys[m.path] = m.graph_key end
   local pinned: {string:string} = {
-    greet = "4d064f306aece5afe9d3df587cb38afac995022ee430af425021811044c42c1d",
-    greet_test = "0a612f45ba0e340374c42b67687f0b2277e044b2dd33bb2cfcffafb51654fd2d",
-    shape = "a80ca828ba28a296f986ab8789dc768160390738b4d7deffcb6a47dcc6f84036",
+    greet = "452d1d88a705d377f2c7f4445c49aa854236e844c3c70c9949ae1e96743d9d3c",
+    greet_test = "d554b1d34bce1f8dedba1c008ac3f26ab1e773a0e5d66a923ceb12ad49c75d8d",
   }
   local moved: mut {string} = {}
   for name, want in pairs(pinned) do

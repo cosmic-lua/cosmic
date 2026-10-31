@@ -45,37 +45,24 @@ local LIB <const> = table.concat({
   "",
 }, "\n")
 
---- The module that lies, as the declaration of the tool's own libraries cannot: `liar.d.tl` declares a string and an
---- integer where `liar.tl` answers an integer and a float. A project's callers take their types from the declaration
---- file, and nothing holds the module to it, so the values reach the boundary of a function in the project's own Teal.
+--- The module that lies, as the declaration of the tool's own libraries cannot: `math.d.tl` declares `math.abs` to answer a
+--- string and `math.sqrt` an integer where the language's `math` answers an integer and a float. A project's callers take
+--- their types from the declaration file, and nothing holds the module to it, so the values reach the boundary of a
+--- function in the project's own Teal.
 local LIAR_DECLARATION <const> = table.concat({
   "local record Liar",
-  "  text: function(): string",
-  "  count: function(): integer",
+  "  abs: function(integer): string",
+  "  sqrt: function(number): integer",
   "end",
   "return Liar",
   "",
 }, "\n")
 
---- The module that answers what `liar.d.tl` does not declare.
-local LIAR <const> = table.concat({
-  "local record Honest",
-  "  text: function(): integer",
-  "  count: function(): number",
-  "end",
-  "local honest: Honest = {",
-  "  text = function(): integer return 42 end,",
-  "  count = function(): number return 1.5 end,",
-  "}",
-  "return honest",
-  "",
-}, "\n")
-
 --- The tests of the project: sound calls pass; a call that sends an integer for the string and a float for the integer is
---- one row each at the line of the call, and the functions run on. The values come from `liar`, as a library whose
+--- one row each at the line of the call, and the functions run on. The values come from `math`, as a library whose
 --- declaration is wrong would send them: a program of the checker's grammar has no cast to send them by.
 local SUITE <const> = table.concat({
-  "local Liar = require(\"liar\")",
+  "local Liar = require(\"math\")",
   "local Lib = require(\"lib\")",
   "",
   "local function test_a_sound_call_passes()",
@@ -84,9 +71,9 @@ local SUITE <const> = table.concat({
   "end",
   "",
   "local function test_a_value_of_another_kind_is_found_at_the_caller_and_the_function_runs_on()",
-  "  local taken = Lib.take(Liar.text())",
+  "  local taken = Lib.take(Liar.abs(-42))",
   "  assert(taken == \"42nil\", taken)",
-  "  local halved = Lib.half(Liar.count())",
+  "  local halved = Lib.half(Liar.sqrt(2.25))",
   "  assert(halved == 0, tostring(halved))",
   "end",
   "",
@@ -97,8 +84,7 @@ local function project(tmp: string): string
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/lib.tl", LIB))
-  assert(Fs.write(root .. "/liar.d.tl", LIAR_DECLARATION))
-  assert(Fs.write(root .. "/liar.tl", LIAR))
+  assert(Fs.write(root .. "/math.d.tl", LIAR_DECLARATION))
   assert(Fs.write(root .. "/boundary_test.tl", SUITE))
   return root
 end

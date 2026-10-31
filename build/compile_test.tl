@@ -135,6 +135,9 @@ local function test_a_command_line_it_refuses_says_how_to_fix_it(tmp: string)
   refused({ one, two }, "give -o <dir>")
   refused({ tmp .. "/missing.tl" }, "check the path")
   refused({ decl }, "every file named is a .d.tl")
+  local pair = file(tmp, "one.d.tl", "local record One\nend\nreturn One\n")
+  refused({ "-o", tmp .. "/o", one, pair }, pair .. ": " .. one .. " is also the module one, and a module has one type source")
+  refused({ "-o", tmp .. "/o", pair, one }, "Delete " .. pair)
   refused({ one, "--root", tmp .. "/nowhere" }, "--root must name a directory")
   refused({ tmp .. "/readme.md" }, "not a .tl source")
   refused({ "-o", tmp .. "/o", one, tmp .. "/./one.tl" }, "named twice: name it once")
@@ -214,20 +217,17 @@ local function test_two_files_of_one_name_or_module_are_refused(tmp: string)
   assert(Fs.exists(tmp .. "/o/y.lua") == false)
 end
 
---- As the build does, a declaration beside its source is what a require
---- sees, whichever is named first.
-local function test_a_declaration_beside_its_source_types_a_require_in_any_order(tmp: string)
+--- A declaration types a require of it whichever file is named first.
+local function test_a_declaration_types_a_require_in_any_order(tmp: string)
   local decl = file(tmp, "foo.d.tl", "local record Foo\n  n: integer\nend\nreturn Foo\n")
-  local source = file(tmp, "foo.tl",
-    "local record Foo\n  n: string\nend\nlocal f: Foo = { n = \"text\" }\nreturn f\n")
   local user = file(tmp, "user.tl",
-    "local type Foo = require(\"foo\")\nlocal f: Foo = { n = 1 }\nreturn f\n")
-  for _, order in ipairs({ { decl, source, user }, { source, user, decl }, { user, decl, source } }) do
+    "local type Foo = require(\"foo\")\nlocal f: Foo = { n = \"text\" }\nreturn f\n")
+  for _, order in ipairs({ { decl, user }, { user, decl } }) do
     local words: mut {string} = { "--errors", "-o", tmp .. "/out" }
     for _, path in ipairs(order) do words[#words + 1] = path end
     local ran = run(words)
     assert(ran.code == 0, ran.err)
-    assert(not ran.err:find("user.tl:", 1, true), ran.err)
+    assert(ran.err:find("user.tl:2:", 1, true), ran.err)
   end
 end
 

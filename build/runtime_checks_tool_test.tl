@@ -30,35 +30,24 @@ local greeting = table.concat({
   "",
 }, "\n")
 
---- The module that lies: `liar.d.tl` declares a string where `liar.tl` answers an integer, which a project's callers take
---- on the declaration's word and a program of the checker's grammar cannot send by a cast.
+--- The module that lies: `math.d.tl` declares `math.abs` to answer a string where the language's `math` answers an integer,
+--- which a project's callers take on the declaration's word and a program of the checker's grammar cannot send by a cast.
 local liar_declaration = table.concat({
   "local record Liar",
-  "  text: function(): string",
+  "  abs: function(integer): string",
   "end",
   "return Liar",
   "",
 }, "\n")
 
-local liar = table.concat({
-  "local record Honest",
-  "  text: function(): integer",
-  "end",
-  "local honest: Honest = {",
-  "  text = function(): integer return 42 end,",
-  "}",
-  "return honest",
-  "",
-}, "\n")
-
---- The tests: a call with a name passes, and a call with the value `liar` sends (an integer for a string) is found
+--- The tests: a call with a name passes, and a call with the value `math.abs` sends (an integer for a string) is found
 --- where it is made, and passes all the same: the report changes no verdict.
 local suite = table.concat({
   "local greet = require(\"greet\")",
-  "local liar = require(\"liar\")",
+  "local liar = require(\"math\")",
   "",
   "local function test_hello_with_a_value_of_another_kind()",
-  "  assert(tostring(greet.hello(liar.text())) == \"42\")",
+  "  assert(tostring(greet.hello(liar.abs(-42))) == \"42\")",
   "end",
   "",
   "local function test_hello_with_a_name()",
@@ -82,8 +71,7 @@ local function project(tmp: string): string
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/cmd/hello"))
   assert(Fs.write(root .. "/greet.tl", greeting))
-  assert(Fs.write(root .. "/liar.d.tl", liar_declaration))
-  assert(Fs.write(root .. "/liar.tl", liar))
+  assert(Fs.write(root .. "/math.d.tl", liar_declaration))
   assert(Fs.write(root .. "/greet_test.tl", suite))
   assert(Fs.write(root .. "/cmd/hello/main.tl", main))
   return root

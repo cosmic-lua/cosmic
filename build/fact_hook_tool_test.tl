@@ -22,8 +22,8 @@ Test.policy{ profiles = { "cosmic" }, grants = {
   { path = "testdata/fuzz/checker-sound", letters = "r" },
 } }
 
---- The module that lies: `liar.d.tl` declares a circle or a square, which a caller tells apart by the tag `kind`, where
---- `liar.tl` answers a line, whose tag is neither.
+--- The module that lies: `table.d.tl` declares `table.pack` to answer a circle or a square, which a caller tells apart by the
+--- tag `kind`, where the language's `table.pack` answers a table whose tag is neither.
 local LIAR_DECLARATION <const> = table.concat({
   "local enum Circle_kind \"circle\" end",
   "local enum Square_kind \"square\" end",
@@ -37,34 +37,17 @@ local LIAR_DECLARATION <const> = table.concat({
   "end",
   "local type Shape = Circle | Square",
   "local record Liar",
-  "  shape: function(): Shape",
+  "  pack: function(integer): Shape",
   "end",
   "return Liar",
   "",
 }, "\n")
 
---- The module that answers what `liar.d.tl` does not declare.
-local LIAR <const> = table.concat({
-  "local enum Line_kind \"line\" end",
-  "local record Line",
-  "  kind: Line_kind",
-  "  length: integer",
-  "end",
-  "local record Honest",
-  "  shape: function(): Line",
-  "end",
-  "local honest: Honest = {",
-  "  shape = function(): Line return { kind = \"line\", length = 5 } end,",
-  "}",
-  "return honest",
-  "",
-}, "\n")
-
 --- The module under test: `read` takes nil out of `x` with an `assert` and returns it; the checker takes the `assert`
 --- for what it is. `sound` takes nil out with a test. `area` takes the circle out of the shape with a test of its tag,
---- and reads the shape as a square: a read that is false where `liar` answers a line.
+--- and reads the shape as a square: a read that is false where `table.pack` answers a table of its arguments.
 local LIB <const> = table.concat({
-  "local Liar = require(\"liar\")",
+  "local Liar = require(\"table\")",
   "",
   "local record Lib",
   "  read: function(string?): string",
@@ -84,7 +67,7 @@ local LIB <const> = table.concat({
   "    return x",
   "  end,",
   "  area = function(): integer",
-  "    local shape = Liar.shape()",
+  "    local shape = Liar.pack(1)",
   "    if shape.kind == \"circle\" then",
   "      return shape.radius",
   "    end",
@@ -116,8 +99,7 @@ local SUITE <const> = table.concat({
 local function project(tmp: string): string
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
-  assert(Fs.write(root .. "/liar.d.tl", LIAR_DECLARATION))
-  assert(Fs.write(root .. "/liar.tl", LIAR))
+  assert(Fs.write(root .. "/table.d.tl", LIAR_DECLARATION))
   assert(Fs.write(root .. "/lib.tl", LIB))
   assert(Fs.write(root .. "/facts_test.tl", SUITE))
   return root
@@ -168,13 +150,13 @@ local function test_a_checked_run_reports_the_fact_that_is_false(tmp: string)
   assert(text:find("test: 2 tests passed in ", 1, true) ~= nil, text)
   assert(text:find("run-time types: 1 violation, 1 distinct, at 1 place", 1, true) ~= nil, text)
   assert(text:find("lib.tl:" .. read_site() .. ": shape declared kind one of square got a table whose kind is " ..
-      "string \"line\" (1 time)", 1, true) ~= nil, text)
+      "nil (1 time)", 1, true) ~= nil, text)
 
   local rows = violations(root)
   assert(#rows == 1, tostring(#rows) .. " rows")
   local row = assert(rows[1])
   assert(table.concat(row:texts(), " | ") == "fact | lib.tl:" .. read_site() ..
-      " | shape | kind one of square | a table whose kind is string \"line\" | 1", table.concat(row:texts(), " | "))
+      " | shape | kind one of square | a table whose kind is nil | 1", table.concat(row:texts(), " | "))
   -- the module the run was made of carries the wrap of the read `assert` narrowed too
   local aside = assert(Fs.read(assert(build_paths.directory(root)) .. "/cosmic.checked.db"))
   assert(aside:find("__fact", 1, true) ~= nil, "the checked projection carries no wrap")

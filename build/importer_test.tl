@@ -66,16 +66,12 @@ local function valued(n: integer): string
     " }\nreturn valued\n"
 end
 
---- A module `types` whose record has the type `Thing` of a `value` and builds one.
-local TYPES_IMPLEMENTED <const> = "local record Types\n  record Thing\n    value: number\n  end\n  make: function(): Types.Thing\nend\n" ..
-  "function Types.make(): Types.Thing\n  return { value = 1 }\nend\nreturn Types\n"
-
---- The declaration of the module `types` of [`TYPES_IMPLEMENTED`], with a `value` of `kind`.
+--- The declaration of a module `types` whose record `Thing` has a `value` of `kind`.
 local function types_declared(kind: string): string
   return "local record Types\n  record Thing\n    value: " .. kind .. "\n  end\n  make: function(): Types.Thing\nend\nreturn Types\n"
 end
 
---- The module `dep` over the record the declaration `dep.d.tl` gives, holding `n`.
+--- A module `dep` holding `n`.
 local function dep_valued(n: integer): string
   return "local record Dep\n  value: number\nend\nlocal dep: Dep = { value = " .. tostring(n) .. " }\nreturn dep\n"
 end
@@ -308,9 +304,7 @@ local function test_self_compile_consumes_cache_after_identity_selection()
   end
 end
 
---- A declaration is the source the checker uses for an imported module,
---- including when an implementation with the same import path exists. An
---- edit that changes its public type must invalidate a warm dependent.
+--- An edit that changes the public type of a declaration must invalidate a warm dependent.
 local function test_declaration_edit_invalidates_a_warm_dependent()
   local root, write_trouble = write_fixture("declaration-cache", {
     ["main.tl"] = table.concat({
@@ -320,7 +314,6 @@ local function test_declaration_edit_invalidates_a_warm_dependent()
       "return thing",
       "",
     }, "\n"),
-    ["types.tl"] = TYPES_IMPLEMENTED,
     ["types.d.tl"] = types_declared("number"),
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
@@ -369,28 +362,25 @@ local function test_declaration_edit_invalidates_transitive_type_only_dependents
     "the transitive declaration did not reach the checker: " .. trouble)
 end
 
---- The declaration controls checking, but the implementation still controls
---- what a test loads. Changing only that implementation must move the test's
---- key so a previously passing verdict is not reused.
-local function test_implementation_edit_invalidates_a_declared_dependent()
-  local root, write_trouble = write_fixture("declared-implementation-cache", {
-    ["dep.tl"] = dep_valued(1),
-    ["dep.d.tl"] = "local record Dep\n  value: number\nend\nreturn Dep\n",
-    ["main_test.tl"] = table.concat({
-      'local dep = require("dep")',
-      "local function test_value()",
-      "  assert(dep.value == 1)",
-      "end",
-      "",
-    }, "\n"),
+--- A module has one type source: a `.d.tl` beside the `.tl` of its module is refused, naming both files and the fix, and
+--- the project builds once it is deleted. A `.d.tl` beside a `.tl` of another module is no pair.
+local function test_a_declaration_beside_its_source_is_refused()
+  local root, write_trouble = write_fixture("declared-implementation-pair", {
+    ["lib/dep.tl"] = dep_valued(1),
+    ["lib/dep.d.tl"] = "local record Dep\n  value: number\nend\nreturn Dep\n",
+    ["lib/other.d.tl"] = "local record Other\n  value: number\nend\nreturn Other\n",
+    ["main.tl"] = 'local dep = require("lib.dep")\nlocal n: number = dep.value\nreturn n\n',
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-  assert(compile_fixture(root))
-  assert(Fs.write(root .. "/dep.tl", dep_valued(2)))
   local result, trouble = compile_fixture(root)
-  assert(result ~= nil, "the edited fixture did not compile: " .. tostring(trouble))
-  assert(result.compiled == 2,
-    "the implementation edit left its declared dependent cached")
+  assert(result == nil, "a declaration beside its source was built")
+  local want = "lib/dep.d.tl: lib/dep.tl is also the module lib.dep, and a module has one type source: " ..
+    "a .tl is its own declaration (its written record), so a .d.tl beside it is never read as the interface. " ..
+    "Delete lib/dep.d.tl (a .d.tl is for a module whose code is C, with no .tl)"
+  assert(trouble == want, tostring(trouble))
+  assert(Fs.remove(root .. "/lib/dep.d.tl"))
+  local built, built_trouble = compile_fixture(root)
+  assert(built ~= nil, "the project did not build once the declaration was deleted: " .. tostring(built_trouble))
 end
 
 --- A module's own compile is keyed by its file as well as its import

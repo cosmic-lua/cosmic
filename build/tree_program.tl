@@ -36,6 +36,9 @@ local record TreeProgram
   --- of its input; a `test` has its functions called from outside.
   index: function(entries: {{string}}, kinds: {string: string}): Driver.Index
 
+  --- The complaints of [`Driver.paired`] for `entries` less the programs of a `testdata/` directory: "" for none.
+  paired: function(entries: {{string}}): string
+
   --- `files` and `written` as one list of entries, and which files of it are `written`: the sources the build writes
   --- from other files ([`TreeProgram.derived_of`]) are files of the tree, named for the file each comes from.
   record Joined
@@ -86,6 +89,10 @@ function TreeProgram.index(entries: {{string}}, kinds: {string: string}): Driver
   return Driver.index(entries, skipped, function(file: string, _text: string): Driver.Extra
     return { tests = kinds[file] == "test" }
   end)
+end
+
+function TreeProgram.paired(entries: {{string}}): string
+  return Driver.paired(entries, skipped)
 end
 
 function TreeProgram.splice(build: Driver.Build, module: string, file: string): boolean?, string

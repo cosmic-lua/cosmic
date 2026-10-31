@@ -496,11 +496,10 @@ input to the build, never to the runtime. one database holds:
   a Lua error names is a line of the module's own source, read
   straight out of `modules`.
 
-A module may pair `foo.d.tl` with `foo.tl`: the declaration supplies
-its checked interface, documentation, bound aliases and documentation
-links; the implementation supplies its executable source and bytecode,
-import edges, uses and error catalog entries. The declaration remains
-in `decls`, including when it has no implementation.
+A module has one type source. A `foo.d.tl` is the declaration of a
+module whose code is C, and it has no `foo.tl`; a `foo.tl` is its own
+declaration, its written record. A build refuses a `foo.d.tl` beside a
+`foo.tl`, naming both files. The declaration remains in `decls`.
 
 `ca_roots`, `ca_revoked` and `zoneinfo` go stale on upstream's schedule, not the
 code's, so `cosmic refresh` ([`build/refresh.tl`]) writes a copy of a

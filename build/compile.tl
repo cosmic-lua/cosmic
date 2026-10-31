@@ -176,6 +176,7 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
   local skipped: mut {string} = {}
   --- The file given for each module name, and for each resolved path.
   local holders: mut {string:string} = {}
+  local holder_is_declaration: mut {string:boolean} = {}
   local resolved: mut {string:string} = {}
   local bases: mut {string:string} = {}
   for _, path in ipairs(request.files) do
@@ -203,15 +204,21 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
     end
     local name = require("build.compile_grammar").module_of(relative)
     local declaration = base_of(path):match("%.d%.tl$") ~= nil
-    -- The program has one file for a module, but for a declaration beside its source, as in a build.
-    local kind = name .. (if declaration then "\0d" else "\0t" end)
-    local holder = holders[kind]
+    local holder = holders[name]
     if holder ~= nil then
-      complain(path .. " and " .. holder .. " are both the module " .. name ..
-          ": a require could mean only one; name one of them, or compile them in two runs")
+      local Driver = require("build.driver")
+      if holder_is_declaration[name] == declaration then
+        complain(path .. " and " .. holder .. " are both the module " .. name ..
+            ": a require could mean only one; name one of them, or compile them in two runs")
+      elseif declaration then
+        complain(Driver.pairing(path, holder, name))
+      else
+        complain(Driver.pairing(holder, path, name))
+      end
       return bare.refused
     end
-    holders[kind] = path
+    holders[name] = path
+    holder_is_declaration[name] = declaration
     if declaration then
       skipped[#skipped + 1] = path
     else
