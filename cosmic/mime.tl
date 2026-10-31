@@ -77,7 +77,7 @@ end
 local MIN_BYTES <const> = 1024
 
 --- The level the zstd of a file is written at. The projection writer keeps
---- each file's compressed pair by its bytes and the rules ([`build.writer`]'s digest of this module)
+--- each file's compressed pair by its bytes and the rules
 --- (`compressed` in [`build.work`]), so a file is compressed once per content
 --- and a warm write pays nothing for it: on 10.6 MB of text in 693 files
 --- (loaded machine) a write took 22.3 s cold and 0.5 s warm at level 12, and
@@ -108,14 +108,17 @@ end
 --- compressed already, `data` is over 1 KiB and the gzip is at least 10%
 --- smaller. Level 9 and a header with no time make the bytes a function of
 --- `data` alone, so a reproducible build stays so. Nil where gzip is not
---- worth it.
+--- worth it, and nil with the encoder's trouble where it failed, which a
+--- caller that keeps the answer must not keep.
 --- @param path string A file name or path
 --- @param data string The file's bytes
 --- @return string | nil The gzip, or nil
-function Mime.gzip(path: string, data: string): string?
-  if not compressible(path, data) then return nil end
-  local packed, _ = Compress.deflate("gzip", data, 9)
-  return worth(packed, data)
+--- @return string The encoder's failure, empty where none
+function Mime.gzip(path: string, data: string): string?, string
+  if not compressible(path, data) then return nil, "" end
+  local packed, trouble = Compress.deflate("gzip", data, 9)
+  if packed == nil then return nil, trouble end
+  return worth(packed, data), ""
 end
 
 --- The zstd of `data`, the contents of a file called `path`, when that is
@@ -123,18 +126,20 @@ end
 --- compressed already, over 1 KiB, at least 10% smaller). One frame at a
 --- fixed level and no dictionary, so for the same zstd build the bytes are
 --- those of `data` alone and a reproducible build stays so. Nil where zstd
---- is not worth it.
+--- is not worth it, and nil with the encoder's trouble where it failed.
 --- @param path string A file name or path
 --- @param data string The file's bytes
 --- @return string | nil The zstd frame, or nil
-function Mime.zstd(path: string, data: string): string?
-  if not compressible(path, data) then return nil end
-  local encoder, _ = Compress.zstd_encoder(ZSTD_LEVEL)
-  if encoder == nil then return nil end
-  local head, _ = encoder:update(data)
-  local tail, _ = encoder:finish()
-  if head == nil or tail == nil then return nil end
-  return worth(head .. tail, data)
+--- @return string The encoder's failure, empty where none
+function Mime.zstd(path: string, data: string): string?, string
+  if not compressible(path, data) then return nil, "" end
+  local encoder, trouble = Compress.zstd_encoder(ZSTD_LEVEL)
+  if encoder == nil then return nil, trouble end
+  local head, head_trouble = encoder:update(data)
+  if head == nil then return nil, head_trouble end
+  local tail, tail_trouble = encoder:finish()
+  if tail == nil then return nil, tail_trouble end
+  return worth(head .. tail, data), ""
 end
 
 return Mime

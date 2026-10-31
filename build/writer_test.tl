@@ -808,12 +808,17 @@ local function scalar(db: Sqlite.Handle, sql: string): string
   return nth(assert(Sqlite.text_rows(db, sql)), 1):text(1)
 end
 
---- The gzip a projection at `out` ships for `path`.
-local function shipped_gzip(out: string, path: string): string
+--- The `column` a projection at `out` ships for `path`.
+local function shipped_column(out: string, column: string, path: string): string
   local db = assert(Sqlite.open(out))
-  local packed = scalar(db, "SELECT gzip FROM payload WHERE path = '" .. path .. "'")
+  local packed = scalar(db, "SELECT " .. column .. " FROM payload WHERE path = '" .. path .. "'")
   assert(db:close())
   return packed
+end
+
+--- The gzip a projection at `out` ships for `path`.
+local function shipped_gzip(out: string, path: string): string
+  return shipped_column(out, "gzip", path)
 end
 
 --- A write compresses the static files it has not compressed before, and
@@ -834,10 +839,12 @@ local function test_static_files_are_compressed_once_per_content(tmp: string)
   assert(scalar(handle.db, "SELECT count(*) FROM compressed WHERE gzip IS NULL AND zstd IS NULL") == "3",
     "a file not worth compressing is kept as NULLs")
 
-  assert(handle.db:exec("UPDATE compressed SET gzip = x'6d61726b' WHERE gzip IS NOT NULL"))
+  assert(handle.db:exec("UPDATE compressed SET gzip = x'6d61726b', zstd = x'7a6d61726b' WHERE gzip IS NOT NULL"))
   write_again(handle, tmp .. "/warm.db")
   assert(shipped_gzip(tmp .. "/warm.db", "css/app.css") == "mark", "a warm write compressed again")
   assert(shipped_gzip(tmp .. "/warm.db", "other.css") == "mark", "a warm write compressed again")
+  assert(shipped_column(tmp .. "/warm.db", "zstd", "css/app.css") == "zmark", "a warm write zstd-compressed again")
+  assert(shipped_column(tmp .. "/warm.db", "zstd", "other.css") == "zmark", "a warm write zstd-compressed again")
 
   assert(Fs.write(tmp .. "/p/static/other.css", ("c { color: green }\n"):rep(200)))
   write_again(handle, tmp .. "/edit.db")
@@ -850,6 +857,12 @@ local function test_static_files_are_compressed_once_per_content(tmp: string)
   assert(shipped_gzip(tmp .. "/rules.db", "css/app.css") ~= "mark", "rows of other rules were served")
   assert(scalar(handle.db, "SELECT count(*) FROM compressed WHERE rules = 'older rules'") == "0",
     "the old rules' rows stayed")
+
+  assert(handle.db:exec("UPDATE compressed SET core = 'another core', gzip = x'6d61726b' WHERE gzip IS NOT NULL"))
+  write_again(handle, tmp .. "/core.db")
+  assert(shipped_gzip(tmp .. "/core.db", "css/app.css") ~= "mark", "another core's rows were served")
+  assert(scalar(handle.db, "SELECT count(*) FROM compressed WHERE core = 'another core'") == "0",
+    "another core's rows stayed")
 
   assert(Fs.remove(tmp .. "/p/static/other.css"))
   write_again(handle, tmp .. "/gone.db")

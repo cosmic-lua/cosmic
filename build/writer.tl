@@ -509,16 +509,25 @@ local function fill_payload(db: Sqlite.Handle): boolean, string
       packed = if row:is_null(5) then nil else row:text(5) end
       zstd = if row:is_null(6) then nil else row:text(6) end
     else
-      packed = Mime.gzip(path, data)
-      zstd = Mime.zstd(path, data)
-      local kept, kept_trouble = Sqlite.run(db,
-        "INSERT OR REPLACE INTO compressed (path, sha256, rules, core, gzip, zstd) " ..
-          "VALUES (?1, ?2, ?3, " .. deflating_core .. ", ?4, ?5)",
-        { text(path), text(sha256), text(rules),
-          if packed ~= nil then blob(packed) else null end,
-          if zstd ~= nil then blob(zstd) else null end })
-      if not kept then
-        return false, "static/" .. path .. ": " .. kept_trouble
+      local gzip_trouble = ""
+      local zstd_trouble = ""
+      packed, gzip_trouble = Mime.gzip(path, data)
+      zstd, zstd_trouble = Mime.zstd(path, data)
+      -- A failed encoder ships the file as it is, as a file not worth
+      -- compressing does, but leaves no row: nil would be kept for good.
+      -- The rows are written inside the working transaction, so an
+      -- interrupted cold write keeps none of them; committing per file
+      -- would split the transaction the projection is built in.
+      if gzip_trouble == "" and zstd_trouble == "" then
+        local kept, kept_trouble = Sqlite.run(db,
+          "INSERT OR REPLACE INTO compressed (path, sha256, rules, core, gzip, zstd) " ..
+            "VALUES (?1, ?2, ?3, " .. deflating_core .. ", ?4, ?5)",
+          { text(path), text(sha256), text(rules),
+            if packed ~= nil then blob(packed) else null end,
+            if zstd ~= nil then blob(zstd) else null end })
+        if not kept then
+          return false, "static/" .. path .. ": " .. kept_trouble
+        end
       end
     end
     local ok, failure = Sqlite.run(db,

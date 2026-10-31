@@ -236,7 +236,14 @@ local version <const> = "30"
 --- `compressed` is the gzip and zstd of a static file (NULL where not worth
 --- keeping), by its path, SHA-256, the digest of the rules that chose them
 --- ([`cosmic.mime`]) and the core that compressed it, which [`build.writer`]
---- puts in a projection's `payload` instead of compressing every file on each write.
+--- puts in a projection's `payload` instead of compressing every file on
+--- each write. A file whose encoder failed has no row, so it is tried again.
+---
+--- TODO: share `compressed` across checkouts through the shared cache
+--- ([`build.shared_compiles`]'s cache.db), keyed as it is now: it lives in
+--- the working database, so every fresh worktree, clone and CI run of a
+--- project with static files pays the cold compression (about 51 s for
+--- 10.6 MB at level 19). Waits on the shared cache holding the table.
 ---
 --- `link_answers` is what the disk answered the last time
 --- [`build.link_index`]'s `pending` resolved the tree's links, by a
