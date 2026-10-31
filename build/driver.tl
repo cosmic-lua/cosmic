@@ -234,6 +234,15 @@ local record Driver
   --- what its name does not: a test module ([`Driver.Source.tests`]).
   index: function(entries: {{string}}, skip: function(path: string): boolean, extras?: Extras): Index
 
+  --- Why a declaration file and a source of one module may not both be given: the complaint of `declaration` (a `.d.tl`)
+  --- standing beside `source` (a `.tl`), both the module `module`. A module has one type source, and a `.tl` is its own
+  --- declaration.
+  pairing: function(declaration: string, source: string, module: string): string
+
+  --- The complaints [`Driver.pairing`] makes of `entries` (as [`Driver.index`] takes them, less the `skip`ped paths), one to a
+  --- line and in the order of the declarations: "" for entries that pair none.
+  paired: function(entries: {{string}}, skip: function(path: string): boolean): string
+
   --- The name a build holds the implementation of `module` under where a declaration file is written for it too: requirers
   --- of `module` get the declaration, and the implementation is checked and written as a module of its own, that name.
   implementation: function(module: string): string
@@ -396,6 +405,39 @@ function Driver.index(entries: {{string}}, skip: function(path: string): boolean
     end
   end
   return index
+end
+
+function Driver.pairing(declaration: string, source: string, module: string): string
+  return declaration .. ": " .. source .. " is also the module " .. module .. ", and a module has one type source: " ..
+    "a .tl is its own declaration (its written record), so a .d.tl beside it is never read as the interface. " ..
+    "Delete " .. declaration .. " (a .d.tl is for a module whose code is C, with no .tl)"
+end
+
+function Driver.paired(entries: {{string}}, skip: function(path: string): boolean): string
+  local sources: mut {string: string} = {}
+  for _, entry in ipairs(entries) do
+    local file = entry[1]
+    if file ~= nil and entry[2] ~= nil and not skip(file) and file:match("%.d%.tl$") == nil then
+      local module = entry[3] or Declarations.module_of(file)
+      if sources[module] == nil then
+        sources[module] = file
+      end
+    end
+  end
+  local found: mut {string} = {}
+  for _, entry in ipairs(entries) do
+    local file = entry[1]
+    if file ~= nil and entry[2] ~= nil and not skip(file) and file:match("%.d%.tl$") ~= nil then
+      local module = entry[3] or Declarations.module_of(file)
+      local source = sources[module]
+      if source ~= nil then
+        found[#found + 1] = Driver.pairing(file, source, module)
+      end
+    end
+  end
+  -- Each complaint starts with its declaration's path, so the order does not depend on the order of the entries.
+  table.sort(found)
+  return table.concat(found, "\n")
 end
 
 function Driver.implementation(module: string): string

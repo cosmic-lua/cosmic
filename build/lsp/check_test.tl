@@ -179,14 +179,11 @@ local function test_cosmics_own_tree_holds_a_standard_module_to_its_stub()
 end
 
 --- A declaration is read under its own `.d.tl` below the root, as a
---- build reads it: the module is the type it declares, whatever its
---- implementation beside it is.
+--- build reads it: the module is the type it declares.
 local function test_a_declaration_is_read_under_its_own_name()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/decl.d.tl", "local record Decl\n  list: {integer}\nend\nreturn Decl\n"))
-  assert(Fs.write(root .. "/lib/decl.tl", 'local record Decl\n  list: {string}\nend\n' ..
-      'local d: Decl = { list = { "a" } }\nreturn d\n'))
   local text = 'local d = require("lib.decl")\nlocal s: string = d.list\nreturn s\n'
   local found = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
   assert(found.message == "`d.list` is `{integer}`, where `string` is wanted as the value of `s` " ..
