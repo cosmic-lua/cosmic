@@ -122,6 +122,9 @@ local function allow(names: {string}, why: string)
   end
 end
 
+allowed["cosmic.shape.build"] = "the checks the build generates for a `record_of` call read a record's fields through it, in " ..
+  "the module that makes the call"
+
 allow({
   "build.syntax_analyzer.analyze",
   "build.syntax_derivation.rows_of", "build.syntax_match.matches", "build.syntax_match.text",

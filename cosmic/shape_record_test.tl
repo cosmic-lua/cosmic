@@ -1,6 +1,5 @@
---- [`Shape.record_of`] in modules the build compiled: the spec it
---- reads off a record is what the same record's hand-written
---- [`Shape.raw`] `record` builds, and `into` checks against it. Which records
+--- [`Shape.record_of`] in modules the build compiled: the check the build wrote off a record answers the record, and the
+--- node it describes the fields with is what the binders read. Which records
 --- the build refuses is build/shape_specs_test.tl's.
 local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
@@ -48,39 +47,6 @@ end
 local PROFILE <const> = Shape.record_of("Profile")
 local INNER <const> = Shape.record_of("Profile.Inner")
 
-local ADDRESS <const> = Shape.raw.record({
-  street = Shape.raw.string,
-  floor = Shape.raw.optional(Shape.raw.integer),
-})
-
-local HAND_WRITTEN <const> = Shape.raw.record({
-  name = Shape.raw.string,
-  age = Shape.raw.integer,
-  score = Shape.raw.number,
-  admin = Shape.raw.boolean,
-  nickname = Shape.raw.optional(Shape.raw.string),
-  address = ADDRESS,
-  previous = Shape.raw.optional(ADDRESS),
-  tags = Shape.raw.list(Shape.raw.string),
-  scores = Shape.raw.list(Shape.raw.number),
-  places = Shape.raw.list(ADDRESS),
-  by_key = Shape.raw.map(ADDRESS),
-  weights = Shape.raw.map(Shape.raw.number),
-  level = Shape.raw.one_of("debug", "info", "warn"),
-  anything = Shape.raw.optional(Shape.raw.any),
-  inner = Shape.raw.record({ deep = Shape.raw.map(Shape.raw.list(Shape.raw.integer)) }),
-})
-
---- `a` and `b` hold the same, whatever tables they are.
-local function same(a: any, b: any, at: string)
-  if a is {any: any} and b is {any: any} then
-    for k, v in pairs(a) do same(v, b[k], at .. "." .. tostring(k)) end
-    for k in pairs(b) do assert(a[k] ~= nil, at .. "." .. tostring(k) .. ": missing") end
-  else
-    assert(a == b, ("%s: %s is not %s"):format(at, tostring(a), tostring(b)))
-  end
-end
-
 local GOOD <const> = [[{
   "name": "Ada", "age": 36, "score": 4.5, "admin": false,
   "nickname": null,
@@ -96,11 +62,28 @@ local GOOD <const> = [[{
   "unlisted": true
 }]]
 
-local function test_the_spec_is_the_hand_written_one()
-  same(described(PROFILE.spec), HAND_WRITTEN, "$")
+local function test_the_node_describes_the_fields_in_byte_order()
+  local node = described(PROFILE.spec)
+  assert(node.kind == "record" and not node.optional)
+  local names = assert(node.names)
+  assert(table.concat(names, ",") == "address,admin,age,anything,by_key,inner,level,name,nickname,places,previous," ..
+      "score,scores,tags,weights", table.concat(names, ","))
+  local fields = assert(node.fields)
+  assert(assert(fields["address"]).kind == "record" and not assert(fields["address"]).optional)
+  assert(assert(fields["previous"]).kind == "record" and assert(fields["previous"]).optional)
+  assert(assert(fields["nickname"]).kind == "string" and assert(fields["nickname"]).optional)
+  assert(assert(fields["anything"]).kind == "any" and assert(fields["anything"]).optional)
+  assert(assert(fields["places"]).kind == "list" and assert(assert(fields["places"]).of).kind == "record")
+  assert(assert(fields["by_key"]).kind == "map" and assert(fields["weights"]).kind == "map")
+  local level = assert(fields["level"])
+  local values: mut {string} = {}
+  for _, value in ipairs(assert(level.values)) do values[#values + 1] = tostring(value) end
+  assert(level.kind == "one_of" and table.concat(values, ",") == "debug,info,warn")
+  local strict = described(PROFILE:strict().spec)
+  assert(strict.strict == true and assert(assert(strict.fields)["address"]).strict == true)
 end
 
-local function test_the_spec_checks_what_the_hand_written_one_does()
+local function test_the_check_answers_the_record_and_drops_what_it_does_not_name()
   local text = GOOD
   local profile, err = PROFILE:decode_into(text, { null_value = Json.null })
   assert(profile ~= nil, err)
@@ -108,10 +91,6 @@ local function test_the_spec_checks_what_the_hand_written_one_does()
   assert(profile.nickname == nil and profile.previous == nil)
   assert(profile.by_key["home"].street == "Oak" and profile.inner.deep["k"][2] == 2)
   assert((profile as {string: any}).unlisted == nil, "a key the record lacks was kept")
-  local decoded = Json.decode(text, { null_value = Json.null })
-  local hand, hand_err = Shape.raw.check(decoded, HAND_WRITTEN)
-  assert(hand ~= nil, hand_err)
-  same(profile, hand, "$")
 end
 
 --- `into` answers the record's own type: no annotation chooses it.
@@ -150,16 +129,4 @@ end
 local function test_a_syntax_error_does_not_carry_the_records_name()
   local profile, err = PROFILE:decode_into("{bad")
   assert(profile == nil and err ~= "" and not err:find("^Profile: "), err)
-end
-
---- A call the build did not resolve has no spec to answer with.
-local function test_an_unresolved_call_says_what_to_do()
-  -- Named by an index, since the build refuses any mention of [`Shape.record_of`] that is not its call.
-  local unresolved: function(string): Shape.Typed<Profile> = Shape["record_of"] as function(string): Shape.Typed<Profile>
-  local ok, err = pcall(unresolved, "Profile")
-  assert(not ok)
-  local message = tostring(err)
-  assert(message:find("record_of(\"Profile\") was not resolved", 1, true), message)
-  assert(message:find("--standalone", 1, true) and message:find("aliased or computed", 1, true), message)
-  assert(message:find("Shape.record_of(\"Name\")", 1, true) and message:find("Shape.record", 1, true), message)
 end

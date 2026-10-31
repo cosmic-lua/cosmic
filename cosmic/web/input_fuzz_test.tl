@@ -6,6 +6,7 @@
 local Fuzz = require("build.fuzz")
 local Input = require("cosmic.web.input")
 local Shape = require("cosmic.shape")
+local Nodes = require("build.shape_nodes")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
 local Types = require("cosmic.web.types")
@@ -18,20 +19,20 @@ local record Inner
 end
 --- A record node read as a map of untrusted values, which is all a hand-written record says of its type.
 local function dynamic(node: Shape.Node): Shape.Spec<{string:any}>
-  return Shape.raw.table_of(node)
+  return Nodes.loose(node)
 end
 
 local SPECS <const>: {Shape.Spec<{string:any}>} = {
-  dynamic(Shape.raw.record({
-    name = Shape.raw.string, age = Shape.raw.integer, score = Shape.raw.number, on = Shape.raw.boolean,
-    color = Shape.raw.one_of("red", "green"), nick = Shape.raw.optional(Shape.raw.string),
-    limit = Shape.raw.optional(Shape.raw.integer), tags = Shape.raw.list(Shape.raw.string), nums = Shape.raw.list(Shape.raw.integer),
-    inner = Shape.raw.record({ city = Shape.raw.string, zip = Shape.raw.optional(Shape.raw.integer) }),
-    maybe = Shape.raw.optional(Shape.raw.record({ city = Shape.raw.string, zip = Shape.raw.optional(Shape.raw.integer) })),
+  dynamic(Nodes.record({
+    name = Nodes.string, age = Nodes.integer, score = Nodes.number, on = Nodes.boolean,
+    color = Nodes.one_of("red", "green"), nick = Nodes.optional(Nodes.string),
+    limit = Nodes.optional(Nodes.integer), tags = Nodes.list(Nodes.string), nums = Nodes.list(Nodes.integer),
+    inner = Nodes.record({ city = Nodes.string, zip = Nodes.optional(Nodes.integer) }),
+    maybe = Nodes.optional(Nodes.record({ city = Nodes.string, zip = Nodes.optional(Nodes.integer) })),
   })),
-  dynamic(Shape.raw.strict_record({ a = Shape.raw.optional(Shape.raw.boolean), b = Shape.raw.optional(Shape.raw.number),
-    c = Shape.raw.optional(Shape.raw.list(Shape.raw.one_of(1, 2.5, true, "x"))) })),
-  dynamic(Shape.raw.record({ id = Shape.raw.integer, kind = Shape.raw.one_of("a", "b"), live = Shape.raw.boolean })),
+  dynamic(Nodes.strict_record({ a = Nodes.optional(Nodes.boolean), b = Nodes.optional(Nodes.number),
+    c = Nodes.optional(Nodes.list(Nodes.one_of(1, 2.5, true, "x"))) })),
+  dynamic(Nodes.record({ id = Nodes.integer, kind = Nodes.one_of("a", "b"), live = Nodes.boolean })),
 }
 
 local NAMES <const>: {{string}} = {

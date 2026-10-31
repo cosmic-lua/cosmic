@@ -438,6 +438,19 @@ local function test_a_spec_gives_the_type_of_its_answer_and_a_list_of_optional_e
   refused(SPEC .. "local xs = sparse_list(STR)\nprint(xs)\n", "not_assignable")
 end
 
+-- The check `record_of` takes is a function the checker types too: a call that passes one of its own, by whatever route it
+-- is written, names the type the check answers and no other.
+local function test_a_record_check_passed_to_record_of_must_answer_its_record()
+  local head = SPEC .. "local record Typed<T>\n  make: function(strict: boolean): Spec<T>\nend\n" ..
+    "local function record_of<T>(_name: string, make: function(strict: boolean): Spec<T>): Typed<T>\n" ..
+    "  return { make = make }\nend\n" ..
+    "local record Row\n  id: string\nend\n"
+  refused(head .. "local t: Typed<Row> = record_of(\"Row\", function(_s: boolean): Spec<integer>\n" ..
+      "  return INT\nend)\n", "not_assignable")
+  stands(head .. "local t: Typed<integer> = record_of(\"Row\", function(_s: boolean): Spec<integer>\n" ..
+      "  return INT\nend)\nprint(type(t))\n", "table")
+end
+
 -- A spec is a check, so one written by hand is a function the checker types: it answers its `T` or it does not compile,
 -- and no spec of one type is a spec of another.
 local function test_a_spec_written_by_hand_must_answer_its_type()

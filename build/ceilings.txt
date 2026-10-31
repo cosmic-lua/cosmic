@@ -75,11 +75,9 @@ cosmic/json_test.tl key_type 20
 
 cosmic/net.tl key_type 3
 
-cosmic/shape.tl key_type 7
+cosmic/shape.tl key_type 3
 
 cosmic/shape_fuzz_test.tl key_type 8
-
-cosmic/shape_record_test.tl key_type 2
 
 cosmic/shape_test.tl key_type 7
 
@@ -1315,8 +1313,6 @@ cosmic/json_fuzz_test.tl not_assigned 1
 
 cosmic/net.tl not_assigned 2
 
-cosmic/shape.tl not_assigned 1
-
 cosmic/shape_fuzz_test.tl not_assigned 1
 
 cosmic/template/codegen.tl not_assigned 1
@@ -1661,8 +1657,6 @@ cosmic/rand_test.tl index_may_be_nil 1
 cosmic/sandbox_restrict_test.tl index_may_be_nil 1
 
 cosmic/seatbelt_network_probe_test.tl index_may_be_nil 3
-
-cosmic/shape.tl index_may_be_nil 1
 
 cosmic/shape_fuzz_test.tl index_may_be_nil 2
 
@@ -2063,8 +2057,6 @@ build/progress.tl view_as_mut 1
 build/symbol_index.tl view_as_mut 10
 
 build/syntax_analyzer.tl view_as_mut 1
-
-build/syntax_shape_specs.tl view_as_mut 1
 
 build/test_worker.tl view_as_mut 2
 
@@ -3205,8 +3197,6 @@ cosmic/json.tl overload_none 2
 
 cosmic/poll.tl overload_none 1
 
-cosmic/shape_test.tl overload_none 1
-
 cosmic/tar_test.tl overload_none 3
 
 cosmic/test.tl overload_none 1
@@ -3471,13 +3461,11 @@ cosmic/sandbox/seatbelt_test.tl any_use 24
 
 cosmic/sandbox_test.tl any_use 50
 
-cosmic/shape.tl any_use 24
+cosmic/shape.tl any_use 2
 
 cosmic/shape_fuzz_test.tl any_use 30
 
-cosmic/shape_record_test.tl any_use 4
-
-cosmic/shape_test.tl any_use 8
+cosmic/shape_test.tl any_use 6
 
 cosmic/signal.tl any_use 1
 
@@ -3890,9 +3878,9 @@ cosmic/shape.tl cast_refused 1
 
 cosmic/shape_fuzz_test.tl cast_refused 7
 
-cosmic/shape_record_test.tl cast_refused 2
+cosmic/shape_record_test.tl cast_refused 1
 
-cosmic/shape_test.tl cast_refused 9
+cosmic/shape_test.tl cast_refused 3
 
 cosmic/sqlite.tl cast_refused 4
 
@@ -4913,8 +4901,6 @@ cosmic/seatbelt_network_probe_test.tl or_mix 4
 
 cosmic/shape_fuzz_test.tl or_mix 1
 
-cosmic/shape_test.tl or_mix 1
-
 
 
 cosmic/stream_test.tl or_mix 4
@@ -5178,8 +5164,6 @@ build/syntax_rewrite.tl and_ternary 2
 
 build/syntax_scopes.tl and_ternary 3
 
-build/syntax_shape_specs.tl and_ternary 5
-
 build/syntax_stub.tl and_ternary 1
 
 build/term_filter.tl and_ternary 3
@@ -5345,7 +5329,7 @@ cosmic/sandbox/policy.tl and_ternary 2
 
 cosmic/seatbelt_network_probe_test.tl and_ternary 2
 
-cosmic/shape_fuzz_test.tl and_ternary 4
+cosmic/shape_fuzz_test.tl and_ternary 3
 
 cosmic/signal.tl and_ternary 2
 
@@ -6105,7 +6089,7 @@ cosmic/sandbox_example.tl literal_needs_type 1
 
 cosmic/shape_example.tl literal_needs_type 1
 
-cosmic/shape_test.tl literal_needs_type 11
+cosmic/shape_test.tl literal_needs_type 7
 
 cosmic/sqlite_example.tl literal_needs_type 1
 
@@ -6397,7 +6381,7 @@ cosmic/net_tcp_test.tl arms_differ 3
 
 cosmic/net_test.tl arms_differ 3
 
-cosmic/shape_test.tl arms_differ 11
+cosmic/shape_test.tl arms_differ 9
 
 cosmic/signal.tl arms_differ 1
 

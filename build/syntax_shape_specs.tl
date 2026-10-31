@@ -1,7 +1,7 @@
 --- Resolves `Shape.record_of("Module.Record")` where a module is compiled: the call names a record, and this reads the
---- record's declaration off the checker's types and splices the [`cosmic.shape`] spec the declaration describes into the
---- call, with a witness of the record's type, so the compiled module holds exactly what a hand-written `Shape.raw.record{...}`
---- would and the call's answer is typed as the record.
+--- record's declaration off the checker's types and splices into the call a Teal function that builds the record field by
+--- field from the [`cosmic.shape`] checks of its fields' types, and a node that describes the fields. The checker types
+--- that code as any other, so the call's answer is typed as the record by what builds it.
 ---
 --- The build is where this runs, not the program: a record's declaration is source, and reading it is the compiler's
 --- work, which a program built into an executable does not carry. A call is rewritten in the compile's input alone; the
@@ -66,7 +66,7 @@ end
 
 local type Type = Types.Type
 
---- Names in byte order, as `Shape.raw.record` keeps them.
+--- Names in byte order.
 local function sorted(names: {string}): {string}
   local out: mut {string} = {}
   for _, name in ipairs(names) do
@@ -80,122 +80,245 @@ local LEAVES <const>: {string: boolean} = {
   string = true, integer = true, number = true, boolean = true, any = true,
 }
 
-local spec_of: function(t: Type, path: string, shape: string, holding: {Types.Decl: boolean}, store: Types.Store):
-  string?, string
-
---- `T?` as `Shape.raw.optional(T)`: the one union a spec has a word for.
-local function optional_of(t: Types.Union, path: string, shape: string, holding: {Types.Decl: boolean},
-                           store: Types.Store): string?, string
-  local present = assert(t.members[1], "a union has a member")
-  if #t.members > 1 then
-    return nil, path .. ": a union of more than one type has no shape; " ..
-      "`T?` is the one it has, and `Shape.one_of` an enumeration"
-  end
-  local inner, why = spec_of(present, path, shape, holding, store)
-  if inner == nil then
-    return nil, why
-  end
-  return shape .. ".raw.optional(" .. inner .. ")", ""
+--- What the generator reads and keeps while it writes one record's code.
+local record Gen
+  --- The name the calling module gives cosmic.shape.
+  shape: string
+  store: Types.Store
+  program: Declarations.Program
+  --- The module the call is in, and the modules it requires at its top level by the name each is bound to.
+  module: string
+  aliases: {string: string}
+  --- The names in scope where the call is.
+  visible: {string: boolean}
+  --- The record the call names, and how the calling module spells it.
+  target: Types.Decl
+  spelled: string
+  --- The records being read, which none may hold.
+  holding: mut {Types.Decl: boolean}
+  --- A number for each local the code names, so that no name is declared twice in it.
+  mut count: integer
+  --- The local that holds whether the record being written refuses a key it does not name.
+  mut strict: string
 end
 
-local function record_spec(decl: Types.Decl, path: string, shape: string, holding: mut {Types.Decl: boolean},
-                           store: Types.Store): string?, string
+--- The next number for a local.
+local function fresh(g: Gen): integer
+  g.count = g.count + 1
+  return g.count
+end
+
+--- How the calling module spells the declaration `decl`, or nil: the record the call names, a type declared inside it,
+--- a type of the calling module that is in scope where the call is, or one inside the record a module it requires
+--- returns.
+local function spelling(g: Gen, t: Type, decl: Types.Decl): string?
+  if decl == g.target then return g.spelled end
+  local names = decl.names
+  local path = table.concat(names, ".")
+  local mine = g.target.names
+  if decl.module == g.target.module and #names > #mine then
+    local inside = true
+    for i, name in ipairs(mine) do
+      if names[i] ~= name then inside = false end
+    end
+    if inside then return g.spelled .. "." .. table.concat(names, ".", #mine + 1) end
+  end
+  local first = names[1]
+  if decl.module == g.module and first ~= nil and g.visible[first] == true then return path end
+  local alias = g.aliases[decl.module]
+  local held = g.program.modules[decl.module]
+  local export = if held ~= nil then held.export else nil end
+  if alias ~= nil and export ~= nil then
+    local inside = table.concat(export.names, ".")
+    if path:sub(1, #inside + 1) == inside .. "." then
+      return alias .. "." .. path:sub(#inside + 2)
+    end
+  end
+  -- A type a module required at the top level spells by an alias of its own (`type Grant = rules.Grant`).
+  for _, entry in pairs(g.program.entries) do
+    local aliased = entry.alias
+    local home = g.aliases[entry.module]
+    local owner = g.program.modules[entry.module]
+    local exported = if owner ~= nil then owner.export else nil end
+    if aliased ~= nil and aliased.type == t and home ~= nil and exported ~= nil then
+      local inside = table.concat(exported.names, ".")
+      local there = table.concat(entry.names, ".")
+      if there:sub(1, #inside + 1) == inside .. "." then
+        return home .. "." .. there:sub(#inside + 2)
+      end
+    end
+  end
+  return nil
+end
+
+local gen_spec: function(g: Gen, t: Type, path: string): string?, string
+
+--- The Teal expression, over the `shape` alias, that is the node describing `t`: `optional` marks it as one that may be
+--- missing. nil and why where `t` has no shape.
+local function describe(g: Gen, t: Type, path: string, optional: boolean): string?, string
+  local flag = tostring(optional)
+  if t.atom == true then
+    if LEAVES[t.tag] == true then
+      return ('{ kind = "%s", optional = %s }'):format(tostring(t.tag), flag), ""
+    end
+    return nil, path .. ": a type with no shape"
+  elseif t.tag == "array" or t.tag == "map" then
+    local inner, why = describe(g, if t.tag == "array" then t.element else t.value end, path .. "[]", false)
+    if inner == nil then return nil, why end
+    return ('{ kind = "%s", optional = %s, of = %s }'):format((if t.tag == "array" then "list" else "map" end), flag, inner), ""
+  elseif t.tag == "union" then
+    return describe(g, assert(t.members[1]), path, true)
+  elseif t.tag == "named" then
+    local decl = t.decl
+    local body = decl.body
+    if decl.kind == "enum" and body ~= nil then
+      local values: mut {string} = {}
+      for _, value in ipairs(sorted(body.values)) do values[#values + 1] = ("%q"):format(value) end
+      return ('{ kind = "one_of", optional = %s, values = { %s } }'):format(flag, table.concat(values, ", ")), ""
+    elseif decl.kind == "record" and body ~= nil then
+      local fields: mut {Types.Field} = {}
+      for _, field in ipairs(body.fields) do fields[#fields + 1] = field end
+      table.sort(fields, function(x: Types.Field, y: Types.Field): boolean
+        return x.name < y.name
+      end)
+      local parts: mut {string} = {}
+      local names: mut {string} = {}
+      for _, field in ipairs(fields) do
+        local nilable = field.omittable == true or field.type == g.store.any
+        local inner_type = field.type
+        local inner, why = describe(g, inner_type, path .. "." .. field.name, nilable)
+        if inner == nil then return nil, why end
+        parts[#parts + 1] = ("[%q] = %s"):format(field.name, inner)
+        names[#names + 1] = ("%q"):format(field.name)
+      end
+      return ('{ kind = "record", optional = %s, fields = { %s }, names = { %s } }'):format(
+        flag, table.concat(parts, ", "), table.concat(names, ", ")), ""
+    end
+  end
+  return nil, path .. ": a type with no shape"
+end
+
+--- The check of the record `decl` at `path`, as a function of whether a key it does not name is refused, over the checks
+--- of its fields. Where the record has a field of a type the generator cannot spell, nil and why.
+local function gen_record(g: Gen, t_of_decl: Type, decl: Types.Decl, path: string): string?, string
   local body = decl.body
-  if body == nil then
-    return nil, path .. ": a declaration the checker did not resolve"
-  end
-  if body.array ~= nil then
-    return nil, path .. ": a record that is also an array has no shape"
-  end
+  if body == nil then return nil, path .. ": a declaration the checker did not resolve" end
+  if body.array ~= nil then return nil, path .. ": a record that is also an array has no shape" end
   -- TODO: read the fields a record inherits (`supers`, expanded by the checker) and drop this refusal, once a caller
   -- gives a record that implements an interface a shape; the tree has none.
   if #body.supers > 0 then
     return nil, path .. ": a record that implements an interface has no shape; its inherited fields are not read"
   end
-  if holding[decl] == true then
+  if g.holding[decl] == true then
     return nil, path .. ": a record that holds itself has no finite shape"
   end
-  holding[decl] = true
-  local fields: mut {Types.Field} = {}
-  for _, field in ipairs(body.fields) do
-    fields[#fields + 1] = field
+  local spelled = spelling(g, t_of_decl, decl)
+  if spelled == nil then
+    return nil, path .. ": the module cannot name this record, which is declared where it does not reach: declare it " ..
+      "in the calling module or in a module it requires at its top level"
   end
-  table.sort(fields, function(x: Types.Field, y: Types.Field): boolean
-    return x.name < y.name
-  end)
-  local parts: mut {string} = {}
+  g.holding[decl] = true
+  local fields: mut {Types.Field} = {}
+  for _, field in ipairs(body.fields) do fields[#fields + 1] = field end
+  table.sort(fields, function(x: Types.Field, y: Types.Field): boolean return x.name < y.name end)
+  local S = g.shape
+  local own = "sh_s" .. tostring(fresh(g))
+  local outer = g.strict
+  g.strict = own
+  local checks: mut {string} = {}
+  local reads: mut {string} = {}
+  local names: mut {string} = {}
+  local built: mut {string} = {}
   for _, field in ipairs(fields) do
-    local inner, why = spec_of(field.type, path .. "." .. field.name, shape, holding, store)
+    local k = fresh(g)
+    local inner, why = gen_spec(g, field.type, path .. "." .. field.name)
     if inner == nil then
-      holding[decl] = nil
+      g.holding[decl] = nil
+      g.strict = outer
       return nil, why
     end
     -- A field written `f?: T` is omittable whatever `T` is, and a field of `any` may be nil, as `any` holds nil: the store
     -- folds `any?` into `any`, so the union that would say so is gone from the field's type.
-    local nilable = field.omittable == true or field.type == store.any
-    if nilable and inner:sub(1, #shape + 14) ~= shape .. ".raw.optional(" then
-      inner = shape .. ".raw.optional(" .. inner .. ")"
-    end
-    parts[#parts + 1] = ("[%q] = %s"):format(field.name, inner)
+    local nilable = field.omittable == true or field.type == g.store.any
+    if nilable and field.type.tag ~= "union" then inner = S .. ".optional(" .. inner .. ")" end
+    local step = ("%s.build.step(sh_path, %q)"):format(S, field.name)
+    checks[#checks + 1] = ("local sh_c%d = %s "):format(k, inner)
+    reads[#reads + 1] = ("local sh_v%d, sh_e%d = sh_c%d.check(%s.build.get(sh_t, %q), %s) %s"):format(
+      k, k, k, S, field.name, step,
+      if nilable or field.type.tag == "union" then ("if sh_e%d ~= \"\" then return nil, sh_e%d end"):format(k, k) else
+        ("if sh_v%d == nil then return nil, %s.build.failed(sh_e%d, %s) end"):format(k, S, k, step) end)
+    names[#names + 1] = ("%q"):format(field.name)
+    built[#built + 1] = ("[%q] = sh_v%d"):format(field.name, k)
   end
-  holding[decl] = nil
-  return shape .. ".raw.record({ " .. table.concat(parts, ", ") .. " })", ""
+  g.holding[decl] = nil
+  g.strict = outer
+  return ("(function(%s: boolean): %s.Spec<%s> %sreturn { check = function(sh_value: any, sh_path: string): %s?, string " ..
+    "local sh_t, sh_why = %s.build.object(sh_value, sh_path, { %s }, %s) if sh_t == nil then return nil, sh_why end %s " ..
+    "return { %s }, \"\" end } end)"):format(own, S, spelled, table.concat(checks), spelled, S,
+      table.concat(names, ", "), own, table.concat(reads, " "), table.concat(built, ", ")), ""
 end
 
---- The Teal expression, over the `shape` alias, that builds the spec of `t`, or nil and why it has none. `path` names
---- where `t` is, for the message, and `holding` the records being read, which none may hold.
-spec_of = function(t: Type, path: string, shape: string, holding: mut {Types.Decl: boolean}, store: Types.Store):
-    string?, string
-  if (t.atom == true) then
-    if LEAVES[t.tag] == true then
-      return shape .. ".raw." .. tostring(t.tag), ""
-    elseif t.tag == "invalid" then
-      return nil, path .. ": a type the checker did not resolve"
-    end
+--- The Teal expression, over the `shape` alias, that is the spec of `t`, or nil and why it has none. `path` names where
+--- `t` is, for the message. The local that holds whether a record refuses a key it does not name is `strict`.
+gen_spec = function(g: Gen, t: Type, path: string): string?, string
+  local S = g.shape
+  if t.atom == true then
+    if LEAVES[t.tag] == true then return S .. "." .. tostring(t.tag), "" end
+    if t.tag == "invalid" then return nil, path .. ": a type the checker did not resolve" end
     return nil, ("%s: a %s type has no shape"):format(path, t.tag)
-  elseif (t.tag == "array") then
-    local inner, why = spec_of(t.element, path .. "[]", shape, holding, store)
-    if inner == nil then
-      return nil, why
-    end
-    return shape .. ".raw.list(" .. inner .. ")", ""
-  elseif (t.tag == "map") then
+  elseif t.tag == "array" then
+    local inner, why = gen_spec(g, t.element, path .. "[]")
+    if inner == nil then return nil, why end
+    return S .. ".list(" .. inner .. ")", ""
+  elseif t.tag == "map" then
     local key = t.key
     if not ((key.atom == true) and key.tag == "string") then
       return nil, path .. ": a map keyed by anything but a string has no shape"
     end
-    local inner, why = spec_of(t.value, path .. "{}", shape, holding, store)
-    if inner == nil then
-      return nil, why
+    local inner, why = gen_spec(g, t.value, path .. "{}")
+    if inner == nil then return nil, why end
+    return S .. ".map(" .. inner .. ")", ""
+  elseif t.tag == "union" then
+    if #t.members > 1 then
+      return nil, path .. ": a union of more than one type has no shape; `T?` is the one it has, and an enum a choice"
     end
-    return shape .. ".raw.map(" .. inner .. ")", ""
-  elseif (t.tag == "union") then
-    return optional_of(t, path, shape, holding, store)
-  elseif (t.tag == "named") then
+    local inner, why = gen_spec(g, assert(t.members[1]), path)
+    if inner == nil then return nil, why end
+    return S .. ".optional(" .. inner .. ")", ""
+  elseif t.tag == "named" then
     local decl = t.decl
     local body = decl.body
     if #t.args > 0 or (body ~= nil and #body.tparams > 0) then
       return nil, path .. ": a generic type has no shape"
-    elseif decl.kind == "enum" then
-      local values: mut {string} = {}
-      if body ~= nil then
-        for _, value in ipairs(sorted(body.values)) do
-          values[#values + 1] = ("%q"):format(value)
-        end
+    end
+    if decl.kind == "enum" then
+      local values: {string} = if body ~= nil then sorted(body.values) else {} end
+      if #values == 0 then return nil, path .. ": an enum with no values has no shape" end
+      local spelled = spelling(g, t, decl)
+      if spelled == nil then
+        return nil, path .. ": the module cannot name this enum, which is declared where it does not reach: declare it " ..
+          "in the calling module or in a module it requires at its top level"
       end
-      if #values == 0 then
-        return nil, path .. ": an enum with no values has no shape"
+      local arms: mut {string} = {}
+      local listed: mut {string} = {}
+      for _, value in ipairs(values) do
+        arms[#arms + 1] = ('if sh_v == %q then return %q, "" end'):format(value, value)
+        listed[#listed + 1] = ("%q"):format(value)
       end
-      return shape .. ".raw.one_of(" .. table.concat(values, ", ") .. ")", ""
+      return ("(function(): %s.Spec<%s> return { check = function(sh_v: any, sh_p: string): %s?, string %s " ..
+        "return nil, %s.build.not_one_of(sh_p, sh_v, %s) end } end)()"):format(S, spelled, spelled, table.concat(arms, " "),
+          S, table.concat(listed, ", ")), ""
     elseif decl.kind == "record" then
-      return record_spec(decl, path, shape, holding, store)
+      local factory, why = gen_record(g, t, decl, path)
+      if factory == nil then return nil, why end
+      return factory .. "(" .. g.strict .. ")", ""
     elseif decl.kind == "userdata" then
       return nil, path .. ": a userdata record has no shape"
     elseif decl.kind == "alias" then
       return nil, path .. ": a recursive alias has no shape"
     end
     return nil, ("%s: %s has no shape"):format(path, if decl.kind == "interface" then "an interface" else "a class" end)
-  elseif (t.tag == "fn") then
+  elseif t.tag == "fn" then
     return nil, path .. ": a function has no shape"
   end
   return nil, path .. ": a generic type has no shape"
@@ -254,7 +377,7 @@ local function entry_target(store: Types.Store, entry: Declarations.Entry, spell
     return { type = store:named(decl), spelled = spelled }, ""
   end
   local alias = entry.alias
-  local aliased = alias ~= nil and alias.type or nil
+  local aliased = if alias ~= nil then alias.type else nil end
   if aliased == nil then
     return nil, "an alias the checker did not resolve"
   end
@@ -282,9 +405,10 @@ local function resolve_name(build: Driver.Build, outcome: Driver.Outcome, name: 
   local rest = name:sub(#first + 2)
   local lowered = outcome.lowered
   local here = Scopes.in_scope(outcome.scoped, at)[first]
-  local entry = here ~= nil and lowered ~= nil and lowered.entries[here.id] or nil
+  local entry: Declarations.Entry? = nil
+  if here ~= nil and lowered ~= nil then entry = lowered.entries[here.id] end
   if entry ~= nil then
-    local found = entry
+    local found: Declarations.Entry? = entry
     if rest ~= "" then
       found = entry_at(program, entry.module, entry.names, rest)
     end
@@ -305,8 +429,9 @@ local function resolve_name(build: Driver.Build, outcome: Driver.Outcome, name: 
   end
   local inside = name:sub(#longest + 2)
   local held = program.modules[longest]
-  local export = held ~= nil and held.export or nil
-  local found = export ~= nil and entry_at(program, export.module, export.names, inside) or nil
+  local export = if held ~= nil then held.export else nil end
+  local found: Declarations.Entry? = nil
+  if export ~= nil then found = entry_at(program, export.module, export.names, inside) end
   if found == nil then
     return nil, ("module %q declares no record %q"):format(longest, inside)
   end
@@ -336,34 +461,12 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
   if pattern == nil then
     return { splices = none, refusal = pattern_trouble, line = 0 }
   end
-  local mentions, mentions_trouble = Match.compile("$S.record_of")
-  if mentions == nil then
-    return { splices = none, refusal = mentions_trouble, line = 0 }
-  end
   local calls: mut {Match.Hit} = {}
   for _, hit in ipairs(Match.find_all(pattern, chunk, chunk)) do
     local on = hit.caps["_S"]
-    local head = on ~= nil and on.nodes[1] or nil
+    local head = if on ~= nil then on.nodes[1] else nil end
     if head ~= nil and (head.kind == "Name") and head.text == shape then
       calls[#calls + 1] = hit
-    end
-  end
-  -- The spec and the witness are the build's to write: a record's spec that a program wrote itself could disagree with
-  -- the record it is typed as. So `record_of` is called with the name alone, and only so.
-  local calling: mut {integer: boolean} = {}
-  for _, hit in ipairs(calls) do
-    local called = hit.node
-    if (called.kind == "Call") then
-      calling[called.callee.id] = true
-    end
-  end
-  for _, hit in ipairs(Match.find_all(mentions, chunk, chunk)) do
-    local on = hit.caps["_S"]
-    local head = if on ~= nil then on.nodes[1] else nil end
-    if head ~= nil and (head.kind == "Name") and head.text == shape and calling[hit.node.id] ~= true then
-      local span = Node.span(chunk, hit.node)
-      return { splices = none, line = span.y, refusal = ("%s:%d: %s.record_of: call it as %s.record_of(\"Name\"), " ..
-        "which the build completes; a value of it cannot be made another way"):format(file, span.y, shape, shape) }
     end
   end
   local splices: mut {Splice} = {}
@@ -371,10 +474,8 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
     local span = Node.span(chunk, hit.node)
     local where = ("%s:%d: %s.record_of"):format(file, span.y, shape)
     local more = hit.caps["___MORE"]
-    if more ~= nil and #more.nodes > 0 then
-      return { splices = none, line = span.y,
-        refusal = where .. ": the name is the only argument: the build writes the spec and the witness" }
-    end
+    -- A call that already has its check and node is left as it is: they are functions and data the checker types.
+    if more ~= nil and #more.nodes > 0 then continue end
     local named = assert(hit.caps["_N"], "the pattern captures _N")
     local literal = named.nodes[1]
     if literal == nil or not ((literal.kind == "String")) then
@@ -403,14 +504,27 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
       return { splices = none, line = span.y,
         refusal = ("%s(%q): it is %s"):format(where, literal.value, what) }
     end
-    local spec, refusal = spec_of(at, literal.value, shape, {}, build.program.store)
-    if spec == nil then
+    local visible: mut {string: boolean} = {}
+    for name in pairs(Scopes.in_scope(outcome.scoped, Node.base(hit.node).first)) do
+      visible[name] = true
+    end
+    local g: Gen = {
+      shape = shape, store = build.program.store, program = build.program, module = module, aliases = aliases,
+      target = at.decl, spelled = target.spelled, visible = visible, holding = {}, count = 0, strict = "",
+    }
+    local make, refusal = gen_record(g, at, at.decl, literal.value)
+    if make == nil then
       return { splices = none, line = span.y,
         refusal = ("%s(%q): %s"):format(where, literal.value, refusal) }
     end
+    local node, node_refusal = describe(g, at, literal.value, false)
+    if node == nil then
+      return { splices = none, line = span.y,
+        refusal = ("%s(%q): %s"):format(where, literal.value, node_refusal) }
+    end
     splices[#splices + 1] = {
       at = Lexer.stop(chunk.tokens, name_token) - 1,
-      text = (", %s, function(): %s error(\"witness\") end"):format(spec, target.spelled),
+      text = ", " .. make .. ", " .. node,
     }
   end
   table.sort(splices, function(a: Splice, b: Splice): boolean
