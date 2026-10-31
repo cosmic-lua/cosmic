@@ -108,9 +108,12 @@ given is cut from the projection the run compiled (`rec.projection = from.databa
 the digest of its bytes, which include each module's bytecode
 (`build/closure_store.tl:275`). So the key already moves when anything the checker or
 code generator does changes the checked Lua of a module the test loads, and does not move
-when it changes the Lua of one it does not. A module the tool carries and the closure
-does not hold fails its test (`unkeyed`, `build/test_worker.tl:1225`), so the closure is
-all a worker runs.
+when it changes the Lua of one it does not. A module the tool carries and neither the
+closure nor the modules every worker loads ([`worker.loads`]) hold fails its test
+(`unkeyed`, `build/test_worker.tl:1225`). The modules every worker loads come from the
+tool, not the store; they are the harness, held by the epoch and by the harness
+digests ([`build/harness_epoch.tl`]), and the next sections put the digest of
+[`build.test_worker`] into the checked key.
 
 This is the precise key. Holding the compiler's or the checker's identity in its place
 would be worse in both directions:
@@ -126,16 +129,50 @@ would be worse in both directions:
   [`lang.check`] changes that Lua only in the modules whose narrowing it moves, not in
   all 143 test modules that hold the checker in their closure.
 
+### Modules that declare `store`
+
+A module that declares `store` is not given a closure store. Its worker reads the whole
+projection at `o/cosmic.db`, and its key holds that file by contents: `inputs` adds
+`o/cosmic.db` to the files read (`build/declared_key.tl:920`), which `of_tree` resolves
+into the build directory (`build/declared_key.tl:813`), where the ordinary `cosmic.db`
+is. A checked run gives such a worker `cosmic.checked.db` (`rec.projection` passed to
+[`test_sandbox.plan`], `build/test_key.tl:2296`; `given_store`, around `build/test_key.tl:2358`).
+So a checked verdict of `store_seal_test`, `store_handles_test`, `http_store_test`,
+`child_policy_database_test` and the rest (about ten) would be keyed by bytes the worker
+never reads: an edit that changes only the checked Lua would not move it, and an edit that
+changes only the ordinary projection would.
+
+The fix is in the key code. In a checked run [`declared_key.compute`] digests the file the
+worker is given in the place of the ordinary projection: `Spec` gains `projection_file`,
+the name under the build directory that `o/cosmic.db` stands for (`cosmic.db`, or
+`cosmic.checked.db` when `checks` is set), and `inputs_of` reads that file for the
+`o/cosmic.db` entry. `test_key.declared_of` sets it from `rec.projection`, so the key and
+the sandbox cannot name different files. The `checks` part alone does not do this: it
+separates the modes and says nothing of which bytes the worker reads.
+
+Until that lands, a checked run keeps no verdict of a module that declares `store`
+(`rec.effective[m.path].store`) and runs it every time.
+
 ### The `checks` part
 
 The mode goes in by name, so that two keys cannot be equal across modes whatever the bytes
 are. [`build.declared_key`]'s `Spec` gains a field `checks`: `nil` for an ordinary run,
 and for a checked run the format token `importer.checks_format`, which names what the
 compile writes. The preimage holds it as `part("checks", ...)` only when it is set, so no
-ordinary key changes (`build/declared_key.tl:869`). The token is the suffix that
-[`importer.checked_tool`] hashes into the compile keys now (`"fact-wraps"`,
-`"parameter-checks"`), made one constant that both use; a check added later (returns,
-fields) moves it, as it moves the compile keys.
+ordinary key changes (`build/declared_key.tl:869`). The token covers both spellings of what the compile writes: the suffix
+[`importer.checked_tool`] hashes (`build/importer.tl:1408`) and the one `GrammarMode.tool`
+hashes with `wraps` (`build/grammar_mode.tl:47`; `"fact-wraps"`, `"parameter-checks"`).
+The plan makes them one constant, `importer.checks_format`, that both functions and the
+key use, so a check added later (returns, fields) moves all three at once.
+
+The part also holds the harness digest of [`build.test_worker`] (`rec.harness`,
+[`test_key.harness`], `build/test_key.tl:541`), where the hooks and the judge live. An
+edit to the hooks therefore moves every checked key, and only checked keys, without a bump
+of `epoch`. This departs from [`doc/testing.md`] ("changing the harness"), which asks the
+author to bump `epoch` for a change that can alter a pass or a fail: the bump would also
+run the ordinary suites, which no hook edit can alter. For the checked job the digest is
+the bump, and [`doc/testing.md`] says so beside the rule. A comment-only edit to
+[`build/test_worker.tl`] reruns the narrowing job once.
 
 The census names it (`--census`, [`shared_verdicts.named`]) so that a run whose rows all
 moved says it was the mode. The part is not for staleness, which the bytes cover. It is for two things they do not:
@@ -164,9 +201,17 @@ A pass is kept under its checked key only when all hold:
 
 (2) closes a hole the key cannot: a worker of a checked run that installed no hooks
 passes having checked nothing, and its verdict would stand for every later run of those
-bytes. [`build.test_worker`]'s report gains `checked?: boolean`, set by
-`install_checks`, and [`worker.judge`] fails a report that lacks it when the run is
-checked (`Judging` gains `checks`). The message names the cause.
+bytes. [`build.test_worker`]'s report gains `checked?: boolean`, set when the report is made, as
+`rawget(_G, "__fact") == worker.fact`: the hook the compile's wraps call is the harness's,
+not the stub that [`lang.codegen`] defines where none is. [`worker.judge`] fails a report that
+lacks it when the run is checked (`Judging` gains `checks`), and the message names the
+cause. Setting the flag where `install_checks` ran would say only that the call happened.
+
+The comments of [`build/test_worker.tl`] (lines 320 and 663) describe a fork check of kind
+"n". `parse_check` refuses a spec of that kind ("a check of no kind"), which raises and
+leaves no row. Nothing in the tree writes one. The plan deletes the stale text and makes
+the refusal record a row, since a raise that leaves no row is the one outcome rule 3
+cannot see.
 
 (3) keeps the report complete. A test that met a violation (a `parameter` row outside
 `cosmic/` that the run only reports, a `fact` row a `pcall` swallowed, a `cosmic/`
@@ -179,20 +224,28 @@ from the working database and from the shared cache ([`test_key.keep`],
 `build/test_key.tl:2171`, and `owed.failed`), so the next run does not stand on it.
 
 The cost is the tests that meet a violation, which run in every checked run. **Measured:**
-in the run above, `type_violations` names 17 tests, all of them tests of the hooks and the
-boundary code ([`build.fact_hook_test`], [`build.boundary_hook_test`], [`lang.boundaries_test`],
-[`lang.boundaries_fuzz_test`], [`build.type_violations_test`]) that plant violations on
-purpose. They took 7.1 s of the 1682 s. The table names only the first test to meet
-each row, so 17 is a lower bound; the first runs under the plan show the rest.
+in the run above, `type_violations` names 17 tests, but it names only the first test to
+meet each row (`rec.violation_tests`, `build/test.tl:859`). So the true number is between
+17 and 822, the violations reported. The 17 are tests of the hooks and the boundary code
+([`build.fact_hook_test`], [`build.boundary_hook_test`], [`lang.boundaries_test`],
+[`lang.boundaries_fuzz_test`], [`build.type_violations_test`]) and took 7.1 s of 1682 s.
+The first step of the rollout records the violations per test and counts the tests and
+their seconds, before the savings below are relied on. A test that meets a violation never
+stands.
 
 ## Storage
 
 A checked run reads and writes a verdict file of its own, so that the two modes do not
 share the bound. [`build.shared_verdicts`] keeps at most 8192 rows a file
 (`kept_rows`, `build/shared_verdicts.tl:108`) and the suite has 7852 tests: a second set of
-keys in the same file would evict the first at every save.
+keys in the same file would evict the first at every save. Even alone, 7852 rows leave 340
+(4%) of slack, and a key that moves leaves its old row until the trim, so a file of
+checked rows needs a larger bound: `kept_rows` becomes a property of the open cache,
+16384 for a file named `*-checked.db` or `narrowing.db`, 8192 otherwise (twice the suite,
+so the old rows of a base a few commits behind survive).
 
-- Locally, [`shared_verdicts.location`] answers `verdicts/verdicts-checked.db` beside
+- Locally, `shared_verdicts.location(environment?, checked?)` (a second parameter; its
+  caller is `build/test.tl:1842`) answers `verdicts/verdicts-checked.db` beside
   `verdicts.db` for a checked run that names no `COSMIC_VERDICT_CACHE`. A run that names
   one uses it, as now. The key part, not the file, keeps the modes apart; the file keeps
   the bound.
@@ -215,79 +268,90 @@ other's stores for a run that stands.
 which is what the nightly and a merge that moves the harness do.
 
 ## CI
+The job `checked-narrowing` is sharded before this plan lands: a two-part matrix, each
+part `cosmic test --check-types --shard I/2` (`COSMIC_CI_NARROWING_SHARD`), with the
+whole-run check of the C functions held by linux-x86_64's native whole run. This section
+is written on that job. It reuses the checked suite's machinery (`checked-shard`,
+`verdicts-merge`) without a gathering run, because the leg owns the whole-run check.
 
-The job `checked-narrowing` gains what the checked suite's jobs have, in the same steps,
-under its own name. The edits to [`.github/workflows/ci.yml`]:
+**One merged cache for both shares.** [`test.dealt`] deals the tests to the shares in
+sorted order, so adding or removing a test moves tests between shares. A share that
+restored only its own part's rows would find the tests dealt to it new and run them.
+Each share therefore restores one narrowing cache that holds the rows of all shares and
+stands on any row, whichever share earned it. It trims to its own rows and uploads them.
+Main's save and the queue's seed merge both parts' rows into the one entry.
 
-1. **Name the host and its cache.** `leg-host-id` is called with `linux-x86_64-checked`
-   today. The `checked` job calls it with that name too, so the narrowing job's cache
-   would be the checked job's. Call it with `linux-x86_64-checked-narrowing`: the same
-   image and engine give the same `COSMIC_HOST_ID`, and only the cache prefix differs
-   (`ci/cosmic_ci/host_id.tl:207`). A prefix by hash cannot match the other's: the name is
-   followed by 16 hex digits, and `n` is not one.
-   `COSMIC_WORKER` stays `linux-x86_64-checked`: it picks the leg's promises, not the cache.
-2. **Restore.** Look up the entry of the tree's base on main and restore it, as the legs
-   do (`verdicts-base-lookup`, `verdicts-base`, `verdicts-restore`).
-3. **Run ahead.** In the merge queue, find the run ahead (`queue-ahead`) and merge its
-   `verdicts-linux-x86_64-checked-narrowing` artifact, as a share does, so an entry
-   stacked on another starts from the other's rows. The wait is the share's: 90 s at most,
-   and none for a run ahead that has not kept its verdicts yet (`READY_SECONDS`, to be set
-   from the first runs: a share's is 600).
+The edits to [`.github/workflows/ci.yml`]:
+
+1. **Name the host and its cache.** The job calls `leg-host-id` with
+   `linux-x86_64-checked`, the `checked` job's name. Call it with
+   `linux-x86_64-checked-narrowing`: the same image and engine give the same
+   `COSMIC_HOST_ID`, and only the cache prefix differs (`ci/cosmic_ci/host_id.tl:207`).
+   A prefix by hash cannot match the other's: the name is followed by 16 hex digits, and
+   `n` is not one. `COSMIC_WORKER` stays `linux-x86_64-checked`: it picks the leg's
+   promises, not the cache.
+2. **Restore.** Both parts look up and restore the entry of the tree's base on main
+   (`verdicts-base-lookup`, `verdicts-base`, `verdicts-restore`), which holds both parts'
+   rows.
+3. **Run ahead.** In the merge queue, each part finds the run ahead (`queue-ahead`) and
+   merges the `verdicts-linux-x86_64-checked-narrowing-shard-*` artifacts of both parts
+   of it, with `verdicts-merge`, as `checked` merges its shares'. `READY_SECONDS` is set
+   from the first runs (a share of the checked suite's is 600).
 4. **Run.** `phase_checked_narrowing` builds its line from `Orchestration.suite_run`'s
-   words and names the file, instead of the fixed `test --check-types`
+   words and names the file, in place of the fixed `test --check-types --shard I/2`
    (`ci/cosmic_ci/orchestration.tl:1687`):
 
    ```text
    local run = Orchestration.suite_run({
      COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "narrowing"),
      COSMIC_TEST_TIMEOUT = checked_narrowing_test_timeout_s })
-   -- run.words is { "test", [--all], [--bail] }; add --check-types and --census.
+   -- run.words is { "test", [--all], [--bail] }; add --check-types, --census, --shard I/2.
    ```
 
    `Orchestration.stands` then decides as for every suite: a push and the merge queue stand
    on verdicts, and main's scheduled run, a manual run, and a queue run whose change moves
    [`build/harness_epoch.tl`] run every test (`--all`, nothing shared).
-5. **Trim, keep, save.** `verdicts-trim` after the run, the artifact for the run behind,
-   and the cache save on `COSMIC_CI_SAVES` under the job's prefix, with the entry
-   under the commit and its `seed`, `prune` and `invalidate` entries; the lists in those jobs
-   (`needs`; `LEGS`, which `queue-find` reads, `ci/cosmic_ci/queue_seed.tl:255`) gain the job.
+5. **Trim and keep.** Each part runs `verdicts-trim` to its own rows and uploads them as
+   `verdicts-linux-x86_64-checked-narrowing-shard-<part>` in every event, for the run
+   behind and for the save.
+6. **Save and seed.** A job that needs both parts (the shape of `checked`) downloads and
+   merges their artifacts, then saves the one entry on `COSMIC_CI_SAVES` under the job's
+   prefix and the commit's. `seed`, `prune`, `invalidate` and `LEGS`
+   (`ci/cosmic_ci/queue_seed.tl:255`) gain it. It runs no test. In a run that saves it
+   runs past a failed part and fails, as `checked` does, so that main's newest entry
+   loses the failed test's pass.
 
 The scheduled run saves, so main's newest entry is the nightly's `--all` run: a test that
 passed in every earlier run and fails in this one takes its row out, and the entries
 under a commit are invalidated when the run fails (`invalidate`), as for the legs.
 
-The job stays one job. Splitting it into shares (the `TODO:` at `ci.yml:1880`) is not
-needed for a run that is mostly standing, and the key is independent of any split.
-
 ## What only a whole run answers
+Two things, and the first is not this job's.
 
-Three things, each answered the way a leg answers it.
-
-**C functions entered.** `settle` checks that some test enters each C function when the
-run is of the whole tree (`ctx.whole`, `build/test.tl:2285`). A test that stands has its
-hits credited from its row (`credit_hits`, `build/test.tl:432`), and the row of a checked
-verdict holds the hits of the checked run that earned it, on the same core, since the core
-is in its key. The ordinary legs make the same check the same way. A checked run with
-`--bail` or a shard says "not checked", as they do.
+**C functions entered.** linux-x86_64's native whole run makes the check, on the same
+core. A share of the narrowing job reports "not checked: shard I of 2", as a share of the
+checked suite does, and this plan leaves that as it is.
 
 **The `run-time types:` line.** `say_violations` prints it in every checked run
 (`build/test.tl:2205`), and `phase_checked_narrowing` fails a run without it
 (`ci/cosmic_ci/orchestration.tl:1699`). That guard says the flag was honored, but a run in
-which every test stands also prints it, whether or not the compile carried checks. The
-runner therefore counts, at the end, the modules of the checked projection whose
-bytecode names `__fact` or `__cosmic_tc` (`runtime_checks_tool_test.tl:158` already reads
-`__fact` from the file), and the line says `N of M modules carry checks`. The guard fails
-on N of 0. With the hooks judged per worker, a run that has both is a checked run that
-checked.
+which every test stands also prints it, whether or not the compile carried checks. A count
+of modules whose bytecode names `__fact` or `__cosmic_tc` cannot be the check:
+[`lang/codegen.tl`], [`lang/fact_wraps.tl`], [`lang/boundary_checks.tl`], [`lang/boundaries.tl`],
+[`build/test_worker.tl`], [`build/fuzz/init.tl`] and [`build/importer.tl`] name them as string
+constants, so an unchecked compile has a count above 0.
+
+Instead [`importer.compile`] reports what it wrote: `Result` gains `checks_written`, the
+number of fact wraps and of parameter checks the code generator emitted
+([`lang.fact_wraps`] and [`lang.boundary_checks`] count them as they write), summed over the
+modules compiled and, for a module taken from the compile cache, read from the count that
+the cache entry stores with it. An unchecked compile writes none and reports 0. The line
+says `N fact wraps and M parameter checks written in the compile`, and the phase fails on
+N or M of 0. The count is the compile's, not the run's, so it stays true when every test
+stands.
 
 The line also says what stood: `K tests stood on checked verdicts`. Each of them held no
 violation when it ran (rule 3 above), so the count of violations is the whole run's.
-
-**The checked suite's gather.** The checked suite runs in four shares, none of which can
-make the whole-run checks, then a gathering run that stands on all four shares' rows
-(`COSMIC_CI_GATHER=1`, `checked_suite`, `ci/cosmic_ci/orchestration.tl:1135`). The narrowing job
-is one whole run, so it needs no gather. If it is split later, its shares and a gathering
-run work the same way over this key, which holds no share.
 
 ## Failure modes
 
@@ -297,9 +361,10 @@ run work the same way over this key, which holds no share.
 | after a change to the hooks, the judge or the key code | the harness epoch ([`build.harness_epoch`]); an edit to a harness module fails `harness_epoch_test` until acknowledged | existing |
 | for an ordinary run, or the reverse, where the bytes are equal | the `checks` part | `test_a_checked_key_is_not_an_unchecked_key` (item 1) |
 | earned by a worker that installed no hooks | the report's `checked` flag, judged | `test_a_checked_run_fails_a_worker_that_installed_no_hooks` (item 6) |
+| for a module that declares `store`, keyed by the ordinary projection | the key digests the file the worker is given | `test_a_store_modules_checked_key_holds_the_checked_projection` (item 11) |
 | for a test that met a violation a `pcall` swallowed | no verdict with a row | `test_a_swallowed_violation_is_reported_by_every_run` (item 5) |
 | after a fact check that depends on something undeclared | the key holds declarations and files; the sandbox denies the rest and `unkeyed` fails a test that ran a module no key holds; the nightly runs every test | as for any test |
-| because the compile carried no checks | the count of modules that carry them, in the summary and the guard | `test_a_checked_run_that_carried_no_check_is_refused` (items 9, 10) |
+| because the compile carried no checks | the compile's own count of wraps and checks written, in the summary and the guard | `test_a_checked_run_that_carried_no_check_is_refused` (items 9, 10) |
 | for a run on the sanitized core, or the reverse | the `runtime` part (another core image) and a file of its own | `test_a_checked_run_reads_its_own_file` (item 7) |
 | after a timeout is raised | `timeout` is in the key | existing |
 
@@ -354,53 +419,82 @@ Each fails if a verdict stood wrongly.
    `test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_linux_x86_64`
    (line 1766): the phase's argv holds `--check-types`, `--census`, and `--all` where the
    suite does not stand (the harness moved); its environment names `narrowing.db`; a
-   `run-time types:` line that says `0 of N modules carry checks` fails the phase. And
+   `run-time types:` line that says `0 fact wraps and 0 parameter checks` fails the phase. And
    `ci_workflow` tests that the job has the restore, trim and save steps and the
    `narrowing` host name.
-10. [`build/runtime_checks_tool_test.tl`], `test_a_checked_run_that_carried_no_check_is_refused`
-    (the runner's half): a project whose modules have no typed parameter and no narrowed
-    read says `0 of N modules carry checks`, and the phase's guard (item 9) fails on it.
+10. [`build/importer_test.tl`], `test_an_unchecked_compile_writes_no_check`: a project
+    compiled with `checks` reports `checks_written` above 0, and without it reports 0,
+    though a module of it names `__fact` in a string. And
+    `test_a_checked_run_that_carried_no_check_is_refused`, in
+    the file [`build/runtime_checks_tool_test.tl`], where a project with no typed parameter and no
+    narrowed read says `0 fact wraps and 0 parameter checks`, and the guard (item 9) fails.
+11. [`build/declared_key_test.tl`],
+    `test_a_store_modules_checked_key_holds_the_checked_projection`: a spec that declares
+    `store` with `projection_file` `cosmic.checked.db` moves with an edit to that file and
+    not with one to `cosmic.db`, and the reverse for `cosmic.db`. End to end, in the file
+    [`build/sandboxed_verdicts_test.tl`], a project with a `store` test, a checked run, then
+    a change that alters only the checked bytecode of a module the test reads (a narrowed
+    read added where the ordinary Lua is the same) moves the key, and an edit that alters
+    only the ordinary projection leaves the checked verdict standing.
+12. `test_a_checked_report_holds_the_harness_hook`, in [`build/test_worker_test.tl`]: a
+    report made where `__fact` is a chunk's stub, not [`worker.fact`], lacks `checked`. And
+    in [`build/declared_key_test.tl`] a spec with another harness digest of
+    [`build.test_worker`] makes another checked key and the same ordinary key.
 
 ## The harness epoch
-
 The change touches four harness modules: [`build.test_key`], [`build.declared_key`],
 [`build.shared_verdicts`] and [`build.test_worker`]. [`build.harness_epoch_test`] fails
 until their digests are acknowledged. The change to a key is additive: an ordinary run
 computes the keys it computes now, and a checked run's keys are new and read by nothing
 yet. The judge's new failure is for a checked run alone. So the rule "a change that can
 alter a pass or a fail bumps `epoch`" is not met for any verdict an earlier run kept, and
-the plan acknowledges the digests and does not bump. The reviewer decides it; the cost of
-the other choice is every suite running once on main.
+the plan acknowledges the digests and does not bump.
 
-Either way the merge queue's run for the change runs every test (`stands`: the file
-moved), which includes a cold narrowing job, once.
+Later edits to the hooks need no bump either: the `checks` part holds the harness digest
+of [`build.test_worker`], so the digest moves the checked keys. This departs from
+[`doc/testing.md`]'s rule for harness changes (a bump when a change can alter a pass or a
+fail), because a bump would run the ordinary suites on a change that cannot alter them.
+[`doc/testing.md`] states the exception beside the rule. An edit to [`build.test_key`] or
+[`build.declared_key`] that alters a checked pass is not covered by the digest; it bumps, as
+the rule says.
 
-Later edits follow the doc: an edit to `install_checks`, `fact` or the judge that can
-alter a checked pass bumps `epoch`, and so reruns the ordinary suites too. Of the last
-60 commits, none touched `lang/codegen`, `lang/fact_wraps`, `lang/boundary_checks` or
-`build/test_worker` (**measured**).
+The merge queue's run for the change runs every test (`stands`: the file moved), which
+includes a cold narrowing job, once.
 
 ## Rollout
-
-1. **Key, judge and keep rules, with [`doc/testing.md`].** Items 1 to 8 and 10 of the tests.
-   `--check-types` stands on its own verdicts locally. CI is unchanged: the narrowing
-   job names no cache and runs everything. The text that says a checked run "runs every
-   test, whatever verdict stands" ([`doc/testing.md`], `build/test.tl:92`,
-   `build/test_key.tl:2010`, `ci.yml:1873`, `ci/cosmic_ci/orchestration.tl:1684`) changes with it.
-2. **CI.** Item 9 and the steps above. The first runs are cold. Check the run's census
-   (`--census`) for the part that moved when a run stands on less than it should.
-3. **Measure, then tighten.** Lower `checked_narrowing_timeout_ns` (1800 s) to a bound
-   derived from the number of rows that moved, as the checked gather does
-   (`gather_budget`). Decide the open questions below with a week of runs.
+1. **Record per test.** Add the test to each `type_violations` row it meets, and print the
+   count of tests and their seconds. Measure the true count (between 17 and 822). This
+   changes nothing else.
+2. **Key, judge and keep rules, with [`doc/testing.md`].** Items 1 to 8 and 10 to 12 of the
+   tests, the `store` fix, `checks_written` and the larger bound. `--check-types` stands
+   on its own verdicts locally. CI is unchanged: the narrowing job names no cache and runs
+   everything. The text that says a checked run "runs every test, whatever verdict
+   stands" ([`doc/testing.md`], `build/test.tl:92`, `build/test_key.tl:2010`, `ci.yml:1873`,
+   `ci/cosmic_ci/orchestration.tl:1684`) changes with it.
+3. **CI**, on the sharded job: item 9 and the steps above. The first runs are cold. Check
+   the run's census (`--census`) for the part that moved when a run stands on less than it
+   should.
+4. **Measure, then decide the shares.** Once verdicts stand, a median run is estimated at
+   6 to 8 minutes as one whole job, and each of two shares adds a boot (150 to 195 s,
+   **measured**) and a restore to a smaller run. Measure the median and the worst run of
+   each share over a week. If one job would take less than a share plus its boot, return
+   to one job; the key does not depend on the split. Then lower
+   `checked_narrowing_timeout_ns` (1800 s) to a bound derived from the number of rows that
+   moved, as the checked gather does (`gather_budget`).
 
 ## What it saves
 
-Estimates. The sample is the 60 commits at the tip of main (2026-10-30 to 2026-10-31).
+Estimates, and lower bounds on what runs. The shares count tests, not seconds, so a slow
+or fuzzed test weighs as a fast one. They leave out edits to `lang/codegen`,
+`lang/fact_wraps`, `lang/boundary_checks` and `lang/check`: such an edit changes the
+checked bytecode of most modules, so it moves most keys although no test module's closure
+is the file that changed. Of the 60 commits, 14 edited `lang/` or the pipeline, and none
+edited the first three. The sample is the 60 commits at the tip of main (2026-10-30 to 2026-10-31).
 A commit moves a test when a file it changes is in the import closure of the test's
 module (`imports` and `decl_imports`, weighted by the 7749 `test_*` functions), and
 moves every test when it changes C, `vendor/`, `patch/`, `build.zig` or
 [`build/harness_epoch.tl`]. A change to a declared data file is left out, so the shares
-are a little low. This is what a leg's ordinary suite reruns too, so it is what standing
+are low. This is what a leg's ordinary suite reruns too, so it is what standing
 saves there.
 
 | | Share of tests that run |
@@ -417,30 +511,32 @@ checks (1 to 66 s, **measured**) and the keying (8.5 s, **measured**) stay: a me
 6 to 8 minutes in place of 15 to 18, a mean run 8 to 11, and the 35% of commits that run
 all take what they take now. The 140 skips (**measured**; 53 of them for Seatbelt, which holds a child on macOS alone) run every time, a few seconds in all (estimated).
 
-It does not shorten the queue's critical path: the job already ends with the shortest leg
-([`ci/README.md`], "the checked jobs"). It returns a runner for 7 to 11 minutes of a typical
-full run, and a queue run stacked on another starts from the other's rows.
+The saving is runner time and the job's own length. Whether it shortens the queue's path
+depends on the sharding and is not claimed; step 4 of the rollout measures it. The figures
+are for one job: with two shares, each pays the boot again. A queue run stacked on another
+starts from the other's rows.
 
 ## Open questions
+Decided with the reviewer:
 
-- **Share the epoch?** A checked-only epoch, `checks_epoch`, held by checked keys alone,
-  would let an edit to the hooks rerun the narrowing job and leave the ordinary suites
-  standing. It costs a second rule in `harness_epoch_test` and is used 0 times in 60
-  commits. This plan does not add it.
-- **Foreign features.** The checked suite's gather looks a test up under the key of another
-  host that differs only in processor features (`COSMIC_TEST_FOREIGN_FEATURES`). If the
-  runner pool has several feature sets, the narrowing cache misses on each; the census
-  of the first week says whether it does.
-- **Stand with violations?** A test that meets a reported-only violation reruns every
-  time. Keeping its rows in the verdict would let it stand, at the price of a second
-  table in the shared cache. The measure above decides.
-- **Equal bytes across modes.** The plan keeps each mode off the other's verdicts. Today an
-  ordinary run stands on a checked pass when a closure compiles to the same bytes in both
-  modes, which is sound only while nothing else differs; the fuzz budget shows a mode can
-  matter without changing bytes. Allowing it again would save little: such closures are
-  the few that hold no typed parameter and no narrowed read.
-- **Shares.** Whether the job should split once it is mostly standing (the `TODO:` at
-  `ci.yml:1880`). The likely answer is no.
+- **No `checks_epoch`.** The harness digest of [`build.test_worker`] in the `checks` part
+  does its work.
+- **Foreign features are off at first.** The census of the first week says whether the
+  runner pool has several feature sets; if it does, the narrowing cache misses on each,
+  and `COSMIC_TEST_FOREIGN_FEATURES` is considered then.
+- **A test that meets a violation never stands.** Keeping its rows in the verdict is not
+  planned.
+- **The modes are kept apart.** A checked pass never stands for an ordinary run, and the
+  reverse. Today an ordinary run stands on a checked pass when a closure compiles to the
+  same bytes in both modes, which is sound only while nothing else differs (the fuzz
+  budget shows a mode can matter without changing bytes); few closures are such.
+
+Open:
+
+- Whether two shares still pay once verdicts stand (rollout step 4).
+- The value of `READY_SECONDS` for the run-ahead wait.
+- Whether `type_violations` should hold one row per test and violation (rollout step 1)
+  or a second table.
 
 [`.github/workflows/ci.yml`]: ../../.github/workflows/ci.yml
 [`build.boundary_hook_test`]: ../../build/boundary_hook_test.tl
@@ -457,25 +553,39 @@ full run, and a queue run stacked on another starts from the other's rows.
 [`build.type_violations_test`]: ../../build/type_violations_test.tl
 [`build.type_watch`]: ../../build/type_watch.tl
 [`build/closure_store_test.tl`]: ../../build/closure_store_test.tl
+[`build/declared_key_test.tl`]: ../../build/declared_key_test.tl
 [`build/fact_hook_tool_test.tl`]: ../../build/fact_hook_tool_test.tl
+[`build/fuzz/init.tl`]: ../../build/fuzz/init.tl
 [`build/harness_epoch.tl`]: ../../build/harness_epoch.tl
+[`build/importer.tl`]: ../../build/importer.tl
+[`build/importer_test.tl`]: ../../build/importer_test.tl
 [`build/runtime_checks_tool_test.tl`]: ../../build/runtime_checks_tool_test.tl
 [`build/sandboxed_verdicts_test.tl`]: ../../build/sandboxed_verdicts_test.tl
 [`build/shared_verdicts_test.tl`]: ../../build/shared_verdicts_test.tl
+[`build/test_worker.tl`]: ../../build/test_worker.tl
 [`build/test_worker_test.tl`]: ../../build/test_worker_test.tl
 [`ci/cosmic_ci/orchestration_test.tl`]: ../../ci/cosmic_ci/orchestration_test.tl
 [`ci/README.md`]: ../../ci/README.md
 [`cosmic/json_test.tl`]: ../../cosmic/json_test.tl
+[`declared_key.compute`]: ../../build/declared_key.tl
 [`doc/testing.md`]: ../testing.md
 [`importer.checked_tool`]: ../../build/importer.tl
+[`importer.compile`]: ../../build/importer.tl
 [`lang.boundaries_fuzz_test`]: ../../lang/boundaries_fuzz_test.tl
 [`lang.boundaries_test`]: ../../lang/boundaries_test.tl
 [`lang.boundary_checks`]: ../../lang/boundary_checks.tl
 [`lang.check`]: ../../lang/check.tl
 [`lang.codegen`]: ../../lang/codegen.tl
 [`lang.fact_wraps`]: ../../lang/fact_wraps.tl
-[`shared_verdicts.location`]: ../../build/shared_verdicts.tl
+[`lang/boundaries.tl`]: ../../lang/boundaries.tl
+[`lang/boundary_checks.tl`]: ../../lang/boundary_checks.tl
+[`lang/codegen.tl`]: ../../lang/codegen.tl
+[`lang/fact_wraps.tl`]: ../../lang/fact_wraps.tl
 [`shared_verdicts.named`]: ../../build/shared_verdicts.tl
+[`test.dealt`]: ../../build/test.tl
+[`test_key.harness`]: ../../build/test_key.tl
 [`test_key.keep`]: ../../build/test_key.tl
+[`test_sandbox.plan`]: ../../build/test_sandbox.tl
 [`worker.fact`]: ../../build/test_worker.tl
 [`worker.judge`]: ../../build/test_worker.tl
+[`worker.loads`]: ../../build/test_worker.tl
