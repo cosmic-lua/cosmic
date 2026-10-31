@@ -3106,7 +3106,11 @@ function docs.records(view: docs.View, words: {string}): docs.Answer?, string
         object["text"] = ex.text
         object["file"] = ex.file
         object["line"] = ex.line
+        object["code"] = ex.source
       else
+        if entry.kind == "section" or entry.symbol == "" then
+          object["text"] = link_text.unlinked(entry.text)
+        end
         if entry.file ~= "" then object["file"] = entry.file end
         if entry.line > 0 then object["line"] = entry.line end
       end

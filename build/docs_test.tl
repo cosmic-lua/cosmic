@@ -972,6 +972,36 @@ local function test_records_are_one_json_object_per_entry(dir: string)
   assert(not missing.found, "a query that finds nothing fails the run")
 end
 
+--- An example's entry carries its code as the page prints it under the
+--- heading, and a guide section's or module's text has its links
+--- unlinked as the page prints it.
+local function test_records_carry_an_examples_code_and_unlink_text(dir: string)
+  local db = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = fs_example("read", "Reads a file back.",
+      "  print(Fs.read(\"x\"))"),
+    ["cosmic/linked.tl"] = source("--- Wraps [`Fs.read`] for callers.", "", "local record Linked", "end", "",
+      "return Linked"),
+  }))
+  local read = assert(docs.lookup(view({ db }), "Fs.read"))
+  local shown = assert(docs.render(view({ db }), nth(read, 1)))
+  local found = assert(docs.records(view({ db }), { "file", "back" }))
+  local code: string? = nil
+  for _, line in ipairs(found.lines) do
+    local object = assert(Json.decode_object(line))
+    if object["kind"] == "example" then code = tostring(object["code"]) end
+  end
+  assert(code ~= nil, "an example entry has code")
+  assert(code:find('function Example.read()', 1, true), code)
+  for line in code:gmatch("[^\n]+") do
+    assert(table.concat(shown, "\n"):find("    " .. line, 1, true), line)
+  end
+  local module = assert(docs.records(view({ db }), { "cosmic.linked" }))
+  assert(#module.lines > 0, "the module is found")
+  for _, line in ipairs(module.lines) do
+    assert(not line:find("[`", 1, true), line)
+  end
+end
+
 --- With no words `--json` lists every module the page lists, and with
 --- `cosmic` the standard library's alone, as modules and not as a search
 --- for the word.

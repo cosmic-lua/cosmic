@@ -594,9 +594,10 @@ local record Cli
   --- found, every one and not the first five, a line each (query, exact,
   --- module, symbol, kind, signature, text, and file, line and verb
   --- where it has them), with no summary on standard error; with no q,
-  --- or `cosmic`, each module the page lists. Filter it by composing, as `cosmic json` does: `cosmic docs
-  --- --json Fs.read Fs.write | cosmic sql --from docs=- --as ndjson
-  --- "SELECT symbol, line FROM docs WHERE kind = 'function'"`. The
+  --- or `cosmic`, each module the page lists. Filter it by composing,
+  --- as `cosmic json` does: `cosmic docs --json Fs.read Fs.write |
+  --- cosmic sql --from docs=- --as ndjson "SELECT symbol, line FROM
+  --- docs WHERE kind = 'function'"`. The
   --- tree is found as `test` finds it
   docs: string
   --- `cosmic uses <sym> [path...]`: every place that refers to a
