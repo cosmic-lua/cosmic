@@ -146,12 +146,12 @@ local record Wait
   events?: integer
   --- For a wait on several descriptors ([`Poll.ready`]) in place of
   --- `fd` and `events`: each descriptor, its events, and what happened
-  --- to it, by place.
+  --- to it, by place: a place absent from `answers` has nothing yet.
   fds?: {integer}
   masks?: {integer}
-  answers?: {integer}
+  answers?: mut {integer: integer}
   --- Its descriptors' entries among the run's, while it waits on them.
-  mut watches?: {Watch}
+  mut watches?: mut {Watch}
   mut at?: integer
   --- When it began among the run's waits: the order those a poll
   --- answers together are woken in, and the tie-break between timers.
@@ -186,7 +186,10 @@ end
 local record Watched
   --- Its place in the run's `fds` and `events`.
   slot: integer
-  watches: {Watch}
+  --- Its waits, from 1 to `count`: a wait that ends is replaced by the
+  --- last, so a map keeps no hole in an array.
+  watches: mut {integer: Watch}
+  mut count: integer
   --- How many of `watches` ask each mask: the descriptor's events are
   --- their union.
   masks: mut {integer:integer}
@@ -276,17 +279,21 @@ end
 --- Enters `w`'s wait on `fd` for `mask` among the waits on `fd`, whose
 --- polled events take in `mask`.
 local function enter(w: Wait, fd: integer, mask: integer, place: integer)
-  local entry = running().watched[fd]
+  local loop = running()
+  local entry = loop.watched[fd]
   if entry == nil then
-    local slot = #running().fds + 1
-    entry = { slot = slot, watches = {}, masks = {} }
-    running().fds[slot], running().events[slot] = fd, 0
-    running().watched[fd] = entry
+    local slot = loop.slots + 1
+    entry = { slot = slot, watches = {}, count = 0, masks = {} }
+    loop.slots = slot
+    loop.fds[slot], loop.events[slot] = fd, 0
+    loop.watched[fd] = entry
   end
-  local watch: Watch = { wait = w, fd = fd, mask = mask, place = place, index = #entry.watches + 1 }
-  entry.watches[watch.index] = watch
+  local index = entry.count + 1
+  local watch: Watch = { wait = w, fd = fd, mask = mask, place = place, index = index }
+  entry.watches[index] = watch
+  entry.count = index
   entry.masks[mask] = (entry.masks[mask] or 0) + 1
-  running().events[entry.slot] = running().events[entry.slot] | mask
+  loop.events[entry.slot] = assert(loop.events[entry.slot]) | mask
   local watches = assert(w.watches)
   watches[#watches + 1] = watch
 end
@@ -294,19 +301,24 @@ end
 --- Takes `watch` from among the waits on its descriptor, and the
 --- descriptor from what is polled once none is left.
 local function leave(watch: Watch)
+  local loop = running()
   local fd = watch.fd
-  local entry = running().watched[fd]
+  local entry = loop.watched[fd]
   local watches = entry.watches
-  local last = watches[#watches]
+  local count = entry.count
+  local last = assert(watches[count])
   watches[watch.index], last.index = last, watch.index
-  watches[#watches] = nil
-  if #watches == 0 then
-    local slot, top = entry.slot, #running().fds
-    local moved = running().fds[top]
-    running().fds[slot], running().events[slot] = moved, running().events[top]
-    running().watched[moved].slot = slot
-    running().fds[top], running().events[top] = nil, nil
-    running().watched[fd] = nil
+  watches[count] = nil
+  entry.count = count - 1
+  if count == 1 then
+    local slot, top = entry.slot, loop.slots
+    local moved = assert(loop.fds[top])
+    local moved_events = assert(loop.events[top])
+    loop.fds[slot], loop.events[slot] = moved, moved_events
+    loop.watched[moved].slot = slot
+    loop.fds[top], loop.events[top] = nil, nil
+    loop.slots = top - 1
+    loop.watched[fd] = nil
     return
   end
   local left = entry.masks[watch.mask] - 1
@@ -317,7 +329,7 @@ local function leave(watch: Watch)
   entry.masks[watch.mask] = nil
   local events = 0
   for mask in pairs(entry.masks) do events = events | mask end
-  running().events[entry.slot] = events
+  loop.events[entry.slot] = events
 end
 
 --- Takes a join's wait from the joiners of the task it waits on, the
@@ -374,7 +386,8 @@ local function wake(w: Wait, ok: boolean, why: string, notice?: NotifierState)
   if w.done == true then return end
   finish(w)
   w.task.parked = nil
-  running().ready[#running().ready + 1] = { task = w.task, ok = ok, why = why, notice = notice }
+  local queue = running().ready
+  queue[#queue + 1] = { task = w.task, ok = ok, why = why, notice = notice }
 end
 
 --- The task the calling coroutine is, raising at `level` where there is
@@ -556,12 +569,15 @@ end
 local record Loop
   tasks: mut {thread: State}
   live: integer
-  ready: {Wake}
+  mut ready: mut {Wake}
   --- What [`sys.poll`] is handed, kept as waits begin and end: each
   --- descriptor waited on, and the union of the events its waits ask,
-  --- by slot.
-  fds: {integer}
-  events: {integer}
+  --- by slot, from 1 to `slots`. A descriptor that leaves is replaced by
+  --- the last, so these are maps that keep no hole in an array;
+  --- [`poll_once`] copies them into the arrays [`sys.poll`] takes.
+  fds: mut {integer: integer}
+  events: mut {integer: integer}
+  mut slots: integer
   watched: mut {integer:Watched}
   --- Time waits, a binary heap on `at` then `seq`.
   timers: mut {integer: Wait}
@@ -736,18 +752,24 @@ function Poll.ready(fds: {integer}, events: {integer}, timeout_ns?: integer): {i
   if #fds == 0 or #events ~= #fds then
     error("poll: Poll.ready takes one or more descriptors, and events for each", 2)
   end
-  local watched, masks, answers: mut {integer}, mut {integer}, mut {integer} = {}, {}, {}
+  local watched, masks: mut {integer}, mut {integer} = {}, {}
+  local answers: mut {integer: integer} = {}
   for i, fd in ipairs(fds) do
     local mask = events[i]
     checked_fd(fd, "fds[" .. tostring(i) .. "]", 2)
     checked_events(mask, "events[" .. tostring(i) .. "]", 2)
     local checked = assert(mask)
-    watched[#watched + 1], masks[#masks + 1], answers[#answers + 1] = fd, checked, 0
+    watched[#watched + 1], masks[#masks + 1] = fd, checked
   end
   local ok, why = park(task,
     { task = task, fds = watched, masks = masks, answers = answers }, timeout_ns)
   if not ok then return nil, why end
-  return answers, ""
+  local had: mut {integer} = {}
+  for place = 1, #watched do
+    local answer = answers[place] or 0
+    had[#had + 1] = answer
+  end
+  return had, ""
 end
 
 --- Waits `ns` nanoseconds while the other tasks run: true and "" once
@@ -775,7 +797,8 @@ local function start(fn: function()): Poll.Task
     ended = false, killed = false, cancelled = false, shields = 0, parked = nil, joiners = {} }
   running().tasks[state.co] = state
   running().live = running().live + 1
-  running().ready[#running().ready + 1] = { task = state, ok = true, why = "" }
+  local queue = running().ready
+  queue[#queue + 1] = { task = state, ok = true, why = "" }
   return state
 end
 
@@ -879,21 +902,30 @@ end
 --- events it asked for, and those three, as an entry of its own would
 --- be.
 local function poll_once(timeout: integer)
-  if #running().fds == 0 and timeout < 0 then
+  local loop = running()
+  if loop.slots == 0 and timeout < 0 then
     error("poll: every task waits on another: none can go on", 0)
   end
   -- A signal a Signal.guard catches only cuts this poll short, and the
   -- loop waits on: what one means -- end every wait, or stop taking
   -- work and drain it, as Net.serve does -- is the run's to say, by a
   -- task that waits on the guard (`g:wait`).
-  local revents, trouble = sys.poll(running().fds, running().events, timeout)
+  local fds, events: mut {integer}, mut {integer} = {}, {}
+  for slot = 1, loop.slots do
+    local fd, asked = assert(loop.fds[slot]), assert(loop.events[slot])
+    fds[#fds + 1] = fd
+    events[#events + 1] = asked
+  end
+  local revents, trouble = sys.poll(fds, events, timeout)
   if revents == nil then error("poll: " .. trouble, 0) end
   -- Every descriptor of a wait is recorded before any wait is answered,
   -- which changes what is polled.
   local hits: mut {Wait} = {}
   for slot, happened in ipairs(revents) do
     if happened ~= 0 then
-      for _, watch in ipairs(running().watched[running().fds[slot]].watches) do
+      local entry = loop.watched[assert(fds[slot])]
+      for index = 1, entry.count do
+        local watch = assert(entry.watches[index])
         local answer = happened & (watch.mask | UNASKED)
         if answer ~= 0 then
           local w = watch.wait
@@ -950,7 +982,8 @@ local function answer_waits(fd: integer, answer: integer?)
   local entry = loop.watched[fd]
   if entry == nil then return end
   local hits: mut {Wait} = {}
-  for _, watch in ipairs(entry.watches) do
+  for index = 1, entry.count do
+    local watch = assert(entry.watches[index])
     local w = watch.wait
     if watch.place > 0 then assert(w.answers)[watch.place] = answer or watch.mask end
     if w.hit ~= true then
@@ -1003,7 +1036,7 @@ end
 --- cannot be called from within a task.
 function Poll.run(main: function())
   if ongoing.loop ~= nil then error("poll: Poll.run is already running", 2) end
-  ongoing.loop = { tasks = {}, live = 0, ready = {}, fds = {}, events = {}, watched = {}, timers = {},
+  ongoing.loop = { tasks = {}, live = 0, ready = {}, fds = {}, events = {}, slots = 0, watched = {}, timers = {},
     timer_count = 0, stale = 0, seq = 0 }
   -- Nothing may allocate between setting `loop` and the pcall, or a
   -- refused allocation would raise past the teardown and leave `loop`

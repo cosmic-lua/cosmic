@@ -599,7 +599,7 @@ end
 --- --roots` recorded in this executable, else "minimal". Nil and why
 --- when either names anything else.
 function Http.default_roots(): string?, string
-  local chosen = Env.get("COSMIC_CA_ROOTS")
+  local chosen = Env.read("COSMIC_CA_ROOTS")
   local from = "COSMIC_CA_ROOTS"
   if chosen == nil or chosen == "" then
     chosen = Store.meta("ca_roots_default")

@@ -32,10 +32,10 @@ ones `build/zig.tl` runs on that release's binary (`build/patch.tl`,
 `build/zig_fetch.tl`) in the new checker's grammar, held to every rule and to
 no ceiling. `islands.txt` lists nothing: the pinned release reads a file it
 lists as Teal. CI's `check-islands` command (`cosmic-driver
-cosmic_ci/driver.tl check-islands`) runs each of those scripts with `--help`
-on the running driver, which refuses a script that has a finding before it
-runs, and fails on a syntax error or any finding; `ci/` is compiled by the
-driver's own tests compile only the modules they require, so `check-islands`
+cosmic_ci/driver.tl check-islands`) checks each of those scripts with
+`--standalone --check` on the running driver (it type-checks the file without
+running it), and fails on a syntax error or any finding. The driver's own
+tests compile only the modules they require, so `check-islands`
 also runs the release's `fix --check` over all of `ci/`.
 
 Which files run standalone on the pinned release is `ci/bootstrap-files.txt`,
@@ -73,9 +73,8 @@ holds, and what does not:
   `ci/cosmic_ci/bootstrap_test.tl`, which reads and copies the binary), and the
   release's binary is reachable in the cache and to any process running on it.
   Deliberate use of the raw binary is a review matter.
-- `check-islands` type-checks each listed file on the release (with `--help`,
-  except what [`Islands.not_run`] names: `ci/run_local.tl`, whose `--help` would
-  start the platform job, and which the driver's tests compile). It fails on a
+- `check-islands` type-checks each listed file on the release (`--standalone
+  --check`, which does not run it). It fails on a
   listed file that is gone, on a `build/zig.tl` `standalone(` call that names a
   file the list lacks or does not name one in a string literal on its line, and
   on a list without `build/paths.tl`. It also runs the release's `fix --check`
@@ -86,8 +85,7 @@ holds, and what does not:
   `build/ci_tree_test.tl` (which cannot require `ci/`): one path a line, what a
   `#` starts dropped, white space trimmed from both ends.
 - A refusal of a type error names the file, the list and the pinned release, and
-  says to use only that release's APIs or move the pin; a `--help` exit status
-  that is not 0 is in [`Islands.help_exits`], and the hint says to add it there.
+  says to use only that release's APIs or move the pin.
 
 What is not covered. A process running on the release can run its own binary
 (`Proc.executable()`, `Proc.relaunch()`), so no wrapper or entry point can stop
@@ -97,7 +95,7 @@ residual below:
 
 - `build/zig.tl`, which runs `build/patch.tl` and `build/zig_fetch.tl` that way:
   its `standalone(` calls are counted, and each file must be in the list.
-- `check-islands` ([`Islands.complaint`]), which runs the listed files.
+- `check-islands` ([`Islands.complaint`]), which checks the listed files.
 - [`BuildPaths.directory`] in [`cosmic_ci/build_paths.tl`], which runs
   `build/paths.tl` that way as the build directory's resolver (checked to be
   listed). [`BuildPaths.driver`] refuses a `--standalone` of its own.
@@ -715,10 +713,22 @@ verdicts, which would otherwise ride along whole in each save.
   trimmed, saved on `COSMIC_CI_SAVES` and seeded as a leg's are; the
   cache entry holds the checked suite's rows alone, where the same job's
   narrowing run kept a `verdicts.db` of another 8700 rows nothing read.
-- `checked-narrowing` (`linux-x86_64-checked-narrowing`), the whole
+- `checked-narrowing` (`linux-x86_64-checked-narrowing-<part>`), the whole
   suite on a checked run (`--check-types`, `platform checked-narrowing`)
   on the release tool, which stands on no verdict and reads no checked
-  core: it boots and keeps and saves nothing. A full run only.
+  core: it boots and keeps and saves nothing. Two jobs of one matrix, a
+  share of the tests each (`cosmic test --check-types --shard I/2`,
+  `COSMIC_CI_NARROWING_SHARD`), bound to 900 s
+  (`checked_narrowing_timeout_ns`): the whole run's 726 to 861 s are
+  about 363 to 431 s a share (a lower estimate: each share compiles the
+  tree it tests). A share does not check that some test enters each C
+  function, which only a whole run answers, and no job makes that run with
+  these tests: a checked run enters no function a plain one does not
+  (the tests that differ skip in it, and those that ask for a checked
+  run skip in every run, build/type_watch.tl), so the legs' whole native
+  suites on the same release core hold the check in every full run.
+  Its `operations.db` is kept as
+  `ci-driver-linux-x86_64-checked-narrowing-<part>`. A full run only.
 - `format` (`linux-x86_64-format`), a light run's format check
   (`platform format`), which a full run makes in linux-aarch64's assemble.
   There it is `fix --check .`; on a light run it lays out only what the
@@ -774,9 +784,10 @@ merges (5 s), runs the gathering suite (some 100 s) and the fixture
 measured figures above, not a measurement, puts the run's checked path
 at 520 to 563 s after the shares start where most stood and 615 to
 759 s where none did, against 1934 to 2326 s of the one job and the legs' 946 to
-1503 s. The narrowing run, 150 to 195 s to its boot, its 726 to 861 s and
-10 s, takes 890 to 1070 s. So the longest of them ends with the shortest
-leg, and the legs are the queue's path.
+1503 s. A narrowing share takes 150 to 195 s to its boot, some 363 to 431 s
+of tests (half the whole run's 726 to 861 s, a lower estimate: each share
+compiles the tree it tests) and 10 s, 523 to 636 s or a little more, and
+ends before the shortest leg; the legs are the queue's path.
 
 ### the Linux legs' container
 
@@ -1053,8 +1064,6 @@ alone.
 [`cosmic_ci/orchestration.tl`]: cosmic_ci/orchestration.tl
 [`cosmic_ci/shares_wait.tl`]: cosmic_ci/shares_wait.tl
 [`Islands.complaint`]: cosmic_ci/islands.tl
-[`Islands.help_exits`]: cosmic_ci/islands.tl
-[`Islands.not_run`]: cosmic_ci/islands.tl
 [`Islands.paths`]: cosmic_ci/islands.tl
 [`Islands.project`]: cosmic_ci/islands.tl
 [`Runner.phase`]: cosmic_ci/runner.tl

@@ -136,13 +136,24 @@ end
 
 function Node.walk_until(root: Ast.Node, visit: function(Ast.Node): boolean)
   local stack: mut {Ast.Node} = { root }
+  -- One buffer for each node's children, emptied as they go on the stack, rather than a table made for each node: a walk
+  -- of a tree meets every node, and a build walks every tree several times.
+  local kids: mut {Ast.Node} = {}
+  local function push(child: Ast.Node)
+    kids[#kids + 1] = child
+  end
   while #stack > 0 do
     local node = stack[#stack]
     stack[#stack] = nil
     if visit(node) then
-      local kids = Node.children(node)
-      for i = #kids, 1, -1 do
-        stack[#stack + 1] = assert(kids[i], "i is within kids")
+      Ast.children(node, push)
+      -- The children are met in source order and go on in the reverse, so that the first is the next node taken.
+      while true do
+        local child = table.remove(kids)
+        if child == nil then
+          break
+        end
+        stack[#stack + 1] = child
       end
     end
   end

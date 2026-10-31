@@ -290,7 +290,9 @@ local record Cli
   --- stderr. `--to` writes the rows in another format. `--to csv`
   --- quotes as RFC 4180 does, each record ended by LF: a header of the column names first, NULL an empty
   --- field and '' a quoted empty one (so a one-column NULL is a blank
-  --- line, which a CSV reader may drop), a blob's bytes as they are.
+  --- line, which a CSV reader may drop), a blob's bytes as they are,
+  --- and a field that begins with a byte order mark quoted, so a reader
+  --- keeps it.
   --- `--to ndjson` writes a JSON object per row, its members the columns
   --- in order, a repeated name given `_2`; a result of one column named
   --- `_json`, as `--from` gives each row, is written as that object's
