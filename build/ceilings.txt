@@ -22,8 +22,7 @@
 # it newly refuses in the same change: it raises no pin and adds no row, for a new code or a file whose translation
 # now parses.
 # a class whose metatable keeps its `__close` as a field, since the metatable also holds a `__gc` that a class has
-# no form for: the process handle becomes a C userdata whose finalizer C owns (doc/plans/strict-teal.md,
-# "compiler-written classes, in the new checker")
+# no form for: the process handle becomes a C userdata whose finalizer C owns
 cosmic/internal/connector.tl class_metamethod 1
 
 # a map keyed by `any` (the registry, a decoded table's keys, the shape validators), by a union or by a collection:
@@ -3939,7 +3938,7 @@ test/sqlite_result_test.tl cast_refused 1
 
 test/sqlite_row_test.tl cast_refused 1
 
-# an `is` of a record, an interface or a collection, whose tag no program can read: the tagged unions of the plan
+# an `is` of a record, an interface or a collection, whose tag no program can read: tagged unions
 # replace the `where` clause
 
 build/compile_grammar_test.tl is_on_record 3

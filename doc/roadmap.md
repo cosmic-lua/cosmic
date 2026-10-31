@@ -18,8 +18,7 @@ defines the target; once something ships, it leaves this file.
   `function(Event)` also takes a `function(k: KeyEvent)`, because the first
   parameter of such a field, when it is a record or an interface, is the one
   place a record parameter is compared in either direction.
-- make every guard read every place alike
-  ([narrowing by construction](plans/strict-teal.md#narrowing-by-construction)):
+- make every guard read every place alike:
   a path of fixed fields (`a.b.c`) is a place, and so is an index (`t[k]`, `k` a
   literal or a local never reassigned), where a write to any index drops
   every index place; `is` tests a field as it does a local; `x is A | B | C`
@@ -247,6 +246,10 @@ promises lean on come first:
   needs the caller to hand the body over again (a function answering a
   fresh Reader) behind `CURLOPT_SEEKFUNCTION`; curl answers "necessary data
   rewind was not possible" without one.
+- [`cosmic.web.middleware`] past what the first parts need, each once a part of
+  the web layer wants one: `Web.timing`, `Web.request_id` (paired with the
+  CSP nonce and sessions) and `Web.limit_body` (paired with
+  `Server.ServeSpec.body_limit`).
 - `cosmic.web.input` past what the first form binds, each once a route wants
   it: `Input.empty_as_nil(spec)` (an optional string whose `""` is nil),
   `require_nonempty`, `min_length` and `matches` over an [`Input.Invalid`],
@@ -451,6 +454,7 @@ four-producer provenance join.
 [`cosmic.test`]: ../cosmic/test.tl
 [`cosmic.url`]: ../cosmic/url.tl
 [`cosmic.web.dev`]: ../cosmic/web/dev.tl
+[`cosmic.web.middleware`]: ../cosmic/web/middleware.tl
 [`cosmic.web`]: ../cosmic/web/init.tl
 [`cosmic/errors.tl`]: ../cosmic/errors.tl
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl

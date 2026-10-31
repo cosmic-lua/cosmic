@@ -405,7 +405,7 @@ local record Cli
   --- `file:line:column: message`. Only a syntax error refuses: each is
   --- named as `file:line:column: message`, no file is written, and the
   --- exit is 2, as for a command line or a file it cannot use. The files
-  --- are written in the new checker's grammar ([`doc/plans/new-checker-grammar.md`]),
+  --- are written in the new checker's grammar,
   --- which is the only one (`--grammar teal` is refused).
   --- With a `.d.tl` file named, the files named are the whole program, the
   --- globals are those the `.d.tl` files declare, and a `cosmic.*` module
