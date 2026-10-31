@@ -202,6 +202,9 @@ and in cosmic's SQLite `#` line comments too, as [`cosmic.json`] does
 given `hash_comments`. A `jsonb_` function below does what its `json_`
 namesake does, writing SQLite's binary JSON instead of text.
 
+A JSON value passed through a scalar subquery arrives as text: wrap it in
+`json()` to embed it as JSON.
+
 - `json(X)`: X as minified JSON text.
 - `json_array(X, ...)`: a JSON array of its arguments.
 - `json_array_insert(J, PATH, X, ...)`: J with X inserted into the array at PATH.
