@@ -66,6 +66,7 @@
 -- until then a dependent of a module whose body adds a function to an
 -- outer record is told the record has no such field.
 
+local AnalysisSchema = require("build.analysis_schema")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Template = require("cosmic.template")
@@ -315,7 +316,7 @@ local function listed(src: source.View, staged: boolean)
   if staged_by_other(src, db) then own = 0 end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT path, file, kind, source_hash FROM inputs WHERE ?1 = 1 " ..
-      "ORDER BY path, kind = 'decl' DESC, file", { { integer = own } })
+      "ORDER BY path, " .. AnalysisSchema.declaration("kind") .. " DESC, file", { { integer = own } })
   if rows == nil then
     src.err("cosmic: lsp: the staged tree: " .. trouble)
     return
@@ -561,7 +562,7 @@ function source.served(src: source.View, name: string, open: source.Open, uncoun
   -- alone, which a template's or a generated declaration's file does not.
   local stem = src.root .. "/" .. found.path:gsub("%.", "/")
   local file = stem .. ".tl"
-  if found.kind == "decl" then file = stem .. ".d.tl" end
+  if AnalysisSchema.is_declaration(found.kind) then file = stem .. ".d.tl" end
   local tally = src.tally
   --- The module served as `text`, counted as `kind` is ([`source.Tally`]).
   local function serving_as(kind: string, text: string, key: string): Served
@@ -587,7 +588,7 @@ function source.served(src: source.View, name: string, open: source.Open, uncoun
       if compiled == nil then return nil end
       return serving_as("source", compiled, key)
     end
-    if found.kind ~= "decl" then
+    if not AnalysisSchema.is_declaration(found.kind) then
       local stubbed = made_stub(src, found.file, text, hash)
       if stubbed ~= nil then return serving_as("made", stubbed, key) end
     end
@@ -598,13 +599,13 @@ function source.served(src: source.View, name: string, open: source.Open, uncoun
   -- Another code's stage committed since the refresh is served none of.
   if staged_by_other(src, db) then return nil end
   local key = source.key(src, name, open)
-  if found.kind ~= "decl" and src.stubs then
+  if not AnalysisSchema.is_declaration(found.kind) and src.stubs then
     local stubbed = first(db, "SELECT text FROM stubs WHERE source_hash = ?1", found.source_hash)
     if stubbed ~= nil then return serving_as("database", stubbed, key) end
   end
   local held = first(db, "SELECT source FROM inputs WHERE file = ?1", found.file)
   if held == nil then return nil end
-  if found.kind ~= "decl" and not src.stubs then
+  if not AnalysisSchema.is_declaration(found.kind) and not src.stubs then
     local stubbed = made_stub(src, found.file, held, found.source_hash)
     if stubbed ~= nil then return serving_as("made", stubbed, key) end
   end

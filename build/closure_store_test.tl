@@ -6,6 +6,7 @@
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local analysis_schema = require("build.analysis_schema")
 local closure_store = require("build.closure_store")
 local declared_key = require("build.declared_key")
 local docs = require("build.docs")
@@ -405,7 +406,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
     for _, m in ipairs(result.modules) do by_path[m.path] = m end
     local declarations: mut {string:string} = {}
     local rows = assert(Sqlite.text_rows(handle.db,
-      "SELECT path, file FROM inputs WHERE kind = 'decl'"))
+      "SELECT path, file FROM inputs WHERE " .. analysis_schema.declaration("kind")))
     for _, row in ipairs(rows) do
       declarations[row:text(1)] = row:text(2)
     end
