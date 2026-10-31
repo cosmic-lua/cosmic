@@ -96,7 +96,11 @@ local record http
   -- header name or value holding CR, LF or NUL, an empty header name
   -- or one holding ':', a URL holding NUL, a `unix_socket` that is empty
   -- or holds NUL.
-  open: function(url: string, opts?: Options): Handle?, string
+  --
+  -- A request curl itself failed (not one refused up front, as above)
+  -- also returns a third value naming the failure: "couldnt_connect"
+  -- when it could not connect, "failed" for any other.
+  open: function(url: string, opts?: Options): Handle?, string, string?
 
   -- The trust store `open` verifies a server against when given no
   -- `ca_blob`, made the first time it is wanted, and "", or `nil, err`

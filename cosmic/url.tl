@@ -11,6 +11,8 @@
 ---   written back.
 --- - [`Url.parse`]: `scheme://[userinfo@]host[:port][/path][?query][#fragment]`
 ---   read into a [`Parts`].
+--- - [`Url.resolve`]: a reference resolved against a base, as a browser
+---   follows a link, or a package format a relationship's target.
 ---
 ---     local url = "https://example.com/files/" .. Url.escape("a b.txt")
 ---     local parts = assert(Url.parse(url))
@@ -422,6 +424,119 @@ local function read_host(parts: Url.Parts, text: string): boolean, string
   end
   parts.port = port
   return true, ""
+end
+
+--- A URI reference's five parts (RFC 3986, appendix B): each nil where
+--- the reference has none, the path "" where it is empty.
+local record Reference
+  scheme?: string
+  authority?: string
+  path: string
+  query?: string
+  fragment?: string
+end
+
+local function split_reference(text: string): Reference
+  local rest = text
+  local fragment: string? = nil
+  local hash = rest:find("#", 1, true)
+  if hash ~= nil then
+    fragment = rest:sub(hash + 1)
+    rest = rest:sub(1, hash - 1)
+  end
+  local query: string? = nil
+  local mark = rest:find("?", 1, true)
+  if mark ~= nil then
+    query = rest:sub(mark + 1)
+    rest = rest:sub(1, mark - 1)
+  end
+  local scheme = rest:match("^(%a[%w+.%-]*):")
+  if scheme ~= nil then rest = rest:sub(#scheme + 2) end
+  local authority: string? = nil
+  if rest:sub(1, 2) == "//" then
+    local slash = rest:find("/", 3, true)
+    if slash == nil then
+      authority = rest:sub(3)
+      rest = ""
+    else
+      authority = rest:sub(3, slash - 1)
+      rest = rest:sub(slash)
+    end
+  end
+  return { scheme = scheme, authority = authority, path = rest, query = query, fragment = fragment }
+end
+
+--- `path` with its `.` and `..` segments taken out (RFC 3986, 5.2.4):
+--- a `..` removes the segment before it, and never climbs past the root.
+local function remove_dot_segments(path: string): string
+  local input = path
+  local out: mut {string} = {}
+  while input ~= "" do
+    if input:sub(1, 3) == "../" then
+      input = input:sub(4)
+    elseif input:sub(1, 2) == "./" then
+      input = input:sub(3)
+    elseif input:sub(1, 3) == "/./" then
+      input = input:sub(3)
+    elseif input == "/." then
+      input = "/"
+    elseif input:sub(1, 4) == "/../" or input == "/.." then
+      input = "/" .. input:sub(5)
+      out[#out] = nil
+    elseif input == "." or input == ".." then
+      input = ""
+    else
+      local segment = input:match("^/?[^/]*") or ""
+      out[#out + 1] = segment
+      input = input:sub(#segment + 1)
+    end
+  end
+  return table.concat(out)
+end
+
+--- `ref` resolved against `base`, as RFC 3986 (section 5.2) says: a
+--- reference with a scheme stands alone; one with an authority (`//h`)
+--- keeps the base's scheme; an absolute path replaces the base's path;
+--- and a relative path replaces the base's last segment, its `.` and
+--- `..` segments then taken out. Neither need be an absolute URL: a base
+--- that is a path alone (`/xl/workbook.xml`) resolves paths, as a
+--- package format resolves a part's relationships. Such a base starts
+--- with `/`: one that does not resolves as the RFC says, so `..` past its
+--- first segment answers a path from the root (`/b.xml`), and a path
+--- whose first segment holds a `:` reads back as a scheme. Nothing is
+--- escaped or unescaped, and nothing is refused.
+---
+---     Url.resolve("https://a.example/b/c", "../d?x") -- https://a.example/d?x
+---     Url.resolve("/xl/workbook.xml", "worksheets/sheet1.xml") -- /xl/worksheets/sheet1.xml
+function Url.resolve(base: string, ref: string): string
+  local b = split_reference(base)
+  local r = split_reference(ref)
+  local scheme, authority, path, query: string?, string?, string, string? = nil, nil, "", nil
+  if r.scheme ~= nil then
+    scheme, authority, path, query = r.scheme, r.authority, remove_dot_segments(r.path), r.query
+  elseif r.authority ~= nil then
+    scheme, authority, path, query = b.scheme, r.authority, remove_dot_segments(r.path), r.query
+  elseif r.path == "" then
+    scheme, authority, path = b.scheme, b.authority, b.path
+    query = if r.query ~= nil then r.query else b.query end
+  elseif r.path:sub(1, 1) == "/" then
+    scheme, authority, path, query = b.scheme, b.authority, remove_dot_segments(r.path), r.query
+  else
+    local merged: string
+    if b.authority ~= nil and b.path == "" then
+      merged = "/" .. r.path
+    else
+      merged = (b.path:match("^(.*/)") or "") .. r.path
+    end
+    scheme, authority, path, query = b.scheme, b.authority, remove_dot_segments(merged), r.query
+  end
+  local out: mut {string} = {}
+  if scheme ~= nil then out[#out + 1] = scheme .. ":" end
+  if authority ~= nil then out[#out + 1] = "//" .. authority end
+  out[#out + 1] = path
+  if query ~= nil then out[#out + 1] = "?" .. query end
+  if r.fragment ~= nil then out[#out + 1] = "#" .. r.fragment end
+  return table.concat(out)
 end
 
 --- An absolute URL, `scheme://[userinfo@]host[:port][/path][?query][#fragment]`,

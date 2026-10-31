@@ -34,8 +34,7 @@ local record Printed
   commit: string
   sha256: string?
 end
-local PRINTED <const> = Shape.record({ tag = Shape.string, commit = Shape.string,
-  sha256 = Shape.optional(Shape.string) })
+local PRINTED <const>: Shape.Typed<Printed> = Shape.record_of("Printed")
 
 local binary <const> = "the cosmic binary's bytes"
 local digest <const> = Hash.hex_sha256(binary)
@@ -354,7 +353,7 @@ local function test_list_prints_the_matches_newest_first()
   assert(empty.out == "[]\n", empty.out)
   local json = run({ "--list", "--json", "-n", "1" }, newest_then())
   assert(json.code == 0, json.err)
-  local decoded, why: {Printed}?, string = Shape.decode_into(json.out, Shape.list(PRINTED))
+  local decoded, why = Shape.decode_into(json.out, Shape.list(PRINTED.spec))
   assert(decoded ~= nil, why)
   assert(#decoded == 1, json.out)
   local first = assert(decoded[1])
@@ -364,7 +363,7 @@ end
 local function test_json_prints_the_verified_release()
   local ran = run({ "--json" }, newest_then(sums(), source(newest)))
   assert(ran.code == 0, ran.err)
-  local decoded, why: Printed?, string = Shape.decode_into(ran.out, PRINTED)
+  local decoded, why = Shape.decode_into(ran.out, PRINTED.spec)
   assert(decoded ~= nil, why)
   assert(decoded.sha256 == digest and decoded.commit == newest, ran.out)
 end

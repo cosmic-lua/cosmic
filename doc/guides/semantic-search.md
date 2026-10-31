@@ -48,10 +48,7 @@ local record Reply
   data: {Item}
 end
 
-local REPLY <const> = Shape.record({
-  model = Shape.string,
-  data = Shape.list(Shape.record({ index = Shape.integer, embedding = Shape.string })),
-})
+local REPLY <const>: Shape.Typed<Reply> = Shape.record_of("Reply")
 
 local record Embedded
   --- One packed vector per input text, in input order.
@@ -80,7 +77,7 @@ local function embed_texts(texts: {string}, model: string, key: string): Embedde
   if decoded == nil then
     return nil, bad
   end
-  local parsed, mismatch: Reply?, string = Shape.into(decoded, REPLY)
+  local parsed, mismatch = Shape.into(decoded, REPLY.spec)
   if parsed == nil then
     return nil, "embeddings: " .. mismatch
   end

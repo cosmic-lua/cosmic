@@ -38,8 +38,9 @@ local type raw_http = require("cosmic.internal.http")
 local http = require("cosmic.internal.http")
 
 local Stream = require("cosmic.stream")
--- Only the type: cosmic.net is the networking stack a program that
--- only fetches over the network does not carry.
+-- Only the type here: the networking stack loads where a failure over a
+-- socket needs it, so a program that only fetches over the network does
+-- not load it.
 local type Net = require("cosmic.net")
 
 local record Http
@@ -928,6 +929,26 @@ local function sendable(url: string): string?, string
   return url:sub(1, rest - 1) .. escaped, ""
 end
 
+--- `trouble`, a failure of opening a request sent over `via`, as the
+--- socket's own: where curl could not connect (`code`, the raw module's
+--- name for the failure), its message names the URL's `host:port` (the
+--- origin, never connected to) and not why, so the path is connected to
+--- once more, as [`Net.connect`] does, for its reason. Any other failure,
+--- and a path that connects this time, keep `trouble`.
+local function socket_trouble(via: Net.Address, trouble: string, code: string?): string
+  if code ~= "couldnt_connect" then
+    return trouble
+  end
+  local Sockets = require("cosmic.net")
+  local conn, why = Sockets.connect(via)
+  if conn ~= nil then
+    local _, _ = conn:close()
+    return trouble
+  end
+  -- Its failure reads "path: reason" already.
+  return "cannot connect to unix socket " .. why
+end
+
 --- [`Http.open`]'s work, which each public entry point that opens
 --- calls itself (`CALLER`); `method`, when given, stands in for
 --- `opts.method`.
@@ -941,8 +962,11 @@ local function opened(url: string, opts: Http.Options?, method: string?): Http.R
   if raw == nil and unmade ~= "" then
     return nil, unmade
   end
-  local handle, trouble = http.open(url, raw)
+  local handle, trouble, code = http.open(url, raw)
   if handle == nil then
+    if opts ~= nil and opts.via ~= nil then
+      return nil, socket_trouble(opts.via, trouble, code)
+    end
     return nil, trouble
   end
   if opts ~= nil and opts.decompress == true then return decoded(respond(handle)) end

@@ -958,6 +958,13 @@ static void push_transfer_error (lua_State *L, struct transfer *t) {
   }
 }
 
+/* A short name for curl's `result`, for a caller that branches on the
+ * kind of failure rather than reading its message: the kinds callers
+ * need, and "failed" for every other. */
+static const char *transfer_code (CURLcode result) {
+  return result == CURLE_COULDNT_CONNECT ? "couldnt_connect" : "failed";
+}
+
 /* ---- teardown ------------------------------------------------------ */
 
 #ifdef COSMIC_CHECKED
@@ -1489,8 +1496,9 @@ static int http_open (lua_State *L) {
   if (t->done && t->result != CURLE_OK && !t->headed && t->body_len == 0) {
     lua_pushnil(L);
     push_transfer_error(L, t);
+    lua_pushstring(L, transfer_code(t->result));
     transfer_release(t);
-    return 2;
+    return 3;
   }
   lua_settop(L, 10);
   return cosmic_succeeded(L);

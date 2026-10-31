@@ -182,6 +182,8 @@ local function test_a_mount_of_a_handler_takes_every_method_and_path_below()
 end
 
 local function test_a_pattern_that_is_not_valid_raises_naming_it()
+  -- TODO: give these positional rows a record, as the case lists of cosmic/hash_test.tl have, once #3348 (Shape) merges:
+  -- it moves cosmic/web, which this change leaves alone.
   local cases: {{string}} = {
     { "items", "must start with '/'" }, { "/a//b", "empty segment" }, { "/a/id-:id", "mixes text" },
     { "/a/:id-x", "not a parameter name" }, { "/*rest/more", "last segment" }, { "/a/:x/:x", "named twice" },

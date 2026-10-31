@@ -88,7 +88,7 @@ function database_start_fixture.write_database(path: string, modules: {Module}, 
   end
   for _, module in ipairs(rows) do
     assert(Sqlite.run(db, "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, " ..
-        "tests, source) VALUES (?1, ?2, ?3, X'', X'', ?4, '', X'')",
+        "tests, source) VALUES (?1, ?2, ?3, X'', X'', deflate(?4), '', X'')",
       { text(module.name), text(module.name), text(module.kind), blob(bytecode[module.name]) }))
     for _, required in ipairs(module.requires) do
       assert(Sqlite.run(db, "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",

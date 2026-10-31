@@ -382,11 +382,13 @@ input to the build, never to the runtime. one database holds:
   kind (module, test, example, main), and the test or example names
   the compile step found. the Lua tl generated on the way stays in
   the working database: nothing that reads a shipped file loads it.
-  the source is stored raw-deflated, as a declaration's is: only an
-  uncaught error's line and [`Store.source`] (a checker typing another
-  tree, the self-rebuild reading the compiler) read it, and each
-  inflates it. `inflate(X)`, which every [`cosmic.sqlite`] handle knows,
-  reads it back in a query.
+  the source and the bytecode are stored raw-deflated, as a
+  declaration's source is. the core inflates the bytecode when its
+  searcher loads a module and in [`Store.bytecode`]; only an uncaught
+  error's line and [`Store.source`] (a checker typing another tree, the
+  self-rebuild reading the compiler) read the source, and each inflates
+  it. `inflate(X)`, which every [`cosmic.sqlite`] handle knows, reads
+  either back in a query.
 - **stubs**: the tool's alone, one per standard-library module: its
   source with every function body left out and every other token it
   keeps where it was (build.stub), raw-deflated. a module that
@@ -447,8 +449,12 @@ input to the build, never to the runtime. one database holds:
   doc guides need.
 - **payload**: for an embed-built executable, the files under the
   project's `static/` directory: `path` relative to it,
-  `data`, the lowercase hex `sha256`, the Content-Type `type`, and `gzip`,
-  the gzip of `data` when that is worth sending, else NULL.
+  `data`, the lowercase hex `sha256`, the Content-Type `type`, `gzip`,
+  the gzip of `data` when that is worth sending, else NULL, and `zstd`,
+  its zstd at level 19 under the same rule (a compressible type, over
+  1 KiB, at least 10% smaller), else NULL. [`cosmic.web.static`] chooses
+  among them by the request's Accept-Encoding. A program reads only its
+  own build's payload, so no reader tolerates a table without `zstd`.
 - **ca_roots**: Mozilla's CA bundle, one DER certificate a row,
   which [`core/http.c`] reads from the binary's own database alone.
 - **ca_revoked**: the certificates Mozilla's OneCRL revokes
@@ -1408,4 +1414,5 @@ in [roadmap.md](roadmap.md).
 [`cosmic.http.server`]: ../cosmic/http/server.tl
 [`cosmic.internal.globals`]: ../cosmic/internal/globals.d.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
+[`cosmic.web.static`]: ../cosmic/web/static.tl
 [`doc/guides/project.md`]: guides/project.md
