@@ -2,7 +2,8 @@
 --- through the central directory with positional reads rather than a
 --- sequential scan, plus a streaming writer. Store (method 0) and
 --- deflate (method 8, through [`cosmic.compress`]'s `inflater`/
---- `deflater`) are the only methods understood. Zip64 is read and
+--- `deflater`) and Zstandard (method 93, through its `zstd_decoder`/
+--- `zstd_encoder`) are the only methods understood. Zip64 is read and
 --- written wherever an archive needs it: on the end-of-central-
 --- directory record (more than 65535 entries, or a central directory
 --- at or past the 4 GiB mark) and in each entry's extra field (a size
@@ -48,7 +49,8 @@ local record Zip
     -- "a method this reader cannot open" (listing such an entry works
     -- today; only opening it fails), keeping the number beside it.
 
-    --- 0 for stored, 8 for deflated; nothing else is understood.
+    --- 0 for stored, 8 for deflated, 93 for Zstandard; nothing else is
+    --- understood.
     method: integer
     --- The CRC-32 the archive records for the uncompressed body.
     crc32: integer
@@ -77,7 +79,9 @@ local record Zip
   end
 
   --- How [`add_file`] stores an entry's bytes: "deflate" compresses them
-  --- (zip's method 8), "store" keeps them as they are (method 0).
+  --- (zip's method 8), "zstd" compresses them as Zstandard (method 93,
+  --- which needs a reader of APPNOTE 6.3.7 or later), "store" keeps them
+  --- as they are (method 0).
   type Method = Stream.EntryMethod
 
   --- What [`Writer`] may be told about an entry: [`Stream.EntryOptions`],
@@ -149,6 +153,13 @@ local FLAG_DESCRIPTOR <const> = 8
 --- A streamed entry of at least this many bytes (as `opts.size` says)
 --- is written as zip64 from its local header on.
 local STREAM_ZIP64_AT <const> = 1 << 31
+--- Zip's compression method number for Zstandard (APPNOTE 4.4.5).
+local ZSTD <const> = 93
+--- The "version needed to extract" of a Zstandard entry, 6.3 (APPNOTE
+--- 4.4.3) and of a zip64 one, 4.5; an entry needing both says the larger.
+local VERSION_ZSTD <const> = 63
+local VERSION_ZIP64 <const> = 45
+local VERSION_DEFAULT <const> = 20
 --- The longest symlink target read out of an entry body.
 local LINK_LIMIT <const> = 4096
 
@@ -416,6 +427,10 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
     local inflater, itrouble = Compress.inflater("raw")
     if inflater == nil then return nil, itrouble end
     body = Stream.transform(raw, inflater)
+  elseif method == ZSTD then
+    local decoder, dtrouble = Compress.zstd_decoder()
+    if decoder == nil then return nil, dtrouble end
+    body = Stream.transform(raw, decoder)
   else
     return refuse("unsupported compression method " .. tostring(method))
   end
@@ -778,13 +793,13 @@ end
 local function local_header(name: string, method: integer, dos_time: integer, dos_date: integer,
                             crc: integer, csize: integer, usize: integer, flags?: integer, wide?: boolean): string
   local extra = ""
-  local version = 20
+  local version = if method == ZSTD then VERSION_ZSTD else VERSION_DEFAULT end
   if wide == true or usize >= U32_MAX or csize >= U32_MAX then
     extra = zip64_extra({ usize, csize })
     -- Whenever the field is there, the fields it stands for are the
     -- sentinel (a streamed entry's, which announces zip64 before it
     -- knows either size, included).
-    usize, csize, version = U32_MAX, U32_MAX, 45
+    usize, csize, version = U32_MAX, U32_MAX, math.max(version, VERSION_ZIP64)
   end
   return LFH_SIG .. string.pack("<I2I2I2I2I2I4I4I4I2I2", version, flags or 0, method, dos_time,
     dos_date, crc, csize, usize, #name, #extra) .. name .. extra
@@ -811,10 +826,14 @@ local function central_header(name: string, method: integer, dos_time: integer, 
     local_offset = U32_MAX
   end
   local extra = zip64_extra(wide)
-  local version = if #wide > 0 then 45 else 20 end
+  local version = if method == ZSTD then VERSION_ZSTD else VERSION_DEFAULT end
+  if #wide > 0 then version = math.max(version, VERSION_ZIP64) end
   return CDFH_SIG .. string.pack(CDFH_FIELDS, UNIX_MADE_BY, version, flags or 0, method, dos_time,
     dos_date, crc, csize, usize, #name, #extra, 0, 0, 0, ext_attrs, local_offset) .. name .. extra
 end
+
+--- The zip method number of each [`Zip.Method`] name.
+local METHOD_NUMBERS: {string:integer} = { store = 0, deflate = 8, zstd = ZSTD }
 
 --- What an entry's body came to, which its central directory record
 --- carries.
@@ -850,8 +869,8 @@ local class FeedWriter is Stream.Writer
   put: function(string): boolean, string
   fail: function(string): boolean, string
   done: Written
-  --- The body's deflater, or nil for a stored one.
-  deflater?: Compress.Stream
+  --- The body's deflater or zstd encoder, or nil for a stored one.
+  encoder?: Compress.Stream
   --- Whether the entry is written as zip64, so that its sizes may pass 4 GiB.
   wide: boolean
   too_big: string
@@ -861,9 +880,9 @@ local class FeedWriter is Stream.Writer
     done.usize = done.usize + #chunk
     if not self.wide and done.usize >= U32_MAX then return self.fail(self.too_big) end
     done.crc = sums.crc32(chunk, done.crc)
-    local deflater = self.deflater
-    if deflater == nil then return emit(self, chunk) end
-    local out, etrouble = deflater:update(chunk)
+    local encoder = self.encoder
+    if encoder == nil then return emit(self, chunk) end
+    local out, etrouble = encoder:update(chunk)
     if out == nil then return self.fail(etrouble) end
     return emit(self, out)
   end
@@ -895,6 +914,12 @@ local function write_whole(self: EntryWriter, path: string, data: string, method
     local packed, dtrouble = Compress.deflate("raw", data)
     if packed == nil then return false, dtrouble end
     payload = packed
+  elseif method == ZSTD then
+    local encoder, etrouble = Compress.zstd_encoder()
+    if encoder == nil then return false, etrouble end
+    local packed, ptrouble = Stream.run(encoder, data)
+    if packed == nil then return false, ptrouble end
+    payload = packed
   end
   done.csize = #payload
   local ok, trouble = put(self, local_header(path, method, dos_time, dos_date, done.crc, done.csize,
@@ -908,11 +933,15 @@ end
 --- the size `opts.size` promised, if any. Fills `done`.
 local function write_streamed(self: EntryWriter, path: string, body: Stream.Reader, method: integer,
                               dos_time: integer, dos_date: integer, hint: integer?, done: Written): boolean, string
-  local deflater: Compress.Stream?
+  local encoder: Compress.Stream?
   if method == 8 then
     local made, dtrouble = Compress.deflater("raw")
     if made == nil then return false, dtrouble end
-    deflater = made
+    encoder = made
+  elseif method == ZSTD then
+    local made, etrouble = Compress.zstd_encoder()
+    if made == nil then return false, etrouble end
+    encoder = made
   end
   local sink = self.sink
   local wide = hint ~= nil and hint >= STREAM_ZIP64_AT
@@ -922,7 +951,7 @@ local function write_streamed(self: EntryWriter, path: string, body: Stream.Read
   local feed: FeedWriter = {
     put = function(data: string): boolean, string return put(self, data) end,
     fail = function(why: string): boolean, string return self.sink:fail(why) end,
-    done = done, deflater = deflater, wide = wide,
+    done = done, encoder = encoder, wide = wide,
     too_big = "zip: " .. path .. ": a streamed entry of 4 GiB or more needs opts.size",
   }
   local copied, ctrouble = Stream.copy(body, feed)
@@ -932,8 +961,8 @@ local function write_streamed(self: EntryWriter, path: string, body: Stream.Read
     if not usable then return false, failure end
     return sink:fail("zip: add_file: " .. ctrouble)
   end
-  if deflater ~= nil then
-    local tail, ftrouble = deflater:finish()
+  if encoder ~= nil then
+    local tail, ftrouble = encoder:finish()
     if tail == nil then return sink:fail(ftrouble) end
     ok, trouble = emit(feed, tail)
     if not ok then return false, trouble end
@@ -959,10 +988,8 @@ local function put_entry(self: EntryWriter, path: string, body: string | Stream.
   local refusal = nul_refusal(path, "in a path")
   if refusal ~= "" then return false, refusal end
   if #path > PATH_LIMIT then return false, "zip: path longer than 65535 bytes" end
-  if method_name ~= "store" and method_name ~= "deflate" then
-    return false, "zip: unknown method '" .. method_name .. "'"
-  end
-  local method = if method_name == "deflate" then 8 else 0 end
+  local method = METHOD_NUMBERS[method_name]
+  if method == nil then return false, "zip: unknown method '" .. method_name .. "'" end
   local dos_date, dos_time = 0x21, 0
   if not self.deterministic then dos_date, dos_time = unix_to_dos(mtime) end
   local local_offset = self.offset

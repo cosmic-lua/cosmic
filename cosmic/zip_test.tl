@@ -5,6 +5,7 @@
 --- external program.
 
 local Codec = require("cosmic.codec")
+local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
@@ -71,8 +72,8 @@ end
 --- (a cast, or plain Lua); the writer refuses it rather than guessing.
 local function test_an_unknown_method_is_refused()
   local w = Zip.writer(Stream.collect(), { deterministic = true })
-  local ok, trouble = w:add_file("f", "x", { method = "zstd" as Zip.Method })
-  assert(not ok and trouble == "zip: unknown method 'zstd'", trouble)
+  local ok, trouble = w:add_file("f", "x", { method = "lzma" as Zip.Method })
+  assert(not ok and trouble == "zip: unknown method 'lzma'", trouble)
 end
 
 local function test_mode_bits_round_trip_through_external_attributes()
@@ -843,4 +844,158 @@ local function test_the_recorded_crc32_matches_the_known_value_and_continues()
   assert(recorded_crc("cosmic!", 3) == crc32_reference("cosmic!cosmic!cosmic!"))
   assert(crc32_reference("hello, cosmic!") == 3327618652)
   assert(crc32_reference(long) == 3150855069)
+end
+
+------------------------------------------------------------------
+-- zstd (method 93)
+------------------------------------------------------------------
+
+--- `data` as the one zstd frame cosmic.compress writes.
+local function zstd_frame(data: string): string
+  local encoder = assert(Compress.zstd_encoder())
+  local frame = assert(Stream.run(encoder, data))
+  return frame
+end
+
+--- A one-entry zip laid out by hand from the APPNOTE: a local header
+--- and a central directory record for "f", method 93, version needed 63,
+--- recording `crc`, `usize` and the length of `payload`, which is the
+--- body as stored. No tool but this file's own made the bytes: the
+--- sandbox has no zstd-capable zip tool (python's zipfile has none before
+--- 3.14), so the frame comes from [`cosmic.compress.zstd_encoder`] and
+--- the layout from the specification.
+local function zstd_zip_by_hand(payload: string, crc: integer, usize: integer): string
+  local name = "f"
+  local lfh = "PK\3\4" .. le16(63) .. le16(0) .. le16(93) .. le16(0) .. le16(0x21) ..
+    le32(crc) .. le32(#payload) .. le32(usize) .. le16(#name) .. le16(0) .. name
+  local body = lfh .. payload
+  local cd = "PK\1\2" .. le16(63) .. le16(63) .. le16(0) .. le16(93) .. le16(0) .. le16(0x21) ..
+    le32(crc) .. le32(#payload) .. le32(usize) .. le16(#name) .. le16(0) .. le16(0) .. le16(0) ..
+    le16(0) .. le32(0x81A4 << 16) .. le32(0) .. name
+  return body .. cd .. "PK\5\6" .. le16(0) .. le16(0) .. le16(1) .. le16(1) .. le32(#cd) ..
+    le32(#body) .. le16(0)
+end
+
+--- What reading entry "f" of `raw` to its end answers.
+local function read_f(raw: string): string?, string
+  local r = assert(Zip.open_string(raw))
+  local body = assert(by_path(entries_of(r), "f"):open())
+  return Stream.read_all(body)
+end
+
+local function test_a_zstd_entry_round_trips_whole_and_streamed()
+  local text = string.rep("zstd inside a zip, ", 4000)
+  local c = Stream.collect()
+  local w = Zip.writer(c, { deterministic = true })
+  assert(w:add_file("whole", text, { method = "zstd" }))
+  assert(w:add_file("streamed", Stream.from_string(text), { method = "zstd" }))
+  assert(w:add_file("sized", Stream.from_string(text), { method = "zstd", size = #text }))
+  assert(w:add_file("empty", "", { method = "zstd" }))
+  assert(w:close())
+  local raw = c:result()
+  local r = assert(Zip.open_string(raw))
+  local entries = assert(r:entries())
+  assert(#entries == 4)
+  for _, name in ipairs({ "whole", "streamed", "sized" }) do
+    local e = by_path(entries, name)
+    assert(e.method == 93, name)
+    assert(e.size == #text and e.crc32 == crc32_reference(text), name)
+    assert(e.compressed_size < #text // 10, name)
+    assert(Stream.read_all((assert(e:open()))) == text, name)
+  end
+  assert(Stream.read_all((assert(by_path(entries, "empty"):open()))) == "")
+  assert(by_path(entries, "empty").method == 93)
+end
+
+local function test_a_zstd_entry_asks_for_version_6_3_to_extract()
+  local c = Stream.collect()
+  local w = Zip.writer(c)
+  assert(w:add_file("whole", "x", { method = "zstd" }))
+  assert(w:add_file("streamed", Stream.from_string("x"), { method = "zstd" }))
+  assert(w:add_file("plain", "x", { method = "deflate" }))
+  assert(w:close())
+  local raw = c:result()
+  local lfhs: mut {integer} = {}
+  local cds: mut {integer} = {}
+  local from = 1
+  while true do
+    local at = raw:find("PK\3\4", from, true)
+    if at == nil then break end
+    lfhs[#lfhs + 1] = string.unpack("<I2", raw, at + 4)
+    from = at + 4
+  end
+  from = 1
+  while true do
+    local at = raw:find("PK\1\2", from, true)
+    if at == nil then break end
+    cds[#cds + 1] = string.unpack("<I2", raw, at + 6)
+    from = at + 4
+  end
+  assert(table.concat(lfhs, ",") == "63,63,20", table.concat(lfhs, ","))
+  assert(table.concat(cds, ",") == "63,63,20", table.concat(cds, ","))
+end
+
+local function test_a_zstd_entry_written_by_hand_reads_back()
+  local text = string.rep("by hand ", 500)
+  local raw = zstd_zip_by_hand(zstd_frame(text), crc32_reference(text), #text)
+  local r = assert(Zip.open_string(raw))
+  local e = by_path(entries_of(r), "f")
+  assert(e.method == 93 and e.size == #text)
+  assert(read_f(raw) == text)
+end
+
+local function test_a_zstd_entry_with_a_wrong_crc32_is_refused()
+  local text = string.rep("checked ", 100)
+  local raw = zstd_zip_by_hand(zstd_frame(text), crc32_reference(text) ~ 1, #text)
+  local data, trouble = read_f(raw)
+  assert(data == nil and trouble:find("crc32 mismatch", 1, true) ~= nil, trouble)
+end
+
+local function test_a_zstd_entry_larger_than_its_recorded_size_fails()
+  local text = string.rep("bounded ", 1000)
+  local raw = zstd_zip_by_hand(zstd_frame(text), crc32_reference(text), 100)
+  local data, trouble = read_f(raw)
+  assert(data == nil and trouble:find("larger than its recorded size of 100 bytes", 1, true) ~= nil,
+    trouble)
+end
+
+local function test_a_zstd_entry_smaller_than_its_recorded_size_fails()
+  local text = string.rep("short ", 100)
+  local raw = zstd_zip_by_hand(zstd_frame(text), crc32_reference(text), #text + 5)
+  local data, trouble = read_f(raw)
+  assert(data == nil and trouble:find("size mismatch", 1, true) ~= nil, trouble)
+end
+
+local function test_a_truncated_zstd_entry_is_refused()
+  local text = string.rep("truncated ", 500)
+  local frame = zstd_frame(text)
+  for _, keep in ipairs({ #frame - 1, #frame - 4, #frame // 2, 3 }) do
+    local raw = zstd_zip_by_hand(frame:sub(1, keep), crc32_reference(text), #text)
+    local data, trouble = read_f(raw)
+    assert(data == nil and trouble ~= "", "kept " .. tostring(keep))
+  end
+end
+
+local function test_a_corrupt_zstd_entry_is_refused()
+  local text = string.rep("corrupt ", 500)
+  local frame = zstd_frame(text)
+  -- A flipped byte in the middle of the frame, and one in its content
+  -- checksum at the end: either fails the read, as the decoder or the
+  -- entry's own CRC32 finds it.
+  for _, at in ipairs({ #frame // 2, #frame }) do
+    local bad = frame:sub(1, at - 1) .. string.char(string.unpack("B", frame, at) ~ 0xFF) .. frame:sub(at + 1)
+    local data, trouble = read_f(zstd_zip_by_hand(bad, crc32_reference(text), #text))
+    assert(data == nil and trouble ~= "", "flipped " .. tostring(at))
+  end
+end
+
+local function test_a_second_zstd_frame_in_an_entry_counts_against_its_size()
+  local text = string.rep("trailing ", 100)
+  local frame = zstd_frame(text)
+  -- Bytes that are no frame are left unread, as after a deflate stream:
+  -- the entry's CRC32 and size vouch for what was decoded. A second
+  -- frame decodes, so its bytes run past the recorded size.
+  assert(read_f(zstd_zip_by_hand(frame .. "junk after the frame", crc32_reference(text), #text)) == text)
+  local data, trouble = read_f(zstd_zip_by_hand(frame .. zstd_frame("more"), crc32_reference(text), #text))
+  assert(data == nil and trouble:find("larger than its recorded size", 1, true) ~= nil, trouble)
 end

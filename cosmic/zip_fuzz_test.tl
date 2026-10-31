@@ -30,14 +30,14 @@ local function gen_path(src: Fuzz.Source): string
 end
 
 --- Entries as [`Fuzz.pack`] fields: a kind ("file" or "dir"), a path, a
---- method, and a body, repeated.
+--- method (store, deflate or zstd), and a body, repeated.
 local function gen_entries(src: Fuzz.Source): {string}
   local fields: mut {string} = {}
   while Fuzz.more(src, #fields // 4, 4) do
     local kind = Fuzz.pick(src, { "file", "file", "dir" })
     fields[#fields + 1] = kind
     fields[#fields + 1] = gen_path(src)
-    fields[#fields + 1] = Fuzz.pick(src, { "store", "deflate" })
+    fields[#fields + 1] = Fuzz.pick(src, { "store", "deflate", "zstd" })
     local body = ""
     if kind == "file" then
       -- Repetitive bodies give deflate back-references to mutate.
@@ -56,8 +56,10 @@ local function write(fields: {string}): string?
     local kind, path, name, body = fields[i], fields[i + 1], fields[i + 2], fields[i + 3]
     -- A shrunk input may name no method at all, which the writer
     -- would refuse.
-    if kind == "file" and name ~= "store" and name ~= "deflate" then return nil end
-    local method: Zip.Method = if name == "store" then "store" else "deflate" end
+    if kind == "file" and name ~= "store" and name ~= "deflate" and name ~= "zstd" then
+      return nil
+    end
+    local method: Zip.Method = if name == "store" then "store" elseif name == "zstd" then "zstd" else "deflate" end
     local ok: boolean
     if kind == "file" then
       -- Half the bodies go in streamed, with a data descriptor: the
@@ -186,7 +188,7 @@ local UNIX_MADE_BY <const> = (3 << 8) | 20
 local ATTRS <const> = { 0x81A4 << 16, 0x41ED << 16, 0xA1FF << 16, 0 }
 
 --- An archive laid out record by record, every count, offset, size and
---- length consistent with the bytes around it -- entries of either
+--- length consistent with the bytes around it -- entries of any
 --- method (or one no reader knows) and kind, zip64 extra fields and end
 --- records, bytes before it and a comment after it that may hold a
 --- forged end record -- then up to a few of its fields made hostile.
@@ -214,9 +216,13 @@ local function gen_laid_out(src: Fuzz.Source): string
     if attrs == ATTRS[2] and src:int(0, 1) == 1 then name = name .. "/" end
     local data = attrs == ATTRS[3] and gen_path(src) or
       string.rep(Fuzz.bytes(src, 8), src:int(0, 20))
-    local method = Fuzz.pick(src, { 0, 8, 8, 12 })
+    local method = Fuzz.pick(src, { 0, 8, 8, 93, 12 })
     local body = data
-    if method == 8 then body = Compress.deflate("raw", data) end
+    if method == 8 then
+      body = Compress.deflate("raw", data)
+    elseif method == 93 then
+      body = assert(Stream.run(assert(Compress.zstd_encoder()), data))
+    end
     local crc = crc32_reference(data)
     local lfh: Rec = {
       fields = LFH_FIELDS,

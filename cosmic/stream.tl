@@ -277,11 +277,12 @@ local record Stream
   end
 
   --- How an archive stores an entry's bytes where it has the choice:
-  --- "deflate" compresses them (zip's method 8), "store" keeps them as
-  --- they are (method 0).
+  --- "deflate" compresses them (zip's method 8), "zstd" compresses them
+  --- as Zstandard (method 93), "store" keeps them as they are (method 0).
   enum EntryMethod
     "deflate"
     "store"
+    "zstd"
   end
 
   --- What [`ArchiveWriter`] may be told about an entry. Every field is
@@ -308,7 +309,7 @@ local record Stream
     --- long, or the write fails. One that is no integer, or is negative,
     --- raises, whatever the body.
     size?: integer
-    --- "deflate" (the default) or "store". Only a zip's [`add_file`] reads
+    --- "deflate" (the default), "store" or "zstd". Only a zip's [`add_file`] reads
     --- it: a directory and a symlink are stored, and a tar has no method.
     method?: EntryMethod
   end

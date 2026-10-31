@@ -55,6 +55,26 @@ local function test_open_detects_a_plain_tar_by_its_ustar_magic(tmp: string)
   assert(by["adir/link"].kind == "symlink" and by["adir/link"].linkpath == "short.txt")
 end
 
+local function test_a_zstd_zip_lists_and_extracts_through_archive(tmp: string)
+  local path = tmp .. "/z.zip"
+  local text = string.rep("zstd in a zip ", 1000)
+  local zw = Zip.writer((assert(Stream.create(path))))
+  assert(zw:add_dir("adir"))
+  assert(zw:add_file("adir/z.txt", text, { method = "zstd" }))
+  assert(zw:add_file("adir/s.txt", Stream.from_string(text), { method = "zstd" }))
+  assert(zw:close())
+  local entries = assert(Archive.list(path))
+  local by: mut {string:Archive.Entry} = {}
+  for _, e in ipairs(entries) do by[e.path] = e end
+  assert(assert(by["adir/z.txt"]).size == #text and assert(by["adir/s.txt"]).size == #text)
+  local dest = tmp .. "/out"
+  assert(Archive.extract(path, dest))
+  assert(Fs.read(dest .. "/adir/z.txt") == text)
+  assert(Fs.read(dest .. "/adir/s.txt") == text)
+  local written, why = Archive.extract(path, tmp .. "/small", { max_entry_bytes = 4096 })
+  assert(written == nil and why:find("max_entry_bytes (4096 bytes)", 1, true) ~= nil, why)
+end
+
 local function test_open_detects_a_zip_by_its_local_header_signature(tmp: string)
   local path = tmp .. "/a.zip"
   make_zip(path)
