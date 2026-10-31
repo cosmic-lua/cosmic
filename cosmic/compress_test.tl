@@ -992,3 +992,128 @@ local function test_zstd_encoder_throws_after_finish()
   assert(not finished)
   assert(enc:pending() == false)
 end
+
+-- Everything `enc` writes for `data` cut into pieces of `size` bytes.
+local function drive_bz2(enc: Compress.Stream, data: string, size?: integer): string
+  local packed, trouble = drive(enc, data, size)
+  assert(trouble == "", trouble)
+  return packed
+end
+
+-- `bzip2 -c -1` and `bzip2 -c -9` of 40000 lines of "abcdefg", written
+-- once by the command itself (bzip2 1.0.8) and embedded: -1 cuts three
+-- full blocks of 100 kB and a fourth partial one, -9 one.
+local abcdefg_bz2_1 = assert(Codec.unhex(
+  "425a6831314159265359278494e30030d1410000103f8020007043020295007a1282c42505dd22505b44a0b889417512" ..
+    "82dc2505e84a0be6282b24ca6b2d2390eea0124e9820000207f004000e08604052a00f22505844a0b289416a1282dc25" ..
+    "05c84a0b3d84a0bc89417cc50564994d678a9569e40124e704000040fe008001c10c080a5401e84a0b10941661282cea" ..
+    "1282da2505c44a0ba8941791282f98a0ac9329aca70c9939000272e08000081fc0100028430204d5401e250ac5142b24" ..
+    "a15a250ad928570942ba4a15e250af8bb9229c284809829e2680"))
+local abcdefg_bz2_9 = assert(Codec.unhex(
+  "425a6839314159265359ea5990b9009c3fc10000103f8020007043020295007808546008546408546808546c08547008" ..
+    "547408547808547c5dc914e14243a96642e4"))
+
+local function test_bz2_encoder_writes_what_the_bzip2_command_writes()
+  assert(drive_bz2(assert(Compress.bz2_encoder()), "hello, cosmic!") == hello_bz2)
+  local plain = string.rep("abcdefg\n", 40000)
+  assert(drive_bz2(assert(Compress.bz2_encoder(1)), plain) == abcdefg_bz2_1)
+  assert(drive_bz2(assert(Compress.bz2_encoder(9)), plain) == abcdefg_bz2_9)
+  -- However the input is cut, the bytes are the same.
+  assert(drive_bz2(assert(Compress.bz2_encoder(1)), plain, 777) == abcdefg_bz2_1)
+  -- Only the block size in the header differs for a small input.
+  local five = drive_bz2(assert(Compress.bz2_encoder(5)), "hello, cosmic!")
+  assert(five == hello_bz2:sub(1, 3) .. "5" .. hello_bz2:sub(5), Codec.hex(five))
+end
+
+local function test_bz2_round_trips_at_every_level_and_chunking()
+  local noise: mut {string} = {}
+  for i = 1, 4096 do noise[i] = string.char((i * 2654435761 >> 13) % 256) end
+  -- Over 100 kB, so level 1 cuts it into blocks.
+  local plain = string.rep("the quick brown fox jumps over the lazy dog. ", 3000) .. table.concat(noise)
+  local levels: {integer} = { 1, 2, 5, 9 }
+  local sizes: {integer} = { 1000, 70000, #plain }
+  for _, level in ipairs(levels) do
+    for _, size in ipairs(sizes) do
+      local packed = drive_bz2(assert(Compress.bz2_encoder(level)), plain, size)
+      assert(#packed < #plain, tostring(level) .. ": " .. tostring(#packed))
+      local out, trouble = drive(assert(Compress.bz2_decoder()), packed, size)
+      assert(trouble == "", trouble)
+      assert(out == plain, tostring(level) .. "/" .. tostring(size) .. ": " .. tostring(#out))
+    end
+  end
+  -- A byte at a time.
+  local short = plain:sub(1, 3000)
+  local packed = drive_bz2(assert(Compress.bz2_encoder(3)), short, 1)
+  local out, trouble = drive(assert(Compress.bz2_decoder()), packed, 1)
+  assert(trouble == "" and out == short, trouble)
+end
+
+local function test_bz2_encoder_of_nothing_is_an_empty_stream()
+  -- `bzip2 -c < /dev/null`: the header, the end-of-stream magic, a zero CRC.
+  local empty = drive_bz2(assert(Compress.bz2_encoder()), "")
+  assert(empty == assert(Codec.unhex("425a683917724538509000000000")), Codec.hex(empty))
+  local out, trouble = drive(assert(Compress.bz2_decoder()), empty)
+  assert(out == "" and trouble == "", trouble)
+end
+
+local function test_bz2_encoder_update_of_nothing_is_not_a_failure()
+  -- bzlib answers BZ_PARAM_ERROR to a BZ_RUN call that takes and emits
+  -- nothing; an empty update must not surface it.
+  local fresh = assert(Compress.bz2_encoder(1))
+  assert(fresh:update("") == "")
+  -- Only empty updates, then finish: the 14 bytes of an empty stream.
+  assert(fresh:update("") == "")
+  local empty = assert(fresh:finish())
+  assert(empty == assert(Codec.unhex("425a683117724538509000000000")), Codec.hex(empty))
+  -- Between chunks, the stream is the one without the empty updates.
+  local enc = assert(Compress.bz2_encoder(1))
+  local parts: mut {string} = {}
+  for _, piece in ipairs({ "hello, ", "", "cosmic", "", "", "!" }) do
+    parts[#parts + 1] = assert(enc:update(piece), piece)
+  end
+  parts[#parts + 1] = assert(enc:finish())
+  local packed = table.concat(parts)
+  assert(packed == drive_bz2(assert(Compress.bz2_encoder(1)), "hello, cosmic!"), Codec.hex(packed))
+  local out, trouble = drive(assert(Compress.bz2_decoder()), packed)
+  assert(out == "hello, cosmic!" and trouble == "", trouble)
+end
+
+local function test_bz2_encoder_update_whose_output_fills_the_slice_exactly()
+  -- Found by search: at level 1 this input's first update emits exactly
+  -- 65536 bytes, one whole output slice, with all its input taken. The
+  -- call after that has nothing to do, which bzlib reports as an error.
+  local noise: mut {string} = {}
+  local x = 1
+  for i = 1, 64778 do
+    x = (x * 1103515245 + 12345) % 2147483648
+    noise[i] = string.char((x >> 16) % 256)
+  end
+  local plain = table.concat(noise) .. string.rep("abcdefg\n", 25000)
+  local enc = assert(Compress.bz2_encoder(1))
+  local first, why = enc:update(plain)
+  assert(first, why)
+  assert(#first == 65536, "the input no longer fills a slice: " .. tostring(#first))
+  local packed = first .. assert(enc:finish())
+  local out, trouble = drive(assert(Compress.bz2_decoder()), packed)
+  assert(trouble == "" and out == plain, trouble)
+end
+
+local function test_bz2_encoder_level_out_of_range_raises()
+  local low_block, _ = pcall(Compress.bz2_encoder, 0)
+  assert(not low_block)
+  local high_block, _ = pcall(Compress.bz2_encoder, 10)
+  assert(not high_block)
+  assert((Compress.bz2_encoder(1)))
+  assert((Compress.bz2_encoder(9)))
+end
+
+local function test_bz2_encoder_throws_after_finish()
+  local enc = assert(Compress.bz2_encoder())
+  assert(enc:update("x"))
+  assert(enc:finish())
+  local updated, _ = pcall(enc.update, enc, "y")
+  assert(not updated)
+  local finished, _ = pcall(enc.finish, enc)
+  assert(not finished)
+  assert(enc:pending() == false)
+end

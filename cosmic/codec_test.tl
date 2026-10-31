@@ -68,40 +68,45 @@ local function test_base64url_is_unpadded_and_url_safe()
   assert(Codec.unbase64url("-_8") == "\xfb\xff")
 end
 
+local record Refusal
+  text: string
+  says: string
+end
+
 local function test_unbase64_refuses_malformed_text()
-  local cases: {{string}} = {
-    { "Zg=", "not a multiple of 4" },
-    { "Zm9", "not a multiple of 4" },
-    { "Zm9v\n", "not a multiple of 4" },
-    { "Zm 9", "0x20 at 3" },
-    { "Zm9-", "0x2d at 4" },
-    { "Zm9_", "0x5f at 4" },
-    { "Z===", "misplaced '=' padding at 2" },
-    { "====", "misplaced '=' padding at 1" },
-    { "Zg==Zm9v", "misplaced '=' padding at 3" },
-    { "Z=g=", "misplaced '=' padding at 2" },
-    { "Zh==", "nonzero padding bits" },
-    { "Zm9=", "nonzero padding bits" },
+  local cases: {Refusal} = {
+    { text = "Zg=", says = "not a multiple of 4" },
+    { text = "Zm9", says = "not a multiple of 4" },
+    { text = "Zm9v\n", says = "not a multiple of 4" },
+    { text = "Zm 9", says = "0x20 at 3" },
+    { text = "Zm9-", says = "0x2d at 4" },
+    { text = "Zm9_", says = "0x5f at 4" },
+    { text = "Z===", says = "misplaced '=' padding at 2" },
+    { text = "====", says = "misplaced '=' padding at 1" },
+    { text = "Zg==Zm9v", says = "misplaced '=' padding at 3" },
+    { text = "Z=g=", says = "misplaced '=' padding at 2" },
+    { text = "Zh==", says = "nonzero padding bits" },
+    { text = "Zm9=", says = "nonzero padding bits" },
   }
   for _, c in ipairs(cases) do
-    local out, why = Codec.unbase64(c[1])
-    assert(out == nil, c[1])
-    assert(why:find(c[2], 1, true), c[1] .. ": " .. why)
+    local out, why = Codec.unbase64(c.text)
+    assert(out == nil, c.text)
+    assert(why:find(c.says, 1, true), c.text .. ": " .. why)
   end
 end
 
 local function test_unbase64url_refuses_padding_and_the_standard_alphabet()
-  local cases: {{string}} = {
-    { "Zg==", "misplaced '=' padding at 3" },
-    { "Z", "one character over" },
-    { "Zm9vY", "one character over" },
-    { "+/8", "0x2b at 1" },
-    { "Zh", "nonzero padding bits" },
+  local cases: {Refusal} = {
+    { text = "Zg==", says = "misplaced '=' padding at 3" },
+    { text = "Z", says = "one character over" },
+    { text = "Zm9vY", says = "one character over" },
+    { text = "+/8", says = "0x2b at 1" },
+    { text = "Zh", says = "nonzero padding bits" },
   }
   for _, c in ipairs(cases) do
-    local out, why = Codec.unbase64url(c[1])
-    assert(out == nil, c[1])
-    assert(why:find(c[2], 1, true), c[1] .. ": " .. why)
+    local out, why = Codec.unbase64url(c.text)
+    assert(out == nil, c.text)
+    assert(why:find(c.says, 1, true), c.text .. ": " .. why)
   end
 end
 

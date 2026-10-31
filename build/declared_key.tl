@@ -1390,9 +1390,9 @@ end
 -- TODO: key what a developer's Mac has installed beyond the sealed
 -- system volume (Xcode's or its command line tools' version, a walk of
 -- /opt/homebrew and /usr/local's bin) for a module that declares
--- `system`: since every unsandboxed run stands on declared keys (plan
--- 4.2's PR 3), a `system` test there stands across an upgrade of any
--- of them until a forced run, where an observed key once ran it.
+-- `system`: since every unsandboxed run stands on declared keys, a
+-- `system` test there stands across an upgrade of any of them until a
+-- forced run, where an observed key once ran it.
 -- TODO: key the clock: a test whose verdict turns on the date stands on
 -- one reached another day, which only a forced run (CI's scheduled one)
 -- catches.

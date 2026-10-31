@@ -1,5 +1,4 @@
---- The lowering of the new checker's declarations and annotations
---- ([`doc/plans/new-checker-types.md`], "declarations" and "the order the pieces land in"):
+--- The lowering of the new checker's declarations and annotations:
 --- every type declaration of a module (record, class, interface, enum, userdata and alias) and every
 --- type written in it (`local x: T`, a parameter, a return, an `is` test, a field) becomes a type of a
 --- [`lang.types`] store, once [`lang.scopes`] has resolved the names.
@@ -162,7 +161,7 @@ local record Declarations
   --- The rule behind a code, which `cosmic docs <code>` and the error read alike.
   record Row
     code: Code
-    --- The rule, named as the plan names it.
+    --- The rule, named as the language names it.
     rule: string
     --- Why the language holds it.
     why: string
@@ -497,7 +496,7 @@ Declarations.catalog = {
   {
     code = "optional_generic", rule = "an optional field is a plain value",
     why = "the fork refused a field that may be nil and holds a generic function, and the owner's decision keeps it " ..
-      "refused (doc/plans/strict-teal.md, \"an optional field is a plain value\"): the checker narrows and calls a " ..
+      "refused: the checker narrows and calls a " ..
       "local or a parameter of such a type, so this is a choice and no hole, and it holds for a type parameter that an " ..
       "instance fills with a generic function as well",
     fix = "make <field> a field the literal always gives, or write the function type with its type arguments fixed",
@@ -1844,7 +1843,7 @@ end
 
 --- The method `m` of a class: its function type, the class its first parameter.
 --
--- TODO: refuse `any` outside a parameter in an annotation ("what `any` may do" in doc/plans/new-checker-types.md),
+-- TODO: refuse `any` outside a parameter in an annotation,
 -- once the checker for expressions lands: it is checked with the types the bodies are checked with.
 local function lower_method(ctx: Ctx, build: Build, m: Ast.Method)
   local store = ctx.store
@@ -1914,9 +1913,10 @@ local function lower_field(ctx: Ctx, build: Build, m: Ast.FieldDecl)
   local ft = lower_type(ctx, m.type)
   -- A field that may be nil is a plain value of one type: `name?: T`, or a type that has `nil` in it.
   --
-  -- TODO: take an optional generic function field, if the owner lifts the decision (doc/plans/strict-teal.md, "an
-  -- optional field is a plain value"): the checker narrows and calls a generic function held in a local or a
-  -- parameter, so the rule exists and the refusal is a choice.
+  -- TODO: take an optional generic function field, once the owner lifts the
+  -- rule that an optional field is a plain value: the checker narrows and
+  -- calls a generic function held in a local or a parameter, so the
+  -- refusal is a choice.
   if m.omittable or nilable(ft) then
     -- A class refuses every such name already (`class_metamethod`), and one mistake is one error.
     if build.decl.kind ~= "class" and metamethod_name(m.name.name) then
@@ -3064,7 +3064,7 @@ function Declarations.close_is_callable(made: Type): boolean
 end
 
 --- The fields `decl`, an interface, has from the interfaces it lists and the ones they list, those it leaves out
---- (doc/plans/new-checker-types.md, "interface agreement"): each from the first interface of its closure that declares
+--- (interface agreement): each from the first interface of its closure that declares
 --- it, with that interface's arguments put in and the receiver of a function field replaced by `decl`. Where those
 --- interfaces declare a field differently `interface_disagrees` says so at the declaration, and the first is the one
 --- given. Nothing for another kind: a record or class must declare every field it lists.
