@@ -91,7 +91,9 @@ holds, and what does not:
 
 What is not covered. A process running on the release can run its own binary
 (`Proc.executable()`, `Proc.relaunch()`), so no wrapper or entry point can stop
-it. The users of the binary's own path are these and no others:
+it. The users of the binary's own path found by reading every `Proc.executable` and
+`Proc.relaunch` of `ci/` and the tree's scripts are these; a new one is the
+residual below:
 
 - `build/zig.tl`, which runs `build/patch.tl` and `build/zig_fetch.tl` that way:
   its `standalone(` calls are counted, and each file must be in the list.
@@ -101,6 +103,14 @@ it. The users of the binary's own path are these and no others:
   listed). [`BuildPaths.driver`] refuses a `--standalone` of its own.
 - `ci/run_local.tl`, which starts only `build/paths.tl` that way and cannot use
   ci/'s modules: it runs standalone, which finds none.
+- `ci/run_local_proof.tl` (`Proc.relaunch()`), which reads and hashes the cached
+  binary; it runs the proof's runner through the entry point it is given, so
+  that run is held.
+- [`BuildPaths.driver`] itself, where the driver's command line is made
+  (`Proc.relaunch()`, and `Proc.executable()` where there is no launcher): it
+  starts nothing, and its callers are the ones listed above.
+- `cosmic release --cache` (`cosmic/cli.tl`), which writes the verified binary
+  into the bootstrap cache; it runs no file.
 - Relaunches that run no file standalone (a project, a verb):
   [`cosmic_ci/orchestration.tl`] runs `cosmic test`, `cosmic_ci/cache_trim.tl`
   runs `cosmic cache trim`, and [`Islands.project`] runs `fix --check`. The

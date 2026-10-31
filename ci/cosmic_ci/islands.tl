@@ -20,7 +20,8 @@
 --- checker too.
 ---
 --- The users of the pinned binary's own path, which bin/cosmic-bootstrap's check does not see (a process running on the
---- release can always run its own binary), and none other: this command ([`Islands.complaint`]), build/zig.tl (its
+--- release can always run its own binary), as found by reading the [`Proc.executable`] and [`Proc.relaunch`] of ci/ (the
+--- list is in ci/README.md; a new one is the residual): this command ([`Islands.complaint`]), build/zig.tl (its
 --- `standalone(` calls, each counted here and named in the list), [`BuildPaths.directory`] of ci/cosmic_ci/build_paths.tl,
 --- which runs build/paths.tl that way (checked to be listed), and ci/run_local.tl, which runs only build/paths.tl that
 --- way and cannot use ci/'s modules: it runs standalone. [`BuildPaths.driver`] refuses a `--standalone` of its own. A new
