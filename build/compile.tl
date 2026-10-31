@@ -234,16 +234,28 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
   -- With no `.d.tl` named the files are checked as a standalone run checks one: its globals, its `cosmic.*` modules and
   -- the warnings it refuses ([`build.pipeline`]'s `alone`). The exit contract stays: type errors are listed, not refused.
   local alone: Grammar.Standalone? = nil
+  local Pipeline = require("build.pipeline")
+  local options, options_why = Pipeline.alone()
+  if options == nil then
+    complain(options_why)
+    return bare.refused
+  end
+  -- A file named for a module of the language is checked as the project's and run as the binary's.
+  local entries: mut {{string}} = {}
+  for _, source in ipairs(todo) do
+    entries[#entries + 1] = { source.relative, source.text }
+  end
+  local TreeProgram = require("build.tree_program")
+  local library = TreeProgram.library_modules(options.globals)
+  local reserved = TreeProgram.reserved(entries, library)
+  if reserved ~= "" then
+    complain(reserved)
+    return bare.refused
+  end
   if #skipped == 0 then
-    local Pipeline = require("build.pipeline")
-    local options, options_why = Pipeline.alone()
-    if options == nil then
-      complain(options_why)
-      return bare.refused
-    end
     local ProjectRefusals = require("build.project_refusals")
     alone = {
-      globals = options.globals.sources, adjust = options.globals.adjust, standard = Pipeline.carried(),
+      globals = options.globals.sources, adjust = options.globals.adjust, library = library, standard = Pipeline.carried(),
       refusals = function(chunk: Ast.Chunk, scoped: Scopes.Scoped): {Grammar.Problem}
         local found: mut {Grammar.Problem} = {}
         for _, at in ipairs(ProjectRefusals.places(chunk, scoped)) do

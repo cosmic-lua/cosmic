@@ -15,6 +15,7 @@ here, so they run anywhere. A real file is read the same way from
 drops with `local_names`.
 
 ```teal
+local Csv = require("cosmic.csv")
 local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
 local Url = require("cosmic.url")
@@ -37,7 +38,8 @@ local parts: {{string}} = {
     "</Relationships>" },
   { "xl/sharedStrings.xml", "<sst " .. main .. "><si><t>Region</t></si><si><t>Total</t></si>" ..
     "<si><r><t>North</t></r><r><t> East</t></r>" ..
-    '<rPh sb="0" eb="5"><t>nosu</t></rPh></si></sst>' },
+    '<rPh sb="0" eb="5"><t>nosu</t></rPh></si>' ..
+    '<si><t>Fish, "fresh"\ndaily</t></si></sst>' },
   { "xl/styles.xml", "<styleSheet " .. main .. '><numFmts><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm"/>' ..
     '<numFmt numFmtId="165" formatCode="[h]:mm"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="14"/>' ..
     '<xf numFmtId="164"/><xf numFmtId="165"/></cellXfs></styleSheet>' },
@@ -48,6 +50,7 @@ local parts: {{string}} = {
     '<c r="C4" s="1" t="e"><v>#N/A</v></c><c r="D4" s="3"><v>1.5</v></c>' ..
     '<c r="E4" s="1"><v>1</v></c><c r="F4" s="1"><v>60</v></c><c r="G4" s="2"><v>60.5</v></c>' ..
     '<c r="H4" s="1"><v>0.5</v></c><c r="I4" s="1"><v>-1</v></c></row>' ..
+    '<row r="5"><c r="A5" t="s"><v>3</v></c><c r="B5"><v>3</v></c></row><row r="6"/>' ..
     "</sheetData></worksheet>" },
 }
 local out = Stream.collect()
@@ -234,10 +237,14 @@ end
 
 A sheet can hold a great many rows, so it is read a row at a time:
 [`Xml.subtrees`] answers each `row` whole as the parser reaches its
-end, from the sheet's body read in chunks. An empty row is left out as
-an empty cell is, so each row is printed with its number, its `r`, and
-the rows left out between are printed empty; a row without an `r` is the
-one after the row before it.
+end, from the sheet's body read in chunks. Each row is written as CSV with
+[`Csv.encode`], which quotes a cell that holds a comma, a quote or a line
+break (Alt-Enter puts one in a cell), so the columns stay where they were.
+It ends the record with a line break, which `print` would double, so that
+is taken off. An empty row is left out as an empty cell is, so each
+record starts with the row's number, its `r`, and the rows left out
+between, or holding no cells, are records of their number alone; a row
+without an `r` is the one after the row before it.
 
 ```teal continue
 for _, sheet in ipairs(Xml.children(assert(Xml.child(workbook, "sheets")), "sheet")) do
@@ -250,7 +257,7 @@ for _, sheet in ipairs(Xml.children(assert(Xml.child(workbook, "sheets")), "shee
   local function show(events: {Xml.Event})
     for _, row in ipairs(rows:take(events)) do
       local number = math.tointeger(row.attributes["r"] or "") or last + 1
-      for skipped = last + 1, number - 1 do print(tostring(skipped) .. ":") end
+      for skipped = last + 1, number - 1 do print(tostring(skipped)) end
       last = number
       local cells: mut {string} = {}
       for _, c in ipairs(Xml.children(row, "c")) do
@@ -260,7 +267,9 @@ for _, sheet in ipairs(Xml.children(assert(Xml.child(workbook, "sheets")), "shee
         local text = value(c)
         cells[#cells + 1] = text
       end
-      print(tostring(number) .. ":" .. table.concat(cells, ","))
+      local record: mut {string} = { tostring(number) }
+      for _, text in ipairs(cells) do record[#record + 1] = text end
+      print((Csv.encode({ record }):gsub("\n$", "")))
     end
   end
   while true do
@@ -278,10 +287,13 @@ assert(book:close())
 
 ```output
 Sales
-1:Region,Total
-2:North East,1250.5,,TRUE,7
-3:
-4:2025-01-01,2025-01-01T12:00:00,#N/A,1.5,1900-01-01,1900-02-29,1900-02-29T12:00:00,12:00:00,-1
+1,Region,Total
+2,North East,1250.5,,TRUE,7
+3
+4,2025-01-01,2025-01-01T12:00:00,#N/A,1.5,1900-01-01,1900-02-29,1900-02-29T12:00:00,12:00:00,-1
+5,"Fish, ""fresh""
+daily",3
+6
 ```
 
 ## going further
@@ -298,6 +310,7 @@ What this leaves out is the spreadsheet's own business, not the file's:
 [`cosmic.url`]: ../../cosmic/url.tl
 [`cosmic.xml`]: ../../cosmic/xml.tl
 [`cosmic.zip`]: ../../cosmic/zip.tl
+[`Csv.encode`]: ../../cosmic/csv.tl
 [`Time.parse_date`]: ../../cosmic/time.tl
 [`Url.resolve`]: ../../cosmic/url.tl
 [`Xml.subtrees`]: ../../cosmic/xml.tl
