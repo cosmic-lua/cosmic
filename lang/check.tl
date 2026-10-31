@@ -1023,7 +1023,7 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
       local start = if bound ~= nil then ctx.starts[bound] else nil end
       if start ~= nil and target ~= nil then
         -- `math.tointeger` of a fraction is nil, and the name is an integer only because it started as one.
-        local float = if start:find("^%d+$") then start .. ".0" else nil end
+        local float = if start:find("^-?%d+$") then start .. ".0" else nil end
         fix = "start " .. subject(ctx, target) .. " as " .. (if float ~= nil then "`" .. float .. "`" else "a float" end) ..
           " where it is declared, or declare what takes it `number` (`local " .. target.text .. ": number = " .. start .. "`)"
       end
@@ -5988,8 +5988,11 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
     local want = wants[i]
     local written = s.values[i]
     local held = ctx.scoped.vars[b.id]
-    if written ~= nil and want == nil and peel(written).kind == "Integer" then
-      ctx.starts[b.id] = text_of(ctx, peel(written))
+    if written ~= nil and want == nil then
+      local literal = peel(written)
+      if literal.kind == "Integer" or (literal.kind == "Unary" and literal.op == "-" and peel(literal.operand).kind == "Integer") then
+        ctx.starts[b.id] = text_of(ctx, literal)
+      end
     end
     if written ~= nil and held ~= nil and not held.assigned then
       local literal = peel(written)
@@ -6512,12 +6515,12 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
               " cannot be assigned",
             "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received", { show(ctx, base) })
         else
+          -- TODO: report `array_hole` beside `view_written` for a write to a view, so one run reports both, once
+          -- build/ceilings.txt holds no `view_written` row: it adds `array_hole` errors to the many files that pin
+          -- `view_written`, which a pin may not take.
           -- The values say whether the write may leave a hole, which changes the fix: see below.
           pending[#pending + 1] = { target = target, at = at, owner = owner, base = base, view = true }
         end
-      -- TODO: report `array_hole` beside `view_written` for a write to a view, so one run reports both, once
-      -- build/ceilings.txt holds no `view_written` row: it adds `array_hole` errors to the many files that pin
-      -- `view_written`, which a pin may not take.
       elseif removes and Writes.is_length_of(target.key, target.object) then
         -- The last element goes, so the elements left are the first ones. Of several targets, another may write the key
         -- the length names after this one is gone (`t[#t], t[#t + 1] = nil, v`).

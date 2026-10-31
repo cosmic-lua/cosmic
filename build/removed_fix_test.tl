@@ -327,6 +327,9 @@ local function test_a_row_indexed_like_a_list_says_how_a_row_is_read()
   local p = only("local Sqlite = require(\"cosmic.sqlite\")\nlocal row = Sqlite.first()\nprint(row[1])\n", stubs)
   assert(p.code == "not_indexable" and p.removed and p.fix == why, p.fix)
   assert(why:find("row:text(i)", 1, true) and why:find("row:integer(i)", 1, true) and why:find("row:texts()", 1, true), why)
+  -- a module required under another name is the same module
+  local aliased = only("local S = require(\"cosmic.sqlite\")\nlocal row = S.first()\nprint(row[1])\n", stubs)
+  assert(aliased.removed and aliased.fix == why, aliased.fix)
   -- the same record from a module that is not cosmic.sqlite, and a record the catalog does not list, keep the checker's fix
   local own = only("local Sqlite = require(\"own.sqlite\")\nlocal row = Sqlite.first()\nprint(row[1])\n", { ["own.sqlite"] = ROWS })
   assert(own.code == "not_indexable" and not own.removed and own.fix:find("^index an array") ~= nil, own.fix)

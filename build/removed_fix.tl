@@ -159,7 +159,8 @@ local function removed_module(removed: Catalog, tokens: Lexer.Tokens, at: intege
 end
 
 --- A value indexed that is of a record `types` names qualified ([`Sqlite.Row`]), which the catalog lists as one that has no
---- elements to index.
+--- elements to index. The type is spelled as its module declares it, whatever name the program gave the module, so the
+--- catalog's module is the one any local in scope was bound to by `require`.
 local function removed_index(removed: Catalog, source: RemovedFix.Source, at: integer, types: {string}): string?
   local first = types[1]
   if first == nil then
@@ -169,11 +170,18 @@ local function removed_index(removed: Catalog, source: RemovedFix.Source, at: in
   if owner == nil or name == nil then
     return nil
   end
-  local module = module_of(Scopes.in_scope(source.scoped, at), owner)
-  if module == nil then
-    return nil
+  local visible = Scopes.in_scope(source.scoped, at)
+  for dotted, instead in pairs(removed.indexed) do
+    local module, record = dotted:match("^(.+)%.([%a_][%w_]*)$")
+    if module ~= nil and record == name then
+      for _, v in pairs(visible) do
+        if v.module == module then
+          return instead
+        end
+      end
+    end
   end
-  return removed.indexed[module .. "." .. name]
+  return nil
 end
 
 --- A field, a method or a type `head.key` (or `head:key`, `head["key"]`) that `module` no longer has.

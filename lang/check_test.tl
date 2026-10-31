@@ -1866,6 +1866,7 @@ local function test_a_local_that_started_as_an_integer_is_told_to_start_as_a_flo
   local fix = fix_of("local t = 0\nt = t + 1.5\nlocal _ = t\n")
   assert(has(fix, "start `t` as `0.0` where it is declared") and has(fix, "`local t: number = 0`"), fix)
   assert(not has(fix, "math.tointeger"), fix)
+  assert(has(fix_of("local u = -1\nu = u / 2\nlocal _ = u\n"), "start `u` as `-1.0`"))
   assert(has(fix_of("local n = 12\nn = n / 5\nlocal _ = n\n"), "as `12.0`"))
   -- a name declared with its type, a field and a name that started as a call keep the generic fix
   assert(has(fix_of("local t: integer = 0\nt = t + 1.5\nlocal _ = t\n"), "math.tointeger(t + 1.5)"))
