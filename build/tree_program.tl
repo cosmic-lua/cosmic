@@ -36,9 +36,12 @@ local record TreeProgram
   --- of its input; a `test` has its functions called from outside.
   index: function(entries: {{string}}, kinds: {string: string}, unaliased?: {string: boolean}): Driver.Index
 
-  --- The names of the language's own modules, which the binary answers a `require` of at run time (what `package.loaded`
-  --- holds): the lowercase records of the standard library's declarations (`math`, `string`, ...) and `_G`, which the checker
-  --- answers itself. The prelude's records (`metatable`) and the capitalised records (`FILE`) are types, no module.
+  --- The names of the language's own modules, which no project file may be named for: the lowercase records of the standard
+  --- library's declarations (`math`, `string`, ...) and `_G`, which the checker answers itself. The binary answers a `require`
+  --- of most of them with its own module (what `package.loaded` holds); `io`, `os` and `debug` are removed stand-ins there
+  --- (core/surface.c), refused all the same because the checker declares them. The prelude's records (`metatable`) and the
+  --- capitalised ones (`FILE`) are types, no module. The build gives the set to its program, so that a refused `require` of
+  --- one says it is a global ([`Declarations.Program.library`]).
   library_modules: function(globals: Globals): {string: boolean}
 
   --- The complaints of [`Driver.reserved`] for `entries` less the programs of a `testdata/` directory: "" for none.
@@ -342,7 +345,10 @@ function TreeProgram.build(index: Driver.Index, globals: TreeProgram.Globals, ty
       external[#external + 1] = derivation.path
     end
   end
-  local build = Driver.new({ globals = globals.sources, adjust = globals.adjust, external = external, types = types == true })
+  local build = Driver.new({
+    globals = globals.sources, adjust = globals.adjust, external = external, types = types == true,
+    library = TreeProgram.library_modules(globals),
+  })
   if stubs ~= nil then
     -- The modules whose stub is read in place of their source are answered ahead of the tree's files.
     build:provide(function(module: string): Driver.Source?

@@ -1134,7 +1134,7 @@ local function module_value(ctx: Ctx, node: Ast.Node, name: string): Type
   end
   if info == nil then
     local fix = "require a module of the project: `bin/cosmic docs` lists them"
-    if program.globals[name] ~= nil then
+    if program.library[name] == true then
       fix = quoted(name) .. " is a global the language declares, available without `require`: use it directly"
     end
     report(ctx, "require_unknown", node, "the project has no module " .. quoted(name), fix)

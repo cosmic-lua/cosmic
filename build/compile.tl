@@ -246,7 +246,8 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
     entries[#entries + 1] = { source.relative, source.text }
   end
   local TreeProgram = require("build.tree_program")
-  local reserved = TreeProgram.reserved(entries, TreeProgram.library_modules(options.globals))
+  local library = TreeProgram.library_modules(options.globals)
+  local reserved = TreeProgram.reserved(entries, library)
   if reserved ~= "" then
     complain(reserved)
     return bare.refused
@@ -254,7 +255,7 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
   if #skipped == 0 then
     local ProjectRefusals = require("build.project_refusals")
     alone = {
-      globals = options.globals.sources, adjust = options.globals.adjust, standard = Pipeline.carried(),
+      globals = options.globals.sources, adjust = options.globals.adjust, library = library, standard = Pipeline.carried(),
       refusals = function(chunk: Ast.Chunk, scoped: Scopes.Scoped): {Grammar.Problem}
         local found: mut {Grammar.Problem} = {}
         for _, at in ipairs(ProjectRefusals.places(chunk, scoped)) do

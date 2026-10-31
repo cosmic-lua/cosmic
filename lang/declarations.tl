@@ -294,6 +294,9 @@ local record Declarations
     -- TODO: declare the generated bindings ([`cosmic.sys`], [`cosmic.internal.process`],
     -- [`cosmic.internal.socket`]) as files of the tree, once the checker reads them from declaration files, and drop this.
     external: {string: boolean}
+    --- The names of the language's own modules, which the binary answers a `require` of with its own module and no module of
+    --- the program can stand for: a `require` of one the program lacks is a global to use directly.
+    library: {string: boolean}
     --- Asked for a module that a type name imports and the program lacks.
     provider: Provider?
     requires: mut {Decl: Requires}
@@ -326,8 +329,8 @@ local record Declarations
     scope_globals: function(Program): {string: Scopes.Global}
   end
 
-  --- A program for a new store, or for `store`.
-  new: function(store?: Store): Program
+  --- A program for a new store, or for `store`, that knows the language's own modules `library` names.
+  new: function(store?: Store, library?: {string: boolean}): Program
 
   --- The module a file is: its path without `.tl`, `.d.tl` or a trailing `/init`, with dots for slashes.
   module_of: function(path: string): string
@@ -2946,10 +2949,10 @@ end
 
 local program_mt: metatable<Program> = { __index = Declarations.Program }
 
-function Declarations.new(store?: Store): Program
+function Declarations.new(store?: Store, library?: {string: boolean}): Program
   local s = store or Types.new()
   local program: Program = setmetatable({
-    store = s, judge = Relation.new(s), modules = {}, entries = {}, globals = {}, waiting = {}, requires = {}, external = {}, values = {}, statics = {}, absent = {},
+    store = s, judge = Relation.new(s), modules = {}, entries = {}, globals = {}, waiting = {}, requires = {}, external = {}, library = library or {}, values = {}, statics = {}, absent = {},
   }, program_mt)
   return program
 end

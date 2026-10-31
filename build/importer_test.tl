@@ -444,6 +444,20 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
   -- A language module is a global, which the refusal says.
   assert(trouble:find("`math` is a global the language declares, available without `require`", 1, true) ~= nil,
     tostring(trouble))
+  -- `_G` is a module of the language too, and a type of the prelude or the library (`metatable`, `FILE`) is none: it keeps the
+  -- generic fix.
+  local globals: {string: boolean} = { _G = true, metatable = false, FILE = false, Yielder = false }
+  for name, hinted in pairs(globals) do
+    local named, named_trouble = write_fixture("language-module-hint", {
+      ["main.tl"] = 'local s = require("' .. name .. '")\nreturn s\n',
+    })
+    assert(named ~= nil, "could not write fixture: " .. tostring(named_trouble))
+    local _, said = compile_fixture(named)
+    local global_hint = "`" .. name .. "` is a global the language declares, available without `require`"
+    assert((said:find(global_hint, 1, true) ~= nil) == hinted, name .. ": " .. tostring(said))
+    assert((said:find("require a module of the project: `bin/cosmic docs` lists them", 1, true) ~= nil) == not hinted,
+      name .. ": " .. tostring(said))
+  end
   local other, other_trouble = write_fixture("language-module-unknown", {
     ["main.tl"] = 'local s = require("nothing_here")\nreturn s\n',
   })
