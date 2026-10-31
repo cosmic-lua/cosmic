@@ -113,3 +113,79 @@ local function test_entropy_refuses_a_degenerate_count()
   assert(not pcall(Rand.entropy, (1 << 20) + 1))
   assert(#assert(Rand.entropy(1 << 20)) == 1 << 20)
 end
+
+--- The mean and variance of `n` draws of `draw`.
+local function moments(draw: function(): number, n: integer): number, number
+  local sum, sq = 0.0, 0.0
+  for _ = 1, n do
+    local x = draw()
+    sum = sum + x
+    sq = sq + x * x
+  end
+  local mean = sum / n
+  return mean, sq / n - mean * mean
+end
+
+local function test_normal_has_its_mean_and_deviation()
+  local src = Rand.new(3)
+  -- 20000 draws put the sample mean within 0.03 of 0 at about four
+  -- standard errors, and the variance within 0.06 of 1.
+  local mean, var = moments(function(): number return src:normal() end, 20000)
+  assert(math.abs(mean) < 0.03, "mean " .. tostring(mean))
+  assert(math.abs(var - 1.0) < 0.06, "variance " .. tostring(var))
+  mean, var = moments(function(): number return src:normal(10, 3) end, 20000)
+  assert(math.abs(mean - 10.0) < 0.1, "mean " .. tostring(mean))
+  assert(math.abs(var - 9.0) < 0.6, "variance " .. tostring(var))
+  assert(src:normal(5, 0) == 5.0)
+end
+
+local function test_gamma_has_its_mean_and_variance_either_side_of_shape_one()
+  local src = Rand.new(4)
+  -- Gamma(k, theta) has mean k * theta and variance k * theta^2; a shape
+  -- below 1 takes the boosted path.
+  local record Case
+    k: number
+    theta: number
+  end
+  local cases: {Case} = {
+    { k = 0.5, theta = 2.0 },
+    { k = 1.0, theta = 1.0 },
+    { k = 4.5, theta = 0.5 },
+  }
+  for _, case in ipairs(cases) do
+    local k, theta = case.k, case.theta
+    local least = math.huge
+    local mean, var = moments(function(): number
+      local x = src:gamma(k, theta)
+      if x < least then least = x end
+      return x
+    end, 20000)
+    local want_mean, want_var = k * theta, k * theta * theta
+    local where = ("gamma(%g, %g): "):format(k, theta)
+    assert(least >= 0.0, where .. "negative draw " .. tostring(least))
+    assert(math.abs(mean - want_mean) < 0.05 * want_mean + 0.02, where .. "mean " .. tostring(mean))
+    assert(math.abs(var - want_var) < 0.1 * want_var + 0.02, where .. "variance " .. tostring(var))
+  end
+end
+
+local function test_normal_and_gamma_replay_from_a_seed()
+  local a, b = Rand.new(9), Rand.new(9)
+  for _ = 1, 100 do
+    assert(a:normal() == b:normal())
+    assert(a:gamma(0.3) == b:gamma(0.3))
+    assert(a:gamma(2.5, 4) == b:gamma(2.5, 4))
+  end
+  assert(Rand.new(9):normal() ~= Rand.new(10):normal())
+end
+
+local function test_normal_and_gamma_refuse_degenerate_parameters()
+  local src = Rand.new(0)
+  Test.raises(function() src:normal(0, -1) end, "stddev not negative")
+  Test.raises(function() src:normal(0 / 0, 1) end, "must be finite")
+  Test.raises(function() src:normal(0, math.huge) end, "must be finite")
+  Test.raises(function() src:gamma(0) end, "finite and positive")
+  Test.raises(function() src:gamma(-1) end, "finite and positive")
+  Test.raises(function() src:gamma(1, 0) end, "finite and positive")
+  Test.raises(function() src:gamma(math.huge) end, "finite and positive")
+  Test.raises(function() src:gamma(0 / 0) end, "finite and positive")
+end
