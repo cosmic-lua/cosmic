@@ -2284,7 +2284,7 @@ local function key_names(key: Ast.Exp, kt: Type): {string}?
   return nil
 end
 
---- The rules by which an index write to a `mut` array is no hole ([`Writes.leaves_no_hole`]).
+--- The rules by which an index write to an array, `mut` or a view, is no hole ([`Writes.leaves_no_hole`]).
 local record Writes
 end
 

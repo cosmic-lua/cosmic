@@ -1476,6 +1476,10 @@ local function test_a_write_to_a_view_that_may_leave_a_hole_reports_array_hole_b
   local head = "local buf: {integer} = {}\n"
   assert(codes_of(head .. "buf[3] = 1\n") == "view_written array_hole")
   assert(codes_of(head .. "buf[#buf + 1] = 1\n") == "view_written")
+  assert(codes_of(head .. "buf[1] = 1\n") == "view_written")
+  -- a call that cannot reach a local view cannot shorten it
+  local call = "local function f(): integer\n  return 1\nend\n" .. head
+  assert(codes_of(call .. "buf[#buf + 1] = f()\n") == "view_written")
   -- a call may shorten a view the statement can reach, as it may a `mut` array, so the append lands past the end
   local param = "local function f(): integer\n  return 1\nend\nlocal function put(buf: {integer})\n"
   assert(codes_of(param .. "  buf[#buf + 1] = f()\nend\n") == "view_written array_hole")
