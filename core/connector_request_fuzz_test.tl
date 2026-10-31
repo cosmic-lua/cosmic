@@ -9,14 +9,14 @@
 --- so nothing past this worker's own loopback is reached. `FUZZ_SEED` and
 --- `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 local Fuzz = require("build.fuzz")
-local RawTables = require("build.raw_tables")
+local ConnectorEnds = require("build.connector_ends")
 local type _ = require("cosmic.child")
 local type _net = require("cosmic.net")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 Test.policy{ loopback = { "127.0.0.1" }, promises = { "fork" } }
-local process = RawTables.process()
-local socket = RawTables.socket()
+local process = require("cosmic.internal.process")
+local socket = require("cosmic.internal.socket")
 
 local PUBLIC <const> = 0xffffffff
 --- A drawn port that stands for the listener's, which is known only once
@@ -112,8 +112,8 @@ end
 local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
   require_native_connector()
   local listener <close> = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 64))
-  local port = RawTables.bound_port(listener)
-  local pair = RawTables.connector_pair()
+  local port = ConnectorEnds.bound_port(listener)
+  local pair = ConnectorEnds.connector_pair()
   local child, why = process.connector_start({ { host = "127.0.0.1", port = port } }, pair.connector, 2000,
     { deny = DENY })
   assert(sys.close(pair.connector))

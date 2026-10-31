@@ -582,25 +582,25 @@ local syscalls_target: Target = {
   },
 }
 
---- The raw process table, [`cosmic.internal.process`], which only the
---- wrappers core/store.c's `raw_modules` names are handed.
+--- The raw process table, [`cosmic.internal.process`], which only
+--- cosmic's own tree requires.
 local process_target: Target = {
   header = "core/process.h",
   record_name = "process",
   summary = {
-    "The raw process table, handed only to the wrappers core/store.c's",
-    "`raw_modules` names it for. Derived from core/process.h.",
+    "The raw process table, which only cosmic's own tree requires.",
+    "Derived from core/process.h.",
   },
 }
 
 --- The raw socket table, [`cosmic.internal.socket`], which only
---- [`cosmic.net`] is handed.
+--- cosmic's own tree requires.
 local socket_target: Target = {
   header = "core/socket.h",
   record_name = "socket",
   summary = {
-    "The raw socket table, handed only to `cosmic.net`. Derived from",
-    "core/socket.h.",
+    "The raw socket table, which only cosmic's own tree requires.",
+    "Derived from core/socket.h.",
   },
 }
 

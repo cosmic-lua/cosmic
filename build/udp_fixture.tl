@@ -3,12 +3,10 @@
 --- server or receive a resolver's query. [`cosmic.net`] has no UDP socket
 --- of its own; these few calls go to the raw socket module's instead.
 
-local RawTables = require("build.raw_tables")
-local _ = require("cosmic.net") -- in the closure: [`RawTables`] searches for it by hand
 local Poll = require("cosmic.poll")
 local type raw_socket = require("cosmic.internal.socket")
 
-local raw = RawTables.socket()
+local raw = require("cosmic.internal.socket")
 
 local record udp_fixture
   --- A UDP socket bound by [`udp_fixture.bind`].

@@ -387,3 +387,20 @@ local function test_the_opening_comment_documents_the_module_or_the_function_bel
   assert(symbols(lines("--- A module.", "local LIMIT <const> = 3", "return LIMIT")) == "module:=A module.")
   assert(symbols(lines("local a = 1", "--- A value.", "local LIMIT <const> = 3", "return LIMIT")) == "value:LIMIT=A value.")
 end
+
+--- A `TODO:` note is the maintainers', never documentation: a module whose opening run of `--` lines is one has no doc.
+local function test_a_todo_comment_is_no_module_documentation()
+  local function module_text(source: string): string?
+    for _, entry in ipairs(analyzed(source).docs) do
+      if entry.kind == "module" then
+        return entry.text
+      end
+    end
+    return nil
+  end
+  assert(module_text(lines("-- TODO: make this greet in Klingon too", "", "local x = 1", "return x")) == nil)
+  assert(module_text(lines("-- TODO: make this greet", "-- in Klingon too", "", "local x = 1", "return x")) == nil)
+  assert(module_text(lines("-- Greets.", "--", "-- TODO: Klingon,", "-- too.", "local x = 1", "return x")) == "Greets.\n")
+  assert(module_text(lines("-- Doc.", "--", "-- TODO: later", "--", "-- More doc.", "local x = 1", "return x")) == "Doc.\n\nMore doc.")
+  assert(module_text(lines("--- Doc.", "--- TODO: later", "local x = 1", "return x")) == "Doc.")
+end

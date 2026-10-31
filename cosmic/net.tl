@@ -15,8 +15,12 @@
 ---
 --- A connection is one object for both directions; `shutdown("write")`
 --- tells the peer the end of what was sent while its answer is still
---- read. The direction is a [`Net.Shutdown`]: "read", "write" or "both",
---- and any other string does not compile.
+--- read. That suits a protocol whose request ends at end of file. After a
+--- framed request (HTTP, a length prefix) do not half-close: a server may
+--- take the half-close as the client closing and answer nothing. HTTP over
+--- a unix socket is [`Http.request`] with `via`. The direction is a
+--- [`Net.Shutdown`], one of "read", "write" or "both", and any other
+--- string does not compile.
 ---
 --- Every wait -- to connect, to accept, to read, to write -- lasts at
 --- most the object's timeout (no limit by default; [`set_timeout`]
@@ -46,17 +50,10 @@ local Signal = require("cosmic.signal")
 local Leaf = require("cosmic.internal.connector")
 
 --- The raw module behind this one lives under the reserved
---- `cosmic.internal.` namespace and arrives as the second argument
---- `require` passes this chunk's loader, as cosmic/http/init.tl's does.
+--- `cosmic.internal.` namespace, which only cosmic's own tree may require.
 local type raw_socket = require("cosmic.internal.socket")
 
-local extra: any = select(2, ...)
-local raw: raw_socket
-if type(extra) == "table" then
-  raw = extra as raw_socket
-else
-  raw = require("cosmic.internal.socket")
-end
+local raw = require("cosmic.internal.socket")
 
 local record Net
   --- Where a socket is, as [`Net.unix`] and [`Net.tcp`] build one: a
@@ -732,9 +729,10 @@ end
 --- this does not wait; a `timeout_ns` no wait can last raises.
 -- TODO: receive the pair in the process that started the child, and hand
 -- the relay's process the listeners as descriptors of their own, once
--- cosmic.child can reach the raw socket table (core/store.c's `raw_modules`
--- gives each wrapper module one): until then the relay's process receives
--- them itself, so that Child only moves the channel.
+-- Child.start binds the listeners itself (cosmic.child can require
+-- cosmic.internal.socket now that the raw tables are plain modules): until
+-- then the relay's process receives them itself, so that Child only moves
+-- the channel.
 --- @param channel integer The descriptor of the channel's receiving end
 --- @param opts? Net.ListenOptions The listeners' options
 --- @return {Net.Listener}|nil The listeners

@@ -10,7 +10,6 @@
 --- refusals that come before a child, which hold on every platform, are in
 --- cosmic/child_policy_anywhere_test.tl.
 
-local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -441,7 +440,7 @@ local function test_a_root_of_files_and_its_own_tmp_makes_unix_sockets_without_u
   local isolated = under(at.probe, { isolate = { "file" }, tmp = true, grants = at.bare }, at.home, script)
   assert(isolated ~= nil and isolated.said:find("not permitted", 1, true), "no network of its own: " ..
       tostring(isolated and isolated.said))
-  local abi, _ = RawTables.process().landlock_abi()
+  local abi, _ = require("cosmic.internal.process").landlock_abi()
   local shown = under(at.probe, { isolate = { "file" }, tmp = true, loopback = { "127.0.0.1" },
     grants = at.grants }, at.work, script)
   assert(shown ~= nil, "started")

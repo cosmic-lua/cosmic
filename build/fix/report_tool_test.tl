@@ -82,3 +82,53 @@ local function test_a_path_under_static_is_refused(tmp: string)
   local whole = fix(root, false)
   assert(whole:find("fix: [^\n]*, 0 fixed, ") and not whole:find("carried verbatim", 1, true), whole)
 end
+
+--- `fix` with its verdict: the output and whether it exited 0.
+local function fix_status(root: string, paths: {string}): string, boolean
+  local args: mut {string} = { "fix", "--check" }
+  for _, path in ipairs(paths) do args[#args + 1] = path end
+  local started = this_program.program(args, { cwd = root,
+    stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
+  local ran = assert(Child.run(started.argv, started.options))
+  return assert(ran.stdout), ran.ok
+end
+
+--- A named Teal file the build never reads (under `bin/`, which no project builds) is not passed for its layout alone: it is
+--- checked on its own, as `--standalone` checks a file, and the compiler's refusal fails the run, from the project's root as
+--- from any other directory.
+local function test_a_named_file_outside_the_build_is_checked_alone(tmp: string)
+  local root = tmp .. "/unit"
+  assert(Fs.mkdirs(root .. "/bin"))
+  assert(Fs.write(root .. "/bin/broken.tl", 'local broken: integer = "definitely a string"\n'))
+  assert(Fs.write(root .. "/bin/fine.tl", "local function main(): integer\n  return 0\nend\n\nreturn main\n"))
+  local out, ok = fix_status(root, { "bin/broken.tl" })
+  assert(not ok, out)
+  assert(out:find("not an input of the tree at", 1, true) and out:find("checked alone", 1, true), out)
+  assert(out:find("not_assignable", 1, true), out)
+  local inside, inside_ok = fix_status(root .. "/bin", { "broken.tl" })
+  assert(not inside_ok, inside)
+  local fine, fine_ok = fix_status(root, { "bin/fine.tl" })
+  assert(fine_ok, fine)
+  assert(fine:find("checked alone", 1, true), fine)
+end
+
+--- A directory named that the build never reads is checked alone file by file, the file named twice is one, and a link inside
+--- the build to a file under `bin/` is the build's, reported once.
+local function test_a_named_directory_outside_the_build_is_checked_alone(tmp: string)
+  local root = tmp .. "/unit"
+  assert(Fs.mkdirs(root .. "/bin"))
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/bin/broken.tl", 'local broken: integer = "definitely a string"\n'))
+  assert(Fs.write(root .. "/bin/needs.tl", 'local X = require("lib.x")\n\nreturn X\n'))
+  local out, ok = fix_status(root, { "bin" })
+  assert(not ok, out)
+  assert(out:find("not_assignable", 1, true), out)
+  assert(out:find("sibling declaration file", 1, true), out)
+  local twice, twice_ok = fix_status(root, { "bin/broken.tl", "./bin/broken.tl", root .. "/bin/broken.tl", "bin/../bin/broken.tl" })
+  assert(not twice_ok, twice)
+  assert(twice:find("1 of 1 file refused", 1, true), twice)
+  assert(Fs.symlink("../bin/broken.tl", root .. "/lib/link.tl"))
+  local linked, linked_ok = fix_status(root, { "lib/link.tl" })
+  assert(not linked_ok, linked)
+  assert(not linked:find("checked alone", 1, true), linked)
+end

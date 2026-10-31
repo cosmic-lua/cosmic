@@ -2,7 +2,6 @@
 --- listener's socket file, from the moment the call makes them, so one
 --- dropped before [`cosmic.net`] has wrapped it leaks neither.
 
-local RawTables = require("build.raw_tables")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
@@ -11,7 +10,7 @@ local sys = require("cosmic.sys")
 local type _net = require("cosmic.net")
 local type raw_socket = require("cosmic.internal.socket")
 
-local raw = RawTables.socket()
+local raw = require("cosmic.internal.socket")
 
 --- A TCP socket refused on the worker's own loopback.
 Test.policy{ loopback = { "127.0.0.1" } }

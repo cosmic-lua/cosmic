@@ -10,7 +10,6 @@
 --- (cosmic/child_relay_test.tl is Linux's). A failure says what the program
 --- saw, the relay's decision lines and what Seatbelt denied.
 
-local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -428,7 +427,7 @@ local function run_under(held: raw_process.Seatbelt, argv: {string}, tmp: string
   local out_path = tmp .. "/run.out"
   local out = assert(sys.open(out_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
   local null = assert(sys.open("/dev/null", sys.O_RDONLY))
-  local process = RawTables.process()
+  local process = require("cosmic.internal.process")
   local pid, why = process.spawn(argv[1], argv, { COSMIC_STANDALONE = "1" }, "/", null, out, out, false, nil,
     { seatbelt = held })
   assert(sys.close(out))

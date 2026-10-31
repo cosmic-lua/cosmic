@@ -1,5 +1,7 @@
 --- HTTP and HTTPS requests, typed: HTTP and HTTPS only, with no cookies,
---- no HTTP/2 and no compressed transfer-encoding.
+--- no HTTP/2 and no compressed transfer-encoding. A compressed body
+--- (`Content-Encoding`: zstd, gzip or deflate) is asked for and decoded
+--- only when `opts.decompress` says so.
 ---
 ---     local got = assert(Http.get("https://example.com/"))
 ---     if got.status // 100 ~= 2 then error("HTTP " .. got.status .. ": " .. got.body) end
@@ -23,26 +25,17 @@
 
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
+local Compress = require("cosmic.compress")
 local Env = require("cosmic.env")
 local Hash = require("cosmic.hash")
 local Store = require("cosmic.store")
 
 -- The raw module behind this one lives under the reserved
--- `cosmic.internal.` namespace, which an ordinary `require` never
--- satisfies (see cosmic/store.tl for why). It arrives instead as the
--- second argument the loader passes this chunk, present because this
--- module was itself loaded, trusted, from the binary's own tree. Boot
--- mode falls back to requiring it by name, which only boot's own
--- preload answers.
+-- `cosmic.internal.` namespace, which only cosmic's own tree may require
+-- (see cosmic/store.tl for why).
 local type raw_http = require("cosmic.internal.http")
 
-local extra: any = select(2, ...)
-local http: raw_http
-if type(extra) == "table" then
-  http = extra as raw_http
-else
-  http = require("cosmic.internal.http")
-end
+local http = require("cosmic.internal.http")
 
 local Stream = require("cosmic.stream")
 -- Only the type: cosmic.net is the networking stack a program that
@@ -157,6 +150,19 @@ local record Http
     low_speed_ns?: integer
     --- Whether curl logs the transfer to standard error.
     verbose?: boolean
+    --- Whether to ask for a compressed body and decode it: the request
+    --- carries `Accept-Encoding: zstd, gzip, deflate` unless `headers`
+    --- names an Accept-Encoding of its own, and the body is read through
+    --- each coding the response's `Content-Encoding` names, the last
+    --- first. `deflate` is read as zlib (RFC 9110) or, as servers also
+    --- send it, raw deflate; `identity` is no coding. A coding none of
+    --- these names fails the open (nil and why, the response closed);
+    --- corrupt data, or bytes after the compressed data, fail the read,
+    --- naming the coding. `headers` stay as the server
+    --- sent them, so a Content-Length counts the bytes before decoding;
+    --- a download's `sha256` and `sha512` are of the bytes after it.
+    --- False by default, so a body comes as the server sent it.
+    decompress?: boolean
     --- Tests only: canned replies, one per connection, in place of the
     --- network. Every entry must be a string.
     script?: {string}
@@ -339,6 +345,212 @@ local function respond(handle: raw_http.Handle): Http.Response
     closed = false,
   }
   return response
+end
+
+--- The codings [`Http.Options.decompress`] asks for, best first.
+local ACCEPTED <const> = "zstd, gzip, deflate"
+
+--- Whether `head` begins a zlib stream (RFC 1950):
+--- deflate's method, and a header that is a multiple of 31.
+local function zlib_header(head: string): boolean
+  local cmf, flg = head:byte(1, 2)
+  if cmf == nil or flg == nil then return false end -- a lone byte: raw refuses it at finish
+  return cmf & 0x0f == 8 and (cmf * 256 + flg) % 31 == 0
+end
+
+--- Moves `reader` forward `n` bytes by reading and discarding them: nil
+--- and why when it fails or ends first.
+local function discard(reader: Stream.Reader, n: integer): boolean, string
+  local left = n
+  while left > 0 do
+    local chunk, trouble = reader:read(math.min(left, 65536))
+    if chunk == nil then
+      if trouble ~= "" then return false, trouble end
+      return false, "http: truncated body while skipping"
+    end
+    left = left - #chunk
+  end
+  return true, ""
+end
+
+--- A Reader of `source` decoded from `coding` ("zstd", "gzip",
+--- "x-gzip" or "deflate"). Its codec is made from the first bytes, so
+--- a body with none (a HEAD's, a 204's, a 304's) is empty, not a
+--- truncated stream.
+local class DecodingReader is Stream.Reader
+  source: Stream.Reader
+  coding: string
+  mut codec?: Compress.Stream
+  --- Bytes held until there are two, to tell zlib from raw deflate.
+  mut head: string
+  mut ended: boolean
+  mut failed?: string
+  mut skip: function(DecodingReader, n: integer): boolean, string
+
+  --- Fails the reader for good, as every Reader here does after an error.
+  function fail(self, why: string): nil, string
+    local failed = ("http: cannot decode the %s body: %s"):format(self.coding, why)
+    self.failed = failed
+    local _, _ = self.source:close()
+    return nil, failed
+  end
+
+  --- The codec for the reader's coding, made from `head`, the body's
+  --- first bytes.
+  function start(self, head: string): Compress.Stream?, string
+    if self.coding == "zstd" then return Compress.zstd_decoder() end
+    if self.coding == "deflate" then
+      return Compress.inflater(if zlib_header(head) then "zlib" else "raw" end)
+    end
+    return Compress.inflater("gzip")
+  end
+
+  --- What the codec gives for `chunk`: its output, possibly "".
+  function feed(self, chunk: string, max_bytes: integer?): string?, string
+    local codec = self.codec
+    if codec == nil then
+      self.head = self.head .. chunk
+      if #self.head < 2 and not self.ended then return "", "" end
+      local made, trouble = self:start(self.head)
+      if made == nil then return self:fail(trouble) end
+      codec = made
+      self.codec = made
+      chunk, self.head = self.head, ""
+    end
+    local out, trouble = codec:update(chunk, max_bytes)
+    if out == nil then return self:fail(trouble) end
+    return out, ""
+  end
+
+  function read(self, max_bytes?: integer): string?, string
+    local failed = self.failed
+    if failed ~= nil then return nil, failed end
+    while true do
+      local codec = self.codec
+      if codec ~= nil and codec:pending() then
+        local out, trouble = self:feed("", max_bytes)
+        if out == nil then return nil, trouble end
+        if out ~= "" then return out, "" end
+      elseif self.ended then
+        return nil, ""
+      else
+        local chunk, why = self.source:read()
+        if chunk == nil then
+          if why ~= "" then
+            self.failed = why
+            return nil, why
+          end
+          self.ended = true
+          if codec == nil and self.head == "" then return nil, "" end
+          -- A lone byte is too short for any coding: the codec it starts
+          -- refuses it at finish, as it does any truncated body.
+          if codec == nil then
+            local out, trouble = self:feed("", max_bytes)
+            if out == nil then return nil, trouble end
+            codec = self.codec
+          end
+          if codec == nil then return self:fail("no codec") end
+          local last, trouble = codec:finish()
+          if last == nil then return self:fail(trouble) end
+          if codec:rest() ~= "" then
+            return self:fail("bytes follow the compressed data")
+          end
+          if last ~= "" then return last, "" end
+          return nil, ""
+        end
+        local out, trouble = self:feed(chunk, max_bytes)
+        if out == nil then return nil, trouble end
+        if out ~= "" then return out, "" end
+      end
+    end
+  end
+
+  function close(self): boolean, string
+    local codec = self.codec
+    if codec ~= nil then
+      -- Frees the decoder now, not at collection.
+      do local _ <close> = codec end
+      self.codec = nil
+    end
+    return self.source:close()
+  end
+end
+
+local function skip_decoding(self: DecodingReader, n: integer): boolean, string
+  return discard(self, n)
+end
+
+--- A Response whose body is read through `body`, a DecodingReader
+--- over `inner`, the response as received.
+local class DecodedResponse is Http.Response
+  status: integer
+  headers: {string:string}
+  url: string
+  inner: Http.Response
+  body: Stream.Reader
+  mut skip: function(DecodedResponse, n: integer): boolean, string
+
+  function read(self, max_bytes?: integer): string?, string
+    return self.body:read(max_bytes)
+  end
+
+  function close(self): boolean, string
+    -- Each reader frees its codec and closes the one beneath it, down to `inner`.
+    local _, _ = self.body:close()
+    return self.inner:close()
+  end
+
+  function sent(self): string
+    return self.inner:sent()
+  end
+
+  function __close(self)
+    local _, _ = self:close()
+  end
+end
+
+local function skip_decoded(self: DecodedResponse, n: integer): boolean, string
+  return discard(self.body, n)
+end
+
+--- `response` with its body decoded from each coding its
+--- Content-Encoding names, or nil and why when one is none this reads
+--- (the response is closed then). `response` itself when it names none.
+local function decoded(response: Http.Response): Http.Response?, string
+  local named = response.headers["content-encoding"]
+  if named == nil then return response, "" end
+  local codings: mut {string} = {}
+  for listed in named:gmatch("[^,]+") do
+    local coding = (listed:match("^%s*(.-)%s*$") or ""):lower()
+    if coding ~= "identity" and coding ~= "" then
+      if coding ~= "zstd" and coding ~= "gzip" and coding ~= "x-gzip" and coding ~= "deflate" then
+        local _, _ = response:close()
+        return nil, ("http: cannot decode a body of Content-Encoding %q"):format(coding)
+      end
+      codings[#codings + 1] = coding
+    end
+  end
+  if #codings == 0 then return response, "" end
+  local body: Stream.Reader = response
+  for i = #codings, 1, -1 do
+    local coding = codings[i]
+    if coding ~= nil then
+      local reader: DecodingReader = {
+        source = body, coding = coding, codec = nil, head = "", ended = false, failed = nil,
+        skip = skip_decoding,
+      }
+      body = reader
+    end
+  end
+  local out: DecodedResponse = {
+    status = response.status,
+    headers = response.headers,
+    url = response.url,
+    inner = response,
+    body = body,
+    skip = skip_decoded,
+  }
+  return out, ""
 end
 
 --- The level `error` raises a refusal of `opts` at from [`counted`]:
@@ -634,10 +846,23 @@ local function raw_options(given: Http.Options?, method?: string,
     end
     blob = made
   end
+  local headers = opts.headers
+  -- A `headers` of the wrong shape goes on as it came, for the raw
+  -- module to refuse.
+  if opts.decompress == true and (headers == nil or type(headers) == "table") then
+    local named = false
+    local copy: mut {string:string} = {}
+    for name, value in pairs(headers or {}) do
+      copy[name] = value
+      if type(name) == "string" and name:lower() == "accept-encoding" then named = true end
+    end
+    if not named then copy["Accept-Encoding"] = ACCEPTED end
+    headers = copy
+  end
   return {
     unix_socket = via and via.path,
     method = method or opts.method,
-    headers = opts.headers,
+    headers = headers,
     body = opts.body,
     follow = follow,
     max_redirects = opts.max_redirects,
@@ -717,6 +942,7 @@ local function opened(url: string, opts: Http.Options?, method: string?): Http.R
   if handle == nil then
     return nil, trouble
   end
+  if opts ~= nil and opts.decompress == true then return decoded(respond(handle)) end
   return respond(handle), ""
 end
 

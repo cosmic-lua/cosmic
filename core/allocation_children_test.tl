@@ -2,8 +2,6 @@
 --- core/allocation_test.tl because it needs a children file in this
 --- process's mounted /proc as well as the checked core's instruments.
 
-local RawTables = require("build.raw_tables")
-local _ = require("cosmic.child") -- in the closure: [`RawTables`] searches for it by hand
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
@@ -13,7 +11,7 @@ Test.policy{
   profiles = { "proc" },
 }
 
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 --- Runs `work` once per allocation it makes, refusing that allocation,
 --- and a last time with none refused; answers how many runs a refusal
