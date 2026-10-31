@@ -447,8 +447,12 @@ input to the build, never to the runtime. one database holds:
   doc guides need.
 - **payload**: for an embed-built executable, the files under the
   project's `static/` directory: `path` relative to it,
-  `data`, the lowercase hex `sha256`, the Content-Type `type`, and `gzip`,
-  the gzip of `data` when that is worth sending, else NULL.
+  `data`, the lowercase hex `sha256`, the Content-Type `type`, `gzip`,
+  the gzip of `data` when that is worth sending, else NULL, and `zstd`,
+  its zstd at level 19 under the same rule (a compressible type, over
+  1 KiB, at least 10% smaller), else NULL. [`cosmic.web.static`] chooses
+  among them by the request's Accept-Encoding. A program reads only its
+  own build's payload, so no reader tolerates a table without `zstd`.
 - **ca_roots**: Mozilla's CA bundle, one DER certificate a row,
   which [`core/http.c`] reads from the binary's own database alone.
 - **ca_revoked**: the certificates Mozilla's OneCRL revokes
@@ -1391,4 +1395,5 @@ in [roadmap.md](roadmap.md).
 [`build.pipeline`]: ../build/pipeline.tl
 [`cosmic.internal.globals`]: ../cosmic/internal/globals.d.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
+[`cosmic.web.static`]: ../cosmic/web/static.tl
 [`doc/guides/project.md`]: guides/project.md

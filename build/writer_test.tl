@@ -10,6 +10,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local Stream = require("cosmic.stream")
 local importer = require("build.importer")
 local schema = require("build.schema")
 local work = require("build.work")
@@ -728,7 +729,7 @@ local function write_projection(root: string, out: string)
 end
 
 --- The files under `static/` are the projection's `payload`, with the
---- hash, type and gzip a program serves them by; a `.tl` or `.tmpl`
+--- hash, type, gzip and zstd a program serves them by; a `.tl` or `.tmpl`
 --- under it is an asset and no module, and a hidden file is left out.
 local function test_static_files_ship_as_payload_not_as_modules(tmp: string)
   local css = ("a { color: red }\n"):rep(200)
@@ -737,15 +738,20 @@ local function test_static_files_ship_as_payload_not_as_modules(tmp: string)
   write_projection(tmp .. "/p", tmp .. "/p.db")
   local db = assert(Sqlite.open(tmp .. "/p.db"))
   local rows = assert(Sqlite.text_rows(db,
-    "SELECT path, sha256, type, gzip IS NOT NULL, length(data) FROM payload ORDER BY path"))
+    "SELECT path, sha256, type, gzip IS NOT NULL, length(data), zstd IS NOT NULL FROM payload ORDER BY path"))
   assert(#rows == 4, tostring(#rows) .. " payload rows")
   assert(nth(rows, 1):text(1) == "css/app.css" and nth(rows, 1):text(2) == Hash.hex_sha256(css))
   assert(nth(rows, 1):text(3) == "text/css; charset=utf-8" and nth(rows, 1):text(4) == "1" and nth(rows, 1):text(5) == tostring(#css))
+  assert(nth(rows, 1):text(6) == "1" and nth(rows, 2):text(6) == "0" and nth(rows, 3):text(6) == "0",
+    "zstd is held for the stylesheet alone, as gzip is")
   assert(nth(rows, 2):text(1) == "logo.png" and nth(rows, 2):text(3) == "image/png" and nth(rows, 2):text(4) == "0")
   assert(nth(rows, 3):text(1) == "notes.tl" and nth(rows, 3):text(3) == "application/octet-stream")
   assert(nth(rows, 4):text(1) == "page.tmpl")
   local packed = assert(Sqlite.text_rows(db, "SELECT gzip FROM payload WHERE path = 'css/app.css'"))
   assert(Compress.inflate("gzip", nth(packed, 1):text(1)) == css)
+  local squeezed = assert(Sqlite.text_rows(db, "SELECT zstd FROM payload WHERE path = 'css/app.css'"))
+  local expanded = assert(Stream.run(assert(Compress.zstd_decoder()), nth(squeezed, 1):text(1)))
+  assert(expanded == css and #nth(squeezed, 1):text(1) < #css)
   local bytes = assert(Sqlite.text_rows(db, "SELECT data FROM payload WHERE path = 'logo.png'"))
   assert(nth(bytes, 1):text(1) == "\137PNG\0\1\2", "binary bytes, a NUL among them, are kept")
   local modules = assert(Sqlite.text_rows(db,

@@ -412,7 +412,7 @@ end
 -- which writes every projection again once.
 
 --- The digest of the [`cosmic.mime`] this writer runs, which the `type` and
---- `gzip` of a `payload` row come from: the signature holds it, so an edit
+--- `gzip` and `zstd` of a `payload` row come from: the signature holds it, so an edit
 --- to that module writes the rows again.
 local function mime_digest(): string
   local bytecode, _ = Store.bytecode("cosmic.mime")
@@ -469,10 +469,10 @@ end
 
 --- Writes the files under `static/` as the `payload` rows a program reads
 --- them from: the path below `static/`, the bytes, their SHA-256 as staged,
---- the type [`Mime.of`] gives, and the gzip [`Mime.gzip`] finds worth
---- keeping. Both are functions of the path and bytes alone, so the
---- projection stays a function of the tree.
--- TODO: keep the gzip of a file in the working database by its hash and
+--- the type [`Mime.of`] gives, and the gzip [`Mime.gzip`] and zstd
+--- [`Mime.zstd`] find worth keeping. All are functions of the path and bytes
+--- alone, so the projection stays a function of the tree.
+-- TODO: keep the gzip and zstd of a file in the working database by its hash and
 -- [`mime_digest`], so an edit elsewhere in the tree does not compress every
 -- asset again; the cache needs a table in [`build/schema.tl`].
 local function fill_payload(db: Sqlite.Handle): boolean, string
@@ -483,11 +483,15 @@ local function fill_payload(db: Sqlite.Handle): boolean, string
   end
   for _, row in ipairs(files) do
     local path, data, sha256 = row:text(1), row:text(2), row:text(3)
+    local null: Sqlite.Value = {}
     local packed = Mime.gzip(path, data)
+    local zstd = Mime.zstd(path, data)
     local ok, failure = Sqlite.run(db,
-      "INSERT INTO out.payload (path, data, sha256, type, gzip) VALUES (?1, ?2, ?3, ?4, ?5)",
+      "INSERT INTO out.payload (path, data, sha256, type, gzip, zstd) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
       { text(path), blob(data), text(sha256), text(Mime.of(path)),
-        packed ~= nil and blob(packed) or {} })
+        if packed ~= nil then blob(packed) else null end,
+        if zstd ~= nil then blob(zstd) else null end })
     if not ok then
       return false, "static/" .. path .. ": " .. failure
     end

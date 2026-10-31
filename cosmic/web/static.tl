@@ -2,7 +2,7 @@
 --- embedded in the executable, or a directory in development) over GET
 --- and HEAD: strong ETags from the content hash, `If-None-Match`,
 --- `If-Modified-Since` where the source has times, `Range` with
---- `If-Range`, a stored gzip variant, and fingerprinted names
+--- `If-Range`, stored zstd and gzip variants, and fingerprinted names
 --- (`/static/css/app.3f9a1c8e2b.css`) that are cached for a year.
 ---
 ---     local StaticFiles = require("cosmic.web.static")
@@ -28,7 +28,6 @@ local Server = require("cosmic.http.server")
 local Time = require("cosmic.time")
 local Types = require("cosmic.web.types")
 local Url = require("cosmic.url")
-local String = require("cosmic.string")
 
 local record StaticFiles
   --- What [`StaticFiles.handler`] and [`StaticFiles.mount`] take.
@@ -51,9 +50,14 @@ local record StaticFiles
     --- Added to every 200, 206, 304 and 416, replacing a header of the
     --- same name.
     headers?: {string:string}
-    --- Serve the source's gzip variant; default true. `false` serves the
-    --- plain bytes.
+    --- Serve the source's gzip variant; default true. `false` never
+    --- serves it.
     gzip?: boolean
+    --- Serve the source's zstd variant; default true. `false` never serves
+    --- it. With both, the client's Accept-Encoding chooses
+    --- ([`Server.encoding`]: zstd on a tie), and with neither it gets the
+    --- plain bytes.
+    zstd?: boolean
   end
 end
 
@@ -128,23 +132,19 @@ local function relative(req: Types.Request): string?
   return rel
 end
 
---- Whether `Accept-Encoding` `header` takes gzip: the token, or `*`, with
---- a q-value other than 0; an explicit gzip beats `*`.
-local function takes_gzip(header: string?): boolean
-  if header == nil then return false end
-  local star: boolean? = nil
-  for item in (header .. ","):gmatch("([^,]*),") do
-    local token, rest = item:match("^%s*([^;%s]*)(.*)$")
-    if token ~= nil and rest ~= nil then
-      local params = String.trim(rest)
-      token = token:lower()
-      local q = params:match(";%s*[qQ]%s*=%s*([%d.]+)")
-      local accepted = not (q ~= nil and (tonumber(q) or 0) == 0)
-      if token == "gzip" or token == "x-gzip" then return accepted end
-      if token == "*" then star = accepted end
-    end
-  end
-  return star == true
+--- The coding `asset` is sent in for Accept-Encoding `header`: "zstd" or
+--- "gzip" when the asset holds that variant, `zstd` or `gzip` allow it and
+--- [`Server.encoding`] picks it by the client's q-values (zstd first on a
+--- tie); nil for the plain bytes, which is also the answer where the client
+--- takes none of them.
+local function coding_of(asset: Assets.Asset, header: string?, zstd: boolean, gzip: boolean): string?
+  local offered: mut {string} = {}
+  if zstd and asset.zstd ~= nil then offered[#offered + 1] = "zstd" end
+  if gzip and asset.gzip ~= nil then offered[#offered + 1] = "gzip" end
+  if #offered == 0 then return nil end
+  local chosen = Server.encoding(header, offered)
+  if chosen == "zstd" or chosen == "gzip" then return chosen end
+  return nil
 end
 
 --- Whether an `If-Range` header (an entity tag or a date) holds for a
@@ -168,7 +168,7 @@ end
 
 --- The headers every answer about `asset` carries.
 local function validators(asset: Assets.Asset, etag: string, control: string,
-                          encoded: boolean): mut {string: string | {string}}
+                          coding: string?): mut {string: string | {string}}
   local headers: mut {string: string | {string}} = {
     ["Content-Type"] = asset.type, ["ETag"] = etag, ["Cache-Control"] = control,
     ["X-Content-Type-Options"] = "nosniff",
@@ -177,7 +177,7 @@ local function validators(asset: Assets.Asset, etag: string, control: string,
   if Mime.scripted(asset.type) then
     headers["Content-Security-Policy"] = "sandbox"
   end
-  if encoded then headers["Content-Encoding"] = "gzip" end
+  if coding ~= nil then headers["Content-Encoding"] = coding end
   return headers
 end
 
@@ -191,6 +191,7 @@ function StaticFiles.handler(opts?: StaticFiles.Options): Types.Handler
   local plain_control = o.cache_control or DEFAULT_CACHE
   local immutable_control = o.immutable_control or DEFAULT_IMMUTABLE
   local use_gzip = o.gzip ~= false
+  local use_zstd = o.zstd ~= false
 
   local function missing(req: Types.Request): Types.Response
     local not_found = o.not_found
@@ -248,11 +249,13 @@ function StaticFiles.handler(opts?: StaticFiles.Options): Types.Handler
 
     local control = by_digest and immutable_control or plain_control
     local has_range = req:header("range") ~= nil
-    local encoded = use_gzip and asset.gzip ~= nil and not has_range and
-      takes_gzip(req:header("accept-encoding"))
+    local coding: string? = nil
+    if not has_range then
+      coding = coding_of(asset, req:header("accept-encoding"), use_zstd, use_gzip)
+    end
     local etag = asset.etag
-    if encoded then etag = etag:sub(1, -2) .. '-gzip"' end
-    local vary = asset.gzip ~= nil and use_gzip
+    if coding ~= nil then etag = etag:sub(1, -2) .. '-' .. coding .. '"' end
+    local vary = (asset.gzip ~= nil and use_gzip) or (asset.zstd ~= nil and use_zstd)
 
     local none_match = req:header("if-none-match")
     local not_modified = false
@@ -277,11 +280,16 @@ function StaticFiles.handler(opts?: StaticFiles.Options): Types.Handler
       return with_headers(res, o.headers)
     end
 
-    local headers = validators(asset, etag, control, encoded)
+    local headers = validators(asset, etag, control, coding)
     local res: Types.Response = { status = 200, headers = headers }
-    local data = encoded and asset.gzip or asset.data
+    local data = asset.data
+    if coding == "zstd" then
+      data = assert(asset.zstd)
+    elseif coding == "gzip" then
+      data = assert(asset.gzip)
+    end
     headers["Accept-Ranges"] = "bytes"
-    if method == "GET" and not encoded and has_range and
+    if method == "GET" and coding == nil and has_range and
         if_range_holds(req:header("if-range"), asset.etag) then
       local range = Server.range(req:header("range"), #data)
       if range.kind == "span" then
@@ -290,7 +298,7 @@ function StaticFiles.handler(opts?: StaticFiles.Options): Types.Handler
         headers["Content-Range"] = ("bytes %d-%d/%d"):format(first, last, #data)
         data = data:sub(first + 1, last + 1)
       elseif range.kind == "unsatisfiable" then
-        res = { status = 416, headers = { ["Content-Range"] = "bytes */" .. #data,
+        res = { status = 416, headers = { ["Content-Range"] = "bytes */" .. tostring(#data),
           ["X-Content-Type-Options"] = "nosniff" } }
         if vary then Response.add_header(res, "Vary", "Accept-Encoding") end
         return with_headers(res, o.headers)
@@ -335,7 +343,7 @@ function StaticFiles.mount(prefix: string, opts?: StaticFiles.Options): Types.Ro
     source = source, cache_control = opts and opts.cache_control,
     immutable_control = opts and opts.immutable_control, html = opts and opts.html,
     not_found = opts and opts.not_found, headers = opts and opts.headers,
-    gzip = opts and opts.gzip,
+    gzip = opts and opts.gzip, zstd = opts and opts.zstd,
   }
   return Route.mount_handler(prefix, StaticFiles.handler(o), { name = "static",
     reverse = function(full: string, params: {string:string}): string?, string
