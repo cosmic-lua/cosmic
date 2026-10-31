@@ -691,9 +691,10 @@ end
 --- the declarations the build derives from their headers, which are the modules [`build.gen_syscalls`] generates.
 --
 -- TODO: hold a declaration file that declares itself a binding (`--- @kind binding`) to the discipline too, and let the
--- `inputs` view say `binding` for it and for what the generator derives. It waits on every place that compares a kind
--- with `'decl'` (the importer, plans, the writer, link_index, the language server: some sixty) asking one declaration
--- test, since a `binding` kind would otherwise take those files out of every one of them.
+-- `inputs` view say `binding` for it and for what the generator derives. Every comparison of a kind with `'decl'` asks
+-- [`build.analysis_schema`]'s one declaration test now, so it waits only on the three that set or still compare the
+-- literal: [`build/test_key.tl`] (a harness module, which needs the epoch handling of doc/testing.md), the kind
+-- [`build/derivation.tl`] gives a derived declaration, and the one [`build/lsp/plan.tl`] gives a written one.
 local function binding_tables(run: Run): {Types.Decl: string}
   local out: mut {Types.Decl: string} = {}
   for _, target in ipairs(GenSyscalls.targets) do

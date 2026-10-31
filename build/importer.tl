@@ -236,8 +236,8 @@ function importer.tree_code(handle: work.Handle): importer.Code?, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT DISTINCT r.name FROM inputs i " ..
         "JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = ?1 " ..
-        "AND ?1 IN (SELECT path FROM inputs WHERE kind <> 'decl') " ..
-        "AND r.name IN (SELECT path FROM inputs WHERE kind <> 'decl') " ..
+        "AND ?1 IN (SELECT path FROM inputs WHERE " .. analysis_schema.not_declaration("kind") .. ") " ..
+        "AND r.name IN (SELECT path FROM inputs WHERE " .. analysis_schema.not_declaration("kind") .. ") " ..
         "ORDER BY r.name", { text(name) })
     if rows == nil then
       return nil, rows_trouble
@@ -251,7 +251,7 @@ function importer.tree_code(handle: work.Handle): importer.Code?, string
   local function source(name: string): string?, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT source FROM inputs WHERE path = ?1 " ..
-        "ORDER BY kind = 'decl' DESC LIMIT 1", { text(name) })
+        "ORDER BY " .. analysis_schema.declaration("kind") .. " DESC LIMIT 1", { text(name) })
     if rows == nil then
       return nil, rows_trouble
     end
@@ -538,7 +538,7 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
   local roots: mut {string} = {}
   for _, name in ipairs(analyzer_roots) do roots[#roots + 1] = name end
   local found, trouble = Sqlite.text_rows(db,
-    "SELECT DISTINCT source_hash FROM inputs WHERE kind <> 'decl' " ..
+    "SELECT DISTINCT source_hash FROM inputs WHERE " .. analysis_schema.not_declaration("kind") .. " " ..
       "AND path IN (SELECT value FROM json_each(?1)) ORDER BY source_hash",
     { text('["' .. table.concat(roots, '","') .. '"]') })
   if found == nil then return nil, trouble end
@@ -552,7 +552,7 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
     fresh[source.source_hash] = true
   end
   local planned, planned_trouble = Sqlite.text_rows(db,
-    "SELECT path, source_hash FROM inputs WHERE kind <> 'decl'")
+    "SELECT path, source_hash FROM inputs WHERE " .. analysis_schema.not_declaration("kind"))
   if planned == nil then return nil, planned_trouble end
   local hash_of: mut {string:string} = {}
   for _, row in ipairs(planned) do hash_of[row:text(1)] = row:text(2) end

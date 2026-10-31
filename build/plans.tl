@@ -8,6 +8,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local type PolicyRules = require("build.policy_rules")
 local type SyntaxReceivers = require("build.syntax_receivers")
+local AnalysisSchema = require("build.analysis_schema")
 local bind = require("build.bind")
 local standard_text = require("build.standard_text")
 local type module = require("build.module")
@@ -170,7 +171,7 @@ local function dependency_graph(db: Sqlite.Handle, modules: {Module}): Graph?, s
   local dependencies: mut {string:Dependency} = {}
   local rows, rows_trouble = Sqlite.text_rows(db,
     "SELECT path, kind, source_hash FROM inputs WHERE kind <> 'vendor' " ..
-      "ORDER BY path, kind = 'decl' DESC")
+      "ORDER BY path, " .. AnalysisSchema.declaration("kind") .. " DESC")
   if rows == nil then
     return nil, rows_trouble
   end
@@ -265,7 +266,7 @@ local function identify_in(known: Graph, name: string, file: string,
         if not ok then
           return false, trouble
         end
-        if child.kind == "decl" and dependencies["\0" .. required] ~= nil then
+        if AnalysisSchema.is_declaration(child.kind) and dependencies["\0" .. required] ~= nil then
           graph[#graph + 1] = slot .. "\nloads\n" .. required
           ok, trouble = visit("\0" .. required, required)
           if not ok then
@@ -355,7 +356,7 @@ local function fragments_in(known: Graph, line_of: function(string, Dependency):
       if child ~= nil then
         lines[#lines + 1] = slot .. "\nrequires\n" .. required
         children[#children + 1] = required
-        if child.kind == "decl" and known.dependencies["\0" .. required] ~= nil then
+        if AnalysisSchema.is_declaration(child.kind) and known.dependencies["\0" .. required] ~= nil then
           lines[#lines + 1] = slot .. "\nloads\n" .. required
           children[#children + 1] = "\0" .. required
         end
@@ -667,7 +668,7 @@ function plans.collect(db: Sqlite.Handle): {Module}?, string
       "CASE WHEN i.path GLOB 'cosmic.*' THEN s.text ELSE '' END, coalesce(s.pruned, 0) " ..
       "FROM inputs i JOIN parsed p ON p.source_hash = i.source_hash " ..
       "LEFT JOIN stubs s ON s.source_hash = i.source_hash " ..
-      "WHERE i.kind NOT IN ('decl', 'vendor') ORDER BY i.path")
+      "WHERE " .. AnalysisSchema.not_declaration("i.kind") .. " AND i.kind <> 'vendor' ORDER BY i.path")
   if rows == nil then
     return nil, trouble
   end

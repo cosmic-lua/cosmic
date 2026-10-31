@@ -123,7 +123,7 @@ harness_epoch.acknowledged = {
 
   ["build.test_inputs"] = "3e1795794c1f76e4fc42314b7ed0ac1f455848397e86c01005de697d21e45581",
 
-  ["build.test_key"] = "4e94d131b7097f10249bb6a739621695486aaa7d48121dd43774a11f804ea4ae",
+  ["build.test_key"] = "f05c5ce85aa06bd54a63c9286a3500bc9433ce57aa84e75d7b232c9af1ef0725",
 
   ["build.test_policy"] = "b1eda91fc78d4da9c2216a5a78b3394c64e7bcf51cacb3d4469bc053ade829ea",
 
@@ -157,7 +157,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.sandbox.policy"] = "ce2cbf3101cfe8a57d0d946b3c1fe2b5bdb8626b0fa39f45b9bdcf46b9146c65",
 
-  ["cosmic.sqlite"] = "227f92af1fc7b51db0ccf769f8c0b917a4f50ce0bfbd5d38d6c5141f1ce329f4",
+  ["cosmic.sqlite"] = "1c571fba7ea7bafbaa1cb7bb91253c8419f74a9c12922b8a66c8c27183a9d97e",
 
   ["cosmic.string"] = "4696ea716c4b8f796923350161765a4fdc0313355d68c327902536123cf603a5",
 

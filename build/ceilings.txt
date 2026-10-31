@@ -4028,7 +4028,7 @@ build/compile_grammar_test.tl is_on_record 3
 
 build/flow.tl is_on_record 7
 
-build/removed_fix.tl is_on_record 6
+build/removed_fix.tl is_on_record 3
 
 build/standalone.tl is_on_record 3
 
