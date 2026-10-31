@@ -3,14 +3,15 @@ local positions = require("build.positions")
 --- A module record for [`positions.check`]: `file` decides its path and
 --- kind the way the importer's `inputs` view does, and `requires` is
 --- what it imports.
-local function module_at(file: string, requires: {string}): positions.Module
+local function module_at(file: string, requires: {string}, source: string): positions.Module
   local base = file:gsub("/init%.tl$", ""):gsub("%.tl$", "")
   return {
     path = (base:gsub("/", ".")),
     file = file,
     kind = if file:match("_test%.tl$") then "test" elseif
-      file:match("_example%.tl$") then "example" else "module" end,
-    source = "", source_hash = "", requires = requires, tests = {},
+      file:match("_example%.tl$") then "example" elseif
+      file:match("^cmd/[^/]+/main%.tl$") then "main" else "module" end,
+    source = source, source_hash = "", requires = requires, tests = {},
     has_top_level_return = true, generated = false, key = "", lua = "",
   }
 end
@@ -18,12 +19,15 @@ end
 --- [`positions.check`] over `files` (each file and what it requires), in a
 --- project tree or in cosmic's own.
 local function positioned(files: {{string}}, own_tree: boolean,
-                          carried?: function(name: string): boolean): boolean, string
+                          carried?: function(name: string): boolean, sources?: {string: string}): boolean, string
   local modules: mut {positions.Module} = {}
   for _, row in ipairs(files) do
     local requires: mut {string} = {}
     for i = 2, #row do requires[#requires + 1] = row[i] end
-    modules[#modules + 1] = module_at(row[1], requires)
+    local file = assert(row[1])
+    local source = ""
+    if sources ~= nil then source = sources[file] or "" end
+    modules[#modules + 1] = module_at(file, requires, source)
   end
   return positions.check(modules, { own = own_tree }, carried)
 end
@@ -68,48 +72,36 @@ local function test_position_opens_a_top_level_namespace()
   assert(ok, trouble)
 end
 
---- The server is the one closed member of cosmic's own tree that a file
---- outside its directory may import; its siblings stay private.
-local function test_position_opens_the_http_server_to_the_standard_library()
+--- A module that says `--- @public` is open to every importer, wherever it sits: the server is the one closed member of
+--- the http directory a file outside it may import; its siblings stay private.
+local function test_position_opens_a_module_that_says_it_is_public()
+  local tagged: {string: string} = { ["cosmic/http/server.tl"] = "--- An HTTP server.\n--- @public\nlocal x = 1\n" }
   local ok, trouble = positioned({
     { "cosmic/http/init.tl" }, { "cosmic/http/server.tl" }, { "cosmic/http/wire.tl" },
     { "cosmic/web/init.tl", "cosmic.http.server" },
-  }, true)
+  }, true, nil, tagged)
   assert(ok, trouble)
   ok, trouble = positioned({
     { "cosmic/http/init.tl" }, { "cosmic/http/wire.tl" },
     { "cosmic/web/init.tl", "cosmic.http.wire" },
-  }, true)
+  }, true, nil, tagged)
   assert(not ok and trouble:find("cosmic.http.wire is private to cosmic/http/", 1, true) ~= nil, trouble)
-end
-
---- The relay's address and grant modules and the Seatbelt module are the closed members that cosmic's own tree requires by
---- their own names, since the entries that stored them are gone; the other members of their directories stay private, and
---- a project tree, which holds none of these, gets no exception.
-local function opened_to_the_own_tree(dir: string, name: string)
-  local file = name:gsub("%.", "/") .. ".tl"
-  local ok, trouble = positioned({
-    { "cosmic/sandbox/init.tl" }, { file }, { "cosmic/child.tl", name },
-  }, true)
-  assert(ok, trouble)
+  assert(trouble:find("`--- @public`", 1, true) ~= nil, "the refusal says how to open it: " .. trouble)
+  -- Without the line the same require is refused; the line is the module's own, in any project, and CR LF counts.
   ok, trouble = positioned({
-    { "cosmic/sandbox/init.tl" }, { file }, { "cosmic/child.tl", name },
-  }, false)
-  assert(not ok and trouble:find(name .. " is private to " .. dir .. "/", 1, true) ~= nil, trouble)
-end
-
-local function test_position_opens_the_relay_and_seatbelt_modules_to_cosmics_own_tree()
-  opened_to_the_own_tree("cosmic/relay", "cosmic.relay.address")
-  opened_to_the_own_tree("cosmic/relay", "cosmic.relay.grant")
-  opened_to_the_own_tree("cosmic/sandbox", "cosmic.sandbox.seatbelt")
-  local ok, trouble = positioned({
-    { "cosmic/sandbox/init.tl" }, { "cosmic/sandbox/policy.tl" }, { "cosmic/child.tl", "cosmic.sandbox.policy" },
+    { "cosmic/http/init.tl" }, { "cosmic/http/server.tl" }, { "cosmic/web/init.tl", "cosmic.http.server" },
   }, true)
-  assert(not ok and trouble:find("cosmic.sandbox.policy is private to cosmic/sandbox/", 1, true) ~= nil, trouble)
-  ok, trouble = positioned({
-    { "cosmic/relay/address.tl" }, { "cosmic/relay/wire.tl" }, { "cosmic/child.tl", "cosmic.relay.wire" },
-  }, true)
-  assert(not ok and trouble:find("cosmic.relay.wire is private to cosmic/relay/", 1, true) ~= nil, trouble)
+  assert(not ok and trouble:find("cosmic.http.server is private to cosmic/http/", 1, true) ~= nil, trouble)
+  for _, own in ipairs({ true, false }) do
+    ok, trouble = positioned({
+      { "lib/init.tl" }, { "lib/part.tl" }, { "main.tl", "lib.part" },
+    }, own, nil, { ["lib/part.tl"] = "--- A part.\r\n--- @public\r\nlocal x = 1\r\n" })
+    assert(ok, trouble)
+    ok, trouble = positioned({
+      { "lib/init.tl" }, { "lib/part.tl" }, { "main.tl", "lib.part" },
+    }, own, nil, { ["lib/part.tl"] = "-- see --- @public for what it means\nlocal x = 1\n" })
+    assert(not ok, "the line inside another line opens nothing")
+  end
 end
 
 --- A directory's own entry is a member of the directory around it: one
@@ -126,14 +118,17 @@ local function test_position_closes_an_entry_nested_in_a_closed_directory()
 end
 
 --- In cosmic's own tree `build/` is private to the tool: the standard
---- library and its examples may not import it, while the binary, tests
+--- library and its examples may not import it, while the binary (a main), tests
 --- and test support may. A project's own `build/` is its own business.
 local function test_position_keeps_build_private_in_cosmics_own_tree()
   local ok, trouble = positioned({
     { "build/clock.tl" }, { "cosmic/time.tl", "build.clock" },
   }, true)
-  assert(not ok and trouble:find("cosmic/time.tl: build.clock is private to build/", 1, true) ~= nil,
+  assert(not ok and trouble:find("cosmic/time.tl: build.clock is private to build/ in cosmic's own tree", 1, true) ~= nil,
     trouble)
+  -- A file of `cmd/` that is no main is the library's like any other.
+  ok, trouble = positioned({ { "build/clock.tl" }, { "cmd/cosmic/helper.tl", "build.clock" } }, true)
+  assert(not ok and trouble:find("cmd/cosmic/helper.tl: build.clock is private to build/", 1, true) ~= nil, trouble)
   ok, trouble = positioned({
     { "build/clock.tl" }, { "cosmic/time_example.tl", "build.clock" },
   }, true)
@@ -150,26 +145,33 @@ local function test_position_keeps_build_private_in_cosmics_own_tree()
   assert(ok, trouble)
 end
 
---- In cosmic's own tree only a test may import a test: the tool's
---- identity leaves every test out, so it must carry none, and a module
---- it carries that required one would carry it. A project's own
---- program may, since its binary is built from its tree whole.
+--- In cosmic's own tree only a test or test support may import a test: the tool's identity leaves every test out, so it
+--- must carry none, and a module it carries that required one would carry it. Test support is a file of the top-level
+--- `test/` directory, which is no more the tool's. A project's own program may, since its binary is built from its
+--- tree whole.
 local function test_position_keeps_tests_to_tests_in_cosmics_own_tree()
-  for _, importer in ipairs({ "cosmic/time.tl", "cosmic/time_example.tl",
-      "build/clock.tl", "cmd/cosmic/main.tl" }) do
+  for _, importer in ipairs({ "cosmic/time.tl", "cosmic/time_example.tl", "build/clock.tl", "cmd/cosmic/main.tl" }) do
     local ok, trouble = positioned({
       { "cosmic/fixture_test.tl" }, { importer, "cosmic.fixture_test" },
     }, true)
-    assert(not ok and trouble:find(importer .. ": cosmic.fixture_test is a test", 1, true) ~= nil,
+    assert(not ok and trouble:find(importer .. ": cosmic.fixture_test is a test or test support", 1, true) ~= nil,
       importer .. ": " .. tostring(trouble))
   end
   local ok, trouble = positioned({
     { "cosmic/fixture_test.tl" }, { "cosmic/time_test.tl", "cosmic.fixture_test" },
+    { "test/probe.tl", "cosmic.fixture_test" },
   }, true)
   assert(ok, trouble)
+  -- Support is required by tests and by support, and by nothing else.
   ok, trouble = positioned({
-    { "fixture_test.tl" }, { "shared_example.tl", "fixture_test" },
-    { "cmd/hello/main.tl", "fixture_test" },
+    { "test/helper.tl" }, { "test/probe.tl", "test.helper" }, { "cosmic/time_test.tl", "test.helper" },
+  }, true)
+  assert(ok, trouble)
+  ok, trouble = positioned({ { "test/helper.tl" }, { "lib/time.tl", "test.helper" } }, true)
+  assert(not ok and trouble:find("lib/time.tl: test.helper is a test or test support", 1, true) ~= nil, trouble)
+  ok, trouble = positioned({
+    { "fixture_test.tl" }, { "shared_example.tl", "fixture_test" }, { "cmd/hello/main.tl", "fixture_test" },
+    { "test/helper.tl" }, { "app.tl", "test.helper" },
   }, false)
   assert(ok, trouble)
 end
@@ -210,24 +212,20 @@ local function test_position_lets_a_closed_directory_import_an_open_namespace()
   assert(not ok and trouble:find("lib/fs.tl: app.part is private to app/", 1, true) ~= nil, trouble)
 end
 
---- A Teal module directly in `cosmic/internal/` is shared machinery: the
---- tree's own `cosmic/`, `build/`, `cmd/` and tests import it, though
---- its home has a slash, and anything else in cosmic's own tree does not.
-local function test_position_opens_cosmic_internal_to_the_trees_own_modules()
+--- In cosmic's own tree `cosmic/internal/` is internal to the tree root, not to `cosmic/`: the library's implementation
+--- includes the tool, its main and its tests, and so everything beside `cosmic/` that the root holds.
+local function test_position_opens_cosmic_internal_to_the_whole_own_tree()
   local ok, trouble = positioned({
     { "cosmic/internal/shared.tl" },
     { "cosmic/net.tl", "cosmic.internal.shared" },
     { "build/user.tl", "cosmic.internal.shared" },
     { "cmd/tool/main.tl", "cosmic.internal.shared" },
     { "cosmic/internal/shared_test.tl", "cosmic.internal.shared" },
-    { "ci/user_test.tl", "cosmic.internal.shared" },
+    { "lang/user.tl", "cosmic.internal.shared" },
+    { "eval/user.tl", "cosmic.internal.shared" },
+    { "core/user_test.tl", "cosmic.internal.shared" },
   }, true)
   assert(ok, trouble)
-  ok, trouble = positioned({
-    { "cosmic/internal/shared.tl" }, { "ci/user.tl", "cosmic.internal.shared" },
-  }, true)
-  assert(not ok and trouble:find("ci/user.tl: cosmic.internal.shared is internal to cosmic",
-    1, true) ~= nil, trouble)
 end
 
 --- A project tree may not require a `cosmic.internal.*` name, whether its
@@ -245,4 +243,47 @@ local function test_position_refuses_cosmic_internal_in_a_project_tree()
   assert(not ok and trouble:find("a project may not require it", 1, true) ~= nil, trouble)
   ok, trouble = positioned({ { "app/main.tl", "cosmic.internal.json" } }, false, carries)
   assert(ok, trouble)
+end
+
+--- A module whose path has an `internal` directory component may be required only by modules under that component's
+--- parent, in every project, as in Go: the refusal names the rule and the two ways out.
+local function test_position_holds_an_internal_directory_to_the_modules_around_it()
+  local ok, trouble = positioned({
+    { "app/internal/store.tl" }, { "app/main.tl", "app.internal.store" }, { "app/cli/run.tl", "app.internal.store" },
+  }, false)
+  assert(ok, trouble)
+  ok, trouble = positioned({ { "app/internal/store.tl" }, { "other/main.tl", "app.internal.store" } }, false)
+  assert(not ok and trouble:find("other/main.tl: app.internal.store is internal to app/ (it sits in app/internal/); " ..
+      "only a module under app/ may require it: move other/main.tl under app/, or app/internal/store.tl out of internal/",
+    1, true) ~= nil, trouble)
+  -- A top-level `internal/` is the project's own: every module of it.
+  ok, trouble = positioned({ { "internal/store.tl" }, { "main.tl", "internal.store" }, { "lib/run.tl", "internal.store" } },
+    false)
+  assert(ok, trouble)
+  -- The last `internal` scopes: a.internal.b.internal.c is internal to a/internal/b/.
+  ok, trouble = positioned({ { "a/internal/b/internal/c.tl" }, { "a/internal/b/d.tl", "a.internal.b.internal.c" },
+    { "a/e.tl", "a.internal.b.internal.c" } }, false)
+  assert(not ok and trouble:find("a/e.tl: a.internal.b.internal.c is internal to a/internal/b/", 1, true) ~= nil, trouble)
+  -- It stands in the place of the closed-directory rule for the module: its entry and a nested module alike.
+  ok, trouble = positioned({ { "app/internal/init.tl" }, { "app/internal/deep/x.tl" }, { "app/main.tl", "app.internal",
+    "app.internal.deep.x" } }, false)
+  assert(ok, trouble)
+  -- A directory that only holds the word is no internal one.
+  ok, trouble = positioned({ { "app/internals/store.tl" }, { "other/main.tl", "app.internals.store" } }, true)
+  assert(not ok and trouble:find("is private to app/internals/", 1, true) ~= nil, "a different name keeps the ordinary rule: " .. tostring(trouble))
+  ok, trouble = positioned({ { "app/internal.tl" }, { "other/main.tl", "app.internal" } }, false)
+  assert(ok, trouble)
+end
+
+--- The two exceptions hold in cosmic's own tree alone. A project's `cosmic/internal/` is refused whole (the reserved
+--- namespace), and its `build/` is its own: neither takes the exception the library's does.
+local function test_position_keeps_the_two_exceptions_to_cosmics_own_tree()
+  local ok, trouble = positioned({ { "lang/x/internal/y.tl" }, { "eval/z.tl", "lang.x.internal.y" } }, true)
+  assert(not ok and trouble:find("is internal to lang/x/", 1, true) ~= nil, trouble)
+  ok, trouble = positioned({ { "cosmic/internal/s.tl" }, { "lang/user.tl", "cosmic.internal.s" } }, false)
+  assert(not ok and trouble:find("cosmic.internal.s is internal to cosmic's own tree", 1, true) ~= nil, trouble)
+  ok, trouble = positioned({ { "build/clock.tl" }, { "lib/time.tl", "build.clock" } }, false)
+  assert(ok, trouble)
+  ok, trouble = positioned({ { "build/clock.tl" }, { "lib/time.tl", "build.clock" } }, true)
+  assert(not ok, "in the tree itself the directory is the tool's")
 end

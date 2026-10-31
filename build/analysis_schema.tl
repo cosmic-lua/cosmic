@@ -80,10 +80,35 @@ function analysis_schema.binding_tag(): string
   return binding_tag
 end
 
+--- Whether `text` holds `tag` as a line of its own, a file saved with CR LF line ends as well as one with LF.
+local function holds_line(text: string, tag: string): boolean
+  return ("\n" .. text:gsub("\r\n", "\n") .. "\n"):find("\n" .. tag .. "\n", 1, true) ~= nil
+end
+
 --- Whether the text of a declaration file holds [`analysis_schema.binding_tag`] as a line of its own, a file saved with
 --- CR LF line ends as well as one with LF.
 function analysis_schema.declares_binding(text: string): boolean
-  return ("\n" .. text:gsub("\r\n", "\n") .. "\n"):find("\n" .. binding_tag .. "\n", 1, true) ~= nil
+  return holds_line(text, binding_tag)
+end
+
+local public_tag <const> = "--- @public"
+
+--- The line a module of a closed directory holds to open itself to every importer, as a module of a namespace is
+--- ([`build.positions`]). Like [`analysis_schema.binding_tag`], a line of the module's doc block that the docs leave out.
+function analysis_schema.public_tag(): string
+  return public_tag
+end
+
+--- Whether the source of a module holds [`analysis_schema.public_tag`] as a line of its own.
+function analysis_schema.declares_public(text: string): boolean
+  return holds_line(text, public_tag)
+end
+
+--- Whether `path`, below the root, is test support: a file of the top-level `test/` directory, which no module that is
+--- no test may require, as it may no test, since the tool carries neither ([`build.positions`]). It is a layout contract
+--- like `*_test.tl`, the same in every project.
+function analysis_schema.is_support(path: string): boolean
+  return globbed("test/*", path)
 end
 
 --- The SQL expression for the kind of the file whose path is in `column`: `binding`, `decl`, `test`, `example`, `main` or

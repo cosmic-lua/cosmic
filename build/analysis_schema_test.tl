@@ -114,3 +114,24 @@ local function test_the_declaration_predicate_selects_what_the_comparisons_did(_
     assert(analysis_schema.is_declaration(kind) == (kind == "decl" or kind == "binding"), kind)
   end
 end
+
+--- The `--- @public` line is read as the binding line is: on a line of its own, with LF or CR LF, not inside another
+--- line or with anything after it.
+local function test_the_public_line_is_read_on_a_line_of_its_own()
+  assert(analysis_schema.declares_public("--- A module.\n--- @public\nlocal x = 1\n"))
+  assert(analysis_schema.declares_public("--- A module.\r\n--- @public\r\nlocal x = 1\r\n"))
+  assert(analysis_schema.declares_public("--- @public"))
+  assert(not analysis_schema.declares_public("-- see --- @public for what it means\n"))
+  assert(not analysis_schema.declares_public("--- @public \n"))
+  assert(not analysis_schema.declares_public("--- @publicly\n"))
+  assert(not analysis_schema.declares_public("--- @kind binding\n"))
+end
+
+--- Test support is a file of the top-level `test/` directory, whatever its name; a `test/` further down is not.
+local function test_support_is_the_top_level_test_directory()
+  assert(analysis_schema.is_support("test/portable/tool.tl"))
+  assert(analysis_schema.is_support("test/helper.tl"))
+  assert(not analysis_schema.is_support("cosmic/test/helper.tl"))
+  assert(not analysis_schema.is_support("testdata/x.tl"))
+  assert(not analysis_schema.is_support("tests/x.tl"))
+end

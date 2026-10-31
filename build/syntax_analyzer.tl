@@ -200,8 +200,8 @@ end
 --- The body of each comment in `run` that is documentation: the `---` lines when the run has any, so a `--` note
 --- beside them stays out of the doc text, and every line of a run of `--` alone, which documents a script or a
 --- module. A `TODO:` comment, with the lines that carry it on, is never documentation, and the blank line it leaves
---- beside another is dropped with it; nor is the line that declares a table of C bindings
---- ([`build.analysis_schema`]'s `binding_tag`), which is for the build.
+--- beside another is dropped with it; nor are the lines that declare a table of C bindings or open a module
+--- ([`build.analysis_schema`]'s `binding_tag` and `public_tag`), which are for the build.
 local function doc_bodies(run: {Lexer.Comment}): {string}
   local any = false
   for _, c in ipairs(run) do
@@ -215,7 +215,7 @@ local function doc_bodies(run: {Lexer.Comment}): {string}
   for index, c in ipairs(run) do
     if skipped[index] == true then
       dropped = true
-    elseif c.text:gsub("\r$", "") == AnalysisSchema.binding_tag() then
+    elseif c.text:gsub("\r$", "") == AnalysisSchema.binding_tag() or c.text:gsub("\r$", "") == AnalysisSchema.public_tag() then
       -- A line of the block like a `TODO:` one: the blank line beside it goes the same way.
       dropped = true
     elseif c.text:sub(1, 3) == "---" or not any then
