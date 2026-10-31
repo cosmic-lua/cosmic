@@ -151,7 +151,15 @@ the sandbox cannot name different files. The `checks` part alone does not do thi
 separates the modes and says nothing of which bytes the worker reads.
 
 Until that lands, a checked run keeps no verdict of a module that declares `store`
-(`rec.effective[m.path].store`) and runs it every time.
+(`rec.effective[m.path].store`) and runs it every time. The keep rule alone is not enough:
+[`test_key.lookup`] would still stand such a test on a row in the shared file, so the same
+condition makes `lookup` answer `run` for it in a checked run, whatever the file holds.
+
+The `TODO:` at [`build/test_key.tl`] (around line 2352) stays. It says that an unsandboxed
+process a test starts reads the whole projection, which its key holds only by the closure
+store's bytes. In a checked run that process reads the ordinary projection while the worker
+runs the checked one, so the gap now applies to checked runs as well; the plan leaves the
+`TODO:` as it is and adds no key part for it.
 
 ### The `checks` part
 
@@ -202,7 +210,8 @@ A pass is kept under its checked key only when all hold:
 (2) closes a hole the key cannot: a worker of a checked run that installed no hooks
 passes having checked nothing, and its verdict would stand for every later run of those
 bytes. [`build.test_worker`]'s report gains `checked?: boolean`, set when the report is made, as
-`rawget(_G, "__fact") == worker.fact`: the hook the compile's wraps call is the harness's,
+`rawget(_G, "__fact") == worker.fact` and `rawget(_G, "__cosmic_tc")` equal to the
+parameter hook `install_checks` defined: the hook the compile's wraps call is the harness's,
 not the stub that [`lang.codegen`] defines where none is. [`worker.judge`] fails a report that
 lacks it when the run is checked (`Judging` gains `checks`), and the message names the
 cause. Setting the flag where `install_checks` ran would say only that the call happened.
@@ -211,7 +220,10 @@ The comments of [`build/test_worker.tl`] (lines 320 and 663) describe a fork che
 "n". `parse_check` refuses a spec of that kind ("a check of no kind"), which raises and
 leaves no row. Nothing in the tree writes one. The plan deletes the stale text and makes
 the refusal record a row, since a raise that leaves no row is the one outcome rule 3
-cannot see.
+cannot see. The same holds for every malformed spec in the hooks, of any kind and not only
+this one: a spec with a missing field, a name or a declared kind that does not parse, or a
+field count that does not match records a row of its own kind and fails the test, so no
+hook raises through a path that leaves a clean report.
 
 (3) keeps the report complete. A test that met a violation (a `parameter` row outside
 `cosmic/` that the run only reports, a `fact` row a `pcall` swallowed, a `cosmic/`
@@ -242,7 +254,12 @@ keys in the same file would evict the first at every save. Even alone, 7852 rows
 (4%) of slack, and a key that moves leaves its old row until the trim, so a file of
 checked rows needs a larger bound: `kept_rows` becomes a property of the open cache,
 16384 for a file named `*-checked.db` or `narrowing.db`, 8192 otherwise (twice the suite,
-so the old rows of a base a few commits behind survive).
+so the old rows of a base a few commits behind survive). The bound lives in
+[`build.shared_verdicts`], which the tree's tool runs, but CI's `verdicts-trim` and
+`verdicts-merge` run on the pinned driver, which keeps 8192 rows until the pin moves. A
+`TODO:` beside `kept_rows` reads "once ci/cosmic-driver.pin names a release whose
+shared_verdicts keeps the checked bound, trim and merge the narrowing file at 16384". Until
+then the narrowing file is trimmed to the rows a run used (7852 or fewer), which fit.
 
 - Locally, `shared_verdicts.location(environment?, checked?)` (a second parameter; its
   caller is `build/test.tl:1842`) answers `verdicts/verdicts-checked.db` beside
@@ -271,19 +288,20 @@ which is what the nightly and a merge that moves the harness do.
 The job `checked-narrowing` is sharded before this plan lands: a two-part matrix, each
 part `cosmic test --check-types --shard I/2` (`COSMIC_CI_NARROWING_SHARD`), with the
 whole-run check of the C functions held by linux-x86_64's native whole run. This section
-is written on that job. It reuses the checked suite's machinery (`checked-shard`,
-`verdicts-merge`) without a gathering run, because the leg owns the whole-run check.
+is written on that job. It reuses the checked suite's machinery (`checked-shard`, the
+`checked` job, `verdicts-merge`) without a gathering run, because the leg owns the
+whole-run check.
 
 **One merged cache for both shares.** [`test.dealt`] deals the tests to the shares in
 sorted order, so adding or removing a test moves tests between shares. A share that
 restored only its own part's rows would find the tests dealt to it new and run them.
 Each share therefore restores one narrowing cache that holds the rows of all shares and
 stands on any row, whichever share earned it. It trims to its own rows and uploads them.
-Main's save and the queue's seed merge both parts' rows into the one entry.
+A merge job joins both parts' rows for main's save, the seed and the run behind.
 
 The edits to [`.github/workflows/ci.yml`]:
 
-1. **Name the host and its cache.** The job calls `leg-host-id` with
+1. **Name the host and its cache.** The shares and the merge job call `leg-host-id` with
    `linux-x86_64-checked`, the `checked` job's name. Call it with
    `linux-x86_64-checked-narrowing`: the same image and engine give the same
    `COSMIC_HOST_ID`, and only the cache prefix differs (`ci/cosmic_ci/host_id.tl:207`).
@@ -293,10 +311,15 @@ The edits to [`.github/workflows/ci.yml`]:
 2. **Restore.** Both parts look up and restore the entry of the tree's base on main
    (`verdicts-base-lookup`, `verdicts-base`, `verdicts-restore`), which holds both parts'
    rows.
-3. **Run ahead.** In the merge queue, each part finds the run ahead (`queue-ahead`) and
-   merges the `verdicts-linux-x86_64-checked-narrowing-shard-*` artifacts of both parts
-   of it, with `verdicts-merge`, as `checked` merges its shares'. `READY_SECONDS` is set
-   from the first runs (a share of the checked suite's is 600).
+3. **Run ahead.** `queue-ahead` takes one `ARTIFACT` and one `JOB`. A share asks twice, once
+   for each part of the run ahead (`JOB` `linux-x86_64-checked-narrowing-<part>`, `ARTIFACT`
+   `verdicts-linux-x86_64-checked-narrowing-shard-<part>`), and merges what it downloads
+   with `verdicts-merge`. Each call may wait up to its `WITHIN_SECONDS` (90 s), so the two
+   cost up to 180 s; the plan sets the second's wait to what the first left, or makes
+   `ARTIFACT` and `JOB` lists, whichever the driver's tests find simpler. `READY_SECONDS`
+   is the time after a part starts by which it has kept its verdicts; with two parts it is
+   the later of the two, and is set from the first runs (a share of the checked suite's is
+   600).
 4. **Run.** `phase_checked_narrowing` builds its line from `Orchestration.suite_run`'s
    words and names the file, in place of the fixed `test --check-types --shard I/2`
    (`ci/cosmic_ci/orchestration.tl:1687`):
@@ -311,19 +334,47 @@ The edits to [`.github/workflows/ci.yml`]:
    `Orchestration.stands` then decides as for every suite: a push and the merge queue stand
    on verdicts, and main's scheduled run, a manual run, and a queue run whose change moves
    [`build/harness_epoch.tl`] run every test (`--all`, nothing shared).
+   `--census` also counts, per share, the tests it ran that the restored cache did not
+   answer, so the first runs show how many misses are the reshuffle of [`test.dealt`] and how
+   many are edits.
 5. **Trim and keep.** Each part runs `verdicts-trim` to its own rows and uploads them as
-   `verdicts-linux-x86_64-checked-narrowing-shard-<part>` in every event, for the run
-   behind and for the save.
-6. **Save and seed.** A job that needs both parts (the shape of `checked`) downloads and
-   merges their artifacts, then saves the one entry on `COSMIC_CI_SAVES` under the job's
-   prefix and the commit's. `seed`, `prune`, `invalidate` and `LEGS`
-   (`ci/cosmic_ci/queue_seed.tl:255`) gain it. It runs no test. In a run that saves it
-   runs past a failed part and fails, as `checked` does, so that main's newest entry
-   loses the failed test's pass.
+   `verdicts-linux-x86_64-checked-narrowing-shard-<part>` in every event.
+6. **The merge job** (`checked-narrowing-merge`, named `linux-x86_64-checked-narrowing`),
+   shaped like `checked` and needed by nothing but the `ci` gate, `seed`, `prune` and
+   `invalidate`. It is the job whose result stands for the narrowing run, and it is a
+   complete job rather than a bookkeeping step:
+   - Its `if` mirrors `checked`'s: it runs on a full run that is not a `reuse` hit, and
+     past a failed part on a push or the schedule, where it fails. On a `merge_group` run
+     it is skipped when a part failed. A failed part in a run that saves must fail this job,
+     or main's newest entry would keep the failed test's pass.
+   - It starts the leg's container and calls `leg-host-id` (item 1), restores the base
+     entry, downloads both parts' artifacts and merges them with `verdicts-merge`.
+   - It runs `verdicts-trim`. The argument is `whole` when the job failed and `since`
+     (the run's start, `steps.names.outputs.since`) when it passed, as `checked` does
+     (`ci.yml:1462`). `cache_trim` keeps every row of a file none of whose rows the run
+     reached, so the trim of a merge job that ran no test leaves the merged rows alone
+     rather than emptying them; the plan states that and tests it.
+   - It runs `queue-stage` and uploads `seed-linux-x86_64-checked-narrowing`, as `checked`
+     does (`ci.yml:1523`, `:1073`).
+   - It saves the one entry on `COSMIC_CI_SAVES`, under the job's prefix and the commit's
+     (`ci.yml:1546` to `:1566`).
+   - It has a `seed` matrix entry with `checked: true`, which means verdicts alone to
+     save and no product (`ci.yml:2283`, `:2344`, `:2355`), and its name is in `LEGS`
+     (`ci/cosmic_ci/queue_seed.tl:255`, and `LEGS` in ci.yml at line 150). Without both,
+     `queue-find` finds no complete queue run, `reuse` stops reusing, and every push to
+     main reruns all of its legs: a regression for every leg, not for this job.
+   - The `ci` gate's `NARROWING` (`ci.yml:2482`) reads this job's result, and
+     `invalidate`'s `needs` (`ci.yml:2583`) lists it, in place of the matrix job's.
+   - Like `checked`, it takes a runner that may differ from the shares' in processor
+     features, so its rows may be keyed by the shares' host and not found under its own;
+     the merge reads the shares' artifacts by file, not by key, and the census of the first
+     runs counts the mismatches.
 
 The scheduled run saves, so main's newest entry is the nightly's `--all` run: a test that
 passed in every earlier run and fails in this one takes its row out, and the entries
-under a commit are invalidated when the run fails (`invalidate`), as for the legs.
+under a commit are invalidated when the run fails (`invalidate`), as for the legs. A union
+merge of the rows of two failed shares can bring back a pass that the failing share
+deleted; `checked` has the same property, and the plan only records it.
 
 ## What only a whole run answers
 Two things, and the first is not this job's.
@@ -343,12 +394,30 @@ constants, so an unchecked compile has a count above 0.
 
 Instead [`importer.compile`] reports what it wrote: `Result` gains `checks_written`, the
 number of fact wraps and of parameter checks the code generator emitted
-([`lang.fact_wraps`] and [`lang.boundary_checks`] count them as they write), summed over the
-modules compiled and, for a module taken from the compile cache, read from the count that
-the cache entry stores with it. An unchecked compile writes none and reports 0. The line
-says `N fact wraps and M parameter checks written in the compile`, and the phase fails on
-N or M of 0. The count is the compile's, not the run's, so it stays true when every test
-stands.
+([`lang.fact_wraps`] and [`lang.boundary_checks`] count them as they write). An unchecked
+compile writes none and reports 0. The line says `N fact wraps and M parameter checks
+written in the compile`, and the phase fails on N or M of 0. The count is the compile's, not
+the run's, so it stays true when every test stands.
+
+**The count must survive the compile cache.** No cache entry stores one today: the
+`compiled_v2` row holds key, tool, lua, bytecode and `seen` (`build/cache_formats.tl:49`);
+the shared-compile entry holds lua, bytecode and references, all in its digest
+(`build/shared_compiles.tl:73`, `:200`, `:353`); and the `stands` and `elsewhere` branches of
+`compile_all` return only lua and bytecode (`build/importer.tl:1215`). A warm compile would
+report 0 and fail every good run. The plan carries the count the whole way:
+
+- [`lang.fact_wraps`] and [`lang.boundary_checks`] return their counts to `pipeline.generate`,
+  which puts them in [`plans.Generated`]; `compile_all` adds them to `Result.checks_written`.
+- The `compiled_v2` table becomes `compiled_v3` with two integer columns, `fact_wraps` and
+  `parameter_checks`, and the compile-format version in `cache_formats` is bumped. A
+  `stands` or `elsewhere` branch reads them with the lua.
+- The shared entry stores both counts inside its digest, so a counted entry cannot be
+  swapped for another with different counts without failing its digest check.
+- `importer.checks_format` takes a new value, so a checked row written without counts
+  re-keys and is compiled again once; an entry without counts is never read as 0.
+- The `importer.compile ... again` path copies the counts into the `Result` it rebuilds
+  (`build/importer.tl:1495`), where `compiled = 0, cached = #was.modules` would otherwise
+  leave them unset.
 
 The line also says what stood: `K tests stood on checked verdicts`. Each of them held no
 violation when it ran (rule 3 above), so the count of violations is the whole run's.
@@ -422,11 +491,13 @@ Each fails if a verdict stood wrongly.
    `run-time types:` line that says `0 fact wraps and 0 parameter checks` fails the phase. And
    `ci_workflow` tests that the job has the restore, trim and save steps and the
    `narrowing` host name.
-10. [`build/importer_test.tl`], `test_an_unchecked_compile_writes_no_check`: a project
-    compiled with `checks` reports `checks_written` above 0, and without it reports 0,
-    though a module of it names `__fact` in a string. And
-    `test_a_checked_run_that_carried_no_check_is_refused`, in
-    the file [`build/runtime_checks_tool_test.tl`], where a project with no typed parameter and no
+10. [`build/importer_test.tl`], `test_the_checks_written_survive_every_compile_path`: a
+    project compiled with `checks` reports the same `checks_written` cold, warm (the
+    working database's `stands`), and from the shared compile cache (`elsewhere`), each
+    above 0; compiled without it every path reports 0, though a module of the project names
+    `__fact` in a string. An entry written without counts is not read. And
+    `test_a_checked_run_that_carried_no_check_is_refused`, in the file
+    [`build/runtime_checks_tool_test.tl`], where a project with no typed parameter and no
     narrowed read says `0 fact wraps and 0 parameter checks`, and the guard (item 9) fails.
 11. [`build/declared_key_test.tl`],
     `test_a_store_modules_checked_key_holds_the_checked_projection`: a spec that declares
@@ -436,10 +507,15 @@ Each fails if a verdict stood wrongly.
     a change that alters only the checked bytecode of a module the test reads (a narrowed
     read added where the ordinary Lua is the same) moves the key, and an edit that alters
     only the ordinary projection leaves the checked verdict standing.
-12. `test_a_checked_report_holds_the_harness_hook`, in [`build/test_worker_test.tl`]: a
+12. `test_a_checked_report_holds_the_harness_hook`, with `__fact` and with `__cosmic_tc`
+    replaced in turn by a chunk's stub, in [`build/test_worker_test.tl`]: a
     report made where `__fact` is a chunk's stub, not [`worker.fact`], lacks `checked`. And
-    in [`build/declared_key_test.tl`] a spec with another harness digest of
-    [`build.test_worker`] makes another checked key and the same ordinary key.
+    in [`build/declared_key_test.tl`] a golden ordinary key is pinned for a fixed spec,
+    and the same spec with `projection_file = "cosmic.db"` leaves the preimage
+    byte-identical to it, so no ordinary key moves. A spec with another harness digest of
+    [`build.test_worker`] makes another checked key and the same ordinary key. And one
+    test for the merge job: a store module's checked run keeps no verdict, and `lookup`
+    answers `run` for it, with a row for it in the file.
 
 ## The harness epoch
 The change touches four harness modules: [`build.test_key`], [`build.declared_key`],
@@ -466,7 +542,8 @@ includes a cold narrowing job, once.
    count of tests and their seconds. Measure the true count (between 17 and 822). This
    changes nothing else.
 2. **Key, judge and keep rules, with [`doc/testing.md`].** Items 1 to 8 and 10 to 12 of the
-   tests, the `store` fix, `checks_written` and the larger bound. `--check-types` stands
+   tests, the `store` fix and its `lookup` rule, `checks_written` through the compile
+   caches (`compiled_v3`, the shared entry) and the larger bound. `--check-types` stands
    on its own verdicts locally. CI is unchanged: the narrowing job names no cache and runs
    everything. The text that says a checked run "runs every test, whatever verdict
    stands" ([`doc/testing.md`], `build/test.tl:92`, `build/test_key.tl:2010`, `ci.yml:1873`,
@@ -562,6 +639,7 @@ Open:
 [`build/runtime_checks_tool_test.tl`]: ../../build/runtime_checks_tool_test.tl
 [`build/sandboxed_verdicts_test.tl`]: ../../build/sandboxed_verdicts_test.tl
 [`build/shared_verdicts_test.tl`]: ../../build/shared_verdicts_test.tl
+[`build/test_key.tl`]: ../../build/test_key.tl
 [`build/test_worker.tl`]: ../../build/test_worker.tl
 [`build/test_worker_test.tl`]: ../../build/test_worker_test.tl
 [`ci/cosmic_ci/orchestration_test.tl`]: ../../ci/cosmic_ci/orchestration_test.tl
@@ -581,10 +659,12 @@ Open:
 [`lang/boundary_checks.tl`]: ../../lang/boundary_checks.tl
 [`lang/codegen.tl`]: ../../lang/codegen.tl
 [`lang/fact_wraps.tl`]: ../../lang/fact_wraps.tl
+[`plans.Generated`]: ../../build/plans.tl
 [`shared_verdicts.named`]: ../../build/shared_verdicts.tl
 [`test.dealt`]: ../../build/test.tl
 [`test_key.harness`]: ../../build/test_key.tl
 [`test_key.keep`]: ../../build/test_key.tl
+[`test_key.lookup`]: ../../build/test_key.tl
 [`test_sandbox.plan`]: ../../build/test_sandbox.tl
 [`worker.fact`]: ../../build/test_worker.tl
 [`worker.judge`]: ../../build/test_worker.tl
