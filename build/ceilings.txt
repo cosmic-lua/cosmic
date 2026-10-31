@@ -2968,7 +2968,7 @@ cosmic/web/htmx_test.tl map_field 13
 cosmic/web/input_multipart_fuzz_test.tl map_field 5
 
 
-cosmic/web/input_test.tl map_field 19
+cosmic/web/input_test.tl map_field 14
 
 cosmic/web/request_test.tl map_field 3
 
@@ -3942,7 +3942,7 @@ cosmic/web/input_fuzz_test.tl cast_refused 1
 cosmic/web/input_multipart_fuzz_test.tl cast_refused 2
 
 
-cosmic/web/input_test.tl cast_refused 7
+cosmic/web/input_test.tl cast_refused 6
 
 cosmic/web/request.tl cast_refused 1
 
@@ -5950,7 +5950,7 @@ build/rand.tl literal_needs_type 1
 
 build/sandbox.tl literal_needs_type 1
 
-build/sandbox_test.tl literal_needs_type 3
+build/sandbox_test.tl literal_needs_type 2
 
 build/shared_compiles.tl literal_needs_type 2
 

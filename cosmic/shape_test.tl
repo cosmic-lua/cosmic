@@ -286,6 +286,17 @@ local function test_a_failure_names_its_path_from_the_root()
   fails(nil, spec, "$: missing")
 end
 
+-- [`Json.null`] is missing for every kind a field can have, an enum and a record among them.
+local function test_json_null_is_missing_for_a_required_enum_or_record()
+  local keep: Json.DecodeOptions = { null_value = Json.null }
+  local cfg = Shape.record_of("Cfg").spec
+  fails(must(Json.decode('{"host": "h", "port": 1, "level": null}', keep)), cfg, "$.level: missing")
+  local looping = Shape.record_of("Looping").spec
+  fails(must(Json.decode('{"name": "n", "self": null}', keep)), looping, "$.self: missing")
+  fails(must(Json.decode('null', keep)), looping, "$: missing")
+  fails(Json.null, Shape.one_of("a", "b"), "$: missing")
+end
+
 local function test_a_key_that_is_not_an_identifier_is_quoted_in_the_path()
   local spec = Shape.record_of("Odd").spec
   assert(select(2, Shape.into({}, spec)) == '$["1st"]: missing')

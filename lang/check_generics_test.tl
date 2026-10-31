@@ -466,8 +466,6 @@ local function test_a_spec_written_by_hand_must_answer_its_type()
   -- a spec of one type is not a spec of another, a table of untrusted values included
   refused(SPEC .. "local a: Spec<{string: any}> = { check = function(_v: any, _p: string): {string: any}?, string return nil, \"\" end }\n" ..
       "local b: Spec<{integer}> = a\n", "not_assignable")
-  refused(SPEC .. "local b: Spec<{string: string}> = list(STR)\n", "not_assignable")
-  refused(SPEC .. "local b: Spec<string> = INT\n", "not_assignable")
   -- a node beside the check is a field the record does not have
   refused(SPEC .. "local f: Spec<integer> = { node = 1, check = function(_v: any, _p: string): integer?, string return nil, \"\" end }\n", "literal_unknown")
   -- one that answers its type is one

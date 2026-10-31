@@ -102,8 +102,6 @@ allowed["build.type_watch.skip_reason"] = "the reason `during` skips with, which
   "since a skipping test cannot show it"
 
 allowed["build.memprobe.sink"] = "where a mark writes its line, which a test takes in place of standard error"
-allowed["cosmic.shape.boolean"] = "a leaf of the set `Shape` builds a list or a map from; a record's own boolean fields come from its declaration (`record_of`), so a test is the one caller"
-
 allowed["build.dataset.load"] = "the loader load_text composes and falls back on, tested directly " ..
   "over rows a test builds, whose keys no file need hold"
 
@@ -121,9 +119,6 @@ local function allow(names: {string}, why: string)
     allowed[name] = why
   end
 end
-
-allowed["cosmic.shape.build"] = "the checks the build generates for a `record_of` call read a record's fields through it, in " ..
-  "the module that makes the call"
 
 allow({
   "build.syntax_analyzer.analyze",

@@ -23,10 +23,7 @@ local function leaf(kind: Shape.Kind): Shape.Node
 end
 
 local function record_node(fields: {string: Shape.Node}, strict: boolean): Shape.Node
-  local names: mut {string} = {}
-  for name in pairs(fields) do names[#names + 1] = name end
-  table.sort(names)
-  return { kind = "record", optional = false, fields = fields, names = names, strict = strict }
+  return { kind = "record", optional = false, fields = fields, strict = strict }
 end
 
 ShapeNodes.string, ShapeNodes.number, ShapeNodes.integer = leaf("string"), leaf("number"), leaf("integer")
@@ -38,7 +35,7 @@ function ShapeNodes.map(of: Shape.Node): Shape.Node
   return { kind = "map", optional = false, of = of }
 end
 function ShapeNodes.optional(of: Shape.Node): Shape.Node
-  return { kind = of.kind, optional = true, of = of.of, fields = of.fields, names = of.names, strict = of.strict,
+  return { kind = of.kind, optional = true, of = of.of, fields = of.fields, strict = of.strict,
     values = of.values }
 end
 function ShapeNodes.one_of(...: string | number | boolean): Shape.Node

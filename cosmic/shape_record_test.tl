@@ -62,13 +62,13 @@ local GOOD <const> = [[{
   "unlisted": true
 }]]
 
-local function test_the_node_describes_the_fields_in_byte_order()
+local function test_the_node_describes_the_fields()
   local node = described(PROFILE.spec)
   assert(node.kind == "record" and not node.optional)
-  local names = assert(node.names)
-  assert(table.concat(names, ",") == "address,admin,age,anything,by_key,inner,level,name,nickname,places,previous," ..
-      "score,scores,tags,weights", table.concat(names, ","))
   local fields = assert(node.fields)
+  local names: mut {string} = {}
+  for name in pairs(fields) do names[#names + 1] = name end
+  assert(#names == 15, tostring(#names))
   assert(assert(fields["address"]).kind == "record" and not assert(fields["address"]).optional)
   assert(assert(fields["previous"]).kind == "record" and assert(fields["previous"]).optional)
   assert(assert(fields["nickname"]).kind == "string" and assert(fields["nickname"]).optional)

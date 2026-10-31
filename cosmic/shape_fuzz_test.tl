@@ -21,6 +21,14 @@ local function byte(r: Recipe, n: integer): integer
   return b % n
 end
 
+--- The names of a record node's fields in byte order.
+local function names_of(node: Shape.Node): {string}
+  local names: mut {string} = {}
+  for name in pairs(assert(node.fields)) do names[#names + 1] = name end
+  table.sort(names)
+  return names
+end
+
 local KEYS <const> = { "a", "b", "id", "a key", "", "é", "\n", "1" }
 
 local function key(r: Recipe): string
@@ -113,7 +121,7 @@ local function gen_value(r: Recipe, spec: Shape.Node, depth: integer, strict: bo
     return t
   elseif kind == "record" then
     local t: mut {string: any} = {}
-    for _, name in ipairs(assert(spec.names)) do
+    for _, name in ipairs(names_of(spec)) do
       local field = assert(spec.fields)[name]
       local pick = byte(r, 6)
       if pick == 0 and (field.optional or not strict) then
@@ -202,7 +210,7 @@ local function fits(v: any, spec: Shape.Node): boolean
   for k in next, t do
     if not (k is string) or assert(spec.fields)[k] == nil then return false end
   end
-  for _, name in ipairs(assert(spec.names)) do
+  for _, name in ipairs(names_of(spec)) do
     if not fits(rawget(t, name), assert(spec.fields)[name]) then return false end
   end
   return true

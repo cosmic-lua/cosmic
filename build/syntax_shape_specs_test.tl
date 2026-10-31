@@ -121,7 +121,7 @@ local function test_each_field_kind_is_read_through_its_own_check()
   -- the record is built field by field, and the node describes its fields in byte order
   has(source, why, 'return { ["a"] = sh_v')
   has(source, why, '{ kind = "record", optional = false, fields = {')
-  has(source, why, 'names = { "a", "b", "i", "inner", "level", "list", "map", "maybe", "n", "o", "omitted", "s" } }')
+  has(source, why, 'Shape.build.object(sh_value, sh_path, { "a", "b", "i", "inner", "level", "list", "map", "maybe", "n", "o", "omitted", "s" }, sh_s1)')
   has(source, why, '{ kind = "one_of", optional = false, values = { "debug", "warn" } }')
 end
 
@@ -242,6 +242,18 @@ local function test_a_field_nested_in_a_list_or_map_is_named_with_its_place()
   refused("local type V = string | {V}\nlocal record R\n  v: V\nend", "R.v", "a recursive alias has no shape")
   refused("local record R\n  m: {string: string | integer}\nend", "R.m{}", "a union of more than one type has no shape")
   refused("local record R\n  m: {integer: string}\nend", "R.m", "a map keyed by anything but a string has no shape")
+end
+
+-- The function that checks a record names two locals for each field, and Lua allows 200 in one function.
+local function test_a_record_with_too_many_fields_is_refused_naming_the_limit()
+  local lines: mut {string} = { "local record R" }
+  for i = 1, 91 do lines[#lines + 1] = ("  f%d: string"):format(i) end
+  lines[#lines + 1] = "end"
+  refused(table.concat(lines, "\n"), "R", "more fields than the 90 allowed")
+  local fits: mut {string} = { "local record R" }
+  for i = 1, 90 do fits[#fits + 1] = ("  f%d: string"):format(i) end
+  fits[#fits + 1] = "end"
+  assert(of_record(table.concat(fits, "\n")) ~= nil)
 end
 
 local function test_a_record_that_holds_itself_is_refused()

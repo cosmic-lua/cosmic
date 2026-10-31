@@ -1,5 +1,6 @@
 --- The tests of [`build.pipeline`]: a module read, checked against its ceilings and written as Lua and bytecode by the
 --- new checker. The Lua is run, and compared with what the generator writes alone ([`lang.codegen`]) over the files of the tree.
+local ShapeStub = require("build.shape_stub")
 local Ceilings = require("build.ceilings")
 local Codegen = require("lang.codegen")
 local CompileGrammar = require("build.compile_grammar")
@@ -32,36 +33,7 @@ Test.policy{ grants = {
 } }
 
 --- The standard library of the checker's own tests, as the globals of every module, and the `cosmic.*` modules the cases name.
-local STANDARD <const>: {string: string} = {
-  ["cosmic.shape"] = table.concat({
-    "local record Shape",
-    "  record Node",
-    "    kind: string",
-    "    optional: boolean",
-    "    of?: Node",
-    "    fields?: {string: Node}",
-    "    names?: {string}",
-    "    strict?: boolean",
-    "    values?: {string | number | boolean}",
-    "  end",
-    "  record Spec<T>",
-    "    check: function(value: any, path: string): T?, string",
-    "  end",
-    "  record Build",
-    "    object: function(value: any, path: string, names: {string}, strict: boolean): {any: any}?, string",
-    "    get: function(t: {any: any}, name: string): any",
-    "    step: function(path: string, name: string): string",
-    "    failed: function(why: string, path: string): string",
-    "    not_one_of: function(path: string, value: any, ...: string): string",
-    "  end",
-    "  build: Build",
-    "  integer: Spec<integer>",
-    "  record_of: function<T>(name: string, make?: function(strict: boolean): Spec<T>, node?: Node): any",
-    "end",
-    "return Shape",
-    "",
-  }, "\n"),
-}
+local STANDARD <const>: {string: string} = ShapeStub.standard()
 
 --- The ceilings `text` holds, with no code closed: a program here has the errors the checker finds in it, whatever codes
 --- the tree has closed.

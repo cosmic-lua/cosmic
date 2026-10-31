@@ -101,7 +101,7 @@ end
 --- first request.
 function Example.check_spec()
   local ok, err = pcall(function()
-    Input.check_spec({ kind = "record", optional = false, names = { "extra" }, fields = {
+    Input.check_spec({ kind = "record", optional = false, fields = {
       extra = { kind = "map", optional = false, of = { kind = "string", optional = false } } } }, "form")
   end)
   assert(not ok)

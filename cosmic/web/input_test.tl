@@ -52,6 +52,45 @@ local record Counts
 end
 local COUNTS <const> = Shape.record_of("Counts")
 
+local record Texts
+  s: string
+  t: string?
+end
+local TEXTS <const> = Shape.record_of("Texts")
+
+local record Lists
+  nums: {integer}
+  tags: {string}?
+end
+local LISTS <const> = Shape.record_of("Lists")
+
+local record Deepest
+  d: string
+end
+local record Deeper
+  c: Deepest
+end
+local record Deep
+  b: Deeper
+end
+local record Top
+  a: Deep
+end
+local TOP <const> = Shape.record_of("Top")
+
+local record Inner
+  x: integer
+end
+local record Maybe
+  a: Inner?
+end
+local MAYBE <const> = Shape.record_of("Maybe")
+
+local record Mapped
+  m: {string: string}
+end
+local MAPPED <const> = Shape.record_of("Mapped")
+
 --- The first error of `invalid`, which every refusal here lists.
 local function first_error(invalid: Types.Invalid): Types.FieldError
   local first = assert(invalid.errors[1], "a refusal lists an error")
@@ -215,20 +254,19 @@ local function test_one_of_compares_text_or_the_listed_kind()
 end
 
 local function test_a_string_with_a_nul_is_refused()
-  local spec = dynamic(Nodes.record({ s = Nodes.string, t = Nodes.optional(Nodes.string) }))
-  local r: Types.Parsed<{string:any}> = Input.bind_strings(pairs_of({ { "s", "a\0b" }, { "t", "ok" } }), spec)
+  local r: Types.Parsed<Texts> = Input.bind_strings(pairs_of({ { "s", "a\0b" }, { "t", "ok" } }), TEXTS.spec)
   local invalid = r.invalid
   assert(invalid ~= nil and #invalid.errors == 1)
   assert(invalid.errors[1].field == "s" and invalid.errors[1].code == "type")
-  r = Input.bind_strings(pairs_of({ { "s", "" } }), spec)
+  r = Input.bind_strings(pairs_of({ { "s", "" } }), TEXTS.spec)
   assert(r.invalid == nil and assert(r.value).s == "", "an empty string is a string")
 end
 
 local function test_a_list_takes_every_value_and_names_the_bad_element()
-  local spec = dynamic(Nodes.record({ nums = Nodes.list(Nodes.integer), tags = Nodes.optional(Nodes.list(Nodes.string)) }))
-  local r: Types.Parsed<{string:any}> = Input.bind_strings(decoded("nums=1"), spec)
+  local spec = LISTS.spec
+  local r: Types.Parsed<Lists> = Input.bind_strings(decoded("nums=1"), spec)
   assert(r.invalid == nil)
-  local nums = assert(r.value).nums as {integer}
+  local nums = assert(r.value).nums
   assert(#nums == 1 and nums[1] == 1 and assert(r.value).tags == nil)
   r = Input.bind_strings(decoded(""), spec)
   assert(r.invalid == nil and Json.is_array(assert(r.value).nums), "no value is the empty list")
@@ -243,8 +281,8 @@ local function test_unknown_names_are_dropped_and_a_strict_record_refuses_them()
   assert(r.invalid == nil)
   local bound = r.value as {string:any}
   assert(bound["is_admin"] == nil, "the spec is the allow-list")
-  local strict = dynamic(Nodes.strict_record({ n = Nodes.integer }))
-  local s: Types.Parsed<{string:any}> = Input.bind_strings(decoded("n=1&zz=1&aa=2&csrf_token=t"), strict)
+  local strict = COUNTS:strict().spec
+  local s: Types.Parsed<Counts> = Input.bind_strings(decoded("n=1&zz=1&aa=2&csrf_token=t"), strict)
   local invalid = s.invalid
   assert(invalid ~= nil and #invalid.errors == 2, "csrf_token is the web layer's")
   assert(invalid.errors[1].field == "aa" and invalid.errors[1].code == "unknown")
@@ -256,13 +294,12 @@ end
 local function test_nested_records_read_dotted_names()
   local r: Types.Parsed<Everything> = Input.bind_strings(decoded(GOOD .. "&address.zip=0123"), EVERYTHING.spec)
   assert(r.invalid == nil and assert(r.value).address.zip == 123)
-  local spec = dynamic(Nodes.record({ a = Nodes.record({ b = Nodes.record({ c = Nodes.record({ d = Nodes.string }) }) }) }))
-  local deep: Types.Parsed<{string:any}> = Input.bind_strings(decoded("a.b.c.d=x"), spec)
+  local deep: Types.Parsed<Top> = Input.bind_strings(decoded("a.b.c.d=x"), TOP.spec)
   assert(deep.invalid == nil, "three levels below the top are read")
-  local opt = dynamic(Nodes.record({ a = Nodes.optional(Nodes.record({ x = Nodes.integer })) }))
-  local none: Types.Parsed<{string:any}> = Input.bind_strings(decoded("y=1"), opt)
+  assert(assert(deep.value).a.b.c.d == "x", "and the checked tree holds the field at the bottom")
+  local none: Types.Parsed<Maybe> = Input.bind_strings(decoded("y=1"), MAYBE.spec)
   assert(none.invalid == nil and assert(none.value).a == nil, "no name under a. leaves the optional record nil")
-  local some: Types.Parsed<{string:any}> = Input.bind_strings(decoded("a.x="), opt)
+  local some: Types.Parsed<Maybe> = Input.bind_strings(decoded("a.x="), MAYBE.spec)
   local invalid = some.invalid
   assert(invalid ~= nil, "one name under it asks for the rest")
   assert(first_error(invalid).field == "a.x")
@@ -335,9 +372,8 @@ local function test_bind_strings_refuses_a_spec_that_is_no_record()
     local _ = Input.bind_strings(decoded("a=1"), Shape.string)
   end)
   assert(not ok)
-  local m = dynamic(Nodes.record({ m = Nodes.map(Nodes.string) }))
   ok, _ = pcall(function()
-    local _ = Input.bind_strings(decoded("a=1"), m)
+    local _ = Input.bind_strings(decoded("a=1"), MAPPED.spec)
   end)
   assert(not ok, "a map is a programming error, found while binding")
 end

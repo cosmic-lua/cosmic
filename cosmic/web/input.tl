@@ -869,6 +869,14 @@ local function scalar(w: Walk, field: string, spec: Shape.Node, text: string?): 
   return coerce(w, field, spec, text)
 end
 
+--- The names of `fields` in byte order, which is the order a record's fields are bound and checked in.
+local function sorted_names(fields: {string: Shape.Node}): {string}
+  local names: mut {string} = {}
+  for name in pairs(fields) do names[#names + 1] = name end
+  table.sort(names)
+  return names
+end
+
 local bind_record: function(w: Walk, prefix: string, spec: Shape.Node, depth: integer): {string:any}
 
 --- Whether some name starts with `prefix` and a dot.
@@ -932,7 +940,8 @@ local function component(name: string, prefix: string): string?
 end
 
 bind_record = function(w: Walk, prefix: string, spec: Shape.Node, depth: integer): {string:any}
-  local fields, names = assert(spec.fields), assert(spec.names)
+  local fields = assert(spec.fields)
+  local names = sorted_names(fields)
   if spec.strict == true then
     local unknown: mut {string} = {}
     local seen: mut {string:boolean} = {}
@@ -976,7 +985,7 @@ local function check_node(spec: Shape.Node, field: string, source: string, depth
       return ("input: %s of a %s nests records deeper than %d"):format(at, source, MAX_DEPTH)
     end
     local fields = assert(spec.fields)
-    for _, name in ipairs(assert(spec.names)) do
+    for _, name in ipairs(sorted_names(fields)) do
       local child = assert(fields[name], "a record spec's names are all in its fields")
       local trouble = check_node(child, field == "" and name or (field .. "." .. name), source, depth + 1)
       if trouble ~= "" then return trouble end
@@ -1130,12 +1139,13 @@ end
 --- @param opts Types.InputOptions | nil `source`, `repeated`, `secret`
 --- @return Types.Parsed<T> The record, or status 422 and every error
 function Input.bind_strings<T>(q: Url.Query, spec: Shape.Spec<T>, opts?: Types.InputOptions): Types.Parsed<T>
-  if Input.described(spec).kind ~= "record" then
-    error(("input: bind_strings binds a record, not a %s"):format(tostring(Input.described(spec).kind)), 2)
+  local node = Input.described(spec)
+  if node.kind ~= "record" then
+    error(("input: bind_strings binds a record, not a %s"):format(tostring(node.kind)), 2)
   end
   local w: Walk = { q = q, source = opts and opts.source or "form", errors = {},
     repeated = opts ~= nil and opts.repeated == "error" }
-  local tree = bind_record(w, "", Input.described(spec), 0)
+  local tree = bind_record(w, "", node, 0)
   if #w.errors > 0 then
     return { invalid = invalid(422, w.errors, without(q, opts and opts.secret)) }
   end
