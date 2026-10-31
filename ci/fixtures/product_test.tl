@@ -110,7 +110,10 @@ local function test_transported_product(tmp: string)
   -- TODO: once ci/cosmic-driver.pin names a release with Compress.zstd and Compress.zstd_decoder, call them in-process instead
   -- The pinned release has no decoder to call, so the target's own stub decodes
   -- the stored range, as the launcher runs it: on the artifact, at the range.
-  local stub_path = product .. "/cores/" .. target_name .. "/cosmic-unzstd"
+  -- A product carried between legs may lose its modes, so the stub runs
+  -- from a copy of its bytes made executable here.
+  local stub_path = tmp .. "/cosmic-unzstd"
+  Fixture.write(stub_path, Fixture.read(product .. "/cores/" .. target_name .. "/cosmic-unzstd"), 493)
   local stub_run = Fixture.call_with_descriptors("decode-core", { stub_path, "3", tostring(entry.offset),
     tostring(entry.stored_length), tostring(entry.length) }, tmp, tmp .. "/logs", Fixture.environment(),
     { [3] = product .. "/cosmic" })
