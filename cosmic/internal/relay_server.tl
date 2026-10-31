@@ -836,9 +836,13 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
     -- so, and tried in order; the decision line names the one connected to;
     -- the metadata and unspecified classes are not excepted,
     -- since the caller, not the sandbox, chose this name.
-    grants = {}
-    for i, grant in ipairs(run.spec.grants) do grants[i] = grant end
-    for _, answer in ipairs(answers) do grants[#grants + 1] = target(answer.address, port) end
+    local widened: mut {string} = {}
+    for _, grant in ipairs(run.spec.grants) do widened[#widened + 1] = grant end
+    for _, answer in ipairs(answers) do
+      local own = target(answer.address, port)
+      widened[#widened + 1] = own
+    end
+    grants = widened
   end
   local chosen, trouble = Address.permitted(answers, port, grants, run.own)
   if chosen == nil then

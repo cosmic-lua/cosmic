@@ -1954,7 +1954,8 @@ local function require_of_host(ctx: Run): integer?
       end
     end)
     if not asked then
-      rec.errors[#rec.errors + 1] = "C coverage prerequisite probe: " .. tostring(trouble)
+      local message = "C coverage prerequisite probe: " .. tostring(trouble)
+      rec.errors[#rec.errors + 1] = message
     end
   end
   return nil

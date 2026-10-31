@@ -380,7 +380,8 @@ local function listed(src: source.View, staged: boolean)
         names = {}
         requires[hash] = names
       end
-      names[#names + 1] = row:text(2)
+      local second = row:text(2)
+      names[#names + 1] = second
     end
   end
   src.modules, src.files, src.requires = modules, files, requires

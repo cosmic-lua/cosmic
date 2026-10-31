@@ -119,7 +119,8 @@ local function test_a_function_that_answers_nil_where_lua_does_is_declared_so()
   local function same(owner: string, name: string, ...: string)
     local got, want = declared(r, owner, name), { ... }
     if table.concat(got, "\n") ~= table.concat(want, "\n") then
-      problems[#problems + 1] = owner .. "." .. name .. ":\n" .. table.concat(got, "\n")
+      local problem = owner .. "." .. name .. ":\n" .. table.concat(got, "\n")
+      problems[#problems + 1] = problem
     end
   end
   same("string", "byte", "function(string, p2?: integer): integer?", "function(string, integer, p3?: integer): integer...")
