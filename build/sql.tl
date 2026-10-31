@@ -448,6 +448,11 @@ local writers: {string: function(): Writer} = {
   ndjson = ndjson_writer,
 }
 
+--- SQLite's result code for a statement the connection's authorizer refuses
+--- (SQLITE_AUTH), which the binary's own database does for what it holds
+--- read-only.
+local sqlite_auth <const> = 23
+
 --- Runs one statement on `db`, giving `emit` its column names as one
 --- line (none for a statement without columns), then each row it yields
 --- as one line, the moment it is stepped, each as `writer` writes it
@@ -455,14 +460,26 @@ local writers: {string: function(): Writer} = {
 --- yielded, or nil and why when the statement takes a parameter, or
 --- SQLite's own reason when it will not prepare or run (a write among
 --- them), or `writer`'s reason, after the row's number, when it could not
---- write a row. The lines before a failure have been given by then. `emit`
---- answers false and why when it could not write the line; the
+--- write a row. `refusal_hint` follows SQLite's reason where the
+--- authorizer refused the statement. The lines before a failure have been
+--- given by then. `emit` answers false and why when it could not write the line; the
 --- statement is stepped no further, and that is the failure answered.
 local function stream(db: Sqlite.Handle, statement: string,
-                      emit: function(string): boolean, string, writer?: Writer): integer?, string
+                      emit: function(string): boolean, string, writer?: Writer,
+                      refusal_hint?: string): integer?, string
   local write = writer or row_lines
   local prepared, prepare_trouble = db:prepare(statement)
   if prepared == nil then
+    -- The code of a refusal is told by preparing again where that
+    -- answers one: `prepare` answers only SQLite's reason, and its
+    -- own refusals (no statement, several) raise from `prepare_result`.
+    local code = 0
+    local asked, _ = pcall(function()
+      code = db:prepare_result(statement).code
+    end)
+    if asked and code == sqlite_auth and refusal_hint ~= nil then
+      return nil, prepare_trouble .. refusal_hint
+    end
     return nil, prepare_trouble
   end
   -- Nothing is bound: a parameter left unbound would read as NULL.
@@ -954,31 +971,13 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
           ", not this tool's; reading it as it is, as another tool wrote it")
     end
   end
-  local unwritable: boolean = false
-  local written: Writer? = nil
-  if writer ~= nil then
-    local inner = writer
-    written = {
-      header = inner.header,
-      row = function(statement: Sqlite.Statement, width: integer): string?, string
-        local line, why = inner.row(statement, width)
-        if line == nil then
-          unwritable = true
-          return nil, why
-        end
-        return line, ""
-      end,
-    }
-  end
-  local rows, trouble = stream(opened.db, statement_text, to.out, written)
+  local hint: string? = nil
+  if source.path == nil then hint = store_hint end
+  local rows, trouble = stream(opened.db, statement_text, to.out, writer, hint)
   if opened.owned then
     local _, _ = opened.db:close()
   end
   if rows == nil then
-    -- The hint is for SQLite's refusals, not for a row `--to` cannot write.
-    if source.path == nil and unwritable ~= true then
-      trouble = trouble .. store_hint
-    end
     complain(source.name .. ": " .. trouble)
     return 1
   end

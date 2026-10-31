@@ -923,7 +923,7 @@ function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
       local working = build_paths.resolve(at).working
       local other = tried.other_schema
       if other ~= nil then
-        work.tell_other_schema(argv[1] or "cosmic", working, other)
+        work.tell_other_schema(argv[1] or "cosmic", working, other, at)
       else
         work.tell_busy(argv[1] or "cosmic", working)
       end

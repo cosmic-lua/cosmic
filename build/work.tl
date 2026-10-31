@@ -723,11 +723,32 @@ local function let_go_of_another_schema(db: Sqlite.Handle, path: string, file: s
   return true, ""
 end
 
+--- How the schema `found` is ordered against this module's, which are
+--- plain counts: "older" or "newer", and "" for one that is no count, which is
+--- neither.
+local function order_of(found: string): string
+  if found:match("^%d+$") == nil then return "" end
+  local theirs, ours = math.tointeger(tonumber(found)), math.tointeger(tonumber(version))
+  if theirs == nil or ours == nil or theirs == ours then return "" end
+  return if theirs < ours then "older" else "newer" end
+end
+
+--- Whether a file of the schema `found` is one that an open in the mode
+--- `remake` ([`opened`]) may remove. Only "older" asks the schemas'
+--- order: a file of a newer schema was made by a newer tool, which an
+--- older tool must leave to it.
+local function removable(remake: string, found: string): boolean
+  if remake == "any" then return true end
+  return remake == "older" and order_of(found) == "older"
+end
+
 --- Opens `build.db` in `dir`, or where nil in `root`'s build directory,
 --- which [`build.paths`] names and makes. It creates the database and
 --- its tables when new, puts it in write-ahead mode ([`to_wal`]), and
 --- counts this run. A file whose schema is not this module's holds
---- nothing the tree cannot produce: where `remake`, the open removes it,
+--- nothing the tree cannot produce: where `remake` is "any", the open removes it,
+--- and where "older", only one of an older schema than this module's, which
+--- this tool is the newer writer of ([`removable`]),
 --- holding the checkout's rebuild lock ([`build.rebuild_lock`]) and the
 --- file's write lock, and makes it again. Its write-ahead log is left,
 --- where another process reading the old file keeps one: SQLite deletes
@@ -737,7 +758,7 @@ end
 --- lock ([`work.try_open`]). `locked` says the rebuild lock is held for
 --- the open already: by this process, or a parent that handed it on.
 local function opened(root: string, dir: string?, wait: boolean,
-                      remake: boolean, locked: boolean): work.Opening?, string
+                      remake: string, locked: boolean): work.Opening?, string
   local out: string
   if dir == nil then
     local found, directory_trouble = build_paths.prepare(root)
@@ -797,12 +818,13 @@ local function opened(root: string, dir: string?, wait: boolean,
     return nil, path .. ": " .. schema_trouble
   end
   if found ~= nil and found ~= version then
-    -- An open that does not remake ([`work.try_open`]: a lookup's build,
-    -- `cosmic lsp`'s stage) may be of an older tool than the run building
-    -- in the file, which a newer tool made; so it never removes one,
-    -- holding the lock or not, and a writer of this tool's (`cosmic test`,
-    -- `cosmic fix`) makes it again.
-    if not remake then
+    -- An open that does not remake ([`work.try_open`]: `cosmic lsp`'s
+    -- stage) may be of an older tool than the run building in the file,
+    -- which a newer tool made; so it never removes one, holding the lock
+    -- or not, and a writer of this tool's (`cosmic test`, `cosmic fix`)
+    -- makes it again. A lookup's build ([`work.try_open_older`]) removes
+    -- only a file of an older schema, which no newer tool made.
+    if not removable(remake, found) then
       local _, _ = db:close()
       return { handle = nil, other_schema = found }, ""
     end
@@ -875,7 +897,7 @@ local function opened(root: string, dir: string?, wait: boolean,
   end
   if stamped ~= nil and stamped ~= version then
     local _, _ = db:close()
-    if not remake then
+    if not removable(remake, stamped) then
       return { handle = nil, other_schema = stamped }, ""
     end
     -- Opened again, it is removed as any file of another schema is,
@@ -930,7 +952,7 @@ end
 --- which [`build.paths`] names and makes, waiting for another run that
 --- holds its write lock, as a build does ([`opened`]).
 function work.open(root: string, dir?: string): work.Handle?, string
-  local found, trouble = opened(root, dir, true, true, false)
+  local found, trouble = opened(root, dir, true, "any", false)
   if found == nil then return nil, trouble end
   local handle = found.handle
   if handle == nil then return nil, "another cosmic run holds the write lock" end
@@ -946,7 +968,7 @@ end
 --- reads nor removes, whoever holds the lock: it answers no handle, and
 --- the schema it found (`other_schema`).
 function work.try_open(root: string): work.Opening?, string
-  return opened(root, nil, false, false, false)
+  return opened(root, nil, false, "never", false)
 end
 
 --- Opens `root`'s working database as [`work.try_open`] does, waiting for
@@ -957,7 +979,19 @@ end
 --- reads makes of the tool ([`reboot.stale_exit`]) opens it so: where the
 --- locks are free it is a writer's.
 function work.try_open_remaking(root: string): work.Opening?, string
-  return opened(root, nil, false, true, false)
+  return opened(root, nil, false, "any", false)
+end
+
+--- Opens `root`'s working database as [`work.try_open_remaking`] does, but
+--- removes only a file of an older schema than this tool's: a lookup's
+--- build ([`rebuild.here`]) is a newer writer than the tool that made
+--- that file, which holds nothing the tree cannot produce, and would
+--- otherwise say so ([`work.tell_other_schema`]) on every call. A file of
+--- a newer schema is left where it is, answered with no handle and the
+--- schema found, as is any file a run holds a lock on, which may be that
+--- of an older tool still at work in it ([`opened`]).
+function work.try_open_older(root: string): work.Opening?, string
+  return opened(root, nil, false, "older", false)
 end
 
 --- What the process has said of the working database at a path, by
@@ -987,15 +1021,29 @@ function work.tell_busy(verb: string, path: string)
       "; not waiting for it, reading what it last committed")
 end
 
+--- What a build of the project at `root`, by this tool, does to a database
+--- it left unread, as the line that says so ends: where `root` is known, the
+--- command to run, and where it is not, the project it is run in.
+local function remedy(root: string?): string
+  if root == nil then return "`cosmic test` in the project writes it again" end
+  return "`cd " .. root .. " && cosmic test` writes it again"
+end
+
 --- Says once a process, on stderr, that `verb` reads none of the working
---- database at `path`, found of the schema `schema`, another than this
---- tool's ([`work.try_open`]), and leaves it where it is. A verb that
---- says so reads none of it, and so stages nothing in it: the rows of
---- another tool's schema are ones its code may misread.
-function work.tell_other_schema(verb: string, path: string, schema: string)
+--- database at `path`, of the project at `root` where that is known, found of
+--- the schema `schema`, another than this tool's ([`work.try_open`]), and
+--- leaves it where it is. A verb that says so reads none of it, and so stages
+--- nothing in it: the rows of another tool's schema are ones its code may
+--- misread. A lookup removes one of an older schema itself
+--- ([`work.try_open_older`]), so this is said of a newer one, or one a run holds.
+function work.tell_other_schema(verb: string, path: string, schema: string, root?: string)
+  -- A newer tool's file is not one to advise making again: that removes it.
+  local advice = if order_of(schema) == "newer" then
+    "a newer tool wrote it" .. (if root ~= nil then "; use that tool in " .. root else "" end) else
+    remedy(root) end
   tell_once("other_schema", path, verb .. ": " .. path .. " is of schema " .. schema ..
       ", not this tool's " .. version .. "; reading none of it and leaving it where it is: " ..
-      "a `cosmic test` of this tool makes it again")
+      advice)
 end
 
 --- The schema the working database `db` records, where it records one
@@ -1691,13 +1739,13 @@ function work.code_name(code: string): string
 end
 
 --- Says once a process, on stderr, that `verb` reads none of the working
---- database at `path`, which records being staged by `code`, other code
---- than this tool's ([`work.other_code`]).
-function work.tell_other_code(verb: string, path: string, code: string)
+--- database at `path`, of the project at `root` where that is known, which
+--- records being staged by `code`, other code than this tool's
+--- ([`work.other_code`]).
+function work.tell_other_code(verb: string, path: string, code: string, root?: string)
   tell_once("other_code " .. code, path, verb .. ": " .. path .. " was staged by " ..
       work.code_name(code) .. ", not this tool's; reading none of it, which this tool's " ..
-      "code may misread: a run of this tool that stages it, as `cosmic test` does, makes it " ..
-      "this tool's")
+      "code may misread: " .. remedy(root))
 end
 
 --- The code finding links as this process runs it, and the boot hash
