@@ -271,16 +271,25 @@ local function flip(dir: Generics.Direction): Generics.Direction
 end
 
 --- The variables of `pattern` are not solved from a shape the type found lacks.
+local function taint(s: Generics.Solver, pattern: Type)
+  walk(pattern, 0, function(index: integer)
+    s.tainted[index] = true
+  end)
+end
+
+--- Whether `t` is `invalid` or holds an `invalid` part.
+local function mentions_invalid(t: Type): boolean
+  if t.tag == "invalid" then return true end
+  for _, part in ipairs(Types.parts(t)) do
+    if mentions_invalid(part) then return true end
+  end
+  return false
+end
+
 --- The variables of `pattern`, whose type found was `invalid`.
 local function mark_invalid(s: Generics.Solver, pattern: Type)
   walk(pattern, 0, function(index: integer)
     s.invalid_at[index] = true
-  end)
-end
-
-local function taint(s: Generics.Solver, pattern: Type)
-  walk(pattern, 0, function(index: integer)
-    s.tainted[index] = true
   end)
 end
 
@@ -360,6 +369,9 @@ visit = function(s: Generics.Solver, pattern: Type, actual: Type, dir: Generics.
     mark_invalid(s, pattern)
     taint(s, pattern)
     return
+  elseif actual.tag == "union" and mentions_invalid(actual) then
+    -- A union with an `invalid` member stands for the mistake in it too.
+    mark_invalid(s, pattern)
   end
   if (actual.tag == "union") and not ((pattern.tag == "var")) and not ((pattern.tag == "union")) then
     -- A union of shapes (`{integer} | {string}` for `{T}`) is each member in turn: the members give `T` the type they
@@ -495,6 +507,7 @@ function Generics.expect(s: Generics.Solver, pattern: Type, expected: Type)
     target = s.store:non_nil(target)
   end
   visit(aside, pattern, target, "from", 0)
+  for index in pairs(aside.invalid_at) do s.invalid_at[index] = true end
   if #aside.conflicts > 0 then
     return
   end

@@ -4407,14 +4407,23 @@ local record Prepared
   mut last: Ast.Exp?
 end
 
---- What instantiating a generic function for a call gave: the instance, or nil and why not.
 --- A bound a type does not meet, as `bound_unmet` words it.
 local record Unmet
   message: string
+  fix: string
   held: string
   bound: string
+  --- The argument the generic function is.
+  arg: integer
 end
 
+--- A candidate of an overloaded callee that took the number of arguments and failed, and whether it failed on a bound.
+local record Tried
+  text: string
+  unmet: Unmet?
+end
+
+--- What instantiating a generic function for a call gave: the instance, or nil and why not.
 local record Instance
   fn: Fn?
   why: string
@@ -4757,8 +4766,9 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
             meets = false
             unmet = unmet or { message = tq(ctx, held) .. " is the type parameter " .. quoted(Types.letter(k - 1)) ..
                 " of the function passed as argument " .. tostring(i) .. " of " .. quoted(callee) .. ", which is bounded by " ..
-                tq(ctx, bound) .. ", and " .. tq(ctx, held) .. " does not list it", held = show(ctx, held),
-              bound = show(ctx, bound) }
+                tq(ctx, bound) .. ", and " .. tq(ctx, held) .. " does not list it",
+              fix = "list the interface in the declaration of " .. tq(ctx, held) .. " (`is " .. show(ctx, bound) ..
+                "`), or pass a type that does", held = show(ctx, held), bound = show(ctx, bound), arg = i }
           end
         end
         if meets then
@@ -4861,7 +4871,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
     end
   end
   if #problems > 0 and not loud then
-    return { why = problems[1] }
+    return { why = problems[1], unmet = unmet }
   end
   local made = Relation.specialize(store, c, given)
   local sparse: Type? = nil
@@ -4877,14 +4887,14 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
       report(ctx, "array_of_optional", node, msg, "use a map `{integer: T}` for sparse data, or pass a value that is not " ..
           "optional: test it for nil first", { show(ctx, sparse) })
     end
-    return { why = msg }
+    return { why = msg, unmet = unmet }
   end
   if made == nil then
     if loud then
       report(ctx, "not_assignable", node, name .. " with these type arguments nests more than " .. tostring(Types.max_depth) ..
           " types deep", "name a part of the arguments with a record, which a type does not unfold")
     end
-    return { why = "its instance nests too deep" }
+    return { why = "its instance nests too deep", unmet = unmet }
   end
   return { fn = made, why = "", holes = holes, unmet = unmet }
 end
@@ -4999,7 +5009,10 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
   local known, pending, tail, count = prep.known, prep.pending, prep.tail, prep.count
   local reasons: mut {string} = {}
   local unmet: Unmet? = nil
+  -- The candidates that took the number of arguments and failed, for what the bound explains of them.
+  local tried: mut {Tried} = {}
   for _, declared in ipairs(cands) do
+    local own: Unmet? = nil
     if (declared.tag == "fn") then
       local c: Fn = declared
       local failure = ""
@@ -5008,11 +5021,12 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
       if wrong_count == nil and #declared.tparams > 0 then
         local solved = Calls.solve(ctx, node, callee, declared, args, prep, off, recv, expected, false)
         local made = solved.fn
+        own = solved.unmet
+        unmet = unmet or own
         if made == nil then
           failure = solved.why
         elseif solved.holes ~= nil and #solved.holes > 0 then
           failure = "a type parameter gets no type from the arguments"
-          unmet = unmet or solved.unmet
         else
           c = made
         end
@@ -5084,6 +5098,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
         return c.rets
       end
       reasons[#reasons + 1] = overload_line(ctx, declared, failure)
+      if wrong_count == nil then tried[#tried + 1] = { text = failure, unmet = own } end
     end
   end
   for i, a in ipairs(args) do
@@ -5134,10 +5149,17 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
     end
   end
   local first = reasons[1]
+  -- The bound is the answer when it explains every candidate that took the arguments: each failed on it, or on the
+  -- generic function argument it is a bound of.
+  local explained = unmet ~= nil
   if unmet ~= nil then
-    report(ctx, "bound_unmet", node, unmet.message,
-      "list the interface in the declaration of the type, or pass a function that takes one that does",
-      { unmet.held, unmet.bound })
+    local prefix = "argument " .. tostring(unmet.arg) .. " is "
+    for _, t in ipairs(tried) do
+      if t.unmet == nil and t.text:sub(1, #prefix) ~= prefix then explained = false end
+    end
+  end
+  if unmet ~= nil and explained then
+    report(ctx, "bound_unmet", node, unmet.message, unmet.fix, { unmet.held, unmet.bound })
     return unknown_lists(ctx)
   end
   report(ctx, "overload_none", node, "no overload of " .. quoted(callee) .. " takes the arguments (" ..

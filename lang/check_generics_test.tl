@@ -443,6 +443,18 @@ end
 
 -- A generic function passed to an overloaded callee, taken from the values the callee passes it, says which bound a type
 -- fails to meet, where it used to be `overload_none`.
+-- An `invalid` that is only a part of what is found for a variable marks it too: the type the call is expected to have
+-- (`{R.Item}`, a field that is no type), an element.
+local function test_an_invalid_part_of_what_is_found_marks_the_variable()
+  local declared = Programs.run(HEAD .. "local record R\n  Item: string\nend\nlocal function make<T>(): {T}\n  return {}\nend\n" ..
+      "local xs: {R.Item} = make()\nprint(xs)\n")
+  assert(#declared.before == 1 and declared.before[1]:find("member_missing", 1, true) ~= nil,
+    table.concat(declared.before, " "))
+  assert(Programs.codes(declared) == "", Programs.codes(declared))
+  local head = "local m: {string: integer} = { k = 1 }\nlocal bad = m.k.nothing\n"
+  refused(head .. "for _, v in ipairs({ bad }) do\n  print(v)\nend\n", "map_field")
+end
+
 local function test_a_bound_a_passed_generic_function_does_not_meet_is_bound_unmet()
   local head = "local interface Named\n  name: string\nend\nlocal record Plain\n  name: string\nend\n" ..
     "local function label<T is Named>(x: T): string\n  return x.name\nend\nlocal p: Plain = { name = \"ann\" }\n"
