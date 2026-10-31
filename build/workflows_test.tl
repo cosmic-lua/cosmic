@@ -3231,7 +3231,7 @@ local function test_alpine_x86_64s_portable_suite_runs_in_two_halves()
     "the legs count " .. tostring(env["COSMIC_CI_PORTABLE_SHARES"]) .. " shares, a full run has " .. tostring(shares))
 end
 
---- The `portable-2/2` job saves nothing and seeds nothing for main:
+--- The `portable-2/2` job saves no cache and seeds nothing for main:
 --- its COSMIC_CI_SAVES is main's condition but for that job, and the
 --- steps that keep or upload what main would save carry the exclusion.
 local function test_the_portable_share_job_saves_nothing()
@@ -3261,9 +3261,7 @@ local function test_the_portable_share_job_saves_nothing()
     end
     local keeps = uses:find("actions/cache/save@", 1, true) ~= nil or uses:find("actions/upload-artifact@", 1, true) ~= nil
     if keeps and condition:find(NOT_SHARE, 1, true) == nil then
-      local held = condition:find(SAVES, 1, true) ~= nil or condition:find(LIGHT, 1, true) ~= nil or
-        condition:find("steps.release-suite.outcome == 'success'", 1, true) ~= nil or
-        condition:find("steps.driver-check.outcome == 'success'", 1, true) ~= nil
+      local held = condition:find(SAVES, 1, true) ~= nil or condition:find(LIGHT, 1, true) ~= nil
       local own = step.name == "preserve CI driver database" or step.name == "preserve platform failure diagnostics" or
         step.name == "upload the attestation of the bytes this share ran"
       assert(held or own, tostring(step.name) .. " saves or uploads in the share's job: " .. condition)
@@ -3278,6 +3276,8 @@ local function test_the_portable_share_job_saves_nothing()
     "find the run ahead in the queue",
     "keep only this run's compiles and parses",
     "keep only this run's test verdicts",
+    "keep the CI driver check for the run behind in the queue",
+    "keep the suite's verdicts for the run behind in the queue",
     "keep what main would save of this leg",
     "list what the build wrote to the zig build cache",
     "prove local runner privilege and ownership boundaries",
@@ -3286,6 +3286,7 @@ local function test_the_portable_share_job_saves_nothing()
     "run release Cosmic's native suite",
     "run runtime, launcher, rebuild, and identity regressions",
     "run the darwin suite",
+    "upload the CI driver check for the run behind in the queue",
     "upload the attested product",
     "upload the zig build outputs main would save of this leg",
     "upload what main would save of this leg",
@@ -3303,7 +3304,9 @@ local function test_the_join_compares_the_portable_share_with_the_legs()
   local upload = step_named(platform.steps, "upload the attestation of the bytes this share ran")
   assert(upload["if"] == FULL .. " && matrix.shard == 'portable-2/2'", "the share uploads on " .. tostring(upload["if"]))
   assert(param(upload, "name") == "portable-share-${{ matrix.name }}" and
-      param(upload, "path") == "${{ runner.temp }}/cosmic-ci/platform/product/executed-cosmic.sha256",
+      param(upload, "path") == "${{ runner.temp }}/cosmic-ci/platform/product/cosmic\n" ..
+      "${{ runner.temp }}/cosmic-ci/platform/product/executed-cosmic.sha256\n" ..
+      "${{ runner.temp }}/cosmic-ci/platform/product/portable-share\n",
     "the share uploads " .. param(upload, "path") .. " as " .. param(upload, "name"))
   local product = step_named(platform.steps, "upload the attested product")
   assert(param(product, "name") == "portable-product-${{ matrix.name }}" and

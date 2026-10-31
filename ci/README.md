@@ -454,21 +454,32 @@ and compiles, probes the sandbox, assembles, runs its half of the suite
 and its boundary, and attests. It skips what the leg proves for the same
 bytes and host: the pinned driver's check and its relay to the queue's
 next run, the native suite and its boundary, the credential proofs, the
-regressions, and the darwin suite. It saves and seeds nothing
-(`COSMIC_CI_SAVES` is false for it), so main keeps no verdict of a test
+regressions, and the darwin suite. It saves no cache and seeds nothing
+(`COSMIC_CI_SAVES` is false for it; the `cosmic-driver` action's
+bootstrap cache is the one save left, which the action makes on main
+under the leg's key as the leg does), so main keeps no verdict of a test
 in the second half that only a portable run reaches (a test whose key
 holds the launcher); a sealed test stands on the native suite's row,
 which the leg saves.
 
+A share is not a whole run (`cosmic test --shard`), and a whole run alone
+makes three checks: that some test enters each C function, the probe of
+the host for the C functions' prerequisites, and the reset of the
+recorded file digests. The leg's native suite is a whole run on the same
+host and cores (the portable artifact carries the cores the tool does),
+so it answers the first two for the portable run too, and the digests
+are a cache of the run's own working database, which no verdict reads.
+
 The job uploads no `portable-product-*`, which prerelease.yml counts four
 of and `seed` relays. The legs' `attest` writes `expected-platforms` as
-the job count less `COSMIC_CI_PORTABLE_SHARES` (1 on a `full` run), and
-the job uploads only its `executed-cosmic.sha256` as
-`portable-share-alpine-x86_64`. The `ci` join downloads it where the
-platform job ran and `provenance` holds that digest to the legs', and
-fails when it finds other than `COSMIC_CI_PORTABLE_SHARES` of them. The
-digest is the job's own `attest` check of its bytes against the product it
-built: the join does not recompute it from bytes, as it does a leg's.
+the job count less `COSMIC_CI_PORTABLE_SHARES` (1 on a `full` run). The
+job uploads the bytes it ran, their `executed-cosmic.sha256` and the
+share it ran as `portable-share-alpine-x86_64`; the leg's product holds
+its own share in `portable-share`. The `ci` join downloads the job's
+artifact where the platform job ran, hashes the bytes as it does a
+leg's, holds the digest to the legs', and requires, across the leg and
+the jobs, each share `1/N` to `N/N` exactly once; it fails on a missing,
+extra, duplicated or different one.
 
 A newer push supersedes a branch's run, but every main run finishes (a
 prerelease is published only from a completed run) and main's pushes

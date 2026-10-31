@@ -1959,6 +1959,7 @@ local function phase_portable(p: PlatformContext): integer
     -- the local suite's ([`suite_verdicts`]): a sealed worker's key is
     -- the same under either artifact, and every other worker's holds
     -- its launcher; elsewhere it runs every test, as they do.
+    write(portable_d .. "/portable-share", (named("COSMIC_CI_PORTABLE_SHARD") or "whole") .. "\n")
     s = suite(portable_context, "portable", executable, portable_d,
       { COSMIC_PORTABLE_CACHE = portable_d .. "/portable-full-suite-cache",
         COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "portable") },
@@ -2320,6 +2321,10 @@ local function phase_attest(p: PlatformContext): integer
     "invalid job count " .. tostring(p.trailing) .. " for COSMIC_CI_PORTABLE_SHARES=" ..
       tostring(named("COSMIC_CI_PORTABLE_SHARES")))
   write(product .. "/expected-platforms", tostring(total - shares) .. "\n")
+  -- Which share of the portable suite ran here, for the join to hold the shares to
+  -- all of them ([`provenance_impl`]).
+  local ran = portable_d .. "/portable-share"
+  write(product .. "/portable-share", if exists(ran) then read(ran) else "none\n" end)
   return 0
 end
 
@@ -2370,26 +2375,41 @@ end
 
 --- Compares the bytes every `portable-product-<leg>` directory of
 --- `products` says it executed, and holds each `portable-share-<job>`
---- directory's attestation to the same digest. A leg uploads its product
---- (the bytes, so the digest is recomputed from them); a job that runs
---- another share of a leg's portable suite (COSMIC_CI_PORTABLE_SHARES of
---- them, ci.yml's alpine-x86_64 portable share) uploads only the digest
---- its own `attest` phase checked against the bytes it ran, so
---- the join trusts that phase for the job's bytes and the legs' for the
---- product's.
+--- directory to the same digest. A job that runs another share of a
+--- leg's portable suite (COSMIC_CI_PORTABLE_SHARES of them, ci.yml's
+--- alpine-x86_64 portable share) uploads the bytes it ran, which are
+--- hashed here as a leg's are. Each of the share jobs and the leg that
+--- ran a share (`portable-share` in its directory: `I/N`) names the
+--- share it ran, and where shares are expected they must be exactly
+--- 1/N to N/N, once each, N being the shares plus the leg.
 local function provenance_impl(c: Context, products: string, shares: integer): integer
   local entries = assert(Fs.list(products))
   local count = 0
   local expected: integer? = nil
   local baseline: string? = nil
   local share_digests: mut {string} = {}
+  local halves: mut {string} = {}
+  --- The share a directory says it ran, if it ran one.
+  local function note_half(dir: string, required: boolean)
+    local file = dir .. "/portable-share"
+    if not exists(file) then
+      assert(not required, "no share named: " .. dir)
+      return
+    end
+    local half = (read(file):gsub("%s+$", ""))
+    if half:match("^%d+/%d+$") then halves[#halves + 1] = half end
+  end
   for _, name in ipairs(entries) do
     if name:match("^portable%-share%-.+") then
-      local att = products .. "/" .. name .. "/executed-cosmic.sha256"
-      assert(exists(att), "incomplete share: " .. products .. "/" .. name)
+      local dir = products .. "/" .. name
+      local att = dir .. "/executed-cosmic.sha256"
+      assert(exists(att) and exists(dir .. "/cosmic"), "incomplete share: " .. dir)
       local digest = read(att):match("^([0-9a-f]+)  cosmic\n$")
       assert(digest and #digest == 64, "invalid attestation: " .. att)
+      assert(Hash.hex_sha256(ArtifactRow.with(read(dir .. "/cosmic"), dir .. "/provenance.db", nil)) == digest,
+        "changed artifact: " .. dir)
       share_digests[#share_digests + 1] = digest
+      note_half(dir, true)
     elseif name:match("^portable%-product%-.+") then
       local p = products .. "/" .. name
       local att = p .. "/executed-cosmic.sha256"
@@ -2409,6 +2429,7 @@ local function provenance_impl(c: Context, products: string, shares: integer): i
         baseline = digest
       end
       count = count + 1
+      note_half(p, false)
     end
   end
   assert(expected ~= nil, "no product to compare")
@@ -2417,6 +2438,20 @@ local function provenance_impl(c: Context, products: string, shares: integer): i
       ", found " .. tostring(#share_digests))
   for _, digest in ipairs(share_digests) do
     assert(digest == baseline, "share artifact hash differs from the legs'")
+  end
+  if shares > 0 then
+    local seen: mut {string: boolean} = {}
+    for _, half in ipairs(halves) do
+      local index_text, total_text = half:match("^(%d+)/(%d+)$")
+      local index = math.tointeger(tonumber(assert(index_text)))
+      local total = math.tointeger(tonumber(assert(total_text)))
+      assert(index ~= nil and total ~= nil and total == shares + 1 and index >= 1 and index <= total,
+        "share " .. half .. " is not one of " .. tostring(shares + 1))
+      assert(seen[half] ~= true, "share " .. half .. " ran twice")
+      seen[half] = true
+    end
+    assert(#halves == shares + 1, "the portable suite ran " .. Plural.count(#halves, "share") .. " of its " ..
+        tostring(shares + 1))
   end
   return step(c, "provenance comparison", function(): boolean, string
     return true, ""

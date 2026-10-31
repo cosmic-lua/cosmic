@@ -187,8 +187,11 @@
           # runner and image, restoring and keying as the leg does (its
           # `name` is the leg's), the second half beside it. It runs
           # nothing the leg's proofs already cover (the steps below that
-          # test `matrix.shard`), saves nothing, and uploads a digest
-          # for the join to compare (`portable-share-*`), no product.
+          # test `matrix.shard`), saves no cache of its own (but for the
+          # pinned driver's bootstrap cache, which the cosmic-driver
+          # action saves on main under the leg's key as the leg does),
+          # and uploads the bytes it ran with their digest and share for
+          # the join to compare (`portable-share-*`), no product.
           shard: "${{ fromJSON(needs.scope.outputs.scope != 'light' && '[\"\", \"portable-2/2\"]' || '[\"1/2\", \"2/2\"]') }}",
           # Of the original combinations, before any entry below is
           # added. A light run never holds `portable-2/2` and a full run
@@ -254,8 +257,8 @@
         # uploads apart from the other linux-x86_64 share's.
         COSMIC_WORKER: "${{ matrix.shard == '2/2' && format('{0}-shard', matrix.name) || matrix.shard == 'portable-2/2' && format('{0}-portable-share', matrix.name) || matrix.name }}",
         TARGET: "${{ matrix.target }}",
-        # The workflow's, but never for alpine-x86_64's portable share:
-        # a job's `env` cannot read the workflow's, so the condition is
+        # The workflow's condition, false for alpine-x86_64's portable
+        # share: a job's `env` cannot read the workflow's, so it is
         # written again. What that job would save, a verdict of share
         # 2/2 that no native suite of the run also reached, no run
         # keeps for main's later ones: the alpine leg saves its own
@@ -601,7 +604,9 @@
         # The job that runs the portable suite's second half
         # (`portable-2/2`) skips the driver check and its relay below, the
         # native suite and its boundary, the credential proofs, the
-        # regressions, the darwin suite, and every save and seed: the
+        # regressions, the darwin suite, and every cache save and seed
+        # (the action's bootstrap cache aside, which it saves as the leg
+        # does): the
         # alpine-x86_64 leg beside it, on the same image, runs them.
         # A marker main saved after cosmic_ci's tests passed on what they
         # read and this host; an exact hit skips the check. Looked up
@@ -722,7 +727,7 @@
         # driver-checked/, written by the check alone.
         {
           name: "keep the CI driver check for the run behind in the queue",
-          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && (steps.driver-check.outcome == 'success' || steps.driver-check-restore.outputs.cache-hit == 'true' || steps.driver-ahead-take.outputs.hit == 'true')",
+          if: "env.COSMIC_CI_SCOPE == 'full' && matrix.shard != 'portable-2/2' && github.event_name == 'merge_group' && (steps.driver-check.outcome == 'success' || steps.driver-check-restore.outputs.cache-hit == 'true' || steps.driver-ahead-take.outputs.hit == 'true')",
           "continue-on-error": true,
           shell: "sh",
           env: {KEY: "${{ steps.driver-check-restore.outputs.cache-primary-key }}"},
@@ -730,7 +735,7 @@
         },
         {
           name: "upload the CI driver check for the run behind in the queue",
-          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && (steps.driver-check.outcome == 'success' || steps.driver-check-restore.outputs.cache-hit == 'true' || steps.driver-ahead-take.outputs.hit == 'true')",
+          if: "env.COSMIC_CI_SCOPE == 'full' && matrix.shard != 'portable-2/2' && github.event_name == 'merge_group' && (steps.driver-check.outcome == 'success' || steps.driver-check-restore.outputs.cache-hit == 'true' || steps.driver-ahead-take.outputs.hit == 'true')",
           "continue-on-error": true,
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
@@ -816,7 +821,7 @@
         # For the run behind this one in the queue (above), kept a day.
         {
           name: "keep the suite's verdicts for the run behind in the queue",
-          if: "github.event_name == 'merge_group' && steps.release-suite.outcome == 'success'",
+          if: "matrix.shard != 'portable-2/2' && github.event_name == 'merge_group' && steps.release-suite.outcome == 'success'",
           "continue-on-error": true,
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
@@ -971,10 +976,11 @@
         # leg runs (the whole of it took some 286 s there, run
         # 38146952746), so a regression's failure, the self-rebuild
         # fixture's among them, surfaces that much sooner. Not in the
-        # job that runs the second half: the leg's proofs hold for it. Neither reads
-        # what the other writes: the fixtures stand on fixtures.db,
-        # beside verdicts.db, which the verdict cache restores and saves
-        # with it, and unpack the source assemble archived.
+        # job that runs the second half: the leg's proofs hold for it.
+        # The regressions and the portable suite read nothing of what the
+        # other writes: the fixtures stand on fixtures.db, beside
+        # verdicts.db, which the verdict cache restores and saves with it,
+        # and unpack the source assemble archived.
         {
           name: "run runtime, launcher, rebuild, and identity regressions",
           if: "env.COSMIC_CI_SCOPE == 'full' && matrix.shard != 'portable-2/2'",
@@ -1053,16 +1059,16 @@
         },
 
         # The second share's job uploads no product, which prerelease.yml
-        # would count a fifth lane of, but the digest of the bytes its
-        # `attest` held to the product it built, for the join to compare
-        # with the legs' (cosmic_ci/orchestration.tl's provenance_impl).
+        # would count a fifth lane of, but the bytes it ran, their digest
+        # and the share it ran, for the join to hash and compare with the
+        # legs' (cosmic_ci/orchestration.tl's provenance_impl).
         {
           name: "upload the attestation of the bytes this share ran",
           if: "env.COSMIC_CI_SCOPE == 'full' && matrix.shard == 'portable-2/2'",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
             name: "portable-share-${{ matrix.name }}",
-            path: "${{ runner.temp }}/cosmic-ci/platform/product/executed-cosmic.sha256",
+            path: "${{ runner.temp }}/cosmic-ci/platform/product/cosmic\n${{ runner.temp }}/cosmic-ci/platform/product/executed-cosmic.sha256\n${{ runner.temp }}/cosmic-ci/platform/product/portable-share\n",
             "if-no-files-found": "error",
             "retention-days": 7,
           },
