@@ -467,6 +467,10 @@ local function test_record_of_read_any_other_way_is_refused_unless_it_says_it_is
     head .. "local f = Shape.record_of\nreturn f\n",
     head .. "local Alias = Shape\nreturn Alias.record_of(\"A\")\n",
     head .. 'return Shape["record_of"]("A")\n',
+    head .. "local First = Shape\nlocal Second = First\nreturn Second.record_of(\"A\")\n",
+    head .. "local Late\nLate = Shape\nreturn Late.record_of(\"A\")\n",
+    head .. "local One, Two = 1, Shape\nreturn Two.record_of(\"A\")\n",
+    head .. 'return Shape:record_of("A")\n',
     head .. 'return require("cosmic.shape").record_of("A")\n',
     'local record A\n  a: string\nend\nreturn require("cosmic.shape").record_of("A")\n',
   }
@@ -478,6 +482,9 @@ local function test_record_of_read_any_other_way_is_refused_unless_it_says_it_is
   -- on purpose, marked on its line
   local marked = head .. 'return Shape["record_of"]("A") -- record_of: unresolved on purpose\n'
   assert(refusal(marked) == "")
+  -- the code of a guide is a function's, whose `Shape` the build does not find: a guide is not refused for it
+  local guide = 'local function example()\n  local Shape = require("cosmic.shape")\n  return Shape.record_of("A")\nend\nreturn example\n'
+  assert(ShapeSpecs.splices(build_of({ ["main.tl"] = guide }), "main", "guide.md", guide).refusal == "")
   -- a field of another table with the name is no use of it, and a direct call is the build's to complete
   assert(refusal(head .. "local other = { record_of = print }\nreturn other.record_of(\"A\")\n") == "")
   assert(refusal(head .. 'return Shape.record_of("A")\n') == "")

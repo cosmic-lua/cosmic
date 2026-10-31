@@ -428,8 +428,7 @@ end
 
 local type Splice = ShapeSpecs.Splice
 
---- The comment that leaves a use of `record_of` unresolved on purpose, on the line of the use: a test of what an unresolved call
---- does writes it.
+--- The comment that leaves a use of `record_of` unresolved on purpose, on the line of the use, wherever it is.
 local UNRESOLVED_ON_PURPOSE <const> = "-- record_of: unresolved on purpose"
 
 --- Whether `e` is `require("cosmic.shape")`.
@@ -441,7 +440,9 @@ end
 --- [`Shape.record_of`] that is not called (`local f = Shape.record_of`), and `record_of` read through another name for
 --- the module (`local Alias = Shape`, `require("cosmic.shape").record_of`) or through an index (`Shape["record_of"]`).
 --- A call that way raises when it runs; the build refuses it where it stands, unless its line holds
---- [`UNRESOLVED_ON_PURPOSE`]. `shape` is the name the module binds cosmic.shape to at its top level, or nil.
+--- [`UNRESOLVED_ON_PURPOSE`]. The method form (`Shape:record_of(...)`), a chained alias and an alias assigned after it is declared
+--- are caught; a module reached through a function's result, `select`, a table or a computed key is not, and a call written
+--- so still fails closed: it has no check and raises when it runs. `shape` is the name the module binds cosmic.shape to at its top level, or nil.
 local function stray_use(chunk: Ast.Chunk, file: string, source: string, shape: string?): string, integer
   local names: mut {string: boolean} = {}
   if shape ~= nil then names[shape] = true end
@@ -449,11 +450,20 @@ local function stray_use(chunk: Ast.Chunk, file: string, source: string, shape: 
   Node.walk(chunk, function(node: Ast.Node)
     if node.kind == "Call" then
       called[node.callee.last] = true
-    elseif node.kind == "Local" and #node.bindings == 1 and #node.values == 1 then
-      local value = node.values[1]
-      local binding = node.bindings[1]
-      if (value.kind == "Name" and names[value.text] == true) or requires_shape(value) then
-        names[binding.name] = true
+    elseif node.kind == "Local" then
+      for i, binding in ipairs(node.bindings) do
+        local value = node.values[i]
+        if value ~= nil and ((value.kind == "Name" and names[value.text] == true) or requires_shape(value)) then
+          names[binding.name] = true
+        end
+      end
+    elseif node.kind == "Assign" then
+      for i, target in ipairs(node.targets) do
+        local value = node.values[i]
+        if target.kind == "Name" and value ~= nil and
+            ((value.kind == "Name" and names[value.text] == true) or requires_shape(value)) then
+          names[target.text] = true
+        end
       end
     end
   end)
@@ -464,6 +474,8 @@ local function stray_use(chunk: Ast.Chunk, file: string, source: string, shape: 
     if refusal ~= "" then return end
     local object: Ast.Exp? = nil
     if node.kind == "Field" and node.name == "record_of" then
+      object = node.object
+    elseif node.kind == "MethodCall" and node.name == "record_of" then
       object = node.object
     elseif node.kind == "Index" and node.key.kind == "String" and node.key.value == "record_of" then
       object = node.object
@@ -479,7 +491,7 @@ local function stray_use(chunk: Ast.Chunk, file: string, source: string, shape: 
     if (lines[at] or ""):find(UNRESOLVED_ON_PURPOSE, 1, true) ~= nil then return end
     line = at
     refusal = ("%s:%d: record_of: read other than as a call written Shape.record_of(\"Name\"), which the build " ..
-      "completes; written so, it has no check and raises when it runs (a test that wants that writes `%s` on the line)"
+      "completes; written so, it has no check and raises when it runs (a use that means to fail at run time writes `%s` on its line)"
     ):format(file, at, UNRESOLVED_ON_PURPOSE)
   end)
   return refusal, line
@@ -498,7 +510,8 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
   local chunk = outcome.chunk
   local aliases = required(chunk)
   local shape = aliases["cosmic.shape"]
-  -- The code of a guide is checked and never run, so a call there that the build does not complete raises nowhere.
+  -- The examples of a guide are functions (build/doctest/generate.tl), and a `Shape` they require is not one the splicer finds, so
+  -- their `record_of` calls get no check from the build and raise if an example runs: a guide is not refused for them.
   local stray, stray_line = "", 0
   if file:sub(-3) ~= ".md" then stray, stray_line = stray_use(chunk, file, source, shape) end
   if stray ~= "" then return { splices = none, refusal = stray, line = stray_line } end
