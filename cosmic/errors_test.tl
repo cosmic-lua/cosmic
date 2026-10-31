@@ -83,13 +83,18 @@ local function test_words_count_once_and_whole()
   assert(Errors.guidance_in(db, "QUUXOS Zorblax") ~= nil)
 end
 
---- A row with no guidance of its own prints the doc comment of the
---- function it was found in, and a row with no line names its file.
-local function test_a_row_without_text_takes_its_functions_doc()
-  local db = catalog({ row("quuxifier zorblax", nil, 0) },
-    { ["Zorb.frob"] = "Frobs the zorblax." })
+--- A row with no guidance of its own prints one line naming its
+--- function and `cosmic docs`, not the function's whole doc comment, and
+--- a row with no line names its file. A row with text of its own, as
+--- above, still prints all of it.
+local function test_a_row_without_text_names_its_function_in_one_line()
+  local doc = "Frobs the zorblax.\nA second line.\n@param x ignored\nA third."
+  local db = catalog({ row("quuxifier zorblax", nil, 0),
+    row("flarb gleeble", nil, 7) }, { ["Zorb.frob"] = doc })
   assert(Errors.guidance_in(db, "quuxifier zorblax") ==
-      "cosmic: Zorb.frob (zorb.tl): Frobs the zorblax.\n")
+      "cosmic: from Zorb.frob (zorb.tl); cosmic docs Zorb.frob\n")
+  assert(Errors.guidance_in(db, "flarb gleeble") ==
+      "cosmic: from Zorb.frob (zorb.tl:7); cosmic docs Zorb.frob\n")
 end
 
 --- A message with only function words asks nothing.

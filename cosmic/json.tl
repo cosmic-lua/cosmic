@@ -114,17 +114,11 @@
 --- it.
 
 -- The raw module behind this one lives under the reserved
--- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
--- indirection exists.
+-- `cosmic.internal.` namespace -- see cosmic/store.tl for why it is off
+-- the public surface.
 local type raw_json = require("cosmic.internal.json")
 
-local extra: any = select(2, ...)
-local raw: raw_json
-if type(extra) == "table" then
-  raw = extra as raw_json
-else
-  raw = require("cosmic.internal.json")
-end
+local raw = require("cosmic.internal.json")
 
 local type Stream = require("cosmic.stream")
 local String = require("cosmic.string")
@@ -410,7 +404,7 @@ local function refuse(why: string): nil, string
   return nil, "json: " .. why
 end
 
---- `raw.decode` of `text` under `opts`; `record`, when given, is the
+--- [`raw.decode`] of `text` under `opts`; `record`, when given, is the
 --- JSON Lines line `text` is, which a failure names.
 local function decode_with(text: string, opts: Json.DecodeOptions, record?: integer,
                            null_value?: Json.Value): any?, string
@@ -1972,7 +1966,7 @@ end
 --- The unquoted key `text`, which starts at `column`, as `decode` reads
 --- it: as the one key of an object, whose `{` moves every column
 --- one on, so a failure is placed back.
--- TODO: read the key with a binding of its own, once `raw.decode` can
+-- TODO: read the key with a binding of its own, once [`raw.decode`] can
 -- decode an identifier by itself: this wraps it in an object and moves
 -- the column back in the message.
 local function key_value(self: TokenReader, text: string, column: integer): any?, string

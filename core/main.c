@@ -464,7 +464,8 @@ int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
      * check -- the wrappers are ordinary tree modules the bridge
      * compiles from source, and each still `require`s its raw half,
      * under `cosmic.internal.`, by the same name a shipped binary
-     * resolves through the trust-gated searcher instead. */
+     * resolves through the store's searcher instead (a plain raw value
+     * by its name, the four others handed to their wrapper). */
     cosmic_store_preload_raw(L);
 
     if (argc >= 5 && strcmp(argv[1], "--boot") == 0) {

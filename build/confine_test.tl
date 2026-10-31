@@ -2,7 +2,6 @@
 --- sandboxed worker is given, and where a path leads as the sandbox
 --- binds it.
 
-local RawTables = require("build.raw_tables")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
@@ -53,7 +52,7 @@ test_child.register("worker", function(args: {string}): integer
     said[#said + 1] = if line == string.format("%d|%d|%d|%d\n", st.size, st.ino, st.mtime, st.ctime)
       then "stamped" else "unstamped" end
   end
-  local process = RawTables.process("build.confine")
+  local process = require("cosmic.internal.process")
   local reads = { given, probe, "/proc" }
   local report = assert(sys.open(given .. "/../report", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local pid, trouble, errno = process.spawn(probe, { probe,
@@ -106,7 +105,7 @@ local function sandboxed_worker(tmp: string): {string}?
     { env = {} })
   local argv, opts = worker.argv, worker.options
   local output = assert(sys.open(tmp .. "/said", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
-  local process = RawTables.process("build.confine")
+  local process = require("cosmic.internal.process")
   local pid, trouble, errno = process.spawn(argv[1], argv, opts.env, tree, nil, output,
     output, false, spawn_fds(worker),
     { unveil = unveil, offline = true })

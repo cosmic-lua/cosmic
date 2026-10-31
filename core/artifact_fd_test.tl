@@ -15,7 +15,6 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
-local RawTables = require("build.raw_tables")
 local gen_syscalls = require("build.gen_syscalls")
 local _child = require("cosmic.child")
 local _net = require("cosmic.net")
@@ -34,8 +33,8 @@ Test.policy{
   },
 }
 
-local process = RawTables.process()
-local socket = RawTables.socket()
+local process = require("cosmic.internal.process")
+local socket = require("cosmic.internal.socket")
 
 --- The descriptor this process retains on its artifact, or nil for a
 --- start from none: the one [`Proc.relaunch`] hands a child as its own.

@@ -6,13 +6,13 @@
 --- under test.
 local type _ = require("cosmic.child")
 local type _net = require("cosmic.net")
-local RawTables = require("build.raw_tables")
+local ConnectorEnds = require("build.connector_ends")
 local Test = require("cosmic.test")
 local Address = require("cosmic.relay.address")
 local sys = require("cosmic.sys")
 local DENIED <const> = 65536 -- a refusal by the lists, past any errno
 Test.policy{ promises = { "fork" } }
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 local function require_native_connector()
   local result, why, number = process.connector_probe({ host = "127.0.0.1", port = 9 }, "pointer")
@@ -42,8 +42,8 @@ end
 
 --- A public connector over the relay's own list and `OWN`, whose decision
 --- `decide` reads for an address.
-local function start(): RawTables.Ends, integer
-  local pair = RawTables.connector_pair()
+local function start(): ConnectorEnds.Ends, integer
+  local pair = ConnectorEnds.connector_pair()
   local child, why = process.connector_start({}, pair.connector, 500, { deny = Address.deny_cidrs(), own = OWN })
   assert(sys.close(pair.connector))
   assert(child, why)
@@ -216,7 +216,7 @@ local function test_a_prefix_of_any_length_holds_exactly_the_addresses_that_shar
     local bytes = assert(Address.parse(base))
     local width = #bytes * 8
     for bits = 0, width do
-      local pair = RawTables.connector_pair()
+      local pair = ConnectorEnds.connector_pair()
       local child, why = process.connector_start({}, pair.connector, 500, { deny = { base .. "/" .. tostring(bits) } })
       assert(sys.close(pair.connector))
       assert(child, why)

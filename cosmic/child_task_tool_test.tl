@@ -19,8 +19,6 @@ Test.policy{
   profiles = { "cosmic", "proc" },
 }
 
-local type Searcher = function(string): any, any
-
 --- The functions of cosmic.child these tests call, of one copy of the module. A copy loaded again is no value of the
 --- module's record, so a test reads the two functions it calls and not the module.
 local record Entry
@@ -28,21 +26,51 @@ local record Entry
   start: function(argv: {string}, opts?: Child.Options): Child.Handle?, string
 end
 
---- cosmic.child loaded again, over a copy of the raw table it is handed
---- that `alter` changes: the copy keeps the core's own functions until
---- `alter` replaces one.
+--- cosmic.child over a raw table whose members `alter` replaces on a copy of
+--- it. The module takes the one raw table the core has, so the members the
+--- copy changed stand in the real table for the length of a call to `run` or
+--- `start` and are put back after it: `start` asks for the exit watch once,
+--- and the handle it answers waits on what it was given.
 local function reloaded(alter: function({string: any})): Entry
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then
-      local copy: mut {string: any} = {}
-      for name, value in pairs(extra as {string: any}) do copy[name] = value end -- cast: to copy a table by name
-      alter(copy)
-      local loaded = loader as function(string, any): Entry -- cast: the loader the store's searcher answers
-      return loaded("cosmic.child", copy as raw_process) -- cast: the table core/process.h declares
-    end
+  local real = require("cosmic.internal.process") as mut {string: any} -- cast: to replace members by name
+  local copy: mut {string: any} = {}
+  for name, value in pairs(real) do copy[name] = value end
+  alter(copy)
+  local changed: mut {string: any} = {}
+  for name, value in pairs(copy) do
+    if real[name] ~= value then changed[name] = value end
   end
-  error("cosmic.child is handed no raw table")
+  --- Calls `call` with the changed members in the real table.
+  local function standing(call: function())
+    local before: mut {string: any} = {}
+    for name, value in pairs(changed) do
+      before[name] = real[name]
+      real[name] = value
+    end
+    local ok, err = pcall(call)
+    for name, value in pairs(before) do real[name] = value end
+    if not ok then error(err, 0) end
+  end
+  return {
+    run = function(argv: {string}, opts?: Child.Options): Child.Result?, string
+      local result: Child.Result? = nil
+      local why: string = ""
+      standing(function()
+        local r, w = Child.run(argv, opts)
+        result, why = r, w
+      end)
+      return result, why
+    end,
+    start = function(argv: {string}, opts?: Child.Options): Child.Handle?, string
+      local handle: Child.Handle? = nil
+      local why: string = ""
+      standing(function()
+        local h, w = Child.start(argv, opts)
+        handle, why = h, w
+      end)
+      return handle, why
+    end,
+  }
 end
 
 --- cosmic.child loaded again, over a raw table whose `exit_watch` gives
