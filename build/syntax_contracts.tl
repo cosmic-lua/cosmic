@@ -37,7 +37,9 @@
 --
 -- TODO: follow a reason by the binding the scope builder resolves a name to ([`Scopes.Scoped.resolved`]) in place of the
 -- name's text and position, which closes the gaps of rule 6 noted below (a reason stored in a field, in an inner block).
+local AnalysisSchema = require("build.analysis_schema")
 local Ast = require("lang.ast")
+local GenSyscalls = require("build.gen_syscalls")
 local Lexer = require("lang.lexer")
 local Rules = require("build.contract_rules")
 local Node = require("build.syntax_node")
@@ -66,9 +68,6 @@ local record SyntaxContracts
   --- `given` is the exemptions to hold it to in place of the tree's own.
   check: function(subject: Subject, given?: Rules.Exemptions): Result
 
-  --- The kind of module a file of the tree is, as the importer stages it: `test`, `example`, `main`, `decl` or `module`.
-  kind_of: function(file: string): string
-
   --- Whether the discipline holds the file: every module and main of the tree, not its tests, examples or declarations.
   applies: function(file: string): boolean
 
@@ -78,22 +77,8 @@ end
 
 SyntaxContracts.rules = { "calls", "functions", "exports", "wrappers", "readings", "casts", "types", "modes" }
 
-function SyntaxContracts.kind_of(file: string): string
-  if file:match("%.d%.tl$") then
-    return "decl"
-  elseif file:match("_test%.tl$") then
-    return "test"
-  elseif file:match("_example%.tl$") then
-    return "example"
-  elseif file:match("^cmd/[^/]+/main%.tl$") then
-    return "main"
-  end
-  return "module"
-end
-
 function SyntaxContracts.applies(file: string): boolean
-  local kind = SyntaxContracts.kind_of(file)
-  return Rules.applies(kind, false)
+  return Rules.applies(AnalysisSchema.kind_of(file), false)
 end
 
 -- Types ------------------------------------------------------------------------------------------------------------
@@ -702,14 +687,19 @@ local function is_quiet(run: Run, call: Ast.Node): boolean
   return entry ~= nil and entry.methods[name] == true
 end
 
---- The record each table of C bindings is ([`cosmic.sys`], the raw process and socket tables), by declaration, to its module's
---- name: the tables the new checker types from the declarations the build derives from their headers.
+--- The record each table of C bindings is, by declaration, to its module's name: the tables the new checker types from
+--- the declarations the build derives from their headers, which are the modules [`build.gen_syscalls`] generates.
+--
+-- TODO: hold a declaration file that declares itself a binding (`--- @kind binding`) to the discipline too, and let the
+-- `inputs` view say `binding` for it and for what the generator derives. It waits on every place that compares a kind
+-- with `'decl'` (the importer, plans, the writer, link_index, the language server: some sixty) asking one declaration
+-- test, since a `binding` kind would otherwise take those files out of every one of them.
 local function binding_tables(run: Run): {Types.Decl: string}
   local out: mut {Types.Decl: string} = {}
-  for _, module in ipairs(Rules.binding_names()) do
-    local root = Report.root_of(run.subject.program, module)
+  for _, target in ipairs(GenSyscalls.targets) do
+    local root = Report.root_of(run.subject.program, target.path)
     if root ~= nil then
-      out[root] = module
+      out[root] = target.path
     end
   end
   return out
