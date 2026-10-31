@@ -8,7 +8,9 @@ local Test = require("cosmic.test")
 local compile = require("build.compile")
 local Grammar = require("build.compile_grammar")
 
-Test.policy{}
+-- With no declaration file named the files are typed against the declarations the tool carries, which only a worker that holds
+-- the tool's database ("cosmic") has.
+Test.policy{ profiles = { "cosmic" } }
 
 local record Ran
   mut code: integer
@@ -235,4 +237,49 @@ local function test_a_dotted_directory_is_a_path_not_a_module_path(tmp: string)
   local ran = run({ "--errors", path })
   assert(ran.code == 0, ran.err)
   assert(ran.err:find("v1.2/m.tl:1:", 1, true) and not ran.err:find("v1/2", 1, true), ran.err)
+end
+
+--- A standalone script, as `cosmic --standalone` types it: the prelude's globals and the `cosmic.*` modules are known, and the
+--- one real mistake and the unused local that `--standalone` refuses are all `--errors` names.
+local function test_a_file_with_no_declaration_is_checked_as_standalone_checks_it(tmp: string)
+  local text = [[
+local Sqlite = require("cosmic.sqlite")
+local Proc = require("cosmic.proc")
+local broken: integer = "definitely a string"
+assert(type(Sqlite) == "table" and type(Proc) == "table")
+for i, v in ipairs({ "a" }) do
+  print(tostring(i) .. string.upper(v) .. table.concat({ "b" }))
+end
+]]
+  local path = file(tmp, "broken.tl", text)
+  local ran = run({ "--errors", path })
+  assert(ran.code == 0, ran.err)
+  assert(not ran.err:find("unknown_variable", 1, true), ran.err)
+  assert(not ran.err:find("unchecked_binding", 1, true), ran.err)
+  assert(ran.err:find("not_assignable", 1, true), ran.err)
+  assert(ran.err:find("unused_variable", 1, true), ran.err)
+  assert(ran.err:find("2 type errors", 1, true), ran.err)
+  assert(load(ran.out, "=broken") ~= nil, "the Lua written does not load")
+end
+
+--- A clean script has nothing to list.
+local function test_a_clean_standalone_script_lists_no_errors(tmp: string)
+  local path = file(tmp, "clean.tl", "local Fs = require(\"cosmic.fs\")\nreturn function(): integer\n  return Fs.stdout\nend\n")
+  local ran = run({ "--errors", path })
+  assert(ran.code == 0 and ran.err == "", ran.err)
+end
+
+--- What `--standalone` refuses of a project's program besides types (`package`, `_G`) is listed as `--standalone --check`
+--- lists it, with the Lua still written.
+local function test_a_file_alone_lists_the_refusals_standalone_makes_of_a_project(tmp: string)
+  local package_at = file(tmp, "pkg.tl", "print(package.path)\n")
+  local ran = run({ "--errors", package_at })
+  assert(ran.code == 0, ran.err)
+  assert(ran.err:find("pkg.tl:1:7:", 1, true) and ran.err:find("`package` holds the loaded modules", 1, true), ran.err)
+  assert(ran.err:find("1 type error", 1, true), ran.err)
+  assert(load(ran.out, "=pkg") ~= nil, "the Lua written does not load")
+  local global_at = file(tmp, "glob.tl", "local x = _G\nprint(x)\n")
+  local second = run({ "--errors", global_at })
+  assert(second.code == 0, second.err)
+  assert(second.err:find("glob.tl:1:11:", 1, true) and second.err:find("`_G` is the table of the globals", 1, true), second.err)
 end

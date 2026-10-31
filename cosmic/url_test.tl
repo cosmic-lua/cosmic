@@ -1,4 +1,5 @@
 local Url = require("cosmic.url")
+local Test = require("cosmic.test")
 
 local function test_escape_keeps_only_the_unreserved_bytes()
   for byte = 0, 255 do
@@ -286,6 +287,5 @@ local function test_encode_query_writes_plus_for_space_and_round_trips()
 end
 
 local function test_encode_query_raises_on_a_value_that_is_no_string()
-  local ok = pcall(function() Url.encode_query({ { name = "a", value = 1 as string } }) end)
-  assert(not ok)
+  Test.raises(function() Url.encode_query({ { name = "a", value = 1 as string } }) end)
 end

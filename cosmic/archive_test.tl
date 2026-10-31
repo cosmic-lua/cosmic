@@ -11,6 +11,7 @@ local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 local Archive = require("cosmic.archive")
+local Test = require("cosmic.test")
 
 --- `tar -cf a.tar src` (a directory holding src/short.txt and the
 --- symlink src/adir/alink -> short.txt), then gzip/xz/bzip2/zstd -c.
@@ -235,8 +236,7 @@ local function test_extract_strips_by_a_whole_float(tmp: string)
   local refusals: {Refusal} = { { count = float(1.5), says = "whole number" }, { count = -1, says = "negative" } }
   for _, refusal in ipairs(refusals) do
     local count, says = refusal.count, refusal.says
-    local ok, why = pcall(Archive.extract, archive, tmp .. "/bad", { strip_components = count })
-    assert(not ok and tostring(why):find(says, 1, true) ~= nil, tostring(why))
+    Test.raises(function() Archive.extract(archive, tmp .. "/bad", { strip_components = count }) end, says)
     assert(Fs.exists(tmp .. "/bad") == false)
   end
 end

@@ -13,8 +13,18 @@ Test.policy{ profiles = { "cosmic" } }
 --- `skip` takes a reason: none, or an empty one, raises before the test
 --- is counted skipped, so this test, which passes, is not.
 local function test_skip_takes_a_reason()
-  local ok, trouble: boolean, any = pcall(Test.skip, "")
-  assert(not ok and tostring(trouble):find("test: skip's reason is empty", 1, true), tostring(trouble))
+  Test.raises(function() Test.skip("") end, "test: skip's reason is empty")
+end
+
+--- `raises` answers the message of a call that raises, whole, and refuses
+--- (naming what it expected) a call that returns or says something else.
+local function test_raises_answers_the_message_and_refuses_otherwise()
+  assert(Test.raises(function() error("boom: it broke", 0) end, "it broke") == "boom: it broke")
+  assert(Test.raises(function() error("any", 0) end) == "any")
+  Test.raises(function() Test.raises(function() end, "x") end,
+    'expected a raise naming "x", but the call returned')
+  Test.raises(function() Test.raises(function() error("else", 0) end, "x") end,
+    'naming "x", but it raised: else')
 end
 
 --- `module`'s table, whose fields a runner installs, as its untyped self.

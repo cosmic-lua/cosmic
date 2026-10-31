@@ -2,6 +2,7 @@ local Json = require("cosmic.json")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
 local Web = require("cosmic.web")
+local Test = require("cosmic.test")
 
 --- A sink that keeps its lines.
 local function recording(): Web.Sink, {string}
@@ -10,16 +11,6 @@ local function recording(): Web.Sink, {string}
     lines[#lines + 1] = text
   end }
   return sink, lines
-end
-
---- The message of the error `fn` raises; fails where it raises none.
-local function raised(fn: function()): string
-  local ok, err = pcall(function(): any
-    fn()
-    return nil
-  end)
-  assert(not ok, "expected a raise")
-  return tostring(err)
 end
 
 local function hello(_req: Web.Request): Web.Response
@@ -247,7 +238,7 @@ local function test_debug_is_off_unless_asked_and_a_bad_response_is_a_fault_only
   end
   local plain = Web.app{ routes = { Web.get("/bad", bad) } }
   assert(plain.spec.debug == false)
-  assert(raised(function() Web.test_client(plain):get("/bad") end):find("would answer 500", 1, true))
+  assert(Test.raises(function() Web.test_client(plain):get("/bad") end):find("would answer 500", 1, true))
   local debugging = Web.app{ routes = { Web.get("/bad", bad) }, debug = true, sink = recording() }
   local res = Web.test_client(debugging):get("/bad")
   assert(res.status == 500 and res.body:find("cannot be sent", 1, true) ~= nil, res.body)
@@ -389,7 +380,7 @@ end
 
 local function test_an_app_refuses_a_spec_with_a_field_it_does_not_have()
   local spec: any = { routes = {}, middlewares = {} }
-  assert(raised(function() Web.app(spec as Web.AppSpec) end):find("app has no field middlewares", 1, true))
+  assert(Test.raises(function() Web.app(spec as Web.AppSpec) end):find("app has no field middlewares", 1, true))
 end
 
 local function test_a_missing_handler_or_bad_registration_raises_when_the_app_is_built()
@@ -472,7 +463,7 @@ local function test_a_fault_in_app_middleware_still_reaches_the_server_not_the_m
     end
   end
   local app = Web.app{ routes = { Web.get("/", hello) }, middleware = { watching, faulting } }
-  local message = raised(function() Web.test_client(app):get("/") end)
+  local message = Test.raises(function() Web.test_client(app):get("/") end)
   assert(message:find("middleware bug", 1, true), message)
   assert(#seen == 0)
   local trail = select(2, message:gsub("stack traceback:", ""))

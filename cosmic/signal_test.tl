@@ -7,6 +7,7 @@ local Signal = require("cosmic.signal")
 local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
 
 --- Guards nest, and each closes once: a guard opened inside another
 --- is taken, and every guard closed, the next one taken afresh.
@@ -72,8 +73,7 @@ local function test_guard_wait_takes_a_signal_in_a_task()
   local term = tostring(sys.SIGTERM)
   assert(table.concat(got, ",") == "0 " .. Poll.TIMEOUT .. ",inner=" .. term .. ",outer=" .. term,
     table.concat(got, ","))
-  local ok, raised = pcall(outer.wait, outer)
-  assert(not ok and tostring(raised):find("in a task of Poll.run", 1, true), tostring(raised))
+  Test.raises(function() outer:wait() end, "in a task of Poll.run")
   assert(inner:release() == sys.SIGTERM)
   assert(outer:release() == sys.SIGTERM)
 end

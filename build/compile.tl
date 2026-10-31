@@ -19,8 +19,10 @@
 --- THE GRAMMAR is the new checker's ([`doc/plans/new-checker-grammar.md`]), which `--grammar new` names and the verb takes by
 --- default; `--grammar teal` is refused, pointing to the project guide. The files named are the
 --- whole program, a `.d.tl` among them declares the globals every file may use (the standard library's), and a `cosmic.*`
---- module no file named is the module of is typed `invalid` and reported, since the checker cannot declare the binary's own
---- modules. A syntax error refuses and writes nothing, any other error is reported and the Lua written anyway.
+--- module no file named is the module of is then typed `invalid` and reported, since the checker cannot declare the binary's own
+--- modules. With no `.d.tl` named the files are checked as `cosmic --standalone` checks a file: against the globals and the
+--- `cosmic.*` modules this binary carries, and a warning is listed with the errors, so `--errors` names what `--standalone` would
+--- refuse (still exit 0, the Lua still written). A syntax error refuses and writes nothing, any other error is reported and the Lua written anyway.
 ---
 --- Like `cosmic json` it prints no summary: its standard output is the Lua of a single file written without `-o`, and its
 --- exit status says how it went, 0 for Lua written (type errors or none) and 2 for a command line or a file it refuses;
@@ -33,6 +35,8 @@ local Fs = require("cosmic.fs")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 local type Grammar = require("build.compile_grammar")
+local type Ast = require("lang.ast")
+local type Scopes = require("lang.scopes")
 
 --- The `cosmic compile` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
@@ -227,7 +231,29 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
         "it still types a require of it")
   end
 
-  local made = require("build.compile_grammar").compile(todo)
+  -- With no `.d.tl` named the files are checked as a standalone run checks one: its globals, its `cosmic.*` modules and
+  -- the warnings it refuses ([`build.pipeline`]'s `alone`). The exit contract stays: type errors are listed, not refused.
+  local alone: Grammar.Standalone? = nil
+  if #skipped == 0 then
+    local Pipeline = require("build.pipeline")
+    local options, options_why = Pipeline.alone()
+    if options == nil then
+      complain(options_why)
+      return bare.refused
+    end
+    local ProjectRefusals = require("build.project_refusals")
+    alone = {
+      globals = options.globals.sources, adjust = options.globals.adjust, standard = Pipeline.carried(),
+      refusals = function(chunk: Ast.Chunk, scoped: Scopes.Scoped): {Grammar.Problem}
+        local found: mut {Grammar.Problem} = {}
+        for _, at in ipairs(ProjectRefusals.places(chunk, scoped)) do
+          found[#found + 1] = { code = "project_refusal", msg = at.text, fix = "", y = at.y, x = at.x, offset = 0 }
+        end
+        return found
+      end,
+    }
+  end
+  local made = require("build.compile_grammar").compile(todo, nil, alone)
   local refused = false
   for _, compiled in ipairs(made) do
     for _, e in ipairs(compiled.syntax_errors) do

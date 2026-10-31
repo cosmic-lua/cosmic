@@ -223,8 +223,8 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   local own_cores = test_sandbox.plan(root, scratch, inputs, { COSMIC_PORTABLE_CACHE =
       tmp .. "/caches/cores" })
   assert(own_cores.trouble == "", own_cores.trouble)
-  assert(own_cores.env.COSMIC_PORTABLE_CACHE == test_sandbox.scratch .. "/cores",
-    tostring(own_cores.env.COSMIC_PORTABLE_CACHE))
+  assert(own_cores.env["COSMIC_PORTABLE_CACHE"] == test_sandbox.scratch .. "/cores",
+    tostring(own_cores.env["COSMIC_PORTABLE_CACHE"]))
   local cores = assert(sys.stat(scratch .. "/cores"))
   assert(cores.kind == "dir" and cores.mode & 511 == 448, tostring(cores.mode))
   assert(not holds(assert(own_cores.sandbox.unveil).writes or {}, tmp .. "/caches/cores") and
@@ -336,9 +336,14 @@ local function test_an_unsandboxed_run_reads_the_tree_and_a_platform_with_no_san
   env.COSMIC_TEST_SANDBOX = nil
   text, ok = run(root, tmp .. "/sandboxed", env)
   assert(not ok, text)
-  -- And why, in the summary.
-  assert(text:find("; unsandboxed, as no worker can be sandboxed here (", 1, true) and
-      text:find("), keyed by declared inputs, sharing no verdicts\n", 1, true), text)
+  -- And why, in the head line alone: the summary points back to it rather
+  -- than say the probe's explanation again.
+  assert(text:find("test: running unsandboxed: no worker can be sandboxed here: ", 1, true), text)
+  local summary = text:match("[^\n]*; unsandboxed, as no worker can be sandboxed here[^\n]*\n")
+  assert(summary ~= nil, text)
+  assert(summary:find("; unsandboxed, as no worker can be sandboxed here " ..
+      "(see the head line), keyed by declared inputs, sharing no verdicts\n", 1, true) ~= nil and
+      #summary < 300, summary)
   -- Required, the run fails instead.
   env.COSMIC_TEST_SANDBOX = "1"
   local required: string? = nil

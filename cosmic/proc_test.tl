@@ -4,6 +4,7 @@
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
 
 --- [`Proc.find`] searches a path list as a shell does: the first
 --- executable wins, a name with a slash is taken as it is, and what is
@@ -127,6 +128,5 @@ local function test_find_result_preserves_stat_refusal(dir: string)
 end
 
 local function test_find_result_refuses_an_empty_name()
-  local ok, why: boolean, any = pcall(Proc.find_result, "")
-  assert(not ok and tostring(why):find("proc: find_result's name is empty", 1, true), tostring(why))
+  Test.raises(function() Proc.find_result("") end, "proc: find_result's name is empty")
 end

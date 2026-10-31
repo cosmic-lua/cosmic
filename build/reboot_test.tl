@@ -446,3 +446,21 @@ local function test_each_kind_of_line_about_a_working_database_is_said_once(tmp:
   local _, other = said:gsub("is of schema another", "")
   assert(busy == 1 and other == 1, said)
 end
+
+--- What is said of a working database of another schema names the project
+--- and the command that writes it again, not only the build directory's own
+--- path, which names no project.
+local function test_a_line_about_another_schema_names_the_project_and_the_remedy(tmp: string)
+  local _, said = complaints(function(): string
+    work.tell_other_schema("docs", tmp .. "/build.db", "29", "/some/project")
+    return ""
+  end)
+  assert(said:find("`cd /some/project && cosmic test` writes it again", 1, true), said)
+  assert(said:find("a `cosmic test` of this tool", 1, true) == nil, said)
+  -- A newer tool's file is not one to advise making again.
+  local _, newer = complaints(function(): string
+    work.tell_other_schema("docs", tmp .. "/newer.db", "99999", "/some/project")
+    return ""
+  end)
+  assert(newer:find("a newer tool wrote it; use that tool in /some/project", 1, true) and newer:find("cosmic test", 1, true) == nil, newer)
+end

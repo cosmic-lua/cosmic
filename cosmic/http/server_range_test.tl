@@ -3,6 +3,7 @@
 --- holds them to their properties over any bytes.
 
 local Server = require("cosmic.http.server")
+local Test = require("cosmic.test")
 
 --- What `Server.range(header, size)` answers, as text: "whole",
 --- "unsatisfiable", or the span's "first-last".
@@ -94,8 +95,7 @@ local function test_counts_past_the_largest_integer_compare_as_they_are()
 end
 
 local function test_a_negative_size_raises()
-  local ok, why = pcall(Server.range, "bytes=0-1", -1)
-  assert(not ok and tostring(why):find("size", 1, true) ~= nil, tostring(why))
+  Test.raises(function() Server.range("bytes=0-1", -1) end, "size")
 end
 
 local function test_none_match_compares_weakly()

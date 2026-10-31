@@ -8,6 +8,7 @@
 --- binding cannot exist without its type.
 
 local String = require("cosmic.string")
+local AnalysisSchema = require("build.analysis_schema")
 local plural = require("build.plural")
 
 local record Parameter
@@ -627,6 +628,7 @@ function generator.declaration(header: string, target?: Target): string?, string
   for _, line in ipairs(target.summary) do
     out[#out + 1] = "--- " .. line
   end
+  out[#out + 1] = AnalysisSchema.binding_tag()
   out[#out + 1] = ""
   out[#out + 1] = "-- Edit the header; this file is written by the build."
   out[#out + 1] = ""

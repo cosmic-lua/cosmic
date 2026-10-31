@@ -70,10 +70,31 @@ local kinds <const>: {{string}} = {
   { "cmd/*/main.tl", "main", "cmd/*/*/*" },
 }
 
---- The SQL expression for the kind of the file whose path is in `column`: `decl`, `test`, `example`, `main` or
---- `module` ([`kinds`]).
-local function kind_case(column: string): string
+--- The line a declaration file holds to say it declares a table of C bindings: the kind `binding`, a declaration the
+--- contract of the error slots ([`build.syntax_contracts`]) holds the calls of. The generator of a derived declaration
+--- writes it too ([`build.gen_syscalls`]).
+local binding_tag <const> = "--- @kind binding"
+
+--- The line, as [`analysis_schema.declares_binding`] reads it.
+function analysis_schema.binding_tag(): string
+  return binding_tag
+end
+
+--- Whether the text of a declaration file holds [`analysis_schema.binding_tag`] as a line of its own, a file saved with
+--- CR LF line ends as well as one with LF.
+function analysis_schema.declares_binding(text: string): boolean
+  return ("\n" .. text:gsub("\r\n", "\n") .. "\n"):find("\n" .. binding_tag .. "\n", 1, true) ~= nil
+end
+
+--- The SQL expression for the kind of the file whose path is in `column`: `binding`, `decl`, `test`, `example`, `main` or
+--- `module` ([`kinds`]). With `source`, the SQL expression for its text, a declaration file that declares itself a
+--- binding is one.
+local function kind_case(column: string, source?: string): string
   local out: mut {string} = { "CASE" }
+  if source ~= nil then
+    out[#out + 1] = " WHEN " .. column .. " GLOB '*.d.tl' AND instr(char(10) || replace(" .. source ..
+      ", char(13) || char(10), char(10)) || char(10), char(10) || '" .. binding_tag .. "' || char(10)) > 0 THEN 'binding'"
+  end
   for _, rule in ipairs(kinds) do
     local glob, kind, except = assert(rule[1]), assert(rule[2]), assert(rule[3])
     local clause = " WHEN " .. column .. " GLOB '" .. glob .. "'"
@@ -94,8 +115,9 @@ end
 
 --- The kinds that are a declaration, a file of types that no program runs, not a module: the one place that says
 --- which, asked in SQL ([`analysis_schema.declaration`]) and in Teal ([`analysis_schema.is_declaration`]). A kind a
---- derived declaration is given belongs here before it is written to the `derived` table.
-local declarations <const>: {string} = { declaration_kind }
+--- derived declaration is given belongs here before it is written to the `derived` table. A `binding` is a declaration
+--- of a table of C.
+local declarations <const>: {string} = { declaration_kind, "binding" }
 
 --- The SQL expression that is true of a row whose kind in `column` is a declaration. `column` is an SQL identifier of
 --- the query, never data: it is spliced into the statement.
@@ -118,9 +140,13 @@ function analysis_schema.is_declaration(kind: string): boolean
   return false
 end
 
---- The kind of the Teal file `path`, below the root, as the `inputs` view says it: `decl`, `test`, `example`, `main` or
---- `module`.
-function analysis_schema.kind_of(path: string): string
+--- The kind of the Teal file `path`, below the root, as the `inputs` view says it: `binding`, `decl`, `test`, `example`,
+--- `main` or `module`. A declaration is a `binding` only given its `text`; asked of the path alone it is `decl`, which a
+--- caller that wants to know a module from a declaration cannot tell from one.
+function analysis_schema.kind_of(path: string, text?: string): string
+  if text ~= nil and globbed("*.d.tl", path) and analysis_schema.declares_binding(text) then
+    return "binding"
+  end
   for _, rule in ipairs(kinds) do
     local glob, kind, except = assert(rule[1]), assert(rule[2]), assert(rule[3])
     if globbed(glob, path) and (except == "" or not globbed(except, path)) then return kind end
@@ -146,7 +172,7 @@ analysis_schema.statements = {
              replace(CASE WHEN path GLOB '*.d.tl' THEN substr(path, 1, length(path) - 5)
                           WHEN path GLOB '*/init.tl' THEN substr(path, 1, length(path) - 8)
                           ELSE substr(path, 1, length(path) - 3) END, '/', '.') AS path,
-             ]] .. kind_case("path") .. [[ AS kind,
+             ]] .. kind_case("path", "CAST(data AS TEXT)") .. [[ AS kind,
              'tree' AS origin,
              sha256 AS from_hash,
              CAST(data AS TEXT) AS source,

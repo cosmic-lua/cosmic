@@ -41,7 +41,7 @@ local socket = require("cosmic.internal.socket")
 local function artifact_fd(): integer?
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return nil end
-  local slot = math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_ARTIFACT_FD))
+  local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"]))
   local fd = slot ~= nil and relaunch.fds[slot] or nil
   -- A held (sandboxed) worker of a portable run has the descriptor; one
   -- on a sealed database does not, and would check nothing.
@@ -228,7 +228,7 @@ local function test_spawn_hands_the_artifact_descriptor_on_only_to_a_relaunch()
   local core = relaunch.argv[1]
   local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
-  local slot = math.tointeger(tonumber(env.COSMIC_PORTABLE_ARTIFACT_FD)) as integer
+  local slot = math.tointeger(tonumber(env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer
   refused("a map to another slot", process.spawn, core, { core }, env, nil, nil, nil, nil,
     false, { [slot - 1] = fd })
   refused("a map with no environment", process.spawn, core, { core }, nil, nil, nil, nil, nil,

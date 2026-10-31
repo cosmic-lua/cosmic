@@ -128,8 +128,7 @@ end
 --- not before; a pid reaped has none to give. The child is this program, reading its stdin to the
 --- end: it exits once this process closes the other end.
 local function test_an_exit_watch_is_readable_once_its_child_exits()
-  local ok, raised = pcall(process.exit_watch, 0)
-  assert(not ok and tostring(raised):find("pid is out of range", 1, true) ~= nil, tostring(raised))
+  Test.raises(function() process.exit_watch(0) end, "pid is out of range")
   local ends = assert(process.pipe())
   local started = this_program.program({ "-e",
     'local Fs = require("cosmic.fs") while assert(Fs.take(0, 4096)) ~= "" do end' })

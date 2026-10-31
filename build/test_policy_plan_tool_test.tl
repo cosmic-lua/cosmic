@@ -121,7 +121,7 @@ local function test_a_plan_rebound_to_another_scratch_is_the_plan_made_for_it(tm
     -- Changing the copy leaves the plan it came from alone.
     table.insert(assert(rebound.sandbox.unveil).reads, "/changed")
     rebound.env.CHANGED = "yes"
-    assert(not holds(assert(made.sandbox.unveil).reads, "/changed") and made.env.CHANGED == nil)
+    assert(not holds(assert(made.sandbox.unveil).reads, "/changed") and made.env["CHANGED"] == nil)
   end
 end
 

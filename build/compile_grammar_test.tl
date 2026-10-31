@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 local compile = require("build.compile")
 local Grammar = require("build.compile_grammar")
 
-Test.policy{}
+Test.policy{ profiles = { "cosmic" } }
 
 local record Ran
   mut code: integer
@@ -165,14 +165,25 @@ local function test_a_grammar_that_is_neither_is_refused(tmp: string)
   assert(ran.err:find("--grammar names new, not lua", 1, true), ran.err)
 end
 
---- A module of the binary's own is one the new checker cannot declare: typed `invalid`, and said so.
-local function test_a_cosmic_module_is_invalid_and_reported(tmp: string)
+--- With no declaration file named, a module of the binary's own is the one it carries, as a standalone run types it: the
+--- mistake after it is reported and nothing is called invalid.
+local function test_a_cosmic_module_is_typed_from_the_binary_when_no_declaration_is_named(tmp: string)
   local text = "local Fs = require(\"cosmic.fs\")\nlocal data = Fs.read(\"x\")\nlocal n: integer = data\nreturn n\n"
   local ran = run({ "--errors", file(tmp, "uses.tl", text) })
   assert(ran.code == 0, ran.err)
+  assert(not ran.err:find("unchecked_binding", 1, true), ran.err)
+  assert(ran.err:find("uses.tl:3:", 1, true) and ran.err:find("(not_assignable)", 1, true), ran.err)
+  assert(ran.out:find("require(\"cosmic.fs\")", 1, true), ran.out)
+end
+
+--- Given a declaration file, a module of the binary's own is one the checker cannot declare: typed `invalid`, and said so.
+local function test_a_cosmic_module_is_invalid_and_reported_beside_a_declaration_file(tmp: string)
+  local decl = file(tmp, "std.d.tl", "global print: function(...: any)\n")
+  local text = "local Fs = require(\"cosmic.fs\")\nlocal data = Fs.read(\"x\")\nlocal n: integer = data\nreturn n\n"
+  local ran = run({ "--errors", decl, file(tmp, "uses.tl", text) })
+  assert(ran.code == 0, ran.err)
   assert(ran.err:find("uses.tl:1:", 1, true) and ran.err:find("(unchecked_binding)", 1, true), ran.err)
   assert(ran.err:find("cosmic.fs", 1, true), ran.err)
-  assert(ran.out:find("require(\"cosmic.fs\")", 1, true), ran.out)
   -- Nothing is typed from it, so the mistake after it is not reported on top: `invalid` is one report.
   assert(not ran.err:find("uses.tl:3:", 1, true), ran.err)
 end
@@ -211,10 +222,10 @@ local function test_a_require_of_a_given_file_is_typed_from_it_in_any_order(tmp:
   end
 end
 
---- The globals are the declaration files': none given, `print` is not declared, one given, it is.
+--- The globals are the declaration files': one given, its global is declared; none given, a standalone run's are.
 local function test_the_globals_are_those_the_declaration_files_declare(tmp: string)
-  local decl = file(tmp, "std.d.tl", "global print: function(...: any)\n")
-  local user = file(tmp, "user.tl", "print(\"hi\")\nlocal record Done\nend\nreturn Done\n")
+  local decl = file(tmp, "std.d.tl", "global shout: function(...: any)\n")
+  local user = file(tmp, "user.tl", "shout(\"hi\")\nlocal record Done\nend\nreturn Done\n")
   local without = run({ "--errors", user })
   assert(without.code == 0, without.err)
   assert(without.err:find("user.tl:1:", 1, true) and without.err:find("(unknown_variable)", 1, true), without.err)

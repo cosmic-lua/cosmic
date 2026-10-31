@@ -58,6 +58,10 @@ local type Named = plan.Named
 --- reading of a path (build/analysis_schema.tl), and a template's
 --- (build/derivation.tl), the convention a `.tl` file gets with its
 --- extension swapped.
+--
+-- TODO: give a `.d.tl` that declares itself a binding (`--- @kind binding`) the kind `binding` here, as the view does:
+-- this function has the path alone and no text. It waits on replacing its reading of a path with
+-- [`build.analysis_schema`]'s `kind_of`, which also answers `main` (the third copy of the kind mapping).
 function plan.named(name: string): Named
   if name:match("%.tmpl$") ~= nil then
     local template = name:gsub("%.tmpl$", ""):gsub("/init$", "")

@@ -1,4 +1,5 @@
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
 
 --- The first of `rows`, which the statement is known to yield.
 local function first_row(rows: Sqlite.Rows): Sqlite.Row
@@ -22,13 +23,6 @@ local function typed(): Sqlite.Row
   assert(db:close())
   assert(#rows == 1)
   return first_row(rows)
-end
-
---- The message `work` raises with.
-local function raises(work: function(): any): string
-  local ok, err = xpcall(work, function(e: any): any return e end)
-  assert(not ok, "it did not raise")
-  return tostring(err)
 end
 
 local function test_each_accessor_reads_the_type_it_names()
@@ -55,30 +49,30 @@ end
 
 local function test_a_cell_of_another_type_raises_naming_both()
   local row = typed()
-  local seen = raises(function(): any return row:text(1) end)
+  local seen = Test.raises(function() row:text(1) end)
   assert(seen:find("row:text(1)", 1, true) and seen:find("column 1 is an integer, not text", 1, true), seen)
-  seen = raises(function(): any return row:integer(2) end)
+  seen = Test.raises(function() row:integer(2) end)
   assert(seen:find("column 2 is a number, not an integer", 1, true), seen)
-  seen = raises(function(): any return row:number(3) end)
+  seen = Test.raises(function() row:number(3) end)
   assert(seen:find("column 3 is text, not a number or an integer", 1, true), seen)
-  seen = raises(function(): any return row:blob(3) end)
+  seen = Test.raises(function() row:blob(3) end)
   assert(seen:find("column 3 is text, not a blob", 1, true), seen)
-  seen = raises(function(): any return row:text(4) end)
+  seen = Test.raises(function() row:text(4) end)
   assert(seen:find("column 4 is a blob, not text", 1, true), seen)
-  seen = raises(function(): any return row:bytes(1) end)
+  seen = Test.raises(function() row:bytes(1) end)
   assert(seen:find("column 1 is an integer, not text or a blob", 1, true), seen)
 end
 
 local function test_null_raises_from_every_typed_accessor()
   local row = typed()
   for _, read in ipairs({
-      function(): any return row:integer(5) end,
-      function(): any return row:number(5) end,
-      function(): any return row:text(5) end,
-      function(): any return row:blob(5) end,
-      function(): any return row:bytes(5) end,
+      function() row:integer(5) end,
+      function() row:number(5) end,
+      function() row:text(5) end,
+      function() row:blob(5) end,
+      function() row:bytes(5) end,
   }) do
-    local seen = raises(read)
+    local seen = Test.raises(read)
     assert(seen:find("column 5 is NULL", 1, true), seen)
   end
 end
@@ -86,13 +80,13 @@ end
 local function test_a_column_the_row_lacks_raises_with_its_width()
   local row = typed()
   for _, at in ipairs({ 0, 6, -1 }) do
-    local seen = raises(function(): any return row:text(at) end)
+    local seen = Test.raises(function() row:text(at) end)
     assert(seen:find("the row has 5 columns", 1, true), seen)
   end
   local one = first_row((assert(Sqlite.rows(assert(Sqlite.memory()), "SELECT 1"))))
-  assert(raises(function(): any return one:integer(2) end):find("the row has 1 column", 1, true))
-  assert(raises(function(): any return row:kind(6) end):find("row:kind(6)", 1, true))
-  assert(raises(function(): any return row:is_null(0) end):find("row:is_null(0)", 1, true))
+  assert(Test.raises(function() one:integer(2) end):find("the row has 1 column", 1, true))
+  assert(Test.raises(function() row:kind(6) end):find("row:kind(6)", 1, true))
+  assert(Test.raises(function() row:is_null(0) end):find("row:is_null(0)", 1, true))
 end
 
 local function test_number_keeps_the_sign_of_a_negative_zero()
@@ -107,14 +101,12 @@ end
 local function test_a_raise_blames_the_caller()
   local row = typed()
   -- Not a tail call: its caller would no longer be on the stack to blame.
-  local seen = raises(function(): any
-    local held = row:text(1)
-    return held
+  local seen = Test.raises(function()
+    row:text(1)
   end)
   assert(seen:find("sqlite_row_test", 1, true), seen)
-  seen = raises(function(): any
-    local held = row:text(9)
-    return held
+  seen = Test.raises(function()
+    row:text(9)
   end)
   assert(seen:find("sqlite_row_test", 1, true), seen)
 end
@@ -139,7 +131,7 @@ local function test_texts_lists_the_columns_of_a_row_of_text()
   local texts = first_row((assert(Sqlite.text_rows(db, "SELECT 'a', 'b'")))):texts()
   assert(#texts == 2 and texts[1] == "a" and texts[2] == "b")
   local row = typed()
-  assert(raises(function(): any return row:texts() end):find("column 1 is an integer, not text", 1, true))
+  assert(Test.raises(function() row:texts() end):find("column 1 is an integer, not text", 1, true))
   assert(db:close())
 end
 
@@ -156,10 +148,10 @@ local function test_text_rows_answer_text_for_every_column()
     assert(row:kind(index) == "text" and not row:is_null(index))
     assert(row:value(index).text == row:text(index))
   end
-  assert(raises(function(): any return row:integer(1) end):find("column 1 is text, not an integer", 1, true))
-  assert(raises(function(): any return row:number(2) end):find("column 2 is text", 1, true))
-  assert(raises(function(): any return row:blob(4) end):find("column 4 is text, not a blob", 1, true))
-  assert(raises(function(): any return row:text(7) end):find("the row has 6 columns", 1, true))
+  assert(Test.raises(function() row:integer(1) end):find("column 1 is text, not an integer", 1, true))
+  assert(Test.raises(function() row:number(2) end):find("column 2 is text", 1, true))
+  assert(Test.raises(function() row:blob(4) end):find("column 4 is text, not a blob", 1, true))
+  assert(Test.raises(function() row:text(7) end):find("the row has 6 columns", 1, true))
   assert(db:close())
 end
 
@@ -168,7 +160,7 @@ local function test_a_zero_column_row_has_no_columns()
   assert(db:exec("CREATE TABLE t (a)"))
   local rows = assert(Sqlite.rows(db, "SELECT 1 WHERE 0"))
   assert(#rows == 0)
-  assert(raises(function(): any return typed():text(0) end):find("the row has 5 columns", 1, true))
+  assert(Test.raises(function() typed():text(0) end):find("the row has 5 columns", 1, true))
   assert(db:close())
 end
 
@@ -232,10 +224,10 @@ end
 
 local function test_map_finalizes_the_statement_when_the_projection_raises()
   local db = assert(Sqlite.memory())
-  local seen = raises(function(): any
-    return (Sqlite.map(db, "SELECT 'text'", nil, function(r: Sqlite.Row): integer
+  local seen = Test.raises(function()
+    Sqlite.map(db, "SELECT 'text'", nil, function(r: Sqlite.Row): integer
       return r:integer(1)
-    end))
+    end)
   end)
   assert(seen:find("column 1 is text, not an integer", 1, true), seen)
   assert(db:close(), "a raising projection leaves no statement open")
@@ -243,12 +235,12 @@ end
 
 local function test_map_refuses_a_projection_that_answers_nothing()
   local db = assert(Sqlite.memory())
-  local seen = raises(function(): any
+  local seen = Test.raises(function()
     local nothing = function(_: Sqlite.Row): integer?
       return nil
     end
     local project = nothing as function(Sqlite.Row): integer -- cast: a projection that breaks its contract
-    return (Sqlite.map(db, "SELECT 1", nil, project))
+    Sqlite.map(db, "SELECT 1", nil, project)
   end)
   assert(seen:find("project answered nil", 1, true), seen)
   assert(db:close())

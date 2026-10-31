@@ -90,8 +90,7 @@ return @make() == C, @(make()) == C, not (@make() ~= C)
 end
 
 local function test_a_class_that_is_no_table_is_an_error_naming_it()
-  local ok, why = pcall(run, "local D = nil\nreturn {} @ D\n")
-  assert(not ok and tostring(why):find("attempt to use as a class a nil value (local 'D')", 1, true) ~= nil, tostring(why))
+  Test.raises(function() run("local D = nil\nreturn {} @ D\n") end, "attempt to use as a class a nil value (local 'D')")
   local again, trouble = pcall(run, "local D = 'text'\nreturn {} @ D\n")
   assert(not again and tostring(trouble):find("attempt to use as a class a string value", 1, true) ~= nil, tostring(trouble))
 end

@@ -21,6 +21,13 @@
 --- calls are judged by rules 1 and 6, rule 11 reads them, and a function stored into a field of one is a stand-in for a
 --- binding (rule 5's exception), by the type of the field's owner. A program checked without them (`external` in
 --- [`lang.declarations`]) has their calls untyped, and so unjudged.
+---
+--- **Declaring a binding.** A declaration file (`.d.tl`) opts in with the line `--- @kind binding` on a line of its own
+--- (LF or CR LF), as the generator writes it into what it derives. Its kind is then `binding` in the build's `inputs`
+--- ([`build.analysis_schema`]), and every call of its module's functions is held as a call of [`cosmic.sys`] is: the failure
+--- is handled (rule 1), a reason is not parsed (rule 6), an exported function does not answer a bare boolean over one (rule
+--- 11), and a function stored into a field of its table is a stand-in. Only a `.d.tl` can claim it, the docs do not show
+--- the line, and a module the program holds under the name of a binding that declares no table is told by name.
 --
 -- TODO: judge the calls the checker could not type (a call has no callee in [`Checked.callees`] where its callee is `invalid`: a
 -- value an error already reported, a call through one; the `[untyped]` ceilings of build/ceilings.txt count them per file, and the
@@ -39,6 +46,7 @@
 -- name's text and position, which closes the gaps of rule 6 noted below (a reason stored in a field, in an inner block).
 local AnalysisSchema = require("build.analysis_schema")
 local Ast = require("lang.ast")
+local type Driver = require("build.driver")
 local GenSyscalls = require("build.gen_syscalls")
 local Lexer = require("lang.lexer")
 local Rules = require("build.contract_rules")
@@ -65,8 +73,13 @@ local record SyntaxContracts
   end
 
   --- The breaches of the discipline in `subject`, a module of cosmic's own tree that was checked with its types kept.
-  --- `given` is the exemptions to hold it to in place of the tree's own.
-  check: function(subject: Subject, given?: Rules.Exemptions): Result
+  --- `given` is the exemptions to hold it to in place of the tree's own. `declared` is the modules the build's sources
+  --- declare tables of C bindings, which the contract holds besides the ones the generator derives.
+  check: function(subject: Subject, given?: Rules.Exemptions, declared?: {string}): Result
+
+  --- The modules of `index` that are declarations of a table of C bindings: a declaration that holds the line
+  --- [`analysis_schema.binding_tag`], which `check` holds the calls of besides the ones the generator derives.
+  declared_in: function(index: Driver.Index): {string}
 
   --- Whether the discipline holds the file: every module and main of the tree, not its tests, examples or declarations.
   applies: function(file: string): boolean
@@ -76,6 +89,16 @@ local record SyntaxContracts
 end
 
 SyntaxContracts.rules = { "calls", "functions", "exports", "wrappers", "readings", "casts", "types", "modes" }
+
+function SyntaxContracts.declared_in(index: Driver.Index): {string}
+  local out: mut {string} = {}
+  for _, source in ipairs(index.sources) do
+    if source.dialect == "decl" and AnalysisSchema.declares_binding(source.text) then
+      out[#out + 1] = source.module
+    end
+  end
+  return out
+end
 
 function SyntaxContracts.applies(file: string): boolean
   return Rules.applies(AnalysisSchema.kind_of(file), false)
@@ -462,6 +485,9 @@ local record Run
   subject: Subject
   index: Index
   exemptions: Rules.Exemptions
+  --- The modules the sources of the build declare tables of C bindings ([`SyntaxContracts.declared_in`]), beside the ones
+  --- the generator derives.
+  declared: {string}
   used: Used
   problems: mut {string}
   sites: mut {string: integer}
@@ -687,26 +713,24 @@ local function is_quiet(run: Run, call: Ast.Node): boolean
   return entry ~= nil and entry.methods[name] == true
 end
 
---- The record each table of C bindings is, by declaration, to its module's name: the tables the new checker types from
---- the declarations the build derives from their headers, which are the modules [`build.gen_syscalls`] generates.
---
--- TODO: hold a declaration file that declares itself a binding (`--- @kind binding`) to the discipline too, and let the
--- `inputs` view say `binding` for it and for what the generator derives. Every comparison of a kind with `'decl'` asks
--- [`build.analysis_schema`]'s one declaration test now, so it waits only on the three that set or still compare the
--- literal: [`build/test_key.tl`] (a harness module, which needs the epoch handling of doc/testing.md), the kind
--- [`build/derivation.tl`] gives a derived declaration, and the one [`build/lsp/plan.tl`] gives a written one.
+--- The record each table of C bindings is, by declaration, to its module's name: the tables the new checker types from the
+--- declarations of the modules the build derives from their headers ([`build.gen_syscalls`]'s `targets`, which a project's
+--- binary carries) and from those the sources of the build declare a binding (`run.declared`,
+--- [`SyntaxContracts.declared_in`]).
 local function binding_tables(run: Run): {Types.Decl: string}
   local out: mut {Types.Decl: string} = {}
-  for _, target in ipairs(GenSyscalls.targets) do
-    local root = Report.root_of(run.subject.program, target.path)
+  local names: mut {string} = {}
+  for _, target in ipairs(GenSyscalls.targets) do names[#names + 1] = target.path end
+  for _, name in ipairs(run.declared) do names[#names + 1] = name end
+  for _, name in ipairs(names) do
+    local root = Report.root_of(run.subject.program, name)
     if root ~= nil then
-      out[root] = target.path
-    elseif run.subject.program.modules[target.path] ~= nil then
+      out[root] = name
+    elseif run.subject.program.modules[name] ~= nil then
       -- A program without the module (it requires none, or `external` leaves it untyped) has no calls to judge; one
       -- that holds it as something that is no table has lost it from the contract, which must be told.
-      table.insert(run.problems, string.format("%s: %s is a table of C bindings derived from %s, but the program " ..
-          "holds a module of that name that declares no table: its calls are no longer held to the contract",
-        run.subject.file, target.path, target.target.header))
+      table.insert(run.problems, string.format("%s: %s is a table of C bindings, but the program holds a module of " ..
+          "that name that declares no table: its calls are no longer held to the contract", run.subject.file, name))
     end
   end
   return out
@@ -1724,9 +1748,9 @@ local function problem_line(problem: string): integer
   return math.tointeger(tonumber(problem:match("^[^:]*:(%d+):"))) or 0
 end
 
-function SyntaxContracts.check(subject: Subject, given?: Rules.Exemptions): SyntaxContracts.Result
+function SyntaxContracts.check(subject: Subject, given?: Rules.Exemptions, declared?: {string}): SyntaxContracts.Result
   local run: Run = {
-    subject = subject, index = index_of(subject), exemptions = given or Rules.own_exemptions(),
+    subject = subject, index = index_of(subject), exemptions = given or Rules.own_exemptions(), declared = declared or {},
     used = { exempt = {}, parsing = {}, casts = {}, modes = {} }, problems = {}, sites = {}, scopes = {}, static_lines = {},
   }
   run.scopes = scope_names(run.index, bound_names(subject))

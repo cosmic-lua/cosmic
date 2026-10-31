@@ -54,8 +54,7 @@ end
 local function test_a_nil_the_declaration_refuses_fails_and_one_it_admits_does_not()
   worker.install_checks()
   cross_nothing(parameter("cosmic/boundary_hook_fake.tl:5", "integer|nil"))
-  local ok, why = pcall(cross_nothing, parameter("cosmic/boundary_hook_fake.tl:6", "integer"))
-  assert(not ok and tostring(why):find("is nil, declared integer", 1, true) ~= nil, tostring(why))
+  Test.raises(function() cross_nothing(parameter("cosmic/boundary_hook_fake.tl:6", "integer")) end, "is nil, declared integer")
 end
 
 local function test_a_float_for_an_integer_and_a_missing_argument_fail()

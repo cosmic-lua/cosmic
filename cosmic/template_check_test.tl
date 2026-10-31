@@ -286,27 +286,29 @@ local function test_a_slot_takes_what_its_place_accepts(tmp: string)
   assert(ok ~= nil, why)
 end
 
-local WRONG <const>: {{string}} = {
-  { "<p>{{.a}}</p>", "SafeAttr" },
-  { "<p>{{.u}}</p>", "SafeUrl" },
-  { "<p>{{.items}}</p>", "{Item}" },
-  { "<p>{{.flag}}</p>", "boolean" },
-  { "<p title=\"{{.h}}\">", "SafeHtml" },
-  { "<p title=\"{{.u}}\">", "SafeUrl" },
-  { "<p title=\"{{.items}}\">", "{Item}" },
-  { "<a href=\"{{.h}}\">", "SafeHtml" },
-  { "<a href=\"{{.a}}\">", "SafeAttr" },
-  { "<a href=\"{{.n}}\">", "integer" },
-  { "<a href=\"{{.items}}\">", "{Item}" },
-  { "<p>{{.nope}}</p>", "nope" },
-  { "<p>{{.user.nmae}}</p>", "nmae" },
+local record Expect source: string want: string end
+
+local WRONG <const>: {Expect} = {
+  { source = "<p>{{.a}}</p>", want = "SafeAttr" },
+  { source = "<p>{{.u}}</p>", want = "SafeUrl" },
+  { source = "<p>{{.items}}</p>", want = "{Item}" },
+  { source = "<p>{{.flag}}</p>", want = "boolean" },
+  { source = "<p title=\"{{.h}}\">", want = "SafeHtml" },
+  { source = "<p title=\"{{.u}}\">", want = "SafeUrl" },
+  { source = "<p title=\"{{.items}}\">", want = "{Item}" },
+  { source = "<a href=\"{{.h}}\">", want = "SafeHtml" },
+  { source = "<a href=\"{{.a}}\">", want = "SafeAttr" },
+  { source = "<a href=\"{{.n}}\">", want = "integer" },
+  { source = "<a href=\"{{.items}}\">", want = "{Item}" },
+  { source = "<p>{{.nope}}</p>", want = "nope" },
+  { source = "<p>{{.user.nmae}}</p>", want = "nmae" },
 }
 
 local function test_a_slot_given_what_its_place_refuses_is_a_type_error_on_its_line(tmp: string)
   for index, case in ipairs(WRONG) do
-    local trouble = refused(tmp, "wrong" .. tostring(index), HEAD .. "ok\n" .. case[1])
-    assert(trouble:find("page.tmpl:3:", 1, true), case[1] .. ": " .. trouble)
-    assert(trouble:find(spelled(case[2]), 1, true), case[1] .. ": " .. trouble)
+    local trouble = refused(tmp, "wrong" .. tostring(index), HEAD .. "ok\n" .. case.source)
+    assert(trouble:find("page.tmpl:3:", 1, true), case.source .. ": " .. trouble)
+    assert(trouble:find(spelled(case.want), 1, true), case.source .. ": " .. trouble)
   end
 end
 
@@ -369,21 +371,21 @@ end
 
 local function test_a_request_url_slot_is_checked_as_a_same_origin_reference(tmp: string)
   local template = USE .. "<a hx-get=\"{{.url}}\" href=\"{{.url}}\" hx-push-url=\"{{.u}}\">"
-  local cases: {{string}} = {
-    { "/items/7?x=1", "/items/7?x=1" },
-    { "items", "items" },
-    { "true", "true" },
-    { "//evil.example/x", "about:invalid" },
-    { "\\\\evil.example", "about:invalid" },
-    { "https://evil.example/x", "about:invalid" },
-    { "javascript:alert(1)", "about:invalid" },
-    { "java\tscript:alert(1)", "about:invalid" },
-    { " /x", "about:invalid" },
-    { "mailto:a@b.example", "about:invalid" },
+  local cases: {Expect} = {
+    { source = "/items/7?x=1", want = "/items/7?x=1" },
+    { source = "items", want = "items" },
+    { source = "true", want = "true" },
+    { source = "//evil.example/x", want = "about:invalid" },
+    { source = "\\\\evil.example", want = "about:invalid" },
+    { source = "https://evil.example/x", want = "about:invalid" },
+    { source = "javascript:alert(1)", want = "about:invalid" },
+    { source = "java\tscript:alert(1)", want = "about:invalid" },
+    { source = " /x", want = "about:invalid" },
+    { source = "mailto:a@b.example", want = "about:invalid" },
   }
   for index, case in ipairs(cases) do
-    local out = render(tmp, "local-" .. tostring(index), template, { url = case[1], u = Html.trust_url("https://example.com/a") })
-    assert(attribute(out, "hx-get") == case[2], case[1] .. ": " .. out)
+    local out = render(tmp, "local-" .. tostring(index), template, { url = case.source, u = Html.trust_url("https://example.com/a") })
+    assert(attribute(out, "hx-get") == case.want, case.source .. ": " .. out)
     -- A SafeUrl is the author's: it passes as it is.
     assert(attribute(out, "hx-push-url") == "https://example.com/a", out)
   end
@@ -720,6 +722,7 @@ local function test_a_range_else_reads_the_enclosing_dot(tmp: string)
   assert(lua ~= nil, trouble)
   local mod = load_module(lua, "page")
   assert(mod is Loaded, "page exports no render")
+  -- TODO: type these rows as a record once a `{string: any}` field takes literals without any_use.
   for _, case in ipairs({
       { { items = { { name = "a", n = 1 }, { name = "b", n = 2 } } } as {string: any}, "\na;b;" },
       { { items = {}, list = { "x", "y" } } as {string: any}, "\nxy" },

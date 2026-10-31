@@ -90,4 +90,17 @@ function Example.none_match()
   assert(answer('"v6"').status == 200 and answer(nil).status == 200)
 end
 
+--- Which coding a handler compresses a reply in, for the
+--- `Accept-Encoding` the request sent: the best weight wins, a weight
+--- of 0 refuses, and a client that sends none takes identity. nil is a
+--- client that refuses identity and every coding offered.
+function Example.encoding()
+  local function pick(header: string?): string
+    return Server.encoding(header, { "zstd", "gzip" }) or "none"
+  end
+  print(pick("gzip, zstd;q=0.5"), pick("zstd;q=0, gzip"), pick(nil), pick("identity;q=0"))
+  assert(pick("gzip, zstd;q=0.5") == "gzip" and pick("zstd;q=0, gzip") == "gzip")
+  assert(pick(nil) == "identity" and pick("identity;q=0") == "none")
+end
+
 return Example
