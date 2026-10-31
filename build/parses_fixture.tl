@@ -6,9 +6,10 @@
 ---
 --- The rows are written with [`cosmic.csv.encode`], a tab between fields and a
 --- line between rows, so a field that holds a tab, a quote or a line break is
---- quoted and no two row sets dump alike: the parse tables hold text, such as
---- a source, that has all of them, and the tests compare dumps with `==`.
---- Plain fields come out as they are.
+--- quoted and no two row sets dump alike, but for NULL and '' (see
+--- [`dump`]): the parse tables hold text, such as a source, that has all of
+--- them, and the tests compare dumps with `==`. Plain fields come out as they
+--- are.
 
 local Csv = require("cosmic.csv")
 local Sqlite = require("cosmic.sqlite")
@@ -25,10 +26,11 @@ end
 
 --- Every row `sql` answers of the database at `path`, a line each.
 ---
---- TODO: once [`cosmic.csv`] can write an empty field quoted (a `quote_empty`
---- option of `Csv.encode_field`), write NULL and '' apart: [`cosmic.sqlite`]'s
---- `text_rows` answers both as "", so a query that can answer NULL dumps it
---- as an empty text. The parse tables hold no NULL, so [`rows`] is unaffected.
+--- TODO: write NULL and '' apart once [`cosmic.csv`] can write an empty field
+--- quoted, which `Csv.encode_field`'s `quote_empty` (cosmic-lua/cosmic#3431)
+--- adds: read each cell's kind ([`Sqlite.rows`], not `text_rows`, which answers
+--- NULL as "") and quote an empty text, leaving NULL a bare empty field. Every
+--- column of the parse tables is NOT NULL, so [`rows`] is unaffected.
 function parses_fixture.dump(path: string, sql: string): string
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, sql))
