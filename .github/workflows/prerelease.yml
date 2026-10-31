@@ -62,6 +62,26 @@
           uses: "./.github/actions/cosmic-driver",
         },
         {
+          name: "download the tested products",
+          id: "products-download",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            pattern: "portable-product-*",
+            path: "${{ runner.temp }}/products",
+            "run-id": "${{ github.event.workflow_run.id }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "download the tested products: wait before the second try",
+          if: "steps.products-download.outcome == 'failure'",
+          shell: "sh",
+          run: "rm -rf \"${{ runner.temp }}/products\"; sleep 10",
+        },
+        {
+          name: "download the tested products: second try",
+          if: "steps.products-download.outcome == 'failure'",
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
           with: {
             pattern: "portable-product-*",

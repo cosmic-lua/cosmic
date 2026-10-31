@@ -1546,7 +1546,7 @@ local function test_a_main_push_reuses_the_queue_run()
   assert(relayed == 1, "the platform legs upload their product under another name")
 
   -- Each key the leg's own, of the shape its save takes.
-  local keys = step_running(steps, "seed.keys")
+  local keys = step_with_id(steps, "keys")
   -- Each key names the leg, then what only the leg's own key holds
   -- there (its host's hex, or its digest), so linux-x86_64's entry takes
   -- none of linux-x86_64-checked's.
@@ -2501,7 +2501,7 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   assert(twin ~= nil and twin["if"] == "steps.keys.outputs.verdicts-sha != ''",
     "seed names no verdicts under the commit")
   assert(position(steps, assert(plain)) < position(steps, twin), "seed names its verdicts' entry before it saves it")
-  local keys = step_running(steps, "seed.keys")
+  local keys = step_with_id(steps, "keys")
   assert(assert(keys.run):find("|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}-[0-9a-f]+|",
     1, true), "seed takes a name under another commit")
 
@@ -3344,13 +3344,11 @@ local DOWNLOAD <const> = "actions/download-artifact@"
 --- failure, and runs only where that one failed. GitHub's artifact service
 --- fails a download now and then; in a merge queue each such failure ejects
 --- the entry. A real absence of the artifact fails the second try, so the
---- job still fails. A new gating download with no first try is refused. Only
---- ci.yml is held to it.
+--- job still fails. A new gating download with no first try is refused.
 local function test_a_gating_download_has_a_first_try_to_retry()
   local seen = 0
-  local path = DIR .. "/ci.yml"
-  do
-    for name, job in pairs(ci_workflow().jobs) do
+  for path, workflow in pairs(decoded_workflows()) do
+    for name, job in pairs(workflow.jobs) do
       for i, step in ipairs(job.steps) do
         local uses = step.uses
         if uses ~= nil and String.starts_with(uses, DOWNLOAD) == true and step["continue-on-error"] ~= true then

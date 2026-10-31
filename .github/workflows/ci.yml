@@ -2304,6 +2304,11 @@
       permissions: {actions: "read"},
       "timeout-minutes": 10,
       steps: [
+        # A try that fails may leave part of the artifact behind. The wait
+        # step removes the paths the seed holds (the artifact is uploaded
+        # from $RUNNER_TEMP/seed and extracts into $RUNNER_TEMP itself, so
+        # the directory cannot be cleared whole). Assumption, not read at
+        # the pinned sha: v8 extracts over existing files.
         {
           name: "download the queue run's seed",
           id: "seed-download",
@@ -2320,7 +2325,7 @@
           name: "download the queue run's seed: wait before the second try",
           if: "steps.seed-download.outcome == 'failure'",
           shell: "sh",
-          run: "sleep 10",
+          run: "cd \"${{ runner.temp }}\" && rm -rf verdicts verdicts-commit build-cache driver-checked seed.keys; sleep 10",
         },
         {
           name: "download the queue run's seed: second try",
