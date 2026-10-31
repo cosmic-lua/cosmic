@@ -99,6 +99,18 @@
           run: "chown -R runner \"$GITHUB_WORKSPACE\" \"$RUNNER_TEMP\"",
         },
 
+        # One cosmic cache for every step after this: the tree's build
+        # directory (build/paths.tl) and the launcher's cores both lie
+        # under $XDG_CACHE_HOME, so a step without it looks for the
+        # checked core under /github/home/.cache, where the build did
+        # not put it. The bootstrap below puts the driver there too.
+        {
+          name: "name the cosmic cache every later step shares",
+          "working-directory": "/",
+          shell: "sh",
+          run: "echo \"XDG_CACHE_HOME=$RUNNER_TEMP/cache\" >> \"$GITHUB_ENV\"",
+        },
+
         # A composite action's steps do not take defaults.run's shell: it
         # is given again, with the user the restored cache goes to first.
         {
@@ -129,7 +141,7 @@
         # ci.yml's zig build cache for the linux-x86_64 leg would save it.
         {
           name: "build and boot the checked core",
-          run: "XDG_CACHE_HOME=\"$RUNNER_TEMP/cache\" bin/zig build sanitized",
+          run: "bin/zig build sanitized",
         },
 
         {
@@ -158,13 +170,15 @@
           },
         },
 
-        # As ci.yml's platform legs: the last step, as root, puts the tree
-        # back before the checkout's post step reads it.
+        # As ci.yml's platform legs: the last step puts the tree back
+        # before the checkout's post step reads it. It runs as the other
+        # steps do, not as the container's root: the driver's launcher
+        # refuses a cache leaf another user owns, and the cores the
+        # earlier steps made are the builder's.
         {
           name: "move the tree back to where it was checked out",
           if: "always() && steps.driver.outcome == 'success'",
           "working-directory": "ci",
-          shell: "sh",
           env: {COSMIC_WORKER: "fuzz"},
           run: "cosmic-driver cosmic_ci/driver.tl place-tree --restore",
         },
