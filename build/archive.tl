@@ -67,6 +67,12 @@ local function bare_message(message: string): string
   return (message:gsub("^archive: ", ""))
 end
 
+--- How `file` is named in a message: standard input by that name,
+--- not by its `-`.
+local function named(file: string): string
+  return if file == "-" then "standard input" else file end
+end
+
 --- What went wrong reading `path` -- which is `file`, or a temporary
 --- copy of standard input -- as one message naming the input once.
 local function trouble_of(file: string, path: string, why: string): string
@@ -78,8 +84,8 @@ local function trouble_of(file: string, path: string, why: string): string
       start, stop = message:find(path, 1, true)
     end
   end
-  if message:find(if file == "-" then "standard input" else file end, 1, true) == nil then
-    message = (if file == "-" then "standard input" else file end) .. ": " .. message
+  if message:find(named(file), 1, true) == nil then
+    message = named(file) .. ": " .. message
   end
   return message
 end
@@ -578,7 +584,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
     if found[slot] ~= true then missing[#missing + 1] = member end
   end
   if #missing > 0 then
-    return give_up(fail(bare.failed, file .. ": no such member: " .. table.concat(missing, ", ")))
+    return give_up(fail(bare.failed, named(file) .. ": no such member: " .. table.concat(missing, ", ")))
   end
   if clashes.count > 0 then return give_up(overwrite_refusal(dest, clashes)) end
   if written == nil then return give_up(fail(bare.refused, why_of(extract_why))) end
@@ -642,10 +648,7 @@ local function extract(file: string, dest: string, force: boolean, members: {str
       if not found then missing[#missing + 1] = member end
     end
     if #missing > 0 then
-      -- TODO: name standard input as the other messages here do
-      -- ("standard input: no such member"), not by its `-`; this and the
-      -- spooled zip's branch both still print `-:`.
-      return fail(bare.failed, file .. ": no such member: " .. table.concat(missing, ", "))
+      return fail(bare.failed, named(file) .. ": no such member: " .. table.concat(missing, ", "))
     end
     if not force then
       local clashes: Clashes = { count = 0, first = {} }
