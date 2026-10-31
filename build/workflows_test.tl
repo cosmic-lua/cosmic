@@ -2382,6 +2382,64 @@ local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
   assert(placed >= 3, "only " .. tostring(placed) .. " jobs move their tree")
 end
 
+--- A job whose steps drop to an unprivileged user (a `setpriv` default
+--- shell) has one cosmic cache for them all, and none of its steps runs
+--- the tree's tools as the container's root. The build directory
+--- (build/paths.tl) and the launcher's cores lie under $XDG_CACHE_HOME:
+--- a step that lacks the build step's value looks for the built tool in
+--- another directory, and the root's launcher refuses a cache leaf the
+--- user made.
+local function test_an_unprivileged_job_shares_one_cache_and_runs_its_tools_as_that_user()
+  local checked = 0
+  for path, workflow in pairs(decoded_workflows()) do
+    for job_name, job in pairs(workflow.jobs) do
+      local shell = ""
+      for _, defaults in ipairs(run_defaults(job, workflow)) do
+        shell = defaults["shell"] or shell
+      end
+      if shell:find("setpriv", 1, true) ~= nil then
+        checked = checked + 1
+        local where = path .. " " .. job_name
+        local set = 0
+        local first_tool = 0
+        for i, step in ipairs(job.steps) do
+          local what = where .. " step " .. tostring(step.name)
+          local run = step.run
+          local named = map_of(step.env)["XDG_CACHE_HOME"] ~= nil
+          local sets = false
+          if run is string then
+            local assigns = run:find("XDG_CACHE_HOME%s*=") ~= nil or run:find("export%s+XDG_CACHE_HOME") ~= nil
+            sets = assigns and run:find("GITHUB_ENV", 1, true) ~= nil
+            named = named or (assigns and not sets)
+            local padded = " " .. run
+            local tool = padded:find("[%s;&|(\"']%.*/*bin/[%a-]") ~= nil or
+              padded:find("[%s;&|(]cosmic%-driver%f[^%w_%-]") ~= nil
+            if tool then
+              if first_tool == 0 then first_tool = i end
+              assert(step.shell == nil or step.shell:find("setpriv", 1, true) ~= nil,
+                what .. " runs the tree's tools as root")
+            end
+          end
+          assert(not named, what .. " names a cache of its own")
+          local uses = step.uses
+          if uses is string and uses:find("^%./") ~= nil then
+            assert(step.shell == nil or step.shell:find("setpriv", 1, true) ~= nil,
+              what .. " runs a local action as root")
+          end
+          if sets and set == 0 then
+            set = i
+            assert(step["if"] == nil, what .. " shares the cache only under a condition")
+          end
+        end
+        assert(set > 0, where .. " never names the cache its steps share")
+        assert(first_tool == 0 or set < first_tool,
+          where .. " names the shared cache after a step that uses the tree's tools")
+      end
+    end
+  end
+  assert(checked >= 1, "no job drops to an unprivileged user")
+end
+
 --- A failed job of the merge queue's run has the run cancelled,
 --- so the gate reports without waiting on the legs still running. A job
 --- of its own does it, the only job of the run that holds `actions: write`
