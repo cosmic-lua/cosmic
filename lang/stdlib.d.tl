@@ -37,7 +37,7 @@ do
     "a" "l" "L" "*a" "*l" "*L" "n" "*n"
   end
 
-  -- TODO: provide the typed `coroutine` library in the runtime, once the runtime cut keeps only the globals a `.d.tl`
+  -- TODO: provide the typed `coroutine` library in the runtime, once the runtime keeps only the globals a `.d.tl`
   -- declares: these declarations describe a body that is given a handle
   -- and a `Coroutine` that is not a thread, and the runtime has Lua's own `coroutine`, which [`cosmic.poll`] calls.
   global record coroutine

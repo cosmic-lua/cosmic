@@ -821,8 +821,9 @@ function Types.letter(index: integer): string
   return "P" .. tostring(index)
 end
 
---- How an atom or a form is told from another when a union is written: atoms in the order
---- of the table below, then named types, collections, variables and functions.
+--- How an atom or a form is told from another when a union is written: atoms
+--- in the order of this table, which fixes how a union is written, then named
+--- types, collections, variables and functions.
 local ATOM_RANK <const>: {string: integer} = {
   integer = 1, number = 2, string = 3, boolean = 4, ["true"] = 5, ["false"] = 6, ["nil"] = 7,
   never = 8, any = 9, invalid = 10,

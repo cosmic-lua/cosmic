@@ -441,8 +441,8 @@ end
 -- the form from text. Where it does not, `getmetatable`, which a class that hides
 -- its metatable would fail.
 --
--- TODO: read the class with whatever form the runtime keeps for the code the compiler writes, once the runtime cut takes
--- text `load` from programs (the runtime then has no reserved form that text can spell): the `@` of text is
+-- TODO: read the class with whatever form the runtime keeps for the code the compiler writes, once the runtime no longer
+-- exposes text `load` to programs (the runtime then has no reserved form that text can spell): the `@` of text is
 -- then gone, and a class that hides its metatable is a false "fact violated" again.
 local raw_reader = load("local v = ... return @v")
 

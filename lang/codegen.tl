@@ -52,8 +52,8 @@
 --- re-entrant: it runs one generation at a time, as the one thread of a cosmic
 --- program does.
 
--- TODO: write the reserved form of the class only in the code the compiler writes, once the runtime cut takes text
--- `load` from programs: a program cannot spell
+-- TODO: write the reserved form of the class only in the code the compiler writes, once the runtime no longer exposes
+-- text `load` to programs: a program cannot spell
 -- `@` in Teal, but a chunk it loads from text is read by the patched parser, which takes both forms today
 -- (`load("return @'abc'")` answers the string metatable), and `@v` reads a metatable whatever its `__metatable` says.
 --

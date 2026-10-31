@@ -1,5 +1,5 @@
 -- `driver.tl report`: what CI's recent runs took and what their suites
--- ran, the figures decisions about CI's speed rest on. For the last N completed runs of ci.yml of one event
+-- ran, the figures that CI-speed decisions are made on. For the last N completed runs of ci.yml of one event
 -- (merge_group by default; a push's on main), newest first, it reads
 -- through GitHub's REST API (github_api.tl, with `GH_TOKEN` or
 -- `GITHUB_TOKEN`) each run's jobs

@@ -1911,9 +1911,10 @@ local function lower_field(ctx: Ctx, build: Build, m: Ast.FieldDecl)
   local ft = lower_type(ctx, m.type)
   -- A field that may be nil is a plain value of one type: `name?: T`, or a type that has `nil` in it.
   --
-  -- TODO: take an optional generic function field, if the owner lifts the decision (an
-  -- optional field is a plain value): the checker narrows and calls a generic function held in a local or a
-  -- parameter, so the rule exists and the refusal is a choice.
+  -- TODO: take an optional generic function field, once the owner lifts the
+  -- rule that an optional field is a plain value: the checker narrows and
+  -- calls a generic function held in a local or a parameter, so the
+  -- refusal is a choice.
   if m.omittable or nilable(ft) then
     -- A class refuses every such name already (`class_metamethod`), and one mistake is one error.
     if build.decl.kind ~= "class" and metamethod_name(m.name.name) then

@@ -1,10 +1,14 @@
---- The codes of the new checker's expression errors ([`lang.check`]), and the rule behind each. An error has a [`Codes.Code`], the place at fault, what
---- is wrong in one line, and the change that fixes it written against the program's own names. A [`Codes.Row`]
---- is the rule a code stands for, which `cosmic docs <code>` and the error read alike: the rule as the language names
---- it, why the language holds it, and the fix with the placeholders `<...>` the error fills from the program.
+--- The codes of the new checker's expression errors ([`lang.check`]), and
+--- the rule behind each. An error has a [`Codes.Code`], the place at fault,
+--- what is wrong in one line, and the change that fixes it written against
+--- the program's own names. A [`Codes.Row`] is the rule a code stands for,
+--- which `cosmic docs <code>` and the error read alike: the rule as the
+--- language names it, why the language holds it, and the fix with the
+--- placeholders `<...>` the error fills from the program.
 ---
---- `float_key`, `array_of_optional` and `param_untyped` are also the codes of [`lang.declarations`], whose
---- catalog holds their rows; the others are this catalog's.
+--- `float_key`, `array_of_optional` and `param_untyped` are also the codes
+--- of [`lang.declarations`], whose catalog holds their rows; the others are
+--- this catalog's.
 local Declarations = require("lang.declarations")
 local Scopes = require("lang.scopes")
 

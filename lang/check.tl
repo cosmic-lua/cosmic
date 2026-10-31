@@ -1871,9 +1871,13 @@ local function literal_member(ctx: Ctx, e: Ast.Table, u: Union, written: Type): 
   return nil
 end
 
--- TODO: check a literal given to a parameter declared `any` item by item and answer it without a join, once the language settles
--- whether a value reaches `any` as the items of a literal or only as the literal: it is typed by the join of its items today, so `Json.encode_any({ a = 1, b = "x" })` is `arms_differ`, and
--- the files that give such a literal to an `any` parameter hold that count in [`build/ceilings.txt`].
+-- TODO: check a literal given to a parameter declared `any` item by item
+-- and answer it without a join, once the rule for what may reach `any` (a
+-- literal's items, or the literal alone) is written into
+-- doc/guides/project.md: it is typed by the join of its items today, so
+-- `Json.encode_any({ a = 1, b = "x" })` is `arms_differ`, and the files that
+-- give such a literal to an `any` parameter hold that count in
+-- [`build/ceilings.txt`].
 
 --- A table literal. Checked against a type it is a record, a class, an array or a map as that type is; with no type it
 --- is an array or a map of the join of its items.
@@ -7471,11 +7475,14 @@ local function arm_for(alt: Alt): string
   return "| (" .. table.concat(pats, ", ") .. ") then ..."
 end
 
---- `match`: the arms cover the lists the call may answer exactly. An arm takes the lists whose value at each position it tests with `true` or `false` is that one,
---- and a list some earlier arm takes is not its: the names of the arm are the union of what those lists have where the
---- name stands, and each arm names every value of them. An arm that takes no list, or only lists the arms before it took,
---- is `match_redundant`; a list no arm takes is `match_missing`. Each arm is walked from the state after the call, and what
---- follows is where their ends meet.
+--- `match`: the arms cover the lists the call may answer exactly. An arm
+--- takes the lists whose value at each position it tests with `true` or
+--- `false` is that one, and a list some earlier arm takes is not its: the
+--- names of the arm are the union of what those lists have where the name
+--- stands, and each arm names every value of them. An arm that takes no
+--- list, or only lists the arms before it took, is `match_redundant`; a
+--- list no arm takes is `match_missing`. Each arm is walked from the state
+--- after the call, and what follows is where their ends meet.
 local function match_statement(ctx: Ctx, s: Ast.Match)
   local c = s.scrutinee
   local alts = unknown_lists(ctx)

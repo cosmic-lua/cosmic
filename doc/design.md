@@ -958,9 +958,9 @@ a CycloneDX document. a pin with no license fails the build.
 ### teal
 
 the checker and compiler are the tree's own source, `lang/`, and the language is cosmic's own: it reads Teal's
-syntax where that serves and breaks with it where Teal or a Lua idiom costs soundness, simplicity or speed
-([`doc/guides/project.md`] says how a project is written). there is one
-checker. the fork of tl 0.24.8 that came before it is deleted, with its formatter, its comparison harness and its
+syntax where that serves and breaks with it where Teal or a Lua idiom costs
+soundness, simplicity or speed (`cosmic docs <code>` gives the rule behind any
+error the checker reports). there is one checker. the fork of tl 0.24.8 that came before it is deleted, with its formatter, its comparison harness and its
 patch records; a project written in the old grammar is rewritten to this one by hand
 ([`doc/guides/project.md`]), and `COSMIC_GRAMMAR=teal` is refused, pointing to that guide.
 
