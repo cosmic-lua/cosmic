@@ -170,3 +170,63 @@ local function test_a_column_counts_characters()
   local why = refused("<a>\u{E9}\u{E9}</b>")
   assert(why == "xml: line 1, column 8: mismatched tag", why)
 end
+
+--- A run of text past `max_text` is refused where it passes it, however
+--- the chunks split it; one at the limit reads.
+local function test_a_run_of_text_past_max_text_is_refused()
+  local why = refused("<a>" .. string.rep("x", 11) .. "</a>", { max_text = 10 })
+  assert(why == "xml: line 1, column 4: a run of text is longer than 10 bytes", why)
+  assert(read("<a>" .. string.rep("x", 10) .. "</a>", { max_text = 10 }) == 'start a|text "xxxxxxxxxx"|end a')
+  local ok, raised = pcall(Xml.parser, { max_text = 0 })
+  assert(not ok and tostring(raised):match("max_text must be at least 1") ~= nil, tostring(raised))
+end
+
+--- Fed a byte at a time past a long attribute, an eager parser answers
+--- each element in the chunk that completes it; a deferring one may hold
+--- it back.
+local function test_an_eager_parser_answers_each_chunk_what_it_completes()
+  local text = '<r><i k="' .. string.rep("v", 10000) .. '"/><b/>'
+  local p <close> = assert(Xml.parser({ eager = true }))
+  local seen: mut {string} = {}
+  for at = 1, #text do
+    local events = assert(p:feed(text:sub(at, at)))
+    for _, e in ipairs(events) do
+      local line = tostring(at) .. " " .. e.kind .. " " .. (e.name or "")
+      seen[#seen + 1] = line
+    end
+  end
+  local closes = #text - #"<b/>"
+  local want = { "3 start r", tostring(closes) .. " start i", tostring(closes) .. " end i",
+    tostring(#text) .. " start b", tostring(#text) .. " end b" }
+  assert(table.concat(seen, "|") == table.concat(want, "|"), table.concat(seen, "|"))
+end
+
+--- What the writer writes, a parser reads back to the same events.
+local function test_write_reads_back_to_the_same_events()
+  local text = '<?go now?><r b="2" a="tab&#9;here&amp;&quot;">x &lt; y\r\n<e/><!-- c --><![CDATA[]]]]><![CDATA[>]]></r>'
+  local events = assert(Xml.events(text))
+  local written = assert(Xml.write(events))
+  assert(written == '<?go now?><r a="tab&#9;here&amp;&quot;" b="2">x &lt; y\n<e/><!-- c -->]]&gt;</r>', written)
+  assert(show((assert(Xml.events(written)))) == show(events))
+end
+
+local function test_write_refuses_what_is_no_document()
+  local function why(events: {Xml.Event}): string
+    local written, trouble = Xml.write(events)
+    assert(written == nil, written)
+    return trouble
+  end
+  assert(why({ { kind = "start", name = "a" } }) == "xml: <a> is not closed")
+  assert(why({}) == "xml: no root element")
+  assert(why({ { kind = "start", name = "a" }, { kind = "end", name = "b" } }) == "xml: event 2: </b> closes <a>")
+  assert(why({ { kind = "text", text = "x" } }) == "xml: event 1: text outside the root element")
+  assert(why({ { kind = "start", name = "{urn:x}a" } }):match("^xml: event 1: not an XML name") ~= nil)
+  assert(why({ { kind = "start", name = "a" }, { kind = "end", name = "a" }, { kind = "start", name = "b" } }) ==
+      "xml: event 3: a second root element")
+  assert(why({ { kind = "comment", text = "a--b" } }) == "xml: event 1: a comment cannot hold this text")
+  assert(why({ { kind = "instruction", name = "XmL", text = "" } }):match("not an instruction's target") ~= nil)
+  assert(why({ { kind = "start", name = "a" }, { kind = "text", text = "\1" } }) ==
+      "xml: event 2: text holds what XML cannot")
+  assert(why({ { kind = "start", name = "a", attributes = { k = "\xff" } } }) ==
+      "xml: event 1: the value of k holds what XML cannot")
+end

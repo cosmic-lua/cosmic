@@ -5,7 +5,7 @@ strip expat-2.9.0/
 keep COPYING
 keep lib/*.c
 keep lib/*.h
-drop lib/random_arc4random*
+drop lib/random_arc4random.*
 drop lib/random_dev_urandom.*
 drop lib/random_getrandom.*
 drop lib/random_rand_s.*

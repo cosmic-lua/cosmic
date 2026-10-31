@@ -14,6 +14,10 @@
 
 #define PARSER_TYPE "cosmic.xml.parser"
 
+/* The longest run of character data a parser holds when the caller names
+ * no limit, in bytes. */
+#define DEFAULT_MAX_TEXT ((lua_Integer)64 << 20)
+
 /* The stack slot of the table a call to `feed` or `finish` fills: the
  * parser is 1 and the chunk 2. */
 #define EVENTS 3
@@ -57,6 +61,11 @@ struct parser {
    * input ends, so where a chunk ends never splits one. */
   char *text;
   size_t len, cap;
+  /* The longest `text` may grow; past it the parse stops, refused,
+   * naming where the run began: `line` and `column`, from 0. */
+  size_t max_text;
+  uint64_t line, column;
+  bool too_long;
   bool out_of_memory;
   /* `__close` came while a call was under way: the call releases the
    * parser as it returns. */
@@ -128,7 +137,7 @@ static int append_event (lua_State *L) {
 /* Appends `ev` to the call's table. After a failure nothing more is
  * appended, and expat is told to stop. */
 static void deliver (struct parser *p, const struct event *ev) {
-  if (p->status != LUA_OK || p->out_of_memory) return;
+  if (p->status != LUA_OK || p->out_of_memory || p->too_long) return;
   lua_State *L = p->L;
   /* None of these pushes allocates. */
   lua_pushcfunction(L, append_event);
@@ -168,8 +177,17 @@ static void on_end (void *data, const XML_Char *name) {
 
 static void on_text (void *data, const XML_Char *s, int len) {
   struct parser *p = data;
-  if (p->out_of_memory || len <= 0) return;
+  if (p->out_of_memory || p->too_long || len <= 0) return;
   size_t n = (size_t)len;
+  if (p->len == 0) {
+    p->line = XML_GetCurrentLineNumber64(p->parser);
+    p->column = XML_GetCurrentColumnNumber64(p->parser);
+  }
+  if (n > p->max_text - p->len) {
+    p->too_long = true;
+    XML_StopParser(p->parser, XML_FALSE);
+    return;
+  }
   if (n > p->cap - p->len) {
     size_t cap = p->cap < 256 ? 256 : p->cap;
     while (cap - p->len < n) {
@@ -204,9 +222,12 @@ static void on_instruction (void *data, const XML_Char *target,
   deliver(p, &ev);
 }
 
-/* `parser(namespaces)`: a parser, or nil and why. */
+/* `parser(namespaces, eager, max_text)`: a parser, or nil and why. */
 static int xml_parser (lua_State *L) {
   bool namespaces = lua_toboolean(L, 1);
+  bool eager = lua_toboolean(L, 2);
+  lua_Integer max_text = luaL_optinteger(L, 3, DEFAULT_MAX_TEXT);
+  if (max_text < 1) luaL_error(L, "xml: max_text must be at least 1");
   struct parser *p = lua_newuserdatauv(L, sizeof *p, 0);
   memset(p, 0, sizeof *p);
   luaL_setmetatable(L, PARSER_TYPE);
@@ -218,7 +239,12 @@ static int xml_parser (lua_State *L) {
     lua_pushliteral(L, "xml: out of memory");
     return 2;
   }
+  p->max_text = (size_t)max_text;
   XML_SetUserData(p->parser, p);
+  /* Reparse deferral puts off reading a token a chunk left open again
+   * until the text it holds has doubled; an eager parser reads it at
+   * every chunk, at quadratic cost for a large token in small chunks. */
+  if (eager) XML_SetReparseDeferralEnabled(p->parser, XML_FALSE);
   XML_SetElementHandler(p->parser, on_start, on_end);
   XML_SetCharacterDataHandler(p->parser, on_text);
   XML_SetCommentHandler(p->parser, on_comment);
@@ -252,7 +278,7 @@ static bool parse (struct parser *p, const char *s, size_t len, bool final) {
     }
     s += n;
   } while (len > 0);
-  return p->status == LUA_OK && !p->out_of_memory;
+  return p->status == LUA_OK && !p->out_of_memory && !p->too_long;
 }
 
 /* The answer to a call that collected events into the table at EVENTS:
@@ -268,6 +294,15 @@ static int answer (lua_State *L, struct parser *p, bool parsed) {
     release(p);
     lua_pushnil(L);
     lua_pushliteral(L, "xml: out of memory");
+    return 2;
+  }
+  if (p->too_long) {
+    lua_Integer limit = (lua_Integer)p->max_text;
+    release(p);
+    lua_pushnil(L);
+    lua_pushfstring(L, "xml: line %I, column %I: a run of text is longer "
+                    "than %I bytes", (lua_Integer)p->line,
+                    (lua_Integer)p->column + 1, limit);
     return 2;
   }
   if (!parsed) {

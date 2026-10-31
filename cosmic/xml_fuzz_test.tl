@@ -69,3 +69,29 @@ local function test_chunks_never_change_what_a_document_reads(tmp: string)
     end,
   })
 end
+
+--- Every document a parser reads, written back, reads to the same events.
+local function test_what_reads_writes_back_to_the_same_events(tmp: string)
+  Fuzz.run({
+    name = "xml write round trip",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string
+      return gen_document(src)
+    end,
+    requires = { "written" },
+    shares = { written = 0.05 },
+    check = function(text: string): boolean, string
+      local events = Xml.events(text)
+      if events == nil then return true, "" end
+      local written, why = Xml.write(events)
+      if written == nil then return false, "read but not written: " .. why end
+      local again, trouble = Xml.events(written)
+      if again == nil then return false, "written but not read: " .. trouble .. "\n" .. written end
+      local before = read(text, #text)
+      local after = read(written, #written)
+      if before ~= after then return false, "read back otherwise:\n" .. written end
+      Fuzz.label("written")
+      return true, ""
+    end,
+  })
+end

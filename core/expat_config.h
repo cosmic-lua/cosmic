@@ -10,8 +10,10 @@
  * read: that takes a handler, and core/xml.c sets none. Namespaces are
  * compiled in, and a parser asks for them by name.
  *
- * The hash salt comes from getentropy(3), which both libcs have; where
- * it fails, expat falls back to a weaker salt of the time and pid.
+ * The hash salt comes from arc4random_buf(3) on macOS, which cannot
+ * fail, and from getentropy(3) on Linux, whose musl has no arc4random;
+ * where getentropy fails, expat falls back to a weaker salt of the time
+ * and pid.
  * expat reads the EXPAT_ENTROPY_DEBUG, EXPAT_ACCOUNTING_DEBUG and
  * EXPAT_MALLOC_DEBUG environment variables, and when one is set writes
  * what it traces to stderr.
@@ -24,7 +26,11 @@
 #endif
 #define BYTEORDER 1234
 
+#ifdef __APPLE__
+#define HAVE_ARC4RANDOM_BUF 1
+#else
 #define HAVE_GETENTROPY 1
+#endif
 
 #define XML_GE 1
 #define XML_DTD 1

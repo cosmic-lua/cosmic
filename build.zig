@@ -1668,10 +1668,18 @@ fn vendorLibraries(
     // expat reads XML for cosmic.xml. core/expat_config.h stands in for
     // the configuration header its own build would generate, on this
     // library's include path alone.
+    // Its hash salt comes from arc4random_buf on macOS, which cannot
+    // fail, and from getentropy on Linux, whose musl has no arc4random.
     const expat_lib = expat.path(b, "lib");
     vendorPart(b, &libraries, configuration, target, "expat", &.{ config.expat, expat_lib }).addCSourceFiles(.{
         .root = expat_lib,
-        .files = &.{ "xmlparse.c", "xmlrole.c", "xmltok.c", "xcs.c", "random_getentropy.c" },
+        .files = &.{
+            "xmlparse.c",
+            "xmlrole.c",
+            "xmltok.c",
+            "xcs.c",
+            if (target_record.query.os_tag == .macos) "random_arc4random_buf.c" else "random_getentropy.c",
+        },
         .flags = &.{ "-std=c11", debug_dir },
     });
 

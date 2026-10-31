@@ -45,4 +45,19 @@ function Example.events()
   print(why) -- xml: line 1, column 9: mismatched tag
 end
 
+--- `write` turns events back into a document, here one built by hand;
+--- a parser reads it back to the same events. It refuses events that are
+--- no document, naming the event.
+function Example.write()
+  local text = assert(Xml.write({
+    { kind = "start", name = "note", attributes = { to = "Ann & Bob" } },
+    { kind = "text", text = "1 < 2" },
+    { kind = "end", name = "note" },
+  }))
+  assert(text == '<note to="Ann &amp; Bob">1 &lt; 2</note>')
+  local none, why = Xml.write({ { kind = "start", name = "a" } })
+  assert(none == nil)
+  print(why) -- xml: <a> is not closed
+end
+
 return Example
