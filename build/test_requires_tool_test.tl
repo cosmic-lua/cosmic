@@ -240,7 +240,7 @@ end
     assert(out:find("1 skipped ", 1, true), out)
     assert(not out:find("FAIL", 1, true), out)
   else
-    assert(out:find("1 tests passed in 1 module; 1 ran, 0 stood, ", 1, true), out)
+    assert(out:find("1 test passed in 1 module; 1 ran, 0 stood, ", 1, true), out)
   end
   -- No verdict is kept of a skip: it is skipped again, not stood.
   out, code = run(root)

@@ -79,6 +79,34 @@ local function test_a_broken_loopback_probe_cannot_become_a_skip()
   Test.raises(function() ask(host, "loopback") end, "probe failed")
 end
 
+--- Where workers run sandboxed each has a loopback of its own, so
+--- `loopback` is present (`worker`) without the direct probe of this
+--- process answering present -- or being asked at all; false and nil
+--- keep the direct probe's answer.
+local function test_loopback_answers_from_sandboxed_workers_without_the_direct_probe()
+  local calls: mut {integer} = { 0 }
+  local refused_probe = function(): boolean, string
+    calls[1] = (calls[1] or 0) + 1
+    return false, "TCP 127.0.0.1: Operation not permitted"
+  end
+  local worker = ask(host_requires.new({ sandboxed_workers = true, loopback = refused_probe }), "loopback")
+  assert(worker.kind == "present" and worker.key == "worker" and worker.why == "", worker.why)
+  assert(calls[1] == 0, "the direct probe was asked though workers are sandboxed")
+  local broken = ask(host_requires.new({ sandboxed_workers = true, loopback = function(): boolean, string
+    error("probe failed")
+  end }), "loopback")
+  assert(broken.kind == "present" and broken.key == "worker")
+  local direct = ask(host_requires.new({ sandboxed_workers = false, loopback = refused_probe }), "loopback")
+  assert(direct.kind == "skipped" and direct.key == "" and
+      direct.why == "loopback is refused: TCP 127.0.0.1: Operation not permitted", direct.why)
+  assert(calls[1] == 1)
+  Test.raises(function()
+    ask(host_requires.new({ sandboxed_workers = false, loopback = function(): boolean, string
+      error("probe failed")
+    end }), "loopback")
+  end, "probe failed")
+end
+
 --- The real probe of this host answers present or skipped, never n/a:
 --- loopback is every platform's to have or lack.
 local function test_the_hosts_loopback_answers_present_or_skipped()

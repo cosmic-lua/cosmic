@@ -1724,11 +1724,15 @@ end
 --- an n/a or a skip of a requirement its leg promises (`promises`, the
 --- leg's name `leg`), naming the requirement and the leg; an absence of
 --- one it does not promise fails nothing. `sandbox` answers whether a
---- worker can be sandboxed here, which a requirement of it asks. The host
+--- worker can be sandboxed here, which a requirement of it asks.
+--- `sandboxed_workers` is whether this run's workers run sandboxed (the
+--- runner's `choose_sandbox` outcome, settled before this is called), which
+--- `loopback` answers from where workers are sandboxed. The host
 --- asked, or nil where no module requires anything.
 function test_key.ask_host(rec: Recording, modules: {Module},
                            sandbox: function(): host_requires.Sandbox, held: boolean,
-                           promises: {string}, leg: string): host_requires.Host?
+                           promises: {string}, leg: string,
+                           sandboxed_workers: boolean): host_requires.Host?
   local host: host_requires.Host? = nil
   for _, m in ipairs(modules) do
     local names = requirements_of(m)
@@ -1754,6 +1758,7 @@ function test_key.ask_host(rec: Recording, modules: {Module},
           host_only = host_only,
           linux = linux,
           sandbox = sandbox,
+          sandboxed_workers = sandboxed_workers,
         })
       end
       local probed = assert(host)

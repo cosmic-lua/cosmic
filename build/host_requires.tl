@@ -43,7 +43,11 @@
 ---   Only a refusal of permission answers absent; any other failure of
 ---   the probe raises, since it cannot tell. A module declares it by
 ---   declaring loopback addresses, not by writing the name: the runner
----   derives it ([`build.test_key`]'s `ask_host`);
+---   derives it ([`build.test_key`]'s `ask_host`). Where this run's
+---   workers run sandboxed, each gets a loopback of its own in its own
+---   network namespace ([`build.test_sandbox`]), so the requirement is
+---   present by that (`worker`) and the runner process's own namespace,
+---   which may have no loopback up, is never probed;
 --- - `path:<absolute path>`: a file or directory of the host;
 --- - `program:<name>`: a program the PATH finds ([`Proc.find`]).
 ---
@@ -167,6 +171,12 @@ local record host_requires
     unix_socket?: function(): boolean, string
     --- A stand-in for the loopback probe; nil asks the host.
     loopback?: function(): boolean, string
+    --- Whether this run's workers run sandboxed, each with a loopback of
+    --- its own in its own network namespace: then `loopback` is present
+    --- (`worker`) without probing this process's namespace, which a
+    --- sandboxed runner itself may sit in without loopback up. Nil or
+    --- false keeps the direct probe of this process.
+    sandboxed_workers?: boolean
     --- Whether a worker can run sandboxed here: the runner's own
     --- [`build.test_sandbox_probe`]'s `available` answer. Without it `sandbox` is
     --- refused, since no cheaper probe answers the same.
@@ -474,6 +484,7 @@ local table_of: {string:Entry} = {
     end },
   loopback = { platform_has = function(_: host_requires.Host): boolean return true end,
     probe = function(_: string, host: host_requires.Host): Found
+      if host.context.sandboxed_workers == true then return present("worker") end
       local ok, why = (host.context.loopback or loopback_available)()
       if ok then return present("tcp+udp") end
       return absent("loopback is refused: " .. why)

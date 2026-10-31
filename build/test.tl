@@ -1884,7 +1884,7 @@ local function require_of_host(ctx: Run): integer?
     local answer = ctx.sandbox_answer or sandbox_here()
     ctx.sandbox_answer = answer
     return { ok = answer.ok, why = answer.why, broken = answer.broken }
-  end, ctx.held == true, ctx.promises or {}, ctx.leg or "")
+  end, ctx.held == true, ctx.promises or {}, ctx.leg or "", ctx.sandboxed == true)
   ctx.c_unavailable = {}
   if ctx.own_tree == true and ctx.whole == true and host ~= nil then
     -- The probe below runs later, when `host` may have been assigned.
