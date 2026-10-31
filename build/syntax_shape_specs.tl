@@ -532,9 +532,20 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
   end
   -- A module that names `record_of` without requiring cosmic.shape at its top level (in a comment, a string, or
   -- another table's field) has nothing to splice: that is seen in its syntax, before lowering it and all it requires.
+  -- The use of `record_of` that the build does not complete is a matter of syntax too, so it is refused here, before the
+  -- early return: a module that reads it through `require("cosmic.shape")` inline requires nothing at its top level.
+  -- The examples of a guide are functions (build/doctest/generate.tl), and a `Shape` they require is not one the splicer
+  -- finds, so their `record_of` calls get no check from the build and raise if an example runs: a guide is not refused.
   local read = build:parsed(module)
-  if read ~= nil and not read.broken and required(read.chunk)["cosmic.shape"] == nil then
-    return { splices = none, refusal = "", line = 0 }
+  if read ~= nil and not read.broken then
+    local top = required(read.chunk)["cosmic.shape"]
+    if file:sub(-3) ~= ".md" then
+      local stray, stray_line = stray_use(read.chunk, file, source, top)
+      if stray ~= "" then return { splices = none, refusal = stray, line = stray_line } end
+    end
+    if top == nil then
+      return { splices = none, refusal = "", line = 0 }
+    end
   end
   build:lower({ module })
   local outcome = build:result(module, false)
@@ -544,11 +555,6 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
   local chunk = outcome.chunk
   local aliases = required(chunk)
   local shape = aliases["cosmic.shape"]
-  -- The examples of a guide are functions (build/doctest/generate.tl), and a `Shape` they require is not one the splicer finds, so
-  -- their `record_of` calls get no check from the build and raise if an example runs: a guide is not refused for them.
-  local stray, stray_line = "", 0
-  if file:sub(-3) ~= ".md" then stray, stray_line = stray_use(chunk, file, source, shape) end
-  if stray ~= "" then return { splices = none, refusal = stray, line = stray_line } end
   if shape == nil then
     return { splices = none, refusal = "", line = 0 }
   end
