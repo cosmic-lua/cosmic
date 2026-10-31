@@ -991,8 +991,9 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
     Fixture.write(format .. "/format-test-" .. candidate_target, "#!/bin/sh\n" ..
         "case \"$1 $2\" in '--inspect '*/o/sanitized/bin/cosmic) ;; *) exit 9 ;; esac\n" ..
         "printf '%s\\n' 'prefix 32768 manifest 28672 4096 database 32768 0 entries 2' " ..
-        "'entry 1 1 16384 1 " .. string.rep("1", 64) .. "' " ..
-        "'entry 1 2 16384 " .. tostring(#core) .. " " .. digest .. "'\n", 493)
+        "'entry 1 1 1 0 16384 1 " .. string.rep("1", 64) .. " 1 " .. string.rep("1", 64) .. "' " ..
+        "'entry 1 2 1 0 16384 " .. tostring(#core) .. " " .. digest .. " " .. tostring(#core) .. " " ..
+        digest .. "'\n", 493)
     -- The checked artifact: a script that answers each run as the tool
     -- would, `tool.tl entry` with `checked`, its core at the first
     -- aligned offset past it. Its `-e` answers only a chunk that prints
