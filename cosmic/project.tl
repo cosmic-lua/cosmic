@@ -86,7 +86,7 @@ function Project.directory(root: string, environment?: {string:string}):
   if environment ~= nil then
     given = environment["COSMIC_BUILD_HOME"] or ""
   else
-    given = Env.get_or("COSMIC_BUILD_HOME", "")
+    given = Env.read("COSMIC_BUILD_HOME") or ""
   end
   local home: string
   local cache = given == ""

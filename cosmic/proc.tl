@@ -169,7 +169,7 @@ function Proc.find_result(name: string, path?: string): Proc.FindResult
   if name:find("/", 1, true) ~= nil then
     return { kind = "resolved", path = name, reason = "" }
   end
-  local search = path or Env.get("PATH") or DEFAULT_PATH
+  local search = path or Env.read("PATH") or DEFAULT_PATH
   local unrunnable: string? = nil
   for dir in (search .. ":"):gmatch("([^:]*):") do
     local candidate = (if dir == "" then "." else dir end) .. "/" .. name
