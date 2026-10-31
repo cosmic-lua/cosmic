@@ -33,6 +33,10 @@ local record Fuzz
     --- so far and the tests that have run longest (build/test.tl's
     --- `running_detail`), or nil when it said none.
     mut progress?: string
+  --- The line `cosmic test` ends a run with when properties stopped drawing
+  --- inputs at FUZZ_SECONDS ("test: fuzz: 3 properties stopped by ..."), which
+  --- names them even when their tests passed; nil when none did.
+  mut stopped?: string
     --- Every line that ended a slow test ("slow: <test> took <time>"),
     --- without its "test: ", the first `slow_lines`.
     mut slow: mut {string}
@@ -247,6 +251,7 @@ end
 --- (build/test.tl's `slow_ns`), as `cosmic test` says them.
 local progress_prefix <const> = "test: running "
 local slow_prefix <const> = "test: slow: "
+local stopped_prefix <const> = "test: fuzz: "
 local slow_lines <const> = 60
 --- The longest a progress line is read: it names three tests by their ids.
 local progress_cut <const> = 1000
@@ -261,6 +266,8 @@ function Fuzz.scan(next_chunk: function(): string): Fuzz.Scanned
         local said = line:sub(#"test: " + 1)
         scanned.slow[#scanned.slow + 1] = said
       end
+    elseif line:sub(1, #stopped_prefix) == stopped_prefix then
+      scanned.stopped = line
     elseif line:sub(1, #progress_prefix) == progress_prefix and line:match("^test: running %d+/%d+ tests, ") ~= nil then
       scanned.progress = line
     end
@@ -271,8 +278,14 @@ end
 
 --- What a summary adds for the tests that ran long, or nothing when none did.
 function Fuzz.slow_summary(scanned: Fuzz.Scanned): string
-  if #scanned.slow == 0 then return "" end
-  return "\nTests that ran five minutes or more, each said as it ended:\n\n~~~~\n" ..
+  local out = ""
+  local stopped = scanned.stopped
+  if stopped ~= nil then
+    out = "\nProperties that stopped drawing inputs at FUZZ_SECONDS, each having drawn fewer than" ..
+      " asked:\n\n~~~~\n" .. stopped .. "\n~~~~\n"
+  end
+  if #scanned.slow == 0 then return out end
+  return out .. "\nTests that ran five minutes or more, each said as it ended:\n\n~~~~\n" ..
     joined(scanned.slow, slow_lines) .. "~~~~\n"
 end
 

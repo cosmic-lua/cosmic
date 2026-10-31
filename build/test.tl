@@ -917,6 +917,15 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
     rec.unchecked[#rec.unchecked + 1] = id
   end
   local deliberate = judged.deliberate
+  local printed = result and result.stdout
+  if passed and printed ~= nil and printed ~= "" then
+    local prefix = test_report.stopped_prefix()
+    for line in printed:gmatch("[^\n]+") do
+      if line:sub(1, #prefix) == prefix then
+        table.insert(rec.stopped, line:sub(#prefix + 1))
+      end
+    end
+  end
   -- A test that said why it did not check keeps its verdict: its pass is a
   -- function of its key, and it is counted apart.
   if passed and deliberate ~= "" then
@@ -1227,6 +1236,9 @@ local function say_skips(rec: Recording)
   local deliberate: mut {string} = {}
   for i, reason in ipairs(rec.deliberate) do deliberate[i] = reason end
   for _, line in ipairs(test_report.deliberate(deliberate)) do log:say(line) end
+  local stopped: mut {string} = {}
+  for i, entry in ipairs(rec.stopped) do stopped[i] = entry end
+  for _, line in ipairs(test_report.stopped(stopped)) do log:say(line) end
   local nas: mut {string} = {}
   for i, na in ipairs(rec.nas) do nas[i] = na end
   for _, line in ipairs(test_report.nas(nas)) do log:say(line) end
@@ -1842,7 +1854,7 @@ local function make_recording(ctx: Run)
     checks = ctx.checks == true, files = {}, violations = {}, violation_order = {}, violation_tests = {},
     violations_dropped = 0,
     failures = failures, errors = errors, outputs = {}, reruns = {},
-    failed = {}, skips = {}, unchecked = {}, deliberate = {}, held = ctx.held, nas = {}, unmet = {}, answered = {},
+    failed = {}, skips = {}, unchecked = {}, deliberate = {}, stopped = {}, held = ctx.held, nas = {}, unmet = {}, answered = {},
     hits = hits, by_test = by_test, unowned = unowned, tally = tally, not_run = 0,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
     consult_shared = ctx.consult,

@@ -193,6 +193,15 @@ local function test_scan_keeps_the_last_progress_line_and_every_slow_test()
   assert(none.progress == nil and #none.slow == 0)
 end
 
+local function test_scan_and_the_summary_keep_the_properties_a_run_stopped_early()
+  local line = "test: fuzz: 2 properties stopped by FUZZ_SECONDS: a drew 70 of 10000 inputs, b drew 64 of 10000 inputs"
+  local scanned = Fuzz.scan(pieces("test: PASS\n" .. line .. "\n", 5))
+  assert(scanned.stopped == line, tostring(scanned.stopped))
+  local text = Fuzz.slow_summary(scanned)
+  assert(text:find("~~~~\n" .. line .. "\n~~~~\n", 1, true), text)
+  assert(Fuzz.slow_summary(Fuzz.scan(pieces("test: PASS\n", 5))) == "")
+end
+
 local function test_scan_reads_a_progress_line_that_names_long_tests_whole()
   local long = "test: running 9/225 tests, 40 s; longest running: " .. ("x"):rep(600)
   local scanned = Fuzz.scan(pieces(long .. "\n", 65536))

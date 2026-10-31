@@ -8,12 +8,15 @@
 --- which is how a parser that stops terminating is attributed to its
 --- input instead of hanging the suite.
 ---
---- `FUZZ_SECONDS` bounds how long a property may spend drawing: past it,
---- once `FUZZ_ITERS` or the default 64 inputs have not all been drawn but at
---- least 64 have, the run stops, prints how many inputs it drew and why,
---- and holds its labels to that many. It is for a deep run (the nightly
---- fuzz.yml) over properties whose every input costs a tenth of a second
---- or more, where `FUZZ_ITERS=10000` is hours; it never fails a property
+--- `FUZZ_SECONDS` bounds the seconds a property spends drawing and checking
+--- inputs, not counting its corpus. Once the property has drawn 64 inputs and
+--- used up the seconds, it draws no more: it prints a line starting
+--- "fuzz stopped: " saying how many inputs it drew of those asked for, which
+--- `cosmic test` lists at the end of the run even when the test passes, and
+--- holds its labels to the inputs drawn. A property may always draw 64
+--- inputs, however long they take. The limit is for a deep run (the nightly
+--- fuzz.yml) over properties whose every input costs a tenth of a second or
+--- more, where `FUZZ_ITERS=10000` would take hours. It never fails a property
 --- by itself, and the inputs drawn are the first ones of the seed.
 ---
 --- A failing input is shrunk before it is reported: the draws that built
@@ -81,6 +84,11 @@ local DEFAULT_ITERS <const> = 64
 --- The fewest inputs a run bounded by `FUZZ_SECONDS` draws before it may
 --- stop: the default count, which `requires` and `shares` are held to.
 local MIN_BUDGETED <const> = DEFAULT_ITERS
+
+--- What the line a stopped run prints starts with; `cosmic test` lists the
+--- properties that printed it even when their tests pass
+--- (build/test_report.tl's `stopped_prefix`).
+local STOPPED_PREFIX <const> = "fuzz stopped: "
 
 --- VM instructions one check may spend: seconds of work even under
 --- coverage, far past what one parse of a small input should need.
@@ -424,7 +432,6 @@ local function run(p: Fuzz.Property): integer
   if case_name ~= nil then iters, whole = 1, false end
   local budget = p.budget or DEFAULT_BUDGET
   local seconds = p.seconds or nonnegative_env("FUZZ_SECONDS", 0)
-  local began_ns = Clock.monotonic_ns()
   local asked = iters
   local kept: string?
   local dir = p.dir
@@ -435,14 +442,16 @@ local function run(p: Fuzz.Property): integer
   end
   local replayed = 0
   if case_name == nil then replayed = check_corpus(p, budget, kept) end
+  -- After the corpus: its inputs spend none of the seconds, nor skew the cost of a drawn one.
+  local began_ns = Clock.monotonic_ns()
   local counts: mut {string: integer} = {}
   local seeds = Rand.new(seed)
   for i = 1, asked do
     if seconds > 0 and i > MIN_BUDGETED and Clock.monotonic_ns() - began_ns >= Clock.seconds(seconds) then
       iters = i - 1
-      print(("fuzz %s: stopped after %s of %d, %s spent (FUZZ_SECONDS=%d): every input costs about %.2f s"):
-          format(p.name, plural.count(iters, "input"), asked, plural.count(seconds, "second"), seconds,
-            (Clock.monotonic_ns() - began_ns) / 1e9 / iters))
+      print(("%s%s drew %d of %d inputs in %d s (FUZZ_SECONDS=%d): each cost about %.2f s"):
+          format(STOPPED_PREFIX, p.name, iters, asked, (Clock.monotonic_ns() - began_ns) // Clock.seconds(1),
+            seconds, (Clock.monotonic_ns() - began_ns) / 1e9 / iters))
       break
     end
     local draws: mut {Draw} = {}
