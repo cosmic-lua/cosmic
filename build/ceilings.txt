@@ -1025,7 +1025,7 @@ cosmic/policy_test.tl nil_not_allowed 3
 
 cosmic/poll.tl nil_not_allowed 28
 
-cosmic/poll_test.tl nil_not_allowed 17
+cosmic/poll_test.tl nil_not_allowed 18
 
 cosmic/rand_test.tl nil_not_allowed 2
 
@@ -1954,6 +1954,7 @@ cosmic/net_connector_test.tl view_written 1
 cosmic/net_serve_test.tl view_written 2
 
 
+cosmic/poll_test.tl view_written 1
 
 cosmic/sqlite.tl view_written 9
 
