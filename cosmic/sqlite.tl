@@ -152,7 +152,13 @@ local record Sqlite
     immutable?: boolean
   end
 
-  --- One result row, read a column at a time. A column is its position
+  --- One result row. Every accessor is positional, so a `SELECT` whose
+  --- columns are reordered still type-checks and reads the wrong column:
+  --- [`Sqlite.map`] keeps the column order beside the reads, in one
+  --- function, and is the way to read rows rather than numbering columns
+  --- at each call.
+  ---
+  --- A row is read a column at a time. A column is its position
   --- from 1; the accessor names the type the caller expects, and a
   --- column of any other type raises, as does a position the row has no
   --- column at, so a query that does not answer what the reader assumed
@@ -161,11 +167,6 @@ local record Sqlite
   --- checker does not see (a cast, an `any`, a Lua chunk) that indexes a row
   --- reads the row's internal slots, kinds mixed with values, and nothing
   --- refuses it: read a row only through its accessors.
-  ---
-  --- Every accessor is positional, so a `SELECT` whose columns are
-  --- reordered still type-checks and reads the wrong column. [`Sqlite.map`]
-  --- keeps the order beside the reads, in one function; prefer it to
-  --- numbering columns at each call.
   ---
   ---     local db = assert(Sqlite.memory())
   ---     local rows = assert(Sqlite.rows(db, "SELECT 7, 'seven', NULL, x'ff'"))
