@@ -94,7 +94,7 @@ local record test_sandbox
   --- meets such a bound on every leg, not on macOS's alone.
   scratch_length: integer
   --- The variable that turns the sandbox on.
-  switch: string
+  switch: Env.Name
 
   --- How one worker is sandboxed.
   record Plan
@@ -174,7 +174,7 @@ local UNVEIL_MAX <const> = confine.unveil_max
 --- worker sandboxed or the run failing; "off", "0", for none. Any other
 --- value is an error, so a misspelt one never passes for any of them.
 function test_sandbox.mode(): string?, string
-  local value = Env.get(test_sandbox.switch)
+  local value = Env.read(test_sandbox.switch)
   if value == nil or value == "" then return "auto", "" end
   if value == "1" then return "on", "" end
   if value == "0" then return "off", "" end

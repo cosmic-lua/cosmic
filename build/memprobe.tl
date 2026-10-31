@@ -37,7 +37,7 @@ end
 
 local started <const> = Clock.monotonic_ns()
 
-Memprobe.enabled = Env.get("COSMIC_MEMPROBE") ~= nil
+Memprobe.enabled = Env.read("COSMIC_MEMPROBE") ~= nil
 
 Memprobe.sink = function(line: string)
   local _, _ = Fs.put(Fs.stderr, line .. "\n")

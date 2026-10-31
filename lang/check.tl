@@ -94,8 +94,8 @@ local record Check
   -- TODO: record in [`Narrowed`] the facts it leaves out, and have [`lang.fact_wraps`] pass them: a number that a test took
   -- to be an integer or a float ([`Tests.lua_kind`] maps both to `"number"`), a `thread` (`LUA_KINDS` has none), an enum or
   -- a string that an `==` test narrowed (no read is wrapped), and `true` against `false` of a boolean. A run misses a
-  -- false conclusion of these and refuses nothing valid. Once a full `cosmic test --check-types` run (CI's `checked-narrowing`
-  -- job) has a time to compare, so that the cost of a call per read of each decides which are worth it.
+  -- false conclusion of these and refuses nothing valid. Once a full `cosmic test --check-types` run (CI's two `checked-narrowing`
+  -- shares together) has a time to compare, so that the cost of a call per read of each decides which are worth it.
   --- A read of a local, of a path of fixed fields from one, or of an element a length test proved, whose type a test
   --- narrowed. The checker took the value to have none of the kinds of Lua value in `taken`, and the values of the enums,
   --- classes and tags the other fields name, which a run can check at the read.
@@ -1133,8 +1133,11 @@ local function module_value(ctx: Ctx, node: Ast.Node, name: string): Type
     info = program.modules[name]
   end
   if info == nil then
-    report(ctx, "require_unknown", node, "the project has no module " .. quoted(name),
-      "require a module of the project: `bin/cosmic docs` lists them")
+    local fix = "require a module of the project: `bin/cosmic docs` lists them"
+    if program.library[name] == true then
+      fix = quoted(name) .. " is a global the language declares, available without `require`: use it directly"
+    end
+    report(ctx, "require_unknown", node, "the project has no module " .. quoted(name), fix)
     return ctx.invalid
   end
   local export = info.export

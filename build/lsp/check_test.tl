@@ -193,6 +193,18 @@ local function test_a_declaration_is_read_under_its_own_name()
       "(not_assignable): pass a value of type `string`, or change the declaration to `{integer}`", found.message)
 end
 
+--- A project file named for a module of the language is never what a `require` of it reads, as in a build: the module is the
+--- binary's own, which is a global.
+local function test_a_file_named_for_a_module_of_the_language_is_not_what_its_require_reads()
+  local root = project()
+  assert(Fs.write(root .. "/math.d.tl", "local record M\n  abs: function(integer): string\nend\nreturn M\n"))
+  local text = 'local s: string = require("math").abs(-1)\nreturn s\n'
+  local found = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
+  assert(found.message:find("the project has no module `math` (require_unknown)", 1, true) ~= nil, found.message)
+  assert(found.message:find("`math` is a global the language declares, available without `require`", 1, true) ~= nil,
+    found.message)
+end
+
 --- Closing a document that stood for its file with another text checks
 --- the other open documents again: the cycle of imports it closed is gone
 --- with it.

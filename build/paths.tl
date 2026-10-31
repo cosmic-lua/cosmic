@@ -21,6 +21,7 @@
 --- release ([`ci/cosmic-driver.pin`]) lacks. build/zig.tl spells the
 --- lock's names itself, which build/paths_test.tl holds to [`Layout`].
 
+-- TODO: read COSMIC_BUILD_HOME through Env.read once ci/cosmic-driver.pin names a release whose cosmic.env declares it (it is in Env.Name already).
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
