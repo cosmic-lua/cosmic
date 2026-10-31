@@ -525,6 +525,10 @@ end
 --- @return Spec<{A}> The list's shape
 function Shape.list<A>(of: Shape.Spec<A>): Shape.Spec<{A}>
   need_node(of.node, "list's element")
+  if of.node.optional then
+    -- `any?` is `any` to the checker, so only the node tells that the element may be missing.
+    error("shape: list's element is optional, which an array cannot hold: use `Shape.sparse_list`", 2)
+  end
   return { node = raw_list(of.node) }
 end
 

@@ -435,3 +435,9 @@ local function test_a_list_of_optional_elements_is_a_map_in_the_type()
   local raised, _ = pcall(Shape.sparse_list, Shape.integer as Shape.Spec<integer?>)
   assert(raised == false)
 end
+
+-- `any?` is `any` to the checker, so the type cannot tell a list of elements that may be missing from one that may not.
+local function test_a_list_whose_element_may_be_missing_is_refused_even_where_the_type_cannot_say()
+  local raised, why = pcall(Shape.list, Shape.optional(Shape.any))
+  assert(not raised and tostring(why):find("use `Shape.sparse_list`", 1, true) ~= nil, tostring(why))
+end

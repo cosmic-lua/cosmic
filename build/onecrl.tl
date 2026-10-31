@@ -49,12 +49,17 @@ function onecrl.source(root: string): string
   return root .. "/" .. snapshot
 end
 
---- `value` when it is a string, else nil: a field of another type is no name.
-local function text_of(value: Json.Value?): string?
-  if value is string then
-    return value
+--- The string `change` holds under `name`, or nil where it holds none; the second answer is why it holds another kind of
+--- value, where it does (a field the feed may omit, not mistype).
+local function text_field(change: {string: Json.Value}, name: string, at: integer): string?, string
+  local value = change[name]
+  if value == nil or rawequal(value, Json.null) then
+    return nil, ""
+  elseif value is string then
+    return value, ""
   end
-  return nil
+  return nil, ("not a OneCRL changeset: $.changes[%d].%s: want string, got %s"):format(at, name,
+    if value is number then math.type(value) else type(value) end)
 end
 
 --- `text`'s base64 as bytes, or nil when it is none, or empty.
@@ -97,9 +102,24 @@ function onecrl.parse(text: string): {onecrl.Entry}?, string
     if change == nil then
       return nil, ("not a OneCRL changeset: $.changes[%d]: %s"):format(i - 1, change_why)
     end
-    if change["enabled"] ~= false then
-      local issuer, serial = bytes(text_of(change["issuerName"])), bytes(text_of(change["serialNumber"]))
-      local subject, hash = bytes(text_of(change["subject"])), bytes(text_of(change["pubKeyHash"]))
+    local enabled = change["enabled"]
+    if enabled ~= nil and not rawequal(enabled, Json.null) and not (enabled is boolean) then
+      return nil, ("not a OneCRL changeset: $.changes[%d].enabled: want boolean, got %s"):format(i - 1,
+        if enabled is number then math.type(enabled) else type(enabled) end)
+    end
+    local names: mut {string: string} = {}
+    for _, name in ipairs({ "issuerName", "serialNumber", "subject", "pubKeyHash" }) do
+      local got, why_not = text_field(change, name, i - 1)
+      if why_not ~= "" then
+        return nil, why_not
+      end
+      if got ~= nil then
+        names[name] = got
+      end
+    end
+    if enabled ~= false then
+      local issuer, serial = bytes(names["issuerName"]), bytes(names["serialNumber"])
+      local subject, hash = bytes(names["subject"]), bytes(names["pubKeyHash"])
       if issuer ~= nil and serial ~= nil then
         found[#found + 1] = { kind = "serial", name = issuer, value = serial }
       elseif subject ~= nil and hash ~= nil and #hash == 32 then

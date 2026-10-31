@@ -366,6 +366,11 @@ local module: Module = {
     ["cosmic.shape.either"] = "use Shape.one_of(...) for literal alternatives, or call " ..
       "Shape.into once for each form the value may take and keep the first that answers " ..
       "a value (" .. shape .. ")",
+    ["cosmic.shape.record"] = "declare the record and use Shape.record_of(\"Name\"), whose spec the build reads off the " ..
+      "declaration and whose answer is the record; Shape.raw.record builds a node that names no type (" ..
+      shape .. ")",
+    ["cosmic.shape.strict_record"] = "declare the record and use Shape.record_of(\"Name\"):strict(), which refuses a key " ..
+      "the record does not name (" .. shape .. ")",
     ["cosmic.codec.encoder"] = streamed,
     ["cosmic.codec.decoder"] = streamed,
     ["cosmic.codec.Coder"] = streamed,
