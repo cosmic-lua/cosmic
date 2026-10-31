@@ -2559,3 +2559,52 @@ local function test_a_projection_other_code_wrote_is_left_out(dir: string)
   assert(read() == 2, "a projection this tool's code wrote is left out")
   assert(projection:close())
 end
+
+--- A module whose prose says the query's word comes before the members
+--- that only carry it in a parameter's name: `docs database` answers the
+--- module that is about databases, not each function that takes a handle.
+local function test_a_module_whose_prose_matches_beats_members_that_take_its_handle()
+  local db = database({
+    { "cosmic.vector", "Vector.load", "function", "function Vector.load(database: Sqlite.Handle, name: string): Vector?",
+      "Loads one vector by name.", "cosmic/vector.tl", "10" },
+    { "cosmic.session", "Session.store", "function", "function Session.store(database: Sqlite.Handle): Session",
+      "Keeps sessions.", "cosmic/session.tl", "20" },
+    { "cosmic.sqlite", "", "module", "",
+      "Opens a database file, runs SQL on it and reads the rows back. A database is held by a handle.",
+      "cosmic/sqlite.tl", "1" },
+  }, {})
+  local found = assert(docs.lookup(view({ db }), "database"))
+  local first = assert(found[1])
+  assert(first.module == "cosmic.sqlite" and first.symbol == "", first.module .. " " .. first.symbol)
+  assert(db:close())
+end
+
+--- A guide is searched by its sections: a word that a page says in one of
+--- its `##` sections finds that section, named by the guide and the
+--- heading, with its text, in spite of the page's length.
+local function test_a_search_finds_the_section_of_a_guide_that_says_the_word()
+  local filler: mut {string} = {}
+  for index = 1, 200 do
+    filler[index] = "A sentence about nothing in particular, number " .. tostring(index) .. "."
+  end
+  local page = "Rules of the language.\n\n## fields are fixed\n\nA field is fixed unless it is `mut`.\n\n" ..
+    "## narrowing\n\nA test narrows a value in the branch it guards. A ```mut``` field narrows nothing.\n\n" ..
+    "```teal\n## not a heading\n```\n\n## discarding a result on purpose\n\nWrite `local _, _ = f()`.\n\n" ..
+    "## more\n\n" .. table.concat(filler, " ")
+  local db = database({
+    { "doc.guides.language", "", "module", "", page, "doc/guides/language.md", "1" },
+  }, {})
+  local narrowing = assert(docs.lookup(view({ db }), "narrowing"))
+  local section = assert(narrowing[1])
+  assert(section.kind == "section" and section.source_symbol == "doc.guides.language#narrowing",
+    section.kind .. " " .. section.source_symbol)
+  assert(section.text:find("branch it guards", 1, true) and not section.text:find("fixed unless", 1, true),
+    section.text)
+  local discard = assert(docs.lookup(view({ db }), "discard result"))
+  assert(assert(discard[1]).source_symbol == "doc.guides.language#discarding-a-result-on-purpose",
+    assert(discard[1]).source_symbol)
+  local text = table.concat(assert(docs.answer(view({ db }), { "narrowing" })).lines, "\n")
+  assert(text:find("doc.guides.language#narrowing (doc/guides/language.md)", 1, true), text)
+  assert(text:find("A test narrows a value", 1, true) and not text:find("Rules of the language", 1, true), text)
+  assert(db:close())
+end
