@@ -4,8 +4,9 @@
 local Http = require("cosmic.http")
 local Net = require("cosmic.net")
 local Test = require("cosmic.test")
+local raw_http = require("cosmic.internal.http")
 
-Test.policy{}
+Test.policy{ loopback = { "127.0.0.1" } }
 
 local url = "http://cosmic.test/"
 
@@ -42,4 +43,12 @@ local function test_a_script_is_read_whatever_the_socket()
   })
   assert(got ~= nil, tostring(why))
   assert(got.status == 200 and got.body == "scripted", got.body)
+end
+
+--- A transfer curl failed returns a third value naming the failure, so a
+--- caller need not read its message: a connect failure is "couldnt_connect"
+--- (here, at a loopback port nothing listens at, as `open` takes no options).
+local function test_the_raw_open_names_a_connect_failure()
+  local handle, why, code = raw_http.open("http://127.0.0.1:1/")
+  assert(handle == nil and code == "couldnt_connect", tostring(why) .. " / " .. tostring(code))
 end
