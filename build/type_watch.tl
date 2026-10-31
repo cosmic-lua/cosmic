@@ -5,7 +5,7 @@
 --- value or a field written, so a test using this skips in every run, checked or not.
 
 -- TODO: once the checker lists each declared return and field write and lang/codegen.tl writes a check for it in a checked
--- compile (doc/plans/strict-teal.md), make [`skip_reason`] answer nothing for a checked run: until then a checked run
+-- compile, make [`skip_reason`] answer nothing for a checked run: until then a checked run
 -- meets violations of parameters alone (rows of kind "parameter", which `during` already reads), and the tests that ask
 -- `during` would pass having checked a part of what they are about. `__fact` ([`lang.fact_wraps`]) carries narrowed reads
 -- only, not the declared kind of a value crossing a boundary.

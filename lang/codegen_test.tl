@@ -1,5 +1,5 @@
 --- The code generator ([`lang.codegen`]). Each case is a program in the grammar of the new checker and the Lua the generator
---- writes of it, line for line. The cases are the constructs the plan classes as respellings and layout, the statements
+--- writes of it, line for line. The cases are the constructs that are respellings and layout, the statements
 --- and expressions of Lua, and the places the generator puts a line break or an indent. A case of a meaning or a new
 --- construct (`match`, `class`) is run or refused instead.
 

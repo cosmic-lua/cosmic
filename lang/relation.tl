@@ -1,5 +1,5 @@
---- The subtype relation of the new checker
---- ([`doc/plans/new-checker-types.md`], "the relation"): whether a value of one
+--- The subtype relation of the new checker:
+--- whether a value of one
 --- type of a [`lang.types`] store may stand where another is wanted, and, where it
 --- may not, a structured reason a later error renders in the program's own terms.
 ---
@@ -9,7 +9,7 @@
 --- [`Relation.Judge.refuse_argument`] are the one position where a value may
 --- reach `any`: an argument to a parameter declared `any`.
 ---
---- **The rules** are those of "the relation" in the plan, over the interned
+--- **The rules** are these, over the interned
 --- types of the store, so identity is `==`:
 ---
 --- - `never` is below every type and nothing else is below it. `nil` is below
