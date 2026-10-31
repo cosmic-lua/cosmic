@@ -24,13 +24,13 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local identities = require("build.identity")
+local tree = require("build.tree")
 -- The pipeline is required where a build in the new grammar asks for it: `cosmic boot` compiles what the tool requires at load
 -- with the bootstrap release, whose checker reads the new checker's closure otherwise than the tree's does.
 local type Pipeline = require("build.pipeline")
 local analysis_schema = require("build.analysis_schema")
 local positions = require("build.positions")
 local type SyntaxReceivers = require("build.syntax_receivers")
-local tree = require("build.tree")
 local work = require("build.work")
 local bind = require("build.bind")
 
@@ -722,7 +722,8 @@ function importer.derive(handle: work.Handle, self_tree: boolean, shared?: impor
       return nil, reserved_trouble
     end
     if reserved then
-      return nil, "cosmic: the 'cosmic' directory is reserved to cosmic's own tree"
+      return nil, "cosmic: the 'cosmic' directory is reserved to cosmic's own tree: " ..
+        tree.advice(Store.meta("built_from"))
     end
     local claimed, trouble = Sqlite.text_rows(db,
       "SELECT path FROM files WHERE path GLOB 'cosmic/*' ORDER BY path LIMIT 1")
@@ -731,7 +732,7 @@ function importer.derive(handle: work.Handle, self_tree: boolean, shared?: impor
     end
     if #claimed > 0 then
       return nil, claimed[1]:text(1) .. ": the 'cosmic' directory is reserved to " ..
-        "cosmic's own tree"
+        "cosmic's own tree: " .. tree.advice(Store.meta("built_from"))
     end
   end
 
@@ -1125,7 +1126,7 @@ local function compile_derived(handle: work.Handle, tool: string,
   -- keyed by the ceilings that hold it too, so that a pin that falls judges it again.
   local reading: Reading = { options = nil, built = nil }
   local pipeline = require("build.pipeline")
-  local made_options, options_trouble = pipeline.options(handle.root)
+  local made_options, options_trouble = pipeline.options(handle.root, own_tree)
   if made_options == nil then
     return nil, options_trouble
   end
@@ -1347,10 +1348,8 @@ local function prepare_compile(handle: work.Handle, tool: string,
                                unjudged: boolean?, shared: importer.Shared?,
                                choose: Choose?,
                                checks: boolean, target: string?): importer.Result?, string
-  local standing, standing_trouble = tree.standing(handle.root)
-  if standing == nil then return nil, standing_trouble end
   local broken: {derivation.Broken} = {}
-  local parses, derive_trouble = importer.derive(handle, standing.own, shared, broken)
+  local parses, derive_trouble = importer.derive(handle, handle.own, shared, broken)
   if parses == nil then return nil, derive_trouble end
   if choose ~= nil then
     local recorded, record_trouble = identities.record_identities(handle.db)
@@ -1369,7 +1368,7 @@ local function prepare_compile(handle: work.Handle, tool: string,
       tool = pipeline.coded(tool)
     end
   end
-  return compile_derived(handle, tool, standing.own, parses, unjudged, shared, checks, target, broken)
+  return compile_derived(handle, tool, handle.own, parses, unjudged, shared, checks, target, broken)
 end
 
 --- The cache belongs to the whole derive/identity/compile operation,

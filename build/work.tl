@@ -56,6 +56,9 @@ local record work
     run: integer
     --- Whether the run's transaction is open.
     inside: boolean
+    --- Whether `root` is cosmic's own tree, as [`work.stage`] was told:
+    --- what the compile and the writer after it hold the tree to.
+    mut own: boolean
   end
 
   --- What [`work.try_open`] or [`work.try_open_remaking`] opened: the
@@ -918,7 +921,7 @@ local function opened(root: string, dir: string?, wait: boolean,
     local _, _ = db:close()
     return nil, path .. ": " .. run_trouble
   end
-  return { handle = { db = db, root = root, dir = out, run = integer_of(runs), inside = true },
+  return { handle = { db = db, root = root, dir = out, run = integer_of(runs), inside = true, own = false },
     other_schema = nil }, ""
 end
 
@@ -1342,10 +1345,11 @@ end
 --- The walk goes where `cosmic fix` looks for links, too
 --- ([`link_files.skipper`]): what only that walk reaches (doc/'s prose,
 --- `.claude/`) is staged into `linked` alone.
---- @param own_tree whether `root` is cosmic's own tree
+--- @param own_tree whether `root` is cosmic's own tree, which the handle keeps as `own`
 function work.stage(handle: work.Handle, own_tree: boolean): work.Staged?, string
   local db = handle.db
   local root = handle.root
+  handle.own = own_tree
   -- A link is taken for what it leads to, so a project whose modules
   -- or tests are reached through one (`lib -> ../shared/lib`) builds
   -- them. A loop of links ends its branch rather than the stage.

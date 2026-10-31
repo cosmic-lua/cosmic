@@ -30,7 +30,6 @@ local onecrl = require("build.onecrl")
 local roots = require("build.roots")
 local schema = require("build.schema")
 local symbols = require("build.symbols")
-local tree = require("build.tree")
 local work = require("build.work")
 local bind = require("build.bind")
 local rebuild_lock = require("build.rebuild_lock")
@@ -441,30 +440,18 @@ end
 --- symbols: nothing in cosmic's own tree, whose projection documents its
 --- standard library itself; in a project, `given`, or the standard
 --- library of the binary running.
-local function library_for(root: string, given: link_index.Library?):
-    link_index.Library?, string
-  local standing, trouble = tree.standing(root)
-  if standing == nil then
-    return nil, trouble
+local function library_for(own: boolean, given: link_index.Library?): link_index.Library?
+  if own then
+    return nil
   end
-  if standing.own then
-    return nil, ""
-  end
-  if given ~= nil then
-    return given, ""
-  end
-  return link_index.running(), ""
+  return given or link_index.running()
 end
 
 --- The links of the tree `handle` holds, waiting for its symbols
 --- ([`link_index.pending`]), with what they may name beside its own.
 local function pending_links(handle: work.Handle, given: link_index.Library?, by: string):
     link_index.Pending?, string
-  local library, trouble = library_for(handle.root, given)
-  if library == nil and trouble ~= "" then
-    return nil, trouble
-  end
-  return link_index.pending(handle.db, handle.root, library, by)
+  return link_index.pending(handle.db, handle.root, library_for(handle.own, given), by)
 end
 
 --- The signature of `result`'s projection as the writer whose identity
@@ -717,7 +704,7 @@ local function project(handle: work.Handle,
   if not stored then
     return false, store_trouble
   end
-  local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis', 'writer')"
+  local metadata = "('boot_hash', 'image_hash', 'built_from', 'compiler', 'runtime_basis', 'writer')"
   local carried, meta_trouble = db:exec(
     "INSERT INTO out.meta (key, value) SELECT key, value FROM meta " ..
       "WHERE key IN " .. metadata)
@@ -765,11 +752,7 @@ local function project(handle: work.Handle,
   -- module's source, which the module's key holds, and of build.stub,
   -- which the compiler's identity in `meta` holds. A project's tables
   -- stay empty.
-  local standing, own_trouble = tree.standing(handle.root)
-  if standing == nil then
-    return false, own_trouble
-  end
-  if standing.own then
+  if handle.own then
     local filled, fill_trouble = bom.fill(db, handle.root, "out.")
     if not filled then
       return false, fill_trouble

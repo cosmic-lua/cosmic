@@ -5,6 +5,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local bind = require("build.bind")
+local tree = require("build.tree")
 
 --- A row of the `meta` table the identity is recorded in.
 local record MetaRow
@@ -348,8 +349,11 @@ end
 ---
 --- Both fingerprints are written into `meta` for the projection to carry
 --- into the binary, which is how a binary knows what it was built from,
---- so a project reads them rather than computing any. Returns the
---- fingerprint written; [`identity.recorded_boot_hash`] reads it back.
+--- so a project reads them rather than computing any. So is
+--- `built_from`, the root the binary is built from ([`build.tree`]'s
+--- `built_from`): only a boot or a rebuild, the acts that write a tool,
+--- record it. Returns the fingerprint written;
+--- [`identity.recorded_boot_hash`] reads it back.
 function identity.record_fingerprint(db: Sqlite.Handle, root: string): identity.Fingerprint?, string
   local boot, boot_trouble = identity.hash_over(db, "1")
   if boot == nil then
@@ -372,7 +376,12 @@ function identity.record_fingerprint(db: Sqlite.Handle, root: string): identity.
   if image == nil then
     return nil, image_trouble
   end
-  local fingerprints: {MetaRow} = { { key = "boot_hash", value = boot }, { key = "image_hash", value = image } }
+  local built_from, built_trouble = tree.built_from(root)
+  if built_from == nil then
+    return nil, built_trouble
+  end
+  local fingerprints: {MetaRow} = { { key = "boot_hash", value = boot }, { key = "image_hash", value = image },
+    { key = "built_from", value = built_from } }
   for _, pair in ipairs(fingerprints) do
     local ok, why = Sqlite.run(db,
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",

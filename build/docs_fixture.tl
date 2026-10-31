@@ -48,7 +48,7 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
         "VALUES (?1, length(CAST(?2 AS BLOB)), 0, 0, 0, lower(hex(sha256(?2))), ?2)",
       { { text = path }, { text = files[path] } }))
   end
-  local handle: work.Handle = { db = db, root = dir, dir = build_paths.required(dir), run = 1, inside = false }
+  local handle: work.Handle = { db = db, root = dir, dir = build_paths.required(dir), run = 1, inside = false, own = false }
   assert(importer.derive(handle, true))
   -- [`build.importer.compile`] plans each module under its key, beside
   -- its compile; this stands in for both, planning every module with
