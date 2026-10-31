@@ -290,7 +290,9 @@ local record Cli
   --- stderr. `--to` writes the rows in another format. `--to csv`
   --- quotes as RFC 4180 does, each record ended by LF: a header of the column names first, NULL an empty
   --- field and '' a quoted empty one (so a one-column NULL is a blank
-  --- line, which a CSV reader may drop), a blob's bytes as they are.
+  --- line, which a CSV reader may drop), a blob's bytes as they are,
+  --- and a field that begins with a byte order mark quoted, so a reader
+  --- keeps it.
   --- `--to ndjson` writes a JSON object per row, its members the columns
   --- in order, a repeated name given `_2`; a result of one column named
   --- `_json`, as `--from` gives each row, is written as that object's
@@ -405,7 +407,7 @@ local record Cli
   --- `file:line:column: message`. Only a syntax error refuses: each is
   --- named as `file:line:column: message`, no file is written, and the
   --- exit is 2, as for a command line or a file it cannot use. The files
-  --- are written in the new checker's grammar ([`doc/plans/new-checker-grammar.md`]),
+  --- are written in the new checker's grammar,
   --- which is the only one (`--grammar teal` is refused).
   --- With a `.d.tl` file named, the files named are the whole program, the
   --- globals are those the `.d.tl` files declare, and a `cosmic.*` module
@@ -452,11 +454,11 @@ local record Cli
   --- [`Archive.extract`] (1 GiB a file, 8 GiB in all), stops the
   --- extraction after the entries before it, which stay written; the
   --- refused file itself is not left. `create <out> <path>...` packs the
-  --- paths and what is under them, sorted by name, as a zip, a gzip or zstd tar or a plain tar, by the
-  --- extension of out (`.zip`, `.tar.gz`, `.tgz`, `.tar.zst`, `.tzst`, `.tar`) ([`Archive.create`]); `--reproducible` fixes every
+  --- paths and what is under them, sorted by name, as a zip, a gzip, bzip2 or zstd tar or a plain tar, by the
+  --- extension of out (`.zip`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tbz`, `.tar.zst`, `.tzst`, `.tar`) ([`Archive.create`]); `--reproducible` fixes every
   --- modification time (tar 0, zip 1980) so the same tree packs to the
-  --- same bytes; file modes are kept, not normalised. `.tar.xz` and `.tar.bz2` are refused: there is no
-  --- encoder for either. Paths must be relative and stay under the
+  --- same bytes; file modes are kept, not normalised. `.tar.xz` is refused: there is no
+  --- xz encoder. Paths must be relative and stay under the
   --- working directory; a fifo, socket or device is refused, named,
   --- wherever it is found. A symlink is stored as a link in both
   --- formats; a zip tool that ignores Unix attributes extracts the

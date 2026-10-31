@@ -32,10 +32,10 @@ ones `build/zig.tl` runs on that release's binary (`build/patch.tl`,
 `build/zig_fetch.tl`) in the new checker's grammar, held to every rule and to
 no ceiling. `islands.txt` lists nothing: the pinned release reads a file it
 lists as Teal. CI's `check-islands` command (`cosmic-driver
-cosmic_ci/driver.tl check-islands`) runs each of those scripts with `--help`
-on the running driver, which refuses a script that has a finding before it
-runs, and fails on a syntax error or any finding; `ci/` is compiled by the
-driver's own tests compile only the modules they require, so `check-islands`
+cosmic_ci/driver.tl check-islands`) checks each of those scripts with
+`--standalone --check` on the running driver (it type-checks the file without
+running it), and fails on a syntax error or any finding. The driver's own
+tests compile only the modules they require, so `check-islands`
 also runs the release's `fix --check` over all of `ci/`.
 
 Which files run standalone on the pinned release is `ci/bootstrap-files.txt`,
@@ -73,9 +73,8 @@ holds, and what does not:
   `ci/cosmic_ci/bootstrap_test.tl`, which reads and copies the binary), and the
   release's binary is reachable in the cache and to any process running on it.
   Deliberate use of the raw binary is a review matter.
-- `check-islands` type-checks each listed file on the release (with `--help`,
-  except what [`Islands.not_run`] names: `ci/run_local.tl`, whose `--help` would
-  start the platform job, and which the driver's tests compile). It fails on a
+- `check-islands` type-checks each listed file on the release (`--standalone
+  --check`, which does not run it). It fails on a
   listed file that is gone, on a `build/zig.tl` `standalone(` call that names a
   file the list lacks or does not name one in a string literal on its line, and
   on a list without `build/paths.tl`. It also runs the release's `fix --check`
@@ -86,8 +85,7 @@ holds, and what does not:
   `build/ci_tree_test.tl` (which cannot require `ci/`): one path a line, what a
   `#` starts dropped, white space trimmed from both ends.
 - A refusal of a type error names the file, the list and the pinned release, and
-  says to use only that release's APIs or move the pin; a `--help` exit status
-  that is not 0 is in [`Islands.help_exits`], and the hint says to add it there.
+  says to use only that release's APIs or move the pin.
 
 What is not covered. A process running on the release can run its own binary
 (`Proc.executable()`, `Proc.relaunch()`), so no wrapper or entry point can stop
@@ -97,7 +95,7 @@ residual below:
 
 - `build/zig.tl`, which runs `build/patch.tl` and `build/zig_fetch.tl` that way:
   its `standalone(` calls are counted, and each file must be in the list.
-- `check-islands` ([`Islands.complaint`]), which runs the listed files.
+- `check-islands` ([`Islands.complaint`]), which checks the listed files.
 - [`BuildPaths.directory`] in [`cosmic_ci/build_paths.tl`], which runs
   `build/paths.tl` that way as the build directory's resolver (checked to be
   listed). [`BuildPaths.driver`] refuses a `--standalone` of its own.
@@ -446,7 +444,48 @@ the gate (`ci`) needs both. Neither checks that every C function is
 entered, which only a whole run answers (linux-aarch64's and
 macos-aarch64's light runs still do, and every leg of a `full` run).
 A light run saves no verdicts, so neither share's stands for the
-other's. A `full` run's `shard` is empty, and every leg runs whole.
+other's. A `full` run's legs run their native suites whole (`shard` is
+empty).
+
+A `full` run splits alpine-x86_64's portable suite (the queue's longest
+leg: its native suite, regressions and the whole portable suite ran in
+series) in two. The `shard` dimension holds `portable-2/2` as well on a
+`full` run, its `exclude` drops that value for every leg but
+alpine-x86_64, and the one job it leaves, `alpine-x86_64-portable-share`,
+is the leg's on its runner and image with the leg's `name`, so it
+restores and keys every cache as the leg does. `COSMIC_CI_PORTABLE_SHARD`
+gives the leg `1/2` and that job `2/2` (`cosmic test --shard`, as above),
+and the two run beside each other. The job boots, restores the verdicts
+and compiles, probes the sandbox, assembles, runs its half of the suite
+and its boundary, and attests. It skips what the leg proves for the same
+bytes and host: the pinned driver's check and its relay to the queue's
+next run, the native suite and its boundary, the credential proofs, the
+regressions, and the darwin suite. It saves no cache and seeds nothing
+(`COSMIC_CI_SAVES` is false for it; the `cosmic-driver` action's
+bootstrap cache is the one save left, which the action makes on main
+under the leg's key as the leg does), so main keeps no verdict of a test
+in the second half that only a portable run reaches (a test whose key
+holds the launcher); a sealed test stands on the native suite's row,
+which the leg saves.
+
+A share is not a whole run (`cosmic test --shard`), and a whole run alone
+makes three checks: that some test enters each C function, the probe of
+the host for the C functions' prerequisites, and the reset of the
+recorded file digests. The leg's native suite is a whole run on the same
+host and cores (the portable artifact carries the cores the tool does),
+so it answers the first two for the portable run too, and the digests
+are a cache of the run's own working database, which no verdict reads.
+
+The job uploads no `portable-product-*`, which prerelease.yml counts four
+of and `seed` relays. The legs' `attest` writes `expected-platforms` as
+the job count less `COSMIC_CI_PORTABLE_SHARES` (1 on a `full` run). The
+job uploads the bytes it ran, their `executed-cosmic.sha256` and the
+share it ran as `portable-share-alpine-x86_64`; the leg's product holds
+its own share in `portable-share`. The `ci` join downloads the job's
+artifact where the platform job ran, hashes the bytes as it does a
+leg's, holds the digest to the legs', and requires, across the leg and
+the jobs, each share `1/N` to `N/N` exactly once; it fails on a missing,
+extra, duplicated or different one.
 
 A newer push supersedes a branch's run, but every main run finishes (a
 prerelease is published only from a completed run) and main's pushes
@@ -1020,8 +1059,6 @@ alone.
 [`cosmic_ci/orchestration.tl`]: cosmic_ci/orchestration.tl
 [`cosmic_ci/shares_wait.tl`]: cosmic_ci/shares_wait.tl
 [`Islands.complaint`]: cosmic_ci/islands.tl
-[`Islands.help_exits`]: cosmic_ci/islands.tl
-[`Islands.not_run`]: cosmic_ci/islands.tl
 [`Islands.paths`]: cosmic_ci/islands.tl
 [`Islands.project`]: cosmic_ci/islands.tl
 [`Runner.phase`]: cosmic_ci/runner.tl

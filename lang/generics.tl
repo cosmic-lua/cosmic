@@ -1,5 +1,4 @@
---- Inference of the type parameters of a generic function ([`doc/plans/new-checker-types.md`], "calls and
---- overloads" and "generic inference is local to the call"): what each type parameter of a function type is at one
+--- Inference of the type parameters of a generic function: what each type parameter of a function type is at one
 --- call, solved from the types its arguments have and, for a parameter no argument fixes, the type the call is
 --- expected to answer. Nothing outlives the call: a [`Generics.Solver`] belongs to one.
 ---

@@ -499,6 +499,12 @@ local function test_compress_leaves_nothing_whenever_an_allocation_fails()
     assert(#out > 0)
   end)
   assert_c_heap(bytes, blocks, "zstd encoding under refusal")
+  ended = ended + under_every_failure(function()
+    local encoder = assert(Compress.bz2_encoder(1))
+    local out = assert(encoder:update(string.rep(hello, 64))) .. assert(encoder:finish())
+    assert(#out > 0)
+  end)
+  assert_c_heap(bytes, blocks, "bzip2 encoding under refusal")
   assert(ended > 0, "decoding allocates")
 end
 

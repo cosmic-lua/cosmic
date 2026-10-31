@@ -329,9 +329,11 @@ local row_lines: Writer = {
 }
 
 --- One CSV field, quoted when it holds a comma, a quote or a line break,
---- or is empty, so an empty text is told from NULL's empty field.
+--- is empty, so an empty text is told from NULL's empty field, or begins
+--- with a UTF-8 byte order mark, which a CSV reader drops from the start
+--- of its text unless a quote comes first.
 local function csv_field(text: string): string
-  if text == "" or text:find('[,"\r\n]') ~= nil then
+  if text == "" or text:find('[,"\r\n]') ~= nil or text:sub(1, 3) == "\xEF\xBB\xBF" then
     return '"' .. text:gsub('"', '""') .. '"'
   end
   return text
@@ -339,7 +341,9 @@ end
 
 --- `--to csv`: RFC 4180, a header of the column names, then a record per
 --- row: NULL an empty field, '' a quoted empty one, a number as a row
---- line writes it, and text and a blob's bytes as they are.
+--- line writes it, and text and a blob's bytes as they are, quoted when
+--- they are empty, begin with a byte order mark, or hold a comma, a quote
+--- or a line break.
 local csv_writer: Writer = {
   header = function(names: {string}): string?
     local fields: mut {string} = {}
