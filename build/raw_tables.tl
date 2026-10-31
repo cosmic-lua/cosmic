@@ -26,15 +26,35 @@
 --- A module that needs the table of a wrapper not named here names it:
 --- `process("build.confine")`.
 local Shape = require("cosmic.shape")
+local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
 local type raw_socket = require("cosmic.internal.socket")
 
 local record raw_tables
+  --- The two descriptors of a connector pair: the controller's, which asks and is answered, and the connector's, which
+  --- the connector is started on.
+  record Ends
+    controller: integer
+    connector: integer
+  end
   --- The table core/store.c hands `wrapper`'s loader, by name. A reflection
   --- test reads the members of a table no declaration describes through
   --- it. Raises where `wrapper` is handed no table or one with a key that
   --- is no name.
   fields: function(wrapper: string): {string: any}
+  --- The two descriptors of `pair`, a connector pair ([`cosmic.internal.process`]'s [`connector_pair`]): the controller's
+  --- first, the connector's second. Raises where `pair` holds fewer. It makes one small table for its answer, so a test
+  --- that fails allocations holds a pair with it only once allocations are allowed again.
+  pair_ends: function(pair: {integer}): raw_tables.Ends
+  --- A new connector pair, made by `wrapper`'s process table ([`cosmic.child`]'s by default), as its two ends. Raises
+  --- where the core cannot make one. It looks the table up on each call, so a test that fails allocations makes the
+  --- pair by the table itself and holds it with [`pair_ends`].
+  connector_pair: function(wrapper?: string): raw_tables.Ends
+  --- The port the kernel gave `bound`, a socket that listens or was accepted. Raises where it has none.
+  bound_port: function(bound: raw_socket.Socket): integer
+  --- The hash table (cosmic/internal/hash.d.tl) handed `wrapper`, [`cosmic.hash`]'s
+  --- by default.
+  hash: function(wrapper?: string): raw_hash
   --- The process table (core/process.h) handed `wrapper`, [`cosmic.child`]'s
   --- by default.
   process: function(wrapper?: string): raw_process
@@ -73,6 +93,27 @@ end
 
 function raw_tables.fields(wrapper: string): {string: any}
   return table_behind(wrapper, {})
+end
+
+function raw_tables.pair_ends(pair: {integer}): raw_tables.Ends
+  local controller, connector = pair[1], pair[2]
+  assert(controller and connector, "a connector pair holds two descriptors")
+  return { controller = controller, connector = connector }
+end
+
+function raw_tables.connector_pair(wrapper?: string): raw_tables.Ends
+  local pair = assert(raw_tables.process(wrapper).connector_pair())
+  return raw_tables.pair_ends(pair)
+end
+
+function raw_tables.bound_port(bound: raw_socket.Socket): integer
+  local address = assert(raw_tables.socket().bound(bound:fd()))
+  local port = assert(address.port, "a bound TCP socket has a port")
+  return port
+end
+
+function raw_tables.hash(wrapper?: string): raw_hash
+  return table_behind(wrapper or "cosmic.hash", { "digest", "hmac", "equal" })
 end
 
 function raw_tables.process(wrapper?: string): raw_process
