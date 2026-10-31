@@ -115,6 +115,26 @@ local function test_one_editor_over_standard_input_and_output(tmp: string)
   assert(early.code == 1, "the stream ends before shutdown: " .. early.err)
 end
 
+--- A definition asked of the program itself, in a project: it answers the module that declares the function, with the
+--- place of its name.
+local function test_a_definition_is_answered_from_the_module_that_declares_it()
+  local root = session_fixture.project()
+  assert(Fs.write(root .. "/helper.tl",
+    "local record helper\nend\n\nfunction helper.twice(n: integer): integer\n  return n * 2\nend\n\nreturn helper\n"))
+  local main = 'local helper = require("helper")\nlocal _ = helper.twice(2)\n'
+  local ran = cosmic(root, { "lsp" }, initialize(root) ..
+      protocol.frame(session_fixture.open(root, "main.tl", main)) ..
+      protocol.frame(session_fixture.at(7, "textDocument/definition", root, "main.tl", 1, 19)) .. SHUTDOWN .. EXIT)
+  assert(ran.code == 0, ran.err)
+  local answer = ""
+  for _, body in ipairs(session_fixture.bodies(ran.out)) do
+    if session_fixture.sent(body).id == 7 then answer = body end
+  end
+  local expected = '"result":{"range":{"end":{"character":21,"line":3},"start":{"character":16,"line":3}},"uri":' ..
+    Json.quote("file://" .. root .. "/helper.tl") .. "}"
+  assert(answer:find(expected, 1, true) ~= nil, answer)
+end
+
 --- A `cosmic lsp` started to listen, once it says where.
 local record Listening
   handle: Child.Handle

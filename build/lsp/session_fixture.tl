@@ -56,6 +56,7 @@ local record session_fixture
     positionEncoding: string
     textDocumentSync: Sync
     hoverProvider: boolean
+    definitionProvider: boolean
     documentFormattingProvider?: boolean
   end
 

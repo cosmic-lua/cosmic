@@ -455,6 +455,29 @@ local function test_a_root_no_build_was_started_in_publishes_nothing_until_one_i
   assert(after.tally.stages == 1, tostring(after.tally.stages))
 end
 
+--- The first request after a build is started where there was none may be a definition's: it stages the tree, and the
+--- documents it left unchecked are checked again by the next change all the same.
+local function test_a_definition_that_finds_a_build_started_leaves_the_open_documents_to_be_checked_again()
+  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
+  local main = 'local shapes = require("lib.shapes")\nlocal s: string = shapes.sides\nreturn s\n'
+  local other = "local n = 1\nreturn n\n"
+  local send = serving(root)
+  local before = send({ initialize(root), open(root, "main.tl", main), open(root, "other.tl", other) })
+  assert(counts(before) == "0,0", counts(before))
+  assert(work.close((assert(work.open(root)))))
+  local after = send({ session_fixture.at(7, "textDocument/definition", root, "other.tl", 1, 8),
+    change(root, "other.tl", other .. "\n") })
+  local found = 0
+  for _, diagnostics in ipairs(published(after)) do
+    if #diagnostics == 1 and diagnostics[1].message:find("not_assignable", 1, true) ~= nil then
+      found = found + 1
+    end
+  end
+  assert(found == 1, "main is checked against the build now there: " .. counts(after))
+end
+
 --- A run that finds the database's schema stale makes it again
 --- ([`work.open`]): the session reads the new file, not the one its
 --- handle held.

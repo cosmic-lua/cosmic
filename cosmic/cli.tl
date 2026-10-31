@@ -222,7 +222,8 @@ local record Cli
   --- build names modules, from open documents, then the modules a build
   --- stages of the workspace's root, staged again when the editor says a
   --- file changed on disk, then the binary's `cosmic.*`; it answers hover
-  --- with a symbol's docs, as `cosmic docs`, and formats a document as
+  --- with a symbol's docs, as `cosmic docs`, answers go to definition
+  --- with where a name is declared, and formats a document as
   --- `cosmic fix` does. It serves one editor over standard input and
   --- output, or, with `--listen` (a numeric IPv4 host or a bracketed
   --- IPv6 one, the loopback when only a port is given) or `--socket`,

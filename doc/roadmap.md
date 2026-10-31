@@ -348,11 +348,13 @@ promises lean on come first:
   - File-based routing that generates the route table, and OpenAPI
     documents made from typed routes.
 
-- go to definition and completion in `cosmic lsp` ([`build/lsp/session.tl`]), which
-  answers diagnostics, hover and formatting today. tl's type report answers
-  both: with `env.report_types` on, which build/compiler.d.tl declares,
-  its `get_types`, `symbols_in_scope` and `undeclared`, which it does not
-  declare yet.
+- completion in `cosmic lsp` ([`build/lsp/session.tl`]), which answers diagnostics, hover,
+  go to definition and formatting today. Definition ([`build/lsp/definition.tl`])
+  reads the checker's report of the document, the tree, the scopes and the type of
+  each node that [`check.read`] makes of it, and completion reads the same:
+  `Scopes.in_scope` ([`lang/scopes.tl`]) lists the bindings visible at a token, and
+  the body of a [`Types.Decl`] ([`lang/types.tl`]) lists the fields and methods of the
+  type of the object before a `.` or `:`.
 
 ## documentation and examples
 
@@ -434,8 +436,10 @@ four-producer provenance join.
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
+[`build/lsp/definition.tl`]: ../build/lsp/definition.tl
 [`build/lsp/session.tl`]: ../build/lsp/session.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
+[`check.read`]: ../build/lsp/check.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/prerelease.tl`]: ../ci/cosmic_ci/prerelease.tl
@@ -470,7 +474,9 @@ four-producer provenance join.
 [`Input.Invalid`]: ../cosmic/web/input.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`lang/flow.tl`]: ../lang/flow.tl
+[`lang/scopes.tl`]: ../lang/scopes.tl
 [`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
+[`lang/types.tl`]: ../lang/types.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
@@ -485,6 +491,7 @@ four-producer provenance join.
 [`Test.needs_of`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`Typed.spec`]: ../cosmic/shape.tl
+[`Types.Decl`]: ../lang/types.tl
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl
 [`Url.segments`]: ../cosmic/url.tl
