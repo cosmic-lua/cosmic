@@ -1,15 +1,10 @@
 local Channel = require("cosmic.channel")
 local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
+local Test = require("cosmic.test")
 
 local record Closer
   __close: function(Closer)
-end
-
-local function raises(fn: function(), words: string)
-  local ok, err: boolean, any = pcall(fn)
-  assert(not ok, "expected a raise naming " .. words)
-  assert(tostring(err):find(words, 1, true), tostring(err))
 end
 
 --- A task that receives until `count` items or a failure, appending what
@@ -48,18 +43,18 @@ end
 
 local function test_options_are_checked_and_default_to_a_large_blocking_queue()
   Poll.run(function()
-    raises(function() Channel.new({ capacity = 0 }) end, "capacity")
+    Test.raises(function() Channel.new({ capacity = 0 }) end, "capacity")
     local fractional: any = { capacity = 1.5 }
-    raises(function() Channel.new(fractional as Channel.Options) end, "capacity")
-    raises(function() Channel.new({ overflow = "sometimes" as Channel.Overflow }) end, "overflow")
+    Test.raises(function() Channel.new(fractional as Channel.Options) end, "capacity")
+    Test.raises(function() Channel.new({ overflow = "sometimes" as Channel.Overflow }) end, "overflow")
     local queue: Channel.Queue<integer> = Channel.new()
     for i = 1, 256 do assert(queue:try_send(i)) end
     local ok, why = queue:try_send(257)
     assert(not ok and why == Channel.FULL)
-    raises(function() queue:send(nil as integer) end, "nil")
-    raises(function() queue:receive(-1) end, "timeout_ns")
+    Test.raises(function() queue:send(nil as integer) end, "nil")
+    Test.raises(function() queue:receive(-1) end, "timeout_ns")
   end)
-  raises(function() Channel.new() end, "outside Poll.run")
+  Test.raises(function() Channel.new() end, "outside Poll.run")
 end
 
 local function test_block_makes_try_send_fail_and_send_time_out_when_full()
@@ -411,6 +406,6 @@ local function test_a_queue_of_another_run_is_refused_when_it_waits()
   Poll.run(function() stale = Channel.new() end)
   local other = assert(stale)
   Poll.run(function()
-    raises(function() other:receive() end, "another run")
+    Test.raises(function() other:receive() end, "another run")
   end)
 end

@@ -184,8 +184,7 @@ local function test_listener_from_refuses_what_is_no_listening_tcp_socket(tmp: s
   refuses(unix:fd(), "a unix listener", { "not supported" })
   assert(unix:close())
   -- Not an fd at all.
-  local ok, why = pcall(Net.listener_from, -1)
-  assert(not ok and tostring(why):find("fd must be an integer from 0", 1, true) ~= nil, tostring(why))
+  Test.raises(function() Net.listener_from(-1) end, "fd must be an integer from 0")
   assert(descriptor_count() == before, "a refused adoption left a descriptor open")
 end
 
@@ -302,8 +301,7 @@ end
 --- public list is refused, and an empty table is public-only.
 local function test_a_connector_without_authority_is_refused()
   local function refused(endpoints: {Net.Endpoint}, opts?: Net.ConnectorOptions)
-    local ok, why = pcall(Net.connector, endpoints, opts)
-    assert(not ok and tostring(why):find("needs endpoints, opts.public, or both", 1, true) ~= nil, tostring(why))
+    Test.raises(function() Net.connector(endpoints, opts) end, "needs endpoints, opts.public, or both")
   end
   refused({})
   refused({}, { timeout_ns = Clock.seconds(1) })
@@ -776,8 +774,7 @@ end
 
 local function test_a_public_connector_is_asked_nothing_it_was_not_started_for()
   require_native_connector()
-  local ok, _ = pcall(Net.connector, {}, { public = { deny = { "10.0.0.0" } } })
-  assert(not ok, "a prefix with no length")
+  Test.raises(function() Net.connector({}, { public = { deny = { "10.0.0.0" } } }) end)
   -- A table connector with no public mode asks only its table.
   Poll.run(function()
     local listener, task = echo_server()

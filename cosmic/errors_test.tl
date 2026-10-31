@@ -4,6 +4,7 @@
 --- (cosmic/errors_example.tl shows it over the binary's own catalog).
 local Errors = require("cosmic.errors")
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
 
 --- A catalog row: its message, its own guidance (nil to take the doc
 --- comment of `symbol` in `module` instead), and where it was found.
@@ -185,8 +186,7 @@ end
 --- A level below 1 would name the wrapper or the binding, so it raises;
 --- one past the stack leaves just the heading.
 local function test_trace_refuses_a_level_below_one()
-  local ok, err = pcall(Errors.trace, nil, 0)
-  assert(not ok and tostring(err):find("level must be at least 1", 1, true) ~= nil, tostring(err))
+  Test.raises(function() Errors.trace(nil, 0) end, "level must be at least 1")
   assert(not pcall(Errors.trace, nil, -1))
   assert(Errors.trace(nil, 1000) == "stack traceback:")
 end

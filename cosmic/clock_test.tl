@@ -1,4 +1,5 @@
 local Clock = require("cosmic.clock")
+local Test = require("cosmic.test")
 
 local NS <const> = 1000000000
 
@@ -49,8 +50,7 @@ local function test_ceil_rounds_a_span_up_to_a_count_of_the_unit()
   assert(Clock.ceil(math.maxinteger, 1) == math.maxinteger and Clock.ceil(math.mininteger, 1) == math.mininteger)
   assert(Clock.ceil(Clock.ms(1500), Clock.seconds(1)) == 2)
   for _, bad in ipairs({ 0, -1 }) do
-    local ok, why = pcall(Clock.ceil, 1, bad)
-    assert(not ok and tostring(why):find("unit must be", 1, true), tostring(why))
+    Test.raises(function() Clock.ceil(1, bad) end, "unit must be")
   end
 end
 
@@ -64,6 +64,5 @@ local function test_the_clocks_read_and_the_monotonic_one_does_not_go_back()
 end
 
 local function test_sleep_ns_refuses_a_negative_span()
-  local ok = pcall(Clock.sleep_ns, -1)
-  assert(not ok)
+  Test.raises(function() Clock.sleep_ns(-1) end)
 end

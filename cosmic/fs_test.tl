@@ -314,8 +314,7 @@ local function test_set_mtime_defaults_to_a_whole_second_and_checks_ns(tmp: stri
   assert(Fs.set_mtime(path, 4000))
   local st = assert(sys.stat(path))
   assert(st.mtime == 4000 and st.mtime_ns == 0, tostring(st.mtime) .. "." .. tostring(st.mtime_ns))
-  local ok, why = pcall(Fs.set_mtime, path, 4000, 1000000000)
-  assert(not ok and tostring(why):find("fs: nanoseconds are outside [0, 1e9)", 1, true), tostring(why))
+  Test.raises(function() Fs.set_mtime(path, 4000, 1000000000) end, "fs: nanoseconds are outside [0, 1e9)")
   assert(not pcall(Fs.set_mtime, path, 4000, -1))
 end
 

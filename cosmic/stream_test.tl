@@ -5,6 +5,7 @@ local Clock = require("cosmic.clock")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
+local Test = require("cosmic.test")
 
 --- A plain-table stand-in for a [`cosmic.compress`] codec.
 local record Fake is Stream.Transform
@@ -834,8 +835,7 @@ local function test_run_answers_a_transform_failure()
 end
 
 local function test_run_raises_on_a_negative_max_bytes()
-  local ok, trouble = pcall(Stream.run, shouting(), "x", -1)
-  assert(not ok and tostring(trouble):find("max_bytes", 1, true) ~= nil, tostring(trouble))
+  Test.raises(function() Stream.run(shouting(), "x", -1) end, "max_bytes")
 end
 
 --- Every line [`Stream.lines`] gives `reader`, through `read`, and why it

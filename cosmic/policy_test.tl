@@ -3,6 +3,7 @@ local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
+local Test = require("cosmic.test")
 
 --- Why `json` is refused, asserting that it is, and names `field`, a path
 --- like `$.grants[0].letters`.
@@ -156,8 +157,7 @@ local function test_encode_decode_encode_is_the_identity()
 end
 
 local function test_encode_raises_for_what_is_not_merged()
-  local ok, why = pcall(PolicyJson.encode, { profiles = { "system" } })
-  assert(not ok and tostring(why):find("merged", 1, true), tostring(why))
+  Test.raises(function() PolicyJson.encode({ profiles = { "system" } }) end, "merged")
   local bad, trouble = pcall(PolicyJson.encode, { grants = { { path = "a", letters = "z" } } })
   assert(not bad and tostring(trouble):find("$.grants[0].letters", 1, true), tostring(trouble))
   assert(PolicyJson.encode({}) == "{}")

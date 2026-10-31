@@ -1,4 +1,5 @@
 local String = require("cosmic.string")
+local Test = require("cosmic.test")
 
 local function same(got: {string}, want: {string}): boolean
   if #got ~= #want then return false end
@@ -29,8 +30,7 @@ local function test_split_separator_is_plain_text()
 end
 
 local function test_split_refuses_an_empty_separator()
-  local ok, why = pcall(String.split, "abc", "")
-  assert(not ok and tostring(why):find("separator is empty", 1, true), tostring(why))
+  Test.raises(function() String.split("abc", "") end, "separator is empty")
 end
 
 local function test_lines_match_split_on_newline()

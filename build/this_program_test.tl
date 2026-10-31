@@ -96,8 +96,7 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
     assert(fds[254] == nil and fds[255] == nil)
     -- A descriptor the relaunch hands the core its artifact as, named
     -- by the caller too, raises rather than being dropped.
-    local ok, trouble = pcall(this_program.program, {}, { fds = { [254] = "capture" } })
-    assert(not ok and tostring(trouble):find("descriptor 254", 1, true) ~= nil, tostring(trouble))
+    Test.raises(function() this_program.program({}, { fds = { [254] = "capture" } }) end, "descriptor 254")
     -- No environment given: this process's whole, which a child given
     -- none would have inherited, with the relaunch's added. A worker's
     -- is the variables it declares and the pinned ones; TMPDIR is
@@ -157,8 +156,7 @@ local function test_program_under_a_policy_leaves_the_relaunch_to_the_start()
     assert(assert(this_program.program({}, { policy = policy, fds = { [254] = "capture" } }).options.fds)[254] ==
         "capture")
     -- Child.start refuses an env beside a policy; so does this, rather than drop it.
-    local ok, why = pcall(this_program.program, {}, { policy = policy, env = { A = "1" } })
-    assert(not ok and tostring(why):find("env beside a policy", 1, true) ~= nil, tostring(why))
+    Test.raises(function() this_program.program({}, { policy = policy, env = { A = "1" } }) end, "env beside a policy")
   end)
   -- Without a policy the relaunch is still there.
   relaunching(relaunch, function()

@@ -175,8 +175,7 @@ local function test_invalid_numeric_endpoints_cannot_start_a_connector()
   for _, endpoint in ipairs({ { host = "localhost", port = 80 }, { host = "127.1", port = 80 },
       { host = "0177.0.0.1", port = 80 }, { host = "127.0.0.1\0evil", port = 80 },
       { host = "fe80::1%lo", port = 80 }, { host = "*", port = 80 }, { host = "127.0.0.1", port = -1 } }) do
-    local ok = pcall(process.connector_start, { endpoint }, pair.connector, 500, nil)
-    assert(not ok)
+    Test.raises(function() process.connector_start({ endpoint }, pair.connector, 500, nil) end)
   end
   assert(sys.close(pair.controller))
   assert(sys.close(pair.connector))
@@ -302,8 +301,7 @@ local function test_public_lists_that_are_no_prefixes_cannot_start_a_connector()
     { deny = { "fe80::1%lo/10" } }, { deny = many }, { deny = {}, own = { "10.0.0.0/8" } },
     { deny = {}, own = { "localhost" } }, { deny = {}, own = owns } }
   for _, public in ipairs(lists) do
-    local ok = pcall(process.connector_start, {}, pair.connector, 500, public)
-    assert(not ok)
+    Test.raises(function() process.connector_start({}, pair.connector, 500, public) end)
   end
   -- A table that is empty is for a public connector alone.
   assert(not pcall(process.connector_start, {}, pair.connector, 500, nil))

@@ -5,6 +5,7 @@
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
 
 -- Feeds `data` through `stream` in pieces of `size` bytes (the whole of
 -- it in one piece when `size` is nil), draining each piece's held
@@ -454,8 +455,7 @@ local function test_finish_refuses_while_output_is_pending()
     local dec = case.make()
     local total = #assert(dec:update(case.packed, 1024))
     assert(dec:pending())
-    local ok, why = pcall(dec.finish, dec)
-    assert(not ok and tostring(why):find("pending", 1, true), tostring(why))
+    Test.raises(function() dec:finish() end, "pending")
     while dec:pending() do total = total + #assert(dec:update("", 1 << 20)) end
     local last = assert(dec:finish())
     assert(last == "" and total == 8 << 20, tostring(total))
@@ -521,8 +521,7 @@ local function test_a_stream_revived_by_a_finalizer_is_finished()
     collectgarbage()
     collectgarbage()
     local kept = assert(saved, "the finalizer ran")
-    local ok, why = pcall(kept.update, kept, case.chunk)
-    assert(not ok and tostring(why):find("compress: the stream is finished", 1, true), tostring(why))
+    Test.raises(function() kept:update(case.chunk) end, "compress: the stream is finished")
     assert(not pcall(kept.finish, kept))
     assert(not kept:pending())
     assert(kept:rest() == "")
@@ -735,8 +734,7 @@ local function test_inflate_validates_max_bytes()
   local out, trouble = Compress.inflate("zlib", packed, 2)
   assert(out == nil and trouble == "stream: output is larger than 2 bytes", trouble)
   assert(Compress.inflate("zlib", (assert(Compress.deflate("zlib", ""))), 0) == "")
-  local ok, why = pcall(Compress.inflate, "zlib", packed, -1)
-  assert(not ok and tostring(why):find("compress: max_bytes", 1, true) ~= nil, tostring(why))
+  Test.raises(function() Compress.inflate("zlib", packed, -1) end, "compress: max_bytes")
 end
 
 --- Each one-shot call frames its bytes as `format` says, the same
