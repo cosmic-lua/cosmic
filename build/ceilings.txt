@@ -1196,7 +1196,7 @@ cosmic/zip_test.tl nil_not_allowed 16
 
 
 
-lang/check.tl nil_not_allowed 68
+lang/check.tl nil_not_allowed 66
 
 lang/check_class_test.tl nil_not_allowed 30
 
