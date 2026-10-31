@@ -1468,7 +1468,7 @@ local function test_the_scope_check_refuses_a_ceiling_with_a_neighbour_in_the_tr
     "[checked]\nbuild/there.tl view_written 1\nbuild/there.tl field_fixed 1\n\nbuild/there.tl map_field 1\nbuild/there.tl no_value 1\n"))
   local crowded = tree_checks.scoped(root)
   assert(#crowded == 1, table.concat(crowded, "\n"))
-  local only = crowded[1] or ""
+  local only = crowded[1]
   assert(only:find("reading the ceilings: 2 of them have a neighbour", 1, true), only)
   assert(only:find("build/ceilings.txt:2: `build/there.tl view_written 1`", 1, true), only)
   assert(Fs.write(root .. "/build/ceilings.txt",
