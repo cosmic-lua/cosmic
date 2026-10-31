@@ -34,8 +34,8 @@ no ceiling. `islands.txt` lists nothing: the pinned release reads a file it
 lists as Teal. CI's `check-islands` command (`cosmic-driver
 cosmic_ci/driver.tl check-islands`) checks each of those scripts with
 `--standalone --check` on the running driver (it type-checks the file without
-running it), and fails on a syntax error or any finding; `ci/` is compiled by the
-driver's own tests compile only the modules they require, so `check-islands`
+running it), and fails on a syntax error or any finding. The driver's own
+tests compile only the modules they require, so `check-islands`
 also runs the release's `fix --check` over all of `ci/`.
 
 Which files run standalone on the pinned release is `ci/bootstrap-files.txt`,

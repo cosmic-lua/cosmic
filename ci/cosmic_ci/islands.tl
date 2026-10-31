@@ -118,10 +118,7 @@ end
 --- where `--standalone --check` says no `file:line:column:` of a finding or a syntax error and exits 0, else what it said
 --- or why it did not run.
 function Islands.complaint(root: string, path: string, env: {string:string}): string?
-  local values: mut {string:string} = {}
-  for name, value in pairs(env) do values[name] = value end
-  values["COSMIC_GRAMMAR"] = "new"
-  local driver = BuildPaths.driver({}, values)
+  local driver = BuildPaths.driver({}, env)
   local argv: mut {string} = {}
   for _, word in ipairs(driver.argv) do argv[#argv + 1] = word end
   for _, word in ipairs({ "--standalone", "--check", path }) do argv[#argv + 1] = word end

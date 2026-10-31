@@ -127,24 +127,34 @@ local function test_the_release_checks_all_of_ci(tmp: string)
   assert(refused:find("unrequired.tl:1:", 1, true) ~= nil, refused)
 end
 
---- A script that is clean.
-local function exiting(status: integer): string
-  return 'print("usage")\nreturn function(_: {string}): integer\n  return ' .. tostring(status) .. "\nend\n"
+--- A script that type-checks.
+local function clean(): string
+  return 'print("usage")\nreturn function(_: {string}): integer\n  return 0\nend\n'
+end
+
+--- A listed file that is not there is no clean file: the check says why it stopped, though it said no finding.
+local function test_a_listed_file_that_is_missing_is_a_complaint(tmp: string)
+  local root = checkout(tmp, {})
+  local report = Islands.check(root, { "build/missing.tl" }, Env.all())
+  assert(#report.complaints == 1, table.concat(report.complaints, "\n"))
+  local missing = assert(report.complaints[1])
+  assert(missing:find("build/missing.tl (listed in ci/bootstrap-files.txt): exited 1 with --check, not 0: ", 1, true) == 1, missing)
+  assert(missing:find("No such file or directory", 1, true) ~= nil, missing)
 end
 
 --- Each refusal and the pass, through the command.
 local function test_the_command_fails_for_a_refused_script_a_stale_entry_and_a_missing_list(tmp: string)
   local root = checkout(tmp, {
     ["ci/bootstrap-files.txt"] = "build/zig.tl\nbuild/patch.tl\neval/result.tl\nbuild/paths.tl\n",
-    ["build/paths.tl"] = exiting(0),
-    ["build/zig.tl"] = 'local note = \'standalone(root, "build/patch.tl", args)\'\nprint(note)\n' .. exiting(0),
-    ["build/patch.tl"] = exiting(0),
-    ["eval/result.tl"] = exiting(0),
+    ["build/paths.tl"] = clean(),
+    ["build/zig.tl"] = 'local note = \'standalone(root, "build/patch.tl", args)\'\nprint(note)\n' .. clean(),
+    ["build/patch.tl"] = clean(),
+    ["eval/result.tl"] = clean(),
   })
   assert(Islands.verdict(root) == 0)
   assert(Fs.write(root .. "/build/zig.tl", "return\n  =\n"))
   assert(Islands.verdict(root) == 1)
-  assert(Fs.write(root .. "/build/zig.tl", exiting(0)))
+  assert(Fs.write(root .. "/build/zig.tl", clean()))
   assert(Fs.write(root .. "/ci/islands.txt", "build/zig.tl\n"))
   assert(Islands.verdict(root) == 1)
   assert(Fs.write(root .. "/ci/islands.txt", "\n"))
