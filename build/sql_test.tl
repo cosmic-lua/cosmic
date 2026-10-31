@@ -687,6 +687,16 @@ local function test_to_csv_writes_data_alone_and_its_summary_on_stderr()
     written.summary)
 end
 
+--- An empty column name is a field like any other: `""` in the header, so
+--- the header is no blank line and a reader keeps the column.
+local function test_to_csv_writes_an_empty_column_name_quoted()
+  local dir = delimited()
+  local code, written = run(dir, { "--to", "csv", "SELECT 1 AS \"\", 2 AS b" })
+  assert(code == 0, table.concat(written.err, "|"))
+  assert(table.concat(written.out, "\n") == '"",b\n1,2', table.concat(written.out, "\n"))
+  assert(Fs.remove_tree(dir))
+end
+
 --- A field that begins with a byte order mark is quoted, so a reader that
 --- drops a BOM at the start of its text keeps it: a column name's, which
 --- is the header's first field, reads back as written.

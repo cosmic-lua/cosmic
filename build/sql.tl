@@ -329,6 +329,9 @@ local row_lines: Writer = {
   end,
 }
 
+--- A field written `""` when empty, so '' is told from NULL's empty field.
+local QUOTE_EMPTY <const>: Csv.FieldOptions = { quote_empty = true }
+
 --- `--to csv`: RFC 4180, a header of the column names, then a record per
 --- row: NULL an empty field, '' a quoted empty one (so it is told from
 --- NULL), a number as a row line writes it, and text and a blob's bytes as
@@ -337,7 +340,7 @@ local csv_writer: Writer = {
   header = function(names: {string}): string?
     local fields: mut {string} = {}
     for index, name in ipairs(names) do
-      fields[index] = Csv.encode_field(name, { quote_empty = true })
+      fields[index] = Csv.encode_field(name, QUOTE_EMPTY)
     end
     return table.concat(fields, ",")
   end,
@@ -351,7 +354,7 @@ local csv_writer: Writer = {
         local text = cell_text(statement, index)
         fields[#fields + 1] = text
       else
-        local text = Csv.encode_field(statement:bytes(index), { quote_empty = true })
+        local text = Csv.encode_field(statement:bytes(index), QUOTE_EMPTY)
         fields[#fields + 1] = text
       end
     end

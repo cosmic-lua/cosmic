@@ -4785,7 +4785,6 @@ cosmic/compress_checked_test.tl or_mix 1
 
 cosmic/compress_test.tl or_mix 4
 
-
 cosmic/csv_test.tl or_mix 3
 
 cosmic/declared_types_test.tl or_mix 1
@@ -5199,7 +5198,6 @@ cosmic/child.tl and_ternary 29
 cosmic/child_stream_failure_test.tl and_ternary 2
 
 cosmic/compress_test.tl and_ternary 1
-
 
 cosmic/csv_fuzz_test.tl and_ternary 3
 

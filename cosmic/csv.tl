@@ -9,6 +9,8 @@
 ---     -- { {fields = {"a", "b"}, line = 1}, {fields = {"x\ny"}, line = 3} }
 ---     local text = Csv.encode({ { "id", "name" }, { "1", "Smith, Ann" } })
 ---     -- 'id,name\n1,"Smith, Ann"\n'
+---     local field = Csv.encode_field("Smith, Ann")
+---     -- '"Smith, Ann"'
 ---
 --- What is read:
 ---
@@ -65,6 +67,7 @@
 ---
 --- `encode` writes records so that `parse`, with the same delimiter,
 --- reads them back as they were: a field is quoted only where it must be.
+--- [`encode_field`] writes one field by the same rule.
 
 --- What `read` found: the records, and the line each began on.
 local record Scan
@@ -93,11 +96,13 @@ local record Csv
   --- What [`Csv.encode_field`] may be told.
   record FieldOptions
     --- The one byte between fields (default `,`), as [`Csv.Options`] says:
-    --- the field is quoted when it holds it, and [`encode_field`] raises for
-    --- one that is not one byte or is a quote or a line break.
+    --- the field is quoted when it holds it, and [`Csv.encode_field`] raises
+    --- for one that is not one byte or is a quote or a line break.
     delimiter?: string
-    --- Quote the empty field (default false). A caller sets it where an
-    --- empty field would otherwise be misread or lost.
+    --- Quote the empty field (default false). An empty only field of a
+    --- record would be a blank line, which is no record, so [`Csv.encode`]
+    --- sets it there. A caller can also set it to tell an empty field from
+    --- an absent one, as `cosmic sql --to csv` does for '' against NULL.
     quote_empty?: boolean
   end
 
@@ -341,6 +346,16 @@ function Csv.records(text: string, opts?: Csv.Options): {Csv.Record}?, string
   return located(text, delimiter_of(opts and opts.delimiter))
 end
 
+--- `field` in quotes, each quote doubled, when it needs them (see
+--- [`Csv.encode_field`]), else as it is. `delimiter` is already checked.
+local function quoted(field: string, delimiter: string, quote_empty: boolean): string
+  if field:find(delimiter, 1, true) ~= nil or field:find('["\r\n]') ~= nil or field:sub(1, 3) == BOM or
+      (quote_empty and field == "") then
+    return '"' .. field:gsub('"', '""') .. '"'
+  end
+  return field
+end
+
 --- `field` as [`Csv.encode`] writes it, in quotes with each quote doubled
 --- when a reader would otherwise misread it, and as it is otherwise. It is
 --- quoted when it:
@@ -368,11 +383,7 @@ function Csv.encode_field(field: string, opts?: Csv.FieldOptions): string
   if type(field) ~= "string" then
     error("csv: a field is a string, not a " .. type(field), 2)
   end
-  if field:find(delimiter, 1, true) ~= nil or field:find('["\r\n]') ~= nil or field:sub(1, 3) == BOM or
-      (field == "" and opts ~= nil and opts.quote_empty == true) then
-    return '"' .. field:gsub('"', '""') .. '"'
-  end
-  return field
+  return quoted(field, delimiter, opts ~= nil and opts.quote_empty == true)
 end
 
 --- `records` as CSV text that [`Csv.parse`], with the same
@@ -407,7 +418,7 @@ function Csv.encode(records: {{string}}, opts?: Csv.Options): string
         error("csv: record " .. tostring(number) .. ", field " .. tostring(index) .. " is a " .. type(field) ..
             ", not a string", 2)
       end
-      parts[index] = Csv.encode_field(field, { delimiter = delimiter, quote_empty = #record == 1 })
+      parts[index] = quoted(field, delimiter, #record == 1)
     end
     lines[#lines + 1] = table.concat(parts, delimiter) .. line_end
   end
