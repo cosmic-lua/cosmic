@@ -199,10 +199,11 @@ A sheet can hold a great many rows, so it is read a row at a time:
 [`Xml.subtrees`] answers each `row` whole as the parser reaches its
 end, from the sheet's body read in chunks. Each row is written as CSV with
 [`Csv.encode`], which quotes a cell that holds a comma, a quote or a line
-break, as Alt-Enter puts in one, so the columns stay where they were. It
-ends the record with a line break, which `print` would double, so that is
-taken off; and it raises for a record with no fields, as a row with no
-cells has, so such a row, which CSV has no line for, is left out.
+break (Alt-Enter puts one in a cell), so the columns stay where they were.
+It ends the record with a line break, which `print` would double, so that
+is taken off. A row with no cells has no line in CSV, and [`Csv.encode`]
+raises for one, so it is left out: the lines printed do not count the
+sheet's rows, which a row's `r` numbers.
 
 ```teal continue
 local workbook = part("/xl/workbook.xml")
