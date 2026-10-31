@@ -121,6 +121,13 @@ local record test_state
     scratch: string
   end
 
+  --- One test's share of a violation a checked run met.
+  record MetViolation
+    key: string
+    test: string
+    count: integer
+  end
+
   record Recording
     records: Sqlite.Handle
     root: string
@@ -181,6 +188,14 @@ local record test_state
     violation_order: mut {string}
     violation_tests: mut {string:string}
     violations_dropped: integer
+    --- Which test met which violation, and how often (`take_violations`): a
+    --- row to each test and distinct violation, in the order met. Where
+    --- `violation_tests` names only the first test to meet one.
+    violation_met: mut {MetViolation}
+    --- How many violations each test that met any reported, those its worker
+    --- kept no record of included, and the seconds it ran.
+    violators: mut {string:integer}
+    violator_ns: mut {string:integer}
     --- How many jobs `--bail` left unstarted after the first failure
     --- (`run_jobs`). Such a test made no verdict, pass or fail, and is
     --- in no figure of the tally.

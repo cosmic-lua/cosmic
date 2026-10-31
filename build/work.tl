@@ -337,7 +337,8 @@ local version <const> = "30"
 --- `type_violations` holds what the last `cosmic test --check-types` run
 --- reported ([`build.test`]'s `keep_violations`): a row for each distinct
 --- violation, where it was met and the first test that met it, replacing
---- the run before's.
+--- the run before's. `type_violation_tests` holds a row for every test that
+--- met each, with how often, so the tests that meet any are counted.
 ---
 --- The statements of `derived`, `inputs` and the tables a parse fills
 --- are [`build.analysis_schema`]'s, which this places between the
@@ -541,6 +542,15 @@ for _, statement in ipairs({
                                                 test TEXT NOT NULL,
                                                 PRIMARY KEY (kind, site, target, declared,
                                                              actual)) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS type_violation_tests (test TEXT NOT NULL,
+                                                     kind TEXT NOT NULL,
+                                                     site TEXT NOT NULL,
+                                                     target TEXT NOT NULL,
+                                                     declared TEXT NOT NULL,
+                                                     actual TEXT NOT NULL,
+                                                     count INTEGER NOT NULL,
+                                                     PRIMARY KEY (test, kind, site, target, declared,
+                                                                  actual)) WITHOUT ROWID]],
 }) do
   work.schema[#work.schema + 1] = statement
 end

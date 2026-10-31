@@ -154,6 +154,22 @@ local function test_a_checked_run_reports_a_false_value_and_changes_no_verdict(t
   assert(variable.ok and variable_text:find("run-time types: 1 violation", 1, true) ~= nil, variable_text)
 end
 
+--- A checked run records which test met each violation and says how many tests did: a test that meets one is
+--- the cost of standing on checked verdicts, since it never stands.
+local function test_a_checked_run_counts_the_tests_that_met_a_violation(tmp: string)
+  local root = project(tmp)
+  local checked, text = invoke(root, tmp, { "test", "--check-types" })
+  assert(checked.ok, text)
+  assert(text:find("run-time types: 1 test met one (", 1, true), text)
+  local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db"))
+  local rows = assert(Sqlite.text_rows(db, "SELECT test, kind, count FROM type_violation_tests"))
+  assert(db:close())
+  assert(#rows == 1, tostring(#rows) .. " rows")
+  local row = assert(rows[1]):texts()
+  assert(assert(row[1]):find("test_hello_with_a_value_of_another_kind", 1, true) ~= nil, row[1])
+  assert(row[2] == "parameter" and row[3] == "1", table.concat(row, " | "))
+end
+
 --- Neither a checked run nor the variable that asks for one puts a check
 --- into an executable: the tree's projection stays as an unchecked run
 --- wrote it, a checked run writes its own beside it, and `cosmic build`

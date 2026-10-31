@@ -857,8 +857,12 @@ local function take_violations(rec: Recording, id: string, reported: worker.Repo
       rec.violation_order[#rec.violation_order + 1] = key
       rec.violation_tests[key] = id
     end
+    rec.violation_met[#rec.violation_met + 1] = { key = key, test = id, count = met.count }
+    rec.violators[id] = (rec.violators[id] or 0) + met.count
   end
-  rec.violations_dropped = rec.violations_dropped + (reported.dropped or 0)
+  local unrecorded = reported.dropped or 0
+  if unrecorded > 0 then rec.violators[id] = (rec.violators[id] or 0) + unrecorded end
+  rec.violations_dropped = rec.violations_dropped + unrecorded
 end
 
 --- Records one finished job: the verdict its worker reported, or a
@@ -896,7 +900,10 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
   local elapsed = wall_ns
   if reported ~= nil then
     elapsed = reported.elapsed_ns
-    if rec.checks then take_violations(rec, id, reported) end
+    if rec.checks then
+      take_violations(rec, id, reported)
+      if rec.violators[id] ~= nil then rec.violator_ns[id] = elapsed end
+    end
     rec.by_test[id] = test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled,
       reported.load_hits, reported.test_hits)
   end
@@ -1807,7 +1814,7 @@ local function make_recording(ctx: Run)
     runtime = "", sandbox = false, epoch = "", timeout_ns = 0, store_salt = "", carried = {},
     run_at_ns = ctx.run_at_ns, run = handle.run,
     checks = ctx.checks == true, files = {}, violations = {}, violation_order = {}, violation_tests = {},
-    violations_dropped = 0,
+    violations_dropped = 0, violation_met = {}, violators = {}, violator_ns = {},
     failures = failures, errors = errors, outputs = {}, reruns = {},
     failed = {}, skips = {}, unchecked = {}, deliberate = {}, held = ctx.held, nas = {}, unmet = {}, answered = {},
     hits = hits, by_test = by_test, unowned = unowned, tally = tally, not_run = 0,
@@ -2179,6 +2186,17 @@ local function keep_violations(records: Sqlite.Handle, rec: Recording,
         text(rec.violation_tests[key]) })
     if not saved then return false, save_trouble end
   end
+  local cleared_tests, clear_tests_trouble = records:exec("DELETE FROM type_violation_tests")
+  if not cleared_tests then return false, clear_tests_trouble end
+  for _, met in ipairs(rec.violation_met) do
+    local row = assert(rec.violations[met.key])
+    local saved, save_trouble = Sqlite.run(records,
+      "INSERT OR REPLACE INTO type_violation_tests (test, kind, site, target, declared, actual, count) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+      { text(met.test), text(row.kind), text(row.at), text(row.target), text(row.declared),
+        text(row.actual), { integer = met.count } })
+    if not saved then return false, save_trouble end
+  end
   return true, ""
 end
 
@@ -2221,6 +2239,15 @@ local function say_violations(rec: Recording)
     plural.count(total, "violation"), distinct, plural.count(places, "place"),
     rec.violations_dropped > 0 and string.format("; %s more went unrecorded",
       plural.count(rec.violations_dropped, "kind")) or ""))
+  local tests, seconds = 0, 0
+  for id, _ in pairs(rec.violators) do
+    tests = tests + 1
+    seconds = seconds + (rec.violator_ns[id] or 0)
+  end
+  if tests > 0 then
+    log:say(string.format("test: run-time types: %s met one (%.1f s), which never stand on a checked verdict; " ..
+        "cosmic sql --build 'SELECT * FROM type_violation_tests'", plural.count(tests, "test"), seconds / 1e9))
+  end
   local order: mut {string} = {}
   for i, key in ipairs(rec.violation_order) do order[i] = key end
   table.sort(order, function(a: string, b: string): boolean
