@@ -1814,7 +1814,8 @@ local function make_recording(ctx: Run)
     runtime = "", sandbox = false, epoch = "", timeout_ns = 0, store_salt = "", carried = {},
     run_at_ns = ctx.run_at_ns, run = handle.run,
     checks = ctx.checks == true, files = {}, violations = {}, violation_order = {}, violation_tests = {},
-    violations_dropped = 0, violation_met = {}, violators = {}, violator_ns = {},
+    violations_dropped = 0, fact_wraps = assert(ctx.result).fact_wraps,
+    parameter_checks = assert(ctx.result).parameter_checks, violation_met = {}, violators = {}, violator_ns = {},
     failures = failures, errors = errors, outputs = {}, reruns = {},
     failed = {}, skips = {}, unchecked = {}, deliberate = {}, held = ctx.held, nas = {}, unmet = {}, answered = {},
     hits = hits, by_test = by_test, unowned = unowned, tally = tally, not_run = 0,
@@ -2241,6 +2242,8 @@ local function say_violations(rec: Recording)
     plural.count(total, "violation"), distinct, plural.count(places, "place"),
     rec.violations_dropped > 0 and string.format("; %s more went unrecorded",
       plural.count(rec.violations_dropped, "kind")) or ""))
+  log:say(string.format("test: run-time types: %d fact wraps and %d parameter checks written in the compile; " ..
+      "%s stood on checked verdicts", rec.fact_wraps, rec.parameter_checks, plural.count(rec.tally.cached, "test")))
   local tests, seconds = 0, 0
   for id, _ in pairs(rec.violators) do
     tests = tests + 1

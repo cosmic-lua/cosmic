@@ -194,6 +194,10 @@ local record test_state
     --- Which test met which violation, and how often (`take_violations`): a
     --- row to each test and distinct violation, in the order met. Where
     --- `violation_tests` names only the first test to meet one.
+    --- How many reads of a narrowed place and how many typed parameters the compile of this run wrote a check of
+    --- ([`importer.Result`]'s `fact_wraps`), summed over the tree: 0 for an unchecked run.
+    fact_wraps: integer
+    parameter_checks: integer
     violation_met: mut {MetViolation}
     --- How many violations each test that met any reported, those its worker
     --- kept no record of included, and the seconds it ran.

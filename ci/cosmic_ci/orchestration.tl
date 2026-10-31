@@ -1707,8 +1707,17 @@ local function phase_checked_narrowing(p: PlatformContext): integer
     p.local_diagnostics .. "/checked-narrowing-test.err", checked_narrowing_timeout_ns, c.root, values)
   -- A run that prints no "run-time types" line (the summary of a checked
   -- run) was not one: its modules carried no checks.
-  if status == 0 and read(out):find("test: run-time types:", 1, true) == nil then
+  local text = read(out)
+  if status == 0 and text:find("test: run-time types:", 1, true) == nil then
     local _, _ = Fs.put(Fs.stderr, "checked narrowing: the run reported nothing of the checks, so it carried none\n")
+    return 1
+  end
+  -- Nor was one whose compile wrote no check, however many of its tests stood: the line counts what the compile
+  -- wrote (cache hits included), not what the workers met.
+  local wraps, checks = text:match("test: run%-time types: (%d+) fact wraps and (%d+) parameter checks written")
+  if status == 0 and (wraps == nil or wraps == "0" or checks == "0") then
+    local _, _ = Fs.put(Fs.stderr, "checked narrowing: the compile wrote " .. tostring(wraps) .. " fact wraps and " ..
+        tostring(checks) .. " parameter checks, so the run carried none\n")
     return 1
   end
   return status

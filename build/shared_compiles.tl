@@ -73,6 +73,8 @@ local record shared_compiles
     lua: string
     bytecode: string
     references: {SyntaxReceivers.Reference}
+    fact_wraps?: integer
+    parameter_checks?: integer
   end
 
   --- What a parse is shared under: the analyzer that made it, the
@@ -172,21 +174,32 @@ end
 
 local schema <const> = cache_formats.compiles
 
---- The record-field uses, a line each: module, member and line, by tabs.
-local function packed(references: {SyntaxReceivers.Reference}): string
+--- The record-field uses, a line each: module, member and line, by tabs, led for a checked compile by the line `#checks`
+--- and the counts of the fact wraps and of the parameter checks it wrote. The line is part of what the row's digest is
+--- of; a row without it is a compile of 0 checks.
+local function packed(references: {SyntaxReceivers.Reference}, fact_wraps: integer, parameter_checks: integer): string
   local out: mut {string} = {}
+  if fact_wraps > 0 or parameter_checks > 0 then
+    out[1] = "#checks\t" .. tostring(fact_wraps) .. "\t" .. tostring(parameter_checks) .. "\n"
+  end
   for _, r in ipairs(references) do
     out[#out + 1] = r.module .. "\t" .. r.member .. "\t" .. tostring(r.line) .. "\n"
   end
   return table.concat(out)
 end
 
+--- The counts `packed` led `refs` by: the fact wraps and the parameter checks, 0 and 0 for none.
+local function checks_of(refs: string): integer, integer
+  local wraps_text, checks_text = refs:match("^#checks\t(%d+)\t(%d+)\n")
+  return math.tointeger(tonumber(wraps_text or "0")) or 0, math.tointeger(tonumber(checks_text or "0")) or 0
+end
+
 --- `packed` undone: nil for what `packed` never writes.
 local function unpacked(refs: string): {SyntaxReceivers.Reference}?
   local out: mut {SyntaxReceivers.Reference} = {}
-  local rest = refs:gsub("([^\t\n]*)\t([^\t\n]*)\t(%d+)\n", function(module: string,
-                                                                     member: string,
-                                                                     line: string): string
+  local rest = refs:gsub("^#checks\t%d+\t%d+\n", "", 1):gsub("([^\t\n]*)\t([^\t\n]*)\t(%d+)\n", function(module: string,
+                                                                                                         member: string,
+                                                                                                         line: string): string
     table.insert(out, { module = module, member = member,
       line = math.tointeger(tonumber(line)) or 0 })
     return ""
@@ -350,7 +363,13 @@ function shared_compiles.look(cache: shared_compiles.Cache,
     if part == nil then break end
     parts[index] = part
   end
-  local references = #parts == 3 and unpacked(parts[3]) or nil
+  local references: {SyntaxReceivers.Reference}? = nil
+  local fact_wraps, parameter_checks = 0, 0
+  local refs_text = parts[3]
+  if #parts == 3 and refs_text ~= nil then
+    references = unpacked(refs_text)
+    fact_wraps, parameter_checks = checks_of(refs_text)
+  end
   local stored = text_at(row, 4)
   if references == nil or stored ~= digest_of(parts[1], parts[2], parts[3]) then
     -- Only the row read, by its digest: a good one a build writes under
@@ -361,7 +380,8 @@ function shared_compiles.look(cache: shared_compiles.Cache,
       { text(key), stored ~= nil and text(stored) or {} })
     return nil, ""
   end
-  return { lua = parts[1], bytecode = parts[2], references = references }, ""
+  return { lua = parts[1], bytecode = parts[2], references = references, fact_wraps = fact_wraps,
+    parameter_checks = parameter_checks }, ""
 end
 
 --- A list of hashes, as SQLite's `json_each` reads it: each is hex.
@@ -489,7 +509,10 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
   if not begun then return false, begin_trouble end
   local function steps(): boolean, string
     for _, kept in ipairs(owed.kept) do
-      local refs = packed(kept.references)
+      -- TODO: once ci/cosmic-driver.pin names a release whose importer passes the counts of the checks a
+      -- compile wrote, make `fact_wraps` and `parameter_checks` of a [`Kept`] required: the pinned importer, which
+      -- a boot runs this module under, offers a compile without them.
+      local refs = packed(kept.references, kept.fact_wraps or 0, kept.parameter_checks or 0)
       local ok, trouble = Sqlite.run(db,
         "INSERT OR IGNORE INTO " .. compiled .. " (key, lua, bytecode, refs, digest, size, " ..
           "used_ns) VALUES (?1, deflate(?2), deflate(?3), deflate(?4), ?5, 0, ?6)",
@@ -587,6 +610,7 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
       table.insert(owed.kept, {
         key = shared_compiles.key(assert(m.key), own_tree, m.generated),
         lua = made.lua, bytecode = made.bytecode, references = made.references,
+        fact_wraps = made.fact_wraps, parameter_checks = made.parameter_checks,
       })
     end,
     analyzers = function(hashes: {string}): {string}

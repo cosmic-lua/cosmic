@@ -254,7 +254,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
       staged.standing = { own = false }
       local first: importer.Result = {
         main = nil, tool = "", modules = {}, refused = {}, left_out = {},
-        compiled = 0, cached = 0, shared = 0,
+        compiled = 0, cached = 0, shared = 0, fact_wraps = 0, parameter_checks = 0,
         parses = { parsed = 0, shared = 0 },
       }
       local first_signature = assert(writer.signature(staged, first, Store.meta("writer") or ""))

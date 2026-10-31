@@ -439,8 +439,11 @@ for _, statement in ipairs({
                                          tool TEXT NOT NULL,
                                          lua TEXT NOT NULL,
                                          bytecode BLOB NOT NULL,
-                                         seen INTEGER NOT NULL) WITHOUT ROWID]],
+                                         seen INTEGER NOT NULL,
+                                         fact_wraps INTEGER NOT NULL DEFAULT 0,
+                                         parameter_checks INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID]],
     [[CREATE INDEX IF NOT EXISTS compiled_by_seen ON compiled (key, seen)]],
+    [[CREATE INDEX IF NOT EXISTS compiled_by_checks ON compiled (key, seen, fact_wraps, parameter_checks)]],
     [[CREATE TABLE IF NOT EXISTS deflated (source_hash TEXT NOT NULL,
                                          core TEXT NOT NULL,
                                          data BLOB NOT NULL,
@@ -677,6 +680,23 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean): Took?, st
   local fresh, count_trouble = counted_none(db, "SELECT count(*) FROM sqlite_master")
   if fresh == nil then
     return nil, count_trouble
+  end
+  if not fresh then
+    -- A file of an older tool has `compiled` without the counts of the checks a compile wrote: a row of it is an
+    -- unchecked compile, of 0 checks, which the default says. The index that holds them is made after.
+    local columns, columns_trouble = Sqlite.text_rows(db, "PRAGMA table_info(compiled)")
+    if columns == nil then return nil, columns_trouble end
+    local has_counts = #columns == 0
+    for _, column in ipairs(columns) do
+      if column:text(2) == "fact_wraps" then has_counts = true end
+    end
+    if not has_counts then
+      for _, name in ipairs({ "fact_wraps", "parameter_checks" }) do
+        local added, add_trouble = db:exec("ALTER TABLE compiled ADD COLUMN " .. name ..
+            " INTEGER NOT NULL DEFAULT 0")
+        if not added then return nil, add_trouble end
+      end
+    end
   end
   if fresh then
     local begun, begin_trouble = begin_waiting(db, path, wait)

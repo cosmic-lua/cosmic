@@ -743,7 +743,8 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
   result.types = {}
   result.callees = {}
   if kept == true then
-    return { lua = code, bytecode = "", references = references, refused = refused }, ""
+    return { lua = code, bytecode = "", references = references, refused = refused,
+      fact_wraps = emitted.fact_wraps or 0, parameter_checks = emitted.parameter_checks or 0 }, ""
   end
   if m.kind == "test" then
     code = LuaTail.with_test_tail(code, m.tests)
@@ -752,7 +753,8 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
   if bytecode == nil then
     return nil, dump_trouble
   end
-  return { lua = code, bytecode = bytecode, references = references, refused = refused }, ""
+  return { lua = code, bytecode = bytecode, references = references, refused = refused,
+    fact_wraps = emitted.fact_wraps or 0, parameter_checks = emitted.parameter_checks or 0 }, ""
 end
 
 --- How many modules [`Pipeline.generate`] has written, for the probe's marks ([`Memprobe.mark`]).
