@@ -91,10 +91,27 @@ local prune_deflated <const> =
   "DELETE FROM deflated WHERE core <> " .. deflating_core ..
   " OR source_hash NOT IN (SELECT source_hash FROM inputs)"
 
--- TODO: keep the deflated bytecode of a compile beside `deflated`, by its
--- compile key, once a full write's compression of it is measured on a
--- tool that writes one often: `deflate(c.bytecode)` below compresses all
--- of cosmic's own tree's bytecode (some 12 MB, 0.6 s) when no base stands.
+--- Fills `deflated_bytecode` with the compressed chunk of each compile the
+--- plan names that it does not yet hold, and drops what no plan key names
+--- or another core compressed: the compile key names the bytecode, so a
+--- row is never stale, and a first write after a change that moved no
+--- compile compresses none of cosmic's own tree's 12 MB. `skipping` leaves
+--- out the modules a base supplies ([`insert_modules_reusing`]).
+local function fill_deflated_bytecode(skipping: boolean): string
+  local unreused = ""
+  if skipping then
+    unreused = " WHERE p.path NOT IN (SELECT path FROM temp.reused)"
+  end
+  return "INSERT OR IGNORE INTO deflated_bytecode (key, core, data) " ..
+    "SELECT c.key, " .. deflating_core .. ", deflate(c.bytecode) FROM compiled c " ..
+    "WHERE c.key IN (SELECT p.key FROM plan p" .. unreused .. ") " ..
+    "AND NOT EXISTS (SELECT 1 FROM deflated_bytecode b WHERE b.key = c.key AND b.core = " ..
+    deflating_core .. ")"
+end
+
+local prune_deflated_bytecode <const> =
+  "DELETE FROM deflated_bytecode WHERE core <> " .. deflating_core ..
+  " OR key NOT IN (SELECT key FROM plan)"
 
 --- The shipped modules: this run's plan joined to the inputs it named
 --- of non-declaration kind and the compiles it found or made, with
@@ -103,7 +120,7 @@ local insert_modules =
   "INSERT INTO out.modules (path, file, kind, source_hash, key, source, " ..
   "bytecode, tests) " ..
   "SELECT i.path, i.file, i.kind, CAST(i.source_hash AS BLOB), " ..
-  "CAST(p.key AS BLOB), d.data, deflate(c.bytecode), " ..
+  "CAST(p.key AS BLOB), d.data, b.data, " ..
   "CASE WHEN i.kind = 'test' THEN coalesce((SELECT group_concat(name, " ..
   "char(10) ORDER BY ordinal) FROM tests t " ..
   "WHERE t.source_hash = i.source_hash), '') " ..
@@ -112,7 +129,8 @@ local insert_modules =
   "WHERE e.source_hash = i.source_hash), '') ELSE '' END " ..
   "FROM plan p JOIN inputs i ON i.path = p.path AND " .. AnalysisSchema.not_declaration("i.kind") .. " " ..
   "JOIN deflated d ON d.source_hash = i.source_hash AND d.core = " .. deflating_core .. " " ..
-  "JOIN compiled c ON c.key = p.key ORDER BY p.path"
+  "JOIN deflated_bytecode b ON b.key = p.key AND b.core = " .. deflating_core .. " " ..
+  "ORDER BY p.path"
 
 --- The import edges among shipped modules: what each planned module
 --- requires, kept only where the name is itself a planned module.
@@ -307,7 +325,8 @@ local insert_modules_reusing <const> =
   "SELECT i.path, i.file, i.kind, CAST(i.source_hash AS BLOB), CAST(p.key AS BLOB), " ..
   "coalesce(r.source, (SELECT d.data FROM deflated d WHERE d.source_hash = i.source_hash " ..
   "AND d.core = " .. deflating_core .. ")), " ..
-  "coalesce(r.bytecode, (SELECT deflate(c.bytecode) FROM compiled c WHERE c.key = p.key)), " ..
+  "coalesce(r.bytecode, (SELECT b.data FROM deflated_bytecode b WHERE b.key = p.key " ..
+  "AND b.core = " .. deflating_core .. ")), " ..
   "CASE WHEN r.path IS NOT NULL THEN r.tests " ..
   "WHEN i.kind = 'test' THEN coalesce((SELECT group_concat(name, " ..
   "char(10) ORDER BY ordinal) FROM tests t " ..
@@ -320,7 +339,8 @@ local insert_modules_reusing <const> =
   "LEFT JOIN prev.modules r ON r.path = u.path " ..
   "WHERE u.path IS NOT NULL OR (EXISTS (SELECT 1 FROM deflated d " ..
   "WHERE d.source_hash = i.source_hash AND d.core = " .. deflating_core ..
-  ") AND EXISTS (SELECT 1 FROM compiled c WHERE c.key = p.key)) " ..
+  ") AND EXISTS (SELECT 1 FROM deflated_bytecode b WHERE b.key = p.key AND b.core = " ..
+  deflating_core .. ")) " ..
   "ORDER BY p.path"
 
 local insert_docs_reusing <const> =
@@ -670,6 +690,8 @@ local function project(handle: work.Handle,
   local statements: mut {string} = {}
   statements[#statements + 1] = prune_deflated
   statements[#statements + 1] = fill_deflated
+  statements[#statements + 1] = prune_deflated_bytecode
+  statements[#statements + 1] = fill_deflated_bytecode(reusing)
   statements[#statements + 1] = choose(reusing, insert_modules_reusing, insert_modules)
   statements[#statements + 1] = insert_imports
   statements[#statements + 1] = insert_decl_imports
