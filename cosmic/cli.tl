@@ -63,6 +63,9 @@ local record Cli
   --- $XDG_CACHE_HOME/cosmic/standalone), then called as `run` calls
   --- one -- its words in `arg` and the returned function's `argv` --
   --- with a record's `main` field standing for a returned function.
+  --- `cosmic --standalone --check <file.tl>` only checks the file, as
+  --- a run does, and never calls it: it prints the refusals and exits 1,
+  --- or exits 0 when there are none.
   --- COSMIC_STANDALONE=1 makes `cosmic <file.tl>` run so
   standalone: string
   --- `cosmic -e '<chunk>' [args...]`: runs the chunk as the body of a Teal
@@ -403,9 +406,14 @@ local record Cli
   --- exit is 2, as for a command line or a file it cannot use. The files
   --- are written in the new checker's grammar ([`doc/plans/new-checker-grammar.md`]),
   --- which is the only one (`--grammar teal` is refused).
-  --- The files named are the whole program, the globals are those the
-  --- `.d.tl` files named declare, and a `cosmic.*` module no file named
-  --- is the module of is typed `invalid` and reported. After a
+  --- With a `.d.tl` file named, the files named are the whole program, the
+  --- globals are those the `.d.tl` files declare, and a `cosmic.*` module
+  --- no file named is the module of is typed `invalid` and reported. With
+  --- none named, each file is checked as `cosmic --standalone` checks it:
+  --- the binary's own globals and `cosmic.*` modules, and what a standalone
+  --- run refuses besides type errors, its warnings and the project
+  --- refusals (`package`, `_G`); all are listed and
+  --- counted as type errors, and none stops the Lua. After a
   --- non-zero exit do not use the `-o` directory: it may hold files of an
   --- earlier run. It prints no summary; exits 0 when the Lua is written
   compile: string
@@ -825,7 +833,7 @@ local module: Module = {
     },
     standalone = {
       about = "run one file with no tree around it",
-      usage = "<file.tl> [args]",
+      usage = "[--check] <file.tl> [args]",
     },
     eval = {
       about = "run a chunk of Teal, checked",
@@ -1112,7 +1120,7 @@ local module: Module = {
       usage = "[options] <file.tl>...",
       spec = {
         ["-o"] = { value = "dir", about = "write <name>.lua for each file in this directory" },
-        ["--errors"] = { about = "list each type error, not only the count" },
+        ["--errors"] = { about = "list each type error, warning and refusal, not only the count" },
         ["--root"] = { value = "dir", about = "the directory module names are relative to (default: here)" },
         ["--grammar"] = { value = "new", about = "the grammar of the files: the new checker's, the only one (default)" },
       },
