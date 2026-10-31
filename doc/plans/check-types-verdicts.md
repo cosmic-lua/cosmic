@@ -654,14 +654,40 @@ Open:
 - Whether `type_violations` should hold one row per test and violation (rollout A.1)
   or a second table.
 
+## As built (rollout A)
+
+Rollout A is built, and differs from the text above in these places. The text above stays as the design; these
+are what the code does.
+
+- The format constant is [`GrammarMode.checks_format`] ([`build/grammar_mode.tl`]), not `importer.checks_format`:
+  [`build.importer`] may not require [`build.grammar_mode`] (the compiler's identity does not hold it), so
+  [`importer.checked_tool`] spells the same text and [`build/importer_test.tl`] holds the two together. Its value ends
+  in `\0counted`, so a checked compile written before the counts re-keys.
+- The shared compile entry keeps the counts in its packed references, as a first line `#checks`, inside the digest.
+  There is no `compiled_v3`: unchecked rows are untouched (they read as 0 and 0), and a checked row is told apart
+  by its key. The working table `compiled` has the two columns by `ALTER TABLE`, held by a covering index
+  (`compiled_by_checks`) so that a look at a standing compile reads no row.
+- The counts are those of the maps handed to the generator (`compile_grammar.emit`), not counted in `lang/`.
+- A spec the hook cannot read, or a violation it could not record, is a row of kind `unreadable` that keeps the
+  test's verdict out; it does not fail the test, so the checked run's outcome is the unchecked run's.
+- The key of a checked run holds `checks` as the format and the harness digest of [`build.test_worker`], and the
+  interim rule for modules that declare `store` was not needed: `projection_file` is built.
+- Module bytecode is stored deflated, so a probe of it reads `inflate(bytecode)`.
+- [`build/test.tl`] says, beneath the `run-time types:` line, `N fact wraps and M parameter checks written in the
+  compile; K tests stood on checked verdicts`, and `type_violation_tests` (a row to each test and violation) holds
+  what the plan asked to measure.
+- The guard in `phase_checked_narrowing` reads that line; ci.yml is otherwise unchanged.
+
 [`.github/workflows/ci.yml`]: ../../.github/workflows/ci.yml
 [`build.boundary_hook_test`]: ../../build/boundary_hook_test.tl
 [`build.declared_key`]: ../../build/declared_key.tl
 [`build.fact_hook_test`]: ../../build/fact_hook_test.tl
 [`build.fuzz`]: ../../build/fuzz/init.tl
+[`build.grammar_mode`]: ../../build/grammar_mode.tl
 [`build.harness_epoch_test`]: ../../build/harness_epoch_test.tl
 [`build.harness_epoch`]: ../../build/harness_epoch.tl
 [`build.identity`]: ../../build/identity.tl
+[`build.importer`]: ../../build/importer.tl
 [`build.shared_verdicts`]: ../../build/shared_verdicts.tl
 [`build.test_key`]: ../../build/test_key.tl
 [`build.test_worker`]: ../../build/test_worker.tl
@@ -672,12 +698,14 @@ Open:
 [`build/declared_key_test.tl`]: ../../build/declared_key_test.tl
 [`build/fact_hook_tool_test.tl`]: ../../build/fact_hook_tool_test.tl
 [`build/fuzz/init.tl`]: ../../build/fuzz/init.tl
+[`build/grammar_mode.tl`]: ../../build/grammar_mode.tl
 [`build/harness_epoch.tl`]: ../../build/harness_epoch.tl
 [`build/importer.tl`]: ../../build/importer.tl
 [`build/importer_test.tl`]: ../../build/importer_test.tl
 [`build/runtime_checks_tool_test.tl`]: ../../build/runtime_checks_tool_test.tl
 [`build/sandboxed_verdicts_test.tl`]: ../../build/sandboxed_verdicts_test.tl
 [`build/shared_verdicts_test.tl`]: ../../build/shared_verdicts_test.tl
+[`build/test.tl`]: ../../build/test.tl
 [`build/test_key.tl`]: ../../build/test_key.tl
 [`build/test_worker.tl`]: ../../build/test_worker.tl
 [`build/test_worker_test.tl`]: ../../build/test_worker_test.tl
@@ -686,6 +714,7 @@ Open:
 [`cosmic/json_test.tl`]: ../../cosmic/json_test.tl
 [`declared_key.compute`]: ../../build/declared_key.tl
 [`doc/testing.md`]: ../testing.md
+[`GrammarMode.checks_format`]: ../../build/grammar_mode.tl
 [`importer.checked_tool`]: ../../build/importer.tl
 [`importer.compile`]: ../../build/importer.tl
 [`lang.boundaries_fuzz_test`]: ../../lang/boundaries_fuzz_test.tl

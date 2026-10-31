@@ -1870,9 +1870,10 @@
     # The whole suite on a checked run (`--check-types`): each read the
     # checker narrowed by a test is checked against the real run, and a
     # fact that is false fails the test (cosmic_ci's
-    # phase_checked_narrowing). It stands on no verdict and runs every
-    # test, on the release tool and no checked core, so it boots and
-    # builds nothing else, and keeps and saves no verdicts. A job of its
+    # phase_checked_narrowing). A checked run can stand on verdicts of its
+    # own, but this job restores and saves none yet (doc/plans/
+    # check-types-verdicts.md), so it runs every test, on the release tool
+    # and no checked core, so it boots and builds nothing else. A job of its
     # own on linux-x86_64's host, beside the legs and the checked suite's
     # shares: it takes thirteen to fifteen minutes, which the shares' job
     # would add to its path. A full run only.

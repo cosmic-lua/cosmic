@@ -1692,9 +1692,9 @@ end
 --- linux-x86_64 target alone: each read the checker narrowed by a test is
 --- written as a check of the test's fact, and a test that meets a read
 --- whose fact is false fails there ("fact violated at <file>:<y>:<x>",
---- doc/testing.md's "checked narrowing"). It runs every test, since a
---- checked run stands on no verdict. ci.yml runs it in the `checked-narrowing`
---- job, after `boot`.
+--- doc/testing.md's "checked narrowing"). A checked run stands on verdicts of its own, but
+--- the job restores and saves none yet, so it runs every test. ci.yml runs it in
+--- the `checked-narrowing` job, after `boot`.
 local function phase_checked_narrowing(p: PlatformContext): integer
   if p.target ~= "x86_64-linux-musl" then return 0 end
   local c = p.operation

@@ -91,9 +91,11 @@
 ---
 --- With `--check-types` (or `COSMIC_TEST_CHECK_TYPES=1`) the run compiles
 --- the tree with a check of each declared parameter, return value and record
---- field write ([`importer.compile`]'s `checks`), runs every test (a verdict
---- that stands has no worker to report), and ends with what the workers
---- reported: the values whose kind their declared type does not admit.
+--- field write ([`importer.compile`]'s `checks`), and ends with what the workers
+--- reported: the values whose kind their declared type does not admit. A
+--- checked run stands on verdicts of its own kind, held apart by a part of the
+--- key that names the mode ([`build.test_key`]); a test that meets any
+--- violation keeps none, so it runs again and reports it again.
 --- It changes a verdict only where a read's narrowing fact is false (the
 --- test fails there, "fact violated"); every other check reports and fails
 --- nothing, so a test passes or fails as it does without. The
