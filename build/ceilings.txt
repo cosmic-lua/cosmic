@@ -842,7 +842,7 @@ build/work_test.tl nil_not_allowed 1
 
 build/work_tool_test.tl nil_not_allowed 1
 
-build/workflows_test.tl nil_not_allowed 41
+build/workflows_test.tl nil_not_allowed 21
 
 
 
@@ -1560,7 +1560,6 @@ build/verb_list_test.tl index_may_be_nil 2
 
 
 
-build/workflows_test.tl index_may_be_nil 8
 
 
 
@@ -2837,7 +2836,6 @@ build/work_nested_tool_test.tl map_field 1
 
 build/work_test.tl map_field 3
 
-build/workflows_test.tl map_field 191
 
 build/zig_fetch_test.tl map_field 5
 
@@ -3391,7 +3389,7 @@ build/verb_list_test.tl any_use 3
 
 build/work_test.tl any_use 1
 
-build/workflows_test.tl any_use 16
+build/workflows_test.tl any_use 4
 
 core/allocation_test.tl any_use 4
 
@@ -3728,7 +3726,6 @@ build/verbs_test.tl cast_refused 1
 
 build/work_test.tl cast_refused 2
 
-build/workflows_test.tl cast_refused 296
 
 build/zig_caches_test.tl cast_refused 1
 
@@ -4044,7 +4041,6 @@ build/verbs_store_test.tl is_on_record 2
 
 build/verbs_tool_test.tl is_on_record 2
 
-build/workflows_test.tl is_on_record 3
 
 core/allocation_test.tl is_on_record 1
 
@@ -5254,7 +5250,6 @@ build/verbs_store_test.tl and_ternary 1
 
 build/work.tl and_ternary 4
 
-build/workflows_test.tl and_ternary 2
 
 build/writer.tl and_ternary 1
 
@@ -6025,7 +6020,7 @@ build/time_test.tl literal_needs_type 1
 
 build/tree_checks.tl literal_needs_type 1
 
-build/workflows_test.tl literal_needs_type 12
+build/workflows_test.tl literal_needs_type 1
 
 build/writer.tl literal_needs_type 1
 
@@ -6267,7 +6262,6 @@ build/sandbox_connect_test.tl literal_shape 1
 
 build/time.tl literal_shape 1
 
-build/workflows_test.tl literal_shape 1
 
 cosmic/archive_fuzz_test.tl literal_shape 3
 
