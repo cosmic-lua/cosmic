@@ -1,7 +1,8 @@
 --- An HTTP/1.1 server, over [`Net.serve`]: [`Server.serve`] calls a handler
 --- with each [`Request`], its body a Reader, and writes the [`Reply`] it
 --- answers. [`Server.range`] and [`Server.none_match`] read a request's
---- Range and If-None-Match for it. It is apart from [`cosmic.http`], the
+--- Range and If-None-Match for it, [`Server.encoding`] its Accept-Encoding,
+--- and [`ServeSpec.compress`] has the server compress replies. It is apart from [`cosmic.http`], the
 --- client, so a program that only fetches does not carry the networking
 --- stack a server needs.
 ---
@@ -16,6 +17,7 @@
 ---     })
 
 local Clock = require("cosmic.clock")
+local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Number = require("cosmic.number")
@@ -165,6 +167,10 @@ local record Server
     --- handler's reply. A request with no body has none. A server taking
     --- uploads past what 30 seconds carry raises it.
     body_ns?: integer
+    --- Compresses replies for the `Accept-Encoding` the request sent:
+    --- `true` for the defaults, or a [`Server.Compression`]. See
+    --- [`Server.serve`]. Nil leaves every reply as the handler made it.
+    compress?: boolean | Compression
     --- As [`Net.ServeSpec.on_ready`].
     on_ready?: function(addresses: {Net.Address}, server: Net.Server)
     --- As [`Net.ServeSpec.on_stop`]: called once, as the server begins
@@ -179,6 +185,14 @@ local record Server
     --- could not be sent; nil to write each to stderr. See
     --- [`Net.ServeSpec.on_error`].
     on_error?: function(trouble: string)
+  end
+
+  --- How [`Server.ServeSpec.compress`] compresses.
+  record Compression
+    --- The smallest body to compress, in bytes (1024): a reply whose
+    --- size is known and below it is sent as it is. A Reader body
+    --- without a size is compressed, whatever its length turns out.
+    min_bytes?: integer
   end
 
   --- What a Range header asks of a representation, as [`Server.range`]
@@ -217,7 +231,7 @@ local LINGER_NS <const> = Clock.seconds(1)
 local LINGER_BYTES <const> = 256 * KIB
 
 local SPEC_FIELDS <const>: {string:boolean} = {
-  listeners = true, handle = true, limits = true, timeout_ns = true, grace_ns = true,
+  listeners = true, handle = true, limits = true, compress = true, timeout_ns = true, grace_ns = true,
   idle_ns = true, head_ns = true, body_ns = true, on_ready = true, on_stop = true,
   on_error = true,
 }
@@ -308,6 +322,8 @@ local record Serving
   head_ns: integer
   body_ns: integer
   mut stopping: boolean
+  --- The smallest body to compress; nil where replies are not compressed.
+  compress_from?: integer
   --- Each connection waiting for its next request's first byte, which
   --- stopping closes at once.
   idle: mut {Net.Conn: boolean}
@@ -453,6 +469,236 @@ function Server.reason(status: integer): string
   return wire.reason(status)
 end
 
+-- What a handler reads of a request's Accept-Encoding, and how the
+-- server compresses a reply for it, as RFC 9110 section 12.5.3 says.
+
+--- Whether byte `b` is a space or a tab, RFC 9110's OWS; nil, past
+--- the text's end, is not.
+local function ows(b: integer?): boolean
+  return b == 32 or b == 9
+end
+
+--- `text` from `from` to `to`, without the spaces and tabs at either
+--- end. Scanned a byte at a time: a pattern anchored at `$` would retry
+--- at every position of an inner run of them.
+local function stripped(text: string, from: integer, to: integer): string
+  while from <= to and ows(text:byte(from)) do from = from + 1 end
+  while to >= from and ows(text:byte(to)) do to = to - 1 end
+  return text:sub(from, to)
+end
+
+--- The codings the server writes, best first.
+local CODINGS <const>: {string} = { "zstd", "gzip" }
+
+local TOKEN <const> = "^[%w!#$%%&'*+%-.^_`|~]+$"
+
+--- The qvalue `text` writes, in thousandths, or nil where it is none
+--- (RFC 9110 12.4.2: `0` to `1`, at most three decimals).
+local function weight(text: string): integer?
+  if text == "0" then return 0 end
+  if text == "1" then return 1000 end
+  local decimals = text:match("^0%.(%d?%d?%d?)$")
+  if decimals ~= nil then return math.tointeger(tonumber((decimals .. "00"):sub(1, 3))) end
+  if text:find("^1%.0?0?0?$") ~= nil then return 1000 end
+  return nil
+end
+
+--- Chooses the content coding of a reply from the request's
+--- Accept-Encoding `header` (nil where it sent none), as RFC 9110
+--- section 12.5.3 says: the one of `offered` (best first; "zstd" then
+--- "gzip" when nil) with the greatest qvalue, the first of them on a
+--- tie, and "identity" where none has a qvalue above 0. Answers nil
+--- where the client accepts neither: it refused identity, by
+--- `identity;q=0` or by `*;q=0` with no `identity` of its own.
+---
+---     assert(Server.encoding("gzip, zstd;q=0.5") == "gzip")
+---     assert(Server.encoding("*;q=0") == nil)
+---     assert(Server.encoding(nil) == "identity")
+---
+--- Coding names compare in any case, `x-gzip` is `gzip`, and `*` stands
+--- for every coding not named. A coding named twice has its first
+--- weight. An element that is no coding, or whose weight is no
+--- qvalue, is ignored, as are parameters other than the weight. A
+--- client naming `identity` with a weight above every coding's is
+--- answered "identity"; one that leaves it unnamed is answered a
+--- coding it accepts before it. An empty header accepts identity alone.
+--- @param header string | nil The request's Accept-Encoding
+--- @param offered {string} | nil The codings the caller can write
+--- @return string | nil The coding, "identity", or nil for none
+function Server.encoding(header: string?, offered?: {string}): string?
+  local choices = offered or CODINGS
+  if header == nil then return "identity" end
+  local named: mut {string: integer} = {}
+  local star: integer? = nil
+  local from = 1
+  while true do
+    local comma = header:find(",", from, true)
+    local element = stripped(header, from, if comma ~= nil then comma - 1 else #header end)
+    local semicolon = element:find(";", 1, true)
+    local name = stripped(element, 1, if semicolon ~= nil then semicolon - 1 else #element end):lower()
+    local q: integer? = 1000
+    if semicolon ~= nil then
+      local given = stripped(element, semicolon + 1, #element):match("^[qQ]=(.*)$")
+      q = if given ~= nil then weight(given) else nil end
+    end
+    if q ~= nil then
+      if name == "*" then
+        if star == nil then star = q end
+      elseif name:find(TOKEN) ~= nil then
+        if name == "x-gzip" then name = "gzip" end
+        if named[name] == nil then named[name] = q end
+      end
+    end
+    if comma == nil then break end
+    from = comma + 1
+  end
+  local best: string? = nil
+  local best_q = 0
+  for _, coding in ipairs(choices) do
+    local q = named[coding] or star or 0
+    if q > best_q then best, best_q = coding, q end
+  end
+  local identity = named["identity"]
+  if best ~= nil and not (identity ~= nil and identity > best_q) then return best end
+  local accepted = if identity ~= nil then identity > 0 else star ~= 0 end
+  return if accepted then "identity" else nil end
+end
+
+--- The names in `headers` that are `lower` in any case, in name order.
+local function named_as(headers: {string: string | {string}}, lower: string): {string}
+  local names: mut {string} = {}
+  for name in pairs(headers) do
+    if name:lower() == lower then names[#names + 1] = name end
+  end
+  table.sort(names)
+  return names
+end
+
+--- The value of header `lower` joined as a list ("" where there is none).
+local function joined(headers: {string: string | {string}}, lower: string): string
+  local parts: mut {string} = {}
+  for _, name in ipairs(named_as(headers, lower)) do
+    local value = headers[name]
+    if value is string then
+      parts[#parts + 1] = value
+    elseif value ~= nil then
+      for _, entry in ipairs(value) do parts[#parts + 1] = entry end
+    end
+  end
+  return table.concat(parts, ", ")
+end
+
+--- Media types besides text/* whose bytes compress.
+local COMPRESSIBLE <const>: {string: boolean} = {
+  ["application/json"] = true, ["application/javascript"] = true, ["application/xml"] = true,
+  ["application/x-ndjson"] = true, ["application/wasm"] = true, ["image/svg+xml"] = true,
+}
+
+--- Whether a body of Content-Type `content_type` is worth compressing:
+--- text but a stream of events, whose chunks must not wait on a
+--- compressor, and the structured formats above and any `+json` or `+xml`.
+local function compressible(content_type: string): boolean
+  local media = stripped(content_type:match("^[^;]*") or content_type, 1, #content_type):lower()
+  if media == "text/event-stream" then return false end
+  return media:sub(1, 5) == "text/" or COMPRESSIBLE[media] == true or
+    media:find("%+json$") ~= nil or media:find("%+xml$") ~= nil
+end
+
+--- `headers` copied, but for the Content-Length, which a compressed
+--- body changes, and with `Accept-Encoding` among the Vary: added to
+--- the first Vary line, or on a line of its own, unless a Vary names
+--- it or `*` already.
+local function varied(headers: {string: string | {string}}, drop_length: boolean):
+    mut {string: string | {string}}
+  local copy: mut {string: string | {string}} = {}
+  for name, value in pairs(headers) do
+    if not (drop_length and name:lower() == "content-length") then copy[name] = value end
+  end
+  for token in (joined(copy, "vary") .. ","):gmatch("([^,]*),") do
+    local field = stripped(token, 1, #token):lower()
+    if field == "*" or field == "accept-encoding" then return copy end
+  end
+  local vary = named_as(copy, "vary")[1]
+  local value = if vary ~= nil then copy[vary] else nil end
+  if vary == nil or value == nil then
+    copy["Vary"] = "Accept-Encoding"
+  elseif value is string then
+    copy[vary] = if value == "" then "Accept-Encoding" else value .. ", Accept-Encoding" end
+  else
+    local list: mut {string} = {}
+    for i, entry in ipairs(value) do list[i] = entry end
+    list[#list + 1] = "Accept-Encoding"
+    copy[vary] = list
+  end
+  return copy
+end
+
+--- Makes a strong entity tag weak in `headers`: the compressed
+--- bytes are another representation than the one it names.
+local function weakened(headers: mut {string: string | {string}})
+  for _, name in ipairs(named_as(headers, "etag")) do
+    local value = headers[name]
+    if value is string and value:sub(1, 2) ~= "W/" then headers[name] = "W/" .. value end
+  end
+end
+
+--- A new encoder for `coding`, nil where there is none.
+local function encoder_for(coding: string): Compress.Stream?
+  if coding == "zstd" then
+    local encoder, _ = Compress.zstd_encoder()
+    return encoder
+  end
+  local encoder, _ = Compress.deflater("gzip")
+  return encoder
+end
+
+--- `reply` for a request of `accepts` (its Accept-Encoding) compressed
+--- as [`Server.serve`] describes, or as it is where it is not to be.
+local function compressed(min_bytes: integer, accepts: string?, reply: Server.Reply): Server.Reply
+  local status, body = reply.status, reply.body
+  if status == 206 or status == 204 or status == 304 or body == nil or body == "" then
+    return reply
+  end
+  local headers = reply.headers or {}
+  if #named_as(headers, "content-encoding") > 0 or #named_as(headers, "content-range") > 0 then
+    return reply
+  end
+  if joined(headers, "cache-control"):lower():find("no%-transform") ~= nil then return reply end
+  local content_type = joined(headers, "content-type")
+  if content_type == "" or not compressible(content_type) then return reply end
+  local size: integer? = nil
+  if body is string then
+    size = #body
+  else
+    size = math.tointeger(tonumber(joined(headers, "content-length"))) or reply.length
+  end
+  if size ~= nil and size < min_bytes then return reply end
+  local coding = Server.encoding(accepts)
+  if coding == nil then
+    drop_body(reply)
+    return { status = 406, close = reply.close, body = "406 Not Acceptable: this reply is sent identity" ..
+        " or compressed, and the request refuses both\n",
+      headers = varied({ ["Content-Type"] = "text/plain; charset=utf-8" }, false) }
+  end
+  local unchanged: Server.Reply = { status = status, headers = varied(headers, false), body = body,
+    length = reply.length, close = reply.close }
+  if coding == "identity" then return unchanged end
+  local encoder = encoder_for(coding)
+  if encoder == nil then return unchanged end
+  local smaller: string | Stream.Reader
+  if body is string then
+    local out, _ = Stream.run(encoder, body)
+    if out == nil or #out >= #body then return unchanged end
+    smaller = out
+  else
+    smaller = Stream.transform(body, encoder)
+  end
+  local out_headers = varied(headers, true)
+  out_headers["Content-Encoding"] = coding
+  weakened(out_headers)
+  return { status = status, headers = out_headers, body = smaller, close = reply.close }
+end
+
 --- Serves the request `head` read from `input`: calls the handler and
 --- writes its reply, or the server's own. True where the connection
 --- stays open for the next request.
@@ -514,15 +760,21 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     if body.state == "open" then linger(conn) end
     return false
   end
-  local close = reply.close == true or head.close or s.stopping
+  -- The handler ran (`ok`), so `reply` is its answer, not an error's text.
+  if reply is string then error("http: a handler's answer is text", 0) end
+  local given: Server.Reply = reply
+  if s.compress_from ~= nil then
+    given = compressed(s.compress_from, head.headers["accept-encoding"], given)
+  end
+  local close = given.close == true or head.close or s.stopping
   -- A client still waiting for `100 Continue` sends its body only once
   -- told to, or not at all. A Reader reply may read the request's body
   -- as it goes, so the client is told now; after another, what follows
   -- on the connection is unknown, and it closes.
   if head.continue and interim.continued ~= true and body.state == "open" then
-    local given = reply.body
-    local sends_body = head.method ~= "HEAD" and reply.status ~= 204 and reply.status ~= 304
-    if given ~= nil and not given is string and sends_body and not close then
+    local given_body = given.body
+    local sends_body = head.method ~= "HEAD" and given.status ~= 204 and given.status ~= 304
+    if given_body ~= nil and not given_body is string and sends_body and not close then
       go_on()
     else
       close = true
@@ -533,8 +785,8 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   -- The reply is built inside the protected call, as its date is read there.
   local function send_reply(to: Net.Conn): wire.Sent
     return wire.send(to, {
-      status = reply.status, headers = reply.headers, body = reply.body,
-      length = reply.length,
+      status = given.status, headers = given.headers, body = given.body,
+      length = given.length,
       close = close, method = head.method, version = head.version,
       date = Time.format_http(Clock.now_ns()),
     })
@@ -542,7 +794,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   local sending, sent = xpcall(send_reply, traced, conn)
   if not sending then
     -- A Reader body that raised: the reply is cut short.
-    drop_body(reply)
+    drop_body(given)
     report(s, "http: " .. where .. ": the reply's body: " .. tostring(sent))
     return false
   end
@@ -658,6 +910,24 @@ end
 --- it gives the size alone, as a `Content-Length` header and no body (see
 --- [`Server.Request.method`]).
 ---
+--- With `compress`, a reply is compressed for the request's
+--- `Accept-Encoding`, as [`Server.encoding`] chooses: zstd, or gzip,
+--- by the client's weights, or identity. The server then sets
+--- `Content-Encoding`, drops the `Content-Length` (a whole body gets
+--- the compressed size, a Reader goes chunked), makes a strong `ETag`
+--- weak, and adds `Accept-Encoding` to `Vary`, merged into the one the
+--- handler wrote; a body that compressed no smaller is sent as it was.
+--- A reply is left alone, and gets no `Vary`, where it has a
+--- `Content-Encoding`, a `Content-Range` or the status 206 (so a range
+--- from [`Server.range`] is of the bytes the handler gave), no body, a
+--- `Cache-Control: no-transform`, a body below `min_bytes` (1024) of
+--- known size, or a `Content-Type` that is not text, JSON, XML,
+--- JavaScript, SVG or WebAssembly (and not `text/event-stream`, whose
+--- events must not wait on a compressor). A HEAD whose reply has a
+--- body gets the head its GET gets; one that gives the size alone is
+--- sent as given. A client that refuses identity and everything the
+--- server writes is answered 406.
+---
 --- Every handler runs in the task of its connection, and the server
 --- serves the next only while one waits on the run: a read of
 --- `req.body`, a [`cosmic.net`] wait, [`Poll.delay`]. A handler that
@@ -668,6 +938,9 @@ end
 -- timer callback per handle, waited on as a Net.Conn's descriptor is),
 -- so Http.open, Http.get and Http.request in a handler wait through the
 -- run rather than holding every connection.
+-- TODO: let a handler compress at a level of its own, and add brotli,
+-- once a caller needs either; the codings are zstd and gzip at their
+-- defaults.
 function Server.serve(spec: Server.ServeSpec): boolean, string
   checked_spec(spec)
   if Poll.in_task() then
@@ -676,6 +949,20 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
   local listeners = spec.listeners
   assert(listeners, "http: checked_spec refuses a spec without listeners")
   local limits = spec.limits or {}
+  local compress = spec.compress
+  local compress_from: integer? = nil
+  if compress is boolean then
+    if compress then compress_from = 1024 end
+  elseif compress ~= nil then
+    if type(compress) ~= "table" then
+      error("http: spec.compress must be nil, a boolean or a table", 2)
+    end
+    local min_bytes = compress.min_bytes
+    if min_bytes ~= nil and not (math.type(min_bytes) == "integer" and min_bytes >= 0) then
+      error("http: spec.compress.min_bytes must be nil or an integer from 0", 2)
+    end
+    compress_from = min_bytes or 1024
+  end
   local s: Serving = {
     spec = spec,
     limits = { head_bytes = limits.head_bytes or 64 * KIB, body_bytes = limits.body_bytes or 1024 * KIB },
@@ -684,6 +971,7 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
     head_ns = spec.head_ns or Clock.seconds(30),
     body_ns = spec.body_ns or Clock.seconds(30),
     stopping = false,
+    compress_from = compress_from,
     idle = {},
   }
   return Net.serve{
@@ -707,21 +995,6 @@ end
 
 -- What a handler reads of a request's Range and If-None-Match, as RFC
 -- 9110 sections 13 and 14 say.
-
---- Whether byte `b` is a space or a tab, RFC 9110's OWS; nil, past
---- the text's end, is not.
-local function ows(b: integer?): boolean
-  return b == 32 or b == 9
-end
-
---- `text` from `from` to `to`, without the spaces and tabs at either
---- end. Scanned a byte at a time: a pattern anchored at `$` would retry
---- at every position of an inner run of them.
-local function stripped(text: string, from: integer, to: integer): string
-  while from <= to and ows(text:byte(from)) do from = from + 1 end
-  while to >= from and ows(text:byte(to)) do to = to - 1 end
-  return text:sub(from, to)
-end
 
 --- Decimal `digits` without the zeros that lead them, but the last.
 local function significant(digits: string): string
