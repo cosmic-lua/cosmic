@@ -1133,8 +1133,11 @@ local function module_value(ctx: Ctx, node: Ast.Node, name: string): Type
     info = program.modules[name]
   end
   if info == nil then
-    report(ctx, "require_unknown", node, "the project has no module " .. quoted(name),
-      "require a module of the project: `bin/cosmic docs` lists them")
+    local fix = "require a module of the project: `bin/cosmic docs` lists them"
+    if program.library[name] == true then
+      fix = quoted(name) .. " is a global the language declares, available without `require`: use it directly"
+    end
+    report(ctx, "require_unknown", node, "the project has no module " .. quoted(name), fix)
     return ctx.invalid
   end
   local export = info.export
