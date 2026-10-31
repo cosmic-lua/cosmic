@@ -59,7 +59,7 @@ local casts: {string: string} = {
     "a record read raw, as the core reads it, so no metamethod answers for a field",
   ["build/confine.tl:plain_sandbox"] =
     "a record read raw, as the core reads it, so no metamethod answers for a field",
-  ["cosmic/shape.tl:spec_of.check"] =
+  ["cosmic/shape.tl:trust"] =
     "the one cast from any, to the `T` of the spec, of a value " ..
     "walk has just built to the spec's node",
   ["cosmic/sqlite.tl:checked"] =

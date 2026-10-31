@@ -998,6 +998,19 @@ local function check_node(spec: Shape.Node, field: string, source: string, depth
   return ""
 end
 
+--- The node `spec` describes: the fields a record's text is bound from. Only [`Shape.record_of`] builds a spec that
+--- describes one; the binders run [`Shape.into`] over what they bind last, so the type of an answer never rests on it.
+--- @param spec Shape.Spec<T> A record's spec
+--- @return Shape.Node Its node
+function Input.described<T>(spec: Shape.Spec<T>, what?: string): Shape.Node
+  local describe = spec.describe
+  if describe == nil then
+    error(("input: %s is not a record spec: only Shape.record_of builds one that names its fields"):format(
+      what or "the spec"), 2)
+  end
+  return describe()
+end
+
 --- Raises, naming the field, unless `spec` is one a `source` can carry: a
 --- record of strings, integers, numbers, booleans, `one_of`, lists of
 --- those, and records of the same nested three deep. A `map`, a list of
@@ -1117,12 +1130,12 @@ end
 --- @param opts Types.InputOptions | nil `source`, `repeated`, `secret`
 --- @return Types.Parsed<T> The record, or status 422 and every error
 function Input.bind_strings<T>(q: Url.Query, spec: Shape.Spec<T>, opts?: Types.InputOptions): Types.Parsed<T>
-  if Shape.node_of(spec).kind ~= "record" then
-    error(("input: bind_strings binds a record, not a %s"):format(tostring(Shape.node_of(spec).kind)), 2)
+  if Input.described(spec).kind ~= "record" then
+    error(("input: bind_strings binds a record, not a %s"):format(tostring(Input.described(spec).kind)), 2)
   end
   local w: Walk = { q = q, source = opts and opts.source or "form", errors = {},
     repeated = opts ~= nil and opts.repeated == "error" }
-  local tree = bind_record(w, "", Shape.node_of(spec), 0)
+  local tree = bind_record(w, "", Input.described(spec), 0)
   if #w.errors > 0 then
     return { invalid = invalid(422, w.errors, without(q, opts and opts.secret)) }
   end

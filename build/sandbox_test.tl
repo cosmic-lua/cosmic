@@ -13,6 +13,13 @@ local Shape = require("cosmic.shape")
 local sys = require("cosmic.sys")
 local sandbox = require("build.sandbox")
 
+--- The node a record's spec describes.
+local function described<T>(spec: Shape.Spec<T>): Shape.Node
+  local describe = spec.describe
+  assert(describe ~= nil, "a spec that describes nothing")
+  return describe()
+end
+
 --- The element of `list` at `index`, which the case knows is there.
 local function nth<T>(list: {T}, index: integer): T
   local found = list[index]
@@ -431,8 +438,8 @@ local function holds(value: any): boolean
 end
 
 local function test_every_policy_field_has_a_flag()
-  local names = assert(Shape.node_of(POLICY.spec).names)
-  assert(Shape.node_of(POLICY.spec).kind == "record" and #names > 0)
+  local names = assert(described(POLICY.spec).names)
+  assert(described(POLICY.spec).kind == "record" and #names > 0)
   local seen: mut {string:boolean} = {}
   for _, name in ipairs(names) do
     if exempt[name] == nil and name ~= "limits" then
@@ -444,7 +451,7 @@ local function test_every_policy_field_has_a_flag()
       assert(holds(policy_after(words)[name]), nth(words, 1) .. " does not set Policy." .. name)
     end
   end
-  local fields = assert(Shape.node_of(POLICY.spec).fields)
+  local fields = assert(described(POLICY.spec).fields)
   local limits = fields.limits
   assert(limits ~= nil and limits.kind == "record" and #assert(limits.names) > 0)
   for _, name in ipairs(assert(limits.names)) do

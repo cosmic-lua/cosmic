@@ -5,6 +5,13 @@
 local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
 
+--- The node a record's spec describes.
+local function described<T>(spec: Shape.Spec<T>): Shape.Node
+  local describe = spec.describe
+  assert(describe ~= nil, "a spec that describes nothing")
+  return describe()
+end
+
 local enum Level
   "debug"
   "info"
@@ -90,7 +97,7 @@ local GOOD <const> = [[{
 }]]
 
 local function test_the_spec_is_the_hand_written_one()
-  same(Shape.node_of(PROFILE.spec), HAND_WRITTEN, "$")
+  same(described(PROFILE.spec), HAND_WRITTEN, "$")
 end
 
 local function test_the_spec_checks_what_the_hand_written_one_does()

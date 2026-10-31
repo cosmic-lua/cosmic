@@ -3223,7 +3223,7 @@ cosmic/json.tl overload_none 2
 
 cosmic/poll.tl overload_none 1
 
-cosmic/shape_test.tl overload_none 2
+cosmic/shape_test.tl overload_none 1
 
 cosmic/tar_test.tl overload_none 3
 
@@ -3917,7 +3917,7 @@ cosmic/shape_fuzz_test.tl cast_refused 7
 
 cosmic/shape_record_test.tl cast_refused 2
 
-cosmic/shape_test.tl cast_refused 10
+cosmic/shape_test.tl cast_refused 9
 
 cosmic/sqlite.tl cast_refused 4
 

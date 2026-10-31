@@ -197,11 +197,11 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
       end
     end
   end
-  check_path(pattern, has_path and Shape.node_of(input.path.spec) or nil)
-  if has_path then Input.check_spec(Shape.node_of(input.path.spec), "path") end
-  if has_query then Input.check_spec(Shape.node_of(input.query.spec), "query") end
+  check_path(pattern, has_path and Input.described(input.path.spec) or nil)
+  if has_path then Input.check_spec(Input.described(input.path.spec), "path") end
+  if has_query then Input.check_spec(Input.described(input.query.spec), "query") end
   if kind == "form" or kind == "multipart" then
-    Input.check_spec(Shape.node_of(input.body.typed.spec), "form")
+    Input.check_spec(Input.described(input.body.typed.spec), "form")
   end
   local options = opts and opts.input_options
   local on_invalid = opts and opts.on_invalid
@@ -253,8 +253,8 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
   end
   local route = Route.route(methods, pattern, handler, opts)
   route.input = {
-    path = has_path and Shape.node_of(input.path.spec) or nil, query = has_query and Shape.node_of(input.query.spec) or nil,
-    body_kind = kind, body = kind ~= "none" and Shape.node_of(input.body.typed.spec) or nil,
+    path = has_path and Input.described(input.path.spec) or nil, query = has_query and Input.described(input.query.spec) or nil,
+    body_kind = kind, body = kind ~= "none" and Input.described(input.body.typed.spec) or nil,
     max_bytes = options and options.max_bytes or
       (kind == "multipart" and Input.DEFAULT_MULTIPART_MAX or Input.DEFAULT_MAX),
   }
