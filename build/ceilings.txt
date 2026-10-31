@@ -3275,8 +3275,6 @@ build/link_index_test.tl any_use 1
 
 build/link_resolve.tl any_use 1
 
-build/lsp/check.tl any_use 1
-
 build/lsp/session.tl any_use 5
 
 build/perf_validation.tl any_use 7
