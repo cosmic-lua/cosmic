@@ -749,7 +749,7 @@ end
 --- waits for it and re-enters `argv` on the tool it wrote.
 ---
 --- `handle` is the working database of `root`, which must be cosmic's
---- own tree ([`tree.is_own`]), open and staged. Answers nil when the tool
+--- own tree ([`tree.standing`]), open and staged. Answers nil when the tool
 --- is fresh, handing `handle` back open for the caller to go on with.
 --- Otherwise it has said why on stderr and closed `handle`, and answers
 --- the exit code the caller returns at once: 3 for a refusal, or a
@@ -929,12 +929,12 @@ function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
     end
     at = found
   end
-  local own_tree, own_trouble = tree.is_own(at)
-  if own_tree == nil then
+  local standing, own_trouble = tree.standing(at)
+  if standing == nil then
     log:complain(own_trouble)
     return 1
   end
-  if not own_tree then
+  if not standing.own then
     return nil
   end
   local handle: work.Handle
@@ -996,7 +996,7 @@ function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
     -- on the tree's fingerprint taken without a stage (from the files'
     -- stats against the rows), so a reader that finds the tool stale and
     -- the lock held goes on before it writes.
-    local staged, stage_trouble = work.stage(handle, own_tree)
+    local staged, stage_trouble = work.stage(handle, standing.own)
     if staged == nil then
       log:complain(closing(handle, stage_trouble))
       return 1

@@ -181,10 +181,12 @@ do
   global record math
     max: function(integer, ...: integer): integer
     max: function(number, ...: number): number
+    tointeger: function(any): integer?
   end
   local record Lib
     print: function(...: any)
     tostring: function(any): string
+    rawlen: function<A>({A}): integer
     select: function(integer, ...: any): any...
     tonumber: function(any): number?
     tonumber: function(any, integer): integer?
@@ -221,6 +223,7 @@ do
   global print <const> = Lib.print
   global tostring <const> = Lib.tostring
   global select <const> = Lib.select
+  global rawlen <const> = Lib.rawlen
   global tonumber <const> = Lib.tonumber
   global ipairs <const> = Lib.ipairs
   global pairs <const> = Lib.pairs

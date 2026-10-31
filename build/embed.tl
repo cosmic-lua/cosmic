@@ -429,9 +429,9 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
     if chosen == nil then return nil, chosen_trouble end
     mode = chosen
   end
-  local own_tree, own_trouble = tree.is_own(root)
-  if own_tree == nil then return nil, own_trouble end
-  if own_tree then
+  local standing, standing_trouble = tree.standing(root)
+  if standing == nil then return nil, standing_trouble end
+  if standing.own then
     return nil, "this is cosmic's own tree, which bin/zig build boot builds"
   end
   local started = Clock.monotonic_ns()

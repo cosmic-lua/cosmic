@@ -1090,9 +1090,9 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known
     -- the binary's databases too, as a stale build is below.
     local optional, _ = build_paths.optional(root)
     directory = optional
-    local own, tree_trouble = tree.is_own(root)
-    assert(own ~= nil, tree_trouble)
-    own_tree = own
+    local standing, tree_trouble = tree.standing(root)
+    assert(standing ~= nil, tree_trouble)
+    own_tree = standing.own
   end
   local own_path = build_paths.under(directory or "/nonexistent").projection
   local own_exists = false
