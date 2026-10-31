@@ -337,3 +337,40 @@ local function test_encode_raises_for_what_text_cannot_hold()
   ok, why = pcall(Csv.encode, { { "a" } }, { delimiter = '"' })
   assert(not ok and tostring(why):find("cannot be a quote", 1, true) ~= nil, tostring(why))
 end
+
+local function test_encode_field_leaves_a_plain_field_alone()
+  assert(Csv.encode_field("plain") == "plain")
+  assert(Csv.encode_field("a b\tc;d") == "a b\tc;d")
+  assert(Csv.encode_field("x\xEF\xBB\xBF") == "x\xEF\xBB\xBF", "a BOM past the start is data")
+  assert(Csv.encode_field("") == "")
+end
+
+local function test_encode_field_quotes_each_reason_and_doubles_quotes()
+  assert(Csv.encode_field("a,b") == '"a,b"')
+  assert(Csv.encode_field('say "hi"') == '"say ""hi"""')
+  assert(Csv.encode_field('"') == '""""')
+  assert(Csv.encode_field("x\ny") == '"x\ny"')
+  assert(Csv.encode_field("x\ry") == '"x\ry"')
+  assert(Csv.encode_field("\xEF\xBB\xBF") == '"\xEF\xBB\xBF"')
+  assert(Csv.encode_field("\xEF\xBB\xBFid") == '"\xEF\xBB\xBFid"')
+end
+
+local function test_encode_field_quotes_by_the_delimiter_it_is_given()
+  assert(Csv.encode_field("a,b", { delimiter = "\t" }) == "a,b")
+  assert(Csv.encode_field("a\tb", { delimiter = "\t" }) == '"a\tb"')
+  assert(Csv.encode_field("a;b", { delimiter = ";" }) == '"a;b"')
+  assert(Csv.encode_field("a.b", { delimiter = "." }) == '"a.b"')
+  assert(Csv.encode_field("a%b", { delimiter = "%" }) == '"a%b"')
+  local ok, why = pcall(Csv.encode_field, "a", { delimiter = "ab" })
+  assert(not ok and tostring(why):find("the delimiter is one byte", 1, true) ~= nil, tostring(why))
+  ok, why = pcall(Csv.encode_field, "a", { delimiter = '"' })
+  assert(not ok and tostring(why):find("cannot be a quote", 1, true) ~= nil, tostring(why))
+end
+
+local function test_encode_field_quotes_the_empty_field_only_when_asked()
+  assert(Csv.encode_field("") == "")
+  assert(Csv.encode_field("", {}) == "")
+  assert(Csv.encode_field("", { quote_empty = false }) == "")
+  assert(Csv.encode_field("", { quote_empty = true }) == '""')
+  assert(Csv.encode_field("a", { quote_empty = true }) == "a", "only the empty field is affected")
+end
