@@ -17,7 +17,9 @@ local BOM <const> = "\xEF\xBB\xBF"
 
 --- One field as it is written: quoted when it holds the delimiter, a
 --- quote or a line break, begins with what a reader would drop as a byte
---- order mark, or is the empty only field of its record.
+--- order mark, or is the empty only field of its record. The line
+--- property builds its text field by field, to know where each row's
+--- first field lands, which [`Csv.encode`] does not answer.
 local function field_text(field: string, delimiter: string, only: boolean): string
   if field:find(delimiter, 1, true) or field:find('[\r\n"]') or field:sub(1, 3) == BOM or
       (only and field == "") then
