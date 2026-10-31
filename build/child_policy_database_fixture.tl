@@ -141,7 +141,7 @@ local function attach(tmp: string)
     assert(Sqlite.run(db, "INSERT INTO imports VALUES ('fixture.main', ?1)", { text(name) }))
   end
   assert(db:close())
-  assert(Store.attach(path))
+  assert(Store.attach(path, { unchecked_bytecode = true }))
   attached = true
 end
 
