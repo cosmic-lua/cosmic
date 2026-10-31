@@ -1,4 +1,4 @@
---- Tests of tagged unions in [`lang.check`] ("tagged unions" in doc/plans/strict-teal.md): a union of records whose
+--- Tests of tagged unions in [`lang.check`]: a union of records whose
 --- one field has an enum in each member, no value of which is in two members, is told apart by `==` on that field, and
 --- a chain of tests that covers every member ends a function. Every program the checker takes is also run as the Lua [`lang.codegen`]
 --- writes, with each narrowed read checked against the members the tag selected ([`Programs.execute`]).

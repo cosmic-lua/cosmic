@@ -16,7 +16,7 @@
 --- Unlike `cosmic fix` or a build it does not run [`Shape.record_of`]'s resolution, check contracts or hold a file to the
 --- tree's other rules: it is the checker and the generator and nothing else.
 ---
---- THE GRAMMAR is the new checker's ([`doc/plans/new-checker-grammar.md`]), which `--grammar new` names and the verb takes by
+--- THE GRAMMAR is the new checker's, which `--grammar new` names and the verb takes by
 --- default; `--grammar teal` is refused, pointing to the project guide. The files named are the
 --- whole program, a `.d.tl` among them declares the globals every file may use (the standard library's), and a `cosmic.*`
 --- module no file named is the module of is then typed `invalid` and reported, since the checker cannot declare the binary's own

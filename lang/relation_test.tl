@@ -1,5 +1,5 @@
---- Tests of [`lang.relation`]: one small case per rule of "the relation" in
---- [`doc/plans/new-checker-types.md`], with the reason each refusal carries. The programs the old
+--- Tests of [`lang.relation`]: one small case per rule of the relation,
+--- with the reason each refusal carries. The programs the old
 --- checker accepted and this one must refuse are in [`lang.relation_refused_test`], and the
 --- properties over random types in [`lang.relation_fuzz_test`].
 local Programs = require("lang.relation_programs")

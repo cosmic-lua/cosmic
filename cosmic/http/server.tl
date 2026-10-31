@@ -131,8 +131,7 @@ local record Server
       head_bytes?: integer
       --- The most bytes of a request's body (1 MiB); past it, 413.
       -- TODO: let a request's route choose its own limit
-      -- (`ServeSpec.body_limit(method, path)`, doc/plans/web/core.md
-      -- 13.4). A lower one needs only exchange to consult it before
+      -- (`ServeSpec.body_limit(method, path)`). A lower one needs only exchange to consult it before
       -- wire.body; a higher one (an upload route) waits on
       -- wire.read_head, which answers 413 for a Content-Length past the
       -- server-wide `body_bytes` before the route is known: it would
