@@ -371,7 +371,7 @@ end
 function DecodingReader:close(): boolean, string
   local codec = self.codec
   if codec ~= nil then
-    -- Frees the decoder now, not at collection; `rest` stays.
+    -- Frees the decoder now, not at collection.
     do local _ <close> = codec end
     self.codec = nil
   end

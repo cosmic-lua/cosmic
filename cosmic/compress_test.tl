@@ -863,6 +863,23 @@ local function test_zstd_corrupt_checksum_is_refused()
   assert(flipped_trouble == "compress: corrupt zstd data", flipped_trouble)
 end
 
+local function test_zstd_malformed_frame_header_is_corrupt()
+  -- The frame header descriptor's bit 3 is reserved and must be zero:
+  -- ZSTD_getFrameHeader refuses the header before any window is judged.
+  local reserved = "\40\181\47\253\8\0\0\0\0\0"
+  local out, trouble = assert(Compress.zstd_decoder()):update(reserved)
+  assert(out == nil and trouble == "compress: corrupt zstd data", tostring(trouble))
+end
+
+local function test_zstd_header_window_log_over_the_maximum_is_refused()
+  -- A window descriptor of 0xF8 has exponent 31, a window log of 41,
+  -- over zstd's maximum: the header parse itself answers windowTooLarge,
+  -- which reads as the window message, not as corrupt.
+  local huge = "\40\181\47\253\0\248\1\0\0\0"
+  local out, trouble = assert(Compress.zstd_decoder()):update(huge)
+  assert(out == nil and trouble == "compress: zstd window larger than the limit", tostring(trouble))
+end
+
 local function test_zstd_truncated_input_errors_on_finish()
   for _, cut in ipairs({ 1, 4, 20 } as {integer}) do
     local dec = assert(Compress.zstd_decoder())
