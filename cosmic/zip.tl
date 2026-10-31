@@ -63,6 +63,12 @@ local record Zip
     open: function(Entry): Stream.Reader?, string
   end
 
+  --- How [`Reader`]'s `entry` matches a path.
+  record LookupOptions
+    --- Match whatever the case of the path's ASCII letters.
+    ignore_case?: boolean
+  end
+
   interface Reader is Stream.ArchiveReader
     --- Every entry, in central directory order: built on the first
     --- call, which must come before `close`, and kept for later ones.
@@ -76,9 +82,12 @@ local record Zip
     --- The entry whose path is `path`, from the list `entries` builds, so
     --- the same rules hold: the first call must come before `close`.
     --- The first in directory order where an archive holds the path twice.
-    --- Nil and why when the archive holds no such entry, or as `entries`
-    --- answers.
-    entry: function(Reader, path: string): Entry?, string
+    --- With `ignore_case`, the path matches whatever the case of its ASCII
+    --- letters, as a package format's part names do (Open Packaging
+    --- Conventions: a spreadsheet's, a document's), and the first of the
+    --- entries that match stands. Nil and why when the archive holds no
+    --- such entry, or as `entries` answers.
+    entry: function(Reader, path: string, opts?: LookupOptions): Entry?, string
     --- Releases the file the archive is read from, if it has one; no
     --- entry can be opened afterward.
     close: function(Reader): boolean, string
@@ -623,6 +632,9 @@ local class EntryReader is Zip.Reader
   mut listed?: {Zip.Entry}
   --- `listed` by path, once `entry` has looked one up.
   mut by_path?: {string: Zip.Entry}
+  --- `listed` by path with its ASCII letters lowercased, once `entry` has
+  --- looked one up so.
+  mut by_folded?: {string: Zip.Entry}
   mut closed: boolean
 
   function next(self): Zip.Entry?, string
@@ -656,20 +668,24 @@ local class EntryReader is Zip.Reader
     return all, ""
   end
 
-  function entry(self, path: string): Zip.Entry?, string
-    local by_path = self.by_path
-    if by_path == nil then
+  function entry(self, path: string, opts?: Zip.LookupOptions): Zip.Entry?, string
+    local fold = opts ~= nil and opts.ignore_case == true
+    local index = if fold then self.by_folded else self.by_path end
+    if index == nil then
       local all, trouble = self:entries()
       if all == nil then return nil, trouble end
       local made: mut {string: Zip.Entry} = {}
       for _, e in ipairs(all) do
-        if made[e.path] == nil then made[e.path] = e end
+        local key = if fold then e.path:lower() else e.path end
+        if made[key] == nil then made[key] = e end
       end
-      self.by_path = made
-      by_path = made
+      if fold then self.by_folded = made else self.by_path = made end
+      index = made
     end
-    local found = by_path[path]
-    if found == nil then return refuse("no entry " .. string.format("%q", path)) end
+    local found = index[if fold then path:lower() else path end]
+    if found == nil then
+      return refuse("no entry " .. string.format("%q", path) .. (if fold then " in any case" else "" end))
+    end
     return found, ""
   end
 
@@ -754,7 +770,8 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
 
   local zr: EntryReader = {
     pread = pread, closer = closer, cd_offset = cd_offset, cd_size = cd_size, links = links,
-    walk = cursor(pread, cd_offset, cd_size), walked = 0, listed = nil, by_path = nil, closed = false,
+    walk = cursor(pread, cd_offset, cd_size), walked = 0, listed = nil, by_path = nil, by_folded = nil,
+    closed = false,
     entry_mt = entry_mt,
   }
   return zr, ""

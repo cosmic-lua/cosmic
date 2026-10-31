@@ -338,7 +338,7 @@ end
 --- prints them. Nil when neither is set; raises when one is set to
 --- anything else, so a typo is never a silent full run.
 local function named_case(p: Fuzz.Property): string?, integer?
-  local text = p.case or Env.get_or("FUZZ_CASE", "")
+  local text = p.case or (Env.read("FUZZ_CASE") or "")
   if text == "" then return nil, nil end
   local raw = text
   local name = text:match("^(.-):%-?%d+$")
