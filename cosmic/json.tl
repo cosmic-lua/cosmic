@@ -562,7 +562,7 @@ end
 --- JSON. `opts` applies to every line; a `null` line leaves a hole
 --- unless `null_value` is given.
 function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any}?, string
-  local values = raw.array()
+  local values: mut {integer: any} = {}
   local number = 0
   local count = 0
   local line_opts: Json.DecodeOptions = opts or {}
@@ -577,12 +577,10 @@ function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any}?, str
       if err ~= "" then
         return nil, err
       end
-      -- TODO: type the array of a JSON Lines text with a hole as `{integer: any}` once [`raw.array`] answers one, so this write at
-      -- `count`, which a `null` line leaves empty, is no write the hole check refuses on a view.
       values[count] = value
     end
   end
-  return values, ""
+  return raw.array(values), ""
 end
 
 -- TODO: give [`Json.array`] a type parameter (`{T}` in, `{T}` out), so that an array of records or of decoded values is marked
@@ -594,6 +592,9 @@ end
 --- and answers it; with no argument, a new empty one. Raises when `t`
 --- already has a metatable of its own.
 function Json.array(t?: {Json.Value}): {Json.Value}
+  if t == nil then
+    return raw.array()
+  end
   return raw.array(t)
 end
 

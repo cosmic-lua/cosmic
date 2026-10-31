@@ -1929,7 +1929,7 @@ cosmic/internal/relay_wire.tl view_written 3
 
 cosmic/internal/relay_wire_test.tl view_written 1
 
-cosmic/json.tl view_written 6
+cosmic/json.tl view_written 5
 
 cosmic/json_fuzz_test.tl view_written 2
 
@@ -6689,8 +6689,6 @@ cosmic/http/server.tl not_assignable 3
 
 
 
-
-cosmic/json.tl not_assignable 1
 
 cosmic/json_test.tl not_assignable 42
 
