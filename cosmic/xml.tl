@@ -113,20 +113,20 @@ local record Xml
   --- too large to hold whole is written through. A start tag is held until
   --- the event after it says whether it closes at once (`<name/>`), so it
   --- may wait for the next batch.
-  interface Writer
+  interface DocumentWriter
     --- Writes `events`, the next of the document's in order, and hands
     --- what they complete to the target. false and why, naming the event,
     --- when they cannot belong to a document, or the target refuses; the
     --- writer is finished then, and answers the same afterward.
-    write: function(Writer, events: {Event}): boolean, string
+    write: function(DocumentWriter, events: {Event}): boolean, string
     --- The document is done: writes what is held and closes the target.
     --- false and why when it is not a whole document (an element left
     --- open, or no root), or a write failed: the target is aborted then.
     --- Safe to call more than once: once the document is closed, `close`
     --- answers true and `abort` leaves it as it is.
-    close: function(Writer): boolean, string
+    close: function(DocumentWriter): boolean, string
     --- Abandons the document and aborts the target.
-    abort: function(Writer): boolean, string
+    abort: function(DocumentWriter): boolean, string
   end
 
   --- The elements at one path of a document, each read whole as its
@@ -362,7 +362,7 @@ local function written_name(scopes: Scopes, name: string, declare: function(pref
   return prefix .. ":" .. local_part, ""
 end
 
-local class EventWriter is Xml.Writer
+local class EventWriter is Xml.DocumentWriter
   target: Stream.Writer
   --- What the events so far have written, not yet handed to `target`.
   mut out: mut {string}
@@ -554,8 +554,8 @@ local class EventWriter is Xml.Writer
 end
 
 --- A writer of one document to `target`, a batch of events at a time, as
---- [`Xml.Writer`] describes it and [`Xml.write`] writes a document whole.
-function Xml.writer(target: Stream.Writer): Xml.Writer
+--- [`Xml.DocumentWriter`] describes it and [`Xml.write`] writes a document whole.
+function Xml.writer(target: Stream.Writer): Xml.DocumentWriter
   local made: EventWriter = {
     target = target, out = {}, open = {}, written = {},
     scopes = { bound = {}, declared = {}, next = 0 }, generated = {}, roots = 0, count = 0,
