@@ -1,6 +1,5 @@
 #include "xml.h"
 
-#include <limits.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -38,7 +37,9 @@ struct event {
 
 /* A parser and what one call to it has collected. `parser` is NULL once
  * the parser is finished: by `finish`, a failure, a raise inside a
- * call, `__close` or `__gc`.
+ * call, `__close` or `__gc`. `L` is set while a call is under way: an
+ * append can run a finalizer, which must not re-enter the parser, nor
+ * free it under expat.
  *
  * No Lua code runs while expat holds the C stack, and nothing raises
  * across it: each event is appended under `lua_pcall`, and a raise there
@@ -57,6 +58,9 @@ struct parser {
   char *text;
   size_t len, cap;
   bool out_of_memory;
+  /* `__close` came while a call was under way: the call releases the
+   * parser as it returns. */
+  bool closing;
 };
 
 static void *xml_malloc (size_t size) { return cosmic_malloc(size); }
@@ -224,16 +228,23 @@ static int xml_parser (lua_State *L) {
 
 static struct parser *check_open (lua_State *L) {
   struct parser *p = luaL_checkudata(L, 1, PARSER_TYPE);
-  if (p->parser == NULL) luaL_error(L, "xml: the parser is finished");
+  if (p->L != NULL) luaL_error(L, "xml: the parser is in use");
+  if (p->parser == NULL || p->closing) {
+    luaL_error(L, "xml: the parser is finished");
+  }
   return p;
 }
+
+/* How much of a chunk expat is handed at once: its buffer doubles an
+ * `int` and refuses past 1 GiB, and copies what it is handed whole. */
+#define PIECE ((size_t)16 << 20)
 
 /* Hands `len` bytes at `s` to expat, the last of the input when `final`,
  * in pieces `XML_Parse` can count. False when it refused them, a raise
  * was caught, or memory ran out. */
 static bool parse (struct parser *p, const char *s, size_t len, bool final) {
   do {
-    size_t n = len < (size_t)INT_MAX ? len : (size_t)INT_MAX;
+    size_t n = len < PIECE ? len : PIECE;
     len -= n;
     if (XML_Parse(p->parser, s, (int)n, final && len == 0) !=
         XML_STATUS_OK) {
@@ -263,14 +274,19 @@ static int answer (lua_State *L, struct parser *p, bool parsed) {
     enum XML_Error code = XML_GetErrorCode(p->parser);
     uint64_t line = XML_GetCurrentLineNumber64(p->parser);
     uint64_t column = XML_GetCurrentColumnNumber64(p->parser);
-    /* The message is copied before the parser it describes is freed;
-     * expat's error strings are its own constants. */
-    lua_pushnil(L);
-    lua_pushfstring(L, "xml: line %I, column %I: %s", (lua_Integer)line,
-                    (lua_Integer)column + 1, XML_ErrorString(code));
+    /* Released before the message is made, which can raise: expat's
+     * error strings are its own constants, not the parser's. */
     release(p);
+    lua_pushnil(L);
+    if (code == XML_ERROR_NO_MEMORY) {
+      lua_pushliteral(L, "xml: out of memory");
+    } else {
+      lua_pushfstring(L, "xml: line %I, column %I: %s", (lua_Integer)line,
+                      (lua_Integer)column + 1, XML_ErrorString(code));
+    }
     return 2;
   }
+  if (p->closing) release(p);
   lua_pushvalue(L, EVENTS);
   return cosmic_succeeded(L);
 }
@@ -309,9 +325,17 @@ static int parser_finish (lua_State *L) {
   return results;
 }
 
-/* `__close` and `__gc`: the parser is finished and its memory freed. */
+/* `__close` and `__gc`: the parser is finished and its memory freed, at
+ * once or, during a call (a finalizer that closes it), as the call
+ * returns. `__gc` never comes during a call, which holds the parser on
+ * its stack. */
 static int parser_close (lua_State *L) {
-  release(luaL_checkudata(L, 1, PARSER_TYPE));
+  struct parser *p = luaL_checkudata(L, 1, PARSER_TYPE);
+  if (p->L != NULL) {
+    p->closing = true;
+  } else {
+    release(p);
+  }
   return 0;
 }
 

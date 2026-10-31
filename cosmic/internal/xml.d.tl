@@ -23,12 +23,13 @@ local record xml
   record Parser
     userdata
 
-    -- The events `chunk` completes. nil and why when the text is not
-    -- well-formed XML, or memory runs out; the parser is finished then,
-    -- and after a raise inside the call. Raises on a finished parser.
+    -- Events `chunk` completes, or fewer, and ones an earlier chunk
+    -- completed. nil and why when the text is not well-formed XML, or
+    -- memory runs out; the parser is finished then, and after a raise
+    -- inside the call. Raises on a finished parser and on one in a call.
     feed: function(Parser, chunk: string): {Event}?, string
-    -- The input has ended: the events that completes, as `feed`
-    -- answers. The parser is finished afterward.
+    -- The input has ended: every event not yet answered, as `feed`
+    -- answers them. The parser is finished afterward.
     finish: function(Parser): {Event}?, string
     __close: function(Parser, any)
   end

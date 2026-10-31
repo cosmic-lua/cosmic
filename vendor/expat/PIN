@@ -10,5 +10,5 @@ drop lib/random_dev_urandom.*
 drop lib/random_getrandom.*
 drop lib/random_rand_s.*
 drop lib/winconfig.h
-license MIT
+license MIT AND CC0-1.0
 notice COPYING

@@ -10,7 +10,11 @@
  * read: that takes a handler, and core/xml.c sets none. Namespaces are
  * compiled in, and a parser asks for them by name.
  *
- * The hash salt comes from getentropy(3), which both libcs have.
+ * The hash salt comes from getentropy(3), which both libcs have; where
+ * it fails, expat falls back to a weaker salt of the time and pid.
+ * expat reads the EXPAT_ENTROPY_DEBUG, EXPAT_ACCOUNTING_DEBUG and
+ * EXPAT_MALLOC_DEBUG environment variables, and when one is set writes
+ * what it traces to stderr.
  */
 #ifndef COSMIC_EXPAT_CONFIG_H
 #define COSMIC_EXPAT_CONFIG_H

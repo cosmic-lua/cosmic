@@ -1,17 +1,21 @@
 --- XML text as a stream of events: a reader over expat.
 ---
 ---     local p <close> = assert(Xml.parser())
----     for _, e in ipairs(assert(p:feed('<a href="x">hi'))) do
----       -- { kind = "start", name = "a", attributes = { href = "x" } }
----     end
+---     local first = assert(p:feed('<a href="x">hi'))
+---     -- { { kind = "start", name = "a", attributes = { href = "x" } } }
 ---     local rest = assert(p:feed("</a>"))
 ---     -- { { kind = "text", text = "hi" }, { kind = "end", name = "a" } }
 ---     assert(p:finish())
 ---
 --- A parser takes the text a chunk at a time, split anywhere, and answers
---- each chunk with the events it completes, in document order. A run of
---- character data is one `text` event however the chunks split it: it
---- is held back until markup follows it or the input ends. CDATA
+--- each chunk with events in document order: those it completes, or
+--- fewer. An event may come with a later chunk than the one that
+--- completes it, and every one has come once `finish` answers: expat
+--- puts off reading again a token a chunk left open until the text it
+--- holds has doubled, so a large token fed in small chunks costs linear
+--- time, not quadratic. A run of character data is one `text` event
+--- however the chunks split it: it is held back, whole, until markup
+--- follows it or the input ends. CDATA
 --- sections, character references and the predefined and declared
 --- entities are read into the text they stand for, and the text is
 --- UTF-8, whatever encoding the document declares (UTF-8, UTF-16,
@@ -21,15 +25,19 @@
 --- prefix with no declaration is refused.
 ---
 --- What is refused, naming `line N, column M` (both from 1; a column
---- counts bytes): text that is not well-formed XML, and an entity whose
---- expansion grows past expat's amplification limits. No external
---- entity or DTD is ever read: a reference to an external entity is
---- skipped, and so is one to an entity a document with an external DTD
---- leaves undeclared, as XML allows a parser that reads no DTD.
+--- counts characters): text that is not well-formed XML, an encoding
+--- other than the four above, and an entity whose expansion grows past
+--- expat's amplification limits. No external entity or DTD is ever read:
+--- a reference to an external entity in content is skipped, and so is
+--- one to an entity a document with an external DTD leaves undeclared,
+--- as XML allows a parser that reads no DTD; one in an attribute value
+--- is refused. With namespaces, a namespace name holding `}` is refused
+--- too, since Clark's notation could not be read back.
 ---
 --- A failure finishes the parser, as does `finish`, a raise inside a
 --- call (out of memory), or closing it: `feed` and `finish` raise on a
---- finished parser.
+--- finished parser, and on one in a call already (from a finalizer
+--- that runs during it).
 
 -- The raw module behind the parser lives under the reserved
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
@@ -60,9 +68,9 @@ local record Xml
   --- One event. A field the kind does not name is nil.
   type Event = raw_xml.Event
 
-  --- `feed(chunk)` answers the events `chunk` completes, possibly none;
-  --- `finish()` says the input has ended, and answers the events that
-  --- completes. Each answers `events, ""`, or nil and why, and finishes
+  --- `feed(chunk)` answers events `chunk` completes, possibly none, and
+  --- possibly ones an earlier chunk completed; `finish()` says the input
+  --- has ended, and answers every event not yet answered. Each answers `events, ""`, or nil and why, and finishes
   --- the parser on a failure; `finish` finishes it either way. A parser
   --- is closeable: `local p <close> = assert(Xml.parser())` frees it at
   --- the end of the scope.

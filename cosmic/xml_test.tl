@@ -106,12 +106,67 @@ local function test_a_finished_parser_raises()
   assert(not ok and tostring(why):match("the parser is finished") ~= nil, tostring(why))
   local failed = assert(Xml.parser())
   assert(failed:feed("<a></b>") == nil)
-  local finished, _ = pcall(failed.finish, failed)
-  assert(not finished)
+  local finished, after_failure = pcall(failed.finish, failed)
+  assert(not finished and tostring(after_failure):match("the parser is finished") ~= nil, tostring(after_failure))
   local closed = assert(Xml.parser())
   do
     local _ <close> = closed
   end
-  local fed, _ = pcall(closed.feed, closed, "<a/>")
-  assert(not fed)
+  local fed, after_close = pcall(closed.feed, closed, "<a/>")
+  assert(not fed and tostring(after_close):match("the parser is finished") ~= nil, tostring(after_close))
+end
+
+--- A name and a value far past the blocks expat starts its string pools
+--- with are read whole: the pools grow in place.
+local function test_long_names_and_values_read_whole()
+  local name = "n" .. string.rep("x", 70000)
+  local value = string.rep("v", 100000)
+  local events = assert(Xml.events("<" .. name .. ' k="' .. value .. '"/>'))
+  local start = assert(events[1])
+  assert(start.name == name and assert(start.attributes)["k"] == value)
+end
+
+--- A finalizer that runs while a call appends an event cannot re-enter
+--- the parser: a call raises, and closing it is put off until the call
+--- returns, which then answers what it read. Teal has no finalizer of its
+--- own, so the one here is Lua's, from a chunk: it keeps one armed, and
+--- each time it runs it feeds the parser and, the first time, closes it.
+local function test_a_finalizer_cannot_reenter_a_parser_in_a_call()
+  local p = assert(Xml.parser())
+  local chunk = assert(load([[
+    local p, seen = ...
+    local closed = false
+    local function arm()
+      setmetatable({}, { __gc = function()
+        if #seen >= 3 then return end
+        local ok, why = pcall(p.feed, p, "<x/>")
+        seen[#seen + 1] = ok and "fed" or tostring(why)
+        if not closed then
+          closed = true
+          getmetatable(p).__close(p)
+        end
+        arm()
+      end })
+    end
+    arm()
+  ]], "finalizer", "t"))
+  local seen: mut {string} = {}
+  chunk(p, seen)
+  local events = assert(p:feed("<r>" .. string.rep("<i>t</i>", 20000)))
+  assert(#seen > 0, "no finalizer ran during the call")
+  -- The first ran during the call; a later one may run after it.
+  local first = assert(seen[1])
+  assert(first:match("the parser is in use") ~= nil, first)
+  for _, why in ipairs(seen) do
+    assert(why:match("the parser is in use") ~= nil or why:match("the parser is finished") ~= nil, why)
+  end
+  assert(#events > 0)
+  local fed, why = pcall(p.feed, p, "</r>")
+  assert(not fed and tostring(why):match("the parser is finished") ~= nil, tostring(why))
+end
+
+--- A column counts characters, not bytes: `é` is two bytes, one column.
+local function test_a_column_counts_characters()
+  local why = refused("<a>\u{E9}\u{E9}</b>")
+  assert(why == "xml: line 1, column 8: mismatched tag", why)
 end
