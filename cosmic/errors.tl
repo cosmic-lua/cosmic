@@ -137,8 +137,11 @@ end
 --- What the catalog of the one database `handle` says beneath an
 --- uncaught error's `message`, in the lines [`Errors.guidance`] prints: the
 --- best row's guidance, or nil when it has none -- no catalog, no row
---- sharing two or more significant words with the message, or no
---- guidance on the row it shares them with. A message Lua itself wrote
+--- sharing two or more significant words with the message, or an empty
+--- guidance on the row it shares them with. A row with no guidance of
+--- its own gets one line, naming its function and `cosmic docs`: the
+--- function's whole doc comment describes its use, not this failure, and
+--- would bury the message. A message Lua itself wrote
 --- (`attempt to ...`, `module '...' not found`, `bad argument #n to ...`)
 --- has none: the catalog is for the messages cosmic's own code raises.
 --- [`Errors.guidance`] asks each database the store holds in turn.
@@ -151,10 +154,8 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string?
     return nil
   end
   local rows, _ = Sqlite.text_rows(handle,
-    "SELECT coalesce(catalog.text, (SELECT d.text FROM main.docs d " ..
-      "WHERE d.module = catalog.module AND " ..
-      "d.source_symbol = catalog.symbol)), " ..
-      "catalog.message, catalog.symbol, catalog.file, catalog.line " ..
+    "SELECT catalog.text, catalog.message, catalog.symbol, catalog.file, " ..
+      "catalog.line, catalog.text IS NULL " ..
       "FROM main.catalog_fts JOIN main.catalog " ..
       "ON catalog.id = catalog_fts.rowid " ..
       "WHERE catalog_fts MATCH ?1 ORDER BY bm25(catalog_fts) LIMIT 1",
@@ -164,7 +165,8 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string?
   end
   local row = rows[1]
   local text, candidate, symbol, file = row:text(1), row:text(2), row:text(3), row:text(4)
-  if text == "" or shared_words(message, candidate) < 2 then
+  local has_text = row:text(6) == "0"
+  if (has_text and text == "") or shared_words(message, candidate) < 2 then
     return nil
   end
   local line = math.tointeger(tonumber(row:text(5))) or 0
@@ -173,6 +175,9 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string?
     head = symbol .. " (" .. file .. ":" .. tostring(line) .. ")"
   else
     head = symbol .. " (" .. file .. ")"
+  end
+  if not has_text then
+    return "cosmic: from " .. head .. "; cosmic docs " .. symbol .. "\n"
   end
   return guidance_lines(head, text)
 end
@@ -205,8 +210,8 @@ end
 --- ahead of the catalog, whose rows share only common words ("call",
 --- "value") with such a message; else the guidance the first database
 --- in search order (a project's own ahead of the binary's) holds for
---- the error it matches, the doc comment of the function the message
---- came from; or nil when none matches it. The core prints it for an
+--- the error it matches, a row's own text or a line naming the function
+--- the message came from; or nil when none matches it. The core prints it for an
 --- error nothing caught.
 function Errors.guidance(message: string): string?
   local hint = Errors.hint(message)
