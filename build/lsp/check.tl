@@ -36,7 +36,6 @@
 --- once and the stubs the document reaches, and not the project. A document whose text has not changed since its last check,
 --- with no module served dropped since, publishes what it published then.
 
-local AnalysisSchema = require("build.analysis_schema")
 local Ast = require("lang.ast")
 local Driver = require("build.driver")
 local Hash = require("cosmic.hash")
@@ -350,7 +349,7 @@ local function serve_of(checker: Checker): function(module: string): Driver.Sour
     end
     checker.served[module] = found.key
     local dialect: Ast.Dialect = "tl"
-    if AnalysisSchema.is_declaration(listed.kind) then dialect = "decl" end
+    if analysis_schema.is_declaration(listed.kind) then dialect = "decl" end
     return Driver.source(module, listed.file, found.text, dialect, listed.kind == "test")
   end
 end
@@ -406,7 +405,7 @@ local function checked_of(checker: Checker, document: Document): Checked
   if planned.halted and subject == nil then return checked(refusals, text, none) end
   -- A build checks where every module's requires reach before it checks
   -- any, a declaration's aside ([`plans.collect`]), and stops there.
-  if subject ~= nil and not AnalysisSchema.is_declaration(kind) then
+  if subject ~= nil and not analysis_schema.is_declaration(kind) then
     local placed = graph.refusals(checker.source, document.name, path, kind, planned.requires,
       opened_requires(checker, document))
     if #placed > 0 then return checked(placed, text, none) end
