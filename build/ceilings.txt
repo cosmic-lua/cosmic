@@ -75,11 +75,9 @@ cosmic/json_test.tl key_type 20
 
 cosmic/net.tl key_type 3
 
-cosmic/shape.tl key_type 7
+cosmic/shape.tl key_type 3
 
 cosmic/shape_fuzz_test.tl key_type 8
-
-cosmic/shape_record_test.tl key_type 2
 
 cosmic/shape_test.tl key_type 7
 
@@ -331,7 +329,6 @@ cosmic/web/session/sqlite.tl 1
 
 cosmic/web/sse.tl 1
 
-cosmic/web/static.tl 1
 
 cosmic/web/testing.tl 4
 
@@ -1061,7 +1058,6 @@ cosmic/shape_fuzz_test.tl nil_not_allowed 3
 
 cosmic/shape_record_test.tl nil_not_allowed 3
 
-cosmic/shape_test.tl nil_not_allowed 1
 
 cosmic/sqlite.tl nil_not_allowed 6
 
@@ -1315,8 +1311,6 @@ cosmic/internal/connector.tl not_assigned 2
 cosmic/json_fuzz_test.tl not_assigned 1
 
 cosmic/net.tl not_assigned 2
-
-cosmic/shape.tl not_assigned 1
 
 cosmic/shape_fuzz_test.tl not_assigned 1
 
@@ -1662,8 +1656,6 @@ cosmic/rand_test.tl index_may_be_nil 1
 cosmic/sandbox_restrict_test.tl index_may_be_nil 1
 
 cosmic/seatbelt_network_probe_test.tl index_may_be_nil 3
-
-cosmic/shape.tl index_may_be_nil 1
 
 cosmic/shape_fuzz_test.tl index_may_be_nil 2
 
@@ -2064,8 +2056,6 @@ build/symbol_index.tl view_as_mut 10
 
 build/syntax_analyzer.tl view_as_mut 1
 
-build/syntax_shape_specs.tl view_as_mut 1
-
 build/test_worker.tl view_as_mut 2
 
 build/tree_checks.tl view_as_mut 3
@@ -2442,7 +2432,6 @@ cosmic/sandbox/policy.tl field_fixed 4
 
 cosmic/sandbox_test.tl field_fixed 8
 
-cosmic/shape.tl field_fixed 5
 
 
 cosmic/signal.tl field_fixed 5
@@ -2934,7 +2923,7 @@ cosmic/sandbox_test.tl map_field 3
 
 cosmic/seatbelt_network_probe_test.tl map_field 2
 
-cosmic/shape_test.tl map_field 10
+cosmic/shape_test.tl map_field 8
 
 cosmic/signal_ignored_test.tl map_field 2
 
@@ -2960,7 +2949,6 @@ cosmic/test_test.tl map_field 3
 
 cosmic/web/app_test.tl map_field 6
 
-cosmic/web/assets.tl map_field 1
 
 cosmic/web/cookies_test.tl map_field 17
 
@@ -2977,7 +2965,7 @@ cosmic/web/htmx_test.tl map_field 13
 cosmic/web/input_multipart_fuzz_test.tl map_field 5
 
 
-cosmic/web/input_test.tl map_field 19
+cosmic/web/input_test.tl map_field 14
 
 cosmic/web/request_test.tl map_field 3
 
@@ -3206,8 +3194,6 @@ cosmic/json.tl overload_none 2
 
 cosmic/poll.tl overload_none 1
 
-cosmic/shape_test.tl overload_none 3
-
 cosmic/tar_test.tl overload_none 3
 
 cosmic/test.tl overload_none 1
@@ -3220,7 +3206,6 @@ cosmic/time_tzif_fuzz_test.tl overload_none 3
 
 cosmic/web/input_multipart_test.tl overload_none 2
 
-cosmic/web/input_test.tl overload_none 2
 
 cosmic/web/request_test.tl overload_none 1
 
@@ -3473,13 +3458,11 @@ cosmic/sandbox/seatbelt_test.tl any_use 24
 
 cosmic/sandbox_test.tl any_use 50
 
-cosmic/shape.tl any_use 24
+cosmic/shape.tl any_use 2
 
 cosmic/shape_fuzz_test.tl any_use 30
 
-cosmic/shape_record_test.tl any_use 4
-
-cosmic/shape_test.tl any_use 8
+cosmic/shape_test.tl any_use 6
 
 cosmic/signal.tl any_use 1
 
@@ -3892,9 +3875,9 @@ cosmic/shape.tl cast_refused 1
 
 cosmic/shape_fuzz_test.tl cast_refused 7
 
-cosmic/shape_record_test.tl cast_refused 2
+cosmic/shape_record_test.tl cast_refused 1
 
-cosmic/shape_test.tl cast_refused 13
+cosmic/shape_test.tl cast_refused 3
 
 cosmic/sqlite.tl cast_refused 4
 
@@ -3956,7 +3939,7 @@ cosmic/web/input_fuzz_test.tl cast_refused 1
 cosmic/web/input_multipart_fuzz_test.tl cast_refused 2
 
 
-cosmic/web/input_test.tl cast_refused 7
+cosmic/web/input_test.tl cast_refused 6
 
 cosmic/web/request.tl cast_refused 1
 
@@ -4915,8 +4898,6 @@ cosmic/seatbelt_network_probe_test.tl or_mix 4
 
 cosmic/shape_fuzz_test.tl or_mix 1
 
-cosmic/shape_test.tl or_mix 2
-
 
 
 cosmic/stream_test.tl or_mix 4
@@ -5180,8 +5161,6 @@ build/syntax_rewrite.tl and_ternary 2
 
 build/syntax_scopes.tl and_ternary 3
 
-build/syntax_shape_specs.tl and_ternary 5
-
 build/syntax_stub.tl and_ternary 1
 
 build/term_filter.tl and_ternary 3
@@ -5223,7 +5202,6 @@ build/verbs_store_test.tl and_ternary 1
 build/work.tl and_ternary 4
 
 
-build/writer.tl and_ternary 1
 
 build/zig_lock_test.tl and_ternary 1
 
@@ -5347,7 +5325,7 @@ cosmic/sandbox/policy.tl and_ternary 2
 
 cosmic/seatbelt_network_probe_test.tl and_ternary 2
 
-cosmic/shape_fuzz_test.tl and_ternary 4
+cosmic/shape_fuzz_test.tl and_ternary 3
 
 cosmic/signal.tl and_ternary 2
 
@@ -5434,7 +5412,7 @@ cosmic/web/sse.tl and_ternary 3
 
 cosmic/web/sse_fuzz_test.tl and_ternary 1
 
-cosmic/web/static.tl and_ternary 2
+cosmic/web/static.tl and_ternary 1
 
 cosmic/web/testing.tl and_ternary 5
 
@@ -5774,7 +5752,6 @@ cosmic/sandbox/policy.tl compare_disjoint 2
 
 cosmic/seatbelt_network_probe_test.tl compare_disjoint 2
 
-cosmic/shape_test.tl compare_disjoint 4
 
 cosmic/sqlite.tl compare_disjoint 4
 
@@ -5969,7 +5946,7 @@ build/rand.tl literal_needs_type 1
 
 build/sandbox.tl literal_needs_type 1
 
-build/sandbox_test.tl literal_needs_type 3
+build/sandbox_test.tl literal_needs_type 2
 
 build/shared_compiles.tl literal_needs_type 2
 
@@ -5993,7 +5970,6 @@ build/tree_checks.tl literal_needs_type 1
 
 build/workflows_test.tl literal_needs_type 1
 
-build/writer.tl literal_needs_type 1
 
 build/zig_lock_test.tl literal_needs_type 1
 
@@ -6108,7 +6084,7 @@ cosmic/sandbox_example.tl literal_needs_type 1
 
 cosmic/shape_example.tl literal_needs_type 1
 
-cosmic/shape_test.tl literal_needs_type 11
+cosmic/shape_test.tl literal_needs_type 7
 
 cosmic/sqlite_example.tl literal_needs_type 1
 
@@ -6400,7 +6376,7 @@ cosmic/net_tcp_test.tl arms_differ 3
 
 cosmic/net_test.tl arms_differ 3
 
-cosmic/shape_test.tl arms_differ 11
+cosmic/shape_test.tl arms_differ 9
 
 cosmic/signal.tl arms_differ 1
 
@@ -6822,7 +6798,6 @@ cosmic/proc_tool_test.tl alternatives_as_value 1
 
 cosmic/rand_test.tl alternatives_as_value 3
 
-cosmic/shape_test.tl alternatives_as_value 2
 
 cosmic/store_handles_test.tl alternatives_as_value 2
 
@@ -6857,13 +6832,9 @@ lang/types_speed_test.tl alternatives_as_value 1
 # type expected, and an inner call that is the argument of another generic (`must(Shape.into(v, SPEC))`); the rewrite types the result
 cosmic/channel_test.tl cannot_infer 4
 
-cosmic/shape_fuzz_test.tl cannot_infer 6
 
-cosmic/shape_record_test.tl cannot_infer 1
 
-cosmic/shape_test.tl cannot_infer 26
 
-cosmic/web/input_fuzz_test.tl cannot_infer 1
 
 # a call that answers nothing, used where a value is wanted
 cosmic/declared_types_test.tl no_value 1

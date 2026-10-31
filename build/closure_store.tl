@@ -37,7 +37,8 @@ local record closure_store
   --- read once from the projection ([`closure_store.basis`]).
   ---
   --- Each module is a line naming its path, kind, file, source hash and
-  --- tests, then the digests of its bytecode, of its source as stored
+  --- tests, then the digests of its bytecode (inflated, so the compressor
+  --- moves none), of its source as stored
   --- (deflated, by [`build.writer`]), and of the rows a store carries of
   --- it: its imports, the edges the checker follows from it
   --- (`decl_imports`), the names it binds, its docs, uses, catalog,
@@ -272,7 +273,7 @@ local function read_basis(whole: string): closure_store.Basis?, string
   local function read(): closure_store.Basis?, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT path, path || char(9) || kind || char(9) || file || char(9) || " ..
-        "lower(hex(source_hash)) || char(9) || lower(hex(sha256(bytecode))) || char(9) || " ..
+        "lower(hex(source_hash)) || char(9) || lower(hex(sha256(inflate(bytecode)))) || char(9) || " ..
         "lower(hex(sha256(tests))) || char(9) || lower(hex(sha256(source))), file " ..
         "FROM modules ORDER BY path")
     if rows == nil then return nil, rows_trouble end

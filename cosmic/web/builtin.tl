@@ -16,7 +16,7 @@ end
 local PREFIX <const> = "_web"
 
 --- The handler over the files, built on first use: the bytes never change,
---- and gzipping them is paid by a program that serves them only.
+--- and compressing them is paid by a program that serves them only.
 local served: mut {Types.Handler} = {}
 
 local function handler(): Types.Handler
@@ -25,7 +25,7 @@ local function handler(): Types.Handler
     local held: mut {string:string} = {}
     for path, file in pairs(Htmx.assets()) do held[path:sub(#PREFIX + 3)] = file.data end
     built = StaticFiles.handler{
-      source = Assets.memory(held, { gzip = true }),
+      source = Assets.memory(held, { gzip = true, zstd = true }),
       cache_control = "public, max-age=31536000, immutable",
       headers = { ["Cross-Origin-Resource-Policy"] = "same-origin" },
     }
