@@ -30,6 +30,90 @@ local DIR <const> = ".github/workflows"
 local ACTIONS <const> = ".github/actions"
 local READ <const>: Json.DecodeOptions = { json5 = true, hash_comments = true }
 
+--- A step; `with` holds strings, booleans and numbers, so its values stay `any`.
+
+-- TODO: type `with` per action, as that action's declared inputs, once the
+-- tree holds a table of the actions the workflows use.
+local record Step
+  id?: string
+  name?: string
+  uses?: string
+  run?: string
+  shell?: string
+  ["if"]?: string
+  ["working-directory"]?: string
+  ["continue-on-error"]?: boolean
+  ["timeout-minutes"]?: integer
+  env?: {string: string}
+  with?: {string: any}
+end
+local record Strategy
+  ["fail-fast"]?: boolean
+  matrix?: {string: any}
+end
+local record Job
+  name?: string
+  ["runs-on"]?: string
+  needs?: any
+  ["if"]?: string
+  ["timeout-minutes"]?: integer
+  env?: {string: string}
+  outputs?: {string: string}
+  permissions?: {string: string}
+  defaults?: {string: {string: string}}
+  ["continue-on-error"]?: boolean
+  container?: any
+  concurrency?: {string: any}
+  strategy?: Strategy
+  steps: {Step}
+end
+local record Branches
+  paths?: {string}
+  ["paths-ignore"]?: {string}
+  branches?: {string}
+end
+local record Workflow
+  name: string
+  ["on"]: {string: any}
+  env?: {string: string}
+  permissions?: {string: string}
+  concurrency?: {string: any}
+  defaults?: {string: {string: string}}
+  jobs: {string: Job}
+end
+local record Runs
+  using: string
+  steps: {Step}
+end
+local record Action
+  name: string
+  description?: string
+  inputs?: {string: any}
+  outputs?: {string: {string: string}}
+  runs: Runs
+end
+local BRANCHES <const> = Shape.record_of("Branches")
+local WORKFLOW <const> = Shape.record_of("Workflow")
+local ACTION <const> = Shape.record_of("Action")
+local STEP <const> = Shape.record_of("Step")
+
+--- The `typed` record `text` holds, read once; a file of another shape, or
+--- with a key no record names, fails, naming `path`.
+
+-- TODO: ask the shape for a strict record, and drop the re-encoding below,
+-- once [`Shape.record_of`] has a strict form (cosmic/shape.tl carries the TODO).
+local function read_as<T>(typed: Shape.Typed<T>, path: string, text: string): T
+  local raw = assert(Json.decode(text, READ))
+  local record, err = typed:into(raw)
+  assert(record, path .. ": " .. tostring(err))
+  local kept, given = assert(Json.encode_any(record)), assert(Json.encode_any(raw))
+  local at = 1
+  while kept:byte(at) == given:byte(at) and at <= #given do at = at + 1 end
+  assert(kept == given, path .. ": a key no record names, or a number it writes otherwise, near " ..
+      given:sub(math.max(at - 40, 1), at + 40))
+  return record
+end
+
 --- Of `paths`, the ones in flow style, each with its text: a file whose
 --- first line that is neither blank nor a comment opens with `{` or
 --- `[` ([`flow.is_flow`]).
@@ -72,10 +156,7 @@ local function test_flow_workflows_keep_to_the_shared_subset()
     count = count + 1
     local found = flow.problems(text)
     assert(#found == 0, path .. ": " .. table.concat(found, "; "))
-    local workflow, err = Json.decode_object(text, READ)
-    assert(workflow ~= nil, path .. ": " .. err)
-    local name, jobs = workflow.name, workflow.jobs
-    assert(name is string and jobs is {string: any}, path .. ": no name or jobs")
+    read_as(WORKFLOW, path, text)
   end
   assert(count > 0, "no workflow under " .. DIR .. " is in flow style")
 end
@@ -101,20 +182,15 @@ local function test_flow_actions_keep_to_the_shared_subset()
     count = count + 1
     local found = flow.problems(text)
     assert(#found == 0, path .. ": " .. table.concat(found, "; "))
-    local action, err = Json.decode_object(text, READ)
-    assert(action ~= nil, path .. ": " .. err)
-    local name, runs = action.name, action.runs
-    assert(name is string and runs is {string: any}, path .. ": no name or runs")
+    local runs = read_as(ACTION, path, text).runs
     assert(runs.using == "composite", path .. ": not a composite action")
-    local steps = runs.steps
-    assert(steps is {{string: any}} and #steps > 0, path .. ": no steps")
-    for i, step in ipairs(steps) do
-      local shell = step.shell
+    assert(#runs.steps > 0, path .. ": no steps")
+    for i, step in ipairs(runs.steps) do
       local run = step.run
       if run ~= nil then
-        assert(run is string and not run:find("\n", 1, true),
+        assert(not run:find("\n", 1, true),
           path .. ": step " .. tostring(i) .. "'s run is not one line: put it under .github/scripts/")
-        assert(shell is string, path .. ": step " .. tostring(i) .. " runs with no shell")
+        assert(step.shell ~= nil, path .. ": step " .. tostring(i) .. " runs with no shell")
       end
     end
   end
@@ -126,17 +202,13 @@ end
 
 --- The expressions in an action's text: each `${{ ... }}`, and each
 --- step's `if`, which is one whole without them.
-local function expressions(text: string, action: {string: any}): {string}
+local function expressions(text: string, action: Action): {string}
   local out: mut {string} = {}
   for expression in text:gmatch("%${{(.-)}}") do out[#out + 1] = expression end
-  local runs = action.runs
-  local steps = runs is {string: any} and runs.steps or nil
-  if steps is {{string: any}} then
-    for _, step in ipairs(steps) do
-      local condition = step["if"]
-      if condition is string and not condition:find("${{", 1, true) then
-        out[#out + 1] = condition
-      end
+  for _, step in ipairs(action.runs.steps) do
+    local condition = step["if"]
+    if condition ~= nil and not condition:find("${{", 1, true) then
+      out[#out + 1] = condition
     end
   end
   return out
@@ -162,9 +234,8 @@ end
 local function test_an_action_reads_only_the_inputs_it_declares()
   local count = 0
   for path, text in pairs(flow_files(action_paths())) do
-    local action = assert(Json.decode_object(text, READ))
-    local declared = action.inputs
-    local names: {string: any} = declared is {string: any} and declared or {}
+    local action = read_as(ACTION, path, text)
+    local names = action.inputs or {}
     for _, expression in ipairs(expressions(text, action)) do
       for _, name in ipairs(inputs_read(expression)) do
         count = count + 1
@@ -176,20 +247,73 @@ local function test_an_action_reads_only_the_inputs_it_declares()
 end
 
 local function test_an_input_is_read_however_it_is_written()
-  local action = { runs = { steps = { { ["if"] = "inputs.owner != ''" }, { ["if"] = "${{ inputs.a }}" } } } }
-  local got = expressions("${{ inputs['b'] }} ${{ inputs.a }}", action as {string: any})
+  local action = read_as(ACTION, "synthetic", [=[{ name: "a", runs: { using: "composite", steps: [
+    { "if": "inputs.owner != ''" }, { "if": "${{ inputs.a }}" } ] } }]=])
+  local got = expressions("${{ inputs['b'] }} ${{ inputs.a }}", action)
   assert(#got == 3 and got[3] == "inputs.owner != ''", table.concat(got, "|"))
   local names = inputs_read([=[inputs.zig-cache == 'true' && inputs[ "x y" ] || inputs['z']]=])
   assert(table.concat(names, ",") == "zig-cache,x y,z", table.concat(names, ","))
 end
 
 --- Each decoded flow-style workflow, by path.
-local function decoded_workflows(): {string: {string: any}}
-  local out: mut {string: {string: any}} = {}
+local function decoded_workflows(): {string: Workflow}
+  local out: mut {string: Workflow} = {}
   for path, text in pairs(flow_workflows()) do
-    out[path] = assert(Json.decode_object(text, READ))
+    out[path] = read_as(WORKFLOW, path, text)
   end
   return out
+end
+
+local function ci_workflow(): Workflow
+  return (assert(decoded_workflows()[DIR .. "/ci.yml"]))
+end
+
+local function at_of(at: {string: integer}, name: string): integer
+  return (assert(at[name], "no step " .. name))
+end
+
+local function step_at(steps: {Step}, at: {string: integer}, name: string): Step
+  return (assert(steps[at_of(at, name)]))
+end
+
+local function step_with_id(steps: {Step}, id: string): Step, integer
+  for i, step in ipairs(steps) do
+    if step["id"] == id then return step, i end
+  end
+  error("no step has the id " .. id)
+end
+
+local function step_named(steps: {Step}, name: string, where?: string): Step, integer
+  for i, step in ipairs(steps) do
+    if step.name == name then return step, i end
+  end
+  error((where or "") .. "no step is named " .. name)
+end
+
+local function position(steps: {Step}, step: Step): integer
+  for i, other in ipairs(steps) do
+    if other == step then return i end
+  end
+  error("no such step among " .. tostring(#steps))
+end
+
+local function job_of(jobs: {string: Job}, name: string): Job
+  return (assert(jobs[name], "no job " .. name))
+end
+
+local function with_of(step: Step): {string: any}
+  return step.with or {}
+end
+
+--- The string input `key` of `step`'s `with`; a step that has none fails.
+local function param(step: Step, key: string): string
+  local value = with_of(step)[key]
+  assert(value is string, "step " .. tostring(step.name or step.uses) .. " has no input " .. key)
+  return value
+end
+
+local function map_of(map: {string: string}?): {string: string}
+  return map or {}
 end
 
 --- The condition a job takes a run as `full` on: the `scope` job's output
@@ -197,6 +321,39 @@ end
 --- run but a branch push, or failed). ci.yml's COSMIC_CI_SCOPE is this, and
 --- a matrix, which cannot read `env`, tests it again.
 local FULL_RUN <const> = "needs.scope.outputs.scope != 'light'"
+
+local function strings_of(value: any, what: string): {string}
+  local list, err: {string}?, string = Shape.into(value, Shape.list(Shape.string))
+  return (assert(list, what .. ": " .. err))
+end
+
+local function needs_of(job: Job): {string}
+  local needs = job.needs
+  if needs == nil then return {} end
+  if needs is string then return { needs } end
+  return strings_of(needs, "needs")
+end
+
+--- `map`'s values as text: a string as it is, any other value as `json:` and
+--- its JSON, so a boolean never equals the string that spells it.
+local function texts_of(map: {string: any}): {string: string}
+  local out: mut {string: string} = {}
+  for k, v in pairs(map) do
+    out[k] = if v is string then v else "json:" .. assert(Json.encode_any(v)) end
+  end
+  return out
+end
+
+--- A matrix's `include` or `exclude` entries, each value as its text.
+local function entries_of(value: any): {{string: string}}
+  if value == nil then return {} end
+  local list, err: {{string: any}}?, string = Shape.into(value, Shape.list(Shape.map(Shape.any)))
+  local out: mut {{string: string}} = {}
+  for _, entry in ipairs((assert(list, "a matrix entry: " .. err))) do
+    out[#out + 1] = texts_of(entry)
+  end
+  return out
+end
 
 --- A matrix's combinations on a run of `scope` (`full` or `light`),
 --- each the values it gets, as GitHub's docs ("Expanding or adding
@@ -223,11 +380,11 @@ local function expand(matrix: {string: any}, scope: string): {{string: string}}
     if value is string then
       local condition, full, light = value:match("^%${{ fromJSON%((.-) && '(%[.-%])' || '(%[.-%])'%) }}$")
       assert(condition == FULL_RUN, "matrix " .. dim .. " is chosen other than by the scope: " .. value)
-      value = assert(Json.decode(scope == "full" and full or light))
+      value = assert(Json.decode(assert(if scope == "full" then full else light end)))
     end
     local next_combos: mut {{string: string}} = {}
     for _, combo in ipairs(combos) do
-      for _, v in ipairs(value as {string}) do
+      for _, v in ipairs(strings_of(value, "matrix " .. dim)) do
         local c: mut {string: string} = {}
         for k, x in pairs(combo) do c[k] = x end
         c[dim] = v
@@ -242,7 +399,7 @@ local function expand(matrix: {string: any}, scope: string): {{string: string}}
   local kept: mut {{string: string}} = {}
   for _, combo in ipairs(combos) do
     local excluded = false
-    for _, entry in ipairs(matrix.exclude as {{string: string}} or {}) do
+    for _, entry in ipairs(entries_of(matrix["exclude"])) do
       local matches = true
       for k, v in pairs(entry) do
         assert(combo[k] ~= nil or matrix[k] ~= nil, "an exclusion names no dimension: " .. k)
@@ -256,7 +413,7 @@ local function expand(matrix: {string: any}, scope: string): {{string: string}}
   -- An original combination's dimensions are never overwritten, so
   -- each still holds its own.
   local created: mut {{string: string}} = {}
-  for _, entry in ipairs(matrix.include as {{string: string}} or {}) do
+  for _, entry in ipairs(entries_of(matrix["include"])) do
     local added = false
     for _, combo in ipairs(combos) do
       local fits = true
@@ -279,21 +436,19 @@ local function expand(matrix: {string: any}, scope: string): {{string: string}}
 end
 
 --- A job's matrix legs on a run of `scope`, as [`expand`] gives them.
-local function legs_of(job: {string: any}, scope: string): {{string: string}}
-  return expand((job.strategy as {string: any}).matrix as {string: any}, scope)
+local function legs_of(job: Job, scope: string): {{string: string}}
+  return expand(assert(assert(job.strategy).matrix), scope)
 end
 
 --- [`expand`] gives the combinations GitHub's docs give for their
 --- example of `include`: an entry that fits no original combination
 --- is one of its own, which a later entry does not extend.
 local function test_a_matrix_expands_as_githubs_docs_say()
-  local got = expand({
-    fruit = { "apple", "pear" }, animal = { "cat", "dog" },
-    include = {
-      { color = "green" }, { color = "pink", animal = "cat" }, { fruit = "apple", shape = "circle" },
-      { fruit = "banana" }, { fruit = "banana", animal = "cat" },
-    },
-  }, "full")
+  local got = expand(assert(Json.decode_object([=[{
+    "fruit": ["apple", "pear"], "animal": ["cat", "dog"],
+    "include": [
+      { "color": "green" }, { "color": "pink", "animal": "cat" }, { "fruit": "apple", "shape": "circle" },
+      { "fruit": "banana" }, { "fruit": "banana", "animal": "cat" } ] }]=])), "full")
   local lines: mut {string} = {}
   for _, combo in ipairs(got) do
     local parts: mut {string} = {}
@@ -321,19 +476,19 @@ local LEG_SHARD <const> = "${{ matrix.name == 'linux-x86_64' && matrix.shard || 
 
 --- [`LEG_NAME`] and [`LEG_SHARD`] of `leg`, as GitHub evaluates them.
 local function leg_name(leg: {string: string}): string
-  if leg.shard == "2/2" then return leg.name .. "-shard" end
-  return leg.name
+  if leg["shard"] == "2/2" then return assert(leg["name"]) .. "-shard" end
+  return assert(leg["name"])
 end
 local function leg_shard(leg: {string: string}): string
-  if leg.name == "linux-x86_64" and leg.shard ~= "" then return leg.shard end
+  if leg["name"] == "linux-x86_64" and leg["shard"] ~= "" then return assert(leg["shard"]) end
   return ""
 end
 
 --- The platform legs by job name ([`LEG_NAME`]), on a run of `scope`.
 local function platform_legs(scope: string): {string: {string: string}}
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local ci = ci_workflow()
   local out: mut {string: {string: string}} = {}
-  for _, leg in ipairs(legs_of((ci.jobs as {string: {string: any}}).platform, scope)) do
+  for _, leg in ipairs(legs_of(assert(ci.jobs["platform"]), scope)) do
     local name = leg_name(leg)
     assert(out[name] == nil, "two legs named " .. name)
     out[name] = leg
@@ -359,28 +514,28 @@ local function test_a_branch_push_runs_no_alpine_leg()
     "a light run's legs: " .. names(light))
   -- Each leg's entry sets every value the first, alpine-x86_64's, sets:
   -- one it left out would be alpine-x86_64's on that leg.
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local platform = (ci.jobs as {string: {string: any}}).platform
-  local include = ((platform.strategy as {string: any}).matrix as {string: any}).include as {{string: string}}
-  assert(include[1].name == nil, "the first entry names a leg: " .. tostring(include[1].name))
+  local include = entries_of(assert(assert(job_of(ci_workflow().jobs, "platform").strategy).matrix)["include"])
+  local first = assert(include[1])
+  assert(first["name"] == nil, "the first entry names a leg: " .. tostring(first["name"]))
   for i = 2, #include do
-    assert(include[i].name ~= nil, "entry " .. tostring(i) .. " names no leg")
-    for key in pairs(include[1]) do
-      assert(include[i][key] ~= nil, include[i].name .. " keeps alpine-x86_64's " .. key)
+    local entry = assert(include[i])
+    assert(entry["name"] ~= nil, "entry " .. tostring(i) .. " names no leg")
+    for key in pairs(first) do
+      assert(entry[key] ~= nil, assert(entry["name"]) .. " keeps alpine-x86_64's " .. key)
     end
   end
-  local alpine = full["alpine-x86_64"]
-  assert(alpine.runner == "ubuntu-24.04" and alpine.target == "x86_64-linux-musl" and
-      alpine.image:find("^ghcr%.io/cosmic%-lua/cosmic%-ci%-alpine@sha256:") ~= nil and
-      alpine.prepare:find("^adduser ") ~= nil and alpine.shell == "leg-shell {0}",
-    "alpine-x86_64's values: " .. tostring(alpine.image) .. " " .. tostring(alpine.prepare))
+  local alpine = assert(full["alpine-x86_64"])
+  assert(alpine["runner"] == "ubuntu-24.04" and alpine["target"] == "x86_64-linux-musl" and
+      assert(alpine["image"]):find("^ghcr%.io/cosmic%-lua/cosmic%-ci%-alpine@sha256:") ~= nil and
+      assert(alpine["prepare"]):find("^adduser ") ~= nil and alpine["shell"] == "leg-shell {0}",
+    "alpine-x86_64's values: " .. tostring(alpine["image"]) .. " " .. tostring(alpine["prepare"]))
   local keys: mut {string} = {}
   for key in pairs(alpine) do keys[#keys + 1] = key end
   for name, leg in pairs(full) do
     for _, key in ipairs(keys) do assert(leg[key] ~= nil, name .. " has no " .. key) end
     if name ~= "alpine-x86_64" then
-      assert(leg.image:find("alpine", 1, true) == nil and (leg.prepare or ""):find("adduser", 1, true) == nil,
-        name .. " runs as alpine-x86_64 does: " .. leg.image)
+      assert(assert(leg["image"]):find("alpine", 1, true) == nil and (leg["prepare"] or ""):find("adduser", 1, true) == nil,
+        name .. " runs as alpine-x86_64 does: " .. assert(leg["image"]))
     end
     local other = light[name]
     for _, key in ipairs(keys) do
@@ -389,7 +544,7 @@ local function test_a_branch_push_runs_no_alpine_leg()
         name .. "'s " .. key .. " differs on a light run")
     end
   end
-  assert(full["macos-aarch64"].image == "" and full["macos-aarch64"].prepare == "", "macos-aarch64 has an image")
+  assert(assert(full["macos-aarch64"])["image"] == "" and assert(full["macos-aarch64"])["prepare"] == "", "macos-aarch64 has an image")
 end
 
 --- A branch push (`light`) splits linux-x86_64's native suite, the
@@ -400,13 +555,12 @@ end
 --- of its own; every other leg, and every leg of a full run, runs its
 --- suite whole. The gate needs every leg.
 local function test_a_branch_push_splits_linux_x86_64s_suite_in_two()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local jobs = ci.jobs as {string: {string: any}}
-  local platform = jobs.platform
-  local env = platform.env as {string: string}
+  local jobs = ci_workflow().jobs
+  local platform = job_of(jobs, "platform")
+  local env = map_of(platform.env)
   assert(platform.name == LEG_NAME, "the legs' name: " .. tostring(platform.name))
-  assert(env.COSMIC_WORKER == LEG_NAME, "the legs' COSMIC_WORKER: " .. tostring(env.COSMIC_WORKER))
-  assert(env.COSMIC_CI_SHARD == LEG_SHARD, "the legs' COSMIC_CI_SHARD: " .. tostring(env.COSMIC_CI_SHARD))
+  assert(env["COSMIC_WORKER"] == LEG_NAME, "the legs' COSMIC_WORKER: " .. tostring(env["COSMIC_WORKER"]))
+  assert(env["COSMIC_CI_SHARD"] == LEG_SHARD, "the legs' COSMIC_CI_SHARD: " .. tostring(env["COSMIC_CI_SHARD"]))
   local light, full = platform_legs("light"), platform_legs("full")
   local first, second = light["linux-x86_64"], light["linux-x86_64-shard"]
   assert(first ~= nil and second ~= nil, "a light run has no second linux-x86_64 leg")
@@ -416,38 +570,49 @@ local function test_a_branch_push_splits_linux_x86_64s_suite_in_two()
     assert(key == "shard" or second[key] == value, "linux-x86_64-shard's " .. key .. " differs")
   end
   for key in pairs(second) do assert(first[key] ~= nil, "linux-x86_64-shard has " .. key) end
-  assert(second.name == "linux-x86_64", "the second share restores by " .. tostring(second.name))
+  assert(second["name"] == "linux-x86_64", "the second share restores by " .. tostring(second["name"]))
   for name, leg in pairs(light) do
-    if leg.name ~= "linux-x86_64" then
+    if leg["name"] ~= "linux-x86_64" then
       assert(leg_shard(leg) == "", name .. " runs a share of its suite")
     end
   end
   for name, leg in pairs(full) do
-    assert(leg_shard(leg) == "" and leg.shard == "", name .. " runs a share of a full run's suite")
-    assert(leg_name(leg) == leg.name, name .. " is named apart on a full run")
+    assert(leg_shard(leg) == "" and leg["shard"] == "", name .. " runs a share of a full run's suite")
+    assert(leg_name(leg) == leg["name"], name .. " is named apart on a full run")
   end
   -- Every artifact a light run's leg uploads is named apart, by the
   -- job's name: two of one name would fail the second upload.
-  for _, step in ipairs(platform.steps as {{string: any}}) do
-    local uses = step.uses as string or ""
+  for _, step in ipairs(platform.steps) do
+    local uses = (step.uses or "")
     if uses:find("^actions/upload%-artifact@") then
-      local with = step.with as {string: string}
-      local condition = step["if"] as string or ""
+      local condition = (step["if"] or "")
       local light_too = not (condition:find("COSMIC_CI_SCOPE == 'full'", 1, true) or
         condition:find("github.event_name == 'merge_group'", 1, true))
       if light_too then
-        assert(with.name:find("${{ env.COSMIC_WORKER }}", 1, true) and
-            not with.name:find("matrix.name", 1, true),
-          "a light run's legs upload " .. with.name .. " under one name")
+        local upload_name = param(step, "name")
+        assert(upload_name:find("${{ env.COSMIC_WORKER }}", 1, true) and not upload_name:find("matrix.name", 1, true),
+          "a light run's legs upload " .. upload_name .. " under one name")
       end
     end
   end
-  local needs = jobs.ci.needs as {string}
+  local needs = needs_of(job_of(jobs, "ci"))
   local gated = false
   for _, need in ipairs(needs) do
     if need == "platform" then gated = true end
   end
   assert(gated, "the gate does not need the legs")
+end
+
+--- The path and branch filters of each trigger in `on`; `schedule` takes none.
+local function filters_of(on: {string: any}): {string: Branches}
+  local out: mut {string: Branches} = {}
+  for trigger, raw in pairs(on) do
+    if not Json.is_array(raw) then
+      local spec, err = BRANCHES:into(raw)
+      out[trigger] = assert(spec, trigger .. ": " .. tostring(err))
+    end
+  end
+  return out
 end
 
 --- A workflow runs only when a path its filters name changes, so a
@@ -457,22 +622,17 @@ end
 local function test_each_path_filter_names_what_exists()
   local count = 0
   for path, workflow in pairs(decoded_workflows()) do
-    local on = workflow["on"]
-    if on is {string: any} then
-      for trigger, spec in pairs(on) do
-        for _, field in ipairs({ "paths", "paths-ignore" }) do
-          local entries = spec is {string: any} and spec[field] or nil
-          if entries is {string} then
-            local where = path .. "'s " .. trigger .. "." .. field
-            assert(#entries > 0, where .. " is empty")
-            for _, entry in ipairs(entries) do
-              count = count + 1
-              -- A `!` excludes what it names, which must exist all the same.
-              local fixed = entry:gsub("^!", ""):gsub("/%*%*$", "")
-              assert(not fixed:find("*", 1, true), where .. ": " .. entry .. ": only a trailing /** is checked")
-              assert(Fs.exists(fixed), entry .. " is in " .. where .. ", and does not exist")
-            end
-          end
+    for trigger, spec in pairs(filters_of(workflow["on"])) do
+      for _, field in ipairs({ "paths", "paths-ignore" }) do
+        local entries = if field == "paths" then spec.paths else spec["paths-ignore"] end
+        local where = path .. "'s " .. trigger .. "." .. field
+        assert(entries == nil or #entries > 0, where .. " is empty")
+        for _, entry in ipairs(entries or {}) do
+          count = count + 1
+          -- A `!` excludes what it names, which must exist all the same.
+          local fixed = entry:gsub("^!", ""):gsub("/%*%*$", "")
+          assert(not fixed:find("*", 1, true), where .. ": " .. entry .. ": only a trailing /** is checked")
+          assert(Fs.exists(fixed), entry .. " is in " .. where .. ", and does not exist")
         end
       end
     end
@@ -504,26 +664,28 @@ end
 --- step's own `working-directory`, else each of `holders`' default in
 --- turn (a job's `defaults`, then its workflow's; a composite action's
 --- steps take none), else the checkout's root.
-local function directory(step: {string: any}, holders: {{string: any}}): string
-  local all: mut {{string: any}} = { step }
-  for _, holder in ipairs(holders) do all[#all + 1] = holder end
-  for _, holder in ipairs(all) do
-    local here = holder["working-directory"]
-    if here == nil then
-      local run = holder.run
-      here = run is {string: any} and run["working-directory"] or nil
-    end
-    if here is string then return here end
+local function directory(step: Step, holders: {{string: string}}): string
+  if step["working-directory"] ~= nil then return assert(step["working-directory"]) end
+  for _, holder in ipairs(holders) do
+    if holder["working-directory"] ~= nil then return assert(holder["working-directory"]) end
   end
   return "."
+end
+
+--- The defaults for `run` steps of `job`, then of its `workflow`.
+local function run_defaults(job: Job, workflow: Workflow): {{string: string}}
+  local out: mut {{string: string}} = {}
+  for _, defaults in ipairs({ job.defaults or {}, workflow.defaults or {} }) do
+    if defaults["run"] ~= nil then out[#out + 1] = assert(defaults["run"]) end
+  end
+  return out
 end
 
 --- What an `actions/checkout` step brings in: nil for the whole tree,
 --- else the paths its `sparse-checkout` names, without their slashes at
 --- either end.
-local function checked_out(step: {string: any}): {string}?
-  local with = step.with
-  local sparse = with is {string: any} and with["sparse-checkout"] or nil
+local function checked_out(step: Step): {string}?
+  local sparse = with_of(step)["sparse-checkout"]
   if not sparse is string then return nil end
   local paths: mut {string} = {}
   for line in sparse:gmatch("[^\n]+") do
@@ -567,7 +729,7 @@ end
 --- needs a checkout before it that holds the action's directory, and
 --- its own steps are walked in turn, their scripts held to the same
 --- checkout.
-local function walk_steps(where: string, steps: {{string: any}}, holders: {{string: any}}, walk: Walk)
+local function walk_steps(where: string, steps: {Step}, holders: {{string: string}}, walk: Walk)
   for _, step in ipairs(steps) do
     local uses = step.uses
     if uses is string and uses:match("^actions/checkout@") ~= nil then
@@ -580,12 +742,7 @@ local function walk_steps(where: string, steps: {{string: any}}, holders: {{stri
       local file = action_file(dir)
       assert(file ~= nil, where .. " uses " .. dir .. ", which holds no action.yml")
       walk.actions[dir] = true
-      local action = assert(Json.decode_object((assert(Fs.read(file))), READ))
-      local runs = action.runs
-      local inner = runs is {string: any} and runs.steps or nil
-      if inner is {{string: any}} then
-        walk_steps(where .. " (through " .. dir .. ")", inner, {}, walk)
-      end
+      walk_steps(where .. " (through " .. dir .. ")", read_as(ACTION, file, (assert(Fs.read(file)))).runs.steps, {}, walk)
     end
     local run = step.run
     local sparse = walk.sparse
@@ -618,12 +775,7 @@ local function walk_steps(where: string, steps: {{string: any}}, holders: {{stri
     end
     local texts: mut {string} = {}
     if run is string then texts[#texts + 1] = run end
-    local env = step.env
-    if env is {string: any} then
-      for _, value in pairs(env) do
-        if value is string then texts[#texts + 1] = value end
-      end
-    end
+    for _, value in pairs(map_of(step.env)) do texts[#texts + 1] = value end
     for _, text in ipairs(texts) do
       local hashed: mut {string} = {}
       local rest = text:gsub("hashFiles%b()", function(call: string): string
@@ -648,17 +800,11 @@ end
 -- turn, as cosmic-driver.sh reads bin/cosmic-bootstrap and ci/'s pin:
 -- that needs each script to declare what it reads (a header line the
 -- test could parse), since finding it in the shell text is guesswork.
-local function scripts_run(path: string, workflow: {string: any}): {string}, {string: boolean}
+local function scripts_run(path: string, workflow: Workflow): {string}, {string: boolean}
   local walk: Walk = { checkout = false, scripts = {}, actions = {} }
-  local jobs = workflow.jobs
-  assert(jobs is {string: {string: any}}, path .. ": no jobs")
-  for name, job in pairs(jobs) do
-    local steps = job.steps
-    if steps is {{string: any}} then
-      walk.checkout, walk.sparse = false, nil
-      local holders = { (job.defaults or {}) as {string: any}, (workflow.defaults or {}) as {string: any} }
-      walk_steps(path .. ": job " .. name, steps, holders, walk)
-    end
+  for name, job in pairs(workflow.jobs) do
+    walk.checkout, walk.sparse = false, nil
+    walk_steps(path .. ": job " .. name, job.steps, run_defaults(job, workflow), walk)
   end
   return walk.scripts, walk.actions
 end
@@ -688,11 +834,11 @@ local function test_the_workflows_run_the_scripts_there_are()
   while at <= #pending do
     local script = pending[at]
     at = at + 1
-    local text = assert(Fs.read(script))
+    local text = assert(Fs.read(assert(script)))
     for reference in text:gmatch("%.github/scripts/[%w_./%-]+") do
       local dependency = normal(reference)
       local st = Fs.stat(dependency)
-      assert(st ~= nil and st.kind == "file", script .. " names " .. dependency .. ", which is no file")
+      assert(st ~= nil and st.kind == "file", assert(script) .. " names " .. dependency .. ", which is no file")
       if named[dependency] ~= true then
         named[dependency] = true
         pending[#pending + 1] = dependency
@@ -705,14 +851,15 @@ local function test_the_workflows_run_the_scripts_there_are()
   end
   for _, file in ipairs(action_paths()) do
     local dir = file:match("^(.*)/[^/]+$")
-    assert(used[dir], dir .. " is used by no workflow")
+    assert(used[assert(dir)], assert(dir) .. " is used by no workflow")
   end
 end
 
 --- What [`scripts_run`] refuses in a workflow of one job with `steps`,
 --- or "" when it takes it.
-local function refusal(steps: {{string: any}}): string
-  local ok, err = pcall(scripts_run, "w.yml", { jobs = { j = { steps = steps } } } as {string: any})
+local function refusal(steps: {Step}): string
+  local ok, err = pcall(scripts_run, "w.yml", read_as(WORKFLOW, "w.yml",
+    '{"name":"w","on":{},"jobs":{"j":{"steps":' .. assert(Json.encode_any(steps)) .. '}}}'))
   if ok then return "" end
   return tostring(err)
 end
@@ -727,8 +874,9 @@ local function test_a_local_action_needs_a_checkout_before_it()
 end
 
 local function test_a_sparse_checkout_holds_the_local_actions_a_job_uses()
-  local function sparse(paths: string): {string: any}
-    return { uses = CHECKOUT, with = { ["sparse-checkout"] = paths } }
+  local function sparse(paths: string): Step
+    return read_as(STEP, "a checkout", '{"uses":"' .. CHECKOUT .. '","with":{"sparse-checkout":' ..
+        assert(Json.encode(paths)) .. '}}')
   end
   local got = refusal({ sparse("/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n"), { uses = DRIVER } })
   assert(got:find("job j's sparse checkout does not hold .github/actions/cosmic-driver, the action", 1, true), got)
@@ -755,33 +903,26 @@ end
 local function test_a_job_passes_its_shell_to_its_actions()
   local count = 0
   for path, workflow in pairs(decoded_workflows()) do
-    local jobs = workflow.jobs as {string: {string: any}}
-    for name, job in pairs(jobs) do
-      local shell: any = nil
-      for _, holder in ipairs({ (job.defaults or {}) as {string: any}, (workflow.defaults or {}) as {string: any} }) do
-        local run = holder.run
-        if shell == nil and run is {string: any} then shell = run.shell end
+    for name, job in pairs(workflow.jobs) do
+      local shell: string? = nil
+      for _, holder in ipairs(run_defaults(job, workflow)) do
+        shell = shell or holder["shell"]
       end
-      local steps = job.steps
-      if shell ~= nil and steps is {{string: any}} then
-        for _, step in ipairs(steps) do
-          local uses = step.uses
-          local dir = uses is string and uses:match("^%./") and normal(uses) or nil
-          local file = dir and action_file(dir) or nil
-          if dir ~= nil and file ~= nil then
-            local action = assert(Json.decode_object((assert(Fs.read(file))), READ))
-            local inputs = action.inputs
-            if inputs is {string: any} and inputs.shell ~= nil then
-              count = count + 1
-              local with = step.with
-              local given = with is {string: any} and with.shell or nil
-              assert(given == shell, path .. ": job " .. name .. " runs its steps with " .. tostring(shell) ..
-                  ", and passes " .. dir .. " the shell " .. tostring(given))
-              if inputs.owner ~= nil and job.container ~= nil then
-                local owner = with is {string: any} and with.owner or nil
-                assert(owner is string and owner ~= "", path .. ": job " .. name .. " runs its steps with " ..
-                    tostring(shell) .. ", and names " .. dir .. " no owner to hand what it restores")
-              end
+      for _, step in ipairs(if shell ~= nil then job.steps else {} end) do
+        local uses = step.uses
+        local dir = uses is string and uses:match("^%./") and normal(uses) or nil
+        local file = dir and action_file(dir) or nil
+        if dir ~= nil and file ~= nil then
+          local inputs = read_as(ACTION, file, (assert(Fs.read(file)))).inputs or {}
+          if inputs["shell"] ~= nil then
+            count = count + 1
+            local given = param(step, "shell")
+            assert(given == shell, path .. ": job " .. name .. " runs its steps with " .. tostring(shell) ..
+                ", and passes " .. dir .. " the shell " .. tostring(given))
+            if inputs["owner"] ~= nil and job.container ~= nil then
+              local owner = param(step, "owner")
+              assert(owner is string and owner ~= "", path .. ": job " .. name .. " runs its steps with " ..
+                  tostring(shell) .. ", and names " .. dir .. " no owner to hand what it restores")
             end
           end
         end
@@ -837,7 +978,7 @@ local function test_each_image_has_one_digest_everywhere()
       count = count + 1
       local before = seen[image]
       if before ~= nil and before ~= digest then
-        error(path .. " pins " .. image .. " to " .. digest .. ", " .. where[image] .. " to " .. before)
+        error(path .. " pins " .. image .. " to " .. digest .. ", " .. assert(where[image]) .. " to " .. before)
       end
       seen[image], where[image] = digest, path
     end
@@ -854,31 +995,31 @@ end
 --- cache named by the container alone could restore another host's
 --- verdicts, none of which would stand.
 local function test_the_verdict_cache_is_named_by_the_host_too()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local jobs = ci.jobs as {string: {string: any}}
+  local ci = ci_workflow()
+  local jobs = ci.jobs
   local named, bootstrapped, cached = false, false, 0
-  for _, step in ipairs(jobs.platform.steps as {{string: any}}) do
+  for _, step in ipairs(job_of(jobs, "platform").steps) do
     if step.id == "driver" then bootstrapped = true end
     if step.id == "host-id" then
-      local run = step.run as string
+      local run = assert(step.run)
       assert(run:find("cosmic-driver cosmic_ci/driver.tl leg-host-id ", 1, true) == 1, run)
       assert(run:find("host-features", 1, true) == nil, "the features are no argument: " .. run)
       assert(step["working-directory"] == nil, "the driver runs in ci/, the job's own directory")
       assert(bootstrapped, "the host is named before the driver is bootstrapped")
       -- STARTED is what names the container's options inside every
       -- verdict key: an input moved renames every verdict cache.
-      assert((step.env as {string: string}).STARTED == "${{ hashFiles('.github/seccomp/**', " ..
+      assert(map_of(step.env)["STARTED"] == "${{ hashFiles('.github/seccomp/**', " ..
           "'.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}", run)
       assert(run:find('"$STARTED"', 1, true) ~= nil, run)
       named = true
     end
-    local with = step.with as {string: string}
-    if with ~= nil and (with.path == "${{ runner.temp }}/verdicts" or with.path == "${{ runner.temp }}/verdicts-commit") then
+    local with = with_of(step)
+    if step.with ~= nil and (with["path"] == "${{ runner.temp }}/verdicts" or with["path"] == "${{ runner.temp }}/verdicts-commit") then
       cached = cached + 1
-      assert(with.key:find("steps.host-id.outputs.verdicts", 1, true) ~= nil,
-        "a verdict cache named by its container alone: " .. with.key)
+      assert(param(step, "key"):find("steps.host-id.outputs.verdicts", 1, true) ~= nil,
+        "a verdict cache named by its container alone: " .. param(step, "key"))
       local restore = with["restore-keys"]
-      assert(restore == nil or restore:find("steps.host-id.outputs.verdicts", 1, true) ~= nil,
+      assert(restore == nil or restore is string and restore:find("steps.host-id.outputs.verdicts", 1, true) ~= nil,
         "a verdict cache restored by its container alone: " .. tostring(restore))
     end
   end
@@ -914,20 +1055,20 @@ local VERDICTS_COMMIT <const> = "${{ runner.temp }}/verdicts-commit"
 
 --- The steps that name, restore, trim and save a leg's test verdicts,
 --- by id or by what they run or cache.
-local function verdict_steps(steps: {{string: any}}): mut {string: integer}
+local function verdict_steps(steps: {Step}): mut {string: integer}
   local at: mut {string: integer} = {}
   for i, step in ipairs(steps) do
-    local id = step.id as string
-    local run = step.run as string or ""
-    local with = step.with as {string: any}
+    local id = step.id or ""
+    local run = (step.run or "")
+    local with = with_of(step)
     if id == "host-id" or id == "merge-base" or id == "verdicts-base-lookup" or id == "verdicts-base" or
         id == "verdicts-restore" then
       at[id] = i
     elseif run:find("driver.tl verdicts-trim", 1, true) ~= nil then
-      at.trim = i
-    elseif with ~= nil and with.path == "${{ runner.temp }}/verdicts" and
-        (step.uses as string):find("actions/cache/save@", 1, true) ~= nil then
-      at.save = i
+      at["trim"] = i
+    elseif with["path"] == "${{ runner.temp }}/verdicts" and
+        assert(step.uses):find("actions/cache/save@", 1, true) ~= nil then
+      at["save"] = i
     end
   end
   return at
@@ -943,50 +1084,45 @@ end
 --- base's entry, else the newest), the suites, the trim, the tree moved
 --- back, and the save.
 local function test_every_leg_keeps_its_verdicts()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local jobs = ci.jobs as {string: {string: any}}
-  local env = jobs.platform.env as {string: string}
-  assert(env.COSMIC_CI_REQUIRE_SANDBOX == "${{ matrix.image && '1' || '0' }}",
-    tostring(env.COSMIC_CI_REQUIRE_SANDBOX))
-  assert(env.COSMIC_CI_DECLARED_KEYS == "${{ matrix.image && '0' || '1' }}",
+  local jobs = ci_workflow().jobs
+  local env = map_of(job_of(jobs, "platform").env)
+  assert(env["COSMIC_CI_REQUIRE_SANDBOX"] == "${{ matrix.image && '1' || '0' }}",
+    tostring(env["COSMIC_CI_REQUIRE_SANDBOX"]))
+  assert(env["COSMIC_CI_DECLARED_KEYS"] == "${{ matrix.image && '0' || '1' }}",
     "the leg with no sandbox is not keyed by declarations: " ..
-      tostring(env.COSMIC_CI_DECLARED_KEYS))
-  local steps = jobs.platform.steps as {{string: any}}
+      tostring(env["COSMIC_CI_DECLARED_KEYS"]))
+  local steps = job_of(jobs, "platform").steps
   local at = verdict_steps(steps)
-  local back: integer?
   for i, step in ipairs(steps) do
-    if step.name == "move the tree back to where it was checked out" then back = i end
-    local id = step.id
+    local id = step.id or ""
     if id == "boot" or id == "release-suite" or id == "portable-suite" then
-      at[id as string] = i
+      at[id] = i
     end
   end
   local order = { "host-id", "merge-base", "verdicts-base-lookup", "verdicts-base", "verdicts-restore", "boot",
     "release-suite", "portable-suite",
     "trim", "back", "save" }
-  at.back = back
+  local _, back = step_named(steps, "move the tree back to where it was checked out")
+  at["back"] = back
   for n, name in ipairs(order) do
     assert(at[name] ~= nil, "no step " .. name)
     if n > 1 then
-      assert(at[order[n - 1]] < at[name], order[n - 1] .. " comes after " .. name)
+      assert(at_of(at, assert(order[n - 1])) < at_of(at, name), assert(order[n - 1]) .. " comes after " .. name)
     end
-    local condition = steps[at[name]]["if"] as string or ""
+    local condition = (step_at(steps, at, name)["if"] or "")
     assert(condition:find("matrix.image", 1, true) == nil,
       name .. " runs only on a leg with an image: " .. condition)
   end
-  local restore = steps[at["verdicts-restore"]].with as {string: string}
-  assert(restore.key == at_the_base("${{ steps.host-id.outputs.verdicts }}"), restore.key)
+  local restore = with_of(step_at(steps, at, "verdicts-restore"))
+  assert(restore["key"] == at_the_base("${{ steps.host-id.outputs.verdicts }}"), restore["key"])
   assert(restore["restore-keys"] == "${{ steps.host-id.outputs.verdicts }}\n",
     restore["restore-keys"])
 end
 
---- A job's `env` and each of its steps' that has one.
-local function envs_of(job: {string: any}): {{string: string}}
-  local out: mut {{string: string}} = {}
-  if job.env ~= nil then out[#out + 1] = job.env as {string: string} end
-  for _, step in ipairs(job.steps as {{string: any}} or {}) do
-    if step.env ~= nil then out[#out + 1] = step.env as {string: string} end
-  end
+--- A job's `env` and each of its steps'.
+local function envs_of(job: Job): {{string: string}}
+  local out: mut {{string: string}} = { map_of(job.env) }
+  for _, step in ipairs(job.steps) do out[#out + 1] = map_of(step.env) end
   return out
 end
 
@@ -1015,23 +1151,23 @@ end
 
 --- Holds each cache save of `steps`, a job's, to main's saves (below),
 --- and counts them.
-local function main_saves(steps: {{string: any}}): integer
-  local restores: mut {string: {string: any}} = {}
+local function main_saves(steps: {Step}): integer
+  local restores: mut {string: Step} = {}
   local trims: mut {string: string} = {}
   local saves = 0
   for _, step in ipairs(steps) do
-    local uses = step.uses as string or ""
-    local with = step.with as {string: any}
+    local uses = (step.uses or "")
+    local with = with_of(step)
     local run = step.run
     if run is string then
       local verb = run:match("driver%.tl (%a+)%-trim")
       if verb ~= nil then
         assert(step.id ~= nil, verb .. "'s trim has no id")
-        trims[verb] = step.id as string
+        trims[verb] = assert(step.id)
       end
     end
     if uses:find("actions/cache/restore@", 1, true) ~= nil and step.id ~= nil then
-      local path = with.path as string
+      local path = param(step, "path")
       -- The one restore that turns on the ref: another vendor part's zig
       -- outputs, which main never takes. A restore only on a full run
       -- (`FULL`) is on every run main saves from: the checked job's
@@ -1039,7 +1175,7 @@ local function main_saves(steps: {{string: any}}): integer
       -- checks in the checked job instead. There, a light run's lookup
       -- of linux-x86_64's marker (`LIGHT`) restores nothing, and that
       -- job saves no marker, which would find no restore here.
-      local condition = step["if"] as string or ""
+      local condition = (step["if"] or "")
       if condition:find(FULL, 1, true) == 1 then
         condition = condition:sub(#FULL + 5)
       end
@@ -1059,11 +1195,11 @@ local function main_saves(steps: {{string: any}}): integer
       end
     end
     if uses:find("actions/cache/save@", 1, true) ~= nil and
-        not branch_compiles(with.key as string) then
+        not branch_compiles(param(step, "key")) then
       saves = saves + 1
-      local path = with.path as string
-      local condition = step["if"] as string
-      local key = with.key as string
+      local path = param(step, "path")
+      local condition = assert(step["if"])
+      local key = param(step, "key")
       local restore = restores[path]
       assert(restore ~= nil, path .. " is saved but restored on no run before")
       assert(condition:find(SAVES, 1, true) ~= nil and
@@ -1071,38 +1207,38 @@ local function main_saves(steps: {{string: any}}): integer
         path .. " is saved off main, or by another of main's events: " .. condition)
       assert(not condition:find("merge_group", 1, true) and not key:find("event_name", 1, true),
         path .. "'s save turns on the merge queue: " .. condition .. " " .. key)
-      local rkey = (restore.with as {string: any}).key as string
+      local rkey = param(restore, "key")
       if path == VERDICTS_COMMIT then
         -- Whatever was restored: its own key is new each commit.
         local vrestore = restores["${{ runner.temp }}/verdicts"]
-        local prefix = (((vrestore.with as {string: any})["restore-keys"] as string):match("^([^\n]*)\n$"))
-        assert(key == under_the_commit(prefix) and rkey == names_at_the_base(prefix),
+        local prefix = ((param(assert(vrestore), "restore-keys")):match("^([^\n]*)\n$"))
+        assert(key == under_the_commit(assert(prefix)) and rkey == names_at_the_base(assert(prefix)),
           path .. " is saved under another key than the lookup asks for: " .. key)
         assert(not condition:find("cache-matched-key", 1, true) and
-            condition:find("steps." .. trims.verdicts .. ".outputs.digest != ''", 1, true) ~= nil,
+            condition:find("steps." .. assert(trims["verdicts"]) .. ".outputs.digest != ''", 1, true) ~= nil,
           path .. " is saved where the rows are an entry's, or where the trim named no digest: " .. condition)
-      elseif key == "${{ steps." .. (restore.id as string) .. ".outputs.cache-primary-key }}" then
+      elseif key == "${{ steps." .. assert(restore.id) .. ".outputs.cache-primary-key }}" then
         assert(not rkey:find("github.sha", 1, true), path .. " is keyed by the commit: " .. rkey)
       else
         -- The trim of this cache, and the prefix the restore takes: the
         -- restore's key, or, for the verdicts, the base's entry first.
         local verdicts = path == "${{ runner.temp }}/verdicts"
-        local trim = verdicts and trims.verdicts or
-          path == "${{ runner.temp }}/build-cache" and trims.compiles or nil
+        local trim = if verdicts then trims["verdicts"]
+          elseif path == "${{ runner.temp }}/build-cache" then trims["compiles"] else nil end
         assert(trim ~= nil, path .. " is saved under a key of its own, cut by no trim: " .. key)
         -- Main's prefix last: a branch's compiles are asked for first
         -- (test_a_branch_saves_compiles_for_its_later_pushes).
-        local rkeys = (restore.with as {string: any})["restore-keys"] as string
+        local rkeys = param(restore, "restore-keys")
         local prefix = rkeys:match("([^\n]*)\n$")
         if path == "${{ runner.temp }}/build-cache" then
-          assert(rkey == BRANCH_COMPILES and rkeys == BRANCH_COMPILES .. "\n" .. prefix .. "\n",
+          assert(rkey == BRANCH_COMPILES and rkeys == BRANCH_COMPILES .. "\n" .. assert(prefix) .. "\n",
             path .. " is restored by other prefixes than a branch's, then main's: " .. rkeys)
         else
-          assert(rkeys == prefix .. "\n" and (rkey == prefix or verdicts and rkey == at_the_base(prefix)),
+          assert(rkeys == assert(prefix) .. "\n" and (rkey == prefix or verdicts and rkey == at_the_base(assert(prefix))),
             path .. " is restored by another prefix than it is saved under: " .. rkey)
         end
         local digest = "${{ steps." .. trim .. ".outputs.digest }}"
-        assert(key == prefix .. digest, path .. " is not saved under its prefix and digest: " .. key)
+        assert(key == assert(prefix) .. digest, path .. " is not saved under its prefix and digest: " .. key)
         assert(condition:find("steps." .. trim .. ".outputs.digest != ''", 1, true) ~= nil,
           path .. " is saved where its trim named no digest: " .. condition)
       end
@@ -1125,34 +1261,35 @@ end
 --- and the digest of those rows that the trim names: a run that kept
 --- only what was saved already saves nothing new.
 local function test_only_main_saves_a_cache_every_run_restores()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local concurrency = ci.concurrency as {string: string}
-  assert(not concurrency.group:find("github.sha", 1, true),
-    "main's pushes run in a group of each commit's own: " .. concurrency.group)
+  local ci = ci_workflow()
+  local concurrency = assert(ci.concurrency)
+  local group = concurrency["group"]
+  assert(group is string and not group:find("github.sha", 1, true),
+    "main's pushes run in a group of each commit's own: " .. tostring(group))
   assert(concurrency["cancel-in-progress"] == "${{ github.ref != 'refs/heads/main' }}",
-    "a run of main cancels another: " .. concurrency["cancel-in-progress"])
-  local saves_env = (ci.env as {string: string}).COSMIC_CI_SAVES
+    "a run of main cancels another: " .. tostring(concurrency["cancel-in-progress"]))
+  local saves_env = map_of(ci.env)["COSMIC_CI_SAVES"]
   assert(saves_env == MAIN_SAVES, "COSMIC_CI_SAVES is not main's push and schedule: " ..
       tostring(saves_env))
-  local jobs = ci.jobs as {string: {string: any}}
+  local jobs = ci.jobs
   for name, job in pairs(jobs) do
     for _, env in ipairs(envs_of(job)) do
-      assert(env.COSMIC_CI_SAVES == nil, "job " .. name .. " sets COSMIC_CI_SAVES again")
+      assert(env["COSMIC_CI_SAVES"] == nil, "job " .. name .. " sets COSMIC_CI_SAVES again")
     end
   end
-  assert(main_saves(jobs.platform.steps as {{string: any}}) == 6,
+  assert(main_saves(job_of(jobs, "platform").steps) == 6,
     "the verdicts (by content and by commit), compiles, zig outputs, driver marker and pinned zig")
-  assert(main_saves(jobs.checked.steps as {{string: any}}) == 2,
+  assert(main_saves(job_of(jobs, "checked").steps) == 2,
     "the checked job's verdicts, by content and by commit")
 end
 
 --- The cache saves among `steps`, by the key each saves under: the
 --- verdicts are saved by content, and named under the commit.
-local function saves_of(steps: {{string: any}}): {string: {string: any}}
-  local out: mut {string: {string: any}} = {}
+local function saves_of(steps: {Step}): {string: Step}
+  local out: mut {string: Step} = {}
   for _, step in ipairs(steps) do
-    if (step.uses as string or ""):find("actions/cache/save@", 1, true) ~= nil then
-      local key = (step.with as {string: string}).key
+    if (step.uses or ""):find("actions/cache/save@", 1, true) ~= nil then
+      local key = param(step, "key")
       assert(out[key] == nil, "two saves under " .. key)
       out[key] = step
     end
@@ -1163,10 +1300,10 @@ end
 --- The save among `steps` of `path` under a key that names no commit,
 --- and the one that names it under the commit, from `<path>-commit`, if
 --- any.
-local function save_of(steps: {{string: any}}, path: string): {string: any}?, {string: any}?
-  local plain, commit: {string: any}?, {string: any}?
+local function save_of(steps: {Step}, path: string): Step?, Step?
+  local plain, commit: Step?, Step?
   for key, step in pairs(saves_of(steps)) do
-    local from = (step.with as {string: string}).path
+    local from = param(step, "path")
     if from == path .. "-commit" and
         (key:find("sha-${{ github.sha }}-", 1, true) or key:find("outputs.verdicts-sha }}", 1, true)) ~= nil then
       commit = step
@@ -1182,7 +1319,7 @@ local function save_of(steps: {{string: any}}, path: string): {string: any}?, {s
 end
 
 --- The step of `steps` whose `run` holds `text`, and where it stands.
-local function step_running(steps: {{string: any}}, text: string): {string: any}, integer
+local function step_running(steps: {Step}, text: string): Step, integer
   for i, step in ipairs(steps) do
     local run = step.run
     if run is string and run:find(text, 1, true) ~= nil then return step, i end
@@ -1192,7 +1329,7 @@ end
 
 --- The index of the step of `steps` that bootstraps the pinned CI driver,
 --- the first to use the local action.
-local function driver_at(steps: {{string: any}}): integer
+local function driver_at(steps: {Step}): integer
   for i, step in ipairs(steps) do
     if step.uses == DRIVER then return i end
   end
@@ -1201,8 +1338,8 @@ end
 
 local CACHE_NAMES <const> = "./.github/actions/cache-names"
 
-local function cache_names(): {string: any}
-  return (assert(Json.decode_object((assert(Fs.read(CACHE_NAMES .. "/action.yml"))), READ)))
+local function cache_names(): Action
+  return read_as(ACTION, CACHE_NAMES, (assert(Fs.read(CACHE_NAMES .. "/action.yml"))))
 end
 
 --- What `names` hashes as the compiler a branch's compiles were made
@@ -1226,75 +1363,60 @@ local COMPILER_HASH <const> = "${{ hashFiles('build/**/*.tl', '!build/**/*_test.
 --- otherwise. The trim counts the fresh compiles against a copy of what
 --- was restored, made before the boot.
 local function test_a_branch_saves_compiles_for_its_later_pushes()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local jobs = ci.jobs as {string: {string: any}}
+  local jobs = ci_workflow().jobs
   for job, leg in pairs({ platform = "${{ matrix.name }}", checked = "linux-x86_64" }) do
-    local steps = jobs[job].steps as {{string: any}}
-    local names: {string: any}?
-    for _, step in ipairs(steps) do
-      if step.id == "names" then names = step end
-    end
-    assert(names ~= nil and names.uses == CACHE_NAMES and
-        (names.with as {string: string}).leg == leg,
-      job .. " names a branch's compiles by another leg: " .. tostring(names and names.with))
-    local found_restore: {string: string}?
-    for _, step in ipairs(steps) do
-      if step.id == "compiles-restore" then found_restore = step.with as {string: string} end
-    end
-    local restore = assert(found_restore, job .. " has no compiles-restore step")
-    assert(restore.key == BRANCH_COMPILES and
+    local steps = job_of(jobs, job).steps
+    local names = (step_with_id(steps, "names"))
+    assert(names.uses == CACHE_NAMES and param(names, "leg") == leg,
+      job .. " names a branch's compiles by another leg: " .. tostring(names.uses))
+    local restore = texts_of(with_of((step_with_id(steps, "compiles-restore"))))
+    assert(restore["key"] == BRANCH_COMPILES and
         restore["restore-keys"] == BRANCH_COMPILES .. "\ncompiles-" .. leg .. "-\n",
       job .. " restores other compiles than its branch's, then main's: " .. tostring(restore["restore-keys"]))
   end
   local action = cache_names()
-  local names = ((action.runs as {string: any}).steps as {{string: any}})[1]
-  assert((names.env as {string: string}).COMPILER == COMPILER_HASH,
+  local names = assert(action.runs.steps[1])
+  assert(map_of(names.env)["COMPILER"] == COMPILER_HASH,
     "the branch compiles hash different compiler inputs")
   assert(not ("compiles-branch-"):find("compiles-${{ matrix.name }}-", 1, true),
     "main's prefix takes a branch's entries")
 
-  local steps = jobs.platform.steps as {{string: any}}
-  local branch: mut {{string: any}} = {}
+  local steps = job_of(jobs, "platform").steps
+  local branch: mut {Step} = {}
   for key, step in pairs(saves_of(steps)) do
     if branch_compiles(key) then branch[#branch + 1] = step end
   end
   assert(#branch == 1, "a branch's compiles are saved by " .. tostring(#branch) .. " steps")
-  local with = branch[1].with as {string: string}
-  assert(with.path == "${{ runner.temp }}/build-cache" and
-      with.key == BRANCH_COMPILES .. "${{ steps.compiles-trim.outputs.digest }}",
-    "a branch's compiles are saved from elsewhere, or not by their digest: " .. with.key)
-  local condition = branch[1]["if"] as string
+  local with = with_of(branch[1])
+  assert(with["path"] == "${{ runner.temp }}/build-cache" and
+      with["key"] == BRANCH_COMPILES .. "${{ steps.compiles-trim.outputs.digest }}",
+    "a branch's compiles are saved from elsewhere, or not by their digest: " .. tostring(with["key"]))
+  local condition = assert(assert(branch[1])["if"])
   for _, part in ipairs({ "steps.release-suite.outcome == 'success'", "steps.compiles-trim.outputs.digest != ''",
       LIGHT, "matrix.shard != '2/2'", "fromJSON(steps.compiles-trim.outputs.fresh || '0') > 50" }) do
     assert(condition:find(part, 1, true) ~= nil, "a branch saves its compiles without " .. part .. ": " .. condition)
   end
   assert(not condition:find(SAVES, 1, true), "main saves a branch's compiles: " .. condition)
-  for _, step in pairs(saves_of(jobs.checked.steps as {{string: any}})) do
-    assert(not branch_compiles((step.with as {string: string}).key), "the checked job saves a branch's compiles")
+  for _, step in pairs(saves_of(job_of(jobs, "checked").steps)) do
+    assert(not branch_compiles(param(step, "key")), "the checked job saves a branch's compiles")
   end
 
   -- The copy of what was restored: made after the restore and before
   -- the boot, where the trim reads it, outside the path saved.
-  local _, restored, copy, boot: integer, integer?, integer?, integer?
-  for i, step in ipairs(steps) do
-    if step.id == "compiles-restore" then restored = i end
-    if step.name == "build release Cosmic" then boot = i end
-    local run = step.run
-    if run is string and run:find("cp \"$RUNNER_TEMP/build-cache/cache.db\" " ..
-          "\"$RUNNER_TEMP/compiles-restored.db\"", 1, true) ~= nil then
-      copy = i
-      -- On a light run alone, since only it saves; a copy that fails
-      -- only costs a save, so it never fails the leg.
-      assert(step["if"] == "env.COSMIC_CI_SCOPE == 'light'" and step["continue-on-error"] == true and
-          step.shell == "sh", "the copy is made on a run that saves none, fails the leg, or runs in the container")
-    end
-  end
-  assert(restored ~= nil and copy ~= nil and boot ~= nil and restored < copy and copy < boot,
+  local _, restored = step_with_id(steps, "compiles-restore")
+  local _, boot = step_named(steps, "build release Cosmic")
+  local copier, copy = step_running(steps, "cp \"$RUNNER_TEMP/build-cache/cache.db\" " ..
+      "\"$RUNNER_TEMP/compiles-restored.db\"")
+  -- On a light run alone, since only it saves; a copy that fails
+  -- only costs a save, so it never fails the leg.
+  assert(copier["if"] == "env.COSMIC_CI_SCOPE == 'light'" and copier["continue-on-error"] == true and
+      copier.shell == "sh", "the copy is made on a run that saves none, fails the leg, or runs in the container")
+  assert(restored < copy and copy < boot,
     "the compiles restored are copied elsewhere than between their restore and the boot")
   local trim = step_running(steps, "driver.tl compiles-trim")
-  assert((trim.run as string):find("compiles-trim \"${{ steps.names.outputs.since }}\" " ..
+  assert(assert(trim.run):find("compiles-trim \"${{ steps.names.outputs.since }}\" " ..
       "\"${{ runner.temp }}/compiles-restored.db\"", 1, true) ~= nil,
-    "the trim counts the fresh compiles against another file: " .. (trim.run as string))
+    "the trim counts the fresh compiles against another file: " .. assert(trim.run))
 end
 
 --- A push to main tests the commit the merge queue just tested, so it
@@ -1308,24 +1430,24 @@ end
 --- relays each leg's product under the platform leg's name (the checked
 --- job has none), and the join reads its result in place of theirs.
 local function test_a_main_push_reuses_the_queue_run()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local jobs = ci.jobs as {string: {string: any}}
-  local reuse, platform, seed = jobs.reuse, jobs.platform, jobs.seed
+  local ci = ci_workflow()
+  local jobs = ci.jobs
+  local reuse, platform, seed = job_of(jobs, "reuse"), job_of(jobs, "platform"), job_of(jobs, "seed")
   -- A push to main alone: a branch push's legs wait on no runner of its.
   assert(reuse["if"] == "github.event_name == 'push' && github.ref == 'refs/heads/main'", tostring(reuse["if"]))
-  assert((reuse.permissions as {string: string}).actions == "read", "reuse cannot read the queue's run")
-  for _, step in ipairs(reuse.steps as {{string: any}}) do
+  assert(map_of(reuse.permissions)["actions"] == "read", "reuse cannot read the queue's run")
+  for _, step in ipairs(reuse.steps) do
     assert(step["if"] == nil, "reuse skips a step of its own: " .. tostring(step["if"]))
   end
-  local find, found_at = step_running(reuse.steps as {{string: any}}, "driver.tl queue-find")
+  local find, found_at = step_running(reuse.steps, "driver.tl queue-find")
   assert(find.id == "find" and find.run == "cosmic-driver cosmic_ci/driver.tl queue-find" and
       find["working-directory"] == "ci", tostring(find.run))
   -- The driver is bootstrapped before the lookup, and a driver that cannot be had is no
   -- lookup, which the legs meet as one that found nothing.
-  local bootstrap = (reuse.steps as {{string: any}})[driver_at(reuse.steps as {{string: any}})]
-  assert(driver_at(reuse.steps as {{string: any}}) < found_at and bootstrap["continue-on-error"] == true,
+  local bootstrap = reuse.steps[driver_at(reuse.steps)]
+  assert(driver_at(reuse.steps) < found_at and assert(bootstrap)["continue-on-error"] == true,
     "reuse looks up before it has the driver, or fails for want of it")
-  assert((find.env as {string: string}).SHA == "${{ github.sha }}", "reuse looks up another commit")
+  assert(map_of(find.env)["SHA"] == "${{ github.sha }}", "reuse looks up another commit")
   -- A lookup that fails is none: the legs run, and the join reads theirs.
   assert(find["continue-on-error"] == true, "a failed lookup fails reuse")
   -- Its budget, from the driver's defaults, is under the job's timeout
@@ -1335,10 +1457,10 @@ local function test_a_main_push_reuses_the_queue_run()
   local wait = script:match('whole%(env, "WAIT_SECONDS", (%d+)%)')
   local call = script:match('whole%(env, "CALL_SECONDS", (%d+)%)')
   assert(tries ~= nil and wait ~= nil and call ~= nil, "queue_seed.tl's budget moved")
-  local budget = math.tointeger(tonumber(tries) * (tonumber(wait) + 2 * tonumber(call)))
-  assert(budget + 60 <= (reuse["timeout-minutes"] as integer) * 60, "reuse times out within its lookup's budget, " ..
-      budget .. " s: " .. tostring(reuse["timeout-minutes"]))
-  assert((reuse.outputs as {string: string}).run == "${{ steps.find.outputs.run }}", "reuse's output")
+  local budget = assert(math.tointeger(assert(tonumber(tries)) * (assert(tonumber(wait)) + 2 * assert(tonumber(call)))))
+  assert(budget + 60 <= assert(reuse["timeout-minutes"]) * 60, "reuse times out within its lookup's budget, " ..
+      tostring(budget) .. " s: " .. tostring(reuse["timeout-minutes"]))
+  assert(map_of(reuse.outputs)["run"] == "${{ steps.find.outputs.run }}", "reuse's output")
 
   -- `!cancelled()` runs the legs where `reuse` was skipped (every run but
   -- a push to main) or failed, as where it found nothing: without a
@@ -1348,17 +1470,19 @@ local function test_a_main_push_reuses_the_queue_run()
     "the platform legs run other than where no queue run was found: " .. tostring(platform["if"]))
   assert(seed.needs == "reuse" and seed["if"] == "needs.reuse.outputs.run != ''",
     "seed runs other than where a queue run was found: " .. tostring(seed["if"]))
-  assert((seed.permissions as {string: string}).actions == "read", "seed cannot read the queue's run")
+  assert(map_of(seed.permissions)["actions"] == "read", "seed cannot read the queue's run")
 
-  local function legs(job: {string: any}): {string: string}
+  local function legs(job: Job): mut {string: string}
     local out: mut {string: string} = {}
-    for _, leg in ipairs(legs_of(job, "full")) do out[leg.name] = leg.runner end
+    for _, leg in ipairs(legs_of(job, "full")) do
+      out[assert(leg["name"])] = assert(leg["runner"])
+    end
     return out
   end
   local ours, theirs, count = legs(seed), legs(platform), 0
-  local checked = jobs.checked
-  local checked_name = (checked.env as {string: string}).COSMIC_WORKER
-  theirs[checked_name] = checked["runs-on"] as string
+  local checked = job_of(jobs, "checked")
+  local checked_name = map_of(checked.env)["COSMIC_WORKER"]
+  theirs[assert(checked_name)] = assert(checked["runs-on"])
   assert(seed["runs-on"] == platform["runs-on"], "seed runs on another runner than its leg")
   for name, runner in pairs(theirs) do
     count = count + 1
@@ -1369,51 +1493,51 @@ local function test_a_main_push_reuses_the_queue_run()
   end
   assert(count == 5, "legs: " .. tostring(count))
   -- Only the checked job's seed relays no product.
-  local marked: mut {string: any} = {}
-  for _, leg in ipairs(((seed.strategy as {string: any}).matrix as {string: any}).include as {{string: any}}) do
-    marked[leg.name as string] = leg.checked
+  local marked: mut {string: string} = {}
+  for _, leg in ipairs(entries_of(assert(assert(seed.strategy).matrix)["include"])) do
+    if leg["checked"] ~= nil then marked[assert(leg["name"])] = assert(leg["checked"]) end
   end
   for name in pairs(ours) do
-    assert(marked[name] == (name == checked_name or nil), "seed's " .. name .. " is marked checked: " .. tostring(marked[name]))
+    assert(marked[name] == (if name == checked_name then "json:true" else nil end), "seed's " .. name .. " is marked checked: " .. tostring(marked[name]))
   end
   -- The lookup asks for every leg's seed, and the checked job's.
   local named: mut {string} = {}
   for _, leg in ipairs(legs_of(platform, "full")) do
-    named[#named + 1] = leg.name
+    named[#named + 1] = assert(leg["name"])
   end
-  named[#named + 1] = checked_name
-  assert((find.env as {string: string}).LEGS == table.concat(named, " "),
-    "reuse asks for other legs' seeds: " .. tostring((find.env as {string: string}).LEGS))
+  named[#named + 1] = assert(checked_name)
+  assert(map_of(find.env)["LEGS"] == table.concat(named, " "),
+    "reuse asks for other legs' seeds: " .. tostring(map_of(find.env)["LEGS"]))
 
-  local steps = seed.steps as {{string: any}}
+  local steps = seed.steps
   local downloads: mut {string: boolean} = {}
   local uploads: mut {string: boolean} = {}
   for _, step in ipairs(steps) do
-    local uses = step.uses as string or ""
-    local with = step.with as {string: string}
+    local uses = (step.uses or "")
+    local with = with_of(step)
     local artifact = uses:find("actions/download-artifact@", 1, true) ~= nil or
       uses:find("actions/upload-artifact@", 1, true) ~= nil
     -- The zig outputs' download is held apart, below.
-    if artifact and with.name ~= "seed-zig-${{ matrix.name }}" then
-      local product = with.name == "portable-product-${{ matrix.name }}"
+    if artifact and with["name"] ~= "seed-zig-${{ matrix.name }}" then
+      local product = with["name"] == "portable-product-${{ matrix.name }}"
       assert(step["if"] == (if product then "!matrix.checked" else nil end),
         "seed relays a product on the checked job's leg, or skips its seed there: " .. tostring(step["if"]))
     end
     if uses:find("actions/download-artifact@", 1, true) ~= nil then
       assert(with["run-id"] == "${{ needs.reuse.outputs.run }}" and with["github-token"] == "${{ github.token }}",
-        "seed downloads " .. with.name .. " from another run than the queue's")
-      downloads[with.name] = true
+        "seed downloads " .. param(step, "name") .. " from another run than the queue's")
+      downloads[param(step, "name")] = true
     elseif uses:find("actions/upload-artifact@", 1, true) ~= nil then
-      uploads[with.name] = true
+      uploads[param(step, "name")] = true
     end
   end
   assert(downloads["seed-${{ matrix.name }}"] == true and downloads["portable-product-${{ matrix.name }}"] == true,
     "seed downloads neither the leg's seed nor its product")
   assert(uploads["portable-product-${{ matrix.name }}"], "seed relays no product")
   local relayed = 0
-  for _, step in ipairs(platform.steps as {{string: any}}) do
-    local with = step.with as {string: string}
-    if with ~= nil and with.name == "portable-product-${{ matrix.name }}" then
+  for _, step in ipairs(platform.steps) do
+    local with = with_of(step)
+    if with["name"] == "portable-product-${{ matrix.name }}" then
       relayed = relayed + 1
     end
   end
@@ -1434,13 +1558,13 @@ local function test_a_main_push_reuses_the_queue_run()
       "\"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
     "seed reads other keys: " .. tostring(keys.run))
   local theirs_saved: mut {string: boolean} = {}
-  for _, step in pairs(saves_of(platform.steps as {{string: any}})) do
-    theirs_saved[(step.with as {string: string}).path] = true
+  for _, step in pairs(saves_of(platform.steps)) do
+    theirs_saved[param(step, "path")] = true
   end
   local saved = 0
   for key, step in pairs(saves_of(steps)) do
     saved = saved + 1
-    local path = (step.with as {string: string}).path
+    local path = param(step, "path")
     assert(theirs_saved[path], "seed saves " .. path .. ", which no platform leg saves")
     local name = key:match("^%${{ steps%.keys%.outputs%.([%w-]+) }}$")
     assert(name ~= nil, path .. " is seeded under a key the queue did not name: " .. key)
@@ -1455,12 +1579,12 @@ local function test_a_main_push_reuses_the_queue_run()
   -- failure: a lookup by the prefix of their core and vendor part, a
   -- leg's restore's first, then, where it found none, the queue leg's
   -- artifact of them, the tar laid out with its modes, and the save.
-  local zig_steps: mut {{string: any}} = {}
+  local zig_steps: mut {Step} = {}
   local relay: integer?
   for i, step in ipairs(steps) do
-    local with = step.with as {string: string}
-    if with ~= nil and with.name == "portable-product-${{ matrix.name }}" and
-        (step.uses as string):find("actions/upload-artifact@", 1, true) ~= nil then
+    local with = with_of(step)
+    if with["name"] == "portable-product-${{ matrix.name }}" and
+        assert(step.uses):find("actions/upload-artifact@", 1, true) ~= nil then
       relay = i
     end
     if relay ~= nil and i > relay then zig_steps[#zig_steps + 1] = step end
@@ -1470,27 +1594,27 @@ local function test_a_main_push_reuses_the_queue_run()
     assert(step["continue-on-error"] == true, tostring(step.name or step.id) .. " can fail seed")
   end
   local lookup, download, unpack, zig = zig_steps[1], zig_steps[2], zig_steps[3], zig_steps[4]
-  local lwith = lookup.with as {string: any}
-  assert((lookup.uses as string):find("actions/cache/restore@", 1, true) ~= nil and lwith["lookup-only"] == true and
-      lookup["if"] == "steps.keys.outputs.zig-build != ''" and
-      lwith.path == "${{ runner.temp }}/zig-build" and lwith.key == "${{ steps.keys.outputs.zig-build }}" and
+  local lwith = with_of(assert(lookup))
+  assert(assert(assert(lookup).uses):find("actions/cache/restore@", 1, true) ~= nil and lwith["lookup-only"] == true and
+      assert(lookup)["if"] == "steps.keys.outputs.zig-build != ''" and
+      lwith["path"] == "${{ runner.temp }}/zig-build" and lwith["key"] == "${{ steps.keys.outputs.zig-build }}" and
       lwith["restore-keys"] == "${{ steps.keys.outputs.zig-build-exact }}\n",
     "seed looks up another entry than one of the core and vendor part it saves")
-  local dwith = download.with as {string: string}
-  assert((download.uses as string):find("actions/download-artifact@", 1, true) ~= nil and
-      dwith.name == "seed-zig-${{ matrix.name }}" and dwith.path == "${{ runner.temp }}" and
-      download["if"] == "steps.keys.outputs.zig-build != '' && steps." .. (lookup.id as string) ..
+  local dwith = with_of(assert(download))
+  assert(assert(assert(download).uses):find("actions/download-artifact@", 1, true) ~= nil and
+      dwith["name"] == "seed-zig-${{ matrix.name }}" and dwith["path"] == "${{ runner.temp }}" and
+      assert(download)["if"] == "steps.keys.outputs.zig-build != '' && steps." .. assert(assert(lookup).id) ..
       ".outputs.cache-matched-key == ''",
-    "seed downloads the zig outputs elsewhere, or where an entry of their core holds them: " .. tostring(download["if"]))
-  assert(unpack["if"] == "steps." .. (download.id as string) .. ".outcome == 'success'" and unpack.run ==
+    "seed downloads the zig outputs elsewhere, or where an entry of their core holds them: " .. tostring(assert(download)["if"]))
+  assert(assert(unpack)["if"] == "steps." .. assert(assert(download).id) .. ".outcome == 'success'" and assert(unpack).run ==
       "tar -xf \"$RUNNER_TEMP/zig-build.tar\" -C \"$RUNNER_TEMP\" && rm \"$RUNNER_TEMP/zig-build.tar\"",
-    "the zig outputs are laid out elsewhere, or on other runs, than downloaded: " .. tostring(unpack.run))
+    "the zig outputs are laid out elsewhere, or on other runs, than downloaded: " .. tostring(assert(unpack).run))
   assert(save_of(steps, "${{ runner.temp }}/zig-build") == zig and
-      zig["if"] == "steps." .. (unpack.id as string) .. ".outcome == 'success'",
-    "the zig outputs are saved other than right after they are laid out: " .. tostring(zig["if"]))
+      assert(zig)["if"] == "steps." .. assert(unpack.id) .. ".outcome == 'success'",
+    "the zig outputs are saved other than right after they are laid out: " .. tostring(assert(zig)["if"]))
 
-  local join = jobs.ci
-  local needs = join.needs as {string}
+  local join = job_of(jobs, "ci")
+  local needs = needs_of(join)
   assert(table.concat(needs, ",") == "reuse,scope,platform,checked,checked-shard,checked-narrowing,format,seed",
     "the join needs " .. table.concat(needs, ","))
   -- The join passes on the legs, the checked job and its shares, and the
@@ -1498,28 +1622,28 @@ local function test_a_main_push_reuses_the_queue_run()
   -- one's that saves the check's memo) the format check,
   -- `seed`'s where a queue run was found, and on nothing of `reuse`'s but
   -- its output. What the scope does not run reads as passed.
-  local check = (join.steps as {{string: any}})[1]
-  local check_env = check.env as {string: string}
-  assert(check_env.RESULT == "${{ needs.reuse.outputs.run != '' && needs.seed.result || needs.platform.result }}",
-    "the join reads the legs that ran: " .. tostring(check_env.RESULT))
-  assert(check_env.CHECKED == "${{ needs.reuse.outputs.run != '' && needs.seed.result || needs.checked.result }}",
-    "the join reads another checked suite than the one that ran: " .. tostring(check_env.CHECKED))
+  local check = join.steps[1]
+  local check_env = map_of(assert(check).env)
+  assert(check_env["RESULT"] == "${{ needs.reuse.outputs.run != '' && needs.seed.result || needs.platform.result }}",
+    "the join reads the legs that ran: " .. tostring(check_env["RESULT"]))
+  assert(check_env["CHECKED"] == "${{ needs.reuse.outputs.run != '' && needs.seed.result || needs.checked.result }}",
+    "the join reads another checked suite than the one that ran: " .. tostring(check_env["CHECKED"]))
   local seeded = "needs.reuse.outputs.run != '' && needs.seed.result || "
-  assert(check_env.SHARES == "${{ " .. seeded .. "env.COSMIC_CI_SCOPE == 'full' && needs.checked-shard.result || 'success' }}",
-    "the join reads other shares than the ones that ran: " .. tostring(check_env.SHARES))
-  assert(check_env.NARROWING == "${{ " .. seeded ..
+  assert(check_env["SHARES"] == "${{ " .. seeded .. "env.COSMIC_CI_SCOPE == 'full' && needs.checked-shard.result || 'success' }}",
+    "the join reads other shares than the ones that ran: " .. tostring(check_env["SHARES"]))
+  assert(check_env["NARROWING"] == "${{ " .. seeded ..
       "env.COSMIC_CI_SCOPE == 'full' && needs.checked-narrowing.result || 'success' }}",
-    "the join reads another checked narrowing run than the one that ran: " .. tostring(check_env.NARROWING))
-  assert(check_env.FORMAT == "${{ (env.COSMIC_CI_SCOPE == 'light' || github.event_name == 'schedule') && " ..
+    "the join reads another checked narrowing run than the one that ran: " .. tostring(check_env["NARROWING"]))
+  assert(check_env["FORMAT"] == "${{ (env.COSMIC_CI_SCOPE == 'light' || github.event_name == 'schedule') && " ..
       "needs.format.result || 'success' }}",
-    "the join reads another format check than the one that ran: " .. tostring(check_env.FORMAT))
-  assert(check.run == "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED; " ..
+    "the join reads another format check than the one that ran: " .. tostring(check_env["FORMAT"]))
+  assert(assert(check).run == "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED; " ..
       "shares: $SHARES; checked narrowing: $NARROWING; format: $FORMAT\"; " ..
       "[ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$SHARES\" = success ] && " ..
       "[ \"$NARROWING\" = success ] && [ \"$FORMAT\" = success ] || { [ \"$EVENT\" != merge_group ] || " ..
       "echo \"a failed leg cancels a queue run, so the other legs may read cancelled; " ..
       "an error annotation names the failed leg\"; exit 1; }",
-    "the join passes on more or less than the legs and the checked suite: " .. tostring(check.run))
+    "the join passes on more or less than the legs and the checked suite: " .. tostring(assert(check).run))
   local reads <const>: {string: boolean} = { RESULT = true, CHECKED = true, SHARES = true, NARROWING = true,
     FORMAT = true, QUEUE_RUN = true, EVENT = true }
   for name, value in pairs(check_env) do
@@ -1536,9 +1660,9 @@ end
 --- uploads it as `seed-<leg>`, which `seed` downloads where it lays it
 --- out again.
 local function test_the_queue_keeps_what_main_would_save()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local jobs = ci.jobs as {string: {string: any}}
-  local steps = jobs.platform.steps as {{string: any}}
+  local ci = ci_workflow()
+  local jobs = ci.jobs
+  local steps = job_of(jobs, "platform").steps
   local stage, at = step_running(steps, "driver.tl queue-stage")
   local QUEUE <const> = "success() && github.event_name == 'merge_group'"
   assert(stage["if"] == QUEUE, "the queue's legs keep their seed on other runs: " .. tostring(stage["if"]))
@@ -1546,179 +1670,105 @@ local function test_the_queue_keeps_what_main_would_save()
   -- where the runner's $RUNNER_TEMP is.
   assert(stage.shell == "sh" and stage["working-directory"] == nil,
     "the seed is kept elsewhere than on the host from ci/")
-  local env = stage.env as {string: string}
+  local env = map_of(stage.env)
   for cache, path in pairs({ VERDICTS = "${{ runner.temp }}/verdicts", COMPILES = "${{ runner.temp }}/build-cache" }) do
     local save = assert(save_of(steps, path))
-    local key = (save.with as {string: string}).key
-    assert(env[cache .. "_PREFIX"] .. env[cache .. "_DIGEST"] == key,
+    local key = param(save, "key")
+    assert(assert(env[cache .. "_PREFIX"]) .. assert(env[cache .. "_DIGEST"]) == key,
       cache .. " is seeded under another key than main saves it under: " .. key)
-    assert(env[cache .. "_RESTORED"] ~= nil and (save["if"] as string):find(
-      env[cache .. "_RESTORED"]:match("^%${{ (.-) }}$"), 1, true) ~= nil,
+    assert(env[cache .. "_RESTORED"] ~= nil and assert(save["if"]):find(
+      assert((env[cache .. "_RESTORED"] or ""):match("^%${{ (.-) }}$")), 1, true) ~= nil,
       cache .. "'s seed is compared with another entry than main's save is")
   end
   -- The zig outputs under the key main's save names, the restore's own,
   -- except where that restore took an entry of this core and vendor
   -- part: the first prefix it asks for.
   local zig = assert(save_of(steps, "${{ runner.temp }}/zig-build"))
-  local zkey = (zig.with as {string: string}).key
+  local zkey = param(zig, "key")
   local restore = zkey:match("^%${{ steps%.([%w-]+)%.outputs%.cache%-primary%-key }}$")
-  assert(restore ~= nil and env.ZIG_BUILD_KEY == zkey and
-      env.ZIG_BUILD_RESTORED == "${{ steps." .. restore .. ".outputs.cache-matched-key }}",
+  assert(restore ~= nil and env["ZIG_BUILD_KEY"] == zkey and
+      env["ZIG_BUILD_RESTORED"] == "${{ steps." .. restore .. ".outputs.cache-matched-key }}",
     "the zig outputs are seeded under another key than main saves them under, or held to another entry: " ..
-      tostring(env.ZIG_BUILD_KEY))
-  local found_zrestore: {string: any}?
-  for _, step in ipairs(steps) do
-    if step.id == restore then found_zrestore = step end
-  end
-  local zrestore = assert(found_zrestore, "no step " .. restore)
-  local first = (((zrestore.with as {string: string})["restore-keys"]):match("^([^\n]*)\n"))
-  assert(env.ZIG_BUILD_EXACT == first and first:find("-${{ steps.names.outputs.core }}-", 1, true) ~= nil,
-    "the zig outputs are held to another entry than one of this core: " .. tostring(env.ZIG_BUILD_EXACT))
+      tostring(env["ZIG_BUILD_KEY"]))
+  local zrestore = step_with_id(steps, restore)
+  local first = ((param(zrestore, "restore-keys")):match("^([^\n]*)\n"))
+  assert(env["ZIG_BUILD_EXACT"] == first and assert(first):find("-${{ steps.names.outputs.core }}-", 1, true) ~= nil,
+    "the zig outputs are held to another entry than one of this core: " .. tostring(env["ZIG_BUILD_EXACT"]))
   -- And the verdicts under the commit, which is the queue's merge.
   local _, saved_twin = save_of(steps, "${{ runner.temp }}/verdicts")
   local twin = assert(saved_twin)
-  assert(env.SHA == "${{ github.sha }}" and
-      under_the_commit(env.VERDICTS_PREFIX) == (twin.with as {string: string}).key,
+  assert(env["SHA"] == "${{ github.sha }}" and
+      under_the_commit(assert(env["VERDICTS_PREFIX"])) == param(twin, "key"),
     "the verdicts are seeded under another commit's key than main saves them under")
   local marker = assert(save_of(steps, "${{ runner.temp }}/driver-checked"))
   local _, checked = step_running(steps, "cosmic-driver test cosmic_ci")
-  local writes = steps[checked].run as string
-  assert(writes:find("echo \"" .. (marker.with as {string: string}).key .. "\" > \"$RUNNER_TEMP/driver-checked/key\"",
+  local writes = assert(assert(steps[checked]).run)
+  assert(writes:find("echo \"" .. param(marker, "key") .. "\" > \"$RUNNER_TEMP/driver-checked/key\"",
     1, true) ~= nil, "the driver check's marker does not hold the key main saves it under: " .. writes)
   local _, trimmed = step_running(steps, "driver.tl verdicts-trim")
   local _, compiled = step_running(steps, "driver.tl compiles-trim")
-  local found_back: integer?
-  for i, step in ipairs(steps) do
-    if step.name == "move the tree back to where it was checked out" then found_back = i end
-  end
-  local found_gone: integer?
-  for i, step in ipairs(steps) do
-    if step.name == "remove the leg's container" then found_gone = i end
-  end
-  local back, gone = assert(found_back, "no step puts the tree back"), assert(found_gone, "no step removes the container")
+  local _, back = step_named(steps, "move the tree back to where it was checked out")
+  local _, gone = step_named(steps, "remove the leg's container")
   assert(trimmed < at and compiled < at and gone < at and at < back,
     "the seed is kept before a trim, beside the leg's container, or after the tree is put back")
   local upload = steps[at + 1]
-  local with = upload.with as {string: string}
-  assert(upload["if"] == QUEUE and with.name == "seed-${{ matrix.name }}" and with.path == "${{ runner.temp }}/seed" and
-      upload["continue-on-error"] == nil, "the seed is not uploaded as the leg's, or may fail unseen")
+  local with = with_of(assert(upload))
+  assert(assert(upload)["if"] == QUEUE and with["name"] == "seed-${{ matrix.name }}" and with["path"] == "${{ runner.temp }}/seed" and
+      assert(upload)["continue-on-error"] == nil, "the seed is not uploaded as the leg's, or may fail unseen")
   -- The zig outputs apart, where a failure fails nothing.
   local zupload = steps[at + 2]
-  local zwith = zupload.with as {string: any}
-  assert(zupload["if"] == QUEUE and zupload["continue-on-error"] == true and
-      zwith.name == "seed-zig-${{ matrix.name }}" and zwith.path == "${{ runner.temp }}/seed-zig" and
+  local zwith = with_of(assert(zupload))
+  assert(assert(zupload)["if"] == QUEUE and assert(zupload)["continue-on-error"] == true and
+      zwith["name"] == "seed-zig-${{ matrix.name }}" and zwith["path"] == "${{ runner.temp }}/seed-zig" and
       zwith["if-no-files-found"] == "ignore",
-    "the zig outputs are uploaded other than apart from the seed, and failing nothing: " .. tostring(zwith.name))
+    "the zig outputs are uploaded other than apart from the seed, and failing nothing: " .. tostring(zwith["name"]))
   local found_download: {string: string}?
-  for _, step in ipairs(jobs.seed.steps as {{string: any}}) do
-    local w = step.with as {string: string}
-    if w ~= nil and w.name == "seed-${{ matrix.name }}" then found_download = w end
+  for _, step in ipairs(job_of(jobs, "seed").steps) do
+    local w = with_of(step)
+    if w["name"] == "seed-${{ matrix.name }}" then found_download = texts_of(w) end
   end
   local download = assert(found_download, "the seed is downloaded by no step")
-  assert(download.path == "${{ runner.temp }}", "the seed is laid out elsewhere than it was kept: " .. download.path)
+  assert(download["path"] == "${{ runner.temp }}", "the seed is laid out elsewhere than it was kept: " .. assert(download["path"]))
 
   -- The checked job keeps its verdicts alone, as a leg keeps its own,
   -- after its trim and with its container gone, under its own name.
-  local cjob = jobs.checked
-  local csteps = cjob.steps as {{string: any}}
+  local cjob = job_of(jobs, "checked")
+  local csteps = cjob.steps
   local cstage, cat = step_running(csteps, "driver.tl queue-stage")
   assert(cstage["if"] == QUEUE and cstage.shell == "sh" and cstage["working-directory"] == nil,
     "the checked job keeps its seed on other runs, or elsewhere: " .. tostring(cstage["if"]))
-  local cenv = cstage.env as {string: string}
+  local cenv = map_of(cstage.env)
   local saved_vsave, saved_vtwin = save_of(csteps, "${{ runner.temp }}/verdicts")
   local vsave, vtwin = assert(saved_vsave), assert(saved_vtwin)
-  assert(cenv.VERDICTS_PREFIX .. cenv.VERDICTS_DIGEST == (vsave.with as {string: string}).key,
+  assert(assert(cenv["VERDICTS_PREFIX"]) .. assert(cenv["VERDICTS_DIGEST"]) == param(vsave, "key"),
     "the checked job's verdicts are seeded under another key than main saves them under")
-  assert(cenv.SHA == "${{ github.sha }}" and
-      under_the_commit(cenv.VERDICTS_PREFIX) == (vtwin.with as {string: string}).key,
+  assert(cenv["SHA"] == "${{ github.sha }}" and
+      under_the_commit(assert(cenv["VERDICTS_PREFIX"])) == param(vtwin, "key"),
     "the checked job's verdicts are seeded under another commit's key than main saves them under")
-  assert((vsave["if"] as string):find(cenv.VERDICTS_RESTORED:match("^%${{ (.-) }}$"), 1, true) ~= nil,
+  assert(assert(vsave["if"]):find(assert((cenv["VERDICTS_RESTORED"] or ""):match("^%${{ (.-) }}$")), 1, true) ~= nil,
     "the checked job's seed is compared with another entry than main's save is")
-  assert(cenv.COMPILES_PREFIX == nil and save_of(csteps, "${{ runner.temp }}/build-cache") == nil,
+  assert(cenv["COMPILES_PREFIX"] == nil and save_of(csteps, "${{ runner.temp }}/build-cache") == nil,
     "the checked job keeps compiles, which linux-x86_64's leg saves")
-  assert(cenv.ZIG_BUILD_KEY == nil and save_of(csteps, "${{ runner.temp }}/zig-build") == nil,
+  assert(cenv["ZIG_BUILD_KEY"] == nil and save_of(csteps, "${{ runner.temp }}/zig-build") == nil,
     "the checked job keeps zig outputs, which linux-x86_64's leg saves under the same key")
   local _, ctrim = step_running(csteps, "driver.tl verdicts-trim")
-  local found_removed: integer?
-  for i, step in ipairs(csteps) do
-    if step.name == "remove the leg's container" then found_removed = i end
-  end
-  local found_cback: integer?
-  for i, step in ipairs(csteps) do
-    if step.name == "move the tree back to where it was checked out" then found_cback = i end
-  end
-  local removed = assert(found_removed, "the checked job removes no container")
-  local cback = assert(found_cback, "the checked job puts no tree back")
+  local _, removed = step_named(csteps, "remove the leg's container")
+  local _, cback = step_named(csteps, "move the tree back to where it was checked out")
   assert(ctrim < cat and removed < cat and cat < cback,
     "the checked job's seed is kept before its trim, beside its container, or after its tree is put back")
   local cupload = csteps[cat + 1]
-  local cwith = cupload.with as {string: string}
-  assert(cupload["if"] == QUEUE and cwith.path == "${{ runner.temp }}/seed" and
-      cwith.name == "seed-" .. (cjob.env as {string: string}).COSMIC_WORKER,
-    "the checked job's seed is not uploaded as its own: " .. tostring(cwith.name))
-end
-
---- A decoded workflow's jobs, a job's steps, and a table, the strings of
---- a list or the numbers of one that the decoder made of a key: each
---- such read of a decoded value as its shape is made here, once, for the
---- tests of the checked jobs below.
-local function jobs_in(workflow: {string: any}): {string: {string: any}}
-  return workflow["jobs"] as {string: {string: any}}
-end
-local function steps_in(job: {string: any}): {{string: any}}
-  return job["steps"] as {{string: any}}
-end
-local function table_in(owner: {string: any}, key: string): {string: any}
-  return owner[key] as {string: any}
-end
-local function texts_in(owner: {string: any}, key: string): {string: string}
-  return owner[key] as {string: string}
-end
-local function list_in(owner: {string: any}, key: string): {string}
-  return owner[key] as {string}
-end
-local function numbers_in(owner: {string: any}, key: string): {integer}
-  return owner[key] as {integer}
-end
-
---- `value` as a table, or none where it is no table.
-local function table_or_none(value: any): {string: any}
-  if type(value) == "table" then
-    return value as {string: any}
-  end
-  return {}
-end
-
---- `value` where it is a string, and "" where it is not.
-local function text_of(value: any): string
-  if value is string then
-    return value
-  end
-  return ""
-end
-
---- The step of `steps` with the id `id`, and where it is.
-local function step_with_id(steps: {{string: any}}, id: string): {string: any}, integer
-  for i, step in ipairs(steps) do
-    if step["id"] == id then return step, i end
-  end
-  error("no step has the id " .. id)
+  local cwith = with_of(assert(cupload))
+  assert(assert(cupload)["if"] == QUEUE and cwith["path"] == "${{ runner.temp }}/seed" and
+      cwith["name"] == "seed-" .. assert(map_of(cjob.env)["COSMIC_WORKER"]),
+    "the checked job's seed is not uploaded as its own: " .. tostring(cwith["name"]))
 end
 
 --- The linux-x86_64 leg of a full run: its matrix entry.
-local function linux_x86_64_leg(platform: {string: any}): {string: string}
+local function linux_x86_64_leg(platform: Job): {string: string}
   for _, entry in ipairs(legs_of(platform, "full")) do
     if entry["name"] == "linux-x86_64" then return entry end
   end
   error("no linux-x86_64 leg")
-end
-
---- The step of `steps` named `name`, or none.
-local function step_named(steps: {{string: any}}, name: string): {string: any}?
-  for _, step in ipairs(steps) do
-    if step["name"] == name then return step end
-  end
-  return nil
 end
 
 --- `value`, a step's text in the leg's job, as the leg `leg` has it: its
@@ -1733,7 +1783,7 @@ local function as_leg(leg: {string: string}, value: string, own_name?: string): 
 end
 
 --- Holds `mine` to `their`, the leg's, as the leg has it.
-local function same_as_leg(leg: {string: string}, what: string, mine: any, their: any)
+local function same_as_leg(leg: {string: string}, what: string, mine: string?, their: string?)
   if their is string then
     assert(mine == as_leg(leg, their), what .. " is not the leg's: " .. tostring(mine) .. " against " .. their)
   else
@@ -1743,8 +1793,8 @@ end
 
 --- Holds each field of the tables `mine` and `their` to the other's,
 --- but for `spared`.
-local function same_table_as_leg(leg: {string: string}, what: string, mine: any, their: any, spared?: string)
-  local m, t = table_or_none(mine), table_or_none(their)
+local function same_table_as_leg(leg: {string: string}, what: string, m: {string: string}, t: {string: string},
+                                 spared?: string)
   for key, value in pairs(t) do same_as_leg(leg, what .. "'s " .. tostring(key), m[key], value) end
   for key, value in pairs(m) do
     if key ~= spared then same_as_leg(leg, what .. "'s " .. tostring(key), value, t[key]) end
@@ -1781,26 +1831,26 @@ end
 --- for none) where the leg's step has none a matrix names. A restore of
 --- the verdicts may only look the entry up (`lookup-only`), which the
 --- leg's does not.
-local function held_to_the_leg(where: string, job: {string: any}, platform: {string: any}, names: {string},
+local function held_to_the_leg(where: string, job: Job, platform: Job, names: {string},
                                wanted: function(name: string, theirs: string?): string?)
   local leg = linux_x86_64_leg(platform)
-  local theirs, ours = steps_in(platform), steps_in(job)
+  local theirs, ours = platform.steps, job.steps
   for _, step_name in ipairs(names) do
-    local our, their = step_named(ours, step_name), step_named(theirs, step_name)
-    assert(their ~= nil and our ~= nil, where .. ": no step " .. step_name)
     local at = where .. ": " .. step_name
+    local our, their = (step_named(ours, step_name, at .. ": ")), (step_named(theirs, step_name, at .. ": "))
     same_as_leg(leg, at .. "'s action", our["uses"], their["uses"])
-    for _, key in ipairs({ "id", "shell", "working-directory" }) do
-      same_as_leg(leg, at .. "'s " .. key, our[key], their[key])
-    end
+    same_as_leg(leg, at .. "'s id", our.id, their.id)
+    same_as_leg(leg, at .. "'s shell", our.shell, their.shell)
+    same_as_leg(leg, at .. "'s working-directory", our["working-directory"], their["working-directory"])
     local script = their["run"]
     if script is string then
       local own = if step_name == "name the leg's host" then "linux-x86_64-checked" else nil end
       same_as_leg(leg, at .. "'s script", our["run"], as_leg(leg, script, own))
     end
-    local looked = step_name == "restore test verdicts" and table_or_none(our["with"])["lookup-only"] == true
-    same_table_as_leg(leg, at .. "'s with", our["with"], their["with"], if looked then "lookup-only" else nil end)
-    same_table_as_leg(leg, at .. "'s env", our["env"], their["env"])
+    local looked = step_name == "restore test verdicts" and with_of(our)["lookup-only"] == true
+    same_table_as_leg(leg, at .. "'s with", texts_of(with_of(our)), texts_of(with_of(their)),
+      if looked then "lookup-only" else nil end)
+    same_table_as_leg(leg, at .. "'s env", map_of(our.env), map_of(their.env))
     local condition: string? = nil
     local raw = their["if"]
     if raw is string and not raw:find("matrix.", 1, true) then condition = raw end
@@ -1810,10 +1860,10 @@ end
 
 --- The phases a job of the checked family runs, in order, as
 --- `cosmic-driver cosmic_ci/driver.tl platform <phase>`.
-local function phases_of(job: {string: any}): string
+local function phases_of(job: Job): string
   local ran: mut {string} = {}
-  for _, step in ipairs(steps_in(job)) do
-    local phase = text_of(step["run"]):match("^cosmic%-driver cosmic_ci/driver%.tl platform ([%w-]+)$")
+  for _, step in ipairs(job.steps) do
+    local phase = (step.run or ""):match("^cosmic%-driver cosmic_ci/driver%.tl platform ([%w-]+)$")
     if phase ~= nil then ran[#ran + 1] = phase end
   end
   return table.concat(ran, " ")
@@ -1834,9 +1884,9 @@ end
 --- fixture. On a branch push's light run it runs none of that but the
 --- pinned CI driver's check, which the legs make only on a full run.
 local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x86_64s_host()
-  local jobs = jobs_in(assert(decoded_workflows()[DIR .. "/ci.yml"]))
-  local platform, checked = assert(jobs["platform"]), assert(jobs["checked"])
-  assert(table.concat(list_in(checked, "needs"), ",") == "reuse,scope,checked-shard",
+  local jobs = ci_workflow().jobs
+  local platform, checked = job_of(jobs, "platform"), job_of(jobs, "checked")
+  assert(table.concat(needs_of(checked), ",") == "reuse,scope,checked-shard",
     "the checked job waits on " .. tostring((Json.encode_any(checked["needs"]))))
   -- Past a failed share it runs only where it saves (main's push, the
   -- nightly: a branch push has no shares to fail), to take the failed test's pass out of the cache, and fails.
@@ -1844,27 +1894,22 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
       "(needs.checked-shard.result != 'failure' || github.event_name == 'push' || github.event_name == 'schedule')",
     "the checked job runs other than where the legs do, unless a share failed off a saving run: " ..
       tostring(checked["if"]))
-  local checked_steps = steps_in(checked)
-  local failing_at = 0
-  for i, step in ipairs(checked_steps) do
-    if step["name"] == "fail where a share failed" then failing_at = i end
-  end
-  assert(failing_at > 0, "the checked job does not fail where a share failed")
-  local failing = assert(checked_steps[failing_at])
+  local checked_steps = checked.steps
+  local failing, failing_at = step_named(checked_steps, "fail where a share failed")
   local _, running_at = step_with_id(checked_steps, "checked-suite")
   assert(failing["if"] == "env.COSMIC_CI_SCOPE == 'full' && needs.checked-shard.result == 'failure'" and
       failing_at < running_at, "the checked job does not fail, before its suite, where a share failed")
   local gather_minutes = math.tointeger(checked["timeout-minutes"])
   assert(gather_minutes ~= nil and gather_minutes <= 20, "the checked job's time is not sized for a gather")
   assert(platform["if"] == "!cancelled() && needs.reuse.outputs.run == ''", tostring(platform["if"]))
-  local penv, cenv = texts_in(platform, "env"), texts_in(checked, "env")
+  local penv, cenv = map_of(platform.env), map_of(checked.env)
   assert(penv["COSMIC_CI_CHECKED_SUITE"] == "skip", "a leg runs the checked suite: " ..
       tostring(penv["COSMIC_CI_CHECKED_SUITE"]))
   local leg = linux_x86_64_leg(platform)
   local name = checked["name"]
-  assert(name == leg["name"] .. "-checked" and cenv["COSMIC_WORKER"] == name, "the checked job's name: " .. tostring(name))
+  assert(name == assert(leg["name"]) .. "-checked" and cenv["COSMIC_WORKER"] == name, "the checked job's name: " .. tostring(name))
   assert(checked["runs-on"] == leg["runner"], "the checked job runs on " .. tostring(checked["runs-on"]))
-  assert(table_in(table_in(checked, "defaults"), "run")["shell"] == leg["shell"],
+  assert(assert(assert(checked.defaults)["run"])["shell"] == leg["shell"],
     "the checked job's steps run through another shell than the leg's")
   assert(cenv["TARGET"] == leg["target"] and cenv["COSMIC_CI_CHECKED_SUITE"] == "gather" and
       cenv["COSMIC_CI_FORMAT"] == nil and
@@ -1893,7 +1938,7 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
       if BOTH[step_name] == true then return theirs end
       return if theirs then FULL .. " && " .. theirs else FULL end
     end)
-  local steps = steps_in(checked)
+  local steps = checked.steps
   assert(phases_of(checked) == "boot checked-build checked performance-checked",
     "the checked job runs " .. phases_of(checked))
   local at = verdict_steps(steps)
@@ -1906,14 +1951,14 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
   -- It takes the verdicts the shares kept between its checked build and
   -- its suite, each share's into the cache, and none from main's entry,
   -- which it only looks up.
-  assert(table_in(assert(steps[restore_at]), "with")["lookup-only"] == true,
+  assert(with_of(assert(steps[restore_at]))["lookup-only"] == true,
     "the checked job restores main's verdicts, which the suite it gathers would stand on")
   local _, built = step_running(steps, "platform checked-build")
   local download, downloaded = step_with_id(steps, "shares-download")
   local merge, merged = step_running(steps, "driver.tl verdicts-merge")
   assert(built < downloaded and downloaded < merged and merged < suite,
     "the checked job does not take the shares' verdicts after its build and before its suite")
-  local pulled = texts_in(download, "with")
+  local pulled = with_of(download)
   assert(download["uses"] == "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c" and
       pulled["pattern"] == "verdicts-linux-x86_64-checked-shard-*" and pulled["merge-multiple"] == nil and
       pulled["name"] == nil and pulled["run-id"] == nil and download["continue-on-error"] == nil and
@@ -1927,7 +1972,7 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
   -- It makes no run ahead of its own: the shares do, and it keeps no
   -- verdicts for the run behind, which takes theirs.
   for _, step in ipairs(steps) do
-    local called = text_of(step["run"]) .. text_of(step["name"])
+    local called = (step.run or "") .. (step.name or "")
     assert(not called:find("queue-ahead", 1, true) and not called:find("for the run behind", 1, true),
       "the checked job takes or keeps verdicts of the queue's runs: " .. called)
   end
@@ -1945,9 +1990,9 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
   local unmet <const> = { FULL, "github.event_name == 'merge_group'", "steps.verdicts-trim.outputs.digest != ''" }
   local only_light: mut {string} = {}
   for _, step in ipairs(steps) do
-    local called = text_of(step["name"])
-    if called == "" then called = text_of(step["uses"]) end
-    local condition = text_of(step["if"])
+    local called = (step.name or "")
+    if called == "" then called = (step.uses or "") end
+    local condition = (step["if"] or "")
     if condition == LIGHT or condition:find(LIGHT .. " && ", 1, true) == 1 then
       only_light[#only_light + 1] = called
     else
@@ -1967,62 +2012,58 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
   for i, step in ipairs(steps) do
     if step["uses"] == DRIVER then bootstrap = i end
   end
-  local legs = step_running(steps_in(platform), "cosmic-driver test cosmic_ci")
+  local legs = step_running(platform.steps, "cosmic-driver test cosmic_ci")
   assert(mine["run"] == "cosmic-driver test cosmic_ci", "the checked job checks the driver otherwise: " .. tostring(mine["run"]))
-  same_table_as_leg(leg, "the driver check's env", mine["env"], legs["env"])
-  local theirs = steps_in(platform)
-  local driver_step = assert(step_named(steps, "bootstrap the pinned CI driver"))
+  same_table_as_leg(leg, "the driver check's env", assert(mine["env"]), assert(legs["env"]))
+  local theirs = platform.steps
+  local driver_step = (step_named(steps, "bootstrap the pinned CI driver"))
   assert(driver_step["id"] == "driver" and bootstrap > 0 and check > bootstrap,
     "the checked job checks the driver before bootstrapping it")
   -- A full run's legs check the driver; a light run's none do.
-  local legs_lookup = assert(step_named(theirs, "find a passing CI driver check"))
+  local legs_lookup = (step_named(theirs, "find a passing CI driver check"))
   assert(tostring(legs["if"]):find(FULL .. " && ", 1, true) == 1 and legs_lookup["if"] == FULL,
     "a light run's legs check the driver: " .. tostring(legs["if"]))
   -- A light run skips its check where main's linux-x86_64 leg saved
   -- its marker under the key that leg looks up: that leg's host, named
   -- as the leg names it (its COSMIC_HOST_ID not kept), and what the
   -- leg's key hashes, looked up before the tree moves.
-  local host = assert(step_named(steps, "name linux-x86_64's host"), "a light run looks up no marker of linux-x86_64's")
-  local lookup = assert(step_named(steps, "find a passing CI driver check"))
-  local their_host = assert(step_named(theirs, "name the leg's host"))
+  local host = (step_named(steps, "name linux-x86_64's host", "a light run looks up no marker of linux-x86_64's: "))
+  local lookup = (step_named(steps, "find a passing CI driver check"))
+  local their_host = (step_named(theirs, "name the leg's host"))
   local their_lookup = legs_lookup
   assert(host["id"] == "driver-host" and host["continue-on-error"] == true and
       host["run"] == "GITHUB_ENV=/dev/null " .. as_leg(leg, tostring(their_host["run"])),
     "a light run names another host than linux-x86_64's, keeps it, or fails on it: " .. tostring(host["run"]))
-  for _, key in ipairs({ "shell", "working-directory" }) do
-    assert(host[key] == their_host[key], "the host's " .. key)
-  end
-  same_table_as_leg(leg, "the host's environment", host["env"], their_host["env"])
+  assert(host.shell == their_host.shell, "the host's shell")
+  assert(host["working-directory"] == their_host["working-directory"], "the host's working-directory")
+  same_table_as_leg(leg, "the host's environment", map_of(host.env), map_of(their_host.env))
   assert(lookup["id"] == "driver-check-restore" and lookup["uses"] == their_lookup["uses"],
     "a light run looks up the marker otherwise: " .. tostring(lookup["id"]))
   local by_image <const> = "${{ matrix.image && 'container' || steps.names.outputs.image }}"
-  local their_key = assert(texts_in(their_lookup, "with")["key"])
+  local their_key = assert(param(their_lookup, "key"))
   assert(their_key:find(by_image, 1, true) ~= nil and leg["image"] ~= "", their_key)
   local in_container = their_key:gsub(by_image:gsub("%p", "%%%0"), "container")
   local want = as_leg(leg, (in_container:gsub("steps%.host%-id%.outputs%.prefix", "steps.driver-host.outputs.prefix")))
-  same_table_as_leg(leg, "the marker's lookup", lookup["with"],
-    { path = table_in(their_lookup, "with")["path"], key = want, ["lookup-only"] = true })
+  local wanted: mut {string: string} = {}
+  wanted["path"], wanted["key"], wanted["lookup-only"] = param(their_lookup, "path"), want, "json:true"
+  same_table_as_leg(leg, "the marker's lookup", texts_of(with_of(lookup)), wanted)
   local _, named = step_running(steps, "GITHUB_ENV=/dev/null cosmic-driver cosmic_ci/driver.tl leg-host-id")
-  local found_looked: integer?
-  for i, step in ipairs(steps) do
-    if step == lookup then found_looked = i end
-  end
-  local looked = assert(found_looked, "no step looks up the marker")
+  local looked = position(steps, lookup)
   local _, moved = step_running(steps, "driver.tl place-tree")
   assert(named < looked and looked < moved and looked < check,
     "a light run looks up linux-x86_64's marker after its check, or with the tree moved")
   assert(mine["if"] == LIGHT .. " && steps.driver-check-restore.outputs.cache-hit != 'true'",
     "a light run checks the driver over main's marker: " .. tostring(mine["if"]))
-  for _, step in ipairs(steps_in(platform)) do
-    assert(not text_of(step["run"]):find("platform format", 1, true), "a leg checks the format apart from assemble")
+  for _, step in ipairs(platform.steps) do
+    assert(not (step.run or ""):find("platform format", 1, true), "a leg checks the format apart from assemble")
   end
   -- Whatever failed, on either scope, it keeps its operations, as a leg
   -- does, under its own name.
-  local kept = assert(step_named(steps, "preserve CI driver database"))
-  local theirs_kept = assert(step_named(theirs, "preserve CI driver database"))
+  local kept = (step_named(steps, "preserve CI driver database"))
+  local theirs_kept = (step_named(theirs, "preserve CI driver database"))
   assert(kept["if"] == "always()" and
-      texts_in(kept, "with")["name"] == "ci-driver-" .. tostring(name) and
-      texts_in(kept, "with")["path"] == texts_in(theirs_kept, "with")["path"],
+      param(kept, "name") == "ci-driver-" .. tostring(name) and
+      param(kept, "path") == param(theirs_kept, "path"),
     "the checked job keeps its operations only on some runs, or under another name: " .. tostring(kept["if"]))
 end
 
@@ -2037,19 +2078,20 @@ end
 --- gathering job merges, trimmed to them, after the suite and before it
 --- ends. It saves nothing and seeds nothing, and the join needs it.
 local function test_the_checked_suite_runs_in_shares_that_a_job_gathers()
-  local jobs = jobs_in(assert(decoded_workflows()[DIR .. "/ci.yml"]))
-  local platform, checked = assert(jobs["platform"]), assert(jobs["checked"])
-  local shard = assert(jobs["checked-shard"], "no job runs a share of the checked suite")
+  local jobs = ci_workflow().jobs
+  local platform, checked = job_of(jobs, "platform"), job_of(jobs, "checked")
+  local shard = assert(job_of(jobs, "checked-shard"), "no job runs a share of the checked suite")
   assert(Json.encode_any(shard["needs"]) == '["reuse","scope"]' and
       shard["if"] == "!cancelled() && needs.reuse.outputs.run == '' && " .. FULL_RUN,
     "a share runs elsewhere than on a full run where the legs run: " .. tostring(shard["if"]))
-  local strategy = table_in(shard, "strategy")
-  local parts = numbers_in(table_in(strategy, "matrix"), "part")
+  local strategy = assert(shard.strategy)
+  local parts, parts_err: {integer}?, string = Shape.into(assert(strategy.matrix)["part"], Shape.list(Shape.integer))
+  parts = assert(parts, parts_err)
   assert(#parts >= 2 and strategy["fail-fast"] == false,
     "the checked suite is split in no shares, or one failing cancels the others")
   for i, part in ipairs(parts) do assert(part == i, "the shares are not numbered from 1") end
   assert(shard["name"] == "linux-x86_64-checked-shard-${{ matrix.part }}", "a share's name: " .. tostring(shard["name"]))
-  local env = texts_in(shard, "env")
+  local env = map_of(shard.env)
   local expected <const>: {string: string} = { COSMIC_WORKER = "linux-x86_64-checked", TARGET = "x86_64-linux-musl",
     COSMIC_CI_CHECKED_SUITE = "run", COSMIC_CI_CHECKED_SHARD = "${{ matrix.part }}/${{ strategy.job-total }}",
     COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_DECLARED_KEYS = "0",
@@ -2076,17 +2118,17 @@ local function test_the_checked_suite_runs_in_shares_that_a_job_gathers()
       return theirs
     end)
   assert(phases_of(shard) == "boot checked-build checked", "a share runs " .. phases_of(shard))
-  local steps = steps_in(shard)
+  local steps = shard.steps
   local at = verdict_steps(steps)
   local restore_at, trim_at = assert(at["verdicts-restore"]), assert(at["trim"])
   local suite_step, suite = step_with_id(steps, "checked-suite")
   assert(suite_step["run"] == "cosmic-driver cosmic_ci/driver.tl platform checked" and suite_step["if"] == nil,
     "a share's suite is gated, or is another phase: " .. tostring(suite_step["if"]))
-  assert(table_in(assert(steps[restore_at]), "with")["lookup-only"] == nil,
+  assert(with_of(assert(steps[restore_at]))["lookup-only"] == nil,
     "a share looks up the verdicts it stands on, not restores them")
   -- The run ahead's same share, between the build and the suite.
   local ahead, ahead_at = step_running(steps, "driver.tl queue-ahead")
-  local aenv = texts_in(ahead, "env")
+  local aenv = map_of(ahead.env)
   assert(aenv["JOB"] == "linux-x86_64-checked-shard-${{ matrix.part }}" and
       aenv["ARTIFACT"] == "verdicts-linux-x86_64-checked-shard-${{ matrix.part }}" and
       aenv["READY_SECONDS"] == "600" and aenv["WITHIN_SECONDS"] == "90" and aenv["SUITE_STEP"] == nil,
@@ -2095,17 +2137,17 @@ local function test_the_checked_suite_runs_in_shares_that_a_job_gathers()
   local trimmed = assert(steps[trim_at])
   assert(trimmed["if"] == "always() && steps.driver.outcome == 'success'" and trimmed["id"] == "verdicts-trim",
     "a share trims its verdicts only on some runs: " .. tostring(trimmed["if"]))
-  local keep: {string: any}?
+  local keep: Step?
   local kept_at: integer?
   for i, step in ipairs(steps) do
-    if text_of(step["uses"]):find("actions/upload-artifact@", 1, true) ~= nil and
-        text_of(table_or_none(step["with"])["path"]):find("${{ runner.temp }}/verdicts/", 1, true) == 1 then
+    if (step.uses or ""):find("actions/upload-artifact@", 1, true) ~= nil and
+        param(step, "path"):find("${{ runner.temp }}/verdicts/", 1, true) == 1 then
       assert(keep == nil, "a share keeps its verdicts twice")
       keep, kept_at = step, i
     end
   end
   assert(keep ~= nil and kept_at ~= nil and kept_at > trim_at, "a share keeps no verdicts, or before it trims them")
-  local kw = table_in(keep, "with")
+  local kw = with_of(keep)
   assert(kw["name"] == "verdicts-linux-x86_64-checked-shard-${{ matrix.part }}" and
       kw["path"] == "${{ runner.temp }}/verdicts/checked.db*" and kw["retention-days"] == 1 and kw["overwrite"] == true and
       kw["if-no-files-found"] == "error" and keep["continue-on-error"] == nil and
@@ -2116,13 +2158,13 @@ local function test_the_checked_suite_runs_in_shares_that_a_job_gathers()
   assert(pattern == "verdicts-linux-x86_64-checked-shard-*", "the shares' artifacts are named " .. pattern)
   -- It saves and seeds nothing: only main's saves are `checked`'s.
   for _, step in ipairs(steps) do
-    assert(not text_of(step["uses"]):find("actions/cache/save@", 1, true), "a share saves a cache")
-    assert(not text_of(step["run"]):find("queue-stage", 1, true), "a share seeds main")
+    assert(not (step.uses or ""):find("actions/cache/save@", 1, true), "a share saves a cache")
+    assert(not (step.run or ""):find("queue-stage", 1, true), "a share seeds main")
   end
-  local kept_db = assert(texts_in(assert(step_named(steps, "preserve CI driver database")), "with")["name"])
+  local kept_db = assert(param((step_named(steps, "preserve CI driver database")), "name"))
   assert(kept_db == "ci-driver-linux-x86_64-checked-shard-${{ matrix.part }}", "a share keeps its operations as " .. kept_db)
-  local diag = assert(step_named(steps, "preserve checked suite failure diagnostics"))
-  assert(texts_in(diag, "with")["name"] == "platform-diagnostics-linux-x86_64-checked-shard-${{ matrix.part }}" and
+  local diag = (step_named(steps, "preserve checked suite failure diagnostics"))
+  assert(param(diag, "name") == "platform-diagnostics-linux-x86_64-checked-shard-${{ matrix.part }}" and
       diag["if"] == "failure()", "a share keeps its diagnostics otherwise")
 end
 
@@ -2133,11 +2175,11 @@ end
 --- is a job of its own too (`format`), which a full run does not run
 --- (its legs make that check in assemble).
 local function test_the_checked_narrowing_run_and_a_light_runs_format_check_have_jobs_of_their_own()
-  local jobs = jobs_in(assert(decoded_workflows()[DIR .. "/ci.yml"]))
-  local platform = assert(jobs["platform"])
-  local narrowing = assert(jobs["checked-narrowing"], "no job runs the checked narrowing")
-  local format = assert(jobs["format"], "no job runs the light format check")
-  assert(Json.encode_any(narrowing["needs"]) == '["reuse","scope"]' and narrowing["if"] == assert(jobs["checked-shard"])["if"],
+  local jobs = ci_workflow().jobs
+  local platform = job_of(jobs, "platform")
+  local narrowing = assert(job_of(jobs, "checked-narrowing"), "no job runs the checked narrowing")
+  local format = assert(job_of(jobs, "format"), "no job runs the light format check")
+  assert(Json.encode_any(narrowing["needs"]) == '["reuse","scope"]' and narrowing["if"] == job_of(jobs, "checked-shard")["if"],
     "the checked narrowing runs elsewhere than a share does: " .. tostring(narrowing["if"]))
   assert(narrowing["name"] == "linux-x86_64-checked-narrowing", tostring(narrowing["name"]))
   assert(phases_of(narrowing) == "boot checked-narrowing", "the checked narrowing runs " .. phases_of(narrowing))
@@ -2145,13 +2187,13 @@ local function test_the_checked_narrowing_run_and_a_light_runs_format_check_have
     function(_: string, theirs: string?): string?
       return theirs
     end)
-  for _, step in ipairs(steps_in(narrowing)) do
-    local uses = text_of(step["uses"])
+  for _, step in ipairs(narrowing.steps) do
+    local uses = (step.uses or "")
     assert(uses:find("actions/cache/save@", 1, true) == nil and not uses:find("verdicts", 1, true),
       "the checked narrowing saves or restores a cache of verdicts")
-    assert(not text_of(step["run"]):find("checked-build", 1, true), "the checked narrowing builds the checked core")
+    assert(not (step.run or ""):find("checked-build", 1, true), "the checked narrowing builds the checked core")
   end
-  local nenv = texts_in(narrowing, "env")
+  local nenv = map_of(narrowing.env)
   assert(nenv["COSMIC_WORKER"] == "linux-x86_64-checked" and nenv["COSMIC_CI_REQUIRE_SANDBOX"] == "1" and
       nenv["COSMIC_CI_DECLARED_KEYS"] == "0" and nenv["COSMIC_CI_CHECKED_SUITE"] == nil and nenv["COSMIC_CI_FORMAT"] == nil,
     "the checked narrowing is not run as the checked job was: " .. tostring((Json.encode(nenv))))
@@ -2163,7 +2205,7 @@ local function test_the_checked_narrowing_run_and_a_light_runs_format_check_have
       "((github.event_name == 'push' && github.ref_name != 'main' && needs.scope.outputs.scope == 'light') || " ..
       "github.event_name == 'schedule')",
     "the format check runs elsewhere than on a branch push or the scheduled run: " .. tostring(format["if"]))
-  local fenv = texts_in(format, "env")
+  local fenv = map_of(format.env)
   assert(format["name"] == "linux-x86_64-format" and fenv["COSMIC_WORKER"] == format["name"])
   assert(fenv["COSMIC_CI_FORMAT"] == "run", "the format check is skipped")
   assert(phases_of(format) == "boot format", "the format check runs " .. phases_of(format))
@@ -2186,16 +2228,16 @@ end
 --- in the directory the check is told of (COSMIC_CI_CHECK_MEMO), under a
 --- key of its own run's: a cache entry is never overwritten.
 local function test_the_format_check_starts_from_the_scheduled_runs_memo()
-  local jobs = jobs_in(assert(decoded_workflows()[DIR .. "/ci.yml"]))
-  local steps = steps_in(assert(jobs["format"]))
+  local jobs = ci_workflow().jobs
+  local steps = job_of(jobs, "format").steps
   local path <const> = "${{ runner.temp }}/check-memo"
   local key <const> = "check-memo-v1-${{ github.run_id }}-${{ github.run_attempt }}"
   local check, checked_at = step_with_id(steps, "format")
   local restored_at, saved_at: integer?, integer?
-  local restore, save: {string: any}?, {string: any}?
+  local restore, save: Step?, Step?
   for i, step in ipairs(steps) do
-    local uses = text_of(step["uses"])
-    local with = table_or_none(step["with"])
+    local uses = (step.uses or "")
+    local with = with_of(step)
     if uses:find("actions/cache/restore@", 1, true) ~= nil and with["path"] == path then
       restore, restored_at = step, i
     end
@@ -2206,21 +2248,20 @@ local function test_the_format_check_starts_from_the_scheduled_runs_memo()
   assert(restore ~= nil and restored_at ~= nil and save ~= nil and saved_at ~= nil,
     "the format job restores or saves no memo")
   assert(restored_at < checked_at and checked_at < saved_at, "the memo is restored after the check, or saved before it")
-  local rwith, swith = table_in(restore, "with"), table_in(save, "with")
+  local rwith, swith = with_of(restore), with_of(save)
   assert(rwith["key"] == key and rwith["restore-keys"] == "check-memo-v1-\n" and rwith["lookup-only"] == nil and
       restore["if"] == nil, "the memo is restored by another key than a prefix no entry has: " .. tostring(rwith["key"]))
   assert(swith["key"] == key and
       save["if"] == "steps.format.outcome == 'success' && env.COSMIC_CI_SAVES == 'true'",
     "the memo is saved by another run than main's scheduled one, or after a failed check: " .. tostring(save["if"]))
-  local cenv = texts_in(check, "env")
+  local cenv = map_of(check.env)
   assert(cenv["COSMIC_CI_CHECK_MEMO"] == path,
     "the check is told another memo than the one restored: " .. tostring(cenv["COSMIC_CI_CHECK_MEMO"]))
   -- Whatever else saves a cache of memos: nothing.
   for name, job in pairs(jobs) do
-    for _, step in ipairs(steps_in(job)) do
-      local with = table_or_none(step["with"])
-      if text_of(step["uses"]):find("actions/cache/", 1, true) ~= nil and
-          text_of(with["key"]):find("check-memo", 1, true) ~= nil then
+    for _, step in ipairs(job.steps) do
+      if (step.uses or ""):find("actions/cache/", 1, true) ~= nil and
+          param(step, "key"):find("check-memo", 1, true) ~= nil then
         assert(name == "format", name .. " keeps the format check's memo")
       end
     end
@@ -2241,9 +2282,8 @@ end
 --- whole tree where it named none. A full run's check, the
 --- merge queue's, is the whole tree's.
 local function test_a_light_format_check_lays_out_only_what_the_branch_changed()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local jobs = ci.jobs as {string: {string: any}}
-  local steps = jobs.format.steps as {{string: any}}
+  local jobs = ci_workflow().jobs
+  local steps = job_of(jobs, "format").steps
   local base, found = step_running(steps, "driver.tl merge-base")
   assert(base["if"] == "github.event_name != 'schedule'",
     "the format job finds its base on the scheduled run, which checks the whole tree: " .. tostring(base["if"]))
@@ -2252,28 +2292,28 @@ local function test_a_light_format_check_lays_out_only_what_the_branch_changed()
   assert(named.id == "changed" and named["if"] == "github.event_name != 'schedule'" and named.shell == "sh" and
       named["working-directory"] == nil and named["continue-on-error"] == true,
     "the format job names what changed otherwise, or fails for it: " .. tostring(named["if"]))
-  local env = named.env as {string: string}
-  assert(env.BASE == "${{ steps.merge-base.outputs.sha }}" and
-      env.OUT:find("${{ runner.temp }}/", 1, true) == 1,
+  local env = map_of(named.env)
+  assert(env["BASE"] == "${{ steps.merge-base.outputs.sha }}" and
+      assert(env["OUT"]):find("${{ runner.temp }}/", 1, true) == 1,
     "the paths changed are named from another base, or kept outside the runner's temporary directory")
   local _, moved = step_running(steps, "driver.tl place-tree")
   assert(found < listed and listed < moved,
     "the format job names what changed before it finds the base, or with its tree moved")
-  local checkout: {string: any}? = nil
+  local checkout: Step? = nil
   for _, step in ipairs(steps) do
     if step.uses == CHECKOUT then checkout = step end
   end
-  assert(checkout ~= nil and (checkout.with as {string: any})["persist-credentials"] == nil,
+  assert(checkout ~= nil and with_of(checkout)["persist-credentials"] == nil,
     "the format job keeps no credentials to fetch its base with")
   local format, checked_at = step_running(steps, "platform format")
   assert(checked_at > listed and format["if"] == nil and
-      (format.env as {string: string}).COSMIC_CI_FORMAT_CHANGED == "${{ steps.changed.outputs.paths }}",
+      map_of(format.env)["COSMIC_CI_FORMAT_CHANGED"] == "${{ steps.changed.outputs.paths }}",
     "a light run's format check lays out other than what the branch changed")
   for job_name, job in pairs(jobs) do
-    for _, step in ipairs(job.steps as {{string: any}}) do
-      local run = step.run as string or ""
-      local e = step.env as {string: string} or {}
-      assert(e.COSMIC_CI_FORMAT_CHANGED == nil or job_name == "format" and run:find("platform format", 1, true) ~= nil,
+    for _, step in ipairs(job.steps) do
+      local run = (step.run or "")
+      local e = map_of(step.env)
+      assert(e["COSMIC_CI_FORMAT_CHANGED"] == nil or job_name == "format" and run:find("platform format", 1, true) ~= nil,
         "a step other than the format job's check reads what the branch changed: " .. job_name)
       assert(job_name == "format" or not run:find("driver.tl changed-paths", 1, true),
         job_name .. " names the paths a branch changed")
@@ -2293,9 +2333,9 @@ end
 local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
   local placed = 0
   for path, workflow in pairs(decoded_workflows()) do
-    for job_name, job in pairs(workflow.jobs as {string: {string: any}}) do
+    for job_name, job in pairs(workflow.jobs) do
       local where = path .. " " .. job_name
-      local steps = job.steps as {{string: any}} or {}
+      local steps = job.steps
       local moves: mut {integer} = {}
       local backs: mut {integer} = {}
       local last_driver = 0
@@ -2318,20 +2358,20 @@ local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
         local move, back = moves[1], backs[1]
         assert(move < back, where .. " puts its tree back before it moves it")
         assert(last_driver < back, where .. " runs the CI driver after it puts its tree back")
-        assert(steps[back]["if"] == "always() && steps.driver.outcome == 'success'",
+        assert(assert(steps[back])["if"] == "always() && steps.driver.outcome == 'success'",
           where .. " puts its tree back only where the job has not failed, or without a driver: " ..
-            tostring(steps[back]["if"]))
+            tostring(assert(steps[back])["if"]))
         -- The bootstrap is the step with id "driver", and comes first.
         local bootstrap = 0
         for i, step in ipairs(steps) do
           if step.id == "driver" and step.uses == DRIVER then bootstrap = i end
         end
         assert(bootstrap > 0 and bootstrap < move, where .. " moves its tree before it bootstraps the driver")
-        assert(steps[move]["working-directory"] ~= ".", where .. " runs the driver outside ci/")
+        assert(assert(steps[move])["working-directory"] ~= ".", where .. " runs the driver outside ci/")
         for i = move + 1, back - 1 do
-          local uses = steps[i].uses as string or ""
+          local uses = (assert(steps[i]).uses or "")
           if uses:find("^actions/cache") ~= nil then
-            local cached = (steps[i].with as {string: string}).path
+            local cached = param(assert(steps[i]), "path")
             assert(cached:find("^%${{ runner%.temp }}/") ~= nil,
               where .. " caches " .. cached .. " with its tree moved")
           end
@@ -2349,40 +2389,36 @@ end
 --- nothing (the gate, which a ruleset requires, never waits on it), and
 --- is on the queue's run alone. The legs keep `actions: read`.
 local function test_a_failed_queue_job_has_the_run_cancelled_by_a_job_of_its_own()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local jobs = ci.jobs as {string: {string: any}}
-  local cancel = jobs.cancel
-  assert(cancel ~= nil, "no job cancels the queue's run")
+  local jobs = ci_workflow().jobs
+  local cancel = job_of(jobs, "cancel")
   assert(cancel["if"] == "github.event_name == 'merge_group'", "cancel runs on: " .. tostring(cancel["if"]))
   assert(cancel.needs == nil, "cancel waits on a job, so it cannot start with the legs")
-  local permissions = cancel.permissions as {string: string}
+  local permissions = map_of(cancel.permissions)
   local count = 0
   for _ in pairs(permissions) do count = count + 1 end
-  assert(count == 2 and permissions.actions == "write" and permissions.contents == "read",
+  assert(count == 2 and permissions["actions"] == "write" and permissions["contents"] == "read",
     "cancel holds more than `contents: read` and `actions: write`")
-  local checkout = (cancel.steps as {{string: any}})[1]
-  local with = checkout.with as {string: any}
-  assert(checkout.uses == CHECKOUT,
+  local checkout = cancel.steps[1]
+  local with = with_of(assert(checkout))
+  assert(assert(checkout).uses == CHECKOUT,
     "cancel's first step is no checkout")
   assert(with["persist-credentials"] == false and with["fetch-depth"] == 1 and
       with["sparse-checkout"] == "/.github/scripts/cancel-on-failure.sh\n",
     "cancel checks out more than its script, or keeps the token")
   assert(cancel.name == "cancel the run on a failed leg", "cancel's name: " .. tostring(cancel.name))
-  assert((cancel["timeout-minutes"] as integer) > (jobs.platform["timeout-minutes"] as integer),
+  assert((assert(cancel["timeout-minutes"])) > (assert(job_of(jobs, "platform")["timeout-minutes"])),
     "cancel stops before the legs may")
   for name, job in pairs(jobs) do
-    local needs = job.needs
-    local list: {string} = if needs is string then { needs } else (needs as {string} or {}) end
-    for _, need in ipairs(list) do
+    for _, need in ipairs(needs_of(job)) do
       assert(need ~= "cancel", name .. " waits on the job that cancels the run")
     end
   end
   for _, name in ipairs({ "platform", "checked" }) do
-    assert((jobs[name].permissions as {string: string}).actions == "read", name .. " can write `actions`")
+    assert(map_of(job_of(jobs, name).permissions)["actions"] == "read", name .. " can write `actions`")
   end
-  local env = (cancel.steps as {{string: any}})[2].env as {string: string}
-  assert(env.SELF == cancel.name, "cancel does not know its own name")
-  assert(((cancel.steps as {{string: any}})[2].run as string) == ".github/scripts/cancel-on-failure.sh",
+  local env = map_of(assert(cancel.steps[2]).env)
+  assert(env["SELF"] == cancel.name, "cancel does not know its own name")
+  assert(assert(assert(cancel.steps[2]).run) == ".github/scripts/cancel-on-failure.sh",
     "cancel runs another script")
 end
 
@@ -2399,17 +2435,17 @@ end
 --- `prune` deletes the names under a commit on a push to main, with the
 --- one token that may write the cache, and never fails for it.
 local function test_a_branch_restores_the_verdicts_of_its_base()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local jobs = ci.jobs as {string: {string: any}}
+  local ci = ci_workflow()
+  local jobs = ci.jobs
   local VERDICTS <const> = "${{ runner.temp }}/verdicts"
   for _, name in ipairs({ "platform", "checked" }) do
-    local steps = jobs[name].steps as {{string: any}}
+    local steps = job_of(jobs, name).steps
     local plain, twin = save_of(steps, VERDICTS)
     assert(plain ~= nil and twin ~= nil, name .. " names its verdicts under no commit")
-    local key = (plain.with as {string: string}).key
+    local key = param(plain, "key")
     local prefix = key:match("^(.-)%${{ steps%.verdicts%-trim%.outputs%.digest }}$")
-    assert(prefix ~= nil and (twin.with as {string: string}).key == under_the_commit(prefix),
-      name .. "'s verdicts are named under another commit than the run's: " .. (twin.with as {string: string}).key)
+    assert(prefix ~= nil and param(twin, "key") == under_the_commit(prefix),
+      name .. "'s verdicts are named under another commit than the run's: " .. param(twin, "key"))
     -- The name is the file of the entry's key, written just before it is
     -- saved, on the host, where the save runs, and where it runs.
     local write, w = step_running(steps, "/verdicts-commit/key")
@@ -2417,64 +2453,54 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
         write.run == "mkdir -p \"$RUNNER_TEMP/verdicts-commit\" && echo \"" .. key ..
         "\" > \"$RUNNER_TEMP/verdicts-commit/key\"",
       name .. " names another entry than the one it saves, or elsewhere: " .. tostring(write.run))
-    local found_saved: integer?
-    for i, step in ipairs(steps) do
-      if step == plain then found_saved = i end
-    end
-    local saved = assert(found_saved, name .. " never saves its verdicts")
+    local saved = position(steps, plain)
     assert(saved < w, name .. " names its verdicts' entry before it saves it")
     local at = verdict_steps(steps)
-    local find = steps[at["merge-base"]]
-    assert(find ~= nil and at["merge-base"] < at["verdicts-restore"], name .. " restores before it finds the base")
+    local find = step_at(steps, at, "merge-base")
+    assert(assert(at["merge-base"]) < assert(at["verdicts-restore"]), name .. " restores before it finds the base")
     -- On the host, where gh is, once the driver is bootstrapped.
     assert(find.run == "cosmic-driver cosmic_ci/driver.tl merge-base" and find.shell == "sh" and
         find["working-directory"] == nil and find["continue-on-error"] == true,
       name .. " finds the base elsewhere than on the host, or fails for it: " .. tostring(find.run))
-    assert(driver_at(steps) < at["merge-base"], name .. " finds its base before it has the driver")
-    local env = find.env as {string: string}
-    assert(env.GH_TOKEN == "${{ github.token }}" and env.REPOSITORY == "${{ github.repository }}" and
-        env.SHA == "${{ github.sha }}" and env.EVENT == "${{ github.event_name }}" and
-        env.REF == "${{ github.ref }}" and env.QUEUE_BASE == "${{ github.event.merge_group.base_sha }}",
+    assert(driver_at(steps) < assert(at["merge-base"]), name .. " finds its base before it has the driver")
+    local env = map_of(find.env)
+    assert(env["GH_TOKEN"] == "${{ github.token }}" and env["REPOSITORY"] == "${{ github.repository }}" and
+        env["SHA"] == "${{ github.sha }}" and env["EVENT"] == "${{ github.event_name }}" and
+        env["REF"] == "${{ github.ref }}" and env["QUEUE_BASE"] == "${{ github.event.merge_group.base_sha }}",
       name .. " asks for another commit's base")
     -- The lookup of the base's name, which downloads nothing, the key
     -- of the entry it names, which the restore asks for first.
-    assert(at["merge-base"] < at["verdicts-base-lookup"] and at["verdicts-base-lookup"] < at["verdicts-base"] and
-        at["verdicts-base"] < at["verdicts-restore"], name .. " restores before it names the base's entry")
-    local lookup = steps[at["verdicts-base-lookup"]]
-    local lwith = lookup.with as {string: any}
+    assert(assert(at["merge-base"]) < at_of(at, "verdicts-base-lookup") and assert(at["verdicts-base-lookup"]) < at_of(at, "verdicts-base") and
+        assert(at["verdicts-base"]) < at_of(at, "verdicts-restore"), name .. " restores before it names the base's entry")
+    local lookup = step_at(steps, at, "verdicts-base-lookup")
+    local lwith = with_of(assert(lookup))
     local names = names_at_the_base(prefix)
-    assert((lookup.uses as string):find("actions/cache/restore@", 1, true) == 1 and lwith["lookup-only"] == true and
-        lwith.path == VERDICTS_COMMIT and lwith.key == names and lwith["restore-keys"] == names .. "\n",
-      name .. " looks up another name than one under its base, or downloads it: " .. tostring(lwith.key))
-    local named = steps[at["verdicts-base"]]
-    local nenv = named.env as {string: string}
-    assert(named.shell == "sh" and named["working-directory"] == nil and
-        (named["if"] as string):find("steps.verdicts-base-lookup.outputs.cache-matched-key != ''", 1, true) ~= nil and
-        nenv.PREFIX == prefix and nenv.BASE == names and
-        nenv.FOUND == "${{ steps.verdicts-base-lookup.outputs.cache-matched-key }}" and
+    assert(assert(assert(lookup).uses):find("actions/cache/restore@", 1, true) == 1 and lwith["lookup-only"] == true and
+        lwith["path"] == VERDICTS_COMMIT and lwith["key"] == names and lwith["restore-keys"] == names .. "\n",
+      name .. " looks up another name than one under its base, or downloads it: " .. tostring(lwith["key"]))
+    local named = step_at(steps, at, "verdicts-base")
+    local nenv = map_of(assert(named).env)
+    assert(assert(named).shell == "sh" and named["working-directory"] == nil and
+        assert(named["if"]):find("steps.verdicts-base-lookup.outputs.cache-matched-key != ''", 1, true) ~= nil and
+        nenv["PREFIX"] == prefix and nenv["BASE"] == names and
+        nenv["FOUND"] == "${{ steps.verdicts-base-lookup.outputs.cache-matched-key }}" and
         named.run == "echo \"key=$PREFIX${FOUND#\"$BASE\"}\" >> \"$GITHUB_OUTPUT\"",
       name .. " takes another key than the digest the base's name ends in: " .. tostring(named.run))
-    local restore = steps[at["verdicts-restore"]].with as {string: string}
-    assert(restore.key == at_the_base(prefix) and restore["restore-keys"] == prefix .. "\n",
-      name .. " restores another entry than its base's, else the newest: " .. restore.key)
-    local permissions = jobs[name].permissions as {string: string}
-    assert(permissions.contents == "read", name .. " cannot compare commits")
+    local restore = with_of(step_at(steps, at, "verdicts-restore"))
+    assert(restore["key"] == at_the_base(prefix) and restore["restore-keys"] == prefix .. "\n",
+      name .. " restores another entry than its base's, else the newest: " .. tostring(restore["key"]))
+    local permissions = map_of(job_of(jobs, name).permissions)
+    assert(permissions["contents"] == "read", name .. " cannot compare commits")
   end
   -- seed saves the name the queue's leg kept, under this commit alone,
   -- after the rows it names.
-  local steps = jobs.seed.steps as {{string: any}}
+  local steps = job_of(jobs, "seed").steps
   local plain, twin = save_of(steps, VERDICTS)
   assert(twin ~= nil and twin["if"] == "steps.keys.outputs.verdicts-sha != ''",
     "seed names no verdicts under the commit")
-  local found_plain, found_twin: integer?, integer?
-  for i, step in ipairs(steps) do
-    if step == plain then found_plain = i end
-    if step == twin then found_twin = i end
-  end
-  local plain_at, twin_at = assert(found_plain, "seed saves no plain entry"), assert(found_twin, "seed saves no twin entry")
-  assert(plain_at < twin_at, "seed names its verdicts' entry before it saves it")
+  assert(position(steps, assert(plain)) < position(steps, twin), "seed names its verdicts' entry before it saves it")
   local keys = step_running(steps, "seed.keys")
-  assert((keys.run as string):find("|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}-[0-9a-f]+|",
+  assert(assert(keys.run):find("|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}-[0-9a-f]+|",
     1, true), "seed takes a name under another commit")
 
   -- The prune: a job of its own, the one whose token may write the
@@ -2483,15 +2509,14 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   -- steps it would all skip), running the pinned driver on ci/'s
   -- sources alone, from a main-only checkout that keeps no token.
   -- The join, the check a ruleset requires, waits on none of it.
-  local prune = jobs.prune
-  assert(prune ~= nil, "no job prunes the verdicts under a commit")
-  local permissions = prune.permissions as {string: string}
-  assert(permissions.actions == "write" and permissions.contents == "read",
+  local prune = job_of(jobs, "prune")
+  local permissions = map_of(prune.permissions)
+  assert(permissions["actions"] == "write" and permissions["contents"] == "read",
     "prune cannot prune the cache, or may do more")
   for name, job in pairs(jobs) do
-    local p = job.permissions as {string: string}
+    local p = map_of(job.permissions)
     -- `cancel` writes `actions` to cancel the queue's run, and no more.
-    assert(name == "prune" or name == "invalidate" or name == "cancel" or p == nil or p.actions ~= "write",
+    assert(name == "prune" or name == "invalidate" or name == "cancel" or p["actions"] ~= "write",
       "job " .. name .. " may write the cache")
   end
 
@@ -2502,54 +2527,53 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   -- has finished, and the checked shares and narrowing run, whose
   -- failure fails a run the legs saved in, whatever their result, by
   -- main's push or the scheduled run, and only where a job failed.
-  local invalidate = jobs.invalidate
-  assert(invalidate ~= nil, "no job deletes the verdicts under a commit after a failed run")
-  local ipermissions = invalidate.permissions as {string: string}
-  assert(ipermissions.actions == "write" and ipermissions.contents == "read",
+  local invalidate = job_of(jobs, "invalidate")
+  local ipermissions = map_of(invalidate.permissions)
+  assert(ipermissions["actions"] == "write" and ipermissions["contents"] == "read",
     "invalidate cannot delete from the cache, or may do more")
   assert(invalidate["if"] == "always() && contains(needs.*.result, 'failure') && " ..
       "(github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))",
     "invalidate runs on another event, or not after a failed job: " .. tostring(invalidate["if"]))
-  assert(table.concat(invalidate.needs as {string}, ",") == "platform,checked,checked-shard,checked-narrowing,seed",
+  assert(table.concat(needs_of(invalidate), ",") == "platform,checked,checked-shard,checked-narrowing,seed",
     "invalidate runs before a job that saves, or one whose failure fails a run that saved")
-  for _, need in ipairs(jobs.ci.needs as {string}) do
+  for _, need in ipairs(needs_of(job_of(jobs, "ci"))) do
     assert(need ~= "invalidate", "the join waits on invalidate")
   end
-  local isteps = invalidate.steps as {{string: any}}
+  local isteps = invalidate.steps
   assert(#isteps == 3, "invalidate runs more than its checkout, its driver and its command")
   for _, step in ipairs(isteps) do
     assert(step["if"] == nil, "invalidate gates a step its job's `if` already gates: " .. tostring(step["if"]))
   end
   local command = isteps[3]
-  assert(command.run == "cosmic-driver cosmic_ci/driver.tl invalidate-commit-verdicts" and
+  assert(assert(command).run == "cosmic-driver cosmic_ci/driver.tl invalidate-commit-verdicts" and
       command["working-directory"] == "ci" and command["continue-on-error"] == nil and
-      (command.env as {string: string}).COMMIT == "${{ github.sha }}",
+      map_of(command.env)["COMMIT"] == "${{ github.sha }}",
     "invalidate runs another command: " .. tostring(command.run))
   assert(prune["if"] == "always() && github.event_name == 'push' && github.ref == 'refs/heads/main'",
     "prune runs on another event, or not after a failed job: " .. tostring(prune["if"]))
-  assert(table.concat(prune.needs as {string}, ",") == "platform,checked,seed",
+  assert(table.concat(needs_of(prune), ",") == "platform,checked,seed",
     "prune runs before a job that saves")
-  for _, need in ipairs(jobs.ci.needs as {string}) do
+  for _, need in ipairs(needs_of(job_of(jobs, "ci"))) do
     assert(need ~= "prune", "the join waits on prune")
   end
-  local psteps = prune.steps as {{string: any}}
+  local psteps = prune.steps
   assert(#psteps == 3, "prune runs more than its checkout, its driver and its command")
   for _, step in ipairs(psteps) do
     assert(step["if"] == nil, "prune gates a step its job's `if` already gates: " .. tostring(step["if"]))
   end
-  local checkout = psteps[1].with as {string: any}
-  assert((psteps[1].uses as string):find("actions/checkout@", 1, true) == 1 and
+  local checkout = with_of(assert(psteps[1]))
+  assert(assert(assert(psteps[1]).uses):find("actions/checkout@", 1, true) == 1 and
       checkout["persist-credentials"] == false and
       checkout["sparse-checkout"] == "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n" ..
       "/.github/actions/cosmic-driver/\n",
     "prune checks out more than its driver, or keeps the token")
-  assert(psteps[2].uses == DRIVER and psteps[2]["continue-on-error"] == true,
+  assert(assert(psteps[2]).uses == DRIVER and assert(psteps[2])["continue-on-error"] == true,
     "prune bootstraps something else, or fails the run for it")
   local step = psteps[3]
-  assert(step.run == "cosmic-driver cosmic_ci/driver.tl prune-commit-verdicts" and
+  assert(assert(step).run == "cosmic-driver cosmic_ci/driver.tl prune-commit-verdicts" and
       step["working-directory"] == "ci" and step["continue-on-error"] == true,
     "the prune runs something else, or fails the run: " .. tostring(step.run))
-  assert((step.env as {string: string}).GH_TOKEN == "${{ github.token }}", "the prune has no token")
+  assert(map_of(step.env)["GH_TOKEN"] == "${{ github.token }}", "the prune has no token")
 end
 
 --- Only five jobs save a cache every run restores: the platform legs,
@@ -2558,10 +2582,10 @@ end
 --- run saves, and `seed`, which runs only on a push to main
 --- that found the queue's run.
 local function test_only_the_legs_and_their_seed_save()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  for name, job in pairs(ci.jobs as {string: {string: any}}) do
+  local ci = ci_workflow()
+  for name, job in pairs(ci.jobs) do
     local saves = 0
-    for _ in pairs(saves_of(job.steps as {{string: any}} or {})) do saves = saves + 1 end
+    for _ in pairs(saves_of(job.steps)) do saves = saves + 1 end
     assert(saves == 0 or name == "platform" or name == "checked" or name == "format" or
         name == "seed", "job " .. name .. " saves a cache")
   end
@@ -2574,42 +2598,41 @@ end
 --- suite that shares the file and before the save, and counts from a
 --- time taken before the first suite.
 local function test_a_leg_trims_its_verdicts_before_it_saves_them()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local jobs = ci.jobs as {string: {string: any}}
+  local jobs = ci_workflow().jobs
   local at: mut {string: integer} = {}
-  local trim: {string: any}?
-  for i, step in ipairs(jobs.platform.steps as {{string: any}}) do
+  local trim: Step?
+  for i, step in ipairs(job_of(jobs, "platform").steps) do
     local run = step.run
-    if step.id ~= nil then at[step.id as string] = i end
-    if step.name == "remove the leg's container" then at.removed = i end
+    if step.id ~= nil then at[assert(step.id)] = i end
+    if step.name == "remove the leg's container" then at["removed"] = i end
     if run is string and run:find("driver.tl verdicts-trim", 1, true) ~= nil then
-      at.trim, trim = i, step
+      at["trim"], trim = i, step
     end
-    local path = step.with ~= nil and (step.with as {string: string}).path or nil
-    if (step.uses as string or ""):find("actions/cache/save@", 1, true) ~= nil and
+    local path = with_of(step)["path"]
+    if (step.uses or ""):find("actions/cache/save@", 1, true) ~= nil and
         path == "${{ runner.temp }}/verdicts" then
-      at.save = i
+      at["save"] = i
     end
   end
   assert(trim ~= nil, "no step trims the verdicts")
-  local condition = trim["if"] as string
+  local condition = assert(trim["if"])
   assert(condition == "always() && steps.driver.outcome == 'success'",
     "the trim does not run on every leg's run: " .. condition)
   -- A run that failed keeps what it restored with what it reached.
-  assert((trim.run as string):find(
+  assert(assert(trim.run):find(
     "${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}", 1, true) ~= nil,
     "the trim counts from no time taken before the suites, or trims a failed run: " ..
-      (trim.run as string))
+      assert(trim.run))
   -- `assemble` builds and verifies the checked core; its suite runs in
   -- the checked job, which trims its own verdicts.
   for _, suite in ipairs({ "release-suite", "assemble", "portable-suite" }) do
-    assert(at[suite] ~= nil and at[suite] < at.trim, "the trim runs before " .. suite)
+    assert(at[suite] ~= nil and assert(at[suite]) < at_of(at, "trim"), "the trim runs before " .. suite)
   end
-  assert(at.names < at["release-suite"], "the trim's time is taken after a suite")
-  local steps = jobs.platform.steps as {{string: any}}
-  assert(steps[at.names]["if"] == nil,
-    "the trim's time is taken only on some legs: " .. tostring(steps[at.names]["if"]))
-  assert(at.trim < at.removed and at.trim < at.save,
+  assert(assert(at["names"]) < at_of(at, "release-suite"), "the trim's time is taken after a suite")
+  local steps = job_of(jobs, "platform").steps
+  assert(step_at(steps, at, "names")["if"] == nil,
+    "the trim's time is taken only on some legs: " .. tostring(step_at(steps, at, "names")["if"]))
+  assert(assert(at["trim"]) < at_of(at, "removed") and assert(at["trim"]) < at_of(at, "save"),
     "the verdicts are trimmed after the container goes, or after they are saved")
 end
 
@@ -2621,35 +2644,26 @@ end
 --- restore took no entry of this core, main's where its upload does --
 --- and on no branch push, which saves nothing.
 local function test_a_leg_prunes_its_zig_outputs_before_it_saves_them()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local jobs = ci.jobs as {string: {string: any}}
-  local steps = jobs.platform.steps as {{string: any}}
+  local jobs = ci_workflow().jobs
+  local steps = job_of(jobs, "platform").steps
   local prune, at = step_running(steps, "driver.tl zig-prune")
   local _, assembled = step_running(steps, "driver.tl platform assemble")
   local stage, staged = step_running(steps, "driver.tl queue-stage")
-  local found_saved: integer?
-  local found_upload: {string: any}?
-  for i, step in ipairs(steps) do
-    local path = step.with ~= nil and (step.with as {string: string}).path or nil
-    if (step.uses as string or ""):find("actions/cache/save@", 1, true) ~= nil and
-        path == "${{ runner.temp }}/zig-build" then
-      found_saved, found_upload = i, step
-    end
-  end
-  local saved, upload = assert(found_saved, "no step saves the zig outputs"), assert(found_upload)
+  local upload = assert(save_of(steps, "${{ runner.temp }}/zig-build"), "no step saves the zig outputs")
+  local saved = position(steps, upload)
   assert(assembled < at and at < saved and at < staged,
     "the zig outputs are pruned before the assemble's builds, or after they are saved")
   for i = at + 1, staged do
-    local run = steps[i].run
+    local run = assert(steps[i]).run
     assert(not (run is string and run:find("bin/zig", 1, true) ~= nil),
-      "a build of zig's caches comes after the prune: " .. tostring(steps[i].name))
+      "a build of zig's caches comes after the prune: " .. tostring(assert(steps[i]).name))
   end
-  local condition = prune["if"] as string
-  local upload_condition = upload["if"] as string
+  local condition = assert(prune["if"])
+  local upload_condition = assert(upload["if"])
   local restored = upload_condition:match(
     "(!startsWith%(steps%.zig%-cache%-restore%.outputs%.cache%-matched%-key, format%('{0}full%-', steps%.names%.outputs%.vendor%)%))")
   assert(restored ~= nil, "main's upload is held to another restore than this test reads: " .. upload_condition)
-  local exact = (stage.env as {string: string}).ZIG_BUILD_EXACT
+  local exact = map_of(stage.env)["ZIG_BUILD_EXACT"]
   assert(exact == "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-",
     "the queue seeds its zig outputs against another prefix: " .. tostring(exact))
   for _, clause in ipairs({
@@ -2663,7 +2677,7 @@ local function test_a_leg_prunes_its_zig_outputs_before_it_saves_them()
       "the prune runs other than where a save of the zig outputs follows: " .. condition)
   end
   assert(prune["continue-on-error"] == nil and
-      (prune.run as string) == "cosmic-driver cosmic_ci/driver.tl zig-prune",
+      assert(prune.run) == "cosmic-driver cosmic_ci/driver.tl zig-prune",
     "the prune runs otherwise than as the driver's verb, which never fails: " .. tostring(prune.run))
 end
 
@@ -2700,41 +2714,6 @@ local SKIPPED_ON_A_BRANCH <const>: {string: boolean} = {
   [DIR .. "/ci.yml checked-narrowing"] = true,
 }
 
---- The object `steps` reach in `value` as a table of values of any type, empty where there is none.
-local function object_at(value: any, steps: Json.Steps): {string: any}
-  local reached = Json.encode_any((Json.get(value, steps)))
-  if reached == nil then
-    return {}
-  end
-  local object = Json.decode_object(reached)
-  if object == nil then
-    return {}
-  end
-  return object
-end
-
---- How many elements the array `steps` reach in `value` has, none where there is none.
-local function length_at(value: any, steps: Json.Steps): integer
-  local reached = Json.encode_any((Json.get(value, steps)))
-  if reached == nil then
-    return 0
-  end
-  local array = Json.decode_array(reached)
-  if array == nil then
-    return 0
-  end
-  return #array
-end
-
---- The value of `key` in `map` where it is a string, and "" where it is not.
-local function text_at(map: {string: any}, key: string): string
-  local found = map[key]
-  if found is string then
-    return found
-  end
-  return ""
-end
-
 --- A run's scope is decided once, by ci.yml's `scope` job (a branch push's
 --- alone: `light` unless its change touches a path of
 --- .github/scripts/branch-scope.txt), and each job that reads it passes
@@ -2745,21 +2724,20 @@ end
 --- `scope` in its `needs`, or it reads it empty and runs `full` whatever
 --- the branch changed; and one whose steps read COSMIC_CI_SCOPE sets it.
 local function test_the_scope_is_decided_once()
-  local ci = assert(decoded_workflows()[DIR .. "/ci.yml"])
-  assert(Json.get(ci, { "env", "COSMIC_CI_SCOPE" }) == nil, "the scope is decided for every job at once")
+  local ci = ci_workflow()
+  assert(map_of(ci.env)["COSMIC_CI_SCOPE"] == nil, "the scope is decided for every job at once")
   local PASS <const> = "${{ needs.scope.outputs.scope == 'light' && 'light' || 'full' }}"
-  local deciding = object_at(ci, { "jobs", "scope" })
-  assert(deciding["needs"] == nil and text_at(deciding, "if") == "github.event_name == 'push' && github.ref_name != 'main'",
-    "the scope job runs on another run than a branch push, or waits: " .. text_at(deciding, "if"))
-  local outputs = object_at(deciding, { "outputs" })
-  assert(text_at(outputs, "scope") == "${{ steps.decide.outputs.scope }}" and
-      text_at(outputs, "base") == "${{ steps.decide.outputs.base }}", "the scope job's outputs")
+  local deciding = job_of(ci.jobs, "scope")
+  assert(deciding.needs == nil and deciding["if"] == "github.event_name == 'push' && github.ref_name != 'main'",
+    "the scope job runs on another run than a branch push, or waits: " .. tostring(deciding["if"]))
+  local outputs = map_of(deciding.outputs)
+  assert(outputs["scope"] == "${{ steps.decide.outputs.scope }}" and
+      outputs["base"] == "${{ steps.decide.outputs.base }}", "the scope job's outputs")
   local reading = 0
-  for name in pairs(object_at(ci, { "jobs" })) do
-    local job = object_at(ci, { "jobs", name })
+  for name, job in pairs(ci.jobs) do
     local text = Json.encode_any(job) or ""
-    local needs = Json.encode_any((Json.get(job, { "needs" }))) or ""
-    local mine = text_at(object_at(job, { "env" }), "COSMIC_CI_SCOPE")
+    local needs = Json.encode_any(job.needs) or ""
+    local mine = map_of(job.env)["COSMIC_CI_SCOPE"] or ""
     if name ~= "scope" then
       if text:find("needs.scope.", 1, true) ~= nil then
         reading = reading + 1
@@ -2770,9 +2748,9 @@ local function test_the_scope_is_decided_once()
       end
     end
     assert(mine == "" or mine == PASS, "job " .. name .. " decides its scope again: " .. mine)
-    for index = 1, length_at(job, { "steps" }) do
-      local step_env = object_at(job, { "steps", index, "env" })
-      assert(text_at(step_env, "COSMIC_CI_SCOPE") == "" and text_at(step_env, "FULL") == "",
+    for _, step in ipairs(job.steps) do
+      local step_env = map_of(step.env)
+      assert((step_env["COSMIC_CI_SCOPE"] or "") == "" and (step_env["FULL"] or "") == "",
         "job " .. name .. " decides its scope again, in a step")
     end
   end
@@ -2782,12 +2760,11 @@ end
 --- Every job of the run gates it: none continues on error, so the job that cancels the run on a failed leg has no failure to
 --- pass over, and the script names no exemption. A job that gates nothing needs the exemption back, with a test of its own.
 local function test_every_job_gates_the_run_and_the_cancel_job_passes_over_none()
-  local jobs = object_at(assert(decoded_workflows()[DIR .. "/ci.yml"]), { "jobs" })
-  for id in pairs(jobs) do
-    local job = object_at(jobs, { id })
-    assert(Json.get(job, { "continue-on-error" }) ~= true, id .. " fails without gating, and the cancel job does not pass over it")
+  local jobs = ci_workflow().jobs
+  for id, job in pairs(jobs) do
+    assert(job["continue-on-error"] ~= true, id .. " fails without gating, and the cancel job does not pass over it")
   end
-  assert(Json.get(object_at(jobs, { "cancel", "steps", 2, "env" }), { "EXEMPT" }) == nil, "the cancel job passes over a job")
+  assert(map_of(assert(job_of(jobs, "cancel").steps[2]).env)["EXEMPT"] == nil, "the cancel job passes over a job")
   local script = assert(Fs.read(".github/scripts/cancel-on-failure.sh"))
   assert(script:find("EXEMPT", 1, true) == nil, "cancel-on-failure.sh still reads an exemption")
 end
@@ -2795,20 +2772,19 @@ end
 local function test_a_branch_push_starts_no_job_it_skips()
   local count = 0
   for path, workflow in pairs(decoded_workflows()) do
-    local on = workflow["on"]
-    local push = on is {string: any} and on.push or nil
-    local branches = push is {string: any} and push.branches or nil
-    local main_only = branches is {string} and #branches == 1 and branches[1] == "main"
+    local push = filters_of(workflow["on"])["push"]
+    local branches = push and push.branches
+    local main_only = branches ~= nil and #branches == 1 and branches[1] == "main"
     if push ~= nil and not main_only then
-      for name, job in pairs(workflow.jobs as {string: {string: any}}) do
+      for name, job in pairs(workflow.jobs) do
         count = count + 1
-        local condition = job["if"]
+        local condition = job["if"] or ""
         local excepted = SKIPPED_ON_A_BRANCH[path .. " " .. name]
         for _, skip in ipairs(BRANCH_SKIPS) do
-          assert(excepted == true or not (condition is string and condition:find(skip, 1, true)),
+          assert(excepted == true or condition:find(skip, 1, true) == nil,
             path .. ": job " .. name .. "'s if names " .. skip .. ", so a branch push shows it skipped")
         end
-        assert(excepted == true or not (condition is string and condition:find("needs%.[%w_-]+%.outputs%.[%w_-]+ != ''")),
+        assert(excepted == true or condition:find("needs%.[%w_-]+%.outputs%.[%w_-]+ != ''") == nil,
           path .. ": job " .. name ..
             " runs only where a job it needs found something, so a branch push shows it skipped")
       end
@@ -2836,8 +2812,8 @@ end
 --- half and skips a share ahead that cannot keep them in time
 --- (READY_SECONDS).
 local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local jobs = ci.jobs as {string: {string: any}}
+  local ci = ci_workflow()
+  local jobs = ci.jobs
   local script = assert(Fs.read("ci/cosmic_ci/queue_seed.tl"))
   local call = math.tointeger(tonumber(script:match('whole%(env, "CALL_SECONDS", (%d+)%)')))
   assert(call ~= nil, "queue_seed.tl's call budget moved")
@@ -2854,38 +2830,37 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
           queue_only = false } }) do
     local job = jobs[case.job]
     local where = case.job
-    assert(job.name == case.job_name, where .. "'s name: " .. tostring(job.name))
-    assert((job.permissions as {string: string}).actions == "read", where .. " cannot read the run ahead")
-    local steps = job.steps as {{string: any}}
+    assert(assert(job).name == case.job_name, where .. "'s name: " .. tostring(assert(job).name))
+    assert(map_of(assert(job).permissions)["actions"] == "read", where .. " cannot read the run ahead")
+    local steps = assert(job).steps
     local at: mut {string: integer} = {}
-    local keep: {string: any}?
+    local keep: Step?
     for i, step in ipairs(steps) do
-      local id = step.id as string
+      local id = step.id
       if id ~= nil then at[id] = i end
-      local with = step.with as {string: any}
-      if (step.uses as string or ""):find("actions/upload-artifact@", 1, true) ~= nil and
-          (with.path as string):find("${{ runner.temp }}/verdicts/", 1, true) == 1 then
+      if (step.uses or ""):find("actions/upload-artifact@", 1, true) ~= nil and
+          param(step, "path"):find("${{ runner.temp }}/verdicts/", 1, true) == 1 then
         assert(keep == nil, where .. " keeps its verdicts twice")
-        keep, at.keep = step, i
+        keep, at["keep"] = step, i
       end
     end
     assert(keep ~= nil, where .. " keeps no verdicts for the run behind it")
     local order = { "verdicts-restore", "boot", "ahead", "ahead-download", "verdicts-ahead", case.suite, "keep" }
     for n = 2, #order do
-      assert(at[order[n - 1]] ~= nil and at[order[n]] ~= nil and at[order[n - 1]] < at[order[n]],
+      assert(at[order[n - 1]] ~= nil and at[order[n]] ~= nil and assert(at[order[n - 1]]) < at_of(at, order[n]),
         where .. ": " .. order[n - 1] .. " does not come before " .. order[n])
     end
-    assert(at.driver < at.boot and (steps[at.boot].run as string):find("platform boot", 1, true),
+    assert(assert(at["driver"]) < at_of(at, "boot") and assert(step_at(steps, at, "boot").run):find("platform boot", 1, true) ~= nil,
       where .. " takes the verdicts ahead before its boot")
     local artifact = "verdicts-" .. case.name
-    local kept = keep.with as {string: any}
-    assert(kept.name == artifact and kept.path == "${{ runner.temp }}/verdicts/" .. case.file .. "*" and
-        kept["retention-days"] == 1 and kept.overwrite == true, where .. " keeps other verdicts, or for long: " .. tostring(kept.name))
-    local condition = keep["if"] as string
+    local kept = with_of(keep)
+    assert(kept["name"] == artifact and kept["path"] == "${{ runner.temp }}/verdicts/" .. case.file .. "*" and
+        kept["retention-days"] == 1 and kept["overwrite"] == true, where .. " keeps other verdicts, or for long: " .. tostring(kept["name"]))
+    local condition = assert(keep["if"])
     -- A share keeps its rows past a failed suite too, the failed test's
     -- out of them (the trim then keeps all it restored: `whole`), so the
     -- gathering job of a saving run can save them.
-    assert(condition:find("steps." .. case.suite .. ".outcome == 'success'", 1, true) or
+    assert(condition:find("steps." .. case.suite .. ".outcome == 'success'", 1, true) ~= nil or
         (case.job == "checked-shard" and condition == "always() && steps.verdicts-trim.outcome == 'success'"),
       where .. " keeps verdicts its suite did not pass: " .. condition)
     if case.queue_only then
@@ -2898,45 +2873,45 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
     end
     names[where] = artifact
 
-    local find = steps[at.ahead]
-    local env = find.env as {string: string}
+    local find = step_at(steps, at, "ahead")
+    local env = map_of(assert(find).env)
     -- On the host, where gh is, in ci/, where the driver is run from.
-    assert(find.run == "cosmic-driver cosmic_ci/driver.tl queue-ahead" and find.shell == "sh" and
+    assert(assert(find).run == "cosmic-driver cosmic_ci/driver.tl queue-ahead" and find.shell == "sh" and
         find["working-directory"] == nil and find["continue-on-error"] == true and
-        (find["if"] as string):find(QUEUE .. " && (steps.verdicts-base.outputs.key == '' || " ..
-            "steps.verdicts-restore.outputs.cache-matched-key != steps.verdicts-base.outputs.key)", 1, true),
+        assert(find["if"]):find(QUEUE .. " && (steps.verdicts-base.outputs.key == '' || " ..
+            "steps.verdicts-restore.outputs.cache-matched-key != steps.verdicts-base.outputs.key)", 1, true) ~= nil,
       where .. " looks for the run ahead elsewhere, where the base's verdicts were restored, or fails for it")
-    assert(env.BASE == "${{ github.event.merge_group.base_sha }}" and env.JOB == case.name and
-        env.ARTIFACT == artifact and env.GH_TOKEN == "${{ github.token }}" and
-        env.REPOSITORY == "${{ github.repository }}", where .. " looks for another run's or job's verdicts")
-    local within, wait = math.tointeger(tonumber(env.WITHIN_SECONDS)), math.tointeger(tonumber(env.WAIT_SECONDS))
+    assert(env["BASE"] == "${{ github.event.merge_group.base_sha }}" and env["JOB"] == case.name and
+        env["ARTIFACT"] == artifact and env["GH_TOKEN"] == "${{ github.token }}" and
+        env["REPOSITORY"] == "${{ github.repository }}", where .. " looks for another run's or job's verdicts")
+    local within, wait = math.tointeger(tonumber(env["WITHIN_SECONDS"])), math.tointeger(tonumber(env["WAIT_SECONDS"]))
     assert(within ~= nil and wait ~= nil and wait < within and within <= case.within,
-      where .. " waits too long for the run ahead: " .. tostring(env.WITHIN_SECONDS))
-    assert((env.READY_SECONDS or "") == case.ready, where .. " takes its job ahead to keep them at another time")
+      where .. " waits too long for the run ahead: " .. tostring(env["WITHIN_SECONDS"]))
+    assert((env["READY_SECONDS"] or "") == case.ready, where .. " takes its job ahead to keep them at another time")
     -- A job that has begun names its suite's step, the other none.
     local suite_step: string? = nil
-    if case.begun then suite_step = steps[at[case.suite]].name as string end
-    assert(env.SUITE_STEP == suite_step,
-      where .. " waits on a job ahead by another step than its suite: " .. tostring(env.SUITE_STEP))
+    if case.begun then suite_step = step_at(steps, at, case.suite).name end
+    assert(env["SUITE_STEP"] == suite_step,
+      where .. " waits on a job ahead by another step than its suite: " .. tostring(env["SUITE_STEP"]))
     local budget = within + 3 * call
-    local minutes = find["timeout-minutes"] as integer
-    assert(budget + 30 <= minutes * 60 and minutes < (job["timeout-minutes"] as integer),
+    local minutes = assert(find["timeout-minutes"])
+    assert(budget + 30 <= minutes * 60 and minutes < (assert(assert(job)["timeout-minutes"])),
       where .. "'s lookup outlasts its step, or its step the job: " .. tostring(budget) .. " s")
 
-    local download = steps[at["ahead-download"]]
-    local with = download.with as {string: string}
-    assert((download.uses as string):find("actions/download-artifact@", 1, true) == 1 and
-        with.name == artifact and with["run-id"] == "${{ steps.ahead.outputs.run }}" and
-        with["github-token"] == "${{ github.token }}" and download["continue-on-error"] == true and
-        (download["if"] as string):find("steps.ahead.outputs.run != ''", 1, true),
+    local download = step_at(steps, at, "ahead-download")
+    local with = with_of(assert(download))
+    assert(assert(assert(download).uses):find("actions/download-artifact@", 1, true) == 1 and
+        with["name"] == artifact and with["run-id"] == "${{ steps.ahead.outputs.run }}" and
+        with["github-token"] == "${{ github.token }}" and assert(download)["continue-on-error"] == true and
+        assert(assert(download)["if"]):find("steps.ahead.outputs.run != ''", 1, true) ~= nil,
       where .. " downloads other verdicts than the run ahead's, or fails for it")
-    local merge = steps[at["verdicts-ahead"]]
-    assert(merge.run == "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"" .. with.path .. "\"" and
-        merge["continue-on-error"] == true and
-        (merge["if"] as string):find("steps.ahead-download.outcome == 'success'", 1, true),
-      where .. " merges something else, or fails for it: " .. tostring(merge.run))
+    local merge = step_at(steps, at, "verdicts-ahead")
+    assert(assert(merge).run == "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"" .. param(download, "path") .. "\"" and
+        assert(merge)["continue-on-error"] == true and
+        assert(assert(merge)["if"]):find("steps.ahead-download.outcome == 'success'", 1, true) ~= nil,
+      where .. " merges something else, or fails for it: " .. tostring(assert(merge).run))
   end
-  assert(names.platform ~= names["checked-shard"], "the legs and the checked shares keep their verdicts under one name")
+  assert(names["platform"] ~= names["checked-shard"], "the legs and the checked shares keep their verdicts under one name")
 end
 
 --- A queue run's leg skips its driver check on the key the run ahead
@@ -2948,58 +2923,58 @@ end
 --- the one its lookup computed. The check still runs on the scheduled
 --- and manual runs, and saves nothing off main.
 local function test_a_queue_leg_takes_the_driver_check_of_the_run_ahead()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local steps = ((ci.jobs as {string: {string: any}}).platform).steps as {{string: any}}
+  local ci = ci_workflow()
+  local steps = job_of(ci.jobs, "platform").steps
   local at: mut {string: integer} = {}
-  local keep, upload: {string: any}?, {string: any}?
+  local keep, upload: Step?, Step?
   for i, step in ipairs(steps) do
-    if step.id ~= nil then at[step.id as string] = i end
+    if step.id ~= nil then at[assert(step.id)] = i end
     if step.name == "keep the CI driver check for the run behind in the queue" then
-      keep, at.keep = step, i
+      keep, at["keep"] = step, i
     end
     if step.name == "upload the CI driver check for the run behind in the queue" then
-      upload, at.upload = step, i
+      upload, at["upload"] = step, i
     end
   end
   assert(keep ~= nil and upload ~= nil, "the platform job keeps no driver check for the run behind")
   local order = { "driver-check-restore", "driver-ahead", "driver-ahead-download", "driver-ahead-take",
     "driver-check", "keep", "upload", "boot" }
   for n = 2, #order do
-    assert(at[order[n - 1]] ~= nil and at[order[n]] ~= nil and at[order[n - 1]] < at[order[n]],
-      order[n - 1] .. " does not come before " .. order[n])
+    assert(at[assert(order[n - 1])] ~= nil and at[assert(order[n])] ~= nil and at_of(at, assert(order[n - 1])) < at_of(at, assert(order[n])),
+      assert(order[n - 1]) .. " does not come before " .. assert(order[n]))
   end
 
-  local check = steps[at["driver-check"]]
-  local condition = check["if"] as string
+  local check = step_at(steps, at, "driver-check")
+  local condition = assert(check["if"])
   assert(condition:find("github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (", 1, true) and
       condition:find("steps.driver-check-restore.outputs.cache-hit != 'true' && " ..
           "steps.driver-ahead-take.outputs.hit != 'true')", 1, true),
     "the check skips on the run ahead's key where it must run, or runs where the key is found: " .. condition)
 
-  local find = steps[at["driver-ahead"]]
-  local env = find.env as {string: string}
+  local find = step_at(steps, at, "driver-ahead")
+  local env = map_of(find.env)
   assert(find.run == "cosmic-driver cosmic_ci/driver.tl queue-ahead" and find["continue-on-error"] == true and
-      (find["if"] as string):find("github.event_name == 'merge_group'", 1, true) and
-      env.JOB == "${{ matrix.name }}" and env.ARTIFACT == "driver-checked-${{ matrix.name }}" and
-      env.BASE == "${{ github.event.merge_group.base_sha }}" and
-      env.SUITE_STEP == steps[at.boot].name,
+      assert(find["if"]):find("github.event_name == 'merge_group'", 1, true) ~= nil and
+      env["JOB"] == "${{ matrix.name }}" and env["ARTIFACT"] == "driver-checked-${{ matrix.name }}" and
+      env["BASE"] == "${{ github.event.merge_group.base_sha }}" and
+      env["SUITE_STEP"] == step_at(steps, at, "boot").name,
     "the lookup of the run ahead names another job, artifact or step, or fails for it")
-  local within = math.tointeger(tonumber(env.WITHIN_SECONDS))
-  assert(within ~= nil and within <= 30, "the lookup waits too long on a leg ahead: " .. tostring(env.WITHIN_SECONDS))
+  local within = math.tointeger(tonumber(env["WITHIN_SECONDS"]))
+  assert(within ~= nil and within <= 30, "the lookup waits too long on a leg ahead: " .. tostring(env["WITHIN_SECONDS"]))
 
-  local download = steps[at["driver-ahead-download"]]
-  local with = download.with as {string: string}
-  assert(with.name == env.ARTIFACT and with["run-id"] == "${{ steps.driver-ahead.outputs.run }}" and
+  local download = step_at(steps, at, "driver-ahead-download")
+  local with = with_of(download)
+  assert(with["name"] == env["ARTIFACT"] and with["run-id"] == "${{ steps.driver-ahead.outputs.run }}" and
       download["continue-on-error"] == true, "the download takes another artifact or run than the one found")
 
-  local take = steps[at["driver-ahead-take"]]
-  assert((take.env as {string: string}).KEY == "${{ steps.driver-check-restore.outputs.cache-primary-key }}" and
-      (take.run as string):find('= "$KEY"', 1, true) and (take.run as string):find(with.path:gsub("^%${{ runner.temp }}", "$RUNNER_TEMP"), 1, true),
+  local take = step_at(steps, at, "driver-ahead-take")
+  assert(map_of(take.env)["KEY"] == "${{ steps.driver-check-restore.outputs.cache-primary-key }}" and
+      assert(take.run):find('= "$KEY"', 1, true) ~= nil and assert(take.run):find(param(download, "path"):gsub("^%${{ runner.temp }}", "$RUNNER_TEMP"), 1, true) ~= nil,
     "a key is taken that is not the one the leg's lookup computed")
 
-  local kept = upload.with as {string: any}
+  local kept = with_of(upload)
   for _, relay in ipairs({ keep, upload, take }) do
-    local when = (relay["if"] as string) or ""
+    local when = relay["if"] or ""
     for _, loose in ipairs({ "always()", "!cancelled()", "failure()", "cancelled()" }) do
       assert(not when:find(loose, 1, true), "the key is kept or taken after a failed or cancelled step: " .. when)
     end
@@ -3011,18 +2986,15 @@ local function test_a_queue_leg_takes_the_driver_check_of_the_run_ahead()
         "the key is kept where no check passed or key was found: " .. when)
     end
   end
-  local written = keep.run as string
-  assert(written:find("driver-relay/key", 1, true) and not written:find("driver-checked", 1, true) and
-      written:find('[ -n "$KEY" ]', 1, true), "the kept key goes to main's marker's path, or may be empty")
-  assert((take.run as string):find('[ -n "$KEY" ]', 1, true), "an empty key can match an empty one")
-  assert(kept.name == env.ARTIFACT and kept.overwrite == true, "the key is kept under another name, or not replaced")
+  local written = assert(keep.run)
+  assert(written:find("driver-relay/key", 1, true) ~= nil and not written:find("driver-checked", 1, true) and
+      written:find('[ -n "$KEY" ]', 1, true) ~= nil, "the kept key goes to main's marker's path, or may be empty")
+  assert(assert(take.run):find('[ -n "$KEY" ]', 1, true), "an empty key can match an empty one")
+  assert(kept["name"] == env["ARTIFACT"] and kept["overwrite"] == true, "the key is kept under another name, or not replaced")
   for _, step in ipairs(steps) do
-    local saves = (step.uses as string or ""):find("actions/cache/save@", 1, true) ~= nil
-    local from = ""
-    if step.with then
-      local path = (step.with as {string: any}).path as string
-      if path then from = path end
-    end
+    local saves = (step.uses or ""):find("actions/cache/save@", 1, true) ~= nil
+    local path = with_of(step)["path"]
+    local from = if path is string then path else "" end
     assert(not (saves and from:find("driver-relay", 1, true) ~= nil), "the relayed key is saved as main's marker")
   end
 end
@@ -3062,12 +3034,12 @@ local function evaluate(text: string, leg: {string: string}, event: string, ref:
   local function truthy(v: Value): boolean return v ~= "" and v ~= false end
   local disjunction: function(): Value
   local function primary(): Value
-    local token = assert(tokens[i.value], "an expression ends early: " .. inner)
-    i.value = i.value + 1
+    local token = assert(tokens[assert(i["value"])], "an expression ends early: " .. inner)
+    i["value"] = assert(i["value"]) + 1
     if token == "(" then
       local v = disjunction()
-      assert(tokens[i.value] == ")", "an unclosed parenthesis: " .. inner)
-      i.value = i.value + 1
+      assert(tokens[assert(i["value"])] == ")", "an unclosed parenthesis: " .. inner)
+      i["value"] = assert(i["value"]) + 1
       return v
     elseif token == "!" then
       return not truthy(primary())
@@ -3084,9 +3056,9 @@ local function evaluate(text: string, leg: {string: string}, event: string, ref:
   end
   local function comparison(): Value
     local left = primary()
-    local op = tokens[i.value]
+    local op = tokens[assert(i["value"])]
     if op == "==" or op == "!=" then
-      i.value = i.value + 1
+      i["value"] = assert(i["value"]) + 1
       local right = primary()
       assert(left is string and right is string,
         "a comparison of other than two strings this test cannot answer: " .. inner)
@@ -3098,8 +3070,8 @@ local function evaluate(text: string, leg: {string: string}, event: string, ref:
   end
   local function conjunction(): Value
     local v = comparison()
-    while tokens[i.value] == "&&" do
-      i.value = i.value + 1
+    while tokens[assert(i["value"])] == "&&" do
+      i["value"] = assert(i["value"]) + 1
       local right = comparison()
       if truthy(v) then v = right end
     end
@@ -3107,15 +3079,15 @@ local function evaluate(text: string, leg: {string: string}, event: string, ref:
   end
   disjunction = function(): Value
     local v = conjunction()
-    while tokens[i.value] == "||" do
-      i.value = i.value + 1
+    while tokens[assert(i["value"])] == "||" do
+      i["value"] = assert(i["value"]) + 1
       local right = conjunction()
       if not truthy(v) then v = right end
     end
     return v
   end
   local v = disjunction()
-  assert(tokens[i.value] == nil, "an expression with more after its end: " .. inner)
+  assert(tokens[assert(i["value"])] == nil, "an expression with more after its end: " .. inner)
   return v
 end
 
@@ -3151,9 +3123,9 @@ local EVENTS <const>: {{string}} = {
 --- The full-run legs that run the portable suite (COSMIC_CI_PORTABLE_SUITE
 --- `run`) on a run of `event` to `ref`, by name, space-joined in order.
 local function portable_suite_legs(event: string, ref: string): string
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local env = ((ci.jobs as {string: {string: any}}).platform.env) as {string: string}
-  local value = assert(env.COSMIC_CI_PORTABLE_SUITE, "the legs set no COSMIC_CI_PORTABLE_SUITE")
+  local ci = ci_workflow()
+  local env = map_of(assert(ci.jobs["platform"]).env)
+  local value = assert(env["COSMIC_CI_PORTABLE_SUITE"], "the legs set no COSMIC_CI_PORTABLE_SUITE")
   local out: mut {string} = {}
   for name, leg in pairs(platform_legs("full")) do
     local answer = evaluate(value, leg, event, ref)
@@ -3179,8 +3151,8 @@ local function test_the_merge_queue_runs_the_portable_suite_on_alpine_x86_64_alo
     workflow_dispatch = "alpine-x86_64 linux-aarch64 linux-x86_64 macos-aarch64",
   }
   for _, case in ipairs(EVENTS) do
-    local got = portable_suite_legs(case[1], case[2])
-    assert(got == want[case[1]], "a " .. case[1] .. " run runs the portable suite on " .. got)
+    local got = portable_suite_legs(assert(case[1]), assert(case[2]))
+    assert(got == want[assert(case[1])], "a " .. assert(case[1]) .. " run runs the portable suite on " .. got)
   end
   -- A branch push that runs the full scope (`scope`) runs what the queue's does.
   local branch = portable_suite_legs("push", "refs/heads/some-branch")
@@ -3195,34 +3167,33 @@ end
 --- (`strategy.job-total`), linux-x86_64's in the merge queue among
 --- them, and none of those steps turns on COSMIC_CI_PORTABLE_SUITE.
 local function test_a_leg_that_skips_the_portable_suite_still_attests_what_it_ran()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local platform = (ci.jobs as {string: {string: any}}).platform
+  local ci = ci_workflow()
+  local platform = ci.jobs["platform"]
   local seen: mut {string: boolean} = {}
   local at: mut {string: integer} = {}
-  for i, step in ipairs(platform.steps as {{string: any}}) do
-    local run = step.run as string or ""
+  for i, step in ipairs(assert(platform).steps) do
+    local run = (step.run or "")
     local phase = run:match("^cosmic%-driver cosmic_ci/driver%.tl platform ([%w-]+)")
     if phase ~= nil then at[phase] = i end
-    local with = step.with as {string: string}
-    local upload = with ~= nil and with.name == "portable-product-${{ matrix.name }}"
+    local upload = with_of(step)["name"] == "portable-product-${{ matrix.name }}"
     if phase == "portable" or phase == "fixtures" or phase == "attest" or upload then
       local key = if upload then "upload" else phase end
-      assert(step["if"] == FULL, key .. " runs on another condition than a full run's: " ..
+      assert(step["if"] == FULL, assert(key) .. " runs on another condition than a full run's: " ..
           tostring(step["if"]))
-      assert(not assert(Json.encode(step)):find("PORTABLE_SUITE", 1, true), key .. " turns on the portable suite's switch")
-      seen[key] = true
+      assert(not assert(Json.encode_any(step)):find("PORTABLE_SUITE", 1, true), assert(key) .. " turns on the portable suite's switch")
+      seen[assert(key)] = true
       if phase == "attest" then
         assert(run:find("\"${{ strategy.job-total }}\"", 1, true) ~= nil,
           "attest expects another count of products than the legs': " .. run)
       end
     end
   end
-  assert(seen.portable == true and seen.fixtures == true and seen.attest == true and seen.upload == true,
+  assert(seen["portable"] == true and seen["fixtures"] == true and seen["attest"] == true and seen["upload"] == true,
     "a full run's leg misses a step of the product's")
   -- A regression's failure in the queue surfaces sooner. Attest reads
   -- the digest the portable step records, so it follows.
-  assert(at.fixtures < at.portable, "the regressions run after the portable suite")
-  assert(at.portable < at["portable-boundary"] and at["portable-boundary"] < at.attest,
+  assert(assert(at["fixtures"]) < at_of(at, "portable"), "the regressions run after the portable suite")
+  assert(assert(at["portable"]) < at_of(at, "portable-boundary") and assert(at["portable-boundary"]) < at_of(at, "attest"),
     "the portable suite, its boundary and the attestation are out of order")
 end
 
@@ -3234,17 +3205,17 @@ end
 --- restores no other vendor part's entry).
 local function test_the_vendor_part_hashes_the_trees_and_records_but_not_the_applier()
   local action = cache_names()
-  local named = ((action.runs as {string: any}).steps as {{string: any}})[1]
-  local vendor = (named.env as {string: string}).VENDOR
+  local named = assert(action.runs.steps[1])
+  local vendor = map_of(named.env)["VENDOR"]
   assert(vendor == "${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'build/zig.tl', " ..
       "'vendor/**', '!vendor/tzdata/**', '!vendor/cacert/**', '!vendor/onecrl/**', '!vendor/htmx/**', '!vendor/htmx-ext-sse/**', '!vendor/wpt-url/**', '!vendor/html5lib-tokenizer/**', '!vendor/wpt-html-parsing/**', 'patch/**', " ..
       "'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', " ..
-      "'core/darwin-compat/**') }}", "the vendor cache hashes different inputs: " .. vendor)
+      "'core/darwin-compat/**') }}", "the vendor cache hashes different inputs: " .. assert(vendor))
   for _, wanted in ipairs({ "'vendor/**'", "'patch/**'", "'build.zig'", "'build/zig.tl'" }) do
-    assert(vendor:find(wanted, 1, true), "the vendor part hashes no " .. wanted .. ": " .. vendor)
+    assert(assert(vendor):find(wanted, 1, true), "the vendor part hashes no " .. wanted .. ": " .. assert(vendor))
   end
-  assert(not vendor:find("build/patch.tl", 1, true),
-    "the vendor part hashes the applier, whose edits write the same trees: " .. vendor)
+  assert(not assert(vendor):find("build/patch.tl", 1, true),
+    "the vendor part hashes the applier, whose edits write the same trees: " .. assert(vendor))
 end
 
 --- Both jobs receive the same cache-name outputs before restoring or
@@ -3252,24 +3223,23 @@ end
 --- job's passing driver marker.
 local function test_cache_names_reach_both_jobs_before_their_restores()
   local action = cache_names()
-  local steps = (action.runs as {string: any}).steps as {{string: any}}
+  local steps = action.runs.steps
   assert(#steps == 1 and steps[1].id == "names" and steps[1].shell == "sh" and
       steps[1]["working-directory"] == ".", "cache names run outside the host checkout")
-  local env = steps[1].env as {string: string}
-  assert(env.LEG == "${{ inputs.leg }}" and
-      env.CORE == "${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}",
+  local env = map_of(steps[1].env)
+  assert(env["LEG"] == "${{ inputs.leg }}" and
+      env["CORE"] == "${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}",
     "cache names use another leg or core inputs")
-  local outputs = action.outputs as {string: {string: string}}
+  local outputs = assert(action.outputs)
   for _, name in ipairs({ "vendor", "core", "compiles", "image", "since" }) do
-    assert(outputs[name].value == "${{ steps.names.outputs." .. name .. " }}",
+    assert(assert(outputs[name])["value"] == "${{ steps.names.outputs." .. name .. " }}",
       "the action does not forward " .. name)
   end
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local jobs = ci.jobs as {string: {string: any}}
+  local jobs = ci_workflow().jobs
   for _, job in ipairs({ "platform", "checked" }) do
     local named = false
     local marker = false
-    for _, step in ipairs(jobs[job].steps as {{string: any}}) do
+    for _, step in ipairs(job_of(jobs, job).steps) do
       if step.id == "names" then
         assert(step.uses == CACHE_NAMES and step["if"] == nil, job .. " does not always name its caches")
         named = true
@@ -3279,7 +3249,7 @@ local function test_cache_names_reach_both_jobs_before_their_restores()
         assert(named, job .. " names its caches after restoring them or moving the tree")
       end
       if step.id == "driver-check-restore" then
-        local key = (step.with as {string: string}).key
+        local key = param(step, "key")
         assert(key:find("'.github/actions/cache-names/**'", 1, true),
           job .. " stands on a driver check from before the cache names changed")
         marker = true
@@ -3292,9 +3262,8 @@ end
 --- A project-script proof may write build metadata. It must not run
 --- between the native suite's snapshot and its delayed comparison.
 local function test_the_credential_proof_follows_the_native_database_boundary()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local jobs = ci.jobs as {string: {string: any}}
-  local steps = jobs.platform.steps as {{string: any}}
+  local jobs = ci_workflow().jobs
+  local steps = job_of(jobs, "platform").steps
   local _, suite = step_running(steps, "driver.tl platform local-suite")
   local _, boundary = step_running(steps, "driver.tl platform local-boundary")
   local compile, compiled = step_running(steps, "credentials-build.sh")
@@ -3355,9 +3324,9 @@ local function test_every_leg_has_its_promises_and_no_other_does()
   for _, scope in ipairs({ "light", "full" }) do
     for name in pairs(platform_legs(scope)) do ran[name] = true end
   end
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local checked = (ci.jobs as {string: {string: any}}).checked
-  ran[(checked.env as {string: string}).COSMIC_WORKER] = true
+  local ci = ci_workflow()
+  local checked = ci.jobs["checked"]
+  ran[assert(map_of(assert(checked).env)["COSMIC_WORKER"])] = true
   for name in pairs(ran) do
     assert(promised[name], name .. ": a leg with no entry in capabilities.json")
   end
