@@ -463,25 +463,35 @@ local function test_record_of_read_any_other_way_is_refused_unless_it_says_it_is
     if found.refusal ~= "" then assert(#found.splices == 0, "a refused module splices none") end
     return found.refusal
   end
-  local routes: {string} = {
-    head .. "local f = Shape.record_of\nreturn f\n",
-    head .. "local Alias = Shape\nreturn Alias.record_of(\"A\")\n",
-    head .. 'return Shape["record_of"]("A")\n',
-    head .. "local First = Shape\nlocal Second = First\nreturn Second.record_of(\"A\")\n",
-    head .. "local Late\nLate = Shape\nreturn Late.record_of(\"A\")\n",
-    head .. "local One, Two = 1, Shape\nreturn Two.record_of(\"A\")\n",
-    head .. 'return Shape:record_of("A")\n',
-    head .. 'return require("cosmic.shape").record_of("A")\n',
-    'local record A\n  a: string\nend\nreturn require("cosmic.shape").record_of("A")\n',
+  local routes: {{string | integer}} = {
+    { head .. "local f = Shape.record_of\nreturn f\n", 5 },
+    { head .. "local Alias = Shape\nreturn Alias.record_of(\"A\")\n", 6 },
+    { head .. 'return Shape["record_of"]("A")\n', 5 },
+    { head .. "local First = Shape\nlocal Second = First\nreturn Second.record_of(\"A\")\n", 7 },
+    { head .. "local Late\nLate = Shape\nreturn Late.record_of(\"A\")\n", 7 },
+    { head .. "local One, Two = 1, Shape\nreturn Two.record_of(\"A\")\n", 6 },
+    { head .. 'return Shape:record_of("A")\n', 5 },
+    { head .. 'return require("cosmic.shape").record_of("A")\n', 5 },
+    { 'local record A\n  a: string\nend\nreturn require("cosmic.shape").record_of("A")\n', 4 },
   }
-  for _, text in ipairs(routes) do
-    local said = refusal(text)
-    assert(said:find("main.tl:", 1, true) ~= nil and said:find("record_of: read other than as a call", 1, true) ~= nil,
-      said .. " for " .. text)
+  for _, route in ipairs(routes) do
+    local text, line = tostring(route[1]), route[2]
+    local found = ShapeSpecs.splices(build_of({ ["main.tl"] = text }), "main", "main.tl", text)
+    assert(#found.splices == 0 and found.line == line, tostring(found.line) .. " for " .. text)
+    assert(found.refusal:find("main.tl:" .. tostring(line) .. ":", 1, true) ~= nil and
+        found.refusal:find("record_of: read other than as a call", 1, true) ~= nil and
+        found.refusal:find("Bind cosmic.shape at the module's top level", 1, true) ~= nil, found.refusal .. " for " .. text)
   end
   -- on purpose, marked on its line
   local marked = head .. 'return Shape["record_of"]("A") -- record_of: unresolved on purpose\n'
   assert(refusal(marked) == "")
+  -- the marker is the comment that ends the first line of the use, exactly
+  local use = 'return Shape["record_of"]("A")'
+  assert(refusal(head .. use .. " -- record_of: unresolved on purposeXYZ\n") ~= "")
+  assert(refusal(head .. "-- record_of: unresolved on purpose\n" .. use .. "\n") ~= "")
+  assert(refusal(head .. use .. ' .. "-- record_of: unresolved on purpose"\n') ~= "")
+  assert(refusal(head .. "--- record_of: unresolved on purpose\n" .. use .. "\n") ~= "")
+  assert(refusal(head .. use .. "   -- record_of: unresolved on purpose  \n") == "")
   -- the code of a guide is a function's, whose `Shape` the build does not find: a guide is not refused for it
   local guide = 'local function example()\n  local Shape = require("cosmic.shape")\n  return Shape.record_of("A")\nend\nreturn example\n'
   assert(ShapeSpecs.splices(build_of({ ["main.tl"] = guide }), "main", "guide.md", guide).refusal == "")

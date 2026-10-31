@@ -436,13 +436,40 @@ local function requires_shape(e: Ast.Exp): boolean
   return required_name(e) == "cosmic.shape"
 end
 
---- The first use of cosmic.shape's `record_of` that the build does not complete, as a refusal and its line, or "" and 0:
---- [`Shape.record_of`] that is not called (`local f = Shape.record_of`), and `record_of` read through another name for
---- the module (`local Alias = Shape`, `require("cosmic.shape").record_of`) or through an index (`Shape["record_of"]`).
---- A call that way raises when it runs; the build refuses it where it stands, unless its line holds
---- [`UNRESOLVED_ON_PURPOSE`]. The method form (`Shape:record_of(...)`), a chained alias and an alias assigned after it is declared
---- are caught; a module reached through a function's result, `select`, a table or a computed key is not, and a call written
---- so still fails closed: it has no check and raises when it runs. `shape` is the name the module binds cosmic.shape to at its top level, or nil.
+--- Whether the line `text` ends in the comment [`UNRESOLVED_ON_PURPOSE`], exactly: the comment is the text from the first `--`
+--- outside a string, so the marker inside a string, in a `---` doc comment, or followed by more text is not one.
+local function marked(text: string): boolean
+  local quote: string? = nil
+  local i = 1
+  while i <= #text do
+    local c = text:sub(i, i)
+    if quote ~= nil then
+      if c == "\\" then
+        i = i + 1
+      elseif c == quote then
+        quote = nil
+      end
+    elseif c == '"' or c == "'" then
+      quote = c
+    elseif c == "-" and text:sub(i, i + 1) == "--" then
+      return (text:sub(i):gsub("%s+$", "")) == UNRESOLVED_ON_PURPOSE
+    end
+    i = i + 1
+  end
+  return false
+end
+
+--- The first use of cosmic.shape's `record_of` that the build does not complete, as a refusal and its line, or "" and 0.
+--- Followed, per file and not per scope: a name that is `Shape` (or an alias already found), or `require("cosmic.shape")`,
+--- bound by `local A = ...`, `local A, B = ..., ...` or `A = ...` to a bare name or a literal `require`. A use is
+--- [`Shape.record_of`] not called (`local f = Shape.record_of`), the method form, `record_of` read through such a name
+--- (`Alias.record_of`, `require("cosmic.shape").record_of`), or through an index (`Shape["record_of"]`).
+--- A call that way raises when it runs; the build refuses it where it stands, unless the first line of the use ends in the
+--- comment [`UNRESOLVED_ON_PURPOSE`].
+---
+--- Not followed, and failing at run time as any uncompleted call does (no check, so it raises): a wrapped alias
+--- (`(Shape)`, `Shape or x`, `assert(Shape)`), a field target (`M.s = Shape`), the module passed as an argument,
+--- `pcall(require, ...)` and `local R = require`, a function's result, `select`, a table and a computed key.
 local function stray_use(chunk: Ast.Chunk, file: string, source: string, shape: string?): string, integer
   local names: mut {string: boolean} = {}
   if shape ~= nil then names[shape] = true end
@@ -488,10 +515,11 @@ local function stray_use(chunk: Ast.Chunk, file: string, source: string, shape: 
     -- A call of `Shape.record_of(...)` is the build's to complete or leave; any other way of reading it is not.
     if direct and node.kind == "Field" and called[node.last] == true then return end
     local at = Node.span(chunk, node).y
-    if (lines[at] or ""):find(UNRESOLVED_ON_PURPOSE, 1, true) ~= nil then return end
+    if marked(lines[at] or "") then return end
     line = at
     refusal = ("%s:%d: record_of: read other than as a call written Shape.record_of(\"Name\"), which the build " ..
-      "completes; written so, it has no check and raises when it runs (a use that means to fail at run time writes `%s` on its line)"
+      "completes; written so, it has no check and raises when it runs. Bind cosmic.shape at the module's top level and call " ..
+      "Shape.record_of(\"Name\") there; a use that means to fail at run time ends its first line in `%s`"
     ):format(file, at, UNRESOLVED_ON_PURPOSE)
   end)
   return refusal, line
