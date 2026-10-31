@@ -670,7 +670,7 @@ local function test_a_named_file_outside_the_build_is_set_apart_to_be_checked_al
   assert(Fs.write(dir .. "/bin/a.tl", "return 1\n"))
   assert(Fs.write(dir .. "/lib/b.tl", "return 2\n"))
   assert(Fs.write(tmp .. "/stray.tl", "return 3\n"))
-  local picked = assert(fix.chosen(dir, { dir .. "/bin/a.tl", dir .. "/lib/b.tl", tmp .. "/stray.tl" }))
+  local picked = assert(chosen(dir, { dir .. "/bin/a.tl", dir .. "/lib/b.tl", tmp .. "/stray.tl" }))
   local alone = assert(picked.alone)
   assert(#alone == 2 and alone[1] == dir .. "/bin/a.tl" and alone[2] == tmp .. "/stray.tl",
     "bin/a.tl and the file outside the root are checked alone, lib/b.tl is the build's: " .. table.concat(alone, ","))
