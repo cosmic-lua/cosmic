@@ -4,7 +4,7 @@ An `.xlsx` file is a zip of XML parts: the workbook names its sheets, a
 relationships part says where each one is, a shared strings part holds
 the text of the cells, and each sheet holds its rows. This guide reads one
 with [`cosmic.zip`], [`cosmic.xml`], [`cosmic.url`] and [`cosmic.time`],
-in about a hundred lines, dates included, and shows where a fuller
+in about 120 lines, dates included, and shows where a fuller
 reader would go on from there.
 
 ## a workbook to read
