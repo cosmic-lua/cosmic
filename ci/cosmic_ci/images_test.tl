@@ -49,7 +49,8 @@ end
 
 local function test_build_argv_refuses_missing_context()
   local env = Maps.without(build_env("false"), { "UBUNTU_SNAPSHOT" })
-  Test.raises(function() Images.build_argv(env) end, "UBUNTU_SNAPSHOT")
+  local ok, why = pcall(Images.build_argv, env)
+  assert(not ok and tostring(why):find("UBUNTU_SNAPSHOT", 1, true) ~= nil)
 end
 
 local function test_publish_argvs_join_each_arch()
