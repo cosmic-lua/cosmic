@@ -102,7 +102,6 @@ allowed["build.type_watch.skip_reason"] = "the reason `during` skips with, which
   "since a skipping test cannot show it"
 
 allowed["build.memprobe.sink"] = "where a mark writes its line, which a test takes in place of standard error"
-
 allowed["build.dataset.load"] = "the loader load_text composes and falls back on, tested directly " ..
   "over rows a test builds, whose keys no file need hold"
 
@@ -1199,7 +1198,7 @@ local record Capabilities
   legs: {string:{string}}
 end
 
-local CAPABILITIES_SPEC <const> = Shape.record({ legs = Shape.map(Shape.list(Shape.string)) })
+local CAPABILITIES <const>: Shape.Typed<Capabilities> = Shape.record_of("Capabilities")
 
 --- The requirements each CI leg promises, as ci/cosmic_ci/capabilities.json
 --- under `root` lists them. ci is a tree of its own, whose modules the
@@ -1210,7 +1209,7 @@ function tree_checks.legs(root: string): {string:{string}}?, string
   local path = root .. "/ci/cosmic_ci/capabilities.json"
   local text, read_trouble = Fs.read(path)
   if text == nil then return nil, read_trouble end
-  local capabilities, shape_trouble: Capabilities?, string = Shape.decode_into(text, CAPABILITIES_SPEC)
+  local capabilities, shape_trouble = Shape.decode_into(text, CAPABILITIES.spec)
   if capabilities == nil then return nil, path .. ": " .. shape_trouble end
   return capabilities.legs, ""
 end

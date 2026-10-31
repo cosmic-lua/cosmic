@@ -1,5 +1,6 @@
 --- The tests of [`build.pipeline`]: a module read, checked against its ceilings and written as Lua and bytecode by the
 --- new checker. The Lua is run, and compared with what the generator writes alone ([`lang.codegen`]) over the files of the tree.
+local ShapeStub = require("build.shape_stub")
 local Ceilings = require("build.ceilings")
 local Codegen = require("lang.codegen")
 local CompileGrammar = require("build.compile_grammar")
@@ -32,17 +33,7 @@ Test.policy{ grants = {
 } }
 
 --- The standard library of the checker's own tests, as the globals of every module, and the `cosmic.*` modules the cases name.
-local STANDARD <const>: {string: string} = {
-  ["cosmic.shape"] = table.concat({
-    "local record Shape",
-    "  record_of: function(string, ...: any): any",
-    "  record: function(any): any",
-    "  integer: any",
-    "end",
-    "return Shape",
-    "",
-  }, "\n"),
-}
+local STANDARD <const>: {string: string} = ShapeStub.standard()
 
 --- The ceilings `text` holds, with no code closed: a program here has the errors the checker finds in it, whatever codes
 --- the tree has closed.

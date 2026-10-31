@@ -520,7 +520,7 @@ local Store = require("cosmic.store")
 return function(): integer
   for _, handle in ipairs(Store.databases()) do
     local rows, _ = Sqlite.text_rows(handle,
-      "SELECT path, type, length(data), gzip IS NOT NULL FROM payload ORDER BY path")
+      "SELECT path, type, length(data), gzip IS NOT NULL, zstd IS NOT NULL FROM payload ORDER BY path")
     if rows ~= nil and #rows > 0 then
       for _, row in ipairs(rows) do print("payload", table.concat(row:texts(), "\t")) end
       break
@@ -529,13 +529,13 @@ return function(): integer
   local source = Assets.default()
   local css = assert(source:get("css/app.css"))
   local logo = assert(source:get("logo.png"))
-  print(source:dynamic(), #source:paths(), css.size, css.type, css.gzip ~= nil, logo.size, logo.gzip)
+  print(source:dynamic(), #source:paths(), css.size, css.type, css.gzip ~= nil, css.zstd ~= nil, logo.size, logo.gzip, logo.zstd)
   return 0
 end
 ]]
 
 --- The files under `static/` go into the program's database whole, with
---- the type, hash and gzip they are served by, and a built program serves
+--- the type, hash, gzip and zstd they are served by, and a built program serves
 --- them from there, not from a directory beside it: run from a directory
 --- with a decoy `static/`, it answers the embedded bytes. One build
 --- serves both checks, as it is the slow part.
@@ -555,9 +555,9 @@ local function test_a_program_serves_the_static_files_it_carries(tmp: string)
     cwd = elsewhere, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local out = assert(r.stdout)
-  assert(out:find("payload\tcss/app.css\ttext/css; charset=utf-8\t" .. tostring(#css) .. "\t1\n" ..
-      "payload\tlogo.png\timage/png\t6\t0\n", 1, true), out)
-  assert(out:find("false\t2\t" .. tostring(#css) .. "\ttext/css; charset=utf-8\ttrue\t6\tnil\n", 1, true), out)
+  assert(out:find("payload\tcss/app.css\ttext/css; charset=utf-8\t" .. tostring(#css) .. "\t1\t1\n" ..
+      "payload\tlogo.png\timage/png\t6\t0\t0\n", 1, true), out)
+  assert(out:find("false\t2\t" .. tostring(#css) .. "\ttext/css; charset=utf-8\ttrue\ttrue\t6\tnil\tnil\n", 1, true), out)
 end
 
 --- `cosmic build` with the new checker (`COSMIC_GRAMMAR=new`, `grammar` here) compiles the project with it: a project written in

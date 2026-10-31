@@ -211,11 +211,18 @@ end
 --- `copy` with the `column` of `name`'s row edited, its source
 --- (`source_hash`) or its bytecode, and the row put back.
 local function edited_digests(copy: Sqlite.Handle, name: string, column: string): test_key.Harness
-  assert(Sqlite.run(copy, "UPDATE modules SET " .. column .. " = " .. column ..
-      " || X'00' WHERE path = ?1", { { text = name } }))
+  -- The bytecode is stored deflated, so a byte is added to what it
+  -- inflates to, and taken from it again.
+  local plain = if column == "bytecode" then "inflate(bytecode)" else column end
+  local function stored(value: string): string
+    return if column == "bytecode" then "deflate(" .. value .. ")" else value end
+  end
+  assert(Sqlite.run(copy, "UPDATE modules SET " .. column .. " = " .. stored(plain .. " || X'00'") ..
+      " WHERE path = ?1", { { text = name } }))
   local found, trouble = test_key.harness(copy)
-  assert(Sqlite.run(copy, "UPDATE modules SET " .. column .. " = substr(" .. column ..
-      ", 1, length(" .. column .. ") - 1) WHERE path = ?1", { { text = name } }))
+  assert(Sqlite.run(copy, "UPDATE modules SET " .. column .. " = " ..
+      stored("substr(" .. plain .. ", 1, length(" .. plain .. ") - 1)") ..
+      " WHERE path = ?1", { { text = name } }))
   assert(found ~= nil, trouble)
   return found
 end
@@ -528,7 +535,7 @@ local function test_value_imports_follows_every_spelling_of_a_require()
     '  "cosmic.env")',
     'return a, b',
   }, "\n"))), true)
-  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.x', 'module', ?1)",
+  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.x', 'module', deflate(?1))",
     { { blob = compiled } }))
   for _, wanted in ipairs({ "cosmic.fs", "cosmic.env", "cosmic.child" }) do
     assert(Sqlite.run(db, "INSERT INTO imports VALUES ('build.x', ?1)", { { text = wanted } }))
@@ -551,9 +558,9 @@ local function test_type_only_imports_is_what_value_imports_drops()
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, bytecode BLOB); " ..
       "CREATE TABLE imports (path TEXT, requires TEXT)"))
   local compiled = string.dump(assert(load('local a = require"cosmic.fs" return a')), true)
-  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.x', 'module', ?1)",
+  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.x', 'module', deflate(?1))",
     { { blob = compiled } }))
-  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.t_test', 'test', ?1)",
+  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.t_test', 'test', deflate(?1))",
     { { blob = compiled } }))
   for _, row in ipairs({ { "build.x", "cosmic.fs" }, { "build.x", "cosmic.child" },
       { "build.y", "cosmic.time" }, { "build.t_test", "cosmic.child" } }) do
