@@ -289,3 +289,40 @@ end
 local function test_encode_query_raises_on_a_value_that_is_no_string()
   Test.raises(function() Url.encode_query({ { name = "a", value = 1 as string } }) end)
 end
+
+--- RFC 3986's own examples (section 5.4), normal and abnormal, against
+--- its base.
+local function test_resolve_answers_rfc_3986_examples()
+  local base = "http://a/b/c/d;p?q"
+  local cases: {{string}} = {
+    { "g:h", "g:h" }, { "g", "http://a/b/c/g" }, { "./g", "http://a/b/c/g" },
+    { "g/", "http://a/b/c/g/" }, { "/g", "http://a/g" }, { "//g", "http://g" },
+    { "?y", "http://a/b/c/d;p?y" }, { "g?y", "http://a/b/c/g?y" }, { "#s", "http://a/b/c/d;p?q#s" },
+    { "g#s", "http://a/b/c/g#s" }, { "g?y#s", "http://a/b/c/g?y#s" }, { ";x", "http://a/b/c/;x" },
+    { "g;x", "http://a/b/c/g;x" }, { "g;x?y#s", "http://a/b/c/g;x?y#s" }, { "", "http://a/b/c/d;p?q" },
+    { ".", "http://a/b/c/" }, { "./", "http://a/b/c/" }, { "..", "http://a/b/" }, { "../", "http://a/b/" },
+    { "../g", "http://a/b/g" }, { "../..", "http://a/" }, { "../../", "http://a/" }, { "../../g", "http://a/g" },
+    { "../../../g", "http://a/g" }, { "../../../../g", "http://a/g" }, { "/./g", "http://a/g" },
+    { "/../g", "http://a/g" }, { "g.", "http://a/b/c/g." }, { ".g", "http://a/b/c/.g" },
+    { "g..", "http://a/b/c/g.." }, { "..g", "http://a/b/c/..g" }, { "./../g", "http://a/b/g" },
+    { "./g/.", "http://a/b/c/g/" }, { "g/./h", "http://a/b/c/g/h" }, { "g/../h", "http://a/b/c/h" },
+    { "g;x=1/./y", "http://a/b/c/g;x=1/y" }, { "g;x=1/../y", "http://a/b/c/y" },
+    { "g?y/./x", "http://a/b/c/g?y/./x" }, { "g?y/../x", "http://a/b/c/g?y/../x" },
+    { "g#s/./x", "http://a/b/c/g#s/./x" }, { "g#s/../x", "http://a/b/c/g#s/../x" }, { "http:g", "http:g" },
+  }
+  for _, case in ipairs(cases) do
+    local ref, want = assert(case[1]), assert(case[2])
+    local got = Url.resolve(base, ref)
+    assert(got == want, ref .. ": " .. got .. ", not " .. want)
+  end
+end
+
+--- A base that is a path alone resolves paths, as a package format
+--- resolves a part's relationship targets.
+local function test_resolve_takes_a_path_for_a_base()
+  assert(Url.resolve("/xl/workbook.xml", "worksheets/sheet1.xml") == "/xl/worksheets/sheet1.xml")
+  assert(Url.resolve("/xl/worksheets/sheet1.xml", "../media/a.png") == "/xl/media/a.png")
+  assert(Url.resolve("/xl/workbook.xml", "/xl/styles.xml") == "/xl/styles.xml")
+  assert(Url.resolve("/", "xl/workbook.xml") == "/xl/workbook.xml")
+  assert(Url.resolve("/a/b", "../../../c") == "/c")
+end
