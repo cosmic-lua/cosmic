@@ -351,7 +351,7 @@ local function test_a_missing_member_writes_nothing_and_exits_1(tmp: string)
   local path = make_zip(tmp .. "/z.zip", SAMPLE)
   local ran = run({ "extract", path, "-C", tmp .. "/o", "top.txt", "nope.txt" })
   assert(ran.code == 1 and ran.out == "", ran.out)
-  assert(ran.err:find("no such member: nope.txt", 1, true), ran.err)
+  assert(ran.err:find(path .. ": no such member: nope.txt", 1, true), ran.err)
   assert(Fs.exists(tmp .. "/o/top.txt") ~= true)
 end
 
@@ -360,6 +360,21 @@ local function test_extract_reads_standard_input(tmp: string)
   local ran = run({ "extract", "-", "-C", tmp .. "/o", "top.txt" }, bytes)
   assert(ran.code == 0, ran.err)
   assert(Fs.read(tmp .. "/o/top.txt") == "top")
+end
+
+local function test_a_missing_member_of_standard_input_names_it_so(tmp: string)
+  -- A missing member of standard input is named "standard input", not
+  -- "-": a zip there is spooled to a file first, a tar is streamed.
+  local zip = assert(Fs.read(make_zip(tmp .. "/s.zip", SAMPLE)))
+  local from_zip = run({ "extract", "-", "-C", tmp .. "/oz", "nope.txt" }, zip)
+  assert(from_zip.code == 1 and
+      from_zip.err:find("standard input: no such member: nope.txt", 1, true) ~= nil, from_zip.err)
+  assert(from_zip.err:find("-: no such member", 1, true) == nil, from_zip.err)
+  local tar = assert(Fs.read(make_tar(tmp .. "/s.tar", SAMPLE)))
+  local from_tar = run({ "extract", "-", "-C", tmp .. "/ot", "nope.txt" }, tar)
+  assert(from_tar.code == 1 and
+      from_tar.err:find("standard input: no such member: nope.txt", 1, true) ~= nil, from_tar.err)
+  assert(from_tar.err:find("-: no such member", 1, true) == nil, from_tar.err)
 end
 
 --- Nothing may land outside `dest`, whatever an archive says: `probe`

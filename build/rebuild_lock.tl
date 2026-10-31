@@ -112,7 +112,7 @@ local doing: {string:string} = {
 --- environment it no longer describes holds nothing up; a `cosmic test`
 --- run never goes on under it, and gives none to its workers
 --- ([`build.test_key`]'s `worker_environment`).
-local handed_variable <const> = "COSMIC_REBUILD_LOCK_HANDED"
+local handed_variable <const>: Env.Name = "COSMIC_REBUILD_LOCK_HANDED"
 
 --- How long a waiting run waits in one go before it says it still is.
 local reminder_ns <const> = Clock.seconds(15)
@@ -344,7 +344,7 @@ end
 --- boot's bridge is given its root as `<root>/.`), so it is told by the
 --- file it names.
 local function handed(root: string): boolean
-  local named = Env.get(handed_variable)
+  local named = Env.read(handed_variable)
   if named == nil or named == "" then
     return false
   end

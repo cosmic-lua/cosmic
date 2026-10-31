@@ -1,7 +1,6 @@
 --- Whether the tokens of a lexing tile their source: the check that a file
---- is written back from its tokens and comments to the same bytes
---- ([`doc/plans/new-checker-grammar.md`], "the order the grammar lands
---- in"). It holds for any source, whatever errors the lexing found.
+--- is written back from its tokens and comments to the same bytes. It holds
+--- for any source, whatever errors the lexing found.
 ---
 --- The tokens and the comments before them, in order, hold each byte of the
 --- source at the `offset` and `length` they give, with `text` equal to

@@ -5,6 +5,7 @@
 --- handed is cosmic/relay/handed_test.tl's.
 
 local Clock = require("cosmic.clock")
+local Config = require("cosmic.internal.relay_config")
 local Net = require("cosmic.net")
 local SandboxRelay = require("cosmic.internal.relay_start")
 local Test = require("cosmic.test")
@@ -133,9 +134,9 @@ end
 local function test_name_servers_and_the_public_lists()
   local one = assert(SandboxRelay.name_servers({ servers = { { host = "127.0.0.1", port = 53 } } }))
   assert(#one.servers == 1 and one.wait_ns == Clock.seconds(5) // 2, tostring(one.wait_ns))
-  local many: SandboxRelay.NameServerOptions = { servers = {} }
-  local servers = assert(many.servers)
+  local servers: mut {Config.Endpoint} = {}
   for port = 1, 129 do servers[port] = { host = "127.0.0.1", port = port } end
+  local many: SandboxRelay.NameServerOptions = { servers = servers }
   local none, why = SandboxRelay.name_servers(many)
   assert(none == nil and why:find("more than a connector holds (128)", 1, true) ~= nil, why)
   local public = SandboxRelay.public({ "10.1.0.2" })
