@@ -132,6 +132,8 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
     { ctx.artifact }, ctx.work,
     ctx.diagnostics, relative_xdg), "relative XDG fallback")
 
+  -- TODO: give these rows a record, as the case lists of cosmic/hash_test.tl have, once the launcher fixtures can run where this
+  -- was written: they need COSMIC_FIXTURE_TARGET, which ci/run-local sets, and the change could not run them.
   for _, case in ipairs({
       { "empty-cache", "", home, "must be an absolute path" },
       { "relative-cache", "relative", home, "must be an absolute path" },

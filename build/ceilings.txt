@@ -601,7 +601,6 @@ build/declared_key.tl nil_not_allowed 12
 build/declared_types_test.tl nil_not_allowed 1
 
 
-build/digest_test.tl nil_not_allowed 3
 
 
 build/dispatched_features_test.tl nil_not_allowed 1
@@ -611,11 +610,9 @@ build/dispatched_features_test.tl nil_not_allowed 1
 build/docs_checks_test.tl nil_not_allowed 4
 
 
-build/docs_search_test.tl nil_not_allowed 2
 
 
 
-build/doctest/generate_test.tl nil_not_allowed 3
 
 
 
@@ -919,7 +916,7 @@ cosmic/clock.tl nil_not_allowed 4
 
 cosmic/codec.tl nil_not_allowed 23
 
-cosmic/codec_test.tl nil_not_allowed 5
+cosmic/codec_test.tl nil_not_allowed 3
 
 cosmic/compress_test.tl nil_not_allowed 12
 
@@ -937,19 +934,18 @@ cosmic/errors.tl nil_not_allowed 1
 
 cosmic/flags.tl nil_not_allowed 24
 
-cosmic/flags_test.tl nil_not_allowed 8
+cosmic/flags_test.tl nil_not_allowed 7
 
 cosmic/fs.tl nil_not_allowed 4
 
 cosmic/fs_append_tool_test.tl nil_not_allowed 1
 
-cosmic/fs_test.tl nil_not_allowed 2
 
 cosmic/hash_test.tl nil_not_allowed 13
 
 cosmic/html_fuzz_test.tl nil_not_allowed 1
 
-cosmic/html_test.tl nil_not_allowed 9
+cosmic/html_test.tl nil_not_allowed 2
 
 
 
@@ -994,13 +990,12 @@ cosmic/json_fuzz_test.tl nil_not_allowed 33
 
 cosmic/json_path_fuzz_test.tl nil_not_allowed 8
 
-cosmic/json_path_test.tl nil_not_allowed 3
+cosmic/json_path_test.tl nil_not_allowed 1
 
 cosmic/json_reader_fuzz_test.tl nil_not_allowed 14
 
-cosmic/json_reader_test.tl nil_not_allowed 3
 
-cosmic/json_test.tl nil_not_allowed 7
+cosmic/json_test.tl nil_not_allowed 4
 
 cosmic/mime.tl nil_not_allowed 2
 
@@ -1049,7 +1044,7 @@ cosmic/removed_test.tl nil_not_allowed 7
 
 cosmic/sandbox_restrict_seatbelt_test.tl nil_not_allowed 1
 
-cosmic/sandbox_restrict_test.tl nil_not_allowed 2
+cosmic/sandbox_restrict_test.tl nil_not_allowed 1
 
 cosmic/sandbox_test.tl nil_not_allowed 35
 
@@ -1110,7 +1105,6 @@ cosmic/template_test.tl nil_not_allowed 29
 
 cosmic/test.tl nil_not_allowed 1
 
-cosmic/test_policy_test.tl nil_not_allowed 11
 
 cosmic/test_test.tl nil_not_allowed 1
 
@@ -1424,10 +1418,9 @@ build/dispatched_features_test.tl index_may_be_nil 1
 
 build/docs_checks_test.tl index_may_be_nil 1
 
-build/docs_search_test.tl index_may_be_nil 3
+build/docs_search_test.tl index_may_be_nil 1
 
 
-build/doctest/generate_test.tl index_may_be_nil 1
 
 
 
@@ -1589,7 +1582,7 @@ cosmic/child_relay_seatbelt_test.tl index_may_be_nil 2
 cosmic/child_seatbelt_database_test.tl index_may_be_nil 1
 
 
-cosmic/codec_test.tl index_may_be_nil 9
+cosmic/codec_test.tl index_may_be_nil 5
 
 cosmic/compress_test.tl index_may_be_nil 1
 
@@ -1601,11 +1594,9 @@ cosmic/csv_test.tl index_may_be_nil 1
 
 cosmic/flags.tl index_may_be_nil 2
 
-cosmic/fs_test.tl index_may_be_nil 4
 
 
 
-cosmic/html_test.tl index_may_be_nil 1
 
 
 
@@ -1627,9 +1618,7 @@ cosmic/json.tl index_may_be_nil 2
 
 cosmic/json_fuzz_test.tl index_may_be_nil 5
 
-cosmic/json_path_test.tl index_may_be_nil 2
 
-cosmic/json_reader_test.tl index_may_be_nil 2
 
 
 
@@ -1641,7 +1630,6 @@ cosmic/net_test.tl index_may_be_nil 1
 
 cosmic/net_tool_test.tl index_may_be_nil 1
 
-cosmic/policy_test.tl index_may_be_nil 2
 
 cosmic/poll.tl index_may_be_nil 13
 
@@ -1659,7 +1647,6 @@ cosmic/rand_test.tl index_may_be_nil 1
 
 
 
-cosmic/sandbox_restrict_test.tl index_may_be_nil 1
 
 cosmic/seatbelt_network_probe_test.tl index_may_be_nil 3
 
@@ -1673,7 +1660,6 @@ cosmic/store.tl index_may_be_nil 3
 
 cosmic/store_seal_test.tl index_may_be_nil 1
 
-cosmic/stream_test.tl index_may_be_nil 2
 
 
 
@@ -1692,7 +1678,6 @@ cosmic/template_html5lib_tokenizer_test.tl index_may_be_nil 3
 cosmic/template_html5lib_tree_test.tl index_may_be_nil 1
 
 
-cosmic/test_policy_test.tl index_may_be_nil 7
 
 cosmic/time.tl index_may_be_nil 6
 
@@ -1763,7 +1748,7 @@ lang/relation_programs.tl index_may_be_nil 2
 lang/relation_refused_test.tl index_may_be_nil 18
 
 
-lang/relation_test.tl index_may_be_nil 28
+lang/relation_test.tl index_may_be_nil 25
 
 lang/scopes.tl index_may_be_nil 13
 
@@ -3329,7 +3314,6 @@ build/flow_test.tl any_use 1
 
 build/fuzz/init.tl any_use 9
 
-build/host_requires_test.tl any_use 6
 
 build/json.tl any_use 2
 
@@ -3405,7 +3389,6 @@ cosmic/channel_test.tl any_use 1
 
 cosmic/child.tl any_use 12
 
-cosmic/child_policy_anywhere_test.tl any_use 1
 
 cosmic/child_terminal_test.tl any_use 8
 
@@ -3425,7 +3408,6 @@ cosmic/http/server_declared_types_test.tl any_use 1
 
 cosmic/http/server_test.tl any_use 4
 
-cosmic/http/wire_test.tl any_use 36
 
 cosmic/internal/connector.tl any_use 1
 
@@ -3446,7 +3428,6 @@ cosmic/json_fuzz_test.tl any_use 23
 
 cosmic/json_path_fuzz_test.tl any_use 1
 
-cosmic/json_path_test.tl any_use 15
 
 cosmic/json_reader_fuzz_test.tl any_use 5
 
@@ -3470,9 +3451,7 @@ cosmic/relay/address_fuzz_test.tl any_use 2
 
 cosmic/removed_test.tl any_use 28
 
-cosmic/sandbox/seatbelt_test.tl any_use 24
 
-cosmic/sandbox_test.tl any_use 50
 
 cosmic/shape.tl any_use 24
 
@@ -3489,7 +3468,6 @@ cosmic/sqlite.tl any_use 6
 cosmic/store.tl any_use 1
 
 
-cosmic/stream_test.tl any_use 21
 
 cosmic/tar.tl any_use 1
 
@@ -3656,7 +3634,7 @@ build/hash_tool_test.tl cast_refused 1
 
 build/host_features_test.tl cast_refused 1
 
-build/host_requires_test.tl cast_refused 3
+build/host_requires_test.tl cast_refused 1
 
 build/json_query_fuzz_test.tl cast_refused 1
 
@@ -3780,7 +3758,7 @@ cosmic/channel_test.tl cast_refused 8
 
 cosmic/child_lua_test.tl cast_refused 9
 
-cosmic/child_policy_anywhere_test.tl cast_refused 6
+cosmic/child_policy_anywhere_test.tl cast_refused 4
 
 
 
@@ -3823,7 +3801,6 @@ cosmic/http/server_range_fuzz_test.tl cast_refused 1
 
 cosmic/http/server_test.tl cast_refused 3
 
-cosmic/http/wire_test.tl cast_refused 4
 
 cosmic/http_test.tl cast_refused 17
 
@@ -3848,13 +3825,13 @@ cosmic/json_fuzz_test.tl cast_refused 4
 
 cosmic/json_path_fuzz_test.tl cast_refused 9
 
-cosmic/json_path_test.tl cast_refused 5
+cosmic/json_path_test.tl cast_refused 2
 
 cosmic/json_reader_fuzz_test.tl cast_refused 4
 
-cosmic/json_reader_test.tl cast_refused 13
+cosmic/json_reader_test.tl cast_refused 10
 
-cosmic/json_test.tl cast_refused 66
+cosmic/json_test.tl cast_refused 64
 
 cosmic/net_connector_test.tl cast_refused 2
 
@@ -3883,10 +3860,9 @@ cosmic/relay/grant_fuzz_test.tl cast_refused 2
 
 cosmic/removed_test.tl cast_refused 2
 
-cosmic/sandbox/seatbelt_test.tl cast_refused 2
 
 
-cosmic/sandbox_test.tl cast_refused 6
+cosmic/sandbox_test.tl cast_refused 2
 
 
 cosmic/shape.tl cast_refused 1
@@ -3903,7 +3879,7 @@ cosmic/store.tl cast_refused 1
 
 cosmic/store_seal_test.tl cast_refused 3
 
-cosmic/stream_test.tl cast_refused 8
+cosmic/stream_test.tl cast_refused 5
 
 cosmic/tar_test.tl cast_refused 3
 
@@ -6072,7 +6048,7 @@ cosmic/json_example.tl literal_needs_type 1
 
 cosmic/json_fuzz_test.tl literal_needs_type 1
 
-cosmic/json_path_test.tl literal_needs_type 3
+cosmic/json_path_test.tl literal_needs_type 1
 
 cosmic/json_test.tl literal_needs_type 6
 
@@ -6357,7 +6333,6 @@ cosmic/child.tl arms_differ 3
 
 cosmic/child_drain_test.tl arms_differ 4
 
-cosmic/child_policy_anywhere_test.tl arms_differ 1
 
 cosmic/child_test.tl arms_differ 1
 
@@ -6371,7 +6346,7 @@ cosmic/http/server_check_test.tl arms_differ 3
 
 cosmic/http/server_test.tl arms_differ 15
 
-cosmic/http/wire_test.tl arms_differ 23
+cosmic/http/wire_test.tl arms_differ 1
 
 cosmic/http_test.tl arms_differ 7
 
@@ -6384,9 +6359,7 @@ cosmic/internal/relay_handed_lost_test.tl arms_differ 1
 
 cosmic/internal/relay_server_test.tl arms_differ 1
 
-cosmic/json_path_test.tl arms_differ 6
 
-cosmic/json_reader_test.tl arms_differ 3
 
 cosmic/json_test.tl arms_differ 2
 

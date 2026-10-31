@@ -93,35 +93,39 @@ end
 
 --- Each way a name is wrong is refused with a message naming its rule.
 local function test_a_bad_name_is_refused_naming_the_rule()
-  local cases: {{string}} = {
-    { "sandbxo", "unknown requirement" },
-    { "", "unknown requirement" },
-    { "Sandbox", "unknown requirement" },
-    { "landlock:", "positive integer" },
-    { "landlock:0", "positive integer" },
-    { "landlock:03", "positive integer" },
-    { "landlock:x", "positive integer" },
-    { "landlock:-1", "positive integer" },
-    { "landlock:1.5", "positive integer" },
-    { "landlock:12345", "positive integer" },
-    { "path:etc/hostname", "absolute path" },
-    { "path:", "absolute path" },
-    { "path", "needs an argument" },
-    { "program", "needs an argument" },
-    { "program:", "no \"/\"" },
-    { "program:/bin/sh", "no \"/\"" },
-    { "program:a/b", "no \"/\"" },
-    { "sandbox:1", "takes no argument" },
-    { "proc:", "takes no argument" },
-    { "root:yes", "takes no argument" },
+  local record Refusal
+    name: string
+    says: string
+  end
+  local cases: {Refusal} = {
+    { name = "sandbxo", says = "unknown requirement" },
+    { name = "", says = "unknown requirement" },
+    { name = "Sandbox", says = "unknown requirement" },
+    { name = "landlock:", says = "positive integer" },
+    { name = "landlock:0", says = "positive integer" },
+    { name = "landlock:03", says = "positive integer" },
+    { name = "landlock:x", says = "positive integer" },
+    { name = "landlock:-1", says = "positive integer" },
+    { name = "landlock:1.5", says = "positive integer" },
+    { name = "landlock:12345", says = "positive integer" },
+    { name = "path:etc/hostname", says = "absolute path" },
+    { name = "path:", says = "absolute path" },
+    { name = "path", says = "needs an argument" },
+    { name = "program", says = "needs an argument" },
+    { name = "program:", says = "no \"/\"" },
+    { name = "program:/bin/sh", says = "no \"/\"" },
+    { name = "program:a/b", says = "no \"/\"" },
+    { name = "sandbox:1", says = "takes no argument" },
+    { name = "proc:", says = "takes no argument" },
+    { name = "root:yes", says = "takes no argument" },
   }
   for _, case in ipairs(cases) do
-    local spec, why = host_names.parse(nth(case, 1))
-    assert(spec == nil, string.format("%q was read", case[1]))
-    assert(why:find(nth(case, 2), 1, true), string.format("%q: %s", case[1], why))
-    local answer = ask(host_requires.new(), nth(case, 1))
+    local spec, why = host_names.parse(case.name)
+    assert(spec == nil, string.format("%q was read", case.name))
+    assert(why:find(case.says, 1, true), string.format("%q: %s", case.name, why))
+    local answer = ask(host_requires.new(), case.name)
     assert(answer.kind == "refused" and answer.key == "" and answer.why == why)
-    assert(host_names.class(nth(case, 1)) == nil)
+    assert(host_names.class(case.name) == nil)
   end
 end
 
@@ -427,14 +431,18 @@ local function test_check_refuses_what_the_worker_could_not_use()
   for _, name in ipairs({ "sandbox", "landlock", "landlock:3", "userns", "nest", "own_proc", "proc" }) do
     assert(host_names.check({ name }, inputs), name)
   end
-  local cases: {{any}} = {
-    { { "root", "root" }, "written twice" },
-    { { "nope" }, "unknown requirement" },
-    { { "path:/etc/passwd" }, "needs a host grant of the path" },
+  local record Checked
+    names: {string}
+    says: string
+  end
+  local cases: {Checked} = {
+    { names = { "root", "root" }, says = "written twice" },
+    { names = { "nope" }, says = "unknown requirement" },
+    { names = { "path:/etc/passwd" }, says = "needs a host grant of the path" },
   }
   for _, case in ipairs(cases) do
-    local found, why = host_names.check(case[1] as {string}, inputs)
-    assert(not found and why:find(case[2] as string, 1, true) ~= nil, tostring(why))
+    local found, why = host_names.check(case.names, inputs)
+    assert(not found and why:find(case.says, 1, true) ~= nil, tostring(why))
   end
   assert(host_names.check({ "path:/proc/self/status" }, { host = { "/proc" } }))
   assert(not host_names.check({ "path:/procfs/x" }, { host = { "/proc" } }))

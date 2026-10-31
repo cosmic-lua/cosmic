@@ -628,6 +628,8 @@ local function test_a_json_pointer_with_escapes_is_one_dotted_field()
 end
 
 local function test_a_json_body_failure_at_an_odd_key_keeps_its_pointer()
+  -- TODO: give these positional rows a record, as the case lists of cosmic/hash_test.tl have, once #3348 (Shape) merges:
+  -- it moves cosmic/web, which this change leaves alone.
   local cases: {{string}} = {
     { 'a"b', '/a"b/1', 'a"b.1' },
     { "", "//1", ".1" },
