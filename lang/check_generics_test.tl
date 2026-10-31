@@ -399,6 +399,80 @@ local function test_an_invariant_position_requires_the_exact_type_and_a_function
   stands("local function show(a: Animal)\n  print(a.name)\nend\nlocal d: Dog = { name = \"d\" }\neach({ d }, show)\n", "d")
 end
 
+-- The shape of [`cosmic.shape`]: a spec names the type of what it checks, so that no annotation chooses the type of an answer
+-- and a list whose elements may be missing cannot be an array.
+local SPEC <const> = [[
+local record Spec<T>
+  check: function(value: any, path: string): T?, string
+end
+local INT: Spec<integer> = { check = function(_v: any, _p: string): integer?, string return nil, "" end }
+local STR: Spec<string> = { check = function(_v: any, _p: string): string?, string return nil, "" end }
+local function list<A>(_of: Spec<A>): Spec<{A}>
+  return { check = function(_v: any, _p: string): {A}?, string return nil, "" end }
+end
+local function optional<A>(_of: Spec<A>): Spec<A?>
+  return { check = function(_v: any, _p: string): A?, string return nil, "" end }
+end
+local function sparse_list<A>(_of: Spec<A?>): Spec<{integer: A}>
+  return { check = function(_v: any, _p: string): {integer: A}?, string return nil, "" end }
+end
+local function into<T>(spec: Spec<T>): T?
+  local out, _ = spec.check(nil, "$")
+  return out
+end
+]]
+
+local function test_a_spec_gives_the_type_of_its_answer_and_a_list_of_optional_elements_is_no_array()
+  stands(SPEC .. "local xs: {integer}? = into(list(INT))\nprint(xs == nil)\n", "true")
+  -- the annotation cannot say another type than the spec's
+  refused(SPEC .. "local xs: {string}? = into(list(INT))\n", "not_assignable")
+  -- an array holds no hole, so a list of elements that may be missing does not compile
+  refused(SPEC .. "local xs = list(optional(INT))\nprint(xs)\n", "array_of_optional")
+  -- its answer is a map, which has no length and whose read is optional
+  stands(SPEC .. "local slots = into(sparse_list(optional(INT)))\nprint(slots == nil)\n", "true")
+  refused(SPEC .. "local slots = into(sparse_list(optional(INT)))\nif slots ~= nil and #slots > 0 then print(slots[1]) end\n",
+    "operand_type")
+  refused(SPEC .. "local slots = into(sparse_list(optional(INT)))\nif slots ~= nil then local n: integer = slots[1] print(n) end\n",
+    "index_may_be_nil")
+  -- an element that is not optional is no sparse list
+  refused(SPEC .. "local xs = sparse_list(STR)\nprint(xs)\n", "not_assignable")
+end
+
+-- The check `record_of` takes is a function the checker types too: a call that passes one of its own, by whatever route it
+-- is written, names the type the check answers and no other.
+local function test_a_record_check_passed_to_record_of_must_answer_its_record()
+  local head = SPEC .. "local record Typed<T>\n  make: function(strict: boolean): Spec<T>\nend\n" ..
+    "local function record_of<T>(_name: string, make: function(strict: boolean): Spec<T>): Typed<T>\n" ..
+    "  return { make = make }\nend\n" ..
+    "local record Row\n  id: string\nend\n"
+  refused(head .. "local t: Typed<Row> = record_of(\"Row\", function(_s: boolean): Spec<integer>\n" ..
+      "  return INT\nend)\n", "not_assignable")
+  stands(head .. "local t: Typed<integer> = record_of(\"Row\", function(_s: boolean): Spec<integer>\n" ..
+      "  return INT\nend)\nprint(type(t))\n", "table")
+end
+
+-- A spec is a check, so one written by hand is a function the checker types: it answers its `T` or it does not compile,
+-- and no spec of one type is a spec of another.
+local function test_a_spec_written_by_hand_must_answer_its_type()
+  -- a check that answers a string is no check of an integer
+  refused(SPEC .. "local f: Spec<integer> = { check = function(_v: any, _p: string): string?, string return nil, \"\" end }\n",
+    "not_assignable")
+  -- nor can it answer the untrusted value it was handed
+  refused(SPEC .. "local f: Spec<integer> = { check = function(v: any, _p: string): integer?, string return v, \"\" end }\n",
+    "any_use")
+  -- nor take a cast to say so
+  refused(SPEC .. "local f: Spec<integer> = { check = function(v: any, _p: string): integer?, string return v as integer, \"\" end }\n",
+    "cast_refused")
+  -- a spec of one type is not a spec of another, a table of untrusted values included
+  refused(SPEC .. "local a: Spec<{string: any}> = { check = function(_v: any, _p: string): {string: any}?, string return nil, \"\" end }\n" ..
+      "local b: Spec<{integer}> = a\n", "not_assignable")
+  -- a node beside the check is a field the record does not have
+  refused(SPEC .. "local f: Spec<integer> = { node = 1, check = function(_v: any, _p: string): integer?, string return nil, \"\" end }\n", "literal_unknown")
+  -- one that answers its type is one
+  stands(SPEC .. "local f: Spec<integer> = { check = function(v: any, _p: string): integer?, string\n" ..
+      "  if v is integer then return v, \"\" end\n  return nil, \"no\"\nend }\nprint(into(f))\n", "nil")
+end
+
 -- A generic function passed where a function is wanted is instantiated from the values the callee passes it, so what it answers
 -- is a type, not a parameter nothing fixes (`invalid`, which every type accepts); and an overload whose type parameter
 -- nothing solves is no candidate. On main the `pcall`, `xpcall`, `coroutine.wrap` and `coroutine.create` cases below are

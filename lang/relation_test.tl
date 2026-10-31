@@ -9,6 +9,13 @@ local Types = require("lang.types")
 
 Test.policy{}
 
+--- A union of two members, `first` and `second`, and the `target` it is refused against.
+local record Union
+  first: Types.Type
+  second: Types.Type
+  target: Types.Type
+end
+
 local world = Programs.world
 local named = Programs.named
 local steps = Programs.steps
@@ -146,17 +153,21 @@ local function test_a_refusal_names_the_position_of_the_member_that_failed()
   -- Whichever order the store keeps the members in, the position is that of the one that failed.
   local seen: mut {integer: boolean} = {}
   -- a member that is below the target, one that is not, and the target
-  local cases: {{Types.Type}} = {
-    { s.integer, s.string, s.number }, { s.integer, s.boolean, s.number }, { s.integer, s:atom("true"), s.number },
-    { named(w, "Color"), s.integer, s.string }, { named(w, "Color"), s.boolean, s.string },
-    { s:atom("true"), s.string, s.boolean }, { s:atom("false"), s.integer, s.boolean },
+  local cases: {Union} = {
+    { first = s.integer, second = s.string, target = s.number },
+    { first = s.integer, second = s.boolean, target = s.number },
+    { first = s.integer, second = s:atom("true"), target = s.number },
+    { first = named(w, "Color"), second = s.integer, target = s.string },
+    { first = named(w, "Color"), second = s.boolean, target = s.string },
+    { first = s:atom("true"), second = s.string, target = s.boolean },
+    { first = s:atom("false"), second = s.integer, target = s.boolean },
   }
   for _, case in ipairs(cases) do
-    local given = s:union({ case[1], case[2] })
+    local given = s:union({ case.first, case.second })
     assert((given.tag == "union"))
-    local r = refusal(w, given, case[3])
+    local r = refusal(w, given, case.target)
     local index = r.path[1].index
-    assert(index ~= nil and given.members[index] == case[2] and r.sub == case[2], Relation.trace(r))
+    assert(index ~= nil and given.members[index] == case.second and r.sub == case.second, Relation.trace(r))
     seen[index] = true
   end
   assert(seen[1] and seen[2])

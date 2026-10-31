@@ -24,7 +24,7 @@
 
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
-local Shape = require("cosmic.shape")
+local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local bind = require("build.bind")
 
@@ -49,29 +49,18 @@ function onecrl.source(root: string): string
   return root .. "/" .. snapshot
 end
 
---- A remote settings changeset, as far as this reads one.
-local record Feed
-  record Change
-    issuerName?: string
-    serialNumber?: string
-    subject?: string
-    pubKeyHash?: string
-    enabled?: boolean
+--- The string `change` holds under `name`, or nil where it holds none; the second answer is why it holds another kind of
+--- value, where it does (a field the feed may omit, not mistype).
+local function text_field(change: {string: Json.Value}, name: string, at: integer): string?, string
+  local value = change[name]
+  if value == nil or rawequal(value, Json.null) then
+    return nil, ""
+  elseif value is string then
+    return value, ""
   end
-  changes: {Change}
+  return nil, ("not a OneCRL changeset: $.changes[%d].%s: want string, got %s"):format(at, name,
+    if value is number then math.type(value) else type(value) end)
 end
-
--- Written out, not [`Shape.record_of`]: a boot loads this module, and
--- has no build to resolve one.
-local FEED <const> = Shape.record({
-  changes = Shape.list(Shape.record({
-    issuerName = Shape.optional(Shape.string),
-    serialNumber = Shape.optional(Shape.string),
-    subject = Shape.optional(Shape.string),
-    pubKeyHash = Shape.optional(Shape.string),
-    enabled = Shape.optional(Shape.boolean),
-  })),
-})
 
 --- `text`'s base64 as bytes, or nil when it is none, or empty.
 local function bytes(text: string?): string?
@@ -96,15 +85,41 @@ end
 --- hash. A change marked `enabled: false` revokes nothing. Nil and why
 --- when `text` is no changeset, or a change names neither pair whole.
 function onecrl.parse(text: string): {onecrl.Entry}?, string
-  local feed, trouble: Feed?, string = Shape.decode_into(text, FEED)
+  -- Read as JSON values, not through [`cosmic.shape`]: a boot loads this module and has no build to resolve a
+  -- [`Shape.record_of`].
+  local decoded, trouble = Json.decode(text)
+  local feed, why = Json.to_object(decoded)
   if feed == nil then
-    return nil, "not a OneCRL changeset: " .. trouble
+    return nil, "not a OneCRL changeset: " .. (if trouble ~= "" then trouble else why end)
+  end
+  local changes, changes_why = Json.to_array(feed["changes"])
+  if changes == nil then
+    return nil, "not a OneCRL changeset: $.changes: " .. changes_why
   end
   local found: mut {onecrl.Entry} = {}
-  for i, change in ipairs(feed.changes) do
-    if change.enabled ~= false then
-      local issuer, serial = bytes(change.issuerName), bytes(change.serialNumber)
-      local subject, hash = bytes(change.subject), bytes(change.pubKeyHash)
+  for i, value in ipairs(changes) do
+    local change, change_why = Json.to_object(value)
+    if change == nil then
+      return nil, ("not a OneCRL changeset: $.changes[%d]: %s"):format(i - 1, change_why)
+    end
+    local enabled = change["enabled"]
+    if enabled ~= nil and not rawequal(enabled, Json.null) and not (enabled is boolean) then
+      return nil, ("not a OneCRL changeset: $.changes[%d].enabled: want boolean, got %s"):format(i - 1,
+        if enabled is number then math.type(enabled) else type(enabled) end)
+    end
+    local names: mut {string: string} = {}
+    for _, name in ipairs({ "issuerName", "serialNumber", "subject", "pubKeyHash" }) do
+      local got, why_not = text_field(change, name, i - 1)
+      if why_not ~= "" then
+        return nil, why_not
+      end
+      if got ~= nil then
+        names[name] = got
+      end
+    end
+    if enabled ~= false then
+      local issuer, serial = bytes(names["issuerName"]), bytes(names["serialNumber"])
+      local subject, hash = bytes(names["subject"]), bytes(names["pubKeyHash"])
       if issuer ~= nil and serial ~= nil then
         found[#found + 1] = { kind = "serial", name = issuer, value = serial }
       elseif subject ~= nil and hash ~= nil and #hash == 32 then

@@ -7,12 +7,6 @@ local Shape = require("cosmic.shape")
 
 local Example = {}
 
-local record Release
-  tag: string
-  draft?: boolean
-  assets: {string}
-end
-
 --- A release as JSON decodes it: `any`, until a shape says otherwise.
 --- `null_value` keeps the draft's null, which `optional` reads as nil.
 local function decoded(): any
@@ -23,14 +17,18 @@ local function decoded(): any
 end
 
 --- One call checks the value, and every read after it is a typed read.
---- The result's type comes from the annotation on the declaration.
+--- The result's type is the spec's: [`record_of`] reads the declaration of
+--- `Release` where the module is built, so a field added to the record is
+--- checked from then on and no annotation can disagree. `draft` is
+--- `boolean | nil`, so a null reads as missing.
 function Example.into()
-  local RELEASE <const> = Shape.record({
-    tag = Shape.string,
-    draft = Shape.optional(Shape.boolean),
-    assets = Shape.list(Shape.string),
-  })
-  local release, err: Release?, string = Shape.into(decoded(), RELEASE)
+  local record Release
+    tag: string
+    draft: boolean?
+    assets: {string}
+  end
+  local RELEASE <const> = Shape.record_of("Release")
+  local release, err = Shape.into(decoded(), RELEASE.spec)
   assert(release ~= nil, err)
   print(release.tag, #release.assets, release.draft)
   assert(release.tag == "v1" and release.assets[2] == "zip" and release.draft == nil)
@@ -40,11 +38,8 @@ function Example.into()
   assert(text == '{"assets":["lua","zip"],"tag":"v1"}', text)
 end
 
---- The record is its own spec: [`record_of`] reads the declaration of
---- `Entry` where the module is built, so a field added to the record is
---- checked from then on, and the answer is an `Entry` without an
---- annotation to keep in step. `draft` is `boolean | nil`, so a null
---- reads as missing.
+--- The spec's methods answer the record without naming it, and a failure
+--- starts with the record's name.
 function Example.record_of()
   local record Entry
     tag: string
@@ -63,30 +58,31 @@ function Example.record_of()
 end
 
 --- Text that is JSON is decoded and checked in one call: the answer is a
---- [`Release`], or the reason the text is not one, whether it is not JSON
+--- `Release`, or the reason the text is not one, whether it is not JSON
 --- or is JSON of another shape.
 function Example.decode_into()
-  local RELEASE <const> = Shape.record({
-    tag = Shape.string,
-    assets = Shape.list(Shape.string),
-  })
-  local release, err: Release?, string =
-    Shape.decode_into('{"tag": "v1", "assets": ["lua"]}', RELEASE)
+  local record Release
+    tag: string
+    assets: {string}
+  end
+  local RELEASE <const> = Shape.record_of("Release")
+  local release, err = Shape.decode_into('{"tag": "v1", "assets": ["lua"]}', RELEASE.spec)
   assert(release ~= nil, err)
   print(release.tag, #release.assets)
   assert(release.tag == "v1" and release.assets[1] == "lua")
-  local _, shape: Release?, string = Shape.decode_into('{"tag": 1, "assets": []}', RELEASE)
+  local _, shape = Shape.decode_into('{"tag": 1, "assets": []}', RELEASE.spec)
   print(shape)
   assert(shape == "$.tag: want string, got integer", shape)
 end
 
 --- A value that does not fit names the first place it went wrong.
 function Example.into_failure()
-  local RELEASE <const> = Shape.record({
-    tag = Shape.string,
-    assets = Shape.list(Shape.integer),
-  })
-  local _, err: Release?, string = Shape.into(decoded(), RELEASE)
+  local record Release
+    tag: string
+    assets: {integer}
+  end
+  local RELEASE <const> = Shape.record_of("Release")
+  local _, err = Shape.into(decoded(), RELEASE.spec)
   print(err)
   assert(err == "$.assets[0]: want integer, got string", err)
 end
@@ -96,12 +92,13 @@ end
 --- by index. A config whose author wants every mistake fixes that one
 --- and runs again.
 function Example.first_failure_only()
-  local RELEASE <const> = Shape.record({
-    tag = Shape.integer,
-    draft = Shape.string,
-    assets = Shape.list(Shape.integer),
-  })
-  local release, err: Release?, string = Shape.into(decoded(), RELEASE)
+  local record Release
+    tag: integer
+    draft: string
+    assets: {integer}
+  end
+  local RELEASE <const> = Shape.record_of("Release")
+  local release, err = Shape.into(decoded(), RELEASE.spec)
   assert(release == nil)
   print(err)
   assert(err == "$.assets[0]: want integer, got string", err)
@@ -111,33 +108,43 @@ end
 --- is refused by name.
 function Example.one_of()
   local LEVEL <const> = Shape.one_of("debug", "info", "warn")
-  local _, err: string?, string = Shape.into("loud", LEVEL)
+  local _, err = Shape.into("loud", LEVEL)
   print(err)
   assert(err == '$: want one of "debug", "info", "warn", got "loud"', err)
 end
 
---- A config file refuses a key its spec does not name, so a misspelled
+--- A config file refuses a key its record does not name, so a misspelled
 --- one fails by name rather than leaving its field unset.
-function Example.strict_record()
-  local SERVER <const> = Shape.strict_record({
-    host = Shape.string,
-    port = Shape.optional(Shape.integer),
-  })
-  local _, err: {string: any}?, string =
-    Shape.into(Json.decode('{"host": "localhost", "prot": 8080}'), SERVER)
+function Example.strict()
+  local record Server
+    host: string
+    port: integer?
+  end
+  local SERVER <const> = Shape.record_of("Server"):strict()
+  local _, err = SERVER:into((Json.decode('{"host": "localhost", "prot": 8080}')))
   print(err)
-  assert(err == "$.prot: unknown key", err)
+  assert(err == "Server: $.prot: unknown key", err)
 end
 
 --- A map from names to numbers: `map` checks every value, and `number`
 --- takes an integer and a float alike.
 function Example.map()
   local WEIGHTS <const> = Shape.map(Shape.number)
-  local weights, err: {string: number}?, string =
-    Shape.into(Json.decode('{"lua": 2, "teal": 0.5}'), WEIGHTS)
+  local weights, err = Shape.into(Json.decode('{"lua": 2, "teal": 0.5}'), WEIGHTS)
   assert(weights ~= nil, err)
   print(weights["lua"], weights["teal"])
   assert(weights["lua"] == 2 and weights["teal"] == 0.5)
+end
+
+--- A list whose elements may be missing is not an array, which holds no
+--- hole: [`sparse_list`] answers a map from the indexes that are there, and
+--- `list(optional(...))` does not compile.
+function Example.sparse_list()
+  local SLOTS <const> = Shape.sparse_list(Shape.optional(Shape.integer))
+  local slots, err = Shape.into(Json.decode('[1, null, 3]', { null_value = Json.null }), SLOTS)
+  assert(slots ~= nil, err)
+  print(slots[1], slots[2], slots[3])
+  assert(slots[1] == 1 and slots[2] == nil and slots[3] == 3)
 end
 
 --- A field that may be one string or a list of them: `any` takes the
@@ -148,18 +155,14 @@ function Example.any()
     names: any
     retries: integer
   end
-  local TARGET <const> = Shape.record({
-    names = Shape.any,
-    retries = Shape.integer,
-  })
+  local TARGET <const> = Shape.record_of("Target")
   local NAMES <const> = Shape.list(Shape.string)
-  local target, err: Target?, string =
-    Shape.into(Json.decode('{"names": ["a", "b"], "retries": 3}'), TARGET)
+  local target, err = Shape.into(Json.decode('{"names": ["a", "b"], "retries": 3}'), TARGET.spec)
   assert(target ~= nil, err)
-  local names, why: {string}?, string = Shape.into(target.names, NAMES)
+  local names, why = Shape.into(target.names, NAMES)
   assert(names ~= nil and #names == 2, why)
   local mixed = Json.decode('["a", 3]')
-  local _, bad: {string}?, string = Shape.into(mixed, NAMES)
+  local _, bad = Shape.into(mixed, NAMES)
   print(bad)
   assert(bad == "$[1]: want string, got integer", bad)
 end
