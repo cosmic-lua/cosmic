@@ -1,5 +1,5 @@
 file: ext/misc/csv.c
-note: An empty field after a comma at the very end of the input, as `1,2,` with no line break after it, is lost: the reader answers the end of input as no field, so the record reads one field short, NULL where `1,2,\n` reads ''. This answers it as an empty field when the field before it ended at a comma. During a scan the field buffer is always allocated (csvtabFilter); while the header is counted it may not be, and the count is the same either way. Upstream loses it as of 3.54.0.
+note: An empty field after a comma at the very end of the input, as `1,2,` with no line break after it, is lost: the reader answers the end of input as no field, so the record reads one field short, NULL where `1,2,\n` reads ''. This answers it as an empty field when the field before it ended at a comma. During a scan the field buffer is always allocated (csvtabFilter); while the header is counted it may not be, and the count is the same either way. Upstream loses it as of 3.54.1.
 --- find
   c = csv_getc(p);
   if( c==EOF ){

@@ -1,5 +1,5 @@
 file: ext/misc/csv.c
-note: A cursor scanned a second time, as the inner table of a join is, keeps the first scan's error, its line count and its note that the byte order mark was already dropped, so the second scan reads the mark as data. This resets them with the scan; a scan that starts past a header (header=yes) has passed where the mark could be. Upstream keeps them as of 3.54.0.
+note: A cursor scanned a second time, as the inner table of a join is, keeps the first scan's error, its line count and its note that the byte order mark was already dropped, so the second scan reads the mark as data. This resets them with the scan; a scan that starts past a header (header=yes) has passed where the mark could be. Upstream keeps them as of 3.54.1.
 --- find
   CsvCursor *pCur = (CsvCursor*)pVtabCursor;
   CsvTable *pTab = (CsvTable*)pVtabCursor->pVtab;

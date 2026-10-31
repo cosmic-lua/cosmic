@@ -1,5 +1,5 @@
 file: ext/misc/csv.c
-note: When the file cannot be opened as a query starts (it was moved or deleted since the table was made), xOpen fails after handing SQLite the cursor, and SQLite frees no cursor whose xOpen failed: 328 bytes leak per query. This frees it and hands SQLite none. Upstream leaks it as of 3.54.0.
+note: When the file cannot be opened as a query starts (it was moved or deleted since the table was made), xOpen fails after handing SQLite the cursor, and SQLite frees no cursor whose xOpen failed: 328 bytes leak per query. This frees it and hands SQLite none. Upstream leaks it as of 3.54.1.
 --- find
   memset(pCur, 0, nByte);
   pCur->azVal = (char**)&pCur[1];

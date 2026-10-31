@@ -1,5 +1,5 @@
 file: ext/misc/csv.c
-note: With neither columns= nor schema=, the table's width is its first record's field count, and a blank line before the first record counts as a record of one field: a file that begins with a blank line is one column wide, and 22-csv-refuses-a-wider-record.txt then refuses its header. This counts the first record that is not a blank line (25-csv-reads-a-blank-line-as-nulls.txt), which is where cosmic.csv's readers find the header. Upstream counts the blank line as of 3.54.0.
+note: With neither columns= nor schema=, the table's width is its first record's field count, and a blank line before the first record counts as a record of one field: a file that begins with a blank line is one column wide, and 22-csv-refuses-a-wider-record.txt then refuses its header. This counts the first record that is not a blank line (25-csv-reads-a-blank-line-as-nulls.txt), which is where cosmic.csv's readers find the header. Upstream counts the blank line as of 3.54.1.
 --- find
       nCol = 0;
       do{
