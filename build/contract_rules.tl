@@ -127,17 +127,6 @@ function rules.quieted_names(): {string}
   return out
 end
 
---- The tables of C bindings, which answer `nil | false, error, errno`:
---- the public syscall table and the raw process and socket tables.
-local binding_modules <const>: {string} = { "cosmic.sys", "cosmic.internal.process",
-  "cosmic.internal.socket" }
-
---- The modules whose tables are C bindings, which answer `nil | false, error, errno`: [`cosmic.sys`], and the raw process and
---- socket tables.
-function rules.binding_names(): {string}
-  return binding_modules
-end
-
 --- Whether a module is held to the discipline: every module and main
 --- of cosmic's own tree, not its tests, examples, declarations, or
 --- generated doctests.

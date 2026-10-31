@@ -65,6 +65,7 @@ local SyntaxLinks = require("build.syntax_links")
 local SyntaxNode = require("build.syntax_node")
 local reboot = require("build.reboot")
 local rebuild = require("build.rebuild")
+local Pipeline = require("build.pipeline")
 local template = require("cosmic.template")
 local tree = require("build.tree")
 local example_checks = require("build.example_checks")
@@ -154,6 +155,11 @@ local record fix
     --- the tree to [`build.tree_checks`]. A run of `--changed` is whole
     --- too ([`fix.narrowed`]).
     whole: boolean
+    --- The named Teal files, in `files` too, that are no input of the project at the root ([`build.identity`]'s
+    --- `is_input`: under `bin/`, `vendor/`, a hidden directory, outside the root): the build never reads them, so
+    --- [`fix.chosen`] sets them apart for a check of their own, as `cosmic --standalone` makes one. Only a project
+    --- other than cosmic's own has them; nil is none.
+    alone?: {string}
     --- For a run of `--changed`, everything a run over the whole tree
     --- covers, which the checks spanning files still cover: the asserts
     --- the build refuses and the links; nil for any other run.
@@ -178,6 +184,33 @@ local not_source: {string:boolean} = {
   ["bin"] = true,
   ["core"] = true,
 }
+
+--- The Teal file `path` as one name however it is spelled: its directory made absolute, its own name kept, so that a link
+--- stays itself and is not what it points at.
+local function named_as(path: string): string
+  local parent, _ = Fs.absolute(Fs.dirname(path))
+  if parent == nil then return path end
+  return parent .. "/" .. Fs.basename(path)
+end
+
+--- Whether the Teal file `path`, named in a project at `root`, is to be checked alone, as it is no input of that project's
+--- build: outside it, under a directory identity never takes ([`identity.is_input`]), or under a hidden one. The path is
+--- judged as named ([`named_as`]): a link inside the build to a file under `bin/` is the build's, which reads it.
+local function checked_alone(root: string, own: boolean, path: string): boolean
+  -- TODO: once `fix` can check a file of cosmic's own tree that is no input of it (`ci/`, which is a project of its own, and
+  -- `lang/*.d.tl`) in the project that reads it, ask this of cosmic's own tree too.
+  if own then return false end
+  local top, _ = Fs.absolute(root)
+  if top == nil then return false end
+  local relative, _ = Fs.relative(named_as(path), top)
+  -- Outside the root, which [`Fs.relative`] says by answering nothing.
+  if relative == nil then return true end
+  if relative == ".." or relative:sub(1, 3) == "../" then return true end
+  for part in relative:gmatch("[^/]+") do
+    if part:sub(1, 1) == "." then return true end
+  end
+  return not identity.is_input(relative, false)
+end
 
 --- The fixture of forms the new grammar refuses on purpose (a project written in them is refused in the new checker's words,
 --- [`build.project_grammar_tool_test`]): never a file to read.
@@ -386,6 +419,8 @@ function fix.chosen(root: string, paths: {string}, standing: tree.Standing): fix
   local checked_out: mut {string} = {}
   local templates_out: mut {string} = {}
   local refused: mut {string} = {}
+  local alone_out: mut {string} = {}
+  local seen: mut {string: boolean} = {}
   local static_root, _ = Fs.absolute(root .. "/static")
   for _, path in ipairs(paths) do
     local what, missing = Fs.stat(path)
@@ -405,7 +440,12 @@ function fix.chosen(root: string, paths: {string}, standing: tree.Standing): fix
         return nil, trouble
       end
       for _, file in ipairs(under) do
-        out[#out + 1] = path .. "/" .. file
+        local named = path .. "/" .. file
+        if seen[named_as(named)] == nil then
+          seen[named_as(named)] = true
+          out[#out + 1] = named
+          if checked_alone(root, own, named) then alone_out[#alone_out + 1] = named end
+        end
       end
       local checked, checked_trouble = checked_sources(path)
       if checked == nil then
@@ -453,11 +493,15 @@ function fix.chosen(root: string, paths: {string}, standing: tree.Standing): fix
     elseif not String.ends_with(path, ".tl") then
       refused[#refused + 1] = path .. ": not a Teal, C or template source, YAML, Markdown or Zig"
     else
-      out[#out + 1] = path
+      if seen[named_as(path)] == nil then
+        seen[named_as(path)] = true
+        out[#out + 1] = path
+        if checked_alone(root, own, path) then alone_out[#alone_out + 1] = path end
+      end
     end
   end
   return { files = out, c_files = c_out, flow_files = flow_out, checked = checked_out,
-    templates = templates_out, refused = refused, whole = own and covers(root, out) }, ""
+    templates = templates_out, refused = refused, whole = own and covers(root, out), alone = alone_out }, ""
 end
 
 --- The modules whose code checks each file alone, with every module each requires: the reading of Teal
@@ -1237,6 +1281,48 @@ local function lay_out_teal(ctx: Fix)
   ctx.plurals = plurals
 end
 
+--- The named files that are no input of the project ([`fix.Chosen`]'s `alone`), which the build never reads and so
+--- [`find_unbuilt`] cannot vouch for: each is checked on its own as `cosmic --standalone` checks a file ([`Pipeline.lone`]),
+--- and the checker's refusal fails the run like a finding of the tree. The log says each was checked alone.
+local function check_alone(ctx: Fix)
+  local named = assert(ctx.picked).alone
+  if named == nil or #named == 0 then return end
+  local root = assert(ctx.root)
+  local failures: mut {string} = {}
+  for _, line in ipairs(assert(ctx.failures)) do failures[#failures + 1] = line end
+  local options, options_trouble = Pipeline.alone()
+  for _, file in ipairs(named) do
+    -- A file that did not read or parse has failed already, in the same words.
+    local failed = false
+    for _, line in ipairs(failures) do
+      if String.starts_with(line, file .. ":") then failed = true end
+    end
+    local source, _ = Fs.read(file)
+    if failed or source == nil then
+      -- The layout's own check said why already.
+    elseif options == nil then
+      failures[#failures + 1] = file .. ": not an input of the tree at " .. root .. " and not checked: " .. options_trouble
+    else
+      local made = Pipeline.checked_alone(file, source, options)
+      local why = "not an input of the tree at " .. root .. ", checked alone"
+      if made.code == nil then
+        -- One failure for the file, its problems on lines of their own as the build's refusal lists them.
+        local hint = ""
+        for _, line in ipairs(made.lines) do
+          if line:find("require_unknown", 1, true) then
+            hint = "\nfix: FAIL  a file checked alone sees only the cosmic modules and a sibling declaration file (`.d.tl`)"
+          end
+        end
+        failures[#failures + 1] = file .. ": " .. why .. ", and refused:\nfix: FAIL  " ..
+          table.concat(made.lines, "\nfix: FAIL  ") .. hint
+      else
+        log:say("fix: " .. file .. ": " .. why)
+      end
+    end
+  end
+  ctx.failures = failures
+end
+
 --- A tree the build refuses fails the run, saying why: a PASS would read as a tree that builds, which `cosmic test` then
 --- refuses. The new checker's build, in its own words: over the whole tree the tree checks' projection says so; a
 --- narrower run builds the project here.
@@ -1695,6 +1781,7 @@ local function fix_verb(argv: {string}): integer
   check_templates(ctx)
   lay_out_teal(ctx)
   Memprobe.mark("fix: Teal read")
+  check_alone(ctx)
   find_unbuilt(ctx)
   run_tree_checks(ctx)
   Memprobe.mark("fix: tree checks done")

@@ -94,11 +94,12 @@ function Fixture.subject(source: string, modules?: {string: string}): Report.Sub
       bindings[derivation.path] = text
     end
   end
+  -- A module the caller gives under the name of a binding stands in its place.
   local all: mut {string: string} = {}
-  for module, text in pairs(modules or {}) do
+  for module, text in pairs(bindings) do
     all[module] = text
   end
-  for module, text in pairs(bindings) do
+  for module, text in pairs(modules or {}) do
     all[module] = text
   end
   local names: mut {string} = {}
