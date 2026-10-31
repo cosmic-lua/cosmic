@@ -2297,10 +2297,14 @@ local function phase_attest(p: PlatformContext): integer
   -- for the row that says so.
   local executed = read(portable_d .. "/portable-artifact.before.sha256")
   assert(executed == read(portable_d .. "/portable-artifact.after.sha256"), "executed artifact attestation differs")
+  assert(hash(portable_d .. "/cosmic-portable") .. "\n" == executed, "executed artifact attestation differs")
+  -- What the lanes agree on, and what is attested and released, is the tool minus the row that names the checkout
+  -- it was built in, which differs from a runner to a runner.
   local without = portable_d .. "/attest.db"
-  assert(Hash.hex_sha256(ArtifactRow.with(read(portable_d .. "/cosmic-portable"), without, nil)) ==
-      Hash.hex_sha256(ArtifactRow.with(read(product .. "/cosmic"), without, nil)), "executed artifact attestation differs")
-  write(product .. "/executed-cosmic.sha256", digest:sub(1, 64) .. "  cosmic\n")
+  local attested = Hash.hex_sha256(ArtifactRow.with(read(product .. "/cosmic"), without, nil))
+  assert(Hash.hex_sha256(ArtifactRow.with(read(portable_d .. "/cosmic-portable"), without, nil)) == attested,
+    "executed artifact attestation differs")
+  write(product .. "/executed-cosmic.sha256", attested .. "  cosmic\n")
   write(product .. "/expected-platforms", assert(p.trailing) .. "\n")
   return 0
 end
@@ -2364,7 +2368,8 @@ local function provenance_impl(c: Context, products: string): integer
       local line = read(att)
       local digest = line:match("^([0-9a-f]+)  cosmic\n$")
       assert(digest and #digest == 64, "invalid attestation: " .. att)
-      assert(hash(p .. "/cosmic") == digest, "changed artifact: " .. p)
+      assert(Hash.hex_sha256(ArtifactRow.with(read(p .. "/cosmic"), p .. "/provenance.db", nil)) == digest,
+        "changed artifact: " .. p)
       local n = math.tointeger(assert(tonumber(read(exp))))
       assert(n and n > 0, "invalid expected count")
       if expected then assert(expected == n, "inconsistent expected count") else expected = n end

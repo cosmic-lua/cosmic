@@ -50,11 +50,11 @@ local function test_a_tool_that_records_no_checkout_is_a_projects_tool_everywher
   assert(Fs.mkdirs(root .. "/core"))
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
-  local release, release_trouble = tree.standing(root, "")
+  local release, release_trouble = tree.standing_of(root, nil)
   assert(release ~= nil and not release.own, tostring(release_trouble))
   local bare = tmp .. "/bare"
   assert(Fs.mkdirs(bare))
-  local without, without_trouble = tree.standing(bare, "")
+  local without, without_trouble = tree.standing_of(bare, nil)
   assert(without ~= nil and not without.own, tostring(without_trouble))
 end
 

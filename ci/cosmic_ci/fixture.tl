@@ -178,12 +178,12 @@ function Fixture.stripped(source: string, scratch: string): string
 end
 
 --- An artifact of the shape [`ArtifactRow`] reads, for a test that has no tool to hand: a head, a database with a
---- `meta` table holding `boot_hash` and, where given, `built_from`, and the trailer that locates them. `scratch` is
---- a path to write the database at first.
-function Fixture.synthetic(scratch: string, built_from: string?): string
+--- `meta` table holding `boot_hash` (`boot`, "kept" by default) and, where given, `built_from`, and the trailer that
+--- locates them. `scratch` is a path to write the database at first.
+function Fixture.synthetic(scratch: string, built_from: string?, boot?: string): string
   local db = assert(Sqlite.open(scratch, { writable = true }))
   assert(Sqlite.run(db, "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID"))
-  assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('boot_hash', 'kept')"))
+  assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('boot_hash', ?1)", { { text = boot or "kept" } }))
   if built_from ~= nil then
     assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('built_from', ?1)", { { text = built_from } }))
   end

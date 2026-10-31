@@ -94,28 +94,27 @@ local function decided(root: string, here: string, built: string?, executable?: 
   return nil, here .. ": this tool was built from " .. built .. "; run bin/zig build boot"
 end
 
---- What `root` is to the running tool: its [`tree.Standing`], or nil and
---- why where the root cannot be read or the tool cannot be held to it:
---- a tool in the build directory of `root` that records another root, or
---- none, is cosmic's own tool of a tree it was not built from, and no
---- command goes on as if the tree were a project. So is such a tool built
---- from this root where the root has no `core/`. A tool outside the
---- build directory is a project's tool, a release among them: it is built
---- from no checkout.
----
---- `carried` is the [`built_from`] the tool carries, by default the running
---- binary's ([`cosmic.store.meta`]), and "" for a tool that records none.
---- A test passes the root of its fixture. `executable` is
---- [`tree.own_tool`]'s.
---- @param carried the tool's [`built_from`], "" for none, or nil to read the binary's
---- @param executable the path the tool was started as, or nil for this process's
-function tree.standing(root: string, carried?: string, executable?: string): tree.Standing?, string
+--- What `root` is to a tool that records `built` as the tree it was built from, nil for one that records none
+--- (a release). [`tree.standing`] is this for the running tool; a test asks it of any tool. Nil and why where the
+--- root cannot be read or the tool cannot be held to it: a tool in the build directory of `root` that records
+--- another root, or none, is cosmic's own tool of a tree it was not built from, and no command goes on as if the
+--- tree were a project. So is such a tool built from this root where the root has no `core/`. A tool outside the
+--- build directory is a project's tool, a release among them: it is built from no checkout.
+--- @param executable the path the tool was started as, or nil for this process's ([`tree.own_tool`])
+function tree.standing_of(root: string, built: string?, executable?: string): tree.Standing?, string
   local here, trouble = tree.built_from(root)
   if here == nil then return nil, trouble end
+  return decided(root, here, built, executable)
+end
+
+--- What `root` is to the running tool: [`tree.standing_of`] for the [`built_from`] the binary carries
+--- ([`cosmic.store.meta`]), or `carried` where a test gives another.
+--- @param carried the tool's [`built_from`], or nil to read the binary's
+--- @param executable the path the tool was started as, or nil for this process's
+function tree.standing(root: string, carried?: string, executable?: string): tree.Standing?, string
   local built = carried
   if built == nil then built = Store.meta("built_from") end
-  if built == "" then built = nil end
-  return decided(root, here, built, executable)
+  return tree.standing_of(root, built, executable)
 end
 
 --- What `root` is to the tool a boot of it is writing, which will record

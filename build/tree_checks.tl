@@ -315,6 +315,8 @@ allowed["build.reboot.compiler_moved"] = "tested directly: the test hands it " .
   "identities, where a stale tool's compiler can only be had by building one"
 allowed["build.reboot.rebuild_failed"] = "tested directly: the test runs it on a " ..
   "tree whose bin/zig is a stand-in, which no stale tool can reach"
+allowed["build.tree.standing_of"] = "tested directly: the test hands it a tool that records no checkout, " ..
+  "as a release does, which the running binary never lacks"
 allowed["build.reboot.web_assets"] = "tested directly: the test hands it a database " ..
   "from before the table, which no running binary is"
 allowed["build.writer.signature"] = "tested directly: the test signs a database " ..

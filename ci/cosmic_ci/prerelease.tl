@@ -5,6 +5,7 @@
 -- one already there. Neither executes a byte it reads: the candidate
 -- product is data here. `publish` drives the GitHub API through
 -- [`GithubApi`], whose token comes from GH_TOKEN or GITHUB_TOKEN.
+local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local ArtifactRow = require("cosmic_ci.artifact_row")
@@ -29,6 +30,9 @@ local record Prerelease
     release: string
     commit: string
     run_url: string
+    --- Runs the released tool once, as the host that stages it can, and raises where it does not: the release is
+    --- not the bytes any lane ran, so this is the first time they run.
+    mut smoke: function(path: string)
   end
   --- What `publish` reads from its environment: REPOSITORY, RELEASE,
   --- SOURCE_COMMIT, SOURCE_RUN_PREFIX and RUNNER_TEMP, with the client
@@ -131,10 +135,11 @@ end
 function Prerelease.notes(commit: string, digest: string, run_url: string): string
   return "Prerelease of commit `" .. commit .. "` from [CI run](" .. run_url .. ").\n" ..
     "\n" ..
-    "The identical Cosmic bytes were tested by all four native workers: Linux x86_64, " ..
-    "Linux aarch64, macOS aarch64, and Alpine x86_64. The release (SHA-256 `" .. digest ..
-    "`) is those bytes without the one row that names the checkout CI built them in. " ..
-    "Each worker uploaded its executed-byte attestation, and the provenance join " ..
+    "The same Cosmic bytes were tested by all four native workers: Linux x86_64, " ..
+    "Linux aarch64, macOS aarch64, and Alpine x86_64, but for the row that names the checkout each built them " ..
+    "in. The release (SHA-256 `" .. digest .. "`) is those bytes minus that row, normalised by a vacuum and " ..
+    "three header counters of the database. " ..
+    "Each worker uploaded its executed-byte attestation of them, and the provenance join " ..
     "verified all four hashes before publication.\n"
 end
 
@@ -224,9 +229,22 @@ local function required(env: {string:string}, name: string): string
   return value
 end
 
+--- Runs the tool at `path` with `help`, its portable cores unpacked in a directory of its own, and raises unless it
+--- answers.
+function Prerelease.smoke(path: string)
+  local cache = assert(Fs.mkdtemp("cosmic-release-smoke-"))
+  local env = Env.all()
+  env["COSMIC_PORTABLE_CACHE"] = cache
+  local result, trouble = Child.run({ path, "help" }, { env = env })
+  local _, _ = Fs.remove_tree(cache)
+  assert(result ~= nil, path .. ": " .. tostring(trouble))
+  assert(result.ok, path .. ": help failed")
+end
+
 function Prerelease.stage_context(env: {string:string}): Prerelease.Stage
   return { products = required(env, "PRODUCTS"), release = required(env, "RELEASE"),
-    commit = required(env, "SOURCE_COMMIT"), run_url = required(env, "SOURCE_RUN_URL") }
+    commit = required(env, "SOURCE_COMMIT"), run_url = required(env, "SOURCE_RUN_URL"),
+    smoke = Prerelease.smoke }
 end
 
 --- The product directories under `products`: each entry named
@@ -250,9 +268,11 @@ end
 
 --- Checks every lane's product, then writes the release under
 --- `s.release`: the cosmic executable, SHA256SUMS, source.json and the
---- notes. The executable is the lanes' but for the `built_from` row of its
---- database, which is removed ([`ArtifactRow.with`]); SHA256SUMS names the
---- bytes released. Raises on the first product that fails a check.
+--- notes. The executable is the lanes' tool minus the `built_from` row,
+--- normalised by a vacuum and three header counters ([`ArtifactRow.with`]);
+--- the lanes agree on those bytes, which `executed-cosmic.sha256` names, and
+--- SHA256SUMS names them. It is run once (`s.smoke`) before anything is
+--- published. Raises on the first product that fails a check.
 function Prerelease.stage(s: Prerelease.Stage)
   local found = product_directories(s.products)
   assert(#found == #LANES, "expected " .. Plural.count(#LANES, "product directory", "product directories") ..
@@ -261,7 +281,12 @@ function Prerelease.stage(s: Prerelease.Stage)
     assert(found[i] == "portable-product-" .. lane,
       "expected portable-product-" .. lane .. ", found " .. assert(found[i]))
   end
-  local baseline = read(s.products .. "/portable-product-" .. baseline_lane .. "/cosmic")
+  -- Each lane ran the tool CI built in the checkout of its own runner, and the tool records that checkout
+  -- (`built_from`), which differs from a lane to a lane. What the lanes agree on, and what is released, is that
+  -- tool without the row: a release is built from no checkout, and a project in a checkout of the path CI built in
+  -- would otherwise be taken for cosmic's own tree.
+  local scratch = s.products .. "/stripping.db"
+  local baseline = ArtifactRow.with(read(s.products .. "/portable-product-" .. baseline_lane .. "/cosmic"), scratch, nil)
   local digest: string? = nil
   for _, lane in ipairs(LANES) do
     local product = s.products .. "/portable-product-" .. lane
@@ -272,7 +297,7 @@ function Prerelease.stage(s: Prerelease.Stage)
       product .. ": expected-platforms is not 4")
     local lane_digest, why = Prerelease.manifest_digest(read(product .. "/executed-cosmic.sha256"))
     assert(lane_digest ~= nil, product .. "/executed-cosmic.sha256: " .. why)
-    local bytes = read(product .. "/cosmic")
+    local bytes = ArtifactRow.with(read(product .. "/cosmic"), scratch, nil)
     assert(Hash.hex_sha256(bytes) == lane_digest, product .. ": cosmic is not the bytes it executed")
     assert(bytes == baseline, product .. ": cosmic differs from " .. baseline_lane .. "'s")
     if digest == nil then
@@ -281,12 +306,10 @@ function Prerelease.stage(s: Prerelease.Stage)
       assert(lane_digest == digest, product .. ": executed another digest")
     end
   end
+  local sha = assert(digest)
   assert(Fs.mkdirs(s.release))
-  -- The lanes ran the tool CI built, which records the checkout it was built from. A release is built from none:
-  -- a project in a checkout of that path would otherwise be taken for cosmic's own tree.
-  local released = ArtifactRow.with(baseline, s.release .. "/stripping.db", nil)
-  local sha = Hash.hex_sha256(released)
-  assert(Fs.write(s.release .. "/cosmic", released))
+  assert(Fs.write(s.release .. "/cosmic", baseline, 0x1ed))
+  s.smoke(s.release .. "/cosmic")
   assert(Fs.write(s.release .. "/SHA256SUMS", Prerelease.sums(sha)))
   assert(Fs.write(s.release .. "/source.json", Prerelease.source_json(s.commit, sha, s.run_url)))
   assert(Fs.write(s.release .. "/notes.md", Prerelease.notes(s.commit, sha, s.run_url)))
