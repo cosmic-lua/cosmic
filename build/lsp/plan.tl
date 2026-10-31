@@ -4,6 +4,7 @@
 --- a build compiles it by, from the import path and kind the working database lists it as. A refusal worded as a build words
 --- one is read back into where it is ([`plan.refusal_of`]).
 
+local analysis_schema = require("build.analysis_schema")
 local type build_module = require("build.module")
 
 local record plan
@@ -68,7 +69,7 @@ function plan.named(name: string): Named
   local path = stem:gsub("/", ".")
   local kind = "module"
   if name:match("%.d%.tl$") ~= nil then
-    kind = "decl"
+    kind = analysis_schema.declaration_kind()
   elseif name:match("_test%.tl$") ~= nil then
     kind = "test"
   elseif name:match("_example%.tl$") ~= nil then

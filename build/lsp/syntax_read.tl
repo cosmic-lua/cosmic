@@ -2,6 +2,7 @@
 --- it compiles it by, the stub a `require` of it reads, the key of what it serves its dependents, the rewrite a build makes of
 --- it ([`build.syntax_shape_specs`]) and the pipeline's compile of it ([`build.pipeline`]). All of it is read off the new
 --- checker's syntax tree.
+local AnalysisSchema = require("build.analysis_schema")
 local Ast = require("lang.ast")
 local ErrorRender = require("build.error_render")
 local Globals = require("build.syntax_globals")
@@ -208,7 +209,7 @@ end
 --- file is checked and written nothing.
 local function generated_of(compiled: build_module.Plan, pipeline: Pipeline.Built,
                             hints?: function(): {Sqlite.Handle}, {boolean}): plan.Compiled
-  if compiled.kind ~= "decl" then
+  if not AnalysisSchema.is_declaration(compiled.kind) then
     local made, trouble = Pipeline.review(compiled, pipeline, hints)
     if made == nil then
       return { refusals = refusals_of_generated(trouble) }
