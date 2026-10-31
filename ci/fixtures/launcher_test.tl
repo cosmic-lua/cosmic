@@ -208,8 +208,26 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   end
   local mode_cache = ctx.work .. "/mode-cache"
   Fixture.mkdir(mode_cache)
-  Process.chmod(mode_cache, 0x1ed)
-  expect_failure(ctx, "unsafe-mode", "mode must be 0700 or 0500, not 755", mode_cache)
+  Process.chmod(mode_cache, 0x1fd)
+  expect_failure(ctx, "unsafe-mode", "writable by group or others, mode 775", mode_cache)
+  -- A write bit of group or others refuses a leaf, whichever it is.
+  local writable_modes: {string:integer} = { ["0777"] = 0x1ff, ["0770"] = 0x1f8, ["0702"] = 0x1c2 }
+  for name, mode in pairs(writable_modes) do
+    local writable = ctx.work .. "/writable-mode-" .. name
+    Fixture.mkdir(writable)
+    Process.chmod(writable, mode)
+    expect_failure(ctx, "writable-mode-" .. name, "writable by group or others", writable)
+  end
+  -- A group that can read and run the leaf cannot change it: accepted, and
+  -- the owner bits still choose writable (0750) or read-only (0550).
+  local group_read_plain = ctx.work .. "/group-read-plain"
+  Fixture.mkdir(group_read_plain)
+  Process.chmod(group_read_plain, 0x1e8)
+  outcome_ok(run(ctx, "group-read-plain", group_read_plain), "leaf readable by its group")
+  Process.chmod(group_read_plain, 0x168)
+  outcome_ok(run(ctx, "group-read-only", group_read_plain), "read-only leaf readable by its group")
+  Process.chmod(group_read_plain, 0x1ed)
+  outcome_ok(run(ctx, "world-read", group_read_plain), "leaf readable by everyone")
   -- A leaf made under a setgid parent inherits the bit where the system
   -- carries it down (Linux does), and is still private.
   local setgid_parent = ctx.work .. "/setgid-parent"
@@ -222,11 +240,16 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
     if ctx.target:find("linux", 1, true) ~= nil then
       assert(leaf_mode & 0x400 ~= 0, "the leaf did not inherit setgid; this case checks nothing")
     end
-    -- Setgid is set aside, and nothing else: a group that can read is refused.
+    -- Setgid is set aside, and nothing else: a group that can read is
+    -- accepted, and one that can write is refused.
     local group_read = ctx.work .. "/setgid-group-read"
     Fixture.mkdir(group_read)
     Process.chmod(group_read, 0x5e8)
-    expect_failure(ctx, "setgid-group-read", "mode must be 0700 or 0500", group_read)
+    outcome_ok(run(ctx, "setgid-group-read", group_read), "setgid leaf readable by its group")
+    local group_write = ctx.work .. "/setgid-group-write"
+    Fixture.mkdir(group_write)
+    Process.chmod(group_write, 0x5f8)
+    expect_failure(ctx, "setgid-group-write", "writable by group or others", group_write)
   end
   local read_only = ctx.work .. "/cold-read-only"
   Fixture.mkdir(read_only)
