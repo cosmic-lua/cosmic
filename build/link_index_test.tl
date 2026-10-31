@@ -200,7 +200,7 @@ end
 --- standard library ([`link_index.none`]), and answers its links,
 --- each as `file:line kind symbol path#anchor`.
 local function build_links(handle: work.Handle, out: string): {string}
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "link-index-test"))
   assert(writer.write_result(handle, out, result, nil, link_index.none))
   local db = assert(Sqlite.open(out))
@@ -425,7 +425,7 @@ local function test_a_files_links_and_headings_sign_the_projection(tmp: string)
     -- Modification and change times must both be past their timestamp tick.
     local now = Clock.now_ns
     Clock.now_ns = function(): integer return now() + Clock.seconds(3) end
-    local ok, stage, trouble = pcall(work.stage, handle, false)
+    local ok, stage, trouble = pcall(work.stage, handle, { own = false })
     Clock.now_ns = now
     assert(ok, tostring(stage))
     assert(stage, trouble)
@@ -474,7 +474,7 @@ local function test_a_kept_answer_the_disk_no_longer_gives_is_not_served(tmp: st
   local root = assert(Fs.absolute(tmp)) .. "/project"
   write_project(root, "greet.hello", "bye")
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   assert(importer.compile(handle, "link-index-test"))
   local function pending(code: string): link_index.Pending
     return (assert(link_index.pending(handle.db, root, link_index.none, code)))
@@ -602,7 +602,7 @@ local function test_a_file_gone_or_renamed_takes_its_rows(tmp: string)
   local handle = assert(work.open(root))
   local out = build_dir(root) .. "/cosmic.db"
   local function signed(): string
-    assert(work.stage(handle, false))
+    assert(work.stage(handle, { own = false }))
     local result = assert(importer.compile(handle, "link-index-test"))
     local signature = assert(writer.signature(handle, result, "a writer", link_index.none))
     assert(writer.write_result(handle, out, result, nil, link_index.none))
@@ -662,8 +662,14 @@ local function test_a_c_comments_links_are_rows_but_not_ci(tmp: string)
     "",
     "  // Then [`greet.bye`].")))
   assert(Fs.write(root .. "/ci/README.md", source("CI's own [`greet.hello`].")))
+  -- What a tree of cosmic's own is compiled against.
+  assert(Fs.mkdirs(root .. "/lang"))
+  assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
+  assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/ceilings.txt", "[checked]\n"))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   local result = assert(importer.compile(handle, "link-index-test"))
   local out = build_dir(root) .. "/cosmic.db"
   assert(writer.write_result(handle, out, result, nil, link_index.none))
@@ -726,7 +732,7 @@ local function test_a_projects_links_to_the_standard_library_are_rows(tmp: strin
   write_linking_project(root)
   local handle = assert(work.open(root))
   local out = build_dir(root) .. "/cosmic.db"
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "link-index-test"))
   local stdlib = library(tmp, "docs one", true)
   assert(writer.write_result(handle, out, result, nil, stdlib))
@@ -803,7 +809,7 @@ local function test_a_projects_links_through_required_modules_are_rows(tmp: stri
     "return greet")))
   local handle = assert(work.open(root))
   local out = build_dir(root) .. "/cosmic.db"
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "link-index-test"))
   assert(writer.write_result(handle, out, result, nil, streams))
   assert(work.close(handle))
@@ -830,7 +836,7 @@ local function test_the_librarys_docs_sign_a_projects_projection(tmp: string)
   local two = library(tmp, "docs two", false)
   local handle = assert(work.open(root))
   local out = build_dir(root) .. "/cosmic.db"
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "link-index-test"))
   local first = assert(writer.signature(handle, result, "a writer", one))
   assert(writer.signature(handle, result, "a writer", again) == first)
@@ -854,7 +860,7 @@ local function test_the_librarys_docs_sign_a_projects_projection(tmp: string)
   assert(Fs.write(root .. "/greet.tl", source("--- Greets.", "return {}")))
   assert(Fs.remove(root .. "/README.md"))
   assert(Fs.remove(root .. "/wave.tl"))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local plain = assert(importer.compile(handle, "link-index-test"))
   local refusing: link_index.Library = { identity = "docs three",
     databases = function(): {Sqlite.Handle}?, string return nil, "not read" end }
@@ -878,7 +884,7 @@ local function test_cosmics_own_tree_reads_no_library(tmp: string)
   assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
   assert(Fs.write(root .. "/build/ceilings.txt", "[checked]\n"))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   local result = assert(importer.compile(handle, "link-index-test"))
   local refusing: link_index.Library = { identity = "docs three",
     databases = function(): {Sqlite.Handle}?, string return nil, "not read" end }
@@ -912,7 +918,7 @@ local function test_a_projects_own_links_read_no_library(tmp: string)
   assert(Fs.write(root .. "/README.md", source("See [`other.fn`].")))
   local handle = assert(work.open(root))
   local out = build_dir(root) .. "/cosmic.db"
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "link-index-test"))
   assert(writer.write_result(handle, out, result))
   local db = assert(Sqlite.open(out))

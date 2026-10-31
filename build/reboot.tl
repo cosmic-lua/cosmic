@@ -53,7 +53,7 @@ local record reboot
   end
 
   --- How a test has [`reboot.stale_exit`] see the running tool, where it
-  --- cannot run the tree's own: the path it runs as ([`reboot.own_tool`]'s
+  --- cannot run the tree's own: the path it runs as ([`tree.own_tool`]'s
   --- `executable`), the environment that says whether it boots
   --- ([`reboot.auto_boot`]) and whether a reboot entered it (`marker`),
   --- and what its database's `meta` says, by key, in place of the running
@@ -133,42 +133,6 @@ end
 local foreign_refusal = "this cosmic is stale against the tree and is not " ..
   "the tree's own tool (in its build directory), so it will not rebuild itself; " ..
   "run bin/cosmic, which runs that tool"
-
---- Whether the running binary is one this tree built: in the tree's
---- build directory ([`build.paths`]), as the tool and the checked suite's
---- sanitized one are. Only such
---- a tool rebuilds itself when stale. A rebuild writes the tree's tool
---- over the path it was started as, so any other cosmic run here (a
---- release, the bootstrap cache's, one on PATH) would be overwritten.
---- The path is judged where it names: its directory is resolved but not
---- its name. A file renamed or removed while it runs is still judged by
---- where it was, and a link into the build directory from elsewhere is
---- elsewhere, since a rebuild would replace the link, not the tool. `executable` is the
---- path this process was started as, by default.
--- TODO: refuse a host-built tool whose file was removed while it runs:
--- with no started-as path, Proc.executable falls back to /proc/self/exe,
--- which then reads ".../cosmic (deleted)", and a rebuild would write a
--- file of that name. Once Proc.executable says the file is gone, answer
--- nil for it here.
-function reboot.own_tool(root: string, executable?: string): boolean?, string
-  local running = executable
-  if running == nil then
-    local found, trouble = Proc.executable()
-    if found == nil then
-      return nil, trouble
-    end
-    running = found
-  end
-  local directory, directory_trouble = Fs.absolute(Fs.dirname(running))
-  if directory == nil then
-    return nil, directory_trouble
-  end
-  local outputs, outputs_trouble = Fs.absolute(build_paths.resolve(root).directory)
-  if outputs == nil then
-    return nil, outputs_trouble
-  end
-  return Fs.within(directory .. "/" .. Fs.basename(running), outputs), ""
-end
 
 --- Whether a tool stale against the core boots it: unless
 --- `COSMIC_AUTO_BOOT` is "0", which a caller that wants the refusal
@@ -496,7 +460,7 @@ end
 -- moment it finds it must rebuild or boot the tool until it re-enters
 -- the command on the tool it wrote, or exits. A `cosmic test` run holds
 -- it already, from its start, and a sandboxed test worker never takes
--- it, since only the tree's own tool ([`reboot.own_tool`]) rebuilds. A run
+-- it, since only the tree's own tool ([`tree.own_tool`]) rebuilds. A run
 -- waits for its holder as long as it takes, as [`rebuild_lock.hold`]
 -- does: that may be a whole `cosmic test` run, and a holder that dies
 -- lets it go. A verb that only reads waits for none (`read_on`).
@@ -739,7 +703,7 @@ end
 --- unless `COSMIC_AUTO_BOOT=0` says to refuse; so does a rebuild whose
 --- compile fails once the compiler's modules moved
 --- ([`reboot.rebuild_failed`]). Only the tree's own tool
---- ([`reboot.own_tool`]) does either; another refuses with
+--- ([`tree.own_tool`]) does either; another refuses with
 --- `foreign_refusal`, rebuilding nothing. A fresh tool of the tree's
 --- own whose database another writer wrote (`unsettled`) writes itself
 --- again, as a rebuild does, and re-enters `argv`; so does one a
@@ -772,7 +736,7 @@ function reboot.guard(handle: work.Handle, root: string,
   end
   local tool: string? = nil
   if seen ~= nil then tool = seen.tool end
-  local own, own_tool_trouble = reboot.own_tool(root, tool)
+  local own, own_tool_trouble = tree.own_tool(root, tool)
   if own == nil then
     log:complain(closing(handle, own_tool_trouble))
     return 1
@@ -856,6 +820,16 @@ function reboot.guard(handle: work.Handle, root: string,
   return reboot.rebuild_failed(root, argv, trouble, moved)
 end
 
+--- What the tree at `root` is to the running tool, as `seen` has the tool
+--- ([`reboot.Seen`]): [`tree.standing`] for the tool's `built_from` and the
+--- path it was started as. A verb that stages the tree asks this once, on
+--- the way into [`reboot.stale_exit`], and again only if it stages.
+function reboot.standing(root: string, seen?: reboot.Seen): tree.Standing?, string
+  local started_as: string? = nil
+  if seen ~= nil then started_as = seen.tool end
+  return tree.standing(root, meta_of("built_from", seen), started_as)
+end
+
 --- The staleness guard for a verb that runs `build.*` Teal this binary
 --- embedded at its own boot before, or without, compiling the tree
 --- itself -- `docs`, `uses`, `db`, `help`, `todos`, `fix`, and the
@@ -929,7 +903,7 @@ function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
     end
     at = found
   end
-  local standing, own_trouble = tree.standing(at)
+  local standing, own_trouble = reboot.standing(at, seen)
   if standing == nil then
     log:complain(own_trouble)
     return 1
@@ -984,7 +958,7 @@ function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
     if fresh and unsettled(seen) then
       local tool: string? = nil
       if seen ~= nil then tool = seen.tool end
-      local own, _ = reboot.own_tool(at, tool)
+      local own, _ = tree.own_tool(at, tool)
       fresh = own == false
     end
   end
@@ -996,7 +970,7 @@ function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
     -- on the tree's fingerprint taken without a stage (from the files'
     -- stats against the rows), so a reader that finds the tool stale and
     -- the lock held goes on before it writes.
-    local staged, stage_trouble = work.stage(handle, standing.own)
+    local staged, stage_trouble = work.stage(handle, standing)
     if staged == nil then
       log:complain(closing(handle, stage_trouble))
       return 1

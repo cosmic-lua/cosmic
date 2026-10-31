@@ -72,6 +72,7 @@ local Template = require("cosmic.template")
 local build_paths = require("build.paths")
 local importer = require("build.importer")
 local rebuild = require("build.rebuild")
+local type tree = require("build.tree")
 local syntax_read = require("build.lsp.syntax_read")
 local work = require("build.work")
 
@@ -128,6 +129,8 @@ local record source
   --- One session's view of the database.
   record View
     root: string
+    --- The `built_from` the tool carries, by default the binary's ([`tree.standing`]).
+    carried: string?
     --- A read handle on `build.db`, nil until there is one to read, and
     --- the device and inode of the file it reads.
     mut db: Sqlite.Handle?
@@ -186,11 +189,12 @@ local function analyzer_identity(): string
 end
 
 --- A source for the tree at `root`, staged at its first [`source.refresh`].
-function source.new(root: string, err: function(line: string)): source.View
+function source.new(root: string, err: function(line: string), carried?: string): source.View
   local tally: Tally = { database_stubs = 0, made_stubs = 0, sources = 0, templates = 0,
     whole_splices = 0, stages = 0, reopened = 0 }
   return {
     root = root,
+    carried = carried,
     db = nil,
     identity = "",
     working = nil,
@@ -208,10 +212,12 @@ function source.new(root: string, err: function(line: string)): source.View
   }
 end
 
---- Whether the root is cosmic's own tree, as the last stage found it.
-function source.own_tree(src: source.View): boolean
+--- What the root is to the running tool, as the last stage found it; a
+--- project before any stage.
+function source.standing(src: source.View): tree.Standing
   local where = src.where
-  return where ~= nil and where.own_tree
+  if where == nil then return { own = false } end
+  return where.standing
 end
 
 --- Whether the root is no project, as the last refresh found it
@@ -437,7 +443,7 @@ function source.refresh(src: source.View)
       return
     end
   end
-  local staged, trouble = rebuild.stage(src.root)
+  local staged, trouble = rebuild.stage(src.root, src.carried)
   if staged ~= nil then adopt(src, staged) end
   -- A database of another schema is another tool's, whose rows this
   -- one's code may misread: none of it is read, and no module found in

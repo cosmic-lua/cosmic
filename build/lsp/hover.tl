@@ -87,7 +87,7 @@ function hover.sources(d: Docs): docs.Sources
   if sources == nil then
     local where = d.tree.where
     local known: docs.Known? = nil
-    if where ~= nil then known = { directory = where.directory, own_tree = where.own_tree } end
+    if where ~= nil then known = { directory = where.directory, own_tree = where.standing.own } end
     sources = docs.databases(d.store or Store.databases(), d.root, known)
     d.sources, d.projection = sources, projection
   end

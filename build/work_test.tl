@@ -320,7 +320,7 @@ end
 local function stage_settled(handle: work.Handle, own_tree?: boolean): work.Staged
   local now = Clock.now_ns
   Clock.now_ns = function(): integer return now() + Clock.seconds(3) end
-  local ok, staged, trouble = pcall(work.stage, handle, own_tree or false)
+  local ok, staged, trouble = pcall(work.stage, handle, { own = own_tree == true })
   Clock.now_ns = now
   assert(ok, tostring(staged))
   return (assert(staged, trouble))
@@ -358,7 +358,7 @@ local function test_an_unsettled_row_is_read_again_at_the_epoch(tmp: string)
   -- An hour ahead, so it is unsettled however long staging takes.
   assert(Fs.set_mtime(path, Clock.now_ns() // 1000000000 + 3600, 0))
   local handle = assert(work.open(tmp))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   assert(staged_bytes(handle.db, "probe.tl") == "return 1\n")
   local unsettled = assert(Sqlite.text_rows(handle.db,
     "SELECT mtime_ns IS NULL FROM files WHERE path = 'probe.tl'"))
@@ -372,7 +372,7 @@ local function test_an_unsettled_row_is_read_again_at_the_epoch(tmp: string)
   local after = assert(Fs.stat(path))
   assert(after.ino == before.ino and after.size == before.size)
 
-  local staged = assert(work.stage(handle, false))
+  local staged = assert(work.stage(handle, { own = false }))
   assert(staged.read == 1, "an unsettled row must count as moved")
   assert(staged_bytes(handle.db, "probe.tl") == "return 2\n")
   assert(work.close(handle))
@@ -387,7 +387,7 @@ local function test_a_settled_epoch_time_is_trusted(tmp: string)
   local handle = assert(work.open(tmp))
   local first = stage_settled(handle)
   assert(first.read == 1)
-  local second = assert(work.stage(handle, false))
+  local second = assert(work.stage(handle, { own = false }))
   assert(second.read == 0, "a settled epoch row must stand")
   assert(work.close(handle))
 end
@@ -415,7 +415,7 @@ end
 local function test_stage_takes_a_link_for_what_it_leads_to(tmp: string)
   local project = linked_project(tmp)
   local handle = assert(work.open(project))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   assert(staged_bytes(handle.db, "lib/util.tl") == assert(Fs.read(tmp .. "/shared/lib/util.tl")))
   assert(staged_bytes(handle.db, "linked_test.tl") ~= nil, "the linked test is staged")
   local looped = assert(Sqlite.text_rows(handle.db,
@@ -428,11 +428,11 @@ end
 --- refusal names the link and leaves what the first stage staged.
 local function refused_above(project: string, target: string, link: string)
   local handle = assert(work.open(project))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local before = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM files"))
   assert(nth(before, 1):text(1) ~= "0")
   assert(Fs.symlink(target, project .. "/" .. link))
-  local staged, trouble = work.stage(handle, false)
+  local staged, trouble = work.stage(handle, { own = false })
   assert(staged == nil, "a link above the root is refused")
   assert(trouble:find(link .. ": a link to ", 1, true), trouble)
   assert(trouble:find("above the root", 1, true), trouble)
@@ -527,7 +527,7 @@ end
 --- fingerprint.
 local function boot_of(root: string): string
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   local fingerprint = assert(identity.record_fingerprint(handle.db, handle.root))
   assert(work.close(handle))
   return fingerprint.boot
@@ -693,6 +693,27 @@ local function test_new_tool_inputs_invalidate_read_only_freshness(tmp: string)
   assert(work.close(handle))
 end
 
+--- A tool older than `built_from` can only boot to write it, so an edit to the file that decides which tree a
+--- tool is built from moves the image fingerprint, which such a tool also holds, and one to a module beside it does
+--- not.
+local function test_an_edit_to_build_tree_moves_the_image_and_one_beside_it_does_not(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/build"))
+  assert(Fs.write(tmp .. "/build/tree.tl", "return 1\n"))
+  assert(Fs.write(tmp .. "/build/beside.tl", "return 1\n"))
+  local handle = assert(work.open(tmp))
+  assert(stage_settled(handle, true))
+  local before = assert(identity.record_fingerprint(handle.db, handle.root))
+  assert(Fs.write(tmp .. "/build/beside.tl", "return 2\n"))
+  assert(stage_settled(handle, true))
+  local beside = assert(identity.record_fingerprint(handle.db, handle.root))
+  assert(beside.boot ~= before.boot and beside.image == before.image, "an edit beside build/tree.tl moved the image")
+  assert(Fs.write(tmp .. "/build/tree.tl", "return 2\n"))
+  assert(stage_settled(handle, true))
+  local moved = assert(identity.record_fingerprint(handle.db, handle.root))
+  assert(moved.image ~= beside.image, "an edit to build/tree.tl left the image")
+  assert(work.close(handle))
+end
+
 --- Directory replacement and linked membership follow the staging walk.
 local function test_tool_discovery_tracks_renames_and_link_targets(tmp: string)
   local root = tmp .. "/root"
@@ -804,7 +825,7 @@ local function stage_files(root: string, files: {string:string}): work.Staged?, 
     assert(Fs.write(root .. "/" .. path, data))
   end
   local handle = assert(work.open(root))
-  local staged, trouble = work.stage(handle, false)
+  local staged, trouble = work.stage(handle, { own = false })
   assert(work.close(handle))
   if staged ~= nil then return staged, "" end
   return nil, trouble

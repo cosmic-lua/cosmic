@@ -38,7 +38,7 @@ local function test_the_graph_key_is_pinned(tmp: string)
   }
   for name, text in pairs(files) do assert(Fs.write(root .. "/" .. name, text)) end
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "declared-key-pins-test"))
   assert(work.close(handle))
   local keys: mut {string:string} = {}

@@ -182,7 +182,7 @@ local function test_a_tree_in_no_repository_starts_no_git(tmp: string)
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/a.tl", text({ "-- TODO: unblamed" })))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   -- What [`cosmic.sys`]'s shared table is asked while the listing runs,
   -- each call's first argument: every lookup of a variable (`Env`) and
   -- of a path ([`Proc.find`], [`Fs.exists`]) goes through it.
@@ -220,7 +220,7 @@ local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
   assert(Fs.write(root .. "/src/a.tl", text({ "-- TODO: first", "local x = 1" })))
   assert(Fs.write(root .. "/src/b.tl", text({ "local y = 2" })))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local listed = assert(todos.list(handle.db, root)).todos
   assert(#listed == 1, "found " .. tostring(#listed))
   assert(nth(listed, 1).file == "src/a.tl" and nth(listed, 1).line == 1)
@@ -228,7 +228,7 @@ local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
 
   -- Bytes already indexed are not scanned again, so their rows stand.
   assert(Sqlite.run(handle.db, "UPDATE todos SET text = 'from the index'"))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   listed = assert(todos.list(handle.db, root)).todos
   assert(nth(listed, 1).text == "from the index", nth(listed, 1).text)
 
@@ -236,7 +236,7 @@ local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
   -- are dropped.
   assert(Fs.write(root .. "/src/b.tl", text({ "local y = 2", "  -- TODO: second" })))
   assert(Fs.write(root .. "/src/a.tl", text({ "local x = 1" })))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   listed = assert(todos.list(handle.db, root)).todos
   assert(#listed == 1 and listed[1].file == "src/b.tl" and listed[1].line == 2)
   local rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM todos"))
@@ -253,7 +253,7 @@ local function test_a_file_the_build_does_not_consume_is_scanned_all_the_same()
   assert(Fs.write(root .. "/big.txt",
     "# TODO: too big to be text\n" .. string.rep("x", 2 * 1024 * 1024)))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local listed = assert(todos.list(handle.db, root)).todos
   assert(#listed == 1, "found " .. tostring(#listed))
   assert(nth(listed, 1).file == "scripts/release.sh" and nth(listed, 1).line == 2)
@@ -264,7 +264,7 @@ local function test_a_file_the_build_does_not_consume_is_scanned_all_the_same()
   assert(nth(rows, 1):text(1) == "0", nth(rows, 1):text(1))
 
   assert(Fs.remove(root .. "/scripts/release.sh"))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   listed = assert(todos.list(handle.db, root)).todos
   assert(#listed == 0, "found " .. tostring(#listed))
   rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM scanned"))
@@ -289,7 +289,7 @@ local function test_own_tree_scans_github_for_todos()
   assert(Fs.write(root .. "/.github/check.tl", text({ "-- TODO: not an input" })))
   assert(Fs.write(root .. "/.github/.cache/x.yml", text({ "# TODO: hidden" })))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   local listed = assert(todos.list(handle.db, root)).todos
   local seen: mut {string} = {}
   for _, todo in ipairs(listed) do
@@ -305,7 +305,7 @@ local function test_own_tree_scans_github_for_todos()
   -- Staged again as another project's tree, it is hidden, and what the
   -- first stage scanned there is forgotten.
   local other = assert(work.open(root))
-  assert(work.stage(other, false))
+  assert(work.stage(other, { own = false }))
   listed = assert(todos.list(other.db, root)).todos
   assert(#listed == 0, "found " .. tostring(#listed))
   rows = assert(Sqlite.text_rows(other.db, "SELECT count(*) FROM scanned"))
@@ -414,7 +414,7 @@ local function test_own_tree_lists_a_patch_record_s_own_todos()
   assert(Fs.write(root .. "/patch/curl/notes.md", text({ "# TODO: not a record" })))
   assert(Fs.write(root .. "/vendor/curl/PIN", text({ "# TODO: upstream's pin" })))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   local listed = assert(todos.list(handle.db, root)).todos
   local seen: mut {string} = {}
   local id_of: mut {integer:string} = {}
@@ -450,7 +450,7 @@ local function test_search_takes_fts5_syntax_and_falls_back_to_words()
   })))
   assert(Fs.write(root .. "/b.sh", text({ "# TODO: replace with a Teal script" })))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local all = assert(todos.list(handle.db, root)).todos
   local line_of: mut {integer:string} = {}
   for _, todo in ipairs(all) do
@@ -483,7 +483,7 @@ local function test_search_takes_fts5_syntax_and_falls_back_to_words()
 
   -- The index follows the rows it is built over.
   assert(Fs.write(root .. "/a.tl", text({ "-- TODO: something else" })))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local function count(query: string): integer
     local n = 0
     for _ in pairs((assert(todos.search(handle.db, query)))) do

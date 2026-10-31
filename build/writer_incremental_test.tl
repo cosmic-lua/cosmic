@@ -328,7 +328,7 @@ end
 --- and then as a whole to `whole` (a path nothing stands at), and returns
 --- how many modules the first took from what stood at `out`.
 local function write_both(handle: work.Handle, out: string, whole: string, tool: string, own?: boolean): integer
-  assert(work.stage(handle, own == true))
+  assert(work.stage(handle, { own = own == true }))
   local result = assert(importer.compile(handle, tool))
   assert(handle.db:exec("DROP TABLE IF EXISTS temp.reused"))
   assert(writer.write_result(handle, out, result))
@@ -590,7 +590,7 @@ local function test_a_base_damaged_past_its_schema_is_written_over(tmp: string)
   assert(page > 0, "no page of the projection leaves it readable but for its rows")
   ruin(out, page)
   write_tree(root, changed(initial, "b2", function(spec: Spec): Spec return with_body(spec, 5) end), "")
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "writer-test"))
   local written, _ = writer.write_result(handle, out, result)
   assert(not written, "a write read a damaged base to its end")
