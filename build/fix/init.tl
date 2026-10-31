@@ -185,18 +185,24 @@ local not_source: {string:boolean} = {
   ["core"] = true,
 }
 
---- Whether the Teal file `path`, named in a project at `root` that is not cosmic's own, is no input of that project's build:
---- outside it, under a directory identity never takes ([`identity.is_input`]), or under a hidden one.
----
---- The path is judged as named: a link inside the build to a file under `bin/` is the build's, which reads it. Cosmic's own
---- tree is excepted, where [`fix.chosen`] does not ask.
-local function outside_build(root: string, path: string): boolean
+--- The Teal file `path` as one name however it is spelled: its directory made absolute, its own name kept, so that a link
+--- stays itself and is not what it points at.
+local function named_as(path: string): string
   local parent, _ = Fs.absolute(Fs.dirname(path))
-  local absolute: string? = nil
-  if parent ~= nil then absolute = parent .. "/" .. Fs.basename(path) end
+  if parent == nil then return path end
+  return parent .. "/" .. Fs.basename(path)
+end
+
+--- Whether the Teal file `path`, named in a project at `root`, is to be checked alone, as it is no input of that project's
+--- build: outside it, under a directory identity never takes ([`identity.is_input`]), or under a hidden one. The path is
+--- judged as named ([`named_as`]): a link inside the build to a file under `bin/` is the build's, which reads it.
+local function checked_alone(root: string, own: boolean, path: string): boolean
+  -- TODO: once `fix` can check a file of cosmic's own tree that is no input of it (`ci/`, which is a project of its own, and
+  -- `lang/*.d.tl`) in the project that reads it, ask this of cosmic's own tree too.
+  if own then return false end
   local top, _ = Fs.absolute(root)
-  if absolute == nil or top == nil then return false end
-  local relative, _ = Fs.relative(absolute, top)
+  if top == nil then return false end
+  local relative, _ = Fs.relative(named_as(path), top)
   -- Outside the root, which [`Fs.relative`] says by answering nothing.
   if relative == nil then return true end
   if relative == ".." or relative:sub(1, 3) == "../" then return true end
@@ -438,12 +444,10 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen?, string
       end
       for _, file in ipairs(under) do
         local named = path .. "/" .. file
-        if seen[named] == nil then
-          seen[named] = true
+        if seen[named_as(named)] == nil then
+          seen[named_as(named)] = true
           out[#out + 1] = named
-          -- TODO: once `fix` can check a file of cosmic's own tree that is no input of it (`ci/`, which is a project of its
-          -- own, and `lang/*.d.tl`) in the project that reads it, check them here too.
-          if not own and outside_build(root, named) then alone_out[#alone_out + 1] = named end
+          if checked_alone(root, own, named) then alone_out[#alone_out + 1] = named end
         end
       end
       local checked, checked_trouble = checked_sources(path)
@@ -492,10 +496,10 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen?, string
     elseif not String.ends_with(path, ".tl") then
       refused[#refused + 1] = path .. ": not a Teal, C or template source, YAML, Markdown or Zig"
     else
-      if seen[path] == nil then
-        seen[path] = true
+      if seen[named_as(path)] == nil then
+        seen[named_as(path)] = true
         out[#out + 1] = path
-        if not own and outside_build(root, path) then alone_out[#alone_out + 1] = path end
+        if checked_alone(root, own, path) then alone_out[#alone_out + 1] = path end
       end
     end
   end
