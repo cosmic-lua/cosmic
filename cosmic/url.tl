@@ -426,19 +426,6 @@ local function read_host(parts: Url.Parts, text: string): boolean, string
   return true, ""
 end
 
---- An absolute URL, `scheme://[userinfo@]host[:port][/path][?query][#fragment]`,
---- read into its [`Parts`]: the scheme and host lowercased, an IPv6
---- host taken out of its brackets, the port a number from 0 to 65535,
---- and the user info, path, query and fragment as written, still
---- escaped ([`Url.segments`] reads a path, [`Url.unescape`] a piece).
---- Answers `nil` and why for anything else: a relative reference, a URL
---- without `//` (`mailto:`), one that names no host (`file:///`), more
---- than one `@`, a malformed port or IPv6 host (one with a zone, as
---- `[fe80::1%25eth0]`, included), or a space or control byte anywhere,
---- which a URL holds only escaped ([`Url.escape`]).
---- @param text string The URL
---- @return Parts | nil Its parts
---- @return string Why it was refused, or "" when it was not
 --- A URI reference's five parts (RFC 3986, appendix B): each nil where
 --- the reference has none, the path "" where it is empty.
 local record Reference
@@ -549,6 +536,19 @@ function Url.resolve(base: string, ref: string): string
   return table.concat(out)
 end
 
+--- An absolute URL, `scheme://[userinfo@]host[:port][/path][?query][#fragment]`,
+--- read into its [`Parts`]: the scheme and host lowercased, an IPv6
+--- host taken out of its brackets, the port a number from 0 to 65535,
+--- and the user info, path, query and fragment as written, still
+--- escaped ([`Url.segments`] reads a path, [`Url.unescape`] a piece).
+--- Answers `nil` and why for anything else: a relative reference, a URL
+--- without `//` (`mailto:`), one that names no host (`file:///`), more
+--- than one `@`, a malformed port or IPv6 host (one with a zone, as
+--- `[fe80::1%25eth0]`, included), or a space or control byte anywhere,
+--- which a URL holds only escaped ([`Url.escape`]).
+--- @param text string The URL
+--- @return Parts | nil Its parts
+--- @return string Why it was refused, or "" when it was not
 function Url.parse(text: string): Url.Parts?, string
   local unescaped = unescaped_byte(text)
   if unescaped ~= "" then
