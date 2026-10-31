@@ -414,7 +414,7 @@ local module: Module = {
       "that has gone fails with EPIPE instead (" .. child .. ")",
     ["cosmic.child.guard"] = "use Signal.guard(), the same guard, and hold it in a " ..
       "<close> variable: local g <close> = assert(Signal.guard()) (" .. signal .. ")",
-    ["cosmic.child.Guard"] = "use Signal.Guard, the same record (" .. signal .. ")",
+    ["cosmic.child.Guard"] = "use Signal.Guard, the same type (" .. signal .. ")",
     ["cosmic.sys.guard_child_signals"] = "use Signal.guard(), and hold it in a " ..
       "<close> variable: local g <close> = assert(Signal.guard()) (" .. signal .. ")",
     ["cosmic.sys.cancelled_child_signal"] = "use g:take() on the guard Signal.guard() " ..

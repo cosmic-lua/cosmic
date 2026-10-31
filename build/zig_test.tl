@@ -576,38 +576,22 @@ local function test_with_lock_lets_go_when_the_callback_raises(tmp: string)
   assert(descriptors() == before, "the lock leaked on the normal path")
 end
 
-local record Tally
-  mut closed: integer
-  mut released: integer
-end
-
 --- An error that leaves the supervision of [`Zig.run`] must close the signal guard, which restores the signals the
 --- process held: a guard left open keeps SIGINT and SIGTERM caught for the rest of its life.
 local function test_run_closes_the_signal_guard_when_supervising_raises()
   local real_start, real_guard = Child.start, Signal.guard
-  local tally: Tally = { closed = 0, released = 0 }
+  local opened: mut {Signal.Guard} = {}
   Child.start = function(_argv: {string}, _options?: Child.Options): Child.Handle?, string
     error("the start raised")
   end
   Signal.guard = function(): Signal.Guard?, string
     local guard, trouble = real_guard()
-    if guard ~= nil then
-      local watched: Signal.Guard = guard
-      local real_close, real_release = watched.close, watched.release
-      watched.close = function(self: Signal.Guard): boolean, string
-        tally.closed = tally.closed + 1
-        return real_close(self)
-      end
-      watched.release = function(self: Signal.Guard): integer?, string
-        tally.released = tally.released + 1
-        return real_release(self)
-      end
-    end
+    if guard ~= nil then opened[#opened + 1] = guard end
     return guard, trouble
   end
   local ok, trouble = pcall(Zig.run, { "/bin/true" })
   Child.start, Signal.guard = real_start, real_guard
   assert(not ok and tostring(trouble):find("the start raised", 1, true) ~= nil, tostring(trouble))
-  assert(tally.closed == 1, "the guard was closed " .. tostring(tally.closed) .. " times")
-  assert(tally.released == 0, "the guard was released on a raise")
+  assert(#opened == 1, "Zig.run opened " .. tostring(#opened) .. " guards")
+  assert(assert(opened[1]).state.closed, "the guard was left open")
 end
