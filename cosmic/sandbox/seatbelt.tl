@@ -5,6 +5,7 @@
 --- its rlimits: [`Child.start`] before exec, through a process of this
 --- program that executes the child's program last, and
 --- [`Sandbox.restrict`] to the running process.
+--- @public
 
 local rules = require("cosmic.sandbox.policy")
 local sys = require("cosmic.sys")

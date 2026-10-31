@@ -45,6 +45,7 @@
 --- between the quotes is literal (a backslash is no escape), with `%22`, `%0D`
 --- and `%0A` standing for a quote and the line ends. `filename*` (RFC 8187)
 --- is read when there is no `filename`.
+--- @public
 
 local Number = require("cosmic.number")
 local Stream = require("cosmic.stream")
