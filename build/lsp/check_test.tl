@@ -36,7 +36,7 @@ local function test_a_require_into_a_closed_directory_is_refused_at_it()
   local text = 'local x = require("lib.priv.x")\nlocal n: integer = x.n\nreturn n\n'
   local refused = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
   assert(refused.message == "lib.priv.x is private to lib/priv/; only a file inside it may import " ..
-      "it (its entry is lib/priv/init.tl)", refused.message)
+      "it (its entry is lib/priv/init.tl), or the module can say `--- @public`", refused.message)
   local start = edge(refused, "start")
   assert(start.line == 0 and start.character == 18, tostring(start.line) .. ":" .. tostring(start.character))
   local inside = served(root, { initialize(root), open(root, "lib/priv/y.tl", text) })
@@ -78,8 +78,8 @@ local function test_cosmics_own_tree_keeps_build_to_itself()
   local text = 'local importer = require("build.importer")\nreturn importer\n'
   local built = assert(tree.built_from(root))
   local refused = only(nth(served(root, { initialize(root), open(root, "lib/thing.tl", text) }, nil, built), 1))
-  assert(refused.message == "build.importer is private to build/; only build/, cmd/, test/ and " ..
-      "tests may import it", refused.message)
+  assert(refused.message == "build.importer is private to build/ in cosmic's own tree; only build/, a main, a test " ..
+      "and test support may import it", refused.message)
   local test = served(root, { initialize(root), open(root, "lib/thing_test.tl",
     'local importer = require("build.importer")\nlocal function test_it() assert(importer) end\n') }, nil, built)
   assert(counts(test) == "0", messages_of(nth(test, 1)))

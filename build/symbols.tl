@@ -39,7 +39,7 @@ end
 --- guide in neither, so a new one is never left out by mistake.
 symbols.guides = {
   "command-line", "language", "project", "quickstart", "semantic-search", "sql", "web", "web-api", "web-deploy",
-  "web-forms", "web-live", "web-security", "web-sessions",
+  "web-forms", "web-live", "web-security", "web-sessions", "xlsx",
 }
 
 --- The guides a binary does not carry, each with its reason.

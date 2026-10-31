@@ -117,6 +117,14 @@ local record source
     mut reopened: integer
   end
 
+  --- A module's text as its file holds it, not as the checker is served it (a stub, a template's Teal): where a place in
+  --- the module is found for a person ([`build.lsp.definition`]).
+  record Written
+    --- The module's file, below the root.
+    file: string
+    text: string
+  end
+
   --- An open document's text, and its SHA-256.
   record Text
     text: string
@@ -167,6 +175,7 @@ end
 
 local type Module = source.Module
 local type Served = source.Served
+local type Written = source.Written
 local type Tally = source.Tally
 
 --- The most stubs kept of texts made here: an open module's every edit
@@ -610,6 +619,20 @@ function source.served(src: source.View, name: string, open: source.Open, uncoun
     if stubbed ~= nil then return serving_as("made", stubbed, key) end
   end
   return serving_as("source", held, key)
+end
+
+--- The text of the module `name` as written: an open document's, else the working database's. nil where the database lists
+--- none, for a template, whose file is not Teal, and where the database cannot be read as [`source.served`] cannot.
+function source.written(src: source.View, name: string, open: source.Open): Written?
+  local found = src.modules[name]
+  if found == nil or found.file:match("%.tmpl$") ~= nil then return nil end
+  local opened = open(found.file)
+  if opened ~= nil then return { file = found.file, text = opened.text } end
+  local db, _ = database(src)
+  if db == nil or staged_by_other(src, db) then return nil end
+  local held = first(db, "SELECT source FROM inputs WHERE file = ?1", found.file)
+  if held == nil then return nil end
+  return { file = found.file, text = held }
 end
 
 --- Lets go of the database, which is opened again when next read.

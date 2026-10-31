@@ -222,7 +222,8 @@ local record Cli
   --- build names modules, from open documents, then the modules a build
   --- stages of the workspace's root, staged again when the editor says a
   --- file changed on disk, then the binary's `cosmic.*`; it answers hover
-  --- with a symbol's docs, as `cosmic docs`, and formats a document as
+  --- with a symbol's docs, as `cosmic docs`, answers go to definition
+  --- with where a name is declared, and formats a document as
   --- `cosmic fix` does. It serves one editor over standard input and
   --- output, or, with `--listen` (a numeric IPv4 host or a bracketed
   --- IPv6 one, the loopback when only a port is given) or `--socket`,
@@ -590,7 +591,15 @@ local record Cli
   --- prose. Several qualified names (Fs.read Fs.write) are each looked
   --- up in turn; any other words are searched for together. With no q,
   --- every module there is, with what it is for; with `cosmic`, the
-  --- standard library's. The tree is found as `test` finds it
+  --- standard library's. `--json` prints one JSON object per entry
+  --- found, every one and not the first five, a line each (query, exact,
+  --- module, symbol, kind, signature, text, and file, line and verb
+  --- where it has them), with no summary on standard error; with no q,
+  --- or `cosmic`, each module the page lists. Filter it by composing,
+  --- as `cosmic json` does: `cosmic docs --json Fs.read Fs.write |
+  --- cosmic sql --from docs=- --as ndjson "SELECT symbol, line FROM
+  --- docs WHERE kind = 'function'"`. The
+  --- tree is found as `test` finds it
   docs: string
   --- `cosmic uses <sym> [path...]`: every place that refers to a
   --- symbol, as file:line -- only those under the paths, when given --
@@ -1040,6 +1049,9 @@ local module: Module = {
     docs = {
       about = "a symbol's or module's docs, or a search",
       usage = "[words...]",
+      spec = {
+        ["--json"] = { about = "print one JSON object per entry found (ndjson), not the page" },
+      },
     },
     uses = {
       about = "every place that refers to a symbol",

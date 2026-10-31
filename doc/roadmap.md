@@ -186,14 +186,6 @@ promises lean on come first:
   caller outside a test. `ci/` runs on the release [`ci/cosmic-driver.pin`]
   names, whose [`cosmic.shape`] names a place as `$.a[1].b`, not as a JSON
   Pointer, so its tests match the field and the failure, not the path.
-- a hand-written spec that agrees with its record. [`Shape.record_of`] derives
-  a spec from the record, and no [`Shape.record`] or [`Shape.strict_record`]
-  outside a test or an example is left (`bin/cosmic uses Shape.record`
-  lists them). Nothing yet checks that one names the fields of the record its
-  answer is annotated as, so a field added to the record and not to such a
-  spec is never set (and a strict one refuses the key outright): have `cosmic
-  fix` compare the specs of [`cosmic/shape_example.tl`], and a project's own,
-  with the record their `into` flows into.
 - `shape`'s `record_of`, past what landed in the first form (a string literal
   naming a record, resolved where the module is built, in
   build/shape_specs.tl):
@@ -209,9 +201,6 @@ promises lean on come first:
     bytecode) in every executable a program is built into. Revisit if a
     standalone script needs it; `cosmic script.tl`, which builds the tree
     around the script, resolves it as any module.
-  - `strict_record_of`, or `Typed:strict()`: a config file wants a misspelt
-    key refused, and [`Shape.strict_record`] takes a hand-written table. Wait
-    for a caller.
   - a record that implements an interface (`record R is Base`) is refused:
     the checker keeps the inherited fields in the interface, and reading them
     is a few lines once a record needs it. A record that holds itself is
@@ -225,7 +214,7 @@ promises lean on come first:
     not hand out is refused. Reading it needs the checker's types of that
     module's own scope, which build.receivers does not keep.
   - a spec of a record and a spec in a hand-written [`Shape.list`] or
-    [`Shape.record`] meet through [`Typed.spec`]: a `Typed` is not a `Spec`, so
+    [`Shape.map`] meet through [`Typed.spec`]: a `Typed` is not a `Spec`, so
     `Shape.list(RECORD)` is `Shape.list(RECORD.spec)`. Teal has no
     polymorphic function a module can implement, so `into` and `decode_into`
     cannot take both without a second name.
@@ -234,7 +223,7 @@ promises lean on come first:
   node's text line (an operator, a cast's kind, a type, `static`, a literal's
   value). `-ast-dump=json` names each of those as a field, and clang keeps it
   stable where the text is meant for people. Read it with `cosmic.json` and
-  give each node a [`Shape.record`], the first real caller of both. Measured on
+  give each node a [`Shape.record_of`], the first real caller of both. Measured on
   `core/json.c`: 76 MB of JSON against 3.9 MB of text, 0.27 s to emit
   against 0.22 s, and 0.4 s for [`Json.decode`] to read it with `max_depth` at
   1000 (clang nests past the default 64), holding about 60 MB of Lua heap
@@ -348,11 +337,13 @@ promises lean on come first:
   - File-based routing that generates the route table, and OpenAPI
     documents made from typed routes.
 
-- go to definition and completion in `cosmic lsp` ([`build/lsp/session.tl`]), which
-  answers diagnostics, hover and formatting today. tl's type report answers
-  both: with `env.report_types` on, which build/compiler.d.tl declares,
-  its `get_types`, `symbols_in_scope` and `undeclared`, which it does not
-  declare yet.
+- completion in `cosmic lsp` ([`build/lsp/session.tl`]), which answers diagnostics, hover,
+  go to definition and formatting today. Definition ([`build/lsp/definition.tl`])
+  reads the checker's report of the document, the tree, the scopes and the type of
+  each node that [`check.read`] makes of it, and completion reads the same:
+  `Scopes.in_scope` ([`lang/scopes.tl`]) lists the bindings visible at a token, and
+  the body of a [`Types.Decl`] ([`lang/types.tl`]) lists the fields and methods of the
+  type of the object before a `.` or `:`.
 
 ## documentation and examples
 
@@ -434,8 +425,10 @@ four-producer provenance join.
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
+[`build/lsp/definition.tl`]: ../build/lsp/definition.tl
 [`build/lsp/session.tl`]: ../build/lsp/session.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
+[`check.read`]: ../build/lsp/check.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/prerelease.tl`]: ../ci/cosmic_ci/prerelease.tl
@@ -461,7 +454,6 @@ four-producer provenance join.
 [`cosmic.web`]: ../cosmic/web/init.tl
 [`cosmic/errors.tl`]: ../cosmic/errors.tl
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl
-[`cosmic/shape_example.tl`]: ../cosmic/shape_example.tl
 [`cosmic/stream.tl`]: ../cosmic/stream.tl
 [`cosmic/template/markup.tl`]: ../cosmic/template/markup.tl
 [`Errors.guidance`]: ../cosmic/errors.tl
@@ -470,7 +462,9 @@ four-producer provenance join.
 [`Input.Invalid`]: ../cosmic/web/input.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`lang/flow.tl`]: ../lang/flow.tl
+[`lang/scopes.tl`]: ../lang/scopes.tl
 [`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
+[`lang/types.tl`]: ../lang/types.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
@@ -478,13 +472,13 @@ four-producer provenance join.
 [`Server.range`]: ../cosmic/http/server.tl
 [`Server.serve`]: ../cosmic/http/server.tl
 [`Shape.list`]: ../cosmic/shape.tl
+[`Shape.map`]: ../cosmic/shape.tl
 [`Shape.record_of`]: ../cosmic/shape.tl
-[`Shape.record`]: ../cosmic/shape.tl
 [`Shape.Spec`]: ../cosmic/shape.tl
-[`Shape.strict_record`]: ../cosmic/shape.tl
 [`Test.needs_of`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`Typed.spec`]: ../cosmic/shape.tl
+[`Types.Decl`]: ../lang/types.tl
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl
 [`Url.segments`]: ../cosmic/url.tl

@@ -30,10 +30,15 @@ local tables: {Definition} = {
   -- every earlier one, so putting it first keeps a require from paging
   -- through the much larger source text to get there. The Lua tl
   -- generated is not here: nothing that reads this file loads it, and
-  -- the working database's `compiled` keeps it for the build. `source`
-  -- is stored raw-deflated (`deflate(X)`, [`build.writer`]), as is a
-  -- declaration's: only an uncaught error's line and [`Store.source`]
-  -- read it, and it is most of what a module's row weighs.
+  -- the working database's `compiled` keeps it for the build, with the
+  -- bytecode as `string.dump` wrote it. `bytecode` is stored
+  -- raw-deflated (`deflate(X)`, [`build.writer`]): the core inflates it
+  -- when it loads a module and in [`Store.bytecode`], and a query that
+  -- reads its bytes inflates it first (`inflate(bytecode)`), so no
+  -- digest or key moves with the compressor. `source` is stored the
+  -- same way, as is a declaration's: only an uncaught error's line and
+  -- [`Store.source`] read it, and it is most of what a module's row
+  -- weighs.
   -- A WITHOUT ROWID lookup compares wide records and can read their
   -- overflow chains even when only the path is needed. A separate
   -- narrow primary-key index keeps unrelated bytecode out of a require.
@@ -87,14 +92,16 @@ local tables: {Definition} = {
   -- A project's static assets ([`Layout.static`]), one row per
   -- file under `static/`: `path` relative to it ("css/app.css"), the
   -- bytes, their lowercase hex SHA-256, the Content-Type
-  -- ([`cosmic.mime`]), and the gzip of the bytes when that is worth
-  -- sending ([`Mime.gzip`]), else NULL. [`cosmic.web.assets`] reads it
-  -- from the program's own database.
+  -- ([`cosmic.mime`]), the gzip of the bytes when that is worth
+  -- sending ([`Mime.gzip`]), else NULL, and their zstd when that is
+  -- ([`Mime.zstd`]), else NULL. [`cosmic.web.assets`] reads it from the
+  -- program's own database.
   { name = "payload", body = [[(path TEXT PRIMARY KEY,
                   data BLOB NOT NULL,
                   sha256 TEXT NOT NULL,
                   type TEXT NOT NULL,
-                  gzip BLOB) WITHOUT ROWID]] },
+                  gzip BLOB,
+                  zstd BLOB) WITHOUT ROWID]] },
 
   -- The IANA time zone database, one TZif file per zone name, which
   -- [`cosmic.time`] reads where the host has no zone files of its own.

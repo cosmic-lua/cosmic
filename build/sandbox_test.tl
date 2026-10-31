@@ -13,6 +13,13 @@ local Shape = require("cosmic.shape")
 local sys = require("cosmic.sys")
 local sandbox = require("build.sandbox")
 
+--- The node a record's spec describes.
+local function described<T>(spec: Shape.Spec<T>): Shape.Node
+  local describe = spec.describe
+  assert(describe ~= nil, "a spec that describes nothing")
+  return describe()
+end
+
 --- The element of `list` at `index`, which the case knows is there.
 local function nth<T>(list: {T}, index: integer): T
   local found = list[index]
@@ -431,8 +438,11 @@ local function holds(value: any): boolean
 end
 
 local function test_every_policy_field_has_a_flag()
-  local names = assert(POLICY.spec.names)
-  assert(POLICY.spec.kind == "record" and #names > 0)
+  local fields = assert(described(POLICY.spec).fields)
+  local names: mut {string} = {}
+  for name in pairs(fields) do names[#names + 1] = name end
+  table.sort(names)
+  assert(described(POLICY.spec).kind == "record" and #names > 0)
   local seen: mut {string:boolean} = {}
   for _, name in ipairs(names) do
     if exempt[name] == nil and name ~= "limits" then
@@ -444,10 +454,9 @@ local function test_every_policy_field_has_a_flag()
       assert(holds(policy_after(words)[name]), nth(words, 1) .. " does not set Policy." .. name)
     end
   end
-  local fields = assert(POLICY.spec.fields)
   local limits = fields.limits
-  assert(limits ~= nil and limits.kind == "record" and #assert(limits.names) > 0)
-  for _, name in ipairs(assert(limits.names)) do
+  assert(limits ~= nil and limits.kind == "record" and next(assert(limits.fields)) ~= nil)
+  for name in pairs(assert(limits.fields)) do
     local words = samples[name]
     assert(words ~= nil, "Policy.limits." .. name .. " has no flag: add one to cosmic sandbox " ..
         "and to Cli.verbs.sandbox.spec, and a sample here")
@@ -458,7 +467,7 @@ local function test_every_policy_field_has_a_flag()
   -- A grant's path and letters are one option's. `from` has none: it needs
   -- isolate file and names a host path; it waits on policy files (the
   -- design's Roadmap).
-  for _, name in ipairs(assert(assert(fields.grants).of).names or {}) do
+  for name in pairs(assert(assert(assert(fields.grants).of).fields)) do
     assert(name == "path" or name == "letters" or name == "from", "Policy.grants[]." .. name ..
         " has no flag: add one, and say so here")
   end

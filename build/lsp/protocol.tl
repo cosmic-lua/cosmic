@@ -104,6 +104,7 @@ local record protocol
     positionEncoding: string
     textDocumentSync: SyncOptions
     hoverProvider: boolean
+    definitionProvider: boolean
     documentFormattingProvider?: boolean
   end
 
@@ -134,6 +135,12 @@ local record protocol
 
   record Hover
     contents: MarkupContent
+  end
+
+  --- A place in a document: where a definition is.
+  record Location
+    uri: string
+    range: Range
   end
 
   record TextEdit
@@ -191,11 +198,7 @@ local MAX_HEADER <const> = 8192
 --- The largest message body taken, in bytes.
 local MAX_BODY <const> = 64 * 1024 * 1024
 
-local MESSAGE <const> = Shape.record({
-  method = Shape.optional(Shape.string),
-  id = Shape.optional(Shape.any),
-  params = Shape.optional(Shape.any),
-})
+local MESSAGE <const>: Shape.Typed<protocol.Message> = Shape.record_of("protocol.Message")
 
 local DOCUMENT_PARAMS <const>: Shape.Typed<protocol.DocumentParams> = Shape.record_of("protocol.DocumentParams")
 
@@ -344,6 +347,13 @@ function protocol.path_of(uri: string): string?
   return path
 end
 
+--- The `file:` URI of the absolute path `path`, each segment percent-escaped.
+function protocol.uri_of(path: string): string
+  local out: mut {string} = {}
+  for segment in path:gmatch("[^/]+") do out[#out + 1] = Url.escape(segment) end
+  return "file:///" .. table.concat(out, "/")
+end
+
 --- The segments of the absolute path `path`, the first as many of them
 --- as the count answered, its `.` and `..` segments resolved and its
 --- slashes collapsed, as the path reads with no symlink in it: what is a
@@ -420,7 +430,7 @@ function protocol.message_of(body: string): protocol.Message?, string
   if decoded == nil and trouble ~= "" then
     return nil, protocol.failure("null", PARSE_ERROR, trouble)
   end
-  local message, invalid: protocol.Message?, string = Shape.into(decoded, MESSAGE)
+  local message, invalid = Shape.into(decoded, MESSAGE.spec)
   if message == nil then
     return nil, protocol.failure("null", protocol.INVALID_REQUEST, "not a message: " .. invalid)
   end

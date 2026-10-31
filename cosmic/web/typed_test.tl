@@ -1,4 +1,5 @@
 local Shape = require("cosmic.shape")
+local Input = require("cosmic.web.input")
 local Web = require("cosmic.web")
 local Test = require("cosmic.test")
 
@@ -209,7 +210,7 @@ local function test_a_route_records_what_it_binds()
       return Web.empty()
     end, { input_options = { max_bytes = 1 << 20 } })
   local big_input = assert(big.input)
-  assert(big_input.body_kind == "form" and big_input.query == QUERY.spec and big_input.body == NEW.spec)
+  assert(big_input.body_kind == "form" and big_input.query == Input.described(QUERY.spec) and big_input.body == Input.described(NEW.spec))
   assert(big_input.max_bytes == 1 << 20 and big.methods[1] == "POST")
   assert(Web.get("/c", noop as Web.Handler).input == nil)
 end

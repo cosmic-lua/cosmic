@@ -59,9 +59,9 @@ local casts: {string: string} = {
     "a record read raw, as the core reads it, so no metamethod answers for a field",
   ["build/confine.tl:plain_sandbox"] =
     "a record read raw, as the core reads it, so no metamethod answers for a field",
-  ["cosmic/shape.tl:Shape.into"] =
-    "the one cast from any, to the caller's annotation, of a value " ..
-    "walk has just built to the spec",
+  ["cosmic/shape.tl:trust"] =
+    "the one cast from any, to the `{A}` of a list, of a dense table of what the element spec checked, " ..
+    "which Json.with_holes has just marked a JSON array",
   ["cosmic/sqlite.tl:checked"] =
     "a caller's parameter table is checked for keys its " ..
     "declaration does not name, which only a map view of it lists",

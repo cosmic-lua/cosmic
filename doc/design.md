@@ -384,11 +384,13 @@ input to the build, never to the runtime. one database holds:
   kind (module, test, example, main), and the test or example names
   the compile step found. the Lua tl generated on the way stays in
   the working database: nothing that reads a shipped file loads it.
-  the source is stored raw-deflated, as a declaration's is: only an
-  uncaught error's line and [`Store.source`] (a checker typing another
-  tree, the self-rebuild reading the compiler) read it, and each
-  inflates it. `inflate(X)`, which every [`cosmic.sqlite`] handle knows,
-  reads it back in a query.
+  the source and the bytecode are stored raw-deflated, as a
+  declaration's source is. the core inflates the bytecode when its
+  searcher loads a module and in [`Store.bytecode`]; only an uncaught
+  error's line and [`Store.source`] (a checker typing another tree, the
+  self-rebuild reading the compiler) read the source, and each inflates
+  it. `inflate(X)`, which every [`cosmic.sqlite`] handle knows, reads
+  either back in a query.
 - **stubs**: the tool's alone, one per standard-library module: its
   source with every function body left out and every other token it
   keeps where it was (build.stub), raw-deflated. a module that
@@ -449,8 +451,12 @@ input to the build, never to the runtime. one database holds:
   doc guides need.
 - **payload**: for an embed-built executable, the files under the
   project's `static/` directory: `path` relative to it,
-  `data`, the lowercase hex `sha256`, the Content-Type `type`, and `gzip`,
-  the gzip of `data` when that is worth sending, else NULL.
+  `data`, the lowercase hex `sha256`, the Content-Type `type`, `gzip`,
+  the gzip of `data` when that is worth sending, else NULL, and `zstd`,
+  its zstd at level 19 under the same rule (a compressible type, over
+  1 KiB, at least 10% smaller), else NULL. [`cosmic.web.static`] chooses
+  among them by the request's Accept-Encoding. A program reads only its
+  own build's payload, so no reader tolerates a table without `zstd`.
 - **ca_roots**: Mozilla's CA bundle, one DER certificate a row,
   which [`core/http.c`] reads from the binary's own database alone.
 - **ca_revoked**: the certificates Mozilla's OneCRL revokes
@@ -1238,7 +1244,7 @@ core/bridge.lua     the boot bridge: its compile of the seed's files and of the 
 lang/               the Teal checker and compiler: lexer, parser, scopes, types, flow, code generator
 cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
-build/              the importer, checker driver, embed (Teal; private to build/ cmd/ test/ tests)
+build/              the importer, checker driver, embed (Teal; private to build/, mains, tests, test/)
 doc/                prose
 bin/cosmic          the stable way to run the tree's tool, wherever the build directory is
 ```
@@ -1274,6 +1280,21 @@ whose every file is a flat module of its own. `build/` is private
 besides: in cosmic's own tree only `build/` itself, the binary under
 `cmd/`, a test, and test support under `test/` may import `build.*`,
 so the standard library never depends on the tool that builds it.
+two more rules hold in every project. a module whose path has an
+`internal` directory, `app/internal/store.tl`, may be required only
+by modules under `app/`, as in Go (a top-level `internal/` is the
+project's own); that rule stands in the closed-directory rule's
+place for the module. a module of a closed directory that holds the
+line `--- @public` in the doc block that opens it is open to every importer, which
+is how [`cosmic.http.server`] and five others are. in cosmic's own
+tree a test, and test support (a file of the top-level `test/`
+directory), may be required only by a test or test support, since
+the tool carries neither, and two places do not fit the directory
+rule and are stated exceptions with a `TODO:` each in
+[`build/positions.tl`]:
+`cosmic/internal/` is internal to the tree root, since the tool and
+its tests are the library's implementation too, and `build/` is
+private to the tool.
 that is the position rule again rather than a list to maintain: it
 names places, the binary the tool is and the tests that check it,
 never modules, so a new file under `build/` or a new test needs no
@@ -1425,6 +1446,9 @@ in [roadmap.md](roadmap.md).
 [`Test.policy`]: ../cosmic/test.tl
 
 [`build.pipeline`]: ../build/pipeline.tl
+[`build/positions.tl`]: ../build/positions.tl
+[`cosmic.http.server`]: ../cosmic/http/server.tl
 [`cosmic.internal.globals`]: ../cosmic/internal/globals.d.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
+[`cosmic.web.static`]: ../cosmic/web/static.tl
 [`doc/guides/project.md`]: guides/project.md

@@ -1292,7 +1292,12 @@ const char *cosmic_inflate_raw (const void *data, size_t len, size_t max,
       why = "the deflate stream decodes to more than the limit";
       break;
     }
-    size_t room = cap < 128 ? 128 : cap > max / 2 ? max : cap * 2;
+    /* The first block is a few times the compressed length, where what
+     * these streams hold (sources, bytecode) nearly always fits, instead
+     * of doubling up from 128 bytes one realloc at a time. */
+    size_t room = cap > max / 2 ? max : cap * 2;
+    if (cap == 0) room = len > max / 4 ? max : len * 4;
+    if (room < 128) room = 128;
     if (room > max) room = max;
     /* One byte past the room for the NUL the result carries. */
     unsigned char *grown = cosmic_realloc(buffer, room + 1);

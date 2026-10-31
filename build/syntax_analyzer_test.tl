@@ -222,20 +222,35 @@ local function test_a_line_ends_at_each_of_the_lexers_line_breaks()
 end
 
 local function test_a_policy_the_build_cannot_read_is_refused()
-  local cases: {{string}} = {
-    { "a policy twice", lines('local Test = require("cosmic.test")', "Test.policy{}", "Test.policy{}") },
-    { "an unknown field", lines('local Test = require("cosmic.test")', "Test.policy{ nothing = true }") },
-    { "a policy in a function", lines('local Test = require("cosmic.test")', "local function f() Test.policy{} end") },
-    { "a policy that is a value", lines('local Test = require("cosmic.test")', "local p = {}", "Test.policy(p)") },
-    { "a path that climbs", lines('local Test = require("cosmic.test")',
-      'Test.policy{ grants = { { path = "../x", letters = "r" } } }') },
-    { "an escape in a path", lines('local Test = require("cosmic.test")',
-      'Test.policy{ grants = { { path = "a\\tb", letters = "r" } } }') },
-    { "a loopback that is not", lines('local Test = require("cosmic.test")', 'Test.policy{ loopback = { "10.0.0.1" } }') },
+  local record Refused
+    what: string
+    source: string
+  end
+  local cases: {Refused} = {
+    { what = "a policy twice",
+      source = lines('local Test = require("cosmic.test")', "Test.policy{}", "Test.policy{}") },
+    { what = "an unknown field",
+      source = lines('local Test = require("cosmic.test")', "Test.policy{ nothing = true }") },
+    { what = "a policy in a function",
+      source = lines('local Test = require("cosmic.test")', "local function f() Test.policy{} end") },
+    { what = "a policy that is a value",
+      source = lines('local Test = require("cosmic.test")', "local p = {}", "Test.policy(p)") },
+    {
+      what = "a path that climbs",
+      source = lines('local Test = require("cosmic.test")',
+        'Test.policy{ grants = { { path = "../x", letters = "r" } } }'),
+    },
+    {
+      what = "an escape in a path",
+      source = lines('local Test = require("cosmic.test")',
+        'Test.policy{ grants = { { path = "a\\tb", letters = "r" } } }'),
+    },
+    { what = "a loopback that is not",
+      source = lines('local Test = require("cosmic.test")', 'Test.policy{ loopback = { "10.0.0.1" } }') },
   }
   for _, case in ipairs(cases) do
-    local _, why = Analyzer.analyze(nth(case, 2), "fixture_test.tl")
-    assert(why:find("fixture_test.tl:", 1, true) == 1 and why:find(": test.policy: ", 1, true) ~= nil, nth(case, 1) .. ": " .. why)
+    local _, why = Analyzer.analyze(case.source, "fixture_test.tl")
+    assert(why:find("fixture_test.tl:", 1, true) == 1 and why:find(": test.policy: ", 1, true) ~= nil, case.what .. ": " .. why)
   end
 end
 
@@ -419,4 +434,15 @@ local function test_the_binding_line_is_no_documentation()
   assert((module_text(lines("--- @kind binding", "local x = 1", "return x")) or "") == "")
   assert(module_text(lines("--- A table, @kind binding in prose.", "local x = 1", "return x")) ==
       "A table, @kind binding in prose.")
+end
+
+--- The line that opens a module to every importer is for the build too: no doc text shows it.
+local function test_the_public_line_is_no_documentation()
+  for _, entry in ipairs(analyzed(lines("--- A parser.", "--- @public", "local x = 1", "return x")).docs) do
+    if entry.kind == "module" then
+      assert(entry.text == "A parser.", entry.text)
+      return
+    end
+  end
+  error("the module has no doc")
 end

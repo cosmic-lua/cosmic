@@ -60,4 +60,39 @@ function Example.write()
   print(why) -- xml: <a> is not closed
 end
 
+--- `tree` reads a small document whole; `child`, `children` and `text`
+--- find what it holds. With `local_names`, a name loses its namespace,
+--- so `r:id` reads as `id`.
+function Example.tree()
+  local root = assert(Xml.tree([[
+<sheets xmlns="urn:main" xmlns:r="urn:rel">
+  <sheet name="Sales" r:id="rId1"/>
+  <sheet name="Costs" r:id="rId2"/>
+  <note>Kept <b>whole</b></note>
+</sheets>]], { local_names = true }))
+  for _, sheet in ipairs(Xml.children(root, "sheet")) do
+    print(sheet.attributes["name"], sheet.attributes["id"]) -- Sales  rId1, then Costs  rId2
+  end
+  local note = assert(Xml.child(root, "note"))
+  assert(Xml.text(note) == "Kept whole")
+end
+
+--- `subtrees` reads one element at a time from a document fed in
+--- chunks, here each `row`, so a document of any size is held a row at
+--- a time.
+function Example.subtrees()
+  local p <close> = assert(Xml.parser())
+  local rows = Xml.subtrees("table/row")
+  local total = 0
+  for _, chunk in ipairs({ "<table><row><n>2</n></ro", "w><row><n>3</n></row></table>" }) do
+    for _, row in ipairs(rows:take((assert(p:feed(chunk))))) do
+      total = total + assert(math.tointeger(Xml.text(assert(Xml.child(row, "n")))))
+    end
+  end
+  for _, row in ipairs(rows:take((assert(p:finish())))) do
+    total = total + assert(math.tointeger(Xml.text(assert(Xml.child(row, "n")))))
+  end
+  assert(total == 5, tostring(total))
+end
+
 return Example
