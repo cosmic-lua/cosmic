@@ -5,8 +5,9 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Project = require("cosmic.project")
-local Runner = require("cosmic_ci.runner")
+local ArtifactRow = require("cosmic_ci.artifact_row")
 local Sqlite = require("cosmic.sqlite")
+local Runner = require("cosmic_ci.runner")
 local Plural = require("cosmic_ci.plural")
 local Predicate = require("cosmic_ci.fs_predicate")
 local sys = require("cosmic.sys")
@@ -160,74 +161,45 @@ function Fixture.source_tree(tree: string)
   assert(copied, "source tree: " .. tostring(trouble))
 end
 
---- An artifact (a portable or a host program) read apart at its trailer:
---- everything ahead of its database (`head`), the trailer's fields, and the
---- database's bytes.
-local record Carried
-  head: string
-  magic: string
-  version: integer
-  length: integer
-  manifest_offset: integer
-  manifest_length: integer
-  database: string
-end
-
-local trailer_length <const> = 48
-
---- `path` read apart at its trailer (build/artifact.tl's `split`, which this project cannot require).
-local function carried_in(path: string): Carried
-  local bytes = Fixture.read(path)
-  local at = #bytes - trailer_length + 1
-  local magic = bytes:sub(at, at + 7)
-  assert(magic == "CosmicT1" or magic == "CosmicH1", path .. ": no artifact trailer")
-  local version, length, manifest_offset, manifest_length, database_offset, database_length =
-    string.unpack(">I4I4I8I8I8I8", bytes, at + 8)
-  assert(length == trailer_length and database_offset + database_length == #bytes - trailer_length,
-    path .. ": the artifact trailer's ranges do not fit the file")
-  return { head = bytes:sub(1, database_offset), magic = magic, version = version, length = length,
-    manifest_offset = manifest_offset, manifest_length = manifest_length,
-    database = bytes:sub(database_offset + 1, database_offset + database_length) }
-end
-
 --- Everything of the artifact `path` ahead of its database.
 function Fixture.head(path: string): string
-  return carried_in(path).head
+  return ArtifactRow.apart(Fixture.read(path)).head
 end
 
 --- The `meta` rows of the database `path` carries, by key.
 function Fixture.meta(path: string, scratch: string): {string:string}
-  Fixture.write(scratch, carried_in(path).database)
-  local db = assert(Sqlite.open(scratch))
-  local rows = assert(Sqlite.text_rows(db, "SELECT key, value FROM meta"))
-  local out: mut {string:string} = {}
-  for _, row in ipairs(rows) do out[row:text(1)] = row:text(2) end
-  assert(db:close())
-  assert(Fs.remove(scratch))
-  return out
+  return ArtifactRow.meta(Fixture.read(path), scratch)
 end
 
---- Writes `source`, an artifact, to `destination` as a tool built from the tree at `built_from`: its database
---- with that `meta` row set, or removed where `built_from` is nil, and everything else as it was. A fixture that
---- puts a tool in a copy of the tree it was booted from says by this which tree the tool is built from, as a
---- boot or a rebuild does.
-function Fixture.retargeted(source: string, destination: string, built_from: string?, mode?: integer)
-  local parts = carried_in(source)
-  local scratch = destination .. ".retarget.db"
-  Fixture.write(scratch, parts.database)
+--- `source`'s bytes with the database's `built_from` row removed
+--- ([`ArtifactRow.with`]): what a tool is but for the tree it was built from.
+function Fixture.stripped(source: string, scratch: string): string
+  return ArtifactRow.with(Fixture.read(source), scratch, nil)
+end
+
+--- An artifact of the shape [`ArtifactRow`] reads, for a test that has no tool to hand: a head, a database with a
+--- `meta` table holding `boot_hash` and, where given, `built_from`, and the trailer that locates them. `scratch` is
+--- a path to write the database at first.
+function Fixture.synthetic(scratch: string, built_from: string?): string
   local db = assert(Sqlite.open(scratch, { writable = true }))
-  if built_from == nil then
-    assert(Sqlite.run(db, "DELETE FROM meta WHERE key = 'built_from'"))
-  else
-    assert(Sqlite.run(db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('built_from', ?1)",
-      { { text = built_from } }))
+  assert(Sqlite.run(db, "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID"))
+  assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('boot_hash', 'kept')"))
+  if built_from ~= nil then
+    assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('built_from', ?1)", { { text = built_from } }))
   end
   assert(db:close())
+  local head = "the launcher and the manifest"
   local database = Fixture.read(scratch)
   assert(Fs.remove(scratch))
-  local trailer = parts.magic .. string.pack(">I4I4I8I8I8I8", parts.version, parts.length,
-    parts.manifest_offset, parts.manifest_length, #parts.head, #database)
-  Fixture.write(destination, parts.head .. database .. trailer, mode)
+  local trailer = "CosmicT1" .. string.pack(">I4I4I8I8I8I8", 1, 48, 3, 4, #head, #database)
+  return head .. database .. trailer
+end
+
+--- Writes `source`, an artifact, to `destination` as a tool built from the tree at `built_from`, or from none where
+--- that is nil ([`ArtifactRow.with`]). A fixture that puts a tool in a copy of the tree it was booted from says by
+--- this which tree the tool is built from, as a boot or a rebuild does.
+function Fixture.retargeted(source: string, destination: string, built_from: string?, mode?: integer)
+  Fixture.write(destination, ArtifactRow.with(Fixture.read(source), destination .. ".retarget.db", built_from), mode)
 end
 
 function Fixture.hash(path: string): string

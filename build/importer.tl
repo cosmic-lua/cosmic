@@ -713,7 +713,7 @@ end
 function importer.derive(handle: work.Handle, shared?: importer.Shared,
                          broken?: mut {derivation.Broken}): importer.Parses?, string
   local db = handle.db
-  if not handle.standing.own then
+  if not work.standing(handle).own then
     local reserved, reserved_trouble = Fs.is_dir(handle.root .. "/cosmic")
     if reserved == nil then
       return nil, reserved_trouble
@@ -1043,7 +1043,7 @@ local function compile_derived(handle: work.Handle, tool: string,
                                unjudged: boolean?, shared: importer.Shared?,
                                checks: boolean, target: string?,
                                broken: {derivation.Broken}?): importer.Result?, string
-  local standing = handle.standing
+  local standing = work.standing(handle)
   local modules, trouble = plans.collect(handle.db)
   if modules == nil then
     return nil, trouble

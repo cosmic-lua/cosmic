@@ -27,7 +27,10 @@ The operating guide every agent session loads. Detail lives in
   checkout at any path; never by its path in the build directory. It
   passes its arguments and exit status through, and runs
   `bin/zig build boot` first where there is no tool yet (with
-  `COSMIC_AUTO_BOOT=0` it refuses and exits 3).
+  `COSMIC_AUTO_BOOT=0` it refuses and exits 3). A tool is built from one
+  checkout's path and refuses another's ("this tool was built from
+  <path>; run bin/zig build boot"): a moved or copied checkout is booted
+  again.
 
 ## the build directory
 

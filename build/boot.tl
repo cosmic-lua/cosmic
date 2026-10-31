@@ -121,12 +121,7 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
     log:complain("boot: " .. open_trouble)
     return nil
   end
-  -- The boot is the act that makes this root's tool, which will carry it as its `built_from`: the tool running
-  -- the boot is the one it replaces, so the root it is about to record stands in for what that tool carries.
-  local built, built_trouble = tree.built_from(root)
-  local standing: tree.Standing? = nil
-  local standing_trouble = built_trouble
-  if built ~= nil then standing, standing_trouble = tree.standing(root, built) end
+  local standing, standing_trouble = tree.booted(root)
   if standing == nil then
     local _, _ = work.close(handle)
     log:complain("boot: " .. standing_trouble)

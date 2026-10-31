@@ -7,6 +7,7 @@
 -- [`GithubApi`], whose token comes from GH_TOKEN or GITHUB_TOKEN.
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local ArtifactRow = require("cosmic_ci.artifact_row")
 local GithubApi = require("cosmic_ci.github_api")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
@@ -130,8 +131,9 @@ end
 function Prerelease.notes(commit: string, digest: string, run_url: string): string
   return "Prerelease of commit `" .. commit .. "` from [CI run](" .. run_url .. ").\n" ..
     "\n" ..
-    "The identical Cosmic bytes (SHA-256 `" .. digest .. "`) were tested by all four " ..
-    "native workers: Linux x86_64, Linux aarch64, macOS aarch64, and Alpine x86_64. " ..
+    "The identical Cosmic bytes were tested by all four native workers: Linux x86_64, " ..
+    "Linux aarch64, macOS aarch64, and Alpine x86_64. The release (SHA-256 `" .. digest ..
+    "`) is those bytes without the one row that names the checkout CI built them in. " ..
     "Each worker uploaded its executed-byte attestation, and the provenance join " ..
     "verified all four hashes before publication.\n"
 end
@@ -248,7 +250,9 @@ end
 
 --- Checks every lane's product, then writes the release under
 --- `s.release`: the cosmic executable, SHA256SUMS, source.json and the
---- notes. Raises on the first product that fails a check.
+--- notes. The executable is the lanes' but for the `built_from` row of its
+--- database, which is removed ([`ArtifactRow.with`]); SHA256SUMS names the
+--- bytes released. Raises on the first product that fails a check.
 function Prerelease.stage(s: Prerelease.Stage)
   local found = product_directories(s.products)
   assert(#found == #LANES, "expected " .. Plural.count(#LANES, "product directory", "product directories") ..
@@ -277,9 +281,12 @@ function Prerelease.stage(s: Prerelease.Stage)
       assert(lane_digest == digest, product .. ": executed another digest")
     end
   end
-  local sha = assert(digest)
   assert(Fs.mkdirs(s.release))
-  assert(Fs.write(s.release .. "/cosmic", baseline))
+  -- The lanes ran the tool CI built, which records the checkout it was built from. A release is built from none:
+  -- a project in a checkout of that path would otherwise be taken for cosmic's own tree.
+  local released = ArtifactRow.with(baseline, s.release .. "/stripping.db", nil)
+  local sha = Hash.hex_sha256(released)
+  assert(Fs.write(s.release .. "/cosmic", released))
   assert(Fs.write(s.release .. "/SHA256SUMS", Prerelease.sums(sha)))
   assert(Fs.write(s.release .. "/source.json", Prerelease.source_json(s.commit, sha, s.run_url)))
   assert(Fs.write(s.release .. "/notes.md", Prerelease.notes(s.commit, sha, s.run_url)))

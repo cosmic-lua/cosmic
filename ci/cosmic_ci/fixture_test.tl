@@ -1,6 +1,5 @@
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Sqlite = require("cosmic.sqlite")
 local Fixture = require("cosmic_ci.fixture")
 
 -- The bound leaves the shell time to print on a slow or loaded runner;
@@ -96,27 +95,12 @@ local function test_a_fixtures_children_run_cosmic_test_unsandboxed()
   assert(Fixture.environment()["COSMIC_TEST_SANDBOX"] == "0")
 end
 
---- An artifact of the shape [`Fixture.retargeted`] reads: a head, a database with a `meta` table, and the trailer
---- that locates them.
-local function artifact_with(path: string, scratch: string, built_from: string?): string
-  local db = assert(Sqlite.open(scratch, { writable = true }))
-  assert(Sqlite.run(db, "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID"))
-  assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('boot_hash', 'kept')"))
-  if built_from ~= nil then
-    assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('built_from', ?1)", { { text = built_from } }))
-  end
-  assert(db:close())
-  local head = "the launcher and the manifest"
-  local database = Fixture.read(scratch)
-  local trailer = "CosmicT1" .. string.pack(">I4I4I8I8I8I8", 1, 48, 3, 4, #head, #database)
-  Fixture.write(path, head .. database .. trailer)
-  return head
-end
-
 --- A fixture that puts a tool in a copy of its tree says which tree the tool is built from, and nothing else of the
 --- tool moves.
 local function test_a_tool_is_retargeted_to_the_tree_it_is_said_to_be_built_from(tmp: string)
-  local head = artifact_with(tmp .. "/tool", tmp .. "/scratch.db", "/where/it/was/booted")
+  local bytes = Fixture.synthetic(tmp .. "/scratch.db", "/where/it/was/booted")
+  local head = bytes:sub(1, #"the launcher and the manifest")
+  Fixture.write(tmp .. "/tool", bytes)
   Fixture.retargeted(tmp .. "/tool", tmp .. "/moved", "/where/it/is/now")
   local meta = Fixture.meta(tmp .. "/moved", tmp .. "/read.db")
   assert(meta["built_from"] == "/where/it/is/now" and meta["boot_hash"] == "kept")
@@ -124,4 +108,14 @@ local function test_a_tool_is_retargeted_to_the_tree_it_is_said_to_be_built_from
   Fixture.retargeted(tmp .. "/moved", tmp .. "/old", nil)
   local old = Fixture.meta(tmp .. "/old", tmp .. "/read.db")
   assert(old["built_from"] == nil and old["boot_hash"] == "kept", "a tool older than the row has none")
+end
+
+--- Two tools that differ only in the path they were built from are the same bytes once that row is removed, so a
+--- fixture can hold a boot at another path to the product with nothing but that row set aside.
+local function test_tools_built_from_other_paths_are_one_tool_without_the_row(tmp: string)
+  Fixture.write(tmp .. "/near", Fixture.synthetic(tmp .. "/a.db", "/a"))
+  Fixture.write(tmp .. "/far", Fixture.synthetic(tmp .. "/b.db", "/home/runner/work/cosmic/cosmic/a/much/longer/path"))
+  assert(Fixture.read(tmp .. "/near") ~= Fixture.read(tmp .. "/far"))
+  assert(Fixture.stripped(tmp .. "/near", tmp .. "/s.db") == Fixture.stripped(tmp .. "/far", tmp .. "/s.db"),
+    "the paths left more than the row")
 end
