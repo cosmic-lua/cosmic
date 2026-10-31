@@ -31,6 +31,11 @@ end
 local record Reply
   rcode: integer
   records: {Record}
+  --- When set, the answer ends with `chain` as the owner of `chain_record`:
+  --- a name that is only compression pointers, each to the one before and
+  --- the first to the question's name.
+  chain?: integer
+  chain_record?: Record
 end
 
 local function v4(a: integer, b: integer, c: integer, d: integer): Record
@@ -61,12 +66,30 @@ end
 local function response(query: string, reply: Reply, question_end: integer): string
   local id = string.unpack(">I2", query)
   local records = reply.records
+  local chain = reply.chain
   local parts: mut {string} = {
-    string.pack(">I2I2I2I2I2I2", id, 0x8180 | reply.rcode, 1, #records, 0, 0),
+    string.pack(">I2I2I2I2I2I2", id, 0x8180 | reply.rcode, 1, #records + (chain and 2 or 0), 0, 0),
     query:sub(13, question_end),
   }
+  local offset = question_end
   for _, record in ipairs(records) do
     parts[#parts + 1] = string.pack(">I2I2I2I4s2", 0xC00C, record.type, 1, 60, record.data)
+    offset = offset + 12 + #record.data
+  end
+  if chain then
+    -- The pointers sit in the data of a record of a type c-ares keeps raw,
+    -- after its 12 bytes of header, so that none is read as a record.
+    local first = offset + 12
+    local pointers: mut {string} = {}
+    for i = 0, chain - 1 do
+      local target = 12
+      if i > 0 then target = first + 2 * (i - 1) end
+      pointers[#pointers + 1] = string.pack(">I2", 0xC000 | target)
+    end
+    parts[#parts + 1] = string.pack(">I2I2I2I4s2", 0xC00C, 0xFF00, 1, 60, table.concat(pointers))
+    local tail = assert(reply.chain_record)
+    parts[#parts + 1] = string.pack(">I2I2I2I4s2", 0xC000 | (first + 2 * (chain - 1)),
+      tail.type, 1, 60, tail.data)
   end
   return table.concat(parts)
 end
@@ -214,4 +237,21 @@ end
 local function test_a_caught_signal_ends_a_lookup_that_waits(tmp: string)
   local lines = lookup(tmp, "stalled.example.test", 20000, function(): Reply? return nil end, true)
   assert(lines[1] == "error interrupted", lines[1])
+end
+
+--- CVE-2026-69184: a name of nothing but compression pointers never adds a
+--- label, so only a bound on the jumps stops c-ares from walking a chain of
+--- any length. 1.34.6 follows 200 of them and answers with the address; the
+--- reply is refused from 1.34.7 (at most 128 jumps) and the lookup fails.
+local function test_a_name_of_two_hundred_compression_pointers_is_refused(tmp: string)
+  local started = Clock.now_ns()
+  local lines = lookup(tmp, "chain.example.test", 20000, function(_: string, qtype: integer): Reply
+    if qtype == TYPE_A then
+      return { rcode = 0, records = {}, chain = 200, chain_record = v4(192, 0, 2, 66) }
+    end
+    return { rcode = 0, records = {} }
+  end)
+  local first = lines[1] or ""
+  assert(first:sub(1, 6) == "error ", table.concat(lines, ","))
+  assert(Clock.now_ns() - started < Clock.seconds(15), "the lookup waited out its timeout")
 end
