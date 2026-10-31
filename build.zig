@@ -752,6 +752,7 @@ pub fn build(b: *std.Build) void {
     const mbedtls = patched(b, trees, "mbedtls");
     const bzip2 = patched(b, trees, "bzip2");
     const xz = patched(b, trees, "xz");
+    const zstd = patched(b, trees, "zstd");
     const cares = patched(b, trees, "cares");
     const curl = patched(b, trees, "curl");
     const yyjson = patched(b, trees, "yyjson");
@@ -765,6 +766,7 @@ pub fn build(b: *std.Build) void {
         .{ "bzip2", bzip2 },   .{ "xz", xz },
         .{ "cares", cares },   .{ "curl", curl },
         .{ "yyjson", yyjson }, .{ "sqlite-ext", sqlite_ext },
+        .{ "zstd", zstd },
         .{ "expat", expat },
     }) |pair| {
         const install = b.addInstallDirectory(.{
@@ -931,7 +933,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .debug,
         }),
     });
-    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .sqlite_ext = sqlite_ext, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .cares = cares, .curl = curl, .yyjson = yyjson, .expat = expat, .config = config };
+    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .sqlite_ext = sqlite_ext, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .zstd = zstd, .cares = cares, .curl = curl, .yyjson = yyjson, .expat = expat, .config = config };
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
@@ -1442,6 +1444,7 @@ const Sources = struct {
     mbedtls: std.Build.LazyPath,
     bzip2: std.Build.LazyPath,
     xz: std.Build.LazyPath,
+    zstd: std.Build.LazyPath,
     cares: std.Build.LazyPath,
     curl: std.Build.LazyPath,
     yyjson: std.Build.LazyPath,
@@ -1550,6 +1553,7 @@ fn vendorLibraries(
     const mbedtls = sources.mbedtls;
     const bzip2 = sources.bzip2;
     const xz = sources.xz;
+    const zstd = sources.zstd;
     const cares = sources.cares;
     const curl = sources.curl;
     const yyjson = sources.yyjson;
@@ -1805,6 +1809,49 @@ fn vendorLibraries(
         },
     });
 
+    // zstd's encoder and decoder, single-threaded (ZSTD_MULTITHREAD is
+    // never defined, so zstdmt and its thread pool are not vendored) and
+    // in C alone: the x86_64 Huffman decoder in assembly is left out
+    // (ZSTD_DISABLE_ASM), and so is BMI2's runtime dispatch
+    // (DYNAMIC_BMI2=0), which would choose code by what the processor
+    // has, a feature no key holds (build/dispatched_features_test.tl).
+    // No legacy formats (before v0.8, 2016), no tracing hooks (weak
+    // symbols nothing defines), and xxhash's names under zstd's prefix,
+    // as zstd's own makefile builds it.
+    vendorPart(b, &libraries, configuration, target, "zstd", &.{zstd.path(b, "lib")}).addCSourceFiles(.{
+        .root = zstd.path(b, "lib"),
+        .files = &.{
+            "common/entropy_common.c",
+            "common/error_private.c",
+            "common/fse_decompress.c",
+            "common/xxhash.c",
+            "common/zstd_common.c",
+            "compress/fse_compress.c",
+            "compress/hist.c",
+            "compress/huf_compress.c",
+            "compress/zstd_compress.c",
+            "compress/zstd_compress_literals.c",
+            "compress/zstd_compress_sequences.c",
+            "compress/zstd_compress_superblock.c",
+            "compress/zstd_double_fast.c",
+            "compress/zstd_fast.c",
+            "compress/zstd_lazy.c",
+            "compress/zstd_ldm.c",
+            "compress/zstd_opt.c",
+            "compress/zstd_preSplit.c",
+            "decompress/huf_decompress.c",
+            "decompress/zstd_ddict.c",
+            "decompress/zstd_decompress.c",
+            "decompress/zstd_decompress_block.c",
+        },
+        .flags = &.{
+            "-std=c11",                 debug_dir,
+            "-DZSTD_DISABLE_ASM",       "-DDYNAMIC_BMI2=0",
+            "-DZSTD_LEGACY_SUPPORT=0",  "-DZSTD_TRACE=0",
+            "-DXXH_NAMESPACE=ZSTD_",
+        },
+    });
+
     // mbedtls: the PSA crypto subtree, then the TLS 1.2/1.3 client and
     // X.509 layer above it, all under the one configuration header (see
     // [`mbedtls_config`]). The crypto files below are the ones that hold
@@ -1972,7 +2019,7 @@ fn vendorLibraries(
 /// The include directories of the vendored libraries' public headers, which
 /// the core's own C reads to call into them, in the order a name is looked
 /// up. mbedtls's configuration header is not among them ([`core`]).
-fn libraryIncludes(b: *std.Build, sources: Sources) [crypto_public_dirs.len + 10]std.Build.LazyPath {
+fn libraryIncludes(b: *std.Build, sources: Sources) [crypto_public_dirs.len + 11]std.Build.LazyPath {
     return [_]std.Build.LazyPath{
         sources.lua.path(b, "src"),
         sources.sqlite,
@@ -1981,6 +2028,7 @@ fn libraryIncludes(b: *std.Build, sources: Sources) [crypto_public_dirs.len + 10
         sources.expat.path(b, "lib"),
         sources.bzip2,
         sources.xz.path(b, "src/liblzma/api"),
+        sources.zstd.path(b, "lib"),
     } ++ cryptoIncludes(b, sources.mbedtls.path(b, "tf-psa-crypto"), &crypto_public_dirs) ++ [_]std.Build.LazyPath{
         sources.mbedtls.path(b, "include"),
         sources.cares.path(b, "include"),

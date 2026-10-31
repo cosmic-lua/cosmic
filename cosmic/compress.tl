@@ -1,21 +1,16 @@
 --- Compression and expansion: one-shot deflate and inflate in the raw,
 --- zlib and gzip framings, streaming encoders and decoders for the same
---- three, and streaming decoders (no encoders) for xz and bzip2.
+--- three and for zstd, and streaming decoders (no encoders) for xz and
+--- bzip2.
 
 -- The raw module behind the streaming codecs lives under the reserved
--- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
--- indirection exists.
+-- `cosmic.internal.` namespace -- see cosmic/store.tl for why it is off
+-- the public surface.
 local type raw_compress = require("cosmic.internal.compress")
 
 local Stream = require("cosmic.stream")
 
-local extra: any = select(2, ...)
-local raw: raw_compress
-if type(extra) == "table" then
-  raw = extra as raw_compress
-else
-  raw = require("cosmic.internal.compress")
-end
+local raw = require("cosmic.internal.compress")
 
 --- What a failure of this module answers, nil and `why` under the
 --- module's name.
@@ -72,8 +67,9 @@ local record Compress
   --- `done()` turns true once a decoder has seen the end of the
   --- compressed data, and `rest()` returns the input bytes fed after
   --- that end ("" if none). Raw deflate and zlib hold exactly one
-  --- stream, so both end the moment it does. gzip, xz and bzip2 allow
-  --- one member after another, so after a member ends the decoder
+  --- stream, so both end the moment it does. gzip, xz, bzip2 and zstd
+  --- allow one member (for zstd, a frame or a skippable frame) after
+  --- another, so after a member ends the decoder
   --- waits for the next input: bytes that begin that format's magic
   --- start another member, and anything else ends the data there and
   --- goes, in full, to `rest()` -- however the input was split into
@@ -145,6 +141,27 @@ end
 --- A streaming decoder for .bz2: multi-stream is handled.
 function Compress.bz2_decoder(): Compress.Stream?, string
   return raw.bz2_decoder()
+end
+
+--- A streaming decoder for zstd (RFC 8878): frames one after another
+--- and skippable frames among them are handled, and each frame's
+--- checksum, when it has one, is verified. The decoder refuses, with
+--- "zstd window larger than the limit", a frame whose header declares
+--- a window over `max_window` bytes (default 128 MiB, which every level
+--- the `zstd` command writes without `--long` or `--ultra` fits): the
+--- limit is compared with the window the header declares, which is not
+--- always a power of two, however the input is split.
+--- Raises when `max_window` is under 1024.
+function Compress.zstd_decoder(max_window?: integer): Compress.Stream?, string
+  return raw.zstd_decoder(max_window)
+end
+
+--- A streaming zstd encoder at `level`, 1 to 19 (default 3, the `zstd`
+--- command's); raises on a level out of range. It writes one frame,
+--- with a checksum of its content, as the `zstd` command does; its
+--- output for the same input and level is the same from run to run.
+function Compress.zstd_encoder(level?: integer): Compress.Stream?, string
+  return raw.zstd_encoder(level)
 end
 
 return Compress

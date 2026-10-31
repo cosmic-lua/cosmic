@@ -12,7 +12,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local RawTables = require("build.raw_tables")
+local ConnectorEnds = require("build.connector_ends")
 local stand_in = require("build.stand_in")
 local type raw_process = require("cosmic.internal.process")
 local type raw_socket = require("cosmic.internal.socket")
@@ -30,8 +30,8 @@ Test.policy{
   requires = { "nest" },
 }
 
-local process = RawTables.process()
-local socket = RawTables.socket()
+local process = require("cosmic.internal.process")
+local socket = require("cosmic.internal.socket")
 
 --- Whether `why`, a start's failure, is this host giving no sandbox of the
 --- kind: a namespace, or the filter, refused. Never a failure of the relay's
@@ -73,7 +73,7 @@ end
 --- A stream socketpair, which the relay's channel is one end of: the
 --- end the relay is given, then the one that receives its listeners.
 local function channel(): integer, integer
-  local pair = RawTables.connector_pair()
+  local pair = ConnectorEnds.connector_pair()
   return pair.controller, pair.connector
 end
 
@@ -143,8 +143,8 @@ local function test_the_relay_ports_default_to_http_connect_and_socks(tmp: strin
     return
   end
   local received = assert(socket.recvfds(receiving, 2))
-  local first = RawTables.bound_port(passed(received, 1))
-  local second = RawTables.bound_port(passed(received, 2))
+  local first = ConnectorEnds.bound_port(passed(received, 1))
+  local second = ConnectorEnds.bound_port(passed(received, 2))
   assert(first == 3128 and second == 1080, "the defaults are " .. tostring(first) .. " and " .. tostring(second))
   for index = 1, 2 do assert(passed(received, index):close()) end
   finished(tmp, pid)

@@ -7,7 +7,6 @@
 --- Landlock they are skipped (`requires`). The filter's own rules, on both
 --- architectures, are core/promises_test.tl's.
 
-local RawTables = require("build.raw_tables")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Test = require("cosmic.test")
@@ -35,7 +34,7 @@ Test.policy{
   requires = { "landlock", "nest" },
 }
 
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 --- What a script left on stdout and stderr, and how its program ended.
 local record Outcome

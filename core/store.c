@@ -55,97 +55,99 @@ static _Noreturn void die_unreadable (sqlite3 *db) {
  * memory, which raises like any allocation, not a database to die of. */
 static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
 
-/* Where the raw `cosmic.internal.*` values live: never in
- * package.preload and never a name `require` resolves on its own, so
- * nothing a project's own code can `require` reaches them. `require`
- * caches whatever a loader returns under the name it was asked for, so a
- * value that must be re-checked on every access can never be that
- * cached value -- each wrapper in `raw_modules` below gets its raw value
- * handed straight to its own loader instead, as the `extra` argument
- * `require` passes it. Calling the searcher by hand yields the same
- * value, and that is no escalation: the raw table reaches nothing the
- * wrapper does not already reach. (The process table's `waitpid` can
- * reap a child no handle of the caller's owns, which [`cosmic.child`]
- * never does; that is a caller breaking its own bookkeeping, and why
- * the table is off the public surface, not a privilege gained.) */
+/* Where the raw `cosmic.internal.*` values live, and who may take one.
+ *
+ * Most of them are plain modules: `require("cosmic.internal.process")`
+ * answers the C table, which the module's declaration
+ * (cosmic/internal/process.d.tl) types, and `require` caches it like any
+ * other. What keeps a project from requiring one is the build, not the
+ * store: a project's program is checked (build/project_refusals.tl) and
+ * may not `require` anything under `cosmic.internal`, by a name it
+ * computes, through `package`, `debug`, `_G` or `_ENV`, or in a chunk of
+ * bytecode, and a chunk that `load` builds with no environment has no
+ * `require` at all (core/surface.c). Calling the searcher by hand always
+ * yielded the same table, so nothing is escalated: the process table's
+ * `waitpid` can reap a child no handle of the caller's owns, which
+ * [`cosmic.child`] never does, but that is a caller breaking its own
+ * bookkeeping, and why the table is off the public surface, not a
+ * privilege gained. A project module is no longer refused a raw table at
+ * load time: containment is that static rule alone.
+ *
+ * The four values that steer the process itself are never plain, since
+ * `require` would cache them process-wide for any caller: the store (to
+ * attach a database, and so to change what `require` loads), the
+ * coverage collector's hook, the instruction budget's, and the counting
+ * `assert`. Each is handed straight to the loader of the wrappers
+ * `raw_modules` lists, as the `extra` argument `require` passes it, and
+ * only when that wrapper is loaded trusted. */
 #define RAW_TABLE "cosmic.store.raw"
+
+/* Every raw value, in the order it is opened. `open` builds it; it is NULL
+ * where other code registers it -- [`cosmic_store_install`] the store,
+ * core/surface.c the collector (its raw name, [`cosmic.internal.debug`],
+ * holds no debug library). `plain` says `require` answers it by its name. */
+static const struct raw_value {
+  const char *raw;
+  lua_CFunction open;
+  int plain;
+} raw_values[] = {
+  {"cosmic.internal.store", NULL, 0},
+  {"cosmic.internal.debug", NULL, 0},
+  {"cosmic.internal.sqlite", cosmic_open_sqlite, 1},
+  {"cosmic.internal.hash", cosmic_open_hash, 1},
+  {"cosmic.internal.html", cosmic_open_html, 1},
+  {"cosmic.internal.vector", cosmic_open_vector, 1},
+  {"cosmic.internal.process", cosmic_open_process, 1},
+  {"cosmic.internal.compress", cosmic_open_compress, 1},
+  {"cosmic.internal.http", cosmic_open_http, 1},
+  {"cosmic.internal.socket", cosmic_open_socket, 1},
+  {"cosmic.internal.json", cosmic_open_json, 1},
+  {"cosmic.internal.xml", cosmic_open_xml, 1},
+  {"cosmic.internal.budget", cosmic_open_budget, 0},
+  {"cosmic.internal.assertions", cosmic_open_assertions, 0},
+};
+#define RAW_VALUE_COUNT (sizeof raw_values / sizeof *raw_values)
 
 /* Every wrapper that is handed a raw value when loaded trusted, and the
  * raw value's name. Being listed here is also what reserves a name
  * outside `cosmic.*` for the binary's own tree ([`names_reserved`]), so
  * one entry is the whole grant: a project database can never shadow a
  * wrapper named here, and any `build.*` name not named here stays
- * project first. `open` builds that value; it is NULL where other
- * code registers it -- [`cosmic_store_install`] the store, core/surface.c
- * the coverage collector (its raw name, [`cosmic.internal.debug`], holds no
- * debug library), and [`cosmic_store_open_raw`] all the others, a raw
- * value shared by several wrappers once, at its first entry.
- * [`build.test_worker`] gets the store's to attach the store its test is
- * given, as a loader no test can replace. [`build.coverage_hits`] gets the
- * collector's, to read the open window in place, which [`cosmic.coverage`]
- * does not offer. [`build.assertions`] gets the counting `assert`.
- * [`build.fuzz`] gets the instruction budget alone, which shares the
- * coverage collector's hook but none of its collection. The process table is [`cosmic.child`]'s,
- * [`cosmic.signal`]'s (to hold this process's signals), [`cosmic.proc`]'s,
- * [`cosmic.sandbox`]'s (to restrict this process and
- * to know its children) and [`build.confine`]'s, whose stand-in for its
- * `spawn` confines each child a test starts. [`build.digest`] shares
- * [`cosmic.hash`]'s, so the code that computes a verdict key hashes
- * through no raw function a test can replace: it takes them as it
- * loads, and only a hasher's `update` and `digest`, in the runner alone,
- * are still looked up on its metatable. [`cosmic.zip`] shares
- * [`cosmic.compress`]'s, for the CRC-32 of a body, and [`cosmic.tar`]
- * shares [`cosmic.hash`]'s, for a header's byte sum: neither is a
- * compressor's or a hash, so neither Compress nor Hash exports it.
- * [`cosmic.internal.connector`],
- * the one client of the native connector's wire protocol, is handed the
- * process table (to start and reap the connector) and the socket table
- * (to speak to it) together, as a table of both: a wrapper listed twice
- * gets the fields of each of its raw values in one table. Its callers,
- * [`cosmic.net`], [`cosmic.child`] and [`cosmic.internal.relay_start`], reach the
- * protocol through it. cosmic.internal.relay_start shares cosmic.net's socket
- * table to open the relay's loopback listeners, and
- * [`cosmic.internal.relay_resolv`] shares it to list the name servers, which
- * cosmic.net and the relay's starter both read. [`cosmic.html`] is
- * handed the JSON raw value beside its own, so that checking a template
- * that imports it loads no `cosmic.json`, whose types reach
- * [`cosmic.stream`]. */
+ * project first. [`build.test_worker`] gets the store's to attach the
+ * store its test is given, as a loader no test can replace.
+ * [`build.coverage_hits`] gets the collector's, to read the open window
+ * in place, which [`cosmic.coverage`] does not offer. [`build.assertions`]
+ * gets the counting `assert`. [`build.fuzz`] gets the instruction budget
+ * alone, which shares the coverage collector's hook but none of its
+ * collection. */
 static const struct raw_module {
   const char *wrapper;
   const char *raw;
-  lua_CFunction open;
 } raw_modules[] = {
-  {"cosmic.store", "cosmic.internal.store", NULL},
-  {"build.artifact", "cosmic.internal.store", NULL},
-  {"build.test_worker", "cosmic.internal.store", NULL},
-  {"cosmic.coverage", "cosmic.internal.debug", NULL},
-  {"build.coverage_hits", "cosmic.internal.debug", NULL},
-  {"cosmic.sqlite", "cosmic.internal.sqlite", cosmic_open_sqlite},
-  {"cosmic.hash", "cosmic.internal.hash", cosmic_open_hash},
-  {"cosmic.html", "cosmic.internal.html", cosmic_open_html},
-  {"cosmic.vector", "cosmic.internal.vector", cosmic_open_vector},
-  {"build.digest", "cosmic.internal.hash", NULL},
-  {"cosmic.child", "cosmic.internal.process", cosmic_open_process},
-  {"cosmic.proc", "cosmic.internal.process", NULL},
-  {"cosmic.sandbox", "cosmic.internal.process", NULL},
-  {"build.confine", "cosmic.internal.process", NULL},
-  {"cosmic.signal", "cosmic.internal.process", NULL},
-  {"cosmic.compress", "cosmic.internal.compress", cosmic_open_compress},
-  {"cosmic.zip", "cosmic.internal.compress", NULL},
-  {"cosmic.tar", "cosmic.internal.hash", NULL},
-  {"cosmic.http", "cosmic.internal.http", cosmic_open_http},
-  {"cosmic.net", "cosmic.internal.socket", cosmic_open_socket},
-  {"cosmic.internal.connector", "cosmic.internal.process", NULL},
-  {"cosmic.internal.connector", "cosmic.internal.socket", NULL},
-  {"cosmic.internal.relay_start", "cosmic.internal.socket", NULL},
-  {"cosmic.internal.relay_resolv", "cosmic.internal.socket", NULL},
-  {"cosmic.json", "cosmic.internal.json", cosmic_open_json},
-  {"cosmic.html", "cosmic.internal.json", NULL},
-  {"cosmic.xml", "cosmic.internal.xml", cosmic_open_xml},
-  {"build.fuzz", "cosmic.internal.budget", cosmic_open_budget},
-  {"build.assertions", "cosmic.internal.assertions", cosmic_open_assertions},
+  {"cosmic.store", "cosmic.internal.store"},
+  {"build.artifact", "cosmic.internal.store"},
+  {"build.test_worker", "cosmic.internal.store"},
+  {"cosmic.coverage", "cosmic.internal.debug"},
+  {"build.coverage_hits", "cosmic.internal.debug"},
+  {"build.fuzz", "cosmic.internal.budget"},
+  {"build.assertions", "cosmic.internal.assertions"},
 };
 #define RAW_MODULE_COUNT (sizeof raw_modules / sizeof *raw_modules)
+
+/* The harness modules that were wrappers of a raw value and still must not
+ * be shadowed by a project's database: [`build.digest`] computes the key
+ * of a verdict and [`build.confine`] confines each child a test starts. */
+static const char *const reserved_build[] = {"build.confine", "build.digest"};
+
+/* Whether `name` is a raw value `require` answers by its name. */
+static int names_plain_raw (const char *name) {
+  for (size_t v = 0; v < RAW_VALUE_COUNT; v++) {
+    if (raw_values[v].plain && strcmp(name, raw_values[v].raw) == 0) {
+      return 1;
+    }
+  }
+  return 0;
+}
 
 /* True when `name` resolves from the binary's own database ahead of any
  * project's: everything under `cosmic.*`, and every wrapper in
@@ -154,6 +156,11 @@ static const struct raw_module {
 static int names_reserved (const char *name) {
   if (strncmp(name, "cosmic.", 7) == 0) {
     return 1;
+  }
+  for (size_t m = 0; m < sizeof reserved_build / sizeof *reserved_build; m++) {
+    if (strcmp(name, reserved_build[m]) == 0) {
+      return 1;
+    }
   }
   for (size_t m = 0; m < RAW_MODULE_COUNT; m++) {
     if (strcmp(name, raw_modules[m].wrapper) == 0) {
@@ -191,54 +198,17 @@ static int raw_value (lua_State *L, const char *name) {
   return 1;
 }
 
-/* Copies every field of the table at `from` into the table at `into`,
- * both absolute stack indices, for the wrapper `name`. A key `into`
- * already holds with another value raises: two raw tables that disagree
- * on a name would hand the wrapper whichever came last. */
-static void copy_fields (lua_State *L, int into, int from, const char *name) {
-  lua_pushnil(L);
-  while (lua_next(L, from) != 0) {
-    lua_pushvalue(L, -2);
-    lua_rawget(L, into);
-    if (!lua_isnil(L, -1) && !lua_rawequal(L, -1, -2)) {
-      luaL_error(L, "raw_modules: the raw values of %s disagree on %s", name,
-                 lua_type(L, -3) == LUA_TSTRING ? lua_tostring(L, -3) : "a key");
-    }
-    lua_pop(L, 1);
-    lua_pushvalue(L, -2);
-    lua_insert(L, -2);
-    lua_rawset(L, into);
-  }
-}
-
-/* The raw value handed to the loader of `name`: the value of its one row
- * in `raw_modules`, or, for a wrapper listed for two raw values, a new
- * table with the fields of both. A wrapper has at most two rows; a third
- * raises. Pushes it and returns 1, or pushes nothing and returns 0 where
- * no row of the wrapper has a value. */
+/* The raw value handed to the loader of `name`: the value of its row in
+ * `raw_modules`. Pushes it and returns 1, or pushes nothing and returns 0
+ * where no row of the wrapper has a value. */
 static int wrapper_raw (lua_State *L, const char *name) {
-  int rows = 0;
   for (size_t m = 0; m < RAW_MODULE_COUNT; m++) {
-    if (strcmp(name, raw_modules[m].wrapper) != 0 ||
-        !raw_value(L, raw_modules[m].raw)) {
-      continue;
-    }
-    rows++;
-    if (rows > 2) {
-      luaL_error(L, "raw_modules: %s lists more than two raw values", name);
-    }
-    if (rows == 2) {
-      /* The combined table replaces both values. */
-      int first = lua_absindex(L, -2);
-      lua_newtable(L);
-      int combined = lua_absindex(L, -1);
-      copy_fields(L, combined, first, name);
-      copy_fields(L, combined, first + 1, name);
-      lua_replace(L, first);
-      lua_settop(L, first);
+    if (strcmp(name, raw_modules[m].wrapper) == 0 &&
+        raw_value(L, raw_modules[m].raw)) {
+      return 1;
     }
   }
-  return rows > 0;
+  return 0;
 }
 
 /* A loader that answers with its own upvalue, ignoring whatever it was
@@ -334,19 +304,24 @@ static sqlite3 *binary_database (lua_State *L, int list) {
  * is how a project overrides nothing it does not own.
  *
  * The raw `cosmic.internal.*` values are never rows in any database:
- * core C builds and registers them directly (see `raw_modules`).
- * Nothing ever resolves them by name -- `require` would cache the
- * result under that name process-wide, which would then answer for an
- * untrusted caller too. Instead, loading one of `raw_modules`' wrappers
- * from a trusted position hands the matching raw value straight to that
- * one chunk, as the `extra` argument `require` always passes its
- * loader. */
+ * core C builds and registers them directly (see `raw_values`). A plain
+ * one ([`names_plain_raw`]) is answered by its name ahead of every
+ * database, so none can shadow it. Loading one of `raw_modules`'
+ * wrappers from a trusted position instead hands the matching raw value
+ * straight to that one chunk, as the `extra` argument `require` always
+ * passes its loader. */
 static int store_searcher (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
   int reserved = names_reserved(name);
 
+  if (names_plain_raw(name) && raw_value(L, name)) {
+    /* The value itself, as a module's: `require` caches it under its name. */
+    lua_pushcclosure(L, return_upvalue, 1);
+    lua_pushstring(L, name);
+    return 2;
+  }
   for (lua_Integer step = 0; step < count; step++) {
     lua_Integer i = reserved ? count - step : step + 1;
     sqlite3 *db = database_at(L, list, i);
@@ -1216,24 +1191,24 @@ void cosmic_store_set_raw (lua_State *L, const char *name) {
 }
 
 void cosmic_store_open_raw (lua_State *L) {
-  for (size_t m = 0; m < RAW_MODULE_COUNT; m++) {
-    if (raw_modules[m].open == NULL) continue;
-    raw_modules[m].open(L);
-    cosmic_store_set_raw(L, raw_modules[m].raw);
+  for (size_t m = 0; m < RAW_VALUE_COUNT; m++) {
+    if (raw_values[m].open == NULL) continue;
+    raw_values[m].open(L);
+    cosmic_store_set_raw(L, raw_values[m].raw);
   }
 }
 
 void cosmic_store_preload_raw (lua_State *L) {
   lua_getfield(L, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE);
-  for (size_t m = 0; m < RAW_MODULE_COUNT; m++) {
-    if (!raw_value(L, raw_modules[m].raw)) {
+  for (size_t m = 0; m < RAW_VALUE_COUNT; m++) {
+    if (!raw_value(L, raw_values[m].raw)) {
       continue; /* nothing registered under this name */
     }
     /* package.preload's own searcher calls its entry with its own fixed
      * "extra" (":preload:"), not caller-supplied data, so the raw value
      * has to be a closed-over constant. */
     lua_pushcclosure(L, return_upvalue, 1);
-    lua_setfield(L, -2, raw_modules[m].raw);
+    lua_setfield(L, -2, raw_values[m].raw);
   }
   lua_pop(L, 1);
 }

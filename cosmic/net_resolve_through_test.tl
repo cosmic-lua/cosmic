@@ -9,7 +9,7 @@
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
-local RawTables = require("build.raw_tables")
+local ConnectorEnds = require("build.connector_ends")
 local Config = require("cosmic.internal.relay_config")
 local Connector = require("cosmic.internal.connector")
 local Fs = require("cosmic.fs")
@@ -27,8 +27,8 @@ local Udp = require("build.udp_fixture")
 --- connector is a process the lookup's forks.
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, promises = { "fork" } }
 
-local process = RawTables.process()
-local socket = RawTables.socket()
+local process = require("cosmic.internal.process")
+local socket = require("cosmic.internal.socket")
 
 --- A lookup's request of `tag` for the table's endpoint `index` at
 --- `port`: no wait of its own, family or address.
@@ -414,7 +414,7 @@ local function test_a_name_server_reset_as_it_is_made_leaves_the_stream_in_step(
   assert(free:close())
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
-  local pair = RawTables.connector_pair()
+  local pair = ConnectorEnds.connector_pair()
   assert(sys.set_nonblocking(pair.controller, true))
   assert(sys.set_nonblocking(pair.connector, true))
   assert(sys.write(pair.connector, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
@@ -455,7 +455,7 @@ local function test_a_lookup_reads_the_connectors_hello_before_it_asks(tmp: stri
   end
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
-  local other = RawTables.connector_pair()
+  local other = ConnectorEnds.connector_pair()
   assert(sys.write(other.connector, string.pack(">I4", 0x434e4301)) == 4)
   local dns <close> = assert(Connector.adopted(other.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local none, trouble = Net.resolve("hello.example.test", { timeout_ns = Clock.seconds(2), connector = dns,
@@ -481,7 +481,7 @@ local function test_a_connector_that_passes_the_wrong_descriptor_is_given_up(tmp
   assert(socket.wait(elsewhere:fd(), true, 5000))
   local null = assert(sys.open("/dev/null", sys.O_RDONLY))
   for _, passed in ipairs({ elsewhere:fd(), null }) do
-    local pair = RawTables.connector_pair()
+    local pair = ConnectorEnds.connector_pair()
     assert(sys.set_nonblocking(pair.controller, true))
     assert(sys.set_nonblocking(pair.connector, true))
     assert(sys.write(pair.connector, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
@@ -516,7 +516,7 @@ end
 --- no longer: the request is given up on and stays pending on the stream,
 --- which is in step for the next lookup, asked again under a tag of its own.
 local function test_a_connector_that_never_replies_ends_the_lookup_and_is_not_asked_again()
-  local pair = RawTables.connector_pair()
+  local pair = ConnectorEnds.connector_pair()
   local peer = pair.connector
   assert(sys.write(peer, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
   -- Its process would wait 100 ms to connect and a grace more: the lookup ends at its own deadline.
@@ -660,7 +660,7 @@ local function test_name_servers_and_an_adopted_connector_refuse_what_is_out_of_
   local zero: any = 0
   assert(not pcall(RelayStart.name_servers, { resolve = zero as integer }))
   assert(not pcall(RelayStart.name_servers, { resolve = -1 }))
-  local pair = RawTables.connector_pair()
+  local pair = ConnectorEnds.connector_pair()
   assert(not pcall(Connector.adopted, pair.controller, nil, false, 5))
   assert(not pcall(Connector.adopted, pair.controller, nil, false, Clock.seconds(61)))
   assert(sys.close(pair.controller))
@@ -679,7 +679,7 @@ end
 --- The lowest descriptor number a new one takes: the same before a lookup
 --- and after it is ended means it left none open.
 local function lowest_free_descriptor(): integer
-  local pair = RawTables.connector_pair()
+  local pair = ConnectorEnds.connector_pair()
   local lowest = math.min(pair.controller, pair.connector)
   assert(sys.close(pair.controller))
   assert(sys.close(pair.connector))
@@ -738,7 +738,7 @@ local function test_a_lookup_through_a_silent_connector_stalls_no_other_task(tmp
   end
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
-  local pair = RawTables.connector_pair()
+  local pair = ConnectorEnds.connector_pair()
   assert(sys.write(pair.connector, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
   local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local found: {Net.Resolved}? = nil
@@ -798,7 +798,7 @@ local function test_a_cancelled_lookup_through_a_connector_closes_everything_it_
   end
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
-  local pair = RawTables.connector_pair()
+  local pair = ConnectorEnds.connector_pair()
   assert(sys.write(pair.connector, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
   local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local waited, outcome, before, after = cancelled_lookup({ timeout_ns = Clock.seconds(30), connector = dns,

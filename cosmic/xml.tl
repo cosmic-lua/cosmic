@@ -45,16 +45,11 @@
 --- that runs during it).
 
 -- The raw module behind the parser lives under the reserved
--- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
--- indirection exists.
+-- `cosmic.internal.` namespace -- see cosmic/store.tl for why it is off
+-- the public surface.
 local type raw_xml = require("cosmic.internal.xml")
 
-local Shape = require("cosmic.shape")
-
--- The table the store hands this module's loader. [`Shape.any`] checks
--- nothing: what the store hands a wrapper of its own is the core's.
-local handed, _: raw_xml?, string = Shape.into(select(2, ...), Shape.any)
-local raw <const>: raw_xml = handed or require("cosmic.internal.xml")
+local raw = require("cosmic.internal.xml")
 
 local record Xml
   --- What an event is:

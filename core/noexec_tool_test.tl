@@ -1,6 +1,5 @@
 --- Native mount guarantees for declared noexec scratch. The harness
 --- skips this module where it cannot grant the capability. Copying bytes to ordinary scratch is allowed.
-local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
@@ -61,7 +60,7 @@ local function test_noexec_is_inherited_through_an_explicit_child_sandbox(tmp: s
   })
   assert(result ~= nil, trouble)
   assert(result.ok, result.stderr)
-  local raw = RawTables.process()
+  local raw = require("cosmic.internal.process")
   local pid, why, errno = raw.spawn(path, { path, "exit 0" }, nil, "/", nil, nil, nil,
     false, nil, { unveil = { reads = { "/noexec", "/proc", "/dev/null" } }, offline = true })
   if pid ~= nil then local _, _ = raw.waitpid(pid, false) end

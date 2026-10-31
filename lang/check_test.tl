@@ -1853,3 +1853,45 @@ local y: string = id(1)
   local call, assignment = assert(r.errors[1]), assert(r.errors[2])
   assert(call.argument ~= nil and assignment.argument == nil, Programs.codes(r))
 end
+
+local function fix_of(source: string, modules?: {string: string}): string
+  local r = Programs.run(source, modules)
+  assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. source)
+  assert(#r.errors == 1, Programs.codes(r))
+  return assert(r.errors[1]).fix
+end
+
+local function test_a_local_that_started_as_an_integer_is_told_to_start_as_a_float()
+  -- `math.tointeger` of a fraction is nil, so the fix names where the name is declared
+  local fix = fix_of("local t = 0\nt = t + 1.5\nlocal _ = t\n")
+  assert(has(fix, "start `t` as `0.0` where it is declared") and has(fix, "`local t: number = 0`"), fix)
+  assert(not has(fix, "math.tointeger"), fix)
+  assert(has(fix_of("local u = -1\nu = u / 2\nlocal _ = u\n"), "start `u` as `-1.0`"))
+  assert(has(fix_of("local n = 12\nn = n / 5\nlocal _ = n\n"), "as `12.0`"))
+  -- a name declared with its type, a field and a name that started as a call keep the generic fix
+  assert(has(fix_of("local t: integer = 0\nt = t + 1.5\nlocal _ = t\n"), "math.tointeger(t + 1.5)"))
+  assert(has(fix_of("local record R\n  mut n: integer\nend\nlocal r: R = { n = 0 }\nr.n = r.n + 1.5\n"), "math.tointeger"))
+  assert(has(fix_of("local function f(): integer\n  return 1\nend\nlocal t = f()\nt = t + 1.5\nlocal _ = t\n"), "math.tointeger"))
+end
+
+local TIME <const> = "local record Time\n  interface CivilFields\n    year: integer\n  end\n  from_civil: function(c: CivilFields): integer\nend\nreturn Time\n"
+
+local function test_a_table_literal_for_an_interface_with_library_advice_is_told_it()
+  local use = "local Time = require(\"cosmic.time\")\nlocal t = Time.from_civil({ year = 2026 })\nlocal _ = t\n"
+  local fix = fix_of(use, { ["cosmic.time"] = TIME })
+  assert(has(fix, "Time.Wall") and has(fix, "Time.parse_date"), fix)
+  assert(not has(fix, "class C is"), fix)
+  -- an interface of no advice keeps the class it asks for
+  local other = fix_of((use:gsub("cosmic.time", "other.time")), { ["other.time"] = TIME })
+  assert(has(other, "class C is Time.CivilFields"), other)
+end
+
+local function test_a_write_to_a_view_that_may_leave_a_hole_names_the_map_that_runs_clean()
+  local fix = fix_of("local buf: {number} = {}\nbuf[3] = 1\nlocal _ = buf\n")
+  assert(has(fix, "`mut {integer: number}`") and has(fix, "may leave a hole"), fix)
+  -- a write that cannot leave a hole, or an append, keeps the array
+  assert(has(fix_of("local buf: {number} = {}\nbuf[1] = 1\nlocal _ = buf\n"), "`mut {number}`"))
+  assert(has(fix_of("local buf: {number} = {}\nbuf[#buf + 1] = 1\nlocal _ = buf\n"), "`mut {number}`"))
+  -- and the destination it names is clean
+  assert(codes_of("local buf: mut {integer: number} = {}\nbuf[3] = 1\nlocal _ = buf\n") == "")
+end

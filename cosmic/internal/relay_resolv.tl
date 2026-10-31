@@ -8,18 +8,11 @@ local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
 local Address = require("cosmic.relay.address")
 
---- The raw socket module, cosmic.net's too: it arrives as the second
---- argument `require` passes this chunk's loader.
+--- The raw socket module, cosmic.net's too.
 local type raw_socket = require("cosmic.internal.socket")
 local type raw_process = require("cosmic.internal.process")
 
-local extra: any = select(2, ...)
-local raw: raw_socket
-if type(extra) == "table" then
-  raw = extra as raw_socket
-else
-  raw = require("cosmic.internal.socket")
-end
+local raw = require("cosmic.internal.socket")
 
 local record resolv
   --- One address a name resolves to ([`Net.Resolved`]).

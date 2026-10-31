@@ -14,12 +14,10 @@ local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Address = require("cosmic.relay.address")
 local Sqlite = require("cosmic.sqlite")
-local _Vector = require("cosmic.vector") -- loaded so that the store hands its raw table to [`RawTables`]
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local unix_socket = require("build.unix_socket")
 local type raw_process = require("cosmic.internal.process")
-local RawTables = require("build.raw_tables")
 local stand_in = require("build.stand_in")
 
 --- What the syscall table is tested on: /proc. A stand-in program
@@ -34,8 +32,8 @@ Test.policy{
   loopback = { "127.0.0.1" },
 }
 
-local process = RawTables.process()
-local hash = RawTables.hash()
+local process = require("cosmic.internal.process")
+local hash = require("cosmic.internal.hash")
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
 --- the script its first argument holds: a static executable that reads
@@ -1813,7 +1811,7 @@ local function test_the_c_functions_refuse_what_is_no_string_or_count()
   raises(process.user, 123)
   raises(process.user, print)
   local corpus = assert(load("local raw, dims = ... return raw.corpus(dims)", "=raw_corpus", "t"))
-  local vector = RawTables.fields("cosmic.vector")
+  local vector = require("cosmic.internal.vector")
   raises(corpus, vector, 1.5)
   raises(corpus, vector, nil)
 end

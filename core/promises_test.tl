@@ -8,13 +8,12 @@
 --- with the program, are core/promises_child_test.tl's, and a dynamic
 --- program's core/promises_system_test.tl's.
 
-local RawTables = require("build.raw_tables")
 local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
 local type _ = require("cosmic.child")
 
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 local AUDIT: {string: integer} = { x86_64 = 0xc000003e, aarch64 = 0xc00000b7 }
 
