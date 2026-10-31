@@ -101,7 +101,8 @@ end
 --- first request.
 function Example.check_spec()
   local ok, err = pcall(function()
-    Input.check_spec(Shape.record({ extra = Shape.map(Shape.string) }), "form")
+    Input.check_spec({ kind = "record", optional = false, fields = {
+      extra = { kind = "map", optional = false, of = { kind = "string", optional = false } } } }, "form")
   end)
   assert(not ok)
   print(err) -- input: field extra of a form is a map, which text cannot carry

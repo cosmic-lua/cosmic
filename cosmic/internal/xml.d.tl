@@ -37,9 +37,12 @@ local record xml
   -- A parser; with `namespaces`, one that answers names in Clark's
   -- notation; with `eager`, one that reads a token a chunk left open
   -- again at every chunk; one that refuses a run of text longer than
-  -- `max_text` bytes (64 MiB when absent). nil and why when memory runs
-  -- out. Raises when `max_text` is less than 1.
-  parser: function(namespaces?: boolean, eager?: boolean, max_text?: integer): Parser?, string
+  -- `max_text` bytes (64 MiB when absent); with `local_names`, one that
+  -- reads namespaces as `namespaces` does and answers a name without its
+  -- namespace. nil and why when memory runs out. Raises when `max_text`
+  -- is less than 1.
+  parser: function(namespaces?: boolean, eager?: boolean, max_text?: integer,
+                   local_names?: boolean): Parser?, string
 end
 
 return xml

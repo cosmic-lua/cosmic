@@ -58,4 +58,21 @@ function Example.open_string()
   assert(r:close())
 end
 
+--- `entry` opens one entry by its path, as a format built of named
+--- parts (a spreadsheet, an EPUB) reads each part it needs.
+function Example.entry()
+  local out = Stream.collect()
+  local w = Zip.writer(out)
+  assert(w:add_file("docs/readme.txt", "read me"))
+  assert(w:add_file("data.csv", "a,b\n"))
+  assert(w:close())
+  local r = assert(Zip.open_string(out:result()))
+  local readme = assert(r:entry("docs/readme.txt"))
+  assert(assert(Stream.read_all((assert(readme:open())))) == "read me")
+  local none, why = r:entry("missing.txt")
+  assert(none == nil)
+  print(why) -- zip: no entry "missing.txt"
+  assert(r:close())
+end
+
 return Example

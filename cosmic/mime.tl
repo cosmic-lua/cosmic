@@ -73,8 +73,32 @@ function Mime.scripted(content_type: string): boolean
     kind == "application/xhtml+xml"
 end
 
---- The most bytes of a file that are not worth gzipping.
-local GZIP_MIN <const> = 1024
+--- The most bytes of a file that are not worth compressing.
+local MIN_BYTES <const> = 1024
+
+--- The level the zstd of a file is written at. Every projection write
+--- compresses every asset again, so the cost is paid often: on 5.9 MB of
+--- source text level 12 takes about what gzip level 9 does (370 ms against
+--- 360) and is 14% smaller than it, where level 19 is 10 times slower for 24%
+--- and level 9 is 2.4 times faster for 12%. Levels 3 to 12 stay near gzip's
+--- cost; above 12 the time climbs steeply for a few percent of size.
+local ZSTD_LEVEL <const> = 12
+
+--- Whether a file called `path` with contents `data` is worth sending
+--- compressed: the type is text or another format not compressed already,
+--- and `data` is over 1 KiB.
+local function compressible(path: string, data: string): boolean
+  local ext = extension(path)
+  if ext == nil or #data <= MIN_BYTES then return false end
+  local kind = TYPES[ext]
+  return kind ~= nil and (kind:sub(1, 5) == "text/" or COMPRESSIBLE[ext] == true)
+end
+
+--- `packed` when it is at least 10% smaller than `data`, else nil.
+local function worth(packed: string?, data: string): string?
+  if packed == nil or #packed * 10 > #data * 9 then return nil end
+  return packed
+end
 
 --- The gzip of `data`, the contents of a file called `path`, when that is
 --- worth sending in its place: the type is text or another format not
@@ -86,15 +110,28 @@ local GZIP_MIN <const> = 1024
 --- @param data string The file's bytes
 --- @return string | nil The gzip, or nil
 function Mime.gzip(path: string, data: string): string?
-  local ext = extension(path)
-  if ext == nil or #data <= GZIP_MIN then return nil end
-  local kind = TYPES[ext]
-  if kind == nil or not (kind:sub(1, 5) == "text/" or COMPRESSIBLE[ext] == true) then
-    return nil
-  end
+  if not compressible(path, data) then return nil end
   local packed, _ = Compress.deflate("gzip", data, 9)
-  if packed == nil or #packed * 10 > #data * 9 then return nil end
-  return packed
+  return worth(packed, data)
+end
+
+--- The zstd of `data`, the contents of a file called `path`, when that is
+--- worth sending in its place: the same rule as [`Mime.gzip`] (a type not
+--- compressed already, over 1 KiB, at least 10% smaller). One frame at a
+--- fixed level and no dictionary, so for the same zstd build the bytes are
+--- those of `data` alone and a reproducible build stays so. Nil where zstd
+--- is not worth it.
+--- @param path string A file name or path
+--- @param data string The file's bytes
+--- @return string | nil The zstd frame, or nil
+function Mime.zstd(path: string, data: string): string?
+  if not compressible(path, data) then return nil end
+  local encoder, _ = Compress.zstd_encoder(ZSTD_LEVEL)
+  if encoder == nil then return nil end
+  local head, _ = encoder:update(data)
+  local tail, _ = encoder:finish()
+  if head == nil or tail == nil then return nil end
+  return worth(head .. tail, data)
 end
 
 return Mime

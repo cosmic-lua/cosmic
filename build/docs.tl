@@ -14,6 +14,7 @@ local Cli = require("cosmic.cli")
 local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Json = require("cosmic.json")
 local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -2956,6 +2957,27 @@ function docs.asked(words: {string}): {string}?
   return words
 end
 
+--- The modules `cosmic docs <words...>` lists when [`docs.asked`] names no
+--- query: every module for no words, the standard library's modules and
+--- guides for `cosmic`. Nil and why when a database cannot be read.
+local function modules_asked(view: docs.View, words: {string}): {docs.Summary}?, string
+  local index, trouble = docs.index(view)
+  if index == nil then
+    return nil, trouble
+  end
+  if table.concat(words, " ") == "" then
+    return index, ""
+  end
+  local library: mut {docs.Summary} = {}
+  for _, summary in ipairs(index) do
+    if symbols.is_public_module(summary.module) or
+        symbols.is_public_guide(summary.module) then
+      library[#library + 1] = summary
+    end
+  end
+  return library, ""
+end
+
 --- What `cosmic docs <words...>` prints, short of its summary:
 --- - no words: every module ([`docs.index`]);
 --- - `cosmic` (or `cosmic.`) alone: the standard library's modules and
@@ -2970,21 +2992,13 @@ function docs.answer(view: docs.View, words: {string}): docs.Answer?, string
   local query = table.concat(words, " ")
   local asked = docs.asked(words)
   if asked == nil then
-    local index, index_trouble = docs.index(view)
+    local index, index_trouble = modules_asked(view, words)
     if index == nil then
       return nil, index_trouble
     end
     local hint = "`cosmic docs <module>` shows one, with what it offers; " ..
       "`cosmic docs <words>` searches them all."
     if query ~= "" then
-      local library: mut {docs.Summary} = {}
-      for _, summary in ipairs(index) do
-        if symbols.is_public_module(summary.module) or
-            symbols.is_public_guide(summary.module) then
-          library[#library + 1] = summary
-        end
-      end
-      index = library
       hint = "`cosmic docs <module>` shows one (cosmic.fs, or fs), with what it " ..
         "offers; `cosmic docs Fs.read` a symbol; `cosmic docs <words>` searches."
     end
@@ -3037,10 +3051,87 @@ function docs.answer(view: docs.View, words: {string}): docs.Answer?, string
   return { lines = lines, found = #missed == 0, said = table.concat(said, ", ") }, ""
 end
 
+--- `cosmic docs --json <words...>`: a JSON object a line for what the page
+--- of [`docs.answer`] shows, every entry and not the first few, in its order:
+--- - an entry [`docs.lookup`] finds for each query [`docs.asked`] names:
+---   `query`, `exact` (whether the query names the entry, and it does not
+---   stand in for a name it did), `module`, `symbol` (as the page names it:
+---   [`Fs.read`], `doc.guides.x#heading`; "" for a module), `kind`, `signature`
+---   and `text`, with `file` and `line` where it has them (a guide's
+---   section or a code entry has no line, and the key is absent), and `verb`
+---   (the command `cosmic <query>`, which the page points to) on the last
+---   module entry of a query that names one;
+--- - no words, or `cosmic`, name no query: each module the page lists, as
+---   `kind` "module", with its `text` the first sentence.
+--- A query that finds nothing has no line. Nil and why when a database
+--- cannot be read; `found` is false when a query found nothing, and `said`
+--- is empty.
+function docs.records(view: docs.View, words: {string}): docs.Answer?, string
+  local lines: mut {string} = {}
+  local all = true
+  local asked = docs.asked(words)
+  if asked == nil then
+    local index, trouble = modules_asked(view, words)
+    if index == nil then
+      return nil, trouble
+    end
+    for _, summary in ipairs(index) do
+      local line, encode_trouble = Json.encode({
+        query = table.concat(words, " "), exact = false, module = summary.module,
+        symbol = "", kind = "module", signature = "", text = summary.text,
+      })
+      if line == nil then
+        return nil, encode_trouble
+      end
+      lines[#lines + 1] = line
+    end
+    return { lines = lines, found = true, said = "" }, ""
+  end
+  for _, asking in ipairs(asked) do
+    local found, trouble = docs.lookup(view, asking)
+    if found == nil then
+      return nil, trouble
+    end
+    if #found == 0 then all = false end
+    for index, entry in ipairs(found) do
+      local object: mut {string: Json.Value} = {
+        query = asking, exact = found.exact and index <= found.named,
+        module = entry.module, kind = entry.kind, signature = entry.signature,
+        symbol = if entry.symbol == "" then "" else entry.source_symbol end,
+        text = entry.text,
+      }
+      if entry.kind == "example" then
+        local ex = example_of(entry)
+        object["symbol"] = ex.name
+        object["text"] = ex.text
+        object["file"] = ex.file
+        object["line"] = ex.line
+        object["code"] = ex.source
+      else
+        if entry.kind == "section" or entry.symbol == "" then
+          object["text"] = link_text.unlinked(entry.text)
+        end
+        if entry.file ~= "" then object["file"] = entry.file end
+        if entry.line > 0 then object["line"] = entry.line end
+      end
+      if found.verb ~= nil and index == found.modules then
+        object["verb"] = asking
+      end
+      local line, encode_trouble = Json.encode(object)
+      if line == nil then
+        return nil, encode_trouble
+      end
+      lines[#lines + 1] = line
+    end
+  end
+  return { lines = lines, found = all, said = "" }, ""
+end
+
 --- `cosmic docs <words...>`: prints what [`docs.answer`] says of the
 --- words, then its summary on stderr; fails when a word finds nothing.
+--- With `--json` it prints [`docs.records`] instead.
 local function run(argv: {string}): integer
-  local parsed, parse_trouble = Flags.parse(argv, 2, {})
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(assert(Cli.verbs["docs"]).spec))
   if parsed == nil then
     log:complain("docs: " .. parse_trouble)
     return 2
@@ -3064,6 +3155,17 @@ local function run(argv: {string}): integer
   if view == nil then
     log:complain("docs: " .. view_trouble)
     return 1
+  end
+  if parsed.set["--json"] == true then
+    local records, records_trouble = docs.records(view, parsed.words)
+    if records == nil then
+      log:complain("docs: " .. records_trouble)
+      return 1
+    end
+    for _, line in ipairs(records.lines) do
+      log:say(line)
+    end
+    return if records.found then 0 else 1 end
   end
   local answer, trouble = docs.answer(view, parsed.words)
   if answer == nil then

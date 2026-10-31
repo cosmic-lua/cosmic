@@ -166,7 +166,15 @@
       name: "${{ matrix.shard == '2/2' && format('{0}-shard', matrix.name) || matrix.name }}",
       defaults: {run: {"working-directory": "ci", shell: "${{ matrix.shell }}"}},
       strategy: {
-        "fail-fast": false,
+        # On the queue's run a failed leg cancels the matrix's other
+        # legs, which give their runners back, and no job holds a runner
+        # for the whole run. The jobs outside the matrix (`checked`,
+        # `checked-narrowing`) still run to their end, so a failed queue
+        # run reports when they end, not at once. No job that runs the
+        # candidate's code holds `actions: write`, since its token could
+        # write the Actions cache, so a leg does not cancel the run.
+        # Every other run lets every leg end.
+        "fail-fast": "${{ github.event_name == 'merge_group' }}",
         matrix: {
           # A branch push (`light`, COSMIC_CI_SCOPE's test, which a
           # matrix cannot read) runs no alpine-x86_64 leg, linux-x86_64's
@@ -249,7 +257,7 @@
         # in assemble; a branch push's (`light`) runs in the checked job.
         COSMIC_CI_CHECKED_SUITE: "skip",
         # The slowest fixture, the same on every platform: no gating run
-        # (some 270 s on linux-aarch64), every leg on the scheduled run
+        # (some 370 s on the x86-64 legs), every leg on the scheduled run
         # (phase_fixtures).
         COSMIC_CI_FIXED_POINT: "${{ github.event_name == 'schedule' && 'run' || 'skip' }}",
         # The small fixtures run beside the self-driven one, within one
@@ -1189,26 +1197,38 @@
     # test enters each C function. The suite's own time is a minute or
     # two; what the job costs is the boot and checked build it repeats,
     # the checked core being what it runs
-    # (COSMIC_CI_CHECKED_SUITE=gather). It boots and builds only what the
-    # suite reads, and keeps the suite's verdicts under a cache name of
-    # its own (`linux-x86_64-checked`), saved and seeded as a leg's are;
-    # it restores linux-x86_64's zig build outputs and compiles, which
-    # that leg saves. Its tree moves to a path of the commit's own, as a
-    # leg's does. Where `platform` runs, it runs, unless a share failed.
-    # On a branch push (`light`) the shares do not run, and it runs
-    # none of the checked suite's steps but the pinned CI driver's check,
+    # (COSMIC_CI_CHECKED_SUITE=gather). It keeps the suite's verdicts
+    # under a cache name of its own (`linux-x86_64-checked`), saved and
+    # seeded as a leg's are; it restores linux-x86_64's zig build outputs
+    # and compiles, which that leg saves. Its tree moves to a path of the
+    # commit's own, as a leg's does.
+    #
+    # It does not need the shares, so that its boot and build run beside
+    # them; `shares-wait` (shares_wait.tl, through the API) holds it
+    # before it takes their verdicts, and the suite runs only on its
+    # `success`: every share passed. A share that did not pass fails the
+    # job. Where the run saves nothing it fails at once; where it saves
+    # (main's push, the nightly) the wait holds for every share to
+    # complete (HOLD), then the job takes their rows, runs no test and
+    # fails, so the save drops the failed test's pass from main's newest
+    # entry. A wait that timed out with a share unfinished takes no rows
+    # and saves nothing. `ci` fails on the share itself (it needs
+    # `checked-shard`).
+    #
+    # On a branch push (`light`) the shares do not run, and it runs none
+    # of the checked suite's steps but the pinned CI driver's check,
     # which the legs run only on a full run: some 30 to 60 s where this
     # job has no suite. The tree's format check, which answers the same
     # on every host and runs on one leg in a full run's assemble, is the
     # `format` job's on a light run.
     checked: {
-      needs: ["reuse", "scope", "checked-shard"],
-      if: "!cancelled() && needs.reuse.outputs.run == '' && (needs.checked-shard.result != 'failure' || github.event_name == 'push' || github.event_name == 'schedule')",
+      needs: ["reuse", "scope"],
+      if: "!cancelled() && needs.reuse.outputs.run == ''",
       name: "linux-x86_64-checked",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
       permissions: {contents: "read", packages: "read", actions: "read"},
-      "timeout-minutes": 20,
+      "timeout-minutes": 60,
       env: {
         COSMIC_CI_SCOPE: "${{ needs.scope.outputs.scope == 'light' && 'light' || 'full' }}",
         COSMIC_WORKER: "linux-x86_64-checked",
@@ -1415,6 +1435,33 @@
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "cosmic-driver cosmic_ci/driver.tl platform checked-build",
         },
+        # Everything above runs beside the shares; from here the job
+        # stands on them (see the job's comment). The step's limits
+        # nest in the job's timeout (build/workflows_test.tl).
+        {
+          name: "wait for the shares of the checked suite",
+          id: "shares-wait",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
+          shell: "sh",
+          "timeout-minutes": 52,
+          env: {
+            GH_TOKEN: "${{ github.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            RUN_ID: "${{ github.run_id }}",
+            HOLD: "${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule') && '1' || '' }}",
+            JOBS: "linux-x86_64-checked-shard-1 linux-x86_64-checked-shard-2 linux-x86_64-checked-shard-3 linux-x86_64-checked-shard-4",
+            LIMIT_SECONDS: "3000",
+            SHARE_SECONDS: "1620",
+          },
+          run: "cosmic-driver cosmic_ci/driver.tl shares-wait",
+        },
+        {
+          name: "stop where a share failed and nothing is saved",
+          if: "env.COSMIC_CI_SCOPE == 'full' && (steps.shares-wait.outputs.result == 'timeout' || (steps.shares-wait.outputs.result != 'success' && env.COSMIC_CI_SAVES != 'true'))",
+          shell: "sh",
+          env: {FAILED: "${{ steps.shares-wait.outputs.failed }}"},
+          run: "echo \"a share of the checked suite did not pass: ${FAILED:-(none finished in time)}\"; exit 1",
+        },
         # The verdicts the shares kept, one artifact each, each in a
         # directory of its own, merged into an empty cache: the rows
         # of every test of the suite, which the run behind in the
@@ -1435,21 +1482,22 @@
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "for share in \"${{ runner.temp }}\"/verdicts-shares/*/; do cosmic-driver cosmic_ci/driver.tl verdicts-merge \"$share\" || exit 1; done",
         },
-        # Where a share failed (this job runs then only where it saves,
-        # the nightly and main's push) the run is red, and runs no test
-        # again: its cache is the shares' rows, the failed share's
+        # Where a share did not pass (this job gets here then only where
+        # it saves, the nightly and main's push) the run is red, and runs
+        # no test again: its cache is the shares' rows, the failed share's
         # without the failed test's, so the save below takes that pass
         # out of main's newest entry as the whole suite's job did.
         {
           name: "fail where a share failed",
-          if: "env.COSMIC_CI_SCOPE == 'full' && needs.checked-shard.result == 'failure'",
+          if: "env.COSMIC_CI_SCOPE == 'full' && steps.shares-wait.outputs.result != 'success'",
           shell: "sh",
-          run: "echo \"a share of the checked suite failed\"; exit 1",
+          run: "echo \"a share of the checked suite did not pass\"; exit 1",
         },
+        # Only on four passing shares' verdicts, whatever the steps above.
         {
           name: "run the checked core's suite",
           id: "checked-suite",
-          if: "env.COSMIC_CI_SCOPE == 'full'",
+          if: "env.COSMIC_CI_SCOPE == 'full' && steps.shares-wait.outputs.result == 'success'",
           run: "cosmic-driver cosmic_ci/driver.tl platform checked",
         },
         {
@@ -1461,7 +1509,7 @@
         {
           name: "keep only this run's test verdicts",
           id: "verdicts-trim",
-          if: "always() && env.COSMIC_CI_SCOPE == 'full' && steps.driver.outcome == 'success'",
+          if: "always() && env.COSMIC_CI_SCOPE == 'full' && steps.driver.outcome == 'success' && steps.shares-wait.outputs.result != 'timeout'",
           run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}",
         },
         {
@@ -1591,7 +1639,9 @@
       if: "!cancelled() && needs.reuse.outputs.run == '' && needs.scope.outputs.scope != 'light'",
       name: "linux-x86_64-checked-shard-${{ matrix.part }}",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
-      strategy: {"fail-fast": false, matrix: {part: [1, 2, 3, 4]}},
+      # A failed share cancels the others on the queue's run, as a failed
+      # leg does (`platform`).
+      strategy: {"fail-fast": "${{ github.event_name == 'merge_group' }}", matrix: {part: [1, 2, 3, 4]}},
       "runs-on": "ubuntu-24.04",
       permissions: {contents: "read", packages: "read", actions: "read"},
       "timeout-minutes": 25,
@@ -2413,45 +2463,6 @@
       ],
     },
 
-    # Cancels the queue's run once a leg or the checked job has failed
-    # (cancel-on-failure.sh), so `ci` reports a minute or two later (its
-    # runner starts) and the queue restarts the entries behind sooner; a
-    # branch's, main's and the scheduled run let every leg finish. A job
-    # of its own, not a step of each leg: only
-    # it holds `actions: write`, where the legs run test code, and the
-    # failed leg has finished, so it keeps its `failure`. It starts with
-    # the legs, waits on none and is waited on by none (the gate does not
-    # need it), and always exits 0, so no result of its own can fail a
-    # run or a ruleset.
-    cancel: {
-      name: "cancel the run on a failed leg",
-      if: "github.event_name == 'merge_group'",
-      "runs-on": "ubuntu-24.04",
-      "timeout-minutes": 50,
-      permissions: {contents: "read", actions: "write"},
-      steps: [
-        {
-          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
-          with: {
-            "sparse-checkout": "/.github/scripts/cancel-on-failure.sh\n",
-            "sparse-checkout-cone-mode": false,
-            "persist-credentials": false,
-            "fetch-depth": 1,
-          },
-        },
-        {
-          env: {
-            GH_TOKEN: "${{ github.token }}",
-            REPOSITORY: "${{ github.repository }}",
-            RUN_ID: "${{ github.run_id }}",
-            ATTEMPT: "${{ github.run_attempt }}",
-            SELF: "cancel the run on a failed leg",
-          },
-          run: ".github/scripts/cancel-on-failure.sh",
-        },
-      ],
-    },
-
     # The one check a ruleset requires, whatever the scope: it fails when
     # any leg or the checked job failed or was cancelled (a seeded run's
     # `seed` legs; a `reuse` that failed or was skipped found nothing,
@@ -2483,7 +2494,7 @@
             FORMAT: "${{ (env.COSMIC_CI_SCOPE == 'light' || github.event_name == 'schedule') && needs.format.result || 'success' }}",
             EVENT: "${{ github.event_name }}",
           },
-          run: "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED; shares: $SHARES; checked narrowing: $NARROWING; format: $FORMAT\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$SHARES\" = success ] && [ \"$NARROWING\" = success ] && [ \"$FORMAT\" = success ] || { [ \"$EVENT\" != merge_group ] || echo \"a failed leg cancels a queue run, so the other legs may read cancelled; an error annotation names the failed leg\"; exit 1; }",
+          run: "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED; shares: $SHARES; checked narrowing: $NARROWING; format: $FORMAT\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$SHARES\" = success ] && [ \"$NARROWING\" = success ] && [ \"$FORMAT\" = success ] || { [ \"$EVENT\" != merge_group ] || echo \"a failed leg cancels the other jobs of its matrix on a queue run, so those read cancelled; the one that reads failure failed\"; exit 1; }",
         },
         # Only a full run's legs attest and upload a product.
         {
