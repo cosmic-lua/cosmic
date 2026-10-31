@@ -225,14 +225,20 @@ local record Driver
   --- The modules `entries` (pairs of a path below the root and its text) are: each `.tl` and `.d.tl` a module named by its
   --- path ([`Declarations.module_of`]), checked. A module is also
   --- answered to by the name of its path below each directory, since a project inside the tree (`ci/`, a fixture
-  --- directory) names its modules from its own root. `skip` says which paths are left out. Where a module is given as
+  --- directory) names its modules from its own root, except by a name in `unaliased`: the language's own modules, which
+  --- the binary answers and no tail of a project file's name stands for. `skip` says which paths are left out. Where a module is given as
   --- `.tl` and `.d.tl` the declaration is the one answered, under every name, and the source is the module
   --- [`Driver.implementation`] names. A `*_test.tl` is a test module
   --- ([`Driver.Source.tests`]). An entry may give a third word, the module it is, and a fourth, the name its ceilings
   --- are kept under ([`Driver.Source.pinned`]), for a source the build writes from another file, whose path says
   --- neither: the entry's path is then the name of the text, and `.d.tl` still marks a declaration. `extras` says of a file
   --- what its name does not: a test module ([`Driver.Source.tests`]).
-  index: function(entries: {{string}}, skip: function(path: string): boolean, extras?: Extras): Index
+  index: function(entries: {{string}}, skip: function(path: string): boolean, extras?: Extras, unaliased?: {string: boolean}): Index
+
+  --- The complaints about the files of `entries` (as [`Driver.index`] takes them, less the `skip`ped paths) whose module is
+  --- one of `names`: a project's `require("math")` would be checked against `math.tl`, where the binary answers that call
+  --- with its own module. One to a line and in the order of the files: "" for none.
+  reserved: function(entries: {{string}}, skip: function(path: string): boolean, names: {string: boolean}): string
 
   --- The name a build holds the implementation of `module` under where a declaration file is written for it too: requirers
   --- of `module` get the declaration, and the implementation is checked and written as a module of its own, that name.
@@ -343,7 +349,8 @@ function Driver.globals(sources: {Driver.Source}, adjust: (function(globals: {st
   return out
 end
 
-function Driver.index(entries: {{string}}, skip: function(path: string): boolean, extras?: Driver.Extras): Driver.Index
+function Driver.index(entries: {{string}}, skip: function(path: string): boolean, extras?: Driver.Extras,
+                      unaliased?: {string: boolean}): Driver.Index
   local index: Driver.Index = { sources = {}, by_module = {} }
   -- The modules a declaration file is written for: a source of the same name is their implementation.
   local declared: mut {string: boolean} = {}
@@ -387,7 +394,7 @@ function Driver.index(entries: {{string}}, skip: function(path: string): boolean
       local dot = name:find(".", 1, true)
       while dot ~= nil do
         name = name:sub(dot + 1)
-        if index.by_module[name] == nil then
+        if index.by_module[name] == nil and not (unaliased ~= nil and unaliased[name] == true) then
           index.by_module[name] = source
           source.aliases[#source.aliases + 1] = name
         end
@@ -396,6 +403,23 @@ function Driver.index(entries: {{string}}, skip: function(path: string): boolean
     end
   end
   return index
+end
+
+function Driver.reserved(entries: {{string}}, skip: function(path: string): boolean, names: {string: boolean}): string
+  local found: mut {string} = {}
+  for _, entry in ipairs(entries) do
+    local file = entry[1]
+    if file ~= nil and entry[2] ~= nil and not skip(file) then
+      local module = entry[3] or Declarations.module_of(file)
+      if names[module] == true then
+        found[#found + 1] = file .. ": its module is named for `" .. module .. "`, which the binary answers at run time with the " ..
+          "language's own module, so a project file of that name would be checked as one thing and run as another: " ..
+          "rename it (for example to `" .. module .. "_lib`)"
+      end
+    end
+  end
+  table.sort(found)
+  return table.concat(found, "\n")
 end
 
 function Driver.implementation(module: string): string
