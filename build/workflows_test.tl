@@ -99,6 +99,7 @@ local STEP <const> = Shape.record_of("Step")
 
 --- The `typed` record `text` holds, read once; a file of another shape, or
 --- with a key no record names, fails, naming `path`.
+
 -- TODO: ask the shape for a strict record, and drop the re-encoding below,
 -- once [`Shape.record_of`] has a strict form (cosmic/shape.tl carries the TODO).
 local function read_as<T>(typed: Shape.Typed<T>, path: string, text: string): T
@@ -282,11 +283,11 @@ local function step_with_id(steps: {Step}, id: string): Step, integer
   error("no step has the id " .. id)
 end
 
-local function step_named(steps: {Step}, name: string): Step, integer
+local function step_named(steps: {Step}, name: string, where?: string): Step, integer
   for i, step in ipairs(steps) do
     if step.name == name then return step, i end
   end
-  error("no step is named " .. name)
+  error((where or "") .. "no step is named " .. name)
 end
 
 local function position(steps: {Step}, step: Step): integer
@@ -1835,8 +1836,8 @@ local function held_to_the_leg(where: string, job: Job, platform: Job, names: {s
   local leg = linux_x86_64_leg(platform)
   local theirs, ours = platform.steps, job.steps
   for _, step_name in ipairs(names) do
-    local our, their = (step_named(ours, step_name)), (step_named(theirs, step_name))
     local at = where .. ": " .. step_name
+    local our, their = (step_named(ours, step_name, at .. ": ")), (step_named(theirs, step_name, at .. ": "))
     same_as_leg(leg, at .. "'s action", our["uses"], their["uses"])
     same_as_leg(leg, at .. "'s id", our.id, their.id)
     same_as_leg(leg, at .. "'s shell", our.shell, their.shell)
@@ -2026,7 +2027,7 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
   -- its marker under the key that leg looks up: that leg's host, named
   -- as the leg names it (its COSMIC_HOST_ID not kept), and what the
   -- leg's key hashes, looked up before the tree moves.
-  local host = (step_named(steps, "name linux-x86_64's host"))
+  local host = (step_named(steps, "name linux-x86_64's host", "a light run looks up no marker of linux-x86_64's: "))
   local lookup = (step_named(steps, "find a passing CI driver check"))
   local their_host = (step_named(theirs, "name the leg's host"))
   local their_lookup = legs_lookup
