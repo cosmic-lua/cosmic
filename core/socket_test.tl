@@ -128,8 +128,7 @@ local function test_a_closed_socket_closes_again_and_has_no_descriptor(tmp: stri
   local listener = tcp_listener()
   assert(listener:close())
   assert(listener:close())
-  local ok, why = pcall(listener.fd, listener)
-  assert(not ok and tostring(why):find("the socket is closed", 1, true) ~= nil, tostring(why))
+  Test.raises(function() listener:fd() end, "the socket is closed")
 end
 
 --- A unix listener held `<close>` leaves no socket file as its block ends.
@@ -247,8 +246,7 @@ local function test_a_send_from_a_byte_sends_the_rest()
   end
   assert(got == "abdef", got)
   for _, from in ipairs({ 0, 8, math.mininteger, math.maxinteger }) do
-    local ok, err = pcall(raw.send, client:fd(), "abcdef", from)
-    assert(not ok and tostring(err):find("out of range", 1, true) ~= nil, tostring(err))
+    Test.raises(function() raw.send(client:fd(), "abcdef", from) end, "out of range")
   end
 end
 

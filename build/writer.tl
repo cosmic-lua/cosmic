@@ -14,6 +14,7 @@
 --- [`build.closure_store`], apart from this module, so an edit here that
 --- leaves every store's bytes alone moves no store's address.
 
+local AnalysisSchema = require("build.analysis_schema")
 local build_paths = require("build.paths")
 local CheckerDeclarations = require("build.checker_declarations")
 local clock = require("build.clock")
@@ -82,7 +83,7 @@ local deflating_core <const> =
 local fill_deflated <const> =
   "INSERT OR IGNORE INTO deflated (source_hash, core, data) " ..
   "SELECT i.source_hash, " .. deflating_core .. ", deflate(i.source) FROM inputs i " ..
-  "WHERE (i.kind = 'decl' OR i.path IN (SELECT path FROM plan)) AND NOT EXISTS " ..
+  "WHERE (" .. AnalysisSchema.declaration("i.kind") .. " OR i.path IN (SELECT path FROM plan)) AND NOT EXISTS " ..
   "(SELECT 1 FROM deflated d WHERE d.source_hash = i.source_hash AND d.core = " ..
   deflating_core .. ") GROUP BY i.source_hash"
 
@@ -104,7 +105,7 @@ local insert_modules =
   "WHEN i.kind = 'example' THEN coalesce((SELECT group_concat(name, " ..
   "char(10) ORDER BY ordinal) FROM examples e " ..
   "WHERE e.source_hash = i.source_hash), '') ELSE '' END " ..
-  "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path AND " .. AnalysisSchema.not_declaration("i.kind") .. " " ..
   "JOIN deflated d ON d.source_hash = i.source_hash AND d.core = " .. deflating_core .. " " ..
   "JOIN compiled c ON c.key = p.key ORDER BY p.path"
 
@@ -113,7 +114,7 @@ local insert_modules =
 local insert_imports =
   "INSERT OR IGNORE INTO out.imports (path, requires) " ..
   "SELECT p.path, r.name FROM plan p " ..
-  "JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
+  "JOIN inputs i ON i.path = p.path AND " .. AnalysisSchema.not_declaration("i.kind") .. " " ..
   "JOIN requires r ON r.source_hash = i.source_hash " ..
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
@@ -126,13 +127,13 @@ local insert_imports =
 local insert_decl_imports =
   "INSERT OR IGNORE INTO out.decl_imports (path, requires) " ..
   "SELECT m.path, '' FROM (SELECT path FROM plan UNION SELECT path " ..
-  "FROM inputs WHERE kind = 'decl') m " ..
+  "FROM inputs WHERE " .. AnalysisSchema.declaration("kind") .. ") m " ..
   "UNION ALL " ..
   "SELECT m.path, r.name FROM (SELECT path FROM plan UNION SELECT path " ..
-  "FROM inputs WHERE kind = 'decl') m " ..
+  "FROM inputs WHERE " .. AnalysisSchema.declaration("kind") .. ") m " ..
   "JOIN inputs i ON i.path = m.path " ..
-  "AND (i.kind = 'decl' OR NOT EXISTS (SELECT 1 FROM inputs d " ..
-  "WHERE d.path = i.path AND d.kind = 'decl')) " ..
+  "AND (" .. AnalysisSchema.declaration("i.kind") .. " OR NOT EXISTS (SELECT 1 FROM inputs d " ..
+  "WHERE d.path = i.path AND " .. AnalysisSchema.declaration("d.kind") .. ")) " ..
   "JOIN requires r ON r.source_hash = i.source_hash " ..
   "ORDER BY 1, 2"
 
@@ -147,10 +148,10 @@ local insert_bound =
   "INSERT OR IGNORE INTO out.bound (path, name, requires) " ..
   "SELECT m.path, b.name, b.module " ..
   "FROM (SELECT path FROM plan UNION SELECT path FROM inputs " ..
-  "WHERE kind = 'decl') m " ..
+  "WHERE " .. AnalysisSchema.declaration("kind") .. ") m " ..
   "JOIN inputs i ON i.path = m.path " ..
-  "AND (i.kind = 'decl' OR NOT EXISTS (SELECT 1 FROM inputs d " ..
-  "WHERE d.path = i.path AND d.kind = 'decl')) " ..
+  "AND (" .. AnalysisSchema.declaration("i.kind") .. " OR NOT EXISTS (SELECT 1 FROM inputs d " ..
+  "WHERE d.path = i.path AND " .. AnalysisSchema.declaration("d.kind") .. ")) " ..
   "JOIN bound b ON b.source_hash = i.source_hash ORDER BY m.path, b.name"
 
 --- The documented symbols ([`build.syntax_analyzer`]'s `DocEntry`) found while parsing
@@ -167,10 +168,10 @@ local insert_docs =
   "SELECT m.path, d.symbol, d.source_symbol, d.exported, d.kind, " ..
   "d.signature, d.text, i.file, d.line " ..
   "FROM (SELECT path FROM plan UNION SELECT path FROM inputs " ..
-  "WHERE kind = 'decl') m " ..
+  "WHERE " .. AnalysisSchema.declaration("kind") .. ") m " ..
   "JOIN inputs i ON i.path = m.path " ..
-  "AND (i.kind = 'decl' OR NOT EXISTS (SELECT 1 FROM inputs d " ..
-  "WHERE d.path = i.path AND d.kind = 'decl')) " ..
+  "AND (" .. AnalysisSchema.declaration("i.kind") .. " OR NOT EXISTS (SELECT 1 FROM inputs d " ..
+  "WHERE d.path = i.path AND " .. AnalysisSchema.declaration("d.kind") .. ")) " ..
   "JOIN docs d ON d.source_hash = i.source_hash ORDER BY m.path, d.ordinal"
 
 --- The uses ([`build.syntax_analyzer`]'s `Reference`) found: each
@@ -181,7 +182,7 @@ local insert_uses =
   "INSERT OR IGNORE INTO out.uses (module, symbol, from_module, " ..
   "from_file, line) " ..
   "SELECT r.module, r.member, p.path, i.file, r.line " ..
-  "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path AND " .. AnalysisSchema.not_declaration("i.kind") .. " " ..
   "JOIN refs r ON r.source_hash = i.source_hash " ..
   "ORDER BY r.module, r.member, p.path, r.line"
 
@@ -192,7 +193,7 @@ local insert_typed_uses =
   "INSERT OR IGNORE INTO out.uses (module, symbol, from_module, " ..
   "from_file, line) " ..
   "SELECT r.module, r.member, p.path, i.file, r.line " ..
-  "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path AND " .. AnalysisSchema.not_declaration("i.kind") .. " " ..
   "JOIN typed_refs r ON r.key = p.key " ..
   "ORDER BY r.module, r.member, p.path, r.line"
 
@@ -219,7 +220,7 @@ local insert_typed_uses =
 --- scan again.
 local insert_examples =
   "WITH k AS MATERIALIZED (SELECT path, kind, file, source_hash FROM inputs " ..
-  "WHERE path IN (SELECT path FROM plan) OR kind = 'decl'), " ..
+  "WHERE path IN (SELECT path FROM plan) OR " .. AnalysisSchema.declaration("kind") .. "), " ..
   "c(path) AS MATERIALIZED (SELECT DISTINCT path FROM k " ..
   "WHERE kind NOT IN ('test', 'example')) " ..
   "INSERT OR IGNORE INTO out.examples (module, name, text, file, line, " ..
@@ -255,16 +256,15 @@ local unstubbed_modules =
 
 --- The catalog entries ([`build.syntax_analyzer`]'s `CatalogEntry`) found while parsing
 --- each planned module: every literal `return nil, ...` under a
---- top-level function. The guidance a match prints is that function's
---- own documentation, joined from `docs` at lookup, so `text` is left
---- NULL here. `id` is left for SQLite to assign, in this SELECT's own
+--- top-level function. The guidance a match prints, where `text` is
+--- left NULL here, is a line naming that function ([`Errors.guidance`]). `id` is left for SQLite to assign, in this SELECT's own
 --- deterministic order -- the hand-authored rows below claim the low
 --- ids first, so this always continues after them the same way on
 --- every build.
 local insert_catalog_extracted =
   "INSERT INTO out.catalog (kind, module, symbol, message, text, file, " ..
   "line) SELECT 'error', p.path, c.symbol, c.message, NULL, " ..
-  "i.file, c.line FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
+  "i.file, c.line FROM plan p JOIN inputs i ON i.path = p.path AND " .. AnalysisSchema.not_declaration("i.kind") .. " " ..
   "JOIN catalog c ON c.source_hash = i.source_hash " ..
   "ORDER BY p.path, c.ordinal"
 
@@ -285,10 +285,10 @@ local make_reused <const> = {
   "DROP TABLE IF EXISTS temp.reused",
   "CREATE TEMP TABLE reused (path TEXT PRIMARY KEY) WITHOUT ROWID",
   "INSERT INTO temp.reused (path) SELECT p.path FROM plan p " ..
-    "JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
+    "JOIN inputs i ON i.path = p.path AND " .. AnalysisSchema.not_declaration("i.kind") .. " " ..
     "JOIN prev.modules r ON r.path = p.path AND r.file = i.file AND r.kind = i.kind " ..
     "AND r.source_hash = CAST(i.source_hash AS BLOB) AND r.key = CAST(p.key AS BLOB) " ..
-    "WHERE NOT EXISTS (SELECT 1 FROM inputs d WHERE d.path = p.path AND d.kind = 'decl')",
+    "WHERE NOT EXISTS (SELECT 1 FROM inputs d WHERE d.path = p.path AND " .. AnalysisSchema.declaration("d.kind") .. ")",
 }
 
 --- The modules of a write that starts from a base. The rows a module that
@@ -310,7 +310,7 @@ local insert_modules_reusing <const> =
   "WHEN i.kind = 'example' THEN coalesce((SELECT group_concat(name, " ..
   "char(10) ORDER BY ordinal) FROM examples e " ..
   "WHERE e.source_hash = i.source_hash), '') ELSE '' END " ..
-  "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path AND " .. AnalysisSchema.not_declaration("i.kind") .. " " ..
   "LEFT JOIN temp.reused u ON u.path = p.path " ..
   "LEFT JOIN prev.modules r ON r.path = u.path " ..
   "WHERE u.path IS NOT NULL OR (EXISTS (SELECT 1 FROM deflated d " ..
@@ -330,17 +330,17 @@ local insert_docs_reusing <const> =
   "SELECT m.path, d.ordinal, d.symbol, d.source_symbol, d.exported, d.kind, " ..
   "d.signature, d.text, i.file, d.line " ..
   "FROM (SELECT path FROM plan WHERE path NOT IN " .. reused_modules .. " " ..
-  "UNION SELECT path FROM inputs WHERE kind = 'decl') m " ..
+  "UNION SELECT path FROM inputs WHERE " .. AnalysisSchema.declaration("kind") .. ") m " ..
   "JOIN inputs i ON i.path = m.path " ..
-  "AND (i.kind = 'decl' OR NOT EXISTS (SELECT 1 FROM inputs d " ..
-  "WHERE d.path = i.path AND d.kind = 'decl')) " ..
+  "AND (" .. AnalysisSchema.declaration("i.kind") .. " OR NOT EXISTS (SELECT 1 FROM inputs d " ..
+  "WHERE d.path = i.path AND " .. AnalysisSchema.declaration("d.kind") .. ")) " ..
   "JOIN docs d ON d.source_hash = i.source_hash) ORDER BY module, ordinal"
 
 local insert_uses_reusing <const> =
   "INSERT OR IGNORE INTO out.uses (module, symbol, from_module, " ..
   "from_file, line) " ..
   "SELECT r.module, r.member, p.path, i.file, r.line " ..
-  "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path AND " .. AnalysisSchema.not_declaration("i.kind") .. " " ..
   "JOIN refs r ON r.source_hash = i.source_hash " ..
   "WHERE p.path NOT IN " .. reused_modules .. " " ..
   "ORDER BY r.module, r.member, p.path, r.line"
@@ -349,7 +349,7 @@ local insert_typed_uses_reusing <const> =
   "INSERT OR IGNORE INTO out.uses (module, symbol, from_module, " ..
   "from_file, line) " ..
   "SELECT r.module, r.member, p.path, i.file, r.line " ..
-  "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path AND " .. AnalysisSchema.not_declaration("i.kind") .. " " ..
   "JOIN typed_refs r ON r.key = p.key " ..
   "WHERE p.path NOT IN " .. reused_modules .. " " ..
   "ORDER BY r.module, r.member, p.path, r.line"
@@ -390,9 +390,9 @@ local function signature_sql(): string
   return "SELECT lower(hex(sha256(" ..
     "coalesce((SELECT group_concat(p.path || ' ' || p.key || ' ' || i.file, " ..
     "char(10) ORDER BY p.path) FROM plan p JOIN inputs i ON i.path = p.path " ..
-    "WHERE i.kind <> 'decl'), '') || char(10) || " ..
+    "WHERE " .. AnalysisSchema.not_declaration("i.kind") .. "), '') || char(10) || " ..
     "coalesce((SELECT group_concat(path || ' ' || source_hash, char(10) " ..
-    "ORDER BY path) FROM inputs WHERE kind = 'decl'), '') || char(10) || " ..
+    "ORDER BY path) FROM inputs WHERE " .. AnalysisSchema.declaration("kind") .. "), '') || char(10) || " ..
     "coalesce((SELECT group_concat(key || ' ' || value, char(10) ORDER BY key) " ..
     "FROM meta WHERE key IN " .. metadata .. "), '') || char(10) || " ..
     "coalesce((SELECT group_concat(name || ' ' || lower(hex(sha256(data))), " ..
@@ -610,7 +610,7 @@ local function usable_base(db: Sqlite.Handle, by: string, tool: string): boolean
       "(SELECT coalesce(group_concat(path, char(10)), '') FROM " ..
       "(SELECT path FROM prev.decls WHERE path NOT IN (?3, ?4) ORDER BY path)) = " ..
       "(SELECT coalesce(group_concat(path, char(10)), '') FROM " ..
-      "(SELECT path FROM inputs WHERE kind = 'decl' ORDER BY path))",
+      "(SELECT path FROM inputs WHERE " .. AnalysisSchema.declaration("kind") .. " ORDER BY path))",
     { text(by), text(tool), text(CheckerDeclarations.prelude_module()),
       text(CheckerDeclarations.stdlib_module()) })
   return holds(rows)
@@ -672,7 +672,7 @@ local function project(handle: work.Handle,
   statements[#statements + 1] =
     "INSERT INTO out.decls (path, source) SELECT i.path, d.data FROM inputs i " ..
     "JOIN deflated d ON d.source_hash = i.source_hash AND d.core = " .. deflating_core .. " " ..
-    "WHERE i.kind = 'decl' ORDER BY i.path"
+    "WHERE " .. AnalysisSchema.declaration("i.kind") .. " ORDER BY i.path"
   statements[#statements + 1] =
     "INSERT INTO out.zoneinfo (name, data) SELECT name, data FROM zoneinfo " ..
     "ORDER BY name"
@@ -1131,17 +1131,13 @@ local carry: {string} = {
   -- compile's hints read the tool's rows only for the public standard
   -- library ([`symbols.public_only`]). Inside it they read the tree's own
   -- projection first, and find nothing for `build.*` until a build has
-  -- written one. So a doc row about any other module is carried only for
-  -- the catalog, whose guidance is the doc comment of the function an
-  -- error came from (core/main.c, [`build.embed`]).
+  -- written one. So a doc row about any other module is carried only as an
+  -- internal type a public alias names.
   --
   -- A user guide ([`symbols.guide_module`]) is a generated test module, so
   -- `dropped` names it, but its own row -- the guide's prose -- is what
   -- `cosmic docs quickstart` answers with.
   --
-  -- The catalog's rows are looked up as a set (`IN`), not by a correlated
-  -- `EXISTS`, which SQLite answers here by scanning the catalog for each of
-  -- the thirty thousand doc rows: most of a second of every tool rebuild.
   dropped_modules .. carried_alias_signatures ..
     "INSERT INTO main.docs (module, symbol, source_symbol, exported, " ..
     "kind, signature, text, file, line) SELECT module, symbol, " ..
@@ -1149,7 +1145,7 @@ local carry: {string} = {
     "FROM whole.docs d WHERE (d.symbol = '' AND " ..
     symbols.guide_module("d.module") .. ") OR (module NOT IN dropped AND (" ..
     symbols.public_only("d.module", true) ..
-    " OR (d.module, d.source_symbol) IN (SELECT module, symbol FROM whole.catalog) OR " ..
+    " OR " ..
     carried_internal_types .. ")) ORDER BY id",
   dropped_modules .. "INSERT INTO main.uses SELECT * FROM whole.uses u " ..
     "WHERE module NOT IN dropped AND from_module NOT IN dropped AND " ..

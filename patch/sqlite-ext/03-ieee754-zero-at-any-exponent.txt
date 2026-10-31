@@ -1,5 +1,5 @@
 file: ext/misc/ieee754.c
-note: ieee754(M, E) answers 0.0 for a zero M only when -1000 < E < 1000; past that the zero mantissa falls through to the exponent clamp and comes back as Inf (`ieee754(0, 1000)`) or the smallest normal (`ieee754(0, -1074)`). M × 2^E is zero for every E. Upstream has the same check as of 3.54.0.
+note: ieee754(M, E) answers 0.0 for a zero M only when -1000 < E < 1000; past that the zero mantissa falls through to the exponent clamp and comes back as Inf (`ieee754(0, 1000)`) or the smallest normal (`ieee754(0, -1074)`). M × 2^E is zero for every E. Upstream has the same check as of 3.54.1.
 --- find
     }else if( m==0 && e>-1000 && e<1000 ){
 --- replace

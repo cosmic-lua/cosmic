@@ -4,6 +4,7 @@
 --- a build compiles it by, from the import path and kind the working database lists it as. A refusal worded as a build words
 --- one is read back into where it is ([`plan.refusal_of`]).
 
+local analysis_schema = require("build.analysis_schema")
 local type build_module = require("build.module")
 
 local record plan
@@ -57,6 +58,10 @@ local type Named = plan.Named
 --- reading of a path (build/analysis_schema.tl), and a template's
 --- (build/derivation.tl), the convention a `.tl` file gets with its
 --- extension swapped.
+--
+-- TODO: give a `.d.tl` that declares itself a binding (`--- @kind binding`) the kind `binding` here, as the view does:
+-- this function has the path alone and no text. It waits on replacing its reading of a path with
+-- [`build.analysis_schema`]'s `kind_of`, which also answers `main` (the third copy of the kind mapping).
 function plan.named(name: string): Named
   if name:match("%.tmpl$") ~= nil then
     local template = name:gsub("%.tmpl$", ""):gsub("/init$", "")
@@ -68,7 +73,7 @@ function plan.named(name: string): Named
   local path = stem:gsub("/", ".")
   local kind = "module"
   if name:match("%.d%.tl$") ~= nil then
-    kind = "decl"
+    kind = analysis_schema.declaration_kind()
   elseif name:match("_test%.tl$") ~= nil then
     kind = "test"
   elseif name:match("_example%.tl$") ~= nil then

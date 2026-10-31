@@ -130,8 +130,7 @@ local function test_run_refuses_a_stream()
   for _, opts in ipairs({
       { stdin = "stream" }, { stdout = "stream" }, { stderr = "stream" },
   } as {Child.Options}) do
-    local ok, message = pcall(Child.run, { "/bin/sh", "-c", "exit 0" }, opts)
-    assert(not ok and tostring(message):find("Child.start", 1, true), tostring(message))
+    Test.raises(function() Child.run({ "/bin/sh", "-c", "exit 0" }, opts) end, "Child.start")
   end
   assert(not pcall(Child.start, { "/bin/sh" }, { stdin = "stream", input = "x" } as Child.Options))
 end
@@ -155,8 +154,7 @@ local function test_credentials_reject_invalid_ids_and_namespace_options()
     { user = 1.5, group = 1 } as Child.Credentials,
   }
   for _, credentials in ipairs(bad) do
-    local ok, why = pcall(Child.start, { "/never-started" }, { credentials = credentials })
-    assert(not ok and tostring(why):find("credentials need integer user and group", 1, true), tostring(why))
+    Test.raises(function() Child.start({ "/never-started" }, { credentials = credentials }) end, "credentials need integer user and group")
   end
   for _, sandbox in ipairs({
       { unveil = { reads = {} } }, { offline = true }, { user = 1 }, { group = 1 },

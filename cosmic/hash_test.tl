@@ -12,30 +12,47 @@ local record Holder
   mut h: Hash.Hasher
 end
 
-local vectors: {{string}} = {
-  { "md5", "", "d41d8cd98f00b204e9800998ecf8427e" },
-  { "sha1", "abc", "a9993e364706816aba3e25717850c26c9cd0d89d" },
-  { "sha224", "abc", "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7" },
-  { "sha256", "abc",
-    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
-  { "sha384", "abc",
-    "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed" ..
+local record Vector
+  algorithm: Hash.Algorithm
+  message: string
+  digest: string
+end
+
+local record Mac
+  algorithm: Hash.Algorithm
+  mac: string
+end
+
+local record SipHash
+  options: Hash.SipHashOptions
+  tags: {string}
+end
+
+local record Hmac
+  algorithm: Hash.Algorithm
+  key: string
+  message: string
+  mac: string
+end
+
+local vectors: {Vector} = {
+  { algorithm = "md5", message = "", digest = "d41d8cd98f00b204e9800998ecf8427e" },
+  { algorithm = "sha1", message = "abc", digest = "a9993e364706816aba3e25717850c26c9cd0d89d" },
+  { algorithm = "sha224", message = "abc", digest = "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7" },
+  { algorithm = "sha256", message = "abc", digest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
+  { algorithm = "sha384", message = "abc", digest = "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed" ..
       "8086072ba1e7cc2358baeca134c825a7" },
-  { "sha512", "abc",
-    "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a" ..
+  { algorithm = "sha512", message = "abc", digest = "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a" ..
       "2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f" },
-  { "sha3-256", "abc",
-    "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532" },
-  { "sha3-512", "abc",
-    "b751850b1a57168a5693cd924b6b096e08f621827444f70d884f5d0240d2712e" ..
+  { algorithm = "sha3-256", message = "abc", digest = "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532" },
+  { algorithm = "sha3-512", message = "abc", digest = "b751850b1a57168a5693cd924b6b096e08f621827444f70d884f5d0240d2712e" ..
       "10e116e9192af3c91a7ec57647e3934057340b4cf408d5a56592f8274eec53f0" },
 }
 
-local macs: {{string}} = {
-  { "md5", "80070713463e7749b90c2dc24911e275" },
-  { "sha256", "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8" },
-  { "sha512",
-    "b42af09057bac1e2d41708e48a902e09b5ff7f12ab428a4fe86653c73dd248fb" ..
+local macs: {Mac} = {
+  { algorithm = "md5", mac = "80070713463e7749b90c2dc24911e275" },
+  { algorithm = "sha256", mac = "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8" },
+  { algorithm = "sha512", mac = "b42af09057bac1e2d41708e48a902e09b5ff7f12ab428a4fe86653c73dd248fb" ..
       "82f948a549f7b791a5b41915ee4d1ec3935357e4e2317250d0372afa2ebeeb3a" },
 }
 
@@ -69,16 +86,14 @@ end
 
 local function test_digests_match_published_vectors()
   for _, v in ipairs(vectors) do
-    local algorithm = v[1] as Hash.Algorithm
-    assert(Codec.hex(Hash.digest(algorithm, v[2])) == v[3], v[1])
+    assert(Codec.hex(Hash.digest(v.algorithm, v.message)) == v.digest, v.algorithm)
   end
-  assert(Hash.hex_sha256("abc") == vectors[4][3])
+  assert(Hash.hex_sha256("abc") == vectors[4].digest)
 end
 
 local function test_hmac_matches_published_vectors()
   for _, v in ipairs(macs) do
-    local algorithm = v[1] as Hash.Algorithm
-    assert(Codec.hex(Hash.hmac(algorithm, "key", fox)) == v[2], v[1])
+    assert(Codec.hex(Hash.hmac(v.algorithm, "key", fox)) == v.mac, v.algorithm)
   end
 end
 
@@ -98,23 +113,21 @@ local function test_incremental_hmac_matches_published_vectors()
   local long_key = string.rep("\xaa", 131)
   local text = "Test Using Larger Than Block-Size Key - Hash Key First"
   -- RFC 4231 cases 1, 2 and 6 (SHA-256), RFC 2202 cases 1, 2 and 6 (MD5, SHA-1).
-  local cases: {{string}} = {
-    { "sha256", ones, "Hi There", "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7" },
-    { "sha256", "Jefe", "what do ya want for nothing?",
-      "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843" },
-    { "sha256", long_key, text, "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54" },
-    { "md5", string.rep("\x0b", 16), "Hi There", "9294727a3638bb1c13f48ef8158bfc9d" },
-    { "md5", "Jefe", "what do ya want for nothing?", "750c783e6ab0b503eaa86e310a5db738" },
-    { "md5", string.rep("\xaa", 80), text, "6b1ab7fe4bd7bf8f0b62e6ce61b9d0cd" },
-    { "sha1", string.rep("\x0b", 20), "Hi There", "b617318655057264e28bc0b6fb378c8ef146be00" },
-    { "sha1", "Jefe", "what do ya want for nothing?", "effcdf6ae5eb2fa2d27416d5f184df9c259a7c79" },
-    { "sha1", string.rep("\xaa", 80), text, "aa4ae5e15272d00e95705637ce8a3b55ed402112" },
+  local cases: {Hmac} = {
+    { algorithm = "sha256", key = ones, message = "Hi There", mac = "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7" },
+    { algorithm = "sha256", key = "Jefe", message = "what do ya want for nothing?", mac = "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843" },
+    { algorithm = "sha256", key = long_key, message = text, mac = "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54" },
+    { algorithm = "md5", key = string.rep("\x0b", 16), message = "Hi There", mac = "9294727a3638bb1c13f48ef8158bfc9d" },
+    { algorithm = "md5", key = "Jefe", message = "what do ya want for nothing?", mac = "750c783e6ab0b503eaa86e310a5db738" },
+    { algorithm = "md5", key = string.rep("\xaa", 80), message = text, mac = "6b1ab7fe4bd7bf8f0b62e6ce61b9d0cd" },
+    { algorithm = "sha1", key = string.rep("\x0b", 20), message = "Hi There", mac = "b617318655057264e28bc0b6fb378c8ef146be00" },
+    { algorithm = "sha1", key = "Jefe", message = "what do ya want for nothing?", mac = "effcdf6ae5eb2fa2d27416d5f184df9c259a7c79" },
+    { algorithm = "sha1", key = string.rep("\xaa", 80), message = text, mac = "aa4ae5e15272d00e95705637ce8a3b55ed402112" },
   }
   for _, case in ipairs(cases) do
-    local algorithm = case[1] as Hash.Algorithm
     for _, step in ipairs({ 1, 3, 64, 1000 }) do
-      assert(Codec.hex(chunked_hmac(algorithm, case[2], case[3], step)) == case[4],
-        case[1] .. " in chunks of " .. tostring(step))
+      assert(Codec.hex(chunked_hmac(case.algorithm, case.key, case.message, step)) == case.mac,
+        case.algorithm .. " in chunks of " .. tostring(step))
     end
   end
 end
@@ -252,41 +265,30 @@ end
 --- a block long, which are used as they are.
 local function test_hmac_takes_a_key_of_any_length()
   local rfc4231 = "Test Using Larger Than Block-Size Key - Hash Key First"
-  local cases: {{string}} = {
-    { "sha256", "", fox,
-      "fb011e6154a19b9a4c767373c305275a5a69e8b68b0b4c9200c383dced19a416" },
-    { "sha256", string.rep("\xaa", 131), rfc4231,
-      "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54" },
-    { "sha256", string.rep("k", 64), fox,
-      "bbbf90167fe46c7a3fa5b549325ad6428715eae339737730860fcea2c3f43d5c" },
-    { "sha256", string.rep("k", 200), fox,
-      "86522d64cfd7d3d21199f47288e74cdc22a6395aff54f0270c7feef1d0fa61bf" },
-    { "sha256", string.rep("k", 10000), fox,
-      "ec6e8734d2a5ac3ffe12eb18377f17850fbd8999a7e77a9882c7385da477055f" },
-    { "sha512", "", fox,
-      "1de78322e11d7f8f1035c12740f2b902353f6f4ac4233ae455baccdf9f377915" ..
+  local cases: {Hmac} = {
+    { algorithm = "sha256", key = "", message = fox, mac = "fb011e6154a19b9a4c767373c305275a5a69e8b68b0b4c9200c383dced19a416" },
+    { algorithm = "sha256", key = string.rep("\xaa", 131), message = rfc4231, mac = "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54" },
+    { algorithm = "sha256", key = string.rep("k", 64), message = fox, mac = "bbbf90167fe46c7a3fa5b549325ad6428715eae339737730860fcea2c3f43d5c" },
+    { algorithm = "sha256", key = string.rep("k", 200), message = fox, mac = "86522d64cfd7d3d21199f47288e74cdc22a6395aff54f0270c7feef1d0fa61bf" },
+    { algorithm = "sha256", key = string.rep("k", 10000), message = fox, mac = "ec6e8734d2a5ac3ffe12eb18377f17850fbd8999a7e77a9882c7385da477055f" },
+    { algorithm = "sha512", key = "", message = fox, mac = "1de78322e11d7f8f1035c12740f2b902353f6f4ac4233ae455baccdf9f377915" ..
         "66e790d5c7682aad5d3ceca2feff4d3f3fdfd9a140c82a66324e9442b8af71b6" },
-    { "sha512", string.rep("\xaa", 131), rfc4231,
-      "80b24263c7c1a3ebb71493c1dd7be8b49b46d1f41b4aeec1121b013783f8f352" ..
+    { algorithm = "sha512", key = string.rep("\xaa", 131), message = rfc4231, mac = "80b24263c7c1a3ebb71493c1dd7be8b49b46d1f41b4aeec1121b013783f8f352" ..
         "6b56d037e05f2598bd0fd2215d6a1e5295e64f73f63f0aec8b915a985d786598" },
-    { "sha512", string.rep("k", 128), fox,
-      "d4835efaf497c0d1fe88eb16df0e805fd68ae5adb623d08b5cea86fd57d7df59" ..
+    { algorithm = "sha512", key = string.rep("k", 128), message = fox, mac = "d4835efaf497c0d1fe88eb16df0e805fd68ae5adb623d08b5cea86fd57d7df59" ..
         "cdfe1c7092c4c3629d5a63c0d13a6e1b25cd24c937b10013dd059f05e7a639f9" },
-    { "sha512", string.rep("k", 200), fox,
-      "2ec850d56a434619da67d65f350b4a2caad666d274cf844ee9ac03f73e14d201" ..
+    { algorithm = "sha512", key = string.rep("k", 200), message = fox, mac = "2ec850d56a434619da67d65f350b4a2caad666d274cf844ee9ac03f73e14d201" ..
         "2bc00387fc44ee2404aa91155181ae98ee75b0497788ca045997ef2462e82f91" },
-    { "sha512", string.rep("k", 10000), fox,
-      "2acc5c34c7fc0fa0b8e483f1155219f42af8a7d6448e51d520f30d1a48d100da" ..
+    { algorithm = "sha512", key = string.rep("k", 10000), message = fox, mac = "2acc5c34c7fc0fa0b8e483f1155219f42af8a7d6448e51d520f30d1a48d100da" ..
         "1929cd07ba7629453a50c03a915ea3bae7d0aa41ffdf3922a04f1c9614b3f5eb" },
   }
   local db = assert(Sqlite.memory())
   for _, case in ipairs(cases) do
-    local algorithm = case[1] as Hash.Algorithm
-    local label = case[1] .. " with a " .. #case[2] .. "-byte key"
-    assert(Codec.hex(Hash.hmac(algorithm, case[2], case[3])) == case[4], label)
+    local label = case.algorithm .. " with a " .. tostring(#case.key) .. "-byte key"
+    assert(Codec.hex(Hash.hmac(case.algorithm, case.key, case.message)) == case.mac, label)
     local rows = assert(Sqlite.text_rows(db, "SELECT lower(hex(hmac(?1, ?2, ?3)))",
-      { { text = case[1] }, { blob = case[2] }, { text = case[3] } }))
-    assert(rows[1]:text(1) == case[4], "SQL, " .. label)
+      { { text = case.algorithm }, { blob = case.key }, { text = case.message } }))
+    assert(rows[1]:text(1) == case.mac, "SQL, " .. label)
   end
   db:close()
 end
@@ -302,13 +304,13 @@ local function test_sql_knows_the_same_digests()
   local db = assert(Sqlite.memory())
   for _, v in ipairs(vectors) do
     local rows = assert(Sqlite.text_rows(db,
-      "SELECT lower(hex(digest(?1, ?2)))", { { text = v[1] }, { text = v[2] } }))
-    assert(rows[1]:text(1) == v[3], v[1])
+      "SELECT lower(hex(digest(?1, ?2)))", { { text = v.algorithm }, { text = v.message } }))
+    assert(rows[1]:text(1) == v.digest, v.algorithm)
   end
   for _, v in ipairs(macs) do
     local rows = assert(Sqlite.text_rows(db,
-      "SELECT lower(hex(hmac(?1, 'key', ?2)))", { { text = v[1] }, { text = fox } }))
-    assert(rows[1]:text(1) == v[2], v[1])
+      "SELECT lower(hex(hmac(?1, 'key', ?2)))", { { text = v.algorithm }, { text = fox } }))
+    assert(rows[1]:text(1) == v.mac, v.algorithm)
   end
   local same = assert(Sqlite.text_rows(db, "SELECT sha256('abc') = digest('sha256', 'abc')"))
   assert(same[1]:text(1) == "1")
@@ -411,20 +413,20 @@ end
 --- tail of 0, 1, 3 and 7 bytes, and past 255, where the length byte the
 --- last word carries wraps.
 local siphash_lengths: {integer} = { 0, 1, 3, 7, 8, 15, 16, 63, 257 }
-local siphash_vectors: {{any}} = {
-  { {}, { "310e0edd47db6f72", "fd67dc93c539f874", "2d7efbd796666785", "37d1018bf50002ab",
+local siphash_vectors: {SipHash} = {
+  { options = {}, tags = { "310e0edd47db6f72", "fd67dc93c539f874", "2d7efbd796666785", "37d1018bf50002ab",
     "6224939a79f5f593", "e545be4961ca29a1", "db9bc2577fcc2a3f", "724506eb4c328a95", "4897b2558d7b818a" } },
-  { { size = 16 }, { "a3817f04ba25a8e66df67214c7550293",
+  { options = { size = 16 }, tags = { "a3817f04ba25a8e66df67214c7550293",
     "da87c1d86b99af44347659119b22fc45", "9c70b60c5267a94e5f33b6b02985ed51",
     "a1f1ebbed8dbc153c0b84aa61ff08239",
     "3b62a9ba6258f5610f83e264f31497b4", "5493e99933b0a8117e08ec0f97cfc3d9",
     "6ee2a4ca67b054bbfd3315bf85230577", "5150d1772f50834a503e069a973fbd7c", "1b25fee1ef6fbb23179c26056c2995fc" } },
-  { { compression = 1, finalization = 3, size = 16 }, { "e77ebcb22788a5befd62db6add303001",
+  { options = { compression = 1, finalization = 3, size = 16 }, tags = { "e77ebcb22788a5befd62db6add303001",
     "fc6f370460d3eda85e0573cc2b2ff063", "6bc5ccfa1edcf79f4823187712ebd743",
     "1084b923f2aae0c3a62f2ec80848ab77",
     "aa12fee1d5e3dab4724f16ab35f9c799", "c17e5505b2bd526c2921cdec1e7e0109",
     "d0a8d95715518eebb513b0f83d9e1793", "4c5800e34efe426f079f6b0aa75260ad", "13749065b1571a858bd8b998656046a7" } },
-  { { compression = 1, finalization = 3 }, { "dcc40f055801acab", "93ca577df39bf4c9", "fbf7dde7b80af88b",
+  { options = { compression = 1, finalization = 3 }, tags = { "dcc40f055801acab", "93ca577df39bf4c9", "fbf7dde7b80af88b",
     "4011b19b987d92d3", "8e9a298d11959036", "5699512a6dd820d3", "668b907d1add4fcc",
     "a8b3bbb76290199d", "b8733c21a6fc8f5d" } },
 }
@@ -434,11 +436,9 @@ local function test_siphash_matches_reference_vectors()
   for i = 0, 15 do key = key .. string.char(i) end
   for i = 0, 299 do message = message .. string.char(i % 256) end
   for _, case in ipairs(siphash_vectors) do
-    local options = case[1] as Hash.SipHashOptions
-    local tags = case[2] as {string}
     for i, n in ipairs(siphash_lengths) do
-      local got = Codec.hex(Hash.siphash(key, message:sub(1, n), options))
-      assert(got == tags[i], tostring(n) .. " bytes: " .. got .. " ~= " .. tags[i])
+      local got = Codec.hex(Hash.siphash(key, message:sub(1, n), case.options))
+      assert(got == case.tags[i], tostring(n) .. " bytes: " .. got .. " ~= " .. case.tags[i])
     end
   end
 end

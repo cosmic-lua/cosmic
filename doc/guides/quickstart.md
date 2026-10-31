@@ -147,7 +147,9 @@ cosmic json '$.items'` works. A URL may carry its digest, as pip's do:
 `.tl` file; `cosmic compile -o out a.tl b.tl` writes `out/a.lua` and
 `out/b.lua`. It reads only the files you name, so it runs in any directory,
 and the Lua is raw, with no wrapper. A type error is counted on standard
-error (`--errors` lists each) and the Lua is written anyway; only a syntax
+error (`--errors` lists each) and the Lua is written anyway; with no `.d.tl`
+named, the file is checked as `cosmic --standalone` checks it, so its warnings
+and refused uses (`package`, `_G`) are counted and listed too. Only a syntax
 error refuses, naming `file:line:column`, writing nothing and exiting 2.
 `cosmic help compile` has the rest.
 
@@ -398,10 +400,12 @@ end
 ## a number that starts at zero
 
 Teal infers `integer` for `local peak = 0`, so a later `peak = peak + 1.5`
-(or `peak = peak / 2`) is refused with `got number, expected integer`. When
-the variable is a plain local declared from an integer literal, the message
-names the fix. Write `local peak = 0.0`, or annotate `local peak: number = 0`,
-for a variable that holds floats. A function declared `: number` may still
+(or `peak = peak / 2`) is refused with `not_assignable`: "`peak + 1.5` is
+`number`, where `integer` is wanted in the assignment to `peak`". When the
+variable is a plain local declared from an integer literal, the fix names
+where to change it. Write `local peak = 0.0`, or annotate
+`local peak: number = 0`, for a variable that holds floats.
+A function declared `: number` may still
 `return 0`: an integer is a number.
 
 [`Child.start`]: ../../cosmic/child.tl

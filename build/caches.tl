@@ -53,8 +53,8 @@ local function paths(name: string, root: string, environment: {string:string}): 
     for _, path in ipairs(zig_caches.paths(root, environment)) do add(path) end
     -- Where a zig command other than `build` keeps them, when the
     -- caller names its own ([`Zig.passthrough_environment`]).
-    add(environment.ZIG_GLOBAL_CACHE_DIR)
-    add(environment.ZIG_LOCAL_CACHE_DIR)
+    add(environment["ZIG_GLOBAL_CACHE_DIR"])
+    add(environment["ZIG_LOCAL_CACHE_DIR"])
   elseif name == "bootstrap" then
     local bootstrap, _ = Fs.cache_dir("bootstrap", { environment = environment, make = false })
     add(bootstrap)
@@ -72,7 +72,7 @@ end
 --- artifact, so a sandboxed worker that declares the `bootstrap` cache
 --- is given cores of its own to write instead ([`build.test_sandbox`]).
 function caches.cores(environment: {string:string}): string?
-  local portable = environment.COSMIC_PORTABLE_CACHE
+  local portable = environment["COSMIC_PORTABLE_CACHE"]
   if portable ~= nil then return portable end
   local cores, _ = Fs.cache_dir("cores", { environment = environment, make = false })
   return cores

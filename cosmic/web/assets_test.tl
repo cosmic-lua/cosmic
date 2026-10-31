@@ -7,16 +7,6 @@ local Test = require("cosmic.test")
 
 Test.policy{}
 
---- The message of the error `fn` raises; fails where it raises none.
-local function raised(fn: function()): string
-  local ok, err = pcall(function(): any
-    fn()
-    return nil
-  end)
-  assert(not ok, "expected a raise")
-  return tostring(err)
-end
-
 local function test_memory_holds_files_with_a_hash_a_tag_and_a_type()
   local source = Assets.memory({ ["css/app.css"] = "body{}", ["a.txt"] = "hi" })
   local asset = assert(source:get("css/app.css"))
@@ -39,8 +29,8 @@ local function test_a_missing_or_malformed_path_is_a_miss_with_a_reason()
 end
 
 local function test_memory_refuses_a_key_that_is_no_relative_path()
-  assert(raised(function() Assets.memory({ ["/abs"] = "x" }) end):find("absolute", 1, true))
-  assert(raised(function() Assets.memory({ ["../up"] = "x" }) end):find("'..'", 1, true))
+  assert(Test.raises(function() Assets.memory({ ["/abs"] = "x" }) end):find("absolute", 1, true))
+  assert(Test.raises(function() Assets.memory({ ["../up"] = "x" }) end):find("'..'", 1, true))
 end
 
 local function test_integrity_is_the_base64_digest_and_defaults_to_sha384()

@@ -9,6 +9,7 @@ local Signal = require("cosmic.signal")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Vector = require("cosmic.vector")
+local Test = require("cosmic.test")
 
 local storages: {Vector.Storage} = { "f32", "f16", "int8" }
 local metrics: {Vector.Metric} = { "inner_product", "cosine", "l2" }
@@ -701,8 +702,7 @@ local function test_a_block_a_corpus_would_refuse_loads_nowhere()
       local _, trouble = read_block(db, blob)
       assert(trouble:find(why, 1, true) ~= nil, storage .. ": " .. why .. " vs " .. trouble)
       local fresh = Vector.corpus(2, { storage = storage })
-      local ok, err = pcall(fresh.add_block, fresh, blob)
-      assert(not ok and tostring(err):find(why, 1, true) ~= nil, tostring(err))
+      Test.raises(function() fresh:add_block(blob) end, why)
       assert(fresh:count() == 0)
       -- The search takes it: its numbers are not read again.
       local found = hits_of(db, "SELECT id, distance FROM vector_block_search(?1, ?2, 3, 'l2')",

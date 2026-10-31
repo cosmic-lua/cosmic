@@ -1,5 +1,6 @@
 local Codec = require("cosmic.codec")
 local Rand = require("cosmic.rand")
+local Test = require("cosmic.test")
 
 local hex = Codec.hex
 
@@ -92,8 +93,7 @@ end
 
 local function test_a_degenerate_argument_raises()
   local src = Rand.new(0)
-  local ok, err = pcall(src.int, src, 2, 1)
-  assert(not ok and tostring(err):find("min is greater than max", 1, true), tostring(err))
+  Test.raises(function() src:int(2, 1) end, "min is greater than max")
   local ok2, err2 = pcall(src.bytes, src, -1)
   assert(not ok2 and tostring(err2):find("count is negative", 1, true), tostring(err2))
 end

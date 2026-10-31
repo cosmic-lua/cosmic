@@ -63,6 +63,9 @@ local record Cli
   --- $XDG_CACHE_HOME/cosmic/standalone), then called as `run` calls
   --- one -- its words in `arg` and the returned function's `argv` --
   --- with a record's `main` field standing for a returned function.
+  --- `cosmic --standalone --check <file.tl>` only checks the file, as
+  --- a run does, and never calls it: it prints the refusals and exits 1,
+  --- or exits 0 when there are none.
   --- COSMIC_STANDALONE=1 makes `cosmic <file.tl>` run so
   standalone: string
   --- `cosmic -e '<chunk>' [args...]`: runs the chunk as the body of a Teal
@@ -161,8 +164,11 @@ local record Cli
   --- declaration of its own file, one file, or, written in full
   --- (`module.member`), one symbol; in Markdown it also
   --- writes the definitions GitHub needs to show one, at the file's
-  --- end. It never lays out a Markdown or Zig file. The tree is found
-  --- as `test` finds it
+  --- end. It never lays out a Markdown or Zig file. A Teal file the
+  --- build does not read (under `bin/` or a hidden directory, or
+  --- outside the tree), named or under a named directory, is
+  --- type-checked alone, as `cosmic --standalone` checks a file;
+  --- cosmic's own tree is excepted. The tree is found as `test` finds it
   fix: string
   --- `cosmic build [options] [path...]`: builds the tree in the working
   --- directory, then writes one executable in its build directory's
@@ -269,8 +275,10 @@ local record Cli
   --- scalars a `value` column, and any other value one row; a nested
   --- object or array is JSON text for `json_extract`, a boolean is 0 or
   --- 1, `_json` is the whole row, and a key that would collide (`A` with
-  --- `a`, or `_json`, `rowid`) is renamed `_2`. With no statement it prints each
-  --- table's row count, columns with the types stored, and a sample row.
+  --- `a`, or `_json`, `rowid`) is renamed `_2`. `SELECT *` answers the
+  --- file's columns and then `_json` last; name the columns (`SELECT a, b`)
+  --- to get only the file's. With no statement it prints each table's row
+  --- count, columns with the types stored, and a sample row.
   --- A missing column or table is answered with the ones there are.
   --- Exit codes as below, 1 for a file it cannot read or load. The
   --- first line names the columns (a statement without any prints
@@ -398,9 +406,14 @@ local record Cli
   --- exit is 2, as for a command line or a file it cannot use. The files
   --- are written in the new checker's grammar ([`doc/plans/new-checker-grammar.md`]),
   --- which is the only one (`--grammar teal` is refused).
-  --- The files named are the whole program, the globals are those the
-  --- `.d.tl` files named declare, and a `cosmic.*` module no file named
-  --- is the module of is typed `invalid` and reported. After a
+  --- With a `.d.tl` file named, the files named are the whole program, the
+  --- globals are those the `.d.tl` files declare, and a `cosmic.*` module
+  --- no file named is the module of is typed `invalid` and reported. With
+  --- none named, each file is checked as `cosmic --standalone` checks it:
+  --- the binary's own globals and `cosmic.*` modules, and what a standalone
+  --- run refuses besides type errors, its warnings and the project
+  --- refusals (`package`, `_G`); all are listed and
+  --- counted as type errors, and none stops the Lua. After a
   --- non-zero exit do not use the `-o` directory: it may hold files of an
   --- earlier run. It prints no summary; exits 0 when the Lua is written
   compile: string
@@ -429,7 +442,7 @@ local record Cli
   --- `extract <file>|- [-C dir] [member...]` unpacks into dir (the
   --- working directory by default) and prints the paths written; a
   --- member is a path in the archive and takes what is under it. The
-  --- format -- zip, tar, or tar under gzip, xz or bzip2 -- is read from
+  --- format -- zip, tar, or tar under gzip, xz, bzip2 or zstd -- is read from
   --- the file's first bytes, not its name. An absolute path, a `..`,
   --- or a symlink out of the target is refused ([`Archive.extract`]), and
   --- so is replacing an existing path unless `--force` is given. Only
@@ -438,8 +451,8 @@ local record Cli
   --- [`Archive.extract`] (1 GiB a file, 8 GiB in all), stops the
   --- extraction after the entries before it, which stay written; the
   --- refused file itself is not left. `create <out> <path>...` packs the
-  --- paths and what is under them, sorted by name, as a zip, a gzip tar or a plain tar, by the
-  --- extension of out (`.zip`, `.tar.gz`, `.tgz`, `.tar`) ([`Archive.create`]); `--reproducible` fixes every
+  --- paths and what is under them, sorted by name, as a zip, a gzip or zstd tar or a plain tar, by the
+  --- extension of out (`.zip`, `.tar.gz`, `.tgz`, `.tar.zst`, `.tzst`, `.tar`) ([`Archive.create`]); `--reproducible` fixes every
   --- modification time (tar 0, zip 1980) so the same tree packs to the
   --- same bytes; file modes are kept, not normalised. `.tar.xz` and `.tar.bz2` are refused: there is no
   --- encoder for either. Paths must be relative and stay under the
@@ -820,7 +833,7 @@ local module: Module = {
     },
     standalone = {
       about = "run one file with no tree around it",
-      usage = "<file.tl> [args]",
+      usage = "[--check] <file.tl> [args]",
     },
     eval = {
       about = "run a chunk of Teal, checked",
@@ -1107,7 +1120,7 @@ local module: Module = {
       usage = "[options] <file.tl>...",
       spec = {
         ["-o"] = { value = "dir", about = "write <name>.lua for each file in this directory" },
-        ["--errors"] = { about = "list each type error, not only the count" },
+        ["--errors"] = { about = "list each type error, warning and refusal, not only the count" },
         ["--root"] = { value = "dir", about = "the directory module names are relative to (default: here)" },
         ["--grammar"] = { value = "new", about = "the grammar of the files: the new checker's, the only one (default)" },
       },

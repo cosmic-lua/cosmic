@@ -9,8 +9,7 @@ Test.policy{ profiles = { "cosmic" } }
 --- one the pty takes names no descriptor of the caller's.
 local function test_start_on_pty_refuses_what_could_name_a_terminal_of_the_callers()
   local function raises(opts: Child.Options, streams: {integer}, why: string)
-    local ok, trouble = pcall(Child.start_on_pty, { "/bin/true" }, opts, { streams = streams })
-    assert(not ok and tostring(trouble):find(why, 1, true), tostring(trouble))
+    Test.raises(function() Child.start_on_pty({ "/bin/true" }, opts, { streams = streams }) end, why)
   end
   raises({ stdin = "null" }, { 0 }, "takes no stdin")
   raises({ input = "x" }, { 0 }, "takes no stdin")

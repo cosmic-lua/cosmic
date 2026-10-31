@@ -530,7 +530,7 @@ local function test_selected_output_controls_installation_and_lock(tmp: string)
   local args = Zig.build_args(root, tmp .. "/cache", output, { "build", "boot" }, 1, {})
   assert(args[6] == "--prefix" and args[7] == output)
   local status = Zig.with_lock(output, {}, function(env: {string:string}): integer
-    assert(env.COSMIC_REBUILD_LOCK_HANDED == output .. "/rebuild.lock")
+    assert(env["COSMIC_REBUILD_LOCK_HANDED"] == output .. "/rebuild.lock")
     assert(Fs.exists(output .. "/rebuild.lock"))
     assert(Zig.holder(output):find("is rebuilding the tool", 1, true))
     return 7
@@ -543,8 +543,8 @@ local function test_cache_fallbacks_follow_selected_output()
   assert(Zig.global_cache("/selected", {}) == "/selected/zig-global")
   assert(Zig.project_cache("/selected", {}) == "/selected/zig-cache")
   local environment = Zig.passthrough_environment("/selected", {})
-  assert(environment.ZIG_GLOBAL_CACHE_DIR == "/selected/zig-global")
-  assert(environment.ZIG_LOCAL_CACHE_DIR == "/selected/zig-cache")
+  assert(environment["ZIG_GLOBAL_CACHE_DIR"] == "/selected/zig-global")
+  assert(environment["ZIG_LOCAL_CACHE_DIR"] == "/selected/zig-cache")
 end
 
 --- The open descriptors of this process, each with what it names.

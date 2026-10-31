@@ -106,3 +106,14 @@ local function test_a_query_reads_the_columns_the_statement_has_now()
     assert(db:close())
   end
 end
+
+--- `floor` after a time of 24:00:00 floors the day it carries over to,
+--- not the day before it.
+local function test_datetime_floor_of_a_24_hour_time_is_the_next_day()
+  local db = assert(Sqlite.memory())
+  local rows = assert(Sqlite.text_rows(db, "SELECT datetime('2025-04-30 24:00:00', 'floor')"))
+  local row = rows[1]
+  assert(row, "the statement yields a row")
+  assert(row:text(1) == "2025-05-01 00:00:00", row:text(1))
+  assert(db:close())
+end

@@ -109,6 +109,10 @@ local function test_the_default_is_the_project_database_else_the_binarys_own()
   assert(code == 1 and #said.out == 0)
   assert(said.err[1]:find("not authorized; the binary's own database answers a query",
     1, true) ~= nil, said.err[1])
+  -- A plain SQLite failure is not the authorizer's refusal, and gets no hint.
+  code, said = run(root, { "--store", "SELEC 1" })
+  assert(code == 1 and #said.err == 1 and said.err[1]:find("syntax error", 1, true) ~= nil and
+      said.err[1]:find("PRAGMA", 1, true) == nil, table.concat(said.err, "|"))
   code, said = run(root, { "--store", "SELECT * FROM modules LIMIT 0" })
   assert(code == 0 and #said.out == 1 and said.out[1]:find("\t", 1, true) ~= nil,
     table.concat(said.out, "|"))

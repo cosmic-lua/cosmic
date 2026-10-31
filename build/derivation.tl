@@ -147,7 +147,8 @@ local function derive_syscalls(db: Sqlite.Handle): boolean, string
         return false, file .. ": " .. generate_trouble
       end
       local ok, insert_trouble = Sqlite.run(db, insert_derived,
-        { text(file), text(target.path), text("decl"),
+        { text(file), text(target.path),
+          text(analysis_schema.kind_of(target.path:gsub("%.", "/") .. ".d.tl", source)),
           text("syscalls"), text(from_hash), text(source) })
       if not ok then
         return false, insert_trouble
@@ -162,7 +163,7 @@ end
 local function duplicate_import_paths(db: Sqlite.Handle): boolean, string
   local doubled, trouble = Sqlite.text_rows(db,
     "SELECT path, group_concat(file, ' and ') FROM inputs " ..
-      "WHERE kind <> 'decl' GROUP BY path HAVING count(*) > 1 ORDER BY path")
+      "WHERE " .. analysis_schema.not_declaration("kind") .. " GROUP BY path HAVING count(*) > 1 ORDER BY path")
   if doubled == nil then
     return false, trouble
   end

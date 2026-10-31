@@ -11,9 +11,10 @@ local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 local Archive = require("cosmic.archive")
+local Test = require("cosmic.test")
 
 --- `tar -cf a.tar src` (a directory holding src/short.txt and the
---- symlink src/adir/alink -> short.txt), then gzip/xz/bzip2 -c.
+--- symlink src/adir/alink -> short.txt), then gzip/xz/bzip2/zstd -c.
 local TAR_GZ_B64 <const> =
   "H4sICDBss2oAA2EudGFyAO3V0QrCIBiGYS/FKyh16q5n1GCjkaAGXX7bDoIGFTuwUb3PiYqCv3yoKR72ojA1qp2b29GynfvaGWe998p5obSqvBHSlS5sckm5iVKKGEJ+te7d/JdKY/6pCzHv8rXU+aaAvbXP89fVIn8zDoRUhep58Of5d+0wBJm7NrZbl4INTPe/Ofax5Cew/v3XldK8/59wz78Z+vOpzB5z/nW9In9rdC2kKf0xTf48fwAAAAAAAAAAAADAb7gBw+SVgAAoAAA="
 
@@ -22,6 +23,9 @@ local TAR_XZ_B64 <const> =
 
 local TAR_BZ2_B64 <const> =
   "QlpoOTFBWSZTWftqLH0AAPT7hcqAAEBAAf+AGIRubZ5AAACAAhAIMADNphKKAABoAAACVTT1MgAGgAAAKqalPNDVG1G1AzU9NTanqPKcBmsKrFONp8mSgiNPggJSyiluAckAYE4xZRQYkEiolBUalRrg8M5RFkwl0yyyoDkigrmCAL0deBq2rRoSoPotGICxQgMcGrSsmUvqLy62tESPmWJiZo0f1ez81bXaV7RQUZiZYvLeRqTYfG/HNuTOEHm8gy9Pk3uKAQPxdyRThQkPtqLH0A=="
+
+local TAR_ZST_B64 <const> =
+  "KLUv/WQAJ3UEAHKGExGwPWADsgCrOsnsItKS9ykZpILXuCDGtMfc8R4eIktnVVRrMnROreYlL8RwQsqsE8wIl9wJYVzmeKak+7yijPbe8l1KIS/et/ff9AYUZRggUClKiQf9HerhCgpwqhmaGD06YBvOphLFgCIdQKwQT01gVKPD9kCeG9CCp6AwDoD9g6kBAxLAFMB4Km+1uTwT"
 
 local function make_tar(path: string)
   local w = assert(Stream.create(path))
@@ -50,6 +54,26 @@ local function test_open_detects_a_plain_tar_by_its_ustar_magic(tmp: string)
   assert(by["adir/"].kind == "dir")
   assert(by["adir/short.txt"].kind == "file" and by["adir/short.txt"].size == 11)
   assert(by["adir/link"].kind == "symlink" and by["adir/link"].linkpath == "short.txt")
+end
+
+local function test_a_zstd_zip_lists_and_extracts_through_archive(tmp: string)
+  local path = tmp .. "/z.zip"
+  local text = string.rep("zstd in a zip ", 1000)
+  local zw = Zip.writer((assert(Stream.create(path))))
+  assert(zw:add_dir("adir"))
+  assert(zw:add_file("adir/z.txt", text, { method = "zstd" }))
+  assert(zw:add_file("adir/s.txt", Stream.from_string(text), { method = "zstd" }))
+  assert(zw:close())
+  local entries = assert(Archive.list(path))
+  local by: mut {string:Archive.Entry} = {}
+  for _, e in ipairs(entries) do by[e.path] = e end
+  assert(assert(by["adir/z.txt"]).size == #text and assert(by["adir/s.txt"]).size == #text)
+  local dest = tmp .. "/out"
+  assert(Archive.extract(path, dest))
+  assert(Fs.read(dest .. "/adir/z.txt") == text)
+  assert(Fs.read(dest .. "/adir/s.txt") == text)
+  local written, why = Archive.extract(path, tmp .. "/small", { max_entry_bytes = 4096 })
+  assert(written == nil and why:find("max_entry_bytes (4096 bytes)", 1, true) ~= nil, why)
 end
 
 local function test_open_detects_a_zip_by_its_local_header_signature(tmp: string)
@@ -95,8 +119,11 @@ local function test_open_stream_reads_a_plain_tar_from_a_stream_one_byte_at_a_ti
   assert(by["adir/link"].linkpath == "short.txt")
 end
 
-local function test_open_stream_reads_gzip_xz_and_bzip2_tars()
-  for _, b64 in ipairs({ TAR_GZ_B64, TAR_XZ_B64, TAR_BZ2_B64 }) do
+local function test_open_stream_reads_gzip_xz_bzip2_and_zstd_tars()
+  -- The zstd tar again behind a skippable frame, as a parallel zstd
+  -- (pzstd) begins its output.
+  local skipped = "\80\42\77\24\4\0\0\0skip" .. assert(Codec.unbase64(TAR_ZST_B64))
+  for _, b64 in ipairs({ TAR_GZ_B64, TAR_XZ_B64, TAR_BZ2_B64, TAR_ZST_B64, Codec.base64(skipped) }) do
     local bytes = assert(Codec.unbase64(b64))
     local by = walked((assert(Archive.open_stream(Stream.from_string(bytes)))))
     local n = 0
@@ -209,8 +236,7 @@ local function test_extract_strips_by_a_whole_float(tmp: string)
   local refusals: {Refusal} = { { count = float(1.5), says = "whole number" }, { count = -1, says = "negative" } }
   for _, refusal in ipairs(refusals) do
     local count, says = refusal.count, refusal.says
-    local ok, why = pcall(Archive.extract, archive, tmp .. "/bad", { strip_components = count })
-    assert(not ok and tostring(why):find(says, 1, true) ~= nil, tostring(why))
+    Test.raises(function() Archive.extract(archive, tmp .. "/bad", { strip_components = count }) end, says)
     assert(Fs.exists(tmp .. "/bad") == false)
   end
 end
@@ -342,6 +368,18 @@ local function test_extract_a_bzip2_compressed_tar_made_by_system_tar(tmp: strin
   assert(Fs.write(path, (assert(Codec.unbase64(TAR_BZ2_B64)))))
   local dest = tmp .. "/out"
   local written = assert(Archive.extract(path, dest))
+  table.sort(written)
+  assert(#written == 3, table.concat(written, ","))
+  assert(Fs.read(dest .. "/src/short.txt") == "hello there")
+end
+
+local function test_extract_a_zstd_compressed_tar_made_by_system_tar(tmp: string)
+  local path = tmp .. "/a.tar.zst"
+  assert(Fs.write(path, (assert(Codec.unbase64(TAR_ZST_B64)))))
+  local dest = tmp .. "/out"
+  local extracted = assert(Archive.extract(path, dest))
+  local written: mut {string} = {}
+  for _, name in ipairs(extracted) do written[#written + 1] = name end
   table.sort(written)
   assert(#written == 3, table.concat(written, ","))
   assert(Fs.read(dest .. "/src/short.txt") == "hello there")
@@ -646,6 +684,27 @@ local function holds_only(dir: string, kept: mut {string})
   table.sort(names)
   table.sort(kept)
   assert(table.concat(names, ",") == table.concat(kept, ","), table.concat(names, ","))
+end
+
+local function test_max_entry_bytes_bounds_the_decoded_output_of_a_zstd_zip_entry(tmp: string)
+  local archive = tmp .. "/zbomb.zip"
+  local big = string.rep("\0", 4 << 20)
+  local zw = Zip.writer((assert(Stream.create(archive))))
+  assert(zw:add_file("big", big, { method = "zstd" }))
+  assert(zw:close())
+  assert(#assert(Fs.read(archive)) < 8192, "the bomb is not small")
+  -- 4 MiB decoded from a few hundred bytes: the limit counts the decoded size.
+  local dest = tmp .. "/out"
+  local written, why = Archive.extract(archive, dest, { max_entry_bytes = 4096 })
+  assert(written == nil, "extracted a bomb")
+  assert(why:find("archive: big is larger than max_entry_bytes (4096 bytes)", 1, true), why)
+  holds_only(dest, {})
+  -- An entry whose decoded size is within the limit is extracted.
+  assert(Archive.extract(archive, tmp .. "/at", { max_entry_bytes = #big }))
+  assert(Fs.read(tmp .. "/at/big") == big)
+  written, why = Archive.extract(archive, tmp .. "/over", { max_entry_bytes = #big - 1 })
+  assert(written == nil and why:find("max_entry_bytes (4194303 bytes)", 1, true) ~= nil, tostring(why))
+  holds_only(tmp .. "/over", {})
 end
 
 local function test_extract_refuses_a_zip_bomb_and_leaves_no_file(tmp: string)
@@ -1139,6 +1198,7 @@ local function sniffed(path: string): string
   local head = assert(Fs.read(path)):sub(1, 262)
   if head:sub(1, 2) == "PK" then return "zip" end
   if head:sub(1, 2) == "\31\139" then return "gzip" end
+  if head:sub(1, 4) == "\40\181\47\253" then return "zstd" end
   if head:sub(258, 262) == "ustar" then return "tar" end
   return "unknown"
 end
@@ -1146,10 +1206,12 @@ end
 local function test_create_writes_the_format_its_name_asks_for_and_open_reads_it_back(tmp: string)
   local named: {string:string} = {
     ["a.tar"] = "tar", ["a.tar.gz"] = "gzip", ["A.TGZ"] = "gzip", ["a.zip"] = "zip", ["A.Zip"] = "zip",
+    ["a.tar.zst"] = "zstd", ["A.TZST"] = "zstd",
   }
+  local formats: {string:string} = { gzip = "tar.gz", zstd = "tar.zst" }
   for name, format in pairs(named) do
     local path = tmp .. "/" .. name
-    assert(Archive.format_of(path) == (if format == "gzip" then "tar.gz" else format end), name)
+    assert(Archive.format_of(path) == (formats[format] or format), name)
     pack((assert(Archive.create(path))))
     assert(sniffed(path) == format, name .. ": " .. sniffed(path))
     local r = assert(Archive.open(path))
@@ -1172,7 +1234,7 @@ local function test_create_writes_the_format_its_name_asks_for_and_open_reads_it
 end
 
 local function test_create_writes_nothing_at_the_path_until_close(tmp: string)
-  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.zip" }) do
+  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.tar.zst", "a.zip" }) do
     local path = tmp .. "/" .. name
     local w = assert(Archive.create(path))
     assert(w:add_file("x", "y"))
@@ -1185,7 +1247,7 @@ end
 local function test_create_aborted_leaves_nothing_behind(tmp: string)
   local dir = tmp .. "/out"
   assert(Fs.mkdirs(dir))
-  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.zip" }) do
+  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.tar.zst", "a.zip" }) do
     local w = assert(Archive.create(dir .. "/" .. name))
     assert(w:add_file("x", "y"))
     assert(w:abort())
@@ -1195,7 +1257,7 @@ local function test_create_aborted_leaves_nothing_behind(tmp: string)
 end
 
 local function test_create_deterministic_writes_the_same_bytes_whatever_the_times(tmp: string)
-  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.zip" }) do
+  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.tar.zst", "a.zip" }) do
     for i, mtime in ipairs({ 1700000000, 1234567890 }) do
       local w = assert(Archive.create(tmp .. "/" .. tostring(i) .. name, { deterministic = true }))
       assert(w:add_file("x", "y", { mtime = mtime }))
@@ -1209,8 +1271,8 @@ local function test_create_refuses_a_name_it_cannot_write_and_creates_nothing(tm
   local dir = tmp .. "/out"
   assert(Fs.mkdirs(dir))
   local cases: {string:string} = {
-    ["a.data"] = "end it in .tar.gz, .tgz, .tar or .zip",
-    ["a"] = "end it in .tar.gz, .tgz, .tar or .zip",
+    ["a.data"] = "end it in .tar.gz, .tgz, .tar.zst, .tzst, .tar or .zip",
+    ["a"] = "end it in .tar.gz, .tgz, .tar.zst, .tzst, .tar or .zip",
     ["a.tar.xz"] = "no xz encoder",
     ["a.tbz2"] = "no bzip2 encoder",
   }

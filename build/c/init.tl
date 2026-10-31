@@ -111,7 +111,7 @@ local function include_dirs(root: string, cwd: string): {string}
   for _, dir in ipairs({
       "core", "vendor/lua/src", "vendor/sqlite", "vendor/miniz", "vendor/mbedtls/include",
       "vendor/bzip2", "vendor/xz/src/liblzma/api", "vendor/cares/include", "vendor/curl/include",
-      "vendor/yyjson/src",
+      "vendor/yyjson/src", "vendor/zstd/lib",
   }) do
     out[#out + 1] = prefix .. dir
   end

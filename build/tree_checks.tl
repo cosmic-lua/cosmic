@@ -2765,7 +2765,7 @@ function tree_checks.untyped(root: string, pinned?: {string: integer}, memo?: Sq
         stands(row.file)
         return
       end
-      local count = SyntaxContracts.check(subject).untyped
+      local count = SyntaxContracts.check(subject, nil, SyntaxContracts.declared_in(tree.index)).untyped
       found[row.file] = count
       if memo ~= nil then
         check_memo.put(memo, "untyped", row.key, check_memo.encode({ { tostring(count) } }))

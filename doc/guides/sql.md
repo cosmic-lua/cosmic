@@ -41,6 +41,14 @@ print(table.concat(assert(rows[1]):texts(), " "))
 4.0 2.5 0.3 1
 ```
 
+## quoting
+
+Double quotes always name an identifier: cosmic builds SQLite with
+`SQLITE_DQS=0`, so `"abc"` is a column or table, never a string, and
+`WHERE name = "bob"` fails with "no such column". A string takes single
+quotes, `'bob'`, with a quote inside it doubled (`'it''s'`). This holds
+for [`cosmic.sqlite`], [`cosmic.store`] and `cosmic sql`.
+
 ## core functions
 
 SQLite's [core functions](https://sqlite.org/lang_corefunc.html).
@@ -194,6 +202,9 @@ and in cosmic's SQLite `#` line comments too, as [`cosmic.json`] does
 given `hash_comments`. A `jsonb_` function below does what its `json_`
 namesake does, writing SQLite's binary JSON instead of text.
 
+A JSON value passed through a scalar subquery arrives as text: wrap it in
+`json()` to embed it as JSON.
+
 - `json(X)`: X as minified JSON text.
 - `json_array(X, ...)`: a JSON array of its arguments.
 - `json_array_insert(J, PATH, X, ...)`: J with X inserted into the array at PATH.
@@ -242,6 +253,15 @@ SQLite's [FTS5](https://sqlite.org/fts5.html).
 - `fts5_locale(LOCALE, TEXT)`: TEXT tagged with LOCALE for a locale-aware tokenizer.
 - `fts5_get_locale(T, COLUMN)`: the locale a column's value was tagged with.
 - `fts5_insttoken(TEXT)`: a query term matched against token instances only.
+
+An external-content table (`content='t'`) kept in step by triggers is
+not updated by `INSERT OR REPLACE` on its content table: the delete
+trigger does not fire for the replaced row unless `PRAGMA
+recursive_triggers` is on, so the old row's postings stay: a `MATCH`
+still finds the replaced text, and `INSERT INTO fts(fts, rank)
+VALUES('integrity-check', 1)`, which compares the index with the
+content table, reports the database malformed. Write the upsert as
+`INSERT ... ON CONFLICT(id) DO UPDATE`, which runs the update trigger.
 
 ## R*Tree
 

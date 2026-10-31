@@ -136,8 +136,9 @@ end
 
 local function test_env_beside_a_policy_raises(tmp: string)
   local probe = stand_in_of(tmp)
-  local ok, why = pcall(Child.start, { probe }, { policy = { grants = itself(probe) }, env = {} })
-  assert(not ok and tostring(why):find("policy and env exclude each other", 1, true), tostring(why))
+  Test.raises(function()
+    Child.start({ probe }, { policy = { grants = itself(probe) }, env = {} })
+  end, "policy and env exclude each other")
   local other, trouble = pcall(Child.start, { probe }, { policy = {}, sandbox = { offline = true } })
   assert(not other and tostring(trouble):find("policy and sandbox", 1, true), tostring(trouble))
 end
@@ -200,8 +201,7 @@ local function test_a_relay_log_is_null_inherit_or_a_descriptor(tmp: string)
   local probe = stand_in_of(tmp)
   local wrong: Child.Options = {}
   wrong.relay_log = ("loud" as any) as Child.RelayLog -- cast: a caller of the wrong type is what is refused
-  local ok, why = pcall(Child.start, { probe }, wrong)
-  assert(not ok and tostring(why):find('relay_log must be "null", "inherit" or a descriptor', 1, true), tostring(why))
+  Test.raises(function() Child.start({ probe }, wrong) end, 'relay_log must be "null", "inherit" or a descriptor')
   for _, value in ipairs({ -1, 4294967296 }) do
     wrong.relay_log = (value as any) as Child.RelayLog -- cast: a descriptor that is none
     local refused_ok, refused_why = pcall(Child.start, { probe }, wrong)

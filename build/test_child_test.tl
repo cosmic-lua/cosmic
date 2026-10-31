@@ -35,6 +35,7 @@ local function test_a_child_nothing_registered_is_refused_by_name(tmp: string)
 end
 
 local function test_a_name_is_registered_once()
-  local ok, why = pcall(test_child.register, "echo", function(_: {string}): integer return 0 end)
-  assert(not ok and tostring(why):find("echo is registered twice", 1, true) ~= nil, tostring(why))
+  Test.raises(function()
+    test_child.register("echo", function(_: {string}): integer return 0 end)
+  end, "echo is registered twice")
 end

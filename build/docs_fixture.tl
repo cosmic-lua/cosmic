@@ -11,6 +11,7 @@
 --- build runs -- and projected by [`build.writer.write_result`], the
 --- function that writes `cosmic.db`.
 
+local AnalysisSchema = require("build.analysis_schema")
 local Sqlite = require("cosmic.sqlite")
 local build_paths = require("build.paths")
 local importer = require("build.importer")
@@ -60,7 +61,7 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
   assert(db:exec(
     "INSERT INTO plan (path, key, ordinal) SELECT path, source_hash, " ..
       "row_number() OVER (ORDER BY path) FROM inputs " ..
-      "WHERE kind NOT IN ('decl', 'vendor')"))
+      "WHERE " .. AnalysisSchema.not_declaration("kind") .. " AND kind <> 'vendor'"))
   assert(db:exec(
     "INSERT INTO compiled (key, tool, lua, bytecode, seen) " ..
       "SELECT key, '', '', '', 0 FROM plan"))

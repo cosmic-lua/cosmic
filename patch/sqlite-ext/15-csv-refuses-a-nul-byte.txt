@@ -1,5 +1,5 @@
 file: ext/misc/csv.c
-note: A NUL byte in a file's field cuts the value off there, as the column is answered as a C string: `ab<NUL>cd` reads as `ab`, with no word. This refuses the record, naming it, counted as the table's rowid counts it, through 16-csv-reports-what-the-reader-refuses.txt. Text given with data= cannot hold a NUL, as SQLite's argument text ends at one. Upstream truncates so as of 3.54.0.
+note: A NUL byte in a file's field cuts the value off there, as the column is answered as a C string: `ab<NUL>cd` reads as `ab`, with no word. This refuses the record, naming it, counted as the table's rowid counts it, through 16-csv-reports-what-the-reader-refuses.txt. Text given with data= cannot hold a NUL, as SQLite's argument text ends at one. Upstream truncates so as of 3.54.1.
 --- find
     if( z==0 ){
       break;

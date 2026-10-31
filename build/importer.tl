@@ -64,6 +64,9 @@ local record importer
     -- because it both defines its own tests and returns its own value;
     -- every module NOT in this list compiled and is in `modules`.
     refused: mut {string}
+    --- The files of the modules `refused` names for what they hold, in the
+    --- order named, not those left out only for requiring one of them.
+    own_refused?: mut {string}
     --- One line per module a file run ([`importer.compile_for`]) left
     --- out, since it does not parse or compile and the file does not
     --- reach it. A module left out only because it requires one of
@@ -236,8 +239,8 @@ function importer.tree_code(handle: work.Handle): importer.Code?, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT DISTINCT r.name FROM inputs i " ..
         "JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = ?1 " ..
-        "AND ?1 IN (SELECT path FROM inputs WHERE kind <> 'decl') " ..
-        "AND r.name IN (SELECT path FROM inputs WHERE kind <> 'decl') " ..
+        "AND ?1 IN (SELECT path FROM inputs WHERE " .. analysis_schema.not_declaration("kind") .. ") " ..
+        "AND r.name IN (SELECT path FROM inputs WHERE " .. analysis_schema.not_declaration("kind") .. ") " ..
         "ORDER BY r.name", { text(name) })
     if rows == nil then
       return nil, rows_trouble
@@ -251,7 +254,7 @@ function importer.tree_code(handle: work.Handle): importer.Code?, string
   local function source(name: string): string?, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT source FROM inputs WHERE path = ?1 " ..
-        "ORDER BY kind = 'decl' DESC LIMIT 1", { text(name) })
+        "ORDER BY " .. analysis_schema.declaration("kind") .. " DESC LIMIT 1", { text(name) })
     if rows == nil then
       return nil, rows_trouble
     end
@@ -538,7 +541,7 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
   local roots: mut {string} = {}
   for _, name in ipairs(analyzer_roots) do roots[#roots + 1] = name end
   local found, trouble = Sqlite.text_rows(db,
-    "SELECT DISTINCT source_hash FROM inputs WHERE kind <> 'decl' " ..
+    "SELECT DISTINCT source_hash FROM inputs WHERE " .. analysis_schema.not_declaration("kind") .. " " ..
       "AND path IN (SELECT value FROM json_each(?1)) ORDER BY source_hash",
     { text('["' .. table.concat(roots, '","') .. '"]') })
   if found == nil then return nil, trouble end
@@ -552,7 +555,7 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
     fresh[source.source_hash] = true
   end
   local planned, planned_trouble = Sqlite.text_rows(db,
-    "SELECT path, source_hash FROM inputs WHERE kind <> 'decl'")
+    "SELECT path, source_hash FROM inputs WHERE " .. analysis_schema.not_declaration("kind"))
   if planned == nil then return nil, planned_trouble end
   local hash_of: mut {string:string} = {}
   for _, row in ipairs(planned) do hash_of[row:text(1)] = row:text(2) end
@@ -1059,16 +1062,19 @@ local function compile_derived(handle: work.Handle, tool: string,
   -- result's `refused`, run no tests, and fail the run ([`build.test`]).
   local lenient = target == nil
   local refusals: mut {string} = {}
+  local own_refused: mut {string} = {}
   if lenient then
     for _, one in ipairs(broken or {}) do
       local holders, holders_trouble = Sqlite.text_rows(handle.db,
-        "SELECT path FROM inputs WHERE source_hash = ?1 ORDER BY file", { text(one.source_hash) })
+        "SELECT path, file FROM inputs WHERE source_hash = ?1 ORDER BY file", { text(one.source_hash) })
       if holders == nil then
         return nil, holders_trouble
       end
       refusals[#refusals + 1] = one.message
       for _, row in ipairs(holders) do
         failed[row:text(1)] = true
+        local held_file = row:text(2)
+        own_refused[#own_refused + 1] = held_file
       end
     end
   end
@@ -1138,8 +1144,8 @@ local function compile_derived(handle: work.Handle, tool: string,
     end
   end
   local result: importer.Result = {
-    modules = {}, tool = tool, main = nil, refused = refusals, left_out = left,
-    compiled = 0, cached = 0, shared = 0, parses = parses,
+    modules = {}, tool = tool, main = nil, refused = refusals, own_refused = own_refused,
+    left_out = left, compiled = 0, cached = 0, shared = 0, parses = parses,
     catalog = pipeline.catalog,
   }
   local db = handle.db
@@ -1217,6 +1223,7 @@ local function compile_derived(handle: work.Handle, tool: string,
           ", which the new checker refused"
       elseif refusal ~= nil then
         result.refused[#result.refused + 1] = refusal
+        own_refused[#own_refused + 1] = m.file
       else
         local stands, look_trouble = cached_stands(cache, key)
         if not stands and look_trouble ~= "" then
@@ -1261,6 +1268,7 @@ local function compile_derived(handle: work.Handle, tool: string,
           if made_generated == nil then
             if lenient then
               result.refused[#result.refused + 1] = generate_trouble
+              own_refused[#own_refused + 1] = m.file
               failed[m.path] = true
             elseif needed == nil or needed[m.path] == true then
               progress.failure = generate_trouble
@@ -1485,7 +1493,8 @@ function importer.compile(handle: work.Handle, tool: string, unjudged?: boolean,
     if shared ~= nil then shared.finish() end
     local was = before.result
     local again_result: importer.Result = {
-      modules = was.modules, tool = was.tool, main = was.main, refused = was.refused, left_out = was.left_out,
+      modules = was.modules, tool = was.tool, main = was.main, refused = was.refused, own_refused = was.own_refused,
+      left_out = was.left_out,
       compiled = 0, cached = #was.modules, shared = 0, parses = was.parses, catalog = was.catalog,
     }
     return again_result, ""

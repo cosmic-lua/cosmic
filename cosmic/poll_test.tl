@@ -1,6 +1,7 @@
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
 local Clock = require("cosmic.clock")
+local Test = require("cosmic.test")
 
 local process = require("cosmic.internal.process")
 
@@ -12,12 +13,6 @@ local function fifo(dir: string, name: string): integer, integer
   local reader = assert(sys.open(path, sys.O_RDONLY | sys.O_NONBLOCK, 0))
   local writer = assert(sys.open(path, sys.O_WRONLY | sys.O_NONBLOCK, 0))
   return reader, writer
-end
-
-local function raises(fn: function(), words: string)
-  local ok, err: boolean, any = pcall(fn)
-  assert(not ok, "expected a raise naming " .. words)
-  assert(tostring(err):find(words, 1, true), tostring(err))
 end
 
 local function test_milliseconds_round_a_timeout_up_and_no_limit_is_minus_one()
@@ -167,13 +162,13 @@ local function test_a_raise_names_the_module()
 end
 
 local function test_waiting_outside_a_task_raises()
-  raises(function() Poll.delay(0) end, "outside Poll.run")
-  raises(function() Poll.spawn(function() end) end, "outside Poll.run")
+  Test.raises(function() Poll.delay(0) end, "outside Poll.run")
+  Test.raises(function() Poll.spawn(function() end) end, "outside Poll.run")
   Poll.run(function()
-    raises(function() Poll.run(function() end) end, "already running")
+    Test.raises(function() Poll.run(function() end) end, "already running")
     local inner = coroutine.wrap(function() Poll.delay(0) end)
-    raises(inner, "outside a task's own coroutine")
-    raises(function() Poll.delay(-1) end, "from 0")
+    Test.raises(inner, "outside a task's own coroutine")
+    Test.raises(function() Poll.delay(-1) end, "from 0")
   end)
 end
 
@@ -201,7 +196,7 @@ local function test_a_wait_outside_a_task_holds_the_thread(tmp: string)
 end
 
 local function test_tasks_waiting_only_on_each_other_raise()
-  raises(function()
+  Test.raises(function()
     Poll.run(function()
       local other: Poll.Task?
       local first = Poll.spawn(function()
@@ -215,7 +210,7 @@ local function test_tasks_waiting_only_on_each_other_raise()
 end
 
 local function test_a_yield_of_its_own_raises()
-  raises(function()
+  Test.raises(function()
     Poll.run(function() coroutine.yield() end)
   end, "yielded other than through cosmic.poll")
 end
@@ -371,7 +366,7 @@ end
 local function test_a_raising_task_closes_its_own_close_variables()
   local closed: boolean = false
   local closer_mt: metatable<Closer> = { __close = function() closed = true end }
-  raises(function()
+  Test.raises(function()
     Poll.run(function()
       local _ <close> = setmetatable({} as Closer, closer_mt)
       error("broken", 0)
@@ -384,14 +379,14 @@ end
 --- a handle kept from it answers as a task that has ended.
 local function test_a_failed_run_leaves_the_next_free()
   local kept: Poll.Task? = nil
-  raises(function()
+  Test.raises(function()
     Poll.run(function()
       kept = Poll.spawn(function() local _, _ = Poll.delay(Clock.seconds(1)) end)
       assert(Poll.delay(0))
       error("broken", 0)
     end)
   end, "broken")
-  raises(function()
+  Test.raises(function()
     Poll.run(function()
       local other: Poll.Task?
       local first = Poll.spawn(function()
@@ -412,8 +407,8 @@ end
 --- deadlock.
 local function test_timeouts_are_bounded_and_timed_joins_are_no_deadlock()
   Poll.run(function()
-    raises(function() Poll.delay(Poll.MOST_NS + 1) end, "from 0 to")
-    raises(function() Poll.readable(0, math.maxinteger) end, "from 0 to")
+    Test.raises(function() Poll.delay(Poll.MOST_NS + 1) end, "from 0 to")
+    Test.raises(function() Poll.readable(0, math.maxinteger) end, "from 0 to")
     local a: Poll.Task?
     local b = Poll.spawn(function() local _, _ = assert(a, "a was spawned"):join(Clock.ms(20)) end)
     a = Poll.spawn(function() local _, _ = b:join(Clock.ms(20)) end)
@@ -546,7 +541,7 @@ local function test_kill_of_an_ended_task_or_of_itself()
     assert(done:join())
     local selfish: Poll.Task?
     selfish = Poll.spawn(function()
-      raises(function() assert(selfish, "selfish was spawned"):kill() end, "cannot kill itself")
+      Test.raises(function() assert(selfish, "selfish was spawned"):kill() end, "cannot kill itself")
     end)
     assert(selfish:join())
     kept = selfish
@@ -587,7 +582,7 @@ local function test_kill_raises_what_a_close_handler_raises()
   assert(closed, "a <close> variable after the raising one was not closed")
   assert(wait_trouble:find("while its task is killed", 1, true), wait_trouble)
   assert(in_task, "in_task answered false for a task being killed")
-  raises(function()
+  Test.raises(function()
     Poll.run(function()
       local task = Poll.spawn(function()
         local _ <close> = setmetatable({} as Closer, raiser_mt)
@@ -657,12 +652,12 @@ end
 
 local function test_a_ready_wait_refuses_what_is_no_wait()
   Poll.run(function()
-    raises(function() local _, _ = Poll.ready({}, {}) end, "one or more descriptors")
-    raises(function() local _, _ = Poll.ready({ 0 }, {}) end, "one or more descriptors")
-    raises(function() local _, _ = Poll.ready({ -1 }, { sys.POLLIN }) end, "fds[1] must be a descriptor")
-    raises(function() local _, _ = Poll.ready({ 0 }, { -1 }) end, "events[1] must be a mask")
+    Test.raises(function() local _, _ = Poll.ready({}, {}) end, "one or more descriptors")
+    Test.raises(function() local _, _ = Poll.ready({ 0 }, {}) end, "one or more descriptors")
+    Test.raises(function() local _, _ = Poll.ready({ -1 }, { sys.POLLIN }) end, "fds[1] must be a descriptor")
+    Test.raises(function() local _, _ = Poll.ready({ 0 }, { -1 }) end, "events[1] must be a mask")
   end)
-  raises(function() local _, _ = Poll.ready({ 0 }, { sys.POLLIN }) end, "Poll.ready outside Poll.run")
+  Test.raises(function() local _, _ = Poll.ready({ 0 }, { sys.POLLIN }) end, "Poll.ready outside Poll.run")
 end
 
 --- The growth of live memory, in KiB, from `base`, once what is no
@@ -797,7 +792,7 @@ end
 --- than wait on a descriptor no task waits on.
 local function test_ended_descriptor_waits_leave_nothing_polled(tmp: string)
   local reader, writer = fifo(tmp, "p")
-  raises(function()
+  Test.raises(function()
     Poll.run(function()
       local cancelled = Poll.spawn(function()
         local _, _ = Poll.ready({ reader, reader }, { sys.POLLIN, 0 }, Clock.seconds(100))
@@ -959,7 +954,7 @@ local function test_a_shielded_wait_outlasts_a_cancel()
         ok, why = Poll.delay(0)
         table.insert(seen, "after nested " .. tostring(ok) .. why)
       end)
-      raises(function() Poll.shielded(function() error("inside", 0) end) end, "inside")
+      Test.raises(function() Poll.shielded(function() error("inside", 0) end) end, "inside")
       local ok, why = Poll.delay(Clock.ms(30))
       table.insert(seen, "after " .. tostring(ok) .. " " .. why)
     end)
@@ -1006,7 +1001,7 @@ local function test_a_shielded_task_is_killed_and_closed()
   end)
   assert(not ok and tostring(err):find("torn down", 1, true) == 1, tostring(err))
   assert(closed == 2, tostring(closed) .. " closed")
-  raises(function() Poll.shielded(function() end) end, "Poll.shielded outside Poll.run")
+  Test.raises(function() Poll.shielded(function() end) end, "Poll.shielded outside Poll.run")
 end
 
 --- What the three waits of this tree took as their longest were each
@@ -1110,9 +1105,9 @@ local function test_a_wait_is_cancelled_and_refuses_what_is_no_wait(tmp: string)
   end)
   for _, inside in ipairs({ false, true }) do
     local function refuses()
-      raises(function() local _, _ = Poll.wait(-1, sys.POLLIN) end, "fd must be a descriptor")
-      raises(function() local _, _ = Poll.wait(reader, -1) end, "events must be a mask")
-      raises(function() local _, _ = Poll.wait(reader, sys.POLLIN, -1) end, "timeout_ns must be")
+      Test.raises(function() local _, _ = Poll.wait(-1, sys.POLLIN) end, "fd must be a descriptor")
+      Test.raises(function() local _, _ = Poll.wait(reader, -1) end, "events must be a mask")
+      Test.raises(function() local _, _ = Poll.wait(reader, sys.POLLIN, -1) end, "timeout_ns must be")
     end
     if inside then Poll.run(refuses) else refuses() end
   end
@@ -1315,20 +1310,20 @@ local function test_notify_is_callable_from_a_close_handler()
 end
 
 local function test_a_notifier_is_one_runs_and_waits_only_in_a_task()
-  raises(function() Poll.notifier() end, "Poll.notifier outside Poll.run")
+  Test.raises(function() Poll.notifier() end, "Poll.notifier outside Poll.run")
   local kept: Poll.Notifier? = nil
   Poll.run(function()
     kept = Poll.notifier()
-    raises(function() assert(kept, "the notifier was made"):wait(-1) end, "timeout_ns must be")
+    Test.raises(function() assert(kept, "the notifier was made"):wait(-1) end, "timeout_ns must be")
   end)
   local notifier = assert(kept, "the notifier was made")
   notifier:notify_all()
   assert(notifier:waiting() == 0)
-  raises(function() notifier:wait(0) end, "Notifier:wait outside Poll.run")
+  Test.raises(function() notifier:wait(0) end, "Notifier:wait outside Poll.run")
   Poll.run(function()
-    raises(function() notifier:wait(0) end, "notifier of another run")
+    Test.raises(function() notifier:wait(0) end, "notifier of another run")
     local co = coroutine.wrap(function() notifier:wait(0) end)
-    raises(function() co() end, "outside a task's own coroutine")
+    Test.raises(function() co() end, "outside a task's own coroutine")
   end)
 end
 
@@ -1444,7 +1439,7 @@ local function test_a_notifier_wait_without_a_timeout_is_woken_by_a_later_task()
 end
 
 local function test_a_notifier_wait_nobody_can_end_is_a_deadlock()
-  raises(function()
+  Test.raises(function()
     Poll.run(function()
       local notifier = Poll.notifier()
       notifier:wait()

@@ -106,7 +106,7 @@ local function test_each_option_sets_its_field()
   same(policy.connect, { "github.com:443" })
   same(policy.loopback, { "127.0.0.2" })
   same(policy.env, { "HOME", "TERM" })
-  assert(assert(policy.set_env).LANG == "C" and assert(policy.set_env).EMPTY == "" and policy.tmp == true)
+  assert(assert(policy.set_env)["LANG"] == "C" and assert(policy.set_env)["EMPTY"] == "" and policy.tmp == true)
 
   ran = run({ "--open-files", "64", "--file-bytes", "0", "--cpu-seconds", "9", "--processes", "5",
     "--fd", "3", "--fd", "7", "--timeout", "30", "prog" })
@@ -139,7 +139,7 @@ local function test_a_value_is_the_next_word_or_follows_an_equals_sign()
   local ran = run({ "--read=a b", "--set-env=PATH=/x=y", "--timeout=5", "--path=r:c:d", "prog" })
   local policy = assert(ran.opts.policy)
   assert(letters(policy, "a b") == "r" and letters(policy, "c:d") == "r", "a path may hold a colon")
-  assert(assert(policy.set_env).PATH == "/x=y" and ran.opts.timeout_ns == 5000000000)
+  assert(assert(policy.set_env)["PATH"] == "/x=y" and ran.opts.timeout_ns == 5000000000)
 end
 
 local function test_the_program_is_the_first_word_no_option_claims()

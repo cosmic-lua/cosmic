@@ -1,5 +1,5 @@
 file: ext/misc/csv.c
-note: With header=yes, an empty first header field names its column `(NULL)`, as the field's buffer was never allocated and %w prints a null string so. This names it the empty string, as an empty field elsewhere in the header is. Upstream names it so as of 3.54.0.
+note: With header=yes, an empty first header field names its column `(NULL)`, as the field's buffer was never allocated and %w prints a null string so. This names it the empty string, as an empty field elsewhere in the header is. Upstream names it so as of 3.54.1.
 --- find
           sqlite3_str_appendf(pStr,"%s\"%w\" TEXT", zSep, z);
 --- replace

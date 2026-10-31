@@ -29,6 +29,9 @@
 --- refused by the checker. The checker is as strict as a tree build's:
 --- a warning is refused along with an error.
 ---
+--- `cosmic --standalone --check <file.tl>` types the file as a run does, prints the same refusals and exits 1 on any, 0 when
+--- there are none, and never calls the file: a gate on one script that reads neither the tree around it nor its siblings.
+---
 --- What the file returns is its entry point, called as `cosmic
 --- <file.tl>` calls one (see `argv`): a function, or a record whose
 --- `main` field is one -- the shape that lets a test `require` the same
@@ -163,16 +166,19 @@ function standalone.entry(produced: any): standalone.Main?
   return nil
 end
 
---- Runs `argv[2]` standalone: `argv` is the whole command line, `--standalone`
+--- Runs `argv[2]` standalone, or with `--check` at slot 2 checks `argv[3]` and does not run it (exit 0 when it is clean, 1 and
+--- the refusals on standard error when not): `argv` is the whole command line, `--standalone`
 --- at slot 1, so the file sees what follows its own path, and its path at
 --- `argv[0]`. `why`, where given, says what made this run standalone, which
 --- a file that does not compile is told beside its refusal: a require of a
 --- module that is not `cosmic.*` is refused here and not in the run the
 --- caller may have meant.
 function standalone.run(argv: {string}, why?: string): integer
-  local file = argv[2]
-  if file == nil then
-    log:complain("usage: cosmic --standalone <file.tl> [args...]")
+  -- `--check` stands before the file and takes nothing after it: the file is checked as a run checks it, and not run.
+  local only = argv[2] == "--check"
+  local file = argv[if only then 3 else 2 end]
+  if file == nil or (only and argv[4] ~= nil) then
+    log:complain("usage: cosmic --standalone [--check] <file.tl> [args...] (--check takes the file alone)")
     return 2
   end
   local source, read_trouble = Fs.read(file)
@@ -187,6 +193,9 @@ function standalone.run(argv: {string}, why?: string): integer
       local _, _ = Fs.put(Fs.stderr, "cosmic: " .. why .. "\n")
     end
     return 1
+  end
+  if only then
+    return 0
   end
   -- `arg[0]` is the script, so the table is keyed by position and not a sequence.
   local arguments: mut {integer: string} = {}

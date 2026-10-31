@@ -13,10 +13,10 @@ local Globals = require("cosmic.internal.globals")
 local Store = require("cosmic.store")
 local Coverage = require("cosmic.coverage")
 local Hits = require("build.coverage_hits")
+local Test = require("cosmic.test")
 
 local function test_internal_debug_not_reachable_by_name()
-  local ok = pcall(require, "cosmic.internal.debug")
-  assert(not ok, "cosmic.internal.debug must never resolve by name")
+  Test.raises(function() require("cosmic.internal.debug") end)
 end
 
 local function test_untrusted_load_cannot_reach_raw_debug()
@@ -30,8 +30,7 @@ local function test_untrusted_load_cannot_reach_raw_debug()
   -- cosmic.coverage requires "cosmic.internal.debug" by name, which
   -- never resolves (test_internal_debug_not_reachable_by_name), so the
   -- module fails to load instead of returning a working collector.
-  local ok = pcall(chunk, "cosmic.coverage", "not a table")
-  assert(not ok, "an untrusted load must not obtain a working native collector")
+  Test.raises(function() chunk("cosmic.coverage", "not a table") end)
 end
 
 --- The collector's other wrapper, [`build.coverage_hits`], is gated the
@@ -41,8 +40,7 @@ local function test_untrusted_load_of_the_hits_reader_cannot_reach_raw_debug()
   assert(bytes ~= nil and trouble == "", tostring(trouble))
   local chunk, load_trouble = load(bytes, "@build.coverage_hits", "b", Globals.table())
   assert(chunk ~= nil, tostring(load_trouble))
-  local ok = pcall(chunk, "build.coverage_hits", "not a table")
-  assert(not ok, "an untrusted load must not obtain a working native collector")
+  Test.raises(function() chunk("build.coverage_hits", "not a table") end)
 end
 
 --- [`build.test`] has a collection window open around every test body,

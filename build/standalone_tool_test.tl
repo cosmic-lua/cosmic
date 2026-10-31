@@ -108,6 +108,36 @@ local function test_a_run_without_a_file_is_a_usage_error()
   assert(tostring(result.stderr):find("usage", 1, true) ~= nil)
 end
 
+--- `--standalone --check` types a file as a run does and never runs it: a clean file whose body would write a marker and
+--- raise exits 0 and leaves no marker, a broken one is refused as a run refuses it.
+local function test_check_types_a_file_without_running_it(tmp: string)
+  local marker = tmp .. "/marker"
+  local clean = tmp .. "/clean.tl"
+  assert(Fs.write(clean, 'local Fs = require("cosmic.fs")\nassert(Fs.write("' .. marker ..
+      '", "ran"))\nerror("it ran")\n'))
+  local broken = tmp .. "/broken.tl"
+  assert(Fs.write(broken, 'local n: integer = "text"\nreturn n\n'))
+  local function check(file: string): Child.Result
+    local started = this_program.program({ "--standalone", "--check", file }, { cwd = tmp,
+      env = { XDG_CACHE_HOME = tmp .. "/cache" }, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+    local result = assert(Child.run(started.argv, started.options))
+    return result
+  end
+  local passed = check(clean)
+  assert(passed.code == 0, tostring(passed.stderr))
+  assert(Fs.exists(marker) ~= true, "--check ran the file")
+  local refused = check(broken)
+  assert(refused.code == 1, tostring(refused.stderr))
+  assert(tostring(refused.stderr):find("not_assignable", 1, true), tostring(refused.stderr))
+  local run = this_program.program({ "--standalone", broken }, { cwd = tmp, env = { XDG_CACHE_HOME = tmp .. "/cache" },
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+  local ran = assert(Child.run(run.argv, run.options))
+  assert(ran.stderr == refused.stderr, "--check prints what a run does")
+  local usage = this_program.program({ "--standalone", "--check" }, { stdout = "capture", stderr = "capture",
+    timeout_ns = Clock.seconds(30) })
+  assert(assert(Child.run(usage.argv, usage.options)).code == 2)
+end
+
 --- A file's top level finds its words in `arg`, as `lua file a b` gives
 --- them, where `...` is what `require` handed it.
 local function test_a_file_finds_its_words_in_arg_at_its_top_level(tmp: string)

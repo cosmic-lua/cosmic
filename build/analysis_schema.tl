@@ -44,16 +44,114 @@ function analysis_schema.outside_apart(column: string): string
   return table.concat(out, " ")
 end
 
+--- Whether `path` matches the `GLOB` pattern `glob`, its `*` any run of characters (a `/` too).
+local function globbed(glob: string, path: string): boolean
+  return path:match("^" .. glob:gsub("[%^%$%(%)%%%.%[%]%+%-%?]", "%%%0"):gsub("%*", ".*") .. "$") ~= nil
+end
+
 --- Whether a build reads the file `path`, a path below the root, as a
 --- module: Teal or a template, outside [`apart`], each
 --- pattern matched as `GLOB` matches it, its `*` any run of characters.
 function analysis_schema.is_module_file(path: string): boolean
   if path:match("%.tl$") == nil and path:match("%.tmpl$") == nil then return false end
   for _, pattern in ipairs(apart) do
-    local lua = "^" .. pattern:gsub("[%^%$%(%)%%%.%[%]%+%-%?]", "%%%0"):gsub("%*", ".*") .. "$"
-    if path:match(lua) ~= nil then return false end
+    if globbed(pattern, path) then return false end
   end
   return true
+end
+
+--- What a Teal file is by its path, in the order they are asked: a declaration, a test, an example, a program's main
+--- (`except` a main of a directory below `cmd/<name>/`), else a module. The one definition of the kind: the `inputs` view
+--- asks it in SQL ([`kind_case`]) and everything else through [`analysis_schema.kind_of`], both of this table.
+local kinds <const>: {{string}} = {
+  { "*.d.tl", "decl", "" },
+  { "*_test.tl", "test", "" },
+  { "*_example.tl", "example", "" },
+  { "cmd/*/main.tl", "main", "cmd/*/*/*" },
+}
+
+--- The line a declaration file holds to say it declares a table of C bindings: the kind `binding`, a declaration the
+--- contract of the error slots ([`build.syntax_contracts`]) holds the calls of. The generator of a derived declaration
+--- writes it too ([`build.gen_syscalls`]).
+local binding_tag <const> = "--- @kind binding"
+
+--- The line, as [`analysis_schema.declares_binding`] reads it.
+function analysis_schema.binding_tag(): string
+  return binding_tag
+end
+
+--- Whether the text of a declaration file holds [`analysis_schema.binding_tag`] as a line of its own, a file saved with
+--- CR LF line ends as well as one with LF.
+function analysis_schema.declares_binding(text: string): boolean
+  return ("\n" .. text:gsub("\r\n", "\n") .. "\n"):find("\n" .. binding_tag .. "\n", 1, true) ~= nil
+end
+
+--- The SQL expression for the kind of the file whose path is in `column`: `binding`, `decl`, `test`, `example`, `main` or
+--- `module` ([`kinds`]). With `source`, the SQL expression for its text, a declaration file that declares itself a
+--- binding is one.
+local function kind_case(column: string, source?: string): string
+  local out: mut {string} = { "CASE" }
+  if source ~= nil then
+    out[#out + 1] = " WHEN " .. column .. " GLOB '*.d.tl' AND instr(char(10) || replace(" .. source ..
+      ", char(13) || char(10), char(10)) || char(10), char(10) || '" .. binding_tag .. "' || char(10)) > 0 THEN 'binding'"
+  end
+  for _, rule in ipairs(kinds) do
+    local glob, kind, except = assert(rule[1]), assert(rule[2]), assert(rule[3])
+    local clause = " WHEN " .. column .. " GLOB '" .. glob .. "'"
+    if except ~= "" then clause = clause .. " AND " .. column .. " NOT GLOB '" .. except .. "'" end
+    out[#out + 1] = clause .. " THEN '" .. kind .. "'"
+  end
+  out[#out + 1] = " ELSE 'module' END"
+  return table.concat(out)
+end
+
+local declaration_kind <const> = "decl"
+
+--- The kind a build gives a declaration it writes or derives and says nothing more of ([`build.derivation`],
+--- [`build.lsp.plan`]).
+function analysis_schema.declaration_kind(): string
+  return declaration_kind
+end
+
+--- The kinds that are a declaration, a file of types that no program runs, not a module: the one place that says
+--- which, asked in SQL ([`analysis_schema.declaration`]) and in Teal ([`analysis_schema.is_declaration`]). A kind a
+--- derived declaration is given belongs here before it is written to the `derived` table. A `binding` is a declaration
+--- of a table of C.
+local declarations <const>: {string} = { declaration_kind, "binding" }
+
+--- The SQL expression that is true of a row whose kind in `column` is a declaration. `column` is an SQL identifier of
+--- the query, never data: it is spliced into the statement.
+function analysis_schema.declaration(column: string): string
+  return column .. " IN ('" .. table.concat(declarations, "', '") .. "')"
+end
+
+--- The SQL expression that is true of a row whose kind in `column` is no declaration: a module, a test, an example,
+--- a main, or whatever else a build reads that is not a file of types. `column` is an SQL identifier of the query, never
+--- data: it is spliced into the statement.
+function analysis_schema.not_declaration(column: string): string
+  return column .. " NOT IN ('" .. table.concat(declarations, "', '") .. "')"
+end
+
+--- Whether `kind`, the kind of a module of a build, is a declaration.
+function analysis_schema.is_declaration(kind: string): boolean
+  for _, each in ipairs(declarations) do
+    if kind == each then return true end
+  end
+  return false
+end
+
+--- The kind of the Teal file `path`, below the root, as the `inputs` view says it: `binding`, `decl`, `test`, `example`,
+--- `main` or `module`. A declaration is a `binding` only given its `text`; asked of the path alone it is `decl`, which a
+--- caller that wants to know a module from a declaration cannot tell from one.
+function analysis_schema.kind_of(path: string, text?: string): string
+  if text ~= nil and globbed("*.d.tl", path) and analysis_schema.declares_binding(text) then
+    return "binding"
+  end
+  for _, rule in ipairs(kinds) do
+    local glob, kind, except = assert(rule[1]), assert(rule[2]), assert(rule[3])
+    if globbed(glob, path) and (except == "" or not globbed(except, path)) then return kind end
+  end
+  return "module"
 end
 
 analysis_schema.tables = {
@@ -74,11 +172,7 @@ analysis_schema.statements = {
              replace(CASE WHEN path GLOB '*.d.tl' THEN substr(path, 1, length(path) - 5)
                           WHEN path GLOB '*/init.tl' THEN substr(path, 1, length(path) - 8)
                           ELSE substr(path, 1, length(path) - 3) END, '/', '.') AS path,
-             CASE WHEN path GLOB '*.d.tl' THEN 'decl'
-                  WHEN path GLOB '*_test.tl' THEN 'test'
-                  WHEN path GLOB '*_example.tl' THEN 'example'
-                  WHEN path GLOB 'cmd/*/main.tl' AND path NOT GLOB 'cmd/*/*/*' THEN 'main'
-                  ELSE 'module' END AS kind,
+             ]] .. kind_case("path", "CAST(data AS TEXT)") .. [[ AS kind,
              'tree' AS origin,
              sha256 AS from_hash,
              CAST(data AS TEXT) AS source,
