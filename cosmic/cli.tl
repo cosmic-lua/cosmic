@@ -412,7 +412,7 @@ local record Cli
   --- none named, each file is checked as `cosmic --standalone` checks it:
   --- the binary's own globals and `cosmic.*` modules, and what a standalone
   --- run refuses besides type errors, its warnings and the project
-  --- refusals (`package`, `_G`, a computed `require`); all are listed and
+  --- refusals (`package`, `_G`); all are listed and
   --- counted as type errors, and none stops the Lua. After a
   --- non-zero exit do not use the `-o` directory: it may hold files of an
   --- earlier run. It prints no summary; exits 0 when the Lua is written
