@@ -529,6 +529,23 @@ local function test_an_ordinary_header_is_sent()
   assert(sent:find("\r\nX-Fine: a normal value\r\n", 1, true) ~= nil, sent)
 end
 
+local function test_a_request_without_a_user_agent_sends_cosmic()
+  local _, _, sent = fetch({ reply("200 OK", "") })
+  assert(count(sent:lower(), "\r\nuser-agent:") == 1, sent)
+  assert(sent:find("\r\nUser-Agent: cosmic\r\n", 1, true) ~= nil, sent)
+end
+
+-- curl lets a custom header replace its own, whatever the name's case.
+local function test_a_callers_user_agent_replaces_the_default()
+  for _, name in ipairs({ "User-Agent", "user-agent" }) do
+    local _, _, sent = fetch({ reply("200 OK", "") },
+      { headers = { [name] = "mine/1" } })
+    assert(count(sent:lower(), "\r\nuser-agent:") == 1, sent)
+    assert(sent:find("\r\n" .. name .. ": mine/1\r\n", 1, true) ~= nil, sent)
+    assert(sent:find("cosmic\r\n", 1, true) == nil, sent)
+  end
+end
+
 -- curl reads a method, header name and header value as C strings, so a
 -- NUL would cut each short: `X-A: v1` would go out for "v1\0INJECT" and
 -- a plain GET for "GET\0junk". Each is refused before any connection.

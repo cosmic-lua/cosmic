@@ -1210,6 +1210,9 @@ static CURLcode configure (struct transfer *t, const struct request *r,
   SET(CURLOPT_LOW_SPEED_LIMIT, r->low_speed_bytes);
   SET(CURLOPT_LOW_SPEED_TIME, r->low_speed_seconds);
   SET(CURLOPT_VERBOSE, r->verbose ? 1L : 0L);
+  /* Servers and CDNs refuse a request with none; a header the caller
+   * sets by that name replaces it. */
+  SET(CURLOPT_USERAGENT, "cosmic");
   if (r->ca_blob != NULL) {
     /* curl copies the blob, parses it into each connection's own chain,
      * and keys connection reuse and TLS session resumption on it, so a

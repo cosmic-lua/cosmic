@@ -132,7 +132,8 @@ local record Http
   record Options
     --- The HTTP method, case-sensitive; GET, or POST when there is a `body`.
     method?: string
-    --- Request headers, name to value.
+    --- Request headers, name to value. A request sends `User-Agent: cosmic`
+    --- unless a header here names its own `User-Agent`, in any case.
     headers?: {string:string}
     --- The request body, sent whole.
     body?: string
