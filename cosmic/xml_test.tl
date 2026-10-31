@@ -316,3 +316,28 @@ local function test_write_keeps_clear_of_declared_prefixes()
   assert(why("{http://www.w3.org/2000/xmlns/}a"):match("no namespace a name may be in") ~= nil)
   assert(why("{urn:a}p:b") == 'xml: event 1: not an XML name: "{urn:a}p:b"', why("{urn:a}p:b"))
 end
+
+--- A prefix bound on an element is in scope only inside it: a sibling binds
+--- its own. An attribute in its element's namespace takes the same prefix,
+--- declared once, and a prefix a plain name uses is never bound.
+local function test_write_scopes_each_binding_to_its_element()
+  local written = assert(Xml.write({
+    { kind = "start", name = "r" },
+    { kind = "start", name = "{urn:a}x", attributes = { ["{urn:a}k"] = "1" } },
+    { kind = "end", name = "{urn:a}x" },
+    { kind = "start", name = "{urn:a}y" },
+    { kind = "end", name = "{urn:a}y" },
+    { kind = "start", name = "ns1:z", attributes = { ["xmlns:ns1"] = "urn:z" } },
+    { kind = "end", name = "ns1:z" },
+    { kind = "end", name = "r" },
+  }))
+  assert(written == '<r><ns2:x ns2:k="1" xmlns:ns2="urn:a"/><ns3:y xmlns:ns3="urn:a"/><ns1:z xmlns:ns1="urn:z"/></r>',
+    written)
+  local plain = assert(Xml.write({
+    { kind = "start", name = "ns1:r" },
+    { kind = "start", name = "{urn:a}x" },
+    { kind = "end", name = "{urn:a}x" },
+    { kind = "end", name = "ns1:r" },
+  }))
+  assert(plain == '<ns1:r><ns2:x xmlns:ns2="urn:a"/></ns1:r>', plain)
+end

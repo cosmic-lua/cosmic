@@ -346,8 +346,8 @@ end
 --- answers it, is written under a prefix bound to its namespace: the
 --- `xml` prefix for XML's own, and otherwise `ns1`, `ns2` and on, each
 --- declared with an `xmlns:` attribute on the first element that needs it
---- and used by the elements inside it. A prefix the events declare for
---- themselves is never chosen. nil and why, naming the event, when they
+--- and used by the elements inside it. A prefix the events declare or
+--- name for themselves is never chosen. nil and why, naming the event, when they
 --- are no document: an element that is not closed, or closed by another
 --- name; no root element, or a second; text outside the root; a name that
 --- is no XML name, or one in a namespace no name may be in (none, or
@@ -362,11 +362,17 @@ function Xml.write(events: {Xml.Event}): string?, string
   local written: mut {string} = {}
   local roots = 0
   local scopes: Scopes = { bound = {}, declared = {}, next = 0 }
+  -- A prefix the events name themselves, declared or in a plain name, is never
+  -- bound, so no name of theirs changes namespace.
+  local function reserve(name: string)
+    local prefix = name:match("^([^{:][^:]*):")
+    if prefix ~= nil then scopes.declared[prefix] = true end
+    local declared = name:match("^xmlns:(.+)$")
+    if declared ~= nil then scopes.declared[declared] = true end
+  end
   for _, e in ipairs(events) do
-    for attribute in pairs(e.attributes or {}) do
-      local declared = attribute:match("^xmlns:(.+)$")
-      if declared ~= nil then scopes.declared[declared] = true end
-    end
+    if e.kind == "start" then reserve(e.name or "") end
+    for attribute in pairs(e.attributes or {}) do reserve(attribute) end
   end
   for index, e in ipairs(events) do
     local function refuse(why: string): nil, string

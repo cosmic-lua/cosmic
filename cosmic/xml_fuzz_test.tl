@@ -5,7 +5,7 @@ local Xml = require("cosmic.xml")
 --- markup that opens and closes, references, sections, and bytes no
 --- document may hold.
 local PIECES <const>: {string} = {
-  "<a>", "</a>", "<b x='1'>", "</b>", "<c/>", "<p:d xmlns:p='urn:p'>", "</p:d>", "text", " ", "\n",
+  "<a>", "</a>", "<b x='1'>", "</b>", "<c/>", "<p:d xmlns:p='urn:p'>", "</p:d>", "<q:e xmlns:q='urn:q' q:k='1' xml:lang='en' j='2'/>", "text", " ", "\n",
   "&amp;", "&#x41;", "&e;", "&bogus;", "<![CDATA[<x>]]>", "<!-- note -->", "<?pi data?>", "\u{E9}",
   "<", ">", "&", "]]>", "\0", "\xff", "'", '"',
 }
@@ -30,7 +30,15 @@ local function read(text: string, size: integer): string
   local out: mut {string} = {}
   local function take(events: {Xml.Event})
     for _, e in ipairs(events) do
-      local line = e.kind .. " " .. (e.name or "") .. " " .. (e.text or "")
+      local names: mut {string} = {}
+      for name in pairs(e.attributes or {}) do names[#names + 1] = name end
+      table.sort(names)
+      local attributes: mut {string} = {}
+      for _, name in ipairs(names) do
+        local pair = name .. "=" .. assert((e.attributes or {})[name])
+        attributes[#attributes + 1] = pair
+      end
+      local line = e.kind .. " " .. (e.name or "") .. " " .. table.concat(attributes, " ") .. " " .. (e.text or "")
       out[#out + 1] = line
     end
   end
@@ -90,7 +98,9 @@ local function test_what_reads_writes_back_to_the_same_events(tmp: string)
       local before = read(text, #text)
       local after = read(written, #written)
       if before ~= after then return false, "read back otherwise:\n" .. written end
-      local named = assert(Xml.events(text, { namespaces = true }))
+      local named = Xml.events(text, { namespaces = true })
+      -- Well-formed but not namespace-well-formed (`<a:>`): nothing to write.
+      if named == nil then return true, "" end
       local named_written, nwhy = Xml.write(named)
       if named_written == nil then
         return false, "read with namespaces but not written: " .. nwhy

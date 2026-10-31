@@ -36,11 +36,13 @@ local parts: {{string}} = {
     "<si><r><t>North</t></r><r><t> East</t></r>" ..
     '<rPh sb="0" eb="5"><t>nosu</t></rPh></si></sst>' },
   { "xl/styles.xml", "<styleSheet " .. main .. '><numFmts><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm"/>' ..
-    '</numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="14"/><xf numFmtId="164"/></cellXfs></styleSheet>' },
+    '<numFmt numFmtId="165" formatCode="[h]:mm"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="14"/>' ..
+    '<xf numFmtId="164"/><xf numFmtId="165"/></cellXfs></styleSheet>' },
   { "xl/worksheets/sheet1.xml", "<worksheet " .. main .. "><sheetData>" ..
     '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>' ..
     '<row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2"><v>1250.5</v></c><c r="D2" t="b"><v>1</v></c><c><v>7</v></c></row>' ..
-    '<row r="3"><c r="A3" s="1"><v>45658</v></c><c r="B3" s="2"><v>45658.5</v></c></row>' ..
+    '<row r="3"><c r="A3" s="1"><v>45658</v></c><c r="B3" s="2"><v>45658.5</v></c>' ..
+    '<c r="C3" s="1" t="e"><v>#N/A</v></c><c r="D3" s="3"><v>1.5</v></c></row>' ..
     "</sheetData></worksheet>" },
 }
 local out = Stream.collect()
@@ -120,11 +122,16 @@ end
 A date is a number, the days since 1899-12-30, with the time of day as
 its fraction; only its cell's style says it is a date. A cell's `s`
 indexes the `xf` elements of `cellXfs` in the styles part, and an `xf`'s
-`numFmtId` names its number format: one built in, of which 14 to 22 and
-45 to 47 are dates and times, or one of the part's own `numFmt`s. One of
+`numFmtId` names its number format: one built in, of which 14 to 22, 45
+and 47 are dates and times, or one of the part's own `numFmt`s. One of
 those is a date when its code holds `d`, `m`, `y`, `h` or `s` outside
-its quoted text and its `[...]` sections. [`Time.parse_date`] gives the
-first moment of 1899-12-30, from which the days count.
+its quoted text, its escaped (`\d`) and padding (`_d`, `*d`) characters
+and its `[...]` sections; one with `[h]`, `[m]` or `[s]`, as built-in 46
+is, shows elapsed time, a duration and no date. A cell is read as a date
+only when it holds a number: an error, such as `#N/A`, or a formula's
+text is written as it is. [`Time.parse_date`] gives the first moment of
+1899-12-30, from which the days count. The time of day has no zone, so
+it is written without one.
 
 ```teal continue
 local date_styles: mut {integer: boolean} = {}
@@ -133,13 +140,14 @@ if styles ~= nil then
   local sheet = part(styles)
   local custom: mut {string: boolean} = {}
   for _, f in ipairs(Xml.children(Xml.child(sheet, "numFmts") or sheet, "numFmt")) do
-    local code = (assert(f.attributes["formatCode"]):lower():gsub('"[^"]*"', ""):gsub("%[[^%]]*%]", ""))
-    custom[assert(f.attributes["numFmtId"])] = code:find("[dmyhs]") ~= nil
+    local code = assert(f.attributes["formatCode"]):lower()
+    local shown = (code:gsub('"[^"]*"', ""):gsub("\\.", ""):gsub("[_*].", ""):gsub("%[[^%]]*%]", ""))
+    custom[assert(f.attributes["numFmtId"])] = code:find("%[[hms]+%]") == nil and shown:find("[dmyhs]") ~= nil
   end
   for i, xf in ipairs(Xml.children(Xml.child(sheet, "cellXfs") or sheet, "xf")) do
     local id = xf.attributes["numFmtId"] or "0"
     local n = math.tointeger(id) or 0
-    date_styles[i - 1] = (n >= 14 and n <= 22) or (n >= 45 and n <= 47) or custom[id] == true
+    date_styles[i - 1] = (n >= 14 and n <= 22) or n == 45 or n == 47 or custom[id] == true
   end
 end
 
@@ -147,7 +155,7 @@ local epoch = assert(Time.parse_date("1899-12-30"))
 local function date(serial: number): string
   local ns = epoch + math.floor(serial * 86400 + 0.5) * 1000000000
   if serial == math.floor(serial) then return Time.format_date(ns) end
-  return Time.format_rfc3339(ns)
+  return (Time.format_rfc3339(ns):gsub("Z$", ""))
 end
 ```
 
@@ -176,7 +184,8 @@ local function value(c: Xml.Element): string
   if t == "s" then return assert(strings[assert(math.tointeger(raw)) + 1]) end
   if t == "b" then return if raw == "1" then "TRUE" else "FALSE" end end
   local style = math.tointeger(c.attributes["s"] or "0")
-  if style ~= nil and date_styles[style] == true then return date(assert(tonumber(raw))) end
+  local number = if t == nil or t == "n" then tonumber(raw) else nil end
+  if number ~= nil and style ~= nil and date_styles[style] == true then return date(number) end
   return raw
 end
 ```
@@ -225,16 +234,19 @@ assert(book:close())
 Sales
 Region,Total
 North East,1250.5,,TRUE,7
-2025-01-01,2025-01-01T12:00:00Z
+2025-01-01,2025-01-01T12:00:00,#N/A,1.5
 ```
 
 ## going further
 
 What this leaves out is the spreadsheet's own business, not the file's:
 
-- A workbook may count its dates from 1904-01-01 instead: its
-  `workbookPr` says so with `date1904="1"`. And Excel counts 1900 as a
-  leap year, so a serial before 61 (1900-03-01) is a day off.
+- A workbook may count its dates from 1904-01-01 instead, which its
+  `workbookPr` says with `date1904="1"`; this reader counts from 1900's.
+- Excel counts 1900 as a leap year, so the serials 1 to 59 come out a day
+  early here, and 60 names a February 29 that never was.
+- The built-in formats 27 to 36 and 50 to 58, East Asian dates, are left
+  out.
 - A formula's cell holds an `f` beside the `v` it last computed.
 - A sheet's `mergeCells` and `hyperlinks`, and the workbook's defined
   names, are each a few lines more of the same.
