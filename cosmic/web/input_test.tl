@@ -551,12 +551,12 @@ local function test_a_body_read_over_the_limit_stays_failed_for_a_later_reader()
       return true, ""
     end,
   }
-  local statuses: {integer} = {}
+  local statuses: mut {integer} = {}
   local bytes_status: string = ""
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     statuses[1] = assert(Input.form(req, { max_bytes = 25 }).invalid).status
     local larger = Input.form(req, { max_bytes = 1 << 20 }).invalid
-    statuses[2] = larger and larger.status or 0
+    statuses[#statuses + 1] = larger and larger.status or 0
     local data = req:bytes()
     bytes_status = if data == nil then "failed" else "truncated" end
     return Web.text("ok")
