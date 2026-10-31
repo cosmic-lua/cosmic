@@ -1365,6 +1365,53 @@ local function test_a_settled_analyzer_names_its_rows_as_the_written_tool_will()
   work.close(handle)
 end
 
+--- Where a source declares its types and members (`places`) is a parse's row like the rest: written for the source's
+--- hash, gone with the hash when the file is edited, and forgotten when the analyzer that derived it is not this one.
+local function test_places_follow_the_source_they_were_read_from()
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-places-"))
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "lang",
+      "patch/lua", "vendor/lua", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
+  assert(Fs.write(root .. "/cosmic/thing.tl", "local record Thing\n  n: integer\nend\nreturn Thing\n"))
+  --- The places of `cosmic.thing` after a derive of the staged tree, as `symbol line:column`, one a line, by the analyzer
+  --- the database is told derived its rows.
+  local function derived(analyzer?: string, plant?: boolean): string
+    local handle = assert(work.open(root))
+    assert(work.stage(handle, { own = true }))
+    assert(Sqlite.run(handle.db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('boot_hash', 'tool-one')"))
+    if analyzer ~= nil then
+      assert(Sqlite.run(handle.db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', ?1)",
+        { { text = analyzer } }))
+    end
+    if plant == true then
+      -- Under the real source's hash, so only the analyzer sweep can remove it.
+      assert(Sqlite.run(handle.db, "INSERT OR REPLACE INTO places (source_hash, ordinal, symbol, kind, line, column, " ..
+          "length) SELECT source_hash, 99, 'Planted', 'type', 1, 1, 1 FROM inputs WHERE path = 'cosmic.thing'"))
+    end
+    assert(importer.derive(handle))
+    local rows = assert(Sqlite.text_rows(handle.db, "SELECT symbol || ' ' || line || ':' || column FROM places " ..
+        "WHERE source_hash IN (SELECT source_hash FROM inputs WHERE path = 'cosmic.thing') ORDER BY ordinal"))
+    local every = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM places"))
+    local out: mut {string} = {}
+    for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
+    work.close(handle)
+    return table.concat(out, ";") .. "|" .. nth(every, 1):text(1)
+  end
+  assert(derived() == "Thing 1:14;Thing.n 2:3|2", derived())
+  -- Edited: the rows of the text before it are pruned, the rows of the text now are written.
+  assert(Fs.write(root .. "/cosmic/thing.tl", "\nlocal record Thing\n  n: integer\n  m: integer\nend\nreturn Thing\n"))
+  local edited = derived()
+  assert(edited == "Thing 2:14;Thing.n 3:3;Thing.m 4:3|3", edited)
+  -- The same analyzer keeps a row planted under the source's hash; another analyzer's rows are forgotten, and the source
+  -- is read again.
+  local planted = derived(nil, true)
+  assert(planted == "Thing 2:14;Thing.n 3:3;Thing.m 4:3;Planted 1:1|4", planted)
+  local again = derived("an older analyzer", true)
+  assert(again == edited, again)
+end
+
 --- `ci/` is the pinned CI driver's own project, walked and built by
 --- the pinned host with cwd `ci/`, never by cosmic's own build: staging
 --- cosmic's own tree must record nothing under `ci/`, and deriving
