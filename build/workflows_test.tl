@@ -1965,7 +1965,7 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
       pulled["pattern"] == "verdicts-linux-x86_64-checked-shard-*" and pulled["merge-multiple"] == nil and
       pulled["name"] == nil and pulled["run-id"] == nil and download["continue-on-error"] == true and
       download["if"] == FULL,
-    "the checked job takes the shares' verdicts from another run, merges them into one directory, or goes on without them (its first try tolerates failure; test_a_gating_download_has_a_first_try_to_retry holds the second)")
+    "the checked job takes the shares' verdicts from another run, merges them into one directory, or goes on without them (its first try tolerates failure; test_a_gating_download_is_tried_twice holds the second)")
   assert(merge["run"] == "for share in \"${{ runner.temp }}\"/verdicts-shares/*/; do " ..
       "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"$share\" || exit 1; done" and
       merge["if"] == FULL and merge["continue-on-error"] == nil and
@@ -3338,33 +3338,93 @@ local function test_every_leg_has_its_promises_and_no_other_does()
 end
 
 local DOWNLOAD <const> = "actions/download-artifact@"
+local RETRY_IF <const> = "^steps%.([%w_-]+)%.outcome == 'failure'$"
 
---- A gating download (one without `continue-on-error`) is the second try of
---- an earlier one of the same inputs that has an `id` and tolerates its
---- failure, and runs only where that one failed. GitHub's artifact service
+local function is_download(step: Step): boolean
+  local uses = step.uses
+  return uses ~= nil and String.starts_with(uses, DOWNLOAD) == true
+end
+
+--- The paths under $RUNNER_TEMP that ci/cosmic_ci/queue_stage.tl stages
+--- into the seed the queue's legs upload: the directory each cache entry
+--- is copied from (`entry(temp, seed, name, dir, ...)`) and each name
+--- written under `seed .. "/"`.
+local function staged_paths(): {string: boolean}
+  local text = assert(Fs.read("ci/cosmic_ci/queue_stage.tl"))
+  local out: mut {string: boolean} = {}
+  for dir in text:gmatch('entry%(temp, seed, "[%w-]+", "([%w-]+)"') do out[dir] = true end
+  for name in text:gmatch('seed %.%. "/([%w%.-]+)') do out[name] = true end
+  return out
+end
+
+--- The words `rm -rf` removes in `script`, as a set.
+local function removed_by(script: string): {string: boolean}
+  local out: mut {string: boolean} = {}
+  local list = script:match("rm %-rf ([^;]-);")
+  assert(list, "no rm -rf in " .. script)
+  for word in list:gmatch("%S+") do out[(word:gsub('"', ""))] = true end
+  return out
+end
+
+--- A download that fails its job is tried twice. GitHub's artifact service
 --- fails a download now and then; in a merge queue each such failure ejects
---- the entry. A real absence of the artifact fails the second try, so the
---- job still fails. A new gating download with no first try is refused.
-local function test_a_gating_download_has_a_first_try_to_retry()
-  local seen = 0
-  for path, workflow in pairs(decoded_workflows()) do
+--- the entry. The first try has an `id` and `continue-on-error: true`. The
+--- second try has the same inputs, no `continue-on-error`, and runs `if:
+--- steps.<id>.outcome == 'failure'`, so an artifact that is absent still
+--- fails the job. Between them a step with that `if` sleeps and removes
+--- what the first try may have left: its `path`, or for a `path` of
+--- $RUNNER_TEMP itself (which holds more than the download) exactly the
+--- paths queue_stage.tl stages. A download that tolerates failure and has no
+--- second try (its consumer goes on without it) is not held to this.
+local function test_a_gating_download_is_tried_twice()
+  local retries = 0
+  for file, workflow in pairs(decoded_workflows()) do
     for name, job in pairs(workflow.jobs) do
+      local retried: mut {string: integer} = {}
       for i, step in ipairs(job.steps) do
-        local uses = step.uses
-        if uses ~= nil and String.starts_with(uses, DOWNLOAD) == true and step["continue-on-error"] ~= true then
-          local where = path .. " " .. name .. " step " .. tostring(i) .. " " .. (step.name or "")
-          local first_id = (step["if"] or ""):match("^steps%.([%w_-]+)%.outcome == 'failure'$")
-          assert(first_id, where .. ": no first try; run it first with continue-on-error and an id, then retry it `if: steps.<id>.outcome == 'failure'`")
+        local where = file .. " " .. name .. " step " .. tostring(i) .. " " .. (step.name or "")
+        local first_id = (step["if"] or ""):match(RETRY_IF)
+        if is_download(step) and first_id ~= nil then
+          retries = retries + 1
+          assert(step["continue-on-error"] ~= true, where .. ": a second try that tolerates failure passes where the artifact is absent")
           local first, at = step_with_id(job.steps, first_id)
           assert(at < i, where .. ": the first try " .. first_id .. " comes after it")
-          assert(first["continue-on-error"] == true, where .. ": " .. first_id .. " does not tolerate its failure")
-          assert(first.uses == uses, where .. ": " .. first_id .. " is another action")
+          assert(is_download(first) and first["continue-on-error"] == true,
+            where .. ": " .. first_id .. " is not a download that tolerates its failure")
+          assert(first.uses == step.uses, where .. ": " .. first_id .. " is another action")
           assert(Json.encode_any(first.with) == Json.encode_any(step.with),
             where .. ": " .. first_id .. " downloads other inputs")
-          seen = seen + 1
+          retried[first_id] = (retried[first_id] or 0) + 1
+          local waits = 0
+          for k = at + 1, i - 1 do
+            local between = assert(job.steps[k])
+            if between["if"] == step["if"] and (between.run or ""):find("sleep ", 1, true) ~= nil then
+              waits = waits + 1
+              local run = assert(between.run)
+              local path = param(first, "path")
+              if path == "${{ runner.temp }}" then
+                assert(String.starts_with(run, 'cd "' .. path .. '" && rm -rf '), where .. ": the wait does not clear in " .. path)
+                local gone, staged = removed_by(run), staged_paths()
+                for dir in pairs(staged) do
+                  assert(gone[dir], where .. ": the wait leaves " .. dir .. ", which queue_stage.tl stages")
+                end
+                for dir in pairs(gone) do
+                  assert(staged[dir], where .. ": the wait removes " .. dir .. ", which queue_stage.tl does not stage")
+                end
+              else
+                assert(String.starts_with(run, 'rm -rf "' .. path .. '"; sleep '), where .. ": the wait does not remove " .. path)
+              end
+            end
+          end
+          assert(waits == 1, where .. ": " .. tostring(waits) .. " steps between the tries sleep and clear, under its `if`")
+        elseif is_download(step) then
+          assert(step["continue-on-error"] == true, where .. ": no first try; run it first with continue-on-error and an id, then retry it `if: steps.<id>.outcome == 'failure'`")
         end
+      end
+      for id, count in pairs(retried) do
+        assert(count == 1, file .. " " .. name .. ": " .. id .. " has " .. tostring(count) .. " retries")
       end
     end
   end
-  assert(seen > 0, "no gating download found: the test reads nothing")
+  assert(retries > 0, "no retried download found: the test reads nothing")
 end

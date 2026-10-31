@@ -44,10 +44,12 @@
         # would add the root's files), and keeps no credential in the
         # checkout. Beyond the actions, the job runs only the scripts that
         # fetch the driver and verify it against ci/cosmic-driver.pin's
-        # digest, and the driver itself. The write token reaches only the
-        # driver's publish step, where cosmic_ci/github_api.tl sends it to
-        # the GitHub API and the release upload host and no other. The candidate bytes the job downloads are data only:
-        # none of them is ever executed.
+        # digest, the driver itself, and one `sh` step that removes the
+        # downloaded products and sleeps before the download's second try.
+        # The write token reaches only the driver's publish step, where
+        # cosmic_ci/github_api.tl sends it to the GitHub API and the
+        # release upload host and no other. The candidate bytes the job
+        # downloads are data only: none of them is ever executed.
         {
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
           with: {
@@ -77,7 +79,7 @@
           name: "download the tested products: wait before the second try",
           if: "steps.products-download.outcome == 'failure'",
           shell: "sh",
-          run: "rm -rf \"${{ runner.temp }}/products\"; sleep 10",
+          run: "rm -rf \"${{ runner.temp }}/products\"; sleep 30",
         },
         {
           name: "download the tested products: second try",
