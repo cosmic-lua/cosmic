@@ -78,4 +78,19 @@ function Example.entry()
   assert(r:close())
 end
 
+--- [`file_writer`] takes an entry's body a piece at a time, as a document
+--- written as it is made comes: here three lines, never held together.
+function Example.file_writer()
+  local out = Stream.collect()
+  local w = Zip.writer(out)
+  local body = assert(w:file_writer("log.txt"))
+  for i = 1, 3 do assert(body:write("entry " .. tostring(i) .. "\n")) end
+  assert(body:close())
+  assert(w:close())
+  local r = assert(Zip.open_string(out:result()))
+  local log = assert(r:entry("log.txt"))
+  print(log.size) -- 24
+  assert(r:close())
+end
+
 return Example
