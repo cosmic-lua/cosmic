@@ -152,6 +152,9 @@ local record Shape
     record: function(fields: {string: Node}): Node
     --- A record that refuses every key it does not name.
     strict_record: function(fields: {string: Node}): Node
+    --- `node`, a record or a map, as a spec of a table of untrusted values: the one type its answer has whatever the
+    --- fields hold. For a program that binds records it did not declare, such as a test that draws them.
+    table_of: function(node: Node): Spec<{string: any}>
     --- `value` checked against `node`, as [`into`] does, answering the checked copy as it is, since nothing says its type.
     check: function(value: any, node: Node): any, string
   end
@@ -720,6 +723,16 @@ local function check(value: any, node: Node): any, string
   return walk(value, node, "$")
 end
 
+--- `node`, a record or a map, as a spec of `{string: any}`.
+local function table_of(node: Node): Shape.Spec<{string: any}>
+  need_node(node, "table_of's node")
+  if node.kind ~= "record" and node.kind ~= "map" then
+    error(("shape: table_of takes a record or a map, not a %s: another node does not answer a table of names"):format(
+      node.kind), 2)
+  end
+  return spec_of(node)
+end
+
 Shape.raw = {
   string = STRING, number = NUMBER, integer = INTEGER, boolean = BOOLEAN, any = ANY,
   list = raw_list, map = raw_map, optional = raw_optional, one_of = raw_one_of,
@@ -727,7 +740,7 @@ Shape.raw = {
   strict_record = function(fields: {string: Node}): Node
     return record_node(fields, true, "strict_record")
   end,
-  check = check,
+  check = check, table_of = table_of,
 }
 
 return Shape

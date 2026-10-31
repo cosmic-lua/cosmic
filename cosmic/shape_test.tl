@@ -457,6 +457,15 @@ local function refuses_a_forgery(run: function()): boolean
   return why ~= nil and why:find("did not make", 1, true) ~= nil
 end
 
+-- `table_of` makes a spec of a table of untrusted values from a record or map node, and no other.
+local function test_table_of_takes_a_record_or_a_map_and_no_other()
+  local spec = R.table_of(R.record({ a = R.string }))
+  local ok = must(Shape.into(must(Json.decode('{"a": "x"}')), spec))
+  assert(ok["a"] == "x")
+  assert(raised(function() local _ = R.table_of(R.string) end) ~= nil)
+  assert(raised(function() local _ = R.table_of(R.list(R.string)) end) ~= nil)
+end
+
 -- A `Spec<T>` is a table anyone can write, and what ties its `T` to its check is that cosmic.shape made it: a spec written
 -- by hand is refused wherever it is used, as the answer's type would be the writer's claim.
 local function test_a_spec_written_by_hand_is_refused_wherever_it_is_used()

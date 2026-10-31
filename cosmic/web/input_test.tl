@@ -10,7 +10,7 @@ local Web = require("cosmic.web")
 
 --- A record node read as a map of untrusted values, which is all a hand-written record says of its type.
 local function dynamic(node: Shape.Node): Shape.Spec<{string:any}>
-  return { node = node }
+  return Shape.raw.table_of(node)
 end
 
 --- Why `invalid` refuses, or nil for none.
