@@ -503,6 +503,31 @@ local function test_a_generic_function_passed_to_a_callee_answers_a_type_and_not
   stands(head .. "local ok, r = pcall(id, 1)\nif r is integer then print(r + 1) end\nprint(ok)\n", "2,true")
 end
 
+-- An `invalid` argument stands for a mistake reported where it was made, and silences only the type parameters it was found
+-- for: the others are reported if nothing solves them. On main one invalid argument silenced the whole call.
+local function test_an_invalid_argument_silences_only_the_type_parameters_it_was_found_for()
+  local head = "local function both<T, U>(a: T, b: {T} | {U}): T\n  return a\nend\n" ..
+    "local m: {string: integer} = { k = 1 }\nlocal bad = m.k.nothing\n"
+  -- the call has a parameter the invalid argument did not touch and nothing solves
+  refused(head .. "local ys: {integer} = { 1 }\nlocal r = both(bad, ys)\nprint(r)\n", "map_field cannot_infer")
+  -- a hole only the invalid argument could have filled is not reported again
+  refused(head .. "for _, v in ipairs(bad) do\n  print(v)\nend\nlocal t = pairs(bad)\nprint(t)\n", "map_field")
+  refused(head .. "local co = coroutine.status(bad)\nprint(co)\n", "map_field")
+end
+
+-- A generic function passed to an overloaded callee, taken from the values the callee passes it, says which bound a type
+-- fails to meet, where it used to be `overload_none`.
+local function test_a_bound_a_passed_generic_function_does_not_meet_is_bound_unmet()
+  local head = "local interface Named\n  name: string\nend\nlocal record Plain\n  name: string\nend\n" ..
+    "local function label<T is Named>(x: T): string\n  return x.name\nend\nlocal p: Plain = { name = \"ann\" }\n"
+  refused(head .. "local ok, r = pcall(label, p)\nprint(ok, r)\n", "bound_unmet")
+  refused(head .. "local function h(e: any): any\n  return e\nend\nlocal ok, r = xpcall(label, h, p)\nprint(ok, r)\n",
+    "bound_unmet")
+  stands("local interface Named\n  name: string\nend\nlocal class Person is Named\n  name: string\nend\n" ..
+      "local function label<T is Named>(x: T): string\n  return x.name\nend\nlocal p: Person = { name = \"ann\" }\n" ..
+      "local ok, r = pcall(label, p)\nprint(ok, r is string)\n", "true\ttrue")
+end
+
 local function test_an_iterator_that_is_a_generic_function_is_solved_by_the_state_and_the_control_value()
   local head = "local function step<T>(xs: {T}, at: integer?): (integer?, T?)\n  return nil, nil\nend\n"
   assert(type_of(head .. "local names: {string} = { \"a\" }\nfor i, v in step, names, nil do\n  local seen = v\nend\n", "seen") == "string?")
