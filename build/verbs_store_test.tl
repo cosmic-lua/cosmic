@@ -113,7 +113,7 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
   assert(split:find("Cli.test", 1, true), split)
   -- A word joined by "_" is those words in a row, as FTS5 reads it, and
   -- the verb's own name counts, as it does in the index.
-  local joined = verbs_fixture.expect(tmp, "docs", { "docs", "COSMIC_TEST_TIMEOUT" }, 0).stdout or ""
+  local joined = verbs_fixture.expect(tmp, "docs", { "docs", "COSMIC_BUILD_JOBS" }, 0).stdout or ""
   assert(joined:find("Cli.test", 1, true), joined)
   local named = verbs_fixture.expect(tmp, "docs", { "docs", "cli", "launcher" }, 0).stdout or ""
   assert(named:find("Cli.build", 1, true), named)

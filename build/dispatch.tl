@@ -835,7 +835,7 @@ function Dispatch.main(argv: {string}): integer
     -- A tree verb started below an established tree's root runs at the
     -- root ([`build.tree_root`]), its paths still read from here.
     local tree_root = require("build.tree_root")
-    local answer = tree_root.move(argv, options, Env.get("HOME"), Env.get("COSMIC_TREE"))
+    local answer = tree_root.move(argv, options, Env.read("HOME"), Env.read("COSMIC_TREE"))
     local moved, refused, note = answer.move, answer.refused, answer.note
     if refused ~= "" then
       log:complain(verb .. ": " .. refused)

@@ -221,8 +221,8 @@ end
 --- COSMIC_ZIG_CACHE_SEED and the global cache COSMIC_ZIG_GLOBAL_CACHE
 --- names, as `driver.tl zig-prune` takes them.
 function ZigRestat.restat_command(_argv: {string}): integer
-  local seed = Env.get("COSMIC_ZIG_CACHE_SEED") or ""
-  local shared = Env.get("COSMIC_ZIG_GLOBAL_CACHE")
+  local seed = Env.read("COSMIC_ZIG_CACHE_SEED") or ""
+  local shared = Env.read("COSMIC_ZIG_GLOBAL_CACHE")
   local kept: string? = nil
   if shared ~= nil and shared ~= "" then kept = shared end
   local command = ZigRestat.run(assert(Fs.absolute(".")), seed .. "/zig-cache", kept)

@@ -734,8 +734,8 @@ local function experiment(argv: {string}, count: integer, probes: integer, progr
     script_sha256 = Hash.hex_sha256((assert(Fs.read(script)))),
     workload = argv[5] or "all",
     timer_overhead_ns = distribution_json(Perf.distribution(timer)),
-    baseline_commit = Env.get("COSMIC_PERF_BASELINE_COMMIT"),
-    candidate_commit = Env.get("COSMIC_PERF_CANDIDATE_COMMIT"),
+    baseline_commit = Env.read("COSMIC_PERF_BASELINE_COMMIT"),
+    candidate_commit = Env.read("COSMIC_PERF_CANDIDATE_COMMIT"),
     fixtures = manifest,
     counter_columns = { "compiled", "cached", "read", "verdict", "run", "builds" } }
   save(output .. "/metadata.json", metadata)

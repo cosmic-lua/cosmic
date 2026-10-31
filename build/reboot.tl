@@ -25,6 +25,7 @@
 local build_paths = require("build.paths")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
@@ -142,7 +143,7 @@ function reboot.auto_boot(environment?: {string:string}): boolean
   if environment ~= nil then
     value = environment["COSMIC_AUTO_BOOT"]
   else
-    value = sys.getenv("COSMIC_AUTO_BOOT")
+    value = Env.read("COSMIC_AUTO_BOOT")
   end
   return value ~= "0"
 end
