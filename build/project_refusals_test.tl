@@ -126,6 +126,74 @@ local function test_load_of_text_is_accepted()
   accepted("local t = { load = 1 }\nreturn t.load\n")
 end
 
+local STORE = "local Store = require(\"cosmic.store\")\n"
+
+-- The store loads the bytecode of a database it is handed as it finds it, which nothing checks: a project that attaches a
+-- database of its own making runs types the checker never read.
+local function test_attach_without_the_unchecked_bytecode_option_is_refused()
+  refused(STORE .. "local ok = Store.attach(\"x.db\")\nreturn ok\n", 2, "unchecked_bytecode = true")
+  refused(STORE .. "local ok = Store.attach(\"x.db\", {})\nreturn ok\n", 2, "unchecked_bytecode = true")
+  refused(STORE .. "local ok = Store.attach(\"x.db\", { unchecked_bytecode = false })\nreturn ok\n", 2, "unchecked_bytecode")
+  refused(STORE .. "local o = { unchecked_bytecode = true }\nlocal ok = Store.attach(\"x.db\", o)\nreturn ok\n", 3, "literal table")
+  refused(STORE .. "local ok = Store.attach(\"x.db\", { [\"unchecked_bytecode\"] = true })\nreturn ok\n", 2, "literal table")
+  refused("local ok, Store = pcall(require, \"cosmic.store\")\nlocal a = Store.attach(\"x.db\")\nreturn ok, a\n", 2, "attach")
+  refused("local a = require(\"cosmic.store\").attach(\"x.db\")\nreturn a\n", 1, "attach")
+  refused("local a = require(\"cosmic/store\").attach(\"x.db\")\nreturn a\n", 1, "attach")
+  refused(STORE .. "local ok = Store[\"attach\"](\"x.db\")\nreturn ok\n", 2, "attach")
+end
+
+local function test_attach_with_the_option_says_that_it_takes_unchecked_bytecode()
+  accepted(STORE .. "local ok = Store.attach(\"x.db\", { unchecked_bytecode = true })\nreturn ok\n")
+  accepted("local ok, Store = pcall(require, \"cosmic.store\")\nreturn ok, Store.attach(\"x.db\", { unchecked_bytecode = true })\n")
+  accepted(STORE .. "return Store[\"attach\"](\"x.db\", { unchecked_bytecode = true })\n")
+  accepted("return require(\"cosmic.store\").attach(\"x.db\", { unchecked_bytecode = true })\n")
+end
+
+local function test_seal_with_an_extra_module_is_refused()
+  refused(STORE .. "local d = Store.seal({}, \"x.db\", { extra = { name = \"main\" } })\nreturn d\n", 2, "`seal`")
+  refused(STORE .. "local d = Store.seal({}, \"x.db\", { unchecked_bytecode = true, extra = e })\nreturn d\n", 2, "`seal`")
+  -- options the check cannot read may carry one
+  refused(STORE .. "local o = { main = \"m\" }\nlocal d = Store.seal({ \"m\" }, \"x.db\", o)\nreturn d\n", 3, "`seal`")
+  refused(STORE .. "local d = Store.seal({ \"m\" }, \"x.db\", { [\"extra\"] = e })\nreturn d\n", 2, "`seal`")
+  refused(STORE .. "local d = Store.seal(table.unpack(args))\nreturn d\n", 2, "`seal`")
+  accepted(STORE .. "local d = Store.seal({ \"cosmic.json\" })\nreturn d\n")
+  accepted(STORE .. "local d = Store.seal({ \"cosmic.json\" }, \"x.db\")\nreturn d\n")
+  accepted(STORE .. "local d = Store.seal({ \"cosmic.json\" }, \"x.db\", { main = \"cosmic.json\" })\nreturn d\n")
+  accepted(STORE .. "local d = Store.seal(table.unpack(args), \"x.db\")\nreturn d\n")
+end
+
+-- The two functions are refused as values the way `package` is: an alias, a field of a table and an argument all call them
+-- by a name this check does not follow.
+local function test_attach_and_seal_are_not_reached_as_values_or_through_the_module_as_one()
+  refused(STORE .. "local a = Store.attach\nreturn a\n", 2, "used as a value")
+  refused(STORE .. "local s = Store.seal\nreturn s\n", 2, "used as a value")
+  refused(STORE .. "local t = { attach = Store.attach }\nreturn t\n", 2, "used as a value")
+  refused(STORE .. "local ok = pcall(Store.attach, \"x.db\")\nreturn ok\n", 2, "used as a value")
+  refused(STORE .. "local ok = pcall(Store.seal, { \"m\" }, \"x.db\", e)\nreturn ok\n", 2, "used as a value")
+  refused(STORE .. "local k = \"attach\"\nlocal a = Store[k]\nreturn a\n", 3, "used as a value")
+  refused(STORE .. "local ok = Store:attach(\"x.db\")\nreturn ok\n", 2, "used as a value")
+  refused(STORE .. "local S = Store\nreturn S\n", 2, "used as a value")
+  refused(STORE .. "local t = { store = Store }\nreturn t\n", 2, "used as a value")
+  refused(STORE .. "return Store\n", 2, "used as a value")
+  refused(STORE .. "local function use(s: any)\n  return s\nend\nreturn use(Store)\n", 5, "used as a value")
+  refused("return require(\"cosmic.store\")\n", 1, "used as a value")
+  refused("return pcall(require, \"cosmic.store\")\n", 1, "used as a value")
+  refused(STORE .. "Store = nil\n", 2, "used as a value")
+end
+
+local function test_the_other_fields_of_the_store_are_used_as_they_are_written()
+  accepted(STORE .. "local names = Store.closure({ \"cosmic.json\" })\nreturn names\n")
+  accepted(STORE .. "local f = Store.alone\nreturn f\n")
+  accepted(STORE .. "local b = Store.bytecode(\"cosmic.json\")\nreturn b\n")
+  accepted(STORE .. "local type E = Store.Extra\nlocal e: E = nil as E\nreturn e\n")
+  -- a local of another name or a field of that name is no use of the module's functions
+  accepted("local t = { attach = 1 }\nreturn t.attach\n")
+  accepted("local function attach(path: string): string\n  return path\nend\nreturn attach(\"x\")\n")
+  accepted("local Store = { attach = 1 }\nreturn Store.attach\n")
+  accepted("local type S = require(\"cosmic.store\")\nreturn 1\n")
+  accepted("local Fs = require(\"cosmic.fs\")\nreturn Fs.attach\n")
+end
+
 local function test_each_place_is_told_in_source_order_with_its_column()
   local found = told("local a = package\nlocal b = require(\"cosmic.internal.x\")\nlocal c = loadfile\nreturn a, b, c\n")
   assert(#found == 3, table.concat(found, "\n"))
@@ -145,4 +213,21 @@ local function test_a_project_is_refused_and_the_tree_is_not_by_this_check()
     project = nil }
   local _, own_why = Pipeline.lone("p.tl", source, own)
   assert(own_why:find("is not a module a project may require", 1, true) == nil, own_why)
+end
+
+--- The reproduction: a checked project attaches a database it made, whose bytecode says what the checker did not read.
+--- The build refuses it, and does not hold the same program once it says the bytecode is unchecked.
+local function test_a_project_that_attaches_a_database_is_refused_unless_it_says_the_bytecode_is_unchecked()
+  local project = Pipeline.project({ prelude = "do\nend\n", stdlib = "do\nend\n" })
+  local silent = "local Store = require(\"cosmic.store\")\nlocal ok = Store.attach(\"foreign.db\")\nreturn ok\n"
+  local code, why = Pipeline.lone("p.tl", silent, project)
+  assert(code == nil and why:find("unchecked_bytecode = true", 1, true) ~= nil, tostring(why))
+  local aliased = "local Store = require(\"cosmic.store\")\nlocal attach = Store.attach\nreturn attach\n"
+  local _, aliased_why = Pipeline.lone("p.tl", aliased, project)
+  assert(aliased_why:find("used as a value", 1, true) ~= nil, tostring(aliased_why))
+  local said = "local Store = require(\"cosmic.store\")\n" ..
+    "local ok = Store.attach(\"foreign.db\", { unchecked_bytecode = true })\nreturn ok\n"
+  -- (this project declares no globals, so it fails to build for want of `require`, but not by this check)
+  local _, said_why = Pipeline.lone("p.tl", said, project)
+  assert(said_why:find("unchecked_bytecode", 1, true) == nil and said_why:find("used as a value", 1, true) == nil, said_why)
 end

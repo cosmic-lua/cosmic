@@ -475,7 +475,9 @@ local function seal_script(file: string, cwd: string?, held: mut {string}): Seal
   end
   local chunk, chunk_trouble = load(script_chunk(file, code), "@" .. file, "t", Globals.table())
   if chunk == nil then return { why = file .. ": " .. tostring(chunk_trouble), refused = false } end
-  return sealed(names, { extra = {
+  -- The chunk is the one the tool just loaded from code it generated, so
+  -- its bytecode is its own, not a foreign file's.
+  return sealed(names, { unchecked_bytecode = true, extra = {
     name = "main", bytecode = string.dump(chunk), source = source, requires = roots } }, held)
 end
 
