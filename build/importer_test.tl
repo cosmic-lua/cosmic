@@ -1255,6 +1255,43 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
     "rows another analyzer derived were kept")
 end
 
+--- A settling tool parses with the tree's code but carries a compiler
+--- identity its writer took by that writer's definition, which may not
+--- be the one the tool it writes carries. [`importer.settled_analyzer`]
+--- names the rows it derived as that tool will name its own, so that
+--- tool does not parse every source again; rows another analyzer
+--- derived keep their name.
+local function test_a_settled_analyzer_names_its_rows_as_the_written_tool_will()
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-settled-"))
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "lang",
+      "patch/lua", "vendor/lua", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
+  assert(Fs.write(root .. "/cosmic/thing.tl",
+    "--- A thing.\nlocal record Thing\nend\nreturn Thing\n"))
+  local function analyzer_of(db: Sqlite.Handle): string
+    local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'analyzer'"))
+    return nth(rows, 1):text(1)
+  end
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, { own = true }))
+  assert(importer.derive(handle))
+  local derived = analyzer_of(handle.db)
+  local compiler = "the compiler identity the written tool carries"
+  local code = assert(importer.tree_code(handle))
+  local written = Pipeline.coded(importer.analyzer_identity({ compiler = compiler,
+    requires = code.requires, source = code.source }))
+  assert(written ~= derived, "the written tool's analyzer is named as the running one's")
+  assert(importer.settled_analyzer(handle, compiler))
+  assert(analyzer_of(handle.db) == written, "the derived rows were not named as the written tool names its own")
+  -- Rows another analyzer derived are not the running tool's to rename.
+  assert(Sqlite.run(handle.db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', 'an older analyzer')"))
+  assert(importer.settled_analyzer(handle, compiler))
+  assert(analyzer_of(handle.db) == "an older analyzer", "rows another analyzer derived were renamed")
+  work.close(handle)
+end
+
 --- `ci/` is the pinned CI driver's own project, walked and built by
 --- the pinned host with cwd `ci/`, never by cosmic's own build: staging
 --- cosmic's own tree must record nothing under `ci/`, and deriving

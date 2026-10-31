@@ -169,31 +169,27 @@ local record ApiRelease
   published_at: string?
   assets: {Asset}
 end
-local RELEASE_SPEC <const> = Shape.record({
-  tag_name = Shape.string,
-  draft = Shape.boolean,
-  prerelease = Shape.boolean,
-  published_at = Shape.optional(Shape.string),
-  assets = Shape.list(Shape.record({ name = Shape.string })),
-})
+local RELEASE <const>: Shape.Typed<ApiRelease> = Shape.record_of("ApiRelease")
 --- One commit as the API lists main's history; only its hash is read.
 local record Commit
   sha: string
 end
-local HISTORY_SPEC <const> = Shape.list(Shape.record({ sha = Shape.string }))
+local COMMIT <const>: Shape.Typed<Commit> = Shape.record_of("Commit")
+local HISTORY <const> = Shape.list(COMMIT.spec)
 
 --- One ref as git matching-refs lists it: `refs/tags/<tag>`.
 local record Ref
   ref: string
 end
-local REFS_SPEC <const> = Shape.list(Shape.record({ ref = Shape.string }))
+local REF <const>: Shape.Typed<Ref> = Shape.record_of("Ref")
+local REFS <const> = Shape.list(REF.spec)
 
 --- What source.json says.
 local record Source
   commit: string
   digest: string
 end
-local SOURCE_SPEC <const> = Shape.record({ commit = Shape.string, digest = Shape.string })
+local SOURCE <const>: Shape.Typed<Source> = Shape.record_of("Source")
 
 local required_assets <const> = { "cosmic", "SHA256SUMS", "source.json" }
 
@@ -413,7 +409,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
           if why == "" then why = url .. ": HTTP 404" end
           return nil, why
         end
-        local refs, shape_trouble: {Ref}?, string = Shape.decode_into(text, REFS_SPEC)
+        local refs, shape_trouble = Shape.decode_into(text, REFS)
         if refs == nil then return nil, url .. ": no list of refs: " .. shape_trouble end
         if #refs > max_tags then
           return nil, plural.count(#refs, "tag") .. " start with next-" .. prefix .. "; give more of it"
@@ -429,8 +425,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         -- A tag with no release, or only a draft's, answers 404.
         if text == nil and why ~= "" then return nil, why end
         if text ~= nil then
-          local r, shape_trouble: ApiRelease?, string =
-            Shape.decode_into(text, RELEASE_SPEC, { null_value = Json.null })
+          local r, shape_trouble =
+            Shape.decode_into(text, RELEASE.spec, { null_value = Json.null })
           if r == nil then return nil, url .. ": no release: " .. shape_trouble end
           take(r)
         end
@@ -447,7 +443,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       if refs_why == "" then refs_why = refs_url .. ": HTTP 404" end
       return nil, refs_why
     end
-    local refs, refs_trouble: {Ref}?, string = Shape.decode_into(refs_text, REFS_SPEC)
+    local refs, refs_trouble = Shape.decode_into(refs_text, REFS)
     if refs == nil then return nil, refs_url .. ": no list of refs: " .. refs_trouble end
     for _, ref in ipairs(refs) do
       local commit = ref.ref:match("^refs/tags/next%-(%x+)$")
@@ -469,7 +465,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         if why == "" then why = url .. ": HTTP 404" end
         return nil, why
       end
-      local commits, shape_trouble: {Commit}?, string = Shape.decode_into(text, HISTORY_SPEC)
+      local commits, shape_trouble = Shape.decode_into(text, HISTORY)
       if commits == nil then return nil, url .. ": no list of commits: " .. shape_trouble end
       for _, commit in ipairs(commits) do
         -- History that grew between two pages' requests repeats a commit.
@@ -480,8 +476,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
           local release_text, release_why = call(release_url)
           if release_text == nil and release_why ~= "" then return nil, release_why end
           if release_text ~= nil then
-            local r, release_trouble: ApiRelease?, string =
-              Shape.decode_into(release_text, RELEASE_SPEC, { null_value = Json.null })
+            local r, release_trouble =
+              Shape.decode_into(release_text, RELEASE.spec, { null_value = Json.null })
             if r == nil then return nil, release_url .. ": no release: " .. release_trouble end
             take(r)
             if #found >= need then return found, "" end
@@ -562,7 +558,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local digest: string = summed
   local source_text, source_trouble = small("source.json")
   if source_text == nil then return fail(source_trouble) end
-  local source, decode_trouble: Source?, string = Shape.decode_into(source_text, SOURCE_SPEC)
+  local source, decode_trouble = Shape.decode_into(source_text, SOURCE.spec)
   if source == nil then
     return fail(release.tag .. ": source.json is no source record: " .. decode_trouble)
   end

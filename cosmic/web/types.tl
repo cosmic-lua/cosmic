@@ -395,13 +395,13 @@ local record Types
   --- What a typed route binds, without the types.
   record RouteInput
     --- The path spec; nil for none.
-    path?: Shape.Spec
+    path?: Shape.Node
     --- The query spec; nil for none.
-    query?: Shape.Spec
+    query?: Shape.Node
     --- "json", "form", "multipart" or "none".
     body_kind: string
     --- The body spec; nil for none.
-    body?: Shape.Spec
+    body?: Shape.Node
     --- The body limit the route enforces.
     max_bytes: integer
   end
