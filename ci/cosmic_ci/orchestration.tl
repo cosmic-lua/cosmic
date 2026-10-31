@@ -1946,6 +1946,11 @@ local function phase_portable(p: PlatformContext): integer
   -- COSMIC_CI_PORTABLE_SUITE=skip; the scheduled run and a manual one
   -- keep it on every leg (ci.yml). A leg that skips it still
   -- checks the artifact unchanged since assemble (attest).
+  -- Where COSMIC_CI_PORTABLE_SHARD names a share (`I/N`: ci.yml's
+  -- alpine-x86_64 leg and the job beside it), only that share of the
+  -- tests runs (`cosmic test --shard`); the job that runs each other
+  -- share runs the rest on the same host, and provenance holds its
+  -- bytes to the legs'.
   if Env.get("COSMIC_CI_PORTABLE_SUITE") == "skip" then
     local _, _ = Fs.put(Fs.stderr, "portable suite: skipped on this leg " ..
         "(COSMIC_CI_PORTABLE_SUITE=skip)\n")
@@ -1956,7 +1961,8 @@ local function phase_portable(p: PlatformContext): integer
     -- its launcher; elsewhere it runs every test, as they do.
     s = suite(portable_context, "portable", executable, portable_d,
       { COSMIC_PORTABLE_CACHE = portable_d .. "/portable-full-suite-cache",
-        COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "portable") })
+        COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "portable") },
+      named("COSMIC_CI_PORTABLE_SHARD"))
   end
   local hash_called, hash_error = pcall(function(): boolean
     write(portable_d .. "/portable-artifact.after.sha256", hash(executable) .. "\n")
@@ -2305,7 +2311,15 @@ local function phase_attest(p: PlatformContext): integer
   assert(Hash.hex_sha256(ArtifactRow.with(read(portable_d .. "/cosmic-portable"), without, nil)) == attested,
     "executed artifact attestation differs")
   write(product .. "/executed-cosmic.sha256", attested .. "  cosmic\n")
-  write(product .. "/expected-platforms", assert(p.trailing) .. "\n")
+  -- The job count `trailing` holds includes the jobs that run a share of
+  -- a leg's portable suite and upload no product
+  -- (COSMIC_CI_PORTABLE_SHARES).
+  local total = math.tointeger(tonumber(assert(p.trailing)))
+  local shares = math.tointeger(tonumber(named("COSMIC_CI_PORTABLE_SHARES") or "0"))
+  assert(total ~= nil and shares ~= nil and shares >= 0 and total > shares,
+    "invalid job count " .. tostring(p.trailing) .. " for COSMIC_CI_PORTABLE_SHARES=" ..
+      tostring(named("COSMIC_CI_PORTABLE_SHARES")))
+  write(product .. "/expected-platforms", tostring(total - shares) .. "\n")
   return 0
 end
 
@@ -2354,13 +2368,29 @@ local function platform_impl(phase: string, p: PlatformContext): integer
   error("unknown platform phase: " .. phase)
 end
 
-local function provenance_impl(c: Context, products: string): integer
+--- Compares the bytes every `portable-product-<leg>` directory of
+--- `products` says it executed, and holds each `portable-share-<job>`
+--- directory's attestation to the same digest. A leg uploads its product
+--- (the bytes, so the digest is recomputed from them); a job that runs
+--- another share of a leg's portable suite (COSMIC_CI_PORTABLE_SHARES of
+--- them, ci.yml's alpine-x86_64 portable share) uploads only the digest
+--- its own `attest` phase checked against the bytes it ran, so
+--- the join trusts that phase for the job's bytes and the legs' for the
+--- product's.
+local function provenance_impl(c: Context, products: string, shares: integer): integer
   local entries = assert(Fs.list(products))
   local count = 0
   local expected: integer? = nil
   local baseline: string? = nil
+  local share_digests: mut {string} = {}
   for _, name in ipairs(entries) do
-    if name:match("^portable%-product%-.+") then
+    if name:match("^portable%-share%-.+") then
+      local att = products .. "/" .. name .. "/executed-cosmic.sha256"
+      assert(exists(att), "incomplete share: " .. products .. "/" .. name)
+      local digest = read(att):match("^([0-9a-f]+)  cosmic\n$")
+      assert(digest and #digest == 64, "invalid attestation: " .. att)
+      share_digests[#share_digests + 1] = digest
+    elseif name:match("^portable%-product%-.+") then
       local p = products .. "/" .. name
       local att = p .. "/executed-cosmic.sha256"
       local exp = p .. "/expected-platforms"
@@ -2383,6 +2413,11 @@ local function provenance_impl(c: Context, products: string): integer
   end
   assert(expected ~= nil, "no product to compare")
   assert(count == expected, "expected " .. Plural.count(expected, "product") .. ", found " .. tostring(count))
+  assert(#share_digests == shares, "expected " .. Plural.count(shares, "share attestation") ..
+      ", found " .. tostring(#share_digests))
+  for _, digest in ipairs(share_digests) do
+    assert(digest == baseline, "share artifact hash differs from the legs'")
+  end
   return step(c, "provenance comparison", function(): boolean, string
     return true, ""
   end)
@@ -2416,7 +2451,9 @@ function Orchestration.provenance(_a: {string}): integer
   local c: Context = { db = ctx.db, worker = ctx.worker, run = ctx.run,
     attempt = ctx.attempt, root = ctx.root, driver = assert(Fs.absolute(assert(arg[0]))) }
   return run_phase(c, "provenance", function(): integer
-    return provenance_impl(c, ctx.products)
+    local shares = math.tointeger(tonumber(named("COSMIC_CI_PORTABLE_SHARES") or "0"))
+    assert(shares ~= nil and shares >= 0, "invalid COSMIC_CI_PORTABLE_SHARES")
+    return provenance_impl(c, ctx.products, shares)
   end)
 end
 

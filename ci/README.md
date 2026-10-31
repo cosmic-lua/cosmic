@@ -438,7 +438,37 @@ the gate (`ci`) needs both. Neither checks that every C function is
 entered, which only a whole run answers (linux-aarch64's and
 macos-aarch64's light runs still do, and every leg of a `full` run).
 A light run saves no verdicts, so neither share's stands for the
-other's. A `full` run's `shard` is empty, and every leg runs whole.
+other's. A `full` run's legs run their native suites whole (`shard` is
+empty).
+
+A `full` run splits alpine-x86_64's portable suite (the queue's longest
+leg: its native suite, regressions and the whole portable suite ran in
+series) in two. The `shard` dimension holds `portable-2/2` as well on a
+`full` run, its `exclude` drops that value for every leg but
+alpine-x86_64, and the one job it leaves, `alpine-x86_64-portable-share`,
+is the leg's on its runner and image with the leg's `name`, so it
+restores and keys every cache as the leg does. `COSMIC_CI_PORTABLE_SHARD`
+gives the leg `1/2` and that job `2/2` (`cosmic test --shard`, as above),
+and the two run beside each other. The job boots, restores the verdicts
+and compiles, probes the sandbox, assembles, runs its half of the suite
+and its boundary, and attests. It skips what the leg proves for the same
+bytes and host: the pinned driver's check and its relay to the queue's
+next run, the native suite and its boundary, the credential proofs, the
+regressions, and the darwin suite. It saves and seeds nothing
+(`COSMIC_CI_SAVES` is false for it), so main keeps no verdict of a test
+in the second half that only a portable run reaches (a test whose key
+holds the launcher); a sealed test stands on the native suite's row,
+which the leg saves.
+
+The job uploads no `portable-product-*`, which prerelease.yml counts four
+of and `seed` relays. The legs' `attest` writes `expected-platforms` as
+the job count less `COSMIC_CI_PORTABLE_SHARES` (1 on a `full` run), and
+the job uploads only its `executed-cosmic.sha256` as
+`portable-share-alpine-x86_64`. The `ci` join downloads it where the
+platform job ran and `provenance` holds that digest to the legs', and
+fails when it finds other than `COSMIC_CI_PORTABLE_SHARES` of them. The
+digest is the job's own `attest` check of its bytes against the product it
+built: the join does not recompute it from bytes, as it does a leg's.
 
 A newer push supersedes a branch's run, but every main run finishes (a
 prerelease is published only from a completed run) and main's pushes
