@@ -19,6 +19,9 @@
 --- and [`Http.download`] streams it straight to a file, verifying a
 --- checksum while it goes.
 ---
+--- [`Http.Options.retry`] and [`Http.Options.pace`] are for calling a
+--- rate-limited API in a loop; see [the guide](../../doc/guides/http-pacing.md).
+---
 --- The server is [`cosmic.http.server`], apart from this client so that a
 --- program that only fetches does not carry the networking stack a
 --- server needs.
