@@ -1795,6 +1795,9 @@ function test_key.gather(rec: Recording, from: Gather): string?
   local identity = from.identity
   local by_path: mut {string:Module} = {}
   for _, m in ipairs(from.modules) do by_path[m.path] = m end
+  -- TODO: ask [`build.analysis_schema`]'s `declaration("kind")` for this, as every other comparison of a kind with 'decl'
+  -- does. It waits on the pull request that adds the `binding` kind, which makes a binding a declaration here too and must
+  -- handle this harness module as doc/testing.md says (the require is the change to its closure).
   local declaration_rows, declaration_trouble = Sqlite.text_rows(records,
     "SELECT path, file FROM inputs WHERE kind = 'decl'")
   if declaration_rows == nil then return records_path .. ": " .. declaration_trouble end

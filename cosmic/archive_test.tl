@@ -55,6 +55,26 @@ local function test_open_detects_a_plain_tar_by_its_ustar_magic(tmp: string)
   assert(by["adir/link"].kind == "symlink" and by["adir/link"].linkpath == "short.txt")
 end
 
+local function test_a_zstd_zip_lists_and_extracts_through_archive(tmp: string)
+  local path = tmp .. "/z.zip"
+  local text = string.rep("zstd in a zip ", 1000)
+  local zw = Zip.writer((assert(Stream.create(path))))
+  assert(zw:add_dir("adir"))
+  assert(zw:add_file("adir/z.txt", text, { method = "zstd" }))
+  assert(zw:add_file("adir/s.txt", Stream.from_string(text), { method = "zstd" }))
+  assert(zw:close())
+  local entries = assert(Archive.list(path))
+  local by: mut {string:Archive.Entry} = {}
+  for _, e in ipairs(entries) do by[e.path] = e end
+  assert(assert(by["adir/z.txt"]).size == #text and assert(by["adir/s.txt"]).size == #text)
+  local dest = tmp .. "/out"
+  assert(Archive.extract(path, dest))
+  assert(Fs.read(dest .. "/adir/z.txt") == text)
+  assert(Fs.read(dest .. "/adir/s.txt") == text)
+  local written, why = Archive.extract(path, tmp .. "/small", { max_entry_bytes = 4096 })
+  assert(written == nil and why:find("max_entry_bytes (4096 bytes)", 1, true) ~= nil, why)
+end
+
 local function test_open_detects_a_zip_by_its_local_header_signature(tmp: string)
   local path = tmp .. "/a.zip"
   make_zip(path)
@@ -664,6 +684,27 @@ local function holds_only(dir: string, kept: mut {string})
   table.sort(names)
   table.sort(kept)
   assert(table.concat(names, ",") == table.concat(kept, ","), table.concat(names, ","))
+end
+
+local function test_max_entry_bytes_bounds_the_decoded_output_of_a_zstd_zip_entry(tmp: string)
+  local archive = tmp .. "/zbomb.zip"
+  local big = string.rep("\0", 4 << 20)
+  local zw = Zip.writer((assert(Stream.create(archive))))
+  assert(zw:add_file("big", big, { method = "zstd" }))
+  assert(zw:close())
+  assert(#assert(Fs.read(archive)) < 8192, "the bomb is not small")
+  -- 4 MiB decoded from a few hundred bytes: the limit counts the decoded size.
+  local dest = tmp .. "/out"
+  local written, why = Archive.extract(archive, dest, { max_entry_bytes = 4096 })
+  assert(written == nil, "extracted a bomb")
+  assert(why:find("archive: big is larger than max_entry_bytes (4096 bytes)", 1, true), why)
+  holds_only(dest, {})
+  -- An entry whose decoded size is within the limit is extracted.
+  assert(Archive.extract(archive, tmp .. "/at", { max_entry_bytes = #big }))
+  assert(Fs.read(tmp .. "/at/big") == big)
+  written, why = Archive.extract(archive, tmp .. "/over", { max_entry_bytes = #big - 1 })
+  assert(written == nil and why:find("max_entry_bytes (4194303 bytes)", 1, true) ~= nil, tostring(why))
+  holds_only(tmp .. "/over", {})
 end
 
 local function test_extract_refuses_a_zip_bomb_and_leaves_no_file(tmp: string)
