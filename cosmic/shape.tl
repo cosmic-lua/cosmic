@@ -584,9 +584,6 @@ end
 
 local function record_of<T>(name: string, make?: function(strict: boolean): Shape.Spec<T>, node?: Shape.Node):
     Shape.Typed<T>
-  -- TODO: refuse a `.record_of(` call the build did not complete when the tree is checked, once a tree check reads the
-  -- calls the splicer found (build/syntax_shape_specs.tl) and the intentional ones in cosmic/shape_test.tl can be
-  -- marked as exempt; until then the call raises here, when it runs.
   if make == nil or node == nil then
     error(("shape: record_of(%q) was not resolved: the build writes a record's check from a call written as " ..
       "Shape.record_of(\"Name\") in a module it compiles, so an aliased or computed call, a chunk loaded by " ..

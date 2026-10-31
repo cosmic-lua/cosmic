@@ -428,6 +428,103 @@ end
 
 local type Splice = ShapeSpecs.Splice
 
+--- The comment that leaves a use of `record_of` unresolved on purpose, on the line of the use, wherever it is.
+local UNRESOLVED_ON_PURPOSE <const> = "-- record_of: unresolved on purpose"
+
+--- Whether `e` is `require("cosmic.shape")`.
+local function requires_shape(e: Ast.Exp): boolean
+  return required_name(e) == "cosmic.shape"
+end
+
+--- Whether the line `text` ends in the comment [`UNRESOLVED_ON_PURPOSE`], exactly: the comment is the text from the first `--`
+--- outside a string, so the marker inside a string, in a `---` doc comment, or followed by more text is not one.
+local function marked(text: string): boolean
+  local quote: string? = nil
+  local i = 1
+  while i <= #text do
+    local c = text:sub(i, i)
+    if quote ~= nil then
+      if c == "\\" then
+        i = i + 1
+      elseif c == quote then
+        quote = nil
+      end
+    elseif c == '"' or c == "'" then
+      quote = c
+    elseif c == "-" and text:sub(i, i + 1) == "--" then
+      return (text:sub(i):gsub("%s+$", "")) == UNRESOLVED_ON_PURPOSE
+    end
+    i = i + 1
+  end
+  return false
+end
+
+--- The first use of cosmic.shape's `record_of` that the build does not complete, as a refusal and its line, or "" and 0.
+--- Followed, per file and not per scope: a name that is `Shape` (or an alias already found), or `require("cosmic.shape")`,
+--- bound by `local A = ...`, `local A, B = ..., ...` or `A = ...` to a bare name or a literal `require`. A use is
+--- [`Shape.record_of`] not called (`local f = Shape.record_of`), the method form, `record_of` read through such a name
+--- (`Alias.record_of`, `require("cosmic.shape").record_of`), or through an index (`Shape["record_of"]`).
+--- A call that way raises when it runs; the build refuses it where it stands, unless the first line of the use ends in the
+--- comment [`UNRESOLVED_ON_PURPOSE`].
+---
+--- Not followed, and failing at run time as any uncompleted call does (no check, so it raises): a wrapped alias
+--- (`(Shape)`, `Shape or x`, `assert(Shape)`), a field target (`M.s = Shape`), the module passed as an argument,
+--- `pcall(require, ...)` and `local R = require`, a function's result, `select`, a table and a computed key.
+local function stray_use(chunk: Ast.Chunk, file: string, source: string, shape: string?): string, integer
+  local names: mut {string: boolean} = {}
+  if shape ~= nil then names[shape] = true end
+  local called: mut {integer: boolean} = {}
+  Node.walk(chunk, function(node: Ast.Node)
+    if node.kind == "Call" then
+      called[node.callee.last] = true
+    elseif node.kind == "Local" then
+      for i, binding in ipairs(node.bindings) do
+        local value = node.values[i]
+        if value ~= nil and ((value.kind == "Name" and names[value.text] == true) or requires_shape(value)) then
+          names[binding.name] = true
+        end
+      end
+    elseif node.kind == "Assign" then
+      for i, target in ipairs(node.targets) do
+        local value = node.values[i]
+        if target.kind == "Name" and value ~= nil and
+            ((value.kind == "Name" and names[value.text] == true) or requires_shape(value)) then
+          names[target.text] = true
+        end
+      end
+    end
+  end)
+  local lines: mut {string} = {}
+  for text in (source .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = text end
+  local refusal, line = "", 0
+  Node.walk(chunk, function(node: Ast.Node)
+    if refusal ~= "" then return end
+    local object: Ast.Exp? = nil
+    if node.kind == "Field" and node.name == "record_of" then
+      object = node.object
+    elseif node.kind == "MethodCall" and node.name == "record_of" then
+      object = node.object
+    elseif node.kind == "Index" and node.key.kind == "String" and node.key.value == "record_of" then
+      object = node.object
+    end
+    if object == nil then return end
+    local direct = object.kind == "Name" and object.text == shape
+    local other = (object.kind == "Name" and object.text ~= shape and names[object.text] == true) or
+      requires_shape(object)
+    if not (direct or other) then return end
+    -- A call of `Shape.record_of(...)` is the build's to complete or leave; any other way of reading it is not.
+    if direct and node.kind == "Field" and called[node.last] == true then return end
+    local at = Node.span(chunk, node).y
+    if marked(lines[at] or "") then return end
+    line = at
+    refusal = ("%s:%d: record_of: read other than as a call written Shape.record_of(\"Name\"), which the build " ..
+      "completes; written so, it has no check and raises when it runs. Bind cosmic.shape at the module's top level and call " ..
+      "Shape.record_of(\"Name\") there; a use that means to fail at run time ends its first line in `%s`"
+    ):format(file, at, UNRESOLVED_ON_PURPOSE)
+  end)
+  return refusal, line
+end
+
 function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, source: string): ShapeSpecs.Found
   local none: {Splice} = {}
   if not source:find("record_of", 1, true) then
@@ -435,9 +532,20 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
   end
   -- A module that names `record_of` without requiring cosmic.shape at its top level (in a comment, a string, or
   -- another table's field) has nothing to splice: that is seen in its syntax, before lowering it and all it requires.
+  -- The use of `record_of` that the build does not complete is a matter of syntax too, so it is refused here, before the
+  -- early return: a module that reads it through `require("cosmic.shape")` inline requires nothing at its top level.
+  -- The examples of a guide are functions (build/doctest/generate.tl), and a `Shape` they require is not one the splicer
+  -- finds, so their `record_of` calls get no check from the build and raise if an example runs: a guide is not refused.
   local read = build:parsed(module)
-  if read ~= nil and not read.broken and required(read.chunk)["cosmic.shape"] == nil then
-    return { splices = none, refusal = "", line = 0 }
+  if read ~= nil and not read.broken then
+    local top = required(read.chunk)["cosmic.shape"]
+    if file:sub(-3) ~= ".md" then
+      local stray, stray_line = stray_use(read.chunk, file, source, top)
+      if stray ~= "" then return { splices = none, refusal = stray, line = stray_line } end
+    end
+    if top == nil then
+      return { splices = none, refusal = "", line = 0 }
+    end
   end
   build:lower({ module })
   local outcome = build:result(module, false)

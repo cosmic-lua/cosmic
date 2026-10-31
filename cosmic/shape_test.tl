@@ -475,14 +475,14 @@ end
 -- (lang/check_generics_test.tl), so no route names a `T` the check does not answer.
 local function test_a_record_of_the_build_did_not_complete_raises_by_every_route()
   local alias = Shape
-  local by_alias, why = pcall(function() local _: Shape.Typed<Row> = alias.record_of("Row") end)
+  local by_alias, why = pcall(function() local _: Shape.Typed<Row> = alias.record_of("Row") end) -- record_of: unresolved on purpose
   assert(not by_alias and tostring(why):find("was not resolved", 1, true) ~= nil, tostring(why))
   local inline, inline_why = pcall(function()
-    local _: Shape.Typed<Row> = require("cosmic.shape").record_of("Row")
+    local _: Shape.Typed<Row> = require("cosmic.shape").record_of("Row") -- record_of: unresolved on purpose
   end)
   assert(not inline and tostring(inline_why):find("was not resolved", 1, true) ~= nil, tostring(inline_why))
   local indexed, indexed_why = pcall(function()
-    local _: Shape.Typed<Row> = Shape["record_of"]("Row")
+    local _: Shape.Typed<Row> = Shape["record_of"]("Row") -- record_of: unresolved on purpose
   end)
   assert(not indexed and tostring(indexed_why):find("was not resolved", 1, true) ~= nil, tostring(indexed_why))
 end
