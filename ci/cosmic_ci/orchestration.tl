@@ -4,7 +4,7 @@ local Clock = require("cosmic.clock")
 local ContextEnv = require("cosmic_ci.context")
 -- TODO: read TMPDIR through Env.read once ci/cosmic-driver.pin names a release whose cosmic.env declares it, and the
 -- COSMIC_CI_* variables once build/ci_tree_test.tl also lets cosmic/env.tl name them (it keeps the variables a suite forgets
--- out of the tree's sources); each joins Env.Name then.
+-- out of the tree's sources), which join Env.Name then.
 local Env = require("cosmic.env")
 local Fixture = require("cosmic_ci.fixture")
 local Fs = require("cosmic.fs")
