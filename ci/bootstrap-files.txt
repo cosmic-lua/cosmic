@@ -1,0 +1,20 @@
+# The files of this checkout that run standalone on the release ci/cosmic-driver.pin names, one path a line from the
+# checkout's root, with what a `#` starts and blank lines left out. bin/cosmic-bootstrap refuses `--standalone` on any
+# other file of the checkout, and `cosmic-driver cosmic_ci/driver.tl check-islands` type-checks each of these on that
+# release (an entry whose file is gone, or that ci/strict-files.txt does not list, fails it). Add a file here when a
+# script is to run on the bootstrap; the wrappers of bin/ and eval/ say which.
+build/patch.tl
+build/paths.tl
+build/perf.tl
+build/vendor.tl
+build/verify_codesign.tl
+build/zig.tl
+build/zig_fetch.tl
+eval/arena.tl
+eval/check/grade.tl
+eval/result.tl
+eval/round.tl
+eval/solve.tl
+eval/summarize.tl
+ci/run_local.tl
+ci/run_local_proof.tl

@@ -124,6 +124,16 @@ end
 allowed["build.raw_tables.fields"] = "test support: a test of which members the core's tables hold reads them by name, " ..
   "the tables of wrappers whose declarations are no type of them"
 
+allowed["build.raw_tables.pair_ends"] = "test support: a test that makes a connector pair by the core's own table, under failed " ..
+  "allocations, holds its ends by it"
+
+allowed["build.raw_tables.connector_pair"] = "test support: a test of the connector makes a pair to start it on"
+
+allowed["build.raw_tables.bound_port"] = "test support: a test that listens on port 0 reads the port the kernel gave"
+
+allowed["build.raw_tables.hash"] = "test support: a test of the C hash functions' refusals calls them raw, as the wrapper's " ..
+  "declared kinds would stop it"
+
 allow({
   "build.syntax_analyzer.analyze",
   "build.syntax_derivation.rows_of", "build.syntax_match.matches", "build.syntax_match.text",

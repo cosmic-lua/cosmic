@@ -12,6 +12,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
+local RawTables = require("build.raw_tables")
 local stand_in = require("build.stand_in")
 local type raw_process = require("cosmic.internal.process")
 local type raw_socket = require("cosmic.internal.socket")
@@ -29,19 +30,8 @@ Test.policy{
   requires = { "nest" },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
-local socket = raw_behind("cosmic.net") as raw_socket -- cast: the table core/socket.h declares
+local process = RawTables.process()
+local socket = RawTables.socket()
 
 --- Whether `why`, a start's failure, is this host giving no sandbox of the
 --- kind: a namespace, or the filter, refused. Never a failure of the relay's
@@ -64,7 +54,14 @@ local function start(tmp: string, probe: string, script: string, sandbox: raw_pr
   local pid, why, errno = process.spawn(probe, { probe, script }, nil, "/", nil, output, output,
     false, nil, sandbox)
   sys.close(output)
-  return pid, why or "", errno or 0
+  if pid ~= nil then return pid, "", 0 end
+  return nil, why, errno
+end
+
+--- The descriptor `received` holds at `index`, of those `recvfds` was asked for.
+local function passed(received: {raw_socket.Socket}, index: integer): raw_socket.Socket
+  local one = assert(received[index], "recvfds answers the descriptors it was asked for")
+  return one
 end
 
 --- What the program said, once it ended, and how.
@@ -76,10 +73,8 @@ end
 --- A stream socketpair, which the relay's channel is one end of: the
 --- end the relay is given, then the one that receives its listeners.
 local function channel(): integer, integer
-  local pair = assert(process.connector_pair())
-  local given, receiving = pair[1], pair[2]
-  assert(given and receiving, "a socketpair holds two descriptors")
-  return given, receiving
+  local pair = RawTables.connector_pair()
+  return pair.controller, pair.connector
 end
 
 --- A start that gave the relay its listeners: the program connects to both
@@ -114,7 +109,7 @@ local function relays(tmp: string, probe: string, sandbox: raw_process.Sandbox, 
     "the program reaches both ports in its network: " .. said)
   Poll.run(function()
     for index = 1, 2 do
-      local listener = assert(Net.listener_from(received[index]:fd(),
+      local listener = assert(Net.listener_from(passed(received, index):fd(),
         { timeout_ns = Clock.seconds(5) }))
       assert(listener.address.host == "127.0.0.1" and listener.address.port == ports[index],
         "listener " .. tostring(index) .. " is at its port")
@@ -124,7 +119,7 @@ local function relays(tmp: string, probe: string, sandbox: raw_process.Sandbox, 
       assert(listener:close())
     end
   end)
-  for index = 1, 2 do assert(received[index]:close()) end
+  for index = 1, 2 do assert(passed(received, index):close()) end
   -- The child's copy of the channel is closed: the other end reads its end.
   assert(sys.close(given))
   local more, _ = socket.recvfds(receiving, 1)
@@ -148,11 +143,10 @@ local function test_the_relay_ports_default_to_http_connect_and_socks(tmp: strin
     return
   end
   local received = assert(socket.recvfds(receiving, 2))
-  local first = assert(socket.bound(received[1]:fd()))
-  local second = assert(socket.bound(received[2]:fd()))
-  assert(first.port == 3128 and second.port == 1080,
-    "the defaults are " .. tostring(first.port) .. " and " .. tostring(second.port))
-  for index = 1, 2 do assert(received[index]:close()) end
+  local first = RawTables.bound_port(passed(received, 1))
+  local second = RawTables.bound_port(passed(received, 2))
+  assert(first == 3128 and second == 1080, "the defaults are " .. tostring(first) .. " and " .. tostring(second))
+  for index = 1, 2 do assert(passed(received, index):close()) end
   finished(tmp, pid)
   assert(sys.close(given) and sys.close(receiving))
 end
@@ -178,7 +172,7 @@ local function relay_refused(tmp: string, probe: string, sandbox: raw_process.Sa
   end
   assert(why:find(cause, 1, true), "the message names the failed call's errno: " .. why)
   assert(math.type(number) == "integer" and number > 0, "the errno is answered")
-  assert(not Fs.exists(marker), "the program ran")
+  assert(Fs.exists(marker) == false, "the program ran")
 end
 
 local function test_a_channel_that_is_no_socket_fails_the_start_naming_the_relay(tmp: string)

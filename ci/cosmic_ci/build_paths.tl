@@ -22,7 +22,11 @@ local directories: mut {string:string} = {}
 --- A command line of the driver that is already running, past its
 --- launcher where it has one, with `words` after it, and the environment
 --- and descriptors to start it with (`values` added to the launcher's).
+--- `words` never begin `--standalone`: a file run standalone by the driver's own path is no check
+--- of bin/cosmic-bootstrap's, so the two callers that do it ([`BuildPaths.directory`], and check-islands, which
+--- type-checks what the list names) append it themselves.
 function BuildPaths.driver(words: {string}, values: {string:string}): BuildPaths.Driver
+  assert(words[1] ~= "--standalone", "BuildPaths.driver does not run a file standalone; see its comment")
   local argv: mut {string} = {}
   local env: mut {string:string} = {}
   local fds: mut {integer:integer | string} = {}
@@ -64,8 +68,13 @@ function BuildPaths.directory(root: string, environment?: {string:string}, sourc
   local key = Hash.hex_sha256(table.concat(parts, "\0"))
   local known = directories[key]
   if known ~= nil then return known end
-  local driver = BuildPaths.driver({ "--standalone", resolver, root }, values)
-  local answer, why = Child.run(driver.argv,
+  -- The resolver is build/paths.tl of a checkout, which ci/bootstrap-files.txt lists (check-islands holds that); this is
+  -- the one run of a file standalone by the driver's own path in this module.
+  local driver = BuildPaths.driver({}, values)
+  local argv: mut {string} = {}
+  for _, word in ipairs(driver.argv) do argv[#argv + 1] = word end
+  for _, word in ipairs({ "--standalone", resolver, root }) do argv[#argv + 1] = word end
+  local answer, why = Child.run(argv,
     { env = driver.env, fds = driver.fds, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   assert(answer, why)
   assert(answer.ok, "build directory: " .. (answer.stderr or "") ..

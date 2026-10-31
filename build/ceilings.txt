@@ -1007,7 +1007,7 @@ cosmic/mime.tl nil_not_allowed 2
 
 cosmic/net.tl nil_not_allowed 4
 
-cosmic/net_connector_test.tl nil_not_allowed 9
+cosmic/net_connector_test.tl nil_not_allowed 7
 
 cosmic/net_numeric_fuzz_test.tl nil_not_allowed 1
 
@@ -1636,7 +1636,6 @@ cosmic/json_path_test.tl index_may_be_nil 2
 cosmic/json_reader_test.tl index_may_be_nil 2
 
 
-cosmic/net_connector_test.tl index_may_be_nil 4
 
 cosmic/net_resolve_test.tl index_may_be_nil 1
 
@@ -2856,7 +2855,6 @@ core/artifact_fd_test.tl map_field 2
 
 core/artifact_fd_tool_test.tl map_field 8
 
-core/connector_allocation_test.tl map_field 3
 
 core/connector_filter_test.tl map_field 17
 
@@ -3770,19 +3768,16 @@ core/allocation_test.tl cast_refused 7
 
 core/allocation_tool_test.tl cast_refused 4
 
-core/artifact_fd_test.tl cast_refused 8
+core/artifact_fd_test.tl cast_refused 5
 
 core/artifact_fd_tool_test.tl cast_refused 8
 
-core/connector_allocation_test.tl cast_refused 5
 
 core/connector_filter_test.tl cast_refused 1
 
 
 
-core/connector_request_fuzz_test.tl cast_refused 3
 
-core/connector_test.tl cast_refused 3
 
 core/declarations_test.tl cast_refused 10
 
@@ -3817,7 +3812,6 @@ core/syscalls_landlock_test.tl cast_refused 1
 
 
 
-core/syscalls_relay_test.tl cast_refused 3
 
 core/syscalls_restrict_refusal_test.tl cast_refused 1
 
@@ -3825,7 +3819,7 @@ core/syscalls_restrict_refusal_test.tl cast_refused 1
 core/syscalls_sigpipe_proc_test.tl cast_refused 1
 
 
-core/syscalls_test.tl cast_refused 17
+core/syscalls_test.tl cast_refused 14
 
 
 
@@ -3896,13 +3890,12 @@ cosmic/http_test.tl cast_refused 19
 
 cosmic/internal/connector.tl cast_refused 2
 
-cosmic/internal/connector_test.tl cast_refused 6
+cosmic/internal/connector_test.tl cast_refused 3
 
 cosmic/internal/relay_handed_lost_test.tl cast_refused 6
 
 cosmic/internal/relay_resolv.tl cast_refused 1
 
-cosmic/internal/relay_server_native_test.tl cast_refused 2
 
 cosmic/internal/relay_server_test.tl cast_refused 10
 
@@ -3934,10 +3927,10 @@ cosmic/json_test.tl cast_refused 66
 
 cosmic/net.tl cast_refused 1
 
-cosmic/net_connector_test.tl cast_refused 5
+cosmic/net_connector_test.tl cast_refused 2
 
 
-cosmic/net_resolve_through_test.tl cast_refused 5
+cosmic/net_resolve_through_test.tl cast_refused 2
 
 cosmic/net_serve_test.tl cast_refused 7
 
@@ -4519,7 +4512,6 @@ core/connector_public_fuzz_test.tl condition_type 1
 
 core/connector_public_test.tl condition_type 3
 
-core/connector_request_fuzz_test.tl condition_type 1
 
 core/database_start_test.tl condition_type 2
 
@@ -4536,7 +4528,6 @@ core/sqlite_wait_lua_test.tl condition_type 1
 
 core/syscalls_namespace_refusal_test.tl condition_type 1
 
-core/syscalls_relay_test.tl condition_type 1
 
 core/syscalls_test.tl condition_type 2
 
@@ -5339,7 +5330,6 @@ core/connector_filter_test.tl and_ternary 2
 
 core/connector_public_fuzz_test.tl and_ternary 2
 
-core/connector_request_fuzz_test.tl and_ternary 1
 
 core/connector_test.tl and_ternary 1
 
@@ -5353,7 +5343,6 @@ core/sqlite_documented_test.tl and_ternary 1
 
 core/sqlite_functions_fuzz_test.tl and_ternary 7
 
-core/syscalls_test.tl and_ternary 1
 
 cosmic/archive.tl and_ternary 2
 
@@ -5818,7 +5807,6 @@ core/sqlite_functions_test.tl compare_disjoint 1
 
 core/surface_test.tl compare_disjoint 4
 
-core/syscalls_test.tl compare_disjoint 3
 
 cosmic/archive.tl compare_disjoint 1
 
@@ -6103,11 +6091,9 @@ build/zig_lock_test.tl literal_needs_type 1
 
 core/artifact_fd_test.tl literal_needs_type 3
 
-core/connector_allocation_test.tl literal_needs_type 1
 
 core/connector_filter_test.tl literal_needs_type 1
 
-core/connector_test.tl literal_needs_type 2
 
 core/declarations_test.tl literal_needs_type 4
 
@@ -6438,13 +6424,11 @@ build/workflows_test.tl arms_differ 2
 
 core/allocation_test.tl arms_differ 1
 
-core/artifact_fd_test.tl arms_differ 3
+core/artifact_fd_test.tl arms_differ 2
 
-core/connector_allocation_test.tl arms_differ 6
 
-core/connector_request_fuzz_test.tl arms_differ 2
 
-core/connector_test.tl arms_differ 26
+core/connector_test.tl arms_differ 7
 
 core/declarations_test.tl arms_differ 5
 
@@ -6486,12 +6470,10 @@ cosmic/http_test.tl arms_differ 7
 
 cosmic/internal/connector.tl arms_differ 1
 
-cosmic/internal/connector_test.tl arms_differ 4
 
 
 cosmic/internal/relay_handed_lost_test.tl arms_differ 1
 
-cosmic/internal/relay_server_native_test.tl arms_differ 1
 
 cosmic/internal/relay_server_test.tl arms_differ 1
 
@@ -6503,9 +6485,8 @@ cosmic/json_test.tl arms_differ 2
 
 cosmic/net.tl arms_differ 2
 
-cosmic/net_connector_test.tl arms_differ 10
+cosmic/net_connector_test.tl arms_differ 4
 
-cosmic/net_resolve_through_test.tl arms_differ 4
 
 cosmic/net_serve_test.tl arms_differ 17
 

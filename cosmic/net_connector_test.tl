@@ -2,30 +2,19 @@
 --- another process or an earlier call made, taken as a listener, and the
 --- confined native connector (core/connector.c) as a connection maker.
 local Clock = require("cosmic.clock")
+local RawTables = require("build.raw_tables")
 local Connector = require("cosmic.internal.connector")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local Address = require("cosmic.relay.address")
-local type raw_process = require("cosmic.internal.process")
 local type raw_socket = require("cosmic.internal.socket")
 
 Test.policy{ loopback = { "127.0.0.1" }, promises = { "fork" } }
 
-local type Searcher = function(string): any, any
-
---- The raw table `require` hands `wrapper`'s loader.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.internal.connector") as raw_process -- cast: holds the table core/process.h declares, beside the socket table
-local socket = raw_behind("cosmic.net") as raw_socket -- cast: the table core/socket.h declares
+local process = RawTables.process("cosmic.internal.connector")
+local socket = RawTables.socket()
 
 --- How many connections one connector process makes at once, as the core says.
 local FLIGHT <const> = socket.CONNECTOR_FLIGHT
@@ -51,7 +40,7 @@ local function require_native_connector()
   if result == nil and (number == sys.ENOSYS or number == sys.EOPNOTSUPP) then
     Test.skip("this host has no native connector confinement: " .. why)
   end
-  assert(result == sys.EPERM, "native connector setup failed: " .. (why or ""))
+  assert(result == sys.EPERM, "native connector setup failed: " .. tostring(why))
 end
 
 --- A loopback echo server in the run's tasks: its address, and the task to cancel.
@@ -86,7 +75,7 @@ end
 --- port, and what holds it full. Skips where this kernel answers anyway.
 local function hung_port(): integer, {raw_socket.Socket}
   local listener = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
-  local port = assert(socket.bound(listener:fd())).port
+  local port = RawTables.bound_port(listener)
   local held: mut {raw_socket.Socket} = { listener }
   for n = 1, 6 do
     held[#held + 1] = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = port }))
@@ -99,22 +88,24 @@ local function hung_port(): integer, {raw_socket.Socket}
   return port, held
 end
 
---- A stream socketpair, by the connector's own maker, which a test may use as one.
-local function stream_pair(): {integer}
-  return (assert(process.connector_pair()))
+--- The same IPv6 address as a table grants it and as a request spells it.
+local record Spelling
+  granted: string
+  asked: string
 end
 
 local function test_a_listener_received_over_a_socketpair_accepts_a_loopback_connection()
   local before = descriptor_count()
   local original = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 8))
-  local pair = stream_pair()
-  assert(socket.sendfds(pair[1], { original:fd() }))
-  local received = assert(socket.recvfds(pair[2], 1))
+  local pair = RawTables.connector_pair("cosmic.internal.connector")
+  assert(socket.sendfds(pair.controller, { original:fd() }))
+  local received = assert(socket.recvfds(pair.connector, 1))
+  local adopted = assert(received[1], "recvfds answers the descriptor it was asked for")
   Poll.run(function()
-    local listener = assert(Net.listener_from(received[1]:fd(), { timeout_ns = Clock.seconds(5) }))
-    local bound = assert(socket.bound(original:fd()))
+    local listener = assert(Net.listener_from(adopted:fd(), { timeout_ns = Clock.seconds(5) }))
+    local bound_port = RawTables.bound_port(original)
     assert(listener.address.kind == "tcp" and listener.address.host == "127.0.0.1" and
-        listener.address.port == bound.port, "the adopted listener names the socket's own address")
+        listener.address.port == bound_port, "the adopted listener names the socket's own address")
     local task = Poll.spawn(function()
       local conn = assert(listener:accept())
       conn:set_timeout(Clock.seconds(5))
@@ -129,15 +120,15 @@ local function test_a_listener_received_over_a_socketpair_accepts_a_loopback_con
     task:cancel()
     -- Closing the adopted listener leaves the one it was copied from listening.
     assert(listener:close())
-    local again = assert(Net.connect(Net.tcp("127.0.0.1", assert(bound.port)), { timeout_ns = Clock.seconds(5) }))
+    local again = assert(Net.connect(Net.tcp("127.0.0.1", bound_port), { timeout_ns = Clock.seconds(5) }))
     assert(socket.wait(original:fd(), false, 5000))
     local accepted = assert(socket.accept(original:fd()))
     assert(accepted:close())
     assert(again:close())
   end)
-  assert(received[1]:close())
+  assert(adopted:close())
   assert(original:close())
-  assert(sys.close(pair[1]) and sys.close(pair[2]))
+  assert(sys.close(pair.controller) and sys.close(pair.connector))
   assert(descriptor_count() == before, "adopting a listener left a descriptor open")
 end
 
@@ -176,8 +167,8 @@ local function test_listener_from_refuses_what_is_no_listening_tcp_socket(tmp: s
   assert(sys.close(ends.reader) and sys.close(ends.writer))
   -- A stream socket that is connected, not listening.
   local server = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
-  local bound = assert(socket.bound(server:fd()))
-  local client = assert(socket.connect({ kind = "tcp", host = "127.0.0.1", port = bound.port }, 5000))
+  local bound_port = RawTables.bound_port(server)
+  local client = assert(socket.connect({ kind = "tcp", host = "127.0.0.1", port = bound_port }, 5000))
   refuses(client:fd(), "a connected socket", { "not listening" })
   -- A datagram socket.
   local datagram = assert(socket.datagram({ kind = "udp", host = "127.0.0.1", port = 0 }))
@@ -215,12 +206,13 @@ local function test_a_table_connector_matches_an_address_however_it_is_spelled()
     return not missed, why
   end
   for _, public in ipairs({ false, true }) do
-    for _, pair in ipairs({
-        { "0:0:0:0:0:0:0:1", "::1" }, { "::1", "0:0:0:0:0:0:0:1" }, { "2001:DB8::A", "2001:db8:0:0:0:0:0:a" },
-        { "2001:db8::a", "2001:0DB8::000A" },
-    }) do
-      local ok, why = matched(pair[1], pair[2], 54321, public)
-      assert(ok, pair[1] .. " asked as " .. pair[2] .. ": " .. why)
+    local spellings: {Spelling} = {
+      { granted = "0:0:0:0:0:0:0:1", asked = "::1" }, { granted = "::1", asked = "0:0:0:0:0:0:0:1" },
+      { granted = "2001:DB8::A", asked = "2001:db8:0:0:0:0:0:a" }, { granted = "2001:db8::a", asked = "2001:0DB8::000A" },
+    }
+    for _, spelling in ipairs(spellings) do
+      local ok, why = matched(spelling.granted, spelling.asked, 54321, public)
+      assert(ok, spelling.granted .. " asked as " .. spelling.asked .. ": " .. why)
     end
     -- Another address, or an ungranted port, is still refused.
     local other, other_why = matched("::1", "::2", 54321, public)

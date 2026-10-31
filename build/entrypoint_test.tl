@@ -32,11 +32,14 @@ Test.policy{
 local function checkout(tmp: string): string, string
   -- Physical, as the stand-ins' `pwd -P` print it.
   local root = assert(Fs.absolute(tmp)) .. "/a tree"
-  assert(Fs.mkdirs(root .. "/bin") and Fs.mkdirs(root .. "/build") and Fs.mkdirs(root .. "/sub/dir"))
+  assert(Fs.mkdirs(root .. "/bin") and Fs.mkdirs(root .. "/build") and Fs.mkdirs(root .. "/sub/dir") and
+      Fs.mkdirs(root .. "/ci"))
   for _, name in ipairs({ "cosmic", "cosmic-bootstrap" }) do
     assert(Fs.write(root .. "/bin/" .. name, (assert(Fs.read("bin/" .. name))), 0x1ed))
   end
   assert(Fs.write(root .. "/build/paths.tl", "-- read by the stand-in, never run\n"))
+  -- bin/cosmic-bootstrap runs build/paths.tl standalone only where the checkout lists it.
+  assert(Fs.write(root .. "/ci/bootstrap-files.txt", "build/paths.tl\n"))
   local bootstrap = tmp .. "/bootstrap cosmic"
   assert(Fs.write(bootstrap, [[#!/bin/sh
 [ "$1" = --standalone ] && [ "$2" = "$3/build/paths.tl" ] && [ "$#" -eq 3 ] || exit 64
