@@ -138,6 +138,15 @@ local function test_a_command_line_it_refuses_says_how_to_fix_it(tmp: string)
   local pair = file(tmp, "one.d.tl", "local record One\nend\nreturn One\n")
   refused({ "-o", tmp .. "/o", one, pair }, pair .. ": " .. one .. " is also the module one, and a module has one type source")
   refused({ "-o", tmp .. "/o", pair, one }, "Delete " .. pair)
+  local named: {{string}} = { { "math.tl", "math" }, { "string.d.tl", "string" }, { "table.tl", "table" } }
+  for _, pair in ipairs(named) do
+    local name, module = assert(pair[1]), assert(pair[2])
+    local language = file(tmp, name, "return {}\n")
+    refused({ "-o", tmp .. "/o", one, language }, name .. ": its module is named for `" .. module ..
+        "`, which the binary answers at run time with the language's own module")
+  end
+  local near = file(tmp, "mathlib.tl", "local n: integer = 1\nreturn n\n")
+  assert(run({ "-o", tmp .. "/near", near }).code == 0)
   refused({ one, "--root", tmp .. "/nowhere" }, "--root must name a directory")
   refused({ tmp .. "/readme.md" }, "not a .tl source")
   refused({ "-o", tmp .. "/o", one, tmp .. "/./one.tl" }, "named twice: name it once")

@@ -383,6 +383,47 @@ local function test_a_declaration_beside_its_source_is_refused()
   assert(built ~= nil, "the project did not build once the declaration was deleted: " .. tostring(built_trouble))
 end
 
+--- A project file named for a module of the language (`math`, `string`, `table`, ...) is refused, as a `.tl` and as a `.d.tl`,
+--- or as a package: the binary answers `require("math")` with its own module, so the checker would type the call against
+--- the project and the run would use another. A name that only contains one, a type of the library (`FILE`) and a file
+--- below a directory (`lib/math.tl`, whose tail `math` stands for no module) are names like any other.
+local function test_a_project_file_named_for_a_module_of_the_language_is_refused()
+  local refused: {{string}} = {
+    { "math.d.tl", "math" }, { "math.tl", "math" }, { "string.tl", "string" }, { "table.d.tl", "table" },
+    { "utf8.tl", "utf8" }, { "coroutine.tl", "coroutine" }, { "table/init.tl", "table" }, { "debug.tl", "debug" },
+  }
+  for _, pair in ipairs(refused) do
+    local file, name = assert(pair[1]), assert(pair[2])
+    local root, write_trouble = write_fixture("language-module", {
+      [file] = "local record M\n  abs: function(integer): string\nend\nreturn M\n",
+      ["main.tl"] = "local n: integer = 1\nreturn n\n",
+    })
+    assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+    local result, trouble = compile_fixture(root)
+    local want = file .. ": its module is named for `" .. name .. "`, which the binary answers at run time with " ..
+      "the language's own module, so a project file of that name would be checked as one thing and run as another: " ..
+      "rename it (for example to `" .. name .. "_lib`)"
+    assert(result == nil and trouble == want, file .. ": " .. tostring(trouble))
+  end
+  local allowed = { "FILE.tl", "mathlib.tl", "lib/maths.tl", "string_lib.tl", "print_x.tl", "lib/math.tl", "util/string.d.tl" }
+  for _, file in ipairs(allowed) do
+    local root, write_trouble = write_fixture("language-module-near", {
+      [file] = if file:find("%.d%.tl$") ~= nil then "local record R\n  n: integer\nend\nreturn R\n" else "local n: integer = 1\nreturn n\n" end,
+    })
+    assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+    local result, trouble = compile_fixture(root)
+    assert(result ~= nil, file .. " was refused: " .. tostring(trouble))
+  end
+  -- The tail of such a file's name does not stand for the language's module: the call is none of the project's.
+  local root, write_trouble = write_fixture("language-module-tail", {
+    ["lib/math.d.tl"] = "local record M\n  abs: function(integer): string\nend\nreturn M\n",
+    ["main.tl"] = 'local s: string = require("math").abs(-1)\nreturn s\n',
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil and trouble:find("the project has no module `math`", 1, true) ~= nil, tostring(trouble))
+end
+
 --- A module's own compile is keyed by its file as well as its import
 --- path: `x.tl` moved to `x/init.tl`, the same module of the same source,
 --- is compiled again (build.syntax_contracts' exemptions are by file), while a

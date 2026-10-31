@@ -34,7 +34,14 @@ local record TreeProgram
   --- ceilings are kept under as well for a source the build writes from another file ([`Driver.index`]), all in the new
   --- grammar, less the programs of a `testdata/` directory. `kinds` says of a file what the working database says
   --- of its input; a `test` has its functions called from outside.
-  index: function(entries: {{string}}, kinds: {string: string}): Driver.Index
+  index: function(entries: {{string}}, kinds: {string: string}, unaliased?: {string: boolean}): Driver.Index
+
+  --- The names of the language's own modules, which the binary answers a `require` of at run time: the lowercase records
+  --- (`math`, `string`, ...) among the globals `globals` declares. The capitalised records are types (`FILE`), no module.
+  library_modules: function(globals: Globals): {string: boolean}
+
+  --- The complaints of [`Driver.reserved`] for `entries` less the programs of a `testdata/` directory: "" for none.
+  reserved: function(entries: {{string}}, names: {string: boolean}): string
 
   --- The complaints of [`Driver.paired`] for `entries` less the programs of a `testdata/` directory: "" for none.
   paired: function(entries: {{string}}): string
@@ -85,10 +92,24 @@ local function skipped(file: string): boolean
   return file:find("^testdata/") ~= nil or file:find("/testdata/", 1, true) ~= nil
 end
 
-function TreeProgram.index(entries: {{string}}, kinds: {string: string}): Driver.Index
+function TreeProgram.index(entries: {{string}}, kinds: {string: string}, unaliased?: {string: boolean}): Driver.Index
   return Driver.index(entries, skipped, function(file: string, _text: string): Driver.Extra
     return { tests = kinds[file] == "test" }
-  end)
+  end, unaliased)
+end
+
+function TreeProgram.library_modules(globals: TreeProgram.Globals): {string: boolean}
+  local names: mut {string: boolean} = {}
+  for name, declared in pairs(Driver.globals(globals.sources, nil)) do
+    if declared.space == "both" and not declared.const and name:match("^%l") ~= nil then
+      names[name] = true
+    end
+  end
+  return names
+end
+
+function TreeProgram.reserved(entries: {{string}}, names: {string: boolean}): string
+  return Driver.reserved(entries, skipped, names)
 end
 
 function TreeProgram.paired(entries: {{string}}): string
