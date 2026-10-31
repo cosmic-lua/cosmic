@@ -1255,7 +1255,7 @@ lang/relation_refused_test.tl nil_not_allowed 16
 
 lang/relation_test.tl nil_not_allowed 16
 
-lang/scopes.tl nil_not_allowed 59
+lang/scopes.tl nil_not_allowed 58
 
 
 lang/scopes_fuzz_test.tl nil_not_allowed 1
@@ -1778,7 +1778,7 @@ lang/scopes.tl index_may_be_nil 13
 # an index write through a collection that is a view: `mut` is written on the parameters a function
 # changes and not yet on the locals, which are declared `{T}`
 
-build/archive.tl view_written 2
+build/archive.tl view_written 1
 
 build/boot_test.tl view_written 1
 
@@ -1812,13 +1812,13 @@ build/declared_key_test.tl view_written 2
 
 build/dependency_keys_test.tl view_written 1
 
-build/dispatch.tl view_written 3
+build/dispatch.tl view_written 1
 
 build/dispatched_features_test.tl view_written 1
 
 build/docs.tl view_written 5
 
-build/driver.tl view_written 5
+build/driver.tl view_written 3
 
 build/fetch_test.tl view_written 1
 
@@ -1832,8 +1832,6 @@ build/flow_test.tl view_written 2
 
 build/fuzz/init.tl view_written 1
 
-build/fuzz/shrink.tl view_written 3
-
 build/harness_epoch_test.tl view_written 2
 
 build/host_names.tl view_written 1
@@ -1841,8 +1839,6 @@ build/host_names.tl view_written 1
 build/identity.tl view_written 1
 
 build/importer.tl view_written 3
-
-build/json.tl view_written 2
 
 
 build/json_query_test.tl view_written 1
@@ -1863,21 +1859,15 @@ build/pipeline_check.tl view_written 1
 
 build/policy_rules.tl view_written 2
 
-build/rand.tl view_written 2
-
 build/reboot.tl view_written 1
 
 build/roots.tl view_written 4
 
 build/shared_compiles.tl view_written 1
 
-build/sql.tl view_written 1
-
 build/symbol_index.tl view_written 1
 
 build/syntax_analyzer.tl view_written 1
-
-build/syntax_typed_fixture.tl view_written 2
 
 build/test.tl view_written 36
 
@@ -1894,8 +1884,6 @@ build/test_sandbox_tool_test.tl view_written 1
 build/test_test.tl view_written 1
 
 build/test_worker.tl view_written 8
-
-build/time.tl view_written 1
 
 build/tree_checks.tl view_written 8
 
@@ -1941,7 +1929,7 @@ cosmic/internal/relay_wire.tl view_written 3
 
 cosmic/internal/relay_wire_test.tl view_written 1
 
-cosmic/json.tl view_written 8
+cosmic/json.tl view_written 6
 
 cosmic/json_fuzz_test.tl view_written 2
 
@@ -2029,7 +2017,7 @@ lang/relation_speed_test.tl view_written 1
 
 lang/relation_test.tl view_written 2
 
-lang/scopes.tl view_written 13
+lang/scopes.tl view_written 11
 
 lang/scopes_cover.tl view_written 1
 

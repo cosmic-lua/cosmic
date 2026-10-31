@@ -577,6 +577,8 @@ function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any}?, str
       if err ~= "" then
         return nil, err
       end
+      -- TODO: type the array of a JSON Lines text with a hole as `{integer: any}` once [`raw.array`] answers one, so this write at
+      -- `count`, which a `null` line leaves empty, is no write the hole check refuses on a view.
       values[count] = value
     end
   end
@@ -1365,19 +1367,21 @@ end
 function Json.from_path(text: string): Json.Steps?, string
   local q, err = Json.query(text)
   if q == nil then return nil, err end
-  local steps: Json.Steps = {}
+  local steps: mut {string | integer} = {}
   for i, seg in ipairs(q.segments) do
     local seg_kind = seg.kind
     if seg.descendant or seg_kind == "wildcard" then
       return refuse(("JSONPath %s selects many values (segment %d): read it with Json.query"):
           format(Json.quote(text), i))
     end
+    local step: string | integer
     if seg_kind == "name" then
-      steps[i] = seg.name
+      step = seg.name
     else
       local index = assert(seg.index)
-      steps[i] = if index >= 0 then index + 1 else index end
+      step = if index >= 0 then index + 1 else index end
     end
+    steps[i] = step
   end
   return steps, ""
 end

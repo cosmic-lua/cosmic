@@ -549,7 +549,7 @@ function Driver.new(options: Driver.Options): Driver.Build
   local providers: mut {Driver.Provider} = {}
   local entries: mut {string: Entry} = {}
   local globals: mut {string: Scopes.Global} = {}
-  local global_entries: {Entry} = {}
+  local global_entries: mut {Entry} = {}
   local started_up: Flag = { done = false }
   --- The names of the modules [`Driver.Build.retire`] forgot after the program lowered them, which nothing reads again.
   local retired: mut {string: boolean} = {}
@@ -776,9 +776,12 @@ function Driver.new(options: Driver.Options): Driver.Build
     for key, entry in pairs(names) do
       entries[key] = entry
     end
-    for index, entry in ipairs(global_entries) do
-      global_entries[index] = again(entry)
+    local replaced: mut {Entry} = {}
+    for _, entry in ipairs(global_entries) do
+      local swapped = again(entry)
+      replaced[#replaced + 1] = swapped
     end
+    global_entries = replaced
     build.program = program_of(options.external)
     attach()
     for _, entry in ipairs(global_entries) do
