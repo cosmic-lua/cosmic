@@ -1,10 +1,8 @@
-local RawTables = require("build.raw_tables")
-local _ = require("cosmic.child") -- in the closure: [`RawTables`] searches for it by hand
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
 local Clock = require("cosmic.clock")
 
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 --- The two ends of a named pipe in `dir`, neither waiting: the reading
 --- end open first, as a pipe with no reader refuses a nonblocking writer.

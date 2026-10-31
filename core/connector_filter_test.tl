@@ -1,8 +1,7 @@
 --- The actual endpoint-connector filter on both Linux architectures.
-local RawTables = require("build.raw_tables")
 local type raw_process = require("cosmic.internal.process")
 local type _ = require("cosmic.child")
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 local ALLOW <const> = 0x7fff0000
 local REFUSE <const> = 0x50001
 local KILL <const> = 0x80000000

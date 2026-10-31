@@ -2,7 +2,6 @@
 --- process a test confines in a root of its own is given, and what
 --- starts where the kernel can confine none.
 
-local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -51,7 +50,7 @@ end
 --- `call` answers what its call returned, the very table, and puts back
 --- the stand-in it made, whether the call returned or raised.
 local function test_a_run_answers_what_its_call_made_and_puts_the_spawn_back(tmp: string)
-  local process = RawTables.process("build.confine")
+  local process = require("cosmic.internal.process")
   local before = process.spawn
   local produced = { answer = 42 }
   local ran = confine.call(function(argument: any): any
@@ -184,7 +183,7 @@ end
 --- with no user namespaces for this user does, every spawn given a
 --- sandbox, and answers how many it refused.
 local function refusing_sandboxes(fn: function()): integer
-  local process = RawTables.process("build.confine")
+  local process = require("cosmic.internal.process")
   local spawn = process.spawn
   local refused = { value = 0 }
   process.spawn = function(path: string, argv: {string}, environment: {string:string}?,
@@ -278,7 +277,7 @@ end
 test_child.register("raw_refusals", function(args: {string}): integer
   local probe, tmp = args[1], args[2]
   if probe == nil or tmp == nil then return 2 end
-  local process = RawTables.process("build.confine")
+  local process = require("cosmic.internal.process")
   refusing_sandboxes(function()
     print(said("passed_over", confine.call(function(...: any): any...
       confine.must_confine({ reads = { probe } })

@@ -1,10 +1,9 @@
 --- The SIGPIPE inheritance contract, as Linux's /proc reports it.
 
-local RawTables = require("build.raw_tables")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local stand_in = require("build.stand_in")
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 local function probe_in(tmp: string): string
   return (assert(stand_in.build(tmp .. "/probe")))

@@ -4,7 +4,6 @@
 --- that refuses to set one (ENOSYS: anything but Linux) skips the test
 --- (Test.skip).
 
-local RawTables = require("build.raw_tables")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -15,7 +14,7 @@ local type _ = require("cosmic.child")
 
 Test.policy{}
 
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 --- What `script` printed in a stand-in started with `rlimits`, or nil and why
 --- the start was refused.

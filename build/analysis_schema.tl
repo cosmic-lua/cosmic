@@ -44,16 +44,54 @@ function analysis_schema.outside_apart(column: string): string
   return table.concat(out, " ")
 end
 
+--- Whether `path` matches the `GLOB` pattern `glob`, its `*` any run of characters (a `/` too).
+local function globbed(glob: string, path: string): boolean
+  return path:match("^" .. glob:gsub("[%^%$%(%)%%%.%[%]%+%-%?]", "%%%0"):gsub("%*", ".*") .. "$") ~= nil
+end
+
 --- Whether a build reads the file `path`, a path below the root, as a
 --- module: Teal or a template, outside [`apart`], each
 --- pattern matched as `GLOB` matches it, its `*` any run of characters.
 function analysis_schema.is_module_file(path: string): boolean
   if path:match("%.tl$") == nil and path:match("%.tmpl$") == nil then return false end
   for _, pattern in ipairs(apart) do
-    local lua = "^" .. pattern:gsub("[%^%$%(%)%%%.%[%]%+%-%?]", "%%%0"):gsub("%*", ".*") .. "$"
-    if path:match(lua) ~= nil then return false end
+    if globbed(pattern, path) then return false end
   end
   return true
+end
+
+--- What a Teal file is by its path, in the order they are asked: a declaration, a test, an example, a program's main
+--- (`except` a main of a directory below `cmd/<name>/`), else a module. The one definition of the kind: the `inputs` view
+--- asks it in SQL ([`kind_case`]) and everything else through [`analysis_schema.kind_of`], both of this table.
+local kinds <const>: {{string}} = {
+  { "*.d.tl", "decl", "" },
+  { "*_test.tl", "test", "" },
+  { "*_example.tl", "example", "" },
+  { "cmd/*/main.tl", "main", "cmd/*/*/*" },
+}
+
+--- The SQL expression for the kind of the file whose path is in `column`: `decl`, `test`, `example`, `main` or
+--- `module` ([`kinds`]).
+local function kind_case(column: string): string
+  local out: mut {string} = { "CASE" }
+  for _, rule in ipairs(kinds) do
+    local glob, kind, except = assert(rule[1]), assert(rule[2]), assert(rule[3])
+    local clause = " WHEN " .. column .. " GLOB '" .. glob .. "'"
+    if except ~= "" then clause = clause .. " AND " .. column .. " NOT GLOB '" .. except .. "'" end
+    out[#out + 1] = clause .. " THEN '" .. kind .. "'"
+  end
+  out[#out + 1] = " ELSE 'module' END"
+  return table.concat(out)
+end
+
+--- The kind of the Teal file `path`, below the root, as the `inputs` view says it: `decl`, `test`, `example`, `main` or
+--- `module`.
+function analysis_schema.kind_of(path: string): string
+  for _, rule in ipairs(kinds) do
+    local glob, kind, except = assert(rule[1]), assert(rule[2]), assert(rule[3])
+    if globbed(glob, path) and (except == "" or not globbed(except, path)) then return kind end
+  end
+  return "module"
 end
 
 analysis_schema.tables = {
@@ -74,11 +112,7 @@ analysis_schema.statements = {
              replace(CASE WHEN path GLOB '*.d.tl' THEN substr(path, 1, length(path) - 5)
                           WHEN path GLOB '*/init.tl' THEN substr(path, 1, length(path) - 8)
                           ELSE substr(path, 1, length(path) - 3) END, '/', '.') AS path,
-             CASE WHEN path GLOB '*.d.tl' THEN 'decl'
-                  WHEN path GLOB '*_test.tl' THEN 'test'
-                  WHEN path GLOB '*_example.tl' THEN 'example'
-                  WHEN path GLOB 'cmd/*/main.tl' AND path NOT GLOB 'cmd/*/*/*' THEN 'main'
-                  ELSE 'module' END AS kind,
+             ]] .. kind_case("path") .. [[ AS kind,
              'tree' AS origin,
              sha256 AS from_hash,
              CAST(data AS TEXT) AS source,
