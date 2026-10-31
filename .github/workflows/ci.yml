@@ -2580,14 +2580,17 @@
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
           with: {pattern: "portable-product-*", path: "${{ runner.temp }}/cosmic-ci/products"},
         },
-        # The attestation of each job that ran a share of a leg's
-        # portable suite (`portable-2/2`), where the platform job ran:
-        # a run that reuses the queue's has none, the queue's own join
-        # having compared it.
+        # The attestation of the job that ran the second share of
+        # alpine-x86_64's portable suite (`portable-2/2`), where the
+        # platform job ran: a run that reuses the queue's has none, the
+        # queue's own join having compared it. By name into a directory
+        # of its own: a `pattern` that matches one artifact extracts it
+        # into `path` itself, with no directory named for it, where the
+        # join looks for none (run 41220498855).
         {
           if: "env.COSMIC_CI_SCOPE == 'full' && needs.reuse.outputs.run == ''",
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
-          with: {pattern: "portable-share-*", path: "${{ runner.temp }}/cosmic-ci/products"},
+          with: {name: "portable-share-alpine-x86_64", path: "${{ runner.temp }}/cosmic-ci/products/portable-share-alpine-x86_64"},
         },
         {
           name: "compare the Cosmic bytes executed on every native host",

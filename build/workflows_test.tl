@@ -3313,11 +3313,15 @@ local function test_the_join_compares_the_portable_share_with_the_legs()
       product["if"] == FULL .. " && " .. NOT_SHARE, "the share's job uploads a product")
   local downloads = 0
   for _, step in ipairs(join.steps) do
+    local name = with_of(step)["name"]
     local pattern = with_of(step)["pattern"]
-    if pattern == "portable-share-*" then
+    assert(pattern == nil or not tostring(pattern):find("^portable%-share"),
+      "the join downloads the share's attestation by a pattern, which puts one artifact in no directory of its own")
+    if name == "portable-share-alpine-x86_64" then
       downloads = downloads + 1
       assert(step["if"] == FULL .. " && needs.reuse.outputs.run == ''", "the share's attestation is downloaded on " .. tostring(step["if"]))
-      assert(param(step, "path") == "${{ runner.temp }}/cosmic-ci/products", "the share's attestation is downloaded elsewhere")
+      assert(param(step, "path") == "${{ runner.temp }}/cosmic-ci/products/portable-share-alpine-x86_64",
+        "the share's attestation is downloaded to " .. param(step, "path"))
     end
   end
   assert(downloads == 1, "the join downloads " .. tostring(downloads) .. " sets of share attestations")
