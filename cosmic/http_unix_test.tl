@@ -5,13 +5,12 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Http = require("cosmic.http")
 local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
 local this_program = require("build.this_program")
---- What the client script, run standalone, requires.
-local type _ = require("cosmic.http")
 
 --- The program itself, started to run a script `--standalone`
 --- ([`build.standalone`]), and a socket file in the test's directory.
@@ -203,4 +202,20 @@ end
 ]])
   assert(said == "false http://files.test/moved: HTTP 302\nhttp_status 302\nexists false\nbody of /final", said)
   assert(seen == "/moved @files.test|/moved @files.test|/moved @files.test|/final @files.test", seen)
+end
+
+--- A request over a socket that cannot be connected to names the socket
+--- path and why, as [`Net.connect`] says it, and no `host:port` of the
+--- URL, which a reader would take for a TCP port the request never uses.
+local function test_a_connect_failure_names_the_socket_and_the_reason(tmp: string)
+  local missing = tmp .. "/none.sock"
+  local _, why = Http.get("http://authd.local/", { via = Net.unix(missing) })
+  assert(why == "cannot connect to unix socket " .. missing .. ": No such file or directory", tostring(why))
+  assert(not why:find(":80", 1, true), why)
+
+  local plain = tmp .. "/plain"
+  assert(Fs.write(plain, "not a socket"))
+  local _, refused = Http.request("POST", "http://authd.local:8080/", { via = Net.unix(plain), body = "x" })
+  assert(refused == "cannot connect to unix socket " .. plain .. ": Connection refused", tostring(refused))
+  assert(Fs.remove(plain))
 end

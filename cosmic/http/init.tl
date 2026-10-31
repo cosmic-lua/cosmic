@@ -928,6 +928,27 @@ local function sendable(url: string): string?, string
   return url:sub(1, rest - 1) .. escaped, ""
 end
 
+--- `trouble`, a failure of opening a request sent over `via`, as the
+--- socket's own: where curl failed to connect, its message names the
+--- URL's `host:port` (the origin, never connected to) and not why, so the
+--- path is connected to once more, as [`Net.connect`] does, for its reason.
+--- Any other failure, and a path that connects this time, keep `trouble`.
+local function socket_trouble(via: Net.Address, trouble: string): string
+  if not trouble:find("^Failed to connect to .- over unix://") then
+    return trouble
+  end
+  -- Required here: a program that never fails over a socket does not
+  -- carry the networking stack.
+  local Sockets = require("cosmic.net")
+  local conn, why = Sockets.connect(via)
+  if conn ~= nil then
+    local _, _ = conn:close()
+    return trouble
+  end
+  -- Its failure reads "path: reason" already.
+  return "cannot connect to unix socket " .. why
+end
+
 --- [`Http.open`]'s work, which each public entry point that opens
 --- calls itself (`CALLER`); `method`, when given, stands in for
 --- `opts.method`.
@@ -943,6 +964,9 @@ local function opened(url: string, opts: Http.Options?, method: string?): Http.R
   end
   local handle, trouble = http.open(url, raw)
   if handle == nil then
+    if opts ~= nil and opts.via ~= nil then
+      return nil, socket_trouble(opts.via, trouble)
+    end
     return nil, trouble
   end
   if opts ~= nil and opts.decompress == true then return decoded(respond(handle)) end
