@@ -5,6 +5,7 @@
     "linux-x86_64-checked": ["all_cores", "sandbox", "landlock", "userns", "nest", "own_proc", "proc", "unix_socket", "path:/bin/sh", "path:/bin/cat", "path:/proc/thread-self/children", "path:/usr/bin/env", "path:/etc/passwd", "checked"],
     "linux-aarch64": ["all_cores", "sandbox", "landlock", "userns", "nest", "own_proc", "proc", "unix_socket", "path:/bin/sh", "path:/bin/cat", "path:/proc/thread-self/children", "path:/usr/bin/env", "path:/etc/passwd"],
     "alpine-x86_64": ["all_cores", "sandbox", "landlock", "userns", "nest", "own_proc", "proc", "unix_socket", "path:/bin/sh", "path:/bin/cat", "path:/proc/thread-self/children", "path:/usr/bin/env", "path:/etc/passwd"],
+    "alpine-x86_64-portable-share": ["all_cores", "sandbox", "landlock", "userns", "nest", "own_proc", "proc", "unix_socket", "path:/bin/sh", "path:/bin/cat", "path:/proc/thread-self/children", "path:/usr/bin/env", "path:/etc/passwd"],
     "macos-aarch64": ["all_cores", "path:/bin/sh", "unix_socket", "path:/usr/bin/env", "path:/etc/passwd", "program:cc"]
   }
 }
