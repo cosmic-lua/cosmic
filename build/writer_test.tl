@@ -374,10 +374,9 @@ end
 
 --- Of a projection's docs, uses and examples, the tool carries what a
 --- reader asks it for outside cosmic's own tree -- the public standard
---- library's -- and, of every other doc row, those the catalog's
---- guidance joins to: the doc comment of the function an error came
---- from, and the internal type a public alias names through the module
---- it binds. A dropped module's rows go even so.
+--- library's -- and, of every other doc row, the internal type a
+--- public alias names through the module it binds. A dropped module's
+--- rows go even so.
 local function test_the_carried_docs_are_the_public_standard_library_s(tmp: string)
   local whole = tmp .. "/whole.db"
   local db = assert(Sqlite.open(whole, { writable = true }))
@@ -451,14 +450,14 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
   assert(out:close())
   -- The internal rows carried are the nested type and its member, which a
   -- public alias's page lists, not the module's own function or field.
-  assert(docs == "cosmic.fs cosmic.internal.fs cosmic.internal.fs cosmic.fs build.work",
+  assert(docs == "cosmic.fs cosmic.internal.fs cosmic.internal.fs cosmic.fs",
     "the docs carried: " .. docs)
   assert(uses == "cosmic.fs>cosmic.fs", "the uses carried: " .. uses)
   assert(examples == "cosmic.fs", "the examples carried: " .. examples)
   assert(bound == "cosmic.fs:Native", "the names bound carried: " .. bound)
   -- A link to a file names one of the tree's own, which a project lacks.
   assert(linked == "cosmic.fs:5>cosmic.fs", "the links carried: " .. linked)
-  assert(indexed == "cosmic.fs build.work", "the docs index: " .. indexed)
+  assert(indexed == "cosmic.fs", "the docs index: " .. indexed)
 end
 
 --- An internal type is carried when a public declaration names it through

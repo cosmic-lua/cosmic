@@ -211,8 +211,8 @@ end
 --- "value") with such a message; else the guidance the first database
 --- in search order (a project's own ahead of the binary's) holds for
 --- the error it matches, a row's own text or a line naming the function
---- the message came from; or nil when none matches it. The core prints it for an
---- error nothing caught.
+--- the message came from; or nil when none matches it. The core prints
+--- it for an error nothing caught.
 function Errors.guidance(message: string): string?
   local hint = Errors.hint(message)
   if hint ~= nil then
