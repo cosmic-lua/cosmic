@@ -221,7 +221,7 @@ with a policy in it is Teal, stored once in the database and shared
 by every target.
 
 native, per target: the Lua VM; SQLite; mbedtls, which also serves
-hashing and HMAC; miniz for deflate; yyjson for JSON; argon2 and a
+hashing and HMAC; miniz for deflate; yyjson for JSON; expat for XML; argon2 and a
 regex engine, both planned; the syscall table; the database VFS and the
 entry. measured stripped on
 x86_64 musl: Lua 360 KB, SQLite with the flags below 1.1 MB, FTS5
@@ -292,6 +292,10 @@ and yyjson is fuzzed upstream (OSS-Fuzz), keeps 64-bit integers
 exact, and reads RFC 8259 unless a caller names JSON5 for the one
 read. it reads; the core's own C walks the document into Lua values and
 writes JSON back, with yyjson printing each float's shortest form.
+XML starts in C on the same half: expat is fuzzed upstream (OSS-Fuzz),
+bounds entity expansion, and reads no external entity unless a handler
+asks, and the core sets none. it reads; the core's own C hands each
+event to Lua, appending it under `lua_pcall` so no raise crosses expat.
 the benchmark harness, not taste, moves a module across the line in
 either direction.
 
@@ -926,12 +930,12 @@ a record whose anchor no longer matches fails the build by name.
 
 vendored: Lua 5.5, the SQLite amalgamation and twelve of its ext/misc
 extensions, mbedtls, miniz, bzip2,
-xz's liblzma decoder, zstd, c-ares, curl, yyjson, Mozilla's CA bundle, the
+xz's liblzma decoder, zstd, c-ares, curl, yyjson, expat, Mozilla's CA bundle, the
 IANA time zone database's compiled `zoneinfo`, and tl;
 argon2's reference implementation built without threads and the regex
 engine are planned. a library that needs a configuration header gets a
 hand-written one under `core/` (`curl_config.h`, `ares_config.h`,
-`xz_config/config.h`, `mbedtls_cosmic_config.h`), never one generated
+`xz_config/config.h`, `mbedtls_cosmic_config.h`, `expat_config.h`), never one generated
 by the library's own configure step.
 
 each tree keeps its upstream license file (`vendor/<name>/COPYING`,

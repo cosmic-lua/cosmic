@@ -49,6 +49,7 @@ local type _sqlite = require("cosmic.sqlite")
 local type _store = require("cosmic.store")
 local type _tar = require("cosmic.tar")
 local type _vector = require("cosmic.vector")
+local type _xml = require("cosmic.xml")
 local type _zip = require("cosmic.zip")
 
 --- Every declaration of the core's raw modules, the headers the process
@@ -280,6 +281,10 @@ local makers: {string: function(raw: {string: any}): Made} = {
         call(members(socket).close, socket)
         call(members(lookup).close, lookup)
       end }
+  end,
+  xml = function(raw: {string: any}): Made
+    local parser = assert(call(raw["parser"]))
+    return { instances = { Parser = parser }, release = nothing }
   end,
   vector = function(raw: {string: any}): Made
     return { instances = { Corpus = call(raw["corpus"], 4) }, release = nothing }
