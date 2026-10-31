@@ -92,7 +92,7 @@ end
 
 --- The shape of the schema. A file of another shape holds nothing the
 --- tree cannot produce again, so it is thrown away.
-local version <const> = "30"
+local version <const> = "31"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -167,6 +167,13 @@ local version <const> = "30"
 --- refuses from ([`build.plans`]'s `refuse_globals`) without
 --- reading a source again. A guide's example is at the line of the
 --- module extracted from the guide.
+--- `places` is where each type a source declares, and each field, method
+--- and `function R.f` of one, has its name ([`build.syntax_places`]): a
+--- row each by dotted symbol from the top of the module (`R`, `R.Inner`,
+--- `R.f`), its kind, and the line, byte column and byte length of the
+--- name. `cosmic lsp` finds a declaration in another module by it
+--- ([`build.lsp.source`]) without parsing the module. A source derived
+--- from another file (`mapped`) has none: its lines are not the file's.
 ---
 --- `executable` is [`build.coverage.syntax_lines.executable`]'s answer for one
 --- source, keyed by content hash the same way as `parsed`: which lines
