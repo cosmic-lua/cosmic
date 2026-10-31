@@ -46,6 +46,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
+local analysis_schema = require("build.analysis_schema")
 local importer = require("build.importer")
 local type Module = importer.Module
 local GrammarMode = require("build.grammar_mode")
@@ -1795,11 +1796,8 @@ function test_key.gather(rec: Recording, from: Gather): string?
   local identity = from.identity
   local by_path: mut {string:Module} = {}
   for _, m in ipairs(from.modules) do by_path[m.path] = m end
-  -- TODO: ask [`build.analysis_schema`]'s `declaration("kind")` for this, as every other comparison of a kind with 'decl'
-  -- does. It waits on the pull request that adds the `binding` kind, which makes a binding a declaration here too and must
-  -- handle this harness module as doc/testing.md says (the require is the change to its closure).
   local declaration_rows, declaration_trouble = Sqlite.text_rows(records,
-    "SELECT path, file FROM inputs WHERE kind = 'decl'")
+    "SELECT path, file FROM inputs WHERE " .. analysis_schema.declaration("kind"))
   if declaration_rows == nil then return records_path .. ": " .. declaration_trouble end
   local declarations: mut {string:string} = {}
   for _, row in ipairs(declaration_rows) do declarations[row:text(1)] = row:text(2) end

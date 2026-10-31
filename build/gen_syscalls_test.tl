@@ -79,6 +79,7 @@ local function test_classes_and_fields_carry_their_prose()
   local read_only = assert(by_symbol["O_RDONLY"], "O_RDONLY is documented")
   assert(read_only.text == "open for reading", read_only.text)
   local module = assert(by_symbol[""], "the module is documented").text
+  -- The line that says the table is a binding is for the build: the docs do not show it.
   assert(module == "The syscall table: one C function per call, the same on Linux\n" ..
       "and on macOS.", module)
 end

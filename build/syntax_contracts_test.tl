@@ -355,10 +355,24 @@ local function test_a_binding_the_program_holds_without_a_table_is_told_by_name(
   local lost = Fixture.port(Fixture.PRELUDE .. "local sys = require('cosmic.sys')\nreturn sys\n",
     { ["cosmic.sys"] = "local n: integer = 1\nreturn n\n" }, nil)
   local told = table.concat(lost.problems, "\n")
-  assert(told:find("cosmic.sys is a table of C bindings derived from core/syscalls.h", 1, true) ~= nil and
+  assert(told:find("cosmic.sys is a table of C bindings, but the program holds", 1, true) ~= nil and
       told:find("declares no table", 1, true) ~= nil, told)
   local absent = Fixture.port(Fixture.PRELUDE .. "local record M end\nreturn M\n", {}, nil)
   assert(#absent.problems == 0, table.concat(absent.problems, "\n"))
+end
+
+--- A declaration that declares itself a binding (`--- @kind binding`) is held to the contract as the generated tables are:
+--- an exported function that answers a bare boolean over one of its calls (rule 11) is a breach through it and none
+--- through a declaration without the line.
+local function test_a_declaration_that_declares_itself_a_binding_is_held_to_the_contract()
+  local declaration = "local record Drv\n  poke: function(string): boolean, string, integer\nend\nreturn Drv\n"
+  local call = "local drv = require('my.drv')\nlocal record M end\nfunction M.rm(p: string): boolean\n" ..
+    "  local ok, _ = drv.poke(p)\n  return ok\nend\nreturn M\n"
+  local plain = problems_of(call, nil, { ["my.drv"] = declaration })
+  assert(#plain == 0, table.concat(plain, "\n"))
+  local held = problems_of(call, nil, { ["my.drv"] = "--- @kind binding\n" .. declaration })
+  assert(table.concat(held, "\n"):find("calls my.drv.poke itself and answers a bare boolean", 1, true) ~= nil,
+    table.concat(held, "\n"))
 end
 
 local function test_an_exported_bare_boolean_over_a_binding_is_flagged()
