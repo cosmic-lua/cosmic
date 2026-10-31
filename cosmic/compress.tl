@@ -179,10 +179,16 @@ end
 --- split into chunks.
 ---
 --- A preset sets the encoder's dictionary, and with it the memory the
---- encoder takes while it runs (the decoder takes about as much): about
---- 3 MiB at `0`, 9 at `1`, 17 at `2`, 32 at `3`, 48 at `4`, 94 at `5`
---- and `6`, 186 at `7`, 370 at `8` and 674 at `9`, a little more with `extreme`
---- at some. Presets are not capped below 9, as the `xz` command's are
+--- encoder takes while it runs: about 3 MiB at `0`, 9 at `1`, 17 at `2`,
+--- 32 at `3`, 48 at `4`, 94 at `5` and `6`, 186 at `7`, 370 at `8` and
+--- 674 at `9`. With `extreme` it is 4 MiB at `0`, 13 at `1`, 25 at `2`
+--- and 48 at `3`, and the same at `4` to `9`. The decoder needs about
+--- the dictionary alone (65 MiB for a stream written at `9`).
+---
+--- An encoder keeps that memory until `finish`, `close` or collection,
+--- and Lua's accounting does not see it: a caller that holds many
+--- encoders, or uses presets 8 and 9 in a server, should hold each
+--- `<close>`. Presets are not capped below 9, as the `xz` command's are
 --- not; an allocation the machine refuses answers nil and "compress:
 --- out of memory" (from the constructor) or, from `update` or
 --- `finish`, finishes the stream and answers the same. Only a single

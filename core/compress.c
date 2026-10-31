@@ -585,6 +585,8 @@ static const ZSTD_customMem zstd_memory = {zstd_alloc, zstd_free, NULL};
 /* liblzma's allocator for the encoder: the core's own, as zstd's above.
  * liblzma asks for `nmemb` items of `size` bytes and zeroes them itself
  * where it needs zeros. */
+/* The shim has no calloc, so liblzma's lzma_alloc_zero memsets the hash
+ * table itself: about 15 to 56 ms per stream, preset 0 to 9 (accepted). */
 static void *xz_alloc (void *opaque, size_t nmemb, size_t size) {
   (void)opaque;
   if (size != 0 && nmemb > SIZE_MAX / size) return NULL;

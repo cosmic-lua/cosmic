@@ -280,8 +280,8 @@ end
 
 --- The format [`Archive.create`] would write at `path`, from the
 --- suffix the name ends in, whatever its case: `.tar.gz` or `.tgz`,
---- `.tar.xz` or `.txz`, `.tar.zst` or `.tzst`, `.tar`, `.zip`. Any other name is nil and why, naming the suffixes
---- it knows. Nothing is read or created, so a caller can refuse a name
+--- `.tar.xz` or `.txz`, `.tar.zst` or `.tzst`, `.tar`, `.zip`. Any other
+--- name is nil and why, naming the suffixes it knows. Nothing is read or created, so a caller can refuse a name
 --- before doing work for it.
 function Archive.format_of(path: string): Archive.Format?, string
   local lower = path:lower()

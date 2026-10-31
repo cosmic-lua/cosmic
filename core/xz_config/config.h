@@ -4,8 +4,8 @@
  * the range coder it reuses is built from), the delta and x86/arm64 BCJ
  * filters, and the CRC-32, CRC-64 and SHA-256 integrity checks; and,
  * for the encoder, the .xz container with LZMA2 alone and the three
- * match finders the presets 0 to 9 name (hc3, hc4, bt4). The build's three targets (musl Linux x86_64/aarch64,
- * macOS aarch64) are all little-endian with 8-byte size_t and a
+ * match finders the presets 0 to 9 name (hc3, hc4, bt4). The build's
+ * three targets (musl Linux x86_64/aarch64, macOS aarch64) are all little-endian with 8-byte size_t and a
  * standards-conforming <stdint.h>/<stdbool.h>; only the hardware CRC
  * choice below branches, and on the target, never the host. */
 

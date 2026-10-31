@@ -930,7 +930,7 @@ a record whose anchor no longer matches fails the build by name.
 
 vendored: Lua 5.5, the SQLite amalgamation and twelve of its ext/misc
 extensions, mbedtls, miniz, bzip2,
-xz's liblzma decoder, zstd, c-ares, curl, yyjson, expat, Mozilla's CA bundle, the
+xz's liblzma (decoder and LZMA2 encoder), zstd, c-ares, curl, yyjson, expat, Mozilla's CA bundle, the
 IANA time zone database's compiled `zoneinfo`, and tl;
 argon2's reference implementation built without threads and the regex
 engine are planned. a library that needs a configuration header gets a

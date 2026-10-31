@@ -1087,6 +1087,41 @@ local function test_xz_encoder_round_trips_at_presets_and_chunkings()
   assert(xz_decode(extreme) == plain)
 end
 
+local function test_xz_encoder_slides_its_window_past_the_dictionary()
+  -- Preset 0's dictionary is 256 KiB; ~600 KB of text drawn from a few
+  -- hundred generated words repeats a lot but never exactly, so matches
+  -- reach back across the window slide and the position normalisation.
+  local syllables: {string} = { "ka", "to", "mi", "re", "su", "lan", "dor", "vex", "pi", "no" }
+  local vocab: mut {string} = {}
+  local x = 777
+  for i = 1, 300 do
+    local word: mut {string} = {}
+    for _ = 1, 2 + i % 3 do
+      x = (x * 1103515245 + 12345) % 2147483648
+      word[#word + 1] = assert(syllables[(x >> 9) % #syllables + 1])
+    end
+    vocab[i] = table.concat(word)
+  end
+  local parts: mut {string} = {}
+  local size = 0
+  local n = 0
+  while size < 600000 do
+    n = n + 1
+    x = (x * 1103515245 + 12345) % 2147483648
+    local piece = assert(vocab[(x >> 8) % #vocab + 1]) .. (if n % 9 == 0 then "\n" else " " end)
+    parts[#parts + 1] = piece
+    size = size + #piece
+  end
+  local plain = table.concat(parts)
+  assert(#plain > 2 * 262144)
+  local whole = xz_encode(plain, 0)
+  assert(#whole < #plain // 2, tostring(#whole))
+  for _, chunk in ipairs({ 1000, 65536, 300000, #plain }) do
+    assert(xz_decode(whole, chunk) == plain, "decode chunks of " .. tostring(chunk))
+    assert(xz_encode(plain, 0, nil, chunk) == whole, "encode chunks of " .. tostring(chunk))
+  end
+end
+
 local function test_xz_encoder_gives_output_past_one_slice()
   -- Noise does not compress, so the stream is longer than the 64 KiB
   -- slice the encoder is offered output room in: each call loops.
