@@ -495,7 +495,8 @@ local function checked_of(checker: Checker, document: Document): Checked
 end
 
 -- TODO: bound the results kept to the documents most recently asked of (the least recently used dropped), once a session is seen
--- to hold enough open documents for them to matter: every open document keeps its tree, scopes and types until it is closed.
+-- to hold enough open documents for them to matter: every open document keeps its tree, scopes and types until it is closed, and `kept` and `parsed` each hold the whole
+-- [`Declarations.Program`] of their check (up to two a document; `parsed` pins an old program while a line does not parse).
 
 -- TODO: invalidate a kept result by the keys of the modules its document reads ([`source.key`]) in place of the checker's
 -- `epoch`, once a check records which modules it was served: any module served otherwise than it was checks every open

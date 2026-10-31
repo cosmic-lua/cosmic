@@ -369,3 +369,21 @@ local function test_the_functions_of_a_declaration_are_read_from_the_program_the
   })
   assert(has(items(ran, 2), { "origin", "x" }) == "origin,x", answer(ran, 2) .. ran.err)
 end
+
+local function test_the_colon_of_an_annotation_offers_types_and_not_the_methods_of_the_name()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "main.tl", COUNTER .. 'return c\n'),
+    -- `local c:` and a parameter `c:` annotate; `c:` as a statement calls a method.
+    change(root, "main.tl", COUNTER .. 'local c:\nreturn c\n'),
+    ask(2, root, "main.tl", 7, 8),
+    change(root, "main.tl", COUNTER .. 'local function f(c:\nend\nreturn f\n'),
+    ask(3, root, "main.tl", 7, 18),
+    change(root, "main.tl", COUNTER .. 'c:\nreturn c\n'),
+    ask(4, root, "main.tl", 7, 2),
+  })
+  local annotated = items(ran, 2)
+  assert(annotated["bump"] == nil and annotated["Counter"] ~= nil, has(annotated, { "bump", "Counter" }))
+  local parameter = items(ran, 3)
+  assert(parameter["bump"] == nil and parameter["Counter"] ~= nil, has(parameter, { "bump", "Counter" }))
+  assert(items(ran, 4)["bump"] ~= nil, "a method call at the start of a line")
+end

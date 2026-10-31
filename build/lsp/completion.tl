@@ -37,6 +37,11 @@
 -- derivation writes the docs rows of the scratch database ([`source.places`]): the docs are the last build's, so a member
 -- the person has not built has none.
 
+-- TODO: complete the members of another module from db rows (their names, types and docs) in place of the checker's
+-- declarations of its stub, once the derivation writes each type's members with their types as rows (`places` holds only
+-- where a name is declared): the checker's declarations are what the session has served, so a member is read from the
+-- program and not the working database.
+
 -- TODO: rank the items by how near they are and what was used (`sortText`), fill in `documentation` and `detail` at
 -- `completionItem/resolve`, and offer snippets for a call's parameters, once a request needs them: names are ordered by
 -- the depth of their scope and then by name, and every item carries its text.
@@ -57,13 +62,18 @@ local record completion
   --- What the text before the cursor says is typed.
   record Context
     --- "modules", "members", "types" or "names".
-    what: string
+    mut what: string
     --- The part of the name typed already, and the byte of the line it starts at.
     prefix: string
     start: integer
     --- For "members": the names the receiver is, and whether the separator is `:`.
     chain: {string}
     method: boolean
+    --- For a `:` after one name: that it is a declaration's annotation (`local c:`, a parameter), and so a type follows.
+    annotation: boolean
+    --- For a `:` after one name that starts its line: that it is a record's field as well as a method call, a type
+    --- following if the name has no methods.
+    field: boolean
   end
 
   --- A member of a declaration.
@@ -117,7 +127,8 @@ end
 local function context_of(before: string): Context?
   local quote, wanted = before:match("require%s*%(?%s*([\"'])([%w_%.%-]*)$")
   if quote ~= nil and wanted ~= nil then
-    return { what = "modules", prefix = wanted, start = #before - #wanted + 1, chain = {}, method = false }
+    return { what = "modules", prefix = wanted, start = #before - #wanted + 1, chain = {}, method = false,
+      annotation = false, field = false }
   end
   if quoted_or_commented(before) then return nil end
   local word = before:match("[%a_][%w_]*$") or ""
@@ -136,12 +147,20 @@ local function context_of(before: string): Context?
       if name:match("^[%a_][%w_]*$") == nil then return nil end
       chain[#chain + 1] = name
     end
-    return { what = "members", prefix = word, start = start, chain = chain, method = sep == ":" }
+    local beginning = receiver:sub(1, #receiver - #expr)
+    local annotation = sep == ":" and #chain == 1 and
+      (beginning:match("local%s+$") ~= nil or beginning:match("global%s+$") ~= nil or
+        beginning:match("function[^%(]*%([^%)]*$") ~= nil)
+    local field = sep == ":" and #chain == 1 and beginning:match("^%s*$") ~= nil
+    return { what = "members", prefix = word, start = start, chain = chain, method = sep == ":",
+      annotation = annotation, field = field }
   end
   if head:match(":%s+$") ~= nil and head:match("::%s*$") == nil then
-    return { what = "types", prefix = word, start = start, chain = {}, method = false }
+    return { what = "types", prefix = word, start = start, chain = {}, method = false, annotation = false,
+      field = false }
   end
-  return { what = "names", prefix = word, start = start, chain = {}, method = false }
+  return { what = "names", prefix = word, start = start, chain = {}, method = false, annotation = false,
+    field = false }
 end
 
 --- Whether `name` starts with what was typed, in either case.
@@ -492,9 +511,18 @@ function completion.at(checker: check.Checker, d: hover.Docs, document: check.Do
   local token = token_near(outcome.chunk.tokens, check.checker_offset(last.reading, math.max(before, 1)))
   local request: Request = { program = last.reading.program, outcome = outcome }
   local scope = Scopes.in_scope(outcome.scoped, token)
-  if context.what == "members" then
+  if context.what == "members" and context.annotation then
+    -- A type follows the colon of a declaration, and nothing is typed yet.
+    context.what = "types"
+    name_items(request, scope, context, out, edit)
+  elseif context.what == "members" then
     local decl, value = receiver_decl(request, scope, context.chain)
-    if decl ~= nil then member_items(request, d, decl, value, context, out, edit) end
+    if context.field and (decl == nil or #members_of(request.program, decl, value) == 0) then
+      context.what = "types"
+      name_items(request, scope, context, out, edit)
+    elseif decl ~= nil then
+      member_items(request, d, decl, value, context, out, edit)
+    end
   else
     name_items(request, scope, context, out, edit)
   end

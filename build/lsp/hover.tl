@@ -94,8 +94,8 @@ function hover.sources(d: Docs): docs.Sources
   return sources
 end
 
---- The docs view, read once of the databases [`hover.sources`] answers.
-local function view_of(d: Docs): docs.View?
+--- The docs view, read once of the databases [`hover.sources`] answers, or nil where they could not be read (said once).
+function hover.view(d: Docs): docs.View?
   local sources = hover.sources(d)
   if d.view ~= nil or d.view_trouble ~= nil then return d.view end
   local view, trouble = docs.view(sources.handles, sources.public)
@@ -103,11 +103,6 @@ local function view_of(d: Docs): docs.View?
   d.view_trouble = trouble
   if view == nil then d.err("cosmic: lsp: no docs: " .. trouble) end
   return view
-end
-
---- The docs view, read once of the databases [`hover.sources`] answers, or nil where they could not be read (said once).
-function hover.view(d: Docs): docs.View?
-  return view_of(d)
 end
 
 --- The dotted name under byte `x` of `line`, up to the end of the word
@@ -145,7 +140,7 @@ function hover.at(d: Docs, text: string, where: protocol.Position, encoding: str
   local line = lines.lines_of(text).texts[where.line + 1] or ""
   local name = name_at(line, lines.byte_of(line, where.character, encoding))
   if name == nil then return nil end
-  local view = view_of(d)
+  local view = hover.view(d)
   if view == nil then return nil end
   local queries: mut {string} = {}
   local through = resolved(text, name)
