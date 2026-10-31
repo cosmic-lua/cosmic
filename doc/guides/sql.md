@@ -257,8 +257,8 @@ trigger does not fire for the replaced row unless `PRAGMA
 recursive_triggers` is on, so the old row's postings stay: a `MATCH`
 still finds the replaced text, and `INSERT INTO fts(fts, rank)
 VALUES('integrity-check', 1)`, which compares the index with the
-content table, reports the database malformed. Write the upsert as `INSERT ... ON CONFLICT(id) DO UPDATE`,
-which runs the update trigger.
+content table, reports the database malformed. Write the upsert as
+`INSERT ... ON CONFLICT(id) DO UPDATE`, which runs the update trigger.
 
 ## R*Tree
 
