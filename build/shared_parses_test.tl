@@ -59,14 +59,14 @@ end
 --- stood in for across the derive.
 local function boot(root: string, path: string): importer.Parses, string, string
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   local shared = shared_compiles.for_build({ COSMIC_BUILD_CACHE = path })
   local meta = Store.meta
   Store.meta = function(key: string): string?
     if key == "boot_hash" then return nil end
     return meta(key)
   end
-  local ok, parses, trouble = pcall(importer.derive, handle, true, shared)
+  local ok, parses, trouble = pcall(importer.derive, handle, shared)
   Store.meta = meta
   if shared ~= nil then shared.finish() end
   assert(ok, tostring(parses))

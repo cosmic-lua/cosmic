@@ -14,17 +14,9 @@ local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
 
 --- The raw process table, [`cosmic.child`]'s too, which holds this
---- process's signals: it arrives as the second argument `require`
---- passes this chunk's loader (core/store.c's `raw_modules`).
-local type raw_process = require("cosmic.internal.process")
+--- process's signals.
 
-local extra: any = select(2, ...)
-local raw: raw_process
-if type(extra) == "table" then
-  raw = extra as raw_process
-else
-  raw = require("cosmic.internal.process")
-end
+local raw = require("cosmic.internal.process")
 
 --- SIGINT and SIGTERM held for this process until it closes; see
 --- [`Signal.guard`].

@@ -12,7 +12,6 @@
 
 local type _net = require("cosmic.net")
 local Fs = require("cosmic.fs")
-local RawTables = require("build.raw_tables")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 
@@ -32,7 +31,7 @@ end
 --- Tries a unix listener at a socket file of `dir`, closed again, through the raw socket table, whose `listen` fails
 --- with an errno, which [`Net.listen`]'s message has no shape for.
 local function listens(dir: string): Probe
-  local listener, why, errno = RawTables.socket().listen({ kind = "unix", path = dir .. "/unix-probe.sock" }, 1)
+  local listener, why, errno = require("cosmic.internal.socket").listen({ kind = "unix", path = dir .. "/unix-probe.sock" }, 1)
   if listener == nil then
     return { made = false, refused = errno == sys.EPERM, why = tostring(why) }
   end
@@ -64,7 +63,7 @@ end
 --- Whether a TCP listener on the loopback is refused, as a worker's filter
 --- refuses it where its module declares no `network`.
 local function listens_inet(): Probe
-  local listener, why, errno = RawTables.socket().listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1)
+  local listener, why, errno = require("cosmic.internal.socket").listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1)
   if listener == nil then
     return { made = false, refused = errno == sys.EPERM, why = tostring(why) }
   end

@@ -94,3 +94,39 @@ local function test_a_fixtures_children_run_cosmic_test_unsandboxed()
       "1", "a fixture cannot choose its child's sandbox")
   assert(Fixture.environment()["COSMIC_TEST_SANDBOX"] == "0")
 end
+
+--- A fixture that puts a tool in a copy of its tree says which tree the tool is built from, and nothing else of the
+--- tool moves.
+local function test_a_tool_is_retargeted_to_the_tree_it_is_said_to_be_built_from(tmp: string)
+  local bytes = Fixture.synthetic(tmp .. "/scratch.db", "/where/it/was/booted")
+  local head = bytes:sub(1, #"the launcher and the manifest")
+  Fixture.write(tmp .. "/tool", bytes)
+  Fixture.retargeted(tmp .. "/tool", tmp .. "/moved", "/where/it/is/now")
+  local meta = Fixture.meta(tmp .. "/moved", tmp .. "/read.db")
+  assert(meta["built_from"] == "/where/it/is/now" and meta["boot_hash"] == "kept")
+  assert(Fixture.read(tmp .. "/moved"):sub(1, #head) == head, "the head moved")
+  Fixture.retargeted(tmp .. "/moved", tmp .. "/old", nil)
+  local old = Fixture.meta(tmp .. "/old", tmp .. "/read.db")
+  assert(old["built_from"] == nil and old["boot_hash"] == "kept", "a tool older than the row has none")
+end
+
+--- Two tools that differ only in the path they were built from are the same bytes once that row is removed, so a
+--- fixture can hold a boot at another path to the product with nothing but that row set aside.
+local function test_tools_built_from_other_paths_are_one_tool_without_the_row(tmp: string)
+  Fixture.write(tmp .. "/near", Fixture.synthetic(tmp .. "/a.db", "/a"))
+  Fixture.write(tmp .. "/far", Fixture.synthetic(tmp .. "/b.db", "/home/runner/work/cosmic/cosmic/a/much/longer/path"))
+  assert(Fixture.read(tmp .. "/near") ~= Fixture.read(tmp .. "/far"))
+  assert(Fixture.stripped(tmp .. "/near", tmp .. "/s.db") == Fixture.stripped(tmp .. "/far", tmp .. "/s.db"),
+    "the paths left more than the row")
+end
+
+--- A tool rewritten twice is the same bytes as one rewritten once, once the row is removed: the attestation of a
+--- portable artifact that was retargeted compares it with the product that was not.
+local function test_a_tool_rewritten_twice_is_the_tool_rewritten_once(tmp: string)
+  Fixture.write(tmp .. "/tool", Fixture.synthetic(tmp .. "/a.db", "/a"))
+  Fixture.retargeted(tmp .. "/tool", tmp .. "/moved", "/elsewhere")
+  Fixture.write(tmp .. "/twice", Fixture.stripped(tmp .. "/moved", tmp .. "/s.db"))
+  assert(Fixture.read(tmp .. "/twice") == Fixture.stripped(tmp .. "/tool", tmp .. "/s.db"),
+    "a second rewrite left its mark")
+  assert(Fixture.meta(tmp .. "/twice", tmp .. "/m.db")["boot_hash"] == "kept", "the zeroed header unreads the database")
+end

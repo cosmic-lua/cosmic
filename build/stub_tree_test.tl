@@ -47,11 +47,11 @@ local function own_tree(tmp: string, source?: string, underived?: boolean): work
   assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
   assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   if underived == true then
     return handle, "stub-tree-test"
   end
-  assert(importer.derive(handle, true))
+  assert(importer.derive(handle))
   local identities = assert(identity.record_identities(handle.db))
   return handle, identities.compiler
 end

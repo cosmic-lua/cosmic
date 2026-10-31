@@ -1,5 +1,6 @@
 --- What [`c.check`] keeps of a compile in a memo ([`build.c.inputs`]): it is read again for a file whose inputs have not
 --- changed, and never for one whose header has.
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
@@ -14,6 +15,7 @@ Test.policy{
     { path = "bin/zig", letters = "r" },
     { path = "bin/zig.pin", letters = "r" },
     { path = "ci/cosmic-driver.pin", letters = "r" },
+    { path = "ci/bootstrap-files.txt", letters = "r" },
     { path = "core/", letters = "r" },
     { path = "vendor/bzip2/", letters = "r" },
     { path = "vendor/cares/include/", letters = "r" },
@@ -67,20 +69,28 @@ local function rules_found(tmp: string, store: Sqlite.Handle): {string}
   return out
 end
 
---- How many outcomes the store keeps.
+--- How many outcomes the store keeps. The check prepares the memo table only for a pinned toolchain, so a store with no
+--- table means the check ran without one: the likely cause is a stand-in toolchain variable that leaked into the run.
 local function kept(store: Sqlite.Handle): integer
-  local rows = assert(Sqlite.rows(store, "SELECT count(*) FROM check_memo WHERE kind = 'c'"))
+  local rows, why = Sqlite.rows(store, "SELECT count(*) FROM check_memo WHERE kind = 'c'")
+  assert(rows ~= nil, tostring(why) .. ": the check kept no memo, which it does for a stand-in toolchain; " ..
+      "COSMIC_BOOTSTRAP or COSMIC_ZIG is probably set in this run when it should not be (an entry point, a wrapper or a " ..
+      "caller leaking it), or the pinned zig is not installed on this host")
   return assert(math.tointeger(assert(rows[1]):integer(1)))
 end
 
 local function test_a_header_changed_since_the_memo_is_checked_afresh(tmp: string)
+  -- A fact of this run's environment, not of the host, so no `requires` label fits: a stand-in toolchain keeps no memo.
+  for _, name in ipairs({ "COSMIC_BOOTSTRAP", "COSMIC_ZIG" }) do
+    local value = Env.get(name)
+    if value ~= nil and value ~= "" then
+      Test.skip(name .. " is set in this run, so the check uses a stand-in toolchain and keeps no memo")
+    end
+  end
   local store = assert(Sqlite.open(":memory:", { writable = true }))
   assert(Fs.write(tmp .. "/case.c", '#include "h.h"\n'))
   assert(Fs.write(tmp .. "/h.h", broken))
   local first = rules_found(tmp, store)
-  if kept(store) == 0 then
-    Test.skip("this host's compiler is not the pinned zig's install, so no outcome is kept")
-  end
   assert(#first == 1, "the violation was not found: " .. table.concat(first, ","))
   -- The same inputs are answered from the memo, the same.
   local again = rules_found(tmp, store)

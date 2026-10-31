@@ -40,20 +40,10 @@ local type raw_html = require("cosmic.internal.html")
 
 -- The raw JSON reader and writer, not [`cosmic.json`]: that module's types
 -- reach [`cosmic.stream`] and [`cosmic.string`], which every template that
--- imports this module would then load to type-check. The store hands both
--- raw values in one table (core/store.c's `raw_modules`).
-local type raw_json = require("cosmic.internal.json")
+-- imports this module would then load to type-check.
 
-local extra: any = select(2, ...)
-local raw: raw_html
-local json: raw_json
-if type(extra) == "table" then
-  raw = extra as raw_html
-  json = extra as raw_json
-else
-  raw = require("cosmic.internal.html")
-  json = require("cosmic.internal.json")
-end
+local raw = require("cosmic.internal.html")
+local json = require("cosmic.internal.json")
 
 local record Html
   --- Markup that can go in element content as it is. Opaque: a value

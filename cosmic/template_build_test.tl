@@ -47,7 +47,7 @@ local function compile(root: string): {string: string}?, string
   if handle == nil then
     return nil, open_trouble
   end
-  local staged, stage_trouble = work.stage(handle, false)
+  local staged, stage_trouble = work.stage(handle, { own = false })
   if staged == nil then
     local _, _ = work.close(handle)
     return nil, stage_trouble

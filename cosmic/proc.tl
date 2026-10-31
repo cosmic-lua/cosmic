@@ -7,13 +7,7 @@ local sys = require("cosmic.sys")
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why.
 local type raw_process = require("cosmic.internal.process")
 
-local extra: any = select(2, ...)
-local raw: raw_process
-if type(extra) == "table" then
-  raw = extra as raw_process
-else
-  raw = require("cosmic.internal.process")
-end
+local raw = require("cosmic.internal.process")
 
 local record Proc
   --- A named account's numeric user and primary group identifiers.

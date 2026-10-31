@@ -2,7 +2,6 @@
 --- tests: the one of them that starts a host program, setsid, to run in
 --- a session of its own, and so the one that needs the system's paths.
 
-local RawTables = require("build.raw_tables")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
@@ -22,7 +21,7 @@ Test.policy{
 }
 
 local type raw_process = require("cosmic.internal.process")
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 local function create(path: string): integer
   local fd, trouble = sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420)

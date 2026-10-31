@@ -10,7 +10,6 @@
 --- The refusals of what no start could keep, which need no filter, are
 --- core/promises_refused_test.tl's.
 
-local RawTables = require("build.raw_tables")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -28,7 +27,7 @@ Test.policy{
   requires = { "sandbox" },
 }
 
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 --- What a script left on stdout and stderr, and how its program ended.
 local record Outcome

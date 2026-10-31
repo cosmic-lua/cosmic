@@ -97,7 +97,7 @@ local function compile_fixture(root: string, given?: GrammarMode.Mode): importer
   if handle == nil then
     return nil, open_trouble
   end
-  local staged, stage_trouble = work.stage(handle, false)
+  local staged, stage_trouble = work.stage(handle, { own = false })
   if staged == nil then
     work.close(handle)
     return nil, stage_trouble

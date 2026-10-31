@@ -19,7 +19,7 @@ local function test_a_compile_with_no_cache_and_no_choice_is_as_declared(tmp: st
   assert(Fs.write(tmp .. "/a.tl", "return { answer = 42 }\n"))
   local found = TypeWatch.during(function()
     local handle = assert(work.open(tmp))
-    assert(work.stage(handle, false))
+    assert(work.stage(handle, { own = false }))
     local result, trouble = importer.compile(handle, "declared-types-test")
     assert(work.close(handle))
     assert(result ~= nil, trouble)

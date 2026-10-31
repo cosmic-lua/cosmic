@@ -36,7 +36,7 @@ local function compile_project(tmp: string, case: string,
     assert(Fs.write(root .. "/" .. filename, source))
   end
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result, trouble = importer.compile(handle, "globals-test")
   assert(work.close(handle))
   if result ~= nil and #result.refused > 0 then

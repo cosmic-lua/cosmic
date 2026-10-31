@@ -35,7 +35,6 @@ local link_text = require("build.link_text")
 local narrow = require("build.narrow")
 local plural = require("build.plural")
 local reboot = require("build.reboot")
-local tree = require("build.tree")
 local work = require("build.work")
 
 local logger = require("build.logger")
@@ -713,7 +712,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
   local paths, words = arguments.paths, arguments.words
   local query = table.concat(words, " ")
 
-  local standing, standing_trouble = tree.standing(root)
+  local standing, standing_trouble = reboot.standing(root, seen)
   if standing == nil then
     log:complain(standing_trouble)
     return 1
@@ -741,7 +740,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
     -- on [`todos.list`] split in two: a read of the rows and their blame
     -- by git with no transaction held, then one short write of what git
     -- said, made again where the rows moved meanwhile.
-    local staged, stage_trouble = work.stage(handle, standing.own)
+    local staged, stage_trouble = work.stage(handle, standing)
     if staged == nil then
       local _, _ = work.abort(handle)
       log:complain(stage_trouble)

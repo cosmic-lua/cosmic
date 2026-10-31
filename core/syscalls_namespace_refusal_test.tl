@@ -2,7 +2,6 @@
 --- without needing the policy wrapper to map a user first. The start
 --- names no executable and binds only this test's scratch.
 
-local RawTables = require("build.raw_tables")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -15,7 +14,7 @@ Test.policy{ promises = { "nest" } }
 --- known kernel refusal is explicit and earns no passing verdict.
 local function start(tmp: string, sandbox: raw_process.Sandbox, stage: string, mapping?: boolean)
   local path = tmp .. "/absent"
-  local pid, why, errno = RawTables.process().spawn(path, { path }, nil, nil, nil, nil, nil,
+  local pid, why, errno = require("cosmic.internal.process").spawn(path, { path }, nil, nil, nil, nil, nil,
     false, nil, sandbox)
   assert(pid == nil, "an absent executable started")
   if errno == sys.EPERM or errno == sys.EACCES or errno == sys.ENOSPC or errno == sys.ENOSYS or

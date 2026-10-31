@@ -754,17 +754,8 @@ end
 --- The raw handle's close answers nothing: it cannot fail, so a `true`
 --- would tell its caller nothing.
 local function test_the_raw_handle_close_returns_no_values()
-  -- The raw module is handed only to cosmic.http's own loader, as the
-  -- store's searcher's second answer; asking the searcher by hand gets it.
-  local raw: {string: function(string, {string: any}): any, string}? = nil
-  for _, searcher in ipairs(package.searchers as {function(string): any, any}) do
-    local loader, extra = searcher("cosmic.http")
-    if type(loader) == "function" and type(extra) == "table" and
-        (extra as {string: any}).open ~= nil then
-      raw = extra as {string: function(string, {string: any}): any, string}
-    end
-  end
-  assert(raw ~= nil, "no searcher handed over the raw module")
+  local raw = require("cosmic.internal.http") as {string: function(string, {string: any}): any, string} -- cast: the table
+  -- cosmic/internal/http.d.tl declares, called with a script that its `Options` have no field for
   local handle = assert(raw.open(url, { script = { reply("200 OK", "", "body") } }))
     as {string: function(any): any...}
   assert(select("#", handle.close(handle)) == 0, "close returns no values")

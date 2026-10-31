@@ -3337,30 +3337,6 @@ local function test_the_credential_proof_takes_the_build_steps_directory_and_its
     "credential proof runs before isolating root's caches")
 end
 
---- The pinned release reads the tree's Teal files in the new grammar only where COSMIC_GRAMMAR=new, which
---- bin/cosmic-bootstrap sets when it runs the release itself. A script that takes the release's path from it
---- (`$(bin/cosmic-bootstrap)`, no arguments) and runs that path must set the variable itself, as the
---- cosmic-driver wrapper and run-local-proof.sh do.
-local function test_a_script_that_takes_the_pinned_releases_path_sets_the_grammar_it_runs_it_with()
-  local taking: mut {string} = {}
-  for _, name in ipairs((assert(Fs.list(SCRIPTS)))) do
-    if name:match("%.sh$") then
-      local text = assert(Fs.read(SCRIPTS .. "/" .. name))
-      if text:find("cosmic-bootstrap)", 1, true) then
-        taking[#taking + 1] = name
-        local sets = false
-        for line in text:gmatch("[^\n]+") do
-          if not line:match("^%s*#") and line:find("env COSMIC_GRAMMAR=new ", 1, true) ~= nil then
-            sets = true
-          end
-        end
-        assert(sets, name .. " runs the path bin/cosmic-bootstrap printed without `env COSMIC_GRAMMAR=new` outside a comment")
-      end
-    end
-  end
-  assert(#taking >= 2, "found " .. tostring(#taking) .. " scripts taking the path; the check compares nothing")
-end
-
 --- Each leg that runs a suite (the platform legs of a light and a full run,
 --- and the checked job) has an entry in ci/cosmic_ci/capabilities.json, and
 --- each entry is such a leg: a renamed or mistyped leg would promise

@@ -4,7 +4,6 @@
 --- is refused before it changes anything. Its own module, since a
 --- `tool` test runs again on every edit to the tree.
 
-local RawTables = require("build.raw_tables")
 local sys = require("cosmic.sys")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -23,7 +22,7 @@ local type raw_socket = require("cosmic.internal.socket")
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" },
   grants = { { path = "o/bin", letters = "rx" } } }
 
-local socket = RawTables.socket()
+local socket = require("cosmic.internal.socket")
 
 --- The program a relaunch starts again.
 local function program_of(relaunch: Proc.Relaunch): string

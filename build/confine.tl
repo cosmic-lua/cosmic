@@ -12,20 +12,11 @@ local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
 --- The raw process table, whose `spawn` [`cosmic.child`] starts every
---- child with: this module is handed it (core/store.c's `raw_modules`)
---- to confine each child a test starts, by standing in for that call,
---- and for the Landlock ruleset [`forbid_running`] puts up. Boot mode
---- falls back to requiring it by name, which only boot's own preload
---- answers.
+--- child with: this module stands in for that call, to confine each child a
+--- test starts, and for the Landlock ruleset [`forbid_running`] puts up.
 local type raw_process = require("cosmic.internal.process")
 
-local extra: any = select(2, ...)
-local process: raw_process
-if type(extra) == "table" then
-  process = extra as raw_process
-else
-  process = require("cosmic.internal.process")
-end
+local process = require("cosmic.internal.process")
 
 --- The process table's questions of this host, as this module loads.
 local sandbox_platform, may_map_ids, own_proc, landlock_abi = process.sandbox_platform,

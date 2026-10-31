@@ -9,27 +9,13 @@
 local Fuzz = require("build.fuzz")
 local type _ = require("cosmic.child")
 local type _net = require("cosmic.net")
-local RawTables = require("build.raw_tables")
+local ConnectorEnds = require("build.connector_ends")
 local Test = require("cosmic.test")
 local Address = require("cosmic.relay.address")
 local sys = require("cosmic.sys")
 local REFUSED <const> = 65536 -- a refusal by the lists, past any errno
 Test.policy{ promises = { "fork" } }
-local process = RawTables.process()
-
---- The controller's end of a connector pair, which asks and is answered.
-local function controller_end(pair: {integer}): integer
-  local fd = pair[1]
-  assert(fd, "a connector pair holds two descriptors")
-  return fd
-end
-
---- The connector's end of a connector pair, which the connector is started on.
-local function connector_end(pair: {integer}): integer
-  local fd = pair[2]
-  assert(fd, "a connector pair holds two descriptors")
-  return fd
-end
+local process = require("cosmic.internal.process")
 
 local OWN <const>: {string} = { "8.8.4.4", "2606:4700::6810:84e5", "203.0.113.9", "2a00:1450:4001:81b::200e" }
 local NONE: {string} = {}
@@ -188,11 +174,11 @@ end
 
 local function test_the_connector_and_the_relay_s_check_agree_on_every_address(tmp: string)
   require_native_connector()
-  local pair = assert(process.connector_pair())
-  local child, why = process.connector_start({}, connector_end(pair), 500, { deny = DENIED, own = OWN })
-  assert(sys.close(connector_end(pair)))
+  local pair = ConnectorEnds.connector_pair()
+  local child, why = process.connector_start({}, pair.connector, 500, { deny = DENIED, own = OWN })
+  assert(sys.close(pair.connector))
   assert(child, why)
-  assert(string.unpack(">I4", read_whole(controller_end(pair), 4)) == 0x434e4302, "the connector said no hello")
+  assert(string.unpack(">I4", read_whole(pair.controller, 4)) == 0x434e4302, "the connector said no hello")
   local own = Address.own_addresses(OWN)
   local seen = Fuzz.run({
     name = "connector public classifier agrees with Address",
@@ -213,7 +199,7 @@ local function test_the_connector_and_the_relay_s_check_agree_on_every_address(t
         local bytes = { item:byte(2, 1 + length) }
         local text = spelled(bytes)
         local want = Address.check(text, 443, NONE, own)
-        local got = decided(controller_end(pair), item)
+        local got = decided(pair.controller, item)
         if got ~= want then
           return false, text .. ": the connector " .. (if got then "allows" else "refuses" end) ..
             " it and the relay's check " .. (if want then "allows" else "refuses" end) .. " it"
@@ -229,6 +215,6 @@ local function test_the_connector_and_the_relay_s_check_agree_on_every_address(t
     end,
   })
   assert(seen >= 0)
-  assert(sys.close(controller_end(pair)))
+  assert(sys.close(pair.controller))
   assert(assert(process.waitpid(child, false)).code == 0)
 end

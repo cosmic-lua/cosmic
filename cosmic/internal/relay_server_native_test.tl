@@ -9,7 +9,6 @@ local Poll = require("cosmic.poll")
 local Relay = require("cosmic.internal.relay_server")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local type raw_process = require("cosmic.internal.process")
 local type _ = require("cosmic.child")
 
 Test.policy{ loopback = { "127.0.0.1" }, promises = { "fork" } }
@@ -19,26 +18,14 @@ Test.policy{ loopback = { "127.0.0.1" }, promises = { "fork" } }
 -- cosmic/internal/connector.tl): the connector is Linux x86_64 and aarch64
 -- only, and the test skips elsewhere.
 
-local type Searcher = function(string): any, any
-
-local function table_for(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: a loader's extra is the raw table
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra
-    end
-  end
-  error("no raw table")
-end
-
-local process = table_for("cosmic.child") as raw_process -- cast: core/process.h's table
+local process = require("cosmic.internal.process")
 
 local function require_native_connector()
   local result, why, number = process.connector_probe({ host = "127.0.0.1", port = 9 }, "pointer")
   if result == nil and (number == sys.ENOSYS or number == sys.EOPNOTSUPP) then
     Test.skip("this host has no native connector confinement: " .. why)
   end
-  assert(result == sys.EPERM, "native connector setup failed: " .. (why or ""))
+  assert(result == sys.EPERM, "native connector setup failed: " .. tostring(why))
 end
 
 --- Reads exactly `count` bytes.

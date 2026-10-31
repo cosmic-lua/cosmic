@@ -14,11 +14,9 @@ local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Address = require("cosmic.relay.address")
 local Sqlite = require("cosmic.sqlite")
-local _Vector = require("cosmic.vector") -- loaded so that the store hands its raw table to [`raw_behind`]
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local unix_socket = require("build.unix_socket")
-local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
 local stand_in = require("build.stand_in")
 
@@ -34,20 +32,8 @@ Test.policy{
   loopback = { "127.0.0.1" },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader, as
---- `require` would hand it.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
-local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/internal/hash.d.tl declares
+local process = require("cosmic.internal.process")
+local hash = require("cosmic.internal.hash")
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
 --- the script its first argument holds: a static executable that reads
@@ -672,7 +658,7 @@ local function test_a_child_s_process_group_is_its_own_where_asked(tmp: string)
     local group = assert(sys.getpgid(pid))
     assert(sys.kill(pid, sys.SIGKILL))
     assert(assert(process.waitpid(pid, false)).signal == sys.SIGKILL)
-    assert(group == (grouped and pid or own), tostring(group))
+    assert(group == (if grouped then pid else own end), tostring(group))
   end
 end
 
@@ -758,8 +744,8 @@ local function test_cpu_count_is_at_least_one()
 end
 
 local function test_uname_reports_nonempty_sysname_and_machine()
-  local names, trouble = sys.uname()
-  assert(names ~= nil and trouble == nil, "uname answers with one record")
+  local names = assert(sys.uname())
+  assert(select("#", sys.uname()) == 1, "uname answers with one record")
   assert(#names.sysname > 0, "sysname is nonempty")
   assert(#names.machine > 0, "machine is nonempty")
   assert(#names.release > 0, "release is nonempty")
@@ -1123,7 +1109,8 @@ end
 local function test_sandbox_platform_answers_true_on_linux_alone()
   local ok, why, errno = process.sandbox_platform()
   if assert(sys.uname()).sysname == "Linux" then
-    assert(ok == true and why == nil, why)
+    assert(ok == true, tostring(why))
+    assert(select("#", process.sandbox_platform()) == 1, "a success answers one value")
   else
     failed(ok, why, errno)
     assert(errno == sys.ENOSYS, why)
@@ -1691,7 +1678,8 @@ local function test_full_fsync_has_native_or_unsupported_effect_shape(tmp: strin
   local ok, trouble, errno = sys.full_fsync(fd)
   local names = assert(sys.uname())
   if names.sysname == "Darwin" then
-    assert(ok == true and trouble == nil and errno == nil, tostring(trouble))
+    assert(ok == true, tostring(trouble))
+    assert(select("#", sys.full_fsync(fd)) == 1, "a success answers one value")
   else
     assert(ok == false, "unsupported full flush must not report success")
     failed_with(sys.ENOSYS, ok, trouble, errno)
@@ -1701,7 +1689,7 @@ local function test_full_fsync_has_native_or_unsupported_effect_shape(tmp: strin
   assert(sys.close(fd))
   local closed, why, number = sys.full_fsync(fd)
   assert(closed == false, "a closed descriptor must not be flushed")
-  failed_with(names.sysname == "Darwin" and sys.EBADF or sys.ENOSYS, closed, why, number)
+  failed_with(if names.sysname == "Darwin" then sys.EBADF else sys.ENOSYS end, closed, why, number)
 end
 
 --- Descriptor validation precedes platform dispatch, including on hosts
@@ -1823,7 +1811,7 @@ local function test_the_c_functions_refuse_what_is_no_string_or_count()
   raises(process.user, 123)
   raises(process.user, print)
   local corpus = assert(load("local raw, dims = ... return raw.corpus(dims)", "=raw_corpus", "t"))
-  local vector = raw_behind("cosmic.vector")
+  local vector = require("cosmic.internal.vector")
   raises(corpus, vector, 1.5)
   raises(corpus, vector, nil)
 end
