@@ -6,7 +6,6 @@
 --- Linux host refuses it the tests are not run (`requires`) or, where only
 --- the call can tell, skipped (Test.skip).
 
-local RawTables = require("build.raw_tables")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local unix_socket = require("build.unix_socket")
@@ -26,7 +25,7 @@ Test.policy{
   requires = { "sandbox" },
 }
 
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
 --- the script its first argument holds: a static executable that reads

@@ -4,7 +4,6 @@
 --- starts this very program to run a chunk. They run on every platform,
 --- as the cases that unveil a child's root are Linux's alone.
 
-local RawTables = require("build.raw_tables")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
@@ -22,7 +21,7 @@ Test.policy{
   promises = { "nest" },
 }
 
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 --- The descriptors [`this_program.program`] hands its child, as
 --- [`process.spawn`] takes them: each a descriptor of this process, as

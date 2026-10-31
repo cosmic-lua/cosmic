@@ -1,5 +1,5 @@
 --- Startup failure paths must leave no descriptors, child or mappings.
-local RawTables = require("build.raw_tables")
+local ConnectorEnds = require("build.connector_ends")
 local type raw_process = require("cosmic.internal.process")
 local type _ = require("cosmic.child")
 local type _net = require("cosmic.net")
@@ -7,8 +7,8 @@ local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 Test.policy{ loopback = { "127.0.0.1" }, promises = { "fork" }, requires = { "checked" } }
-local process = RawTables.process()
-local socket = RawTables.socket()
+local process = require("cosmic.internal.process")
+local socket = require("cosmic.internal.socket")
 --- The pair the walk's `work` made, if it got that far. The box is built with its field named, so that it holds the slot
 --- already: a box that grew one when `work` assigned it would allocate after the core made the pair, and the walk would
 --- fail that allocation with the pair's descriptors held by no one.
@@ -25,7 +25,7 @@ local function test_pair_allocation_refusals_leave_no_descriptors(tmp: string)
   local refused_count = 0
   local pair: Made = { value = nil }
   local function work(): any
-    -- By the core's own table and no `connector_pair` of `RawTables`: that looks the table up and copies it, and the walk
+    -- By the core's own table and no `connector_pair` of `ConnectorEnds`: that makes a table of its own, and the walk
     -- would fail those allocations instead of the core's.
     pair.value = assert(process.connector_pair())
     return true
@@ -37,7 +37,7 @@ local function test_pair_allocation_refusals_leave_no_descriptors(tmp: string)
     local refused = testing.allow_allocations()
     local made = pair.value
     if made ~= nil then
-      local held = RawTables.pair_ends(made)
+      local held = ConnectorEnds.pair_ends(made)
       assert(sys.close(held.controller))
       assert(sys.close(held.connector))
     end
@@ -58,7 +58,7 @@ local function test_startup_faults_close_the_status_pipe_and_release_the_address
     Test.skip("this host has no native connector confinement: " .. probe_why)
   end
   assert(result == sys.EPERM, "native connector setup failed: " .. tostring(probe_why))
-  local pair = RawTables.connector_pair()
+  local pair = ConnectorEnds.connector_pair()
   local before = next_descriptor(tmp)
   for _, point in ipairs({ "connector_mmap", "connector_mprotect", "connector_pipe", "connector_fork",
       "connector_close_range", "connector_filter" }) do
@@ -105,8 +105,8 @@ local function test_a_table_mapped_across_a_4_gib_boundary_is_placed_past_it()
   end
   assert(result == sys.EPERM, "native connector setup failed: " .. tostring(probe_why))
   local listener <close> = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
-  local port = RawTables.bound_port(listener)
-  local pair = RawTables.connector_pair()
+  local port = ConnectorEnds.bound_port(listener)
+  local pair = ConnectorEnds.connector_pair()
   testing.fail_at("connector_straddle")
   local child, why = process.connector_start({ { host = "127.0.0.1", port = 0 } }, pair.connector, 500, nil)
   assert(not testing.fail_at(), "connector_straddle did not fire")

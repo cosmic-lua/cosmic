@@ -25,6 +25,7 @@
 -- [`build.error_render`]'s `lines` does with the databases it is given, once [`Driver.Build`] answers the problems over their
 -- ceilings and not only the lines that list them: the lines of an error carry the pointer ([`Pipeline.generate`]'s `hints`),
 -- which the lines of a warning and of a text that does not parse do not.
+local AnalysisSchema = require("build.analysis_schema")
 local Ceilings = require("build.ceilings")
 local CheckerDeclarations = require("build.checker_declarations")
 local CompileGrammar = require("build.compile_grammar")
@@ -213,7 +214,7 @@ Pipeline.tool = GrammarMode.tool
 --- Whether the stub of the module `module` of the file `file` is held to its source's type: a standard-library module that
 --- the error-slot discipline covers.
 local function judges_stub(file: string, module: string): boolean
-  return SyntaxContracts.kind_of(file) == "module" and module:sub(1, 7) == "cosmic."
+  return AnalysisSchema.kind_of(file) == "module" and module:sub(1, 7) == "cosmic."
 end
 
 --- Why the stub `made` of a module does not stand for its source `source` (the module read by `built`), or "" where it does.

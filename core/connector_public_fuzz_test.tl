@@ -9,13 +9,13 @@
 local Fuzz = require("build.fuzz")
 local type _ = require("cosmic.child")
 local type _net = require("cosmic.net")
-local RawTables = require("build.raw_tables")
+local ConnectorEnds = require("build.connector_ends")
 local Test = require("cosmic.test")
 local Address = require("cosmic.relay.address")
 local sys = require("cosmic.sys")
 local REFUSED <const> = 65536 -- a refusal by the lists, past any errno
 Test.policy{ promises = { "fork" } }
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 local OWN <const>: {string} = { "8.8.4.4", "2606:4700::6810:84e5", "203.0.113.9", "2a00:1450:4001:81b::200e" }
 local NONE: {string} = {}
@@ -174,7 +174,7 @@ end
 
 local function test_the_connector_and_the_relay_s_check_agree_on_every_address(tmp: string)
   require_native_connector()
-  local pair = RawTables.connector_pair()
+  local pair = ConnectorEnds.connector_pair()
   local child, why = process.connector_start({}, pair.connector, 500, { deny = DENIED, own = OWN })
   assert(sys.close(pair.connector))
   assert(child, why)
