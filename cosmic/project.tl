@@ -84,7 +84,7 @@ function Project.directory(root: string, environment?: {string:string}):
   end
   local given: string
   if environment ~= nil then
-    given = environment.COSMIC_BUILD_HOME or ""
+    given = environment["COSMIC_BUILD_HOME"] or ""
   else
     given = Env.get_or("COSMIC_BUILD_HOME", "")
   end

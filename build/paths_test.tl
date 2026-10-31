@@ -246,7 +246,7 @@ local function test_boot_verbs_and_lock_resolve_alike(tmp: string)
   assert(Fs.write(layout.tool, ""))
   assert(tree.own_tool(root, layout.tool) == true)
   local status = Zig.with_lock(layout.directory, {}, function(env: {string:string}): integer
-    assert(env.COSMIC_REBUILD_LOCK_HANDED == layout.lock, env.COSMIC_REBUILD_LOCK_HANDED)
+    assert(env["COSMIC_REBUILD_LOCK_HANDED"] == layout.lock, env["COSMIC_REBUILD_LOCK_HANDED"])
     local holder = rebuild_lock.holder(root)
     assert(holder:find("is rebuilding the tool", 1, true) ~= nil, holder)
     return 7

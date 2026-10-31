@@ -39,7 +39,7 @@ local function test_decode_reads_every_field()
   assert(assert(policy.grants)[1].from == "/srv/data")
   assert(#assert(policy.isolate) == 2 and #assert(policy.promises) == 4 and #assert(policy.connect) == 3)
   assert(assert(policy.loopback)[2] == "127.1.2.3" and assert(policy.env)[1] == "HOME")
-  assert(assert(policy.set_env).MODE == "fast" and policy.tmp == true)
+  assert(assert(policy.set_env)["MODE"] == "fast" and policy.tmp == true)
   assert(assert(policy.limits).open_files == 64 and assert(policy.limits).file_bytes == 0)
   assert(assert(policy.limits).cpu_seconds == 9 and assert(policy.limits).processes == 4)
 end

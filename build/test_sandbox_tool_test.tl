@@ -223,8 +223,8 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   local own_cores = test_sandbox.plan(root, scratch, inputs, { COSMIC_PORTABLE_CACHE =
       tmp .. "/caches/cores" })
   assert(own_cores.trouble == "", own_cores.trouble)
-  assert(own_cores.env.COSMIC_PORTABLE_CACHE == test_sandbox.scratch .. "/cores",
-    tostring(own_cores.env.COSMIC_PORTABLE_CACHE))
+  assert(own_cores.env["COSMIC_PORTABLE_CACHE"] == test_sandbox.scratch .. "/cores",
+    tostring(own_cores.env["COSMIC_PORTABLE_CACHE"]))
   local cores = assert(sys.stat(scratch .. "/cores"))
   assert(cores.kind == "dir" and cores.mode & 511 == 448, tostring(cores.mode))
   assert(not holds(assert(own_cores.sandbox.unveil).writes or {}, tmp .. "/caches/cores") and

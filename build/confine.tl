@@ -1115,7 +1115,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         local given_environment = environment
         local inherited = asked.getenv("TMPDIR")
         local temporary = inherited
-        if environment ~= nil then temporary = environment.TMPDIR end
+        if environment ~= nil then temporary = environment["TMPDIR"] end
         local replace = temporary ~= nil and temporary == inherited
         for _, given in ipairs(writes) do
           if replace and temporary ~= nil and Fs.within(temporary, given) then replace = false end

@@ -140,7 +140,7 @@ local foreign_refusal = "this cosmic is stale against the tree and is not " ..
 function reboot.auto_boot(environment?: {string:string}): boolean
   local value: string?
   if environment ~= nil then
-    value = environment.COSMIC_AUTO_BOOT
+    value = environment["COSMIC_AUTO_BOOT"]
   else
     value = sys.getenv("COSMIC_AUTO_BOOT")
   end

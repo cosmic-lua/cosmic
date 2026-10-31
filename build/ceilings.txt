@@ -2630,7 +2630,6 @@ build/cache_test.tl map_field 9
 
 build/cache_tool_test.tl map_field 1
 
-build/caches.tl map_field 3
 
 build/codec.tl map_field 1
 
@@ -2638,7 +2637,7 @@ build/codec_test.tl map_field 52
 
 build/compile.tl map_field 1
 
-build/confine.tl map_field 4
+build/confine.tl map_field 3
 
 build/confine_declared_types_test.tl map_field 8
 
@@ -2697,7 +2696,7 @@ build/json_test.tl map_field 4
 
 build/patch_test.tl map_field 18
 
-build/paths_test.tl map_field 3
+build/paths_test.tl map_field 1
 
 build/policy_rules.tl map_field 8
 
@@ -2705,7 +2704,6 @@ build/rand.tl map_field 1
 
 build/rand_test.tl map_field 7
 
-build/reboot.tl map_field 1
 
 build/rebuild_lock_lua_test.tl map_field 1
 
@@ -2735,7 +2733,7 @@ build/sandbox_connect_test.tl map_field 25
 
 build/sandbox_connect_tool_test.tl map_field 14
 
-build/sandbox_test.tl map_field 14
+build/sandbox_test.tl map_field 11
 
 build/sandboxed_verdicts_test.tl map_field 33
 
@@ -2773,7 +2771,7 @@ build/test_closure_tool_test.tl map_field 1
 
 build/test_inputs_test.tl map_field 7
 
-build/test_isolation_fixture.tl map_field 4
+build/test_isolation_fixture.tl map_field 3
 
 build/test_isolation_tool_test.tl map_field 24
 
@@ -2783,7 +2781,7 @@ build/test_no_assert_tool_test.tl map_field 3
 
 build/test_parent_tool_test.tl map_field 4
 
-build/test_policy_plan_tool_test.tl map_field 6
+build/test_policy_plan_tool_test.tl map_field 5
 
 build/test_policy_tool_test.tl map_field 13
 
@@ -2799,9 +2797,9 @@ build/test_sandbox_system_confined_test.tl map_field 3
 
 build/test_sandbox_system_hint_test.tl map_field 4
 
-build/test_sandbox_test.tl map_field 17
+build/test_sandbox_test.tl map_field 9
 
-build/test_sandbox_tool_test.tl map_field 15
+build/test_sandbox_tool_test.tl map_field 13
 
 build/test_selection_test.tl map_field 10
 
@@ -2813,9 +2811,7 @@ build/test_test.tl map_field 1
 
 build/test_worker.tl map_field 7
 
-build/test_worker_test.tl map_field 7
 
-build/this_program_test.tl map_field 15
 
 build/time.tl map_field 1
 
@@ -2841,26 +2837,23 @@ build/workflows_test.tl map_field 191
 
 build/zig_fetch_test.tl map_field 5
 
-build/zig_lock_test.tl map_field 4
+build/zig_lock_test.tl map_field 2
 
-build/zig_test.tl map_field 25
+build/zig_test.tl map_field 22
 
 core/allocation_test.tl map_field 18
 
 core/allocation_tool_test.tl map_field 12
 
-core/artifact_fd_system_test.tl map_field 1
 
-core/artifact_fd_test.tl map_field 2
 
-core/artifact_fd_tool_test.tl map_field 8
 
 
 core/connector_filter_test.tl map_field 17
 
 core/database_start_sandbox_test.tl map_field 13
 
-core/database_start_test.tl map_field 68
+core/database_start_test.tl map_field 66
 
 core/declarations_test.tl map_field 21
 
@@ -2875,7 +2868,7 @@ core/startup_test.tl map_field 2
 
 core/surface_test.tl map_field 2
 
-cosmic/child.tl map_field 12
+cosmic/child.tl map_field 8
 
 cosmic/child_policy_database_sandboxed_test.tl map_field 32
 
@@ -2911,9 +2904,9 @@ cosmic/http_test.tl map_field 1
 
 cosmic/internal/connector.tl map_field 2
 
-cosmic/internal/relay_config.tl map_field 4
+cosmic/internal/relay_config.tl map_field 2
 
-cosmic/internal/relay_config_test.tl map_field 13
+cosmic/internal/relay_config_test.tl map_field 4
 
 cosmic/internal/relay_handed_lost_test.tl map_field 3
 
@@ -2927,7 +2920,7 @@ cosmic/net.tl map_field 1
 
 cosmic/policy_fuzz_test.tl map_field 12
 
-cosmic/policy_test.tl map_field 4
+cosmic/policy_test.tl map_field 3
 
 cosmic/poll_test.tl map_field 3
 
@@ -2935,7 +2928,6 @@ cosmic/proc_find_tool_test.tl map_field 1
 
 cosmic/proc_tool_test.tl map_field 1
 
-cosmic/project.tl map_field 1
 
 cosmic/removed_test.tl map_field 2
 
@@ -3041,7 +3033,6 @@ eval/result_test.tl map_field 37
 eval/round_test.tl map_field 10
 
 
-eval/solve_test.tl map_field 6
 
 lang/ast_dump.tl map_field 2
 

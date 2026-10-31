@@ -257,7 +257,7 @@ local function test_no_artifact_or_launcher_is_opened_and_the_core_is_held_back(
     { name = "probe.main", kind = "main", source = DESCRIPTORS, requires = { "cosmic.sys", "cosmic.fs" } },
   }, { main = "probe.main", core = core_digest(), library = true })
   local env = environment()
-  assert(env.COSMIC_PORTABLE_ARTIFACT_FD == nil and env.COSMIC_PORTABLE_CORE_FD == nil)
+  assert(env["COSMIC_PORTABLE_ARTIFACT_FD"] == nil and env["COSMIC_PORTABLE_CORE_FD"] == nil)
   local program = assert(Proc.executable())
   local r = run({ core, "--database", path, program })
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
