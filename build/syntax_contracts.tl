@@ -90,26 +90,13 @@ end
 
 SyntaxContracts.rules = { "calls", "functions", "exports", "wrappers", "readings", "casts", "types", "modes" }
 
---- What [`SyntaxContracts.declared_in`] answered last, for which index and with how many sources it held then: every
---- module of a build asks of the same index, and an index does not change once its sources are read.
-local record LastDeclared
-  mut index: Driver.Index?
-  mut count: integer
-  mut names: {string}
-end
-local last_declared: LastDeclared = { index = nil, count = 0, names = {} }
-
 function SyntaxContracts.declared_in(index: Driver.Index): {string}
-  if last_declared.index == index and last_declared.count == #index.sources then
-    return last_declared.names
-  end
   local out: mut {string} = {}
   for _, source in ipairs(index.sources) do
     if source.dialect == "decl" and AnalysisSchema.declares_binding(source.text) then
       out[#out + 1] = source.module
     end
   end
-  last_declared.index, last_declared.count, last_declared.names = index, #index.sources, out
   return out
 end
 
