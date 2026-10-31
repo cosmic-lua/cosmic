@@ -178,7 +178,7 @@ end
 local function open_tar(kind: string, source: Stream.Reader, label: string):
     Archive.Reader?, string
   if kind == "tar" then return Tar.reader(source), "" end
-  local codec: Compress.Stream
+  local codec: Compress.Stream?
   local ctrouble: string
   if kind == "gzip" then
     codec, ctrouble = Compress.inflater("gzip")

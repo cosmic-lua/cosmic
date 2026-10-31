@@ -19,7 +19,7 @@ end
 --- `max_bytes`.
 local function decode(input: string, step: integer, max_bytes: integer): string, string
   local dec = assert(Compress.zstd_decoder(1 << 23))
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local pos = 1
   repeat
     local piece = input:sub(pos, pos + step - 1)
@@ -66,7 +66,7 @@ local function test_decoding_any_bytes_is_total_bounded_and_split_alike()
       local max_bytes = math.max(1, math.tointeger(tonumber(fields[3] or "1")) or 1)
       local whole, whole_trouble = decode(frame, math.max(1, #frame), 1 << 20)
       local split, split_trouble = decode(frame, step, max_bytes)
-      Fuzz.label(whole_trouble == "" and "decoded" or "refused")
+      Fuzz.label(if whole_trouble == "" then "decoded" else "refused" end)
       if (whole_trouble == "") ~= (split_trouble == "") then
         return false, ("whole: %q, split: %q"):format(whole_trouble, split_trouble)
       end
@@ -82,7 +82,7 @@ local function test_what_the_encoder_writes_decodes_to_what_went_in()
   Fuzz.run({
     name = "zstd round trip",
     gen = function(src: Fuzz.Source): string
-      local fields: {string} = { tostring(src:int(1, 19)) }
+      local fields: mut {string} = { tostring(src:int(1, 19)) }
       repeat
         fields[#fields + 1] = Fuzz.bytes(src, 32) .. string.rep(Fuzz.bytes(src, 3), src:int(0, 30))
       until not Fuzz.more(src, #fields - 1, 6)
@@ -94,8 +94,10 @@ local function test_what_the_encoder_writes_decodes_to_what_went_in()
       local level = math.tointeger(tonumber(fields[1] or "3")) or 3
       if level < 1 or level > 19 then level = 3 end
       local enc = assert(Compress.zstd_encoder(level))
-      local parts: {string} = {}
-      for i = 2, #fields do parts[#parts + 1] = assert(enc:update(fields[i])) end
+      local parts: mut {string} = {}
+      for i, field in ipairs(fields) do
+        if i > 1 then parts[#parts + 1] = assert(enc:update(field)) end
+      end
       parts[#parts + 1] = assert(enc:finish())
       local plain = table.concat(fields, "", 2)
       local out, trouble = decode(table.concat(parts), 7, 100)

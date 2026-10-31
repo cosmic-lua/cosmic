@@ -692,9 +692,12 @@ local function test_argument_shape_errors_raise()
   assert(not pcall(Compress.deflater, "raw", 11))
   assert(not pcall(Compress.deflater, "raw", -1))
   assert(not pcall(Compress.xz_decoder, 0))
-  assert(not pcall(Compress.zstd_decoder, 1023))
-  assert(not pcall(Compress.zstd_encoder, 0))
-  assert(not pcall(Compress.zstd_encoder, 20))
+  local low_window, _ = pcall(Compress.zstd_decoder, 1023)
+  assert(not low_window)
+  local low_level, _ = pcall(Compress.zstd_encoder, 0)
+  assert(not low_level)
+  local high_level, _ = pcall(Compress.zstd_encoder, 20)
+  assert(not high_level)
   assert((Compress.zstd_decoder(1024)))
   assert((Compress.zstd_encoder(1)))
   assert((Compress.zstd_encoder(19)))
@@ -823,7 +826,8 @@ local function test_zstd_multi_frame_decodes_every_frame()
   -- `printf first | zstd -c` .. `printf second | zstd -c`
   local vector = "\40\181\47\253\4\88\41\0\0\102\105\114\115\116\90\143\190\228" ..
     "\40\181\47\253\4\88\49\0\0\115\101\99\111\110\100\55\0\94\77"
-  for _, size in ipairs({ 1, 5 } as {integer}) do
+  local sizes: {integer} = { 1, 5 }
+  for _, size in ipairs(sizes) do
     local out, trouble = drive(assert(Compress.zstd_decoder()), vector, size)
     assert(trouble == "", trouble)
     assert(out == "firstsecond", out)
@@ -835,7 +839,8 @@ local function test_zstd_skippable_frames_are_skipped()
   -- little-endian length, and that many bytes, which decode to nothing.
   local skip = "\80\42\77\24\3\0\0\0abc"
   local last = "\95\42\77\24\0\0\0\0"
-  for _, size in ipairs({ 1, 7 } as {integer}) do
+  local sizes: {integer} = { 1, 7 }
+  for _, size in ipairs(sizes) do
     local dec = assert(Compress.zstd_decoder())
     local out, trouble = drive(dec, skip .. hello_zst .. last .. hello_zst, size)
     assert(trouble == "", trouble)
@@ -856,7 +861,7 @@ local function test_zstd_frame_without_a_checksum_decodes()
 end
 
 local function test_zstd_corrupt_checksum_is_refused()
-  local bad = hello_zst:sub(1, -2) .. string.char((hello_zst:byte(-1) + 1) % 256)
+  local bad = hello_zst:sub(1, -2) .. string.char((assert(hello_zst:byte(-1)) + 1) % 256)
   local out, trouble = drive(assert(Compress.zstd_decoder()), bad)
   assert(trouble == "compress: corrupt zstd data", trouble)
   assert(out == "", out)
@@ -884,7 +889,8 @@ local function test_zstd_header_window_log_over_the_maximum_is_refused()
 end
 
 local function test_zstd_truncated_input_errors_on_finish()
-  for _, cut in ipairs({ 1, 4, 20 } as {integer}) do
+  local cuts: {integer} = { 1, 4, 20 }
+  for _, cut in ipairs(cuts) do
     local dec = assert(Compress.zstd_decoder())
     assert(dec:update(hello_zst:sub(1, #hello_zst - cut)))
     local last, trouble = dec:finish()
@@ -924,7 +930,8 @@ end
 
 local function test_zstd_decoder_survives_many_empty_updates_mid_frame()
   local dec = assert(Compress.zstd_decoder())
-  local parts = { assert(dec:update(hello_zst:sub(1, 10))) }
+  local first = assert(dec:update(hello_zst:sub(1, 10)))
+  local parts: mut {string} = { first }
   for _ = 1, 40 do parts[#parts + 1] = assert(dec:update("")) end
   parts[#parts + 1] = assert(dec:update(hello_zst:sub(11)))
   parts[#parts + 1] = assert(dec:finish())
@@ -943,21 +950,20 @@ local function test_zstd_encoder_writes_what_the_zstd_command_writes()
 end
 
 local function test_zstd_round_trips_at_every_level_and_chunking()
-  local plain = string.rep("the quick brown fox jumps over the lazy dog. ", 2000) ..
-    table.concat((function(): {string}
-      local t: {string} = {}
-      for i = 1, 4096 do t[i] = string.char((i * 2654435761 >> 13) % 256) end
-      return t
-    end)())
-  for _, level in ipairs({ 1, 3, 9, 19 } as {integer}) do
-    for _, size in ipairs({ 1000, #plain } as {integer}) do
+  local noise: mut {string} = {}
+  for i = 1, 4096 do noise[i] = string.char((i * 2654435761 >> 13) % 256) end
+  local plain = string.rep("the quick brown fox jumps over the lazy dog. ", 2000) .. table.concat(noise)
+  local levels: {integer} = { 1, 3, 9, 19 }
+  local sizes: {integer} = { 1000, #plain }
+  for _, level in ipairs(levels) do
+    for _, size in ipairs(sizes) do
       local packed, enc_trouble = drive(assert(Compress.zstd_encoder(level)), plain, size)
       assert(enc_trouble == "", enc_trouble)
-      assert(#packed < #plain, level .. ": " .. #packed)
+      assert(#packed < #plain, tostring(level) .. ": " .. tostring(#packed))
       local dec = assert(Compress.zstd_decoder())
       local out, dec_trouble = drive(dec, packed, size)
       assert(dec_trouble == "", dec_trouble)
-      assert(out == plain, level .. "/" .. size .. ": " .. #out)
+      assert(out == plain, tostring(level) .. "/" .. tostring(size) .. ": " .. tostring(#out))
     end
   end
   -- Nothing in is one empty frame out, which decodes to nothing.
@@ -982,7 +988,9 @@ local function test_zstd_encoder_throws_after_finish()
   local enc = assert(Compress.zstd_encoder())
   assert(enc:update("x"))
   assert(enc:finish())
-  assert(not pcall(enc.update, enc, "y"))
-  assert(not pcall(enc.finish, enc))
+  local updated, _ = pcall(enc.update, enc, "y")
+  assert(not updated)
+  local finished, _ = pcall(enc.finish, enc)
+  assert(not finished)
   assert(enc:pending() == false)
 end

@@ -357,7 +357,9 @@ local function test_extract_a_zstd_compressed_tar_made_by_system_tar(tmp: string
   local path = tmp .. "/a.tar.zst"
   assert(Fs.write(path, (assert(Codec.unbase64(TAR_ZST_B64)))))
   local dest = tmp .. "/out"
-  local written = assert(Archive.extract(path, dest))
+  local extracted = assert(Archive.extract(path, dest))
+  local written: mut {string} = {}
+  for _, name in ipairs(extracted) do written[#written + 1] = name end
   table.sort(written)
   assert(#written == 3, table.concat(written, ","))
   assert(Fs.read(dest .. "/src/short.txt") == "hello there")

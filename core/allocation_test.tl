@@ -475,7 +475,7 @@ local function test_compress_leaves_nothing_whenever_an_allocation_fails()
       make = function(): Compress.Stream?, string return Compress.xz_decoder() end },
     { name = "bz2", input = hello_bz2 .. "trailing", make = Compress.bz2_decoder },
     { name = "zstd", input = hello_zst .. "trailing",
-      make = function(): Compress.Stream | nil, string return Compress.zstd_decoder() end },
+      make = function(): Compress.Stream?, string return Compress.zstd_decoder() end },
   }
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()

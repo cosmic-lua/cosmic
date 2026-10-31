@@ -653,7 +653,7 @@ local function test_create_writes_a_zstd_tar(tmp: string)
   assert(ran.code == 0 and ran.err == "", ran.err)
   assert(assert(Fs.read(tmp .. "/x.tar.zst")):sub(1, 4) == "\40\181\47\253")
   local listed = run({ "list", tmp .. "/x.tar.zst" })
-  assert(listed.code == 0 and listed.out:find("loose.txt\t5\t", 1, true), listed.out .. listed.err)
+  assert(listed.code == 0 and listed.out:find("loose.txt\t5\t", 1, true) ~= nil, listed.out .. listed.err)
 end
 
 local function test_create_writes_a_plain_tar(tmp: string)

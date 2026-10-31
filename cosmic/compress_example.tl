@@ -29,12 +29,13 @@ end
 --- decoder that holds each update's output to a bound.
 function Example.zstd_encoder()
   local enc = assert(Compress.zstd_encoder(9))
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _ = 1, 100 do parts[#parts + 1] = assert(enc:update("cosmic zstd ")) end
   parts[#parts + 1] = assert(enc:finish())
   local packed = table.concat(parts)
   local dec = assert(Compress.zstd_decoder())
-  local out = { assert(dec:update(packed, 256)) }
+  local first = assert(dec:update(packed, 256))
+  local out: mut {string} = { first }
   while dec:pending() do out[#out + 1] = assert(dec:update("", 256)) end
   out[#out + 1] = assert(dec:finish())
   print(#packed, #table.concat(out))

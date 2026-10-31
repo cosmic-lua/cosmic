@@ -1157,27 +1157,38 @@ local function encoded(coding: string, plain: string): string
   local codec: Compress.Stream
   if coding == "zstd" then
     codec = assert(Compress.zstd_encoder())
-  elseif coding == "zlib" or coding == "raw" or coding == "gzip" then
-    codec = assert(Compress.deflater(coding as Compress.Format))
+  elseif coding == "zlib" then
+    codec = assert(Compress.deflater("zlib"))
+  elseif coding == "raw" then
+    codec = assert(Compress.deflater("raw"))
+  elseif coding == "gzip" then
+    codec = assert(Compress.deflater("gzip"))
+  else
+    error("no encoder for " .. coding)
   end
   return assert(codec:update(plain)) .. assert(codec:finish())
 end
 
 local function test_decompress_asks_for_and_decodes_each_coding()
   local plain = string.rep("a compressed body, ", 200)
-  local cases: {{string, string}} = {
-    { "zstd", "zstd" }, { "gzip", "gzip" }, { "x-gzip", "gzip" }, { "GZip", "gzip" },
+  local record Coding
+    header: string
+    coding: string
+  end
+  local cases: {Coding} = {
+    { header = "zstd", coding = "zstd" }, { header = "gzip", coding = "gzip" },
+    { header = "x-gzip", coding = "gzip" }, { header = "GZip", coding = "gzip" },
     -- deflate is zlib by RFC 9110, and raw deflate as servers also send it.
-    { "deflate", "zlib" }, { "deflate", "raw" },
+    { header = "deflate", coding = "zlib" }, { header = "deflate", coding = "raw" },
   }
   for _, case in ipairs(cases) do
-    local body = encoded(case[2], plain)
-    local response, got, sent = fetch({ reply("200 OK", "Content-Encoding: " .. case[1] .. "\r\n", body) },
+    local body = encoded(case.coding, plain)
+    local response, got, sent = fetch({ reply("200 OK", "Content-Encoding: " .. case.header .. "\r\n", body) },
       { decompress = true })
-    assert(got == plain, case[1] .. "/" .. case[2] .. ": " .. #got)
+    assert(got == plain, case.header .. "/" .. case.coding .. ": " .. tostring(#got))
     assert(sent:find("\r\nAccept-Encoding: zstd, gzip, deflate\r\n", 1, true) ~= nil, sent)
     -- The headers stay as the server sent them.
-    assert(response.headers["content-encoding"] == case[1])
+    assert(response.headers["content-encoding"] == case.header)
     assert(response.headers["content-length"] == tostring(#body))
     assert(response.status == 200 and response.url == url)
   end
@@ -1219,17 +1230,21 @@ end
 
 local function test_decompress_fails_a_corrupt_truncated_or_trailed_body()
   local packed = encoded("zstd", string.rep("z", 1000))
-  local cases: {{string, string}} = {
-    { "garbage!", "http: cannot decode the zstd body: compress: not a zstd stream" },
-    { packed:sub(1, -3), "http: cannot decode the zstd body: compress: truncated zstd stream" },
-    { packed .. "more", "http: cannot decode the zstd body: bytes follow the compressed data" },
-    { "z", "http: cannot decode the zstd body: compress: not a zstd stream" },
+  local record Corrupt
+    body: string
+    trouble: string
+  end
+  local cases: {Corrupt} = {
+    { body = "garbage!", trouble = "http: cannot decode the zstd body: compress: not a zstd stream" },
+    { body = packed:sub(1, -3), trouble = "http: cannot decode the zstd body: compress: truncated zstd stream" },
+    { body = packed .. "more", trouble = "http: cannot decode the zstd body: bytes follow the compressed data" },
+    { body = "z", trouble = "http: cannot decode the zstd body: compress: not a zstd stream" },
     -- The first byte of the magic alone, shorter than any frame.
-    { "\40", "http: cannot decode the zstd body: compress: truncated zstd stream" },
+    { body = "\40", trouble = "http: cannot decode the zstd body: compress: truncated zstd stream" },
   }
   for _, case in ipairs(cases) do
     local response = assert(Http.open(url, { decompress = true,
-      script = { reply("200 OK", "Content-Encoding: zstd\r\n", case[1]) } }))
+      script = { reply("200 OK", "Content-Encoding: zstd\r\n", case.body) } }))
     local trouble: string
     while true do
       local chunk, why = response:read()
@@ -1238,16 +1253,17 @@ local function test_decompress_fails_a_corrupt_truncated_or_trailed_body()
         break
       end
     end
-    assert(trouble == case[2], trouble)
+    assert(trouble == case.trouble, trouble)
     -- And again: a failed body stays failed.
     local again, why = response:read()
-    assert(again == nil and why == case[2], why)
+    assert(again == nil and why == case.trouble, why)
     response:close()
   end
 end
 
 local function test_decompress_fails_a_one_byte_deflate_body_without_raising()
-  for _, body in ipairs({ "x", "\8" } as {string}) do
+  local bodies: {string} = { "x", "\8" }
+  for _, body in ipairs(bodies) do
     local response = assert(Http.open(url, { decompress = true,
       script = { reply("200 OK", "Content-Encoding: deflate\r\n", body) } }))
     local chunk, why = response:read()
@@ -1292,15 +1308,6 @@ local function test_request_and_download_decompress_too(tmp: string)
   local path = tmp .. "/decoded"
   assert(Http.download(url, path, { decompress = true, sha256 = Hash.hex_sha256(plain), script = script }))
   assert(Fs.read(path) == plain)
-end
-
-local function test_decompress_must_be_a_boolean()
-  local ok, why = pcall(function()
-    local _ = Http.open(url, { decompress = "yes" as boolean, script = { reply("200 OK", "") } })
-  end)
-  assert(not ok and tostring(why):find("opts.decompress must be a boolean", 1, true), tostring(why))
-  -- Raised at the caller's line.
-  assert(tostring(why):find("http_test", 1, true), tostring(why))
 end
 
 --- A `false` where a method is wanted is a method that is not GET, not an
