@@ -20,6 +20,7 @@ local Node = require("build.syntax_node")
 local PolicyRules = require("build.policy_rules")
 local Scopes = require("lang.scopes")
 local String = require("cosmic.string")
+local TodoScan = require("build.todo_scan")
 
 local record Analyzer
   --- One catalog entry: a literal `return nil, ...`/`return false, ...` (or `return refuse(...)`, a module's own
@@ -179,9 +180,34 @@ local function comment_body(c: Lexer.Comment): string
   return c.text:match("^%-%-%-?%s?(.*)$") or c.text
 end
 
+--- The comments of `run` that open a `TODO:` or carry one on, found as [`build.todo_scan`] finds TODOs: a TODO is a
+--- note to the maintainers, never documentation.
+local function todo_comments(run: {Lexer.Comment}): {integer:boolean}
+  local texts: mut {string} = {}
+  local owner: mut {integer} = {}
+  for index, c in ipairs(run) do
+    texts[#texts + 1] = c.text
+    owner[#owner + 1] = index
+    -- A block comment spans lines, each of which the scan reads as a line of its own.
+    for _ in c.text:gmatch("\n") do
+      owner[#owner + 1] = index
+    end
+  end
+  local skipped: mut {integer:boolean} = {}
+  for _, todo in ipairs(TodoScan.scan(table.concat(texts, "\n"))) do
+    for line = todo.line, todo.last do
+      local index = owner[line]
+      if index ~= nil then
+        skipped[index] = true
+      end
+    end
+  end
+  return skipped
+end
+
 --- The body of each comment in `run` that is documentation: the `---` lines when the run has any, so a `--` note
---- beside them (a `TODO:`) stays out of the doc text, and every line of a run of `--` alone, which documents a script
---- or a module.
+--- beside them (a `TODO:`) stays out of the doc text, and every line of a run of `--` alone that is not part of a
+--- `TODO:`, which documents a script or a module.
 local function doc_bodies(run: {Lexer.Comment}): {string}
   local any = false
   for _, c in ipairs(run) do
@@ -189,9 +215,13 @@ local function doc_bodies(run: {Lexer.Comment}): {string}
       any = true
     end
   end
+  local skipped: {integer:boolean} = {}
+  if not any then
+    skipped = todo_comments(run)
+  end
   local parts: mut {string} = {}
-  for _, c in ipairs(run) do
-    if c.text:sub(1, 3) == "---" or not any then
+  for index, c in ipairs(run) do
+    if c.text:sub(1, 3) == "---" or (not any and skipped[index] ~= true) then
       parts[#parts + 1] = comment_body(c)
     end
   end
