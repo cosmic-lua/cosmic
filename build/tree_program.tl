@@ -36,8 +36,9 @@ local record TreeProgram
   --- of its input; a `test` has its functions called from outside.
   index: function(entries: {{string}}, kinds: {string: string}, unaliased?: {string: boolean}): Driver.Index
 
-  --- The names of the language's own modules, which the binary answers a `require` of at run time: the lowercase records
-  --- (`math`, `string`, ...) among the globals `globals` declares. The capitalised records are types (`FILE`), no module.
+  --- The names of the language's own modules, which the binary answers a `require` of at run time (what `package.loaded`
+  --- holds): the lowercase records of the standard library's declarations (`math`, `string`, ...) and `_G`, which the checker
+  --- answers itself. The prelude's records (`metatable`) and the capitalised records (`FILE`) are types, no module.
   library_modules: function(globals: Globals): {string: boolean}
 
   --- The complaints of [`Driver.reserved`] for `entries` less the programs of a `testdata/` directory: "" for none.
@@ -99,8 +100,14 @@ function TreeProgram.index(entries: {{string}}, kinds: {string: string}, unalias
 end
 
 function TreeProgram.library_modules(globals: TreeProgram.Globals): {string: boolean}
-  local names: mut {string: boolean} = {}
-  for name, declared in pairs(Driver.globals(globals.sources, nil)) do
+  local library: mut {Driver.Source} = {}
+  for _, source in ipairs(globals.sources) do
+    if source.module == CheckerDeclarations.stdlib_module() then
+      library[#library + 1] = source
+    end
+  end
+  local names: mut {string: boolean} = { ["_G"] = true }
+  for name, declared in pairs(Driver.globals(library, nil)) do
     if declared.space == "both" and not declared.const and name:match("^%l") ~= nil then
       names[name] = true
     end
