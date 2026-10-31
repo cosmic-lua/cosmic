@@ -19,7 +19,7 @@ defines the target; once something ships, it leaves this file.
   parameter of such a field, when it is a record or an interface, is the one
   place a record parameter is compared in either direction.
 - make every guard read every place alike
-  ([narrowing by construction](plans/strict-teal.md#narrowing-by-construction)):
+  (narrowing by construction):
   a path of fixed fields (`a.b.c`) is a place, and so is an index (`t[k]`, `k` a
   literal or a local never reassigned), where a write to any index drops
   every index place; `is` tests a field as it does a local; `x is A | B | C`

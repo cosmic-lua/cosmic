@@ -1,7 +1,6 @@
---- The codes of the new checker's expression errors ([`lang.check`]), and the rule behind each
---- ([`doc/plans/new-checker-types.md`], "errors"). An error has a [`Codes.Code`], the place at fault, what
+--- The codes of the new checker's expression errors ([`lang.check`]), and the rule behind each. An error has a [`Codes.Code`], the place at fault, what
 --- is wrong in one line, and the change that fixes it written against the program's own names. A [`Codes.Row`]
---- is the rule a code stands for, which `cosmic docs <code>` and the error read alike: the rule as the plan names
+--- is the rule a code stands for, which `cosmic docs <code>` and the error read alike: the rule as the language names
 --- it, why the language holds it, and the fix with the placeholders `<...>` the error fills from the program.
 ---
 --- `float_key`, `array_of_optional` and `param_untyped` are also the codes of [`lang.declarations`], whose
@@ -205,7 +204,7 @@ local record Codes
   --- The rule behind a code.
   record Row
     code: Code
-    --- The rule, named as the plan names it.
+    --- The rule, named as the language names it.
     rule: string
     --- Why the language holds it.
     why: string
@@ -242,8 +241,8 @@ Codes.codes = {
 }
 
 --- The text every `unchecked_*` row shares: the form is typed `invalid` and reported until its piece lands.
-local WAITING <const> = "the checker types this form when it reads the declarations of the bindings of C " ..
-  "(doc/plans/new-checker-types.md, \"what the checker starts from\"); until then its result is `invalid`, which " ..
+local WAITING <const> = "the checker types this form when it reads the declarations of the bindings of C; " ..
+  "until then its result is `invalid`, which " ..
   "relates to every type, so the form is reported where it stands and a silent `invalid` is never made"
 
 Codes.catalog = {

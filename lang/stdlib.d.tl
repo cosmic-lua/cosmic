@@ -38,7 +38,7 @@ do
   end
 
   -- TODO: provide the typed `coroutine` library in the runtime, once the runtime cut keeps only the globals a `.d.tl`
-  -- declares (doc/plans/strict-teal.md, "the runtime cut"): these declarations describe a body that is given a handle
+  -- declares: these declarations describe a body that is given a handle
   -- and a `Coroutine` that is not a thread, and the runtime has Lua's own `coroutine`, which [`cosmic.poll`] calls.
   global record coroutine
     close: function<Y, R, S>(Coroutine<Y, R, S>): (true) | (false, any)
@@ -483,7 +483,7 @@ do
     -- the string Lua answers when the handler itself raises.
     --
     -- TODO: accept a function that answers `T...` as an argument of `pcall` and `xpcall`, once the grammar spells a list
-    -- with a tail among alternatives (`plist` in doc/plans/new-checker-grammar.md, "types"): `(true, R...) | (false, any)`
+    -- with a tail among alternatives (`plist`): `(true, R...) | (false, any)`
     -- cannot be written until then, and a call that passes one is `overload_none`.
     pcall: function((function())): (true) | (false, any)
     pcall: function<R1>((function(): R1)): (true, R1) | (false, any)

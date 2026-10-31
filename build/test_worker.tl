@@ -442,7 +442,7 @@ end
 -- its metatable would fail.
 --
 -- TODO: read the class with whatever form the runtime keeps for the code the compiler writes, once the runtime cut takes
--- text `load` from programs (doc/plans/strict-teal.md, "no implicit conversion or hidden code"): the `@` of text is
+-- text `load` from programs (the runtime then has no reserved form that text can spell): the `@` of text is
 -- then gone, and a class that hides its metatable is a false "fact violated" again.
 local raw_reader = load("local v = ... return @v")
 
@@ -586,7 +586,7 @@ local function hook(_: integer, text: string, ...: any): any...
         -- one: either the caller or the declaration is wrong, and both are fixed.
         --
         -- TODO: once the checker lists each declared return and field write and lang/codegen.tl writes a check for it
-        -- in a checked compile (doc/plans/strict-teal.md), raise for those kinds too: until then a return value or
+        -- in a checked compile, raise for those kinds too: until then a return value or
         -- field of cosmic/ that is of a kind its declaration refuses is recorded and let through.
         if noted and check.kind == "p" and lua_sub(check.at, 1, #LIBRARY) == LIBRARY and met ~= nil then
           lua_error("parameter violated at " .. met.at .. ": " .. met.target .. " is " .. met.actual ..

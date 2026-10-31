@@ -64,8 +64,8 @@ local function size_of(res: Types.Response): string
   return ("%.1fMB"):format(n / (1024 * 1024))
 end
 
--- TODO: Web.timing, Web.request_id and Web.limit_body (doc/plans/web/core.md
--- section 7.2) once a part of the plan needs one: request ids with the CSP
+-- TODO: Web.timing, Web.request_id and Web.limit_body once a part of the web
+-- layer needs one: request ids with the CSP
 -- nonce and sessions, the body limit with Server.ServeSpec.body_limit.
 
 --- Writes one line per request once its response is made:

@@ -1,5 +1,4 @@
---- The parser of the new checker's grammar ([`doc/plans/new-checker-grammar.md`],
---- "the syntactic grammar"): the tokens of [`lang.lexer`] to the syntax tree of
+--- The parser of the new checker's grammar: the tokens of [`lang.lexer`] to the syntax tree of
 --- [`lang.ast`], in one of two dialects, `tl` for a program and `decl` for a
 --- declaration file (`.d.tl`).
 ---
@@ -20,8 +19,7 @@
 --- program). The one cut form that still parses is `e as T`, the transition
 --- cast: the tree holds a `Cast` and the checker refuses it.
 ---
---- Where the draft left the grammar loose the parser follows
---- [`doc/plans/new-checker-grammar.md`], "what the parser settled". It
+--- Where the grammar is loose the parser settles it as below. It
 --- stops at 200 levels of nesting, the size of Lua's own limit (Lua counts its
 --- C levels and this parser its blocks, expressions and types), and reports nothing more of
 --- that construct. A `|` and a `(` that begin a line in a `match` arm begin the

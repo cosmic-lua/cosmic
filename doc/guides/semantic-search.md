@@ -357,7 +357,7 @@ The binary first pass keeps the 200 chunks whose bit vectors are
 nearest in Hamming distance, then ranks only those by their floats. The
 stored vectors are normalized, so the inner product of a normalized
 query ranks them as the cosine does. The pass is approximate: measure
-its recall, as the last section shows. In the plan's synthetic benchmark
+its recall, as the last section shows. In a synthetic benchmark
 (100,000 chunks of 768 dimensions, on a 4-core 2.1 GHz Xeon) it took
 10 ms, where ranking all the floats by inner product took 91 ms, and by
 cosine 120 ms.

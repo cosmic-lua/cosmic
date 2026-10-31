@@ -1,5 +1,5 @@
---- The code generator of the new checker's grammar
---- ([`doc/plans/new-checker-grammar.md`]): the syntax tree [`lang.parser`] builds, written as Lua.
+--- The code generator of the new checker's grammar:
+--- the syntax tree [`lang.parser`] builds, written as Lua.
 ---
 --- A statement on source line N lands on line N, types are erased, and every construct is written in one layout: the
 --- same indent, the same `; ` between statements on a line, a trailing `,` in a table that spans lines,
@@ -53,7 +53,7 @@
 --- program does.
 
 -- TODO: write the reserved form of the class only in the code the compiler writes, once the runtime cut takes text
--- `load` from programs (doc/plans/strict-teal.md, "no implicit conversion or hidden code"): a program cannot spell
+-- `load` from programs: a program cannot spell
 -- `@` in Teal, but a chunk it loads from text is read by the patched parser, which takes both forms today
 -- (`load("return @'abc'")` answers the string metatable), and `@v` reads a metatable whatever its `__metatable` says.
 --
@@ -62,7 +62,7 @@
 --
 -- TODO: take truthiness from the new checker's types, in place of the syntactic rule
 -- ([`lang.truthy`]), once the nil codes (`nil_not_allowed`, `index_may_be_nil`) are closed, so that a type cannot
--- lie about nil (doc/plans/new-checker-types.md, "expressions without flow"): a name or a call whose type is
+-- lie about nil: a name or a call whose type is
 -- neither boolean nor optional is then truthy, and its `if` expression is `c and a or b` and not a function called
 -- on the spot.
 --
