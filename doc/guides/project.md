@@ -401,6 +401,34 @@ test: 3 tests passed
 tally (tally.tl)
 ```
 
+## discarding a failure on purpose
+
+A call that answers `nil, why` or `false, why` must be handled: `cosmic
+fix` reports a result whose failure is ignored. When the failure cannot
+matter, discard both results on purpose with `local _, _ = call()`. The
+usual case is a best-effort cleanup in a path that is already failing,
+such as a `ROLLBACK` after a statement fails, where the first error is
+the one to report.
+
+```teal
+local Sqlite = require("cosmic.sqlite")
+
+local function add(db: Sqlite.Handle, body: string): boolean, string
+  local began, trouble = db:exec("BEGIN")
+  if not began then return false, trouble end
+  local ok, why = Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = body } })
+  if not ok then
+    local _, _ = db:exec("ROLLBACK")
+    return false, why
+  end
+  return db:exec("COMMIT")
+end
+
+local db = assert(Sqlite.memory())
+assert(db:exec("CREATE TABLE t (body TEXT)"))
+assert(add(db, "a"))
+```
+
 ## moving a project to the new grammar
 
 The tool reads one grammar, the new checker's. A project written for the fork's checker (`T | nil`, `goto continue`,

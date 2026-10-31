@@ -12,6 +12,7 @@
 --- - a field, method or type of a module that no longer has it (`Hash.hex`, `Zip.ZipReader`): `Hash.hex was removed: ...`;
 --- - a boolean given where a record now goes (`Sqlite.open(path, true)`): `Sqlite.OpenOptions replaced a boolean
 ---   argument: ...`.
+--- - a value of a record that has no elements to index, indexed (`row[1]` of a [`Sqlite.Row`]): what to read it with.
 ---
 --- The error is read by its code and place (the tokens at it), the types it is about, and the module a name was bound to by
 --- `local X = require("module")`, never by its words. The driver ([`build.driver`]) calls it as it makes each problem.
@@ -43,6 +44,7 @@ local record Catalog
   names: {string: string}
   members: {string: string}
   arguments: {string: string}
+  indexed: {string: string}
   message: function(name: string, field?: string): string
 end
 
@@ -54,11 +56,20 @@ local function catalog(): Catalog?
   if not (loaded is {string: any}) then
     return nil
   end
-  local names, members, arguments, message = loaded["names"], loaded["members"], loaded["arguments"], loaded["message"]
-  local replacements = loaded["replacements"]
-  if names is {string: string} and members is {string: string} and arguments is {string: string} and
-      replacements is {string: string} and message is function(name: string, field?: string): string then
-    return { names = names, members = members, arguments = arguments, replacements = replacements, message = message }
+  local function strings(key: string): {string: string}?
+    local table_of = loaded[key]
+    if table_of is {string: string} then
+      return table_of
+    end
+    return nil
+  end
+  local names, members, arguments, indexed, replacements = strings("names"), strings("members"), strings("arguments"),
+    strings("indexed"), strings("replacements")
+  local message = loaded["message"]
+  if names ~= nil and members ~= nil and arguments ~= nil and replacements ~= nil and indexed ~= nil and
+      message is function(name: string, field?: string): string then
+    return { names = names, members = members, arguments = arguments, indexed = indexed, replacements = replacements,
+      message = message }
   end
   return nil
 end
@@ -145,6 +156,32 @@ local function removed_module(removed: Catalog, tokens: Lexer.Tokens, at: intege
     return nil
   end
   return removed.message(name)
+end
+
+--- A value indexed that is of a record `types` names qualified ([`Sqlite.Row`]), which the catalog lists as one that has no
+--- elements to index. The type is spelled as its module declares it, whatever name the program gave the module, so the
+--- catalog's module is the one any local in scope was bound to by `require`.
+local function removed_index(removed: Catalog, source: RemovedFix.Source, at: integer, types: {string}): string?
+  local first = types[1]
+  if first == nil then
+    return nil
+  end
+  local owner, name = first:match("^([%a_][%w_]*)%.([%a_][%w_]*)$")
+  if owner == nil or name == nil then
+    return nil
+  end
+  local visible = Scopes.in_scope(source.scoped, at)
+  for dotted, instead in pairs(removed.indexed) do
+    local module, record = dotted:match("^(.+)%.([%a_][%w_]*)$")
+    if module ~= nil and record == name then
+      for _, v in pairs(visible) do
+        if v.module == module then
+          return instead
+        end
+      end
+    end
+  end
+  return nil
 end
 
 --- A field, a method or a type `head.key` (or `head:key`, `head["key"]`) that `module` no longer has.
@@ -300,6 +337,8 @@ function RemovedFix.fix(source: RemovedFix.Source, code: string, offset: integer
     return removed_through(removed, source, code, at, length, types)
   elseif code == "not_assignable" then
     return removed_argument(removed, source, at, types)
+  elseif code == "not_indexable" then
+    return removed_index(removed, source, at, types)
   end
   return nil
 end
