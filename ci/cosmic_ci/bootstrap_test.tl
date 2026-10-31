@@ -522,15 +522,18 @@ end
 local function test_the_entry_point_leaves_no_bootstrap_variable_in_the_releases_environment(tmp: string)
   local root = listed_checkout(tmp)
   local reporter = tmp .. "/reporter"
-  assert(Fs.write(reporter, "#!/bin/sh\necho \"COSMIC_BOOTSTRAP=${COSMIC_BOOTSTRAP-unset}\"\necho \"ENTRY=${COSMIC_BOOTSTRAP_ENTRY-unset}\"\n", 0x1ed))
+  assert(Fs.write(reporter, "#!/bin/sh\necho \"COSMIC_BOOTSTRAP=${COSMIC_BOOTSTRAP-unset}\"\necho \"ENTRY=${COSMIC_BOOTSTRAP_ENTRY-unset}\"\necho \"VERIFY=${COSMIC_BOOTSTRAP_VERIFY-unset}\"\n", 0x1ed))
   local printed, ok = ran(tmp, { "/bin/sh", root .. "/bin/cosmic-bootstrap" }, reporter, {})
   assert(ok, printed)
   local entry = printed:gsub("\n$", "")
   local out, run_ok = ran(tmp, { entry }, nil, { "x" })
-  assert(run_ok and out == "COSMIC_BOOTSTRAP=unset\nENTRY=unset\n", out)
+  assert(run_ok and out == "COSMIC_BOOTSTRAP=unset\nENTRY=unset\nVERIFY=unset\n", out)
+  -- Nor does it drop what the caller set, COSMIC_BOOTSTRAP_VERIFY included.
+  out, run_ok = ran(tmp, { entry }, nil, { "x" }, { COSMIC_BOOTSTRAP_VERIFY = "1" })
+  assert(run_ok and out == "COSMIC_BOOTSTRAP=unset\nENTRY=unset\nVERIFY=1\n", out)
   -- What the caller set stays, as it does for a release run through the wrapper.
   out, run_ok = ran(tmp, { entry }, "/given", { "x" })
-  assert(run_ok and out == "COSMIC_BOOTSTRAP=/given\nENTRY=unset\n", out)
+  assert(run_ok and out == "COSMIC_BOOTSTRAP=/given\nENTRY=unset\nVERIFY=unset\n", out)
 end
 
 local function test_driver_records_success_failures_timeout_and_interruption(tmp: string)
