@@ -23,8 +23,14 @@ end
 --- `{ path = "/parent/<file>", letters = "r" }`. It raises for one the
 --- module never declared.
 function Example.parent()
-  local ok, _ = pcall(Test.parent, "bin/zig")
-  print(ok) -- false
+  Test.raises(function() Test.parent("bin/zig") end)
+end
+
+--- A call that must raise is checked in one statement, and the message
+--- it raised comes back for what more the test checks of it.
+function Example.raises()
+  local why = Test.raises(function() error("no such file: x", 0) end, "no such file")
+  print(why) -- no such file: x
 end
 
 return Example
