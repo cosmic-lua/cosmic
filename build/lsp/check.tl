@@ -36,9 +36,11 @@
 --- once and the stubs the document reaches, and not the project. A document whose text has not changed since its last check,
 --- with no module served dropped since, publishes what it published then, and answers the questions asked of its types from the
 --- result of that check ([`check.read`]), kept in memory: it depends on the editor's unsaved text, which the working
---- database does not hold.
+--- database does not hold. A text being typed does not parse: completion reads the last text of the document that did
+--- ([`check.last`]).
 
 local Ast = require("lang.ast")
+local Declarations = require("lang.declarations")
 local Driver = require("build.driver")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
@@ -81,6 +83,9 @@ local record check
     --- of the program, which the checker's `epoch` stands for. It is the session's and not the working database's, since
     --- the text is the editor's and not a staged file's.
     mut kept: Kept?
+    --- The last check of it whose text parsed, kept as `kept` is: a text being typed often does not parse, and completion
+    --- reads what the text was before ([`check.last`]).
+    mut parsed: Kept?
   end
 
   --- What a document's check found, and what it was of.
@@ -102,9 +107,13 @@ local record check
     generated: boolean
     --- The program's result for the module, with the types of its nodes: nil where nothing was checked.
     outcome: Driver.Outcome?
+    --- The program the outcome is of: a later check in the session begins another ([`Driver.Build.replace`]), and the
+    --- declarations the outcome's types name (a type's statics, its store) are in the one it was made in. Nil with `outcome`.
+    program: Declarations.Program?
   end
 
-  --- What one check of a document read, for the questions asked of the types of its nodes ([`build.lsp.definition`]).
+  --- What one check of a document read, for the questions asked of the types of its nodes ([`build.lsp.definition`],
+  --- [`build.lsp.completion`]).
   record Reading
     --- The program's result for the document's module: its tree, scopes and the type of each node. It is the document's
     --- ([`Document`]'s `kept`), and outlives the check of another document.
@@ -112,6 +121,14 @@ local record check
     --- What a build put in the document's text before the checker read it (the `text` of the outcome), the last first
     --- ([`ShapeSpecs.Splice`]).
     splices: {ShapeSpecs.Splice}
+    --- The program the outcome is of ([`Checked`]'s `program`).
+    program: Declarations.Program
+  end
+
+  --- The reading [`check.last`] answers, and the text of the document it was of.
+  record Last
+    reading: Reading
+    text: string
   end
 
   --- The databases a message's hint looks a name up in, and whether each is read as the public standard library's.
@@ -185,7 +202,7 @@ end
 --- the root where `outside`.
 function check.document(uri: string, name: string, text: string, outside?: boolean): Document
   return { uri = uri, text = text, name = name, outside = outside == true, hash = nil, published = nil,
-    published_text = "", published_epoch = 0, requires = nil, kept = nil }
+    published_text = "", published_epoch = 0, requires = nil, kept = nil, parsed = nil }
 end
 
 --- Whether `document` is no module a build at the root reads
@@ -420,14 +437,15 @@ local function checked_of(checker: Checker, document: Document): Checked
     local compiled, trouble = Template.compile(document.text, document.name, { dialects = nil })
     if compiled == nil then
       return { refusals = { plan.refusal_of(trouble) }, text = text, splices = none, generated = false,
-        outcome = nil }
+        outcome = nil, program = nil }
     end
     text = compiled
   end
   --- What was found, its places in `spliced` as spliced by `splices`.
   local function checked(refusals: {plan.Refusal}, spliced: string, splices: {ShapeSpecs.Splice},
-                         outcome?: Driver.Outcome): Checked
-    return { refusals = refusals, text = spliced, splices = splices, generated = generated, outcome = outcome }
+                         outcome?: Driver.Outcome, declarations?: Declarations.Program): Checked
+    return { refusals = refusals, text = spliced, splices = splices, generated = generated, outcome = outcome,
+      program = declarations }
   end
   local named = plan.named(document.name)
   local path, kind = named.path, named.kind
@@ -473,7 +491,7 @@ local function checked_of(checker: Checker, document: Document): Checked
   local compiled = syntax_read.generated(assert(subject), reading, importer_hints(checker), planned.requires,
     function(name: string): boolean return checker.source.modules[name] ~= nil end)
   for _, refusal in ipairs(compiled.refusals) do refusals[#refusals + 1] = refusal end
-  return checked(refusals, spliced, splices, program.build:result(path, true))
+  return checked(refusals, spliced, splices, program.build:result(path, true), program.build.program)
 end
 
 -- TODO: bound the results kept to the documents most recently asked of (the least recently used dropped), once a session is seen
@@ -488,9 +506,6 @@ end
 -- change of the docs databases, bumps no epoch, so the result kept (and what [`check.diagnose`] publishes) stands until the
 -- text or the epoch moves.
 
--- TODO: let completion read the last result of a document whose text parsed, once completion exists: a text being typed
--- does not parse, and its kept result is then nothing found.
-
 --- The check of `document` as it stands: the one kept from the last, where the text and the checker's `epoch` are those it
 --- was of, else a check made now and kept. A text that does not parse is kept as well, its outcome nil.
 local function checked_now(checker: Checker, document: Document): Checked
@@ -502,6 +517,7 @@ local function checked_now(checker: Checker, document: Document): Checked
   local checked = checked_of(checker, document)
   -- The epoch after the check, which may move it (`remember`, [`program_of`]): the next ask is of the same program.
   document.kept = { text = document.text, epoch = checker.epoch, checked = checked }
+  if checked.outcome ~= nil and not checked.generated then document.parsed = document.kept end
   return checked
 end
 
@@ -587,8 +603,33 @@ function check.read(checker: Checker, document: Document): check.Reading?
   refresh_program(checker)
   local checked = checked_now(checker, document)
   local found = checked.outcome
-  if found == nil or checked.generated then return nil end
-  return { outcome = found, splices = checked.splices }
+  local declarations = checked.program
+  if found == nil or declarations == nil or checked.generated then return nil end
+  return { outcome = found, splices = checked.splices, program = declarations }
+end
+
+--- What completion reads of `document`: the reading of its text ([`check.read`]), else, where the text does not parse (it
+--- is being typed), the reading of the last text that did, with that text so that a place in the one is found in the other.
+--- That reading may be of a program older than the present one: its types are what the person last saw. nil where there is
+--- none.
+function check.last(checker: Checker, document: Document): check.Last?
+  local current = check.read(checker, document)
+  if current ~= nil then return { reading = current, text = document.text } end
+  local parsed = document.parsed
+  if parsed == nil then return nil end
+  local outcome, declarations = parsed.checked.outcome, parsed.checked.program
+  if outcome == nil or declarations == nil then return nil end
+  return { reading = { outcome = outcome, splices = parsed.checked.splices, program = declarations }, text = parsed.text }
+end
+
+--- The byte `offset` (from 1) of the text the reading was of, as the checker's text has it: a build put text in the one
+--- the person has before the checker read it, which moves the bytes after it ([`Reading`]'s `splices`).
+function check.checker_offset(reading: check.Reading, offset: integer): integer
+  local moved = offset
+  for _, splice in ipairs(reading.splices) do
+    if splice.at < offset then moved = moved + #splice.text end
+  end
+  return moved
 end
 
 return check

@@ -105,6 +105,11 @@ local function view_of(d: Docs): docs.View?
   return view
 end
 
+--- The docs view, read once of the databases [`hover.sources`] answers, or nil where they could not be read (said once).
+function hover.view(d: Docs): docs.View?
+  return view_of(d)
+end
+
 --- The dotted name under byte `x` of `line`, up to the end of the word
 --- the cursor is in: [`Fs.read`] with the cursor anywhere in `Fs`'s `read`.
 local function name_at(line: string, x: integer): string?

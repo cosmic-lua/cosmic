@@ -340,18 +340,15 @@ promises lean on come first:
   - File-based routing that generates the route table, and OpenAPI
     documents made from typed routes.
 
-- completion in `cosmic lsp` ([`build/lsp/session.tl`]), which answers diagnostics, hover,
-  go to definition and formatting today. Definition ([`build/lsp/definition.tl`])
-  reads the checker's report of the document, the tree, the scopes and the type of
-  each node that [`check.read`] makes of it, and completion reads the same:
-  `Scopes.in_scope` ([`lang/scopes.tl`]) lists the bindings visible at a token, and
-  the body of a [`Types.Decl`] ([`lang/types.tl`]) lists the fields and methods of the
-  type of the object before a `.` or `:`.
-  The direction is for `cosmic lsp` to read the working database, extending it and
-  triggering its refreshes as needed, rather than parsing or checking on its own.
-  Unsaved open buffers are derived into a private in-memory scratch database that
-  the lsp process owns ([`build/lsp/source.tl`]), by the rows a build writes, so
-  no unsaved text or scratch row is written to `build.db`, and the build never sees a buffer.
+- `cosmic lsp` ([`build/lsp/session.tl`]) answers diagnostics, hover, go to definition, completion and formatting. Each reads
+  the open document's last check, [`check.read`] and [`check.last`] (its tree, scopes and types), and the working database for
+  the other modules: the `places` rows for a declaration's position ([`build/lsp/source.tl`]), the docs for a member's text.
+  The direction is for the server to read the working database for all per-source data, extending it and triggering its
+  refreshes as needed, rather than parsing or checking on its own: a member's docs of an unsaved module, and the members of
+  other modules that completion takes from the checker's declarations of their stubs, are the data still to move there.
+  Unsaved open buffers are derived into a private in-memory scratch database that the lsp process owns
+  ([`build/lsp/source.tl`]), by the rows a build writes, so no unsaved text or scratch row is written to `build.db`, and the
+  build never sees a buffer.
 
 ## documentation and examples
 
@@ -433,10 +430,10 @@ four-producer provenance join.
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
-[`build/lsp/definition.tl`]: ../build/lsp/definition.tl
 [`build/lsp/session.tl`]: ../build/lsp/session.tl
 [`build/lsp/source.tl`]: ../build/lsp/source.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
+[`check.last`]: ../build/lsp/check.tl
 [`check.read`]: ../build/lsp/check.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
@@ -472,9 +469,7 @@ four-producer provenance join.
 [`Input.Invalid`]: ../cosmic/web/input.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`lang/flow.tl`]: ../lang/flow.tl
-[`lang/scopes.tl`]: ../lang/scopes.tl
 [`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
-[`lang/types.tl`]: ../lang/types.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
@@ -488,7 +483,6 @@ four-producer provenance join.
 [`Test.needs_of`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`Typed.spec`]: ../cosmic/shape.tl
-[`Types.Decl`]: ../lang/types.tl
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl
 [`Url.segments`]: ../cosmic/url.tl
