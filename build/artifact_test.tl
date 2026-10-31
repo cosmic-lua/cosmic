@@ -4,7 +4,9 @@
 --- the same format (core/portable.c) is tested by
 --- test/portable/format_test.c.
 
+local Compress = require("cosmic.compress")
 local Hash = require("cosmic.hash")
+local Stream = require("cosmic.stream")
 local artifact = require("build.artifact")
 local fixture = require("build.core_image_fixture")
 local String = require("cosmic.string")
@@ -20,6 +22,11 @@ local cores: {string:string} = {
   arm = "ELF-arm-contents",
   mac = "MACHO-signed-core-contents",
 }
+
+--- The core the fixtures name.
+local function core_named(name: string): string
+  return assert(cores[name])
+end
 
 local function occurrences(haystack: string, needle: string): integer
   local count = 0
@@ -45,32 +52,157 @@ local function test_prefix_is_deterministic_and_holds_each_exact_core_once()
   end
 end
 
-local function test_manifest_ranges_name_the_exact_core_bytes()
-  local prefix = assert(artifact.prefix(records, cores))
+--- The entries of a prefix's manifest, in order.
+local record Entry
+  target: integer
+  configuration: integer
+  kind: integer
+  codec: integer
+  offset: integer
+  stored_length: integer
+  stored_digest: string
+  length: integer
+  digest: string
+end
+
+local function manifest_of(prefix: string): {Entry}
   local manifest_at = #prefix - 4096 + 1
   assert(prefix:sub(manifest_at, manifest_at + 7) == "CosmicM1")
   local version, encoded, prefix_length, count, entry_size, at =
     string.unpack(">I4I4I8I4I4", prefix, manifest_at + 8)
-  assert(version == 1 and encoded == 4096 and prefix_length == #prefix)
-  assert(count == 3 and entry_size == 56)
-  local names = { "x86", "arm", "mac" }
-  for i = 1, count do
-    local target: integer
-    local configuration: integer
-    local offset: integer
-    local length: integer
-    target, configuration, offset, length, at =
-      string.unpack(">I4I4I8I8", prefix, at)
+  assert(version == 2 and encoded == 4096 and prefix_length == #prefix)
+  assert(entry_size == 104)
+  local entries: mut {Entry} = {}
+  for _ = 1, count do
+    local target, configuration, kind, codec, offset, stored_length, length:
+      integer, integer, integer, integer, integer, integer, integer
+    target, configuration, kind, codec, offset, stored_length, at =
+      string.unpack(">I4I4I4I4I8I8", prefix, at)
+    local stored_digest = prefix:sub(at, at + 31)
+    length, at = string.unpack(">I8", prefix, at + 32)
     local digest = prefix:sub(at, at + 31)
     at = at + 32
-    local image = cores[names[i]] as string
-    assert(target == i and configuration == 1)
-    assert(length == #image)
-    assert(prefix:sub(offset + 1, offset + length) == image)
-    assert(digest == Hash.sha256(image))
+    entries[#entries + 1] = { target = target, configuration = configuration, kind = kind,
+      codec = codec, offset = offset, stored_length = stored_length,
+      stored_digest = stored_digest, length = length, digest = digest }
   end
-  assert(prefix:sub(at, at + 31) == string.rep("\0", 32),
-    "unused manifest bytes are zero")
+  assert(prefix:sub(at, at + 31) == string.rep("\0", 32), "unused manifest bytes are zero")
+  return entries
+end
+
+local function test_manifest_ranges_name_the_exact_core_bytes()
+  local prefix = assert(artifact.prefix(records, cores))
+  local entries = manifest_of(prefix)
+  assert(#entries == 3)
+  local names = { "x86", "arm", "mac" }
+  for i, entry in ipairs(entries) do
+    local image = core_named(assert(names[i]))
+    assert(entry.target == i and entry.configuration == 1)
+    assert(entry.kind == 1 and entry.codec == 0, "a raw core is the core kind, raw")
+    assert(entry.length == #image and entry.stored_length == #image)
+    assert(prefix:sub(entry.offset + 1, entry.offset + entry.length) == image)
+    assert(entry.digest == Hash.sha256(image) and entry.stored_digest == entry.digest)
+  end
+end
+
+--- A stand-in for the zstd stub and its frame: the writer is told what to
+--- store and never decodes it.
+local stubs: {string:string} = { x86 = "STUB-x86\0", arm = "STUB-arm", mac = "STUB-mac\1\2\3" }
+
+local function packing(): artifact.Packing
+  return {
+    stubs = stubs,
+    compress = function(core: string): string?, string
+      return "FRAME(" .. core .. ")", ""
+    end,
+  }
+end
+
+local function test_a_packed_prefix_stores_frames_and_their_stubs()
+  local prefix = assert(artifact.prefix(records, cores, nil, packing()))
+  assert(assert(artifact.prefix(records, cores, nil, packing())) == prefix)
+  local entries = manifest_of(prefix)
+  assert(#entries == 6, "a stub beside each of three cores")
+  local seen: mut {string:boolean} = {}
+  local last_end = 16384
+  for _, entry in ipairs(entries) do
+    local name = assert(({ "x86", "arm", "mac" })[entry.target])
+    local image = core_named(name)
+    local stored = prefix:sub(entry.offset + 1, entry.offset + entry.stored_length)
+    assert(entry.offset % 16384 == 0 and entry.offset >= last_end, "ranges ascend, aligned")
+    last_end = entry.offset + entry.stored_length
+    assert(entry.stored_digest == Hash.sha256(stored))
+    if entry.kind == 1 then
+      assert(entry.codec == 1 and stored == "FRAME(" .. image .. ")")
+      assert(entry.length == #image and entry.digest == Hash.sha256(image),
+        "the core's identity is the raw core's")
+      assert(occurrences(prefix, image) == 1)
+    else
+      assert(entry.kind == 2 and entry.codec == 0)
+      assert(stored == assert(stubs[name]))
+      assert(entry.length == entry.stored_length and entry.digest == entry.stored_digest)
+    end
+    seen[name .. ":" .. tostring(entry.kind)] = true
+  end
+  for _, name in ipairs({ "x86", "arm", "mac" }) do
+    assert(seen[name .. ":1"] == true and seen[name .. ":2"] == true, name)
+  end
+  -- The arm of a compressed core names the stub and the stored length; the
+  -- launcher's cache entry stays named for the raw core.
+  local x86 = core_named("x86")
+  local x86_digest = Hash.hex_sha256(x86)
+  local frame_length = #("FRAME(" .. x86 .. ")")
+  assert(prefix:find("cosmic_stored=" .. tostring(frame_length) .. "; cosmic_length=" ..
+      tostring(#x86) .. "; cosmic_sha256=" .. x86_digest .. "; cosmic_stub_block=1; " ..
+      "cosmic_stub_length=9; cosmic_stub_sha256=" .. Hash.hex_sha256("STUB-x86\0") .. " ;;", 1, true),
+    "the arm names the raw digest and its stub")
+end
+
+local function test_a_core_without_a_stub_stays_raw_beside_compressed_ones()
+  local only: artifact.Packing = { stubs = { x86 = "STUB-x86" },
+    compress = function(core: string): string?, string return "F" .. core, "" end }
+  local entries = manifest_of((assert(artifact.prefix(records, cores, nil, only))))
+  assert(#entries == 4)
+  local codecs: mut {string:integer} = {}
+  for _, entry in ipairs(entries) do
+    if entry.kind == 1 then codecs[tostring(entry.target)] = entry.codec end
+  end
+  assert(codecs["1"] == 1 and codecs["2"] == 0 and codecs["3"] == 0)
+end
+
+local function test_a_packed_writer_refuses_what_it_cannot_store()
+  local empty: artifact.Packing = { stubs = { x86 = "" }, compress = packing().compress }
+  local none, trouble = artifact.prefix(records, cores, nil, empty)
+  assert(none == nil and trouble:find("empty decoder stub", 1, true) ~= nil, trouble)
+  local failing: artifact.Packing = { stubs = { x86 = "S" },
+    compress = function(_core: string): string?, string return nil, "no frame today" end }
+  local nothing, why = artifact.prefix(records, cores, nil, failing)
+  assert(nothing == nil and why:find("no frame today", 1, true) ~= nil, why)
+  -- Three compressed cores and three stubs are six of the eight an artifact may hold; a
+  -- checked core makes seven, and nothing more fits two more pairs.
+  local many = records .. "4\t1\trelease\tfour\tLinux\tother\n" .. "5\t1\trelease\tfive\tLinux\tmore\n"
+  local images: mut {string:string} = { x86 = core_named("x86"), arm = core_named("arm"),
+    mac = core_named("mac"), four = "ELF-four", five = "ELF-five" }
+  local big: artifact.Packing = { stubs = { x86 = "a", arm = "b", mac = "c", four = "d", five = "e" },
+    compress = packing().compress }
+  local too_many, bound = artifact.prefix(many, images, nil, big)
+  assert(too_many == nil and bound:find("outside the v2 bound", 1, true) ~= nil, bound)
+  assert(artifact.prefix(many, images) ~= nil, "five raw cores fit")
+end
+
+--- A zstd frame the stub would take decodes to the core it names.
+local function test_the_frames_a_release_writes_decode_to_their_cores()
+  local core = ("a core, repeated; "):rep(5000) .. "ELF"
+  local frame = assert(Compress.zstd(core, 19))
+  local prefix = assert(artifact.prefix("1\t1\trelease\tx86\tLinux\tx86_64\n", { x86 = core }, nil,
+    { stubs = { x86 = "STUB" }, compress = function(c: string): string?, string
+      return Compress.zstd(c, 19)
+    end }))
+  local entries = manifest_of(prefix)
+  local core_entry = assert(entries[2])
+  local stored = prefix:sub(core_entry.offset + 1, core_entry.offset + core_entry.stored_length)
+  assert(stored == frame and #stored < #core // 10)
+  assert(assert(Stream.run(assert(Compress.zstd_decoder()), stored)) == core)
 end
 
 local function test_programs_share_the_prefix_and_have_distinct_suffixes()
@@ -84,7 +216,7 @@ local function test_programs_share_the_prefix_and_have_distinct_suffixes()
   assert(one:sub(-48, -41) == "CosmicT1")
   local version, length, manifest_offset, manifest_length,
     database_offset, database_length = string.unpack(">I4I4I8I8I8I8", one, #one - 39)
-  assert(version == 1 and length == 48)
+  assert(version == 2 and length == 48)
   assert(manifest_offset == #prefix - 4096 and manifest_length == 4096)
   assert(database_offset == #prefix and database_length == #db_one)
 end
@@ -241,4 +373,80 @@ local function test_a_head_is_keyed_by_its_cores_images()
       artifact.keyed_head(host(fixture.elf("code", "another one"))))
   assert(artifact.keyed_head(host(fixture.elf("code", "one"))) ~=
       artifact.keyed_head(host(fixture.elf("edoc", "one"))))
+end
+
+--- A compressed core is keyed as the raw core its digest names, not by its
+--- frame, and a decoder stub by its digest: a head whose frames were
+--- written by another encoder, or whose ranges moved, keys the same while
+--- one whose stub or core differs does not. A frame that does not hash to the
+--- manifest's stored digest is keyed whole.
+local function test_a_head_with_compressed_cores_is_keyed_by_their_digests_and_stubs()
+  local database = "SQLite format 3\0db"
+  local function head(dwarf: string, frame: string, stub: string): string
+    local pack: artifact.Packing = { stubs = { arm = stub, mac = "STUB-mac" },
+      compress = function(core: string): string?, string
+        return frame .. core, ""
+      end }
+    local prefix = assert(artifact.prefix(records,
+      { x86 = fixture.elf("code", dwarf), arm = core_named("arm"), mac = core_named("mac") }, nil, pack))
+    return assert(artifact.split((assert(artifact.program(prefix, database))))).head
+  end
+  local base = head("comp_dir /one", "frame-a:", "STUB-arm")
+  local keyed = artifact.keyed_head(base)
+  assert(keyed ~= base, "the DWARF core keys the head by its image")
+  assert(keyed:find("cosmic_stub_length=", 1, true) == nil and keyed:find("cosmic_stored=", 1, true) == nil,
+    "no arm field that says where a range lies is left in the key")
+  assert(artifact.keyed_head(head("comp_dir /a/longer/two" .. ("x"):rep(20000), "another frame, longer:",
+    "STUB-arm")) == keyed, "the frames and ranges left the key")
+  assert(artifact.keyed_head(head("comp_dir /one", "frame-a:", "STUB-ARM")) ~= keyed,
+    "a changed stub left the key")
+  -- A frame that is not the bytes its stored digest names.
+  local at = assert(base:find("frame-a:" .. core_named("arm"), 1, true))
+  local damaged = base:sub(1, at) .. "X" .. base:sub(at + 2)
+  assert(artifact.keyed_head(damaged) == damaged, "a damaged range was keyed by its digest")
+end
+
+--- Version 1 is what a release before this one wrote. A reader names both
+--- versions rather than calling the file damaged.
+local function test_a_version_1_artifact_is_refused_naming_both_versions()
+  local prefix = assert(artifact.prefix(records, cores))
+  local program = assert(artifact.program(prefix, "SQLite format 3\0db"))
+  local old_trailer = program:sub(1, -41) .. string.pack(">I4", 1) .. program:sub(-36)
+  local parts, trouble = artifact.split(old_trailer)
+  assert(parts == nil and trouble == "artifact format version 1; this release reads version 2", trouble)
+  local manifest_at = #prefix - 4096 + 1
+  local old_prefix = prefix:sub(1, manifest_at + 7) .. string.pack(">I4", 1) .. prefix:sub(manifest_at + 12)
+  local joined, why = artifact.program(old_prefix, "SQLite format 3\0db")
+  assert(joined == nil and why == "artifact format version 1; this release reads version 2", why)
+  -- A version no release wrote is named as well.
+  local future = program:sub(1, -41) .. string.pack(">I4", 9) .. program:sub(-36)
+  local none, future_trouble = artifact.split(future)
+  assert(none == nil and future_trouble == "artifact format version 9; this release reads version 2",
+    future_trouble)
+end
+
+--- The release's frames are a function of the core: compressing it again, in
+--- the same process after other work, gives the same bytes, which is what lets
+--- the platform legs agree on the artifact. The frame names its size and a
+--- checksum and keeps to the stub's window.
+local function test_a_release_frame_is_the_same_every_time_and_names_its_size()
+  local state = 12345
+  local pieces: mut {string} = {}
+  for i = 1, 6000 do
+    state = (state * 1103515245 + 12345) & 0x7fffffff
+    pieces[#pieces + 1] = string.format("%08x:%d;", state, i % 17)
+  end
+  local core = table.concat(pieces):rep(8)
+  local level = artifact.zstd_level()
+  local one = assert(Compress.zstd(core, level))
+  assert(Compress.zstd("other work between the two", level) ~= nil)
+  local two = assert(Compress.zstd(core, level))
+  assert(one == two, "the same core compressed to two frames")
+  assert(one:sub(1, 4) == "\40\181\47\253", "a zstd frame")
+  -- The frame header descriptor: bit 2 a content checksum, bits 6-7 the size of
+  -- a content size field, which the single-segment and size flags make present.
+  local descriptor = assert(one:byte(5))
+  assert(descriptor & 0x04 ~= 0, "the frame carries a checksum")
+  assert(descriptor & 0xc0 ~= 0 or descriptor & 0x20 ~= 0, "the frame names its content size")
+  assert(assert(Stream.run(assert(Compress.zstd_decoder(1 << 23)), one)) == core)
 end

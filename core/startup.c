@@ -116,9 +116,13 @@ bool cosmic_artifact_core_matches (struct cosmic_artifact *artifact) {
   if (artifact == NULL || artifact->fd < 0) return false;
   if (artifact->core_checked == 0) {
     const struct cosmic_portable_entry *entry = &artifact->portable.selected;
+    /* The descriptor holds the raw core only where the entry is raw. A
+     * compressed range hashes to its stored digest, never the core's, and a
+     * portable start has already recorded the verdict on the cached core. */
     artifact->core_checked =
-        cosmic_sha256_range_matches(artifact->fd, entry->offset,
-                                    entry->length, entry->sha256)
+        entry->codec == COSMIC_PORTABLE_CODEC_RAW &&
+                cosmic_sha256_range_matches(artifact->fd, entry->offset,
+                                            entry->length, entry->sha256)
             ? 1
             : -1;
   }
@@ -299,6 +303,9 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
     artifact->portable.selected = (struct cosmic_portable_entry){
       .target_id = COSMIC_TARGET_ID,
       .configuration_id = COSMIC_CONFIGURATION_ID,
+      .kind = COSMIC_PORTABLE_KIND_CORE,
+      .codec = COSMIC_PORTABLE_CODEC_RAW,
+      .stored_length = (uint64_t)core_stat.st_size,
       .length = (uint64_t)core_stat.st_size,
     };
     return true;
@@ -484,6 +491,8 @@ bool cosmic_database_bind (struct cosmic_artifact *artifact, const char *path,
     *error = "it records a core_sha256 that is not a sha256 in hex";
     return false;
   }
+  memcpy(artifact->portable.selected.stored_sha256,
+         artifact->portable.selected.sha256, COSMIC_PORTABLE_SHA256_LENGTH);
   /* The stamp a portable start leaves beside a cache entry says the
    * entry was hashed and not written since: a core run from that entry,
    * whose name holds the digest the database records, is not hashed again

@@ -1,5 +1,6 @@
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local ArtifactRow = require("cosmic_ci.artifact_row")
 local Fixture = require("cosmic_ci.fixture")
 
 -- The bound leaves the shell time to print on a slow or loaded runner;
@@ -129,4 +130,17 @@ local function test_a_tool_rewritten_twice_is_the_tool_rewritten_once(tmp: strin
   assert(Fixture.read(tmp .. "/twice") == Fixture.stripped(tmp .. "/tool", tmp .. "/s.db"),
     "a second rewrite left its mark")
   assert(Fixture.meta(tmp .. "/twice", tmp .. "/m.db")["boot_hash"] == "kept", "the zeroed header unreads the database")
+end
+
+--- The row is read and rewritten in an artifact of any version, and carries
+--- the trailer's version through unchanged: a version 2 artifact (what the
+--- writer makes) is still version 2 afterwards, whichever cores it stores.
+local function test_a_version_2_trailer_is_carried_through_a_rewrite(tmp: string)
+  local bytes = Fixture.synthetic(tmp .. "/a.db", "/a")
+  assert(ArtifactRow.apart(bytes).version == 2, "the synthetic artifact is version 2")
+  local rewritten = ArtifactRow.with(bytes, tmp .. "/b.db", "/elsewhere")
+  local parts = ArtifactRow.apart(rewritten)
+  assert(parts.version == 2 and parts.magic == "CosmicT1" and parts.head == ArtifactRow.apart(bytes).head,
+    "a rewrite changed the trailer's version or the head")
+  assert(ArtifactRow.meta(rewritten, tmp .. "/c.db")["built_from"] == "/elsewhere")
 end

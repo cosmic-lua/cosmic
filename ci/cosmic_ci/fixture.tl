@@ -46,10 +46,17 @@ local record Fixture
     err: string
   end
 
+  --- A manifest entry as the decoder reports it: where its stored bytes lie
+  --- and what they hash to, and the core they decode to (the same for a
+  --- raw one). `kind` is 1 for a core, 2 for a decoder stub; `codec` 0 raw, 1 zstd.
   record Entry
     target: integer
     configuration: integer
+    kind: integer
+    codec: integer
     offset: integer
+    stored_length: integer
+    stored_digest: string
     length: integer
     digest: string
   end
@@ -191,7 +198,7 @@ function Fixture.synthetic(scratch: string, built_from: string?, boot?: string):
   local head = "the launcher and the manifest"
   local database = Fixture.read(scratch)
   assert(Fs.remove(scratch))
-  local trailer = "CosmicT1" .. string.pack(">I4I4I8I8I8I8", 1, 48, 3, 4, #head, #database)
+  local trailer = "CosmicT1" .. string.pack(">I4I4I8I8I8I8", 2, 48, 3, 4, #head, #database)
   return head .. database .. trailer
 end
 
@@ -470,19 +477,26 @@ function Fixture.inspection(path: string): Fixture.Inspection
       database_length = math.tointeger(assert(tonumber(dl)))
       declared_count = math.tointeger(assert(tonumber(ec)))
     elseif line:sub(1, 6) == "entry " then
-      local target_text, configuration_text, offset_text, length_text, digest =
-        line:match("^entry (%d+) (%d+) (%d+) (%d+) ([0-9a-f]+)$")
+      local target_text, configuration_text, kind_text, codec_text, offset_text,
+        stored_text, stored_digest, length_text, digest = line:match(
+          "^entry (%d+) (%d+) (%d+) (%d+) (%d+) (%d+) ([0-9a-f]+) (%d+) ([0-9a-f]+)$")
       local target = math.tointeger(assert(tonumber(target_text)))
       local configuration =
         math.tointeger(assert(tonumber(configuration_text)))
+      local kind = math.tointeger(assert(tonumber(kind_text)))
+      local codec = math.tointeger(assert(tonumber(codec_text)))
       local offset = math.tointeger(assert(tonumber(offset_text)))
+      local stored_length = math.tointeger(assert(tonumber(stored_text)))
       local length = math.tointeger(assert(tonumber(length_text)))
-      assert(target and configuration and offset and length and digest and
-          #digest == 64, "invalid decoder entry record: " .. line)
-      local key = tostring(target) .. ":" .. tostring(configuration)
+      assert(target ~= nil and configuration ~= nil and kind ~= nil and codec ~= nil and
+          offset ~= nil and stored_length ~= nil and length ~= nil and stored_digest ~= nil and
+          digest ~= nil and #stored_digest == 64 and #digest == 64,
+        "invalid decoder entry record: " .. line)
+      local key = tostring(target) .. ":" .. tostring(configuration) .. ":" .. tostring(kind)
       assert(entries[key] == nil, "duplicate decoder entry record: " .. key)
-      entries[key] = { target = target, configuration = configuration,
-        offset = offset, length = length, digest = digest }
+      entries[key] = { target = target, configuration = configuration, kind = kind,
+        codec = codec, offset = offset, stored_length = stored_length,
+        stored_digest = stored_digest, length = length, digest = digest }
       count = count + 1
     else
       error("unexpected decoder inspection record: " .. line)
@@ -497,9 +511,12 @@ function Fixture.inspection(path: string): Fixture.Inspection
     database_length = database_length, entries = entries, entry_count = count }
 end
 
+--- The entry of `kind` (default a core, 1; a decoder stub is 2) of a target
+--- and configuration.
 function Fixture.entry(inspection: Fixture.Inspection, target: integer,
-                       configuration: integer): Fixture.Entry?
-  return inspection.entries[tostring(target) .. ":" .. tostring(configuration)]
+                       configuration: integer, kind?: integer): Fixture.Entry?
+  return inspection.entries[tostring(target) .. ":" .. tostring(configuration) .. ":" ..
+    tostring(kind or 1)]
 end
 
 function Fixture.assert_executable(path: string)
