@@ -2,6 +2,16 @@ local Flags = require("cosmic.flags")
 
 local spec: {string:boolean} = { ["--check"] = false, ["--jobs"] = true }
 
+local record Refusal
+  word: string
+  why: string
+end
+
+local record Dispatch
+  line: {string}
+  why: string
+end
+
 local function parsed(argv: {string}): Flags.Parsed
   local got, why = Flags.parse(argv, 2, spec)
   assert(got ~= nil, why)
@@ -30,12 +40,12 @@ local function test_a_double_dash_ends_the_options()
 end
 
 local function test_mistakes_are_refused_with_why()
-  local cases: {{string}} = {
-    { "--chek", "no such option: --chek" },
-    { "-c", "no such option: -c" },
-    { "--check=yes", "--check takes no value" },
-    { "--jobs", "--jobs needs a value" },
-    { "--nope=1", "no such option: --nope" },
+  local cases: {Refusal} = {
+    { word = "--chek", why = "no such option: --chek" },
+    { word = "-c", why = "no such option: -c" },
+    { word = "--check=yes", why = "--check takes no value" },
+    { word = "--jobs", why = "--jobs needs a value" },
+    { word = "--nope=1", why = "no such option: --nope" },
   }
   for _, next_word in ipairs({ "--check", "--" }) do
     local got, why = Flags.parse({ "x", "--jobs", next_word }, 2, spec)
@@ -43,9 +53,8 @@ local function test_mistakes_are_refused_with_why()
         "; give one that begins with \"-\" as --jobs=" .. next_word, why)
   end
   for _, case in ipairs(cases) do
-    local word = assert(case[1])
-    local got, why = Flags.parse({ "x", word }, 2, spec)
-    assert(got == nil and why == case[2], why)
+    local got, why = Flags.parse({ "x", case.word }, 2, spec)
+    assert(got == nil and why == case.why, why)
   end
 end
 
@@ -102,17 +111,16 @@ local function test_a_spec_may_name_a_one_dash_option_whole()
 end
 
 local function test_a_cluster_is_refused_with_the_letter_at_fault()
-  local cases: {{string}} = {
-    { "-vx", "no such option: -x in -vx" },
-    { "-xv", "no such option: -xv" },
-    { "-v=1", "-v takes no value" },
-    { "-v-q", "no such option: -v-q" },
-    { "-vn", "-n needs a value" },
+  local cases: {Refusal} = {
+    { word = "-vx", why = "no such option: -x in -vx" },
+    { word = "-xv", why = "no such option: -xv" },
+    { word = "-v=1", why = "-v takes no value" },
+    { word = "-v-q", why = "no such option: -v-q" },
+    { word = "-vn", why = "-n needs a value" },
   }
   for _, case in ipairs(cases) do
-    local word = assert(case[1])
-    local got, why = Flags.parse({ word }, 1, short)
-    assert(got == nil and why == case[2], why)
+    local got, why = Flags.parse({ case.word }, 1, short)
+    assert(got == nil and why == case.why, why)
   end
 end
 
@@ -214,17 +222,14 @@ local function test_dispatch_runs_the_command_with_its_own_options()
   local cleaned = assert(Flags.dispatch({ "prog", "clean" }, 2, commands, "prog"))
   assert(cleaned.code == 0 and cleaned.help == "")
   assert(ran[1] == "build 2 a" and ran[2] == "clean 0", table.concat(ran, "|"))
-  local refusals: {{string}} = {
-    { nil, "needs a command: build, clean" },
-    { "bulid", "no such command: bulid" },
-    { "--jobs", "no such command: --jobs" },
+  local refusals: {Dispatch} = {
+    { line = {}, why = "needs a command: build, clean" },
+    { line = { "bulid" }, why = "no such command: bulid" },
+    { line = { "--jobs" }, why = "no such command: --jobs" },
   }
   for _, case in ipairs(refusals) do
-    local word = case[1]
-    local line: {string} = {}
-    if word ~= nil then line = { word } end
-    local refused, trouble = Flags.dispatch(line, 1, commands, "prog")
-    assert(refused == nil and trouble == case[2], trouble)
+    local refused, trouble = Flags.dispatch(case.line, 1, commands, "prog")
+    assert(refused == nil and trouble == case.why, trouble)
   end
   local refused, trouble = Flags.dispatch({ "clean", "--jobs=2" }, 1, commands, "prog")
   assert(refused == nil and trouble == "clean: no such option: --jobs", trouble)

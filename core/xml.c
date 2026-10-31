@@ -37,6 +37,8 @@ struct event {
   const XML_Char **attributes;
   const char *text;
   size_t len;
+  /* Names lose their namespace: [`deliver`] sets it from the parser. */
+  bool local_names;
 };
 
 /* A parser and what one call to it has collected. `parser` is NULL once
@@ -53,6 +55,8 @@ struct parser {
   lua_State *L;
   /* How many events the call's table holds. */
   lua_Integer count;
+  /* Names are answered without their namespace. */
+  bool local_names;
   /* What `lua_pcall` answered for the last append; past LUA_OK, the
    * error it left is on the stack's top. */
   int status;
@@ -96,12 +100,16 @@ static void release (struct parser *p) {
 
 /* A name as Lua sees it. A parser asked for namespaces is given names
  * as expat writes them, `uri}local`, and answers them in Clark's
- * notation, `{uri}local`; an unqualified name has no `}`. */
-static void push_name (lua_State *L, const XML_Char *name) {
-  if (strchr(name, '}') != NULL) {
-    lua_pushfstring(L, "{%s", name);
-  } else {
+ * notation, `{uri}local`, or, asked for local names, as `local` alone;
+ * an unqualified name has no `}`. */
+static void push_name (lua_State *L, const XML_Char *name, bool local) {
+  const XML_Char *brace = strrchr(name, '}');
+  if (brace == NULL) {
     lua_pushstring(L, name);
+  } else if (local) {
+    lua_pushstring(L, brace + 1);
+  } else {
+    lua_pushfstring(L, "{%s", name);
   }
 }
 
@@ -114,13 +122,13 @@ static int append_event (lua_State *L) {
   lua_pushstring(L, kind_names[ev->kind]);
   lua_setfield(L, -2, "kind");
   if (ev->name != NULL) {
-    push_name(L, ev->name);
+    push_name(L, ev->name, ev->local_names);
     lua_setfield(L, -2, "name");
   }
   if (ev->attributes != NULL) {
     lua_newtable(L);
     for (const XML_Char **a = ev->attributes; a[0] != NULL; a += 2) {
-      push_name(L, a[0]);
+      push_name(L, a[0], ev->local_names);
       lua_pushstring(L, a[1]);
       lua_rawset(L, -3);
     }
@@ -139,10 +147,12 @@ static int append_event (lua_State *L) {
 static void deliver (struct parser *p, const struct event *ev) {
   if (p->status != LUA_OK || p->out_of_memory || p->too_long) return;
   lua_State *L = p->L;
+  struct event named = *ev;
+  named.local_names = p->local_names;
   /* None of these pushes allocates. */
   lua_pushcfunction(L, append_event);
   lua_pushvalue(L, EVENTS);
-  lua_pushlightuserdata(L, (void *)ev);
+  lua_pushlightuserdata(L, &named);
   lua_pushinteger(L, p->count + 1);
   p->status = lua_pcall(L, 3, 0, 0);
   if (p->status == LUA_OK) {
@@ -155,7 +165,7 @@ static void deliver (struct parser *p, const struct event *ev) {
 /* Appends the character data held back, if any, as one `text` event. */
 static void flush_text (struct parser *p) {
   if (p->len == 0) return;
-  struct event ev = {TEXT, NULL, NULL, p->text, p->len};
+  struct event ev = {TEXT, NULL, NULL, p->text, p->len, false};
   deliver(p, &ev);
   p->len = 0;
 }
@@ -164,14 +174,14 @@ static void on_start (void *data, const XML_Char *name,
                       const XML_Char **attributes) {
   struct parser *p = data;
   flush_text(p);
-  struct event ev = {START, name, attributes, NULL, 0};
+  struct event ev = {START, name, attributes, NULL, 0, false};
   deliver(p, &ev);
 }
 
 static void on_end (void *data, const XML_Char *name) {
   struct parser *p = data;
   flush_text(p);
-  struct event ev = {END, name, NULL, NULL, 0};
+  struct event ev = {END, name, NULL, NULL, 0, false};
   deliver(p, &ev);
 }
 
@@ -210,7 +220,7 @@ static void on_text (void *data, const XML_Char *s, int len) {
 static void on_comment (void *data, const XML_Char *text) {
   struct parser *p = data;
   flush_text(p);
-  struct event ev = {COMMENT, NULL, NULL, text, strlen(text)};
+  struct event ev = {COMMENT, NULL, NULL, text, strlen(text), false};
   deliver(p, &ev);
 }
 
@@ -218,28 +228,33 @@ static void on_instruction (void *data, const XML_Char *target,
                             const XML_Char *text) {
   struct parser *p = data;
   flush_text(p);
-  struct event ev = {INSTRUCTION, target, NULL, text, strlen(text)};
+  struct event ev = {INSTRUCTION, target, NULL, text, strlen(text), false};
   deliver(p, &ev);
 }
 
-/* `parser(namespaces, eager, max_text)`: a parser, or nil and why. */
+/* `parser(namespaces, eager, max_text, local_names)`: a parser, or nil
+ * and why. Local names read namespaces as `namespaces` does, so an
+ * undeclared prefix is refused the same way. */
 static int xml_parser (lua_State *L) {
   bool namespaces = lua_toboolean(L, 1);
   bool eager = lua_toboolean(L, 2);
   lua_Integer max_text = luaL_optinteger(L, 3, DEFAULT_MAX_TEXT);
   if (max_text < 1) luaL_error(L, "xml: max_text must be at least 1");
+  bool local_names = lua_toboolean(L, 4);
   struct parser *p = lua_newuserdatauv(L, sizeof *p, 0);
   memset(p, 0, sizeof *p);
   luaL_setmetatable(L, PARSER_TYPE);
   static const XML_Char separator[] = {'}', '\0'};
   p->parser = XML_ParserCreate_MM(NULL, &memory,
-                                  namespaces ? separator : NULL);
+                                  namespaces || local_names ? separator
+                                                            : NULL);
   if (p->parser == NULL) {
     lua_pushnil(L);
     lua_pushliteral(L, "xml: out of memory");
     return 2;
   }
   p->max_text = (size_t)max_text;
+  p->local_names = local_names;
   XML_SetUserData(p->parser, p);
   /* Reparse deferral puts off reading a token a chunk left open again
    * until the text it holds has doubled; an eager parser reads it at

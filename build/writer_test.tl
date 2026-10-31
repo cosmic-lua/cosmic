@@ -10,6 +10,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local Stream = require("cosmic.stream")
 local importer = require("build.importer")
 local schema = require("build.schema")
 local work = require("build.work")
@@ -611,6 +612,58 @@ local function test_a_source_is_deflated_again_by_a_core_of_another_image(tmp: s
   assert(assert(rows[1]):text(1) == "1", "another core's compressed source was shipped")
 end
 
+--- The compressed bytecode a projection ships is kept in the working
+--- database by compile key, so a write with no base compresses none of an
+--- unchanged tree: its modules carry the cached bytes, an edit's compile
+--- is kept and the old one dropped, and a core of another image never
+--- ships bytes the first made.
+local function test_bytecode_is_deflated_once_per_compile_and_core(tmp: string)
+  local handle = build_and_write(tmp .. "/a", "world", tmp .. "/first.db")
+  local keys = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM deflated_bytecode"))
+  assert(assert(keys[1]):text(1) ~= "0", "writing a projection fills the cache")
+
+  -- Bytes the cache serves are what ships: a planted row would show.
+  assert(handle.db:exec("UPDATE deflated_bytecode SET data = deflate(x'00')"))
+  assert(work.stage(handle, { own = false }))
+  local result = assert(importer.compile(handle, "writer-test"))
+  assert(writer.write_result(handle, tmp .. "/planted.db", result))
+  local planted = assert(Sqlite.open(tmp .. "/planted.db"))
+  local shipped = assert(Sqlite.text_rows(planted,
+    "SELECT count(*) FROM modules WHERE inflate(bytecode) = x'00'"))
+  assert(planted:close())
+  assert(assert(shipped[1]):text(1) ~= "0", "a cached compressed chunk was not shipped")
+  assert(handle.db:exec("DELETE FROM deflated_bytecode"))
+
+  write_project(tmp .. "/a", "moon")
+  assert(work.stage(handle, { own = false }))
+  result = assert(importer.compile(handle, "writer-test"))
+  assert(writer.write_result(handle, tmp .. "/second.db", result))
+  local stale = assert(Sqlite.text_rows(handle.db,
+    "SELECT count(*) FROM deflated_bytecode WHERE key NOT IN (SELECT key FROM plan)"))
+  assert(assert(stale[1]):text(1) == "0", "the cache holds a compile no module names")
+
+  assert(handle.db:exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('image_hash', 'other-core')"))
+  assert(work.stage(handle, { own = false }))
+  result = assert(importer.compile(handle, "writer-test"))
+  assert(writer.write_result(handle, tmp .. "/third.db", result))
+  local cores = assert(Sqlite.text_rows(handle.db, "SELECT DISTINCT core FROM deflated_bytecode"))
+  assert(#cores == 1 and assert(cores[1]):text(1) == "6f746865722d636f7265",
+    "the cache holds a core's bytes that is not the writing core's")
+  assert(work.close(handle))
+
+  assert(work.close((build_and_write(tmp .. "/b", "moon", tmp .. "/fresh.db"))))
+  local second = assert(Sqlite.open(tmp .. "/second.db"))
+  local fresh = assert(Sqlite.open(tmp .. "/fresh.db"))
+  local function chunks(db: Sqlite.Handle): string
+    local rows = assert(Sqlite.text_rows(db,
+      "SELECT group_concat(hex(inflate(bytecode)), ',') FROM (SELECT bytecode FROM modules ORDER BY path)"))
+    return assert(rows[1]):text(1)
+  end
+  assert(chunks(second) == chunks(fresh), "a projection served from the cache ships other bytecode than a fresh one")
+  assert(second:close())
+  assert(fresh:close())
+end
+
 --- A paired declaration describes the interface; only its implementation
 --- contributes executable rows and runtime dependencies.
 local function test_paired_declaration_projects_each_source_in_its_role(tmp: string)
@@ -728,7 +781,7 @@ local function write_projection(root: string, out: string)
 end
 
 --- The files under `static/` are the projection's `payload`, with the
---- hash, type and gzip a program serves them by; a `.tl` or `.tmpl`
+--- hash, type, gzip and zstd a program serves them by; a `.tl` or `.tmpl`
 --- under it is an asset and no module, and a hidden file is left out.
 local function test_static_files_ship_as_payload_not_as_modules(tmp: string)
   local css = ("a { color: red }\n"):rep(200)
@@ -737,15 +790,20 @@ local function test_static_files_ship_as_payload_not_as_modules(tmp: string)
   write_projection(tmp .. "/p", tmp .. "/p.db")
   local db = assert(Sqlite.open(tmp .. "/p.db"))
   local rows = assert(Sqlite.text_rows(db,
-    "SELECT path, sha256, type, gzip IS NOT NULL, length(data) FROM payload ORDER BY path"))
+    "SELECT path, sha256, type, gzip IS NOT NULL, length(data), zstd IS NOT NULL FROM payload ORDER BY path"))
   assert(#rows == 4, tostring(#rows) .. " payload rows")
   assert(nth(rows, 1):text(1) == "css/app.css" and nth(rows, 1):text(2) == Hash.hex_sha256(css))
   assert(nth(rows, 1):text(3) == "text/css; charset=utf-8" and nth(rows, 1):text(4) == "1" and nth(rows, 1):text(5) == tostring(#css))
+  assert(nth(rows, 1):text(6) == "1" and nth(rows, 2):text(6) == "0" and nth(rows, 3):text(6) == "0",
+    "zstd is held for the stylesheet alone, as gzip is")
   assert(nth(rows, 2):text(1) == "logo.png" and nth(rows, 2):text(3) == "image/png" and nth(rows, 2):text(4) == "0")
   assert(nth(rows, 3):text(1) == "notes.tl" and nth(rows, 3):text(3) == "application/octet-stream")
   assert(nth(rows, 4):text(1) == "page.tmpl")
   local packed = assert(Sqlite.text_rows(db, "SELECT gzip FROM payload WHERE path = 'css/app.css'"))
   assert(Compress.inflate("gzip", nth(packed, 1):text(1)) == css)
+  local squeezed = assert(Sqlite.text_rows(db, "SELECT zstd FROM payload WHERE path = 'css/app.css'"))
+  local expanded = assert(Stream.run(assert(Compress.zstd_decoder()), nth(squeezed, 1):text(1)))
+  assert(expanded == css and #nth(squeezed, 1):text(1) < #css)
   local bytes = assert(Sqlite.text_rows(db, "SELECT data FROM payload WHERE path = 'logo.png'"))
   assert(nth(bytes, 1):text(1) == "\137PNG\0\1\2", "binary bytes, a NUL among them, are kept")
   local modules = assert(Sqlite.text_rows(db,

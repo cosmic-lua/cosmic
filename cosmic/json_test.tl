@@ -6,6 +6,12 @@
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 
+--- The bits of a double, in hex, and the shortest text RFC 8785 writes it as.
+local record Sample
+  hex: string
+  canonical: string
+end
+
 --- The value and an empty message, or a failed assertion naming the
 --- message.
 local function decoded(text: string, opts?: Json.DecodeOptions): any
@@ -842,26 +848,38 @@ local function test_canonical_is_rfc_8785()
     '"string": "\\u20ac$\\u000F\\u000aA\'\\u0042\\u0022\\u005c\\\\\\"\\/", "literals": [null, true, false]}'
   assert(Json.canonical(example) == '{"literals":[null,true,false],"numbers":[333333333.3333333,1e+30,4.5,0.002,1e-27],' ..
       '"string":"\u{20ac}$\\u000f\\nA\'B\\"\\\\\\\\\\"/"}', Json.canonical(example))
-  local samples: {{string}} = {
-    { "0000000000000000", "0" }, { "8000000000000000", "0" }, { "0000000000000001", "5e-324" },
-    { "8000000000000001", "-5e-324" }, { "7fefffffffffffff", "1.7976931348623157e+308" },
-    { "ffefffffffffffff", "-1.7976931348623157e+308" }, { "4340000000000000", "9007199254740992" },
-    { "c340000000000000", "-9007199254740992" }, { "4430000000000000", "295147905179352830000" },
-    { "44b52d02c7e14af5", "9.999999999999997e+22" }, { "44b52d02c7e14af6", "1e+23" },
-    { "44b52d02c7e14af7", "1.0000000000000001e+23" }, { "444b1ae4d6e2ef4e", "999999999999999700000" },
-    { "444b1ae4d6e2ef4f", "999999999999999900000" }, { "444b1ae4d6e2ef50", "1e+21" },
-    { "3eb0c6f7a0b5ed8c", "9.999999999999997e-7" }, { "3eb0c6f7a0b5ed8d", "0.000001" },
-    { "41b3de4355555553", "333333333.3333332" }, { "41b3de4355555554", "333333333.33333325" },
-    { "41b3de4355555555", "333333333.3333333" }, { "41b3de4355555556", "333333333.3333334" },
-    { "41b3de4355555557", "333333333.33333343" }, { "becbf647612f3696", "-0.0000033333333333333333" },
-    { "43143ff3c1cb0959", "1424953923781206.2" },
+  local samples: {Sample} = {
+    { hex = "0000000000000000", canonical = "0" },
+    { hex = "8000000000000000", canonical = "0" },
+    { hex = "0000000000000001", canonical = "5e-324" },
+    { hex = "8000000000000001", canonical = "-5e-324" },
+    { hex = "7fefffffffffffff", canonical = "1.7976931348623157e+308" },
+    { hex = "ffefffffffffffff", canonical = "-1.7976931348623157e+308" },
+    { hex = "4340000000000000", canonical = "9007199254740992" },
+    { hex = "c340000000000000", canonical = "-9007199254740992" },
+    { hex = "4430000000000000", canonical = "295147905179352830000" },
+    { hex = "44b52d02c7e14af5", canonical = "9.999999999999997e+22" },
+    { hex = "44b52d02c7e14af6", canonical = "1e+23" },
+    { hex = "44b52d02c7e14af7", canonical = "1.0000000000000001e+23" },
+    { hex = "444b1ae4d6e2ef4e", canonical = "999999999999999700000" },
+    { hex = "444b1ae4d6e2ef4f", canonical = "999999999999999900000" },
+    { hex = "444b1ae4d6e2ef50", canonical = "1e+21" },
+    { hex = "3eb0c6f7a0b5ed8c", canonical = "9.999999999999997e-7" },
+    { hex = "3eb0c6f7a0b5ed8d", canonical = "0.000001" },
+    { hex = "41b3de4355555553", canonical = "333333333.3333332" },
+    { hex = "41b3de4355555554", canonical = "333333333.33333325" },
+    { hex = "41b3de4355555555", canonical = "333333333.3333333" },
+    { hex = "41b3de4355555556", canonical = "333333333.3333334" },
+    { hex = "41b3de4355555557", canonical = "333333333.33333343" },
+    { hex = "becbf647612f3696", canonical = "-0.0000033333333333333333" },
+    { hex = "43143ff3c1cb0959", canonical = "1424953923781206.2" },
   }
   for _, sample in ipairs(samples) do
-    local bits = (math.tointeger(tonumber(sample[1]:sub(1, 8), 16)) as integer) << 32 |
-      math.tointeger(tonumber(sample[1]:sub(9), 16)) as integer
+    local bits = assert(math.tointeger(tonumber(sample.hex:sub(1, 8), 16))) << 32 |
+      assert(math.tointeger(tonumber(sample.hex:sub(9), 16)))
     local f = string.unpack("<d", string.pack("<i8", bits)) as number
     local got = Json.canonical(("%.17g"):format(f))
-    assert(got == sample[2], sample[1] .. ": " .. tostring(got))
+    assert(got == sample.canonical, sample.hex .. ": " .. tostring(got))
   end
   local keys = '{"\\u20ac": 1, "\\r": 2, "\\ufb33": 3, "1": 4, "\\ud83d\\ude00": 5, "\\u0080": 6, "\\u00f6": 7}'
   assert(Json.canonical(keys) ==

@@ -113,11 +113,11 @@ end
 
 --- Raises, naming the pattern, unless the path spec and the pattern
 --- agree.
-local function check_path(pattern: string, spec: Shape.Spec?)
+local function check_path(pattern: string, spec: Shape.Node?)
   local names = param_names(pattern)
   local fields: mut {string:boolean} = {}
   if spec ~= nil then
-    for _, name in ipairs(assert(spec.names)) do fields[name] = true end
+    for name in pairs(assert(spec.fields)) do fields[name] = true end
   end
   local seen: mut {string:boolean} = {}
   for _, name in ipairs(names) do
@@ -197,10 +197,12 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
       end
     end
   end
-  check_path(pattern, has_path and input.path.spec or nil)
-  if has_path then Input.check_spec(input.path.spec, "path") end
-  if has_query then Input.check_spec(input.query.spec, "query") end
-  if kind == "form" or kind == "multipart" then Input.check_spec(input.body.typed.spec, "form") end
+  check_path(pattern, has_path and Input.described(input.path.spec) or nil)
+  if has_path then Input.check_spec(Input.described(input.path.spec), "path") end
+  if has_query then Input.check_spec(Input.described(input.query.spec), "query") end
+  if kind == "form" or kind == "multipart" then
+    Input.check_spec(Input.described(input.body.typed.spec), "form")
+  end
   local options = opts and opts.input_options
   local on_invalid = opts and opts.on_invalid
   local json_first = kind == "json"
@@ -251,8 +253,8 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
   end
   local route = Route.route(methods, pattern, handler, opts)
   route.input = {
-    path = has_path and input.path.spec or nil, query = has_query and input.query.spec or nil,
-    body_kind = kind, body = kind ~= "none" and input.body.typed.spec or nil,
+    path = has_path and Input.described(input.path.spec) or nil, query = has_query and Input.described(input.query.spec) or nil,
+    body_kind = kind, body = kind ~= "none" and Input.described(input.body.typed.spec) or nil,
     max_bytes = options and options.max_bytes or
       (kind == "multipart" and Input.DEFAULT_MULTIPART_MAX or Input.DEFAULT_MAX),
   }

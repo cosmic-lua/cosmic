@@ -198,15 +198,20 @@ end
 --- Filters, slices and unions are refused with cosmic.json's message,
 --- naming what was meant, not read as anything else.
 local function test_a_filter_slice_or_union_is_refused_by_name(tmp: string)
-  for _, case in ipairs({
-      { "$.users[?@.id == 1]", "JSONPath byte 9: filters (`?`) are not in the subset cosmic reads" },
-      { "$.users[0:1]", "JSONPath byte 10: slices (`start:end:step`) are not in the subset cosmic reads" },
-      { "$.users[:1]", "JSONPath byte 9: slices (`start:end:step`) are not in the subset cosmic reads" },
-      { "$.users[0, 1]", "JSONPath byte 10: unions (`[a, b]`) are not in the subset cosmic reads" },
-  }) do
-    local ran = run({ nth(case, 1), file(tmp) })
-    assert(ran.code == 2 and ran.out == "", nth(case, 1) .. ": " .. ran.out)
-    assert(ran.err:find("cosmic: json: " .. nth(case, 2), 1, true), ran.err)
+  local record Refused
+    query: string
+    says: string
+  end
+  local cases: {Refused} = {
+    { query = "$.users[?@.id == 1]", says = "JSONPath byte 9: filters (`?`) are not in the subset cosmic reads" },
+    { query = "$.users[0:1]", says = "JSONPath byte 10: slices (`start:end:step`) are not in the subset cosmic reads" },
+    { query = "$.users[:1]", says = "JSONPath byte 9: slices (`start:end:step`) are not in the subset cosmic reads" },
+    { query = "$.users[0, 1]", says = "JSONPath byte 10: unions (`[a, b]`) are not in the subset cosmic reads" },
+  }
+  for _, case in ipairs(cases) do
+    local ran = run({ case.query, file(tmp) })
+    assert(ran.code == 2 and ran.out == "", case.query .. ": " .. ran.out)
+    assert(ran.err:find("cosmic: json: " .. case.says, 1, true), ran.err)
   end
 end
 

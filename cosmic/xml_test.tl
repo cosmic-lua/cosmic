@@ -230,3 +230,58 @@ local function test_write_refuses_what_is_no_document()
   assert(why({ { kind = "start", name = "a", attributes = { k = "\xff" } } }) ==
       "xml: event 1: the value of k holds what XML cannot")
 end
+
+--- Local names drop the namespace from element and attribute names, and
+--- still refuse an undeclared prefix.
+local function test_local_names_drop_the_namespace()
+  local text = '<x:a xmlns:x="urn:x" xmlns:r="urn:r" r:id="7"><b xmlns="urn:d"/></x:a>'
+  assert(read(text, { local_names = true }) == "start a id=7|start b|end b|end a")
+  local why = refused("<y:a/>", { local_names = true })
+  assert(why == "xml: line 1, column 1: unbound prefix", why)
+end
+
+--- A tree keeps text and children in document order; `text` joins all
+--- of it, `children` and `child` pick elements by name.
+local function test_a_tree_keeps_content_in_order()
+  local root = assert(Xml.tree('<r k="v">a<b>x<i>y</i></b>c<b/><!-- no --></r>'))
+  assert(root.name == "r" and root.attributes["k"] == "v")
+  assert(#root.content == 4, tostring(#root.content))
+  assert(root.content[1] == "a" and root.content[3] == "c")
+  assert(Xml.text(root) == "axyc", Xml.text(root))
+  assert(#Xml.children(root, "b") == 2 and #Xml.children(root) == 2)
+  local b = assert(Xml.child(root, "b"))
+  assert(Xml.text(b) == "xy")
+  assert(Xml.child(root, "missing") == nil)
+  local _, why = Xml.tree("<r>")
+  assert(why:match("^xml: ") ~= nil, why)
+end
+
+--- Subtrees at a path come whole, one as each closes, however the
+--- chunks split the document; `*` stands for any name, and an element
+--- at the path inside another is part of it, not answered apart.
+local function test_subtrees_come_whole_at_their_path()
+  local text = '<doc><rows><row n="1"><c>a</c></row><row n="2"><c>b</c><c>c</c></row></rows><other><row/></other></doc>'
+  for size = 1, #text do
+    local p <close> = assert(Xml.parser())
+    local rows = Xml.subtrees("doc/rows/row")
+    local got: mut {string} = {}
+    local function take(events: {Xml.Event})
+      for _, row in ipairs(rows:take(events)) do
+        local line = assert(row.attributes["n"]) .. ":" .. Xml.text(row)
+        got[#got + 1] = line
+      end
+    end
+    for at = 1, #text, size do take((assert(p:feed(text:sub(at, at + size - 1))))) end
+    take((assert(p:finish())))
+    assert(table.concat(got, " ") == "1:a 2:bc", table.concat(got, " "))
+  end
+  local any = Xml.subtrees("doc/*/row"):take((assert(Xml.events(text))))
+  assert(#any == 3, tostring(#any))
+end
+
+--- Two attributes that share a local name: the later in the document
+--- stands.
+local function test_local_names_keep_the_later_of_two_attributes()
+  local got = read('<a xmlns:x="urn:x" xmlns:y="urn:y" x:id="1" y:id="2"/>', { local_names = true })
+  assert(got == "start a id=2|end a", got)
+end

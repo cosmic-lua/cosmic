@@ -239,6 +239,8 @@ local version <const> = "31"
 --- `deflated` is the compressed text of a source, by the source's SHA-256
 --- and the core that compressed it, which [`build.writer`] puts in a
 --- projection beside it instead of compressing every source on each write.
+--- `deflated_bytecode` is the same for a compile's bytecode, by the
+--- compile's key.
 ---
 --- `link_answers` is what the disk answered the last time
 --- [`build.link_index`]'s `pending` resolved the tree's links, by a
@@ -449,6 +451,10 @@ for _, statement in ipairs({
                                          core TEXT NOT NULL,
                                          data BLOB NOT NULL,
                                          PRIMARY KEY (source_hash, core)) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS deflated_bytecode (key TEXT NOT NULL,
+                                                  core TEXT NOT NULL,
+                                                  data BLOB NOT NULL,
+                                                  PRIMARY KEY (key, core)) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS link_answers (kind TEXT NOT NULL,
                                           path TEXT NOT NULL,
                                           value TEXT NOT NULL,

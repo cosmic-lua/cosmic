@@ -96,7 +96,7 @@ end
 function Example.explore()
   local doc = assert(Json.decode_object('{"rows": [{"id": "a", "n": 1}, {"id": "b"}], "ok": true}'))
   assert(Json.is_array(doc["rows"]))
-  local rows, why: {{string: any}}?, string = Shape.into(doc["rows"], Shape.list(Shape.map(Shape.any)))
+  local rows, why = Shape.into(doc["rows"], Shape.list(Shape.map(Shape.any)))
   assert(rows ~= nil, why)
   assert(rows[3] == nil)
   for _, row in ipairs(rows) do
@@ -191,7 +191,7 @@ function Example.yaml_flow_style()
 ]]
   local ci, err = Json.decode_object(workflow, { json5 = true, hash_comments = true })
   assert(ci ~= nil, err)
-  local jobs, why: {string: {string: any}}?, string = Shape.into(ci["jobs"], Shape.map(Shape.map(Shape.any)))
+  local jobs, why = Shape.into(ci["jobs"], Shape.map(Shape.map(Shape.any)))
   assert(jobs ~= nil, why)
   local test = assert(jobs["test"])
   print(ci["name"], test["runs-on"])
@@ -252,7 +252,7 @@ function Example.reader()
   while r:peek() == "object" do
     local value, err = r:value()
     assert(err == "", err)
-    local row, why: {string: any}?, string = Shape.into(value, ROW)
+    local row, why = Shape.into(value, ROW)
     assert(row ~= nil, why)
     local id = row["id"]
     assert(id is integer)
