@@ -294,9 +294,9 @@ function Archive.format_of(path: string): Archive.Format?, string
   -- TODO: once cosmic.compress carries an xz encoder (it has only
   -- `xz_decoder`), write `.tar.xz` here.
   if lower:match("%.tar%.xz$") or lower:match("%.txz$") then
-    return refuse(path .. ": cannot write .tar.xz, there is no xz encoder; use .tar.gz, .tgz, .tar.bz2, .tbz2, .tar.zst, .tzst, .tar or .zip")
+    return refuse(path .. ": cannot write .tar.xz, there is no xz encoder; use .tar.gz, .tgz, .tar.bz2, .tbz2, .tbz, .tar.zst, .tzst, .tar or .zip")
   end
-  return refuse(path .. ": cannot tell the format from the name; end it in .tar.gz, .tgz, .tar.bz2, .tbz2, .tar.zst, .tzst, .tar or .zip")
+  return refuse(path .. ": cannot tell the format from the name; end it in .tar.gz, .tgz, .tar.bz2, .tbz2, .tbz, .tar.zst, .tzst, .tar or .zip")
 end
 
 --- A writer of a new archive at `path`, of the format its name ends

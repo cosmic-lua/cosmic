@@ -169,8 +169,8 @@ end
 --- out of range. It writes one stream, byte for byte what `bzip2 -c
 --- -<level>` writes for the same input however the input is split, and
 --- an encoder given nothing writes the 14 bytes of an empty stream.
---- It holds about 400 kB plus eight times the block size (3.7 MB at
---- level 9) until it finishes.
+--- It holds about 262 kB plus eight times the block size (7.5 MB at
+--- level 9, where the block is 900 kB) until it finishes.
 function Compress.bz2_encoder(level?: integer): Compress.Stream?, string
   return raw.bz2_encoder(level)
 end

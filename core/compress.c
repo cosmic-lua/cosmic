@@ -1059,6 +1059,9 @@ static const char *bz2_chunk (struct stream *s, const unsigned char *data,
                               size_t len, int action, luaL_Buffer *out) {
   bz_stream *bz = &s->u.bz;
   size_t i = 0;
+  /* BZ_RUN with nothing to take and nothing to emit is "no progress" to
+   * bzlib, which answers BZ_PARAM_ERROR: there is nothing to do. */
+  if (action == BZ_RUN && len == 0) return NULL;
   for (;;) {
     /* bzlib counts in unsigned int: offer a larger chunk in pieces. */
     size_t in_take = len - i < UINT_MAX ? len - i : UINT_MAX;
@@ -1072,6 +1075,13 @@ static const char *bz2_chunk (struct stream *s, const unsigned char *data,
     i += in_take - bz->avail_in;
     luaL_addsize(out, produced);
     if (rc == BZ_STREAM_END) return NULL;
+    /* When a call's output filled the slice exactly with the input all
+     * taken, the next call may find nothing left to do: bzlib then
+     * answers BZ_PARAM_ERROR having moved nothing, which is done, not
+     * a failure. */
+    if (rc == BZ_PARAM_ERROR && action == BZ_RUN && i == len && produced == 0) {
+      return NULL;
+    }
     if (rc != BZ_RUN_OK && rc != BZ_FINISH_OK) {
       return rc == BZ_MEM_ERROR ? "out of memory" : "bzip2 encoder failure";
     }

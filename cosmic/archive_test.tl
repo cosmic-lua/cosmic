@@ -1246,6 +1246,25 @@ local function test_create_writes_nothing_at_the_path_until_close(tmp: string)
   end
 end
 
+local function test_create_a_bzip2_tar_with_an_empty_file(tmp: string)
+  for _, name in ipairs({ "e.tar.bz2", "e.tbz" }) do
+    local path = tmp .. "/" .. name
+    local w = assert(Archive.create(path))
+    assert(w:add_file("empty", ""))
+    assert(w:add_file("full", "contents"))
+    assert(w:close())
+    local entries = assert(Archive.list(path))
+    local names: mut {string} = {}
+    for _, e in ipairs(entries) do names[#names + 1] = e.path end
+    table.sort(names)
+    assert(table.concat(names, ",") == "empty,full", table.concat(names, ","))
+    local dest = tmp .. "/out-" .. name
+    assert(Archive.extract(path, dest))
+    assert(Fs.read(dest .. "/empty") == "")
+    assert(Fs.read(dest .. "/full") == "contents")
+  end
+end
+
 local function test_create_aborted_leaves_nothing_behind(tmp: string)
   local dir = tmp .. "/out"
   assert(Fs.mkdirs(dir))
@@ -1273,8 +1292,8 @@ local function test_create_refuses_a_name_it_cannot_write_and_creates_nothing(tm
   local dir = tmp .. "/out"
   assert(Fs.mkdirs(dir))
   local cases: {string:string} = {
-    ["a.data"] = "end it in .tar.gz, .tgz, .tar.bz2, .tbz2, .tar.zst, .tzst, .tar or .zip",
-    ["a"] = "end it in .tar.gz, .tgz, .tar.bz2, .tbz2, .tar.zst, .tzst, .tar or .zip",
+    ["a.data"] = "end it in .tar.gz, .tgz, .tar.bz2, .tbz2, .tbz, .tar.zst, .tzst, .tar or .zip",
+    ["a"] = "end it in .tar.gz, .tgz, .tar.bz2, .tbz2, .tbz, .tar.zst, .tzst, .tar or .zip",
     ["a.tar.xz"] = "no xz encoder",
   }
   for name, says in pairs(cases) do

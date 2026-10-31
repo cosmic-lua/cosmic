@@ -636,7 +636,7 @@ local function test_create_refuses_xz_and_what_it_cannot_name(tmp: string)
   assert(xz.err:find("no xz encoder", 1, true), xz.err)
   assert(Fs.exists(tmp .. "/x.tar.xz") ~= true)
   local unknown = in_dir(src, { "create", tmp .. "/x.data", "loose.txt" })
-  assert(unknown.code == 2 and unknown.err:find("end it in .tar.gz, .tgz, .tar.bz2, .tbz2, .tar.zst, .tzst, .tar or .zip", 1, true) ~= nil, unknown.err)
+  assert(unknown.code == 2 and unknown.err:find("end it in .tar.gz, .tgz, .tar.bz2, .tbz2, .tbz, .tar.zst, .tzst, .tar or .zip", 1, true) ~= nil, unknown.err)
 end
 
 local function test_create_refuses_the_name_before_it_reads_the_paths(tmp: string)
