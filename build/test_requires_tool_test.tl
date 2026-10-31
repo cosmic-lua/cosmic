@@ -236,16 +236,23 @@ end
 ]]))
   local out, code = run(root)
   assert(code == 0, out)
-  if out:find("test: SKIP  net_test test_listens: requires loopback: loopback is refused: ", 1, true) then
+  local skipped = out:find("test: SKIP  net_test test_listens: requires loopback: loopback is refused: ", 1, true) ~= nil
+  if skipped then
     assert(out:find("1 skipped ", 1, true), out)
     assert(not out:find("FAIL", 1, true), out)
   else
     assert(out:find("1 test passed in 1 module; 1 ran, 0 stood, ", 1, true), out)
   end
-  -- No verdict is kept of a skip: it is skipped again, not stood.
   out, code = run(root)
   assert(code == 0, out)
-  assert(not out:find("1 stood", 1, true), out)
+  if skipped then
+    -- No verdict is kept of a skip: it is skipped again, not stood.
+    assert(out:find("1 skipped ", 1, true), out)
+    assert(not out:find("1 stood", 1, true), out)
+  else
+    -- A verdict is kept of a run: it stands.
+    assert(out:find("1 test passed in 1 module; 0 ran, 1 stood, ", 1, true), out)
+  end
 end
 
 --- A `path:` the worker is given no host grant of fails the build too.
