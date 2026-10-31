@@ -49,7 +49,7 @@ test_child.register("shadowing", function(argv: {string}): integer
       { { text = name }, { blob = impostor } }))
   end
   assert(db:close())
-  assert(Store.attach((argv[1] or "")))
+  assert(Store.attach((argv[1] or ""), { unchecked_bytecode = true }))
 
   for _, name in ipairs(wrappers) do
     local _, extra = search(name)

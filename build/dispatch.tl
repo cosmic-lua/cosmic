@@ -474,7 +474,8 @@ local function run(file: string, argv: {string}): integer
   -- TODO: attach this run's published projection before its writer releases
   -- the publication lock, once writer exposes a stable-consumption callback:
   -- another successful build can replace the path before this attach.
-  local attached, attach_trouble = Store.attach(database)
+  -- The projection is the tool's own output of this run, not a file it was handed.
+  local attached, attach_trouble = Store.attach(database, { unchecked_bytecode = true })
   if not attached then
     log:complain(attach_trouble)
     return 1

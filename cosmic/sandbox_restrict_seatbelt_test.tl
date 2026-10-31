@@ -72,7 +72,7 @@ local function limit(resource: integer): string
   if held == nil then return "none" end
   return tostring(held.soft) .. " " .. tostring(held.hard)
 end
-local _, _, _, _ = Child, Store, reads, limit
+local _, _, _, _ = Child, Store.alone, reads, limit
 ]]
 
 --- What a child said: its lines, `name=value`, by name, and all of it.
@@ -218,7 +218,7 @@ local db = assert(Sqlite.open(copy, { writable = true }))
 local rows = assert(Sqlite.text_rows(db, "PRAGMA journal_mode=WAL"))
 say("mode", assert(rows[1]):text(1))
 assert(db:close())
-assert(Store.attach(copy))
+assert(Store.attach(copy, { unchecked_bytecode = true }))
 say("restrict", Sandbox.restrict({}))
 local Csv = require("cosmic.csv")
 say("loaded", true, assert(assert(Csv.parse("a,b"))[1])[2])

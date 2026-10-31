@@ -84,7 +84,7 @@ function test_child.words(dir: string, module: string, name: string, args?: {str
   if not written then error("test_child: " .. trouble, 2) end
   local chunk = 'local Store = require("cosmic.store")\nlocal test_child = require("build.test_child")\n' ..
     'local path = ...\nif path == nil then error("test_child: no store was handed") end\n' ..
-    'assert(Store.attach(path))\n' ..
+    'assert(Store.attach(path, { unchecked_bytecode = true }))\n' ..
     'match pcall(require, ' .. string.format("%q", module) ..
     ') do\n  | (true, _) then\n  | (false, why) then error(why)\nend\n' ..
     'return test_child.run(' .. string.format("%q", name) .. ', select(2, ...))'

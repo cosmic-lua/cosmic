@@ -65,7 +65,7 @@ local function limit(resource: integer): string
   if held == nil then return "none" end
   return tostring(held.soft) .. " " .. tostring(held.hard)
 end
-local _, _, _, _, _, _ = Child, Net, Store, reads, writes, limit
+local _, _, _, _, _, _ = Child, Net, Store.alone, reads, writes, limit
 ]]
 
 --- What a child said: its lines, `name=value`, by name, and how it ended.
@@ -461,7 +461,7 @@ while true do
   assert(sys.write(target, chunk))
 end
 sys.close(source) sys.close(target)
-assert(Store.attach(copy))
+assert(Store.attach(copy, { unchecked_bytecode = true }))
 local mine = assert(sys.open(copy, sys.O_RDWR))
 say("mine", mine)
 say("refused", Sandbox.restrict({}))

@@ -270,6 +270,16 @@ they do from an embedded database. `require` finds that database's modules
 alone, [`Store.databases()`] holds it alone, [`Store.requires`] reads it, and
 [`Store.attach`] still searches a new database ahead of it.
 
+The bytecode of an attached database, or of a module [`Store.seal`] is given as
+`extra`, is loaded as it is found: nothing checks it, and Lua has no bytecode
+verifier. So each takes `unchecked_bytecode = true`
+(`Store.attach(path, { unchecked_bytecode = true })`) and raises naming the
+option without it, and a project build refuses an attach without that literal
+option, a seal with `extra`, and either function read as a value (an alias, a
+table field, an argument), as it refuses `package`. That gate holds a program
+the checker reads; it is not a boundary against code that is not checked, which
+can call the public functions itself.
+
 The runtime's identity is the database's `meta` rows and the core hashing
 itself. The writer records the digest of the core the database is for in
 `core_sha256` (the core's sha256 in hex, as `Store.meta("host_image")` names
@@ -507,5 +517,6 @@ manifest: names the running core
 [`Store.attach`]: ../../cosmic/store.tl
 [`Store.databases()`]: ../../cosmic/store.tl
 [`Store.requires`]: ../../cosmic/store.tl
+[`Store.seal`]: ../../cosmic/store.tl
 [`Test.policy`]: ../../cosmic/test.tl
 [`writer.carried`]: ../../build/writer.tl
