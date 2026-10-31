@@ -45,24 +45,11 @@ local LIB <const> = table.concat({
   "",
 }, "\n")
 
---- The module that lies, as the declaration of the tool's own libraries cannot: `math.d.tl` declares `math.abs` to answer a
---- string and `math.sqrt` an integer where the language's `math` answers an integer and a float. A project's callers take
---- their types from the declaration file, and nothing holds the module to it, so the values reach the boundary of a
---- function in the project's own Teal.
-local LIAR_DECLARATION <const> = table.concat({
-  "local record Liar",
-  "  abs: function(integer): string",
-  "  sqrt: function(number): integer",
-  "end",
-  "return Liar",
-  "",
-}, "\n")
-
 --- The tests of the project: sound calls pass; a call that sends an integer for the string and a float for the integer is
---- one row each at the line of the call, and the functions run on. The values come from `math`, as a library whose
---- declaration is wrong would send them: a program of the checker's grammar has no cast to send them by.
+--- one row each at the line of the call, and the functions run on. The calls are made by chunks of Lua text, which a
+--- program of the checker's grammar may `load` and hand a function to: the chunk is not checked against the types of the
+--- function it calls, as a library written in C would not be.
 local SUITE <const> = table.concat({
-  "local Liar = require(\"math\")",
   "local Lib = require(\"lib\")",
   "",
   "local function test_a_sound_call_passes()",
@@ -71,10 +58,10 @@ local SUITE <const> = table.concat({
   "end",
   "",
   "local function test_a_value_of_another_kind_is_found_at_the_caller_and_the_function_runs_on()",
-  "  local taken = Lib.take(Liar.abs(-42))",
-  "  assert(taken == \"42nil\", taken)",
-  "  local halved = Lib.half(Liar.sqrt(2.25))",
-  "  assert(halved == 0, tostring(halved))",
+  "  local take = assert(load(\"return take(42)\", \"=take_sender\", \"t\", { take = Lib.take }))",
+  "  assert(tostring(take()) == \"42nil\")",
+  "  local half = assert(load(\"return half(1.5)\", \"=half_sender\", \"t\", { half = Lib.half }))",
+  "  assert(tostring(half()) == \"0.0\")",
   "end",
   "",
 }, "\n")
@@ -84,7 +71,6 @@ local function project(tmp: string): string
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/lib.tl", LIB))
-  assert(Fs.write(root .. "/math.d.tl", LIAR_DECLARATION))
   assert(Fs.write(root .. "/boundary_test.tl", SUITE))
   return root
 end
@@ -129,8 +115,8 @@ local function test_a_checked_run_reports_the_parameter_that_is_false_at_the_cal
     seen[#seen + 1] = table.concat(row:texts(), " | ")
   end
   local want = {
-    "parameter | boundary_test.tl:10 | parameter name of take (lib.tl:1) | string | integer | 1",
-    "parameter | boundary_test.tl:12 | parameter n of half (lib.tl:5) | integer | float | 1",
+    "parameter | half_sender:1 | parameter n of half (lib.tl:5) | integer | float | 1",
+    "parameter | take_sender:1 | parameter name of take (lib.tl:1) | string | integer | 1",
   }
   assert(#seen == 2, table.concat(seen, "\n"))
   assert(seen[1] == want[1], seen[1])

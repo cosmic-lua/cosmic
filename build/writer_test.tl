@@ -664,6 +664,24 @@ local function test_bytecode_is_deflated_once_per_compile_and_core(tmp: string)
   assert(fresh:close())
 end
 
+--- A declaration has no code to run, so its documentation and the links in it are rows of the declaration's file.
+local function test_a_declarations_docs_and_links_are_attributed_to_its_file(tmp: string)
+  local db = fixture.database(tmp, {
+    ["dep.tl"] = "local record Dep\n  declared: integer\nend\nreturn Dep\n",
+    ["foo.d.tl"] = 'local Dep = require("dep")\n' ..
+      "--- Public interface.\n--- See [`Dep.declared`].\nlocal record Foo\n  answer: integer\nend\nreturn Foo\n",
+  })
+  local docs = assert(Sqlite.text_rows(db, "SELECT file, text FROM docs WHERE module = 'foo' AND symbol = 'Foo'"))
+  assert(#docs == 1 and docs[1]:text(1) == "foo.d.tl" and nth(docs, 1):text(2):find("Public interface.", 1, true) ~= nil)
+  local links = assert(Sqlite.text_rows(db,
+    "SELECT module, symbol, from_file FROM links WHERE from_module = 'foo'"))
+  assert(#links == 1 and links[1]:text(1) == "dep" and nth(links, 1):text(2) == "declared" and
+      nth(links, 1):text(3) == "foo.d.tl")
+  assert(nth(assert(Sqlite.text_rows(db, "SELECT count(*) FROM modules WHERE path = 'foo'")), 1):text(1) == "0",
+    "a declaration is no module to run")
+  assert(db:close())
+end
+
 --- A module's edge to a name the plan does not ship, a declaration with
 --- no implementation, is kept for the checker in `decl_imports` and
 --- left out of `imports`, which the program's closures are made of.

@@ -41,24 +41,15 @@ local greeting = table.concat({
   "",
 }, "\n")
 
---- The module that lies: `math.d.tl` declares `math.abs` to answer a string where the language's `math` answers an integer,
---- which a project's callers take on the declaration's word and a program of the checker's grammar cannot send by a cast.
-local liar_declaration = table.concat({
-  "local record Liar",
-  "  abs: function(integer): string",
-  "end",
-  "return Liar",
-  "",
-}, "\n")
-
---- The tests: a call with a name passes, and a call with the value `math.abs` sends (an integer for a string) is found
---- where it is made, and passes all the same: the report changes no verdict.
+--- The tests: a call with a name passes, and a call a chunk of Lua text makes with an integer for a string is found where
+--- it is made, and passes all the same: the report changes no verdict. A chunk is not checked against the types of the
+--- function it is handed, as a library written in C would not be.
 local suite = table.concat({
   "local greet = require(\"greet\")",
-  "local liar = require(\"math\")",
   "",
   "local function test_hello_with_a_value_of_another_kind()",
-  "  assert(tostring(greet.hello(liar.abs(-42))) == \"42\")",
+  "  local send = assert(load(\"return hello(42)\", \"=sender\", \"t\", { hello = greet.hello }))",
+  "  assert(tostring(send()) == \"42\")",
   "end",
   "",
   "local function test_hello_with_a_name()",
@@ -82,7 +73,6 @@ local function project(tmp: string): string
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/cmd/hello"))
   assert(Fs.write(root .. "/greet.tl", greeting))
-  assert(Fs.write(root .. "/math.d.tl", liar_declaration))
   assert(Fs.write(root .. "/greet_test.tl", suite))
   assert(Fs.write(root .. "/cmd/hello/main.tl", main))
   return root
@@ -128,13 +118,13 @@ local function test_a_checked_run_reports_a_false_value_and_changes_no_verdict(t
   local checked, text = invoke(root, tmp, { "test", "--check-types" })
   assert(checked.ok and text:find("test: 2 tests passed in ", 1, true) ~= nil, text)
   assert(text:find("run-time types: 1 violation, 1 distinct, at 1 place", 1, true), text)
-  assert(text:find("greet_test.tl:5: parameter name of function (greet.tl:6) declared string|nil got integer (1 time)", 1,
+  assert(text:find("sender:1: parameter name of function (greet.tl:6) declared string|nil got integer (1 time)", 1,
     true), text)
   assert(text:find("2 ran, 0 stood", 1, true), "a standing verdict hid a test from the report: " .. text)
 
   local rows = violations(root)
   assert(#rows == 1, tostring(#rows) .. " rows")
-  assert(table.concat(rows[1]:texts(), " | ") == "parameter | greet_test.tl:5 | parameter name of function (greet.tl:6) | string|nil | integer | 1",
+  assert(table.concat(rows[1]:texts(), " | ") == "parameter | sender:1 | parameter name of function (greet.tl:6) | string|nil | integer | 1",
     table.concat(rows[1]:texts(), " | "))
 
   -- The same variable asks for the same.
