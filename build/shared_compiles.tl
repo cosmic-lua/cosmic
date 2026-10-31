@@ -455,7 +455,8 @@ local function evict(db: Sqlite.Handle, now_ns: integer, bound_bytes: integer): 
   local ids: {string:mut {string}} = { c = {}, p = {} }
   for _, row in ipairs(over) do
     local list = ids[row:text(1)]
-    list[#list + 1] = row:text(2)
+    local second = row:text(2)
+    list[#list + 1] = second
   end
   for tab, name in pairs({ c = compiled, p = parsed }) do
     if #ids[tab] > 0 then

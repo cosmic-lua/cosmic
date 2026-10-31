@@ -544,7 +544,8 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
             if line_hit then
               return line_refusal()
             end
-            st.pieces[#st.pieces + 1] = chunk:sub(i, last)
+            local piece = chunk:sub(i, last)
+            st.pieces[#st.pieces + 1] = piece
             i = last + 1
           end
           if special ~= nil then
@@ -1260,7 +1261,8 @@ function relay_wire.hello_reader(): relay_wire.HelloReader
     if st.records > MAX_RECORDS then
       return finish(malformed(("a ClientHello in more than %s"):format(String.counted(MAX_RECORDS, "record"))))
     end
-    st.parts[#st.parts + 1] = data:sub(pos + 5, pos + 4 + length)
+    local part = data:sub(pos + 5, pos + 4 + length)
+    st.parts[#st.parts + 1] = part
     st.gathered = st.gathered + length
     if st.total == nil then
       if st.gathered < 4 then

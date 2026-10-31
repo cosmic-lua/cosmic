@@ -1743,7 +1743,7 @@ lang/codegen.tl index_may_be_nil 15
 
 lang/codegen_fuzz_test.tl index_may_be_nil 1
 
-lang/declarations.tl index_may_be_nil 13
+lang/declarations.tl index_may_be_nil 11
 
 lang/declarations_test.tl index_may_be_nil 7
 
@@ -1806,7 +1806,7 @@ build/dataset_test.tl view_written 1
 
 build/declared_key.tl view_written 1
 
-build/declared_key_fuzz_test.tl view_written 6
+build/declared_key_fuzz_test.tl view_written 2
 
 build/declared_key_test.tl view_written 2
 
@@ -1933,7 +1933,6 @@ cosmic/internal/connector_test.tl view_written 2
 
 cosmic/internal/relay_config.tl view_written 1
 
-cosmic/internal/relay_server.tl view_written 2
 
 cosmic/internal/relay_start_test.tl view_written 1
 
@@ -2007,7 +2006,7 @@ lang/check_test.tl view_written 1
 
 lang/codegen_test.tl view_written 1
 
-lang/declarations.tl view_written 15
+lang/declarations.tl view_written 13
 
 lang/flow.tl view_written 12
 
@@ -2051,7 +2050,7 @@ build/c/rules.tl view_as_mut 1
 
 build/check_draws.tl view_as_mut 2
 
-build/declared_key_fuzz_test.tl view_as_mut 2
+build/declared_key_fuzz_test.tl view_as_mut 1
 
 build/fix/fix_test.tl view_as_mut 5
 
@@ -3115,7 +3114,6 @@ build/confine.tl overload_none 1
 
 build/dataset_fuzz_test.tl overload_none 2
 
-build/declared_key_fuzz_test.tl overload_none 1
 
 build/declared_key_test.tl overload_none 3
 

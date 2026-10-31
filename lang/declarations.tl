@@ -665,7 +665,7 @@ local record Ctx
   mut alias_depth: integer
   --- How many arrays and maps the type being lowered is inside.
   mut collections: integer
-  mut kids: {Ast.Node}
+  mut kids: mut {integer: Ast.Node}
   lowering: boolean
   --- The checks that wait for every declaration of the module to be defined.
   checks: mut {function(): boolean}
@@ -1256,7 +1256,8 @@ local function lower_rets(ctx: Ctx, rets: Ast.Rets, positions: {string: integer}
       elseif rets.variadic and i == #list then
         alt.tail = lower_type(ctx, item)
       else
-        alt.items[#alt.items + 1] = lower_type(ctx, item)
+        local lowered = lower_type(ctx, item)
+        alt.items[#alt.items + 1] = lowered
       end
     end
     alts[#alts + 1] = alt
@@ -1623,7 +1624,8 @@ local function declare_all(ctx: Ctx)
       held = 0
       Ast.children(node, collect)
       for i = held, 1, -1 do
-        nodes[#nodes + 1], places[#places + 1] = kids[i], below
+        local kid = assert(kids[i])
+        nodes[#nodes + 1], places[#places + 1] = kid, below
       end
     end
   end
@@ -2934,7 +2936,8 @@ local function walk(ctx: Ctx)
         held = 0
         Ast.children(node, collect)
         for i = held, 1, -1 do
-          nodes[#nodes + 1], leaves[#leaves + 1] = kids[i], false
+          local kid = assert(kids[i])
+          nodes[#nodes + 1], leaves[#leaves + 1] = kid, false
         end
       end
     end

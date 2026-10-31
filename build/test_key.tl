@@ -557,7 +557,8 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
   for _, row in ipairs(imported) do
     local list = imports[row:text(1)] or {}
     imports[row:text(1)] = list
-    list[#list + 1] = row:text(2)
+    local second = row:text(2)
+    list[#list + 1] = second
   end
   local names: mut {string} = {}
   local runs: mut {string} = {}
