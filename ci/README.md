@@ -32,9 +32,9 @@ ones `build/zig.tl` runs on that release's binary (`build/patch.tl`,
 `build/zig_fetch.tl`) in the new checker's grammar, held to every rule and to
 no ceiling. `islands.txt` lists nothing: the pinned release reads a file it
 lists as Teal. CI's `check-islands` command (`cosmic-driver
-cosmic_ci/driver.tl check-islands`) runs each of those scripts with `--help`
-on the running driver, which refuses a script that has a finding before it
-runs, and fails on a syntax error or any finding; `ci/` is compiled by the
+cosmic_ci/driver.tl check-islands`) checks each of those scripts with
+`--standalone --check` on the running driver (it type-checks the file without
+running it), and fails on a syntax error or any finding; `ci/` is compiled by the
 driver's own tests compile only the modules they require, so `check-islands`
 also runs the release's `fix --check` over all of `ci/`.
 
@@ -73,9 +73,8 @@ holds, and what does not:
   `ci/cosmic_ci/bootstrap_test.tl`, which reads and copies the binary), and the
   release's binary is reachable in the cache and to any process running on it.
   Deliberate use of the raw binary is a review matter.
-- `check-islands` type-checks each listed file on the release (with `--help`,
-  except what [`Islands.not_run`] names: `ci/run_local.tl`, whose `--help` would
-  start the platform job, and which the driver's tests compile). It fails on a
+- `check-islands` type-checks each listed file on the release (`--standalone
+  --check`, which does not run it). It fails on a
   listed file that is gone, on a `build/zig.tl` `standalone(` call that names a
   file the list lacks or does not name one in a string literal on its line, and
   on a list without `build/paths.tl`. It also runs the release's `fix --check`
@@ -86,8 +85,7 @@ holds, and what does not:
   `build/ci_tree_test.tl` (which cannot require `ci/`): one path a line, what a
   `#` starts dropped, white space trimmed from both ends.
 - A refusal of a type error names the file, the list and the pinned release, and
-  says to use only that release's APIs or move the pin; a `--help` exit status
-  that is not 0 is in [`Islands.help_exits`], and the hint says to add it there.
+  says to use only that release's APIs or move the pin.
 
 What is not covered. A process running on the release can run its own binary
 (`Proc.executable()`, `Proc.relaunch()`), so no wrapper or entry point can stop
@@ -97,7 +95,7 @@ residual below:
 
 - `build/zig.tl`, which runs `build/patch.tl` and `build/zig_fetch.tl` that way:
   its `standalone(` calls are counted, and each file must be in the list.
-- `check-islands` ([`Islands.complaint`]), which runs the listed files.
+- `check-islands` ([`Islands.complaint`]), which checks the listed files.
 - [`BuildPaths.directory`] in [`cosmic_ci/build_paths.tl`], which runs
   `build/paths.tl` that way as the build directory's resolver (checked to be
   listed). [`BuildPaths.driver`] refuses a `--standalone` of its own.
@@ -999,8 +997,6 @@ alone.
 [`cosmic_ci/host_id.tl`]: cosmic_ci/host_id.tl
 [`cosmic_ci/orchestration.tl`]: cosmic_ci/orchestration.tl
 [`Islands.complaint`]: cosmic_ci/islands.tl
-[`Islands.help_exits`]: cosmic_ci/islands.tl
-[`Islands.not_run`]: cosmic_ci/islands.tl
 [`Islands.paths`]: cosmic_ci/islands.tl
 [`Islands.project`]: cosmic_ci/islands.tl
 [`Runner.phase`]: cosmic_ci/runner.tl
