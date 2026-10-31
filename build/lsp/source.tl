@@ -130,7 +130,8 @@ local record source
     --- Texts derived into the scratch database ([`source.places`]): an
     --- open document that differs from the staged file, or a file whose
     --- rows are not the running analyzer's. A text that does not parse
-    --- is not counted.
+    --- is counted for the places of its recovered tree; one whose rows fail to
+    --- write is not.
     mut derived: integer
   end
 

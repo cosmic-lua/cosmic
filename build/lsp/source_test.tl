@@ -935,3 +935,23 @@ local function test_a_file_the_tree_no_longer_lists_lets_go_of_its_scratch_rows(
   assert(rows_of(scratch, "places", Hash.hex_sha256(edited)) == 0)
   source.close(src)
 end
+
+--- A buffer broken and then fixed: the places-only rows of the broken text go, and the fixed text is derived whole.
+local function test_a_broken_buffer_that_is_fixed_is_derived_whole()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local broken = POINT .. "local x = = 1\n"
+  local fixed = "-- fixed\n" .. POINT
+  assert(source.places(src, "lib.point", open_with("lib/point.tl", broken)) ~= nil)
+  local scratch = assert(src.scratch)
+  assert(rows_of(scratch, "places", Hash.hex_sha256(broken)) > 0)
+  local placed = assert(source.places(src, "lib.point", open_with("lib/point.tl", fixed)))
+  assert(assert(placed.spots["point.x"]).line == 3 and src.tally.derived == 2, tostring(src.tally.derived))
+  assert(rows_of(scratch, "parsed", Hash.hex_sha256(fixed)) == 1)
+  assert(rows_of(scratch, "places", Hash.hex_sha256(fixed)) > 0)
+  assert(rows_of(scratch, "places", Hash.hex_sha256(broken)) == 0)
+  source.close(src)
+end
