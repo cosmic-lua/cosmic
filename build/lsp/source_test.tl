@@ -7,6 +7,7 @@
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local build_paths = require("build.paths")
@@ -673,5 +674,109 @@ local function test_a_database_another_code_staged_is_staged_again_at_the_next_r
     assert(source.module(src, "lib/shapes.tl") ~= nil, "the module is not found again")
   end
   assert(src.tally.stages == 2, "staged " .. tostring(src.tally.stages) .. " times")
+  source.close(src)
+end
+
+--- No document is open.
+local function none_open(_file: string): source.Text?
+  return nil
+end
+
+--- The document `file` open with `text`, and no other.
+local function open_with(file: string, text: string): source.Open
+  return function(name: string): source.Text?
+    if name ~= file then return nil end
+    return { text = text, hash = Hash.hex_sha256(text) }
+  end
+end
+
+--- A module of two types, a field and a function that adds to the first.
+local POINT <const> = "local record point\n  x: integer\n  record Corner\n    y: integer\n  end\nend\n\n" ..
+  "function point.origin(): point\n  return { x = 0 }\nend\n\nreturn point\n"
+
+--- The places of the staged module `lib.point`, read from the `places` rows the stage derived: nothing is parsed, and a
+--- row changed in the database changes the answer, which only a read of the rows does.
+local function test_the_places_of_a_staged_module_are_read_from_the_database_and_not_parsed()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local placed = assert(source.places(src, "lib.point", none_open))
+  assert(placed.file == "lib/point.tl" and placed.text == POINT)
+  local x, corner, origin = assert(placed.spots["point.x"]), assert(placed.spots["point.Corner"]),
+    assert(placed.spots["point.origin"])
+  assert(x.line == 2 and x.column == 3 and x.length == 1)
+  assert(corner.line == 3 and corner.column == 10 and corner.length == 6)
+  assert(assert(placed.spots["point.Corner.y"]).line == 4)
+  assert(origin.line == 8 and origin.column == 16 and origin.length == 6)
+  assert(placed.spots["point.missing"] == nil and src.tally.parses == 0, tostring(src.tally.parses))
+  -- A row written by hand, in a module whose rows are read for the first time, is what is found.
+  local held = assert(Sqlite.open(assert(src.working), { writable = true }))
+  assert(held:exec("UPDATE places SET line = 6, column = 1, length = 3 WHERE symbol = 'point.x'"))
+  assert(held:close())
+  source.close(src)
+  local again = source.new(root, function(_: string) end)
+  source.refresh(again)
+  local moved = assert(assert(source.places(again, "lib.point", none_open)).spots["point.x"])
+  assert(moved.line == 6 and moved.column == 1 and moved.length == 3 and again.tally.parses == 0)
+  assert(source.places(again, "lib.missing", none_open) == nil)
+  source.close(again)
+end
+
+--- An open document the same as the staged file is the staged file; an edited one is parsed once.
+local function test_the_places_of_an_open_module_are_parsed_only_where_it_differs_from_the_staged_file()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local same = assert(source.places(src, "lib.point", open_with("lib/point.tl", POINT)))
+  assert(assert(same.spots["point.x"]).line == 2 and src.tally.parses == 0, tostring(src.tally.parses))
+  local edited = "-- moved down\n\n" .. POINT
+  for _ = 1, 3 do
+    local placed = assert(source.places(src, "lib.point", open_with("lib/point.tl", edited)))
+    assert(placed.text == edited and assert(placed.spots["point.x"]).line == 4)
+  end
+  assert(src.tally.parses == 1, tostring(src.tally.parses))
+  -- The file as staged is still what the rows say.
+  assert(assert(assert(source.places(src, "lib.point", none_open)).spots["point.x"]).line == 2)
+  assert(src.tally.parses == 1)
+  source.close(src)
+end
+
+--- Rows another analyzer derived are none to read: the text is parsed here, and read again when they are the running one's.
+local function test_the_places_of_another_analyzers_rows_are_parsed_here()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local held = assert(Sqlite.open(assert(src.working), { writable = true }))
+  assert(held:exec("UPDATE places SET line = 6"))
+  assert(held:exec("UPDATE meta SET value = 'another' WHERE key = 'analyzer'"))
+  assert(held:close())
+  -- Read again, as every refresh does, finding the rows are not the running analyzer's.
+  source.refresh(src)
+  assert(assert(assert(source.places(src, "lib.point", none_open)).spots["point.x"]).line == 2)
+  assert(src.tally.parses == 1, tostring(src.tally.parses))
+  source.close(src)
+end
+
+--- A database another code staged is read none of, its places too.
+local function test_the_places_of_a_database_another_code_staged_are_none()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  assert(source.places(src, "lib.point", none_open) ~= nil)
+  local other = assert(Sqlite.open(assert(src.working), { writable = true }))
+  assert(other:exec("UPDATE meta SET value = 'another tool' WHERE key = 'staged_by'"))
+  assert(other:exec("BEGIN IMMEDIATE"))
+  source.refresh(src)
+  assert(source.places(src, "lib.point", none_open) == nil)
+  assert(other:exec("ROLLBACK"))
+  assert(other:close())
   source.close(src)
 end

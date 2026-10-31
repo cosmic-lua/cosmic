@@ -355,6 +355,8 @@ promises lean on come first:
   `Scopes.in_scope` ([`lang/scopes.tl`]) lists the bindings visible at a token, and
   the body of a [`Types.Decl`] ([`lang/types.tl`]) lists the fields and methods of the
   type of the object before a `.` or `:`.
+  `cosmic lsp` reads the working database, extending it and triggering its refreshes
+  as needed, rather than parsing or checking on its own.
 
 ## documentation and examples
 
