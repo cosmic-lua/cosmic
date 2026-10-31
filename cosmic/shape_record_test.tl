@@ -147,7 +147,8 @@ end
 
 --- A call the build did not resolve has no spec to answer with.
 local function test_an_unresolved_call_says_what_to_do()
-  local unresolved: function(string): Shape.Typed<Profile> = Shape.record_of as function(string): Shape.Typed<Profile>
+  -- Named by an index, since the build refuses any mention of [`Shape.record_of`] that is not its call.
+  local unresolved: function(string): Shape.Typed<Profile> = Shape["record_of"] as function(string): Shape.Typed<Profile>
   local ok, err = pcall(unresolved, "Profile")
   assert(not ok)
   local message = tostring(err)

@@ -441,3 +441,48 @@ local function test_a_list_whose_element_may_be_missing_is_refused_even_where_th
   local raised, why = pcall(Shape.list, Shape.optional(Shape.any))
   assert(not raised and tostring(why):find("use `Shape.sparse_list`", 1, true) ~= nil, tostring(why))
 end
+
+--- What `run` raises, or nil where it returns.
+local function raised(run: function()): string?
+  local ok, why = pcall(run)
+  if ok then
+    return nil
+  end
+  return tostring(why)
+end
+
+--- Whether `run` raises that a spec of the caller's was not made by cosmic.shape.
+local function refuses_a_forgery(run: function()): boolean
+  local why = raised(run)
+  return why ~= nil and why:find("did not make", 1, true) ~= nil
+end
+
+-- A `Spec<T>` is a table anyone can write, and what ties its `T` to its check is that cosmic.shape made it: a spec written
+-- by hand is refused wherever it is used, as the answer's type would be the writer's claim.
+local function test_a_spec_written_by_hand_is_refused_wherever_it_is_used()
+  local dense: Shape.Spec<{integer}> = { node = R.list(R.optional(R.integer)) }
+  local holey = must(Json.decode("[1, null, 3]"))
+  assert(refuses_a_forgery(function() local _ = Shape.into(holey, dense) end))
+  local text: Shape.Spec<string> = { node = R.any }
+  assert(refuses_a_forgery(function() local _ = Shape.into(5, text) end))
+  assert(refuses_a_forgery(function() local _ = Shape.decode_into("5", text) end))
+  -- a made spec's own node is its alone: the leaves of `Raw` are shared, and a spec of one is still hand-written
+  local shared: Shape.Spec<string> = { node = R.string }
+  assert(refuses_a_forgery(function() local _ = Shape.into("a", shared) end))
+  -- nor does a constructor build on one
+  assert(refuses_a_forgery(function() local _ = Shape.list(text) end))
+  assert(refuses_a_forgery(function() local _ = Shape.optional(text) end))
+  assert(refuses_a_forgery(function() local _ = Shape.map(text) end))
+  local optional: Shape.Spec<integer?> = { node = R.optional(R.integer) }
+  assert(refuses_a_forgery(function() local _ = Shape.sparse_list(optional) end))
+  -- a record written by hand answers through a spec written by hand
+  local forged: Shape.Typed<Server> = {
+    name = "Server", spec = { node = R.record({ host = R.string }) },
+    into = SERVER.into, decode_into = SERVER.decode_into, strict = SERVER.strict,
+  }
+  assert(refuses_a_forgery(function() local _ = forged:into({ host = "h" }) end))
+  assert(refuses_a_forgery(function() local _ = forged:strict() end))
+  -- the specs the module makes are taken, strict ones included, and `strict` keeps its answer
+  assert(Shape.into("x", Shape.string) == "x")
+  assert(SERVER:strict() == SERVER:strict() and SERVER:strict():strict() == SERVER:strict())
+end

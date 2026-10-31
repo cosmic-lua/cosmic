@@ -411,3 +411,27 @@ local function test_the_splices_are_the_last_first_and_a_refusal_names_its_line(
   assert(unread.refusal:find("main.tl:8: Shape.record_of: the name must be a string literal", 1, true) ~= nil,
     unread.refusal)
 end
+
+--- A program writes `Shape.record_of("Name")` and nothing more: a spec of its own would be a claim about the record that
+--- nothing checks, and a mention that is not that call could pass one along.
+local function test_a_call_of_record_of_with_more_than_the_name_or_a_mention_of_it_is_refused()
+  local head = table.concat({
+    'local Shape = require("cosmic.shape")',
+    "local record A",
+    "  a: string",
+    "end",
+    "",
+  }, "\n")
+  local function refusal(tail: string): string
+    local source = head .. tail
+    local found = ShapeSpecs.splices(build_of({ ["main.tl"] = source }), "main", "main.tl", source)
+    assert(#found.splices == 0, "a refused call splices none: " .. tail .. " -> " .. found.refusal)
+    return found.refusal
+  end
+  assert(refusal('local S = Shape.record_of("A", Shape.raw.record({}), function(): A error("w") end)\nreturn S\n')
+      :find("the name is the only argument", 1, true) ~= nil)
+  assert(refusal('local S = Shape.record_of("A", nil)\nreturn S\n'):find("the name is the only argument", 1, true) ~= nil)
+  assert(refusal('local f = Shape.record_of\nreturn f\n'):find('call it as Shape.record_of("Name")', 1, true) ~= nil)
+  assert(refusal('local S = Shape.record_of("A")\nlocal g = Shape.record_of\nreturn { S, g }\n')
+      :find('call it as Shape.record_of("Name")', 1, true) ~= nil)
+end

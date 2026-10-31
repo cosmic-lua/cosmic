@@ -29,7 +29,44 @@ local function digest_of(value: string): string
   return Codec.hex(Hash.sha256(value))
 end
 
-local POLICY <const>: Shape.Typed<Sandbox.Policy> = Shape.record_of("cosmic.sandbox.Policy"):strict()
+--- A database as the text writes it: where it is and what it is, both required, where a [`Sandbox.Database`] may leave
+--- the digest out.
+local record DatabaseText
+  path: string
+  sha256: string
+end
+
+--- A policy as the text writes it: a [`Sandbox.Policy`] whose database holds its digest. Decoded strictly, the shape fails
+--- on the first field in byte order, a missing digest among them, and the result is copied into the policy.
+local record PolicyText
+  profiles?: {string}
+  grants?: {Sandbox.Grant}
+  isolate?: {Sandbox.Isolate}
+  promises?: {Sandbox.Promise}
+  connect?: {string}
+  loopback?: {string}
+  env?: {string}
+  set_env?: {string:string}
+  set_env_digests?: {string:string}
+  tmp?: boolean
+  limits?: Sandbox.Limits
+  user?: integer
+  group?: integer
+  database?: DatabaseText
+end
+
+local POLICY <const>: Shape.Typed<PolicyText> = Shape.record_of("PolicyText"):strict()
+
+--- `text` as the policy it writes.
+local function policy_of(text: PolicyText): Sandbox.Policy
+  local database = text.database
+  return {
+    profiles = text.profiles, grants = text.grants, isolate = text.isolate, promises = text.promises,
+    connect = text.connect, loopback = text.loopback, env = text.env, set_env = text.set_env,
+    set_env_digests = text.set_env_digests, tmp = text.tmp, limits = text.limits, user = text.user, group = text.group,
+    database = if database ~= nil then { path = database.path, sha256 = database.sha256 } else nil end,
+  }
+end
 
 local DATABASE <const> = FieldPath.field(FieldPath.root, "database")
 
@@ -54,15 +91,12 @@ local DATABASE <const> = FieldPath.field(FieldPath.root, "database")
 ---     local bad, why = PolicyJson.decode('{"grants":[{"path":"x","letters":"xr"}]}')
 ---     print(why) -- sandbox: $.grants[0].letters: "xr" is not in the order of "rwxcu", each letter once: "rx"
 function PolicyJson.decode(json: string): Sandbox.Policy?, string
-  local policy, why = Shape.decode_into(json, POLICY.spec)
-  if policy == nil then return nil, "sandbox: " .. why end
-  -- The type of a database may leave its digest out; the text may not.
-  local database = policy.database
-  if database ~= nil and database.sha256 == nil then
-    return nil, "sandbox: " .. FieldPath.field(DATABASE, "sha256") .. ": missing"
-  end
+  local text, why = Shape.decode_into(json, POLICY.spec)
+  if text == nil then return nil, "sandbox: " .. why end
+  local policy = policy_of(text)
   local ok, bad = Sandbox.check(policy, true)
   if not ok then return nil, bad end
+  local database = policy.database
   if database ~= nil then
     local bytes, trouble = Fs.read(database.path)
     if bytes == nil then

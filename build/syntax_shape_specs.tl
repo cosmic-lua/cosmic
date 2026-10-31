@@ -332,9 +332,13 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
   if shape == nil then
     return { splices = none, refusal = "", line = 0 }
   end
-  local pattern, pattern_trouble = Match.compile("$S.record_of($N)")
+  local pattern, pattern_trouble = Match.compile("$S.record_of($N, $$$MORE)")
   if pattern == nil then
     return { splices = none, refusal = pattern_trouble, line = 0 }
+  end
+  local mentions, mentions_trouble = Match.compile("$S.record_of")
+  if mentions == nil then
+    return { splices = none, refusal = mentions_trouble, line = 0 }
   end
   local calls: mut {Match.Hit} = {}
   for _, hit in ipairs(Match.find_all(pattern, chunk, chunk)) do
@@ -344,10 +348,33 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
       calls[#calls + 1] = hit
     end
   end
+  -- The spec and the witness are the build's to write: a record's spec that a program wrote itself could disagree with
+  -- the record it is typed as. So `record_of` is called with the name alone, and only so.
+  local calling: mut {integer: boolean} = {}
+  for _, hit in ipairs(calls) do
+    local called = hit.node
+    if (called.kind == "Call") then
+      calling[called.callee.id] = true
+    end
+  end
+  for _, hit in ipairs(Match.find_all(mentions, chunk, chunk)) do
+    local on = hit.caps["_S"]
+    local head = if on ~= nil then on.nodes[1] else nil end
+    if head ~= nil and (head.kind == "Name") and head.text == shape and calling[hit.node.id] ~= true then
+      local span = Node.span(chunk, hit.node)
+      return { splices = none, line = span.y, refusal = ("%s:%d: %s.record_of: call it as %s.record_of(\"Name\"), " ..
+        "which the build completes; a value of it cannot be made another way"):format(file, span.y, shape, shape) }
+    end
+  end
   local splices: mut {Splice} = {}
   for _, hit in ipairs(calls) do
     local span = Node.span(chunk, hit.node)
     local where = ("%s:%d: %s.record_of"):format(file, span.y, shape)
+    local more = hit.caps["___MORE"]
+    if more ~= nil and #more.nodes > 0 then
+      return { splices = none, line = span.y,
+        refusal = where .. ": the name is the only argument: the build writes the spec and the witness" }
+    end
     local named = assert(hit.caps["_N"], "the pattern captures _N")
     local literal = named.nodes[1]
     if literal == nil or not ((literal.kind == "String")) then
