@@ -101,17 +101,17 @@ local function test_each_field_kind_is_the_shape_a_hand_written_spec_names()
     "  omitted?: integer",
     "end",
   }, "\n"))
-  has(source, why, [[Shape.record_of("R", Shape.record({
-    ["a"] = Shape.optional(Shape.any), ["b"] = Shape.boolean, ["i"] = Shape.integer,
-    ["inner"] = Shape.record({ ["n"] = Shape.integer }),
-    ["level"] = Shape.one_of("debug", "warn"),
-    ["list"] = Shape.list(Shape.record({ ["n"] = Shape.integer })),
-    ["map"] = Shape.map(Shape.list(Shape.number)),
-    ["maybe"] = Shape.optional(Shape.record({ ["n"] = Shape.integer })),
-    ["n"] = Shape.number,
-    ["o"] = Shape.optional(Shape.string),
-    ["omitted"] = Shape.optional(Shape.integer),
-    ["s"] = Shape.string }), function(): R error("witness") end)]])
+  has(source, why, [[Shape.record_of("R", Shape.raw.record({
+    ["a"] = Shape.raw.optional(Shape.raw.any), ["b"] = Shape.raw.boolean, ["i"] = Shape.raw.integer,
+    ["inner"] = Shape.raw.record({ ["n"] = Shape.raw.integer }),
+    ["level"] = Shape.raw.one_of("debug", "warn"),
+    ["list"] = Shape.raw.list(Shape.raw.record({ ["n"] = Shape.raw.integer })),
+    ["map"] = Shape.raw.map(Shape.raw.list(Shape.raw.number)),
+    ["maybe"] = Shape.raw.optional(Shape.raw.record({ ["n"] = Shape.raw.integer })),
+    ["n"] = Shape.raw.number,
+    ["o"] = Shape.raw.optional(Shape.raw.string),
+    ["omitted"] = Shape.raw.optional(Shape.raw.integer),
+    ["s"] = Shape.raw.string }), function(): R error("witness") end)]])
 end
 
 --- `any` holds nil, so the store folds `any?` into `any`, and `f?: any` keeps nothing of the `?` in the field's type: each is
@@ -125,9 +125,9 @@ local function test_an_optional_field_of_any_is_an_optional_field()
     "  z: string?",
     "end",
   }, "\n"))
-  has(source, why, [[Shape.record_of("R", Shape.record({
-    ["w"] = Shape.optional(Shape.any), ["x"] = Shape.optional(Shape.any),
-    ["y"] = Shape.optional(Shape.string), ["z"] = Shape.optional(Shape.string) }), function(): R error("witness") end)]])
+  has(source, why, [[Shape.record_of("R", Shape.raw.record({
+    ["w"] = Shape.raw.optional(Shape.raw.any), ["x"] = Shape.raw.optional(Shape.raw.any),
+    ["y"] = Shape.raw.optional(Shape.raw.string), ["z"] = Shape.raw.optional(Shape.raw.string) }), function(): R error("witness") end)]])
 end
 
 local function test_what_is_spliced_is_a_call_the_parser_reads()
@@ -172,9 +172,9 @@ local function test_a_module_the_calling_module_requires_names_its_record()
       "",
     }, "\n"),
   })
-  has(source, why, [[Shape.record_of("shapes.Line", Shape.record({
-    ["from"] = Shape.record({ ["x"] = Shape.number, ["y"] = Shape.number }),
-    ["to"] = Shape.record({ ["x"] = Shape.number, ["y"] = Shape.number }) }), function(): Shapes.Line error("witness") end)]])
+  has(source, why, [[Shape.record_of("shapes.Line", Shape.raw.record({
+    ["from"] = Shape.raw.record({ ["x"] = Shape.raw.number, ["y"] = Shape.raw.number }),
+    ["to"] = Shape.raw.record({ ["x"] = Shape.raw.number, ["y"] = Shape.raw.number }) }), function(): Shapes.Line error("witness") end)]])
 end
 
 local function test_a_record_of_the_standard_library_is_read_too()
@@ -185,8 +185,8 @@ local function test_a_record_of_the_standard_library_is_read_too()
     "return OPTIONS, Json",
     "",
   }, "\n") })
-  has(source, why, [[Shape.record_of("cosmic.json.DecodeOptions", Shape.record({]])
-  has(source, why, [["max_depth"] = Shape.optional(Shape.integer)]])
+  has(source, why, [[Shape.record_of("cosmic.json.DecodeOptions", Shape.raw.record({]])
+  has(source, why, [["max_depth"] = Shape.raw.optional(Shape.raw.integer)]])
   has(source, why, "function(): Json.DecodeOptions error(\"witness\") end")
 end
 
@@ -198,7 +198,7 @@ local function test_a_nested_own_record_is_named_by_its_path()
     "  end",
     "end",
   }, "\n"), 'Shape.record_of("Outer.R")')
-  has(source, why, [[Shape.record_of("Outer.R", Shape.record({ ["n"] = Shape.integer })]])
+  has(source, why, [[Shape.record_of("Outer.R", Shape.raw.record({ ["n"] = Shape.raw.integer })]])
 end
 
 local function test_a_function_field_is_refused_by_name()
@@ -298,8 +298,8 @@ local function test_a_record_in_a_function_is_the_one_its_block_declares()
     "return { first, second }",
     "",
   }, "\n") })
-  has(source, why, [[Shape.record_of("R", Shape.record({ ["a"] = Shape.string }),]])
-  has(source, why, [[Shape.record_of("R", Shape.record({ ["b"] = Shape.integer }),]])
+  has(source, why, [[Shape.record_of("R", Shape.raw.record({ ["a"] = Shape.raw.string }),]])
+  has(source, why, [[Shape.record_of("R", Shape.raw.record({ ["b"] = Shape.raw.integer }),]])
 end
 
 local function test_a_record_declared_below_the_call_is_not_read()
@@ -319,13 +319,13 @@ end
 
 local function test_an_enum_value_with_an_escape_is_read_as_the_value_it_spells()
   local source, why = of_record('local enum Level "a\\nb" "c" end\nlocal record R\n  level: Level\nend')
-  has(source, why, [[["level"] = Shape.one_of("a\
+  has(source, why, [[["level"] = Shape.raw.one_of("a\
 b", "c")]])
 end
 
 local function test_a_call_over_several_lines_is_resolved()
   local source, why = of_record("local record R\n  n: integer\nend", 'Shape.record_of(\n  "R"\n)')
-  has(source, why, [[Shape.record_of("R", Shape.record({ ["n"] = Shape.integer }),]])
+  has(source, why, [[Shape.record_of("R", Shape.raw.record({ ["n"] = Shape.raw.integer }),]])
 end
 
 local function test_two_calls_on_one_line_are_each_resolved()
@@ -341,13 +341,13 @@ local function test_two_calls_on_one_line_are_each_resolved()
     "return both",
     "",
   }, "\n") })
-  has(source, why, [[Shape.record_of("A", Shape.record({ ["a"] = Shape.string }),]])
-  has(source, why, [[Shape.record_of("B", Shape.record({ ["b"] = Shape.integer }),]])
+  has(source, why, [[Shape.record_of("A", Shape.raw.record({ ["a"] = Shape.raw.string }),]])
+  has(source, why, [[Shape.record_of("B", Shape.raw.record({ ["b"] = Shape.raw.integer }),]])
 end
 
 local function test_a_comment_after_the_call_does_not_hide_it()
   local source, why = of_record("local record R\n  n: integer\nend", 'Shape.record_of("R") -- the spec of R')
-  has(source, why, [[Shape.record_of("R", Shape.record({ ["n"] = Shape.integer }),]])
+  has(source, why, [[Shape.record_of("R", Shape.raw.record({ ["n"] = Shape.raw.integer }),]])
 end
 
 local function test_a_call_through_another_name_is_not_a_call()
@@ -376,7 +376,7 @@ local function test_a_record_a_module_re_exports_under_an_alias_is_read_through_
     }, "\n"),
     ["main.tl"] = 'local Shape = require("cosmic.shape")\nlocal type Sb = require("sb")\nreturn Shape.record_of("sb.Policy")\n',
   })
-  has(source, why, [[Shape.record_of("sb.Policy", Shape.record({ ["n"] = Shape.integer }), function(): Sb.Policy error("witness") end)]])
+  has(source, why, [[Shape.record_of("sb.Policy", Shape.raw.record({ ["n"] = Shape.raw.integer }), function(): Sb.Policy error("witness") end)]])
 end
 
 local function test_the_splices_are_the_last_first_and_a_refusal_names_its_line()

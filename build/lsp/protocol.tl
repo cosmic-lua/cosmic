@@ -191,11 +191,7 @@ local MAX_HEADER <const> = 8192
 --- The largest message body taken, in bytes.
 local MAX_BODY <const> = 64 * 1024 * 1024
 
-local MESSAGE <const> = Shape.record({
-  method = Shape.optional(Shape.string),
-  id = Shape.optional(Shape.any),
-  params = Shape.optional(Shape.any),
-})
+local MESSAGE <const>: Shape.Typed<protocol.Message> = Shape.record_of("protocol.Message")
 
 local DOCUMENT_PARAMS <const>: Shape.Typed<protocol.DocumentParams> = Shape.record_of("protocol.DocumentParams")
 
@@ -420,7 +416,7 @@ function protocol.message_of(body: string): protocol.Message?, string
   if decoded == nil and trouble ~= "" then
     return nil, protocol.failure("null", PARSE_ERROR, trouble)
   end
-  local message, invalid: protocol.Message?, string = Shape.into(decoded, MESSAGE)
+  local message, invalid = Shape.into(decoded, MESSAGE.spec)
   if message == nil then
     return nil, protocol.failure("null", protocol.INVALID_REQUEST, "not a message: " .. invalid)
   end

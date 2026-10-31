@@ -29,41 +29,7 @@ local function digest_of(value: string): string
   return Codec.hex(Hash.sha256(value))
 end
 
-local LIMITS_SPEC <const> = Shape.strict_record({
-  open_files = Shape.optional(Shape.integer),
-  file_bytes = Shape.optional(Shape.integer),
-  cpu_seconds = Shape.optional(Shape.integer),
-  processes = Shape.optional(Shape.integer),
-})
-
-local GRANT_SPEC <const> = Shape.strict_record({
-  path = Shape.string,
-  letters = Shape.string,
-  from = Shape.optional(Shape.string),
-})
-
---- A database as the text writes it: where it is and what it is.
-local DATABASE_SPEC <const> = Shape.strict_record({
-  path = Shape.string,
-  sha256 = Shape.string,
-})
-
-local POLICY_SPEC <const> = Shape.strict_record({
-  profiles = Shape.optional(Shape.list(Shape.string)),
-  grants = Shape.optional(Shape.list(GRANT_SPEC)),
-  isolate = Shape.optional(Shape.list(Shape.one_of("file", "proc"))),
-  promises = Shape.optional(Shape.list(Shape.one_of("fork", "jit", "fattr", "nest"))),
-  connect = Shape.optional(Shape.list(Shape.string)),
-  loopback = Shape.optional(Shape.list(Shape.string)),
-  env = Shape.optional(Shape.list(Shape.string)),
-  set_env = Shape.optional(Shape.map(Shape.string)),
-  set_env_digests = Shape.optional(Shape.map(Shape.string)),
-  tmp = Shape.optional(Shape.boolean),
-  limits = Shape.optional(LIMITS_SPEC),
-  user = Shape.optional(Shape.integer),
-  group = Shape.optional(Shape.integer),
-  database = Shape.optional(DATABASE_SPEC),
-})
+local POLICY <const>: Shape.Typed<Sandbox.Policy> = Shape.record_of("cosmic.sandbox.Policy"):strict()
 
 local DATABASE <const> = FieldPath.field(FieldPath.root, "database")
 
@@ -88,11 +54,15 @@ local DATABASE <const> = FieldPath.field(FieldPath.root, "database")
 ---     local bad, why = PolicyJson.decode('{"grants":[{"path":"x","letters":"xr"}]}')
 ---     print(why) -- sandbox: $.grants[0].letters: "xr" is not in the order of "rwxcu", each letter once: "rx"
 function PolicyJson.decode(json: string): Sandbox.Policy?, string
-  local policy, why: Sandbox.Policy?, string = Shape.decode_into(json, POLICY_SPEC)
+  local policy, why = Shape.decode_into(json, POLICY.spec)
   if policy == nil then return nil, "sandbox: " .. why end
+  -- The type of a database may leave its digest out; the text may not.
+  local database = policy.database
+  if database ~= nil and database.sha256 == nil then
+    return nil, "sandbox: " .. FieldPath.field(DATABASE, "sha256") .. ": missing"
+  end
   local ok, bad = Sandbox.check(policy, true)
   if not ok then return nil, bad end
-  local database = policy.database
   if database ~= nil then
     local bytes, trouble = Fs.read(database.path)
     if bytes == nil then

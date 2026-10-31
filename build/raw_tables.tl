@@ -54,7 +54,7 @@ local function table_behind<T>(wrapper: string, required: {string}): T
   for _, searcher in ipairs(package.searchers) do
     local loader, extra = searcher(wrapper)
     if type(loader) == "function" and type(extra) == "table" then
-      local named, why: {string: any}?, string = Shape.into(extra, NAMED)
+      local named, why = Shape.into(extra, NAMED)
       assert(named, wrapper .. " is handed a raw table that is no table of the core's: " .. why)
       for _, name in ipairs(required) do
         if type(named[name]) ~= "function" then
@@ -62,9 +62,12 @@ local function table_behind<T>(wrapper: string, required: {string}): T
               "table, or the core is another build")
         end
       end
-      -- [`Shape.any`] checks nothing and copies nothing: the checks are the ones above.
-      local same, _: T?, string = Shape.into(extra, Shape.any)
-      return (assert(same, "a table is no missing value, which is all `Shape.any` refuses"))
+      -- The spec names the `T` the caller asked for and checks nothing, which is the claim of this module: the table is
+      -- the core's own, and the checks above are the ones it can have. A [`Shape.Spec`] built by hand is no other
+      -- spec's claim, so this is written out here and nowhere else.
+      local claim: Shape.Spec<T> = { node = Shape.raw.any }
+      local same, _ = Shape.into(extra, claim)
+      return (assert(same, "a table is no missing value, which is all `Shape.raw.any` refuses"))
     end
   end
   error(wrapper .. " is handed no raw table: the store's searchers give one only for a module of the closure, " ..

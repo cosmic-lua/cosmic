@@ -1,6 +1,6 @@
 --- Resolves `Shape.record_of("Module.Record")` where a module is compiled: the call names a record, and this reads the
 --- record's declaration off the checker's types and splices the [`cosmic.shape`] spec the declaration describes into the
---- call, with a witness of the record's type, so the compiled module holds exactly what a hand-written `Shape.record{...}`
+--- call, with a witness of the record's type, so the compiled module holds exactly what a hand-written `Shape.raw.record{...}`
 --- would and the call's answer is typed as the record.
 ---
 --- The build is where this runs, not the program: a record's declaration is source, and reading it is the compiler's
@@ -66,7 +66,7 @@ end
 
 local type Type = Types.Type
 
---- Names in byte order, as [`Shape.record`] keeps them.
+--- Names in byte order, as `Shape.raw.record` keeps them.
 local function sorted(names: {string}): {string}
   local out: mut {string} = {}
   for _, name in ipairs(names) do
@@ -83,7 +83,7 @@ local LEAVES <const>: {string: boolean} = {
 local spec_of: function(t: Type, path: string, shape: string, holding: {Types.Decl: boolean}, store: Types.Store):
   string?, string
 
---- `T?` as `Shape.optional(T)`: the one union a spec has a word for.
+--- `T?` as `Shape.raw.optional(T)`: the one union a spec has a word for.
 local function optional_of(t: Types.Union, path: string, shape: string, holding: {Types.Decl: boolean},
                            store: Types.Store): string?, string
   local present = assert(t.members[1], "a union has a member")
@@ -95,7 +95,7 @@ local function optional_of(t: Types.Union, path: string, shape: string, holding:
   if inner == nil then
     return nil, why
   end
-  return shape .. ".optional(" .. inner .. ")", ""
+  return shape .. ".raw.optional(" .. inner .. ")", ""
 end
 
 local function record_spec(decl: Types.Decl, path: string, shape: string, holding: mut {Types.Decl: boolean},
@@ -133,13 +133,13 @@ local function record_spec(decl: Types.Decl, path: string, shape: string, holdin
     -- A field written `f?: T` is omittable whatever `T` is, and a field of `any` may be nil, as `any` holds nil: the store
     -- folds `any?` into `any`, so the union that would say so is gone from the field's type.
     local nilable = field.omittable == true or field.type == store.any
-    if nilable and inner:sub(1, #shape + 10) ~= shape .. ".optional(" then
-      inner = shape .. ".optional(" .. inner .. ")"
+    if nilable and inner:sub(1, #shape + 14) ~= shape .. ".raw.optional(" then
+      inner = shape .. ".raw.optional(" .. inner .. ")"
     end
     parts[#parts + 1] = ("[%q] = %s"):format(field.name, inner)
   end
   holding[decl] = nil
-  return shape .. ".record({ " .. table.concat(parts, ", ") .. " })", ""
+  return shape .. ".raw.record({ " .. table.concat(parts, ", ") .. " })", ""
 end
 
 --- The Teal expression, over the `shape` alias, that builds the spec of `t`, or nil and why it has none. `path` names
@@ -148,7 +148,7 @@ spec_of = function(t: Type, path: string, shape: string, holding: mut {Types.Dec
     string?, string
   if (t.atom == true) then
     if LEAVES[t.tag] == true then
-      return shape .. "." .. tostring(t.tag), ""
+      return shape .. ".raw." .. tostring(t.tag), ""
     elseif t.tag == "invalid" then
       return nil, path .. ": a type the checker did not resolve"
     end
@@ -158,7 +158,7 @@ spec_of = function(t: Type, path: string, shape: string, holding: mut {Types.Dec
     if inner == nil then
       return nil, why
     end
-    return shape .. ".list(" .. inner .. ")", ""
+    return shape .. ".raw.list(" .. inner .. ")", ""
   elseif (t.tag == "map") then
     local key = t.key
     if not ((key.atom == true) and key.tag == "string") then
@@ -168,7 +168,7 @@ spec_of = function(t: Type, path: string, shape: string, holding: mut {Types.Dec
     if inner == nil then
       return nil, why
     end
-    return shape .. ".map(" .. inner .. ")", ""
+    return shape .. ".raw.map(" .. inner .. ")", ""
   elseif (t.tag == "union") then
     return optional_of(t, path, shape, holding, store)
   elseif (t.tag == "named") then
@@ -186,7 +186,7 @@ spec_of = function(t: Type, path: string, shape: string, holding: mut {Types.Dec
       if #values == 0 then
         return nil, path .. ": an enum with no values has no shape"
       end
-      return shape .. ".one_of(" .. table.concat(values, ", ") .. ")", ""
+      return shape .. ".raw.one_of(" .. table.concat(values, ", ") .. ")", ""
     elseif decl.kind == "record" then
       return record_spec(decl, path, shape, holding, store)
     elseif decl.kind == "userdata" then

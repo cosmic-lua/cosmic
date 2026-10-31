@@ -27,31 +27,31 @@ local function key(r: Recipe): string
   return KEYS[byte(r, #KEYS) + 1]
 end
 
-local function gen_spec(r: Recipe, depth: integer): Shape.Spec
+local function gen_spec(r: Recipe, depth: integer): Shape.Node
   local pick = byte(r, if depth > 0 then 9 else 6 end)
-  local spec: Shape.Spec
+  local spec: Shape.Node
   if pick == 0 then
-    spec = Shape.string
+    spec = Shape.raw.string
   elseif pick == 1 then
-    spec = Shape.number
+    spec = Shape.raw.number
   elseif pick == 2 then
-    spec = Shape.integer
+    spec = Shape.raw.integer
   elseif pick == 3 then
-    spec = Shape.boolean
+    spec = Shape.raw.boolean
   elseif pick == 4 then
-    spec = Shape.any
+    spec = Shape.raw.any
   elseif pick == 5 then
-    spec = Shape.one_of("a", 1, true)
+    spec = Shape.raw.one_of("a", 1, true)
   elseif pick == 6 then
-    spec = Shape.list(gen_spec(r, depth - 1))
+    spec = Shape.raw.list(gen_spec(r, depth - 1))
   elseif pick == 7 then
-    spec = Shape.map(gen_spec(r, depth - 1))
+    spec = Shape.raw.map(gen_spec(r, depth - 1))
   else
-    local fields: mut {string: Shape.Spec} = {}
+    local fields: mut {string: Shape.Node} = {}
     for _ = 1, byte(r, 4) do fields[key(r)] = gen_spec(r, depth - 1) end
-    spec = byte(r, 2) == 0 and Shape.strict_record(fields) or Shape.record(fields)
+    spec = byte(r, 2) == 0 and Shape.raw.strict_record(fields) or Shape.raw.record(fields)
   end
-  if byte(r, 4) == 0 then spec = Shape.optional(spec) end
+  if byte(r, 4) == 0 then spec = Shape.raw.optional(spec) end
   return spec
 end
 
@@ -63,7 +63,7 @@ local STRAYS <const>: {any} = {
 --- A value for `spec`. Unless `strict`, one time in eight it is whatever
 --- else, and a record's required field may be missing. A strict value
 --- fits its spec and holds only what JSON can carry.
-local function gen_value(r: Recipe, spec: Shape.Spec, depth: integer, strict: boolean): any
+local function gen_value(r: Recipe, spec: Shape.Node, depth: integer, strict: boolean): any
   if not strict and (byte(r, 8) == 0 or depth == 0) then
     local pick = byte(r, #STRAYS + 3)
     if pick < #STRAYS then return STRAYS[pick + 1] end
@@ -71,7 +71,7 @@ local function gen_value(r: Recipe, spec: Shape.Spec, depth: integer, strict: bo
     local t: mut {any: any} = {}
     for _ = 1, byte(r, 3) do
       local k: any = byte(r, 2) == 0 and key(r) or byte(r, 4)
-      t[k] = gen_value(r, Shape.any, depth - 1, false)
+      t[k] = gen_value(r, Shape.raw.any, depth - 1, false)
     end
     if byte(r, 4) == 0 and next(t) == nil then Json.array(t as {any}) end
     return t
@@ -149,7 +149,7 @@ end
 --- the walk. An answer is never [`Json.null`] outside an `any`, holds
 --- integers where the spec says integer, a JSON array for a list, and no
 --- key a record does not name.
-local function fits(v: any, spec: Shape.Spec): boolean
+local function fits(v: any, spec: Shape.Node): boolean
   if v == nil then return spec.optional end
   if rawequal(v, Json.null) then return false end
   local kind = spec.kind
@@ -203,9 +203,9 @@ local function check_total(input: string): boolean, string
   local r: Recipe = { bytes = input, at = 0 }
   local spec = gen_spec(r, 3)
   local value = gen_value(r, spec, 4, false)
-  local out, err: any, string = Shape.into(value, spec)
+  local out, err = Shape.raw.check(value, spec)
   -- The same value answers the same failure on every call.
-  local _, again_err: any, string = Shape.into(value, spec)
+  local _, again_err = Shape.raw.check(value, spec)
   if again_err ~= err then
     return false, ("two calls answered %q and %q"):format(err, again_err)
   end
@@ -215,7 +215,7 @@ local function check_total(input: string): boolean, string
     return true, ""
   end
   if not fits(out, spec) then return false, "the answer is not its shape" end
-  local again, err2: any, string = Shape.into(out, spec)
+  local again, err2 = Shape.raw.check(out, spec)
   if err2 ~= "" then return false, "the answer does not fit its own shape: " .. err2 end
   if not same(out, again) then return false, "the answer changed on a second walk" end
   return true, ""
@@ -257,14 +257,14 @@ local function check_json(input: string): boolean, string
   if byte(r, 2) == 0 then opts.null_value = Json.null end
   local decoded, derr = Json.decode(text, opts)
   if derr ~= "" then return false, "its text did not decode: " .. derr end
-  local out, err: any, string = Shape.into(decoded, spec)
+  local out, err = Shape.raw.check(decoded, spec)
   if err ~= "" then return false, ("%s no longer fits: %s"):format(text, err) end
   if not fits(out, spec) then return false, text .. ": the answer is not its shape" end
   local again_text, aerr = Json.encode_any(filled(out))
   if again_text == nil then return false, text .. ": the answer did not encode: " .. aerr end
   -- Read back as it was first read: under `any` the answer keeps
   -- [`Json.null`], which only the same `null_value` reads back as itself.
-  local again, err2: any, string = Shape.into(Json.decode(again_text, opts), spec)
+  local again, err2 = Shape.raw.check(Json.decode(again_text, opts), spec)
   if err2 ~= "" then return false, again_text .. " does not fit: " .. err2 end
   if not same(out, again) then return false, again_text .. " read back as another answer" end
   return true, ""
@@ -275,10 +275,10 @@ end
 --- included -- refuses it, and names that key.
 local function check_strict(input: string): boolean, string
   local r: Recipe = { bytes = input, at = 0 }
-  local fields: mut {string: Shape.Spec} = {}
+  local fields: mut {string: Shape.Node} = {}
   for _ = 1, byte(r, 4) do fields[key(r)] = gen_spec(r, 2) end
-  local spec = Shape.strict_record(fields)
-  if byte(r, 2) == 0 then spec = Shape.optional(spec) end
+  local spec = Shape.raw.strict_record(fields)
+  if byte(r, 2) == 0 then spec = Shape.raw.optional(spec) end
   local value = gen_value(r, spec, 4, true) as {any: any}
   local extra: any
   local want: string?
@@ -291,7 +291,7 @@ local function check_strict(input: string): boolean, string
     extra = k
   end
   value[extra] = STRAYS[byte(r, #STRAYS) + 1]
-  local out, err: any, string = Shape.into(value, spec)
+  local out, err = Shape.raw.check(value, spec)
   if err == "" or out ~= nil then return false, "a strict record admitted an unknown key" end
   if want ~= nil then
     if err ~= want then return false, ("wanted %q, got %q"):format(want, err) end

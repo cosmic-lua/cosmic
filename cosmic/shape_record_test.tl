@@ -1,6 +1,6 @@
 --- [`Shape.record_of`] in modules the build compiled: the spec it
 --- reads off a record is what the same record's hand-written
---- [`Shape.record`] builds, and `into` checks against it. Which records
+--- [`Shape.raw`] `record` builds, and `into` checks against it. Which records
 --- the build refuses is build/shape_specs_test.tl's.
 local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
@@ -41,27 +41,27 @@ end
 local PROFILE <const> = Shape.record_of("Profile")
 local INNER <const> = Shape.record_of("Profile.Inner")
 
-local ADDRESS <const> = Shape.record({
-  street = Shape.string,
-  floor = Shape.optional(Shape.integer),
+local ADDRESS <const> = Shape.raw.record({
+  street = Shape.raw.string,
+  floor = Shape.raw.optional(Shape.raw.integer),
 })
 
-local HAND_WRITTEN <const> = Shape.record({
-  name = Shape.string,
-  age = Shape.integer,
-  score = Shape.number,
-  admin = Shape.boolean,
-  nickname = Shape.optional(Shape.string),
+local HAND_WRITTEN <const> = Shape.raw.record({
+  name = Shape.raw.string,
+  age = Shape.raw.integer,
+  score = Shape.raw.number,
+  admin = Shape.raw.boolean,
+  nickname = Shape.raw.optional(Shape.raw.string),
   address = ADDRESS,
-  previous = Shape.optional(ADDRESS),
-  tags = Shape.list(Shape.string),
-  scores = Shape.list(Shape.number),
-  places = Shape.list(ADDRESS),
-  by_key = Shape.map(ADDRESS),
-  weights = Shape.map(Shape.number),
-  level = Shape.one_of("debug", "info", "warn"),
-  anything = Shape.optional(Shape.any),
-  inner = Shape.record({ deep = Shape.map(Shape.list(Shape.integer)) }),
+  previous = Shape.raw.optional(ADDRESS),
+  tags = Shape.raw.list(Shape.raw.string),
+  scores = Shape.raw.list(Shape.raw.number),
+  places = Shape.raw.list(ADDRESS),
+  by_key = Shape.raw.map(ADDRESS),
+  weights = Shape.raw.map(Shape.raw.number),
+  level = Shape.raw.one_of("debug", "info", "warn"),
+  anything = Shape.raw.optional(Shape.raw.any),
+  inner = Shape.raw.record({ deep = Shape.raw.map(Shape.raw.list(Shape.raw.integer)) }),
 })
 
 --- `a` and `b` hold the same, whatever tables they are.
@@ -90,7 +90,7 @@ local GOOD <const> = [[{
 }]]
 
 local function test_the_spec_is_the_hand_written_one()
-  same(PROFILE.spec, HAND_WRITTEN, "$")
+  same(PROFILE.spec.node, HAND_WRITTEN, "$")
 end
 
 local function test_the_spec_checks_what_the_hand_written_one_does()
@@ -101,7 +101,8 @@ local function test_the_spec_checks_what_the_hand_written_one_does()
   assert(profile.nickname == nil and profile.previous == nil)
   assert(profile.by_key["home"].street == "Oak" and profile.inner.deep["k"][2] == 2)
   assert((profile as {string: any}).unlisted == nil, "a key the record lacks was kept")
-  local hand, hand_err = Shape.decode_into(text, HAND_WRITTEN, { null_value = Json.null })
+  local decoded = Json.decode(text, { null_value = Json.null })
+  local hand, hand_err = Shape.raw.check(decoded, HAND_WRITTEN)
   assert(hand ~= nil, hand_err)
   same(profile, hand, "$")
 end

@@ -45,10 +45,10 @@
 ---   A `map`, and a `list` of records or lists, cannot be carried by a
 ---   form: [`Input.check_spec`] refuses them.
 --- - A string with a NUL is refused. A name the spec does not list is
----   ignored, so `is_admin=1` binds nothing; only a `strict_record`
----   refuses one, except `csrf_token`.
+---   ignored, so `is_admin=1` binds nothing; only a strict record
+---   ([`Shape.Typed.strict`]) refuses one, except `csrf_token`.
 ---
---- `csrf_token` is exempt from a `strict_record` only at the top level, and
+--- `csrf_token` is exempt from a strict record only at the top level, and
 --- a list element's name (`tags.0`) is not checked for strictness. A `one_of`
 --- that lists `""` never binds from text: an empty value is "required" (or
 --- nil if optional) before the list is consulted.
@@ -808,7 +808,7 @@ local function refuse(w: Walk, field: string, code: string, message: string)
   w.errors[#w.errors + 1] = { source = w.source, field = field, code = code, message = message }
 end
 
-local function listed(spec: Shape.Spec): string
+local function listed(spec: Shape.Node): string
   local parts: mut {string} = {}
   for i, v in ipairs(assert(spec.values)) do parts[i] = tostring(v) end
   return table.concat(parts, ", ")
@@ -816,7 +816,7 @@ end
 
 --- The value `text` spells for the scalar `spec`, or nil with the error
 --- recorded.
-local function coerce(w: Walk, field: string, spec: Shape.Spec, text: string): Json.Value?
+local function coerce(w: Walk, field: string, spec: Shape.Node, text: string): Json.Value?
   local kind = spec.kind
   if kind == "string" or kind == "any" then
     if text:find("\0", 1, true) then
@@ -858,7 +858,7 @@ local function coerce(w: Walk, field: string, spec: Shape.Spec, text: string): J
 end
 
 --- The value of the scalar `field`, given the text sent for it or nil.
-local function scalar(w: Walk, field: string, spec: Shape.Spec, text: string?): Json.Value?
+local function scalar(w: Walk, field: string, spec: Shape.Node, text: string?): Json.Value?
   local kind = spec.kind
   if text == nil or (text == "" and kind ~= "string" and kind ~= "any") then
     if spec.optional then return nil end
@@ -869,7 +869,7 @@ local function scalar(w: Walk, field: string, spec: Shape.Spec, text: string?): 
   return coerce(w, field, spec, text)
 end
 
-local bind_record: function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer): {string:any}
+local bind_record: function(w: Walk, prefix: string, spec: Shape.Node, depth: integer): {string:any}
 
 --- Whether some name starts with `prefix` and a dot.
 local function nested_present(q: Url.Query, prefix: string): boolean
@@ -880,7 +880,7 @@ local function nested_present(q: Url.Query, prefix: string): boolean
   return false
 end
 
-local function bind_list(w: Walk, field: string, spec: Shape.Spec): any
+local function bind_list(w: Walk, field: string, spec: Shape.Node): any
   local values = w.q.by_name[field]
   if values == nil then
     if spec.optional then return nil end
@@ -901,7 +901,7 @@ local function bind_list(w: Walk, field: string, spec: Shape.Spec): any
   return marked
 end
 
-local function bind_node(w: Walk, field: string, spec: Shape.Spec, depth: integer): any
+local function bind_node(w: Walk, field: string, spec: Shape.Node, depth: integer): any
   local kind = spec.kind
   if kind == "record" then
     if spec.optional and not nested_present(w.q, field) then return nil end
@@ -931,7 +931,7 @@ local function component(name: string, prefix: string): string?
   return (rest:match("^([^.]*)"))
 end
 
-bind_record = function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer): {string:any}
+bind_record = function(w: Walk, prefix: string, spec: Shape.Node, depth: integer): {string:any}
   local fields, names = assert(spec.fields), assert(spec.names)
   if spec.strict == true then
     local unknown: mut {string} = {}
@@ -960,7 +960,7 @@ local SCALARS <const>: {string:boolean} = {
 }
 
 --- Why `spec` cannot be carried by `source`, or "" when it can.
-local function check_node(spec: Shape.Spec, field: string, source: string, depth: integer): string
+local function check_node(spec: Shape.Node, field: string, source: string, depth: integer): string
   local kind = spec.kind
   local at = if field == "" then "the spec" else ("field " .. field) end
   if not (SCALARS[kind] == true or kind == "map" or kind == "record" or kind == "list") then
@@ -1005,9 +1005,9 @@ end
 --- boolean or `one_of` per name, none optional. A "body" (JSON) carries
 --- any spec. [`Web.route_typed`] calls it when a route is registered, so a
 --- spec text cannot satisfy fails at startup.
---- @param spec Shape.Spec The spec
+--- @param spec Shape.Node The spec
 --- @param source string "path", "query", "form" or "body"
-function Input.check_spec(spec: Shape.Spec, source: string)
+function Input.check_spec(spec: Shape.Node, source: string)
   if source ~= "path" and source ~= "query" and source ~= "form" and source ~= "body" then
     error(("input: %q is not a source: path, query, form or body"):format(tostring(source)), 2)
   end
@@ -1085,11 +1085,11 @@ end
 
 --- Binds the decoded `value` to `spec` with [`Shape.into`], as the answer
 --- or the one error it reports.
-local function bind_json<T>(value: any, spec: Shape.Spec): Types.Parsed<T>
+local function bind_json<T>(value: any, spec: Shape.Spec<T>): Types.Parsed<T>
   -- TODO: once cosmic.shape reports a failing path as steps, read them in
   -- place of splitting the message, and collect every failure of a JSON
   -- body as a form's are.
-  local out, why: T?, string = Shape.into(value, spec)
+  local out, why = Shape.into(value, spec)
   if out == nil then
     local pointer, reason = split_failure(why)
     return { invalid = invalid(422, { { source = "body", field = dotted(pointer), code = failure_code(reason),
@@ -1109,24 +1109,24 @@ end
 
 --- Binds the text of `q` to `spec`, a record, coercing by the rules in the
 --- module's description and collecting every field's error. The answer's
---- type is the caller's annotation, as [`Shape.into`]'s is; the tree is
+--- type is the spec's, as [`Shape.into`]'s is; the tree is
 --- checked by [`Shape.into`] last, so what comes back is what it makes.
 --- `opts.source` ("form" by default) is what each error's `source` says.
 --- @param q Url.Query The pairs
---- @param spec Shape.Spec A record
+--- @param spec Shape.Spec<T> A record
 --- @param opts Types.InputOptions | nil `source`, `repeated`, `secret`
 --- @return Types.Parsed<T> The record, or status 422 and every error
-function Input.bind_strings<T>(q: Url.Query, spec: Shape.Spec, opts?: Types.InputOptions): Types.Parsed<T>
-  if spec.kind ~= "record" then
-    error(("input: bind_strings binds a record, not a %s"):format(tostring(spec.kind)), 2)
+function Input.bind_strings<T>(q: Url.Query, spec: Shape.Spec<T>, opts?: Types.InputOptions): Types.Parsed<T>
+  if spec.node.kind ~= "record" then
+    error(("input: bind_strings binds a record, not a %s"):format(tostring(spec.node.kind)), 2)
   end
   local w: Walk = { q = q, source = opts and opts.source or "form", errors = {},
     repeated = opts ~= nil and opts.repeated == "error" }
-  local tree = bind_record(w, "", spec, 0)
+  local tree = bind_record(w, "", spec.node, 0)
   if #w.errors > 0 then
     return { invalid = invalid(422, w.errors, without(q, opts and opts.secret)) }
   end
-  local out, why: T?, string = Shape.into(tree, spec)
+  local out, why = Shape.into(tree, spec)
   if out == nil then
     -- A tree the binder built that Shape refuses is the binder's bug; the
     -- client is told what Shape said.

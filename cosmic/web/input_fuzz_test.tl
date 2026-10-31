@@ -16,17 +16,22 @@ local record Inner
   city: string
   zip: integer?
 end
-local SPECS <const>: {Shape.Spec} = {
-  Shape.record({
-    name = Shape.string, age = Shape.integer, score = Shape.number, on = Shape.boolean,
-    color = Shape.one_of("red", "green"), nick = Shape.optional(Shape.string),
-    limit = Shape.optional(Shape.integer), tags = Shape.list(Shape.string), nums = Shape.list(Shape.integer),
-    inner = Shape.record({ city = Shape.string, zip = Shape.optional(Shape.integer) }),
-    maybe = Shape.optional(Shape.record({ city = Shape.string, zip = Shape.optional(Shape.integer) })),
-  }),
-  Shape.strict_record({ a = Shape.optional(Shape.boolean), b = Shape.optional(Shape.number),
-    c = Shape.optional(Shape.list(Shape.one_of(1, 2.5, true, "x"))) }),
-  Shape.record({ id = Shape.integer, kind = Shape.one_of("a", "b"), live = Shape.boolean }),
+--- A record node read as a map of untrusted values, which is all a hand-written record says of its type.
+local function dynamic(node: Shape.Node): Shape.Spec<{string:any}>
+  return { node = node }
+end
+
+local SPECS <const>: {Shape.Spec<{string:any}>} = {
+  dynamic(Shape.raw.record({
+    name = Shape.raw.string, age = Shape.raw.integer, score = Shape.raw.number, on = Shape.raw.boolean,
+    color = Shape.raw.one_of("red", "green"), nick = Shape.raw.optional(Shape.raw.string),
+    limit = Shape.raw.optional(Shape.raw.integer), tags = Shape.raw.list(Shape.raw.string), nums = Shape.raw.list(Shape.raw.integer),
+    inner = Shape.raw.record({ city = Shape.raw.string, zip = Shape.raw.optional(Shape.raw.integer) }),
+    maybe = Shape.raw.optional(Shape.raw.record({ city = Shape.raw.string, zip = Shape.raw.optional(Shape.raw.integer) })),
+  })),
+  dynamic(Shape.raw.strict_record({ a = Shape.raw.optional(Shape.raw.boolean), b = Shape.raw.optional(Shape.raw.number),
+    c = Shape.raw.optional(Shape.raw.list(Shape.raw.one_of(1, 2.5, true, "x"))) })),
+  dynamic(Shape.raw.record({ id = Shape.raw.integer, kind = Shape.raw.one_of("a", "b"), live = Shape.raw.boolean })),
 }
 
 local NAMES <const>: {{string}} = {

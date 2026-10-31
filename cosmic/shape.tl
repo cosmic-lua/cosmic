@@ -1,42 +1,17 @@
 --- Checks a decoded value against a declared shape, and hands it back as
 --- a typed record. What `cosmic.json` decodes, or a loaded chunk returns,
 --- is `any`, and reading a field from it costs a cast that nothing checks.
---- `into` walks the value against a [`Spec`] built from the functions
---- below, once, and answers a new value holding what the spec names and
---- nothing else, so every read after it is an ordinary typed read. Its
---- answer is a generic `T`: name the type where it lands --
---- `local server, err: Server | nil, string = Shape.into(value, SERVER)`,
---- as below -- or build the spec with [`record_of`], whose `into`
---- answers the record's own type. Without either, `server` is a `T
---- (unresolved generic)`, and every read of it fails to compile.
+--- `into` walks the value against a [`Spec`] once, and answers a new value
+--- holding what the spec names and nothing else, so every read after it is
+--- an ordinary typed read. A `Spec<T>` is the shape of a `T`: the functions
+--- that build one give it the type of the check they make, so what `into`
+--- answers is a `T` and no annotation stands between the two.
 ---
----     local record Server
----       host: string
----       port: integer
----     end
----     local SERVER <const> = Shape.record({
----       host = Shape.string,
----       port = Shape.integer,
----     })
----     local server, err: Server | nil, string = Shape.into(decoded, SERVER)
----
---- [`decode_into`] is [`Json.decode`] and `into` in one call, for text that
---- is not used as anything but the record:
----
----     local server, err: Server | nil, string = Shape.decode_into(text, SERVER)
----
---- The result's type comes from the caller's annotation, not from the
---- spec, and nothing checks that the two agree: a field the record has
---- and the spec lacks is simply never set. Teal infers the type in a
---- declaration with its error, as above, in a `return` from a function
---- declared `T | nil, string`, and in `local s: Server = must(...)`. A
---- bare `local s = must(Shape.into(...))` fails to compile with "cannot
---- infer declaration type".
----
---- [`record_of`] makes the record and its shape one declaration: the
---- spec is read off the record's declaration where the module is built,
---- and `into` answers the record's own type, so a field added to the
---- record is checked from then on and no annotation can disagree:
+--- A record's spec is made by [`record_of`], which the build reads off the
+--- record's own declaration, so a field added to the record is checked
+--- from then on. Its parts are built from the others: `list`, `map`,
+--- `optional`, [`one_of`], [`sparse_list`], and the leaves `string`, `number`,
+--- `integer`, `boolean` and `any`.
 ---
 ---     local record Server
 ---       host: string
@@ -44,12 +19,25 @@
 ---     end
 ---     local SERVER <const> = Shape.record_of("Server")
 ---     local server, err = SERVER:into(decoded)
+---     local servers, why = Shape.into(decoded, Shape.list(SERVER.spec))
+---
+--- [`decode_into`] is [`Json.decode`] and `into` in one call, for text that
+--- is not used as anything but the record:
+---
+---     local server, err = Shape.decode_into(text, SERVER.spec)
+---
+--- An array holds every index from 1, so a list that may have a missing
+--- element is not a `{T}`: `list(optional(x))` does not compile
+--- (`array_of_optional`), and [`sparse_list`] answers `{integer: T}`.
+---
+--- [`Raw`] builds nodes that name no type, for the build and for tests of
+--- the walk; `into` takes none of them.
 ---
 --- The rules, fixed here:
 ---
 --- - The answer is a copy. A record keeps only the fields its spec
 ---   names, so a key the payload grew is dropped rather than refused
----   ([`strict_record`] refuses it instead), and the value handed in is
+---   ([`Typed.strict`] refuses it instead), and the value handed in is
 ---   never written to.
 --- - JSON is the decoder in mind. A missing key and [`Json.null`], which
 ---   `Json.decode(text, { null_value = Json.null })` puts where the text
@@ -78,7 +66,7 @@ local FieldPath = require("cosmic.internal.field_path")
 local Json = require("cosmic.json")
 
 local record Shape
-  --- Which check a [`Spec`] is.
+  --- Which check a [`Node`] is.
   enum Kind
     "string"
     "number"
@@ -91,17 +79,17 @@ local record Shape
     "one_of"
   end
 
-  --- One node of a shape. Build it with the functions and values of
-  --- this module; its fields are how `into` reads it, not an interface.
-  record Spec
+  --- One node of a shape, the tree `into` walks. It names no type: a [`Spec`] pairs one with the type it checks for, and
+  --- [`Raw`] builds them bare, for the build's [`record_of`] and for tests of the walk.
+  record Node
     --- Which check this node is.
     kind: Shape.Kind
     --- Whether a missing value satisfies it.
     optional: boolean
-    --- The element's spec, for "list" and "map".
-    of?: Spec
-    --- The fields' specs, for "record".
-    fields?: {string: Spec}
+    --- The element's node, for "list" and "map".
+    of?: Node
+    --- The fields' nodes, for "record".
+    fields?: {string: Node}
     --- The fields' names in byte order, for "record".
     names?: {string}
     --- Whether a key `fields` does not name is refused, for "record".
@@ -110,13 +98,20 @@ local record Shape
     values?: {string | number | boolean}
   end
 
-  --- A [`Spec`] and the record `T` it was built from, which
-  --- [`record_of`] answers. Its methods answer a `T`, so no annotation
-  --- stands between the spec and the type of what it checks.
+  --- A shape, and the type `T` of what it checks: a value that passes it is a `T`. The functions below build one from
+  --- another, so `T` follows from how it was built, and [`into`] answers it with no annotation to disagree. A record's
+  --- is made by [`record_of`], from the record's own declaration.
+  record Spec<T>
+    --- What `into` walks.
+    node: Node
+    --- Never set: a function that answers `T`, so that the type is part of this one's.
+    witness?: function(): T
+  end
+
+  --- A [`Spec`] and the record `T` it was built from, which [`record_of`] answers. Its methods answer a `T`.
   record Typed<T>
-    --- The record's shape: what `record` builds for the fields it
-    --- declares.
-    spec: Spec
+    --- The record's shape: what [`record_of`] builds for the fields it declares.
+    spec: Spec<T>
     --- The record's name, as [`record_of`] was given it. A failure of
     --- `into` or [`decode_into`] starts with it: `Envelope: $.items[3].name: missing`.
     name: string
@@ -124,134 +119,122 @@ local record Shape
     into: function(self: Typed<T>, value: any): T?, string
     --- [`decode_into`] over `spec`, answering a `T`.
     decode_into: function(self: Typed<T>, text: string, opts?: Json.DecodeOptions): T?, string
+    --- This record's shape, refusing every key a record in it does not name (`{"prot": 8080}` fails with `$.prot: unknown
+    --- key` where the record has `port`), for a config file where a misspelled key should fail rather than vanish.
+    strict: function(self: Typed<T>): Typed<T>
   end
 
+  --- The nodes with no type, built as [`Spec`]s are. They are what the build splices into [`record_of`] and what tests of
+  --- the walk draw; nothing here can be given to [`into`], which asks for a [`Spec`].
+  record Raw
+    --- Any string.
+    string: Node
+    --- Any number, integer or float.
+    number: Node
+    --- An integer, or a float with no fractional part that fits in one.
+    integer: Node
+    --- true or false.
+    boolean: Node
+    --- Anything but a missing value, unchecked and not copied.
+    any: Node
+    --- A list of `of`.
+    list: function(of: Node): Node
+    --- A map from strings to `of`.
+    map: function(of: Node): Node
+    --- `of`, or a missing value.
+    optional: function(of: Node): Node
+    --- Exactly one of the values.
+    one_of: function(...: string | number | boolean): Node
+    --- A table with the named fields.
+    record: function(fields: {string: Node}): Node
+    --- A record that refuses every key it does not name.
+    strict_record: function(fields: {string: Node}): Node
+    --- `value` checked against `node`, as [`into`] does, answering the checked copy as it is, since nothing says its type.
+    check: function(value: any, node: Node): any, string
+  end
+
+  --- The nodes with no type.
+  mut raw: Raw
+
   --- Any string.
-  string: Spec
+  mut string: Spec<string>
   --- Any number, integer or float.
-  number: Spec
+  mut number: Spec<number>
   --- An integer, or a float with no fractional part that fits in one,
   --- which reads back as that integer.
-  integer: Spec
+  mut integer: Spec<integer>
   --- true or false.
-  boolean: Spec
+  mut boolean: Spec<boolean>
   --- Anything but a missing value, unchecked and not copied.
-  any: Spec
+  mut any: Spec<any>
 end
 
-local type Spec = Shape.Spec
+local type Node = Shape.Node
 
 --- Each [`Shape.Kind`] by its spelling. Teal's `is` on an enum tests
---- only for a string, so [`need_spec`] asks this table instead. Nothing
---- ties it to the enum: the tests build a spec of every kind, so a kind
+--- only for a string, so [`need_node`] asks this table instead. Nothing
+--- ties it to the enum: the tests build a node of every kind, so a kind
 --- left out fails there.
 local KINDS <const>: {string: Shape.Kind} = {
   string = "string", number = "number", integer = "integer", boolean = "boolean",
   any = "any", list = "list", map = "map", record = "record", one_of = "one_of",
 }
 
-local function leaf(kind: Shape.Kind): Spec
+local function leaf(kind: Shape.Kind): Node
   return { kind = kind, optional = false }
 end
 
-Shape.string = leaf("string")
-Shape.number = leaf("number")
-Shape.integer = leaf("integer")
-Shape.boolean = leaf("boolean")
-Shape.any = leaf("any")
+local STRING <const> = leaf("string")
+local NUMBER <const> = leaf("number")
+local INTEGER <const> = leaf("integer")
+local BOOLEAN <const> = leaf("boolean")
+local ANY <const> = leaf("any")
 
---- Raises unless `spec` is one these functions built: a spec is part of
+--- Raises unless `node` is one these functions built: a shape is part of
 --- the program, so a wrong one is the caller's bug, not the data's.
-local function need_spec(spec: any, what: string)
+local function need_node(node: any, what: string)
   local kind: any = nil
-  if spec is {any: any} then kind = spec["kind"] end
+  if node is {any: any} then kind = node["kind"] end
   if not (kind is string) or KINDS[kind] == nil then
     error(("shape: %s is not a Spec"):format(what), 3)
   end
 end
 
---- A list whose every element has shape `of`: a table whose every key
---- is a positive integer, the empty table included. An index missing
---- below the highest is a missing element, which only an optional `of`
---- admits, so `[1, null, 3]` fits `list(optional(integer))` and comes
---- back with a hole, and fails `list(integer)` at `$[1]`. The
---- answer is marked a JSON array, so an empty one still encodes as `[]`.
---- @param of Spec Each element's shape
---- @return Spec The list's shape
-function Shape.list(of: Spec): Spec
-  need_spec(of, "list's element")
+local function raw_list(of: Node): Node
+  need_node(of, "list's element")
   return { kind = "list", optional = false, of = of }
 end
 
---- A table whose every key is a string and every value has shape `of`,
---- the empty table included.
---- @param of Spec Each value's shape
---- @return Spec The map's shape
-function Shape.map(of: Spec): Spec
-  need_spec(of, "map's value")
+local function raw_map(of: Node): Node
+  need_node(of, "map's value")
   return { kind = "map", optional = false, of = of }
 end
 
---- A record's spec over a copy of `fields`, its names in byte order.
-local function record_spec(fields: {string: Spec}, strict: boolean, what: string): Spec
-  local own: mut {string: Spec} = {}
+--- A record's node over a copy of `fields`, its names in byte order.
+local function record_node(fields: {string: Node}, strict: boolean, what: string): Node
+  local own: mut {string: Node} = {}
   local names: mut {string} = {}
-  for name, spec in pairs(fields) do
-    need_spec(spec, ("%s's field %q"):format(what, name))
-    own[name] = spec
+  for name, node in pairs(fields) do
+    need_node(node, ("%s's field %q"):format(what, name))
+    own[name] = node
     names[#names + 1] = name
   end
   table.sort(names)
   return { kind = "record", optional = false, fields = own, names = names, strict = strict }
 end
 
---- A table with the named fields, each of its own shape. Keys it does
---- not name are ignored, and left out of the answer; [`strict_record`]
---- refuses them.
---- @param fields {string: Spec} Each field's shape, by its name
---- @return Spec The record's shape
-function Shape.record(fields: {string: Spec}): Spec
-  return record_spec(fields, false, "record")
-end
-
---- A record that refuses every key it does not name, for a config file
---- where a misspelled key should fail rather than vanish:
---- `{"prot": 8080}` against `strict_record({ port = Shape.integer })`
---- fails with `$.prot: unknown key`. The keys are checked
---- before the fields, so the misspelling is named rather than the field
---- it was meant to be, and the first unknown one in byte order is the
---- one reported. A key is unknown whatever its value, [`Json.null`] included:
---- `"prot": null` is still a misspelling. A key that is not a string is
---- refused as a map refuses one, `$: want record, got the
---- integer key 1`. Otherwise it is `record`: a named field that is
---- `optional` may be missing or [`Json.null`], and the answer is a copy.
---- @param fields {string: Spec} Each field's shape, by its name
---- @return Spec The record's shape
-function Shape.strict_record(fields: {string: Spec}): Spec
-  return record_spec(fields, true, "strict_record")
-end
-
---- The shape `of`, which a missing value, or [`Json.null`], also
---- satisfies; either reads back as nil.
---- @param of Spec The shape a present value must have
---- @return Spec The optional shape
-function Shape.optional(of: Spec): Spec
-  need_spec(of, "optional's shape")
+local function raw_optional(of: Node): Node
+  need_node(of, "optional's shape")
   return {
     kind = of.kind, optional = true, of = of.of, fields = of.fields,
     names = of.names, strict = of.strict, values = of.values,
   }
 end
 
---- Exactly one of `values`, compared with `==`: the members of an
---- enumeration, such as `Shape.one_of("debug", "info", "warn")`.
---- Raises when given none.
---- @param ... string | number | boolean The values admitted
---- @return Spec The enumeration's shape
-function Shape.one_of(...: string | number | boolean): Spec
+local function raw_one_of(...: string | number | boolean): Node
   local values: {string | number | boolean} = { ... }
   if #values == 0 or #values ~= select("#", ...) then
-    error("shape: one_of needs at least one value, and no nil", 2)
+    error("shape: one_of needs at least one value, and no nil", 3)
   end
   return { kind = "one_of", optional = false, values = values }
 end
@@ -278,7 +261,7 @@ local function shown(v: any): string
 end
 
 --- What `spec` asks for, for a message.
-local function wanted(spec: Spec): string
+local function wanted(spec: Node): string
   if spec.kind == "one_of" then
     local parts: mut {string} = {}
     for i, v in ipairs(assert(spec.values)) do parts[i] = shown(v) end
@@ -288,7 +271,7 @@ local function wanted(spec: Spec): string
 end
 
 --- `path`'s message for a value of the wrong kind.
-local function mismatch(path: string, spec: Spec, v: any): string
+local function mismatch(path: string, spec: Node, v: any): string
   if v == nil then return path .. ": missing" end
   return ("%s: want %s, got %s"):format(path, wanted(spec), kind_of(v))
 end
@@ -351,7 +334,7 @@ end
 --- is not a string takes precedence, so a strict record fails where it
 --- stands or at its keys, never at a field as well. Answers the message,
 --- or "".
-local function unknown_key(t: {any: any}, spec: Spec, path: string): string
+local function unknown_key(t: {any: any}, spec: Node, path: string): string
   local members = Json.members(t)
   if members.layout ~= "object" then
     local refused = least_refused(t, is_name)
@@ -370,9 +353,9 @@ end
 --- `v` checked against `spec` at `path`: the copy to answer and "", or
 --- nil and the message for the first value that does not fit. The copy
 --- is nil too for a missing value an optional spec admits.
-local walk: function(v: any, spec: Spec, path: string): any, string
+local walk: function(v: any, spec: Node, path: string): any, string
 
-local function walk_record(t: {any: any}, spec: Spec, path: string): any, string
+local function walk_record(t: {any: any}, spec: Node, path: string): any, string
   if spec.strict == true then
     local unknown = unknown_key(t, spec, path)
     if unknown ~= "" then return nil, unknown end
@@ -388,7 +371,7 @@ local function walk_record(t: {any: any}, spec: Spec, path: string): any, string
   return out, ""
 end
 
-local function walk_list(t: {any: any}, spec: Spec, path: string): any, string
+local function walk_list(t: {any: any}, spec: Node, path: string): any, string
   -- A key the list refuses fails it where it stands, and no element is
   -- looked at; the elements go in index order.
   local members = Json.members(t, true)
@@ -423,7 +406,7 @@ local function walk_list(t: {any: any}, spec: Spec, path: string): any, string
   return assert(list, why), ""
 end
 
-local function walk_map(t: {any: any}, spec: Spec, path: string): any, string
+local function walk_map(t: {any: any}, spec: Node, path: string): any, string
   -- Every key is checked before any value, so a map with a key it
   -- refuses fails where it stands; the values go in key order, so the
   -- same map always reports the same miss.
@@ -443,7 +426,7 @@ local function walk_map(t: {any: any}, spec: Spec, path: string): any, string
   return out, ""
 end
 
-walk = function(v: any, spec: Spec, path: string): any, string
+walk = function(v: any, spec: Node, path: string): any, string
   if v == nil or rawequal(v, Json.null) then
     if spec.optional then return nil, "" end
     return nil, mismatch(path, spec, nil)
@@ -481,25 +464,26 @@ walk = function(v: any, spec: Spec, path: string): any, string
       return walk_record(v, spec, path)
     end
   else
-    error(("shape: a Spec of unknown kind %q"):format(tostring(kind)), 0)
+    error(("shape: a node of unknown kind %q"):format(tostring(kind)), 0)
   end
   return nil, mismatch(path, spec, v)
 end
 
 --- `value` checked against `spec`, as a new value holding what the spec
 --- names, and "". nil and the first thing that did not fit, named by
---- its path, when it does not. The answer's type is the caller's
---- annotation; see the module's comment for where Teal infers it.
+--- its path, when it does not. The answer's type is the spec's, which
+--- follows from how the spec was built.
 --- Raises only when `spec` is not a Spec.
 --- @param value any The decoded value
---- @param spec Spec The shape it must have
+--- @param spec Spec<T> The shape it must have
 --- @return T The value, typed
 --- @return string "" or what did not fit
-function Shape.into<T>(value: any, spec: Spec): T?, string
-  need_spec(spec, "into's shape")
-  local out, failed = walk(value, spec, "$")
+function Shape.into<T>(value: any, spec: Shape.Spec<T>): T?, string
+  need_node(spec.node, "into's shape")
+  local out, failed = walk(value, spec.node, "$")
   if failed ~= "" then return nil, failed end
-  -- cast: the one from `any`, which walk has just built to `spec`
+  -- cast: the one from `any`, which walk has just built to the node, and the node is what makes a `Spec<T>`: every
+  -- function that makes one gives it the `T` of the check it builds.
   return out as T, ""
 end
 
@@ -508,28 +492,80 @@ end
 --- the line and column, when the text is not JSON, or `into`'s, naming
 --- the path to the first value that does not fit, when it is JSON of
 --- another shape. `opts` are [`Json.decode`]'s, forwarded as they are
---- (`json5`, `null_value`, `max_depth`). The answer's type is the
---- caller's annotation, as `into`'s is. Text that is `null` decodes to
+--- (`json5`, `null_value`, `max_depth`). The answer's type is the spec's,
+--- as `into`'s is. Text that is `null` decodes to
 --- nothing (unless `opts.null_value` says otherwise), so a required
 --- spec answers `$: missing` and an optional one
 --- answers nil and "". Raises only when `spec` is not a Spec.
 ---
----     local text = '{"host": "localhost", "port": 8080}'
----     local server, err: Server | nil, string = Shape.decode_into(text, SERVER)
+---     local SERVER <const> = Shape.record_of("Server")
+---     local server, err = Shape.decode_into(text, SERVER.spec)
 ---     -- server.port == 8080; with "port": "x", err is
 ---     -- '$.port: want integer, got string'
 --- @param text string The JSON text
---- @param spec Spec The shape it must have
+--- @param spec Spec<T> The shape it must have
 --- @param opts Json.DecodeOptions What [`Json.decode`] takes
 --- @return T The value, typed
 --- @return string "" or what was wrong with the text
-function Shape.decode_into<T>(text: string, spec: Spec, opts?: Json.DecodeOptions): T?, string
-  need_spec(spec, "decode_into's shape")
+function Shape.decode_into<T>(text: string, spec: Shape.Spec<T>, opts?: Json.DecodeOptions): T?, string
+  need_node(spec.node, "decode_into's shape")
   local decoded, trouble = Json.decode(text, opts)
   if decoded == nil and trouble ~= "" then return nil, trouble end
-  local out, failed: T?, string = Shape.into(decoded, spec)
-  if out == nil then return nil, failed end
-  return out, ""
+  return Shape.into(decoded, spec)
+end
+
+--- A list whose every element has shape `of`: a table whose every key
+--- is a positive integer, the empty table included, answered as `{A}`. An index
+--- missing below the highest is a missing element, which `of` must be
+--- ready for: a list of optional elements has holes, which an array
+--- cannot hold, so `list(optional(x))` does not compile
+--- (`array_of_optional`): [`sparse_list`] answers it as `{integer: A}`.
+--- The answer is marked a JSON array, so an empty one still encodes as `[]`.
+--- @param of Spec<A> Each element's shape
+--- @return Spec<{A}> The list's shape
+function Shape.list<A>(of: Shape.Spec<A>): Shape.Spec<{A}>
+  need_node(of.node, "list's element")
+  return { node = raw_list(of.node) }
+end
+
+--- A list whose elements may be missing or [`Json.null`], answered as a map from each index that is there:
+--- `[1, null, 3]` against `sparse_list(Shape.optional(Shape.integer))` is `{[1] = 1, [3] = 3}`. The answer is marked
+--- a JSON array of that length ([`Json.with_holes`]). `{integer: A}` is a map, so a read of an index is optional.
+--- @param of Spec<A?> The shape of each element, an optional one
+--- @return Spec<{integer: A}> The list's shape
+function Shape.sparse_list<A>(of: Shape.Spec<A?>): Shape.Spec<{integer: A}>
+  need_node(of.node, "sparse_list's element")
+  if not of.node.optional then
+    error("shape: sparse_list's element is not optional: wrap it in `Shape.optional`, or use `Shape.list`", 2)
+  end
+  return { node = raw_list(of.node) }
+end
+
+--- A table whose every key is a string and every value has shape `of`,
+--- the empty table included.
+--- @param of Spec<A> Each value's shape
+--- @return Spec<{string: A}> The map's shape
+function Shape.map<A>(of: Shape.Spec<A>): Shape.Spec<{string: A}>
+  need_node(of.node, "map's value")
+  return { node = raw_map(of.node) }
+end
+
+--- The shape `of`, which a missing value, or [`Json.null`], also
+--- satisfies; either reads back as nil.
+--- @param of Spec<A> The shape a present value must have
+--- @return Spec<A?> The optional shape
+function Shape.optional<A>(of: Shape.Spec<A>): Shape.Spec<A?>
+  need_node(of.node, "optional's shape")
+  return { node = raw_optional(of.node) }
+end
+
+--- Exactly one of `values`, compared with `==`: the members of an
+--- enumeration, such as `Shape.one_of("debug", "info", "warn")`.
+--- Raises when given none.
+--- @param ... string The values admitted
+--- @return Spec<string> The enumeration's shape
+function Shape.one_of(...: string): Shape.Spec<string>
+  return { node = raw_one_of(...) }
 end
 
 --- `failure` of a [`Typed`], led by the record's name; "" stays "".
@@ -539,7 +575,7 @@ local function named<T>(self: Shape.Typed<T>, failure: string): string
 end
 
 local function typed_into<T>(self: Shape.Typed<T>, value: any): T?, string
-  local out, failed: T?, string = Shape.into(value, self.spec)
+  local out, failed = Shape.into(value, self.spec)
   if failed ~= "" then return nil, named(self, failed) end
   return out, ""
 end
@@ -549,6 +585,28 @@ local function typed_decode_into<T>(self: Shape.Typed<T>, text: string,
   local decoded, trouble = Json.decode(text, opts)
   if decoded == nil and trouble ~= "" then return nil, trouble end
   return typed_into(self, decoded)
+end
+
+--- `node` and every record below it refusing a key it does not name.
+local function strict_node(node: Node): Node
+  local fields: {string: Node}? = nil
+  if node.fields ~= nil then
+    local own: mut {string: Node} = {}
+    for name, field in pairs(node.fields) do
+      own[name] = strict_node(field)
+    end
+    fields = own
+  end
+  local of = node.of
+  return {
+    kind = node.kind, optional = node.optional, of = if of ~= nil then strict_node(of) else nil end, fields = fields,
+    names = node.names, strict = if node.kind == "record" then true else node.strict end, values = node.values,
+  }
+end
+
+local function typed_strict<T>(self: Shape.Typed<T>): Shape.Typed<T>
+  return { name = self.name, spec = { node = strict_node(self.spec.node) }, into = typed_into,
+    decode_into = typed_decode_into, strict = typed_strict }
 end
 
 --- The shape of the Teal record `name`, read off its declaration by the
@@ -566,7 +624,7 @@ end
 --- `name` is a string literal: `Record` for a record declared above the
 --- call, in a block the call is in (a test's, or an example's, too), or
 --- `module.Record` for one declared inside the module `module`'s record,
---- which the calling module requires at its top level. The spec is what `record`
+--- which the calling module requires at its top level. The spec is what [`Raw.record`]
 --- builds for the record's fields: strings, integers, numbers, booleans
 --- and `any`; arrays and string-keyed maps of those; an enum, as
 --- [`one_of`] with its values in byte order; records of those; and a
@@ -577,7 +635,7 @@ end
 --- lacks its key is accepted and the field is nil, where a field of any other
 --- type must be there. To refuse a missing key, test the field after `into`.
 --- The record keeps its fields only: a key the payload grew is dropped, as
---- `record` does, and `spec` is a [`Spec`] to put inside any other.
+--- `raw.record` does, and `spec` is a [`Spec`] to put inside any other.
 ---
 --- The build, not the program, reads the declaration: it splices the
 --- spec and the record's type in after `name`, which are `built` and
@@ -585,31 +643,50 @@ end
 --- `Shape.record_of("Name")` and no other (not through another name, not
 --- with a computed name), and a script run with `--standalone` has no
 --- build: the checker answers a read of the result's fields with `T
---- (unresolved generic)`, and a call that gets that far raises here. Such a script writes its
---- spec with `record`, or runs as `cosmic script.tl`, which builds the
---- tree around it.
+--- (unresolved generic)`, and a call that gets that far raises here. Such a script runs as
+--- `cosmic script.tl`, which builds the tree around it.
 --- @param name string The record, as a string literal
---- @param built Spec What the build read off the record
+--- @param built Node What the build read off the record
 --- @param _witness function(): T A function the build writes to name `T`, which it never calls
 --- @return Typed<T> The spec and the record it checks
-function Shape.record_of<T>(name: string, built?: Spec, _witness?: function(): T): Shape.Typed<T>
-  -- TODO: a strict form, refusing a key the record does not name, once a
-  -- config record wants one: a `Typed:strict()` over a copy of `spec`.
+function Shape.record_of<T>(name: string, built?: Node, _witness?: function(): T): Shape.Typed<T>
   if built == nil then
     error(("shape: record_of(%q) was not resolved: the build reads a record's declaration " ..
       "from a call written as Shape.record_of(\"Name\") in a module it compiles, so an " ..
       "aliased or computed call, a chunk loaded by hand, and a script run with " ..
       "--standalone have no spec for it; call Shape.record_of(\"Name\") directly under a " ..
-      "build, or write the spec with Shape.record"):format(name), 2)
+      "build, or run the script as `cosmic script.tl`"):format(name), 2)
   end
-  need_spec(built, "record_of's built")
+  need_node(built, "record_of's built")
   if built.kind ~= "record" then
     error(("shape: record_of(%q) was given a %s spec, not a record's"):format(name, built.kind), 2)
   end
   local typed: Shape.Typed<T> = {
-    name = name, spec = built, into = typed_into, decode_into = typed_decode_into,
+    name = name, spec = { node = built }, into = typed_into, decode_into = typed_decode_into, strict = typed_strict,
   }
   return typed
 end
+
+Shape.string = { node = STRING }
+Shape.number = { node = NUMBER }
+Shape.integer = { node = INTEGER }
+Shape.boolean = { node = BOOLEAN }
+Shape.any = { node = ANY }
+
+--- `node` checked against, as `into` does, answering the checked copy as it is.
+local function check(value: any, node: Node): any, string
+  need_node(node, "check's node")
+  return walk(value, node, "$")
+end
+
+Shape.raw = {
+  string = STRING, number = NUMBER, integer = INTEGER, boolean = BOOLEAN, any = ANY,
+  list = raw_list, map = raw_map, optional = raw_optional, one_of = raw_one_of,
+  record = function(fields: {string: Node}): Node return record_node(fields, false, "record") end,
+  strict_record = function(fields: {string: Node}): Node
+    return record_node(fields, true, "strict_record")
+  end,
+  check = check,
+}
 
 return Shape

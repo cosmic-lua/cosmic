@@ -1069,7 +1069,6 @@ cosmic/shape_fuzz_test.tl nil_not_allowed 3
 
 cosmic/shape_record_test.tl nil_not_allowed 3
 
-cosmic/shape_test.tl nil_not_allowed 1
 
 cosmic/sqlite.tl nil_not_allowed 6
 
@@ -2458,7 +2457,6 @@ cosmic/sandbox/policy.tl field_fixed 4
 
 cosmic/sandbox_test.tl field_fixed 8
 
-cosmic/shape.tl field_fixed 5
 
 
 cosmic/signal.tl field_fixed 5
@@ -2962,7 +2960,7 @@ cosmic/sandbox_test.tl map_field 3
 
 cosmic/seatbelt_network_probe_test.tl map_field 2
 
-cosmic/shape_test.tl map_field 10
+cosmic/shape_test.tl map_field 8
 
 cosmic/signal_ignored_test.tl map_field 2
 
@@ -3238,7 +3236,7 @@ cosmic/json.tl overload_none 2
 
 cosmic/poll.tl overload_none 1
 
-cosmic/shape_test.tl overload_none 3
+cosmic/shape_test.tl overload_none 2
 
 cosmic/tar_test.tl overload_none 3
 
@@ -3252,7 +3250,6 @@ cosmic/time_tzif_fuzz_test.tl overload_none 3
 
 cosmic/web/input_multipart_test.tl overload_none 2
 
-cosmic/web/input_test.tl overload_none 2
 
 cosmic/web/request_test.tl overload_none 1
 
@@ -3984,7 +3981,7 @@ cosmic/shape_fuzz_test.tl cast_refused 7
 
 cosmic/shape_record_test.tl cast_refused 2
 
-cosmic/shape_test.tl cast_refused 13
+cosmic/shape_test.tl cast_refused 10
 
 cosmic/signal.tl cast_refused 1
 
@@ -5031,7 +5028,7 @@ cosmic/seatbelt_network_probe_test.tl or_mix 4
 
 cosmic/shape_fuzz_test.tl or_mix 1
 
-cosmic/shape_test.tl or_mix 2
+cosmic/shape_test.tl or_mix 1
 
 cosmic/signal_test.tl or_mix 1
 
@@ -5898,7 +5895,6 @@ cosmic/sandbox/policy.tl compare_disjoint 2
 
 cosmic/seatbelt_network_probe_test.tl compare_disjoint 2
 
-cosmic/shape_test.tl compare_disjoint 4
 
 cosmic/sqlite.tl compare_disjoint 4
 
@@ -6958,7 +6954,6 @@ cosmic/proc_tool_test.tl alternatives_as_value 1
 
 cosmic/rand_test.tl alternatives_as_value 3
 
-cosmic/shape_test.tl alternatives_as_value 2
 
 cosmic/store_handles_test.tl alternatives_as_value 2
 
@@ -6994,13 +6989,9 @@ lang/types_speed_test.tl alternatives_as_value 1
 # type expected, and an inner call that is the argument of another generic (`must(Shape.into(v, SPEC))`); the rewrite types the result
 cosmic/channel_test.tl cannot_infer 4
 
-cosmic/shape_fuzz_test.tl cannot_infer 6
 
-cosmic/shape_record_test.tl cannot_infer 1
 
-cosmic/shape_test.tl cannot_infer 26
 
-cosmic/web/input_fuzz_test.tl cannot_infer 1
 
 # a call that answers nothing, used where a value is wanted
 cosmic/declared_types_test.tl no_value 1

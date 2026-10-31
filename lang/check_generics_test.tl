@@ -399,6 +399,49 @@ local function test_an_invariant_position_requires_the_exact_type_and_a_function
   stands("local function show(a: Animal)\n  print(a.name)\nend\nlocal d: Dog = { name = \"d\" }\neach({ d }, show)\n", "d")
 end
 
+-- The shape of [`cosmic.shape`]: a spec names the type of what it checks, so that no annotation chooses the type of an answer
+-- and a list whose elements may be missing cannot be an array.
+local SPEC <const> = [[
+local record Node
+  kind: string
+end
+local record Spec<T>
+  node: Node
+  witness?: function(): T
+end
+local INT: Spec<integer> = { node = { kind = "integer" } }
+local STR: Spec<string> = { node = { kind = "string" } }
+local function list<A>(of: Spec<A>): Spec<{A}>
+  return { node = of.node }
+end
+local function optional<A>(of: Spec<A>): Spec<A?>
+  return { node = of.node }
+end
+local function sparse_list<A>(of: Spec<A?>): Spec<{integer: A}>
+  return { node = of.node }
+end
+local function into<T>(spec: Spec<T>): T?
+  print(spec.node.kind)
+  return nil
+end
+]]
+
+local function test_a_spec_gives_the_type_of_its_answer_and_a_list_of_optional_elements_is_no_array()
+  stands(SPEC .. "local xs: {integer}? = into(list(INT))\nprint(xs == nil)\n", "integer,true")
+  -- the annotation cannot say another type than the spec's
+  refused(SPEC .. "local xs: {string}? = into(list(INT))\n", "not_assignable")
+  -- an array holds no hole, so a list of elements that may be missing does not compile
+  refused(SPEC .. "local xs = list(optional(INT))\nprint(xs)\n", "array_of_optional")
+  -- its answer is a map, which has no length and whose read is optional
+  stands(SPEC .. "local slots = into(sparse_list(optional(INT)))\nprint(slots == nil)\n", "integer,true")
+  refused(SPEC .. "local slots = into(sparse_list(optional(INT)))\nif slots ~= nil and #slots > 0 then print(slots[1]) end\n",
+    "operand_type")
+  refused(SPEC .. "local slots = into(sparse_list(optional(INT)))\nif slots ~= nil then local n: integer = slots[1] print(n) end\n",
+    "index_may_be_nil")
+  -- an element that is not optional is no sparse list
+  refused(SPEC .. "local xs = sparse_list(STR)\nprint(xs)\n", "not_assignable")
+end
+
 local function test_an_iterator_that_is_a_generic_function_is_solved_by_the_state_and_the_control_value()
   local head = "local function step<T>(xs: {T}, at: integer?): (integer?, T?)\n  return nil, nil\nend\n"
   assert(type_of(head .. "local names: {string} = { \"a\" }\nfor i, v in step, names, nil do\n  local seen = v\nend\n", "seen") == "string?")
