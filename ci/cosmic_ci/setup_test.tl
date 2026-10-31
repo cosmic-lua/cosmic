@@ -9,22 +9,10 @@ local Test = require("cosmic.test")
 -- The setup resolves outputs through the running driver before boot.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
--- TODO: replace `fails` here, and the pcall-and-match checks of build_paths_test and images_test,
--- with the test library's raises once ci/cosmic-driver.pin names a release that has it.
-local function fails(action: function(), expected: string)
-  local ok, problem = pcall(function(): boolean
-    action()
-    return true
-  end)
-  assert(not ok, "setup unexpectedly succeeded")
-  assert(tostring(problem):find(expected, 1, true),
-    "setup failure did not name " .. expected .. ": " .. tostring(problem))
-end
-
 local function test_product_setup_rejects_missing_boot_outputs(tmp: string)
   assert(Fs.mkdirs(tmp .. "/root/build"))
   assert(Fs.write(tmp .. "/root/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
-  fails(function()
+  Test.raises(function()
     ProductSetup.build(tmp .. "/root", tmp .. "/product", tmp .. "/work")
   end, "/o/bin/cosmic")
   assert(Fs.exists(tmp .. "/product") == false, "failed setup created a product")
@@ -33,7 +21,7 @@ end
 local function test_launcher_setup_rejects_missing_targets(tmp: string)
   assert(Fs.mkdirs(tmp .. "/root/build"))
   assert(Fs.write(tmp .. "/root/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
-  fails(function()
+  Test.raises(function()
     LauncherSetup.build(tmp .. "/root", tmp .. "/launcher", "target",
       tmp .. "/work")
   end, "/o/targets.tsv")
@@ -43,7 +31,7 @@ end
 local function test_runtime_setup_rejects_missing_writer(tmp: string)
   assert(Fs.mkdirs(tmp .. "/prebuilt"))
   assert(Fs.write(tmp .. "/database", "database"))
-  fails(function()
+  Test.raises(function()
     RuntimeSetup.build(tmp .. "/root", tmp .. "/prebuilt",
       tmp .. "/missing-writer", tmp .. "/database", tmp .. "/runtime",
       tmp .. "/work")

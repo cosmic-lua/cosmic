@@ -1497,7 +1497,7 @@
         # bin/verify-codesign, bin/perf and build/paths.tl) must
         # type-check under the pinned driver in the new grammar, not only
         # the tree's: the check above compiles ci/ on it, and this the
-        # rest, each file ci/bootstrap-files.txt lists run with --help.
+        # rest, each file ci/bootstrap-files.txt lists checked with --standalone --check.
         # Every scope, since it takes well under a second a file.
         {
           name: "type-check the bootstrap's scripts on the pinned driver",
