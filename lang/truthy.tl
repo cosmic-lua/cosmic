@@ -20,8 +20,7 @@ local NUMBERY <const>: {string: boolean} = {
 
 -- TODO: write the `if` expression for a middle operand that is neither boolean nor
 -- optional by the type report and not by its syntax, once the new checker's
--- type report keyed by node id exists (doc/plans/new-checker-grammar.md, "the
--- interface"): a name or a call stays a ternary until then.
+-- type report keyed by node id exists: a name or a call stays a ternary until then.
 function Truthy.never_false(e: Ast.Exp): boolean
   local cur: Ast.Node = e
   while true do

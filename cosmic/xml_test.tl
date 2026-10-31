@@ -220,7 +220,6 @@ local function test_write_refuses_what_is_no_document()
   assert(why({}) == "xml: no root element")
   assert(why({ { kind = "start", name = "a" }, { kind = "end", name = "b" } }) == "xml: event 2: </b> closes <a>")
   assert(why({ { kind = "text", text = "x" } }) == "xml: event 1: text outside the root element")
-  assert(why({ { kind = "start", name = "{urn:x}a" } }):match("^xml: event 1: not an XML name") ~= nil)
   assert(why({ { kind = "start", name = "a" }, { kind = "end", name = "a" }, { kind = "start", name = "b" } }) ==
       "xml: event 3: a second root element")
   assert(why({ { kind = "comment", text = "a--b" } }) == "xml: event 1: a comment cannot hold this text")
@@ -284,4 +283,61 @@ end
 local function test_local_names_keep_the_later_of_two_attributes()
   local got = read('<a xmlns:x="urn:x" xmlns:y="urn:y" x:id="1" y:id="2"/>', { local_names = true })
   assert(got == "start a id=2|end a", got)
+end
+
+--- Names in Clark's notation are written under prefixes the writer binds,
+--- each declared on the first element that needs it and used inside it;
+--- XML's own namespace is `xml`. A parser asked for namespaces reads the
+--- document back to the same events.
+local function test_write_binds_prefixes_for_namespaced_names()
+  local events = assert(Xml.events('<a xmlns="urn:d" xmlns:x="urn:x" x:k="1" xml:lang="en"><b/><x:c/></a>',
+    { namespaces = true }))
+  local written = assert(Xml.write(events))
+  assert(written == '<ns1:a ns2:k="1" xml:lang="en" xmlns:ns1="urn:d" xmlns:ns2="urn:x"><ns1:b/><ns2:c/></ns1:a>',
+    written)
+  assert(show((assert(Xml.events(written, { namespaces = true })))) == show(events))
+end
+
+--- A prefix the events declare for themselves is never chosen, and a name
+--- in no namespace, in `xmlns`'s own, or with a prefixed local part is
+--- refused.
+local function test_write_keeps_clear_of_declared_prefixes()
+  local written = assert(Xml.write({
+    { kind = "start", name = "{urn:a}r", attributes = { ["xmlns:ns1"] = "urn:other" } },
+    { kind = "end", name = "{urn:a}r" },
+  }))
+  assert(written == '<ns2:r xmlns:ns1="urn:other" xmlns:ns2="urn:a"/>', written)
+  local function why(name: string): string
+    local none, trouble = Xml.write({ { kind = "start", name = name }, { kind = "end", name = name } })
+    assert(none == nil, none)
+    return trouble
+  end
+  assert(why("{}a") == 'xml: event 1: no namespace a name may be in: ""', why("{}a"))
+  assert(why("{http://www.w3.org/2000/xmlns/}a"):match("no namespace a name may be in") ~= nil)
+  assert(why("{urn:a}p:b") == 'xml: event 1: not an XML name: "{urn:a}p:b"', why("{urn:a}p:b"))
+end
+
+--- A prefix bound on an element is in scope only inside it: a sibling binds
+--- its own. An attribute in its element's namespace takes the same prefix,
+--- declared once, and a prefix a plain name uses is never bound.
+local function test_write_scopes_each_binding_to_its_element()
+  local written = assert(Xml.write({
+    { kind = "start", name = "r" },
+    { kind = "start", name = "{urn:a}x", attributes = { ["{urn:a}k"] = "1" } },
+    { kind = "end", name = "{urn:a}x" },
+    { kind = "start", name = "{urn:a}y" },
+    { kind = "end", name = "{urn:a}y" },
+    { kind = "start", name = "ns1:z", attributes = { ["xmlns:ns1"] = "urn:z" } },
+    { kind = "end", name = "ns1:z" },
+    { kind = "end", name = "r" },
+  }))
+  assert(written == '<r><ns2:x ns2:k="1" xmlns:ns2="urn:a"/><ns3:y xmlns:ns3="urn:a"/><ns1:z xmlns:ns1="urn:z"/></r>',
+    written)
+  local plain = assert(Xml.write({
+    { kind = "start", name = "ns1:r" },
+    { kind = "start", name = "{urn:a}x" },
+    { kind = "end", name = "{urn:a}x" },
+    { kind = "end", name = "ns1:r" },
+  }))
+  assert(plain == '<ns1:r><ns2:x xmlns:ns2="urn:a"/></ns1:r>', plain)
 end

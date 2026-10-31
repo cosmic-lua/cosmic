@@ -47,7 +47,7 @@ end
 local function test_a_change_replaces_the_program_with_a_counted_boot(tmp: string)
   assert(Fs.mkdirs(tmp .. "/src") and Fs.mkdirs(tmp .. "/marks"))
   assert(Fs.write(tmp .. "/src/a.tl", "one"))
-  local pids: {integer} = {}
+  local pids: mut {integer} = {}
   local lines: mut {string} = {}
   local give_up = deadline()
   local edited: boolean = false
@@ -55,7 +55,7 @@ local function test_a_change_replaces_the_program_with_a_counted_boot(tmp: strin
     start = program(marking(tmp)), watch = { tmp .. "/src" }, interval_ns = Clock.ms(10),
     log = function(text: string) lines[#lines + 1] = text end,
     on_boot = function(boot: integer, pid: integer)
-      pids[boot] = pid
+      pids[#pids + 1] = pid
       if boot == 1 then
         assert(Fs.write(tmp .. "/src/a.tl", "two"))
         assert(Fs.set_mtime(tmp .. "/src/a.tl", 1000000))

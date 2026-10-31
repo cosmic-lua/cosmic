@@ -63,8 +63,9 @@ local function test_describe_optional_keys_cuts_and_holes()
 end
 
 local function test_describe_a_long_array_is_one_merged_shape()
-  local items = Json.array()
-  for i = 1, 5000 do items[i] = { id = i, tag = "t" } end
+  local made: mut {Json.Value} = {}
+  for i = 1, 5000 do made[i] = { id = i, tag = "t" } end
+  local items = Json.array(made)
   assert(json_query.describe(items) == "[5000 x {id: number, tag: string}]")
   local cycle: {any:any} = {}
   cycle.self = cycle
