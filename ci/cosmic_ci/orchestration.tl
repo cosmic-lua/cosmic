@@ -2,6 +2,9 @@ local BuildPaths = require("cosmic_ci.build_paths")
 local Capabilities = require("cosmic_ci.capabilities")
 local Clock = require("cosmic.clock")
 local ContextEnv = require("cosmic_ci.context")
+-- TODO: read TMPDIR through Env.read once ci/cosmic-driver.pin names a release whose cosmic.env declares it, and the
+-- COSMIC_CI_* variables once build/ci_tree_test.tl also lets cosmic/env.tl name them (it keeps the variables a suite forgets
+-- out of the tree's sources), which join Env.Name then.
 local Env = require("cosmic.env")
 local Fixture = require("cosmic_ci.fixture")
 local Fs = require("cosmic.fs")
@@ -735,13 +738,22 @@ end
 -- and doubled for a loaded runner.
 local checked_suite_test_timeout_s <const> = "120"
 
---- The whole suite on a checked run ([`phase_checked_narrowing`]): the run
---- took 510 s on four processors, and a test 120 s at most, as on the
---- checked core.
+--- One share of the whole suite on a checked run ([`phase_checked_narrowing`]),
+--- of the N ci.yml's `checked-narrowing` job runs (COSMIC_CI_NARROWING_SHARD,
+--- `I/N`, two), each on a runner of its own; a test 120 s at most, as on the
+--- checked core. The whole run takes 510 s on four processors locally and 726
+--- to 861 s on CI's runner (the merge queue's runs of 23 October 2026). A
+--- share of two holds half the tests, and build/test.tl's `dealt` spreads the
+--- slow ones as it does the checked suite's, so its tests take about half:
+--- 363 to 431 s. That is a lower estimate, as each share still compiles the
+--- tree it tests, which the whole run did once. The bound is 900 s, 2.1 times
+--- the slowest share estimated: 469 s over it, for that compile (not yet
+--- measured; the boot's 150 to 195 s is outside this bound) and a loaded
+--- runner. It is the share's own, not the whole run's bound halved, which
+--- would leave the compile 0 s over the slowest whole run.
 
--- TODO: lower these bounds once CI's own runs of the phase show its elapsed
--- time; they are sized from that one local run.
-local checked_narrowing_timeout_ns <const> = Clock.seconds(1800)
+-- TODO: lower this bound once CI's own runs of a share show its elapsed time.
+local checked_narrowing_timeout_ns <const> = Clock.seconds(900)
 local checked_narrowing_test_timeout_s <const> = "120"
 
 -- A boot the product drives from another path compiles no C again (it
@@ -1694,11 +1706,27 @@ end
 --- whose fact is false fails there ("fact violated at <file>:<y>:<x>",
 --- doc/testing.md's "checked narrowing"). It runs every test, since a
 --- checked run stands on no verdict. ci.yml runs it in the `checked-narrowing`
---- job, after `boot`.
+--- jobs, after `boot`, each a share of the tests where COSMIC_CI_NARROWING_SHARD
+--- names one (`I/N`, `--shard`). A share makes no check that some test enters
+--- each C function, which only a whole run does (build/test.tl); that check
+--- is held on this core by the linux-x86_64 leg's whole native suite in every
+--- full run, since a checked run enters no C function a plain one does not:
+--- the tests that run differently in a checked run only skip there
+--- (build/type_watch.tl's `checked`), and the ones that need it
+--- (`TypeWatch.during`) skip in every run until the compile writes the checks
+--- of returns and fields. The leg's declared-types step ([`phase_declared_types`])
+--- runs chosen files and makes no such check either.
+--- That holds while build/type_watch.tl's `during` skips a checked run (the TODO
+--- there).
 local function phase_checked_narrowing(p: PlatformContext): integer
   if p.target ~= "x86_64-linux-musl" then return 0 end
   local c = p.operation
-  local argv: {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic", "test", "--check-types" }
+  local argv: mut {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic", "test", "--check-types" }
+  local share = named("COSMIC_CI_NARROWING_SHARD")
+  if share ~= nil then
+    argv[#argv + 1] = "--shard"
+    argv[#argv + 1] = share
+  end
   mkdir(p.local_diagnostics)
   local out = p.local_diagnostics .. "/checked-narrowing-test.out"
   local values = release_promises(Maps.with(Orchestration.suite_run().env,
@@ -1957,6 +1985,11 @@ local function phase_portable(p: PlatformContext): integer
   -- COSMIC_CI_PORTABLE_SUITE=skip; the scheduled run and a manual one
   -- keep it on every leg (ci.yml). A leg that skips it still
   -- checks the artifact unchanged since assemble (attest).
+  -- Where COSMIC_CI_PORTABLE_SHARD names a share (`I/N`: ci.yml's
+  -- alpine-x86_64 leg and the job beside it), only that share of the
+  -- tests runs (`cosmic test --shard`); the job that runs each other
+  -- share runs the rest on the same host, and provenance holds its
+  -- bytes to the legs'.
   if Env.get("COSMIC_CI_PORTABLE_SUITE") == "skip" then
     local _, _ = Fs.put(Fs.stderr, "portable suite: skipped on this leg " ..
         "(COSMIC_CI_PORTABLE_SUITE=skip)\n")
@@ -1965,9 +1998,11 @@ local function phase_portable(p: PlatformContext): integer
     -- the local suite's ([`suite_verdicts`]): a sealed worker's key is
     -- the same under either artifact, and every other worker's holds
     -- its launcher; elsewhere it runs every test, as they do.
+    write(portable_d .. "/portable-share", (named("COSMIC_CI_PORTABLE_SHARD") or "whole") .. "\n")
     s = suite(portable_context, "portable", executable, portable_d,
       { COSMIC_PORTABLE_CACHE = portable_d .. "/portable-full-suite-cache",
-        COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "portable") })
+        COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "portable") },
+      named("COSMIC_CI_PORTABLE_SHARD"))
   end
   local hash_called, hash_error = pcall(function(): boolean
     write(portable_d .. "/portable-artifact.after.sha256", hash(executable) .. "\n")
@@ -2325,7 +2360,19 @@ local function phase_attest(p: PlatformContext): integer
   assert(Hash.hex_sha256(ArtifactRow.with(read(portable_d .. "/cosmic-portable"), without, nil)) == attested,
     "executed artifact attestation differs")
   write(product .. "/executed-cosmic.sha256", attested .. "  cosmic\n")
-  write(product .. "/expected-platforms", assert(p.trailing) .. "\n")
+  -- The job count `trailing` holds includes the jobs that run a share of
+  -- a leg's portable suite and upload no product
+  -- (COSMIC_CI_PORTABLE_SHARES).
+  local total = math.tointeger(tonumber(assert(p.trailing)))
+  local shares = math.tointeger(tonumber(named("COSMIC_CI_PORTABLE_SHARES") or "0"))
+  assert(total ~= nil and shares ~= nil and shares >= 0 and total > shares,
+    "invalid job count " .. tostring(p.trailing) .. " for COSMIC_CI_PORTABLE_SHARES=" ..
+      tostring(named("COSMIC_CI_PORTABLE_SHARES")))
+  write(product .. "/expected-platforms", tostring(total - shares) .. "\n")
+  -- Which share of the portable suite ran here, for the join to hold the shares to
+  -- all of them ([`provenance_impl`]).
+  local ran = portable_d .. "/portable-share"
+  write(product .. "/portable-share", if exists(ran) then read(ran) else "none\n" end)
   return 0
 end
 
@@ -2374,13 +2421,44 @@ local function platform_impl(phase: string, p: PlatformContext): integer
   error("unknown platform phase: " .. phase)
 end
 
-local function provenance_impl(c: Context, products: string): integer
+--- Compares the bytes every `portable-product-<leg>` directory of
+--- `products` says it executed, and holds each `portable-share-<job>`
+--- directory to the same digest. A job that runs another share of a
+--- leg's portable suite (COSMIC_CI_PORTABLE_SHARES of them, ci.yml's
+--- alpine-x86_64 portable share) uploads the bytes it ran, which are
+--- hashed here as a leg's are. Each of the share jobs and the leg that
+--- ran a share (`portable-share` in its directory: `I/N`) names the
+--- share it ran, and where shares are expected they must be exactly
+--- 1/N to N/N, once each, N being the shares plus the leg.
+local function provenance_impl(c: Context, products: string, shares: integer): integer
   local entries = assert(Fs.list(products))
   local count = 0
   local expected: integer? = nil
   local baseline: string? = nil
+  local share_digests: mut {string} = {}
+  local halves: mut {string} = {}
+  --- The share a directory says it ran, if it ran one.
+  local function note_half(dir: string, required: boolean)
+    local file = dir .. "/portable-share"
+    if not exists(file) then
+      assert(not required, "no share named: " .. dir)
+      return
+    end
+    local half = (read(file):gsub("%s+$", ""))
+    if half:match("^%d+/%d+$") then halves[#halves + 1] = half end
+  end
   for _, name in ipairs(entries) do
-    if name:match("^portable%-product%-.+") then
+    if name:match("^portable%-share%-.+") then
+      local dir = products .. "/" .. name
+      local att = dir .. "/executed-cosmic.sha256"
+      assert(exists(att) and exists(dir .. "/cosmic"), "incomplete share: " .. dir)
+      local digest = read(att):match("^([0-9a-f]+)  cosmic\n$")
+      assert(digest and #digest == 64, "invalid attestation: " .. att)
+      assert(Hash.hex_sha256(ArtifactRow.with(read(dir .. "/cosmic"), dir .. "/provenance.db", nil)) == digest,
+        "changed artifact: " .. dir)
+      share_digests[#share_digests + 1] = digest
+      note_half(dir, true)
+    elseif name:match("^portable%-product%-.+") then
       local p = products .. "/" .. name
       local att = p .. "/executed-cosmic.sha256"
       local exp = p .. "/expected-platforms"
@@ -2399,10 +2477,30 @@ local function provenance_impl(c: Context, products: string): integer
         baseline = digest
       end
       count = count + 1
+      note_half(p, false)
     end
   end
   assert(expected ~= nil, "no product to compare")
   assert(count == expected, "expected " .. Plural.count(expected, "product") .. ", found " .. tostring(count))
+  assert(#share_digests == shares, "expected " .. Plural.count(shares, "share attestation") ..
+      ", found " .. tostring(#share_digests))
+  for _, digest in ipairs(share_digests) do
+    assert(digest == baseline, "share artifact hash differs from the legs'")
+  end
+  if shares > 0 then
+    local seen: mut {string: boolean} = {}
+    for _, half in ipairs(halves) do
+      local index_text, total_text = half:match("^(%d+)/(%d+)$")
+      local index = math.tointeger(tonumber(assert(index_text)))
+      local total = math.tointeger(tonumber(assert(total_text)))
+      assert(index ~= nil and total ~= nil and total == shares + 1 and index >= 1 and index <= total,
+        "share " .. half .. " is not one of " .. tostring(shares + 1))
+      assert(seen[half] ~= true, "share " .. half .. " ran twice")
+      seen[half] = true
+    end
+    assert(#halves == shares + 1, "the portable suite ran " .. Plural.count(#halves, "share") .. " of its " ..
+        tostring(shares + 1))
+  end
   return step(c, "provenance comparison", function(): boolean, string
     return true, ""
   end)
@@ -2436,7 +2534,9 @@ function Orchestration.provenance(_a: {string}): integer
   local c: Context = { db = ctx.db, worker = ctx.worker, run = ctx.run,
     attempt = ctx.attempt, root = ctx.root, driver = assert(Fs.absolute(assert(arg[0]))) }
   return run_phase(c, "provenance", function(): integer
-    return provenance_impl(c, ctx.products)
+    local shares = math.tointeger(tonumber(named("COSMIC_CI_PORTABLE_SHARES") or "0"))
+    assert(shares ~= nil and shares >= 0, "invalid COSMIC_CI_PORTABLE_SHARES")
+    return provenance_impl(c, ctx.products, shares)
   end)
 end
 

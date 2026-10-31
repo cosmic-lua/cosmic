@@ -41,7 +41,7 @@ local function skip_where_seatbelt_holds(what: string)
 end
 
 --- A grant of the program itself, which a child needs to run at all.
-local function itself(program: string, more?: {Sandbox.Grant}): {Sandbox.Grant}
+local function itself(program: string, more?: {Sandbox.Grant}): mut {Sandbox.Grant}
   local grants: mut {Sandbox.Grant} = { { path = program, letters = "rx" } }
   for _, grant in ipairs(more or {}) do grants[#grants + 1] = grant end
   return grants
@@ -244,7 +244,8 @@ local function test_a_policy_of_too_many_grants_fails_before_it_makes_anything(t
   for _, count in ipairs({ most, most + 44 }) do
     local grants = itself(probe)
     for i = #grants + 1, count do
-      grants[i] = { path = tmp .. "/g" .. tostring(i), letters = "r" }
+      local grant: Sandbox.Grant = { path = tmp .. "/g" .. tostring(i), letters = "r" }
+      grants[#grants + 1] = grant
     end
     local none, why = Child.start({ probe, "print hi" }, { policy = { grants = grants, tmp = true } })
     assert(none == nil, "a start over the most was made")

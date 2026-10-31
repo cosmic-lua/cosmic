@@ -1,5 +1,4 @@
---- The lexer of the new checker's grammar ([`doc/plans/new-checker-grammar.md`],
---- "the lexical grammar"): Lua 5.5's tokens with the grammar's changes.
+--- The lexer of the new checker's grammar: Lua 5.5's tokens with the grammar's changes.
 ---
 --- `lex` reads a whole source and answers its tokens and its errors. It
 --- never raises and does not stop at a problem: an unterminated string or

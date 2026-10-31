@@ -235,7 +235,7 @@ end
 
 --- Whether `COSMIC_WEB_DEV` asks for development mode.
 local function from_environment(): boolean
-  return Env.get("COSMIC_WEB_DEV") == "1"
+  return Env.read("COSMIC_WEB_DEV") == "1"
 end
 
 local function is_enabled(opts: Dev.Options?): boolean
@@ -498,7 +498,7 @@ end
 local function boot_of(opts: Dev.Options?): string
   local boot = opts and opts.boot
   if opts ~= nil and boot ~= nil then return boot end
-  return Env.get("COSMIC_WEB_BOOT") or tostring(Clock.now_ns())
+  return Env.read("COSMIC_WEB_BOOT") or tostring(Clock.now_ns())
 end
 
 local function checked_options(opts: Dev.Options?, level: integer)

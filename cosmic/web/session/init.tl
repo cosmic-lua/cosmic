@@ -533,8 +533,8 @@ function Session.middleware(opts: Session.Options): Types.Middleware
       else
         -- TODO: once the app can tell its middleware where it listens
         -- (Web.app's listeners), warn once at startup when `secure` is unset
-        -- and a listener is not on the loopback, as doc/plans/web/input.md
-        -- asks: behind a TLS proxy without trusted_proxy the cookie goes out
+        -- and a listener is not on the loopback:
+        -- behind a TLS proxy without trusted_proxy the cookie goes out
         -- without Secure.
         secure = req.scheme == "https"
       end

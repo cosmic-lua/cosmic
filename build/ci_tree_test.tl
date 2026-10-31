@@ -74,7 +74,8 @@ local sets_what_it_reads: {string:{string:boolean}} = {
   ["build/workflows_test.tl"] = { COSMIC_CI_DECLARED_KEYS = true, COSMIC_CI_SAVES = true,
     COSMIC_CI_SCOPE = true, COSMIC_CI_CHECKED_SUITE = true, COSMIC_CI_FORMAT = true, COSMIC_CI_EVENT = true,
     COSMIC_CI_BASE_SHA = true, COSMIC_CI_FORMAT_CHANGED = true, COSMIC_CI_SHARD = true,
-    COSMIC_CI_CHECKED_SHARD = true, COSMIC_CI_CHECK_MEMO = true, COSMIC_CI_PORTABLE_SUITE = true,
+    COSMIC_CI_CHECKED_SHARD = true, COSMIC_CI_NARROWING_SHARD = true, COSMIC_CI_CHECK_MEMO = true, COSMIC_CI_PORTABLE_SUITE = true,
+    COSMIC_CI_PORTABLE_SHARD = true, COSMIC_CI_PORTABLE_SHARES = true,
     GITHUB_OUTPUT = true, GITHUB_ENV = true,
     RUNNER_TEMP = true },
   -- The check that the ceilings only fall reads the run's own variables, in the tool's `fix --check` and not in a suite's

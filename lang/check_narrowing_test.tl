@@ -80,8 +80,7 @@ print(use())
 end
 
 -- The fork narrowed a bare variable alone and refused a use of `h.field` after a test of it; the new checker narrows a
--- place ([`lang.flow`]) until a write to it or its base, so the same program is taken. Deliberate
--- (doc/plans/new-checker-types.md).
+-- place ([`lang.flow`]) until a write to it or its base, so the same program is taken. Deliberate.
 local function test_a_test_of_a_field_narrows_it_like_a_variable()
   checks("field-truthy", [==[local record R
    x: number

@@ -63,6 +63,17 @@ function Example.tsv()
   assert(header[2] == "b,c" and data[2] == "")
 end
 
+--- `encode` writes rows back out, quoting a field only where it must:
+--- here the comma and the quotes, which would otherwise shift a column.
+function Example.encode()
+  local text = Csv.encode({ { "id", "name" }, { "1", "Smith, Ann" }, { "2", 'say "hi"' } })
+  assert(text == 'id,name\n1,"Smith, Ann"\n2,"say ""hi"""\n')
+  local back = assert(Csv.parse(text))
+  assert(assert(back[2])[2] == "Smith, Ann")
+  local tsv = Csv.encode({ { "a", "b,c" } }, { delimiter = "\t", line_end = "\r\n" })
+  print(tsv == "a\tb,c\r\n") -- true
+end
+
 --- Header fields that are empty or differ only in case are renamed, so
 --- every column has a name of its own; `reserved` keeps a name free.
 function Example.column_names()

@@ -31,14 +31,15 @@ end
 local function span(cidr: string): {integer}, {integer}
   local address, bits = cidr:match("^(.-)/(%d+)$")
   assert(address and bits, "a denied prefix is an address and a length: " .. cidr)
-  local first = assert(Address.parse(address))
+  local parsed = assert(Address.parse(address))
+  local first: mut {integer} = {}
   local last: mut {integer} = {}
   local held = assert(math.tointeger(tonumber(bits)), "a prefix length is an integer: " .. cidr)
-  for i = 1, #first do
+  for i = 1, #parsed do
     local kept = math.max(0, math.min(8, held - (i - 1) * 8))
     local mask = (0xff << (8 - kept)) & 0xff
-    local masked = byte_at(first, i) & mask
-    first[i] = masked
+    local masked = byte_at(parsed, i) & mask
+    first[#first + 1] = masked
     last[#last + 1] = masked | (~mask & 0xff)
   end
   return first, last
