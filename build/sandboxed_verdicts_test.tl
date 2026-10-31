@@ -701,6 +701,37 @@ end
   assert(plain_again:find("0 ran, 2 stood", 1, true), "an unchecked run did not stand on its own pass: " .. plain_again)
 end
 
+--- An edit to the hooks of a checked run moves the keys of a checked run and no others: the checks part holds the
+--- harness digest of build.test_worker, which COSMIC_TEST_HOOKS_SALT stands in for in a project. A checked
+--- verdict does not stand across it, and an unchecked run's does.
+local function test_an_edit_to_the_hooks_moves_a_checked_key_and_no_other(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
+  assert(Fs.write(root .. "/suite/plain_test.tl", [[
+local lib = require("suite.lib")
+
+local function test_plain()
+  assert(lib.value == 1)
+end
+]]))
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local first = run(root, tmp .. "/first.out", env, { "--check-types" })
+  if unsandboxed(first) then Test.skip("no worker could be sandboxed here") end
+  assert(first:find("1 ran, 0 stood", 1, true), first)
+  local plain = run(root, tmp .. "/plain.out", env)
+  assert(plain:find("1 ran, 0 stood", 1, true), plain)
+  local edited: mut {string:string} = {}
+  for name, value in pairs(env) do edited[name] = value end
+  edited["COSMIC_TEST_HOOKS_SALT"] = "an edit to build/test_worker.tl"
+  local checked = run(root, tmp .. "/checked.out", edited, { "--check-types" })
+  assert(checked:find("1 ran, 0 stood", 1, true), "an edit to the hooks left a checked verdict standing: " .. checked)
+  local unchecked = run(root, tmp .. "/unchecked.out", edited)
+  assert(unchecked:find("0 ran, 1 stood", 1, true), "an edit to the hooks moved an unchecked key: " .. unchecked)
+  local back = run(root, tmp .. "/back.out", env, { "--check-types" })
+  assert(back:find("0 ran, 1 stood", 1, true), "the checked verdict of the unedited hooks was lost: " .. back)
+end
+
 --- A module that declares `store` is given the whole projection at o/cosmic.db, and a checked run gives it the one the
 --- run was compiled into, `cosmic.checked.db`. Its checked verdict is keyed by that file and not the tree's: a
 --- second checked run stands on it, an unchecked run does not, and an edit to the module runs it again.
@@ -728,6 +759,15 @@ end
   assert(again:find("0 ran, 1 stood", 1, true), "a store module's checked verdict did not stand: " .. again)
   local plain = run(root, tmp .. "/plain.out", env)
   assert(plain:find("1 ran, 0 stood", 1, true), "a checked verdict stood for an unchecked run: " .. plain)
+  -- The tree's own projection is as the unchecked run left it; a module outside the closure, which moves the
+  -- graph key of nothing, rewrites only the checked projection the next checked run is given. The store module's
+  -- worker reads that file, so its key must follow it and not the tree's.
+  local stood = run(root, tmp .. "/stood.out", env, { "--check-types" })
+  assert(stood:find("0 ran, 1 stood", 1, true), "an unchecked run in between moved a checked key: " .. stood)
+  assert(Fs.write(root .. "/suite/elsewhere.tl", "local record Elsewhere\n  value: integer\nend\nlocal e: Elsewhere = { value = 2 }\nreturn e\n"))
+  local moved = run(root, tmp .. "/moved.out", env, { "--check-types" })
+  assert(moved:find("1 ran, 0 stood", 1, true),
+    "only the checked projection moved, and the store module's checked verdict stood: " .. moved)
   assert(Fs.write(root .. "/suite/lib.tl", lib .. "-- edited\n"))
   local edited = run(root, tmp .. "/edited.out", env, { "--check-types" })
   assert(edited:find("1 ran, 0 stood", 1, true), "an edit to the closure left the checked verdict standing: " .. edited)

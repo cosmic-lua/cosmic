@@ -199,3 +199,21 @@ local function test_a_checked_run_reads_its_own_file(tmp: string)
   assert(shared_verdicts.rows_kept(plain) == 8192)
   assert(shared_verdicts.rows_kept("/ci/verdicts/checked.db") == 8192, "the sanitized core's suite keeps the old bound")
 end
+
+--- A file of a checked run's verdicts keeps its rows past the 8192 an ordinary file keeps: what a run owes it is
+--- trimmed to `rows_kept` of its own path.
+local function test_a_settle_trims_to_the_bound_of_its_file(tmp: string)
+  local function rows_after(name: string): integer
+    local cache = assert(shared_verdicts.open(tmp .. "/" .. name))
+    local kept: mut {shared_verdicts.Kept} = {}
+    for i = 1, 8200 do
+      kept[#kept + 1] = { key = "k" .. tostring(i), test = "t" .. tostring(i), hits = "", elapsed_ns = 1 }
+    end
+    assert(shared_verdicts.settle(cache, "origin", { kept = kept, used = {}, failed = {} }, Clock.now_ns()))
+    local counted = assert(Sqlite.text_rows(cache.db, "SELECT count(*) FROM declared_v1"))
+    shared_verdicts.close(cache)
+    return math.tointeger(tonumber(assert(counted[1]):text(1))) or -1
+  end
+  assert(rows_after("verdicts.db") == 8192, "an ordinary file kept another number")
+  assert(rows_after("verdicts-checked.db") == 8200, "a checked file was trimmed to the ordinary bound")
+end

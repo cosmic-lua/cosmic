@@ -496,10 +496,12 @@ progress line, the coverage, the summary) moves no digest, and needs
 nothing here. Where a part of the runner could be either, it is in
 [`build/test_key.tl`].
 
-The hooks of a checked run, and its judge, are the code of [`build.test_worker`]; the keys of a checked run hold that
-module's digest, so an edit to it moves those keys and no other. It needs no bump, which is the one exception
-to the rule below: the bump would run the ordinary suites on a change that cannot alter them. An edit to
-[`build/test_key.tl`] or [`build/declared_key.tl`] that alters a checked pass bumps, as below.
+The hooks of a checked run (`install_checks`, the hooks it defines, what they record) and the judge's checks that
+apply to a checked run alone are the code of [`build.test_worker`] that no ordinary run executes. The keys of a checked
+run hold that module's digest, so an edit confined to them moves those keys and no other, and needs no bump: a bump
+would run the ordinary suites on a change that cannot alter them. This is the one exception to the rule below. An edit
+to the module's ordinary judging, its run or its sandbox setup bumps, as does an edit to [`build/test_key.tl`] or
+[`build/declared_key.tl`] that alters a checked pass.
 
 Bump `epoch` in the same edit where the change can alter a pass or a
 fail:

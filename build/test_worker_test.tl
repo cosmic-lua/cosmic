@@ -7,6 +7,7 @@ local type Sandbox = require("cosmic.sandbox")
 local Clock = require("cosmic.clock")
 local Globals = require("cosmic.internal.globals")
 local worker = require("build.test_worker")
+local test_key = require("build.test_key")
 
 --- The element of `list` at `index`, which the case knows is there.
 local function nth<T>(list: {T}, index: integer): T
@@ -128,6 +129,21 @@ local function test_the_hooks_are_held_only_while_they_are_the_harness_s_own()
   assert(not worker.hooks_held(), "a missing __cosmic_tc was taken for the harness's")
   run("__cosmic_tc = __kept_tc; __kept_tc = nil")
   assert(worker.hooks_held())
+end
+
+--- A checked run keeps no verdict of a test whose worker met a violation: a row in its report, or rows it kept
+--- no record of (`dropped`) each count.
+local function test_a_report_with_a_row_or_dropped_rows_met_something()
+  local function reported(violations: {worker.Violation}?, dropped: integer?): worker.Report
+    return { loaded = true, passed = true, message = "", elapsed_ns = 1, load_hits = {}, test_hits = {},
+      modules = {}, violations = violations, dropped = dropped }
+  end
+  assert(test_key.met_nothing(nil))
+  assert(test_key.met_nothing(reported(nil, nil)))
+  assert(test_key.met_nothing(reported({}, 0)))
+  local row: worker.Violation = { kind = "fact", at = "x.tl:1:1", target = "x", declared = "not nil", actual = "nil", count = 1 }
+  assert(not test_key.met_nothing(reported({ row }, nil)))
+  assert(not test_key.met_nothing(reported({}, 3)), "rows past the worker's limit were taken for none")
 end
 
 --- A worker that reported nothing fails its test by what went wrong.

@@ -1988,7 +1988,14 @@ function test_key.begin(rec: Recording, from: Begin)
   if rec.checks then
     -- The hooks and the judge of a checked run are the code of build.test_worker: an edit to it moves every
     -- checked key and no other, where the epoch moves every key (doc/testing.md, "changing the harness").
-    rec.checks_part = GrammarMode.checks_format .. "\0" .. (from.harness.modules["build.test_worker"] or "")
+    local hooks = assert(from.harness.modules["build.test_worker"], "the harness names no digest of build.test_worker")
+    -- A run in a tree of a project stands in for an edit to the hooks, as COSMIC_TEST_COMPILER_SALT does for a
+    -- compiler (build/sandboxed_verdicts_test.tl).
+    local hooks_salt = Env.get("COSMIC_TEST_HOOKS_SALT")
+    if not from.own_tree and hooks_salt ~= nil and hooks_salt ~= "" then
+      hooks = hex_sha256(hooks .. "\0" .. hooks_salt)
+    end
+    rec.checks_part = GrammarMode.checks_format .. "\0" .. hooks
   end
   local store_salt = Env.get("COSMIC_TEST_STORE_SALT")
   if not from.own_tree and store_salt ~= nil and store_salt ~= "" then
@@ -2124,6 +2131,13 @@ end
 --- it: it passes by running). Neither is kept as a verdict, pass or fail,
 --- so it runs again on the next run -- and on a host that can check it,
 --- whose key differs, as its own.
+--- Whether a checked run's worker met no violation: its report holds no row and no more went unrecorded. No
+--- report is a worker that met none.
+function test_key.met_nothing(report: worker.Report?): boolean
+  if report == nil then return true end
+  return #(report.violations or {}) == 0 and (report.dropped or 0) == 0
+end
+
 function test_key.judge(rec: Recording, job: Job, result: Child.Result?,
                         trouble: string, refused: boolean?,
                         unavailable: string?): Judged
@@ -2157,12 +2171,9 @@ function test_key.judge(rec: Recording, job: Job, result: Child.Result?,
       " declare `requires` or call Test.skip(reason)"
   end
   -- A checked run keeps no verdict of a test that met a violation: it runs again every time, so every run
-  -- reports it (doc/plans/check-types-verdicts.md).
+  -- reports it: the count of violations a standing run prints is then the whole run's.
   local report = judgement.report
-  local clean = true
-  if rec.checks and report ~= nil then
-    clean = #(report.violations or {}) == 0 and (report.dropped or 0) == 0
-  end
+  local clean = not rec.checks or test_key.met_nothing(report)
   return { report = report, passed = passed, message = message, skipped = skipped,
     unchecked = unchecked, deliberate = judgement.deliberate or "",
     checked = skipped == "" and not unchecked, clean = clean }

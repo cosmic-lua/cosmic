@@ -2115,3 +2115,17 @@ local function test_a_build_directory_of_the_old_tool_opens_under_the_new_one()
   assert(checked.compiled == 1 and checked.fact_wraps > 0 and checked.parameter_checks > 0,
     "a checked compile of the old file was not made")
 end
+
+--- A file with one of the two columns only (a run that added the first and was ended) opens, and gains the other.
+local function test_a_build_directory_with_one_count_column_gains_the_other()
+  local root = assert(write_fixture("counted-half", { ["greet.tl"] = COUNTED }))
+  assert(compile_counted(root, false).compiled == 1)
+  local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db", { writable = true }))
+  assert(db:exec("DROP INDEX compiled_by_checks"))
+  assert(db:exec("ALTER TABLE compiled DROP COLUMN parameter_checks"))
+  assert(db:close())
+  local again = compile_counted(root, false)
+  assert(again.compiled == 0 and again.cached == 1, "the half-migrated file's compile did not stand")
+  local checked = compile_counted(root, true)
+  assert(checked.parameter_checks > 0)
+end

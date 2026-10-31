@@ -876,10 +876,10 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache?, string
   -- judges the module again. Changing which verdict may stand is a
   -- semantic change: invalidate the stored keys or the cache schema,
   -- rather than treating it as a transport-only edit.
-  -- By the index that holds `seen` beside the key (`compiled_by_seen`,
-  -- [`build.work`]): a row holds the module's Lua and bytecode before its
-  -- `seen`, and SQLite reaches a column by reading through every page
-  -- of the ones before it, 27 MB a run for a tree's modules.
+  -- By the index that holds `seen` and the counts of the checks beside the key
+  -- (`compiled_by_checks`, [`build.work`]): a row holds the module's Lua and
+  -- bytecode before them, and SQLite reaches a column by reading through every
+  -- page of the ones before it, 27 MB a run for a tree's modules.
   local look, look_trouble = db:prepare(
     "SELECT seen, fact_wraps, parameter_checks FROM compiled INDEXED BY compiled_by_checks " ..
       "WHERE key = ?1 AND seen >= 0")

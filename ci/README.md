@@ -718,7 +718,7 @@ verdicts, which would otherwise ride along whole in each save.
 - `checked-narrowing` (`linux-x86_64-checked-narrowing`), the whole
   suite on a checked run (`--check-types`, `platform checked-narrowing`)
   on the release tool, which restores and saves no verdict yet (a checked
-  run can stand on its own, doc/plans/check-types-verdicts.md) and reads no
+  run can stand on its own, doc/testing.md) and reads no
   checked core: it boots and runs every test. A full run only.
 - `format` (`linux-x86_64-format`), a light run's format check
   (`platform format`), which a full run makes in linux-aarch64's assemble.

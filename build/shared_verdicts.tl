@@ -156,12 +156,12 @@ function shared_verdicts.location(environment?: {string:string}, checked?: boole
   return dir .. (if checked == true then "/verdicts-checked.db" else "/verdicts.db" end), ""
 end
 
---- How many rows the file at `path` keeps: more for the file of a checked run's verdicts, which
---- is named `*-checked.db` or `narrowing.db`.
-
 -- TODO: once ci/cosmic-driver.pin names a release whose shared_verdicts keeps the checked bound, trim and
 -- merge the narrowing file at 16384: the pinned driver's `verdicts-trim` and `verdicts-merge` keep 8192
 -- until then, so CI trims that file to the rows a run used, which fit.
+
+--- How many rows the file at `path` keeps: more for the file of a checked run's verdicts, which
+--- is named `*-checked.db` or `narrowing.db`.
 function shared_verdicts.rows_kept(path: string): integer
   if path:match("%-checked%.db$") ~= nil or path:match("/narrowing%.db$") ~= nil then
     return kept_checked_rows

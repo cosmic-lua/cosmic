@@ -2000,8 +2000,9 @@
     # checker narrowed by a test is checked against the real run, and a
     # fact that is false fails the test (cosmic_ci's
     # phase_checked_narrowing). A checked run can stand on verdicts of its
-    # own, but this job restores and saves none yet (doc/plans/
-    # check-types-verdicts.md), so it runs every test, on the release tool
+    # own, but this job restores and saves none yet (TODO: restore and
+    # save its verdicts, as the checked suite's jobs do), so it runs every
+    # test, on the release tool
     # and no checked core, so it boots and builds nothing else. A job of its
     # own on linux-x86_64's host, beside the legs and the checked suite's
     # shares: it takes thirteen to fifteen minutes, which the shares' job
