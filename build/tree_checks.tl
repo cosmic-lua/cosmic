@@ -115,9 +115,6 @@ allowed["cosmic.http.default_roots"] = "public API: the roots a request naming n
 allowed["cosmic.http.minimal_roots"] = "public API: the roots `opts.roots = \"minimal\"` names, for a " ..
   "program to read or start a list of its own from"
 
-allowed["cosmic.http.server.encoding"] = "public API: how a handler of `Server.serve` reads the " ..
-  "Accept-Encoding of a request, as `Server.range` reads Range; the server's own `compress` calls it"
-
 local function allow(names: {string}, why: string)
   for _, name in ipairs(names) do
     allowed[name] = why

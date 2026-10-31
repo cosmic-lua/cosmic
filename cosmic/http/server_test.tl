@@ -1095,8 +1095,6 @@ local function test_a_reply_that_is_not_to_be_compressed_is_sent_as_given()
       return { status = 200, headers = TEXT_TYPE }
     elseif path == "/204" then
       return { status = 204 }
-    elseif path == "/304" then
-      return { status = 304, headers = { ETag = '"v1"', ["Content-Type"] = "text/plain" } }
     end
     return { status = 404, headers = TEXT_TYPE, body = TEXT }
   end, function(address: Net.Address)
@@ -1107,19 +1105,18 @@ local function test_a_reply_that_is_not_to_be_compressed_is_sent_as_given()
       return reply(p, method)
     end
     for _, path in ipairs({ "/encoded", "/small", "/small-reader", "/image", "/untyped", "/notransform",
-        "/events", "/empty", "/204", "/304" }) do
+        "/events", "/empty", "/204" }) do
       local got = once(path)
       assert(got.headers["vary"] == nil, path)
       assert(got.headers["content-encoding"] == (if path == "/encoded" then "identity" else nil end), path)
       local want = TEXT
       if path == "/small" or path == "/small-reader" then
         want = small
-      elseif path == "/empty" or path == "/204" or path == "/304" then
+      elseif path == "/empty" or path == "/204" then
         want = ""
       end
       assert(got.body == want, path)
     end
-    assert(once("/304").headers["etag"] == '"v1"')
     local ranged = once("/range", "Range: bytes=0-9\r\n")
     assert(ranged.status == 206 and ranged.headers["content-encoding"] == nil)
     assert(ranged.headers["content-range"] == ("bytes 0-9/%d"):format(#TEXT))
@@ -1127,6 +1124,54 @@ local function test_a_reply_that_is_not_to_be_compressed_is_sent_as_given()
     -- A 404 is a reply like any other.
     local missing = once("/other")
     assert(missing.status == 404 and missing.headers["content-encoding"] == "zstd")
+  end, { compress = true })
+  assert(#troubles == 0, troubles[1])
+end
+
+--- A 304 carries the `Vary` and the weak `ETag` of the 200 it stands
+--- for (RFC 9110 15.4.5) where that 200 would be compressed: a coding is
+--- chosen for the request. It is left as it is for a request that takes
+--- identity, a type that is not compressed, a coding of the handler's
+--- and no-transform.
+local function test_a_304_has_the_vary_and_etag_of_the_compressed_200()
+  local troubles = serving(function(req: Server.Request): Server.Reply
+    local headers: mut {string:string} = { ETag = '"v1"', ["Content-Type"] = "text/plain" }
+    if req.path == "/image" then
+      headers["Content-Type"] = "image/png"
+    elseif req.path == "/notransform" then
+      headers["Cache-Control"] = "no-transform"
+    elseif req.path == "/encoded" then
+      headers["Content-Encoding"] = "gzip"
+    elseif req.path == "/typeless" then
+      headers["Content-Type"] = nil
+    elseif req.path == "/weak" then
+      headers["ETag"] = 'W/"v1"'
+    end
+    return { status = 304, headers = headers }
+  end, function(address: Net.Address)
+    local p = peer(address)
+    local function once(path: string, accept: string): Got
+      send(p, get(path, "Accept-Encoding: " .. accept .. "\r\n"))
+      return reply(p)
+    end
+    for _, accept in ipairs({ "gzip", "zstd, gzip", "*" }) do
+      local got = once("/", accept)
+      assert(got.status == 304 and got.body == "", accept)
+      assert(got.headers["vary"] == "Accept-Encoding" and got.headers["etag"] == 'W/"v1"', accept)
+      assert(got.headers["content-encoding"] == nil and got.headers["content-length"] == nil, accept)
+    end
+    local typeless = once("/typeless", "gzip")
+    assert(typeless.headers["vary"] == "Accept-Encoding" and typeless.headers["etag"] == 'W/"v1"')
+    local weak = once("/weak", "gzip")
+    assert(weak.headers["vary"] == "Accept-Encoding" and weak.headers["etag"] == 'W/"v1"')
+    for _, path in ipairs({ "/image", "/notransform", "/encoded" }) do
+      local got = once(path, "gzip")
+      assert(got.status == 304 and got.headers["vary"] == nil and got.headers["etag"] == '"v1"', path)
+    end
+    for _, accept in ipairs({ "identity", "br", "" }) do
+      local got = once("/", accept)
+      assert(got.headers["vary"] == nil and got.headers["etag"] == '"v1"', accept)
+    end
   end, { compress = true })
   assert(#troubles == 0, troubles[1])
 end
@@ -1322,4 +1367,80 @@ local function test_incompressible_bytes_stay_and_a_bad_spec_is_refused()
   }
   local ok, err = pcall(Server.serve, spec)
   assert(not ok and tostring(err):find("spec.compress.min_bytes", 1, true) ~= nil, tostring(err))
+end
+
+--- A compress table with a field it has none of raises, naming it, as
+--- limits does.
+local function test_a_compress_table_with_an_unknown_field_is_refused()
+  -- A chunk loaded from text, since the checker refuses a table of the
+  -- wrong shape where a spec is written.
+  local function refused(compress: string): string
+    local chunk = assert(load("local Server, Net, handle = ...\n" ..
+        "return pcall(Server.serve, { listeners = { Net.tcp('127.0.0.1', 0) }, handle = handle," ..
+        " compress = " .. compress .. " })"))
+    local ok, err = chunk(Server, Net, echo)
+    assert(ok == false)
+    return tostring(err)
+  end
+  assert(refused("{ min_byte = 10 }"):find("spec.compress has no field min_byte", 1, true) ~= nil)
+  assert(refused("{ min_bytes = 1.5 }"):find("spec.compress.min_bytes", 1, true) ~= nil)
+  assert(refused("{ min_bytes = -1 }"):find("spec.compress.min_bytes", 1, true) ~= nil)
+  assert(refused("'yes'"):find("spec.compress must be", 1, true) ~= nil)
+end
+
+--- A reply the handler marks `Cache-Control: no-transform` is sent as it
+--- is, the opt-out for a reply that mixes a secret with the client's input.
+local function test_no_transform_opts_a_reply_out()
+  serving(function(_req: Server.Request): Server.Reply
+    return { status = 200, headers = { ["Content-Type"] = "text/html", ["Cache-Control"] = "private, no-transform" },
+      body = TEXT }
+  end, function(address: Net.Address)
+    local p = peer(address)
+    send(p, get("/", "Accept-Encoding: gzip, zstd\r\n"))
+    local got = reply(p)
+    assert(got.body == TEXT and got.headers["content-encoding"] == nil and got.headers["vary"] == nil)
+  end, { compress = true })
+end
+
+--- A Reader body that fails after the head has gone is cut short with
+--- its compressor between it and the wire: the connection ends, the
+--- Reader under the compressor is closed, and the failure goes to
+--- on_error. The failing Reader is a gzip decoder over bytes that are
+--- no gzip, since a Reader of the test's own would add to the errors
+--- the checker pins for this file; the peer is closed by hand for the
+--- same reason.
+local function test_a_compressed_reader_that_fails_midway_is_closed_and_reported()
+  local source = Stream.from_string(("not gzip at all, but long enough to read\n"):rep(60))
+  local troubles = serving(function(_req: Server.Request): Server.Reply
+    local decoder, _ = assert(Compress.inflater("gzip"))
+    return { status = 200, headers = TEXT_TYPE, body = Stream.transform(source, decoder) }
+  end, function(address: Net.Address)
+    local p = peer(address)
+    send(p, get("/", "Accept-Encoding: gzip\r\n"))
+    assert(line(p) == "HTTP/1.1 200 OK")
+    while more(p) do end
+    local _, _ = p.conn:close()
+  end, { compress = true })
+  local piece, why = source:read()
+  assert(piece == nil and why ~= "", "the Reader under the compressor was closed")
+  assert(#troubles == 1 and trouble_at(troubles, 1):find("the reply's body", 1, true) ~= nil, troubles[1])
+end
+
+--- A HEAD whose reply has a compressible Reader body has it closed
+--- unread, and the head of the GET is sent.
+local function test_a_compressed_reader_on_a_head_is_closed()
+  local source = Stream.from_string(TEXT)
+  local troubles = serving(function(_req: Server.Request): Server.Reply
+    return { status = 200, headers = TEXT_TYPE, body = source }
+  end, function(address: Net.Address)
+    local p = peer(address)
+    send(p, "HEAD / HTTP/1.1\r\nHost: test\r\nAccept-Encoding: gzip\r\n\r\n")
+    local got = reply(p, "HEAD")
+    assert(got.status == 200 and got.body == "" and got.headers["content-encoding"] == "gzip")
+    assert(got.headers["transfer-encoding"] == "chunked")
+    local _, _ = p.conn:close()
+  end, { compress = true })
+  local piece, why = source:read()
+  assert(piece == nil and why ~= "", "the Reader was closed unread")
+  assert(#troubles == 0, troubles[1])
 end

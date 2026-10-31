@@ -53,7 +53,7 @@ end
 
 -- An element that is no coding, or has a weight that is no qvalue, or a
 -- parameter other than the weight, is ignored; the first weight of a
--- coding stands.
+-- coding stands. A weight of "0." or "1." is a qvalue.
 local function test_a_malformed_element_is_ignored()
   assert(chosen("gzip;q=2") == "identity")
   assert(chosen("gzip;q=0.5555") == "identity")
@@ -67,4 +67,10 @@ local function test_a_malformed_element_is_ignored()
   assert(chosen("*;q=0, *") == "none")
   assert(chosen("gzip;q=.5") == "identity")
   assert(chosen("gzip;q=0.") == "identity")
+  assert(chosen("gzip;q=1.") == "gzip")
+  -- "0." and "1." are qvalues (RFC 9110: a point may follow with no
+  -- digit). Read as 0, "0." refuses gzip and `*` still stands for the
+  -- rest, so identity is the answer; ignored, gzip would be left to `*`.
+  assert(chosen("gzip;q=0., *", { "gzip" }) == "identity")
+  assert(chosen("gzip;q=0.9, zstd;q=0.") == "gzip")
 end

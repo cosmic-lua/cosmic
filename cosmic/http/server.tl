@@ -168,8 +168,27 @@ local record Server
     --- uploads past what 30 seconds carry raises it.
     body_ns?: integer
     --- Compresses replies for the `Accept-Encoding` the request sent:
-    --- `true` for the defaults, or a [`Server.Compression`]. See
-    --- [`Server.serve`]. Nil leaves every reply as the handler made it.
+    --- `true` for the defaults, or a [`Server.Compression`]; a table
+    --- with a field it has no name for raises. See [`Server.serve`].
+    --- Nil leaves every reply as the handler made it.
+    ---
+    --- Compression and secrets: a reply that holds a secret (a CSRF
+    --- token, session data) beside input the client chose and the page
+    --- reflects can give the secret away through its compressed length
+    --- (BREACH), to a script that tries guesses and measures. Leave
+    --- `compress` off for a server whose replies mix the two, or have
+    --- the handler of such a reply opt out with `Cache-Control:
+    --- no-transform`, which the server leaves as it is and obeys.
+    ---
+    --- A 406 is sent only where a reply would otherwise have been
+    --- compressed, for a client that refuses identity and each coding
+    --- the server writes; any other reply goes out identity, whatever
+    --- the client refused. A Reader body is compressed as it is read
+    --- but the compressor holds back what it has until it has a block,
+    --- so a Reader that yields slowly (a log followed, a stream of
+    --- events of a type other than `text/event-stream`) reaches the
+    --- client late: give it `no-transform`, or a type that is not
+    --- compressed.
     compress?: boolean | Compression
     --- As [`Net.ServeSpec.on_ready`].
     on_ready?: function(addresses: {Net.Address}, server: Net.Server)
@@ -253,9 +272,22 @@ end
 --- address [`Net.serve`] checks itself.
 local function checked_spec(spec: any)
   if not spec is {any: any} then error("http: serve takes a spec table", 3) end
-  for key in pairs(spec) do
+  for key, value in pairs(spec) do
     if not (key is string and SPEC_FIELDS[key] == true) then
       error("http: spec has no field " .. tostring(key), 3)
+    end
+    -- Checked where the spec is walked: reading `spec.compress` apart
+    -- would be another read of untrusted data.
+    if key == "compress" and type(value) ~= "boolean" then
+      if type(value) ~= "table" then spec_error("compress", "nil, a boolean or a table") end
+      for field, min_bytes in pairs(value) do
+        if field ~= "min_bytes" then
+          error("http: spec.compress has no field " .. tostring(field), 3)
+        end
+        if math.type(min_bytes) ~= "integer" or min_bytes < 0 then
+          spec_error("compress.min_bytes", "nil or an integer from 0")
+        end
+      end
     end
   end
   local listeners = spec.listeners
@@ -588,10 +620,14 @@ local function joined(headers: {string: string | {string}}, lower: string): stri
   return table.concat(parts, ", ")
 end
 
---- Media types besides text/* whose bytes compress.
+--- Media types besides text/* whose bytes compress. The types of
+--- line-streamed bodies (application/x-ndjson, text/event-stream) are
+--- not here and not compressed: Stream.transform has no flush, so the
+--- compressor would hold each line until it had a block, and a slow
+--- stream would reach the client late.
 local COMPRESSIBLE <const>: {string: boolean} = {
   ["application/json"] = true, ["application/javascript"] = true, ["application/xml"] = true,
-  ["application/x-ndjson"] = true, ["application/wasm"] = true, ["image/svg+xml"] = true,
+  ["application/wasm"] = true, ["image/svg+xml"] = true,
 }
 
 --- Whether a body of Content-Type `content_type` is worth compressing:
@@ -652,11 +688,31 @@ local function encoder_for(coding: string): Compress.Stream?
   return encoder
 end
 
+--- A 304 for a request of `accepts`, with the Vary and the weak ETag
+--- the 200 it stands for would carry (RFC 9110 section 15.4.5) where
+--- that 200 would be compressed: a coding is chosen, and the reply is
+--- not marked no-transform or of a type that is left alone.
+local function revalidated(accepts: string?, reply: Server.Reply): Server.Reply
+  local headers = reply.headers or {}
+  local content_type = joined(headers, "content-type")
+  if #named_as(headers, "content-encoding") > 0 or
+      joined(headers, "cache-control"):lower():find("no%-transform") ~= nil or
+      (content_type ~= "" and not compressible(content_type)) then
+    return reply
+  end
+  local coding = Server.encoding(accepts)
+  if coding ~= "zstd" and coding ~= "gzip" then return reply end
+  local out = varied(headers, false)
+  weakened(out)
+  return { status = reply.status, headers = out, body = reply.body, length = reply.length, close = reply.close }
+end
+
 --- `reply` for a request of `accepts` (its Accept-Encoding) compressed
 --- as [`Server.serve`] describes, or as it is where it is not to be.
 local function compressed(min_bytes: integer, accepts: string?, reply: Server.Reply): Server.Reply
   local status, body = reply.status, reply.body
-  if status == 206 or status == 204 or status == 304 or body == nil or body == "" then
+  if status == 304 then return revalidated(accepts, reply) end
+  if status == 206 or status == 204 or body == nil or body == "" then
     return reply
   end
   local headers = reply.headers or {}
@@ -764,7 +820,17 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   if reply is string then error("http: a handler's answer is text", 0) end
   local given: Server.Reply = reply
   if s.compress_from ~= nil then
-    given = compressed(s.compress_from, head.headers["accept-encoding"], given)
+    local compressing, result = xpcall(compressed, traced, s.compress_from, head.headers["accept-encoding"], given)
+    if not compressing then
+      -- The encoder raised: the handler's Reader is still the server's to close.
+      drop_body(given)
+      report(s, "http: " .. where .. ": compressing the reply: " .. tostring(result))
+      answer(s, conn, head, 500, "")
+      if body.state == "open" then linger(conn) end
+      return false
+    end
+    if result is string then error("http: compressing answered text", 0) end
+    given = result
   end
   local close = given.close == true or head.close or s.stopping
   -- A client still waiting for `100 Continue` sends its body only once
@@ -926,7 +992,12 @@ end
 --- events must not wait on a compressor). A HEAD whose reply has a
 --- body gets the head its GET gets; one that gives the size alone is
 --- sent as given. A client that refuses identity and everything the
---- server writes is answered 406.
+--- server writes is answered 406, where the reply would have been
+--- compressed. A reply that mixes a secret with input the client
+--- chose can leak the secret through its compressed length (BREACH):
+--- see [`Server.ServeSpec.compress`], and mark such a reply
+--- `Cache-Control: no-transform`. A 304 carries the `Vary` and weak
+--- `ETag` the 200 it stands for would, where a coding would be chosen.
 ---
 --- Every handler runs in the task of its connection, and the server
 --- serves the next only while one waits on the run: a read of
@@ -938,9 +1009,6 @@ end
 -- timer callback per handle, waited on as a Net.Conn's descriptor is),
 -- so Http.open, Http.get and Http.request in a handler wait through the
 -- run rather than holding every connection.
--- TODO: let a handler compress at a level of its own, and add brotli,
--- once a caller needs either; the codings are zstd and gzip at their
--- defaults.
 function Server.serve(spec: Server.ServeSpec): boolean, string
   checked_spec(spec)
   if Poll.in_task() then
@@ -954,14 +1022,7 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
   if compress is boolean then
     if compress then compress_from = 1024 end
   elseif compress ~= nil then
-    if type(compress) ~= "table" then
-      error("http: spec.compress must be nil, a boolean or a table", 2)
-    end
-    local min_bytes = compress.min_bytes
-    if min_bytes ~= nil and not (math.type(min_bytes) == "integer" and min_bytes >= 0) then
-      error("http: spec.compress.min_bytes must be nil or an integer from 0", 2)
-    end
-    compress_from = min_bytes or 1024
+    compress_from = compress.min_bytes or 1024
   end
   local s: Serving = {
     spec = spec,
