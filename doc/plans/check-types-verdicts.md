@@ -311,15 +311,15 @@ The edits to [`.github/workflows/ci.yml`]:
 2. **Restore.** Both parts look up and restore the entry of the tree's base on main
    (`verdicts-base-lookup`, `verdicts-base`, `verdicts-restore`), which holds both parts'
    rows.
-3. **Run ahead.** `queue-ahead` takes one `ARTIFACT` and one `JOB`. A share asks twice, once
-   for each part of the run ahead (`JOB` `linux-x86_64-checked-narrowing-<part>`, `ARTIFACT`
+3. **Run ahead.** `queue-ahead` takes one `ARTIFACT` and one `JOB`, and
+   `queue_seed_test` encodes that shape. The plan keeps it: a share makes two calls, one
+   per part of the run ahead (`JOB` `linux-x86_64-checked-narrowing-<part>`, `ARTIFACT`
    `verdicts-linux-x86_64-checked-narrowing-shard-<part>`), and merges what it downloads
    with `verdicts-merge`. Each call may wait up to its `WITHIN_SECONDS` (90 s), so the two
-   cost up to 180 s; the plan sets the second's wait to what the first left, or makes
-   `ARTIFACT` and `JOB` lists, whichever the driver's tests find simpler. `READY_SECONDS`
-   is the time after a part starts by which it has kept its verdicts; with two parts it is
-   the later of the two, and is set from the first runs (a share of the checked suite's is
-   600).
+   cost up to 180 s; the second call's `WITHIN_SECONDS` is set to what the first left,
+   with no change to the driver. `READY_SECONDS` is the time after a part starts by which
+   it has kept its verdicts; with two parts it is the later of the two, and is set from the
+   first runs (a share of the checked suite's is 600).
 4. **Run.** `phase_checked_narrowing` builds its line from `Orchestration.suite_run`'s
    words and names the file, in place of the fixed `test --check-types --shard I/2`
    (`ci/cosmic_ci/orchestration.tl:1687`):
@@ -347,8 +347,15 @@ The edits to [`.github/workflows/ci.yml`]:
      past a failed part on a push or the schedule, where it fails. On a `merge_group` run
      it is skipped when a part failed. A failed part in a run that saves must fail this job,
      or main's newest entry would keep the failed test's pass.
-   - It starts the leg's container and calls `leg-host-id` (item 1), restores the base
-     entry, downloads both parts' artifacts and merges them with `verdicts-merge`.
+   - It starts the leg's container and calls `leg-host-id` (item 1), downloads both parts'
+     artifacts and merges them with `verdicts-merge`. Its restore is a lookup only, as
+     `checked`'s is (`ci.yml:1319` to `:1340`): the cache's key is compared with the save's,
+     and no content is restored. A content restore would put the base's rows into the file;
+     the merge runs no test, so the trim deletes nothing
+     (`cache_maintenance.tl:296`); the merged rows are stamped `used_ns` 0
+     (`ci/cosmic_ci/verdicts.tl:136`); and the bound (`build/shared_verdicts.tl:474`) would
+     prune the fresh rows before the dead base rows. The saved entry is the shares' rows
+     alone.
    - It runs `verdicts-trim`. The argument is `whole` when the job failed and `since`
      (the run's start, `steps.names.outputs.since`) when it passed, as `checked` does
      (`ci.yml:1462`). `cache_trim` keeps every row of a file none of whose rows the run
@@ -363,8 +370,9 @@ The edits to [`.github/workflows/ci.yml`]:
      (`ci/cosmic_ci/queue_seed.tl:255`, and `LEGS` in ci.yml at line 150). Without both,
      `queue-find` finds no complete queue run, `reuse` stops reusing, and every push to
      main reruns all of its legs: a regression for every leg, not for this job.
-   - The `ci` gate's `NARROWING` (`ci.yml:2482`) reads this job's result, and
-     `invalidate`'s `needs` (`ci.yml:2583`) lists it, in place of the matrix job's.
+   - The `ci` gate's `NARROWING` (`ci.yml:2482`) reads the shares' result as well as this
+     job's, so that the error names the failed part and not only the merge. `invalidate`'s
+     `needs` (`ci.yml:2583`) lists both.
    - Like `checked`, it takes a runner that may differ from the shares' in processor
      features, so its rows may be keyed by the shares' host and not found under its own;
      the merge reads the shares' artifacts by file, not by key, and the census of the first
@@ -399,25 +407,41 @@ compile writes none and reports 0. The line says `N fact wraps and M parameter c
 written in the compile`, and the phase fails on N or M of 0. The count is the compile's, not
 the run's, so it stays true when every test stands.
 
-**The count must survive the compile cache.** No cache entry stores one today: the
-`compiled_v2` row holds key, tool, lua, bytecode and `seen` (`build/cache_formats.tl:49`);
-the shared-compile entry holds lua, bytecode and references, all in its digest
-(`build/shared_compiles.tl:73`, `:200`, `:353`); and the `stands` and `elsewhere` branches of
-`compile_all` return only lua and bytecode (`build/importer.tl:1215`). A warm compile would
-report 0 and fail every good run. The plan carries the count the whole way:
+**The count must survive the compile cache.** No cache stores one today, and there are two
+tables, in two files:
+
+- the working database's `compiled` (`build/work.tl:435`: key, tool, lua, bytecode,
+  `seen`), which the `stands` branch of `compile_all` reads through `cached_stands`
+  (`build/importer.tl:888`) and which returns no row at all, only a boolean;
+- the shared cache's `compiled_v2` (`build/cache_formats.tl:38`: key, lua, bytecode, refs,
+  digest, size, `used_ns`), which the `elsewhere` branch reads
+  (`build/shared_compiles.tl:73`, `:200`, `:353`).
+
+A warm compile would report 0 and fail every good run. The plan carries the count the
+whole way:
 
 - [`lang.fact_wraps`] and [`lang.boundary_checks`] return their counts to `pipeline.generate`,
   which puts them in [`plans.Generated`]; `compile_all` adds them to `Result.checks_written`.
-- The `compiled_v2` table becomes `compiled_v3` with two integer columns, `fact_wraps` and
-  `parameter_checks`, and the compile-format version in `cache_formats` is bumped. A
-  `stands` or `elsewhere` branch reads them with the lua.
-- The shared entry stores both counts inside its digest, so a counted entry cannot be
-  swapped for another with different counts without failing its digest check.
-- `importer.checks_format` takes a new value, so a checked row written without counts
-  re-keys and is compiled again once; an entry without counts is never read as 0.
-- The `importer.compile ... again` path copies the counts into the `Result` it rebuilds
-  (`build/importer.tl:1495`), where `compiled = 0, cached = #was.modules` would otherwise
-  leave them unset.
+- **Working table.** `compiled` gains `fact_wraps` and `parameter_checks` by
+  `ALTER TABLE ... ADD COLUMN ... INTEGER NOT NULL DEFAULT 0`, guarded by the
+  `table_info` check that adds `ctime_ns` (`build/work.tl:915`), rather than a new table
+  name: a build directory made by the old tool opens under the new one. A row read as 0 is
+  right for an unchecked compile, and a checked row written before the change re-keys,
+  because `importer.checks_format` takes a new value, so it is never read.
+- **`cached_stands`.** The `look` statement of `prepare_cache` selects both columns, and
+  `cached_stands` returns them with its boolean. The `stands` branch adds them to the
+  result like the compile branch does.
+- **Shared table.** Checked rows go to a new table, `compiled_v3`, with the two counts
+  stored inside the entry's digest; unchecked rows stay in `compiled_v2`. The alternative,
+  one `compiled_v3` for both, would invalidate every unchecked shared compile once, on
+  every host, for no gain: unchecked and checked compiles already key apart. The cost of
+  the split is a second table that the bound and the prune cover, and a branch in
+  `shared_compiles` on the `checks` flag. An entry without counts is never read as 0.
+- **Every `Result` constructor sets the field**, since `Result`, `result`, `progress` and
+  `kept.standing` are typed: the three branches of `compile_all` (`build/importer.tl:1146`),
+  the `again` result (`build/importer.tl:1495`), which copies `was.checks_written` where it
+  sets `compiled = 0, cached = #was.modules`, and `compile_for` and `compile_tree`, which
+  set 0 when `checks` is false.
 
 The line also says what stood: `K tests stood on checked verdicts`. Each of them held no
 violation when it ran (rule 3 above), so the count of violations is the whole run's.
@@ -495,7 +519,10 @@ Each fails if a verdict stood wrongly.
     project compiled with `checks` reports the same `checks_written` cold, warm (the
     working database's `stands`), and from the shared compile cache (`elsewhere`), each
     above 0; compiled without it every path reports 0, though a module of the project names
-    `__fact` in a string. An entry written without counts is not read. And
+    `__fact` in a string. An entry without counts is not read. And
+    `test_a_build_directory_of_the_old_tool_opens_under_the_new_one`: a `build.db` whose
+    `compiled` table lacks the columns, opened by the new tool, gains them, reads its
+    unchecked rows as 0 and compiles its checked rows again. And
     `test_a_checked_run_that_carried_no_check_is_refused`, in the file
     [`build/runtime_checks_tool_test.tl`], where a project with no typed parameter and no
     narrowed read says `0 fact wraps and 0 parameter checks`, and the guard (item 9) fails.
@@ -508,13 +535,16 @@ Each fails if a verdict stood wrongly.
     read added where the ordinary Lua is the same) moves the key, and an edit that alters
     only the ordinary projection leaves the checked verdict standing.
 12. `test_a_checked_report_holds_the_harness_hook`, with `__fact` and with `__cosmic_tc`
-    replaced in turn by a chunk's stub, in [`build/test_worker_test.tl`]: a
+    replaced in turn by a chunk's stub, and one where the hook's `note` fails inside
+    `lua_pcall` (the `noted` path records nothing today): it records a row or fails the
+    test, never passes clean, in [`build/test_worker_test.tl`]: a
     report made where `__fact` is a chunk's stub, not [`worker.fact`], lacks `checked`. And
     in [`build/declared_key_test.tl`] a golden ordinary key is pinned for a fixed spec,
     and the same spec with `projection_file = "cosmic.db"` leaves the preimage
     byte-identical to it, so no ordinary key moves. A spec with another harness digest of
-    [`build.test_worker`] makes another checked key and the same ordinary key. And one
-    test for the merge job: a store module's checked run keeps no verdict, and `lookup`
+    [`build.test_worker`] makes another checked key and the same ordinary key. And two
+    tests for the merge job: two share files merged with a stale row in a third leave the
+    stale row out of the saved file (the lookup-only restore); and a store module's checked run keeps no verdict, and `lookup`
     answers `run` for it, with a row for it in the file.
 
 ## The harness epoch
@@ -538,26 +568,35 @@ The merge queue's run for the change runs every test (`stands`: the file moved),
 includes a cold narrowing job, once.
 
 ## Rollout
+The work splits into two pull requests, A then B. A changes no CI step, so it can land and
+be used locally first.
+
+**A. The checked key, with CI unchanged.**
 1. **Record per test.** Add the test to each `type_violations` row it meets, and print the
    count of tests and their seconds. Measure the true count (between 17 and 822). This
-   changes nothing else.
-2. **Key, judge and keep rules, with [`doc/testing.md`].** Items 1 to 8 and 10 to 12 of the
-   tests, the `store` fix and its `lookup` rule, `checks_written` through the compile
-   caches (`compiled_v3`, the shared entry) and the larger bound. `--check-types` stands
-   on its own verdicts locally. CI is unchanged: the narrowing job names no cache and runs
-   everything. The text that says a checked run "runs every test, whatever verdict
-   stands" ([`doc/testing.md`], `build/test.tl:92`, `build/test_key.tl:2010`, `ci.yml:1873`,
-   `ci/cosmic_ci/orchestration.tl:1684`) changes with it.
-3. **CI**, on the sharded job: item 9 and the steps above. The first runs are cold. Check
-   the run's census (`--census`) for the part that moved when a run stands on less than it
-   should.
-4. **Measure, then decide the shares.** Once verdicts stand, a median run is estimated at
-   6 to 8 minutes as one whole job, and each of two shares adds a boot (150 to 195 s,
-   **measured**) and a restore to a smaller run. Measure the median and the worst run of
-   each share over a week. If one job would take less than a share plus its boot, return
-   to one job; the key does not depend on the split. Then lower
-   `checked_narrowing_timeout_ns` (1800 s) to a bound derived from the number of rows that
-   moved, as the checked gather does (`gather_budget`).
+   changes nothing else, and the measured count is the number to set the savings against.
+2. **Key, judge and keep rules.** The `checks` part with the harness digest of
+   [`build.test_worker`], `projection_file` and the `store` fix with its `lookup` rule, the
+   report's `checked` flag and its judge, the malformed-spec rows, the keep rule (no
+   violation, no dropped row, no skip), the location and the larger bound with its
+   `TODO:`.
+3. **`checks_written` through the compile caches**: the two tables, `cached_stands`, every
+   `Result`, and the summary line and its guard in `phase_checked_narrowing`.
+4. **Docs and tests.** Items 1 to 8 and 10 to 12 of the tests, and the text that says a
+   checked run "runs every test, whatever verdict stands" ([`doc/testing.md`],
+   `build/test.tl:92`, `build/test_key.tl:2010`, `ci.yml:1873`,
+   `ci/cosmic_ci/orchestration.tl:1684`), with the exception to the epoch rule. The
+   narrowing job names no cache, so it still runs everything.
+
+**B. CI wiring**, on the sharded job: item 9 of the tests and the steps in "CI" (host
+name, restore, run ahead with two calls, the run line, trim, the merge job with its seed,
+`LEGS`, gate and `invalidate`). The first runs are cold. Check the census for the misses
+per share. Then measure: once verdicts stand, a median run is estimated at 6 to 8 minutes
+as one whole job, and each of two shares adds a boot (150 to 195 s, **measured**) and a
+restore to a smaller run. Measure the median and the worst run of each share over a week.
+If one job would take less than a share plus its boot, return to one job; the key does not
+depend on the split. Then lower `checked_narrowing_timeout_ns` (1800 s) to a bound derived
+from the number of rows that moved, as the checked gather does (`gather_budget`).
 
 ## What it saves
 
@@ -589,7 +628,7 @@ checks (1 to 66 s, **measured**) and the keying (8.5 s, **measured**) stay: a me
 all take what they take now. The 140 skips (**measured**; 53 of them for Seatbelt, which holds a child on macOS alone) run every time, a few seconds in all (estimated).
 
 The saving is runner time and the job's own length. Whether it shortens the queue's path
-depends on the sharding and is not claimed; step 4 of the rollout measures it. The figures
+depends on the sharding and is not claimed; rollout B measures it. The figures
 are for one job: with two shares, each pays the boot again. A queue run stacked on another
 starts from the other's rows.
 
@@ -610,9 +649,9 @@ Decided with the reviewer:
 
 Open:
 
-- Whether two shares still pay once verdicts stand (rollout step 4).
+- Whether two shares still pay once verdicts stand (rollout B).
 - The value of `READY_SECONDS` for the run-ahead wait.
-- Whether `type_violations` should hold one row per test and violation (rollout step 1)
+- Whether `type_violations` should hold one row per test and violation (rollout A.1)
   or a second table.
 
 [`.github/workflows/ci.yml`]: ../../.github/workflows/ci.yml
