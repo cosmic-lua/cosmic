@@ -60,14 +60,23 @@ Test.policy{
   },
 }
 
--- A compiler case's rebuild compiles the whole tree cold (about 43 s of
--- one core), and again on re-entry with the compiler it built: its first
--- rebuild took 134 s alone on an x86-64 host, and up to 1.27 times that
--- is expected on the slowest leg. The 150 s this was ended compiler
--- cases on linux-x86_64 on October 7 and 8 and on alpine-x86_64 on
--- October 7. A sharing case's rebuild takes less. The driver bounds each
--- test and the file (orchestration.tl's `fixed_point_test_timeout_ns`).
-local rebuild_timeout_ns <const> = Clock.seconds(270)
+-- What one stage's `docs` may take: the rebuild, the settling rebuild
+-- where the case settles, and the command they re-enter. A compiler
+-- case's edited stage compiles the whole tree cold twice, once by the
+-- stale tool and once on re-entry with the compiler it built; the two
+-- that redefine the compiler's identity then parse every source again
+-- (the TODO on build.importer's `running_analyzer`). On October 31 the
+-- 270 s this was ended all three on linux-x86_64 and alpine-x86_64 (as
+-- it had on alpine-x86_64 on October 30), after a first rebuild of 134 s
+-- and, in the identity cases, a settle of 84 s and at least 50 s more. On
+-- a four-core x86-64 host with an every-core product each of those
+-- stages took 213 to 218 s beside the file's other tests, its first
+-- rebuild 109 s and its settle 63 to 105 s: about 290 s on the slowest
+-- leg (orchestration.tl's `fixed_point_test_timeout_ns` scales it), and
+-- this keeps 1.5 times that. A sharing case's stage takes far
+-- less. The driver bounds each test and the file (orchestration.tl's
+-- `fixed_point_test_timeout_ns`).
+local stage_timeout_ns <const> = Clock.seconds(430)
 
 local function count_occurrences(text: string, needle: string): integer
   local count = 0
@@ -140,7 +149,7 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
     end
     local outcome = Fixture.call_with_environment("fixed-point-" .. name ..
         "-" .. stage, { program, "docs", "cosmic.child" }, tree, diagnostics,
-      values, rebuild_timeout_ns)
+      values, stage_timeout_ns)
     assert(outcome.result.code == 0, name .. ": " .. stage ..
         ": exit status was " .. tostring(outcome.result.code) .. ", want 0")
     local err = Fixture.read(outcome.err)

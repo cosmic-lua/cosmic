@@ -306,6 +306,15 @@ end
 
 --- The identity of the analyzer that is running ([`importer.analyzer_identity`]):
 --- the binary's, or in a boot, which carries no database, the tree's.
+---
+-- TODO: name a settling tool's analyzer by the compiler identity it keys
+-- its compiles by (build.reboot's `into`, `learned.compiler`), not the
+-- `compiler` it carries, which its writer took by that writer's own
+-- definition. Across a change to how that identity is defined
+-- (build.identity's `compiler_identity`), the tool it writes names the
+-- analyzer otherwise and parses every source again on its first run,
+-- finding the same rows: some 35 s on a four-core host, and the
+-- fixed-point fixture's identity cases pay it in each stage.
 local function running_analyzer(handle: work.Handle): string?, string
   local identity = ""
   if Store.meta("boot_hash") ~= nil then

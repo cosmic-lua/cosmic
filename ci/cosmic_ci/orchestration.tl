@@ -595,30 +595,36 @@ local self_rebuild_test_timeout_ns <const> = Clock.seconds(600)
 local self_rebuild_per_test_timeout_s <const> = "300"
 -- Each fixed-point test rebuilds the product twice from a fresh tree. The
 -- compiler's three cases share no compiles (fixtures/fixed_point_test.tl
--- says why) and compile the whole tree cold about three times, about 43 s
--- of one core each at 11.9 MB of Teal: on a four-core x86-64 host each
--- took 206 to 230 s beside the file's other tests, 213 s alone, 134 s of
--- it the first rebuild. The other four share one file of compiles made
--- afresh each run (COSMIC_FIXTURE_SHARED_COMPILES): the first compiles the
--- tree cold in 90 s, and the rest, started after it, only what their
--- edits move, in 23 to 34 s where cold they took 84 to 96 s. So the file
--- ends about when its last compiler case does: 221 s on four workers
--- (331 s cold) and 301 s on three (398 s cold). That host takes about 1.22
--- times as long as linux-aarch64 (whose run took 271 s cold on October 9),
--- and the x86-64 legs 1.3 to 1.55 times as long as linux-aarch64 on the
--- same work (the self-rebuild file, 83 to 101 s against 65 s), so the
--- slowest leg needs up to 1.27 times this host's time: about 380 s for the
--- file on macOS's three processors, 275 s for a compiler case and 170 s
--- for its first rebuild. The bounds keep 1.5 to 1.6 times that, as #2834
--- did for the suite's: the group's 600 s, a test's 420 s, and a
--- rebuild's 270 s (fixtures/fixed_point_test.tl), which names a hung one.
+-- says why) and compile the whole tree cold three times: the edited
+-- stage's rebuild and settle, and the undone stage's settle (its rebuild
+-- takes the edited stage's compiles of all but some 150 modules). On a
+-- four-core x86-64 host, with an every-core product and the tree of
+-- October 31 (1103 modules), each took 330 to 335 s beside the file's
+-- other tests, 213 to 218 s of it the edited stage. The other four share
+-- one file of compiles made afresh each run
+-- (COSMIC_FIXTURE_SHARED_COMPILES): the first compiles the tree cold in
+-- 118 s, and the rest, started after it, only what their edits move, in
+-- 34 to 43 s. So the file ends about when its last compiler case does:
+-- 337 s on four workers. The x86-64 legs take 1.23 (linux-x86_64) to 1.28
+-- (alpine-x86_64) times that host's time on a first rebuild (134 s on
+-- October 31 and 139 s on October 30, against 109 s) and 1.30 to 1.35
+-- times on a settle (84 to 87 s against 63 to 66 s). So on alpine-x86_64
+-- an edited stage takes about 290 s and a compiler case and the file
+-- about 440 s. The bounds keep 1.5 to 1.6 times that, as #2834 did for
+-- the suite's: the group's 720 s, a test's 660 s, and a stage's 430 s
+-- (fixtures/fixed_point_test.tl), which names a hung edited stage. The
+-- stage's 270 s, sized on October 9 from a first rebuild of 134 s on a
+-- four-core x86-64 host, ended the compiler cases' edited stages on
+-- alpine-x86_64 on October 30 and on both x86-64 legs on October 31; the
+-- file's 600 s and a test's 420 s were never reached, but are below the
+-- cost above.
 -- TODO: the compiler cases still compile the whole tree cold, so the
 -- file's cost follows the tree (about 5% a day the week of October 3) and
 -- these bounds will be passed again: report the group's elapsed time
 -- against its bound from [`fixture_run_spec`], so the growth shows before
 -- it fails a run.
-local fixed_point_test_timeout_ns <const> = Clock.seconds(600)
-local fixed_point_per_test_timeout_s <const> = "420"
+local fixed_point_test_timeout_ns <const> = Clock.seconds(720)
+local fixed_point_per_test_timeout_s <const> = "660"
 --- The whole suite on the checked core: see [`checked_suite`]'s comment
 --- for what it takes. Sized from the merge queue's runs of 17 to 19 October 2026: the 7800 tests took 800 to 1114 s in
 --- 14 of its 36 completed runs and over 1200 s in one, a change that adds 45 tests (15 s of test time in 2900 s
@@ -2208,9 +2214,9 @@ local function phase_fixtures(p: PlatformContext): integer
     if s ~= 0 then return s end
   end
   -- The fixed-point regression is the slowest fixture on every leg
-  -- (about 220 to 380 s: `fixed_point_test_timeout_ns` says why), and what
-  -- it checks, that the compiler compiles itself to itself, is the same
-  -- on every platform. So no gating run runs it (ci.yml sets
+  -- (about 440 s on the x86-64 legs: `fixed_point_test_timeout_ns` says
+  -- why), and what it checks, that the compiler compiles itself to
+  -- itself, is the same on every platform. So no gating run runs it (ci.yml sets
   -- COSMIC_CI_FIXED_POINT=skip); main's scheduled run runs it on every
   -- leg.
   if Env.get("COSMIC_CI_FIXED_POINT") == "skip" then
