@@ -216,6 +216,8 @@ local function test_a_connect_failure_names_the_socket_and_the_reason(tmp: strin
   local plain = tmp .. "/plain"
   assert(Fs.write(plain, "not a socket"))
   local _, refused = Http.request("POST", "http://authd.local:8080/", { via = Net.unix(plain), body = "x" })
-  assert(refused == "cannot connect to unix socket " .. plain .. ": Connection refused", tostring(refused))
+  -- The errno for connecting to a file that is no socket differs by host.
+  assert(refused:find("cannot connect to unix socket " .. plain .. ": ", 1, true) == 1, tostring(refused))
+  assert(not refused:find(":8080", 1, true), refused)
   assert(Fs.remove(plain))
 end

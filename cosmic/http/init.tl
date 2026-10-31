@@ -38,9 +38,7 @@ local type raw_http = require("cosmic.internal.http")
 local http = require("cosmic.internal.http")
 
 local Stream = require("cosmic.stream")
--- Only the type: cosmic.net is the networking stack a program that
--- only fetches over the network does not carry.
-local type Net = require("cosmic.net")
+local Net = require("cosmic.net")
 
 local record Http
   --- One request. `follow` defaults to true, `max_redirects` to 10;
@@ -934,13 +932,14 @@ end
 --- path is connected to once more, as [`Net.connect`] does, for its reason.
 --- Any other failure, and a path that connects this time, keep `trouble`.
 local function socket_trouble(via: Net.Address, trouble: string): string
+  -- TODO: match on the CURLcode once cosmic.internal.http's open returns it
+  -- beside the text: this reads curl's wording, and a rewording that breaks
+  -- the match fails test_a_connect_failure_names_the_socket_and_the_reason
+  -- in cosmic/http_unix_test.tl.
   if not trouble:find("^Failed to connect to .- over unix://") then
     return trouble
   end
-  -- Required here: a program that never fails over a socket does not
-  -- carry the networking stack.
-  local Sockets = require("cosmic.net")
-  local conn, why = Sockets.connect(via)
+  local conn, why = Net.connect(via)
   if conn ~= nil then
     local _, _ = conn:close()
     return trouble
