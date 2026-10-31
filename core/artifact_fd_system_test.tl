@@ -28,7 +28,7 @@ local function held_artifact_fd(): integer?
   if sys.getcwd() ~= "/tree" then return nil end
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return nil end
-  local slot = math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_ARTIFACT_FD))
+  local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"]))
   return slot ~= nil and relaunch.fds[slot] or nil
 end
 

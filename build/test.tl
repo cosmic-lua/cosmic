@@ -1571,7 +1571,8 @@ local function choose_sandbox(ctx: Run): integer?
         log:complain("test: " .. held .. ", but no worker can be sandboxed here: " .. why)
         return 1
       end
-      sandbox_summary = "; unsandboxed, as no worker can be sandboxed here (" .. why .. ")"
+      -- The head line below holds `why`; the summary points back to it.
+      sandbox_summary = "; unsandboxed, as no worker can be sandboxed here (see the head line)"
       log:say("test: running unsandboxed: no worker can be sandboxed here: " .. why .. "; " ..
           unenforced .. "; " .. test_sandbox.switch .. "=0 chooses this on purpose, " ..
           test_sandbox.switch .. "=1 makes it a failure")

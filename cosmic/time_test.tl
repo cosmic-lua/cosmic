@@ -1,5 +1,6 @@
 local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")
+local Test = require("cosmic.test")
 
 local NS <const> = 1000000000
 
@@ -152,8 +153,7 @@ local function test_format_digits_fix_the_fraction_cut_toward_the_past()
   assert(Time.format_rfc3339(-1, nil, { digits = 0 }) == "1969-12-31T23:59:59Z")
   assert(Time.format_rfc3339(123456789, nil, { digits = 9 }) == "1970-01-01T00:00:00.123456789Z")
   for _, digits in ipairs({ -1, 10 }) do
-    local ok, err = pcall(Time.format_rfc3339, 0, nil, { digits = digits })
-    assert(not ok and tostring(err):find("digits", 1, true), tostring(err))
+    Test.raises(function() Time.format_rfc3339(0, nil, { digits = digits }) end, "digits")
   end
 end
 
@@ -256,8 +256,7 @@ local function test_add_calendar_adds_the_exact_part_last()
   none, why = Time.add_calendar(math.mininteger + 5, { ns = -6 })
   assert(none == nil and why:find("outside", 1, true) ~= nil, why)
   assert(Time.add_calendar(math.maxinteger - 5, { ns = 5 }) == math.maxinteger)
-  local ok, raised: boolean, any = pcall(Time.add_calendar, 0, { ns = 1.5 as integer })
-  assert(not ok and tostring(raised):find("time: ns is not an integer", 1, true), tostring(raised))
+  Test.raises(function() Time.add_calendar(0, { ns = 1.5 as integer }) end, "time: ns is not an integer")
 end
 
 --- The calendar part may leave the range on the way when the exact part
@@ -283,8 +282,7 @@ local function test_add_calendar_refuses_a_day_its_month_lacks_by_default()
   assert(none == nil and why:find("outside", 1, true) ~= nil, why)
   none, why = Time.add_calendar(at("1678-01-01T00:00:00Z"), { days = -200 })
   assert(none == nil and why:find("outside", 1, true) ~= nil, why)
-  local ok, raised: boolean, any = pcall(Time.add_calendar, 0, { months = 1.5 as integer })
-  assert(not ok and tostring(raised):find("time: months is not an integer", 1, true), tostring(raised))
+  Test.raises(function() Time.add_calendar(0, { months = 1.5 as integer }) end, "time: months is not an integer")
   none, why = Time.add_calendar(0, { years = math.maxinteger })
   assert(none == nil and why:find("years", 1, true) ~= nil, why)
 end

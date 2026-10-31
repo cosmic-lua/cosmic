@@ -13,6 +13,7 @@
 ---   first parameter.
 --- - A field or a method named `__x` is a metamethod, as the `metamethod` keyword made it; the signature has no keyword.
 --- - A source cannot jump (`goto`), so a policy is never refused for a jump past its call.
+local AnalysisSchema = require("build.analysis_schema")
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 local Lexical = require("build.syntax_scopes")
@@ -199,7 +200,8 @@ end
 --- The body of each comment in `run` that is documentation: the `---` lines when the run has any, so a `--` note
 --- beside them stays out of the doc text, and every line of a run of `--` alone, which documents a script or a
 --- module. A `TODO:` comment, with the lines that carry it on, is never documentation, and the blank line it leaves
---- beside another is dropped with it.
+--- beside another is dropped with it; nor is the line that declares a table of C bindings
+--- ([`build.analysis_schema`]'s `binding_tag`), which is for the build.
 local function doc_bodies(run: {Lexer.Comment}): {string}
   local any = false
   for _, c in ipairs(run) do
@@ -212,6 +214,9 @@ local function doc_bodies(run: {Lexer.Comment}): {string}
   local dropped = false
   for index, c in ipairs(run) do
     if skipped[index] == true then
+      dropped = true
+    elseif c.text:gsub("\r$", "") == AnalysisSchema.binding_tag() then
+      -- A line of the block like a `TODO:` one: the blank line beside it goes the same way.
       dropped = true
     elseif c.text:sub(1, 3) == "---" or not any then
       local body = comment_body(c)

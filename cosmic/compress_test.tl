@@ -5,6 +5,9 @@
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
+
+local formats: {Compress.Format} = { "raw", "zlib", "gzip" }
 
 -- Feeds `data` through `stream` in pieces of `size` bytes (the whole of
 -- it in one piece when `size` is nil), draining each piece's held
@@ -51,7 +54,7 @@ end
 
 local function test_raw_zlib_gzip_roundtrip_many_small_chunks()
   local plain = string.rep("the quick brown fox jumps over the lazy dog. ", 500)
-  for _, format in ipairs({ "raw", "zlib", "gzip" } as {Compress.Format}) do
+  for _, format in ipairs(formats) do
     roundtrip(format, plain, 7)
   end
 end
@@ -62,7 +65,7 @@ local function test_raw_zlib_gzip_roundtrip_one_big_chunk()
   -- more than once.
   local piece = string.rep("cosmic ", 97) .. "\0\1\2\3"
   local plain = string.rep(piece, (8 * 1024 * 1024) // #piece + 1)
-  for _, format in ipairs({ "raw", "zlib", "gzip" } as {Compress.Format}) do
+  for _, format in ipairs(formats) do
     roundtrip(format, plain)
   end
 end
@@ -408,7 +411,6 @@ local function test_a_decompression_bomb_comes_out_in_bounded_pieces()
     { packed = bz2_bomb, make = bz2_decoder },
     { packed = zstd_bomb, make = zstd_decoder },
   }
-  local formats: {Compress.Format} = { "raw", "zlib", "gzip" }
   for _, format in ipairs(formats) do
     local enc = assert(Compress.deflater(format, 9))
     local packed = assert(enc:update(zeros)) .. assert(enc:finish())
@@ -429,7 +431,6 @@ end
 
 local function test_a_tiny_output_limit_still_decodes_everything()
   local plain = string.rep("the quick brown fox jumps over the lazy dog. ", 300)
-  local formats: {Compress.Format} = { "raw", "zlib", "gzip" }
   for _, format in ipairs(formats) do
     local enc = assert(Compress.deflater(format))
     local packed = assert(enc:update(plain)) .. assert(enc:finish())
@@ -454,8 +455,7 @@ local function test_finish_refuses_while_output_is_pending()
     local dec = case.make()
     local total = #assert(dec:update(case.packed, 1024))
     assert(dec:pending())
-    local ok, why = pcall(dec.finish, dec)
-    assert(not ok and tostring(why):find("pending", 1, true), tostring(why))
+    Test.raises(function() dec:finish() end, "pending")
     while dec:pending() do total = total + #assert(dec:update("", 1 << 20)) end
     local last = assert(dec:finish())
     assert(last == "" and total == 8 << 20, tostring(total))
@@ -521,8 +521,7 @@ local function test_a_stream_revived_by_a_finalizer_is_finished()
     collectgarbage()
     collectgarbage()
     local kept = assert(saved, "the finalizer ran")
-    local ok, why = pcall(kept.update, kept, case.chunk)
-    assert(not ok and tostring(why):find("compress: the stream is finished", 1, true), tostring(why))
+    Test.raises(function() kept:update(case.chunk) end, "compress: the stream is finished")
     assert(not pcall(kept.finish, kept))
     assert(not kept:pending())
     assert(kept:rest() == "")
@@ -648,8 +647,8 @@ local function test_xz_memory_limit_is_enforced()
 end
 
 local function test_raw_and_zlib_truncation_is_reported_as_truncation()
-  local formats: {Compress.Format} = { "raw", "zlib" }
-  for _, format in ipairs(formats) do
+  local stream_formats: {Compress.Format} = { "raw", "zlib" }
+  for _, format in ipairs(stream_formats) do
     local enc = assert(Compress.deflater(format))
     local packed = assert(enc:update(string.rep("abcdefgh", 200))) .. assert(enc:finish())
     for _, cut in ipairs({ 1, 4, #packed // 2 }) do
@@ -735,8 +734,7 @@ local function test_inflate_validates_max_bytes()
   local out, trouble = Compress.inflate("zlib", packed, 2)
   assert(out == nil and trouble == "stream: output is larger than 2 bytes", trouble)
   assert(Compress.inflate("zlib", (assert(Compress.deflate("zlib", ""))), 0) == "")
-  local ok, why = pcall(Compress.inflate, "zlib", packed, -1)
-  assert(not ok and tostring(why):find("compress: max_bytes", 1, true) ~= nil, tostring(why))
+  Test.raises(function() Compress.inflate("zlib", packed, -1) end, "compress: max_bytes")
 end
 
 --- Each one-shot call frames its bytes as `format` says, the same

@@ -1,7 +1,7 @@
-version 8.22.0
-url https://curl.se/download/curl-8.22.0.tar.gz
-sha256 d54dd598bf05927a726deb38df31c6a255ba83ff1de57c5d1464dac3ed8f44a1
-strip curl-8.22.0/
+version 8.23.0
+url https://curl.se/download/curl-8.23.0.tar.gz
+sha256 e3de77cfa6367083c776a26647fc9f633b538c06c3baa73d931a252ac8f72b49
+strip curl-8.23.0/
 keep COPYING
 keep include/curl/*.h
 keep lib/*.c
@@ -29,7 +29,6 @@ drop lib/ldap.c
 drop lib/imap.c
 drop lib/pop3.c
 drop lib/smtp.c
-drop lib/smb.c
 drop lib/rtsp.c
 drop lib/tftp.c
 drop lib/telnet.c
@@ -47,11 +46,7 @@ drop lib/vtls/openssl.c
 drop lib/vtls/wolfssl.c
 drop lib/vtls/schannel.c
 drop lib/vtls/schannel_verify.c
-drop lib/vtls/sectransp.c
-drop lib/vtls/bearssl.c
 drop lib/vtls/rustls.c
-drop lib/vtls/nss.c
-drop lib/vtls/gskit.c
 drop lib/vauth/krb5_gssapi.c
 drop lib/vauth/krb5_sspi.c
 drop lib/vauth/gsasl.c
@@ -60,7 +55,6 @@ drop lib/vauth/ntlm_sspi.c
 drop lib/curl_ntlm_core.c
 drop lib/curl_sasl.c
 drop lib/curl_gethostname.c
-drop lib/curl_des.c
 drop include/curl/stdcheaders.h
 drop lib/altsvc.c
 drop lib/amigaos.c
@@ -89,7 +83,6 @@ drop lib/curl_range.h
 drop lib/curl_sasl.h
 drop lib/curl_sha512_256.c
 drop lib/curl_sspi.c
-drop lib/curl_sspi.h
 drop lib/curl_threads.c
 drop lib/curlx/basename.c
 drop lib/curlx/multibyte.c
@@ -116,7 +109,6 @@ drop lib/psl.c
 drop lib/setup-os400.h
 drop lib/setup-vms.h
 drop lib/setup-win32.h
-drop lib/system_win32.c
 drop lib/thrdpool.c
 drop lib/thrdpool.h
 drop lib/thrdqueue.c

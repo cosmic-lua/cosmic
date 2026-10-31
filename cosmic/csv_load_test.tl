@@ -4,6 +4,7 @@
 local Csv = require("cosmic.csv")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
 
 --- `sql`'s rows on `handle` as text: each row's cells joined by `|`, the
 --- rows by `;`.
@@ -74,8 +75,7 @@ local function test_load_failures_leave_nothing(tmp: string)
   end
   assert(quoted(db, "SELECT count(*) FROM sqlite_schema WHERE name = 'fresh'") == "0")
   assert(quoted(db, "SELECT count(*) FROM sqlite_temp_schema") == "0")
-  local ok, why = pcall(Csv.load, db, "t", {})
-  assert(not ok and tostring(why):find("one of them", 1, true) ~= nil, tostring(why))
+  Test.raises(function() Csv.load(db, "t", {}) end, "one of them")
   assert(db:close())
 end
 
@@ -142,8 +142,7 @@ local function test_load_takes_a_delimiter_and_reserved_names()
   assert(quoted(db, "SELECT a, _json_2, \"c,d\" FROM t") == "1|x\ty|2,3")
   assert(assert(Csv.load(db, "q", { text = "a'b\n1'2\n", delimiter = "'" })).count == 1)
   assert(quoted(db, "SELECT a + b FROM q") == "3")
-  local ok, why = pcall(Csv.load, db, "z", { text = "a\n", delimiter = "\0" })
-  assert(not ok and tostring(why):find("NUL", 1, true) ~= nil, tostring(why))
+  Test.raises(function() Csv.load(db, "z", { text = "a\n", delimiter = "\0" }) end, "NUL")
   assert(db:close())
 end
 
@@ -159,8 +158,7 @@ local function test_load_reads_a_high_byte_delimiter()
     assert(quoted(db, "SELECT x, y FROM t" .. tostring(index)) == "1|2" .. delimiter .. "3")
   end
   for _, delimiter in ipairs({ "\xEF", "\xBB", "\xBF" }) do
-    local ok, why = pcall(Csv.load, db, "z", { text = "a\n", delimiter = delimiter })
-    assert(not ok and tostring(why):find("byte order mark", 1, true) ~= nil, tostring(why))
+    Test.raises(function() Csv.load(db, "z", { text = "a\n", delimiter = delimiter }) end, "byte order mark")
   end
   assert(db:close())
 end

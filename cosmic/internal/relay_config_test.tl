@@ -15,9 +15,9 @@ local function test_the_environment_points_every_proxy_client_at_the_relay()
   for _, name in ipairs({ "ALL_PROXY", "all_proxy" }) do
     assert(env[name] == "socks5h://127.0.0.1:1080", name .. " is " .. tostring(env[name]))
   end
-  assert(env.NODE_USE_ENV_PROXY == "1")
-  assert(env.NO_PROXY == "localhost,127.0.0.1,::1" and env.no_proxy == env.NO_PROXY,
-    "the sandbox's own network is direct: " .. tostring(env.NO_PROXY))
+  assert(env["NODE_USE_ENV_PROXY"] == "1")
+  assert(env["NO_PROXY"] == "localhost,127.0.0.1,::1" and env.no_proxy == env["NO_PROXY"],
+    "the sandbox's own network is direct: " .. tostring(env["NO_PROXY"]))
   assert(RelayConfig.http_port == 3128 and RelayConfig.socks_port == 1080)
 end
 
@@ -32,13 +32,13 @@ local function test_a_relay_on_the_hosts_loopback_is_named_with_its_port_and_tok
   for _, name in ipairs({ "ALL_PROXY", "all_proxy" }) do
     assert(env[name] == "socks5h://cosmic:" .. token .. "@127.0.0.1:49152", name .. " is " .. tostring(env[name]))
   end
-  assert(env.NO_PROXY == "localhost,127.0.0.1,::1" and env.NODE_USE_ENV_PROXY == "1")
+  assert(env["NO_PROXY"] == "localhost,127.0.0.1,::1" and env["NODE_USE_ENV_PROXY"] == "1")
 end
 
 local function test_a_policys_loopback_addresses_are_direct_too_each_once()
   local env = RelayConfig.proxy_env({ "127.0.0.1", "127.0.0.2", "127.0.0.9", "127.0.0.2" })
-  assert(env.NO_PROXY == "localhost,127.0.0.1,::1,127.0.0.2,127.0.0.9", env.NO_PROXY)
-  assert(env.no_proxy == env.NO_PROXY)
+  assert(env["NO_PROXY"] == "localhost,127.0.0.1,::1,127.0.0.2,127.0.0.9", env["NO_PROXY"])
+  assert(env.no_proxy == env["NO_PROXY"])
 end
 
 --- A loopback address a `connect` target names is the host's service, which

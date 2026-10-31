@@ -38,6 +38,44 @@ local function test_the_view_and_teal_kinds_of_a_path_agree(_: string)
   end
 end
 
+--- A declaration that holds the binding line on a line of its own is a `binding`, to the view and to Teal alike; the
+--- line inside another line, with anything after it, or in a file that is no declaration, is not.
+local function test_a_declaration_is_a_binding_only_given_the_line_on_a_line_of_its_own(_: string)
+  local cases: {{string}} = {
+    { "b/first.d.tl", "--- @kind binding\nlocal record R end\nreturn R\n", "binding" },
+    { "b/middle.d.tl", "--- A table.\n--- @kind binding\nlocal record R end\n", "binding" },
+    { "b/last.d.tl", "local record R end\n--- @kind binding", "binding" },
+    { "b/inside.d.tl", "-- see --- @kind binding for what it means\nlocal record R end\n", "decl" },
+    { "b/after.d.tl", "--- @kind binding \nlocal record R end\n", "decl" },
+    { "b/other.d.tl", "--- @kind bindings\nlocal record R end\n", "decl" },
+    { "b/plain.d.tl", "local record R end\n", "decl" },
+    { "b/module.tl", "--- @kind binding\nreturn 1\n", "module" },
+    { "b/test_test.tl", "--- @kind binding\n", "test" },
+    -- A file saved with CR LF line ends declares it as one with LF does, in the view and in Teal.
+    { "b/crlf.d.tl", "--- A table.\r\n--- @kind binding\r\nlocal record R end\r\n", "binding" },
+    { "b/crlf_last.d.tl", "local record R end\r\n--- @kind binding\r\n", "binding" },
+    { "b/crlf_after.d.tl", "--- @kind binding \r\nlocal record R end\r\n", "decl" },
+    -- Only a declaration claims it, and a declaration that is a test's still does.
+    { "b/helper_test.d.tl", "--- @kind binding\nlocal record R end\n", "binding" },
+  }
+  local db = assert(Sqlite.memory())
+  assert(Sqlite.run(db, "CREATE TABLE files (path TEXT PRIMARY KEY, sha256 TEXT, data BLOB) WITHOUT ROWID"))
+  for _, statement in ipairs(analysis_schema.statements) do assert(Sqlite.run(db, statement)) end
+  for _, case in ipairs(cases) do
+    assert(Sqlite.run(db, "INSERT INTO files (path, sha256, data) VALUES (?1, 'h', ?2)",
+      { { text = assert(case[1]) }, { text = assert(case[2]) } }))
+  end
+  local rows = assert(Sqlite.text_rows(db, "SELECT file, kind FROM inputs"))
+  local said: mut {string: string} = {}
+  for _, row in ipairs(rows) do said[row:text(1)] = row:text(2) end
+  for _, case in ipairs(cases) do
+    local path, text, wanted = assert(case[1]), assert(case[2]), assert(case[3])
+    assert(said[path] == wanted, path .. ": the view says " .. tostring(said[path]) .. ", wanted " .. wanted)
+    assert(analysis_schema.kind_of(path, text) == wanted, path .. ": Teal says " .. analysis_schema.kind_of(path, text))
+    assert(analysis_schema.is_declaration(wanted) == (wanted == "decl" or wanted == "binding"))
+  end
+end
+
 --- Only a main of `cmd/<name>/` is a main: not one a directory deeper, nor `cmd/main.tl`.
 local function test_a_main_is_cmd_name_main(_: string)
   assert(analysis_schema.kind_of("cmd/x/main.tl.tl") == "module")
@@ -49,7 +87,7 @@ local function test_a_main_is_cmd_name_main(_: string)
   assert(analysis_schema.kind_of("cmd/main.tl") == "module")
 end
 
---- The declaration predicate selects the rows the literal comparisons it replaced did, in SQL and in Teal, over every
+--- The declaration predicate selects the declarations (`decl`, and `binding` among them), in SQL and in Teal, over every
 --- kind a row of `inputs` has (a derived row's kind is given, so `vendor` and a kind that is none are in it too).
 local function test_the_declaration_predicate_selects_what_the_comparisons_did(_: string)
   local db = assert(Sqlite.memory())
@@ -67,11 +105,12 @@ local function test_the_declaration_predicate_selects_what_the_comparisons_did(_
     for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
     return table.concat(out, " ")
   end
-  assert(selected(analysis_schema.declaration("kind")) == selected("kind = 'decl'"))
-  assert(selected(analysis_schema.not_declaration("kind")) == selected("kind <> 'decl'"))
+  -- A binding is a declaration; nothing else is added to what `kind = 'decl'` selected.
+  assert(selected(analysis_schema.declaration("kind")) == selected("kind IN ('decl', 'binding')"))
+  assert(selected(analysis_schema.not_declaration("kind")) == selected("kind NOT IN ('decl', 'binding')"))
   assert(selected(analysis_schema.not_declaration("kind") .. " AND kind <> 'vendor'") ==
-      selected("kind NOT IN ('decl', 'vendor')"))
+      selected("kind NOT IN ('decl', 'binding', 'vendor')"))
   for _, kind in ipairs(kinds) do
-    assert(analysis_schema.is_declaration(kind) == (kind == "decl"), kind)
+    assert(analysis_schema.is_declaration(kind) == (kind == "decl" or kind == "binding"), kind)
   end
 end

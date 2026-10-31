@@ -2806,7 +2806,7 @@ local shared_fds: mut {string:integer} = {}
 local function relaunch_of(user: MappedUser?, database?: string): Proc.Relaunch?, string
   local launched, _ = Proc.relaunch()
   if launched == nil then return nil, "" end
-  local portable = launched.env.COSMIC_PORTABLE_CORE_FD ~= nil
+  local portable = launched.env["COSMIC_PORTABLE_CORE_FD"] ~= nil
   if not portable and launched.argv[2] ~= "--database" then return nil, "" end
   if database ~= nil then
     local real, real_trouble = sys.realpath(database)
@@ -2842,7 +2842,7 @@ local function relaunch_of(user: MappedUser?, database?: string): Proc.Relaunch?
     fd = handle
     shared_fds[copy] = fd
   end
-  local core_fd = math.tointeger(tonumber(launched.env.COSMIC_PORTABLE_CORE_FD))
+  local core_fd = math.tointeger(tonumber(launched.env["COSMIC_PORTABLE_CORE_FD"]))
   local fds: mut {integer:integer} = {}
   for number, given in pairs(launched.fds) do fds[number] = number == core_fd and fd or given end
   local argv: mut {string} = { copy }
@@ -3211,7 +3211,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
     for name, value in pairs(relaunch.env) do env[name] = value end
     -- A file it runs is run as `--standalone`, writing no build directory,
     -- which its user may have none to write, unless the policy says otherwise.
-    if env.COSMIC_STANDALONE == nil then env.COSMIC_STANDALONE = "1" end
+    if env["COSMIC_STANDALONE"] == nil then env.COSMIC_STANDALONE = "1" end
     run_argv = {}
     for _, word in ipairs(relaunch.argv) do run_argv[#run_argv + 1] = word end
     for i = 2, #argv do run_argv[#run_argv + 1] = argv[i] end
@@ -3403,7 +3403,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
     for name, value in pairs(relaunch.env) do env[name] = value end
     -- As under Landlock: run as `--standalone`, writing no build
     -- directory, unless the policy says otherwise.
-    if env.COSMIC_STANDALONE == nil then env.COSMIC_STANDALONE = "1" end
+    if env["COSMIC_STANDALONE"] == nil then env.COSMIC_STANDALONE = "1" end
     run_argv = {}
     for _, word in ipairs(relaunch.argv) do run_argv[#run_argv + 1] = word end
     for i = 2, #argv do run_argv[#run_argv + 1] = argv[i] end

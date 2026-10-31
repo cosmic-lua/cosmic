@@ -48,8 +48,8 @@ local function test_program_starts_the_relaunch_or_else_the_executable()
     assert(#argv == 3 and argv[1] == assert(Proc.executable()) and argv[2] == "-e" and
         argv[3] == "", table.concat(argv, " "))
     local env = assert(started.options.env)
-    assert(env.HOME == "/home" and env.COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
-        env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+    assert(env["HOME"] == "/home" and env["COSMIC_PORTABLE_STARTUP_TEST_READY"] == nil and
+        env["COSMIC_PORTABLE_STARTUP_TEST_GO"] == nil)
     assert(assert(started.options.fds)[3] == 1 and next(assert(started.options.fds), 3) == nil)
   end)
   -- And this very program's: its relaunch where it has one.
@@ -81,30 +81,29 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
       process_group = true, timeout_ns = Clock.ms(5), sandbox = sandbox }
     local opts = this_program.program({}, given).options
     assert(opts.env ~= env and opts.fds ~= fds, "the caller's tables are copied")
-    assert(assert(opts.env).HOME == "/home" and assert(opts.env).COSMIC_PORTABLE_ARTIFACT == "/a" and
-        assert(opts.env).SHARED == "relaunch")
-    assert(assert(opts.env).COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
-        assert(opts.env).COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+    assert(assert(opts.env)["HOME"] == "/home" and assert(opts.env)["COSMIC_PORTABLE_ARTIFACT"] == "/a" and
+        assert(opts.env)["SHARED"] == "relaunch")
+    assert(assert(opts.env)["COSMIC_PORTABLE_STARTUP_TEST_READY"] == nil and
+        assert(opts.env)["COSMIC_PORTABLE_STARTUP_TEST_GO"] == nil)
     assert(assert(opts.fds)[3] == 1 and assert(opts.fds)[4] == "capture" and assert(opts.fds)[254] == 7 and
         assert(opts.fds)[255] == 8)
     assert(opts.cwd == "/somewhere" and opts.stdin == "stream" and opts.stdout == "capture" and
         opts.input == "bytes" and opts.stderr == "stdout" and opts.capture_limit == 9 and opts.process_group == true and
         opts.timeout_ns == Clock.ms(5) and opts.sandbox == sandbox)
     assert(given.env == env and given.fds == fds)
-    assert(env.SHARED == "caller" and env.COSMIC_PORTABLE_ARTIFACT == nil and
-        env.COSMIC_PORTABLE_STARTUP_TEST_READY == "r" and env.COSMIC_PORTABLE_STARTUP_TEST_GO == "g")
+    assert(env["SHARED"] == "caller" and env["COSMIC_PORTABLE_ARTIFACT"] == nil and
+        env["COSMIC_PORTABLE_STARTUP_TEST_READY"] == "r" and env["COSMIC_PORTABLE_STARTUP_TEST_GO"] == "g")
     assert(fds[254] == nil and fds[255] == nil)
     -- A descriptor the relaunch hands the core its artifact as, named
     -- by the caller too, raises rather than being dropped.
-    local ok, trouble = pcall(this_program.program, {}, { fds = { [254] = "capture" } })
-    assert(not ok and tostring(trouble):find("descriptor 254", 1, true) ~= nil, tostring(trouble))
+    Test.raises(function() this_program.program({}, { fds = { [254] = "capture" } }) end, "descriptor 254")
     -- No environment given: this process's whole, which a child given
     -- none would have inherited, with the relaunch's added. A worker's
     -- is the variables it declares and the pinned ones; TMPDIR is
     -- always among them.
     local whole = this_program.program({ "x" }).options
     local own = Env.all()
-    assert(own.TMPDIR ~= nil, "the worker's environment is empty")
+    assert(Env.get("TMPDIR") ~= nil, "the worker's environment is empty")
     for name, value in pairs(own) do
       if name ~= "COSMIC_PORTABLE_STARTUP_TEST_READY" and name ~= "COSMIC_PORTABLE_STARTUP_TEST_GO" and
           relaunch.env[name] == nil then
@@ -112,8 +111,8 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
       end
     end
     for name, value in pairs(relaunch.env) do assert(assert(whole.env)[name] == value, name) end
-    assert(assert(whole.env).COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
-        assert(whole.env).COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+    assert(assert(whole.env)["COSMIC_PORTABLE_STARTUP_TEST_READY"] == nil and
+        assert(whole.env)["COSMIC_PORTABLE_STARTUP_TEST_GO"] == nil)
     assert(assert(whole.fds)[254] == 7 and assert(whole.fds)[255] == 8)
   end)
 end
@@ -157,8 +156,7 @@ local function test_program_under_a_policy_leaves_the_relaunch_to_the_start()
     assert(assert(this_program.program({}, { policy = policy, fds = { [254] = "capture" } }).options.fds)[254] ==
         "capture")
     -- Child.start refuses an env beside a policy; so does this, rather than drop it.
-    local ok, why = pcall(this_program.program, {}, { policy = policy, env = { A = "1" } })
-    assert(not ok and tostring(why):find("env beside a policy", 1, true) ~= nil, tostring(why))
+    Test.raises(function() this_program.program({}, { policy = policy, env = { A = "1" } }) end, "env beside a policy")
   end)
   -- Without a policy the relaunch is still there.
   relaunching(relaunch, function()

@@ -383,8 +383,7 @@ local function test_a_root_catch_all_does_not_shadow_the_assets_and_builtin_fals
   end) }) }
   local routed = Web.test_client(Web.app{ routes = own, builtin = false })
   assert(routed:get("/_web/mine").body == "mine" and routed:get("/_web/sub/x").body == "sub")
-  local ok, err = pcall(Web.app, { routes = own })
-  assert(not ok and tostring(err):find("reserved", 1, true) ~= nil, tostring(err))
+  Test.raises(function() Web.app({ routes = own }) end, "reserved")
 end
 
 local function test_the_assets_arrive_through_the_middleware_of_the_app()

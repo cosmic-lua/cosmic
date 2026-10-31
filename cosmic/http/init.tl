@@ -125,7 +125,9 @@ local record Http
   record Options
     --- The HTTP method, case-sensitive; GET, or POST when there is a `body`.
     method?: string
-    --- Request headers, name to value.
+    --- Request headers, name to value. A request sends `User-Agent: cosmic`
+    --- unless a header here names its own `User-Agent`, in any case; an
+    --- empty one sends none.
     headers?: {string:string}
     --- The request body, sent whole.
     body?: string
@@ -215,7 +217,9 @@ local record Http
     status: integer
     --- The response's headers, keyed by lowercased name.
     headers: {string:string}
-    --- The effective URL, after every redirect taken.
+    --- The effective URL, after every redirect taken, with no userinfo:
+    --- a user name or password in the request's URL or a redirect's is
+    --- left out.
     url: string
     --- What curl wrote to the connection; for tests with a `script`.
     --- Raises after `close`.

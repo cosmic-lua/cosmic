@@ -771,7 +771,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
       end
     end
     if readable == nil then
-      work.tell_other_schema("todos", working, other or "")
+      work.tell_other_schema("todos", working, other or "", root)
       log:complain("todos: no TODOs listed, the working database being another tool's")
       return 1
     end
@@ -784,7 +784,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
     end
     if staged_by ~= nil then
       local _, _ = readable:close()
-      work.tell_other_code("todos", working, staged_by)
+      work.tell_other_code("todos", working, staged_by, root)
       log:complain("todos: no TODOs listed, the working database being staged by another tool's code")
       return 1
     end

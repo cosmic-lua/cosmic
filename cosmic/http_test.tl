@@ -530,6 +530,35 @@ local function test_an_ordinary_header_is_sent()
   assert(sent:find("\r\nX-Fine: a normal value\r\n", 1, true) ~= nil, sent)
 end
 
+local function test_a_request_without_a_user_agent_sends_cosmic()
+  local _, _, sent = fetch({ reply("200 OK", "") })
+  assert(count(sent:lower(), "\r\nuser-agent:") == 1, sent)
+  assert(sent:find("\r\nUser-Agent: cosmic\r\n", 1, true) ~= nil, sent)
+end
+
+-- curl lets a custom header replace its own, whatever the name's case.
+local function test_the_default_user_agent_goes_with_decompress_headers()
+  local _, _, sent = fetch({ reply("200 OK", "") }, { decompress = true })
+  assert(sent:find("\r\nUser-Agent: cosmic\r\n", 1, true) ~= nil, sent)
+  assert(sent:find("\r\nAccept-Encoding: zstd, gzip, deflate\r\n", 1, true) ~= nil, sent)
+  local _, _, own = fetch({ reply("200 OK", "") },
+    { decompress = true, headers = { ["user-agent"] = "mine/1" } })
+  sent = own
+  assert(count(sent:lower(), "\r\nuser-agent:") == 1, sent)
+  assert(sent:find("\r\nuser-agent: mine/1\r\n", 1, true) ~= nil, sent)
+  assert(sent:find("\r\nAccept-Encoding: zstd, gzip, deflate\r\n", 1, true) ~= nil, sent)
+end
+
+local function test_a_callers_user_agent_replaces_the_default()
+  for _, name in ipairs({ "User-Agent", "user-agent" }) do
+    local _, _, sent = fetch({ reply("200 OK", "") },
+      { headers = { [name] = "mine/1" } })
+    assert(count(sent:lower(), "\r\nuser-agent:") == 1, sent)
+    assert(sent:find("\r\n" .. name .. ": mine/1\r\n", 1, true) ~= nil, sent)
+    assert(sent:find("cosmic\r\n", 1, true) == nil, sent)
+  end
+end
+
 -- curl reads a method, header name and header value as C strings, so a
 -- NUL would cut each short: `X-A: v1` would go out for "v1\0INJECT" and
 -- a plain GET for "GET\0junk". Each is refused before any connection.
@@ -686,8 +715,7 @@ end
 
 local function test_read_refuses_a_max_bytes_below_one()
   local response = assert(Http.open(url, { script = { reply("200 OK", "", "body") } }))
-  local ok, why = pcall(function() response:read(0) end)
-  assert(not ok and tostring(why):find("http: read's max_bytes must be positive", 1, true), tostring(why))
+  Test.raises(function() response:read(0) end, "http: read's max_bytes must be positive")
   response:close()
 end
 
@@ -1002,8 +1030,7 @@ local function test_download_result_cancel_and_callback_exception_keep_target(tm
   end
   local options: Http.Options = { script = { reply("200 OK", "", "body") },
     cancelled = function(): boolean error("callback failed") end }
-  local ok, why = pcall(Http.download_result, url, path, options)
-  assert(not ok and tostring(why):find("callback failed", 1, true), tostring(why))
+  Test.raises(function() Http.download_result(url, path, options) end, "callback failed")
   assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
 end
 
@@ -1136,8 +1163,7 @@ local function test_get_refuses_another_method_and_a_body()
       { method = "HEAD", script = script },
       { body = "x", script = script },
   } as {Http.Options}) do
-    local ok, why = pcall(Http.get, url, opts)
-    assert(not ok and tostring(why):find("Http.request", 1, true), tostring(why))
+    Test.raises(function() Http.get(url, opts) end, "Http.request")
   end
   local got, trouble = Http.get(url, { method = "GET", script = script })
   assert(got ~= nil and got.status == 200, trouble)

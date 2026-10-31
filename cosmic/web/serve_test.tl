@@ -21,16 +21,6 @@ local function recording(): Web.Sink, {string}
   return sink, lines
 end
 
---- The message of the error `fn` raises; fails where it raises none.
-local function raised(fn: function()): string
-  local ok, err = pcall(function(): any
-    fn()
-    return nil
-  end)
-  assert(not ok, "expected a raise")
-  return tostring(err)
-end
-
 --- A reader of `pieces`, one a read.
 local function pieces_of(pieces: {string}): Stream.Reader
   local at: integer = 0
@@ -118,7 +108,7 @@ end
 
 local function test_a_failure_inside_the_client_function_is_raised_after_the_server_stops()
   local app = Web.app{ routes = {} }
-  local message = raised(function()
+  local message = Test.raises(function()
     Web.with_server(app, function(_client: Web.LoopbackClient) error("the test failed") end)
   end)
   assert(message:find("the test failed", 1, true), message)
@@ -203,7 +193,7 @@ end
 local function test_serve_refuses_an_option_it_does_not_have()
   local app = Web.app{ routes = {} }
   local options: any = { listeners = { Net.tcp("127.0.0.1", 0) }, port = 80 }
-  assert(raised(function() Web.serve(app, options as Web.ServeOptions) end):find("serve has no field port", 1, true))
+  assert(Test.raises(function() Web.serve(app, options as Web.ServeOptions) end):find("serve has no field port", 1, true))
 end
 
 local function test_serve_gives_the_server_a_grace_of_ten_seconds_unless_told_otherwise()

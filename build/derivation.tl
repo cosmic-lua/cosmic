@@ -147,7 +147,8 @@ local function derive_syscalls(db: Sqlite.Handle): boolean, string
         return false, file .. ": " .. generate_trouble
       end
       local ok, insert_trouble = Sqlite.run(db, insert_derived,
-        { text(file), text(target.path), text(analysis_schema.declaration_kind()),
+        { text(file), text(target.path),
+          text(analysis_schema.kind_of(target.path:gsub("%.", "/") .. ".d.tl", source)),
           text("syscalls"), text(from_hash), text(source) })
       if not ok then
         return false, insert_trouble

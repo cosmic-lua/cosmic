@@ -4,16 +4,7 @@ local Response = require("cosmic.web.response")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
 local Types = require("cosmic.web.types")
-
---- The message of the error `fn` raises; fails where it raises none.
-local function raised(fn: function()): string
-  local ok, err = pcall(function(): any
-    fn()
-    return nil
-  end)
-  assert(not ok, "expected a raise")
-  return tostring(err)
-end
+local Test = require("cosmic.test")
 
 --- The string body of `res`.
 local function body_of(res: Types.Response): string
@@ -42,7 +33,7 @@ local function test_json_encodes_and_marks_the_body_nosniff()
   sendable(res)
   local cycle: {string:any} = {}
   cycle.self = cycle
-  assert(raised(function() Response.json(cycle) end):find("web: json:", 1, true))
+  assert(Test.raises(function() Response.json(cycle) end):find("web: json:", 1, true))
 end
 
 local function test_text_is_plain_utf8_text()
@@ -74,14 +65,14 @@ local function test_redirect_is_a_see_other_to_a_local_path_or_an_http_url()
   assert(Response.redirect("https://example.com/a").status == 303)
   assert(Response.redirect("/").status == 303)
   sendable(res)
-  assert(raised(function() Response.redirect("/a", { status = 200 }) end):find("status", 1, true))
+  assert(Test.raises(function() Response.redirect("/a", { status = 200 }) end):find("status", 1, true))
 end
 
 local function test_redirect_refuses_a_target_that_leaves_the_origin()
   for _, bad in ipairs({ "//evil.com", "//evil.com/x", "/\\evil.com", "\\\\evil.com", "evil.com",
       "javascript:alert(1)", "ftp://example.com/", "", "/a\r\nSet-Cookie: x=1", "/a\0b", "?next=/",
       "/a\tb", "https://exam ple.com/" }) do
-    local message = raised(function() Response.redirect(bad) end)
+    local message = Test.raises(function() Response.redirect(bad) end)
     assert(message:find("web: redirect", 1, true), bad .. ": " .. message)
   end
 end
@@ -164,7 +155,7 @@ local function test_set_header_replaces_every_case_and_refuses_set_cookie()
   local res: Types.Response = { status = 200, headers = { ["x-a"] = "1", ["X-A"] = "2" } }
   Response.set_header(res, "X-a", "3")
   assert(assert(res.headers)["X-a"] == "3" and assert(res.headers)["x-a"] == nil and assert(res.headers)["X-A"] == nil)
-  assert(raised(function() Response.set_header(res, "set-cookie", "a=1") end):find("add_header", 1, true))
+  assert(Test.raises(function() Response.set_header(res, "set-cookie", "a=1") end):find("add_header", 1, true))
   local bare: Types.Response = { status = 200 }
   Response.set_header(bare, "X-B", "1")
   assert(assert(bare.headers)["X-B"] == "1")
@@ -187,28 +178,28 @@ local function test_abort_raises_a_tagged_table_the_exception_layer_reads()
   assert(abort ~= nil and abort.status == 404 and abort.detail == "gone" and assert(abort.extra).code == "x")
   assert(Response.aborted("an ordinary error") == nil)
   assert(Response.aborted({ web_abort = true }) == nil)
-  assert(raised(function() Response.abort(200) end):find("400 to 599", 1, true))
+  assert(Test.raises(function() Response.abort(200) end):find("400 to 599", 1, true))
 end
 
 local function test_a_constructor_refuses_a_status_the_server_cannot_send()
   for _, status in ipairs({ 199, 100, 1000, 0, -1 }) do
-    assert(raised(function() Response.text("x", { status = status }) end):find("200 to 999", 1, true), tostring(status))
+    assert(Test.raises(function() Response.text("x", { status = status }) end):find("200 to 999", 1, true), tostring(status))
   end
   local fractional: any = { status = 200.5 }
-  assert(raised(function() Response.json(1, fractional as Types.ResponseOptions) end):find("200 to 999", 1, true))
-  assert(raised(function() Response.empty(150) end):find("200 to 999", 1, true))
-  assert(raised(function() Response.problem(99) end):find("200 to 999", 1, true))
+  assert(Test.raises(function() Response.json(1, fractional as Types.ResponseOptions) end):find("200 to 999", 1, true))
+  assert(Test.raises(function() Response.empty(150) end):find("200 to 999", 1, true))
+  assert(Test.raises(function() Response.problem(99) end):find("200 to 999", 1, true))
   local half: any = { status = 303.5 }
-  assert(raised(function() Response.redirect("/x", half as Types.ResponseOptions) end):find("301", 1, true))
+  assert(Test.raises(function() Response.redirect("/x", half as Types.ResponseOptions) end):find("301", 1, true))
   assert(Response.text("x", { status = 999 }).status == 999 and Response.empty(200).status == 200)
 end
 
 local function test_a_json_failure_names_json_once()
   local cycle: {string:any} = {}
   cycle.self = cycle
-  local message = raised(function() Response.json(cycle) end)
+  local message = Test.raises(function() Response.json(cycle) end)
   assert(message:find("web: json: ", 1, true) and not message:find("json: json:", 1, true), message)
-  local problem = raised(function() Response.problem(500, "x", { bad = cycle }) end)
+  local problem = Test.raises(function() Response.problem(500, "x", { bad = cycle }) end)
   assert(problem:find("web: problem: ", 1, true) and not problem:find("json: json:", 1, true), problem)
 end
 

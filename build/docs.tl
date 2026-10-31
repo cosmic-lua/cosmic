@@ -710,6 +710,11 @@ local DOCS_WEIGHTS = "10.0, 3.0, 1.0"
 local LIMIT = 20
 local CLOSEST = 5
 
+--- The most guide sections a search offers, and how many rows of
+--- documentation come before them.
+local SECTIONS = 3
+local AHEAD = 3
+
 --- How many of `count` words a row must carry to be offered when none
 --- carries all: half of them, and at least two, so a query with one word
 --- nothing knows never finds the rows of the other.
@@ -820,12 +825,28 @@ local function searched_docs(db: Sqlite.Handle, public: boolean,
   end
   -- Then a comment that says the words together, as typed, and then a
   -- member before a field: a field is a detail of a record, which is
-  -- likelier to be what was sought.
-  -- A module comes after the members unless its name is one of the words.
-  local module_hit = {}
-  for _, hit in ipairs(hits) do
-    module_hit[#module_hit + 1] = "lower(d.module) = " .. hit ..
-      " OR lower(d.module) LIKE '%.' || " .. hit
+  -- likelier to be what was sought. A module's row stands on its own
+  -- relevance, as any row does: a module whose prose says the words
+  -- comes before a member that only has them in a parameter's type.
+  -- A row whose own name or prose carries every word comes before one
+  -- that carries them only in a signature, where a handle's parameter
+  -- (`db: Sqlite.Handle`) is the whole match: a module about databases
+  -- before each function that takes one.
+  binds[#binds + 1] = text("{symbol text}: (" .. fts_query(query) .. ")")
+  local said = "d.id IN (SELECT rowid FROM docs_fts WHERE docs_fts MATCH ?" .. tostring(#binds) .. ") DESC, "
+  -- With one word, which names a topic, the module about it comes before
+  -- a member that says it in passing; with several, which ask for
+  -- something to do, the member does.
+  -- It leads only when the word is in the module's name or the first
+  -- paragraph of its documentation, which says what the module is for: a
+  -- long module that mentions the word somewhere is not about it.
+  if #words == 1 then
+    local like = text("%" .. lead:lower() .. "%")
+    binds[#binds + 1] = like
+    local at = "?" .. tostring(#binds)
+    said = said .. "(d.symbol = '' AND (lower(d.module) LIKE " .. at ..
+      " OR lower(substr(d.text, 1, instr(d.text || char(10) || char(10), char(10) || char(10)) - 1)) LIKE " ..
+      at .. ")) DESC, "
   end
   local phrase = ""
   if #words > 1 then
@@ -838,8 +859,7 @@ local function searched_docs(db: Sqlite.Handle, public: boolean,
     "SELECT " .. columns .. ", d.id FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
       "WHERE docs_fts MATCH ?1 AND " .. symbols.shown_in(db, "d", public) ..
       " ORDER BY " .. stands_in .. "lower(d.symbol) IN (" .. table.concat(hits, ", ") ..
-      ") DESC, (d.symbol = '' AND NOT (" .. table.concat(module_hit, " OR ") ..
-      ")), " .. phrase .. "d.kind = 'field', bm25(docs_fts, " .. DOCS_WEIGHTS ..
+      ") DESC, " .. said .. phrase .. "d.kind = 'field', bm25(docs_fts, " .. DOCS_WEIGHTS ..
       "), d.module, d.id LIMIT " .. tostring(LIMIT),
     binds)
   if rows == nil then
@@ -910,6 +930,142 @@ local function has_links(db: Sqlite.Handle): boolean?, string
   return #rows > 0, ""
 end
 
+--- A guide's `##` sections: each heading's text, its anchor (as
+--- GitHub spells one) and the lines under it, up to the next heading.
+--- What comes before the first heading is not a section, since the
+--- guide's own row says it. A `#` line inside a fence is code, not a heading.
+local record Section
+  heading: string
+  anchor: string
+  body: string
+end
+
+--- The text of `word` a section is searched for: its stem, so "narrowing"
+--- finds "narrows", but a short word whole.
+local function stem(word: string): string
+  if #word >= 4 then
+    return plain(word)
+  end
+  return word:lower()
+end
+
+--- How many times `word` (see [`stem`]) occurs in the lowercase `written`:
+--- anywhere when `whole` is false, else only as a word of its own, so "db"
+--- is not found in "sandbox" and "sort" not in "sorted".
+local function occurrences(written: string, word: string, whole: boolean): integer
+  local pattern = word:gsub("%p", "%%%0")
+  if whole or #word < 4 then
+    pattern = "%f[%w_]" .. pattern .. "%f[^%w_]"
+  end
+  local _, count = written:gsub(pattern, "")
+  return count
+end
+
+local record Scored
+  entry: docs.Entry
+  score: integer
+end
+
+local function sections_of(guide: string): {Section}
+  local out: mut {Section} = {}
+  local heading = ""
+  local lines: mut {string} = {}
+  local started = false
+  local fence = false
+  -- A heading said again takes `-1`, `-2` after its anchor, as GitHub does.
+  local made: mut {string: integer} = {}
+  --- Adds the section being read, once it has a heading.
+  local function close()
+    if started then
+      local base = heading:lower():gsub("[^%w_%- ]", ""):gsub(" ", "-")
+      local slug = base
+      local times = made[base] or 0
+      if times > 0 then
+        slug = base .. "-" .. tostring(times)
+      end
+      made[base] = times + 1
+      local section: Section = { heading = heading, anchor = slug,
+        body = String.trim(table.concat(lines, "\n")) }
+      out[#out + 1] = section
+    end
+    lines = {}
+  end
+  for line in String.lines(guide) do
+    if line:match("^%s*[`~][`~][`~]") ~= nil then fence = not fence end
+    local title = if fence then nil else line:match("^##%s+(.-)%s*$") end
+    if title ~= nil then
+      close()
+      heading = title
+      started = true
+    else
+      lines[#lines + 1] = line
+    end
+  end
+  close()
+  return out
+end
+
+--- The sections of the guides whose text carries every word of `query`
+--- in its heading (as its stem, so "narrowing" finds "narrowing a
+--- value") or as a word of its own in the text, each as an entry of
+--- kind `section` that names the guide and the heading, best first:
+--- those with a word in the heading, then by how often the words occur.
+--- Each guide is split here rather than indexed, since the index holds
+--- one row for a whole page, which its length buries and a hit shows
+--- only the opening of.
+local function guide_sections(db: Sqlite.Handle, public: boolean, query: string): {docs.Entry}?, string
+  local words: mut {string} = {}
+  for _, word in ipairs(query_words(query)) do
+    words[#words + 1] = stem(word)
+  end
+  local guides = "d.module GLOB 'doc.guides.*'"
+  if public then
+    guides = symbols.guide_module("d.module")
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE d.symbol = '' AND d.kind = 'module' AND " ..
+      guides .. " ORDER BY d.module")
+  if rows == nil then
+    return nil, trouble
+  end
+  local scored: mut {Scored} = {}
+  for _, guide in ipairs(entries_of(rows)) do
+    for _, section in ipairs(sections_of(guide.text)) do
+      local titled = section.heading:lower()
+      local said = section.body:lower()
+      local score, headed = 0, false
+      for _, word in ipairs(words) do
+        local in_heading = occurrences(titled, word, false) > 0
+        local count = occurrences(said, word, true)
+        if not in_heading and count == 0 then
+          score = -1
+          break
+        end
+        headed = headed or in_heading
+        score = score + math.min(count, 5)
+      end
+      if score >= 0 then
+        if headed then score = score + 100 end
+        local at = guide.module .. "#" .. section.anchor
+        scored[#scored + 1] = { entry = { module = guide.module, symbol = "#" .. section.anchor,
+          source_symbol = at, exported = true, kind = "section", signature = "## " .. section.heading,
+          text = section.body, file = guide.file, line = 0, uses = 0, links = 0, examples = 0,
+          related = {} }, score = score }
+      end
+    end
+  end
+  table.sort(scored, function(a: Scored, b: Scored): boolean
+    if a.score ~= b.score then return a.score > b.score end
+    return a.entry.source_symbol < b.entry.source_symbol
+  end)
+  local out: mut {docs.Entry} = {}
+  for index, item in ipairs(scored) do
+    if index > SECTIONS then break end
+    out[index] = item.entry
+  end
+  return out, ""
+end
+
 --- [`searched_docs`] and [`searched_examples`] together. Each example is kept once
 --- as itself; documentation rows retain their real symbol identity.
 local function searched(db: Sqlite.Handle, public: boolean, query: string): {docs.Entry}?, string
@@ -925,8 +1081,35 @@ local function searched(db: Sqlite.Handle, public: boolean, query: string): {doc
   if from_examples == nil then
     return nil, examples_trouble
   end
+  local from_guides, guides_trouble = guide_sections(db, public, query)
+  if from_guides == nil then
+    return nil, guides_trouble
+  end
+  -- A section shows the part of its guide that answers, so the guide's
+  -- own row, which shows only its opening, is left out. The sections
+  -- come after the first few rows, which keeps the member a reader
+  -- named ahead of a guide that merely says the words.
+  local sectioned: mut {string: boolean} = {}
+  for _, entry in ipairs(from_guides) do
+    sectioned[entry.module] = true
+  end
   local out: mut {docs.Entry} = {}
-  for _, entry in ipairs(from_docs) do out[#out + 1] = entry end
+  local kept = 0
+  local offered = false
+  local function offer_sections()
+    if not offered and (kept == AHEAD or kept == #from_docs) then
+      offered = true
+      for _, entry in ipairs(from_guides) do out[#out + 1] = entry end
+    end
+  end
+  offer_sections()
+  for _, entry in ipairs(from_docs) do
+    if not (entry.symbol == "" and sectioned[entry.module] == true) then
+      out[#out + 1] = entry
+    end
+    kept = kept + 1
+    offer_sections()
+  end
   for _, entry in ipairs(from_examples) do out[#out + 1] = entry end
   return out, ""
 end
@@ -1046,12 +1229,18 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs
 end
 
 --- Says once a process, on stderr, that the projection at `path`, which
---- `other` wrote ([`writer.other_code`]), is read none of.
-local function tell_other_code(path: string, other: string)
+--- `other` wrote ([`writer.other_code`]), is read none of. `root` is the
+--- project it belongs to, where that is known: the directory to build in.
+local function tell_other_code(path: string, other: string, root: string?)
   if not work.first_time("projection other_code " .. other, path) then return end
-  log:complain(path .. " was written by " .. other .. "; reading none of it, which this " ..
-      "tool's code may misread, and answering from this tool's own databases: a build of " ..
-      "the project by this tool, as `cosmic test` or `cosmic build` makes, writes it again")
+  local remedy = "`cosmic test` in the project writes it again"
+  local whose = path
+  if root ~= nil then
+    remedy = "`cd " .. root .. " && cosmic test` writes it again"
+    whose = root .. "'s build, " .. path
+  end
+  log:complain(whose .. " was written by " .. other .. "; reading none of it, which this " ..
+      "tool's code may misread, and answering from this tool's own databases: " .. remedy)
 end
 
 --- Says once a process, on stderr, that the projection at `path` is read
@@ -1080,11 +1269,13 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known
   local opened: mut {Sqlite.Handle} = {}
   local directory: string? = nil
   local own_tree = false
+  local project: string? = nil
   if known ~= nil then
     directory, own_tree = known.directory, known.own_tree
   else
     local root, root_trouble = Fs.absolute(at or ".")
     assert(root ~= nil, root_trouble)
+    project = root
     -- A directory with no build directory to have one in has no build of
     -- its own; one whose build directory cannot be named is answered from
     -- the binary's databases too, as a stale build is below.
@@ -1119,7 +1310,7 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known
         if grammar ~= nil then
           other, other_trouble = writer.other_code(own, rebuild.compiled_by(grammar))
         end
-        if other ~= nil then tell_other_code(own_path, other) end
+        if other ~= nil then tell_other_code(own_path, other, project) end
         if other == nil and other_trouble ~= "" then tell_unread_code(own_path, other_trouble) end
         if other ~= nil or other_trouble ~= "" then readable = nil end
       end
@@ -2409,6 +2600,9 @@ local function heading(entry: docs.Entry): string
   if entry.kind == "code" then
     return entry.module .. " " .. entry.symbol .. " (" .. entry.file .. ")"
   end
+  if entry.kind == "section" then
+    return entry.source_symbol .. " (" .. entry.file .. ")"
+  end
   if entry.symbol == "" then
     return entry.module .. " (" .. entry.file .. ")"
   end
@@ -2437,6 +2631,14 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}?, string
     -- A name that is gone has no declaration to show, only what its
     -- module's catalog says to write instead.
     return { first_line, "  " .. entry.text }, ""
+  end
+  if entry.kind == "section" then
+    -- A guide's section is its heading and its text, as written.
+    lines[#lines + 1] = "  " .. entry.signature
+    for line in String.lines(link_text.unlinked(entry.text)) do
+      lines[#lines + 1] = if #line > 0 then "  " .. line else "" end
+    end
+    return lines, ""
   end
   if entry.kind == "code" then
     -- A code has no declaration, only its row: what emits it, its rule, why it holds and the fix.
@@ -2854,7 +3056,7 @@ local function run(argv: {string}): integer
   end
   local built, build_trouble = require("build.rebuild").here("docs")
   if not built then
-    log:complain("docs: not rebuilt, answering from the last build: " .. build_trouble)
+    log:complain("docs: not rebuilt: " .. build_trouble)
   end
   local started = Clock.monotonic_ns()
   local sources = docs.databases()
@@ -2908,7 +3110,7 @@ local function run_uses(argv: {string}): integer
   end
   local built, build_trouble = require("build.rebuild").here("uses")
   if not built then
-    log:complain("uses: not rebuilt, answering from the last build: " .. build_trouble)
+    log:complain("uses: not rebuilt: " .. build_trouble)
   end
   local started = Clock.monotonic_ns()
   local sources = docs.databases()

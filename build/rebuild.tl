@@ -118,9 +118,10 @@ end
 
 --- `root`'s working database, opened as a build opens it, waiting for
 --- another run that holds it, where `wait`; otherwise opened only where
---- no run holds it ([`work.try_open`]), with no handle where one does.
+--- no run holds it ([`work.try_open_older`]), with no handle where one does
+--- or where it is of a newer schema than this tool's.
 local function opened_for(root: string, wait: boolean): work.Opening?, string
-  if not wait then return work.try_open(root) end
+  if not wait then return work.try_open_older(root) end
   local handle, trouble = work.open(root)
   if handle == nil then return nil, trouble end
   return { handle = handle, other_schema = nil }, ""
@@ -168,7 +169,7 @@ local function project(root: string, verb: string, start: boolean, carried?: str
     local working = build_paths.resolve(root).working
     local other = opening.other_schema
     if other ~= nil then
-      work.tell_other_schema(verb, working, other)
+      work.tell_other_schema(verb, working, other, root)
     else
       work.tell_busy(verb, working)
     end
@@ -192,7 +193,18 @@ local function project(root: string, verb: string, start: boolean, carried?: str
   if #unexpected > 0 then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled, result.cached, "FAIL")
     local _, _ = work.close(handle)
-    return false, table.concat(unexpected, "\n")
+    if start then return false, table.concat(unexpected, "\n") end
+    -- A lookup says it in a line a call, naming the first module with a
+    -- refusal of its own: the refusals are for the verbs that build on
+    -- purpose, which is where they are shown. Its last build may be none,
+    -- where it made the working database again ([`work.try_open_older`]).
+    local own = result.own_refused or {}
+    local named = assert(unexpected[1])
+    if #own > 0 then
+      named = own[1] .. (if #own > 1 then " and " .. tostring(#own - 1) .. " more" else "" end)
+    end
+    return false, root .. " does not build (" .. named .. " refused; `cosmic test` shows why); " ..
+      "answering from its last build by this tool, or from cosmic's own docs where it has none"
   end
   -- A lookup's build leaves the projection as it is where another run
   -- holds the rebuild lock, rather than wait for it ([`writer.write_result`]).

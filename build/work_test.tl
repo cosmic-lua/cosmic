@@ -224,6 +224,43 @@ local function test_an_open_that_waits_for_no_run_never_removes_a_held_file_of_a
   assert(took < Clock.seconds(5), tostring(took) .. " ns")
 end
 
+--- A lookup's open ([`work.try_open_older`]) makes again a file of an older
+--- schema, which a newer tool wrote, so that no call of a lookup says of it
+--- that it reads none of it; it leaves one of a newer schema, which an
+--- older tool must leave to the tool that made it, and one a run holds the
+--- rebuild lock for.
+local function test_a_lookups_open_removes_a_file_of_an_older_schema_alone(tmp: string)
+  local path = build_dir(tmp) .. "/build.db"
+  local function stamp(schema: string)
+    local made = assert(work.open(tmp))
+    assert(Sqlite.run(made.db, "UPDATE meta SET value = ?1 WHERE key = 'schema'", { { text = schema } }))
+    assert(Sqlite.run(made.db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('marker', 'kept')"))
+    assert(work.close(made))
+  end
+  stamp("99")
+  local newer = assert(work.try_open_older(tmp))
+  assert(newer.handle == nil and newer.other_schema == "99", tostring(newer.other_schema))
+  assert(meta_of(path, "marker") == "kept", "a file of a newer schema was removed")
+  -- No count, so no older one: left alone whatever `tonumber` makes of it.
+  for _, odd in ipairs({ " 5", "1e1", "0x10", "-1", "" }) do
+    stamp(odd)
+    local left = assert(work.try_open_older(tmp))
+    assert(left.handle == nil and left.other_schema == odd, "opened a file of schema '" .. odd .. "'")
+    assert(meta_of(path, "marker") == "kept", "a file of schema '" .. odd .. "' was removed")
+  end
+  stamp("1")
+  local lock = assert(sys.open(build_paths.resolve(tmp).lock, sys.O_RDWR | sys.O_CREAT, 0x1a4))
+  assert(sys.flock(lock, "exclusive"))
+  local held = assert(work.try_open_older(tmp))
+  assert(held.handle == nil and held.other_schema == "1", tostring(held.other_schema))
+  assert(meta_of(path, "marker") == "kept", "a file a run holds the rebuild lock of was removed")
+  assert(sys.close(lock))
+  local older = assert(work.try_open_older(tmp))
+  assert(older.other_schema == nil, tostring(older.other_schema))
+  assert(work.close((assert(older.handle))))
+  assert(meta_of(path, "marker") == "", "the file of an older schema was kept")
+end
+
 --- An open that waits for no run reads nothing of a file of another
 --- schema, holding its write lock or not: it neither removes it nor
 --- writes this module's tables into it, and answers the schema it found.

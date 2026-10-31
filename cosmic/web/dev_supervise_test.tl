@@ -14,16 +14,6 @@ Test.policy{ profiles = { "cosmic" } }
 
 local DEADLINE_NS <const> = Clock.seconds(8)
 
---- The message of the error `fn` raises; fails where it raises none.
-local function raised(fn: function()): string
-  local ok, err = pcall(function(): any
-    fn()
-    return nil
-  end)
-  assert(not ok, "expected a raise")
-  return tostring(err)
-end
-
 --- Starts the chunk `chunk` as the program, given the environment.
 local function program(chunk: string): function(env: {string:string}): Child.Handle?, string
   return function(env: {string:string}): Child.Handle?, string
@@ -265,8 +255,8 @@ end
 
 local function test_options_of_the_wrong_kind_raise()
   local unknown: any = { watches = {} }
-  assert(raised(function() Dev.supervise(unknown as Dev.SuperviseOptions) end):find("no field watches", 1, true))
-  assert(raised(function() Dev.supervise{ interval_ns = 0 } end):find("interval_ns", 1, true))
+  assert(Test.raises(function() Dev.supervise(unknown as Dev.SuperviseOptions) end):find("no field watches", 1, true))
+  assert(Test.raises(function() Dev.supervise{ interval_ns = 0 } end):find("interval_ns", 1, true))
 end
 
 local function test_a_watched_directory_that_is_missing_is_refused(tmp: string)

@@ -122,7 +122,7 @@ function fixture.hung_runs(tmp: string, probe: string?, sandbox_workers: boolean
     local env = fixture.environment()
     env.TMPDIR = here .. "/temp"
     env.COSMIC_TEST_SANDBOX = mode
-    assert(Fs.mkdirs(env.TMPDIR))
+    assert(Fs.mkdirs(assert(env["TMPDIR"])))
     local started = Clock.monotonic_ns()
     -- Every test's deadline counts from its worker's start, so the two
     -- that end on their own must load and finish inside it too: two

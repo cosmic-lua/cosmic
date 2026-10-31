@@ -40,6 +40,13 @@ local record ProjectRefusals
   --- `<file>:<line>:<column>: <what>`, in source order. A name that is declared by the program itself (`local package`) is
   --- no use of the global and is not told.
   check: function(file: string, chunk: Ast.Chunk, scoped: Scopes.Scoped): {string}
+  --- The same places, each as its line, column and what is told, for a caller that lays them out itself.
+  places: function(chunk: Ast.Chunk, scoped: Scopes.Scoped): {ProjectRefusals.Place}
+  record Place
+    y: integer
+    x: integer
+    text: string
+  end
 end
 
 --- The prefix of the modules a project may not require: the tool's own, which are not its interface.
@@ -63,7 +70,7 @@ local function internal(name: string): boolean
   return dotted == INTERNAL or dotted:sub(1, #INTERNAL + 1) == INTERNAL .. "."
 end
 
-function ProjectRefusals.check(file: string, chunk: Ast.Chunk, scoped: Scopes.Scoped): {string}
+function ProjectRefusals.places(chunk: Ast.Chunk, scoped: Scopes.Scoped): {ProjectRefusals.Place}
   local watched: mut {integer: string} = {}
   local any = false
   for _, name in ipairs({ "package", "debug", "loadfile", "dofile", "_G", "_ENV", "require", "load", "pcall" }) do
@@ -75,11 +82,11 @@ function ProjectRefusals.check(file: string, chunk: Ast.Chunk, scoped: Scopes.Sc
   if not any then
     return {}
   end
-  local out: mut {string} = {}
+  local out: mut {ProjectRefusals.Place} = {}
   local spoken: mut {integer: boolean} = {}
   local function say(node: Ast.Node, text: string)
     local at = Node.span(chunk, node)
-    table.insert(out, file .. ":" .. tostring(at.y) .. ":" .. tostring(at.x) .. ": " .. text)
+    table.insert(out, { y = at.y, x = at.x, text = text })
   end
   --- `callee` is the global `name` and so is called here: the use is judged by the call, not as a name.
   local function is_global(callee: Ast.Exp, name: string): boolean
@@ -139,6 +146,14 @@ function ProjectRefusals.check(file: string, chunk: Ast.Chunk, scoped: Scopes.Sc
       end
     end
   end)
+  return out
+end
+
+function ProjectRefusals.check(file: string, chunk: Ast.Chunk, scoped: Scopes.Scoped): {string}
+  local out: mut {string} = {}
+  for _, at in ipairs(ProjectRefusals.places(chunk, scoped)) do
+    out[#out + 1] = file .. ":" .. tostring(at.y) .. ":" .. tostring(at.x) .. ": " .. at.text
+  end
   return out
 end
 

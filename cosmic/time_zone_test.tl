@@ -218,8 +218,7 @@ end
 
 local function test_a_zone_made_by_hand_is_refused()
   local fake: Time.Zone = { name = "America/New_York" }
-  local ok, err = pcall(Time.civil, 0, fake)
-  assert(not ok and tostring(err):find("not a zone", 1, true), tostring(err))
+  Test.raises(function() Time.civil(0, fake) end, "not a zone")
   local formatted, format_err = pcall(Time.format_rfc3339, 0, fake)
   assert(not formatted and tostring(format_err):find("not a zone", 1, true), tostring(format_err))
 end
@@ -473,8 +472,7 @@ local function test_posix_strings_name_offsets_and_rules()
   says(posix("<-03>3"), "2026-01-01T00:00:00Z", "2025-12-31T21:00:00-03:00", -10800, "-03", false)
   local named = posix("EST5EDT,M3.2.0,M11.1.0")
   assert(named.name == "EST5EDT,M3.2.0,M11.1.0")
-  local ok, err = pcall(Time.format_rfc3339, 0, named, { zone_name = true })
-  assert(not ok and tostring(err):find("IANA", 1, true), tostring(err))
+  Test.raises(function() Time.format_rfc3339(0, named, { zone_name = true }) end, "IANA")
 end
 
 --- The southern hemisphere saves daylight across the new year.
@@ -558,8 +556,7 @@ local function test_format_writes_a_zones_offset_and_name()
   local text = Time.format_rfc3339(lmt, ny, { zone_name = true })
   assert(text == "1799-12-31T19:04:00-04:56[America/New_York]", text)
   assert(Time.parse_rfc3339(text) == lmt)
-  local ok, err = pcall(Time.format_rfc3339, 0, nil, { zone_name = true })
-  assert(not ok and tostring(err):find("zone_name", 1, true), tostring(err))
+  Test.raises(function() Time.format_rfc3339(0, nil, { zone_name = true }) end, "zone_name")
 end
 
 local function test_parse_reads_a_zone_suffix()

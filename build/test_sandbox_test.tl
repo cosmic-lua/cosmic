@@ -26,9 +26,9 @@ local function test_a_worker_is_given_only_the_variables_it_may_read()
   local inputs = effective({})
   inputs.env = { PATH = true, TMPDIR = true, DECLARED = true }
   local env = test_sandbox.environment(view, inputs)
-  assert(env.PATH == "/bin" and env.DECLARED == "d" and env.UNDECLARED == nil)
-  assert(env.TMPDIR == test_sandbox.scratch)
-  assert(env.COSMIC_SANDBOX == nil, "only what is pinned or declared is given")
+  assert(env["PATH"] == "/bin" and env["DECLARED"] == "d" and env["UNDECLARED"] == nil)
+  assert(env["TMPDIR"] == test_sandbox.scratch)
+  assert(env["COSMIC_SANDBOX"] == nil, "only what is pinned or declared is given")
 end
 
 --- Run unsandboxed, a worker that declares the `bootstrap` cache has
@@ -40,8 +40,8 @@ local function test_an_unenforced_worker_has_the_hosts_cores()
   local sandboxed = test_sandbox.environment({ PATH = "/bin" }, inputs)
   assert(sandboxed.COSMIC_PORTABLE_CACHE ~= nil)
   local env = test_sandbox.unenforced_environment({ PATH = "/bin" }, inputs, "/host/scratch", "/host/tree")
-  assert(env.TMPDIR == "/host/scratch" and env.COSMIC_PORTABLE_CACHE == nil,
-    tostring(env.COSMIC_PORTABLE_CACHE))
+  assert(env["TMPDIR"] == "/host/scratch" and env["COSMIC_PORTABLE_CACHE"] == nil,
+    tostring(env["COSMIC_PORTABLE_CACHE"]))
   local named = test_sandbox.unenforced_environment({ COSMIC_PORTABLE_CACHE = "/host/cores" },
     inputs, "/host/scratch", "/host/tree")
   assert(named.COSMIC_PORTABLE_CACHE == "/host/cores", tostring(named.COSMIC_PORTABLE_CACHE))

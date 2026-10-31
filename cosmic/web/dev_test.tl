@@ -15,16 +15,6 @@ Test.policy{}
 
 local TAG <const> = '<script src="/_web/dev.js" defer></script>'
 
---- The message of the error `fn` raises; fails where it raises none.
-local function raised(fn: function()): string
-  local ok, err = pcall(function(): any
-    fn()
-    return nil
-  end)
-  assert(not ok, "expected a raise")
-  return tostring(err)
-end
-
 local PAGE <const> = Html.trust("<html><body><p>hi</p></body></html>")
 
 local shared: Web.Response = Web.html(PAGE)
@@ -262,11 +252,11 @@ end
 
 local function test_an_option_of_the_wrong_kind_raises()
   local wrong: any = { enabled = "yes" }
-  assert(raised(function() Dev.app({}, wrong as Dev.Options) end):find("enabled", 1, true))
+  assert(Test.raises(function() Dev.app({}, wrong as Dev.Options) end):find("enabled", 1, true))
   local unknown: any = { stat = "x" }
-  assert(raised(function() Dev.app({}, unknown as Dev.Options) end):find("no field stat", 1, true))
-  assert(raised(function() Dev.app({}, { interval_ns = 0 }) end):find("interval_ns", 1, true))
-  assert(raised(function() Dev.static("/s", { static = "" }) end):find("static", 1, true))
+  assert(Test.raises(function() Dev.app({}, unknown as Dev.Options) end):find("no field stat", 1, true))
+  assert(Test.raises(function() Dev.app({}, { interval_ns = 0 }) end):find("interval_ns", 1, true))
+  assert(Test.raises(function() Dev.static("/s", { static = "" }) end):find("static", 1, true))
 end
 
 local function test_a_page_htmx_swaps_in_gets_no_second_script()

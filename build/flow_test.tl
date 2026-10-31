@@ -1,4 +1,5 @@
 local flow = require("build.flow")
+local Test = require("cosmic.test")
 
 local function formatted(text: string): string
   return (assert(flow.format(text)))
@@ -324,8 +325,7 @@ local function test_values_the_subset_cannot_hold_are_refused()
   assert(not pcall(flow.from, deep), "nesting past cosmic.json's depth is refused")
   local cycle: {string: any} = {}
   cycle.self = cycle
-  local ok, err = pcall(flow.from, cycle)
-  assert(not ok and tostring(err):find("holds itself", 1, true) ~= nil, tostring(err))
+  Test.raises(function() flow.from(cycle) end, "holds itself")
   local value, trouble = flow.value(assert(flow.parse("{a: x}")).root)
   assert(value == nil and trouble ~= "", "a node that reads as nothing says why")
   assert(#flow.comments("# a\n{b: \"# no\"} # c\n") == 2)

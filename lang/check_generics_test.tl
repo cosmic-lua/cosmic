@@ -399,6 +399,36 @@ local function test_an_invariant_position_requires_the_exact_type_and_a_function
   stands("local function show(a: Animal)\n  print(a.name)\nend\nlocal d: Dog = { name = \"d\" }\neach({ d }, show)\n", "d")
 end
 
+-- A generic function passed where a function is wanted is instantiated from the values the callee passes it, so what it answers
+-- is a type, not a parameter nothing fixes (`invalid`, which every type accepts); and an overload whose type parameter
+-- nothing solves is no candidate. On main the `pcall`, `xpcall`, `coroutine.wrap` and `coroutine.create` cases below are
+-- accepted (the result is `invalid`); the `Box` case and the `pcall` of a function that is not generic are refused there
+-- and must stay so.
+local function test_a_generic_function_passed_to_a_callee_answers_a_type_and_not_any_type()
+  local head = "local function id<T>(x: T): T\n  return x\nend\n"
+  refused(head .. "local n: integer = 1\nlocal ok, r = pcall(id, n)\nlocal s: string = r\nprint(ok, s)\n", "any_use")
+  refused(head .. "local ok, r = pcall(id, 1)\nlocal s: string = r\nprint(ok, s)\n", "any_use")
+  refused(head .. "local function f(v: any): {integer}?\n  local ok, r = pcall(id, v)\n  if ok then return r end\n  return nil\nend\nprint(f)\n",
+    "any_use")
+  -- an overloaded callee whose type parameter the generic function leaves unsolved is no candidate
+  refused(head .. "local co = coroutine.wrap(id)\nlocal v = co()\nlocal w: string = v\nprint(w)\n", "overload_none")
+  refused(head .. "local co = coroutine.create(id)\nlocal ok, v = coroutine.resume(co)\nlocal w: string = v\nprint(ok, w)\n",
+    "overload_none")
+  refused(head .. "local function getid(): function<T>(T): T\n  return id\nend\nlocal co = coroutine.wrap(getid())\n" ..
+      "local v = co()\nlocal w: string = v\nprint(w)\n", "overload_none")
+  -- a generic callee that takes its parameter from a type in the function's parameters says so, as on main: the
+  -- instance of `id` is not taken from a parameter that mentions `invalid`
+  refused(head .. "local record Box<Y>\n  v: Y\nend\nlocal function app<Y, R>(f: function(Box<Y>): R): Y\n  error(\"x\")\nend\n" ..
+      "local r = app(id)\nlocal s: string = r\nprint(s)\n", "cannot_infer")
+  -- a protected call of a function that is not generic was refused already; `xpcall` of a generic function was not
+  refused("local function one(x: integer): integer\n  return x\nend\nlocal ok, r = pcall(one, 1)\nlocal n: integer = r\nprint(ok, n)\n",
+    "any_use")
+  refused(head .. "local function h(e: any): any\n  return e\nend\nlocal ok, r = xpcall(id, h, 1)\nlocal s: string = r\nprint(ok, s)\n",
+    "any_use")
+  -- a value checked first is the type it was checked to
+  stands(head .. "local ok, r = pcall(id, 1)\nif r is integer then print(r + 1) end\nprint(ok)\n", "2,true")
+end
+
 local function test_an_iterator_that_is_a_generic_function_is_solved_by_the_state_and_the_control_value()
   local head = "local function step<T>(xs: {T}, at: integer?): (integer?, T?)\n  return nil, nil\nend\n"
   assert(type_of(head .. "local names: {string} = { \"a\" }\nfor i, v in step, names, nil do\n  local seen = v\nend\n", "seen") == "string?")

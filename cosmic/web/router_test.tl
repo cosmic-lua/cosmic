@@ -1,6 +1,7 @@
 local Html = require("cosmic.html")
 local Url = require("cosmic.url")
 local Web = require("cosmic.web")
+local Test = require("cosmic.test")
 
 local function ok(_req: Web.Request): Web.Response
   return Web.text("ok")
@@ -20,16 +21,6 @@ local function route_of(router: Web.Router, path: string, method?: string): stri
   local outcome = router:match(method or "GET", path)
   if outcome.kind == "match" then return assert(outcome.route).pattern end
   return outcome.kind
-end
-
---- The message of the error `fn` raises; fails where it raises none.
-local function raised(fn: function()): string
-  local ok_, err = pcall(function(): any
-    fn()
-    return nil
-  end)
-  assert(not ok_, "expected a raise")
-  return tostring(err)
 end
 
 local function test_a_pattern_binds_literals_params_and_the_rest()
@@ -121,7 +112,7 @@ local function test_strict_policy_has_no_redirect()
   assert(route_of(router, "/items/") == "not_found" and route_of(router, "/docs") == "not_found")
   assert(route_of(router, "/items") == "/items" and route_of(router, "/docs/") == "/docs/")
   local loose: any = { trailing_slash = "loose" }
-  assert(raised(function() Web.router({}, loose as Web.RouterOptions) end):find("trailing_slash", 1, true))
+  assert(Test.raises(function() Web.router({}, loose as Web.RouterOptions) end):find("trailing_slash", 1, true))
 end
 
 local function test_a_noncanonical_path_is_redirected_to_its_canonical_form()
@@ -200,7 +191,7 @@ local function test_a_pattern_that_is_not_valid_raises_naming_it()
   }
   for _, case in ipairs(cases) do
     local case_1 = assert(case[1], "expected case[1]")
-    local message = raised(function() Web.router({ Web.get(case_1, ok) }) end)
+    local message = Test.raises(function() Web.router({ Web.get(case_1, ok) }) end)
     local case_2 = assert(case[2], "expected case[2]")
     assert(message:find(case_2, 1, true), case_1 .. ": " .. message)
     assert(message:find(("%q"):format(case[1]), 1, true), "names the pattern: " .. message)
@@ -263,7 +254,7 @@ local function test_registration_refuses_conflicts_and_bad_routes()
     end },
   }
   for i, case in ipairs(cases) do
-    local message = raised(case.build)
+    local message = Test.raises(case.build)
     assert(message:find(case.expect, 1, true), ("case %d: %s"):format(i, message))
   end
 end
@@ -388,11 +379,11 @@ end
 
 local function test_the_reserved_prefix_is_judged_by_the_full_path()
   for _, pattern in ipairs({ "/_web", "/_web/a" }) do
-    local message = raised(function() Web.router({ Web.get(pattern, ok) }) end)
+    local message = Test.raises(function() Web.router({ Web.get(pattern, ok) }) end)
     assert(message:find("reserved", 1, true), message)
   end
-  assert(raised(function() Web.router({ Web.mount("/_web", { Web.get("/x", ok) }) }) end):find("reserved", 1, true))
-  assert(raised(function() Web.router({ Web.mount_handler("/_web", ok) }) end):find("reserved", 1, true))
+  assert(Test.raises(function() Web.router({ Web.mount("/_web", { Web.get("/x", ok) }) }) end):find("reserved", 1, true))
+  assert(Test.raises(function() Web.router({ Web.mount_handler("/_web", ok) }) end):find("reserved", 1, true))
   -- A name that is only reserved at the root: inside a mount it is the app's.
   local router = Web.router({ Web.mount("/x", { Web.get("/_web/a", ok, { name = "a" }) }) })
   assert(route_of(router, "/x/_web/a") == "/x/_web/a")

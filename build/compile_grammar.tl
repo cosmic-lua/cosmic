@@ -42,6 +42,7 @@ local BoundaryChecks = require("lang.boundary_checks")
 local FactWraps = require("lang.fact_wraps")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
+local Scopes = require("lang.scopes")
 local Types = require("lang.types")
 
 local record compile_grammar
@@ -64,6 +65,17 @@ local record compile_grammar
     y: integer
     x: integer
     offset: integer
+  end
+
+  --- What a compile checks against when it is given no declaration file: the globals of the standard library and the provider
+  --- of the `cosmic.*` modules, as [`build.pipeline`] makes them for a standalone run.
+  record Standalone
+    globals: {Driver.Source}
+    adjust: function(globals: {string: Scopes.Global})
+    standard: Driver.Provider
+    --- What a project's program may not say of a checked file ([`build.project_refusals`]), which a standalone run refuses; the
+    --- caller supplies it, since the seed that holds this module does not hold that one.
+    refusals: function(chunk: Ast.Chunk, scoped: Scopes.Scoped): {compile_grammar.Problem}
   end
 
   --- What one file came to.
@@ -109,8 +121,9 @@ local record compile_grammar
 
   --- Compiles `sources` together. The answer holds one entry for each, in order. After a syntax error in
   --- any file no file has Lua and the other stages did not run. With `facts` the Lua checks the conclusions of the
-  --- checker about the places a test narrowed.
-  compile: function(sources: {Source}, facts?: boolean): {Compiled}
+  --- checker about the places a test narrowed. With `standalone` and no declaration file among `sources`, they are checked
+  --- against its globals and `cosmic.*` modules, and a warning is reported with the errors, as a standalone run refuses it.
+  compile: function(sources: {Source}, facts?: boolean, standalone?: Standalone): {Compiled}
 end
 
 compile_grammar.module_of = Declarations.module_of
@@ -254,7 +267,8 @@ local function bindings_of(sources: {compile_grammar.Source}, provided: {string:
   return out
 end
 
-function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: boolean): {compile_grammar.Compiled}
+function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: boolean, standalone?: compile_grammar.Standalone):
+    {compile_grammar.Compiled}
   -- The declaration files given declare the globals of every file; a source is the module its path names.
   local globals: mut {Driver.Source} = {}
   local given: mut {Driver.Source} = {}
@@ -282,10 +296,21 @@ function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: bool
     names[index] = module
     by_module[module] = made
   end
-  local build = Driver.new({ globals = globals, adjust = nil, external = bindings_of(sources, provided), types = false })
+  -- With no declaration file given, a standalone run's globals and `cosmic.*` modules stand for them: the binary's own, so
+  -- nothing is typed `invalid` for lack of them.
+  local alone = if #globals == 0 then standalone else nil end
+  local build: Driver.Build
+  if alone ~= nil then
+    build = Driver.new({ globals = alone.globals, adjust = alone.adjust, external = {}, types = false })
+  else
+    build = Driver.new({ globals = globals, adjust = nil, external = bindings_of(sources, provided), types = false })
+  end
   build:provide(function(module: string): Driver.Source?
     return by_module[module]
   end)
+  if alone ~= nil then
+    build:provide(alone.standard)
+  end
 
   local results: mut {Driver.Outcome} = {}
   local syntax_errors: mut {{compile_grammar.Problem}} = {}
@@ -318,7 +343,26 @@ function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: bool
     local result = assert(build:result(assert(names[index]), true))
     local errors: mut {compile_grammar.Problem} = {}
     for _, p in ipairs(result.errors) do
-      errors[#errors + 1] = reported(p)
+      -- What a standalone file returns is its entry point, which no declaration describes ([`build.pipeline`]'s `checked_alone`).
+      if not (alone ~= nil and p.code == "export_not_declared") then
+        errors[#errors + 1] = reported(p)
+      end
+    end
+    if alone ~= nil then
+      -- A standalone check refuses a warning as it does an error, and what a project may not say
+      -- ([`build.project_refusals`]), which it holds a standalone file to.
+      for _, p in ipairs(result.warnings) do
+        errors[#errors + 1] = reported(p)
+      end
+      if not source.declaration then
+        for _, p in ipairs(alone.refusals(result.chunk, result.scoped)) do
+          errors[#errors + 1] = p
+        end
+      end
+      table.sort(errors, function(a: compile_grammar.Problem, b: compile_grammar.Problem): boolean
+        if a.y ~= b.y then return a.y < b.y end
+        return a.x < b.x
+      end)
     end
     local code: string? = nil
     local trouble = ""
