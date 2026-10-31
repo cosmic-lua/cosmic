@@ -1692,12 +1692,23 @@ end
 local UNMET_RANK <const>: {string:integer} = { refused = 3, na = 2, skipped = 1 }
 
 --- The names a module requires of its host, as its policy declares them
---- ([`host_names.check`]), sorted.
+--- ([`host_names.check`]), sorted. A module that declares loopback
+--- addresses also requires `loopback`: the addresses already say its
+--- tests reach loopback, so the name is derived here rather than written
+--- beside them in every module. Where a module writes `loopback` itself
+--- it is not added twice.
 local function requirements_of(m: Module): {string}
   local names: mut {string} = {}
   local declared = m.inputs
   if declared == nil then return names end
   for _, name in ipairs(declared.requires or {}) do names[#names + 1] = name end
+  if declared.network ~= nil and #declared.network > 0 then
+    local written = false
+    for _, name in ipairs(names) do
+      if name == "loopback" then written = true end
+    end
+    if not written then names[#names + 1] = "loopback" end
+  end
   table.sort(names)
   return names
 end

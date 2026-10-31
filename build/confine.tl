@@ -17,6 +17,7 @@ local sys = require("cosmic.sys")
 local type raw_process = require("cosmic.internal.process")
 
 local process = require("cosmic.internal.process")
+local socket = require("cosmic.internal.socket")
 
 --- The process table's questions of this host, as this module loads.
 local sandbox_platform, may_map_ids, own_proc, landlock_abi = process.sandbox_platform,
@@ -446,6 +447,34 @@ function confine.unix_socket_available(): boolean, string
     error("the Unix socket creation probe failed: " .. why, 0)
   end
   return false, why
+end
+
+--- Whether this host permits loopback sockets: a TCP listener bound to
+--- 127.0.0.1 at a port the kernel chooses, and a UDP socket bound the
+--- same way. Both are tried, since a host may refuse one kind alone, and
+--- the name [`build.host_requires`] answers for is the pair. Only a
+--- refusal of permission (EPERM or EACCES) answers absent: any other
+--- failure cannot tell whether loopback is permitted, so it raises.
+function confine.loopback_available(): boolean, string
+  local listener, why, errno = socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1)
+  if listener == nil then
+    if errno ~= sys.EPERM and errno ~= sys.EACCES then
+      error("the loopback TCP probe failed: " .. why, 0)
+    end
+    return false, "TCP 127.0.0.1: " .. why
+  end
+  local closed, close_trouble = listener:close()
+  if not closed then error("closing the loopback TCP probe: " .. close_trouble, 0) end
+  local datagram, udp_why, udp_errno = socket.datagram({ kind = "udp", host = "127.0.0.1", port = 0 })
+  if datagram == nil then
+    if udp_errno ~= sys.EPERM and udp_errno ~= sys.EACCES then
+      error("the loopback UDP probe failed: " .. udp_why, 0)
+    end
+    return false, "UDP 127.0.0.1: " .. udp_why
+  end
+  local udp_closed, udp_close_trouble = datagram:close()
+  if not udp_closed then error("closing the loopback UDP probe: " .. udp_close_trouble, 0) end
+  return true, ""
 end
 
 --- What a sandboxed worker of this very program -- `cosmic test`'s,

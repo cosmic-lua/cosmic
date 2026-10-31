@@ -56,6 +56,41 @@ local function test_a_broken_unix_socket_probe_cannot_become_a_skip()
   Test.raises(function() ask(host, "unix_socket") end, "probe failed")
 end
 
+local function test_loopback_is_a_keyed_host_capability_on_every_platform()
+  local calls: mut {integer} = { 0 }
+  local host = host_requires.new({ linux = false, loopback = function(): boolean, string
+    calls[1] = (calls[1] or 0) + 1
+    return true, ""
+  end })
+  local answer = ask(host, "loopback")
+  assert(answer.kind == "present" and answer.class == "host" and answer.key == "tcp+udp")
+  assert(ask(host, "loopback").key == answer.key and calls[1] == 1)
+  local refused = ask(host_requires.new({ loopback = function(): boolean, string
+    return false, "TCP 127.0.0.1: Operation not permitted"
+  end }), "loopback")
+  assert(refused.kind == "skipped" and refused.key == "")
+  assert(refused.why == "loopback is refused: TCP 127.0.0.1: Operation not permitted")
+end
+
+local function test_a_broken_loopback_probe_cannot_become_a_skip()
+  local host = host_requires.new({ loopback = function(): boolean, string
+    error("probe failed")
+  end })
+  Test.raises(function() ask(host, "loopback") end, "probe failed")
+end
+
+--- The real probe of this host answers present or skipped, never n/a:
+--- loopback is every platform's to have or lack.
+local function test_the_hosts_loopback_answers_present_or_skipped()
+  local answer = ask(host_requires.new(), "loopback")
+  assert(answer.kind == "present" or answer.kind == "skipped", answer.kind)
+  if answer.kind == "present" then
+    assert(answer.key == "tcp+udp" and answer.why == "")
+  else
+    assert(answer.key == "" and answer.why:find("loopback is refused: ", 1, true) == 1, answer.why)
+  end
+end
+
 --- Every name of the table, and each form that takes an argument, is read.
 local function test_a_platform_requirement_with_no_platform_has_raises_and_a_host_one_needs_none()
   local host = host_requires.new({})
@@ -146,7 +181,7 @@ local function test_classes()
       "portable", "checked" }) do
     assert(host_names.class(name) == "platform", name)
   end
-  for _, name in ipairs({ "root", "path:/etc", "program:sh", "all_cores" }) do
+  for _, name in ipairs({ "root", "path:/etc", "program:sh", "all_cores", "loopback", "unix_socket" }) do
     assert(host_names.class(name) == "host", name)
   end
 end

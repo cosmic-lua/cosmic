@@ -38,6 +38,12 @@
 --- - `root`: the run's user is root;
 --- - `unix_socket`: this host permits creation of a Unix stream socket,
 ---   without asserting permission to bind a path or connect to a peer;
+--- - `loopback`: this host permits loopback sockets, a TCP listener and
+---   a UDP socket bound to 127.0.0.1 ([`confine.loopback_available`]).
+---   Only a refusal of permission answers absent; any other failure of
+---   the probe raises, since it cannot tell. A module declares it by
+---   declaring loopback addresses, not by writing the name: the runner
+---   derives it ([`build.test_key`]'s `ask_host`);
 --- - `path:<absolute path>`: a file or directory of the host;
 --- - `program:<name>`: a program the PATH finds ([`Proc.find`]).
 ---
@@ -88,6 +94,7 @@ local relaunch, getuid, realpath = Proc.relaunch, sys.getuid, Fs.absolute
 local sandbox_platform, may_map_ids = confine.sandbox_platform, confine.may_map_ids
 local own_proc_given, landlock_abi = confine.own_proc_given, confine.landlock_abi
 local unix_socket_available = confine.unix_socket_available
+local loopback_available = confine.loopback_available
 local hex_sha256 = digest.hex_sha256
 local system_paths = confine.system_paths
 
@@ -158,6 +165,8 @@ local record host_requires
   record Context
     --- A stand-in for the Unix stream socket creation probe; nil asks the host.
     unix_socket?: function(): boolean, string
+    --- A stand-in for the loopback probe; nil asks the host.
+    loopback?: function(): boolean, string
     --- Whether a worker can run sandboxed here: the runner's own
     --- [`build.test_sandbox_probe`]'s `available` answer. Without it `sandbox` is
     --- refused, since no cheaper probe answers the same.
@@ -462,6 +471,12 @@ local table_of: {string:Entry} = {
       local ok, why = (host.context.unix_socket or unix_socket_available)()
       if ok then return present("stream") end
       return absent("Unix stream socket creation is refused: " .. why)
+    end },
+  loopback = { platform_has = function(_: host_requires.Host): boolean return true end,
+    probe = function(_: string, host: host_requires.Host): Found
+      local ok, why = (host.context.loopback or loopback_available)()
+      if ok then return present("tcp+udp") end
+      return absent("loopback is refused: " .. why)
     end },
   sandbox = { platform_has = linux,
     probe = function(_: string, host: host_requires.Host): Found
