@@ -1,5 +1,5 @@
 file: ext/misc/csv.c
-note: A quote inside a field that does not begin with one, `a"b`, is read as a literal quote, where RFC 4180 has a field holding a quote quoted whole, and cosmic.csv refuses it as a fault: a file read so is not the file its writer meant. This refuses it, naming its line, through 16-csv-reports-what-the-reader-refuses.txt, so cosmic.csv's `load` and `table` read one CSV. Upstream reads it as a literal as of 3.54.0.
+note: A quote inside a field that does not begin with one, `a"b`, is read as a literal quote, where RFC 4180 has a field holding a quote quoted whole, and cosmic.csv refuses it as a fault: a file read so is not the file its writer meant. This refuses it, naming its line, through 16-csv-reports-what-the-reader-refuses.txt, so cosmic.csv's `load` and `table` read one CSV. Upstream reads it as a literal as of 3.54.1.
 --- find
     while( c>',' || (c!=EOF && c!=',' && c!='\n') ){
       if( csv_append(p, (char)c) ) return 0;

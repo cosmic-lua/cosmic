@@ -1,5 +1,5 @@
 file: ext/misc/csv.c
-note: A delimiter=X parameter, X one byte, bare or in quotes ('\t' written as a quoted tab), sets the byte between fields (30-csv-reader-holds-a-delimiter.txt); a comma by default. A quote, CR or LF, a byte of the UTF-8 byte order mark (EF, BB, BF), which the reader takes as one at the start of the text before it looks for a delimiter, or anything but one byte, is refused. Upstream reads only commas as of 3.54.0.
+note: A delimiter=X parameter, X one byte, bare or in quotes ('\t' written as a quoted tab), sets the byte between fields (30-csv-reader-holds-a-delimiter.txt); a comma by default. A quote, CR or LF, a byte of the UTF-8 byte order mark (EF, BB, BF), which the reader takes as one at the start of the text before it looks for a delimiter, or anything but one byte, is refused. Upstream reads only commas as of 3.54.1.
 --- find
     }else
     if( csv_boolean_parameter("header",6,z,&b) ){

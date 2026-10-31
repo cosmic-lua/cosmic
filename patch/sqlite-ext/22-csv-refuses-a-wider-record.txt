@@ -1,5 +1,5 @@
 file: ext/misc/csv.c
-note: A record with more fields than the table's columns loses the rest with no word: `a,b` then `1,2,3` reads as 1, 2. When the width is the first record's (20-csv-keeps-whether-its-width-is-the-first-records.txt), a wider record is a file whose columns are not what they seem, and this refuses it, naming its record, counted from 1 as the table's rowid counts it, through 16-csv-reports-what-the-reader-refuses.txt. A table given columns= or schema= still takes what fits, as upstream does. Upstream drops the rest as of 3.54.0.
+note: A record with more fields than the table's columns loses the rest with no word: `a,b` then `1,2,3` reads as 1, 2. When the width is the first record's (20-csv-keeps-whether-its-width-is-the-first-records.txt), a wider record is a file whose columns are not what they seem, and this refuses it, naming its record, counted from 1 as the table's rowid counts it, through 16-csv-reports-what-the-reader-refuses.txt. A table given columns= or schema= still takes what fits, as upstream does. Upstream drops the rest as of 3.54.1.
 --- find
       i++;
     }
