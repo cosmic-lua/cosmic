@@ -5,6 +5,9 @@ local sys = require("cosmic.sys")
 local record Env
 end
 
+-- TODO: take a declared name (an enum of the variables the tree reads, so that a misspelt
+-- name is a checker error) once a module declares them; none does yet.
+
 --- One variable, or nil when it is not set; this is the os.getenv
 --- operation, C's `getenv`.
 function Env.get(name: string): string?

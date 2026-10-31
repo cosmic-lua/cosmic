@@ -125,8 +125,8 @@ local function test_a_worker_is_started_as_its_command_line_says()
   for i, value in ipairs(expected) do
     assert(argv[i] == value, tostring(i) .. ": " .. nth(argv, i))
   end
-  assert(assert(options.env).PATH == "/bin" and assert(options.env).COVERAGE == "1")
-  assert(assert(options.env).COSMIC_COVERAGE_STARTUP == "1")
+  assert(assert(options.env)["PATH"] == "/bin" and assert(options.env)["COVERAGE"] == "1")
+  assert(assert(options.env)["COSMIC_COVERAGE_STARTUP"] == "1")
   assert(assert(options.fds)[worker.report_fd] == "capture" and assert(options.fds)[254] == 7)
   assert(options.process_group == true and options.sandbox == nil and options.stdin == "null")
   -- Held by a ruleset that forbids running nothing, or by none.
@@ -173,12 +173,12 @@ local function test_a_nesting_worker_is_handed_no_descriptor_of_the_program()
   end
   local nesting = started({ "fork", "nest" })
   local env = assert(assert(nesting.options.policy).set_env)
-  assert(env.COSMIC_PORTABLE_ARTIFACT_FD == nil and env.COSMIC_PORTABLE_CORE_FD == nil)
-  assert(env.COSMIC_PORTABLE_CORE_LENGTH == "9", "the rest of the contract stays")
+  assert(env["COSMIC_PORTABLE_ARTIFACT_FD"] == nil and env["COSMIC_PORTABLE_CORE_FD"] == nil)
+  assert(env["COSMIC_PORTABLE_CORE_LENGTH"] == "9", "the rest of the contract stays")
   assert(assert(nesting.options.fds)[254] == nil and assert(nesting.options.fds)[255] == nil)
   assert(assert(nesting.options.fds)[worker.report_fd] == "capture")
   local plain = started({ "fork" })
-  assert(assert(assert(plain.options.policy).set_env).COSMIC_PORTABLE_ARTIFACT_FD == "254")
+  assert(assert(assert(plain.options.policy).set_env)["COSMIC_PORTABLE_ARTIFACT_FD"] == "254")
   assert(assert(plain.options.fds)[254] == 7 and assert(plain.options.fds)[255] == 8)
 end
 

@@ -91,7 +91,7 @@ local function test_a_boot_excludes_a_sqlite_only_tool_and_releases_on_return(tm
     return 7
   end)
   assert(status == 7)
-  assert(env.COSMIC_REBUILD_LOCK_HANDED == "/stale", "handoff changed its caller's environment")
+  assert(env["COSMIC_REBUILD_LOCK_HANDED"] == "/stale", "handoff changed its caller's environment")
   assert(probe(root) == "held", "the lock outlived the build")
 end
 
@@ -130,7 +130,7 @@ local function test_a_handoff_uses_file_identity_and_keeps_the_parents_hold(tmp:
   local ok, trouble: boolean, any = pcall(function()
     assert(Zig.with_lock(build_paths.required(root), { COSMIC_REBUILD_LOCK_HANDED = build_dir(root) .. "/./rebuild.lock" },
       function(env: {string:string}): integer
-        assert(env.COSMIC_REBUILD_LOCK_HANDED == build_dir(root) .. "/rebuild.lock")
+        assert(env["COSMIC_REBUILD_LOCK_HANDED"] == build_dir(root) .. "/rebuild.lock")
         assert(probe(root) == "busy", "handoff released its parent's hold")
         return 0
       end) == 0)

@@ -14,7 +14,7 @@
 --- resolves it, and one that ignores them reaches nothing.
 ---
 ---     local env = relay_config.proxy_env({ "127.0.0.2" })
----     print(env.HTTPS_PROXY) -- http://127.0.0.1:3128
+---     print(env["HTTPS_PROXY"]) -- http://127.0.0.1:3128
 
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
@@ -345,7 +345,7 @@ end
 --- @return Upstream|nil The upstream, nil for none
 --- @return string Why the variable cannot be used, "" otherwise
 function relay_config.upstream(env: {string:string}): relay_config.Upstream?, string
-  local value = env.https_proxy or env.HTTPS_PROXY
+  local value = env.https_proxy or env["HTTPS_PROXY"]
   if value == nil or value == "" then return nil, "" end
   local scheme, rest = value:match("^(%a[%w+.-]*)://(.*)$")
   if scheme ~= nil then
@@ -381,7 +381,7 @@ function relay_config.upstream(env: {string:string}): relay_config.Upstream?, st
     local user, password = userinfo:match("^([^:]*):?(.*)$")
     upstream.authorization = "Basic " .. Codec.base64(percent_decoded(user) .. ":" .. percent_decoded(password))
   end
-  for entry in ((env.no_proxy or env.NO_PROXY or "") .. ","):gmatch("([^,]*),") do
+  for entry in ((env.no_proxy or env["NO_PROXY"] or "") .. ","):gmatch("([^,]*),") do
     local trimmed = String.trim(entry)
     if trimmed ~= "" then upstream.no_proxy[#upstream.no_proxy + 1] = lower(trimmed) end
   end
