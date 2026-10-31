@@ -1438,7 +1438,7 @@ local function hold_checkout(ctx: Run): integer?
     return 1
   end
   ctx.handle = handle
-  local staged, stage_trouble = work.stage(handle, standing.own)
+  local staged, stage_trouble = work.stage(handle, standing)
   if staged == nil then
     local _, _ = work.close(handle)
     log:complain(stage_trouble)

@@ -23,8 +23,8 @@ local record rebuild
   record Where
     --- Whether it is one to build ([`where`]).
     project: boolean
-    --- Whether it is cosmic's own tree ([`tree.standing`]).
-    own_tree: boolean
+    --- What it is to the running tool ([`tree.standing`]).
+    standing: tree.Standing
     --- Its build directory, or nil where it can have none.
     directory: string?
     --- Whether [`rebuild.stage`] staged nothing, another run holding
@@ -65,19 +65,19 @@ end
 --- one a build was started in. Anything else is left alone, whatever it
 --- holds: a lookup never starts a tree of its own in a directory that has
 --- a stray `.tl`, nor below the home directory.
-local function where(root: string): rebuild.Where?, string
-  local standing, own_trouble = tree.standing(root)
+local function where(root: string, carried?: string): rebuild.Where?, string
+  local standing, own_trouble = tree.standing(root, carried)
   if standing == nil then return nil, own_trouble end
   local own_tree = standing.own
   local directory, directory_trouble = build_paths.optional(root)
   if directory == nil then
     if directory_trouble ~= "" and not own_tree then return nil, directory_trouble end
-    return { project = own_tree, own_tree = own_tree, directory = nil, busy = false,
+    return { project = own_tree, standing = standing, directory = nil, busy = false,
       other_schema = nil, unchecked = false }, ""
   end
   local started, trouble = rebuild.started(directory)
   if started == nil then return nil, trouble end
-  return { project = own_tree or started == true, own_tree = own_tree, directory = directory, busy = false,
+  return { project = own_tree or started == true, standing = standing, directory = directory, busy = false,
     other_schema = nil, unchecked = false }, ""
 end
 
@@ -142,8 +142,8 @@ end
 --- the verb went on without holding the tool to the tree
 --- ([`reboot.unchecked`]), a lookup's builds nothing, and the caller reads
 --- what is there.
-local function project(root: string, verb: string, start: boolean): boolean, string
-  local found, found_trouble = where(root)
+local function project(root: string, verb: string, start: boolean, carried?: string): boolean, string
+  local found, found_trouble = where(root, carried)
   if found == nil then return false, found_trouble end
   if unchecked(root) then
     -- Compiled by code that may be older than the tree's, the rows and
@@ -160,7 +160,6 @@ local function project(root: string, verb: string, start: boolean): boolean, str
   end
   local grammar, grammar_trouble = GrammarMode.mode()
   if grammar == nil then return false, grammar_trouble end
-  local own_tree = found.own_tree
   local started = Clock.monotonic_ns()
   local opening, open_trouble = opened_for(root, start)
   if opening == nil then return false, open_trouble end
@@ -175,7 +174,7 @@ local function project(root: string, verb: string, start: boolean): boolean, str
     end
     return true, ""
   end
-  local staged, stage_trouble = work.stage(handle, own_tree)
+  local staged, stage_trouble = work.stage(handle, found.standing)
   if staged == nil then
     local _, _ = work.close(handle)
     return false, stage_trouble
@@ -222,12 +221,12 @@ end
 --- and none of it read, and what it answers names that schema. The
 --- sources are read by the new checker's syntax tree, in this process.
 --- Answers what the directory is, or nil and why it could not be staged.
-function rebuild.stage(root: string): rebuild.Where?, string
-  local found, found_trouble = where(root)
+function rebuild.stage(root: string, carried?: string): rebuild.Where?, string
+  local found, found_trouble = where(root, carried)
   if found == nil then return nil, found_trouble end
   if not found.project then return found, "" end
   if unchecked(root) then
-    return { project = true, own_tree = found.own_tree, directory = found.directory,
+    return { project = true, standing = found.standing, directory = found.directory,
       busy = false, other_schema = nil, unchecked = true }, ""
   end
   local opening, open_trouble = work.try_open(root)
@@ -235,16 +234,16 @@ function rebuild.stage(root: string): rebuild.Where?, string
   local handle = opening.handle
   if handle == nil then
     local other = opening.other_schema
-    return { project = true, own_tree = found.own_tree, directory = found.directory,
+    return { project = true, standing = found.standing, directory = found.directory,
       busy = other == nil, other_schema = other, unchecked = false }, ""
   end
-  local staged, stage_trouble = work.stage(handle, found.own_tree)
+  local staged, stage_trouble = work.stage(handle, found.standing)
   if staged == nil then
     local _, _ = work.abort(handle)
     return nil, stage_trouble
   end
   local shared = shared_compiles.for_build()
-  local parses, derive_trouble = importer.derive(handle, found.own_tree, shared)
+  local parses, derive_trouble = importer.derive(handle, shared)
   if shared ~= nil then shared.finish() end
   if parses == nil then
     local _, _ = work.abort(handle)
@@ -263,14 +262,15 @@ end
 --- directory to check it whatever it holds (`build.fix.spill`), so
 --- that what its links name is the tree as it stands rather than
 --- whatever an earlier `cosmic test` left.
-function rebuild.here(verb: string, start?: boolean, root?: string): boolean, string
+--- @param carried the `built_from` the tool carries, as [`tree.standing`] takes it
+function rebuild.here(verb: string, start?: boolean, root?: string, carried?: string): boolean, string
   local at = root
   if at == nil then
     local found, trouble = Fs.absolute(".")
     if found == nil then return false, trouble end
     at = found
   end
-  return project(at, verb, start == true)
+  return project(at, verb, start == true, carried)
 end
 
 return rebuild

@@ -126,8 +126,8 @@ local function test_the_guides_and_templates_are_the_modules_the_stage_derives_f
   end
   local entries = assert(TreeProgram.derived_of(root))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
-  assert(importer.derive(handle, false))
+  assert(work.stage(handle, { own = false }))
+  assert(importer.derive(handle))
   local rows = assert(Sqlite.text_rows(handle.db, "SELECT file, path, source, origin FROM derived ORDER BY file"))
   local derived: mut {{string}} = {}
   for _, row in ipairs(rows) do

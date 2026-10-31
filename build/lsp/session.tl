@@ -45,6 +45,8 @@ local record session
     err?: function(line: string)
     --- The databases docs are read from: [`Store.databases()`] when nil.
     store?: {Sqlite.Handle}
+    --- The `built_from` the tool carries: the binary's when nil ([`tree.standing`]).
+    carried?: string
   end
 
   --- One editor's session: what it opened and what it was told.
@@ -65,6 +67,8 @@ local record session
     --- Whether the editor takes a registration of the files to watch.
     mut watch: boolean
     store: {Sqlite.Handle}?
+    --- The `built_from` the tool carries, as [`session.Options`] has it.
+    carried: string?
     mut docs: hover.Docs
     --- The dependents yet to be checked again.
     queue: dependents.Queue
@@ -94,7 +98,7 @@ end
 --- A session's checker and docs at `root`.
 local function checked_at(s: Session, root: string)
   s.root = root
-  s.checker = check.new(root, s.err, hints_of({ s }))
+  s.checker = check.new(root, s.err, hints_of({ s }), s.carried)
   s.docs = hover.new(root, s.checker.source, s.store, s.err)
 end
 
@@ -103,7 +107,7 @@ function session.new(root: string, options?: session.Options): Session
   local given: session.Options = options or {}
   local err = given.err or bare.err
   local held: mut {Session} = {}
-  local checker = check.new(root, err, hints_of(held))
+  local checker = check.new(root, err, hints_of(held), given.carried)
   local made: Session = {
     root = root,
     encoding = "utf-16",
@@ -115,6 +119,7 @@ function session.new(root: string, options?: session.Options): Session
     checker = checker,
     watch = false,
     store = given.store,
+    carried = given.carried,
     docs = hover.new(root, checker.source, given.store, err),
     queue = dependents.new(),
     told_outside = false,

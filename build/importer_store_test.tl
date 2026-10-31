@@ -65,7 +65,7 @@ local function compile_fixture(root: string): importer.Result?, string
   if handle == nil then
     return nil, open_trouble
   end
-  local staged, stage_trouble = work.stage(handle, false)
+  local staged, stage_trouble = work.stage(handle, { own = false })
   if staged == nil then
     work.close(handle)
     return nil, stage_trouble
@@ -102,7 +102,7 @@ local function test_project_keeps_uses_of_bundled_symbols()
     }, "\n"),
   }))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "importer-test"))
   assert(#result.refused == 0, table.concat(result.refused, "\n"))
   assert(writer.write_result(handle, build_dir(root) .. "/cosmic.db", result))
@@ -336,8 +336,8 @@ local function test_the_keys_of_a_tree_do_not_parse_the_standard_library()
     ["main.tl"] = 'local Json = require("cosmic.json")\nlocal record Main\nend\nlocal main: Main = {}\nlocal _ = Json\nreturn main\n',
   }))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
-  assert(importer.derive(handle, false))
+  assert(work.stage(handle, { own = false }))
+  assert(importer.derive(handle))
   local modules = assert(plans.collect(handle.db))
   local parse = Parser.parse
   local parsed: mut {string} = {}

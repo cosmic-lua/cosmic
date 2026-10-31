@@ -78,8 +78,8 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   -- The tool: what a build of the tree writes, read as the binary reads
   -- its own database (core/store.c's `requires` and `source`).
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
-  assert(importer.derive(handle, true))
+  assert(work.stage(handle, { own = true }))
+  assert(importer.derive(handle))
   local identities = assert(identity.record_identities(handle.db))
   local result = assert(importer.compile(handle, identities.compiler))
   assert(writer.write_result(handle, build_dir(root) .. "/cosmic.db", result))
@@ -123,7 +123,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   -- the derive. `before_derive` changes the working database first.
   local function boot(before_derive?: function(work.Handle)): string, string, string, boolean, string
     local again = assert(work.open(root))
-    assert(work.stage(again, true))
+    assert(work.stage(again, { own = true }))
     assert(Sqlite.run(again.db,
       "INSERT OR REPLACE INTO docs (source_hash, ordinal, symbol, source_symbol, " ..
         "exported, kind, signature, text, line) SELECT source_hash, 99, " ..
@@ -136,7 +136,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
       if key == "boot_hash" then return nil end
       return meta(key)
     end
-    local ok, derived, trouble = pcall(importer.derive, again, true)
+    local ok, derived, trouble = pcall(importer.derive, again)
     Store.meta = meta
     assert(ok, tostring(derived))
     assert(derived, trouble)

@@ -421,15 +421,16 @@ end
 --- @param roots the roots its executables trust by default, as
 ---   `cosmic build --roots` names them ([`embed.database`]); nil records
 ---   none, which is "minimal"
+--- @param carried the `built_from` the tool carries, as [`tree.standing`] takes it
 function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: GrammarMode.Mode,
-                    roots?: string): {string}?, string
+                    roots?: string, carried?: string): {string}?, string
   local mode = grammar
   if mode == nil then
     local chosen, chosen_trouble = GrammarMode.mode()
     if chosen == nil then return nil, chosen_trouble end
     mode = chosen
   end
-  local standing, standing_trouble = tree.standing(root)
+  local standing, standing_trouble = tree.standing(root, carried)
   if standing == nil then return nil, standing_trouble end
   if standing.own then
     return nil, "this is cosmic's own tree, which bin/zig build boot builds"
@@ -439,7 +440,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
   if handle == nil then
     return nil, open_trouble
   end
-  local staged, stage_trouble = work.stage(handle, false)
+  local staged, stage_trouble = work.stage(handle, standing)
   if staged == nil then
     local _, _ = work.close(handle)
     return nil, stage_trouble

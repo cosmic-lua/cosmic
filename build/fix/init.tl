@@ -380,11 +380,8 @@ end
 --- @param paths {string} The paths named on the command line
 --- @return fix.Chosen|nil The files to fix and the paths refused
 --- @return string Error message on failure
-function fix.chosen(root: string, paths: {string}): fix.Chosen?, string
-  local standing, own_trouble = tree.standing(root)
-  if standing == nil then
-    return nil, own_trouble
-  end
+--- @param standing what `root` is to the running tool ([`tree.standing`])
+function fix.chosen(root: string, paths: {string}, standing: tree.Standing): fix.Chosen?, string
   local own = standing.own
   if #paths == 0 then
     local all, trouble = sources(root)
@@ -958,6 +955,7 @@ local record Fix
   mut paths?: {string}
   mut changes_only?: boolean
   mut root?: string
+  mut standing?: tree.Standing
 
   -- The files chosen ([`choose_files`]).
   mut picked?: fix.Chosen
@@ -1021,7 +1019,13 @@ local function choose_files(ctx: Fix): integer?
   -- A run of `--changed` starts from the whole tree, which it narrows.
   local covered: {string} = paths
   if ctx.changes_only then covered = {} end
-  local picked, list_trouble = fix.chosen(root, covered)
+  local standing, standing_trouble = tree.standing(root)
+  if standing == nil then
+    log:complain(standing_trouble)
+    return 1
+  end
+  ctx.standing = standing
+  local picked, list_trouble = fix.chosen(root, covered, standing)
   if picked == nil then
     log:complain(list_trouble)
     return 1
@@ -1419,7 +1423,7 @@ local function run_tree_checks(ctx: Fix)
   if picked.whole then
     local timing: TreeTiming = { began = Clock.monotonic_ns(), run_began = Clock.monotonic_ns() }
     tree_begin(timing, "making the projection")
-    local db, projection_trouble = tree_checks.projection(root)
+    local db, projection_trouble = tree_checks.projection(root, assert(ctx.standing))
     if db == nil then
       findings[#findings + 1] = "tree checks: " .. projection_trouble
     else
@@ -1534,8 +1538,7 @@ local function check_links(ctx: Fix)
   -- The files already listed as changed: a link written is listed only for a file that was not.
   local listed: mut {string: boolean} = {}
   for _, file in ipairs(changed) do listed[file] = true end
-  local standing, _ = tree.standing(root)
-  local own = standing ~= nil and standing.own
+  local own = assert(ctx.standing).own
   local linked: mut {string} = {}
   local groups: {{string}} = { files, c_files, picked.checked }
   -- TODO: in a run of `--changed`, check the links of only the files

@@ -5,6 +5,8 @@ local Store = require("cosmic.store")
 local type Log = require("cosmic.log")
 local paths = require("build.paths")
 local reboot = require("build.reboot")
+local Proc = require("cosmic.proc")
+local tree = require("build.tree")
 local stale_reason = require("build.stale_reason")
 local rebuild = require("build.rebuild")
 local rebuild_lock = require("build.rebuild_lock")
@@ -14,6 +16,12 @@ local logger = require("build.logger")
 local work = require("build.work")
 
 --- A core change boots unless COSMIC_AUTO_BOOT is "0".
+--- How the test runner's tool, which is not built from any tree of a test, is seen at `root`, a tree it is told was
+--- its own: it carries `root` as the tree it was built from.
+local function seen_of(root: string): reboot.Seen
+  return { tool = assert(Proc.executable()), environment = {}, meta = { built_from = assert(tree.built_from(root)) } }
+end
+
 local function test_auto_boot_unless_told_not_to()
   assert(reboot.auto_boot({}))
   assert(reboot.auto_boot({ COSMIC_AUTO_BOOT = "1" }))
@@ -202,11 +210,12 @@ local function test_own_tool_is_a_binary_under_the_trees_outputs(tmp: string)
     [tmp .. "/elsewhere/cosmic"] = false,
   }
   for path, want in pairs(cases) do
-    local own, trouble = reboot.own_tool(root, path)
+    local own, trouble = tree.own_tool(root, path)
     assert(own == want, path .. ": " .. tostring(own) .. " " .. trouble)
   end
-  local none, missing = reboot.own_tool(tmp .. "/elsewhere", tmp .. "/elsewhere/cosmic")
-  assert(none == nil and missing:find(paths.resolve(tmp .. "/elsewhere").directory, 1, true) ~= nil, missing)
+  -- A root whose build directory is not made holds no tool.
+  local none, missing = tree.own_tool(tmp .. "/elsewhere", tmp .. "/elsewhere/cosmic")
+  assert(none == false, missing)
 end
 
 --- A tool carries a tree's code when every module and main of the tree
@@ -218,7 +227,7 @@ end
 local function test_carries_tree_code_compares_every_module(tmp: string)
   local function carries(): boolean
     local handle = assert(work.open(tmp))
-    assert(work.stage(handle, true))
+    assert(work.stage(handle, { own = true }))
     local answer = reboot.carries_tree_code(handle)
     assert(work.close(handle))
     return answer
@@ -243,7 +252,7 @@ end
 local function test_the_reason_names_the_modules_that_moved(tmp: string)
   local function why(): string
     local handle = assert(work.open(tmp))
-    assert(work.stage(handle, true))
+    assert(work.stage(handle, { own = true }))
     local answer = stale_reason.of(handle)
     assert(work.close(handle))
     return answer
@@ -307,7 +316,7 @@ local function test_a_reading_verbs_check_waits_for_no_run_holding_the_database(
   local held = assert(Sqlite.open(paths.under((assert(paths.directory(tmp)))).working, { writable = true }))
   assert(held:exec("BEGIN IMMEDIATE"))
   local started = Clock.monotonic_ns()
-  local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp)
+  local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp, seen_of(tmp))
   local took = Clock.monotonic_ns() - started
   assert(held:exec("ROLLBACK"))
   assert(held:close())
@@ -328,13 +337,13 @@ end
 --- Where no run holds the working database, the check before a verb
 --- that only reads is the check before any verb: it stages the tree and
 --- holds the tool to it. The test runner's tool is not the tree's own
---- ([`reboot.own_tool`]), so it refuses, and rebuilds nothing.
+--- ([`tree.own_tool`]), so it refuses, and rebuilds nothing.
 local function test_a_reading_verbs_check_holds_the_tool_to_the_tree_when_the_lock_is_free(tmp: string)
   assert(Fs.mkdirs(tmp .. "/core"))
   assert(Fs.mkdirs(tmp .. "/build"))
   assert(Fs.write(tmp .. "/build/importer.tl", "return {}\n"))
   assert(work.close((assert(work.open(tmp)))))
-  local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp)
+  local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp, seen_of(tmp))
   assert(code == 3, tostring(code))
   local db = assert(Sqlite.open(paths.under((assert(paths.directory(tmp)))).working))
   local rows = assert(Sqlite.text_rows(db, "SELECT path FROM files WHERE path = 'build/importer.tl'"))
@@ -359,11 +368,11 @@ end
 --- before a verb that only reads is the check before any verb: it makes
 --- the file again as a build does, stages the tree and holds the tool to
 --- it, so a stale tool rebuilds rather than going on with its own code.
---- The test runner's tool is not the tree's own ([`reboot.own_tool`]),
+--- The test runner's tool is not the tree's own ([`tree.own_tool`]),
 --- so it refuses.
 local function test_a_reading_verbs_check_holds_the_tool_to_the_tree_over_a_free_database_of_another_schema(tmp: string)
   local path = own_tree_of_another_schema(tmp)
-  local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp)
+  local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp, seen_of(tmp))
   assert(code == 3, tostring(code))
   local db = assert(Sqlite.open(path))
   local schema = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'schema'"))
@@ -383,7 +392,7 @@ local function test_a_reading_verbs_check_says_a_held_database_is_of_another_sch
   local held = assert(Sqlite.open(path, { writable = true }))
   assert(held:exec("BEGIN IMMEDIATE"))
   local code, all = complaints(function(): string
-    return tostring(reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp))
+    return tostring(reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp, seen_of(tmp)))
   end)
   assert(held:exec("ROLLBACK"))
   assert(held:close())
