@@ -1,9 +1,10 @@
 --- Seeded pseudorandom numbers. A source made from a seed draws the same
---- sequence on every run and every target, so a run that depends on
---- chance can be replayed by naming its seed. The generator is
---- xoshiro256**, its state filled from the seed by splitmix64. It is not
---- cryptographic: never derive a key, token or nonce from it; draw those
---- from [`Rand.entropy`].
+--- sequence on every run, and on every target for `int`, `float` and
+--- `bytes`, so a run that depends on chance can be replayed by naming
+--- its seed; `normal` agrees across targets only as far as their `log`s
+--- do. The generator is xoshiro256**, its state filled from the seed by
+--- splitmix64. It is not cryptographic: never derive a key, token or
+--- nonce from it; draw those from [`Rand.entropy`].
 ---
 --- - [`Rand.new`] makes a seeded [`Rand.Source`], whose `int`, `float`,
 ---   `bytes` and `normal` draw from it: use one for shuffles, simulations

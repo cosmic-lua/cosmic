@@ -155,3 +155,21 @@ local function test_normal_refuses_degenerate_parameters()
   Test.raises(function() src:normal(math.huge, 1) end, "must be finite")
   Test.raises(function() src:normal(0, 0 / 0) end, "must be finite")
 end
+
+local function test_normal_has_the_shape_of_a_bell()
+  local src = Rand.new(5)
+  -- A uniform on [-sqrt 3, sqrt 3] has mean 0 and variance 1 too, but
+  -- only 0.577 of its mass within one deviation and a fourth moment of
+  -- 1.8. The normal has 0.6827 (standard error 0.0033 at 20000 draws,
+  -- so the band is over four) and 3.
+  local n, within, fourth = 20000, 0, 0.0
+  for _ = 1, n do
+    local x = src:normal()
+    if math.abs(x) < 1.0 then within = within + 1 end
+    fourth = fourth + x * x * x * x
+  end
+  local fraction = within / n
+  assert(math.abs(fraction - 0.6827) < 0.015, "within one deviation " .. tostring(fraction))
+  fourth = fourth / n
+  assert(math.abs(fourth - 3.0) < 0.3, "fourth moment " .. tostring(fourth))
+end
