@@ -1034,7 +1034,7 @@ cosmic/rand_test.tl nil_not_allowed 2
 
 
 
-cosmic/removed_test.tl nil_not_allowed 7
+cosmic/removed_test.tl nil_not_allowed 6
 
 
 

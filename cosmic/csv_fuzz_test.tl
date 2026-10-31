@@ -1,5 +1,5 @@
 --- Fuzz properties for [`cosmic.csv`], which reads untrusted bytes: what
---- the writer below writes `parse` reads back, in any of the delimiters;
+--- [`Csv.encode`] writes `parse` reads back, in any of the delimiters;
 --- `parse` and `table` are total on any bytes, and what they read is a fixed point
 --- of writing and reading again; and a defect put into well-formed text is
 --- refused naming the line and column it was put at; and `table` answers
@@ -26,22 +26,10 @@ local function field_text(field: string, delimiter: string, only: boolean): stri
   return field
 end
 
---- `records` as text, one per line ended by LF, that `parse` reads back
---- as they were; nil and why when a record has no fields, which text
---- cannot hold.
-local function encode(records: {{string}}, delimiter: string): string?, string
-  local lines: mut {string} = {}
-  for number, record in ipairs(records) do
-    if #record == 0 then
-      return nil, "record " .. tostring(number) .. " has no fields"
-    end
-    local parts: mut {string} = {}
-    for index, field in ipairs(record) do
-      parts[index] = field_text(field, delimiter, #record == 1)
-    end
-    lines[number] = table.concat(parts, delimiter) .. "\n"
-  end
-  return table.concat(lines), ""
+--- `records` as [`Csv.encode`] writes them, with `delimiter`: its
+--- writing is what these properties read back.
+local function encode(records: {{string}}, delimiter: string): string
+  return Csv.encode(records, { delimiter = delimiter })
 end
 
 --- The rows [`Csv.table`] reads, or nil and why.
@@ -124,8 +112,7 @@ local function test_what_is_written_parse_reads_back(tmp: string)
     shares = { quoted = 0.3, multiline = 0.1 },
     check = function(input: string): boolean, string
       local delimiter, records = records_from(input)
-      local text, why = encode(records, delimiter)
-      if text == nil then return false, "encode refused: " .. why end
+      local text = encode(records, delimiter)
       local back, trouble = Csv.parse(text, { delimiter = delimiter })
       if back == nil then return false, "parse refused its own text: " .. trouble end
       if not same(back, records) then return false, "read back differently from " .. text end
@@ -216,7 +203,7 @@ local function test_parse_and_table_are_total_on_any_bytes(tmp: string)
           end
         end
       end
-      local text = assert(encode(records, fields[1]))
+      local text = encode(records, fields[1])
       local again = Csv.parse(text, options)
       if again == nil or not same(again, records) then
         return false, "not a fixed point: " .. text
@@ -329,7 +316,7 @@ local function test_a_one_column_file_reads_back_its_rows(tmp: string)
       local values = Fuzz.unpack(input)
       local records: mut {{string}} = { { "h" } }
       for _, value in ipairs(values) do records[#records + 1] = { value } end
-      local text = assert(encode(records, ","))
+      local text = encode(records, ",")
       local rows, why = rows_of(text)
       if rows == nil then return false, "rows refused its own text: " .. why end
       if #rows ~= #values then
