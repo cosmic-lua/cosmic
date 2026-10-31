@@ -1049,7 +1049,7 @@ cosmic/shape.tl nil_not_allowed 1
 
 cosmic/shape_fuzz_test.tl nil_not_allowed 3
 
-cosmic/shape_record_test.tl nil_not_allowed 3
+cosmic/shape_record_test.tl nil_not_allowed 2
 
 
 cosmic/sqlite.tl nil_not_allowed 6
@@ -1644,7 +1644,6 @@ cosmic/seatbelt_network_probe_test.tl index_may_be_nil 3
 
 cosmic/shape_fuzz_test.tl index_may_be_nil 2
 
-cosmic/shape_record_test.tl index_may_be_nil 1
 
 cosmic/store.tl index_may_be_nil 3
 
@@ -3882,7 +3881,6 @@ cosmic/web/app_test.tl cast_refused 4
 
 cosmic/web/cookies_test.tl cast_refused 1
 
-cosmic/web/cors_test.tl cast_refused 4
 
 cosmic/web/csrf_test.tl cast_refused 1
 
@@ -6346,7 +6344,6 @@ cosmic/template_check_test.tl arms_differ 16
 
 cosmic/web/app.tl arms_differ 2
 
-cosmic/web/cors_test.tl arms_differ 3
 
 cosmic/web/htmx.tl arms_differ 5
 
