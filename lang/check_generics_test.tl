@@ -399,6 +399,24 @@ local function test_an_invariant_position_requires_the_exact_type_and_a_function
   stands("local function show(a: Animal)\n  print(a.name)\nend\nlocal d: Dog = { name = \"d\" }\neach({ d }, show)\n", "d")
 end
 
+-- A generic function passed to `pcall` is instantiated from the values `pcall` passes it, so what it answers is a type, not a
+-- parameter nothing fixes (which every type accepted): the result of a protected call is the untrusted value it always was.
+local function test_pcall_of_a_generic_function_answers_untrusted_data_and_not_any_type()
+  local head = "local function id<T>(x: T): T\n  return x\nend\n"
+  refused(head .. "local n: integer = 1\nlocal ok, r = pcall(id, n)\nlocal s: string = r\nprint(ok, s)\n", "any_use")
+  refused(head .. "local ok, r = pcall(id, 1)\nlocal s: string = r\nprint(ok, s)\n", "any_use")
+  refused(head .. "local function f(v: any): {integer}?\n  local ok, r = pcall(id, v)\n  if ok then return r end\n  return nil\nend\nprint(f)\n",
+    "any_use")
+  -- the same holds of a protected call of a function that is not generic, of `xpcall`, and of a wrapped coroutine
+  refused("local function one(x: integer): integer\n  return x\nend\nlocal ok, r = pcall(one, 1)\nlocal n: integer = r\nprint(ok, n)\n",
+    "any_use")
+  refused(head .. "local function h(e: any): any\n  return e\nend\nlocal ok, r = xpcall(id, h, 1)\nlocal s: string = r\nprint(ok, s)\n",
+    "any_use")
+  refused(head .. "local co = coroutine.wrap(id)\nlocal v: string = co(1)\nprint(v)\n", "arity")
+  -- a value checked first is the type it was checked to
+  stands(head .. "local ok, r = pcall(id, 1)\nif r is integer then print(r + 1) end\nprint(ok)\n", "2,true")
+end
+
 local function test_an_iterator_that_is_a_generic_function_is_solved_by_the_state_and_the_control_value()
   local head = "local function step<T>(xs: {T}, at: integer?): (integer?, T?)\n  return nil, nil\nend\n"
   assert(type_of(head .. "local names: {string} = { \"a\" }\nfor i, v in step, names, nil do\n  local seen = v\nend\n", "seen") == "string?")

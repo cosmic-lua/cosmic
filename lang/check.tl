@@ -4712,6 +4712,41 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
       Generics.match(solver, rest, tail, "into", prep.count + 1)
     end
   end
+  -- A generic function passed where the callee takes a function is instantiated from the parameters the callee passes it,
+  -- as far as the other arguments have solved them, and what the instance answers solves the callee's own parameters:
+  -- `pcall(id, v)` answers the type of `v`, where a parameter nothing fixes would be `invalid`, which every type accepts.
+  for i = 1, prep.count do
+    local given_fn, wanted_fn = prep.known[i], parameter_at(c, off, i)
+    if given_fn ~= nil and wanted_fn ~= nil and given_fn.tag == "fn" and #given_fn.tparams > 0 and
+        wanted_fn.tag == "fn" and #wanted_fn.tparams == 0 then
+      local trial: mut {Type} = {}
+      for k = 1, #c.tparams do
+        trial[k] = Generics.value(solver, k) or ctx.invalid
+      end
+      local seen_callee = Relation.specialize(store, c, trial)
+      local seen = if seen_callee ~= nil then parameter_at(seen_callee, off, i) else nil end
+      if seen ~= nil and seen.tag == "fn" then
+        local sub = Generics.new(store, given_fn, Calls.hooks(ctx))
+        for k, p in ipairs(given_fn.params) do
+          local passed = seen.params[k]
+          if passed ~= nil and passed.type.tag ~= "invalid" then
+            Generics.match(sub, p.type, passed.type, "into", k)
+          end
+        end
+        local solved: mut {Type} = {}
+        for k = 1, #given_fn.tparams do
+          local held = Generics.value(sub, k)
+          if held ~= nil then solved[#solved + 1] = held end
+        end
+        if #solved == #given_fn.tparams and #sub.conflicts == 0 then
+          local instance = Relation.specialize(store, given_fn, solved)
+          if instance ~= nil then
+            Generics.match(solver, wanted_fn, instance, "into", i)
+          end
+        end
+      end
+    end
+  end
   -- What the call is expected to answer solves a parameter before a literal is held to the instance.
   if expected ~= nil then
     local alt = c.rets[1]
