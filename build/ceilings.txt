@@ -629,7 +629,6 @@ build/fetch_tool_test.tl nil_not_allowed 1
 
 
 
-build/flow_test.tl nil_not_allowed 2
 
 build/fuzz/fuzz_test.tl nil_not_allowed 2
 
@@ -958,7 +957,7 @@ cosmic/html_test.tl nil_not_allowed 2
 
 cosmic/http_store_test.tl nil_not_allowed 1
 
-cosmic/http_test.tl nil_not_allowed 2
+cosmic/http_test.tl nil_not_allowed 1
 
 cosmic/http_tool_test.tl nil_not_allowed 2
 
@@ -1017,7 +1016,7 @@ cosmic/policy_test.tl nil_not_allowed 3
 
 cosmic/poll.tl nil_not_allowed 33
 
-cosmic/poll_test.tl nil_not_allowed 18
+cosmic/poll_test.tl nil_not_allowed 17
 
 cosmic/rand_test.tl nil_not_allowed 2
 
@@ -1787,7 +1786,6 @@ build/declared_key_fuzz_test.tl view_written 6
 
 build/declared_key_test.tl view_written 2
 
-build/dependency_keys_test.tl view_written 1
 
 build/dispatch.tl view_written 3
 
@@ -1805,13 +1803,12 @@ build/fix/near.tl view_written 2
 
 build/flow.tl view_written 4
 
-build/flow_test.tl view_written 2
+build/flow_test.tl view_written 1
 
 build/fuzz/init.tl view_written 1
 
 build/fuzz/shrink.tl view_written 3
 
-build/harness_epoch_test.tl view_written 2
 
 build/host_names.tl view_written 1
 
@@ -1822,7 +1819,6 @@ build/importer.tl view_written 3
 build/json.tl view_written 2
 
 
-build/json_query_test.tl view_written 1
 
 build/link_index.tl view_written 3
 
@@ -1876,7 +1872,6 @@ build/time.tl view_written 1
 
 build/tree_checks.tl view_written 8
 
-build/tree_checks_test.tl view_written 1
 
 build/verb_cases.tl view_written 1
 
@@ -1886,17 +1881,15 @@ build/work_test.tl view_written 2
 
 build/workflows_test.tl view_written 1
 
-core/connector_public_fuzz_test.tl view_written 2
+core/connector_public_fuzz_test.tl view_written 1
 
 core/promises_held_child_test.tl view_written 2
 
 cosmic/child.tl view_written 7
 
-cosmic/child_policy_anywhere_test.tl view_written 1
 
 cosmic/child_relay_seatbelt_test.tl view_written 2
 
-cosmic/child_task_tool_test.tl view_written 3
 
 cosmic/flags.tl view_written 3
 
@@ -1904,15 +1897,13 @@ cosmic/http/wire.tl view_written 1
 
 cosmic/http_store_test.tl view_written 1
 
-cosmic/http_test.tl view_written 2
 
-cosmic/internal/connector_test.tl view_written 2
+cosmic/internal/connector_test.tl view_written 1
 
 cosmic/internal/relay_config.tl view_written 1
 
 cosmic/internal/relay_server.tl view_written 2
 
-cosmic/internal/relay_start_test.tl view_written 1
 
 cosmic/internal/relay_wire.tl view_written 3
 
@@ -1920,19 +1911,16 @@ cosmic/internal/relay_wire_test.tl view_written 1
 
 cosmic/json.tl view_written 8
 
-cosmic/json_fuzz_test.tl view_written 2
+cosmic/json_fuzz_test.tl view_written 1
 
-cosmic/json_path_fuzz_test.tl view_written 3
+cosmic/json_path_fuzz_test.tl view_written 1
 
-cosmic/json_test.tl view_written 3
 
 cosmic/net_connector_test.tl view_written 1
 
-cosmic/net_serve_test.tl view_written 2
 
 cosmic/poll.tl view_written 16
 
-cosmic/poll_test.tl view_written 1
 
 cosmic/sqlite.tl view_written 9
 
@@ -1940,7 +1928,6 @@ cosmic/template/context.tl view_written 3
 
 cosmic/template/parse.tl view_written 1
 
-cosmic/template_fuzz_test.tl view_written 1
 
 cosmic/url.tl view_written 1
 
@@ -1948,7 +1935,6 @@ cosmic/url_test.tl view_written 1
 
 cosmic/web/csrf_test.tl view_written 2
 
-cosmic/web/dev_supervise_test.tl view_written 1
 
 cosmic/web/dev_test.tl view_written 1
 
@@ -1956,7 +1942,7 @@ cosmic/web/input.tl view_written 3
 
 cosmic/web/input_fuzz_test.tl view_written 1
 
-cosmic/web/input_test.tl view_written 3
+cosmic/web/input_test.tl view_written 1
 
 cosmic/web/request_test.tl view_written 1
 
@@ -1964,13 +1950,12 @@ cosmic/web/response.tl view_written 1
 
 cosmic/web/router_fuzz_test.tl view_written 1
 
-cosmic/web/session/csrf_example.tl view_written 5
+cosmic/web/session/csrf_example.tl view_written 2
 
 cosmic/web/session/init.tl view_written 6
 
 cosmic/web/sse_test.tl view_written 1
 
-cosmic/zip_fuzz_test.tl view_written 1
 
 lang/ast.tl view_written 2
 
@@ -3416,7 +3401,7 @@ cosmic/json_path_fuzz_test.tl any_use 1
 
 cosmic/json_reader_fuzz_test.tl any_use 5
 
-cosmic/json_test.tl any_use 17
+cosmic/json_test.tl any_use 16
 
 cosmic/net.tl any_use 12
 
@@ -6026,7 +6011,7 @@ cosmic/json_fuzz_test.tl literal_needs_type 1
 
 cosmic/json_path_test.tl literal_needs_type 1
 
-cosmic/json_test.tl literal_needs_type 6
+cosmic/json_test.tl literal_needs_type 5
 
 cosmic/log_example.tl literal_needs_type 1
 
