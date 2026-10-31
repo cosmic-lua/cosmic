@@ -1,5 +1,5 @@
 file: ext/misc/csv.c
-note: With schema= and no columns=, the column count is the first record's field count, unbounded: a first line of 32768 commas fails an assert that the cursor's columns fit, past 2^31 the count overflows, and a cursor allocates a slot per column. Fields past the schema's columns are never read, so the count stops at SQLITE_LIMIT_COLUMN. The connect also fails, with the reader's message, when the first record could not be read, rather than going on with a partial one. Upstream counts so as of 3.54.0.
+note: With schema= and no columns=, the column count is the first record's field count, unbounded: a first line of 32768 commas fails an assert that the cursor's columns fit, past 2^31 the count overflows, and a cursor allocates a slot per column. Fields past the schema's columns are never read, so the count stops at SQLITE_LIMIT_COLUMN. The connect also fails, with the reader's message, when the first record could not be read, rather than going on with a partial one. Upstream counts so as of 3.54.1.
 --- find
   }else if( nCol<0 ){
     do{

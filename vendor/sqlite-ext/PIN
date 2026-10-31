@@ -1,7 +1,7 @@
-version 3.54.0
-url https://www.sqlite.org/2026/sqlite-src-3540000.zip
-sha3-256 a5c29342ca185abcda332448fbb27c536661245be27e20199b46c49099b0e15e
-strip sqlite-src-3540000/
+version 3.54.1
+url https://www.sqlite.org/2026/sqlite-src-3540100.zip
+sha3-256 877c6f4996ce7adb368686bce21638de9e3d91534832ad3d9d119037d1bc22ad
+strip sqlite-src-3540100/
 keep src/sqlite3ext.h
 keep ext/misc/base64.c
 keep ext/misc/base85.c

@@ -1,5 +1,5 @@
 file: ext/misc/csv.c
-note: With header=yes, the offset of the first data record is cast to int, which a header past 2 GB overflows, and ftell's -1 on a stream that cannot seek is used as an offset. This keeps it a long and fails the connect when ftell does. A table too wide for SQLite was reported as the start of its 200-byte schema text, which cuts off SQLite's reason; this names the reason first. Upstream reads so as of 3.54.0.
+note: With header=yes, the offset of the first data record is cast to int, which a header past 2 GB overflows, and ftell's -1 on a stream that cannot seek is used as an offset. This keeps it a long and fails the connect when ftell does. A table too wide for SQLite was reported as the start of its 200-byte schema text, which cuts off SQLite's reason; this names the reason first. Upstream reads so as of 3.54.1.
 --- find
   if( bHeader!=1 ){
     pNew->iStart = 0;

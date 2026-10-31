@@ -60,3 +60,22 @@ local function test_sqlite_and_cosmic_json_read_flow_style_alike()
   assert(Json.encode_any(ours) == Json.encode_any(theirs))
   assert(db:close())
 end
+
+--- A scalar subquery's JSON result is text to its caller: its subtype
+--- does not pass through, so json_object embeds it as a string, and
+--- json() embeds it as JSON.
+local function test_a_subquerys_json_result_is_text_to_its_caller()
+  local db = assert(Sqlite.memory())
+  local cases: {{string}} = {
+    { "SELECT json_object('a', (SELECT json_group_array(1)))", '{"a":"[1]"}' },
+    { "SELECT json_object('a', json((SELECT json_group_array(1))))", '{"a":[1]}' },
+  }
+  for _, case in ipairs(cases) do
+    local sql, want = case[1], case[2]
+    assert(sql and want, "a case is a statement and what it answers")
+    local rows = assert(Sqlite.text_rows(db, sql))
+    local got = first_row(rows):text(1)
+    assert(got == want, sql .. ": " .. got)
+  end
+  assert(db:close())
+end
