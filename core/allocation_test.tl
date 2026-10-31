@@ -516,6 +516,76 @@ local function test_compress_leaves_nothing_whenever_an_allocation_fails()
   assert(ended > 0, "decoding allocates")
 end
 
+--- A one-byte update asks for next to nothing. Each used to reserve a
+--- 64 KiB slice in its output buffer, which boxed that much memory every
+--- time (some 80 us a call), so a stream of them allocated at least
+--- once an update. After fifty updates to warm the stream and the
+--- coverage hook, 1950 more of every bzip2, xz and zstd codec, in both
+--- directions, must run on 200 granted allocations; counting allocations,
+--- not time, is what keeps this from flaking.
+local function test_one_byte_updates_do_not_allocate_a_slice_each()
+  local noise: mut {string} = {}
+  local x = 4242
+  for i = 1, 3000 do
+    x = (x * 1103515245 + 12345) % 2147483648
+    noise[i] = string.char((x >> 16) % 256)
+  end
+  local plain = table.concat(noise)
+  local record Pair
+    name: string
+    encoder: function(): Compress.Stream?, string
+    decoder: function(): Compress.Stream?, string
+  end
+  local codecs: {Pair} = {
+    { name = "zstd", encoder = function(): Compress.Stream?, string
+      return Compress.zstd_encoder()
+    end,
+      decoder = function(): Compress.Stream?, string return Compress.zstd_decoder() end },
+    { name = "xz", encoder = function(): Compress.Stream?, string return Compress.xz_encoder() end,
+      decoder = function(): Compress.Stream?, string return Compress.xz_decoder() end },
+    { name = "bz2", encoder = function(): Compress.Stream?, string return Compress.bz2_encoder() end,
+      decoder = Compress.bz2_decoder },
+  }
+  local count = 2000
+  local warm = 50
+  local granted = 200
+  for _, codec in ipairs(codecs) do
+    local packer = assert(codec.encoder())
+    local packed = assert(packer:update(plain)) .. assert(packer:finish())
+    -- The one-byte inputs, and the streams, are made before refusal starts.
+    local bytes: mut {string} = {}
+    local packed_bytes: mut {string} = {}
+    for i = 1, count do
+      bytes[i] = plain:sub(i, i)
+      packed_bytes[i] = packed:sub(i, i)
+    end
+    local encoder = assert(codec.encoder())
+    local decoder = assert(codec.decoder())
+    local function run(stream: Compress.Stream, pieces: {string}, first: integer): integer
+      for i = first, count do
+        local out = stream:update(assert(pieces[i]))
+        if out == nil then return i end
+      end
+      return count + 1
+    end
+    for _, side in ipairs({ "encoder", "decoder" }) do
+      local stream = encoder
+      local pieces: {string} = bytes
+      if side == "decoder" then
+        stream = decoder
+        pieces = packed_bytes
+      end
+      for i = 1, warm do assert(stream:update(assert(pieces[i]))) end
+      testing.fail_allocations(granted)
+      local done, reached = pcall(run, stream, pieces, warm + 1)
+      local refused = testing.allow_allocations()
+      assert(done and refused == 0 and reached == count + 1,
+        codec.name .. " " .. side .. " allocated past " .. tostring(granted) ..
+          " in " .. tostring(reached) .. " updates")
+    end
+  end
+end
+
 --- `deflate` and `inflate` in a query, and the store's source lookup
 --- that inflates a row, leave no block on the C heap whenever an
 --- allocation fails, and give the whole text back when none does.

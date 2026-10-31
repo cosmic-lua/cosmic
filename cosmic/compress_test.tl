@@ -1090,13 +1090,10 @@ local function test_xz_encoder_round_trips_at_presets_and_chunkings()
       assert(xz_decode(packed, size) == plain, tostring(preset) .. "/" .. tostring(size))
     end
   end
-  -- A byte at a time on a short prefix: an update costs tens of
-  -- microseconds whatever its size, so 44 KB of them at every preset
-  -- outran the test's limit.
-  local short = plain:sub(1, 3000)
-  local bytewise = xz_encode(short, 6, nil, 1)
-  assert(bytewise == xz_encode(short, 6), "chunks of 1")
-  assert(xz_decode(bytewise, 1) == short)
+  -- A byte at a time over the whole input, at the default preset.
+  local bytewise = xz_encode(plain, 6, nil, 1)
+  assert(bytewise == xz_encode(plain, 6), "chunks of 1")
+  assert(xz_decode(bytewise, 1) == plain)
   local extreme = xz_encode(plain, 1, { extreme = true })
   assert(xz_decode(extreme) == plain)
 end
