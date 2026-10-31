@@ -1079,14 +1079,24 @@ local function test_file_writer_writes_a_body_in_pieces()
   for _, method in ipairs(methods) do
     local out = Stream.collect()
     local w = Zip.writer(out)
-    local body = assert(w:file_writer("big.txt", { method = method }))
-    for i = 1, 100 do assert(body:write("line " .. tostring(i) .. "\n")) end
+    local body = assert(w:file_writer("big.txt", { method = method, mode = 0x1ed, mtime = 1700000000 }))
+    local lines: mut {string} = {}
+    for i = 1, 100 do
+      local line = "line " .. tostring(i) .. "\n"
+      lines[#lines + 1] = line
+      assert(body:write(line))
+    end
     assert(body:close())
+    local empty = assert(w:file_writer("empty.txt", { method = method }))
+    assert(empty:close())
     assert(w:add_file("after.txt", "next"))
     assert(w:close())
     local r = assert(Zip.open_string(out:result()))
-    local text = assert(Stream.read_all((assert((assert(r:entry("big.txt"))):open()))))
-    assert(#text == 792 and text:sub(-9) == "line 100\n", method .. ": " .. tostring(#text))
+    local big = assert(r:entry("big.txt"))
+    assert(big.mode == 0x1ed and big.mtime == 1700000000, method)
+    local text = assert(Stream.read_all((assert(big:open()))))
+    assert(text == table.concat(lines), method .. ": " .. tostring(#text))
+    assert(assert(Stream.read_all((assert((assert(r:entry("empty.txt"))):open())))) == "", method)
     assert(assert(Stream.read_all((assert((assert(r:entry("after.txt"))):open())))) == "next")
     assert(r:close())
   end
@@ -1115,6 +1125,10 @@ local function test_file_writer_holds_the_archive_while_open()
   assert(promised:write("123"))
   local ended, ewhy = promised:close()
   assert(not ended and ewhy == "zip: p.txt: body is 3 bytes, not 10 bytes", ewhy)
+  local again, awhy = promised:close()
+  assert(not again and awhy == ewhy, awhy)
+  local shut, shwhy = short:close()
+  assert(not shut and shwhy == ewhy, shwhy)
 
   local kept = Stream.collect()
   local abandoned = Zip.writer(kept)
@@ -1122,4 +1136,14 @@ local function test_file_writer_holds_the_archive_while_open()
   assert(part:write("partial"))
   assert(part:abort())
   assert(kept:result() == "", "the archive was not aborted")
+  local committed, cmwhy = abandoned:close()
+  assert(not committed and cmwhy == "zip: x.txt: the entry was abandoned", cmwhy)
+
+  local gone = Zip.writer(Stream.collect())
+  local orphan = assert(gone:file_writer("o.txt"))
+  assert(gone:abort())
+  local wrote, wwhy = orphan:write("x")
+  assert(not wrote and wwhy == "zip: the writer is closed", wwhy)
+  local finished, fwhy = orphan:close()
+  assert(not finished and fwhy == "zip: the writer is closed", fwhy)
 end

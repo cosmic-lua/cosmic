@@ -145,9 +145,15 @@ local record Zip
     --- piece at a time, such as a document [`cosmic.xml`] writes, which
     --- is then never held whole. Closing it ends the entry; until then
     --- the archive takes no other entry and does not close, and aborting
-    --- it abandons the archive, whose bytes are written already.
-    --- `opts.size`, when given, is what the body must come to. Nil and
-    --- why where [`add_file`] refuses the path or the method.
+    --- it abandons the archive, whose bytes are written already, so the
+    --- archive's `close` then fails. Closing it while the archive is open
+    --- is refused without failing the archive. A body that fails, by its
+    --- encoder or the underlying Writer, fails the archive. `opts.size`,
+    --- when given, is what the body must come to, as for [`add_file`]: a
+    --- size of 2 GiB or more is written zip64, and a body without one
+    --- fails at 4 GiB. Nil and why where [`add_file`] refuses the path or
+    --- the method, or where the archive has failed or closed or another
+    --- body is still open.
     file_writer: function(self: Writer, path: string, opts?: EntryOptions): Stream.Writer?, string
     --- Writes the central directory and closes the underlying
     --- Stream.Writer, committing it. Returns `true, ""`, or `false` and why.
@@ -1075,6 +1081,8 @@ local class BodyWriter is Stream.Writer
   owner: EntryWriter
   streamed: Streamed
   mut ended: boolean
+  --- What the first `close` or `abort` answered: "" for success.
+  mut outcome: string
 
   function write(self, chunk: string): boolean, string
     if self.ended then return false, "zip: " .. self.streamed.path .. ": the entry is closed" end
@@ -1084,24 +1092,33 @@ local class BodyWriter is Stream.Writer
   end
 
   function close(self): boolean, string
-    if self.ended then return true, "" end
+    if self.ended then
+      if self.outcome ~= "" then return false, self.outcome end
+      return true, ""
+    end
     self.ended = true
     self.owner.open = nil
-    return finish_streamed(self.owner, self.streamed)
+    local ok, why = self.owner.sink:usable()
+    if ok then ok, why = finish_streamed(self.owner, self.streamed) end
+    if not ok then
+      self.outcome = why
+      return false, why
+    end
+    return true, ""
   end
 
   function abort(self): boolean, string
     if self.ended then return true, "" end
     self.ended = true
     self.owner.open = nil
-    -- The entry's header is written already: the archive cannot be whole.
-    return self.owner:abort()
+    -- The entry's header is written already: the archive cannot be whole,
+    -- so its own close answers this rather than committing.
+    self.outcome = "zip: " .. self.streamed.path .. ": the entry was abandoned"
+    local _, _ = self.owner.sink:fail(self.outcome)
+    return true, ""
   end
 end
 
---- One entry of Unix type `type_bits`: its local header, `body`, and
---- the central directory record that lists it. `hint` is a streamed
---- body's promised size.
 --- Why `self` takes no entry at `path` by `method_name` now, or "": it
 --- failed or closed, an entry written a piece at a time is still open, or
 --- the path or the method is one no archive holds.
@@ -1119,6 +1136,9 @@ local function refusal_of(self: EntryWriter, path: string, method_name: Zip.Meth
   return ""
 end
 
+--- One entry of Unix type `type_bits`: its local header, `body`, and
+--- the central directory record that lists it. `hint` is a streamed
+--- body's promised size.
 local function put_entry(self: EntryWriter, path: string, body: string | Stream.Reader,
                          method_name: Zip.Method, type_bits: integer, mode: integer, mtime: integer,
                          hint?: integer): boolean, string
@@ -1193,7 +1213,7 @@ local class EntryWriter is Zip.Writer
     local st, why = begin_streamed(self, path, assert(METHOD_NUMBERS[method_name]), dos_time, dos_date, S_IFREG,
       fopts.mode or 0x1a4, size)
     if st == nil then return nil, why end
-    local body: BodyWriter = { owner = self, streamed = st, ended = false }
+    local body: BodyWriter = { owner = self, streamed = st, ended = false, outcome = "" }
     self.open = body
     return body, ""
   end
