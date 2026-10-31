@@ -411,7 +411,7 @@ local function run(file: string, argv: {string}): integer
     log:complain(open_trouble)
     return 1
   end
-  local staged, stage_trouble = work.stage(handle, standing.own)
+  local staged, stage_trouble = work.stage(handle, standing)
   if staged == nil then
     local _, _ = work.close(handle)
     log:complain(stage_trouble)

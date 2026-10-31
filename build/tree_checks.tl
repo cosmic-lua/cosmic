@@ -27,6 +27,7 @@
 --- tree's own, so its test can hand it a fixture database and a list of
 --- its own.
 
+local type tree_standing = require("build.tree")
 local build_paths = require("build.paths")
 local Fs = require("cosmic.fs")
 local Shape = require("cosmic.shape")
@@ -304,8 +305,6 @@ allowed["build.reboot.compiler_moved"] = "tested directly: the test hands it " .
   "identities, where a stale tool's compiler can only be had by building one"
 allowed["build.reboot.rebuild_failed"] = "tested directly: the test runs it on a " ..
   "tree whose bin/zig is a stand-in, which no stale tool can reach"
-allowed["build.reboot.own_tool"] = "tested directly: the test hands it the path " ..
-  "a tool was started as, which the running one cannot change"
 allowed["build.reboot.web_assets"] = "tested directly: the test hands it a database " ..
   "from before the table, which no running binary is"
 allowed["build.writer.signature"] = "tested directly: the test signs a database " ..
@@ -1277,12 +1276,12 @@ end
 --- is a failure: the checks would read a projection without it.
 ---
 --- The tree is compiled with the new checker, as `cosmic test` compiles it.
-function tree_checks.projection(root: string): Sqlite.Handle?, string
+function tree_checks.projection(root: string, standing: tree_standing.Standing): Sqlite.Handle?, string
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
   end
-  local staged, stage_trouble = work.stage(handle, true)
+  local staged, stage_trouble = work.stage(handle, standing)
   if staged == nil then
     local _, _ = work.close(handle)
     return nil, stage_trouble

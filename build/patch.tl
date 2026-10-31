@@ -1,6 +1,11 @@
 --- The patch applier: each vendored tree with its patch records applied,
 --- written whole to a directory of its own.
 ---
+--- This file is in the image fingerprint ([`build.identity.record_fingerprint`]),
+--- so an edit to it makes every tool that predates the fingerprint's `built_from`
+--- row boot rather than rebuild itself, which a tool that cannot write the row
+--- would do wrongly. This note is that edit.
+---
 ---     cosmic --standalone build/patch.tl <root> <cache>
 ---     cosmic --standalone build/patch.tl --zig-lib <root> <lib> <out>
 ---

@@ -52,8 +52,8 @@ end
 --- names of those they differ for.
 local function differing(root: string, tool: string): string
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
-  assert(importer.derive(handle, false))
+  assert(work.stage(handle, { own = false }))
+  assert(importer.derive(handle))
   local modules = assert(plans.collect(handle.db))
   local kept = assert(plans.dependency_keys(handle.db, modules, tool))
   local full = assert(plans.full_keys(handle.db, modules, tool))
@@ -241,8 +241,8 @@ local function test_the_keys_kept_for_one_compiler_are_not_served_for_another()
   assert(Fs.write(root .. "/m2.tl", source_of(2, 1, 1)))
   local function key_of(tool: string): string
     local handle = assert(work.open(root))
-    assert(work.stage(handle, false))
-    assert(importer.derive(handle, false))
+    assert(work.stage(handle, { own = false }))
+    assert(importer.derive(handle))
     local modules = assert(plans.collect(handle.db))
     local keys = assert(plans.dependency_keys(handle.db, modules, tool))
     work.close(handle)

@@ -385,16 +385,16 @@ local function test_the_code_that_reads_is_named_from_the_staged_tree(tmp: strin
   write("lang/check.tl", "return 1\n")
   write("build/other.tl", "return 2\n")
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local unparsed, why = Pipeline.coded_of("tool", handle.db)
   assert(unparsed == nil and why:find("is not parsed yet", 1, true) ~= nil, tostring(why))
-  assert(importer.derive(handle, false))
+  assert(importer.derive(handle))
   local first = assert(Pipeline.coded_of("tool", handle.db))
   assert(#first == 64 and Pipeline.coded_of("another tool", handle.db) ~= first, "the tool is no part of the identity")
   local function again(path: string, text: string): string
     write(path, text)
-    assert(work.stage(handle, false))
-    assert(importer.derive(handle, false))
+    assert(work.stage(handle, { own = false }))
+    assert(importer.derive(handle))
     return (assert(Pipeline.coded_of("tool", handle.db)))
   end
   -- a module the pipeline does not reach moves nothing; one it reaches, directly or not, moves it
@@ -432,8 +432,8 @@ local function test_a_staged_project_is_built_from_its_inputs_and_compiles_to_wh
     "local m = require(\"m\")\nlocal function test_m()\n  assert(m.double(21) == 42)\nend\n"))
   assert(Fs.write(root .. "/doc/guides/g.md", "# g\n\n```teal\nlocal x = 1\nassert(x == 1)\n```\n"))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
-  assert(importer.derive(handle, false))
+  assert(work.stage(handle, { own = false }))
+  assert(importer.derive(handle))
   local pipeline = assert(Pipeline.build(handle.db, options("")))
   local modules = assert(plans.collect(handle.db))
   local seen: mut {string: boolean} = {}

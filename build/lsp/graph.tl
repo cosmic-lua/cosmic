@@ -178,17 +178,17 @@ function graph.refusals(src: source.View, file: string, path: string, kind: stri
   end
   local checked = module_of(path, file, kind, {})
   modules[#modules + 1] = checked
-  local own_tree = source.own_tree(src)
+  local standing = source.standing(src)
   -- The build's check answers only the first require it refuses: where
   -- it refuses any, each is asked alone.
   local all: mut {string} = {}
   for _, at in ipairs(requires) do all[#all + 1] = at.name end
   checked.requires = all
-  local fine, _ = positions.check(modules, own_tree, carried)
+  local fine, _ = positions.check(modules, standing, carried)
   if not fine then
     for _, at in ipairs(requires) do
       checked.requires = { at.name }
-      local ok, why = positions.check(modules, own_tree, carried)
+      local ok, why = positions.check(modules, standing, carried)
       if not ok then out[#out + 1] = placed(why, at) end
     end
   end

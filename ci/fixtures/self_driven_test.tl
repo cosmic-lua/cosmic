@@ -1,6 +1,7 @@
 local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
 local Fixture = require("cosmic_ci.fixture")
+local sys = require("cosmic.sys")
 
 local Test = require("cosmic.test")
 
@@ -62,7 +63,8 @@ Test.policy{
 -- `COSMIC_BOOTSTRAP`. The product is itself such a cosmic, so it can
 -- drive the boot of the tree it was booted from -- the next pin, proved
 -- before it is one -- and a boot it drives, from another path, must write
--- the product again, byte for byte. The zig caches are the candidate's,
+-- the product again but for the one row that names the path it was built
+-- from (`built_from`), which is that path. The zig caches are the candidate's,
 -- and every C file compiles from a copy there, the same from every path
 -- (build.zig's `Own`), so none of it compiles again: only the tree does.
 local boot_timeout_ns <const> = Clock.seconds(450)
@@ -81,8 +83,19 @@ local function test_the_product_boots_its_own_tree_to_itself(tmp: string)
       COSMIC_BOOTSTRAP = product,
       COSMIC_PORTABLE_CACHE = tmp .. "/portable-cache",
     }), boot_timeout_ns))
-  assert(Fixture.hash(BuildPaths.directory(tree) .. "/bin/cosmic") == Fixture.hash(product),
-    "the tool a boot the product drove wrote is not the product")
+  local written = BuildPaths.directory(tree) .. "/bin/cosmic"
+  assert(Fixture.head(written) == Fixture.head(product),
+    "the tool a boot the product drove wrote has another head than the product")
+  local made = Fixture.meta(written, tmp .. "/written.db")
+  assert(made["built_from"] == assert(sys.realpath(tree)), "the tool a boot wrote is built from another path")
+  local driver = Fixture.meta(product, tmp .. "/product.db")
+  for key, value in pairs(driver) do
+    assert(key == "built_from" or made[key] == value,
+      "the tool a boot the product drove wrote differs from the product in " .. key)
+  end
+  for key, _ in pairs(made) do
+    assert(driver[key] ~= nil, "the tool a boot the product drove wrote holds " .. key .. " the product lacks")
+  end
 end
 
 --- The caller prepares terminals before confinement; no policy grants

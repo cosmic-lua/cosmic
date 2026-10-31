@@ -1,5 +1,6 @@
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 local Fixture = require("cosmic_ci.fixture")
 
 -- The bound leaves the shell time to print on a slow or loaded runner;
@@ -93,4 +94,34 @@ local function test_a_fixtures_children_run_cosmic_test_unsandboxed()
   assert(Fixture.environment_of(sandboxed, { COSMIC_TEST_SANDBOX = "1" })["COSMIC_TEST_SANDBOX"] ==
       "1", "a fixture cannot choose its child's sandbox")
   assert(Fixture.environment()["COSMIC_TEST_SANDBOX"] == "0")
+end
+
+--- An artifact of the shape [`Fixture.retargeted`] reads: a head, a database with a `meta` table, and the trailer
+--- that locates them.
+local function artifact_with(path: string, scratch: string, built_from: string?): string
+  local db = assert(Sqlite.open(scratch, { writable = true }))
+  assert(Sqlite.run(db, "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID"))
+  assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('boot_hash', 'kept')"))
+  if built_from ~= nil then
+    assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('built_from', ?1)", { { text = built_from } }))
+  end
+  assert(db:close())
+  local head = "the launcher and the manifest"
+  local database = Fixture.read(scratch)
+  local trailer = "CosmicT1" .. string.pack(">I4I4I8I8I8I8", 1, 48, 3, 4, #head, #database)
+  Fixture.write(path, head .. database .. trailer)
+  return head
+end
+
+--- A fixture that puts a tool in a copy of its tree says which tree the tool is built from, and nothing else of the
+--- tool moves.
+local function test_a_tool_is_retargeted_to_the_tree_it_is_said_to_be_built_from(tmp: string)
+  local head = artifact_with(tmp .. "/tool", tmp .. "/scratch.db", "/where/it/was/booted")
+  Fixture.retargeted(tmp .. "/tool", tmp .. "/moved", "/where/it/is/now")
+  local meta = Fixture.meta(tmp .. "/moved", tmp .. "/read.db")
+  assert(meta["built_from"] == "/where/it/is/now" and meta["boot_hash"] == "kept")
+  assert(Fixture.read(tmp .. "/moved"):sub(1, #head) == head, "the head moved")
+  Fixture.retargeted(tmp .. "/moved", tmp .. "/old", nil)
+  local old = Fixture.meta(tmp .. "/old", tmp .. "/read.db")
+  assert(old["built_from"] == nil and old["boot_hash"] == "kept", "a tool older than the row has none")
 end

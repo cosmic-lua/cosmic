@@ -100,7 +100,7 @@ local function test_blame_carries_across_commits_that_leave_a_file_alone()
   local handle = assert(work.open(root))
   local function listed(step: string): {todos.Todo}, integer
     replay.step = step
-    assert(work.stage(handle, false))
+    assert(work.stage(handle, { own = false }))
     local listing = assert(todos.list(handle.db, root, run_git))
     return listing.todos, listing.blamed
   end
@@ -138,7 +138,7 @@ local function test_blame_passes_over_the_commits_the_tree_ignores()
   assert(Fs.write(root .. "/a.tl", text({ "-- TODO: see [`x`]" })))
   local handle = assert(work.open(root))
   local function listed(): {todos.Todo}
-    assert(work.stage(handle, false))
+    assert(work.stage(handle, { own = false }))
     return assert(todos.list(handle.db, root, run_git)).todos
   end
   local all = listed()
@@ -157,7 +157,7 @@ end
 --- Lists the tree at `dir` once, staged first, and closes it.
 local function list_once(dir: string, run_git: function(string, {string}): string?): todos.Listing
   local handle = assert(work.open(dir))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local listing = assert(todos.list(handle.db, dir, run_git))
   assert(work.close(handle))
   return listing

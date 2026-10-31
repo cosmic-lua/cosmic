@@ -4520,7 +4520,6 @@ build/verbs_test.tl condition_type 6
 build/verbs_tool_test.tl condition_type 3
 
 
-build/work_test.tl condition_type 1
 
 
 build/zig_lock_test.tl condition_type 1

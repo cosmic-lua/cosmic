@@ -25,7 +25,7 @@ local function positioned(files: {{string}}, own_tree: boolean,
     for i = 2, #row do requires[#requires + 1] = row[i] end
     modules[#modules + 1] = module_at(row[1], requires)
   end
-  return positions.check(modules, own_tree, carried)
+  return positions.check(modules, { own = own_tree }, carried)
 end
 
 --- A directory's own `init.tl` is the one path in from outside: a

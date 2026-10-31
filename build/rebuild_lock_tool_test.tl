@@ -21,6 +21,7 @@ local rebuild_lock = require("build.rebuild_lock")
 local this_program = require("build.this_program")
 local build_paths = require("build.paths")
 local reboot = require("build.reboot")
+local tree = require("build.tree")
 local rebuild = require("build.rebuild")
 local identity = require("build.identity")
 local todos = require("build.todos")
@@ -259,7 +260,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
       if succeeds then
         assert(Fs.write(root .. "/main.tl", 'print("replacement")\n'))
         local b = assert(work.open(root))
-        assert(work.stage(b, false))
+        assert(work.stage(b, { own = false }))
         local result = assert(importer.compile(b, "snapshot-test"))
         local alternate = root .. "/b.db"
         assert(writer.write_result(b, alternate, result))
@@ -404,7 +405,7 @@ local function test_a_reading_verbs_check_goes_on_with_a_stale_tool_while_the_lo
   local started = Clock.monotonic_ns()
   local ok, failure = pcall(function()
     local code = reboot.stale_exit({ "docs", "Fs.read" }, true, root,
-      { tool = layout.tool, environment = {}, meta = {} })
+      { tool = layout.tool, environment = {}, meta = { built_from = assert(tree.built_from(root)) } })
     local took = Clock.monotonic_ns() - started
     assert(code == nil, tostring(code))
     assert(took < Clock.seconds(10), tostring(took) .. " ns")
@@ -434,7 +435,7 @@ local function own_tree(root: string): identity.Fingerprint
   assert(Fs.write(root .. "/lang/stdlib.d.tl", stdlib))
   assert(Fs.mkdirs(build_paths.resolve(root).bin))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   local fingerprint = assert(identity.record_fingerprint(handle.db, handle.root))
   assert(work.close(handle))
   return fingerprint
@@ -468,14 +469,15 @@ local function test_a_reading_verbs_check_goes_on_with_a_fresh_unsettled_tool_an
     local started = Clock.monotonic_ns()
     local code = reboot.stale_exit({ "docs", "Fs.read" }, true, root, {
       tool = layout.tool, environment = {},
-      meta = { boot_hash = fingerprint.boot, written_by = "an older writer", writer = "this writer" },
+      meta = { boot_hash = fingerprint.boot, written_by = "an older writer", writer = "this writer",
+        built_from = assert(tree.built_from(root)) },
     })
     local took = Clock.monotonic_ns() - started
     assert(code == nil, tostring(code))
     assert(took < Clock.seconds(10), tostring(took) .. " ns")
     assert(not reboot.unchecked(root), "a fresh tool's tree is left unchecked")
     local before = builds_of(root)
-    local built, trouble = rebuild.here("docs", false, root)
+    local built, trouble = rebuild.here("docs", false, root, (assert(tree.built_from(root))))
     assert(built, trouble)
     assert(builds_of(root) == before + 1, "a fresh tool's lookup built nothing")
   end)
@@ -512,7 +514,7 @@ local function test_a_reading_verbs_check_goes_on_with_a_tool_stale_by_its_teal(
   local root = tmp .. "/tree"
   local fingerprint = own_tree(root)
   local seen: reboot.Seen = { tool = build_paths.resolve(root).tool, environment = {},
-    meta = { image_hash = fingerprint.image, boot_hash = "not the tree's" } }
+    meta = { image_hash = fingerprint.image, boot_hash = "not the tree's", built_from = assert(tree.built_from(root)) } }
   local said = captured(2, tmp, function()
     held_elsewhere(root, function()
       for _ = 1, 2 do
@@ -559,7 +561,7 @@ local function test_todos_in_an_unchecked_tree_writes_nothing(tmp: string)
   assert(Sqlite.run(db, "INSERT INTO blames (path, line, sha256, head, commit_id, author_time, " ..
       "summary, boundary) VALUES ('kept.tl', 1, 'x', 'an earlier head', 'c', 0, 's', 0)"))
   assert(db:close())
-  local seen: reboot.Seen = { tool = build_paths.resolve(root).tool, environment = {}, meta = {} }
+  local seen: reboot.Seen = { tool = build_paths.resolve(root).tool, environment = {}, meta = { built_from = assert(tree.built_from(root)) } }
   local said: Said = { err = "" }
   local out = captured(1, tmp, function()
     said.err = captured(2, tmp, function()

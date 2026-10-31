@@ -451,7 +451,7 @@ end
 --- ([`link_index.pending`]), with what they may name beside its own.
 local function pending_links(handle: work.Handle, given: link_index.Library?, by: string):
     link_index.Pending?, string
-  return link_index.pending(handle.db, handle.root, library_for(handle.own, given), by)
+  return link_index.pending(handle.db, handle.root, library_for(handle.standing.own, given), by)
 end
 
 --- The signature of `result`'s projection as the writer whose identity
@@ -752,7 +752,7 @@ local function project(handle: work.Handle,
   -- module's source, which the module's key holds, and of build.stub,
   -- which the compiler's identity in `meta` holds. A project's tables
   -- stay empty.
-  if handle.own then
+  if handle.standing.own then
     local filled, fill_trouble = bom.fill(db, handle.root, "out.")
     if not filled then
       return false, fill_trouble

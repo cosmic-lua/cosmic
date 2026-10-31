@@ -336,7 +336,10 @@ end
 --- built from it), the zig build and wrapper, every vendored tree's pin
 --- and patches, and [`build/patch.tl`], which applies them: only
 --- `bin/zig build boot` applies a patch record to a pin, so a change under
---- `patch/*` or to the applier needs it too. The bridge, core/bridge.lua, is
+--- `patch/*` or to the applier needs it too. So does a change to
+--- [`build.tree`], which decides from what a tool records which tree it
+--- is built from: a rebuild by a tool that decided otherwise writes a
+--- tool that records the wrong thing. The bridge, core/bridge.lua, is
 --- under `core/` and so in it.
 --- [`build/launcher.tl`] also belongs to the retained portable prefix: a
 --- database-only rebuild reuses its existing shell bytes. So does
@@ -369,7 +372,7 @@ function identity.record_fingerprint(db: Sqlite.Handle, root: string): identity.
     "(path GLOB 'core/*' AND NOT path GLOB 'core/*.tl') OR " ..
       "path IN ('build.zig', 'build.zig.zon', " ..
       "'bin/zig', 'bin/zig.pin', 'build/artifact.tl', 'build/launcher.tl', " ..
-      "'build/patch.tl') OR " ..
+      "'build/patch.tl', 'build/tree.tl') OR " ..
       "path GLOB 'vendor/*/PIN' OR " ..
       "path GLOB 'patch/*' OR " ..
       "path IN (" .. table.concat(quoted, ", ") .. ")")
