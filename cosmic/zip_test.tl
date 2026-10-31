@@ -1023,3 +1023,22 @@ local function test_a_second_zstd_frame_in_an_entry_counts_against_its_size()
   local data, trouble = read_f(zstd_zip_by_hand(frame .. zstd_frame("more"), crc32_reference(text), #text))
   assert(data == nil and trouble:find("larger than its recorded size", 1, true) ~= nil, trouble)
 end
+
+--- `entry` finds an entry by its path, the first where two share it,
+--- and names a path the archive does not hold.
+local function test_entry_finds_an_entry_by_path()
+  local out = Stream.collect()
+  local w = Zip.writer(out)
+  assert(w:add_file("a.txt", "one"))
+  assert(w:add_file("dir/b.txt", "two"))
+  assert(w:add_file("a.txt", "again"))
+  assert(w:close())
+  local r = assert(Zip.open_string(out:result()))
+  local b = assert(r:entry("dir/b.txt"))
+  assert(assert(Stream.read_all((assert(b:open())))) == "two")
+  local a = assert(r:entry("a.txt"))
+  assert(assert(Stream.read_all((assert(a:open())))) == "one")
+  local none, why = r:entry("c.txt")
+  assert(none == nil and why == 'zip: no entry "c.txt"', why)
+  assert(r:close())
+end

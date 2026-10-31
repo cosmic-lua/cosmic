@@ -25,8 +25,9 @@
 --- UTF-8, whatever encoding the document declares (UTF-8, UTF-16,
 --- ISO-8859-1 or US-ASCII). A name is answered as written: `p:x` stays
 --- `p:x` unless the parser was asked for namespaces, when an element's
---- or attribute's name in one is `{uri}local`, Clark's notation, and a
---- prefix with no declaration is refused.
+--- or attribute's name in one is `{uri}local`, Clark's notation, or for
+--- local names, when it is `x`; either way a prefix with no declaration
+--- is refused.
 ---
 --- What is refused, naming `line N, column M` (both from 1; a column
 --- counts characters): text that is not well-formed XML, a run of text
@@ -85,6 +86,35 @@ local record Xml
     --- The longest run of text a parser holds, in bytes: 64 MiB when
     --- absent. A longer one is refused. Under 1 raises.
     max_text?: integer
+    --- Answer a name in a namespace by its local part alone: `x:id` and
+    --- `{urn:x}id` are both `id`. Namespaces are read as with
+    --- `namespaces`, so an undeclared prefix is still refused. Where two
+    --- attributes of an element share a local name, the later stands.
+    local_names?: boolean
+  end
+
+  --- An element read whole: its name and attributes as a `start` event
+  --- answers them, and what it holds, in document order: each run of
+  --- text as a string, each child element as an Element. Comments and
+  --- instructions are left out.
+  record Element
+    --- The element's name.
+    name: string
+    --- Each attribute's value by its name.
+    attributes: {string: string}
+    --- The text runs (strings) and child elements, in document order.
+    content: mut {string | Element}
+  end
+
+  --- The elements at one path of a document, each read whole as its
+  --- `end` comes, from events fed a chunk at a time: what a document too
+  --- large to hold whole is read through, an element at a time. One reads
+  --- one document: it keeps the elements still open between calls, so
+  --- after a parser fails part way, a new document takes a new one.
+  interface Subtrees
+    --- The elements at the path that `events` closes, in document order,
+    --- possibly none. Events must come in document order, every one.
+    take: function(Subtrees, events: {Event}): {Element}
   end
 end
 
@@ -92,7 +122,123 @@ end
 --- out. Raises where [`Xml.Options`] says.
 function Xml.parser(opts?: Xml.Options): Xml.Parser?, string
   if opts == nil then return raw.parser() end
-  return raw.parser(opts.namespaces, opts.eager, opts.max_text)
+  return raw.parser(opts.namespaces, opts.eager, opts.max_text, opts.local_names)
+end
+
+--- Whether the open elements `names` stand at `path`'s segments, `*`
+--- standing for any one name.
+local function at_path(names: {string}, path: {string}): boolean
+  if #names ~= #path then return false end
+  for i, segment in ipairs(path) do
+    if segment ~= "*" and segment ~= names[i] then return false end
+  end
+  return true
+end
+
+local class PathSubtrees is Xml.Subtrees
+  path: {string}
+  --- The names of the open elements, outermost first.
+  names: mut {string}
+  --- The elements being built, outermost first: empty outside one at
+  --- the path.
+  building: mut {Xml.Element}
+
+  function take(self, events: {Xml.Event}): {Xml.Element}
+    local out: mut {Xml.Element} = {}
+    for _, e in ipairs(events) do
+      local building = self.building
+      if e.kind == "start" then
+        local name = e.name or ""
+        self.names[#self.names + 1] = name
+        if #building > 0 or at_path(self.names, self.path) then
+          local element: Xml.Element = { name = name, attributes = e.attributes or {}, content = {} }
+          local parent = building[#building]
+          if parent ~= nil then
+            parent.content[#parent.content + 1] = element
+          end
+          building[#building + 1] = element
+        end
+      elseif e.kind == "end" then
+        local element = building[#building]
+        if element ~= nil then
+          building[#building] = nil
+          if #building == 0 then out[#out + 1] = element end
+        end
+        self.names[#self.names] = nil
+      elseif e.kind == "text" then
+        local parent = building[#building]
+        if parent ~= nil then
+          parent.content[#parent.content + 1] = e.text or ""
+        end
+      end
+    end
+    return out
+  end
+end
+
+--- What reads the elements at `path`, a `/`-separated list of names
+--- from the root's (`feed/entry`), `*` standing for any one; each root
+--- element when `path` is nil or "". An element is read whole once its
+--- `end` comes, and the ones inside it with it, never answered apart.
+function Xml.subtrees(path?: string): Xml.Subtrees
+  local segments: mut {string} = {}
+  for segment in (path or ""):gmatch("[^/]+") do segments[#segments + 1] = segment end
+  if #segments == 0 then segments[1] = "*" end
+  local made: PathSubtrees = { path = segments, names = {}, building = {} }
+  return made
+end
+
+--- The root element of `text`, read whole; nil and why when it does not
+--- read.
+function Xml.tree(text: string, opts?: Xml.Options): Xml.Element?, string
+  local events, trouble = Xml.events(text, opts)
+  if events == nil then return nil, trouble end
+  local root = Xml.subtrees():take(events)[1]
+  if root == nil then return nil, "xml: no root element" end
+  return root, ""
+end
+
+--- The child elements of `element` named `name`, or every one when
+--- `name` is nil, in document order.
+function Xml.children(element: Xml.Element, name?: string): {Xml.Element}
+  local out: mut {Xml.Element} = {}
+  for _, item in ipairs(element.content) do
+    if item is string then
+      -- text, not an element
+    elseif name == nil or item.name == name then
+      out[#out + 1] = item
+    end
+  end
+  return out
+end
+
+--- The first child element of `element` named `name`; nil when it has
+--- none.
+function Xml.child(element: Xml.Element, name: string): Xml.Element?
+  for _, item in ipairs(element.content) do
+    if item is string then
+      -- text, not an element
+    elseif item.name == name then
+      return item
+    end
+  end
+  return nil
+end
+
+--- The text `element` holds, its children's included, in document order.
+function Xml.text(element: Xml.Element): string
+  local out: mut {string} = {}
+  local function walk(e: Xml.Element)
+    for _, item in ipairs(e.content) do
+      if item is string then
+        out[#out + 1] = item
+      else
+        walk(item)
+      end
+    end
+  end
+  walk(element)
+  return table.concat(out)
 end
 
 --- Every event in `text`, read whole, as one parser's `feed` and `finish`
