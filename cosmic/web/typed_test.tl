@@ -208,7 +208,7 @@ local function test_a_route_records_what_it_binds()
       return Web.empty()
     end, { input_options = { max_bytes = 1 << 20 } })
   local big_input = assert(big.input)
-  assert(big_input.body_kind == "form" and big_input.query == QUERY.spec.node and big_input.body == NEW.spec.node)
+  assert(big_input.body_kind == "form" and big_input.query == Shape.node_of(QUERY.spec) and big_input.body == Shape.node_of(NEW.spec))
   assert(big_input.max_bytes == 1 << 20 and big.methods[1] == "POST")
   assert(Web.get("/c", noop as Web.Handler).input == nil)
 end

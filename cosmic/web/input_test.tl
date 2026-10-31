@@ -325,7 +325,7 @@ local function test_check_spec_refuses_what_text_cannot_carry()
   refuses(listing, "query", "list of kind bogus")
   refuses(Shape.raw.record({}), "cookie", "is not a source")
   Input.check_spec(Shape.raw.record({ m = Shape.raw.map(Shape.raw.string) }), "body")
-  Input.check_spec(EVERYTHING.spec.node, "form")
+  Input.check_spec(Shape.node_of(EVERYTHING.spec), "form")
   Input.check_spec(Shape.raw.record({ id = Shape.raw.integer, kind = Shape.raw.one_of("a"), s = Shape.raw.string }), "path")
 end
 

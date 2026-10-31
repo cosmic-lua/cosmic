@@ -1117,12 +1117,12 @@ end
 --- @param opts Types.InputOptions | nil `source`, `repeated`, `secret`
 --- @return Types.Parsed<T> The record, or status 422 and every error
 function Input.bind_strings<T>(q: Url.Query, spec: Shape.Spec<T>, opts?: Types.InputOptions): Types.Parsed<T>
-  if spec.node.kind ~= "record" then
-    error(("input: bind_strings binds a record, not a %s"):format(tostring(spec.node.kind)), 2)
+  if Shape.node_of(spec).kind ~= "record" then
+    error(("input: bind_strings binds a record, not a %s"):format(tostring(Shape.node_of(spec).kind)), 2)
   end
   local w: Walk = { q = q, source = opts and opts.source or "form", errors = {},
     repeated = opts ~= nil and opts.repeated == "error" }
-  local tree = bind_record(w, "", spec.node, 0)
+  local tree = bind_record(w, "", Shape.node_of(spec), 0)
   if #w.errors > 0 then
     return { invalid = invalid(422, w.errors, without(q, opts and opts.secret)) }
   end

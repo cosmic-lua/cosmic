@@ -90,7 +90,7 @@ local GOOD <const> = [[{
 }]]
 
 local function test_the_spec_is_the_hand_written_one()
-  same(PROFILE.spec.node, HAND_WRITTEN, "$")
+  same(Shape.node_of(PROFILE.spec), HAND_WRITTEN, "$")
 end
 
 local function test_the_spec_checks_what_the_hand_written_one_does()

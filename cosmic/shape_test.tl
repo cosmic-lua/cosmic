@@ -35,9 +35,9 @@ local function test_a_record_answers_a_copy_of_the_fields_it_names()
 end
 
 local function test_a_mismatch_names_its_path()
-  fails({ host = "h", port = "8080" }, SERVER.spec.node, "$.port: want integer, got string")
-  fails({ port = 1 }, SERVER.spec.node, "$.host: missing")
-  fails("text", SERVER.spec.node, "$: want record, got string")
+  fails({ host = "h", port = "8080" }, Shape.node_of(SERVER.spec), "$.port: want integer, got string")
+  fails({ port = 1 }, Shape.node_of(SERVER.spec), "$.host: missing")
+  fails("text", Shape.node_of(SERVER.spec), "$: want record, got string")
   fails(must(Json.decode('[{"id": "a"}, {"id": 2}]')), R.list(R.record({ id = R.string })),
     "$[1].id: want string, got integer")
   local by_key: {string: {string: boolean}} = { ["a key"] = { n = true } }
@@ -63,24 +63,24 @@ local function test_a_map_reports_its_least_failing_key()
   local backward: mut {string: integer} = {}
   for i = 1, 40 do forward["k" .. string.format("%02d", i)] = i end
   for i = 40, 1, -1 do backward["k" .. string.format("%02d", i)] = i end
-  fails(forward, spec.node, "$.k01: want string, got integer")
-  fails(backward, spec.node, "$.k01: want string, got integer")
+  fails(forward, Shape.node_of(spec), "$.k01: want string, got integer")
+  fails(backward, Shape.node_of(spec), "$.k01: want string, got integer")
 end
 
 local function test_a_list_reports_its_first_miss_in_index_order()
   local spec = Shape.list(Shape.string)
-  fails({ [1] = 1, [3] = "c" }, spec.node, "$[0]: want string, got integer")
-  fails({ [1] = "a", [3] = 3 }, spec.node, "$[1]: missing")
+  fails({ [1] = 1, [3] = "c" }, Shape.node_of(spec), "$[0]: want string, got integer")
+  fails({ [1] = "a", [3] = 3 }, Shape.node_of(spec), "$[1]: missing")
 end
 
 local function test_integer_takes_a_whole_float_and_nothing_else()
   local v = must(Shape.into(8080.0, Shape.integer))
   assert(math.type(v) == "integer" and v == 8080)
-  fails(1.5, Shape.integer.node, "$: want integer, got 1.5")
-  fails(2.0 ^ 63, Shape.integer.node, "$: want integer, got " .. tostring(2.0 ^ 63))
-  fails(0 / 0, Shape.integer.node, "$: want integer, got " .. tostring(0 / 0))
-  fails("1", Shape.integer.node, "$: want integer, got string")
-  fails("1", Shape.number.node, "$: want number, got string")
+  fails(1.5, Shape.node_of(Shape.integer), "$: want integer, got 1.5")
+  fails(2.0 ^ 63, Shape.node_of(Shape.integer), "$: want integer, got " .. tostring(2.0 ^ 63))
+  fails(0 / 0, Shape.node_of(Shape.integer), "$: want integer, got " .. tostring(0 / 0))
+  fails("1", Shape.node_of(Shape.integer), "$: want integer, got string")
+  fails("1", Shape.node_of(Shape.number), "$: want number, got string")
   local f = must(Shape.into(1.5, Shape.number))
   assert(f == 1.5)
 end
@@ -91,11 +91,11 @@ local function test_a_list_is_keyed_from_one()
   assert(#l == 2 and l[2] == "b")
   local empty = must(Shape.into({}, strings))
   assert(#empty == 0)
-  fails({ [1] = "a", [3] = "c" }, strings.node, "$[1]: missing")
-  fails({ [2] = "b" }, strings.node, "$[0]: missing")
-  fails({ x = "a" }, strings.node, '$: want list, got the string key "x"')
-  fails({ [0] = "a" }, strings.node, "$: want list, got the integer key 0")
-  fails({ [1.5] = "a" }, strings.node, "$: want list, got the float key 1.5")
+  fails({ [1] = "a", [3] = "c" }, Shape.node_of(strings), "$[1]: missing")
+  fails({ [2] = "b" }, Shape.node_of(strings), "$[0]: missing")
+  fails({ x = "a" }, Shape.node_of(strings), '$: want list, got the string key "x"')
+  fails({ [0] = "a" }, Shape.node_of(strings), "$: want list, got the integer key 0")
+  fails({ [1.5] = "a" }, Shape.node_of(strings), "$: want list, got the float key 1.5")
 end
 
 -- A list answers a JSON array, so an empty one encodes back as `[]`,
@@ -123,11 +123,11 @@ local function test_a_strict_record_refuses_a_key_it_does_not_name()
   local strict = SERVER:strict()
   local s = must(Shape.into({ host = "h", port = 1, tls = Json.null }, strict.spec))
   assert(s.host == "h" and s.port == 1 and s.tls == nil)
-  fails({ host = "h", prot = 1 }, strict.spec.node, "$.prot: unknown key")
-  fails({ host = "h", port = 1, zz = 1, ["a key"] = 1 }, strict.spec.node, '$[\"a key\"]: unknown key')
-  fails({ host = "h", port = 1, tlss = Json.null }, strict.spec.node, "$.tlss: unknown key")
-  fails({ host = "h", port = 1, [1] = "x" }, strict.spec.node, "$: want record, got the integer key 1")
-  fails(must(Json.decode("[]")), strict.spec.node, "$: want record, got array")
+  fails({ host = "h", prot = 1 }, Shape.node_of(strict.spec), "$.prot: unknown key")
+  fails({ host = "h", port = 1, zz = 1, ["a key"] = 1 }, Shape.node_of(strict.spec), '$[\"a key\"]: unknown key')
+  fails({ host = "h", port = 1, tlss = Json.null }, Shape.node_of(strict.spec), "$.tlss: unknown key")
+  fails({ host = "h", port = 1, [1] = "x" }, Shape.node_of(strict.spec), "$: want record, got the integer key 1")
+  fails(must(Json.decode("[]")), Shape.node_of(strict.spec), "$: want record, got array")
   -- Nested, and optional, it is still strict.
   local node = R.strict_record({ host = R.string, port = R.integer, tls = R.optional(R.boolean) })
   local outer = R.record({ server = R.optional(node) })
@@ -139,7 +139,7 @@ local function test_a_strict_record_refuses_a_key_it_does_not_name()
     server: Server?
   end
   local OUTER <const> = Shape.record_of("Outer"):strict()
-  fails({ server = { host = "h", port = 1, extra = true } }, OUTER.spec.node, "$.server.extra: unknown key")
+  fails({ server = { host = "h", port = 1, extra = true } }, Shape.node_of(OUTER.spec), "$.server.extra: unknown key")
   local raised, _ = pcall(R.strict_record, { a = "string" as Shape.Node })
   assert(not raised)
 end
@@ -147,7 +147,7 @@ end
 local function test_a_map_refuses_a_key_that_is_not_a_string()
   local m = must(Shape.into({ a = 1, b = 2.0 }, Shape.map(Shape.integer)))
   assert(m.a == 1 and math.type(m.b) == "integer")
-  fails({ a = 1, [2] = 2 }, Shape.map(Shape.integer).node, "$: want map, got the integer key 2")
+  fails({ a = 1, [2] = 2 }, Shape.node_of(Shape.map(Shape.integer)), "$: want map, got the integer key 2")
 end
 
 -- [`Json.null`] is a missing value: optional admits it and answers nil,
@@ -157,7 +157,7 @@ local function test_json_null_is_a_missing_value()
   local keep: Json.DecodeOptions = { null_value = Json.null }
   local s = must(Shape.into(must(Json.decode(text, keep)), SERVER.spec))
   assert(s.tls == nil)
-  fails(must(Json.decode('{"host": null, "port": 1}', keep)), SERVER.spec.node, "$.host: missing")
+  fails(must(Json.decode('{"host": null, "port": 1}', keep)), Shape.node_of(SERVER.spec), "$.host: missing")
   fails({ host = "h", port = Json.null }, R.record({ port = R.integer }), "$.port: missing")
   -- An array holds no hole, so a list whose elements may be missing is a map from the indexes that are there.
   local sparse = Shape.sparse_list(Shape.optional(Shape.integer))
@@ -167,7 +167,7 @@ local function test_json_null_is_a_missing_value()
   -- same missing element.
   local holed = must(Shape.into(must(Json.decode("[1, null, 3]")), sparse))
   assert(holed[3] == 3)
-  fails(must(Json.decode("[1, null, 3]")), Shape.list(Shape.integer).node, "$[1]: missing")
+  fails(must(Json.decode("[1, null, 3]")), Shape.node_of(Shape.list(Shape.integer)), "$[1]: missing")
   -- A sparse list of optional elements is walked by its keys, never by
   -- counting up to the highest one.
   local far = must(Shape.into({ [1 << 40] = 7 }, sparse))
@@ -180,7 +180,7 @@ local function test_json_numbers_meet_integer()
   local port = must(Shape.into(must(Json.decode("8080.0")), Shape.integer))
   assert(math.type(port) == "integer" and port == 8080)
   local big = must(Json.decode("18446744073709551615", { big_numbers_as_strings = true }))
-  fails(big, Shape.integer.node, "$: want integer, got string")
+  fails(big, Shape.node_of(Shape.integer), "$: want integer, got string")
 end
 
 -- Decode, check, re-encode: the answer holds only what the spec names,
@@ -195,8 +195,8 @@ local function test_one_of_admits_only_its_values()
   local level = Shape.one_of("debug", "info")
   local v = must(Shape.into("info", level))
   assert(v == "info")
-  fails("warn", level.node, '$: want one of "debug", "info", got "warn"')
-  fails({}, level.node, '$: want one of "debug", "info", got table')
+  fails("warn", Shape.node_of(level), '$: want one of "debug", "info", got "warn"')
+  fails({}, Shape.node_of(level), '$: want one of "debug", "info", got table')
   local raised, _ = pcall(R.one_of)
   assert(not raised)
 end
@@ -348,18 +348,18 @@ local function test_a_hole_is_a_missing_element_in_every_table_that_has_one()
   local decoded = must(Json.decode("[1, null, null, 4, null]"))
   local l = must(Shape.into(decoded, optional))
   assert(l[1] == 1 and l[2] == nil and l[4] == 4)
-  fails(decoded, required.node, "$[1]: missing")
+  fails(decoded, Shape.node_of(required), "$[1]: missing")
   -- Keys 1, 3 and 5, with 3 a border of the table.
   local gappy: mut {any: any} = { 1, 2, 3 }
   gappy[2] = nil
   gappy[5] = 5
-  fails(gappy, required.node, "$[1]: missing")
+  fails(gappy, Shape.node_of(required), "$[1]: missing")
   local g = must(Shape.into(gappy, optional))
   assert(g[1] == 1 and g[3] == 3 and g[5] == 5)
   -- A marked array with one far index is walked by its keys.
   local far = must(Shape.into(Json.array({ [1 << 40] = 7 } as {any}), optional))
   assert(far[1 << 40] == 7)
-  fails(Json.array({ [1 << 40] = 7 } as {any}), required.node, "$[0]: missing")
+  fails(Json.array({ [1 << 40] = 7 } as {any}), Shape.node_of(required), "$[0]: missing")
 end
 
 -- A marked array holding a key that is no positive index is refused as
@@ -371,11 +371,11 @@ local function test_a_marked_array_with_a_stray_key_is_refused()
     t[key] = 2
     return t
   end
-  fails(marked("x"), optional.node, '$: want list, got the string key "x"')
-  fails(marked(0), optional.node, "$: want list, got the integer key 0")
-  fails(marked(-3), optional.node, "$: want list, got the integer key -3")
-  fails(marked(1.5), optional.node, "$: want list, got the float key 1.5")
-  fails(marked(true), optional.node, "$: want list, got the boolean key true")
+  fails(marked("x"), Shape.node_of(optional), '$: want list, got the string key "x"')
+  fails(marked(0), Shape.node_of(optional), "$: want list, got the integer key 0")
+  fails(marked(-3), Shape.node_of(optional), "$: want list, got the integer key -3")
+  fails(marked(1.5), Shape.node_of(optional), "$: want list, got the float key 1.5")
+  fails(marked(true), Shape.node_of(optional), "$: want list, got the boolean key true")
 end
 
 -- A node the module did not build raises, wherever the walk meets it.
@@ -451,10 +451,10 @@ local function raised(run: function()): string?
   return tostring(why)
 end
 
---- Whether `run` raises that a spec of the caller's was not made by cosmic.shape.
-local function refuses_a_forgery(run: function()): boolean
+--- Whether `run` raises that a spec was written by hand, so that it cannot be composed.
+local function refuses_to_compose(run: function()): boolean
   local why = raised(run)
-  return why ~= nil and why:find("did not make", 1, true) ~= nil
+  return why ~= nil and why:find("written by hand", 1, true) ~= nil
 end
 
 -- `table_of` makes a spec of a table of untrusted values from a record or map node, and no other.
@@ -466,32 +466,57 @@ local function test_table_of_takes_a_record_or_a_map_and_no_other()
   assert(raised(function() local _ = R.table_of(R.list(R.string)) end) ~= nil)
 end
 
--- A `Spec<T>` is a table anyone can write, and what ties its `T` to its check is that cosmic.shape made it: a spec written
--- by hand is refused wherever it is used, as the answer's type would be the writer's claim.
-local function test_a_spec_written_by_hand_is_refused_wherever_it_is_used()
-  local dense: Shape.Spec<{integer}> = { node = R.list(R.optional(R.integer)) }
-  local holey = must(Json.decode("[1, null, 3]"))
-  assert(refuses_a_forgery(function() local _ = Shape.into(holey, dense) end))
-  local text: Shape.Spec<string> = { node = R.any }
-  assert(refuses_a_forgery(function() local _ = Shape.into(5, text) end))
-  assert(refuses_a_forgery(function() local _ = Shape.decode_into("5", text) end))
-  -- a made spec's own node is its alone: the leaves of `Raw` are shared, and a spec of one is still hand-written
-  local shared: Shape.Spec<string> = { node = R.string }
-  assert(refuses_a_forgery(function() local _ = Shape.into("a", shared) end))
-  -- nor does a constructor build on one
-  assert(refuses_a_forgery(function() local _ = Shape.list(text) end))
-  assert(refuses_a_forgery(function() local _ = Shape.optional(text) end))
-  assert(refuses_a_forgery(function() local _ = Shape.map(text) end))
-  local optional: Shape.Spec<integer?> = { node = R.optional(R.integer) }
-  assert(refuses_a_forgery(function() local _ = Shape.sparse_list(optional) end))
-  -- a record written by hand answers through a spec written by hand
+-- A `Spec<T>` is a check, and one written by hand is a function the checker types: it answers a `T` or it does not
+-- compile (lang/check_generics_test.tl), so `into` takes it as it is. What it cannot do is be composed or made strict,
+-- since nothing says what is inside a function, and a wrapper of a built spec is as written by hand as any.
+local function test_a_spec_written_by_hand_is_a_check_that_into_takes_and_a_constructor_does_not()
+  local text: Shape.Spec<string> = {
+    check = function(value: any, path: string): string?, string
+      if value is string then return value, "" end
+      return nil, path .. ": a string, by hand"
+    end,
+  }
+  assert(Shape.into("x", text) == "x")
+  local _, why = Shape.into(5, text)
+  assert(why == "$: a string, by hand", why)
+  local _, trouble = Shape.decode_into("5", text)
+  assert(trouble == "$: a string, by hand", trouble)
+  assert(refuses_to_compose(function() local _ = Shape.list(text) end))
+  assert(refuses_to_compose(function() local _ = Shape.optional(text) end))
+  assert(refuses_to_compose(function() local _ = Shape.map(text) end))
+  -- a wrapper that asks a built spec of its node, and answers what it likes, is no built spec
+  local wrapper: Shape.Spec<string> = {
+    check = function(value: any, path: string): string?, string
+      local _, _ = Shape.string.check(value, path)
+      return nil, path .. ": wrapped"
+    end,
+  }
+  assert(refuses_to_compose(function() local _ = Shape.list(wrapper) end))
+  -- and one that forwards a built spec's answer whole is refused too: it is another function
+  local forwarded: Shape.Spec<string> = { check = function(value: any, path: string): string?, string
+    return Shape.string.check(value, path)
+  end }
+  assert(refuses_to_compose(function() local _ = Shape.map(forwarded) end))
+  local optional: Shape.Spec<integer?> = {
+    check = function(_value: any, _path: string): integer?, string
+      return nil, ""
+    end,
+  }
+  assert(refuses_to_compose(function() local _ = Shape.sparse_list(optional) end))
+  -- a record written by hand answers through a check written by hand, and cannot be made strict
   local forged: Shape.Typed<Server> = {
-    name = "Server", spec = { node = R.record({ host = R.string }) },
+    name = "Server", spec = {
+      check = function(_value: any, _path: string): Server?, string
+        return nil, "no server is a Server here"
+      end,
+    },
     into = SERVER.into, decode_into = SERVER.decode_into, strict = SERVER.strict,
   }
-  assert(refuses_a_forgery(function() local _ = forged:into({ host = "h" }) end))
-  assert(refuses_a_forgery(function() local _ = forged:strict() end))
-  -- the specs the module makes are taken, strict ones included, and `strict` keeps its answer
+  local _, said = forged:into({ host = "h" })
+  assert(said == "Server: no server is a Server here", said)
+  assert(refuses_to_compose(function() local _ = forged:strict() end))
+  -- the specs the module makes are composed, strict ones included, and `strict` keeps its answer
   assert(Shape.into("x", Shape.string) == "x")
   assert(SERVER:strict() == SERVER:strict() and SERVER:strict():strict() == SERVER:strict())
+  assert(#assert(Shape.into({ "a" }, Shape.list(Shape.string))) == 1)
 end

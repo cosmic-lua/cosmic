@@ -431,8 +431,8 @@ local function holds(value: any): boolean
 end
 
 local function test_every_policy_field_has_a_flag()
-  local names = assert(POLICY.spec.node.names)
-  assert(POLICY.spec.node.kind == "record" and #names > 0)
+  local names = assert(Shape.node_of(POLICY.spec).names)
+  assert(Shape.node_of(POLICY.spec).kind == "record" and #names > 0)
   local seen: mut {string:boolean} = {}
   for _, name in ipairs(names) do
     if exempt[name] == nil and name ~= "limits" then
@@ -444,7 +444,7 @@ local function test_every_policy_field_has_a_flag()
       assert(holds(policy_after(words)[name]), nth(words, 1) .. " does not set Policy." .. name)
     end
   end
-  local fields = assert(POLICY.spec.node.fields)
+  local fields = assert(Shape.node_of(POLICY.spec).fields)
   local limits = fields.limits
   assert(limits ~= nil and limits.kind == "record" and #assert(limits.names) > 0)
   for _, name in ipairs(assert(limits.names)) do

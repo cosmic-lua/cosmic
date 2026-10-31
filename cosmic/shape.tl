@@ -60,7 +60,8 @@
 ---   config file whose author wants every mistake sees them one at a
 ---   time, re-running after each fix.
 --- - `into` never raises on a value, whatever it holds. A spec that was
----   not built by these functions is a programming error, and raises.
+---   written by hand is a check the checker types, so it is only as sound as that check is; one that is not built by these
+---   functions cannot be composed, and raises there.
 
 local FieldPath = require("cosmic.internal.field_path")
 local Json = require("cosmic.json")
@@ -98,15 +99,14 @@ local record Shape
     values?: {string | number | boolean}
   end
 
-  --- A shape, and the type `T` of what it checks: a value that passes it is a `T`. The functions below build one from
-  --- another, so `T` follows from how it was built, and [`into`] answers it with no annotation to disagree. A record's
-  --- spec is made by [`record_of`], from the record's own declaration.
+  --- A shape, and the type `T` of what it checks: a value that passes it is a `T`. It is a check, and nothing else:
+  --- `check` answers a `T` or why the value is not one, so a spec written by hand is a function the checker holds to its
+  --- type, and `T` is true of whatever it passes. The functions below build one from another over a node they keep to
+  --- themselves ([`node_of`]), so `T` follows from how it was built, and [`into`] answers it with no annotation to
+  --- disagree. A record's spec is made by [`record_of`], from the record's own declaration.
   record Spec<T>
-    --- What `into` walks.
-    node: Node
-    --- Never set. A record with a type parameter that no field mentions leaves the checker nothing to solve `T` from,
-    --- so this field, a function that would answer a `T`, makes `Spec<string>` and `Spec<integer>` two types.
-    witness?: function(): T
+    --- `value` checked, as a `T` and "", or nil and what did not fit, named by its path under `path`.
+    check: function(value: any, path: string): T?, string
   end
 
   --- A [`Spec`] and the record `T` it was built from, which [`record_of`] answers. Its methods answer a `T`.
@@ -162,6 +162,10 @@ local record Shape
   --- The nodes with no type.
   mut raw: Raw
 
+  --- The node a spec built by these functions walks, to read what it checks: the fields of a record, say. Raises for a
+  --- spec written by hand, which is only its check.
+  node_of: function<T>(spec: Spec<T>): Node
+
   --- Any string.
   mut string: Spec<string>
   --- Any number, integer or float.
@@ -203,29 +207,6 @@ local function need_node(node: any, what: string)
   if node is {any: any} then kind = node["kind"] end
   if not (kind is string) or KINDS[kind] == nil then
     error(("shape: %s is not a Spec"):format(what), 3)
-  end
-end
-
---- The nodes of the specs this module made. A [`Spec`] is a table anyone can write, so what ties its `T` to the check it
---- holds is that its node is here: `into` and every constructor refuse a spec whose node is not.
-local made: mut {Node: boolean} = {}
-
---- A [`Spec`] of a copy of `node`, which the registry holds: the copy is this spec's alone, so a node shared between
---- specs (the leaves of [`Raw`], say) never makes a spec that was written by hand look made.
-local function spec_of<T>(node: Node): Shape.Spec<T>
-  local own: Node = {
-    kind = node.kind, optional = node.optional, of = node.of, fields = node.fields, names = node.names,
-    strict = node.strict, values = node.values,
-  }
-  made[own] = true
-  return { node = own }
-end
-
---- Raises unless `spec` was made by this module.
-local function need_made<T>(spec: Shape.Spec<T>, what: string)
-  if made[spec.node] ~= true then
-    error(("shape: %s is a Shape.Spec that cosmic.shape did not make: build it with Shape.<constructor> or " ..
-      "Shape.record_of"):format(what), 3)
   end
 end
 
@@ -498,6 +479,47 @@ walk = function(v: any, spec: Node, path: string): any, string
   return nil, mismatch(path, spec, v)
 end
 
+--- The value a probe passes to a check, which no caller has: a check handed it says which node it checks ([`probed`]).
+local PROBE <const>: {string: string} = {}
+
+--- Where a check handed [`PROBE`] answers, with itself and its node; set by [`need_node_of`] for the length of a probe.
+local probed: function(owner: any, node: Node) = function(_owner: any, _node: Node) end
+
+--- A [`Shape.Spec`] that checks `node`. The `T` is the caller's to say, and every caller says the type its node checks.
+local function spec_of<T>(node: Node): Shape.Spec<T>
+  local function check(value: any, path: string): T?, string
+    if rawequal(value, PROBE) then
+      probed(check, node)
+      return nil, ""
+    end
+    local out, failed = walk(value, node, path)
+    if failed ~= "" then return nil, failed end
+    -- cast: the one from `any`, which walk has just built to the node, and the node is what makes a `Spec<T>`: every
+    -- function that makes one gives it the `T` of the check it builds.
+    return out as T, ""
+  end
+  return { check = check }
+end
+
+--- The node of `spec`, for `what`. A spec is a check and nothing says what is inside it, so it is asked: handed
+--- [`PROBE`], a check built by [`spec_of`] answers the node it checks, with itself, and only if that is `spec`'s own
+--- check. A check written by hand, or one that wraps a built one, does not, and raises: a node it did not build says
+--- nothing of the `T` it answers, so it cannot be composed.
+local function need_node_of<T>(spec: Shape.Spec<T>, what: string): Node
+  local found: Node? = nil
+  probed = function(owner: any, node: Node)
+    if rawequal(owner, spec.check) then found = node end
+  end
+  local _, _ = pcall(function() local _, _ = spec.check(PROBE, "") end)
+  probed = function(_owner: any, _node: Node) end
+  local node = found
+  if node == nil then
+    error(("shape: %s is a Shape.Spec written by hand: it can be given to `into`, but only a spec cosmic.shape built " ..
+      "can be composed or made strict"):format(what), 3)
+  end
+  return node
+end
+
 --- `value` checked against `spec`, as a new value holding what the spec
 --- names, and "". nil and the first thing that did not fit, named by
 --- its path, when it does not. The answer's type is the spec's, which
@@ -508,12 +530,15 @@ end
 --- @return T The value, typed
 --- @return string "" or what did not fit
 function Shape.into<T>(value: any, spec: Shape.Spec<T>): T?, string
-  need_made(spec, "into's shape")
-  local out, failed = walk(value, spec.node, "$")
-  if failed ~= "" then return nil, failed end
-  -- cast: the one from `any`, which walk has just built to the node, and the node is what makes a `Spec<T>`: every
-  -- function that makes one gives it the `T` of the check it builds.
-  return out as T, ""
+  return spec.check(value, "$")
+end
+
+--- The node `spec` walks, to read what it checks (a record's fields, say). A spec cannot be given a node: it is a check,
+--- and only the constructors of this module build one over a node of their own. Raises for a spec written by hand.
+--- @param spec Spec<T> A spec these functions built
+--- @return Node The node it checks
+function Shape.node_of<T>(spec: Shape.Spec<T>): Node
+  return need_node_of(spec, "node_of's spec")
 end
 
 --- The JSON `text` holds, checked against `spec` as `into` does, and
@@ -537,7 +562,6 @@ end
 --- @return T The value, typed
 --- @return string "" or what was wrong with the text
 function Shape.decode_into<T>(text: string, spec: Shape.Spec<T>, opts?: Json.DecodeOptions): T?, string
-  need_made(spec, "decode_into's shape")
   local decoded, trouble = Json.decode(text, opts)
   if decoded == nil and trouble ~= "" then return nil, trouble end
   return Shape.into(decoded, spec)
@@ -553,12 +577,12 @@ end
 --- @param of Spec<A> Each element's shape
 --- @return Spec<{A}> The list's shape
 function Shape.list<A>(of: Shape.Spec<A>): Shape.Spec<{A}>
-  need_made(of, "list's element")
-  if of.node.optional then
+  local node = need_node_of(of, "list's element")
+  if node.optional then
     -- `any?` is `any` to the checker, so only the node tells that the element may be missing.
     error("shape: list's element is optional, which an array cannot hold: use `Shape.sparse_list`", 2)
   end
-  return spec_of(raw_list(of.node))
+  return spec_of(raw_list(node))
 end
 
 --- A list whose elements may be missing or [`Json.null`], answered as a map from each index that is there:
@@ -567,11 +591,11 @@ end
 --- @param of Spec<A?> The shape of each element, an optional one
 --- @return Spec<{integer: A}> The list's shape
 function Shape.sparse_list<A>(of: Shape.Spec<A?>): Shape.Spec<{integer: A}>
-  need_made(of, "sparse_list's element")
-  if not of.node.optional then
+  local node = need_node_of(of, "sparse_list's element")
+  if not node.optional then
     error("shape: sparse_list's element is not optional: wrap it in `Shape.optional`, or use `Shape.list`", 2)
   end
-  return spec_of(raw_list(of.node))
+  return spec_of(raw_list(node))
 end
 
 --- A table whose every key is a string and every value has shape `of`,
@@ -579,8 +603,7 @@ end
 --- @param of Spec<A> Each value's shape
 --- @return Spec<{string: A}> The map's shape
 function Shape.map<A>(of: Shape.Spec<A>): Shape.Spec<{string: A}>
-  need_made(of, "map's value")
-  return spec_of(raw_map(of.node))
+  return spec_of(raw_map(need_node_of(of, "map's value")))
 end
 
 --- The shape `of`, which a missing value, or [`Json.null`], also
@@ -588,8 +611,7 @@ end
 --- @param of Spec<A> The shape a present value must have
 --- @return Spec<A?> The optional shape
 function Shape.optional<A>(of: Shape.Spec<A>): Shape.Spec<A?>
-  need_made(of, "optional's shape")
-  return spec_of(raw_optional(of.node))
+  return spec_of(raw_optional(need_node_of(of, "optional's shape")))
 end
 
 --- Exactly one of `values`, compared with `==`: the members of an
@@ -642,9 +664,8 @@ local function typed_strict<T>(self: Shape.Typed<T>): Shape.Typed<T>
   if held ~= nil then
     return held
   end
-  need_made(self.spec, "strict's record")
   local strict: Shape.Typed<T> = {
-    name = self.name, spec = spec_of(strict_node(self.spec.node)), into = typed_into, decode_into = typed_decode_into,
+    name = self.name, spec = spec_of(strict_node(need_node_of(self.spec, "strict's record"))), into = typed_into, decode_into = typed_decode_into,
     strict = typed_strict,
   }
   -- A strict record made strict again is itself; kept, so that a call per request builds nothing.
@@ -702,6 +723,10 @@ function Shape.record_of<T>(name: string, built?: Node, _witness?: function(): T
       "build, or run the script as `cosmic script.tl`"):format(name), 2)
   end
   need_node(built, "record_of's built")
+  -- TODO: the build emits a typed decoder per declared record, checked by the checker, instead of splicing a node;
+  -- until then record_of trusts the node it is handed, so a call written any way but `Shape.record_of("Name")` (through
+  -- an alias of the module, an inline `require("cosmic.shape").record_of(...)`, or `Shape["record_of"]`) can name a
+  -- `T` the node does not check.
   if built.kind ~= "record" then
     error(("shape: record_of(%q) was given a %s spec, not a record's"):format(name, built.kind), 2)
   end
