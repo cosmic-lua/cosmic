@@ -163,8 +163,9 @@ local record Cli
   --- writes the definitions GitHub needs to show one, at the file's
   --- end. It never lays out a Markdown or Zig file. A Teal file named
   --- that the build never reads (under `bin/` or a hidden directory,
-  --- or outside the tree) is checked on its own as
-  --- `--standalone` checks a file, and fails the run if refused. The
+  --- or outside the tree), named or in a directory named, is checked on
+  --- its own as `--standalone` checks a file, and fails the run if
+  --- refused; cosmic's own tree is excepted. The
   --- tree is found as `test` finds it
   fix: string
   --- `cosmic build [options] [path...]`: builds the tree in the working

@@ -111,3 +111,24 @@ local function test_a_named_file_outside_the_build_is_checked_alone(tmp: string)
   assert(fine_ok, fine)
   assert(fine:find("checked alone", 1, true), fine)
 end
+
+--- A directory named that the build never reads is checked alone file by file, the file named twice is one, and a link inside
+--- the build to a file under `bin/` is the build's, reported once.
+local function test_a_named_directory_outside_the_build_is_checked_alone(tmp: string)
+  local root = tmp .. "/unit"
+  assert(Fs.mkdirs(root .. "/bin"))
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/bin/broken.tl", 'local broken: integer = "definitely a string"\n'))
+  assert(Fs.write(root .. "/bin/needs.tl", 'local X = require("lib.x")\n\nreturn X\n'))
+  local out, ok = fix_status(root, { "bin" })
+  assert(not ok, out)
+  assert(out:find("not_assignable", 1, true), out)
+  assert(out:find("sibling declaration file", 1, true), out)
+  local twice, twice_ok = fix_status(root, { "bin/broken.tl", "bin/broken.tl" })
+  assert(not twice_ok, twice)
+  assert(twice:find("1 of 1 file refused", 1, true), twice)
+  assert(Fs.symlink("../bin/broken.tl", root .. "/lib/link.tl"))
+  local linked, linked_ok = fix_status(root, { "lib/link.tl" })
+  assert(not linked_ok, linked)
+  assert(not linked:find("checked alone", 1, true), linked)
+end

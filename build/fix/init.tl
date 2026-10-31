@@ -187,8 +187,13 @@ local not_source: {string:boolean} = {
 
 --- Whether the Teal file `path`, named in a project at `root` that is not cosmic's own, is no input of that project's build:
 --- outside it, under a directory identity never takes ([`identity.is_input`]), or under a hidden one.
+---
+--- The path is judged as named: a link inside the build to a file under `bin/` is the build's, which reads it. Cosmic's own
+--- tree is excepted, where [`fix.chosen`] does not ask.
 local function outside_build(root: string, path: string): boolean
-  local absolute, _ = Fs.absolute(path)
+  local parent, _ = Fs.absolute(Fs.dirname(path))
+  local absolute: string? = nil
+  if parent ~= nil then absolute = parent .. "/" .. Fs.basename(path) end
   local top, _ = Fs.absolute(root)
   if absolute == nil or top == nil then return false end
   local relative, _ = Fs.relative(absolute, top)
@@ -412,6 +417,7 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen?, string
   local templates_out: mut {string} = {}
   local refused: mut {string} = {}
   local alone_out: mut {string} = {}
+  local seen: mut {string: boolean} = {}
   local static_root, _ = Fs.absolute(root .. "/static")
   for _, path in ipairs(paths) do
     local what, missing = Fs.stat(path)
@@ -431,7 +437,14 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen?, string
         return nil, trouble
       end
       for _, file in ipairs(under) do
-        out[#out + 1] = path .. "/" .. file
+        local named = path .. "/" .. file
+        if seen[named] == nil then
+          seen[named] = true
+          out[#out + 1] = named
+          -- TODO: once `fix` can check a file of cosmic's own tree that is no input of it (`ci/`, which is a project of its
+          -- own, and `lang/*.d.tl`) in the project that reads it, check them here too.
+          if not own and outside_build(root, named) then alone_out[#alone_out + 1] = named end
+        end
       end
       local checked, checked_trouble = checked_sources(path)
       if checked == nil then
@@ -479,8 +492,11 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen?, string
     elseif not String.ends_with(path, ".tl") then
       refused[#refused + 1] = path .. ": not a Teal, C or template source, YAML, Markdown or Zig"
     else
-      out[#out + 1] = path
-      if not own and outside_build(root, path) then alone_out[#alone_out + 1] = path end
+      if seen[path] == nil then
+        seen[path] = true
+        out[#out + 1] = path
+        if not own and outside_build(root, path) then alone_out[#alone_out + 1] = path end
+      end
     end
   end
   return { files = out, c_files = c_out, flow_files = flow_out, checked = checked_out,
@@ -1283,8 +1299,14 @@ local function check_alone(ctx: Fix)
       local why = "not an input of the tree at " .. root .. ", checked alone"
       if made.code == nil then
         -- One failure for the file, its problems on lines of their own as the build's refusal lists them.
+        local hint = ""
+        for _, line in ipairs(made.lines) do
+          if line:find("require_unknown", 1, true) then
+            hint = "\nfix: FAIL  a file checked alone sees only the cosmic modules and a sibling declaration file (`.d.tl`)"
+          end
+        end
         failures[#failures + 1] = file .. ": " .. why .. ", and refused:\nfix: FAIL  " ..
-          table.concat(made.lines, "\nfix: FAIL  ")
+          table.concat(made.lines, "\nfix: FAIL  ") .. hint
       else
         log:say("fix: " .. file .. ": " .. why)
       end
