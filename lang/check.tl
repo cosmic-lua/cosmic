@@ -6047,6 +6047,8 @@ local record Pending
   at: integer
   owner: string
   base: Type
+  --- The write is to a view: its `view_written` waits for the values, which tell whether the write may leave a hole.
+  view: boolean
 end
 
 --- Whether the statements `body` of a loop leave the number of elements of the array held by the local `array` from falling
@@ -6504,19 +6506,24 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
       local k = expr(ctx, target.key, store.integer)
       local _ = key_ok(ctx, target.key, k, store.integer, owner)
       if not base.mut then
-        report(ctx, "view_written", target, owner .. " is a view " .. tq(ctx, base) .. ", so " .. subject(ctx, target) ..
-            " cannot be assigned",
-          "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received", { show(ctx, base) })
-      -- TODO: queue the hole check of a write to a view too, so one run reports `view_written` and `array_hole` where
-      -- today declaring the array `mut` shows the hole in a second run: it adds `array_hole` errors to the many files
-      -- that build/ceilings.txt pins for `view_written`, which a pin may not take, so it waits on the last `view_written`
-      -- row leaving build/ceilings.txt.
+        if (removes and Writes.is_length_of(target.key, target.object)) or
+            (Writes.is_append(target) and not (runs_code and Writes.may_shorten(ctx, target.object, s))) then
+          report(ctx, "view_written", target, owner .. " is a view " .. tq(ctx, base) .. ", so " .. subject(ctx, target) ..
+              " cannot be assigned",
+            "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received", { show(ctx, base) })
+        else
+          -- The values say whether the write may leave a hole, which changes the fix: see below.
+          pending[#pending + 1] = { target = target, at = at, owner = owner, base = base, view = true }
+        end
+      -- TODO: report `array_hole` beside `view_written` for a write to a view, so one run reports both, once
+      -- build/ceilings.txt holds no `view_written` row: it adds `array_hole` errors to the many files that pin
+      -- `view_written`, which a pin may not take.
       elseif removes and Writes.is_length_of(target.key, target.object) then
         -- The last element goes, so the elements left are the first ones. Of several targets, another may write the key
         -- the length names after this one is gone (`t[#t], t[#t + 1] = nil, v`).
         return base.element, true
       elseif not Writes.is_append(target) or (runs_code and Writes.may_shorten(ctx, target.object, s)) then
-        pending[#pending + 1] = { target = target, at = at, owner = owner, base = base }
+        pending[#pending + 1] = { target = target, at = at, owner = owner, base = base, view = false }
       end
       return base.element, false
     elseif (base.tag == "map") then
@@ -6671,7 +6678,16 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
   local vals = values_of(ctx, s.values, wants, nil)
   ctx.assigning = outer_assigning
   for _, p in ipairs(pending) do
-    if not Writes.leaves_no_hole(ctx, vals, p) then
+    if p.view then
+      local owner, base = p.owner, p.base
+      local destination = "`mut " .. show(ctx, base) .. "`"
+      local element = if base.tag == "array" then base.element else nil end
+      if element ~= nil and not Writes.leaves_no_hole(ctx, vals, p) then
+        destination = "`mut {integer: " .. show(ctx, element) .. "}` (a map: this write may leave a hole in an array)"
+      end
+      report(ctx, "view_written", p.target, owner .. " is a view " .. tq(ctx, base) .. ", so " .. subject(ctx, p.target) ..
+          " cannot be assigned", "declare " .. owner .. " " .. destination .. " where it is made or received", { show(ctx, base) })
+    elseif not Writes.leaves_no_hole(ctx, vals, p) then
       local target = p.target
       if Writes.is_append(target) then
         report(ctx, "array_hole", target, subject(ctx, target) .. " is written by a statement that calls a function, which " ..

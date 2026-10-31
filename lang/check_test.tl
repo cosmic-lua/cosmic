@@ -1884,3 +1884,13 @@ local function test_a_table_literal_for_an_interface_with_library_advice_is_told
   local other = fix_of((use:gsub("cosmic.time", "other.time")), { ["other.time"] = TIME })
   assert(has(other, "class C is Time.CivilFields"), other)
 end
+
+local function test_a_write_to_a_view_that_may_leave_a_hole_names_the_map_that_runs_clean()
+  local fix = fix_of("local buf: {number} = {}\nbuf[3] = 1\nlocal _ = buf\n")
+  assert(has(fix, "`mut {integer: number}`") and has(fix, "may leave a hole"), fix)
+  -- a write that cannot leave a hole, or an append, keeps the array
+  assert(has(fix_of("local buf: {number} = {}\nbuf[1] = 1\nlocal _ = buf\n"), "`mut {number}`"))
+  assert(has(fix_of("local buf: {number} = {}\nbuf[#buf + 1] = 1\nlocal _ = buf\n"), "`mut {number}`"))
+  -- and the destination it names is clean
+  assert(codes_of("local buf: mut {integer: number} = {}\nbuf[3] = 1\nlocal _ = buf\n") == "")
+end
