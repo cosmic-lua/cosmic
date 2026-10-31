@@ -310,7 +310,7 @@ local function test_a_lookup_answers_from_the_last_build_when_the_new_checker_re
   -- the last build's, as a build the fork stops leaves it
   local last, last_err = looked_up(root, tmp, { "docs", "Box" })
   holds(last_err, "docs: not rebuilt: " .. assert(Fs.absolute(root)) ..
-      " does not build (shapes.tl refused; `cosmic test` shows why); answering from its last build, where there is one\n")
+      " does not build (shapes.tl refused; `cosmic test` shows why); answering from its last build by this tool, or from cosmic's own docs where it has none\n")
   assert(last_err:find("unused_variable", 1, true) == nil and last_err:find("compiler refused", 1, true) == nil,
     last_err)
   local _, said = last_err:gsub("\n", "")

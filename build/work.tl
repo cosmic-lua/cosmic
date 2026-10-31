@@ -1039,7 +1039,8 @@ end
 function work.tell_other_schema(verb: string, path: string, schema: string, root?: string)
   -- A newer tool's file is not one to advise making again: that removes it.
   local advice = if order_of(schema) == "newer" then
-    "a newer tool wrote it" else remedy(root) end
+    "a newer tool wrote it" .. (if root ~= nil then "; use that tool in " .. root else "" end) else
+    remedy(root) end
   tell_once("other_schema", path, verb .. ": " .. path .. " is of schema " .. schema ..
       ", not this tool's " .. version .. "; reading none of it and leaving it where it is: " ..
       advice)

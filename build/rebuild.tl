@@ -204,7 +204,7 @@ local function project(root: string, verb: string, start: boolean, carried?: str
       named = own[1] .. (if #own > 1 then " and " .. tostring(#own - 1) .. " more" else "" end)
     end
     return false, root .. " does not build (" .. named .. " refused; `cosmic test` shows why); " ..
-      "answering from its last build, where there is one"
+      "answering from its last build by this tool, or from cosmic's own docs where it has none"
   end
   -- A lookup's build leaves the projection as it is where another run
   -- holds the rebuild lock, rather than wait for it ([`writer.write_result`]).
