@@ -90,6 +90,14 @@ local function test_what_reads_writes_back_to_the_same_events(tmp: string)
       local before = read(text, #text)
       local after = read(written, #written)
       if before ~= after then return false, "read back otherwise:\n" .. written end
+      local named = assert(Xml.events(text, { namespaces = true }))
+      local named_written, nwhy = Xml.write(named)
+      if named_written == nil then
+        return false, "read with namespaces but not written: " .. nwhy
+      end
+      if read(named_written, #named_written) ~= before then
+        return false, "read back otherwise with namespaces:\n" .. named_written
+      end
       Fuzz.label("written")
       return true, ""
     end,
