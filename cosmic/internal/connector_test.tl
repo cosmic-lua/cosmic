@@ -333,7 +333,7 @@ local function test_a_reply_no_request_was_tagged_with_fails_every_request_waiti
     local busy, busy_why = dial(connector, "127.0.0.1", 9, Clock.seconds(5))
     assert(busy == nil and busy_why:find("the connector is busy", 1, true) ~= nil, tostring(busy_why))
     assert(not connector:ended(), "a refusal for want of room leaves the stream in step")
-    local answers: {string} = {}
+    local answers: mut {integer: string} = {}
     local tasks: mut {Poll.Task} = {}
     for i = 1, 3 do
       tasks[i] = Poll.spawn(function()

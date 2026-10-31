@@ -900,20 +900,26 @@ end
 
 --- Each rule the build refuses an asset by, named by the file.
 local function test_stage_refuses_an_asset_it_cannot_carry(tmp: string)
-  local cases: {{string}} = {
-    { "static/a%b.css", "x", "rename it" },
-    { "static/a?b.css", "x", "rename it" },
-    { "static/a#b.css", "x", "rename it" },
-    { "static/a\\b.css", "x", "rename it" },
-    { "static/a\1b.css", "x", "control byte" },
-    { "static/" .. ("n"):rep(100) .. "/" .. ("n"):rep(100) .. "/" .. ("n"):rep(56), "x",
-      "past the 255-byte limit" },
-    { "static/big.bin", ("x"):rep(16 * 1024 * 1024 + 1), "past the 16 MiB limit" },
+  local record Unstageable
+    path: string
+    data: string
+    says: string
+  end
+  local cases: {Unstageable} = {
+    { path = "static/a%b.css", data = "x", says = "rename it" },
+    { path = "static/a?b.css", data = "x", says = "rename it" },
+    { path = "static/a#b.css", data = "x", says = "rename it" },
+    { path = "static/a\\b.css", data = "x", says = "rename it" },
+    { path = "static/a\1b.css", data = "x", says = "control byte" },
+    { path = "static/" .. ("n"):rep(100) .. "/" .. ("n"):rep(100) .. "/" .. ("n"):rep(56),
+      data = "x",
+      says = "past the 255-byte limit" },
+    { path = "static/big.bin", data = ("x"):rep(16 * 1024 * 1024 + 1), says = "past the 16 MiB limit" },
   }
   for i, case in ipairs(cases) do
-    local staged, trouble = stage_files(tmp .. "/" .. tostring(i), { [nth(case, 1)] = nth(case, 2) })
-    assert(staged == nil, case[1])
-    assert(trouble:find(nth(case, 1), 1, true) and trouble:find(nth(case, 3), 1, true), trouble)
+    local staged, trouble = stage_files(tmp .. "/" .. tostring(i), { [case.path] = case.data })
+    assert(staged == nil, case.path)
+    assert(trouble:find(case.path, 1, true) and trouble:find(case.says, 1, true), trouble)
   end
   local fine = stage_files(tmp .. "/fine", { ["static/" .. ("n"):rep(100) .. "/" .. ("n"):rep(100) .. "/" .. ("n"):rep(53)] = "x",
     ["static/16.bin"] = ("x"):rep(16 * 1024 * 1024) })

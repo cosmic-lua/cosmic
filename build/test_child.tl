@@ -66,7 +66,7 @@ local function store_of(module: string, path: string): boolean, string
   end
   local made, trouble = Sqlite.transact(db, function(): boolean, string
     local row, row_trouble = Sqlite.run(db, "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, " ..
-        "source) VALUES (?1, '', 'module', x'', x'', ?2, '', x'')", { bind.text(module), bind.blob(bytecode) })
+        "source) VALUES (?1, '', 'module', x'', x'', deflate(?2), '', x'')", { bind.text(module), bind.blob(bytecode) })
     if not row then return false, row_trouble end
     local meta, meta_trouble = Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('runtime_basis', ?1)",
       { bind.text(basis) })

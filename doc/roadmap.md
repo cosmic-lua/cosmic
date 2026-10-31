@@ -18,8 +18,7 @@ defines the target; once something ships, it leaves this file.
   `function(Event)` also takes a `function(k: KeyEvent)`, because the first
   parameter of such a field, when it is a record or an interface, is the one
   place a record parameter is compared in either direction.
-- make every guard read every place alike
-  ([narrowing by construction](plans/strict-teal.md#narrowing-by-construction)):
+- make every guard read every place alike:
   a path of fixed fields (`a.b.c`) is a place, and so is an index (`t[k]`, `k` a
   literal or a local never reassigned), where a write to any index drops
   every index place; `is` tests a field as it does a local; `x is A | B | C`
@@ -186,14 +185,6 @@ promises lean on come first:
   caller outside a test. `ci/` runs on the release [`ci/cosmic-driver.pin`]
   names, whose [`cosmic.shape`] names a place as `$.a[1].b`, not as a JSON
   Pointer, so its tests match the field and the failure, not the path.
-- a hand-written spec that agrees with its record. [`Shape.record_of`] derives
-  a spec from the record, and no [`Shape.record`] or [`Shape.strict_record`]
-  outside a test or an example is left (`bin/cosmic uses Shape.record`
-  lists them). Nothing yet checks that one names the fields of the record its
-  answer is annotated as, so a field added to the record and not to such a
-  spec is never set (and a strict one refuses the key outright): have `cosmic
-  fix` compare the specs of [`cosmic/shape_example.tl`], and a project's own,
-  with the record their `into` flows into.
 - `shape`'s `record_of`, past what landed in the first form (a string literal
   naming a record, resolved where the module is built, in
   build/shape_specs.tl):
@@ -209,9 +200,6 @@ promises lean on come first:
     bytecode) in every executable a program is built into. Revisit if a
     standalone script needs it; `cosmic script.tl`, which builds the tree
     around the script, resolves it as any module.
-  - `strict_record_of`, or `Typed:strict()`: a config file wants a misspelt
-    key refused, and [`Shape.strict_record`] takes a hand-written table. Wait
-    for a caller.
   - a record that implements an interface (`record R is Base`) is refused:
     the checker keeps the inherited fields in the interface, and reading them
     is a few lines once a record needs it. A record that holds itself is
@@ -225,7 +213,7 @@ promises lean on come first:
     not hand out is refused. Reading it needs the checker's types of that
     module's own scope, which build.receivers does not keep.
   - a spec of a record and a spec in a hand-written [`Shape.list`] or
-    [`Shape.record`] meet through [`Typed.spec`]: a `Typed` is not a `Spec`, so
+    [`Shape.map`] meet through [`Typed.spec`]: a `Typed` is not a `Spec`, so
     `Shape.list(RECORD)` is `Shape.list(RECORD.spec)`. Teal has no
     polymorphic function a module can implement, so `into` and `decode_into`
     cannot take both without a second name.
@@ -234,7 +222,7 @@ promises lean on come first:
   node's text line (an operator, a cast's kind, a type, `static`, a literal's
   value). `-ast-dump=json` names each of those as a field, and clang keeps it
   stable where the text is meant for people. Read it with `cosmic.json` and
-  give each node a [`Shape.record`], the first real caller of both. Measured on
+  give each node a [`Shape.record_of`], the first real caller of both. Measured on
   `core/json.c`: 76 MB of JSON against 3.9 MB of text, 0.27 s to emit
   against 0.22 s, and 0.4 s for [`Json.decode`] to read it with `max_depth` at
   1000 (clang nests past the default 64), holding about 60 MB of Lua heap
@@ -258,6 +246,10 @@ promises lean on come first:
   needs the caller to hand the body over again (a function answering a
   fresh Reader) behind `CURLOPT_SEEKFUNCTION`; curl answers "necessary data
   rewind was not possible" without one.
+- [`cosmic.web.middleware`] past what the first parts need, each once a part of
+  the web layer wants one: `Web.timing`, `Web.request_id` (paired with the
+  CSP nonce and sessions) and `Web.limit_body` (paired with
+  `Server.ServeSpec.body_limit`).
 - `cosmic.web.input` past what the first form binds, each once a route wants
   it: `Input.empty_as_nil(spec)` (an optional string whose `""` is nil),
   `require_nonempty`, `min_length` and `matches` over an [`Input.Invalid`],
@@ -462,10 +454,10 @@ four-producer provenance join.
 [`cosmic.test`]: ../cosmic/test.tl
 [`cosmic.url`]: ../cosmic/url.tl
 [`cosmic.web.dev`]: ../cosmic/web/dev.tl
+[`cosmic.web.middleware`]: ../cosmic/web/middleware.tl
 [`cosmic.web`]: ../cosmic/web/init.tl
 [`cosmic/errors.tl`]: ../cosmic/errors.tl
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl
-[`cosmic/shape_example.tl`]: ../cosmic/shape_example.tl
 [`cosmic/stream.tl`]: ../cosmic/stream.tl
 [`cosmic/template/markup.tl`]: ../cosmic/template/markup.tl
 [`Errors.guidance`]: ../cosmic/errors.tl
@@ -484,10 +476,9 @@ four-producer provenance join.
 [`Server.range`]: ../cosmic/http/server.tl
 [`Server.serve`]: ../cosmic/http/server.tl
 [`Shape.list`]: ../cosmic/shape.tl
+[`Shape.map`]: ../cosmic/shape.tl
 [`Shape.record_of`]: ../cosmic/shape.tl
-[`Shape.record`]: ../cosmic/shape.tl
 [`Shape.Spec`]: ../cosmic/shape.tl
-[`Shape.strict_record`]: ../cosmic/shape.tl
 [`Test.needs_of`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`Typed.spec`]: ../cosmic/shape.tl

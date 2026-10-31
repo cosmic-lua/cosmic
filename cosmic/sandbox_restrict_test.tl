@@ -335,20 +335,26 @@ end
 
 --- A policy for each field a process cannot be held to, with the name
 --- its failure gives.
-local REFUSED <const>: {{string}} = {
-  { "{ isolate = { \"file\" } }", "isolate \"file\"" },
-  { "{ isolate = { \"proc\" } }", "isolate \"proc\"" },
-  { "{ connect = { \"example.com:443\" } }", "connect \"example.com:443\"" },
-  { "{ loopback = { \"127.0.0.2\" } }", "loopback \"127.0.0.2\"" },
-  { "{ promises = { \"nest\" } }", "promises \"nest\"" },
-  { "{ grants = { { path = \"/\", letters = \"ru\" } } }", "grant \"/\" has u" },
-  { "{ grants = { { path = \"/\", letters = \"r\", from = \"/srv\" } } }", "grant \"/\" has from" },
-  { "{ env = { \"HOME\" } }", "env \"HOME\"" },
-  { "{ set_env = { MODE = \"x\" } }", "set_env \"MODE\"" },
-  { "{ tmp = true }", "tmp is" },
-  { "{ limits = { processes = 4 } }", "limits.processes" },
-  { "{ user = 4294967000 }", "user 4294967000" },
-  { "{ profiles = { \"nonesuch\" } }", "nonesuch" },
+--- A policy written out as the source [`Sandbox.restrict`] is called with, and the words its failure holds.
+local record Refusal
+  policy: string
+  says: string
+end
+
+local REFUSED <const>: {Refusal} = {
+  { policy = "{ isolate = { \"file\" } }", says = "isolate \"file\"" },
+  { policy = "{ isolate = { \"proc\" } }", says = "isolate \"proc\"" },
+  { policy = "{ connect = { \"example.com:443\" } }", says = "connect \"example.com:443\"" },
+  { policy = "{ loopback = { \"127.0.0.2\" } }", says = "loopback \"127.0.0.2\"" },
+  { policy = "{ promises = { \"nest\" } }", says = "promises \"nest\"" },
+  { policy = "{ grants = { { path = \"/\", letters = \"ru\" } } }", says = "grant \"/\" has u" },
+  { policy = "{ grants = { { path = \"/\", letters = \"r\", from = \"/srv\" } } }", says = "grant \"/\" has from" },
+  { policy = "{ env = { \"HOME\" } }", says = "env \"HOME\"" },
+  { policy = "{ set_env = { MODE = \"x\" } }", says = "set_env \"MODE\"" },
+  { policy = "{ tmp = true }", says = "tmp is" },
+  { policy = "{ limits = { processes = 4 } }", says = "limits.processes" },
+  { policy = "{ user = 4294967000 }", says = "user 4294967000" },
+  { policy = "{ profiles = { \"nonesuch\" } }", says = "nonesuch" },
 }
 
 --- The child of a case that restricts nothing ends unrestricted, so it
@@ -361,7 +367,7 @@ local function test_every_refusal_holds_nothing(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local lines: mut {string} = {}
   for i, case in ipairs(REFUSED) do
-    lines[#lines + 1] = string.format("say(%q, Sandbox.restrict(%s))", "case" .. tostring(i), case[1])
+    lines[#lines + 1] = string.format("say(%q, Sandbox.restrict(%s))", "case" .. tostring(i), case.policy)
   end
   local said = in_child(table.concat(lines, "\n") .. "\n" .. string.format([[
 -- What the kernel's side refuses: an open descriptor, one fds names that is
@@ -389,8 +395,8 @@ say("free", reads(%q))
   if said == nil then return end
   for i, case in ipairs(REFUSED) do
     local answer = said.lines["case" .. tostring(i)] or ""
-    assert(answer:find("^false sandbox: ") and answer:find(case[2], 1, true),
-      case[1] .. " -> " .. answer)
+    assert(answer:find("^false sandbox: ") and answer:find(case.says, 1, true),
+      case.policy .. " -> " .. answer)
   end
   local fd = said.lines.fd
   assert(said.lines.unnamed == "false sandbox: restrict: descriptor " .. fd ..

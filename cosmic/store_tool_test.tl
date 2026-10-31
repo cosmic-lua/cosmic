@@ -45,7 +45,7 @@ test_child.register("shadowing", function(argv: {string}): integer
   local names: mut {string} = { ordinary }
   for _, name in ipairs(wrappers) do table.insert(names, name) end
   for _, name in ipairs(names) do
-    assert(Sqlite.run(db, "INSERT INTO modules (path, bytecode, kind) VALUES (?1, ?2, 'module')",
+    assert(Sqlite.run(db, "INSERT INTO modules (path, bytecode, kind) VALUES (?1, deflate(?2), 'module')",
       { { text = name }, { blob = impostor } }))
   end
   assert(db:close())
@@ -76,6 +76,43 @@ local function test_a_project_cannot_shadow_a_raw_value_wrapper(tmp: string)
   for _, name in ipairs({ "build.artifact", "build.fuzz", "cosmic.store" }) do
     assert(out:find("wrapper " .. name .. "\n", 1, true), name .. " not found: " .. out)
   end
+end
+
+--- The searcher inflates a module's bytecode before it loads it, and a
+--- row that is not a deflate stream is refused by name: `require` raises,
+--- and the chunk is never handed to `load` as it stands.
+test_child.register("deflated", function(argv: {string}): integer
+  local db = assert(Sqlite.open((argv[1] or ""), { writable = true }))
+  assert(db:exec("CREATE TABLE modules (path TEXT, bytecode BLOB, kind TEXT, source TEXT, file TEXT); " ..
+      "CREATE TABLE meta (key TEXT, value TEXT)"))
+  local chunk = string.dump(function(...: any): any return ... end, true)
+  assert(Sqlite.run(db, "INSERT INTO modules (path, bytecode, kind) VALUES ('project.packed', deflate(?1), 'module')",
+    { { blob = chunk } }))
+  assert(Sqlite.run(db, "INSERT INTO modules (path, bytecode, kind) VALUES ('project.plain', ?1, 'module')",
+    { { blob = chunk } }))
+  assert(db:close())
+  assert(Store.attach((argv[1] or "")))
+  local search = assert(package.searchers[#package.searchers])
+  local loader = assert(search("project.packed"))
+  assert(loader("project.packed") == "project.packed")
+  local bytes = assert(Store.bytecode("project.packed"))
+  assert(bytes == chunk, "the bytecode is answered inflated")
+  local ok, trouble = pcall(search, "project.plain")
+  assert(not ok and tostring(trouble):find("bad bytecode of module 'project.plain'", 1, true) ~= nil,
+    tostring(trouble))
+  local plain, why = Store.bytecode("project.plain")
+  assert(plain == nil and why:find("project.plain", 1, true) ~= nil, why)
+  print("deflated")
+  return 0
+end)
+
+local function test_the_searcher_inflates_bytecode_and_refuses_a_row_that_is_not_deflated(tmp: string)
+  local started = this_program.program(test_child.words(tmp, "cosmic.store_tool_test", "deflated", { tmp .. "/packed.db" }),
+    { env = { XDG_CACHE_HOME = tmp .. "/cache" },
+      stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+  local result = assert(Child.run(started.argv, started.options))
+  assert(result.code == 0, tostring(result.stderr))
+  assert(assert(result.stdout):find("deflated\n", 1, true))
 end
 
 --- A seal with no path, in a process whose cache is the test's own: the
