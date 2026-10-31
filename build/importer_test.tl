@@ -1293,7 +1293,7 @@ local function test_compile_rejects_an_exported_tuple()
   local root = assert(write_fixture("api-contract", {
     ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
     -- A core/ beside build/importer.tl makes the tree cosmic's own
-    -- ([`build.tree.is_own`]), whose modules the contracts hold.
+    -- ([`build.tree.standing`]), whose modules the contracts hold.
     ["core/syscalls.h"] = table.concat({
       "/**",
       " * --- Reads bytes.",

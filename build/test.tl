@@ -1426,19 +1426,19 @@ local function hold_checkout(ctx: Run): integer?
   end
   ctx.started = Clock.monotonic_ns()
   prune_trees(root)
-  local own_tree, own_trouble = tree.is_own(root)
-  if own_tree == nil then
-    log:complain(own_trouble)
+  local standing, standing_trouble = tree.standing(root)
+  if standing == nil then
+    log:complain(standing_trouble)
     return 1
   end
-  ctx.own_tree = own_tree
+  ctx.own_tree = standing.own
   local handle, open_trouble = work.open(root)
   if handle == nil then
     log:complain(open_trouble)
     return 1
   end
   ctx.handle = handle
-  local staged, stage_trouble = work.stage(handle, own_tree)
+  local staged, stage_trouble = work.stage(handle, standing.own)
   if staged == nil then
     local _, _ = work.close(handle)
     log:complain(stage_trouble)
@@ -1448,7 +1448,7 @@ local function hold_checkout(ctx: Run): integer?
 
   -- A stale tool refuses, or rebuilds itself or has zig boot the core
   -- and re-enters this command line ([`reboot.guard`]).
-  if own_tree then
+  if standing.own then
     local code = reboot.guard(handle, root, ctx.argv)
     if code ~= nil then
       return code

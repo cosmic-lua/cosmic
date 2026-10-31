@@ -401,9 +401,9 @@ local function run(file: string, argv: {string}): integer
   end
 
   local started = Clock.monotonic_ns()
-  local own_tree, own_trouble = tree.is_own(root)
-  if own_tree == nil then
-    log:complain(own_trouble)
+  local standing, standing_trouble = tree.standing(root)
+  if standing == nil then
+    log:complain(standing_trouble)
     return 1
   end
   local handle, open_trouble = work.open(root)
@@ -411,7 +411,7 @@ local function run(file: string, argv: {string}): integer
     log:complain(open_trouble)
     return 1
   end
-  local staged, stage_trouble = work.stage(handle, own_tree)
+  local staged, stage_trouble = work.stage(handle, standing.own)
   if staged == nil then
     local _, _ = work.close(handle)
     log:complain(stage_trouble)
@@ -420,7 +420,7 @@ local function run(file: string, argv: {string}): integer
 
   -- A stale tool refuses, or rebuilds itself or has zig boot the core
   -- and re-enters this command line ([`reboot.guard`]).
-  if own_tree then
+  if standing.own then
     local code = reboot.guard(handle, root, argv)
     if code ~= nil then
       return code

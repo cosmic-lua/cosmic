@@ -1347,10 +1347,10 @@ local function prepare_compile(handle: work.Handle, tool: string,
                                unjudged: boolean?, shared: importer.Shared?,
                                choose: Choose?,
                                checks: boolean, target: string?): importer.Result?, string
-  local own_tree, own_trouble = tree.is_own(handle.root)
-  if own_tree == nil then return nil, own_trouble end
+  local standing, standing_trouble = tree.standing(handle.root)
+  if standing == nil then return nil, standing_trouble end
   local broken: {derivation.Broken} = {}
-  local parses, derive_trouble = importer.derive(handle, own_tree, shared, broken)
+  local parses, derive_trouble = importer.derive(handle, standing.own, shared, broken)
   if parses == nil then return nil, derive_trouble end
   if choose ~= nil then
     local recorded, record_trouble = identities.record_identities(handle.db)
@@ -1369,7 +1369,7 @@ local function prepare_compile(handle: work.Handle, tool: string,
       tool = pipeline.coded(tool)
     end
   end
-  return compile_derived(handle, tool, own_tree, parses, unjudged, shared, checks, target, broken)
+  return compile_derived(handle, tool, standing.own, parses, unjudged, shared, checks, target, broken)
 end
 
 --- The cache belongs to the whole derive/identity/compile operation,
