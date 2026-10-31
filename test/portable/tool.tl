@@ -9,6 +9,7 @@ local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Stream = require("cosmic.stream")
 local artifact = require("build.artifact")
 local fixture = require("test.portable")
 local probe = require("test.portable.probe")
@@ -34,6 +35,34 @@ local function compress_release_core(argv: {string}): integer
   assert(core_path ~= nil and out ~= nil, "usage: tool.tl compress-core CORE OUT")
   local frame = assert(Compress.zstd(assert(Fs.read(core_path)), artifact.zstd_level()))
   assert(Fs.write(out, frame))
+  return 0
+end
+
+--- Writes to OUT the zstd frame of the file IN at LEVEL: with `stream`, as the
+--- streaming encoder writes it (a checksum and no content size), otherwise as
+--- [`Compress.zstd`] does (the frame the decode stub takes). What a fixture
+--- that cannot call the encoder itself has a tool write.
+local function zstd_encode(argv: {string}): integer
+  local input, out, level, how = argv[1], argv[2], tonumber(argv[3]), argv[4]
+  assert(input ~= nil and out ~= nil and level ~= nil and (how == nil or how == "stream"),
+    "usage: tool.tl zstd-encode IN OUT LEVEL [stream]")
+  local raw = assert(Fs.read(input))
+  local frame: string
+  if how == "stream" then
+    frame = assert(Stream.run(assert(Compress.zstd_encoder(math.tointeger(level) or 0)), raw))
+  else
+    frame = assert(Compress.zstd(raw, math.tointeger(level) or 0))
+  end
+  assert(Fs.write(out, frame))
+  return 0
+end
+
+--- Writes to OUT the LENGTH bytes the zstd frame in the file IN decodes to.
+local function zstd_decode(argv: {string}): integer
+  local input, out, length = argv[1], argv[2], math.tointeger(tonumber(argv[3]))
+  assert(input ~= nil and out ~= nil and length ~= nil, "usage: tool.tl zstd-decode IN OUT LENGTH")
+  local decoded = assert(Stream.run(assert(Compress.zstd_decoder(1 << 23)), assert(Fs.read(input)), length))
+  assert(Fs.write(out, decoded))
   return 0
 end
 
@@ -383,6 +412,8 @@ local subcommands: mut {string:function({string}):integer} = {
   ["product-database"] = product_database,
   ["product-extract"] = product_extract,
   ["write-format-fixture"] = write_format_fixture,
+  ["zstd-decode"] = zstd_decode,
+  ["zstd-encode"] = zstd_encode,
   ["write-launcher-fixture"] = write_launcher_fixture,
   ["write-runtime-fixture"] = write_runtime_fixture,
 }

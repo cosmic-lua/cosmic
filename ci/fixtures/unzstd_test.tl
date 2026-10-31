@@ -1,6 +1,4 @@
-local Compress = require("cosmic.compress")
 local Fixture = require("cosmic_ci.fixture")
-local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
@@ -66,16 +64,19 @@ local function le32(n: integer): string
   return string.pack("<I4", n)
 end
 
---- The frame the stub takes for `raw`: Compress.zstd's.
-local function frame_of(raw: string): string
-  return (assert(Compress.zstd(raw, 19)))
+local frames = 0
+
+--- The frame the stub takes for `raw`: Compress.zstd's, written by the candidate tool.
+local function frame_of(tmp: string, raw: string): string
+  frames = frames + 1
+  return Fixture.zstd_encode(tmp, "frame-" .. tostring(frames), raw, 19)
 end
 
 --- The frame a streaming encoder writes for `raw`: a checksum, and no
 --- content size, since it takes its input a chunk at a time.
-local function streamed(raw: string): string
-  local encoder = assert(Compress.zstd_encoder(19))
-  return (assert(Stream.run(encoder, raw)))
+local function streamed(tmp: string, raw: string): string
+  frames = frames + 1
+  return Fixture.zstd_encode(tmp, "frame-" .. tostring(frames), raw, 19, true)
 end
 
 --- `frame`, a streamed one, with `size` declared as its content size and
@@ -151,7 +152,7 @@ local function test_a_frame_round_trips(tmp: string)
   -- Past the stub's read chunk and output buffer; an incompressible
   -- stream (stored blocks); and one byte.
   for name, raw in pairs({ text = sentence(300000), noise = noise(200000), one = "z" }) do
-    local r = run(tmp, "round-" .. name, frame_of(raw), #raw)
+    local r = run(tmp, "round-" .. name, frame_of(tmp, raw), #raw)
     assert(r.ok and r.output == raw, name .. ": " .. r.message)
   end
 end
@@ -159,7 +160,7 @@ end
 local function test_the_hosts_core_round_trips(tmp: string)
   local core = Fixture.read(Fixture.required("COSMIC_FIXTURE_BUILD") .. "/core/" ..
       Fixture.required("COSMIC_FIXTURE_TARGET") .. "/cosmic-core")
-  local frame = frame_of(core)
+  local frame = frame_of(tmp, core)
   local r = run(tmp, "core", frame, #core)
   assert(r.ok and r.output == core, "the core does not round trip: " .. r.message)
   -- The window the encoder chose for a core is within the stub's limit
@@ -169,9 +170,9 @@ end
 
 local function test_the_content_size_must_be_declared_and_equal(tmp: string)
   local raw = sentence(5000)
-  local frame = streamed(raw)
+  local frame = streamed(tmp, raw)
   refused(run(tmp, "no-size", frame, #raw), 1, "content size", #raw, "no content size")
-  local good = frame_of(raw)
+  local good = frame_of(tmp, raw)
   refused(run(tmp, "long-arg", good, #raw + 1), 1, "content size", #raw + 1, "length past the declared")
   refused(run(tmp, "short-arg", good, #raw - 1), 1, "content size", #raw - 1, "length short of the declared")
   refused(run(tmp, "lying", declared(frame, #raw + 1), #raw + 1), 1, "", #raw + 1, "a declared size the blocks do not fill")
@@ -179,7 +180,7 @@ end
 
 local function test_the_checksum_must_be_present_and_right(tmp: string)
   local raw = sentence(5000)
-  local good = frame_of(raw)
+  local good = frame_of(tmp, raw)
   local unchecked = good:sub(1, 4) .. string.char(byte_at(good, 5) & ~0x04) .. good:sub(6, -5)
   refused(run(tmp, "no-checksum", unchecked, #raw), 1, "no checksum", #raw, "no checksum")
   local flipped = good:sub(1, -2) .. string.char(byte_at(good, -1) ~ 1)
@@ -188,9 +189,9 @@ end
 
 local function test_exactly_one_frame_and_nothing_after_it(tmp: string)
   local first, second = sentence(3000), noise(2000)
-  local one = frame_of(first)
+  local one = frame_of(tmp, first)
   local skippable = "\80\42\77\24" .. le32(4) .. "abcd"
-  refused(run(tmp, "two", one .. frame_of(second), #first), 1, "after the frame", #first, "a second frame")
+  refused(run(tmp, "two", one .. frame_of(tmp, second), #first), 1, "after the frame", #first, "a second frame")
   refused(run(tmp, "trailing", one .. "\0", #first), 1, "after the frame", #first, "a trailing byte")
   refused(run(tmp, "skippable-after", one .. skippable, #first), 1, "after the frame", #first, "a skippable frame after")
   refused(run(tmp, "skippable-first", skippable .. one, #first), 1, "skippable", #first, "a skippable frame first")
@@ -199,7 +200,7 @@ end
 
 local function test_a_short_or_cut_range_fails(tmp: string)
   local raw = sentence(20000)
-  local good = frame_of(raw)
+  local good = frame_of(tmp, raw)
   refused(run(tmp, "past-eof", good, #raw, nil, #good + 5, false), 1, "ends inside", #raw, "a range past the end of the file")
   refused(run(tmp, "cut", good:sub(1, -5), #raw), 1, "truncated", #raw, "a frame cut before its checksum")
   refused(run(tmp, "cut-header", good:sub(1, 6), #raw), 1, "truncated", #raw, "a cut header")
@@ -213,7 +214,7 @@ local function test_a_window_past_the_limit_is_refused_before_decoding(tmp: stri
   local source = Fixture.read(Fixture.required("COSMIC_FIXTURE_ROOT") .. "/core/unzstd.h")
   local log = assert(math.tointeger(tonumber(source:match("COSMIC_UNZSTD_WINDOW_LOG%s+(%d+)"))))
   local raw = sentence(5000)
-  local frame = streamed(raw)
+  local frame = streamed(tmp, raw)
   local limit = (log - 10) << 3
   assert(byte_at(frame, 6) <= limit, "the encoder's window is within the stub's limit")
   assert(run(tmp, "window-at", declared(frame, #raw, limit), #raw).ok, "a window at the limit")
@@ -223,7 +224,7 @@ end
 
 local function test_bad_arguments_are_refused(tmp: string)
   local raw = sentence(1000)
-  local good = frame_of(raw)
+  local good = frame_of(tmp, raw)
   local size, length = tostring(#good), tostring(#raw)
   local at = tostring(junk_before)
   local nothing: mut {string} = {}
@@ -254,7 +255,7 @@ end
 --- range is cut.
 local function test_a_damaged_frame_never_decodes_to_other_bytes(tmp: string)
   local raw = sentence(3000) .. noise(300)
-  local good = frame_of(raw)
+  local good = frame_of(tmp, raw)
   local function holds(label: string, stored: string)
     local r = run(tmp, label, stored, #raw)
     assert(not r.ok or r.output == raw, label .. ": accepted other bytes")
@@ -287,7 +288,7 @@ end
 
 local function test_a_descriptor_that_is_no_regular_file_is_refused(tmp: string)
   local raw = sentence(1000)
-  local good = frame_of(raw)
+  local good = frame_of(tmp, raw)
   local outcome = Fixture.call_with_descriptors("directory", { stub_path(), "3", "0", tostring(#good),
     tostring(#raw) }, tmp, tmp .. "/logs", Fixture.environment(), { [3] = tmp })
   assert(not outcome.result.ok and outcome.result.code == 2, "a directory: " .. Fixture.read(outcome.err))
@@ -301,7 +302,7 @@ local function test_a_full_output_device_fails(tmp: string)
     return
   end
   local raw = sentence(300000)
-  local r = shell(tmp, "full", frame_of(raw), #raw, 'exec "$@" > /dev/full')
+  local r = shell(tmp, "full", frame_of(tmp, raw), #raw, 'exec "$@" > /dev/full')
   assert(not r.ok and r.code == 3 and r.message:find("cannot write", 1, true) ~= nil,
     "a full device: exit " .. tostring(r.code) .. ": " .. r.message)
 end
@@ -310,7 +311,7 @@ end
 --- one it is run on twice, gives the same bytes.
 local function test_the_descriptors_offset_neither_matters_nor_moves(tmp: string)
   local raw = noise(70000)
-  local r = shell(tmp, "offset", frame_of(raw), #raw,
+  local r = shell(tmp, "offset", frame_of(tmp, raw), #raw,
     'head -c 5 <&3 > /dev/null; "$@" > "$0.a" || exit 1; head -c 9 <&3 > /dev/null; "$@" > "$0.b" || exit 1; ' ..
       'cat "$0.a" "$0.b"')
   assert(r.ok, "two runs: " .. r.message)
@@ -331,7 +332,7 @@ local function test_the_decode_fits_a_small_memory_limit(tmp: string)
   end
   local core = Fixture.read(Fixture.required("COSMIC_FIXTURE_BUILD") .. "/core/" ..
       Fixture.required("COSMIC_FIXTURE_TARGET") .. "/cosmic-core")
-  local r = shell(tmp, "limited", frame_of(core), #core, 'ulimit -v 24576 && exec "$@"')
+  local r = shell(tmp, "limited", frame_of(tmp, core), #core, 'ulimit -v 24576 && exec "$@"')
   assert(r.ok and r.output == core, "under 24 MiB: " .. r.message)
 end
 
