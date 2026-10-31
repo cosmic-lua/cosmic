@@ -2,6 +2,7 @@
 --- a program with: the program read by the new checker, with a small prelude of functions that fail and a stand-in
 --- [`cosmic.log`]. The checker reads it against the real standard library's declarations. A test that uses this module
 --- grants [`lang/prelude.d.tl`] and [`lang/stdlib.d.tl`] for reading.
+local AnalysisSchema = require("build.analysis_schema")
 local Rules = require("build.contract_rules")
 local Fs = require("cosmic.fs")
 local GenSyscalls = require("build.gen_syscalls")
@@ -143,7 +144,11 @@ function Fixture.port(source: string, modules?: {string: string}, given?: Rules.
   for _, r in ipairs(Receivers.references(subject)) do
     uses[#uses + 1] = { module = r.module, member = r.member, line = r.line }
   end
-  local read = SyntaxContracts.check(subject, given)
+  local declared: mut {string} = {}
+  for module, text in pairs(modules or {}) do
+    if AnalysisSchema.declares_binding(text) then declared[#declared + 1] = module end
+  end
+  local read = SyntaxContracts.check(subject, given, declared)
   return { refs = uses, problems = read.problems, used = read.used, sites = read.sites }
 end
 

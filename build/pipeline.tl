@@ -716,7 +716,7 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
     refused = trouble ~= ""
   end
   if Rules.applies(m.kind, m.generated) then
-    local read = SyntaxContracts.check(subject)
+    local read = SyntaxContracts.check(subject, nil, SyntaxContracts.declared_in(built.index))
     local problems = read.problems
     local allowed = Ceilings.of(built.ceilings, "untyped")[m.file] or 0
     if read.untyped > allowed then
