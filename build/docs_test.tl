@@ -2560,22 +2560,39 @@ local function test_a_projection_other_code_wrote_is_left_out(dir: string)
   assert(projection:close())
 end
 
---- A module whose prose says the query's word comes before the members
---- that only carry it in a parameter's name: `docs database` answers the
---- module that is about databases, not each function that takes a handle.
-local function test_a_module_whose_prose_matches_beats_members_that_take_its_handle()
+--- A single word names a topic: the module whose prose says it comes before
+--- a member that only mentions it in passing (`db: Sqlite.Handle` is the
+--- parameter of each function that takes one), though the member's prose is
+--- shorter. `docs Db` answers the module about databases.
+local function test_a_module_whose_prose_says_the_word_beats_members_that_take_its_handle()
   local db = database({
-    { "cosmic.vector", "Vector.load", "function", "function Vector.load(database: Sqlite.Handle, name: string): Vector?",
-      "Loads one vector by name.", "cosmic/vector.tl", "10" },
-    { "cosmic.session", "Session.store", "function", "function Session.store(database: Sqlite.Handle): Session",
-      "Keeps sessions.", "cosmic/session.tl", "20" },
+    { "cosmic.vector", "Vector.load", "function", "function Vector.load(db: Sqlite.Handle, name: string): Vector?",
+      "Loads one vector by name from the `db`.", "cosmic/vector.tl", "10" },
+    { "cosmic.session", "Session.store", "function", "function Session.store(db: Sqlite.Handle): Session",
+      "Keeps sessions in a db.", "cosmic/session.tl", "20" },
     { "cosmic.sqlite", "", "module", "",
-      "Opens a database file, runs SQL on it and reads the rows back. A database is held by a handle.",
+      "SQLite, typed: an embedded database, a `db` in one file or in memory, with no server to run.",
       "cosmic/sqlite.tl", "1" },
+    { "cosmic.sqlite", "Sqlite.Handle", "type", "type Handle = raw.Handle", "An open database.",
+      "cosmic/sqlite.tl", "5" },
   }, {})
-  local found = assert(docs.lookup(view({ db }), "database"))
+  local found = assert(docs.lookup(view({ db }), "Db"))
   local first = assert(found[1])
   assert(first.module == "cosmic.sqlite" and first.symbol == "", first.module .. " " .. first.symbol)
+  assert(db:close())
+end
+
+--- A word of under four letters is a word of its own in a guide's section:
+--- "db" is not in "sandbox". A heading said twice takes `-1` as its anchor,
+--- as GitHub makes it.
+local function test_a_short_word_matches_whole_words_and_a_repeated_heading_is_numbered()
+  local page = "Intro.\n\n## sandbox\n\nThe sandbox holds a program.\n\n## again\n\nFirst.\n\n## again\n\nSecond: a `db` here."
+  local db = database({
+    { "doc.guides.language", "", "module", "", page, "doc/guides/language.md", "1" },
+  }, {})
+  local found = assert(docs.lookup(view({ db }), "db"))
+  assert(#found == 1, tostring(#found))
+  assert(assert(found[1]).source_symbol == "doc.guides.language#again-1", assert(found[1]).source_symbol)
   assert(db:close())
 end
 

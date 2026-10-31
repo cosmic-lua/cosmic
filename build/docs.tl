@@ -834,6 +834,12 @@ local function searched_docs(db: Sqlite.Handle, public: boolean,
   -- before each function that takes one.
   binds[#binds + 1] = text("{symbol text}: (" .. fts_query(query) .. ")")
   local said = "d.id IN (SELECT rowid FROM docs_fts WHERE docs_fts MATCH ?" .. tostring(#binds) .. ") DESC, "
+  -- With one word, which names a topic, the module that says it comes
+  -- before a member that says it in passing; with several, which ask for
+  -- something to do, the member does.
+  if #words == 1 then
+    said = said .. "d.symbol = '' DESC, "
+  end
   local phrase = ""
   if #words > 1 then
     local typed: mut {string} = {}
@@ -935,6 +941,18 @@ local function stem(word: string): string
   return word:lower()
 end
 
+--- How many times `word` (see [`stem`]) occurs in the lowercase `written`: a
+--- stem of four letters or more anywhere, a shorter word only as a word of
+--- its own, so "db" is not found in "sandbox".
+local function occurrences(written: string, word: string): integer
+  local pattern = word:gsub("%p", "%%%0")
+  if #word < 4 then
+    pattern = "%f[%w_]" .. pattern .. "%f[^%w_]"
+  end
+  local _, count = written:gsub(pattern, "")
+  return count
+end
+
 local record Scored
   entry: docs.Entry
   score: integer
@@ -946,10 +964,18 @@ local function sections_of(guide: string): {Section}
   local lines: mut {string} = {}
   local started = false
   local fence = false
+  -- A heading said again takes `-1`, `-2` after its anchor, as GitHub does.
+  local made: mut {string: integer} = {}
   --- Adds the section being read, once it has a heading.
   local function close()
     if started then
-      local slug = heading:lower():gsub("[^%w_%- ]", ""):gsub(" ", "-")
+      local base = heading:lower():gsub("[^%w_%- ]", ""):gsub(" ", "-")
+      local slug = base
+      local times = made[base] or 0
+      if times > 0 then
+        slug = base .. "-" .. tostring(times)
+      end
+      made[base] = times + 1
       local section: Section = { heading = heading, anchor = slug,
         body = String.trim(table.concat(lines, "\n")) }
       out[#out + 1] = section
@@ -1000,9 +1026,8 @@ local function guide_sections(db: Sqlite.Handle, public: boolean, query: string)
       local said = section.body:lower()
       local score, headed = 0, false
       for _, word in ipairs(words) do
-        local in_heading = titled:find(word, 1, true) ~= nil
-        local escaped = word:gsub("%p", "%%%0")
-        local _, count = said:gsub(escaped, "")
+        local in_heading = occurrences(titled, word) > 0
+        local count = occurrences(said, word)
         if not in_heading and count == 0 then
           score = -1
           break

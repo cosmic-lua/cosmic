@@ -25,12 +25,12 @@ print(counter.name, counter.hits)
 visits	1
 ```
 
-`readonly f: T` is a form of the old grammar. It means `f: T` here, so write `f: T`.
+`readonly f: T` is a form of the old grammar. The parser refuses it (`expected_token`): write `f: T`.
 
 ## narrowing
 
 A test tells the checker what a value is, inside the branch it guards. After `if job.note ~= nil`, `job.note` is a `string`
-there. A fixed field narrows, and so does a local, whether the test is `~= nil`, `is`, or a comparison with a literal.
+there. A fixed field narrows, and so does a local, whether the test is `~= nil` or `is`. A comparison with a literal (`n == "abc"`) narrows nothing.
 
 ```teal
 local record Job
@@ -54,9 +54,9 @@ sort: by size
 pack
 ```
 
-Two things end a narrowing. A `mut` field can change under the test, so it narrows nothing: copy it to a local and test
-the local. An assignment to the local ends it too, and `narrowing_dropped` (`cosmic docs narrowing_dropped`) names the
-read that still needs it: test the value again after the assignment.
+Two things stop a narrowing. A `mut` field can change under the test, so it narrows nothing: copy it to a local and test
+the local. Assigning the local a value that may itself be nil drops what the test showed, and `narrowing_dropped`
+(`cosmic docs narrowing_dropped`) names the read that still needs it: test the value again after the assignment.
 
 ```teal
 local record Slot
