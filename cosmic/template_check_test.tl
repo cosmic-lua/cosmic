@@ -171,7 +171,7 @@ local function build(tmp: string, case: string, files: {string: string}): {strin
   end
   local lua: mut {string: string} = {}
   for _, m in ipairs(result.modules) do
-    lua[m.path] = m.lua
+    lua[m.path] = assert(m.lua)
   end
   return lua, ""
 end

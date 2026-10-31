@@ -198,7 +198,7 @@ local function closure(m: Module, by_path: {string:Module},
   local standalone = by_path["build.standalone"]
   if m.inputs ~= nil and m.inputs.lua and standalone ~= nil then stack[#stack + 1] = standalone end
   while #stack > 0 do
-    local here = table.remove(stack)
+    local here = assert(table.remove(stack))
     if seen[here.path] ~= true then
       seen[here.path] = true
       files[#files + 1] = here.file
@@ -222,7 +222,7 @@ local function closure(m: Module, by_path: {string:Module},
   -- Each of `lua_loads`, for a module that declares `lua`, as a module it
   -- requires whose own requires it does not follow: each one's top-level
   -- requires are among them.
-  local declared: PolicyRules.Declared = m.inputs
+  local declared: PolicyRules.Declared = assert(m.inputs)
   local function hold(loads: {string})
     for _, name in ipairs(loads) do
       local other = by_path[name]
@@ -273,7 +273,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
   -- name may be computed, and corpora are small.
   if fuzzes then out.reads[1] = corpora end
   for _, name in ipairs(pinned_env) do out.env[name] = true end
-  local declared: PolicyRules.Declared = m.inputs
+  local declared: PolicyRules.Declared = assert(m.inputs)
   if declared ~= nil then
     for _, path in ipairs(declared.reads) do out.reads[#out.reads + 1] = path end
     for _, path in ipairs(declared.host) do out.host[#out.host + 1] = path end

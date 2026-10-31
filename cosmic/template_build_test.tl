@@ -63,7 +63,7 @@ local function compile(root: string): {string: string}?, string
   end
   local lua: mut {string: string} = {}
   for _, m in ipairs(result.modules) do
-    lua[m.path] = m.lua
+    lua[m.path] = assert(m.lua)
   end
   return lua, ""
 end
@@ -79,18 +79,18 @@ end
 --- The module `path` of `lua`, run against the real [`cosmic.html`].
 --- Each module it loads is set in `loaded`, when given.
 local function load_module(lua: {string: string}, path: string, loaded?: mut {string: any}): any
-  loaded = loaded or {}
+  local held: mut {string: any} = loaded or {}
   local function req(name: string): any
     if name == "cosmic.html" then
       return Html
     end
-    if loaded[name] == nil then
+    if held[name] == nil then
       local env: {string: any} = setmetatable({}, { __index = _G })
       env.require = req
       local chunk = assert(load(assert(lua[name], "no module " .. name), "=" .. name, "t", env))
-      loaded[name] = chunk()
+      held[name] = chunk()
     end
-    return loaded[name]
+    return held[name]
   end
   return req(path)
 end

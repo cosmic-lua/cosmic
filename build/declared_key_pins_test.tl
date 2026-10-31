@@ -42,7 +42,7 @@ local function test_the_graph_key_is_pinned(tmp: string)
   local result = assert(importer.compile(handle, "declared-key-pins-test"))
   assert(work.close(handle))
   local keys: mut {string:string} = {}
-  for _, m in ipairs(result.modules) do keys[m.path] = m.graph_key end
+  for _, m in ipairs(result.modules) do keys[m.path] = assert(m.graph_key) end
   local pinned: {string:string} = {
     greet = "4d064f306aece5afe9d3df587cb38afac995022ee430af425021811044c42c1d",
     greet_test = "0a612f45ba0e340374c42b67687f0b2277e044b2dd33bb2cfcffafb51654fd2d",
