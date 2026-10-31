@@ -3043,7 +3043,8 @@ end
 --- the page shows them, a line each, for a script or an agent to read:
 --- `query`, `exact` (whether the query names the entry), `module`,
 --- `symbol` (empty for a module), `kind`, `file`, `line`, `signature` and
---- `text`. A query that finds nothing has no line. Nil and why when a
+--- `text`. No words list the standard library's modules, as
+--- `cosmic docs cosmic` does. A query that finds nothing has no line. Nil and why when a
 --- database cannot be read; `found` is false when a query found nothing,
 --- and `said` is empty.
 function docs.records(view: docs.View, words: {string}): docs.Answer?, string

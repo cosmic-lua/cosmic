@@ -3,6 +3,7 @@ local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
+local dataset = require("build.dataset")
 local docs = require("build.docs")
 local rebuild = require("build.rebuild")
 local sys = require("cosmic.sys")
@@ -969,6 +970,25 @@ local function test_records_are_one_json_object_per_entry(dir: string)
   assert(type(read["signature"]) == "string" and type(read["text"]) == "string", nth(lines, 2))
   local missing = assert(docs.records(view({ db }), { "Fs.read", "Nope.unheard" }))
   assert(not missing.found, "a query that finds nothing fails the run")
+end
+
+--- The pipeline the help shows, `cosmic docs --json ... | cosmic sql --from
+--- docs=-`, run in-process: the records load as the `docs` table and the
+--- query answers a row per function.
+local function test_records_load_as_a_table_sql_can_filter(dir: string)
+  local db = built(dir, fs_tree())
+  local records = assert(docs.records(view({ db }), { "Fs.read", "Fs.write" }))
+  local handle = assert(Sqlite.memory())
+  assert(dataset.load_text(handle, "docs", "ndjson",
+    table.concat(records.lines, "\n") .. "\n"))
+  local q = assert(Sqlite.query(handle,
+    "SELECT symbol, line FROM docs WHERE kind = 'function' ORDER BY symbol"))
+  local seen: mut {string} = {}
+  for row in q:each() do
+    seen[#seen + 1] = row:text(1)
+  end
+  q:close()
+  assert(table.concat(seen, ",") == "read,write", table.concat(seen, ","))
 end
 
 --- `cosmic` alone, which a search finds in nearly every comment, lists
