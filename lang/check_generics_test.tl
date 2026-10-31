@@ -470,6 +470,24 @@ local function test_a_bound_a_passed_generic_function_does_not_meet_is_bound_unm
   refused(head .. "local ok, r = pcall(label, p)\nprint(ok, r)\n", "bound_unmet")
   -- a bound that is not the only failure is not the answer: declaring `Plain is Named` would still leave this call refused
   refused(head .. "local ok, r = pcall(label, p, 5)\nprint(ok, r)\n", "overload_none")
+  -- nor when another argument is refused too: declaring the bound would leave the call refused
+  refused(head .. "local function wide(a: integer, b: integer): string\n  return \"\"\nend\nlocal ok, r = xpcall(label, wide, p)\nprint(ok, r)\n",
+    "overload_none")
+  refused(head .. "local ok, r = xpcall(label, print, p)\nprint(ok, r)\n", "overload_none")
+  -- every bound a type fails is named in one message, and an interface can be given the one it lacks
+  local two = "local interface Named\n  name: string\nend\nlocal interface Other\n  other: string\nend\n" ..
+    "local record Plain\n  name: string\nend\nlocal interface Loose\n  id: string\nend\n" ..
+    "local function both<T is Named, U is Other>(a: T, b: U): string\n  return a.name\nend\n" ..
+    "local function pair<T is Named, U is Other>(a: T, b: U): string\n  return a.name\nend\n"
+  local p, q = "local p: Plain = { name = \"ann\" }\nlocal q: Plain = { name = \"bo\" }\n", ""
+  local both = Programs.run(HEAD .. two .. p .. q .. "local ok, r = pcall(both, p, q)\nprint(ok, r)\n")
+  local named = both.errors[1]
+  assert(Programs.codes(both) == "bound_unmet" and named ~= nil and named.msg:find("`T`", 1, true) ~= nil and
+      named.msg:find("`U`", 1, true) ~= nil, Programs.codes(both))
+  local loose = Programs.run(HEAD .. two .. "local function use(s: Loose, t: Loose)\n  print(pcall(both, s, t))\nend\nprint(use)\n")
+  local on_interface = loose.errors[1]
+  assert(on_interface ~= nil and on_interface.fix:find("declare `is Named` on `Loose`", 1, true) ~= nil,
+    Programs.codes(loose))
   -- a type the program cannot give the interface to is told only to pass one that has it
   local built_in = Programs.run(HEAD .. head .. "local ok, r = pcall(label, 5)\nprint(ok, r)\n")
   local said = built_in.errors[1]
