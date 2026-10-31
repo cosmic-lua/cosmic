@@ -344,14 +344,22 @@ network.
 directory `build/paths.tl` names) as `test --all` from `GITHUB_WORKSPACE`
 over every `*_fuzz_test.tl` outside its top-level `o/`, `vendor/` and
 `ci/`, with the environment it was given (`FUZZ_SEED` and `FUZZ_ITERS`
-among it), `TMPDIR` at `$RUNNER_TEMP/fuzz`, `COSMIC_AUTO_BOOT=0` and
-`COSMIC_TEST_TIMEOUT=1200`. Both its streams go to
+among it), `TMPDIR` at `$RUNNER_TEMP/fuzz`, `COSMIC_AUTO_BOOT=0`,
+`COSMIC_TEST_TIMEOUT=1200` and `FUZZ_SECONDS=120` unless the environment
+names another (the seconds a property may spend drawing inputs, so that
+one costing a tenth of a second an input on this core draws what fits
+and says how many, instead of running past the test's limit). Both its
+streams go to
 `$RUNNER_TEMP/fuzz.out`, copied to the job log as they are written; its
 status goes to `$RUNNER_TEMP/fuzz.status` and is the command's own. The
 step summary gets the seed, and on a failure the failing tests' lines
-and the reports beneath them. `fuzz-cancelled` appends the last 40 lines
-of `$RUNNER_TEMP/fuzz.out`, if there is one, to the step summary. Both
-write the summary where `summarize` does.
+and the reports beneath them, and the tests that ran five minutes or
+more (`test: slow:` lines, said as each ended). `fuzz-cancelled` appends
+to the step summary, and says again in the job's log, the last progress
+line of `$RUNNER_TEMP/fuzz.out` (which names the tests still running,
+longest first, and how many have failed), the slow tests, and the last 40
+lines, if there is an output. Both write the summary where `summarize`
+does.
 
 `image-build` is ci-images.yml's and `image-publish` ci-images-publish.yml's:
 they run `docker`, found on `PATH`, from `GITHUB_WORKSPACE`, record no

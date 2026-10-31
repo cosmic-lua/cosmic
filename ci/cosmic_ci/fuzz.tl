@@ -26,6 +26,17 @@ local record Fuzz
     log: integer
     summarize: function(string)
   end
+
+  --- What a run's output says of how it went, besides its end.
+  record Scanned
+    --- The last progress line `cosmic test` said, which names the failures
+    --- so far and the tests that have run longest (build/test.tl's
+    --- `running_detail`), or nil when it said none.
+    mut progress?: string
+    --- Every line that ended a slow test ("slow: <test> took <time>"),
+    --- without its "test: ", the first `slow_lines`.
+    mut slow: mut {string}
+  end
 end
 
 --- The checked core, relative to the checkout's root: `bin/zig build
@@ -40,6 +51,14 @@ local failing_lines <const> = 30
 local report_lines <const> = 60
 local tail_lines <const> = 40
 local chunk <const> = 65536
+--- Seconds a property may spend drawing inputs (build/fuzz/init.tl's
+--- `FUZZ_SECONDS`), unless the job's environment says another number. A
+--- property whose inputs cost 0.1 s to 0.5 s on the checked core (the
+--- checker's, the relation's, the R*Tree's) would otherwise spend hours
+--- on FUZZ_ITERS=10000, past the 1200 seconds a test may run and the
+--- hour the job may: the first 64 inputs and as many more as fit are
+--- drawn, and the run says how many.
+local property_seconds <const> = "120"
 local poll_ns <const> = 100 * 1000 * 1000
 --- One drain yields to signal/status supervision after this many bytes.
 local drain_bytes <const> = 4 * chunk
@@ -79,16 +98,18 @@ local record Taken
 end
 
 --- Calls `each` with every line `next_chunk` answers, as grep reads them
---- (a last line without a newline is a line too), each cut to `cut`
---- bytes so that a line of any length takes no more than that. Stops
---- when `next_chunk` answers "" or `each` answers true.
+--- (a last line without a newline is a line too), each cut to
+--- bytes (`limit`, `cut` by default) so that a line of any length takes
+--- no more than that. Stops when `next_chunk` answers "" or `each`
+--- answers true.
 local function each_line(next_chunk: function(): string,
-                         each: function(string): boolean)
+                         each: function(string): boolean, limit?: integer)
   local line: mut {string} = {}
   local taken: Taken = { length = 0 }
+  local longest = limit or cut
   local function add(piece: string)
-    if taken.length < cut and #piece > 0 then
-      local kept = piece:sub(1, cut - taken.length)
+    if taken.length < longest and #piece > 0 then
+      local kept = piece:sub(1, longest - taken.length)
       line[#line + 1] = kept
       taken.length = taken.length + #kept
     end
@@ -222,12 +243,54 @@ function Fuzz.tail(path: string): {string}?
   return tailed.lines
 end
 
---- What a cancelled run's summary says: the end of the output the run
---- kept, as [`Fuzz.tail`] answers it, or none when it kept none.
-function Fuzz.cancelled_summary(tail: {string}?): string
-  return "\nCancelled, at the time limit or by hand, before fuzzing finished:" ..
-    " a property\nthat hangs is the likeliest cause. The end of its output:\n\n" ..
-    "~~~~\n" .. joined(tail or {}, tail_lines) .. "~~~~\n"
+--- A progress line, and the line that ends a test that ran slow
+--- (build/test.tl's `slow_ns`), as `cosmic test` says them.
+local progress_prefix <const> = "test: running "
+local slow_prefix <const> = "test: slow: "
+local slow_lines <const> = 60
+--- The longest a progress line is read: it names three tests by their ids.
+local progress_cut <const> = 1000
+
+--- The last progress line and the slow tests' lines of the output that
+--- `next_chunk` answers a chunk at a time until it answers "".
+function Fuzz.scan(next_chunk: function(): string): Fuzz.Scanned
+  local scanned: Fuzz.Scanned = { slow = {} }
+  each_line(next_chunk, function(line: string): boolean
+    if line:sub(1, #slow_prefix) == slow_prefix then
+      if #scanned.slow < slow_lines then
+        local said = line:sub(#"test: " + 1)
+        scanned.slow[#scanned.slow + 1] = said
+      end
+    elseif line:sub(1, #progress_prefix) == progress_prefix and line:match("^test: running %d+/%d+ tests, ") ~= nil then
+      scanned.progress = line
+    end
+    return false
+  end, progress_cut)
+  return scanned
+end
+
+--- What a summary adds for the tests that ran long, or nothing when none did.
+function Fuzz.slow_summary(scanned: Fuzz.Scanned): string
+  if #scanned.slow == 0 then return "" end
+  return "\nTests that ran five minutes or more, each said as it ended:\n\n~~~~\n" ..
+    joined(scanned.slow, slow_lines) .. "~~~~\n"
+end
+
+--- What a cancelled run's summary says: how far it got, as [`Fuzz.scan`]
+--- found it (the tests still running when it last said, longest first, and
+--- those that ran long), and the end of the output the run kept, as
+--- [`Fuzz.tail`] answers it, or none when it kept none.
+function Fuzz.cancelled_summary(tail: {string}?, scanned?: Fuzz.Scanned): string
+  local out = "\nCancelled, at the time limit or by hand, before fuzzing finished:" ..
+    " a property\nthat hangs is the likeliest cause.\n"
+  local found = scanned or { slow = {} }
+  local progress = found.progress
+  if progress ~= nil then
+    out = out .. "\nThe last progress line, which names the tests still running," ..
+      " the longest first:\n\n~~~~\n" .. progress .. "\n~~~~\n"
+  end
+  return out .. Fuzz.slow_summary(found) ..
+    "\nThe end of its output:\n\n~~~~\n" .. joined(tail or {}, tail_lines) .. "~~~~\n"
 end
 
 --- What [`streamed`] learns of the run, kept where the functions that run it under `pcall` can set it.
@@ -336,6 +399,7 @@ function Fuzz.execute(r: Fuzz.Run): integer
   env["TMPDIR"] = scratch
   env["COSMIC_AUTO_BOOT"] = "0"
   env["COSMIC_TEST_TIMEOUT"] = "1200"
+  env["FUZZ_SECONDS"] = r.env["FUZZ_SECONDS"] or property_seconds
   local argv: mut {string} = { BuildPaths.directory(r.root, env) .. executable, "test", "--all" }
   for _, test in ipairs(Fuzz.discover(r.root)) do argv[#argv + 1] = test end
   local out = r.temp .. "/fuzz.out"
@@ -359,6 +423,15 @@ function Fuzz.execute(r: Fuzz.Run): integer
   local _, _ = guard:close()
   if not ran then error(raised, 0) end
   local status = assert(kept.status)
+  local slow_next, slow_close = chunks(out)
+  local scanned: Fuzz.Scanned = { slow = {} }
+  local read, raised_scan = pcall(function()
+    scanned = Fuzz.scan(slow_next)
+  end)
+  slow_close()
+  if not read then error(raised_scan) end
+  local slow = Fuzz.slow_summary(scanned)
+  if slow ~= "" then r.summarize(slow) end
   if status ~= 0 then
     local next_chunk, close = chunks(out)
     local failed: Failed = { text = "" }
@@ -385,10 +458,26 @@ function Fuzz.fuzz(_argv: {string}): integer
 end
 
 --- `driver.tl fuzz-cancelled`: says on the run's summary how far a
---- cancelled run got, from the output `fuzz` kept, if it kept any.
+--- cancelled run got, from the output `fuzz` kept, if it kept any. The
+--- job's log holds the same text, since the summary is a page of its own.
 function Fuzz.cancelled(_argv: {string}): integer
-  local tail = Fuzz.tail(Context.required("RUNNER_TEMP") .. "/fuzz.out")
-  Context.summarize(Fuzz.cancelled_summary(tail))
+  local out = Context.required("RUNNER_TEMP") .. "/fuzz.out"
+  local tail = Fuzz.tail(out)
+  local scanned: Fuzz.Scanned = { slow = {} }
+  if tail ~= nil then
+    local next_chunk, close = chunks(out)
+    local read, raised = pcall(function()
+      scanned = Fuzz.scan(next_chunk)
+    end)
+    close()
+    if not read then error(raised) end
+  end
+  local text = Fuzz.cancelled_summary(tail, scanned)
+  Context.summarize(text)
+  local page = Env.get_or("GITHUB_STEP_SUMMARY", "")
+  if page ~= "" then
+    assert(Fs.put(Fs.stdout, text))
+  end
   return 0
 end
 
