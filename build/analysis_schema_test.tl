@@ -41,35 +41,42 @@ end
 --- A declaration that holds the binding line on a line of its own is a `binding`, to the view and to Teal alike; the
 --- line inside another line, with anything after it, or in a file that is no declaration, is not.
 local function test_a_declaration_is_a_binding_only_given_the_line_on_a_line_of_its_own(_: string)
-  local cases: {{string}} = {
-    { "b/first.d.tl", "--- @kind binding\nlocal record R end\nreturn R\n", "binding" },
-    { "b/middle.d.tl", "--- A table.\n--- @kind binding\nlocal record R end\n", "binding" },
-    { "b/last.d.tl", "local record R end\n--- @kind binding", "binding" },
-    { "b/inside.d.tl", "-- see --- @kind binding for what it means\nlocal record R end\n", "decl" },
-    { "b/after.d.tl", "--- @kind binding \nlocal record R end\n", "decl" },
-    { "b/other.d.tl", "--- @kind bindings\nlocal record R end\n", "decl" },
-    { "b/plain.d.tl", "local record R end\n", "decl" },
-    { "b/module.tl", "--- @kind binding\nreturn 1\n", "module" },
-    { "b/test_test.tl", "--- @kind binding\n", "test" },
+  local record Source
+    path: string
+    text: string
+    kind: string
+  end
+  local cases: {Source} = {
+    { path = "b/first.d.tl", text = "--- @kind binding\nlocal record R end\nreturn R\n", kind = "binding" },
+    { path = "b/middle.d.tl", text = "--- A table.\n--- @kind binding\nlocal record R end\n", kind = "binding" },
+    { path = "b/last.d.tl", text = "local record R end\n--- @kind binding", kind = "binding" },
+    { path = "b/inside.d.tl",
+      text = "-- see --- @kind binding for what it means\nlocal record R end\n",
+      kind = "decl" },
+    { path = "b/after.d.tl", text = "--- @kind binding \nlocal record R end\n", kind = "decl" },
+    { path = "b/other.d.tl", text = "--- @kind bindings\nlocal record R end\n", kind = "decl" },
+    { path = "b/plain.d.tl", text = "local record R end\n", kind = "decl" },
+    { path = "b/module.tl", text = "--- @kind binding\nreturn 1\n", kind = "module" },
+    { path = "b/test_test.tl", text = "--- @kind binding\n", kind = "test" },
     -- A file saved with CR LF line ends declares it as one with LF does, in the view and in Teal.
-    { "b/crlf.d.tl", "--- A table.\r\n--- @kind binding\r\nlocal record R end\r\n", "binding" },
-    { "b/crlf_last.d.tl", "local record R end\r\n--- @kind binding\r\n", "binding" },
-    { "b/crlf_after.d.tl", "--- @kind binding \r\nlocal record R end\r\n", "decl" },
+    { path = "b/crlf.d.tl", text = "--- A table.\r\n--- @kind binding\r\nlocal record R end\r\n", kind = "binding" },
+    { path = "b/crlf_last.d.tl", text = "local record R end\r\n--- @kind binding\r\n", kind = "binding" },
+    { path = "b/crlf_after.d.tl", text = "--- @kind binding \r\nlocal record R end\r\n", kind = "decl" },
     -- Only a declaration claims it, and a declaration that is a test's still does.
-    { "b/helper_test.d.tl", "--- @kind binding\nlocal record R end\n", "binding" },
+    { path = "b/helper_test.d.tl", text = "--- @kind binding\nlocal record R end\n", kind = "binding" },
   }
   local db = assert(Sqlite.memory())
   assert(Sqlite.run(db, "CREATE TABLE files (path TEXT PRIMARY KEY, sha256 TEXT, data BLOB) WITHOUT ROWID"))
   for _, statement in ipairs(analysis_schema.statements) do assert(Sqlite.run(db, statement)) end
   for _, case in ipairs(cases) do
     assert(Sqlite.run(db, "INSERT INTO files (path, sha256, data) VALUES (?1, 'h', ?2)",
-      { { text = assert(case[1]) }, { text = assert(case[2]) } }))
+      { { text = case.path }, { text = case.text } }))
   end
   local rows = assert(Sqlite.text_rows(db, "SELECT file, kind FROM inputs"))
   local said: mut {string: string} = {}
   for _, row in ipairs(rows) do said[row:text(1)] = row:text(2) end
   for _, case in ipairs(cases) do
-    local path, text, wanted = assert(case[1]), assert(case[2]), assert(case[3])
+    local path, text, wanted = case.path, case.text, case.kind
     assert(said[path] == wanted, path .. ": the view says " .. tostring(said[path]) .. ", wanted " .. wanted)
     assert(analysis_schema.kind_of(path, text) == wanted, path .. ": Teal says " .. analysis_schema.kind_of(path, text))
     assert(analysis_schema.is_declaration(wanted) == (wanted == "decl" or wanted == "binding"))

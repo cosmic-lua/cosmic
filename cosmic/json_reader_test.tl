@@ -6,6 +6,19 @@ local Clock = require("cosmic.clock")
 local Json = require("cosmic.json")
 local Stream = require("cosmic.stream")
 
+--- A JSON text, and what reading it answers: the tokens it reads as, or the refusal it ends in.
+local record Reading
+  text: string
+  want: string
+end
+
+--- A JSON text, and the line and column its first refusal is placed at.
+local record Place
+  text: string
+  line: integer
+  column: integer
+end
+
 --- A Reader that answers `text` in chunks of `size` bytes, then `last`
 --- (nil for the end) on every read after.
 local class Chunked is Stream.Reader
@@ -86,28 +99,28 @@ end
 --- Each refusal names where the text stopped being JSON, and every call
 --- after answers it again.
 local function test_refusals_name_where()
-  local cases: {{string}} = {
-    { "[1, 2,]", "json: a trailing `,` at line 1, column 7 (pointer \"/1\")" },
-    { "[1 2]", "json: expected `,` or `]` at line 1, column 4 (pointer \"/0\")" },
-    { '{"a" 1}', "json: expected `:` after a key at line 1, column 6 (pointer \"/a\")" },
-    { "[1}", "json: expected `,` or `]` at line 1, column 3 (pointer \"/0\")" },
-    { "[}", "json: a close that does not match its open at line 1, column 2 (pointer \"\")" },
-    { "]", "json: a close with nothing open at line 1, column 1 (pointer \"\")" },
-    { "{1: 2}", "json: expected a key at line 1, column 2 (pointer \"\")" },
-    { '{"a": 1', "json: the text ends inside an object at line 1, column 8 (pointer \"/a\")" },
-    { '{"a"', "json: the text ends before a key's `:` at line 1, column 5 (pointer \"/a\")" },
-    { "[tru]", "json: a word JSON has no literal for at line 1, column 2 (pointer \"/0\")" },
-    { "[@]", "json: expected a value at line 1, column 2 (pointer \"\")" },
-    { "@", "json: a byte no JSON token starts with at line 1, column 1 (pointer \"\")" },
-    { '["abc', "json: a string the text ends inside at line 1, column 2 (pointer \"/0\")" },
-    { '{"a": 1, "a": 2}', "json: duplicate key at line 1, column 10 (pointer \"/a\")" },
-    { "\n\n  [01]", "json: invalid JSON at line 3, column 4: number with leading zero is not allowed" },
-    { '[\r\n "x\\q"]', "json: invalid JSON at line 2, column 4: invalid escaped sequence in string" },
+  local cases: {Reading} = {
+    { text = "[1, 2,]", want = "json: a trailing `,` at line 1, column 7 (pointer \"/1\")" },
+    { text = "[1 2]", want = "json: expected `,` or `]` at line 1, column 4 (pointer \"/0\")" },
+    { text = '{"a" 1}', want = "json: expected `:` after a key at line 1, column 6 (pointer \"/a\")" },
+    { text = "[1}", want = "json: expected `,` or `]` at line 1, column 3 (pointer \"/0\")" },
+    { text = "[}", want = "json: a close that does not match its open at line 1, column 2 (pointer \"\")" },
+    { text = "]", want = "json: a close with nothing open at line 1, column 1 (pointer \"\")" },
+    { text = "{1: 2}", want = "json: expected a key at line 1, column 2 (pointer \"\")" },
+    { text = '{"a": 1', want = "json: the text ends inside an object at line 1, column 8 (pointer \"/a\")" },
+    { text = '{"a"', want = "json: the text ends before a key's `:` at line 1, column 5 (pointer \"/a\")" },
+    { text = "[tru]", want = "json: a word JSON has no literal for at line 1, column 2 (pointer \"/0\")" },
+    { text = "[@]", want = "json: expected a value at line 1, column 2 (pointer \"\")" },
+    { text = "@", want = "json: a byte no JSON token starts with at line 1, column 1 (pointer \"\")" },
+    { text = '["abc', want = "json: a string the text ends inside at line 1, column 2 (pointer \"/0\")" },
+    { text = '{"a": 1, "a": 2}', want = "json: duplicate key at line 1, column 10 (pointer \"/a\")" },
+    { text = "\n\n  [01]", want = "json: invalid JSON at line 3, column 4: number with leading zero is not allowed" },
+    { text = '[\r\n "x\\q"]', want = "json: invalid JSON at line 2, column 4: invalid escaped sequence in string" },
   }
   for _, case in ipairs(cases) do
     for _, size in ipairs({ 1, 3, 100 }) do
-      local _, err = tokens(case[1], size)
-      assert(err == case[2], case[1] .. " in chunks of " .. tostring(size) .. ": " .. err)
+      local _, err = tokens(case.text, size)
+      assert(err == case.want, case.text .. " in chunks of " .. tostring(size) .. ": " .. err)
     end
   end
   local r = Json.reader(Stream.from_string("[1,]"))
@@ -205,8 +218,13 @@ end
 --- A \r passed as part of whitespace joins a \n right after it into one
 --- line end, and only then: a token between them leaves two.
 local function test_a_carriage_return_joins_only_the_newline_after_it()
-  for _, case in ipairs({ { "[1\r,\nx]", 3, 1 }, { "1\r2\n x", 3, 2 }, { "[1\r\n,x]", 2, 2 } }) do
-    local text, line, column = case[1] as string, case[2] as integer, case[3] as integer
+  local places: {Place} = {
+    { text = "[1\r,\nx]", line = 3, column = 1 },
+    { text = "1\r2\n x", line = 3, column = 2 },
+    { text = "[1\r\n,x]", line = 2, column = 2 },
+  }
+  for _, case in ipairs(places) do
+    local text, line, column = case.text, case.line, case.column
     for _, size in ipairs({ 1, 2, 100 }) do
       local _, err = tokens(text, size)
       local at = ("at line %d, column %d "):format(line, column)
@@ -318,31 +336,45 @@ end
 --- Each form JSON5 adds to JSON is a token the reader gives as `decode`
 --- reads it.
 local function test_json5_forms_are_tokens()
-  local cases: {{string}} = {
-    { "{a: 1, $b_2: 2, \\u0063d: 3, é: 4, true: 5, null: 6, Infinity: 7}",
-      "object@ key=a@/a number=1@/a key=$b_2@/$b_2 number=2@/$b_2 key=cd@/cd number=3@/cd " ..
+  local cases: {Reading} = {
+    {
+      text = "{a: 1, $b_2: 2, \\u0063d: 3, é: 4, true: 5, null: 6, Infinity: 7}",
+      want = "object@ key=a@/a number=1@/a key=$b_2@/$b_2 number=2@/$b_2 key=cd@/cd number=3@/cd " ..
         "key=\u{e9}@/\u{e9} number=4@/\u{e9} key=true@/true number=5@/true key=null@/null number=6@/null " ..
-        "key=Infinity@/Infinity number=7@/Infinity end_object@!" },
-    { "{'a': 'b', \"c\": 'd'}", "object@ key=a@/a string=b@/a key=c@/c string=d@/c end_object@!" },
-    { [['it\'s "q" \x41\u00e9\v\0\z']], "string=it's \"q\" A\u{e9}\v\0z@!" },
-    { "'a\\\nb' 'c\\\r\nd' 'e\\\u{2028}f'", "string=ab@ string=cd@ string=ef@!" },
-    { "[1,]", "array@ number=1@/0 end_array@!" },
-    { "{\"a\": 1,}", "object@ key=a@/a number=1@/a end_object@!" },
-    { "[+1, -1, .5, 5., +.5, -.5, 0x1F, -0xff, +0XA, 1e2, 1E+2, 5.e1, .5e1, 0e0]",
-      "array@ number=1@/0 number=-1@/1 number=0.5@/2 number=5.0@/3 number=0.5@/4 number=-0.5@/5 " ..
+        "key=Infinity@/Infinity number=7@/Infinity end_object@!",
+    },
+    { text = "{'a': 'b', \"c\": 'd'}", want = "object@ key=a@/a string=b@/a key=c@/c string=d@/c end_object@!" },
+    { text = [['it\'s "q" \x41\u00e9\v\0\z']], want = "string=it's \"q\" A\u{e9}\v\0z@!" },
+    { text = "'a\\\nb' 'c\\\r\nd' 'e\\\u{2028}f'", want = "string=ab@ string=cd@ string=ef@!" },
+    { text = "[1,]", want = "array@ number=1@/0 end_array@!" },
+    { text = "{\"a\": 1,}", want = "object@ key=a@/a number=1@/a end_object@!" },
+    {
+      text = "[+1, -1, .5, 5., +.5, -.5, 0x1F, -0xff, +0XA, 1e2, 1E+2, 5.e1, .5e1, 0e0]",
+      want = "array@ number=1@/0 number=-1@/1 number=0.5@/2 number=5.0@/3 number=0.5@/4 number=-0.5@/5 " ..
         "number=31@/6 number=-255@/7 number=10@/8 number=100.0@/9 number=100.0@/10 number=50.0@/11 " ..
-        "number=5.0@/12 number=0.0@/13 end_array@!" },
-    { "[Infinity, -Infinity, +Infinity, inf, -INF, infinity]",
-      "array@ number=inf@/0 number=-inf@/1 number=inf@/2 number=inf@/3 number=-inf@/4 number=inf@/5 end_array@!" },
-    { "[null, nul]", "array@ null@/0!json: a word JSON has no literal for at line 1, column 8 (pointer \"/1\")" },
-    { "\u{feff}[\v1\f,\u{a0}2\u{2028}\u{2029}\u{1680}\u{2000}\u{200a}\u{202f}\u{205f}\u{3000},3]",
-      "array@ number=1@/0 number=2@/1 number=3@/2 end_array@!" },
-    { "[1 // one\n, /* two\n */ 2 // three", "array@ number=1@/0 number=2@/1!json: the text ends inside an array at line 3, column 15 (pointer \"/1\")" },
-    { "{a /* c */ : // d\n 1 /**/ , /***/ }", "object@ key=a@/a number=1@/a end_object@!" },
+        "number=5.0@/12 number=0.0@/13 end_array@!",
+    },
+    {
+      text = "[Infinity, -Infinity, +Infinity, inf, -INF, infinity]",
+      want = "array@ number=inf@/0 number=-inf@/1 number=inf@/2 number=inf@/3 number=-inf@/4 number=inf@/5 end_array@!",
+    },
+    {
+      text = "[null, nul]",
+      want = "array@ null@/0!json: a word JSON has no literal for at line 1, column 8 (pointer \"/1\")",
+    },
+    {
+      text = "\u{feff}[\v1\f,\u{a0}2\u{2028}\u{2029}\u{1680}\u{2000}\u{200a}\u{202f}\u{205f}\u{3000},3]",
+      want = "array@ number=1@/0 number=2@/1 number=3@/2 end_array@!",
+    },
+    {
+      text = "[1 // one\n, /* two\n */ 2 // three",
+      want = "array@ number=1@/0 number=2@/1!json: the text ends inside an array at line 3, column 15 (pointer \"/1\")",
+    },
+    { text = "{a /* c */ : // d\n 1 /**/ , /***/ }", want = "object@ key=a@/a number=1@/a end_object@!" },
   }
   for _, case in ipairs(cases) do
-    local got = read_all(case[1], JSON5)
-    assert(got == case[2], ("%q: %s, not %s"):format(case[1], got, case[2]))
+    local got = read_all(case.text, JSON5)
+    assert(got == case.want, ("%q: %s, not %s"):format(case.text, got, case.want))
   end
   -- NaN, which prints by platform as `nan` or `-nan`, is a number no
   -- number equals, written any way `decode` reads it.
@@ -467,17 +499,16 @@ end
 --- a stream that splits the three bytes counts them the same.
 local function test_json5_line_ends_count_as_decode_counts_them()
   for _, eol in ipairs({ "\u{2028}", "\u{2029}" }) do
-    local cases: {{string}} = {
-      { "[1," .. eol .. eol .. "  x]" },
-      { "[1, // c" .. eol .. " x]" },
-      { "[1, /* a" .. eol .. "b" .. eol .. "*/ x]" },
-      { "['a" .. eol .. "b', x]" },
-      { "{'a" .. eol .. "': 1, x}" },
-      { "[1, \\" .. eol .. " 'x" .. eol .. "', y" .. eol .. "x]" },
-      { "[1, # c" .. eol .. " x]" },
+    local texts: {string} = {
+      "[1," .. eol .. eol .. "  x]",
+      "[1, // c" .. eol .. " x]",
+      "[1, /* a" .. eol .. "b" .. eol .. "*/ x]",
+      "['a" .. eol .. "b', x]",
+      "{'a" .. eol .. "': 1, x}",
+      "[1, \\" .. eol .. " 'x" .. eol .. "', y" .. eol .. "x]",
+      "[1, # c" .. eol .. " x]",
     }
-    for _, case in ipairs(cases) do
-      local text = case[1]
+    for _, text in ipairs(texts) do
       -- `decode` reads each text to its `x` and fails there: its line and
       -- column are the ones the reader names.
       local _, want = Json.decode(text, { json5 = true, hash_comments = true })

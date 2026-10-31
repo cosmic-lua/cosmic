@@ -14,20 +14,25 @@ Test.policy{
   grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" } },
 }
 
+local record Query
+  query: string
+  reaches: {string}
+end
+
 --- The queries, each with the symbols any one of which must be among the
 --- first three answers. A trailing `.` names every symbol under a
 --- prefix (`Hash.` is any of `Hash`'s).
-local QUERIES: {{string}} = {
-  { "read a file", "Fs.read" },
-  { "reading files", "Fs.read" },
-  { "run a program", "Child.run" },
-  { "parse json", "Json.decode" },
-  { "write a test", "Layout", "cosmic.layout", "cosmic.test" },
-  { "sleep", "Clock.sleep_ns" },
-  { "http get", "Http.get" },
-  { "sha256", "Hash." },
-  { "temporary directory", "Fs.mkdtemp" },
-  { "command line options", "Flags.parse" },
+local QUERIES: {Query} = {
+  { query = "read a file", reaches = { "Fs.read" } },
+  { query = "reading files", reaches = { "Fs.read" } },
+  { query = "run a program", reaches = { "Child.run" } },
+  { query = "parse json", reaches = { "Json.decode" } },
+  { query = "write a test", reaches = { "Layout", "cosmic.layout", "cosmic.test" } },
+  { query = "sleep", reaches = { "Clock.sleep_ns" } },
+  { query = "http get", reaches = { "Http.get" } },
+  { query = "sha256", reaches = { "Hash." } },
+  { query = "temporary directory", reaches = { "Fs.mkdtemp" } },
+  { query = "command line options", reaches = { "Flags.parse" } },
 }
 
 local function shown(entry: docs.Entry): string
@@ -54,17 +59,17 @@ local function test_a_search_in_words_finds_the_symbol_meant()
   for index = 1, #databases do public[index] = true end
   local view = assert(docs.view(databases, public))
   for _, row in ipairs(QUERIES) do
-    local top = names(view, row[1])
+    local top = names(view, row.query)
     local found = false
-    for index = 2, #row do
+    for _, reach in ipairs(row.reaches) do
       for _, name in ipairs(top) do
-        if name == row[index] or (row[index]:sub(-1) == "." and
-            String.starts_with(name, row[index])) then
+        if name == reach or (reach:sub(-1) == "." and
+            String.starts_with(name, reach)) then
           found = true
         end
       end
     end
-    assert(found, "'" .. row[1] .. "' should reach " .. table.concat(row, " or ", 2) ..
+    assert(found, "'" .. row.query .. "' should reach " .. table.concat(row.reaches, " or ") ..
         " in its first three answers, not " .. table.concat(top, ", "))
   end
 end

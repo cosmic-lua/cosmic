@@ -69,20 +69,25 @@ end
 --- which are not asked: their `.` and `..` segments and doubled slashes
 --- resolved alike.
 local function test_a_path_and_its_root_are_read_alike()
-  local cases: {{string}} = {
-    { "/r/a/x.tl", "/r", "a/x.tl" },
-    { "/r/a/x.tl", "/r/", "a/x.tl" },
-    { "/r//a/./x.tl", "/r", "a/x.tl" },
-    { "/r/../r/x.tl", "/r", "x.tl" },
-    { "/r/a/x.tl", "//r", "a/x.tl" },
-    { "/r/a/x.tl", "/./r//", "a/x.tl" },
-    { "/r/x.tl", "/s/../r", "x.tl" },
-    { "/r/a/../x.tl", "/r", "x.tl" },
+  local record Below
+    path: string
+    root: string
+    below: string
+  end
+  local cases: {Below} = {
+    { path = "/r/a/x.tl", root = "/r", below = "a/x.tl" },
+    { path = "/r/a/x.tl", root = "/r/", below = "a/x.tl" },
+    { path = "/r//a/./x.tl", root = "/r", below = "a/x.tl" },
+    { path = "/r/../r/x.tl", root = "/r", below = "x.tl" },
+    { path = "/r/a/x.tl", root = "//r", below = "a/x.tl" },
+    { path = "/r/a/x.tl", root = "/./r//", below = "a/x.tl" },
+    { path = "/r/x.tl", root = "/s/../r", below = "x.tl" },
+    { path = "/r/a/../x.tl", root = "/r", below = "x.tl" },
   }
   for _, case in ipairs(cases) do
-    local path, root = assert(case[1]), assert(case[2])
+    local path, root = case.path, case.root
     local got = protocol.below(path, root)
-    assert(got == case[3], path .. " below " .. root .. ": " .. tostring(got))
+    assert(got == case.below, path .. " below " .. root .. ": " .. tostring(got))
   end
   for _, outside in ipairs({ { "/r/../x.tl", "/r" }, { "/r", "/r" }, { "/r/.", "/r" },
       { "/rs/x.tl", "/r" }, { "/r/a/../../r2/x.tl", "/r" } }) do

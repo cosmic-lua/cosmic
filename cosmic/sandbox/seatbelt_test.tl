@@ -136,23 +136,28 @@ local function test_rlimits_are_returned_for_the_enforcement_caller()
 end
 
 local function test_unmet_policy_fields_are_refused()
-  local cases: {{any}} = {
-    { { isolate = { "file" } }, "isolate" },
-    { { connect = { "example.com:443" } }, "connect needs the port of the network relay" },
-    { { loopback = { "127.0.0.1" } }, "loopback" },
-    { { promises = { "nest" } }, "nest" },
-    { { grants = { { path = "a", from = "b", letters = "r" } } }, "from" },
-    { { limits = { processes = 2 } }, "limits.processes" },
-    { { database = { path = "/does/not/exist" } }, "database" },
-    { { set_env_digests = { A = string.rep("0", 64) } }, "set_env_digests" },
-    { { profiles = { "unrecognized" } }, "profiles" },
-    { { grants = { { path = "a", letters = "bad" } } }, "letters" },
-    { { profiles = { "cosmic" } }, "executable" },
-    { { set_env = { A = "secret" }, set_env_digests = { A = string.rep("0", 64) } }, "set_env_digests" },
+  local record Unmet
+    policy: Sandbox.Policy
+    says: string
+  end
+  local cases: {Unmet} = {
+    { policy = { isolate = { "file" } }, says = "isolate" },
+    { policy = { connect = { "example.com:443" } }, says = "connect needs the port of the network relay" },
+    { policy = { loopback = { "127.0.0.1" } }, says = "loopback" },
+    { policy = { promises = { "nest" } }, says = "nest" },
+    { policy = { grants = { { path = "a", from = "b", letters = "r" } } }, says = "from" },
+    { policy = { limits = { processes = 2 } }, says = "limits.processes" },
+    { policy = { database = { path = "/does/not/exist" } }, says = "database" },
+    { policy = { set_env_digests = { A = string.rep("0", 64) } }, says = "set_env_digests" },
+    { policy = { profiles = { "unrecognized" } }, says = "profiles" },
+    { policy = { grants = { { path = "a", letters = "bad" } } }, says = "letters" },
+    { policy = { profiles = { "cosmic" } }, says = "executable" },
+    { policy = { set_env = { A = "secret" }, set_env_digests = { A = string.rep("0", 64) } },
+      says = "set_env_digests" },
   }
   for _, case in ipairs(cases) do
-    local out, why = Seatbelt.compile(case[1] as Sandbox.Policy, { paths = {} })
-    assert(out == nil and why:find(case[2] as string, 1, true) ~= nil, why)
+    local out, why = Seatbelt.compile(case.policy, { paths = {} })
+    assert(out == nil and why:find(case.says, 1, true) ~= nil, why)
   end
 end
 
