@@ -46,16 +46,19 @@ end
 
 --- FIPS 180-2's examples, and the empty string's.
 local function test_the_published_vectors()
-  local vectors: {{string}} = {
-    { "", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
-    { "abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
-    { "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
-      "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1" },
-    { ("a"):rep(1000000),
-      "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0" },
+  local record Vector
+    data: string
+    expected: string
+  end
+  local vectors: {Vector} = {
+    { data = "", expected = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+    { data = "abc", expected = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
+    { data = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+      expected = "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1" },
+    { data = ("a"):rep(1000000), expected = "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0" },
   }
   for _, vector in ipairs(vectors) do
-    local data, expected = vector[1], vector[2]
+    local data, expected = vector.data, vector.expected
     assert(digest.hex_sha256(data) == expected, expected)
     assert(chunked(data, 1000) == digest.sha256(data), expected)
   end

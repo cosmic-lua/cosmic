@@ -1,4 +1,4 @@
---- `check-islands` type-checks each file ci/bootstrap-files.txt lists by running it with `--help`, names the ones the
+--- `check-islands` type-checks each file ci/bootstrap-files.txt lists with `--standalone --check`, names the ones the
 --- running driver's Teal refuses, and refuses a list that is stale or a run of the pinned binary nothing names.
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -40,17 +40,19 @@ local function test_the_resolver_of_the_build_directory_must_be_listed(tmp: stri
 end
 
 --- A clean script passes and a script the new grammar refuses fails by name, with the compiler's complaint: a syntax
---- error and a type error. The scripts are run, with `--help`, as the bootstrap runs them.
-local function test_a_script_is_checked_and_run_with_help(tmp: string)
+--- error and a type error. A script is checked, not run, however it behaves when run.
+local function test_a_script_is_checked_and_not_run(tmp: string)
   local marker = tmp .. "/ran"
   local root = checkout(tmp, {
     ["build/ok.tl"] = 'local Fs = require("cosmic.fs")\nassert(Fs.write("' .. marker .. '", "ran"))\nreturn function(_: {string}): integer return 0 end\n',
     ["build/syntax.tl"] = "local x: integer =\n",
     ["build/typed.tl"] = 'local x: integer = "a"\nprint(x)\n',
+    ["build/crash.tl"] = 'error("no such module")\n',
+    ["build/exits.tl"] = "return function(_: {string}): integer return 7 end\n",
   })
-  local report = Islands.check(root, { "build/ok.tl", "build/syntax.tl", "build/typed.tl" }, Env.all())
+  local report = Islands.check(root, { "build/ok.tl", "build/syntax.tl", "build/typed.tl", "build/crash.tl", "build/exits.tl" }, Env.all())
   local complaints, checked = report.complaints, report.checked
-  assert(checked == 3, tostring(checked))
+  assert(checked == 5, tostring(checked))
   assert(#complaints == 2, table.concat(complaints, "\n"))
   local syntax, typed = assert(complaints[1]), assert(complaints[2])
   assert(syntax:find("build/syntax.tl (listed in ci/bootstrap-files.txt): ", 1, true) == 1, syntax)
@@ -58,35 +60,7 @@ local function test_a_script_is_checked_and_run_with_help(tmp: string)
   assert(typed:find("build/typed.tl (listed in ci/bootstrap-files.txt): ", 1, true) == 1, typed)
   assert(typed:find("(not_assignable)", 1, true) ~= nil, typed)
   assert(typed:find("use only APIs of the pinned release, or move the pin", 1, true) ~= nil, typed)
-  assert(Fs.read(marker) == "ran", "the clean script was not run")
-end
-
---- A script that prints its usage and exits with `status`.
-local function exiting(status: integer): string
-  return 'print("usage")\nreturn function(_: {string}): integer\n  return ' .. tostring(status) .. "\nend\n"
-end
-
---- A script that checks clean and then stops for another reason is no clean script: its exit status is held to what its
---- `--help` gives ([`Islands.help_exits`], 0 for a script the table does not name).
-local function test_a_script_that_fails_for_another_reason_is_a_complaint(tmp: string)
-  local root = checkout(tmp, {
-    ["build/crash.tl"] = 'error("no such module")\n',
-    ["build/exits.tl"] = exiting(7),
-    ["build/perf.tl"] = exiting(1),
-    ["build/paths.tl"] = exiting(0),
-  })
-  local report = Islands.check(root, { "build/crash.tl", "build/exits.tl", "build/perf.tl", "build/paths.tl" }, Env.all())
-  local complaints = report.complaints
-  assert(#complaints == 3, table.concat(complaints, "\n"))
-  local crash, exits, paths = assert(complaints[1]), assert(complaints[2]), assert(complaints[3])
-  assert(crash:find("build/crash.tl (listed in ci/bootstrap-files.txt): exited 1 with --help, not 0: ", 1, true) == 1, crash)
-  assert(crash:find("no such module", 1, true) ~= nil, crash)
-  assert(exits:find("build/exits.tl (listed in ci/bootstrap-files.txt): exited 7 with --help, not 0", 1, true) == 1, exits)
-  -- perf.tl gives 1 as it does; paths.tl, which gives 1 too, giving 0 is not what the table says.
-  assert(paths:find("build/paths.tl (listed in ci/bootstrap-files.txt): exited 0 with --help, not 1", 1, true) == 1, paths)
-  -- The hint for a status says how to accept it, not to move the pin.
-  assert(exits:find("if --help is meant to exit 7, add it to Islands.help_exits (ci/cosmic_ci/islands.tl)", 1, true) ~= nil, exits)
-  assert(exits:find("move the pin", 1, true) == nil, exits)
+  assert(Fs.exists(marker) == false, "a script was run")
 end
 
 --- A script the new grammar's checker refuses and the fork's would let by is the point of the check: a write to a
@@ -138,12 +112,12 @@ local function test_the_calls_of_zig_are_listed_and_all_read(tmp: string)
   end
 end
 
---- The listed files that are not run (`--help` would start a job) are counted and left alone; a project of `ci/` the
---- release's `fix --check` refuses is named, with its findings.
-local function test_the_release_checks_all_of_ci_and_a_listed_file_that_is_not_run_is_skipped(tmp: string)
+--- A project of `ci/` the release's `fix --check` refuses is named, with its findings, and a listed file that is not
+--- clean is named by `check`.
+local function test_the_release_checks_all_of_ci(tmp: string)
   local root = checkout(tmp, { ["ci/run_local.tl"] = "this is not Teal (", ["ci/fine.tl"] = "local record Fine\nend\nreturn Fine\n" })
   local report = Islands.check(root, { "ci/run_local.tl" }, Env.all())
-  assert(report.checked == 1 and #report.complaints == 0, table.concat(report.complaints, "\n"))
+  assert(report.checked == 1 and #report.complaints == 1, table.concat(report.complaints, "\n"))
   assert(Islands.project(root, Env.all()) ~= nil, "a ci/ the release refuses was accepted")
   assert(Fs.write(root .. "/ci/run_local.tl", "local record Local\nend\nreturn Local\n"))
   local clean = Islands.project(root, Env.all())
@@ -153,19 +127,34 @@ local function test_the_release_checks_all_of_ci_and_a_listed_file_that_is_not_r
   assert(refused:find("unrequired.tl:1:", 1, true) ~= nil, refused)
 end
 
+--- A script that type-checks.
+local function clean(): string
+  return 'print("usage")\nreturn function(_: {string}): integer\n  return 0\nend\n'
+end
+
+--- A listed file that is not there is no clean file: the check says why it stopped, though it said no finding.
+local function test_a_listed_file_that_is_missing_is_a_complaint(tmp: string)
+  local root = checkout(tmp, {})
+  local report = Islands.check(root, { "build/missing.tl" }, Env.all())
+  assert(#report.complaints == 1, table.concat(report.complaints, "\n"))
+  local missing = assert(report.complaints[1])
+  assert(missing:find("build/missing.tl (listed in ci/bootstrap-files.txt): exited 1 with --check, not 0: ", 1, true) == 1, missing)
+  assert(missing:find("No such file or directory", 1, true) ~= nil, missing)
+end
+
 --- Each refusal and the pass, through the command.
 local function test_the_command_fails_for_a_refused_script_a_stale_entry_and_a_missing_list(tmp: string)
   local root = checkout(tmp, {
     ["ci/bootstrap-files.txt"] = "build/zig.tl\nbuild/patch.tl\neval/result.tl\nbuild/paths.tl\n",
-    ["build/paths.tl"] = exiting(Islands.help_exits["build/paths.tl"] or 0),
-    ["build/zig.tl"] = 'local note = \'standalone(root, "build/patch.tl", args)\'\nprint(note)\n' .. exiting(0),
-    ["build/patch.tl"] = exiting(Islands.help_exits["build/patch.tl"] or 0),
-    ["eval/result.tl"] = exiting(Islands.help_exits["eval/result.tl"] or 0),
+    ["build/paths.tl"] = clean(),
+    ["build/zig.tl"] = 'local note = \'standalone(root, "build/patch.tl", args)\'\nprint(note)\n' .. clean(),
+    ["build/patch.tl"] = clean(),
+    ["eval/result.tl"] = clean(),
   })
   assert(Islands.verdict(root) == 0)
   assert(Fs.write(root .. "/build/zig.tl", "return\n  =\n"))
   assert(Islands.verdict(root) == 1)
-  assert(Fs.write(root .. "/build/zig.tl", exiting(0)))
+  assert(Fs.write(root .. "/build/zig.tl", clean()))
   assert(Fs.write(root .. "/ci/islands.txt", "build/zig.tl\n"))
   assert(Islands.verdict(root) == 1)
   assert(Fs.write(root .. "/ci/islands.txt", "\n"))

@@ -51,6 +51,11 @@ _Noreturn void bz_internal_error (int errcode) {
 #define MAX_ZSTD_LEVEL 19
 #define DEFAULT_ZSTD_LEVEL 3
 
+/* The bzip2 encoder's block size, in units of 100 kB, as the `bzip2`
+ * command's -1 to -9 name it; it writes -9 without a flag. */
+#define MAX_BZ2_LEVEL 9
+#define DEFAULT_BZ2_LEVEL 9
+
 typedef enum {
   OP_INFLATE,
   OP_DEFLATE,
@@ -58,6 +63,7 @@ typedef enum {
   OP_XZ,
   OP_ZSTD,        /* the zstd decoder */
   OP_ZSTD_ENCODE, /* the zstd encoder */
+  OP_BZ2_ENCODE,  /* the bzip2 encoder */
 } stream_op;
 
 typedef enum {
@@ -243,6 +249,7 @@ static void release (struct stream *s) {
   s->more = 0;
   if (s->codec_open) {
     if (s->op == OP_BZ2) BZ2_bzDecompressEnd(&s->u.bz);
+    if (s->op == OP_BZ2_ENCODE) BZ2_bzCompressEnd(&s->u.bz);
     if (s->op == OP_XZ) lzma_end(&s->u.lzma);
     s->codec_open = 0;
   }
@@ -946,6 +953,39 @@ static int zstd_decoder (lua_State *L) {
   return cosmic_succeeded(L);
 }
 
+/* bzip2's allocator: the core's own, as for zstd above. */
+static void *bz2_alloc (void *opaque, int items, int size) {
+  (void)opaque;
+  if (items < 0 || size < 0) return NULL;
+  return cosmic_malloc((size_t)items * (size_t)size);
+}
+
+static void bz2_free (void *opaque, void *block) {
+  (void)opaque;
+  cosmic_free(block);
+}
+
+static int bz2_encoder (lua_State *L) {
+  int level = cosmic_optint(L, 1, DEFAULT_BZ2_LEVEL);
+  luaL_argcheck(L, level >= 1 && level <= MAX_BZ2_LEVEL, 1,
+                "level must be 1 to 9");
+  struct stream *s = new_stream(L, OP_BZ2_ENCODE);
+  memset(&s->u.bz, 0, sizeof s->u.bz);
+  s->u.bz.bzalloc = bz2_alloc;
+  s->u.bz.bzfree = bz2_free;
+  /* The default work factor, as the `bzip2` command uses, so the bytes
+   * written are its own. */
+  if (BZ2_bzCompressInit(&s->u.bz, level, 0, 0) != BZ_OK) {
+    s->finished = 1;
+    release(s);
+    lua_pushnil(L);
+    lua_pushstring(L, "compress: out of memory");
+    return 2;
+  }
+  s->codec_open = 1;
+  return cosmic_succeeded(L);
+}
+
 static int zstd_encoder (lua_State *L) {
   int level = cosmic_optint(L, 1, DEFAULT_ZSTD_LEVEL);
   luaL_argcheck(L, level >= 1 && level <= MAX_ZSTD_LEVEL, 1,
@@ -1011,6 +1051,44 @@ static const char *zstd_chunk (struct stream *s, const unsigned char *data,
   }
 }
 
+/* Compresses `data` with `action` (BZ_RUN, or BZ_FINISH to close the
+ * stream), appending to `out`: every byte is taken. Answers NULL, or why
+ * it failed. bzip2 allocates only when it starts, so the one failure it
+ * can report here is its own state being wrong. */
+static const char *bz2_chunk (struct stream *s, const unsigned char *data,
+                              size_t len, int action, luaL_Buffer *out) {
+  bz_stream *bz = &s->u.bz;
+  size_t i = 0;
+  /* BZ_RUN with nothing to take and nothing to emit is "no progress" to
+   * bzlib, which answers BZ_PARAM_ERROR: there is nothing to do. */
+  if (action == BZ_RUN && len == 0) return NULL;
+  for (;;) {
+    /* bzlib counts in unsigned int: offer a larger chunk in pieces. */
+    size_t in_take = len - i < UINT_MAX ? len - i : UINT_MAX;
+    char *dst = luaL_prepbuffsize(out, CODEC_SLICE);
+    bz->next_in = (char *)(data + i);
+    bz->avail_in = (unsigned)in_take;
+    bz->next_out = dst;
+    bz->avail_out = (unsigned)CODEC_SLICE;
+    int rc = BZ2_bzCompress(bz, action);
+    size_t produced = CODEC_SLICE - bz->avail_out;
+    i += in_take - bz->avail_in;
+    luaL_addsize(out, produced);
+    if (rc == BZ_STREAM_END) return NULL;
+    /* When a call's output filled the slice exactly with the input all
+     * taken, the next call may find nothing left to do: bzlib then
+     * answers BZ_PARAM_ERROR having moved nothing, which is done, not
+     * a failure. */
+    if (rc == BZ_PARAM_ERROR && action == BZ_RUN && i == len && produced == 0) {
+      return NULL;
+    }
+    if (rc != BZ_RUN_OK && rc != BZ_FINISH_OK) {
+      return rc == BZ_MEM_ERROR ? "out of memory" : "bzip2 encoder failure";
+    }
+    if (action == BZ_RUN && i == len && produced < CODEC_SLICE) return NULL;
+  }
+}
+
 static void gzip_write_header (struct stream *s, luaL_Buffer *out) {
   static const unsigned char header[10] = {
     0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255,
@@ -1044,6 +1122,14 @@ static int stream_update (lua_State *L) {
     s->enc_crc = lzma_crc32(data, len, s->enc_crc);
     s->enc_isize += (uint32_t)len;
     deflate_chunk(s, data, len, TDEFL_NO_FLUSH, &out);
+    luaL_pushresult(&out);
+    lua_pushliteral(L, "");
+    s->finished = 0;
+    return 2;
+  }
+  if (s->op == OP_BZ2_ENCODE) {
+    const char *why = bz2_chunk(s, data, len, BZ_RUN, &out);
+    if (why != NULL) return fail(L, s, &out, why);
     luaL_pushresult(&out);
     lua_pushliteral(L, "");
     s->finished = 0;
@@ -1114,6 +1200,15 @@ static int stream_finish (lua_State *L) {
       push_u32le(&out, s->enc_crc);
       push_u32le(&out, s->enc_isize);
     }
+    release(s);
+    luaL_pushresult(&out);
+    return cosmic_succeeded(L);
+  }
+  if (s->op == OP_BZ2_ENCODE) {
+    /* An empty string, not NULL, as for deflate_chunk above. */
+    const char *why =
+        bz2_chunk(s, (const unsigned char *)"", 0, BZ_FINISH, &out);
+    if (why != NULL) return fail(L, s, &out, why);
     release(s);
     luaL_pushresult(&out);
     return cosmic_succeeded(L);
@@ -1206,6 +1301,7 @@ static const luaL_Reg module[] = {
   {"inflater", inflater},     {"deflater", deflater},
   {"xz_decoder", xz_decoder}, {"bz2_decoder", bz2_decoder},
   {"zstd_decoder", zstd_decoder}, {"zstd_encoder", zstd_encoder},
+  {"bz2_encoder", bz2_encoder},
   {"crc32", compress_crc32},  {NULL, NULL},
 };
 
@@ -1281,7 +1377,12 @@ const char *cosmic_inflate_raw (const void *data, size_t len, size_t max,
       why = "the deflate stream decodes to more than the limit";
       break;
     }
-    size_t room = cap < 128 ? 128 : cap > max / 2 ? max : cap * 2;
+    /* The first block is a few times the compressed length, where what
+     * these streams hold (sources, bytecode) nearly always fits, instead
+     * of doubling up from 128 bytes one realloc at a time. */
+    size_t room = cap > max / 2 ? max : cap * 2;
+    if (cap == 0) room = len > max / 4 ? max : len * 4;
+    if (room < 128) room = 128;
     if (room > max) room = max;
     /* One byte past the room for the NUL the result carries. */
     unsigned char *grown = cosmic_realloc(buffer, room + 1);

@@ -48,10 +48,7 @@ local record Reply
   data: {Item}
 end
 
-local REPLY <const> = Shape.record({
-  model = Shape.string,
-  data = Shape.list(Shape.record({ index = Shape.integer, embedding = Shape.string })),
-})
+local REPLY <const>: Shape.Typed<Reply> = Shape.record_of("Reply")
 
 local record Embedded
   --- One packed vector per input text, in input order.
@@ -80,7 +77,7 @@ local function embed_texts(texts: {string}, model: string, key: string): Embedde
   if decoded == nil then
     return nil, bad
   end
-  local parsed, mismatch: Reply?, string = Shape.into(decoded, REPLY)
+  local parsed, mismatch = Shape.into(decoded, REPLY.spec)
   if parsed == nil then
     return nil, "embeddings: " .. mismatch
   end
@@ -357,9 +354,9 @@ The binary first pass keeps the 200 chunks whose bit vectors are
 nearest in Hamming distance, then ranks only those by their floats. The
 stored vectors are normalized, so the inner product of a normalized
 query ranks them as the cosine does. The pass is approximate: measure
-its recall, as the last section shows. In the plan's synthetic benchmark
-(100,000 chunks of 768 dimensions, on a 4-core 2.1 GHz Xeon) it took
-10 ms, where ranking all the floats by inner product took 91 ms, and by
+its recall, as the last section shows. Measured once on a
+4-core 2.1 GHz Xeon, with a synthetic corpus of 100,000 chunks of 768
+dimensions (no benchmark in the tree repeats it), it took 10 ms, where ranking all the floats by inner product took 91 ms, and by
 cosine 120 ms.
 
 ```teal continue

@@ -61,26 +61,39 @@ end
 local function test_distribution_has_independently_computed_binomial_ranks()
   -- Exact integer sums, documented in doc/performance/validation.md; the
   -- production implementation instead uses a normalized mode recurrence.
-  local cases = {
-    { 6, 1, 6, 4, 7 }, { 30, 10, 21, 25, 31 },
-    { 85, 33, 53, 76, 86 }, { 86, 34, 53, 77, 86 },
-    { 100, 40, 61, 90, 100 }, { 200, 86, 115, 183, 197 },
-    { 400, 180, 221, 370, 390 }, { 1000, 469, 532, 934, 966 },
-    { 1074, 505, 570, 1004, 1037 }, { 1075, 505, 571, 1005, 1038 },
-    { 1076, 506, 571, 1006, 1039 }, { 2000, 956, 1045, 1878, 1922 },
+  local record Ranks
+    n: integer
+    low: integer
+    high: integer
+    p95_low: integer
+    p95_high: integer
+  end
+  local cases: {Ranks} = {
+    { n = 6, low = 1, high = 6, p95_low = 4, p95_high = 7 },
+    { n = 30, low = 10, high = 21, p95_low = 25, p95_high = 31 },
+    { n = 85, low = 33, high = 53, p95_low = 76, p95_high = 86 },
+    { n = 86, low = 34, high = 53, p95_low = 77, p95_high = 86 },
+    { n = 100, low = 40, high = 61, p95_low = 90, p95_high = 100 },
+    { n = 200, low = 86, high = 115, p95_low = 183, p95_high = 197 },
+    { n = 400, low = 180, high = 221, p95_low = 370, p95_high = 390 },
+    { n = 1000, low = 469, high = 532, p95_low = 934, p95_high = 966 },
+    { n = 1074, low = 505, high = 570, p95_low = 1004, p95_high = 1037 },
+    { n = 1075, low = 505, high = 571, p95_low = 1005, p95_high = 1038 },
+    { n = 1076, low = 506, high = 571, p95_low = 1006, p95_high = 1039 },
+    { n = 2000, low = 956, high = 1045, p95_low = 1878, p95_high = 1922 },
   }
   for _, case in ipairs(cases) do
-    local n = nth(case, 1)
+    local n = case.n
     local values: mut {number} = {}
     for i = 1, n do values[i] = n + 1 - i end
     local distribution = Perf.distribution(values)
     assert(values[1] == n and distribution.median == (n + 1) / 2)
-    assert(distribution.low == case[2] and distribution.high == case[3], "median ranks: " .. tostring(n))
-    assert(distribution.p95_interval.low == case[4], "p95 lower rank: " .. tostring(n))
-    if nth(case, 5) > n then
+    assert(distribution.low == case.low and distribution.high == case.high, "median ranks: " .. tostring(n))
+    assert(distribution.p95_interval.low == case.p95_low, "p95 lower rank: " .. tostring(n))
+    if case.p95_high > n then
       assert(not distribution.p95_interval.upper_bounded and distribution.p95_interval.high == nil)
     else
-      assert(distribution.p95_interval.upper_bounded and distribution.p95_interval.high == case[5],
+      assert(distribution.p95_interval.upper_bounded and distribution.p95_interval.high == case.p95_high,
         "p95 upper rank: " .. tostring(n))
     end
   end

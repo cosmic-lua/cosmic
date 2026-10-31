@@ -42,13 +42,16 @@ end
 
 --- The hidden input of a form.
 function Example.field()
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   local app = Web.app{
     middleware = { Session.middleware{ store = SessionCookie.store{ keys = { Secret.generate() } } } },
     routes = { Web.get("/", function(req: Web.Request): Web.Response
-      seen[1] = Html.raw(Csrf.field(req))
-      seen[2] = Html.raw(Csrf.meta(req))
-      seen[3] = Html.raw_json(Csrf.hx_headers(req))
+      local field = Html.raw(Csrf.field(req))
+      local meta = Html.raw(Csrf.meta(req))
+      local headers = Html.raw_json(Csrf.hx_headers(req))
+      seen[#seen + 1] = field
+      seen[#seen + 1] = meta
+      seen[#seen + 1] = headers
       return Web.text("ok")
     end) },
   }

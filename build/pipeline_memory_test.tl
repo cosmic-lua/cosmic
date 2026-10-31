@@ -1,6 +1,7 @@
 --- The memory of the new checker's pipeline ([`build.pipeline`]): what a build still holds after it has checked and written
 --- a module is the declarations the next module reads, and not the module's tokens, syntax tree and scopes, which are most
 --- of what a build holds while it is read. A tree of a thousand modules is checked in a few of them at a time.
+local ShapeStub = require("build.shape_stub")
 local Ceilings = require("build.ceilings")
 local Driver = require("build.driver")
 local Pipeline = require("build.pipeline")
@@ -21,17 +22,7 @@ local FUNCTIONS <const> = 40
 local BUDGET <const> = 1000
 
 --- The [`cosmic.shape`] of the cases that resolve a record: the calls of `record_of` are given what the build knows of the record.
-local SHAPE <const>: {string: string} = {
-  ["cosmic.shape"] = table.concat({
-    "local record Shape",
-    "  record_of: function(string, ...: any): any",
-    "  record: function(any): any",
-    "  integer: any",
-    "end",
-    "return Shape",
-    "",
-  }, "\n"),
-}
+local SHAPE <const>: {string: string} = ShapeStub.standard()
 
 local function options(): Pipeline.Options
   return {

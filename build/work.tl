@@ -232,6 +232,8 @@ local version <const> = "30"
 --- `deflated` is the compressed text of a source, by the source's SHA-256
 --- and the core that compressed it, which [`build.writer`] puts in a
 --- projection beside it instead of compressing every source on each write.
+--- `deflated_bytecode` is the same for a compile's bytecode, by the
+--- compile's key.
 ---
 --- `compressed` is the gzip and zstd of a static file (NULL where not worth
 --- keeping), by its path, SHA-256, the digest of the rules that chose them
@@ -454,6 +456,10 @@ for _, statement in ipairs({
                                          core TEXT NOT NULL,
                                          data BLOB NOT NULL,
                                          PRIMARY KEY (source_hash, core)) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS deflated_bytecode (key TEXT NOT NULL,
+                                                  core TEXT NOT NULL,
+                                                  data BLOB NOT NULL,
+                                                  PRIMARY KEY (key, core)) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS compressed (path TEXT NOT NULL,
                                            sha256 TEXT NOT NULL,
                                            rules TEXT NOT NULL,

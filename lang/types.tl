@@ -1,6 +1,5 @@
---- The type store of the new checker
---- ([`doc/plans/new-checker-types.md`], "the forms" and "how a type is
---- identified"): the forms a type takes, a [`Store`] that interns them so that
+--- The type store of the new checker:
+--- the forms a type takes, a [`Store`] that interns them so that
 --- equal types are one object and equality is `==`, the normal form of a union,
 --- the spelling of a type in the grammar's own words (what an error prints), and
 --- the canonical text a type crosses processes as.
@@ -746,7 +745,7 @@ end
 local function written(t: Type): string
   -- TODO: write a part that a type holds many times once, with a name, so that the text of a
   -- type that shares its parts is as large as the type, once a declaration in the tree has text
-  -- past the limit: until then the limit stands in (doc/plans/new-checker-types.md, "rows").
+  -- past the limit: until then the limit stands in.
   if t.weight > TEXT_LIMIT then
     error("types: the text of " .. Types.display(t) .. " is too large, " .. tostring(t.weight) .. " types", 3)
   end
@@ -822,8 +821,9 @@ function Types.letter(index: integer): string
   return "P" .. tostring(index)
 end
 
---- How an atom or a form is told from another when a union is written: atoms in the order
---- the plan lists them, then named types, collections, variables and functions.
+--- How an atom or a form is told from another when a union is written: atoms
+--- in the order of this table, which fixes how a union is written, then named
+--- types, collections, variables and functions.
 local ATOM_RANK <const>: {string: integer} = {
   integer = 1, number = 2, string = 3, boolean = 4, ["true"] = 5, ["false"] = 6, ["nil"] = 7,
   never = 8, any = 9, invalid = 10,
@@ -967,7 +967,7 @@ local function show_rets(f: Fn, names: Names): string
     return a.order < b.order
   end)
   -- TODO: spell an alternative that is empty or ends in `T...` among several, once the grammar's
-  -- `plist` takes `()` and `(A, T...)` (doc/plans/new-checker-grammar.md, "types"): the text
+  -- `plist` takes `()` and `(A, T...)`: the text
   -- below parses to a syntax error until then.
   local out: mut {string} = {}
   for i, alt in ipairs(alts) do
@@ -1034,7 +1034,7 @@ show = function(t: Type, names: Names, parenthesized: boolean): string
     return t.tag
   elseif (t.tag == "named") then
     -- TODO: write the module before the name where two types in scope share it, once the
-    -- checker's errors say what is in scope (doc/plans/new-checker-types.md, "errors").
+    -- checker's errors say what is in scope.
     local text = t.decl.name
     if #t.args > 0 then
       text = text .. "<" .. table.concat(show_list(t.args, names), ", ") .. ">"

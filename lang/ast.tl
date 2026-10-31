@@ -1,6 +1,5 @@
---- The syntax tree of the new checker's grammar
---- ([`doc/plans/new-checker-grammar.md`], "the syntax tree"), which
---- [`lang.parser`] builds.
+--- The syntax tree of the new checker's grammar,
+--- which [`lang.parser`] builds.
 ---
 --- [`Node`] is a tagged union on `kind`. A node is a range of tokens: `first`
 --- and `last` index [`Chunk.tokens`], and a place is read from them

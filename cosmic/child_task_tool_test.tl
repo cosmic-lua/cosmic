@@ -659,7 +659,7 @@ end
 --- Two tasks settling one child at once answer the same Result: whether
 --- both ask `try_wait`, or one waits while the other closes.
 local function test_two_tasks_settle_one_child_once()
-  local answers: {Child.Result} = {}
+  local answers: mut {integer: Child.Result} = {}
   local closed: boolean? = nil
   Poll.run(function()
     local h <close> = assert(Child.start(lua("return 3")))

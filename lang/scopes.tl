@@ -1,5 +1,4 @@
---- The scope builder of the new checker's grammar
---- ([`doc/plans/new-checker-grammar.md`], "the syntax tree"): it walks the tree
+--- The scope builder of the new checker's grammar: it walks the tree
 --- [`lang.parser`] builds and says, for every name that refers to something,
 --- which [`Binding`](lang.ast) it refers to, and what the program does to each
 --- binding: read it, assign it, capture it in a function.
@@ -33,8 +32,8 @@
 --- `string`, `boolean`, `any`, `thread` and `never` need no declaration
 --- ([`Scopes.primitives`]).
 ---
---- What each [`Var`] records is what the rules of the plan read
---- ([`doc/plans/strict-teal.md`]): that a local is assigned after its declaration
+--- What each [`Var`] records is what the rules of the checker read:
+--- that a local is assigned after its declaration
 --- (`writes`), that a function reads it from outside (`captures`) and, for each
 --- such function, whether an assignment may run after that function is made
 --- ([`Capture.after`]), which a test inside the function must know before it
