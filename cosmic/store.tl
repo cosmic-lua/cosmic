@@ -99,7 +99,7 @@ end
 function Store.attach(path: string, opts?: Store.AttachOptions): boolean, string
   if opts == nil or opts.unchecked_bytecode ~= true then
     error("store: attach: the database's bytecode is loaded unchecked; " ..
-        "pass { unchecked_bytecode = true } to say so", 2)
+        "pass unchecked_bytecode = true in the options to say so", 2)
   end
   local ok, trouble = store.attach(path)
   if not ok then
@@ -615,7 +615,7 @@ function Store.seal(names: {string}, path?: string,
   if script ~= nil then
     if opts ~= nil and opts.unchecked_bytecode ~= true then
       error("store: seal: extra is bytecode loaded unchecked; " ..
-          "pass unchecked_bytecode = true to say so", 2)
+          "pass unchecked_bytecode = true in the options to say so", 2)
     end
     if main ~= nil then
       error("store: seal: main and extra are both given: the extra module is the main", 2)

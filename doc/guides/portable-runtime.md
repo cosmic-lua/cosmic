@@ -279,6 +279,8 @@ option, a seal with `extra`, and either function read as a value (an alias, a
 table field, an argument), as it refuses `package`. That gate holds a program
 the checker reads; it is not a boundary against code that is not checked, which
 can call the public functions itself.
+The gate covers loading into the program itself: a database run as its own
+sandboxed process is the user's choice to launch.
 
 The runtime's identity is the database's `meta` rows and the core hashing
 itself. The writer records the digest of the core the database is for in
