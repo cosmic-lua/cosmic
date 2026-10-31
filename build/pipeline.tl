@@ -519,6 +519,8 @@ function Pipeline.derive(db: Sqlite.Handle, fresh: {Derivation.Fresh}, tally: De
   if entries == nil then
     return false, trouble
   end
+  -- No `unaliased` here, as [`Pipeline.over`] gives its index: this index only finds each source by the name of its file, which
+  -- no alias changes, and the build that checks the tree has refused a file named for a module of the language already.
   local index = TreeProgram.index(entries, kinds)
   -- A source is found by the name of its file in the database, which for a declaration written from a header is the header's.
   local by_file: mut {string: Driver.Source} = {}

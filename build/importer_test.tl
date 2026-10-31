@@ -401,6 +401,7 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
   local refused: {{string}} = {
     { "math.d.tl", "math" }, { "math.tl", "math" }, { "string.tl", "string" }, { "table.d.tl", "table" },
     { "utf8.tl", "utf8" }, { "coroutine.tl", "coroutine" }, { "table/init.tl", "table" }, { "debug.tl", "debug" },
+    { "os.d.tl", "os" }, { "package.tl", "package" }, { "io.d.tl", "io" }, { "_G.tl", "_G" }, { "_G.d.tl", "_G" },
   }
   for _, pair in ipairs(refused) do
     local file, name = assert(pair[1]), assert(pair[2])
@@ -415,11 +416,19 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
       "rename it (for example to `" .. name .. "_lib`)"
     assert(result == nil and trouble == want, file .. ": " .. tostring(trouble))
   end
-  local allowed = { "FILE.tl", "mathlib.tl", "lib/maths.tl", "string_lib.tl", "print_x.tl", "lib/math.tl", "util/string.d.tl" }
+  -- `metatable` is a type the prelude declares, no module the binary answers; `math_test` is a test of `math`.
+  local allowed = {
+    "FILE.tl", "mathlib.tl", "lib/maths.tl", "string_lib.tl", "print_x.tl", "lib/math.tl", "util/string.d.tl", "metatable.tl",
+    "metatable.d.tl", "math_test.tl",
+  }
   for _, file in ipairs(allowed) do
-    local root, write_trouble = write_fixture("language-module-near", {
-      [file] = if file:find("%.d%.tl$") ~= nil then "local record R\n  n: integer\nend\nreturn R\n" else "local n: integer = 1\nreturn n\n" end,
-    })
+    local text = "local n: integer = 1\nreturn n\n"
+    if file:find("%.d%.tl$") ~= nil then
+      text = "local record R\n  n: integer\nend\nreturn R\n"
+    elseif file:find("_test%.tl$") ~= nil then
+      text = "local function test_one()\n  assert(true)\nend\n"
+    end
+    local root, write_trouble = write_fixture("language-module-near", { [file] = text })
     assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
     local result, trouble = compile_fixture(root)
     assert(result ~= nil, file .. " was refused: " .. tostring(trouble))
@@ -432,6 +441,15 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
   local result, trouble = compile_fixture(root)
   assert(result == nil and trouble:find("the project has no module `math`", 1, true) ~= nil, tostring(trouble))
+  -- A language module is a global, which the refusal says.
+  assert(trouble:find("`math` is a global the language declares, available without `require`", 1, true) ~= nil,
+    tostring(trouble))
+  local other, other_trouble = write_fixture("language-module-unknown", {
+    ["main.tl"] = 'local s = require("nothing_here")\nreturn s\n',
+  })
+  assert(other ~= nil, "could not write fixture: " .. tostring(other_trouble))
+  local _, unknown = compile_fixture(other)
+  assert(unknown:find("require a module of the project: `bin/cosmic docs` lists them", 1, true) ~= nil, tostring(unknown))
 end
 
 --- A module's own compile is keyed by its file as well as its import
