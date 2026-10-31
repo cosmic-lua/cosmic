@@ -12,24 +12,12 @@ local record Env
     "COSMIC_BUILD_CACHE"
     --- Moves the build directory.
     "COSMIC_BUILD_HOME"
-    --- "1" says each step of `sandbox --connect` on standard error.
-    "COSMIC_CONNECT_TRACE"
     --- The grammar the tool reads: "new" or nothing.
     "COSMIC_GRAMMAR"
     --- Set to anything, writes a line of memory use at each mark of a run.
     "COSMIC_MEMPROBE"
-    --- Where portable cores are cached.
-    "COSMIC_PORTABLE_CACHE"
     --- The tree root, outright.
     "COSMIC_TREE"
-    --- The zig to use in place of the pinned one.
-    "COSMIC_ZIG"
-    --- The zig project cache directory.
-    "COSMIC_ZIG_CACHE"
-    --- A zig cache CI restored, to copy from.
-    "COSMIC_ZIG_CACHE_SEED"
-    --- The zig global cache directory.
-    "COSMIC_ZIG_GLOBAL_CACHE"
     --- The count of boots.
     "COSMIC_WEB_BOOT"
     --- "1" is development mode.
@@ -80,12 +68,6 @@ local record Env
     "COSMIC_PERF_BASELINE_COMMIT"
     --- The commit a perf run measures.
     "COSMIC_PERF_CANDIDATE_COMMIT"
-    --- The proxy `sandbox --connect` reaches.
-    "ALL_PROXY"
-    --- ALL_PROXY, in lower case.
-    "all_proxy"
-    --- The token for GitHub.
-    "GH_TOKEN"
     --- The user's home directory.
     "HOME"
     --- Where programs are found.

@@ -67,7 +67,7 @@
 --- starting.
 
 -- TODO: read the variables below through Env.read (`located` taking an Env.Name) once ci/cosmic-driver.pin names a release
--- whose cosmic.env declares them; bin/zig runs this file on the pinned release, which has no Env.read.
+-- whose cosmic.env declares them (COSMIC_ZIG, COSMIC_ZIG_CACHE and COSMIC_ZIG_GLOBAL_CACHE join Env.Name then); bin/zig runs this file on the pinned release, which has no Env.read.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")

@@ -2,8 +2,9 @@ local BuildPaths = require("cosmic_ci.build_paths")
 local Capabilities = require("cosmic_ci.capabilities")
 local Clock = require("cosmic.clock")
 local ContextEnv = require("cosmic_ci.context")
--- TODO: read the COSMIC_CI_* variables through Env.read once build/ci_tree_test.tl lets cosmic/env.tl name the variables a
--- suite forgets; it holds the tree's sources to not naming them, so they stay on Env.get here.
+-- TODO: read TMPDIR through Env.read once ci/cosmic-driver.pin names a release whose cosmic.env declares it, and the
+-- COSMIC_CI_* variables once build/ci_tree_test.tl also lets cosmic/env.tl name them (it keeps the variables a suite forgets
+-- out of the tree's sources); each joins Env.Name then.
 local Env = require("cosmic.env")
 local Fixture = require("cosmic_ci.fixture")
 local Fs = require("cosmic.fs")
@@ -1377,7 +1378,7 @@ local function snapshot(c: Context, diagnostics: string, label: string,
     end
   end
   write(out .. "/hashes.sha256", hashes)
-  local temporary_root = Env.read("TMPDIR") or "/tmp"
+  local temporary_root = Env.get_or("TMPDIR", "/tmp")
   State.external_path(temporary_root .. "/probe", c.root)
   local inspect = assert(Fs.mkdtemp("cosmic-work-db-integrity-"))
   local integrity: Snapped = { status = 1 }
