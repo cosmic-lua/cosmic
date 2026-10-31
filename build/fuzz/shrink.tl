@@ -56,6 +56,13 @@ function Shrink.values_of(draws: {Shrink.Draw}): {integer}
   return out
 end
 
+--- The value of each draw, in order, but the draw at `at` takes `value`.
+local function values_with(draws: {Shrink.Draw}, at: integer, value: integer): {integer}
+  local out: mut {integer} = {}
+  for i, d in ipairs(draws) do out[i] = if i == at then value else d.value end end
+  return out
+end
+
 --- What a shrink has found and spent so far.
 local record Search
   mut best: {Shrink.Draw}
@@ -147,8 +154,7 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
       if delta ~= 0 and settled[i] ~= key(Shrink.values_of(search.best)) then
         local count = #search.best
         local before = search.best
-        local values = Shrink.values_of(search.best)
-        values[i] = d.min
+        local values = values_with(search.best, i, d.min)
         if try(values) then
           improved = true
         else
@@ -158,8 +164,7 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
             -- passing midpoints do not rule out smaller failures.
             local half = offset(search.best[i]) >> 1
             while half ~= 0 and #search.best == count and search.proposals < max_tries do
-              values = Shrink.values_of(search.best)
-              values[i] = d.min + half
+              values = values_with(search.best, i, d.min + half)
               if try(values) then improved = true end
               half = half >> 1
             end
@@ -171,8 +176,7 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
               local high = offset(search.best[i])
               if not math.ult(low, high) or high - low == 1 then break end
               local middle = low + ((high - low) >> 1)
-              values = Shrink.values_of(search.best)
-              values[i] = d.min + middle
+              values = values_with(search.best, i, d.min + middle)
               if try(values) then improved = true else low = middle end
             end
             if search.best == previous then break end

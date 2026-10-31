@@ -127,11 +127,11 @@ local function arguments(argv: {string}): Flags.Parsed?, string
   local safe, kept = protect(argv)
   local parsed, trouble = Flags.parse(safe, 2, spec)
   if parsed == nil then return nil, trouble end
-  for index, word in ipairs(parsed.words) do
-    local restored = kept[word]
-    if restored ~= nil then parsed.words[index] = restored end
+  local words: mut {string} = {}
+  for _, word in ipairs(parsed.words) do
+    words[#words + 1] = kept[word] or word
   end
-  return parsed, ""
+  return { set = parsed.set, values = parsed.values, all = parsed.all, given = parsed.given, words = words }, ""
 end
 
 --- A moment in one zone, ready to print.
