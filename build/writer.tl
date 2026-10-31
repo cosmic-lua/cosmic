@@ -91,6 +91,11 @@ local prune_deflated <const> =
   "DELETE FROM deflated WHERE core <> " .. deflating_core ..
   " OR source_hash NOT IN (SELECT source_hash FROM inputs)"
 
+-- TODO: keep the deflated bytecode of a compile beside `deflated`, by its
+-- compile key, once a full write's compression of it is measured on a
+-- tool that writes one often: `deflate(c.bytecode)` below compresses all
+-- of cosmic's own tree's bytecode (some 12 MB, 0.6 s) when no base stands.
+
 --- The shipped modules: this run's plan joined to the inputs it named
 --- of non-declaration kind and the compiles it found or made, with
 --- a test or example module's own names alongside.
@@ -98,7 +103,7 @@ local insert_modules =
   "INSERT INTO out.modules (path, file, kind, source_hash, key, source, " ..
   "bytecode, tests) " ..
   "SELECT i.path, i.file, i.kind, CAST(i.source_hash AS BLOB), " ..
-  "CAST(p.key AS BLOB), d.data, c.bytecode, " ..
+  "CAST(p.key AS BLOB), d.data, deflate(c.bytecode), " ..
   "CASE WHEN i.kind = 'test' THEN coalesce((SELECT group_concat(name, " ..
   "char(10) ORDER BY ordinal) FROM tests t " ..
   "WHERE t.source_hash = i.source_hash), '') " ..
@@ -302,7 +307,7 @@ local insert_modules_reusing <const> =
   "SELECT i.path, i.file, i.kind, CAST(i.source_hash AS BLOB), CAST(p.key AS BLOB), " ..
   "coalesce(r.source, (SELECT d.data FROM deflated d WHERE d.source_hash = i.source_hash " ..
   "AND d.core = " .. deflating_core .. ")), " ..
-  "coalesce(r.bytecode, (SELECT c.bytecode FROM compiled c WHERE c.key = p.key)), " ..
+  "coalesce(r.bytecode, (SELECT deflate(c.bytecode) FROM compiled c WHERE c.key = p.key)), " ..
   "CASE WHEN r.path IS NOT NULL THEN r.tests " ..
   "WHEN i.kind = 'test' THEN coalesce((SELECT group_concat(name, " ..
   "char(10) ORDER BY ordinal) FROM tests t " ..
