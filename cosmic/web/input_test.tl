@@ -551,12 +551,12 @@ local function test_a_body_read_over_the_limit_stays_failed_for_a_later_reader()
       return true, ""
     end,
   }
-  local statuses: {integer} = {}
+  local statuses: mut {integer} = {}
   local bytes_status: string = ""
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     statuses[1] = assert(Input.form(req, { max_bytes = 25 }).invalid).status
     local larger = Input.form(req, { max_bytes = 1 << 20 }).invalid
-    statuses[2] = larger and larger.status or 0
+    statuses[#statuses + 1] = larger and larger.status or 0
     local data = req:bytes()
     bytes_status = if data == nil then "failed" else "truncated" end
     return Web.text("ok")
@@ -684,6 +684,8 @@ local function test_a_json_pointer_with_escapes_is_one_dotted_field()
 end
 
 local function test_a_json_body_failure_at_an_odd_key_keeps_its_pointer()
+  -- TODO: give these positional rows a record, as the case lists of cosmic/hash_test.tl have, once #3348 (Shape) merges:
+  -- it moves cosmic/web, which this change leaves alone.
   local cases: {{string}} = {
     { 'a"b', '/a"b/1', 'a"b.1' },
     { "", "//1", ".1" },

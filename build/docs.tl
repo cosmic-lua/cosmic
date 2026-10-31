@@ -1772,11 +1772,23 @@ local function lookup_names(view: docs.View, query: string): docs.Lookup?, strin
         exact[#exact + 1] = entry
       end
     end
-    local counted, count_trouble = effective_counts(view, exact)
+    -- An environment variable's declaration ([`Env.Name.COSMIC_TEST_TIMEOUT`])
+    -- is not all there is to say of it: the verbs whose options carry it
+    -- follow, as for a search.
+    local answers: mut {docs.Entry} = {}
+    for _, entry in ipairs(exact) do answers[#answers + 1] = entry end
+    if query:match("^%u[%u%d_]*$") ~= nil then
+      local verbs, verbs_trouble = by_options(view, query, exact)
+      if verbs == nil then
+        return nil, verbs_trouble
+      end
+      for _, entry in ipairs(verbs) do answers[#answers + 1] = entry end
+    end
+    local counted, count_trouble = effective_counts(view, answers)
     if not counted then
       return nil, count_trouble
     end
-    return lookup(exact, true, named_count), ""
+    return lookup(answers, true, named_count), ""
   end
   -- A name that was removed answers what replaces it, before a search
   -- offers another module's member of the same name (`Codec.encoder`

@@ -6,8 +6,8 @@ static void simpleexp (LexState *ls, expdesc *v) {
                   constructor | FUNCTION body | suffixedexp */
 --- replace
 /*
- * TODO: make the table with its metatable in one instruction (the plan's
- * one opcode, doc/plans/strict-teal.md), once bin/perf measures what the
+ * TODO: make the table and set its metatable in one instruction,
+ * once bin/perf measures what the
  * second instruction of a class literal costs a run that makes a million
  * instances: the fields are written first, as the constructor has them,
  * and the metatable after.

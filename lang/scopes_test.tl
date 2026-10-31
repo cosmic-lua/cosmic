@@ -1,5 +1,5 @@
 --- Tests of [`lang.scopes`]: a case for each rule of scoping, each error with
---- its code, place and fix, and the facts the plan's rules read (what is
+--- its code, place and fix, and the facts the checker's rules read (what is
 --- assigned, captured, and assigned after a capture). Every case also holds
 --- [`lang.scopes_cover`].
 local Ast = require("lang.ast")

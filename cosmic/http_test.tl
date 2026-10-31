@@ -755,7 +755,7 @@ local function test_a_response_is_a_stream_reader()
   assert(reader:close())
 end
 
-local revived: {Http.Response} = {}
+local revived: mut {integer: Http.Response} = {}
 
 local function test_a_response_a_finalizer_revives_is_closed()
   -- The table's finalizer runs in the same collection as the handle's

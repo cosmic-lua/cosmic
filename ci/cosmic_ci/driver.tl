@@ -17,6 +17,7 @@ local QueueSeed = require("cosmic_ci.queue_seed")
 local QueueStage = require("cosmic_ci.queue_stage")
 local Runner = require("cosmic_ci.runner")
 local Report = require("cosmic_ci.report")
+local SharesWait = require("cosmic_ci.shares_wait")
 local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 local Verdicts = require("cosmic_ci.verdicts")
@@ -125,6 +126,8 @@ local commands: {string:Command} = {
     usage = "", handler = QueueSeed.find_command },
   ["queue-ahead"] = { about = "find the run ahead in the merge queue, and whether it holds the verdicts this run takes",
     usage = "", handler = QueueSeed.ahead_command },
+  ["shares-wait"] = { about = "wait for the jobs of JOBS in this run to complete, and say whether every one passed",
+    usage = "", handler = SharesWait.command },
   ["queue-stage"] = { about = "keep in $RUNNER_TEMP/seed what main would save of this merge queue leg, and name its keys",
     usage = "", handler = QueueStage.stage_command },
   ["merge-base"] = { about = "name the main commit this run's tree grew from, whose verdicts the restore takes",
@@ -139,7 +142,7 @@ local commands: {string:Command} = {
     usage = "", handler = CommitVerdicts.invalidate_command },
   ["place-tree"] = { about = "move the checkout to the path this commit and leg choose, or back",
     usage = "[--name | --restore]", spec = PlaceTree.spec(), options = PlaceTree.command },
-  ["check-islands"] = { about = "type-check the files ci/bootstrap-files.txt lists, on the running driver, in the new grammar, by running each with --help",
+  ["check-islands"] = { about = "type-check the files ci/bootstrap-files.txt lists, on the running driver, in the new grammar, with --standalone --check",
     usage = "[ROOT]", handler = Islands.command },
   platform = { about = "run one phase of this worker's platform job",
     usage = "PHASE [ARG]", handler = Orchestration.platform },

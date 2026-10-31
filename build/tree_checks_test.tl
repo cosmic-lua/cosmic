@@ -918,11 +918,13 @@ local function test_plurals_found_before_stand_for_the_same_text(dir: string)
   assert(counted.source == text and #counted.sites == 1)
   local site = assert(counted.sites[1])
   assert(site[1] == "2" and site[2] == "tests", table.concat(site, "|"))
+  local edited: mut {string} = {}
+  for at, part in ipairs(site) do edited[#edited + 1] = if at == 2 then "kept" else part end end
+  local kept: tree_checks.Plurals = { source = counted.source, sites = { edited } }
   local read: {string: tree_checks.Plurals} = {
-    ["build/count.tl"] = counted,
+    ["build/count.tl"] = kept,
     ["build/moved.tl"] = { source = "return 1\n", sites = {} },
   }
-  site[2] = "kept"
   local found = tree_checks.plurals(db, {}, {}, read)
   local all = table.concat(found, "\n")
   assert(#found == 2, all)

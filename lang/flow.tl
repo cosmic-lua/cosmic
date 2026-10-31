@@ -1,4 +1,4 @@
---- The flow state of the new checker ([`doc/plans/new-checker-types.md`], "narrowing and reachability"): what a
+--- The flow state of the new checker: what a
 --- function's body knows at one point of it, which [`lang.check`] keeps as a register of its walk and replaces
 --- where control branches, joins and loops.
 ---

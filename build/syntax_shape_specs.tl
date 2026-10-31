@@ -530,6 +530,12 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
   if not source:find("record_of", 1, true) then
     return { splices = none, refusal = "", line = 0 }
   end
+  -- A module that names `record_of` without requiring cosmic.shape at its top level (in a comment, a string, or
+  -- another table's field) has nothing to splice: that is seen in its syntax, before lowering it and all it requires.
+  local read = build:parsed(module)
+  if read ~= nil and not read.broken and required(read.chunk)["cosmic.shape"] == nil then
+    return { splices = none, refusal = "", line = 0 }
+  end
   build:lower({ module })
   local outcome = build:result(module, false)
   if outcome == nil or outcome.broken then

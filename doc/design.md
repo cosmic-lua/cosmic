@@ -883,9 +883,9 @@ processor anything else.
 
 no run keys a verdict by what its test was seen to read: the observed key,
 the log of a worker's reads it was made from, and `--audit`, which named what
-a test read beyond its declaration, are gone (plan 4.2's PR 4), and with
+a test read beyond its declaration, are gone, and with
 them the syscall table's log and the SQLite VFS that recorded the files a
-connection opened (PR 5). a sandboxed
+connection opened. a sandboxed
 test that reads what it does not declare finds nothing there and fails with
 its own error. what a declared key rests on beside the list above:
 
@@ -936,7 +936,7 @@ a record whose anchor no longer matches fails the build by name.
 
 vendored: Lua 5.5, the SQLite amalgamation and twelve of its ext/misc
 extensions, mbedtls, miniz, bzip2,
-xz's liblzma decoder, zstd, c-ares, curl, yyjson, expat, Mozilla's CA bundle, the
+xz's liblzma (decoder and LZMA2 encoder), zstd, c-ares, curl, yyjson, expat, Mozilla's CA bundle, the
 IANA time zone database's compiled `zoneinfo`, and tl;
 argon2's reference implementation built without threads and the regex
 engine are planned. a library that needs a configuration header gets a
@@ -964,9 +964,9 @@ a CycloneDX document. a pin with no license fails the build.
 ### teal
 
 the checker and compiler are the tree's own source, `lang/`, and the language is cosmic's own: it reads Teal's
-syntax where that serves and breaks with it where Teal or a Lua idiom costs soundness, simplicity or speed
-([`doc/plans/strict-teal.md`] states the rules, their reasons and the order they landed in). there is one
-checker. the fork of tl 0.24.8 that came before it is deleted, with its formatter, its comparison harness and its
+syntax where that serves and breaks with it where Teal or a Lua idiom costs
+soundness, simplicity or speed (`cosmic docs <code>` gives the rule behind any
+error the checker reports). there is one checker. the fork of tl 0.24.8 that came before it is deleted, with its formatter, its comparison harness and its
 patch records; a project written in the old grammar is rewritten to this one by hand
 ([`doc/guides/project.md`]), and `COSMIC_GRAMMAR=teal` is refused, pointing to that guide.
 
@@ -1374,7 +1374,6 @@ in [roadmap.md](roadmap.md).
 [`cosmic.web`]: ../cosmic/web/init.tl
 [`cosmic/fs.tl`]: ../cosmic/fs.tl
 [`cosmic/fs_example.tl`]: ../cosmic/fs_example.tl
-[`doc/plans/strict-teal.md`]: plans/strict-teal.md
 [`doc/testing.md`]: testing.md
 [`lang/ast.tl`]: ../lang/ast.tl
 [`lang/check.tl`]: ../lang/check.tl
@@ -1393,10 +1392,6 @@ in [roadmap.md](roadmap.md).
 [`lang/warnings.tl`]: ../lang/warnings.tl
 [`lang/prelude.d.tl`]: ../lang/prelude.d.tl
 [`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
-[hidden-code rule]: plans/strict-teal.md#no-implicit-conversion-or-hidden-code
-[no casts]: plans/strict-teal.md#no-casts
-[tagged unions]: plans/strict-teal.md#tagged-unions
-[the plan's fixed-fields rule]: plans/strict-teal.md#fields-are-fixed-unless-declared-mutable
 [`Proc.exit`]: ../cosmic/proc.tl
 [`schema.tables_digest`]: ../build/schema.tl
 [`Server.serve`]: ../cosmic/http/server.tl

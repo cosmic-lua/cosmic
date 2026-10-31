@@ -113,3 +113,63 @@ local function test_entropy_refuses_a_degenerate_count()
   assert(not pcall(Rand.entropy, (1 << 20) + 1))
   assert(#assert(Rand.entropy(1 << 20)) == 1 << 20)
 end
+
+--- The mean and variance of `n` draws of `draw`.
+local function moments(draw: function(): number, n: integer): number, number
+  local sum, sq = 0.0, 0.0
+  for _ = 1, n do
+    local x = draw()
+    sum = sum + x
+    sq = sq + x * x
+  end
+  local mean = sum / n
+  return mean, sq / n - mean * mean
+end
+
+local function test_normal_has_its_mean_and_deviation()
+  local src = Rand.new(3)
+  -- 20000 draws put the sample mean within 0.03 of 0 at about four
+  -- standard errors, and the variance within 0.06 of 1.
+  local mean, var = moments(function(): number return src:normal() end, 20000)
+  assert(math.abs(mean) < 0.03, "mean " .. tostring(mean))
+  assert(math.abs(var - 1.0) < 0.06, "variance " .. tostring(var))
+  mean, var = moments(function(): number return src:normal(10, 3) end, 20000)
+  assert(math.abs(mean - 10.0) < 0.1, "mean " .. tostring(mean))
+  assert(math.abs(var - 9.0) < 0.6, "variance " .. tostring(var))
+  assert(src:normal(5, 0) == 5.0)
+end
+
+local function test_normal_replays_from_a_seed()
+  local a, b = Rand.new(9), Rand.new(9)
+  for _ = 1, 100 do
+    assert(a:normal() == b:normal())
+  end
+  assert(Rand.new(9):normal() ~= Rand.new(10):normal())
+end
+
+local function test_normal_refuses_degenerate_parameters()
+  local src = Rand.new(0)
+  Test.raises(function() src:normal(0, -1) end, "stddev not negative")
+  Test.raises(function() src:normal(0 / 0, 1) end, "must be finite")
+  Test.raises(function() src:normal(0, math.huge) end, "must be finite")
+  Test.raises(function() src:normal(math.huge, 1) end, "must be finite")
+  Test.raises(function() src:normal(0, 0 / 0) end, "must be finite")
+end
+
+local function test_normal_has_the_shape_of_a_bell()
+  local src = Rand.new(5)
+  -- A uniform on [-sqrt 3, sqrt 3] has mean 0 and variance 1 too, but
+  -- only 0.577 of its mass within one deviation and a fourth moment of
+  -- 1.8. The normal has 0.6827 (standard error 0.0033 at 20000 draws,
+  -- so the band is over four) and 3.
+  local n, within, fourth = 20000, 0, 0.0
+  for _ = 1, n do
+    local x = src:normal()
+    if math.abs(x) < 1.0 then within = within + 1 end
+    fourth = fourth + x * x * x * x
+  end
+  local fraction = within / n
+  assert(math.abs(fraction - 0.6827) < 0.015, "within one deviation " .. tostring(fraction))
+  fourth = fourth / n
+  assert(math.abs(fourth - 3.0) < 0.3, "fourth moment " .. tostring(fourth))
+end

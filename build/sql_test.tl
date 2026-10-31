@@ -687,6 +687,23 @@ local function test_to_csv_writes_data_alone_and_its_summary_on_stderr()
     written.summary)
 end
 
+--- A field that begins with a byte order mark is quoted, so a reader that
+--- drops a BOM at the start of its text keeps it: a column name's, which
+--- is the header's first field, reads back as written.
+local function test_to_csv_quotes_a_field_that_begins_with_a_byte_order_mark()
+  local dir = delimited()
+  local bom = "\xEF\xBB\xBF"
+  local code, written = run(dir, { "--to", "csv", "SELECT 1 AS \"" .. bom .. "id\", '" .. bom .. "x' AS v, 'a" .. bom .. "' AS w" })
+  assert(code == 0, table.concat(written.err, "|"))
+  assert(table.concat(written.out, "\n") == '"' .. bom .. 'id",v,w\n1,"' .. bom .. 'x",a' .. bom,
+    table.concat(written.out, "\n"))
+  code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "csv", "SELECT \"" .. bom .. "id\", v FROM stdin" },
+    '"' .. bom .. 'id",v\n1,"' .. bom .. 'x"\n')
+  assert(code == 0 and table.concat(written.out, "\n") == '"' .. bom .. 'id",v\n1,"' .. bom .. 'x"',
+    table.concat(written.err, "|") .. table.concat(written.out, "\n"))
+  assert(Fs.remove_tree(dir))
+end
+
 --- `--to ndjson` writes an object per row, its members the columns in
 --- order and named apart, and a result of `_json` alone as its text.
 local function test_to_ndjson_writes_a_row_an_object_in_column_order()

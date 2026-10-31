@@ -206,7 +206,7 @@ local record Seen
 end
 
 -- TODO: serve a file past 1 MiB as a Reader with `length` set and a
--- modification-time tag, as doc/plans/web/assets.md section 3.3 has it, once
+-- modification-time tag, once
 -- [`Source.get`] can answer a file without its bytes in memory; every file is
 -- read whole today, so development holds the largest asset in memory.
 --- A source reading the files under `root` from disk, hidden files (a

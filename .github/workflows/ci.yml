@@ -162,11 +162,20 @@
       if: "!cancelled() && needs.reuse.outputs.run == ''",
       # The leg's name is the check's, so a ruleset needs no matrix; a
       # light run's second linux-x86_64 share (`shard`) is
-      # linux-x86_64-shard.
-      name: "${{ matrix.shard == '2/2' && format('{0}-shard', matrix.name) || matrix.name }}",
+      # linux-x86_64-shard, and a full run's second share of
+      # alpine-x86_64's portable suite is alpine-x86_64-portable-share.
+      name: "${{ matrix.shard == '2/2' && format('{0}-shard', matrix.name) || matrix.shard == 'portable-2/2' && format('{0}-portable-share', matrix.name) || matrix.name }}",
       defaults: {run: {"working-directory": "ci", shell: "${{ matrix.shell }}"}},
       strategy: {
-        "fail-fast": false,
+        # On the queue's run a failed leg cancels the matrix's other
+        # legs, which give their runners back, and no job holds a runner
+        # for the whole run. The jobs outside the matrix (`checked`,
+        # `checked-narrowing`) still run to their end, so a failed queue
+        # run reports when they end, not at once. No job that runs the
+        # candidate's code holds `actions: write`, since its token could
+        # write the Actions cache, so a leg does not cancel the run.
+        # Every other run lets every leg end.
+        "fail-fast": "${{ github.event_name == 'merge_group' }}",
         matrix: {
           # A branch push (`light`, COSMIC_CI_SCOPE's test, which a
           # matrix cannot read) runs no alpine-x86_64 leg, linux-x86_64's
@@ -179,11 +188,30 @@
           # self but for the other's tests; the exclusions below keep
           # the other legs whole. Each restores and keys as that leg
           # does, and the gate (`ci`) needs every leg. A full run, whose
-          # suites gate a merge, runs every leg whole.
-          shard: "${{ fromJSON(needs.scope.outputs.scope != 'light' && '[\"\"]' || '[\"1/2\", \"2/2\"]') }}",
+          # suites gate a merge, runs every leg's native suite whole.
+          # Its one extra job, `portable-2/2`, is alpine-x86_64's: the
+          # leg runs the first half of the portable suite
+          # (COSMIC_CI_PORTABLE_SHARD 1/2) and that job, on the same
+          # runner and image, restoring and keying as the leg does (its
+          # `name` is the leg's), the second half beside it. It runs
+          # nothing the leg's proofs already cover (the steps below that
+          # test `matrix.shard`), saves no cache of its own (but for the
+          # pinned driver's bootstrap cache, which the cosmic-driver
+          # action saves on main under the leg's key as the leg does),
+          # and uploads the bytes it ran with their digest and share for
+          # the join to compare (`portable-share-*`), no product.
+          shard: "${{ fromJSON(needs.scope.outputs.scope != 'light' && '[\"\", \"portable-2/2\"]' || '[\"1/2\", \"2/2\"]') }}",
           # Of the original combinations, before any entry below is
-          # added; on a full run, with no second share, none matches.
-          exclude: [{name: "linux-aarch64", shard: "2/2"}, {name: "macos-aarch64", shard: "2/2"}],
+          # added. A light run never holds `portable-2/2` and a full run
+          # never `2/2`, so the exclusions naming the other run's value
+          # drop nothing.
+          exclude: [
+            {name: "linux-aarch64", shard: "2/2"},
+            {name: "macos-aarch64", shard: "2/2"},
+            {name: "linux-x86_64", shard: "portable-2/2"},
+            {name: "linux-aarch64", shard: "portable-2/2"},
+            {name: "macos-aarch64", shard: "portable-2/2"},
+          ],
           # Each entry adds to the legs of its `name`; the first, which
           # names none, adds alpine-x86_64's to every leg, and each
           # later one replaces all of them for its own. An entry naming
@@ -235,13 +263,38 @@
         COSMIC_CI_SCOPE: "${{ needs.scope.outputs.scope == 'light' && 'light' || 'full' }}",
         # The job's own name (`name` above), which names what it
         # uploads apart from the other linux-x86_64 share's.
-        COSMIC_WORKER: "${{ matrix.shard == '2/2' && format('{0}-shard', matrix.name) || matrix.name }}",
+        COSMIC_WORKER: "${{ matrix.shard == '2/2' && format('{0}-shard', matrix.name) || matrix.shard == 'portable-2/2' && format('{0}-portable-share', matrix.name) || matrix.name }}",
         TARGET: "${{ matrix.target }}",
+        # The workflow's condition, false for alpine-x86_64's portable
+        # share: a job's `env` cannot read the workflow's, so it is
+        # written again. What that job would save, a verdict of share
+        # 2/2 that no native suite of the run also reached, no run
+        # keeps for main's later ones: the alpine leg saves its own
+        # rows alone. A test whose key holds the launcher (a `tool` or
+        # `store` test, whose portable verdict is its own) in share 2/2
+        # therefore runs again on every run the key has moved on; a
+        # sealed test stands on the native suite's row, which the leg
+        # saves.
+        # TODO: save share 2/2's verdicts for main, once the alpine leg
+        # can merge them into its own save (driver.tl verdicts-merge of
+        # an artifact this job uploads), which needs the leg to wait on
+        # this job.
+        COSMIC_CI_SAVES: "${{ matrix.shard != 'portable-2/2' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule') }}",
         # Which share of the native suite this leg runs (`I/N`), where
         # it runs one (a light run's linux-x86_64 legs, `shard` above);
         # empty for the whole suite. The other legs of a light run carry
         # a share in the matrix too, which this does not pass on.
         COSMIC_CI_SHARD: "${{ matrix.name == 'linux-x86_64' && matrix.shard || '' }}",
+        # Which share of the portable suite this leg runs (`I/N`), on a
+        # full run: alpine-x86_64 the first half and its
+        # `portable-2/2` job the second (`shard` above); empty for the
+        # whole suite.
+        COSMIC_CI_PORTABLE_SHARD: "${{ matrix.shard == 'portable-2/2' && '2/2' || matrix.name == 'alpine-x86_64' && '1/2' || '' }}",
+        # How many jobs of a full run run a share of a leg's portable
+        # suite and upload no product (`portable-2/2`): the legs'
+        # attestation counts products without them (phase_attest), and
+        # the join expects as many `portable-share-*` attestations.
+        COSMIC_CI_PORTABLE_SHARES: "${{ needs.scope.outputs.scope == 'light' && '0' || '1' }}",
         # The checked core's suite runs in a job of its own (`checked`),
         # beside the legs rather than after one of them; each leg still
         # builds and verifies the checked core (orchestration.tl's
@@ -269,7 +322,12 @@
         # 190 s on that leg) was its, the queue's longest, critical path.
         # linux-x86_64 still runs its regressions on those bytes and
         # attests them, as the legs that skip the suite do. A branch push
-        # that runs the full scope (`scope`) runs it as the queue does. A push to
+        # that runs the full scope (`scope`) runs it as the queue does.
+        # alpine-x86_64 splits it in two (COSMIC_CI_PORTABLE_SHARD) so
+        # that the second half runs beside the leg, in the job
+        # `portable-2/2` (`shard`), on a runner of its own: the leg's
+        # critical path is its native suite, its regressions and half
+        # the portable suite, not all of it. A push to
         # main that reuses the queue's run runs no legs, so glibc's run
         # of it lands with the scheduled run, or a push to main that
         # found no queue run to reuse.
@@ -551,6 +609,13 @@
           run: "[ ! -f \"$RUNNER_TEMP/build-cache/cache.db\" ] || cp \"$RUNNER_TEMP/build-cache/cache.db\" \"$RUNNER_TEMP/compiles-restored.db\"",
         },
 
+        # The job that runs the portable suite's second half
+        # (`portable-2/2`) skips the driver check and its relay below, the
+        # native suite and its boundary, the credential proofs, the
+        # regressions, the darwin suite, and every cache save and seed
+        # (the action's bootstrap cache aside, which it saves as the leg
+        # does): the
+        # alpine-x86_64 leg beside it, on the same image, runs them.
         # A marker main saved after cosmic_ci's tests passed on what they
         # read and this host; an exact hit skips the check. Looked up
         # before the tree moves, since hashFiles reads the checkout. A
@@ -571,7 +636,7 @@
         {
           name: "find a passing CI driver check",
           id: "driver-check-restore",
-          if: "env.COSMIC_CI_SCOPE == 'full'",
+          if: "env.COSMIC_CI_SCOPE == 'full' && matrix.shard != 'portable-2/2'",
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/driver-checked",
@@ -611,7 +676,7 @@
         {
           name: "find the CI driver check of the run ahead in the queue",
           id: "driver-ahead",
-          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && steps.driver-check-restore.outputs.cache-hit != 'true'",
+          if: "env.COSMIC_CI_SCOPE == 'full' && matrix.shard != 'portable-2/2' && github.event_name == 'merge_group' && steps.driver-check-restore.outputs.cache-hit != 'true'",
           shell: "sh",
           "continue-on-error": true,
           "timeout-minutes": 2,
@@ -659,7 +724,7 @@
         {
           name: "check the pinned CI driver",
           id: "driver-check",
-          if: "env.COSMIC_CI_SCOPE == 'full' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (steps.driver-check-restore.outputs.cache-hit != 'true' && steps.driver-ahead-take.outputs.hit != 'true'))",
+          if: "env.COSMIC_CI_SCOPE == 'full' && matrix.shard != 'portable-2/2' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (steps.driver-check-restore.outputs.cache-hit != 'true' && steps.driver-ahead-take.outputs.hit != 'true'))",
           env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "0"},
           run: "cosmic-driver test cosmic_ci && mkdir -p \"$RUNNER_TEMP/driver-checked\" && echo \"${{ steps.driver-check-restore.outputs.cache-primary-key }}\" > \"$RUNNER_TEMP/driver-checked/key\"",
         },
@@ -670,7 +735,7 @@
         # driver-checked/, written by the check alone.
         {
           name: "keep the CI driver check for the run behind in the queue",
-          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && (steps.driver-check.outcome == 'success' || steps.driver-check-restore.outputs.cache-hit == 'true' || steps.driver-ahead-take.outputs.hit == 'true')",
+          if: "env.COSMIC_CI_SCOPE == 'full' && matrix.shard != 'portable-2/2' && github.event_name == 'merge_group' && (steps.driver-check.outcome == 'success' || steps.driver-check-restore.outputs.cache-hit == 'true' || steps.driver-ahead-take.outputs.hit == 'true')",
           "continue-on-error": true,
           shell: "sh",
           env: {KEY: "${{ steps.driver-check-restore.outputs.cache-primary-key }}"},
@@ -678,7 +743,7 @@
         },
         {
           name: "upload the CI driver check for the run behind in the queue",
-          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && (steps.driver-check.outcome == 'success' || steps.driver-check-restore.outputs.cache-hit == 'true' || steps.driver-ahead-take.outputs.hit == 'true')",
+          if: "env.COSMIC_CI_SCOPE == 'full' && matrix.shard != 'portable-2/2' && github.event_name == 'merge_group' && (steps.driver-check.outcome == 'success' || steps.driver-check-restore.outputs.cache-hit == 'true' || steps.driver-ahead-take.outputs.hit == 'true')",
           "continue-on-error": true,
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
@@ -717,7 +782,7 @@
         {
           name: "find the run ahead in the queue",
           id: "ahead",
-          if: "github.event_name == 'merge_group' && (steps.verdicts-base.outputs.key == '' || steps.verdicts-restore.outputs.cache-matched-key != steps.verdicts-base.outputs.key)",
+          if: "matrix.shard != 'portable-2/2' && github.event_name == 'merge_group' && (steps.verdicts-base.outputs.key == '' || steps.verdicts-restore.outputs.cache-matched-key != steps.verdicts-base.outputs.key)",
           shell: "sh",
           "continue-on-error": true,
           "timeout-minutes": 2,
@@ -757,13 +822,14 @@
         {
           name: "run release Cosmic's native suite",
           id: "release-suite",
+          if: "matrix.shard != 'portable-2/2'",
           run: "cosmic-driver cosmic_ci/driver.tl platform local-suite",
         },
 
         # For the run behind this one in the queue (above), kept a day.
         {
           name: "keep the suite's verdicts for the run behind in the queue",
-          if: "github.event_name == 'merge_group' && steps.release-suite.outcome == 'success'",
+          if: "matrix.shard != 'portable-2/2' && github.event_name == 'merge_group' && steps.release-suite.outcome == 'success'",
           "continue-on-error": true,
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
@@ -777,6 +843,7 @@
 
         {
           name: "verify the delayed native database boundary",
+          if: "matrix.shard != 'portable-2/2'",
           run: "cosmic-driver cosmic_ci/driver.tl platform local-boundary",
         },
 
@@ -784,21 +851,21 @@
         # after the native suite's delayed boundary, like the Darwin suite.
         {
           name: "build the credential transition probe",
-          if: "runner.os == 'Linux'",
+          if: "runner.os == 'Linux' && matrix.shard != 'portable-2/2'",
           "working-directory": ".",
           run: ".github/scripts/credentials-build.sh",
         },
 
         {
           name: "prove the ordinary credential transition",
-          if: "runner.os == 'Linux'",
+          if: "runner.os == 'Linux' && matrix.shard != 'portable-2/2'",
           "working-directory": ".",
           shell: "leg-shell --root {0}",
           run: "sh .github/scripts/credentials-proof.sh",
         },
         {
           name: "prove local runner privilege and ownership boundaries",
-          if: "runner.os == 'Linux'",
+          if: "runner.os == 'Linux' && matrix.shard != 'portable-2/2'",
           "working-directory": ".",
           shell: "leg-shell --root {0}",
           run: "sh .github/scripts/run-local-proof.sh",
@@ -810,6 +877,7 @@
         # suite stood on no verdict, it does nothing.
         {
           name: "run the darwin suite",
+          if: "matrix.shard != 'portable-2/2'",
           run: "cosmic-driver cosmic_ci/driver.tl platform darwin-suite",
         },
 
@@ -848,7 +916,7 @@
         {
           name: "list what the build wrote to the zig build cache",
           "continue-on-error": true,
-          if: "always() && github.event_name != 'schedule' && steps.assemble.outcome != 'skipped' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group') && startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-{1}-', steps.names.outputs.vendor, steps.names.outputs.core))",
+          if: "always() && matrix.shard != 'portable-2/2' && github.event_name != 'schedule' && steps.assemble.outcome != 'skipped' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group') && startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-{1}-', steps.names.outputs.vendor, steps.names.outputs.core))",
           shell: "sh",
           "working-directory": ".",
           env: {RESTORED: "${{ steps.zig-cache-restore.outputs.cache-matched-key }}"},
@@ -870,7 +938,7 @@
         # the saves below follows (the upload's, or the queue's stage).
         {
           name: "prune the zig build outputs no step vouches for",
-          if: "always() && steps.driver.outcome == 'success' && steps.assemble.outcome == 'success' && ((github.event_name == 'merge_group' && !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-{1}-', steps.names.outputs.vendor, steps.names.outputs.core))) || (env.COSMIC_CI_SAVES == 'true' && (github.event_name == 'schedule' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor)))))",
+          if: "always() && matrix.shard != 'portable-2/2' && steps.driver.outcome == 'success' && steps.assemble.outcome == 'success' && ((github.event_name == 'merge_group' && !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-{1}-', steps.names.outputs.vendor, steps.names.outputs.core))) || (env.COSMIC_CI_SAVES == 'true' && (github.event_name == 'schedule' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor)))))",
           run: "cosmic-driver cosmic_ci/driver.tl zig-prune",
         },
 
@@ -912,15 +980,18 @@
           },
         },
 
-        # Before the portable suite, which the queue's alpine leg runs
-        # (some 286 s there, run 38146952746), so a regression's failure, the self-rebuild
-        # fixture's among them, surfaces that much sooner. Neither reads
-        # what the other writes: the fixtures stand on fixtures.db,
-        # beside verdicts.db, which the verdict cache restores and saves
-        # with it, and unpack the source assemble archived.
+        # Before the portable suite, whose first half the queue's alpine
+        # leg runs (the whole of it took some 286 s there, run
+        # 38146952746), so a regression's failure, the self-rebuild
+        # fixture's among them, surfaces that much sooner. Not in the
+        # job that runs the second half: the leg's proofs hold for it.
+        # The regressions and the portable suite read nothing of what the
+        # other writes: the fixtures stand on fixtures.db, beside
+        # verdicts.db, which the verdict cache restores and saves with it,
+        # and unpack the source assemble archived.
         {
           name: "run runtime, launcher, rebuild, and identity regressions",
-          if: "env.COSMIC_CI_SCOPE == 'full'",
+          if: "env.COSMIC_CI_SCOPE == 'full' && matrix.shard != 'portable-2/2'",
           run: "cosmic-driver cosmic_ci/driver.tl platform fixtures",
         },
 
@@ -950,7 +1021,7 @@
         {
           name: "keep only this run's compiles and parses",
           id: "compiles-trim",
-          if: "always() && steps.driver.outcome == 'success'",
+          if: "always() && matrix.shard != 'portable-2/2' && steps.driver.outcome == 'success'",
           run: "cosmic-driver cosmic_ci/driver.tl compiles-trim \"${{ steps.names.outputs.since }}\" \"${{ runner.temp }}/compiles-restored.db\"",
         },
 
@@ -958,7 +1029,7 @@
         {
           name: "keep only this run's test verdicts",
           id: "verdicts-trim",
-          if: "always() && steps.driver.outcome == 'success'",
+          if: "always() && matrix.shard != 'portable-2/2' && steps.driver.outcome == 'success'",
           run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}",
         },
 
@@ -985,11 +1056,27 @@
         # Read by the `ci` join, and by prerelease.yml as this run ends.
         {
           name: "upload the attested product",
-          if: "env.COSMIC_CI_SCOPE == 'full'",
+          if: "env.COSMIC_CI_SCOPE == 'full' && matrix.shard != 'portable-2/2'",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
             name: "portable-product-${{ matrix.name }}",
             path: "${{ runner.temp }}/cosmic-ci/platform/product",
+            "if-no-files-found": "error",
+            "retention-days": 7,
+          },
+        },
+
+        # The second share's job uploads no product, which prerelease.yml
+        # would count a fifth lane of, but the bytes it ran, their digest
+        # and the share it ran, for the join to hash and compare with the
+        # legs' (cosmic_ci/orchestration.tl's provenance_impl).
+        {
+          name: "upload the attestation of the bytes this share ran",
+          if: "env.COSMIC_CI_SCOPE == 'full' && matrix.shard == 'portable-2/2'",
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "portable-share-${{ matrix.name }}",
+            path: "${{ runner.temp }}/cosmic-ci/platform/product/cosmic\n${{ runner.temp }}/cosmic-ci/platform/product/executed-cosmic.sha256\n${{ runner.temp }}/cosmic-ci/platform/product/portable-share\n",
             "if-no-files-found": "error",
             "retention-days": 7,
           },
@@ -1049,7 +1136,7 @@
         # core's, not a day of them.
         {
           name: "keep what main would save of this leg",
-          if: "success() && github.event_name == 'merge_group'",
+          if: "success() && matrix.shard != 'portable-2/2' && github.event_name == 'merge_group'",
           shell: "sh",
           env: {
             VERDICTS_PREFIX: "${{ steps.host-id.outputs.verdicts }}",
@@ -1067,7 +1154,7 @@
         },
         {
           name: "upload what main would save of this leg",
-          if: "success() && github.event_name == 'merge_group'",
+          if: "success() && matrix.shard != 'portable-2/2' && github.event_name == 'merge_group'",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
             name: "seed-${{ matrix.name }}",
@@ -1083,7 +1170,7 @@
         # compressed), and the gate waits on it: deflate's fastest.
         {
           name: "upload the zig build outputs main would save of this leg",
-          if: "success() && github.event_name == 'merge_group'",
+          if: "success() && matrix.shard != 'portable-2/2' && github.event_name == 'merge_group'",
           "continue-on-error": true,
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
@@ -1189,26 +1276,38 @@
     # test enters each C function. The suite's own time is a minute or
     # two; what the job costs is the boot and checked build it repeats,
     # the checked core being what it runs
-    # (COSMIC_CI_CHECKED_SUITE=gather). It boots and builds only what the
-    # suite reads, and keeps the suite's verdicts under a cache name of
-    # its own (`linux-x86_64-checked`), saved and seeded as a leg's are;
-    # it restores linux-x86_64's zig build outputs and compiles, which
-    # that leg saves. Its tree moves to a path of the commit's own, as a
-    # leg's does. Where `platform` runs, it runs, unless a share failed.
-    # On a branch push (`light`) the shares do not run, and it runs
-    # none of the checked suite's steps but the pinned CI driver's check,
+    # (COSMIC_CI_CHECKED_SUITE=gather). It keeps the suite's verdicts
+    # under a cache name of its own (`linux-x86_64-checked`), saved and
+    # seeded as a leg's are; it restores linux-x86_64's zig build outputs
+    # and compiles, which that leg saves. Its tree moves to a path of the
+    # commit's own, as a leg's does.
+    #
+    # It does not need the shares, so that its boot and build run beside
+    # them; `shares-wait` (shares_wait.tl, through the API) holds it
+    # before it takes their verdicts, and the suite runs only on its
+    # `success`: every share passed. A share that did not pass fails the
+    # job. Where the run saves nothing it fails at once; where it saves
+    # (main's push, the nightly) the wait holds for every share to
+    # complete (HOLD), then the job takes their rows, runs no test and
+    # fails, so the save drops the failed test's pass from main's newest
+    # entry. A wait that timed out with a share unfinished takes no rows
+    # and saves nothing. `ci` fails on the share itself (it needs
+    # `checked-shard`).
+    #
+    # On a branch push (`light`) the shares do not run, and it runs none
+    # of the checked suite's steps but the pinned CI driver's check,
     # which the legs run only on a full run: some 30 to 60 s where this
     # job has no suite. The tree's format check, which answers the same
     # on every host and runs on one leg in a full run's assemble, is the
     # `format` job's on a light run.
     checked: {
-      needs: ["reuse", "scope", "checked-shard"],
-      if: "!cancelled() && needs.reuse.outputs.run == '' && (needs.checked-shard.result != 'failure' || github.event_name == 'push' || github.event_name == 'schedule')",
+      needs: ["reuse", "scope"],
+      if: "!cancelled() && needs.reuse.outputs.run == ''",
       name: "linux-x86_64-checked",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
       permissions: {contents: "read", packages: "read", actions: "read"},
-      "timeout-minutes": 20,
+      "timeout-minutes": 60,
       env: {
         COSMIC_CI_SCOPE: "${{ needs.scope.outputs.scope == 'light' && 'light' || 'full' }}",
         COSMIC_WORKER: "linux-x86_64-checked",
@@ -1398,7 +1497,7 @@
         # bin/verify-codesign, bin/perf and build/paths.tl) must
         # type-check under the pinned driver in the new grammar, not only
         # the tree's: the check above compiles ci/ on it, and this the
-        # rest, each file ci/bootstrap-files.txt lists run with --help.
+        # rest, each file ci/bootstrap-files.txt lists checked with --standalone --check.
         # Every scope, since it takes well under a second a file.
         {
           name: "type-check the bootstrap's scripts on the pinned driver",
@@ -1414,6 +1513,33 @@
           name: "build the checked core and the format decoder",
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "cosmic-driver cosmic_ci/driver.tl platform checked-build",
+        },
+        # Everything above runs beside the shares; from here the job
+        # stands on them (see the job's comment). The step's limits
+        # nest in the job's timeout (build/workflows_test.tl).
+        {
+          name: "wait for the shares of the checked suite",
+          id: "shares-wait",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
+          shell: "sh",
+          "timeout-minutes": 52,
+          env: {
+            GH_TOKEN: "${{ github.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            RUN_ID: "${{ github.run_id }}",
+            HOLD: "${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule') && '1' || '' }}",
+            JOBS: "linux-x86_64-checked-shard-1 linux-x86_64-checked-shard-2 linux-x86_64-checked-shard-3 linux-x86_64-checked-shard-4",
+            LIMIT_SECONDS: "3000",
+            SHARE_SECONDS: "1620",
+          },
+          run: "cosmic-driver cosmic_ci/driver.tl shares-wait",
+        },
+        {
+          name: "stop where a share failed and nothing is saved",
+          if: "env.COSMIC_CI_SCOPE == 'full' && (steps.shares-wait.outputs.result == 'timeout' || (steps.shares-wait.outputs.result != 'success' && env.COSMIC_CI_SAVES != 'true'))",
+          shell: "sh",
+          env: {FAILED: "${{ steps.shares-wait.outputs.failed }}"},
+          run: "echo \"a share of the checked suite did not pass: ${FAILED:-(none finished in time)}\"; exit 1",
         },
         # The verdicts the shares kept, one artifact each, each in a
         # directory of its own, merged into an empty cache: the rows
@@ -1435,21 +1561,22 @@
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "for share in \"${{ runner.temp }}\"/verdicts-shares/*/; do cosmic-driver cosmic_ci/driver.tl verdicts-merge \"$share\" || exit 1; done",
         },
-        # Where a share failed (this job runs then only where it saves,
-        # the nightly and main's push) the run is red, and runs no test
-        # again: its cache is the shares' rows, the failed share's
+        # Where a share did not pass (this job gets here then only where
+        # it saves, the nightly and main's push) the run is red, and runs
+        # no test again: its cache is the shares' rows, the failed share's
         # without the failed test's, so the save below takes that pass
         # out of main's newest entry as the whole suite's job did.
         {
           name: "fail where a share failed",
-          if: "env.COSMIC_CI_SCOPE == 'full' && needs.checked-shard.result == 'failure'",
+          if: "env.COSMIC_CI_SCOPE == 'full' && steps.shares-wait.outputs.result != 'success'",
           shell: "sh",
-          run: "echo \"a share of the checked suite failed\"; exit 1",
+          run: "echo \"a share of the checked suite did not pass\"; exit 1",
         },
+        # Only on four passing shares' verdicts, whatever the steps above.
         {
           name: "run the checked core's suite",
           id: "checked-suite",
-          if: "env.COSMIC_CI_SCOPE == 'full'",
+          if: "env.COSMIC_CI_SCOPE == 'full' && steps.shares-wait.outputs.result == 'success'",
           run: "cosmic-driver cosmic_ci/driver.tl platform checked",
         },
         {
@@ -1461,7 +1588,7 @@
         {
           name: "keep only this run's test verdicts",
           id: "verdicts-trim",
-          if: "always() && env.COSMIC_CI_SCOPE == 'full' && steps.driver.outcome == 'success'",
+          if: "always() && env.COSMIC_CI_SCOPE == 'full' && steps.driver.outcome == 'success' && steps.shares-wait.outputs.result != 'timeout'",
           run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}",
         },
         {
@@ -1591,7 +1718,9 @@
       if: "!cancelled() && needs.reuse.outputs.run == '' && needs.scope.outputs.scope != 'light'",
       name: "linux-x86_64-checked-shard-${{ matrix.part }}",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
-      strategy: {"fail-fast": false, matrix: {part: [1, 2, 3, 4]}},
+      # A failed share cancels the others on the queue's run, as a failed
+      # leg does (`platform`).
+      strategy: {"fail-fast": "${{ github.event_name == 'merge_group' }}", matrix: {part: [1, 2, 3, 4]}},
       "runs-on": "ubuntu-24.04",
       permissions: {contents: "read", packages: "read", actions: "read"},
       "timeout-minutes": 25,
@@ -1872,28 +2001,39 @@
     # fact that is false fails the test (cosmic_ci's
     # phase_checked_narrowing). It stands on no verdict and runs every
     # test, on the release tool and no checked core, so it boots and
-    # builds nothing else, and keeps and saves no verdicts. A job of its
+    # builds nothing else, and keeps and saves no verdicts. Jobs of their
     # own on linux-x86_64's host, beside the legs and the checked suite's
-    # shares: it takes thirteen to fifteen minutes, which the shares' job
-    # would add to its path. A full run only.
-    # TODO: run this suite in shares too (`cosmic test --check-types
-    # --shard`), as `checked-shard` does the checked core's: its whole
-    # run makes the check of the C functions some test enters, which a
-    # checked run keeps no verdict to answer for in a gathering run
-    # (`checked`), so it waits on that check's being held elsewhere:
-    # the native suites of every full run's legs make it on the same
-    # core, over tests this one adds to.
+    # shares, in two shares of the tests (`cosmic test --check-types
+    # --shard I/2`, COSMIC_CI_NARROWING_SHARD, as `checked-shard` splits
+    # the checked core's suite). The whole run takes thirteen to fifteen
+    # minutes, which one job would make a full run's longest after the
+    # legs and a failed queue run's tail; a share takes half of those
+    # tests' time after a boot of three minutes, within the bound it has
+    # of its own (orchestration.tl's `checked_narrowing_timeout_ns`). A
+    # share does not check that some test enters each C function, which
+    # only a whole run answers, and no job makes that run on this core
+    # with these tests: a checked run enters no function a plain one does
+    # not. The tests that differ between them skip in a checked run (they
+    # compare the tree's bytecode with the binary's), and the ones that
+    # ask for one (the declared-types tests, build/type_watch.tl) skip in
+    # every run until the compile writes the checks of returns and
+    # fields. So linux-x86_64's leg, which runs the whole suite on the
+    # same release core in every full run, enters every function this run
+    # could. The declared-types step of that leg is a run of chosen
+    # files, which makes no such check. A full run only.
     "checked-narrowing": {
       needs: ["reuse", "scope"],
       if: "!cancelled() && needs.reuse.outputs.run == '' && needs.scope.outputs.scope != 'light'",
-      name: "linux-x86_64-checked-narrowing",
+      name: "linux-x86_64-checked-narrowing-${{ matrix.part }}",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
+      strategy: {"fail-fast": false, matrix: {part: [1, 2]}},
       "runs-on": "ubuntu-24.04",
       permissions: {contents: "read", packages: "read", actions: "read"},
-      "timeout-minutes": 45,
+      "timeout-minutes": 25,
       env: {
         COSMIC_WORKER: "linux-x86_64-checked",
         TARGET: "x86_64-linux-musl",
+        COSMIC_CI_NARROWING_SHARD: "${{ matrix.part }}/${{ strategy.job-total }}",
         COSMIC_CI_REQUIRE_SANDBOX: "1",
         COSMIC_CI_DECLARED_KEYS: "0",
         COSMIC_CI_EVENT: "${{ github.event_name }}",
@@ -2008,7 +2148,7 @@
           if: "always()",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
-            name: "ci-driver-linux-x86_64-checked-narrowing",
+            name: "ci-driver-linux-x86_64-checked-narrowing-${{ matrix.part }}",
             path: "${{ runner.temp }}/cosmic-ci/operations.db",
             "if-no-files-found": "ignore",
             "retention-days": 7,
@@ -2413,45 +2553,6 @@
       ],
     },
 
-    # Cancels the queue's run once a leg or the checked job has failed
-    # (cancel-on-failure.sh), so `ci` reports a minute or two later (its
-    # runner starts) and the queue restarts the entries behind sooner; a
-    # branch's, main's and the scheduled run let every leg finish. A job
-    # of its own, not a step of each leg: only
-    # it holds `actions: write`, where the legs run test code, and the
-    # failed leg has finished, so it keeps its `failure`. It starts with
-    # the legs, waits on none and is waited on by none (the gate does not
-    # need it), and always exits 0, so no result of its own can fail a
-    # run or a ruleset.
-    cancel: {
-      name: "cancel the run on a failed leg",
-      if: "github.event_name == 'merge_group'",
-      "runs-on": "ubuntu-24.04",
-      "timeout-minutes": 50,
-      permissions: {contents: "read", actions: "write"},
-      steps: [
-        {
-          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
-          with: {
-            "sparse-checkout": "/.github/scripts/cancel-on-failure.sh\n",
-            "sparse-checkout-cone-mode": false,
-            "persist-credentials": false,
-            "fetch-depth": 1,
-          },
-        },
-        {
-          env: {
-            GH_TOKEN: "${{ github.token }}",
-            REPOSITORY: "${{ github.repository }}",
-            RUN_ID: "${{ github.run_id }}",
-            ATTEMPT: "${{ github.run_attempt }}",
-            SELF: "cancel the run on a failed leg",
-          },
-          run: ".github/scripts/cancel-on-failure.sh",
-        },
-      ],
-    },
-
     # The one check a ruleset requires, whatever the scope: it fails when
     # any leg or the checked job failed or was cancelled (a seeded run's
     # `seed` legs; a `reuse` that failed or was skipped found nothing,
@@ -2483,7 +2584,7 @@
             FORMAT: "${{ (env.COSMIC_CI_SCOPE == 'light' || github.event_name == 'schedule') && needs.format.result || 'success' }}",
             EVENT: "${{ github.event_name }}",
           },
-          run: "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED; shares: $SHARES; checked narrowing: $NARROWING; format: $FORMAT\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$SHARES\" = success ] && [ \"$NARROWING\" = success ] && [ \"$FORMAT\" = success ] || { [ \"$EVENT\" != merge_group ] || echo \"a failed leg cancels a queue run, so the other legs may read cancelled; an error annotation names the failed leg\"; exit 1; }",
+          run: "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED; shares: $SHARES; checked narrowing: $NARROWING; format: $FORMAT\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$SHARES\" = success ] && [ \"$NARROWING\" = success ] && [ \"$FORMAT\" = success ] || { [ \"$EVENT\" != merge_group ] || echo \"a failed leg cancels the other jobs of its matrix on a queue run, so those read cancelled; the one that reads failure failed\"; exit 1; }",
         },
         # Only a full run's legs attest and upload a product.
         {
@@ -2501,10 +2602,23 @@
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
           with: {pattern: "portable-product-*", path: "${{ runner.temp }}/cosmic-ci/products"},
         },
+        # The attestation of the job that ran the second share of
+        # alpine-x86_64's portable suite (`portable-2/2`), where the
+        # platform job ran: a run that reuses the queue's has none, the
+        # queue's own join having compared it. By name into a directory
+        # of its own: a `pattern` that matches one artifact extracts it
+        # into `path` itself, with no directory named for it, where the
+        # join looks for none (run 41220498855).
+        {
+          if: "env.COSMIC_CI_SCOPE == 'full' && needs.reuse.outputs.run == ''",
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {name: "portable-share-alpine-x86_64", path: "${{ runner.temp }}/cosmic-ci/products/portable-share-alpine-x86_64"},
+        },
         {
           name: "compare the Cosmic bytes executed on every native host",
           if: "env.COSMIC_CI_SCOPE == 'full'",
           "working-directory": "ci",
+          env: {COSMIC_CI_PORTABLE_SHARES: "${{ needs.reuse.outputs.run == '' && '1' || '0' }}"},
           run: "cosmic-driver cosmic_ci/driver.tl provenance",
         },
         {
