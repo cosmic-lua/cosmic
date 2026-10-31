@@ -214,6 +214,9 @@ local record test_key
     --- Whether it checked something: neither skipped nor unchecked. A
     --- verdict is kept only of a test that did ([`test_key.keep`]).
     checked: boolean
+    --- Whether it met no violation of a checked run's checks: one that met any is kept as a failure is,
+    --- so no verdict of it stands ([`test_key.keep`]).
+    clean: boolean
   end
 end
 
@@ -915,6 +918,8 @@ local function declared_of(rec: Recording, m: Module, id: string, host?: string)
     requires = rec.answered[m.path],
     environment = view_of(rec, m), runs_tool = runs_tool,
     closure_store = store,
+    checks = rec.checks_part,
+    projection_file = (if rec.checks_part ~= nil then assert(rec.projection):match("[^/]*$") else nil end),
     -- Unsandboxed, its worker sees the tree where it is (`launch`).
     tree = not rec.sandbox and rec.root or nil,
   })
@@ -1980,6 +1985,11 @@ function test_key.begin(rec: Recording, from: Begin)
   rec.timeout_ns = from.timeout_ns
   rec.store_salt = from.harness.store_salt
   rec.carried = from.harness.carried
+  if rec.checks then
+    -- The hooks and the judge of a checked run are the code of build.test_worker: an edit to it moves every
+    -- checked key and no other, where the epoch moves every key (doc/testing.md, "changing the harness").
+    rec.checks_part = GrammarMode.checks_format .. "\0" .. (from.harness.modules["build.test_worker"] or "")
+  end
   local store_salt = Env.get("COSMIC_TEST_STORE_SALT")
   if not from.own_tree and store_salt ~= nil and store_salt ~= "" then
     rec.store_salt = hex_sha256(rec.store_salt .. "\0" .. store_salt)
@@ -2008,8 +2018,9 @@ end
 --- what it is given, and runs unless a verdict under that key passed, here
 --- (`verdicts`, by key) or in another checkout -- or it is `forced`, by
 --- --all or COSMIC_TEST_ALL, or reaches a network beyond loopback, which no
---- key holds. A checked run is forced too: a verdict that stands runs no
---- worker, and a worker is what reports. None is assumed. The shared
+--- key holds. A checked run stands on verdicts of its own kind, held apart by
+--- the `checks` part of the key; a test that met a violation keeps none, so
+--- it runs again and reports it again ([`test_key.keep`]). None is assumed. The shared
 --- verdicts are asked only where the run `consult`s them and nothing here
 --- answers.
 ---
@@ -2029,7 +2040,7 @@ end
 function test_key.lookup(rec: Recording, m: Module, id: string,
                          verdicts: {string:Verdict}, forced: boolean?,
                          consult: boolean?): Lookup
-  local force: boolean = forced == true or rec.checks
+  local force: boolean = forced == true
   local key = declared_of(rec, m, id)
   local own = key ~= nil and verdicts[key] or nil
   local elsewhere: shared_verdicts.Found? = nil
@@ -2125,6 +2136,7 @@ function test_key.judge(rec: Recording, job: Job, result: Child.Result?,
       sandboxed = rec.sandbox, refused = refused == true,
       carried = rec.carried,
       closure = closure_set(rec, job.m),
+      checks = rec.checks,
     })
   end
   local passed, message = judgement.passed, judgement.message
@@ -2144,9 +2156,16 @@ function test_key.judge(rec: Recording, job: Job, result: Child.Result?,
       " checks through error or pcall calling assert; where this host cannot check it," ..
       " declare `requires` or call Test.skip(reason)"
   end
-  return { report = judgement.report, passed = passed, message = message, skipped = skipped,
+  -- A checked run keeps no verdict of a test that met a violation: it runs again every time, so every run
+  -- reports it (doc/plans/check-types-verdicts.md).
+  local report = judgement.report
+  local clean = true
+  if rec.checks and report ~= nil then
+    clean = #(report.violations or {}) == 0 and (report.dropped or 0) == 0
+  end
+  return { report = report, passed = passed, message = message, skipped = skipped,
     unchecked = unchecked, deliberate = judgement.deliberate or "",
-    checked = skipped == "" and not unchecked }
+    checked = skipped == "" and not unchecked, clean = clean }
 end
 
 --- Whether the test `id` of `m` still reaches `key`, the one it was
@@ -2170,7 +2189,9 @@ end
 --- kept under that key would stand for it: gone.
 function test_key.keep(rec: Recording, job: Job, judged: Judged, elapsed: integer)
   local id, key = job.id, job.declared
-  local passed, checked = judged.passed, judged.checked
+  -- A pass that met a violation is kept as a failure is: no verdict of it stands, and a verdict that stood under
+  -- its key goes.
+  local passed, checked = judged.passed and judged.clean, judged.checked
   local held = holds(rec, job.m, id, key)
   if key ~= nil and held and checked then
     local saved, save_trouble = test_key.record_verdict(rec.records, key, passed,

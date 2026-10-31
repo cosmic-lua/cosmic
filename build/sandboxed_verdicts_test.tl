@@ -655,12 +655,11 @@ end
   assert(rows[1]:text(1) == "core.allocation_test", "ran under another compiler: " .. rows[1]:text(1))
 end
 
---- A checked run (`--check-types`) compiles the tree with run-time checks
---- under a compiler of its own ([`importer.checked_tool`]), which moves
---- the key of a test whose closure reads the compiler's identity as
---- another compiler does: a verdict it earned never stands for the same
---- test of an unchecked run. A test of the same bytes that reads no
---- compiler stands across the two.
+--- A checked run (`--check-types`) stands on verdicts of its own and on none of an unchecked
+--- run's, and the reverse, even for a test whose closure compiles to the same bytes in both modes
+--- and reads no compiler (the key holds the mode by name, `checks`): the hooks of a checked worker
+--- can change an outcome without changing a byte of the closure (the fuzz budget). Each mode stands
+--- on its own earlier run.
 local function test_a_checked_runs_verdicts_never_stand_for_an_unchecked_run(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
@@ -693,8 +692,45 @@ end
     return rows[1]:text(1)
   end
   local plain = run(root, tmp .. "/plain.out", env)
-  assert(plain:find("1 ran, 1 stood", 1, true), plain)
-  assert(ran_last() == "core.allocation_test", "ran: " .. ran_last())
+  assert(plain:find("2 ran, 0 stood", 1, true), "a checked pass stood for an unchecked run: " .. plain)
+  assert(ran_last() == "core.allocation_test suite.plain_test",
+    "ran: " .. ran_last())
+  local again = run(root, tmp .. "/checked-again.out", env, { "--check-types" })
+  assert(again:find("0 ran, 2 stood", 1, true), "a checked run did not stand on its own pass: " .. again)
+  local plain_again = run(root, tmp .. "/plain-again.out", env)
+  assert(plain_again:find("0 ran, 2 stood", 1, true), "an unchecked run did not stand on its own pass: " .. plain_again)
+end
+
+--- A module that declares `store` is given the whole projection at o/cosmic.db, and a checked run gives it the one the
+--- run was compiled into, `cosmic.checked.db`. Its checked verdict is keyed by that file and not the tree's: a
+--- second checked run stands on it, an unchecked run does not, and an edit to the module runs it again.
+local function test_a_store_module_stands_on_its_checked_projection(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  local lib = "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"
+  assert(Fs.write(root .. "/suite/lib.tl", lib))
+  local text = [[
+local Test = require("cosmic.test")
+local lib = require("suite.lib")
+
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
+
+local function test_store()
+  assert(lib.value == 1)
+end
+]]
+  assert(Fs.write(root .. "/suite/store_test.tl", text))
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local first = run(root, tmp .. "/first.out", env, { "--check-types" })
+  if unsandboxed(first) then Test.skip("no worker could be sandboxed here") end
+  assert(first:find("1 ran, 0 stood", 1, true), first)
+  local again = run(root, tmp .. "/again.out", env, { "--check-types" })
+  assert(again:find("0 ran, 1 stood", 1, true), "a store module's checked verdict did not stand: " .. again)
+  local plain = run(root, tmp .. "/plain.out", env)
+  assert(plain:find("1 ran, 0 stood", 1, true), "a checked verdict stood for an unchecked run: " .. plain)
+  assert(Fs.write(root .. "/suite/lib.tl", lib .. "-- edited\n"))
+  local edited = run(root, tmp .. "/edited.out", env, { "--check-types" })
+  assert(edited:find("1 ran, 0 stood", 1, true), "an edit to the closure left the checked verdict standing: " .. edited)
 end
 
 --- A test whose module does not declare `store` is given the store of

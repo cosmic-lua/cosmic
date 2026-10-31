@@ -1846,7 +1846,9 @@ local function make_recording(ctx: Run)
   -- to use them. An unsandboxed run reads and writes them only where
   -- COSMIC_VERDICT_CACHE names them (see [`choose_sandbox`]).
   local cache_path, cache_trouble: string?, string = nil, ""
-  if ctx.shares == true then cache_path, cache_trouble = shared_verdicts.location() end
+  if ctx.shares == true then
+    cache_path, cache_trouble = shared_verdicts.location(nil, ctx.checks == true)
+  end
   if cache_path ~= nil then
     rec.shared, cache_trouble = shared_verdicts.open(cache_path)
   end

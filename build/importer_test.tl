@@ -10,6 +10,7 @@ local Test = require("cosmic.test")
 local identity = require("build.identity")
 local docs = require("build.docs")
 local importer = require("build.importer")
+local Hash = require("cosmic.hash")
 local GrammarMode = require("build.grammar_mode")
 local Pipeline = require("build.pipeline")
 local type _ = require("build.test_inputs")
@@ -2032,4 +2033,13 @@ local function test_the_module_shape_does_not_reach_the_plans_or_the_readers()
   for _, name in ipairs({ "build.plans", "build.syntax_contracts", "build.syntax_receivers" }) do
     assert(seen[name] ~= true, "the shared module shape pulled in " .. name)
   end
+end
+
+--- The compile keys of a checked run ([`importer.checked_tool`], [`GrammarMode.tool`]) and its verdict keys
+--- ([`build.declared_key`]'s `checks`) name what the compile writes by one format, [`GrammarMode.checks_format`]:
+--- the importer is outside the compiler's identity of the modules it may require, so it spells the same text, and
+--- this holds the two together.
+local function test_the_importer_spells_the_checks_format_of_the_grammar_mode()
+  assert(importer.checked_tool("tool", true) == Hash.hex_sha256("tool\0" .. GrammarMode.checks_format))
+  assert(GrammarMode.tool("tool", "new", true) == Hash.hex_sha256("tool\0grammar-new\0" .. GrammarMode.checks_format))
 end

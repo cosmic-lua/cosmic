@@ -278,6 +278,16 @@ local record declared_key
     --- not declare `store` ([`store_digest`]), or nil where it is given
     --- the whole projection, keyed by its contents.
     closure_store?: string
+    --- What a checked run (`cosmic test --check-types`) holds in its key, and an ordinary run
+    --- leaves nil: the format of the checks its compile writes and the digest of the harness
+    --- module that defines the hooks they call ([`build.test_key`]'s `checks_part`). Held by
+    --- name, so that no checked key is an ordinary one whatever the bytes are.
+    checks?: string
+    --- The file of the build directory that the worker is given at o/cosmic.db where its module
+    --- declares `store`: nil for `cosmic.db`, the tree's projection, and `cosmic.checked.db` for a
+    --- checked run, whose worker is given the projection it was compiled into. The key holds
+    --- that file's contents under the name o/cosmic.db.
+    projection_file?: string
     --- Where the tree is, for a worker no sandbox gives it at /tree
     --- ([`build.test_key`]'s `prepare`, unsandboxed),
     --- which sees it where it is: its verdict may turn on that path, so
@@ -879,6 +889,8 @@ function declared_key.preimage(digests: declared_key.Digests,
     part("host", spec.host, ""),
     part("declaration", spec.declaration, ""),
   }
+  local checks = spec.checks
+  if checks ~= nil then lines[#lines + 1] = part("checks", checks, "") end
   local answers = spec.requires or {}
   local required: mut {string} = {}
   for name in pairs(answers) do required[#required + 1] = name end
@@ -935,6 +947,10 @@ function declared_key.preimage(digests: declared_key.Digests,
   local seen: mut {string:boolean} = {}
   for _, read in ipairs(reads) do
     local plain, path = of_tree(digests, read)
+    local projection_file = spec.projection_file
+    if plain == "o/cosmic.db" and projection_file ~= nil and projection_file ~= "cosmic.db" then
+      path = digests.output .. "/" .. projection_file
+    end
     if not seen[plain] then
       seen[plain] = true
       local answer = path ~= "" and tree(digests, path) or "outside"

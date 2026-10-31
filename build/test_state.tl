@@ -181,6 +181,9 @@ local record test_state
     --- its key, in the order first met, the test that first met it, how many
     --- the workers kept no record of.
     checks: boolean
+    --- What a checked run's keys hold beside the bytes ([`declared_key.Spec`]'s `checks`), nil for
+    --- an ordinary run.
+    mut checks_part?: string
     --- The file of each module of the tree, by its name, which a traceback
     --- names a frame by.
     files: mut {string:string}

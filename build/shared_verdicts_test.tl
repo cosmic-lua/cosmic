@@ -180,3 +180,22 @@ local function test_a_cache_names_the_other_hosts_of_a_rest(tmp: string)
   assert(#assert(shared_verdicts.hosts_like(cache, "33", "0a")) == 0, "another rest")
   shared_verdicts.close(cache)
 end
+
+--- A checked run (`cosmic test --check-types`) keeps its verdicts in a file of its own beside the others', unless
+--- `COSMIC_VERDICT_CACHE` names one, and that file keeps twice as many rows: its 7900 keys would otherwise share
+--- the bound of 8192 with the ordinary suite's.
+local function test_a_checked_run_reads_its_own_file(tmp: string)
+  local env = { XDG_CACHE_HOME = tmp .. "/cache" }
+  local plain = assert(shared_verdicts.location(env))
+  local checked = assert(shared_verdicts.location(env, true))
+  assert(plain:match("/verdicts/verdicts%.db$") ~= nil, plain)
+  assert(checked:match("/verdicts/verdicts%-checked%.db$") ~= nil, checked)
+  local named = { XDG_CACHE_HOME = tmp .. "/cache", COSMIC_VERDICT_CACHE = "/somewhere/else.db" }
+  assert(shared_verdicts.location(named, true) == "/somewhere/else.db")
+  assert(shared_verdicts.location(named) == "/somewhere/else.db")
+  assert(shared_verdicts.location({ COSMIC_VERDICT_CACHE = "0" }, true) == nil)
+  assert(shared_verdicts.rows_kept(checked) == 16384)
+  assert(shared_verdicts.rows_kept("/ci/verdicts/narrowing.db") == 16384)
+  assert(shared_verdicts.rows_kept(plain) == 8192)
+  assert(shared_verdicts.rows_kept("/ci/verdicts/checked.db") == 8192, "the sanitized core's suite keeps the old bound")
+end

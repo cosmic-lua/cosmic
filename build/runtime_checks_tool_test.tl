@@ -154,6 +154,63 @@ local function test_a_checked_run_reports_a_false_value_and_changes_no_verdict(t
   assert(variable.ok and variable_text:find("run-time types: 1 violation", 1, true) ~= nil, variable_text)
 end
 
+--- A second checked run stands on the first's verdicts, but for the test that met a violation: it runs again, so
+--- the run reports the violation again and `type_violations` holds it, whatever stood.
+local function test_a_second_checked_run_stands_but_for_the_test_that_met_a_violation(tmp: string)
+  local root = project(tmp)
+  local first, first_text = invoke(root, tmp, { "test", "--check-types" })
+  assert(first.ok and first_text:find("2 ran, 0 stood", 1, true) ~= nil, first_text)
+  local second, second_text = invoke(root, tmp, { "test", "--check-types" })
+  assert(second.ok, second_text)
+  assert(second_text:find("1 ran, 1 stood", 1, true) ~= nil, "the clean test did not stand: " .. second_text)
+  assert(second_text:find("run-time types: 1 violation, 1 distinct, at 1 place", 1, true) ~= nil,
+    "a standing verdict hid the violation: " .. second_text)
+  assert(#violations(root) == 1, tostring(#violations(root)) .. " rows")
+  -- An unchecked run stands on none of the checked run's verdicts, and a checked run is told apart from it.
+  local plain, plain_text = invoke(root, tmp, { "test" })
+  assert(plain.ok and plain_text:find("2 ran, 0 stood", 1, true) ~= nil, plain_text)
+end
+
+--- A pass that meets a violation where a verdict stood under its key takes the verdict out, as a failure does:
+--- the test reads a file it does not declare (an unsandboxed run lets it, and no key holds it), so its outcome
+--- moves while its key does not.
+local function test_a_pass_that_meets_a_violation_takes_its_verdict_out(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/greet.tl", greeting))
+  assert(Fs.write(root .. "/liar.d.tl", liar_declaration))
+  assert(Fs.write(root .. "/liar.tl", liar))
+  local flag = tmp .. "/flag.txt"
+  assert(Fs.write(root .. "/flip_test.tl", table.concat({
+    "local Fs = require(\"cosmic.fs\")",
+    "local greet = require(\"greet\")",
+    "local liar = require(\"liar\")",
+    "",
+    "local function test_flip()",
+    "  local flag = assert(Fs.read(\"" .. flag .. "\"))",
+    "  if flag == \"bad\" then",
+    "    assert(tostring(greet.hello(liar.text())) == \"42\")",
+    "  else",
+    "    assert(greet.hello(\"you\") == \"you\")",
+    "  end",
+    "end",
+    "",
+  }, "\n")))
+  assert(Fs.write(flag, "ok"))
+  local first, first_text = invoke(root, tmp, { "test", "--check-types" })
+  assert(first.ok and first_text:find("1 ran, 0 stood", 1, true) ~= nil, first_text)
+  local stood, stood_text = invoke(root, tmp, { "test", "--check-types" })
+  assert(stood.ok and stood_text:find("0 ran, 1 stood", 1, true) ~= nil, stood_text)
+  assert(Fs.write(flag, "bad"))
+  local met, met_text = invoke(root, tmp, { "test", "--check-types", "--all" })
+  assert(met.ok and met_text:find("run-time types: 1 violation", 1, true) ~= nil, met_text)
+  assert(Fs.write(flag, "ok"))
+  local after, after_text = invoke(root, tmp, { "test", "--check-types" })
+  assert(after.ok, after_text)
+  assert(after_text:find("1 ran, 0 stood", 1, true) ~= nil,
+    "a verdict stood after its test met a violation: " .. after_text)
+end
+
 --- A checked run records which test met each violation and says how many tests did: a test that meets one is
 --- the cost of standing on checked verdicts, since it never stands.
 local function test_a_checked_run_counts_the_tests_that_met_a_violation(tmp: string)
