@@ -409,7 +409,7 @@ local Test = require("cosmic.test")
 Test.policy { grants = { { path = "suite/data.db", letters = "r" } } }
 
 local function test_reads_an_attached_database()
-  assert(Store.attach("suite/data.db"))
+  assert(Store.attach("suite/data.db", { unchecked_bytecode = true }))
   -- Through the store's own lookup, which searches a database the test
   -- attached ahead of the rest.
   local value = Store.meta("v")
@@ -432,7 +432,7 @@ local built = assert(Env.get("COSMIC_BUILD_HOME")) .. "/" .. Hash.hex_sha256((as
 -- Through the store's own lookup, which searches a database the test
 -- attached ahead of the rest.
 local function test_reads_the_working_database()
-  assert(Store.attach(built .. "/build.db"))
+  assert(Store.attach(built .. "/build.db", { unchecked_bytecode = true }))
   assert(Store.meta("schema") ~= nil, "the working database records its schema")
 end
 ]]))

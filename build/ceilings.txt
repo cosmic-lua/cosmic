@@ -1013,7 +1013,7 @@ cosmic/net_test.tl nil_not_allowed 2
 
 cosmic/policy_test.tl nil_not_allowed 3
 
-cosmic/poll.tl nil_not_allowed 33
+cosmic/poll.tl nil_not_allowed 28
 
 cosmic/poll_test.tl nil_not_allowed 17
 
@@ -1027,7 +1027,7 @@ cosmic/rand_test.tl nil_not_allowed 2
 
 
 
-cosmic/removed_test.tl nil_not_allowed 7
+cosmic/removed_test.tl nil_not_allowed 6
 
 
 
@@ -1196,7 +1196,7 @@ cosmic/zip_test.tl nil_not_allowed 16
 
 
 
-lang/check.tl nil_not_allowed 68
+lang/check.tl nil_not_allowed 66
 
 lang/check_class_test.tl nil_not_allowed 30
 
@@ -1623,7 +1623,7 @@ cosmic/net_test.tl index_may_be_nil 1
 cosmic/net_tool_test.tl index_may_be_nil 1
 
 
-cosmic/poll.tl index_may_be_nil 13
+cosmic/poll.tl index_may_be_nil 11
 
 cosmic/poll_test.tl index_may_be_nil 15
 
@@ -1918,7 +1918,6 @@ cosmic/json_path_fuzz_test.tl view_written 1
 cosmic/net_connector_test.tl view_written 1
 
 
-cosmic/poll.tl view_written 16
 
 
 cosmic/sqlite.tl view_written 9
@@ -2394,7 +2393,7 @@ cosmic/json.tl field_fixed 3
 
 
 
-cosmic/poll.tl field_fixed 19
+cosmic/poll.tl field_fixed 17
 
 cosmic/proc_user_test.tl field_fixed 1
 

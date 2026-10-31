@@ -7,6 +7,7 @@
 --- (`system_paths`) and where a path leads as one binds it
 --- (`resolution`).
 
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
@@ -55,7 +56,7 @@ local record confine
   system_paths: {string}
 
   --- See below.
-  held_variable: string
+  held_variable: Env.Name
   --- See below.
   unseen: function(path: string, use: Use): string?
 

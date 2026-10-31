@@ -149,7 +149,7 @@ end
 local function test_database_runs_a_sealed_file(tmp: string)
   local chunk = assert(load("return function(args) print('db', args[1], pcall(require, 'cosmic.fs')) " ..
       "return 4 end", "=main"))
-  assert(Store.seal({}, tmp .. "/p.db", { extra = { name = "main", bytecode = string.dump(chunk),
+  assert(Store.seal({}, tmp .. "/p.db", { unchecked_bytecode = true, extra = { name = "main", bytecode = string.dump(chunk),
     source = "", requires = {} } }))
   searchable.share(tmp .. "/p.db")
   local program = (assert(Proc.executable()))

@@ -94,8 +94,8 @@ local record Check
   -- TODO: record in [`Narrowed`] the facts it leaves out, and have [`lang.fact_wraps`] pass them: a number that a test took
   -- to be an integer or a float ([`Tests.lua_kind`] maps both to `"number"`), a `thread` (`LUA_KINDS` has none), an enum or
   -- a string that an `==` test narrowed (no read is wrapped), and `true` against `false` of a boolean. A run misses a
-  -- false conclusion of these and refuses nothing valid. Once a full `cosmic test --check-types` run (CI's `checked-narrowing`
-  -- job) has a time to compare, so that the cost of a call per read of each decides which are worth it.
+  -- false conclusion of these and refuses nothing valid. Once a full `cosmic test --check-types` run (CI's two `checked-narrowing`
+  -- shares together) has a time to compare, so that the cost of a call per read of each decides which are worth it.
   --- A read of a local, of a path of fixed fields from one, or of an element a length test proved, whose type a test
   --- narrowed. The checker took the value to have none of the kinds of Lua value in `taken`, and the values of the enums,
   --- classes and tags the other fields name, which a run can check at the read.
@@ -1133,8 +1133,11 @@ local function module_value(ctx: Ctx, node: Ast.Node, name: string): Type
     info = program.modules[name]
   end
   if info == nil then
-    report(ctx, "require_unknown", node, "the project has no module " .. quoted(name),
-      "require a module of the project: `bin/cosmic docs` lists them")
+    local fix = "require a module of the project: `bin/cosmic docs` lists them"
+    if program.library[name] == true then
+      fix = quoted(name) .. " is a global the language declares, available without `require`: use it directly"
+    end
+    report(ctx, "require_unknown", node, "the project has no module " .. quoted(name), fix)
     return ctx.invalid
   end
   local export = info.export
@@ -4410,13 +4413,26 @@ local record Prepared
   mut last: Ast.Exp?
 end
 
---- What instantiating a generic function for a call gave: the instance, or nil and why not.
+--- A bound a type does not meet, as `bound_unmet` words it.
+local record Unmet
+  message: string
+  fix: string
+  --- Each type that fails a bound and the bound, as shown.
+  shown: {string}
+  --- The argument the generic function is, and its instance with the bounds waived.
+  arg: integer
+  instance: Fn
+end
+
 local record Instance
   fn: Fn?
   why: string
   --- The type parameters that a shape the arguments lack left with no type, and nothing else reported (the instance
   --- holds `invalid` for them).
   holes: {integer}?
+  --- Set when a generic function passed as an argument could not be taken because a type it was found for does not meet
+  --- its bound: what `bound_unmet` says of it.
+  unmet: Unmet?
 end
 
 --- The steps of a generic call.
@@ -4718,6 +4734,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
   -- A generic function passed where the callee takes a function is instantiated from the parameters the callee passes it,
   -- as far as the other arguments have solved them, and what the instance answers solves the callee's own parameters:
   -- `pcall(id, v)` answers the type of `v`, where a parameter nothing fixes would be `invalid`, which every type accepts.
+  local unmet: Unmet? = nil
   for i = 1, prep.count do
     local given_fn, wanted_fn = prep.known[i], parameter_at(c, off, i)
     if given_fn ~= nil and wanted_fn ~= nil and given_fn.tag == "fn" and #given_fn.tparams > 0 and
@@ -4743,10 +4760,36 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         end
         -- The instance is taken only if every type parameter is solved, none conflicts, and each meets its bound.
         local meets = #solved == #given_fn.tparams and #sub.conflicts == 0
+        -- Every bound a type fails, so that one message names them all.
+        local said: mut {string} = {}
+        local fixes: mut {string} = {}
+        local shown: mut {string} = {}
         for k, tp in ipairs(given_fn.tparams) do
           local bound, held = tp.bound, solved[k]
           if meets and bound ~= nil and held ~= nil and not below(ctx, held, bound) then
-            meets = false
+            local wanted_bound = "`is " .. show(ctx, bound) .. "`"
+            local fix = "pass a type that declares " .. wanted_bound
+            -- Only a type the program declares can be given the interface.
+            if held.tag == "named" and (held.decl.kind == "record" or held.decl.kind == "class" or
+                held.decl.kind == "interface") then
+              fix = "declare " .. wanted_bound .. " on " .. tq(ctx, held) .. ", or " .. fix
+            end
+            said[#said + 1] = tq(ctx, held) .. " is the type parameter " .. quoted(Types.letter(k - 1)) ..
+              " of the function passed as argument " .. tostring(i) .. " of " .. quoted(callee) .. ", which is bounded by " ..
+              tq(ctx, bound) .. ", and " .. tq(ctx, held) .. " does not declare " .. wanted_bound
+            fixes[#fixes + 1] = fix
+            shown[#shown + 1] = show(ctx, held)
+            shown[#shown + 1] = show(ctx, bound)
+          end
+        end
+        if #said > 0 then meets = false end
+        -- The bound is the failure only if the function would otherwise be taken as the parameter, and the rest of the call
+        -- taken with it ([`apply_overloads`] asks again with the instance in its place).
+        if #said > 0 and #solved == #given_fn.tparams and #sub.conflicts == 0 then
+          local instance = Relation.specialize(store, given_fn, solved)
+          if instance ~= nil and below(ctx, instance, seen) then
+            unmet = unmet or { message = table.concat(said, "; "), fix = table.concat(fixes, "; "), shown = shown, arg = i,
+              instance = instance }
           end
         end
         if meets then
@@ -4791,13 +4834,10 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
       given[#given + 1] = held
     else
       given[#given + 1] = ctx.invalid
-      -- TODO: report a parameter nothing solved even when an argument is `invalid` (`solver.invalid`), once a call whose
-      -- argument is `invalid` after an error already reported gives no secondary hole: removing the test now makes
-      -- `pairs`, `ipairs`, `coroutine.close` and `coroutine.status` of an `invalid` value fail in cosmic/poll.tl,
-      -- cosmic/sqlite.tl and build/fuzz/init.tl, each after the error that made the value `invalid`.
-      if solver.tainted[i] ~= true and not solver.invalid then
+      -- A parameter an `invalid` type was found for is not reported: the mistake that made it is, where it was made.
+      if solver.tainted[i] ~= true and solver.invalid_at[i] ~= true then
         unbound[#unbound + 1] = i
-      elseif solver.tainted[i] == true and not solver.invalid then
+      elseif solver.tainted[i] == true and solver.invalid_at[i] ~= true then
         holes[#holes + 1] = i
       end
     end
@@ -4852,7 +4892,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
     end
   end
   if #problems > 0 and not loud then
-    return { why = problems[1] }
+    return { why = problems[1], unmet = unmet }
   end
   local made = Relation.specialize(store, c, given)
   local sparse: Type? = nil
@@ -4868,16 +4908,16 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
       report(ctx, "array_of_optional", node, msg, "use a map `{integer: T}` for sparse data, or pass a value that is not " ..
           "optional: test it for nil first", { show(ctx, sparse) })
     end
-    return { why = msg }
+    return { why = msg, unmet = unmet }
   end
   if made == nil then
     if loud then
       report(ctx, "not_assignable", node, name .. " with these type arguments nests more than " .. tostring(Types.max_depth) ..
           " types deep", "name a part of the arguments with a record, which a type does not unfold")
     end
-    return { why = "its instance nests too deep" }
+    return { why = "its instance nests too deep", unmet = unmet }
   end
-  return { fn = made, why = "", holes = holes }
+  return { fn = made, why = "", holes = holes, unmet = unmet }
 end
 
 --- An array or map type that `t` holds whose elements or values may be nil, or nil: what an instance makes of a type
@@ -4989,59 +5029,81 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
   local prep = Calls.prepare(ctx, args, nil)
   local known, pending, tail, count = prep.known, prep.pending, prep.tail, prep.count
   local reasons: mut {string} = {}
+  local unmet: Unmet? = nil
   for _, declared in ipairs(cands) do
+
     if (declared.tag == "fn") then
-      local c: Fn = declared
-      local failure = ""
       -- The number of arguments does not depend on the type parameters, so a candidate that takes another is not solved.
       local wrong_count = arity_problem(declared, off, count, prep.open and tail ~= nil)
-      if wrong_count == nil and #declared.tparams > 0 then
-        local solved = Calls.solve(ctx, node, callee, declared, args, prep, off, recv, expected, false)
-        local made = solved.fn
-        if made == nil then
-          failure = solved.why
-        elseif solved.holes ~= nil and #solved.holes > 0 then
-          failure = "a type parameter gets no type from the arguments"
+      --- Why the candidate is not taken ("" where it is), the candidate as instantiated, and the bound it met in an
+      --- argument that is a generic function.
+      local function evaluate(): string, Fn, Unmet?
+        local c: Fn = declared
+        local failure = ""
+        local own: Unmet? = nil
+        if wrong_count == nil and #declared.tparams > 0 then
+          local solved = Calls.solve(ctx, node, callee, declared, args, prep, off, recv, expected, false)
+          local made = solved.fn
+          own = solved.unmet
+          if made == nil then
+            failure = solved.why
+          elseif solved.holes ~= nil and #solved.holes > 0 then
+            failure = "a type parameter gets no type from the arguments"
+          else
+            c = made
+          end
+        end
+        local receiver_param = c.params[1]
+        if failure ~= "" then
+          -- The candidate could not be instantiated.
+        elseif wrong_count ~= nil then
+          failure = wrong_count .. " arguments"
+        elseif recv ~= nil and receiver_param ~= nil and not accepts(ctx, recv, receiver_param.type) then
+          local declared_receiver = declared.params[1]
+          local wanted_receiver = receiver_param.type
+          if declared_receiver ~= nil then
+            wanted_receiver = declared_receiver.type
+          end
+          failure = "the receiver is " .. tq(ctx, recv) .. ", where " .. quoted(Calls.shown(ctx, declared, wanted_receiver)) ..
+            " is wanted"
         else
-          c = made
-        end
-      end
-      if failure ~= "" then
-        -- The candidate could not be instantiated.
-      elseif wrong_count ~= nil then
-        failure = wrong_count .. " arguments"
-      elseif recv ~= nil and c.params[1] ~= nil and not accepts(ctx, recv, c.params[1].type) then
-        local declared_receiver = declared.params[1]
-        local wanted_receiver = c.params[1].type
-        if declared_receiver ~= nil then
-          wanted_receiver = declared_receiver.type
-        end
-        failure = "the receiver is " .. tq(ctx, recv) .. ", where " .. quoted(Calls.shown(ctx, declared, wanted_receiver)) ..
-          " is wanted"
-      else
-        for i = 1, count do
-          local want = parameter_at(c, off, i)
-          local t = known[i]
-          local wanted = ""
-          if want ~= nil then
-            local original = parameter_at(declared, off, i)
-            wanted = quoted(Calls.shown(ctx, declared, original ~= nil and original or want))
-          end
-          if t ~= nil and (want == nil or not accepts(ctx, t, want)) then
-            failure = "argument " .. tostring(i) .. " is " .. tq(ctx, t) .. (if want ~= nil then ", where " .. wanted ..
-                " is wanted" else ", which it does not take" end)
-            break
-          elseif pending[i] == true and (want == nil or not literal_fits(ctx, args[i], want)) then
-            failure = "argument " .. tostring(i) .. " is a literal that is not " .. (if want ~= nil then "a " .. wanted else "taken" end)
-            break
+          for i = 1, count do
+            local want = parameter_at(c, off, i)
+            local t = known[i]
+            local wanted = ""
+            if want ~= nil then
+              local original = parameter_at(declared, off, i)
+              wanted = quoted(Calls.shown(ctx, declared, original ~= nil and original or want))
+            end
+            if t ~= nil and (want == nil or not accepts(ctx, t, want)) then
+              failure = "argument " .. tostring(i) .. " is " .. tq(ctx, t) .. (if want ~= nil then ", where " .. wanted ..
+                  " is wanted" else ", which it does not take" end)
+              break
+            elseif pending[i] == true and (want == nil or not literal_fits(ctx, args[i], want)) then
+              failure = "argument " .. tostring(i) .. " is a literal that is not " .. (if want ~= nil then "a " .. wanted else "taken" end)
+              break
+            end
           end
         end
+        if failure == "" and tail ~= nil then
+          local pos, want, missing = tail_problem(ctx, c, off, count, tail)
+          if pos ~= nil and want ~= nil then
+            failure = "argument " .. tostring(pos) .. " is filled by " .. quoted(show(ctx, tail) .. "...") .. (if missing then
+              ", which may leave it missing, where " else ", where " end) .. tq(ctx, want) .. " is wanted"
+          end
+        end
+        return failure, c, own
       end
-      if failure == "" and tail ~= nil then
-        local pos, want, missing = tail_problem(ctx, c, off, count, tail)
-        if pos ~= nil and want ~= nil then
-          failure = "argument " .. tostring(pos) .. " is filled by " .. quoted(show(ctx, tail) .. "...") .. (if missing then
-            ", which may leave it missing, where " else ", where " end) .. tq(ctx, want) .. " is wanted"
+      local failure, c, own = evaluate()
+      -- The bound is the answer only if the call would be taken with it met: asked again with the function's instance
+      -- (the bounds waived) as the argument, so that the rest of the call is held to its parameters too.
+      if failure ~= "" and own ~= nil then
+        local held = known[own.arg]
+        if held ~= nil then
+          known[own.arg] = own.instance
+          local again = evaluate()
+          known[own.arg] = held
+          if again == "" then unmet = unmet or own end
         end
       end
       if failure == "" then
@@ -5123,6 +5185,11 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
     end
   end
   local first = reasons[1]
+  -- `unmet` is set only for a candidate that the bound alone kept from being taken: meeting it would accept the call.
+  if unmet ~= nil then
+    report(ctx, "bound_unmet", node, unmet.message, unmet.fix, unmet.shown)
+    return unknown_lists(ctx)
+  end
   report(ctx, "overload_none", node, "no overload of " .. quoted(callee) .. " takes the arguments (" ..
       table.concat(shown, ", ") .. ")",
     (Calls.fixes[callee] or "pass arguments one overload accepts, in its order") .. ": " .. table.concat(reasons, "; "),

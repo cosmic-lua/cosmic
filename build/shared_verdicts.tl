@@ -101,7 +101,7 @@ local record shared_verdicts
 end
 
 --- The variable that moves the cache, or turns it off with `0`.
-local variable <const> = "COSMIC_VERDICT_CACHE"
+local variable <const>: Env.Name = "COSMIC_VERDICT_CACHE"
 
 --- How many rows the cache keeps: some five whole runs of this tree,
 --- at a few kilobytes a row.
@@ -135,7 +135,7 @@ function shared_verdicts.location(environment?: {string:string}): string?, strin
   if environment ~= nil then
     value = environment[variable] or ""
   else
-    value = Env.get_or(variable, "")
+    value = Env.read(variable) or ""
   end
   if value == "0" then return nil, "" end
   if value ~= "" then
@@ -159,7 +159,7 @@ function shared_verdicts.chosen(environment?: {string:string}): boolean
   if environment ~= nil then
     value = environment[variable] or ""
   else
-    value = Env.get_or(variable, "")
+    value = Env.read(variable) or ""
   end
   return value ~= "" and value ~= "0"
 end

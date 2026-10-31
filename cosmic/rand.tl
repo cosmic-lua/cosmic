@@ -1,13 +1,14 @@
 --- Seeded pseudorandom numbers. A source made from a seed draws the same
---- sequence on every run and every target, so a run that depends on
---- chance can be replayed by naming its seed. The generator is
---- xoshiro256**, its state filled from the seed by splitmix64. It is not
---- cryptographic: never derive a key, token or nonce from it; draw those
---- from [`Rand.entropy`].
+--- sequence on every run, and on every target for `int`, `float` and
+--- `bytes`, so a run that depends on chance can be replayed by naming
+--- its seed; `normal` agrees across targets only as far as their `log`s
+--- do. The generator is xoshiro256**, its state filled from the seed by
+--- splitmix64. It is not cryptographic: never derive a key, token or
+--- nonce from it; draw those from [`Rand.entropy`].
 ---
---- - [`Rand.new`] makes a seeded [`Rand.Source`], whose `int`, `float` and
----   `bytes` draw from it: use one for shuffles, simulations and tests
----   that must replay.
+--- - [`Rand.new`] makes a seeded [`Rand.Source`], whose `int`, `float`,
+---   `bytes` and `normal` draw from it: use one for shuffles, simulations
+---   and tests that must replay.
 --- - [`Rand.uniform`] picks an unbiased integer in a range from any
 ---   function that draws 64 random bits.
 --- - [`Rand.entropy`] draws unguessable bytes from the operating system:
@@ -32,6 +33,14 @@ local record Rand
 
     --- `count` bytes drawn uniformly. Raises when `count` is negative.
     mut bytes: function(self: Source, count: integer): string
+
+    --- A float drawn from the normal distribution of mean `mean`
+    --- (default 0) and standard deviation `stddev` (default 1), by
+    --- Marsaglia's polar method. Raises when either is not finite or
+    --- `stddev` is negative; a `stddev` of 0 gives `mean`. Its value
+    --- goes through the target's `log`, so a seed's draws agree across
+    --- targets only as far as their `log`s do.
+    mut normal: function(self: Source, mean?: number, stddev?: number): number
   end
 end
 
@@ -107,6 +116,31 @@ function Rand.uniform(draw: function(): integer, min: integer, max: integer): in
   end
 end
 
+--- Whether `x` is a number neither infinite nor NaN.
+local function finite(x: number): boolean
+  return x - x == 0.0
+end
+
+--- A float uniform on [0, 1) from `st`, a multiple of 2^-53.
+local function unit(st: State): number
+  return (next64(st) >> 11) * (1.0 / 9007199254740992.0)
+end
+
+--- A standard normal draw from `st`, by Marsaglia's polar method: a
+--- point uniform in the unit disc, kept when strictly inside and off the
+--- centre. The pair's second value is dropped, so a draw leaves no state
+--- behind but the generator's.
+local function standard_normal(st: State): number
+  while true do
+    local u = 2.0 * unit(st) - 1.0
+    local v = 2.0 * unit(st) - 1.0
+    local s = u * u + v * v
+    if s < 1.0 and s > 0.0 then
+      return u * math.sqrt(-2.0 * math.log(s) / s)
+    end
+  end
+end
+
 --- A source drawing the sequence `seed` names. Every integer is a
 --- distinct seed, zero and negative ones included.
 --- @param seed integer The seed
@@ -126,7 +160,7 @@ function Rand.new(seed: integer): Rand.Source
       return Rand.uniform(function(): integer return next64(st) end, min, max)
     end,
     float = function(_self: Rand.Source): number
-      return (next64(st) >> 11) * (1.0 / 9007199254740992.0)
+      return unit(st)
     end,
     bytes = function(_self: Rand.Source, count: integer): string
       if count < 0 then
@@ -138,6 +172,14 @@ function Rand.new(seed: integer): Rand.Source
         parts[i] = string.pack("<i8", next64(st))
       end
       return table.concat(parts):sub(1, count)
+    end,
+    normal = function(_self: Rand.Source, mean?: number, stddev?: number): number
+      local m, sd = mean or 0.0, stddev or 1.0
+      if not (finite(m) and finite(sd) and sd >= 0.0) then
+        error(("rand: normal(%s, %s): mean and stddev must be finite, stddev not negative")
+            :format(tostring(m), tostring(sd)), 2)
+      end
+      return m + sd * standard_normal(st)
     end,
   }
 end

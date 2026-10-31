@@ -181,7 +181,7 @@ end
 
 local function test_the_removed_csv_functions_name_what_to_use_instead()
   assert(Removed.members["cosmic.csv.rows"]:find("Csv.table", 1, true))
-  assert(Removed.members["cosmic.csv.encode"]:find("delimiter", 1, true))
+  assert(Removed.members["cosmic.csv.encode"] == nil)
 end
 
 --- A program that named the removed codec type is told its interface.

@@ -386,7 +386,7 @@ end
 --- named with `prefix` and a random suffix: `mktemp -d`. `TMPDIR` picks the
 --- temp directory when it is set, and `/tmp` otherwise.
 function Fs.mkdtemp(prefix: string): string?, string
-  local base = Env.get_or("TMPDIR", "/tmp")
+  local base = Env.read("TMPDIR") or "/tmp"
   local template = base .. "/" .. prefix .. "XXXXXX"
   local path, trouble = sys.mkdtemp(template)
   if path == nil then

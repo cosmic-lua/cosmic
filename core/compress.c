@@ -51,6 +51,11 @@ _Noreturn void bz_internal_error (int errcode) {
 #define MAX_ZSTD_LEVEL 19
 #define DEFAULT_ZSTD_LEVEL 3
 
+/* The xz encoder's presets: those the `xz` command takes, 0 to 9. The
+ * default is the command's own. */
+#define MAX_XZ_PRESET 9
+#define DEFAULT_XZ_PRESET 6
+
 /* The bzip2 encoder's block size, in units of 100 kB, as the `bzip2`
  * command's -1 to -9 name it; it writes -9 without a flag. */
 #define MAX_BZ2_LEVEL 9
@@ -63,6 +68,7 @@ typedef enum {
   OP_XZ,
   OP_ZSTD,        /* the zstd decoder */
   OP_ZSTD_ENCODE, /* the zstd encoder */
+  OP_XZ_ENCODE,   /* the xz encoder */
   OP_BZ2_ENCODE,  /* the bzip2 encoder */
 } stream_op;
 
@@ -250,7 +256,7 @@ static void release (struct stream *s) {
   if (s->codec_open) {
     if (s->op == OP_BZ2) BZ2_bzDecompressEnd(&s->u.bz);
     if (s->op == OP_BZ2_ENCODE) BZ2_bzCompressEnd(&s->u.bz);
-    if (s->op == OP_XZ) lzma_end(&s->u.lzma);
+    if (s->op == OP_XZ || s->op == OP_XZ_ENCODE) lzma_end(&s->u.lzma);
     s->codec_open = 0;
   }
 }
@@ -485,6 +491,9 @@ static int gzip_step (struct stream *s, const unsigned char *p, size_t n,
 /* ---- bzip2 and xz ---- */
 
 /* The most output one library call is offered at a time. */
+/* TODO: an update reserves a whole slice in its buffer however little it
+ * gives, so a stream of one-byte updates spends ~80 us on each, in every
+ * codec; waits on someone needing small updates to be cheap. */
 #define CODEC_SLICE ((size_t)1 << 16)
 
 static int bz2_step (struct stream *s, const unsigned char *p, size_t n,
@@ -582,6 +591,24 @@ static void zstd_free (void *opaque, void *block) {
 }
 
 static const ZSTD_customMem zstd_memory = {zstd_alloc, zstd_free, NULL};
+
+/* liblzma's allocator for the encoder: the core's own, as zstd's above.
+ * liblzma asks for `nmemb` items of `size` bytes and zeroes them itself
+ * where it needs zeros. */
+/* The shim has no calloc, so liblzma's lzma_alloc_zero memsets the hash
+ * table itself: about 15 to 56 ms per stream, preset 0 to 9 (accepted). */
+static void *xz_alloc (void *opaque, size_t nmemb, size_t size) {
+  (void)opaque;
+  if (size != 0 && nmemb > SIZE_MAX / size) return NULL;
+  return cosmic_malloc(nmemb * size);
+}
+
+static void xz_free (void *opaque, void *block) {
+  (void)opaque;
+  cosmic_free(block);
+}
+
+static const lzma_allocator xz_memory = {xz_alloc, xz_free, NULL};
 
 /* What a zstd failure says, for one of the decoder's codes. */
 static const char *zstd_why (size_t rc) {
@@ -1006,6 +1033,29 @@ static int zstd_encoder (lua_State *L) {
   return cosmic_succeeded(L);
 }
 
+static int xz_encoder (lua_State *L) {
+  int preset = cosmic_optint(L, 1, DEFAULT_XZ_PRESET);
+  luaL_argcheck(L, preset >= 0 && preset <= MAX_XZ_PRESET, 1,
+                "preset must be 0 to 9");
+  uint32_t flags = (uint32_t)preset;
+  if (lua_toboolean(L, 2)) flags |= LZMA_PRESET_EXTREME;
+  struct stream *s = new_stream(L, OP_XZ_ENCODE);
+  s->u.lzma = (lzma_stream)LZMA_STREAM_INIT;
+  s->u.lzma.allocator = &xz_memory;
+  /* CRC-64, as the `xz` command writes. */
+  lzma_ret rc = lzma_easy_encoder(&s->u.lzma, flags, LZMA_CHECK_CRC64);
+  if (rc != LZMA_OK) {
+    s->finished = 1;
+    release(s);
+    lua_pushnil(L);
+    lua_pushstring(L, rc == LZMA_MEM_ERROR ? "compress: out of memory"
+                                           : "compress: cannot start the xz encoder");
+    return 2;
+  }
+  s->codec_open = 1;
+  return cosmic_succeeded(L);
+}
+
 /* ---- encoder ---- */
 
 /* Compresses `data` (which may be empty, to flush) with `flush`,
@@ -1046,6 +1096,36 @@ static const char *zstd_chunk (struct stream *s, const unsigned char *data,
     /* ZSTD_e_continue is done once the input is taken and the output
      * had room to spare; ZSTD_e_end once nothing is left to flush. */
     if (mode == ZSTD_e_end ? rc == 0 : in.pos == in.size && o.pos < o.size) {
+      return NULL;
+    }
+  }
+}
+
+/* Compresses `data` with `action`, appending to `out`: every byte is
+ * taken, and with LZMA_FINISH the stream is closed. Answers NULL, or
+ * why it failed. */
+static const char *xz_chunk (struct stream *s, const unsigned char *data,
+                             size_t len, lzma_action action,
+                             luaL_Buffer *out) {
+  lzma_stream *z = &s->u.lzma;
+  /* A call that takes nothing and gives nothing is liblzma's error the
+   * second time in a row, so an empty update is not passed on. */
+  if (action == LZMA_RUN && len == 0) return NULL;
+  z->next_in = data;
+  z->avail_in = len;
+  for (;;) {
+    unsigned char *dst = (unsigned char *)luaL_prepbuffsize(out, CODEC_SLICE);
+    z->next_out = dst;
+    z->avail_out = CODEC_SLICE;
+    lzma_ret rc = lzma_code(z, action);
+    luaL_addsize(out, CODEC_SLICE - z->avail_out);
+    if (rc == LZMA_STREAM_END) return NULL;
+    if (rc != LZMA_OK) {
+      return rc == LZMA_MEM_ERROR ? "out of memory" : "xz encoder failed";
+    }
+    /* LZMA_RUN is done once the input is taken and the output had room
+     * to spare; LZMA_FINISH only at the stream's end. */
+    if (action == LZMA_RUN && z->avail_in == 0 && z->avail_out != 0) {
       return NULL;
     }
   }
@@ -1135,8 +1215,11 @@ static int stream_update (lua_State *L) {
     s->finished = 0;
     return 2;
   }
-  if (s->op == OP_ZSTD_ENCODE) {
-    const char *why = zstd_chunk(s, data, len, ZSTD_e_continue, &out);
+  if (s->op == OP_ZSTD_ENCODE || s->op == OP_XZ_ENCODE) {
+    const char *why =
+        s->op == OP_XZ_ENCODE
+            ? xz_chunk(s, data, len, LZMA_RUN, &out)
+            : zstd_chunk(s, data, len, ZSTD_e_continue, &out);
     if (why != NULL) return fail(L, s, &out, why);
     luaL_pushresult(&out);
     lua_pushliteral(L, "");
@@ -1213,10 +1296,12 @@ static int stream_finish (lua_State *L) {
     luaL_pushresult(&out);
     return cosmic_succeeded(L);
   }
-  if (s->op == OP_ZSTD_ENCODE) {
+  if (s->op == OP_ZSTD_ENCODE || s->op == OP_XZ_ENCODE) {
     /* An empty string, not NULL, as for deflate_chunk above. */
-    const char *why =
-        zstd_chunk(s, (const unsigned char *)"", 0, ZSTD_e_end, &out);
+    const unsigned char *none = (const unsigned char *)"";
+    const char *why = s->op == OP_XZ_ENCODE
+                          ? xz_chunk(s, none, 0, LZMA_FINISH, &out)
+                          : zstd_chunk(s, none, 0, ZSTD_e_end, &out);
     if (why != NULL) return fail(L, s, &out, why);
     release(s);
     luaL_pushresult(&out);
@@ -1301,6 +1386,7 @@ static const luaL_Reg module[] = {
   {"inflater", inflater},     {"deflater", deflater},
   {"xz_decoder", xz_decoder}, {"bz2_decoder", bz2_decoder},
   {"zstd_decoder", zstd_decoder}, {"zstd_encoder", zstd_encoder},
+  {"xz_encoder", xz_encoder},
   {"bz2_encoder", bz2_encoder},
   {"crc32", compress_crc32},  {NULL, NULL},
 };
