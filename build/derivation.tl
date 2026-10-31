@@ -5,6 +5,7 @@
 --- cache; changing that transport cannot change the analyzer's identity.
 
 local Sqlite = require("cosmic.sqlite")
+local AnalysisSchema = require("build.analysis_schema")
 local analysis_schema = require("build.analysis_schema")
 local doctest = require("build.doctest")
 local gen_syscalls = require("build.gen_syscalls")
@@ -162,7 +163,7 @@ end
 local function duplicate_import_paths(db: Sqlite.Handle): boolean, string
   local doubled, trouble = Sqlite.text_rows(db,
     "SELECT path, group_concat(file, ' and ') FROM inputs " ..
-      "WHERE kind <> 'decl' GROUP BY path HAVING count(*) > 1 ORDER BY path")
+      "WHERE " .. AnalysisSchema.not_declaration("kind") .. " GROUP BY path HAVING count(*) > 1 ORDER BY path")
   if doubled == nil then
     return false, trouble
   end
