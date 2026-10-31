@@ -985,6 +985,19 @@ a re-run of either job more than seven days later cannot download them.
 last week; a run whose artifacts expired it reports from its step times
 alone.
 
+A download of ci.yml that fails its job (the `checked` job's shares, the
+`ci` join's products, `seed`'s artifacts) is tried twice, because the
+artifact service fails a request now and then and a failure ejects a queue
+entry. The first try tolerates failure; if it failed, a step deletes its
+target directory (not `seed`'s, which is `$RUNNER_TEMP` itself: the
+second try overwrites each file the seed holds), waits ten seconds, and
+the second try runs without that tolerance. An artifact that is absent
+fails both tries, so the job still fails. The consumer reads only the
+second try's complete download. A download that already tolerates failure
+has no second try.
+`build/workflows_test.tl` refuses a download that fails its job and has no
+first try.
+
 [`cosmic_ci/cache_trim.tl`]: cosmic_ci/cache_trim.tl
 [`cosmic_ci/prerelease_test.tl`]: cosmic_ci/prerelease_test.tl
 [`cosmic_ci/github_api.tl`]: cosmic_ci/github_api.tl

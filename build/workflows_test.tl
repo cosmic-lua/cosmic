@@ -1520,7 +1520,9 @@ local function test_a_main_push_reuses_the_queue_run()
     -- The zig outputs' download is held apart, below.
     if artifact and with["name"] ~= "seed-zig-${{ matrix.name }}" then
       local product = with["name"] == "portable-product-${{ matrix.name }}"
-      assert(step["if"] == (if product then "!matrix.checked" else nil end),
+      -- A second try runs where its first try failed.
+      local retry = (step["if"] or ""):match("^steps%.[%w_-]+%.outcome == 'failure'$") ~= nil
+      assert(retry or step["if"] == (if product then "!matrix.checked" else nil end),
         "seed relays a product on the checked job's leg, or skips its seed there: " .. tostring(step["if"]))
     end
     if uses:find("actions/download-artifact@", 1, true) ~= nil then
@@ -1961,9 +1963,9 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
   local pulled = with_of(download)
   assert(download["uses"] == "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c" and
       pulled["pattern"] == "verdicts-linux-x86_64-checked-shard-*" and pulled["merge-multiple"] == nil and
-      pulled["name"] == nil and pulled["run-id"] == nil and download["continue-on-error"] == nil and
+      pulled["name"] == nil and pulled["run-id"] == nil and download["continue-on-error"] == true and
       download["if"] == FULL,
-    "the checked job takes the shares' verdicts from another run, merges them into one directory, or goes on without them")
+    "the checked job takes the shares' verdicts from another run, merges them into one directory, or goes on without them (its first try tolerates failure; test_a_gating_download_has_a_first_try_to_retry holds the second)")
   assert(merge["run"] == "for share in \"${{ runner.temp }}\"/verdicts-shares/*/; do " ..
       "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"$share\" || exit 1; done" and
       merge["if"] == FULL and merge["continue-on-error"] == nil and
@@ -3333,4 +3335,38 @@ local function test_every_leg_has_its_promises_and_no_other_does()
   for name in pairs(promised) do
     assert(ran[name], name .. ": capabilities.json names no such leg")
   end
+end
+
+local DOWNLOAD <const> = "actions/download-artifact@"
+
+--- A gating download (one without `continue-on-error`) is the second try of
+--- an earlier one of the same inputs that has an `id` and tolerates its
+--- failure, and runs only where that one failed. GitHub's artifact service
+--- fails a download now and then; in a merge queue each such failure ejects
+--- the entry. A real absence of the artifact fails the second try, so the
+--- job still fails. A new gating download with no first try is refused. Only
+--- ci.yml is held to it.
+local function test_a_gating_download_has_a_first_try_to_retry()
+  local seen = 0
+  local path = DIR .. "/ci.yml"
+  do
+    for name, job in pairs(ci_workflow().jobs) do
+      for i, step in ipairs(job.steps) do
+        local uses = step.uses
+        if uses ~= nil and String.starts_with(uses, DOWNLOAD) == true and step["continue-on-error"] ~= true then
+          local where = path .. " " .. name .. " step " .. tostring(i) .. " " .. (step.name or "")
+          local first_id = (step["if"] or ""):match("^steps%.([%w_-]+)%.outcome == 'failure'$")
+          assert(first_id, where .. ": no first try; run it first with continue-on-error and an id, then retry it `if: steps.<id>.outcome == 'failure'`")
+          local first, at = step_with_id(job.steps, first_id)
+          assert(at < i, where .. ": the first try " .. first_id .. " comes after it")
+          assert(first["continue-on-error"] == true, where .. ": " .. first_id .. " does not tolerate its failure")
+          assert(first.uses == uses, where .. ": " .. first_id .. " is another action")
+          assert(Json.encode_any(first.with) == Json.encode_any(step.with),
+            where .. ": " .. first_id .. " downloads other inputs")
+          seen = seen + 1
+        end
+      end
+    end
+  end
+  assert(seen > 0, "no gating download found: the test reads nothing")
 end
