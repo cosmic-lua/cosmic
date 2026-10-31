@@ -6572,10 +6572,7 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
               " cannot be assigned",
             "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received", { show(ctx, base) })
         else
-          -- TODO: report `array_hole` beside `view_written` for a write to a view, so one run reports both, once
-          -- build/ceilings.txt holds no `view_written` row: it adds `array_hole` errors to the many files that pin
-          -- `view_written`, which a pin may not take.
-          -- The values say whether the write may leave a hole, which changes the fix: see below.
+          -- The values say whether the write may leave a hole, which is an `array_hole` beside this error: see below.
           pending[#pending + 1] = { target = target, at = at, owner = owner, base = base, view = true }
         end
       elseif removes and Writes.is_length_of(target.key, target.object) then
@@ -6701,6 +6698,21 @@ function Writes.runs_code(s: Ast.Assign): boolean
   return #calls > 0
 end
 
+--- The `array_hole` error of a write at an index that may leave a hole in an array, whether the array is `mut` or a view
+--- (a view's write is also a `view_written`, so one run names both).
+function Writes.report_hole(ctx: Ctx, p: Pending)
+  local target = p.target
+  if Writes.is_append(target) then
+    report(ctx, "array_hole", target, subject(ctx, target) .. " is written by a statement that calls a function, which " ..
+        "may shorten the array " .. p.owner .. " after the key is computed and leave a hole",
+      "call first and write after: `local v = f()`, then `" .. text_of(ctx, target) .. " = v`", { show(ctx, p.base) })
+  else
+    report(ctx, "array_hole", target, subject(ctx, target) .. " may leave a hole in the array " .. p.owner,
+      "append with `" .. text_of(ctx, target.object) .. "[#" .. text_of(ctx, target.object) .. " + 1] = v` or " ..
+        "`table.insert`, remove with `table.remove`, or key a map `{integer: T}` for sparse data", { show(ctx, p.base) })
+  end
+end
+
 local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
   local named: mut {integer: boolean} = {}
   for _, target in ipairs(s.targets) do
@@ -6747,17 +6759,9 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
       end
       report(ctx, "view_written", p.target, owner .. " is a view " .. tq(ctx, base) .. ", so " .. subject(ctx, p.target) ..
           " cannot be assigned", "declare " .. owner .. " " .. destination .. " where it is made or received", { show(ctx, base) })
-    elseif not Writes.leaves_no_hole(ctx, vals, p) then
-      local target = p.target
-      if Writes.is_append(target) then
-        report(ctx, "array_hole", target, subject(ctx, target) .. " is written by a statement that calls a function, which " ..
-            "may shorten the array " .. p.owner .. " after the key is computed and leave a hole",
-          "call first and write after: `local v = f()`, then `" .. text_of(ctx, target) .. " = v`", { show(ctx, p.base) })
-      else
-        report(ctx, "array_hole", target, subject(ctx, target) .. " may leave a hole in the array " .. p.owner,
-          "append with `" .. text_of(ctx, target.object) .. "[#" .. text_of(ctx, target.object) .. " + 1] = v` or " ..
-            "`table.insert`, remove with `table.remove`, or key a map `{integer: T}` for sparse data", { show(ctx, p.base) })
-      end
+    end
+    if not Writes.leaves_no_hole(ctx, vals, p) then
+      Writes.report_hole(ctx, p)
     end
   end
   local counted = check_counts(ctx, s, #s.targets, vals, #s.values, "target")

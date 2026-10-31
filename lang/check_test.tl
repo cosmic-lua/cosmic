@@ -1472,6 +1472,16 @@ local function test_the_array_part_of_a_record_is_a_view_and_a_write_to_it_says_
   assert(codes_of(head .. "local k: string = \"name\"\nl[k] = \"b\"\n") == "record_index")
 end
 
+local function test_a_write_to_a_view_that_may_leave_a_hole_reports_array_hole_beside_view_written()
+  local head = "local buf: {integer} = {}\n"
+  assert(codes_of(head .. "buf[3] = 1\n") == "view_written array_hole")
+  assert(codes_of(head .. "buf[#buf + 1] = 1\n") == "view_written")
+  -- a call may shorten a view the statement can reach, as it may a `mut` array, so the append lands past the end
+  local param = "local function f(): integer\n  return 1\nend\nlocal function put(buf: {integer})\n"
+  assert(codes_of(param .. "  buf[#buf + 1] = f()\nend\n") == "view_written array_hole")
+  assert(codes_of(param .. "  buf[#buf + 1] = 1\nend\n") == "view_written")
+end
+
 local function test_a_parenthesised_literal_and_an_if_expression_of_functions_pick_the_overload_they_fit()
   local head = "local b: boolean = true\nlocal function up(c: string): string\n  return c\nend\n"
   assert(codes_of(head .. "local r = (\"x\"):gsub(\"a\", (function(c: string): string return c end))\n") == "")
@@ -1887,7 +1897,9 @@ local function test_a_table_literal_for_an_interface_with_library_advice_is_told
 end
 
 local function test_a_write_to_a_view_that_may_leave_a_hole_names_the_map_that_runs_clean()
-  local fix = fix_of("local buf: {number} = {}\nbuf[3] = 1\nlocal _ = buf\n")
+  local r = Programs.run("local buf: {number} = {}\nbuf[3] = 1\nlocal _ = buf\n")
+  assert(#r.errors == 2 and assert(r.errors[1]).code == "view_written", Programs.codes(r))
+  local fix = assert(r.errors[1]).fix
   assert(has(fix, "`mut {integer: number}`") and has(fix, "may leave a hole"), fix)
   -- a write that cannot leave a hole, or an append, keeps the array
   assert(has(fix_of("local buf: {number} = {}\nbuf[1] = 1\nlocal _ = buf\n"), "`mut {number}`"))
