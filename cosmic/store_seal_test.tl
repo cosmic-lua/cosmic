@@ -197,7 +197,7 @@ local function test_seal_stores_bytecode_deflated(tmp: string)
   local extra: Store.Extra = { name = "main", source = "return ...\n", requires = {},
     bytecode = string.dump(function(...: any): any return ... end, true) }
   local path = tmp .. "/deflated.db"
-  assert(Store.seal({ "cosmic.codec" }, path, { extra = extra }))
+  assert(Store.seal({ "cosmic.codec" }, path, { extra = extra, unchecked_bytecode = true }))
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.rows(db,
     "SELECT path, bytecode, inflate(bytecode) FROM modules ORDER BY path"))

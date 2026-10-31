@@ -91,7 +91,7 @@ test_child.register("deflated", function(argv: {string}): integer
   assert(Sqlite.run(db, "INSERT INTO modules (path, bytecode, kind) VALUES ('project.plain', ?1, 'module')",
     { { blob = chunk } }))
   assert(db:close())
-  assert(Store.attach((argv[1] or "")))
+  assert(Store.attach((argv[1] or ""), { unchecked_bytecode = true }))
   local search = assert(package.searchers[#package.searchers])
   local loader = assert(search("project.packed"))
   assert(loader("project.packed") == "project.packed")
