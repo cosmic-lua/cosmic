@@ -1566,7 +1566,7 @@ static int vector_normalize (lua_State *L) {
 }
 
 
-/* k-means over a corpus, for the IVF scheme of doc/plans/vector.md. The
+/* k-means over a corpus, for the IVF scheme. The
  * algorithm is Lloyd's with k-means++ seeding on the unit-length
  * vectors (spherical k-means); no code is taken from pgvector. All
  * scratch lives in one Lua userdata, so nothing is held across a raise. */

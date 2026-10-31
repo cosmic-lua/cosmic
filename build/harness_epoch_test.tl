@@ -271,7 +271,7 @@ end
 
 --- A `retired` of the bare counts "1" to `n`, as build/harness_epoch.tl's
 --- begins with the counts of the epochs that had no token.
-local function counted(n: integer): {string}
+local function counted(n: integer): mut {string}
   local retired: mut {string} = {}
   for i = 1, n do retired[i] = tostring(i) end
   return retired
@@ -337,11 +337,11 @@ local function test_the_guard_holds_the_epoch_to_its_retired_tokens()
   local skipped = assert(epoch_trouble("9-072f7458", retired))
   assert(skipped:find("count is 9, not 8", 1, true), skipped)
   local more = counted(7)
-  more[8] = "072f7458"
+  more[#more + 1] = "072f7458"
   local kept = assert(epoch_trouble("9-072f7458", more))
   assert(kept:find("072f7458 is retired", 1, true), kept)
   local twice = counted(7)
-  twice[8] = "7"
+  twice[#twice + 1] = "7"
   local doubled = assert(epoch_trouble("9-aaaaaaaa", twice))
   assert(doubled:find('holds "7" twice', 1, true), doubled)
   -- Two branches bump from one value.

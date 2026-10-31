@@ -488,7 +488,7 @@ end
 
 --- Teal source for `template`.
 --- @param template types.Template The tree, its slots' places set
---- The source is in the new checker's grammar ([`doc/plans/new-checker-grammar.md`]), which holds a project to what no
+--- The source is in the new checker's grammar, which holds a project to what no
 --- ceiling excuses: `parts` is a `mut {string}`, and the module returns a local declared with its record type, not a table
 --- literal that no declaration describes.
 --- @return string Source that has as many lines as the template

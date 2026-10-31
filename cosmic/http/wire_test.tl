@@ -254,47 +254,71 @@ local function test_a_given_content_length_is_held_to_the_body()
     local _, count = head:lower():gsub("\r\ncontent%-length:", "")
     return head, count, rest
   end
-  local cases: {{any}} = {
-    { { status = 200, headers = { ["content-length"] = "5" }, body = "hello", method = "GET" }, "5", "hello" },
-    { { status = 200, headers = { ["CONTENT-LENGTH"] = "005" }, body = "hello" }, "5", "hello" },
-    { { status = 200, headers = { ["Content-Length"] = "3" }, body = Stream.from_string("abc") }, "3", "abc" },
-    { { status = 200, headers = { ["Content-Length"] = "3" }, body = Stream.from_string("abc"), length = 3 },
-      "3", "abc" },
-    { { status = 200, body = "hello", length = 5 }, "5", "hello" },
-    { { status = 200, headers = { ["Content-Length"] = "1234" }, method = "HEAD" }, "1234", "" },
-    { { status = 200, length = 1234, method = "HEAD" }, "1234", "" },
-    { { status = 200, headers = { ["Content-Length"] = "0" }, method = "GET" }, "0", "" },
-    { { status = 304, headers = { ["Content-Length"] = "10" }, method = "GET" }, "10", "" },
-    { { status = 200, headers = { ["Content-Length"] = "10" }, body = "", method = "HEAD" }, "10", "" },
+  local record Framed
+    reply: wire.Reply
+    length: string
+    rest: string
+  end
+  local cases: {Framed} = {
+    { reply = { date = DATE, status = 200, headers = { ["content-length"] = "5" }, body = "hello", method = "GET" },
+      length = "5", rest = "hello" },
+    { reply = { date = DATE, status = 200, headers = { ["CONTENT-LENGTH"] = "005" }, body = "hello" }, length = "5",
+      rest = "hello" },
+    { reply = { date = DATE, status = 200, headers = { ["Content-Length"] = "3" }, body = Stream.from_string("abc") },
+      length = "3", rest = "abc" },
+    { reply = { date = DATE, status = 200, headers = { ["Content-Length"] = "3" }, body = Stream.from_string("abc"), length = 3 },
+      length = "3", rest = "abc" },
+    { reply = { date = DATE, status = 200, body = "hello", length = 5 }, length = "5", rest = "hello" },
+    { reply = { date = DATE, status = 200, headers = { ["Content-Length"] = "1234" }, method = "HEAD" },
+      length = "1234", rest = "" },
+    { reply = { date = DATE, status = 200, length = 1234, method = "HEAD" }, length = "1234", rest = "" },
+    { reply = { date = DATE, status = 200, headers = { ["Content-Length"] = "0" }, method = "GET" }, length = "0",
+      rest = "" },
+    { reply = { date = DATE, status = 304, headers = { ["Content-Length"] = "10" }, method = "GET" }, length = "10",
+      rest = "" },
+    { reply = { date = DATE, status = 200, headers = { ["Content-Length"] = "10" }, body = "", method = "HEAD" },
+      length = "10", rest = "" },
   }
   for i, case in ipairs(cases) do
-    local head, count, rest = framed(sent_bytes(case[1] as wire.Reply))
+    local head, count, rest = framed(sent_bytes(case.reply))
     assert(count == 1, tostring(i) .. ": " .. head)
-    assert(head:find("\r\nContent%-Length: " .. (case[2] as string) .. "\r\n") ~= nil, tostring(i) .. ": " .. head)
+    assert(head:find("\r\nContent%-Length: " .. case.length .. "\r\n") ~= nil, tostring(i) .. ": " .. head)
     assert(head:find("Transfer-Encoding", 1, true) == nil, tostring(i))
-    assert(rest == case[3], tostring(i) .. ": " .. rest)
+    assert(rest == case.rest, tostring(i) .. ": " .. rest)
   end
-  local refused: {{any}} = {
-    { { status = 200, headers = { ["Content-Length"] = "4" }, body = "hello" }, "is 4, but the body is 5 bytes" },
-    { { status = 200, headers = { ["Content-Length"] = "4" }, body = "hello", method = "HEAD" }, "is 4" },
-    { { status = 200, headers = { ["Content-Length"] = "5" }, method = "GET" }, "no body" },
-    { { status = 200, length = 5 }, "no body" },
-    { { status = 200, length = 5, body = "" }, "no body" },
-    { { status = 200, headers = { ["Content-Length"] = "3" }, body = Stream.from_string("abc"), length = 4 },
-      "header is 3, but the length is 4" },
-    { { status = 204, headers = { ["Content-Length"] = "0" } }, "status 204" },
-    { { status = 101, length = 0 }, "status 101" },
-    { { status = 200, headers = { ["Content-Length"] = "5", ["content-length"] = "5" }, body = "hello" },
-      "headers Content-Length and content-length: Content-Length is given twice" },
-    { { status = 200, headers = { ["Content-Length"] = "5 " }, body = "hello" }, "not digits" },
-    { { status = 200, headers = { ["Content-Length"] = "+5" }, body = "hello" }, "not digits" },
-    { { status = 200, headers = { ["Content-Length"] = "5, 5" }, body = "hello" }, "not digits" },
-    { { status = 200, headers = { ["Content-Length"] = "" }, method = "HEAD" }, "not digits" },
-    { { status = 200, headers = { ["Content-Length"] = string.rep("9", 19) }, method = "HEAD" }, "too large" },
+  local record Refused
+    reply: wire.Reply
+    says: string
+  end
+  local refused: {Refused} = {
+    { reply = { date = DATE, status = 200, headers = { ["Content-Length"] = "4" }, body = "hello" },
+      says = "is 4, but the body is 5 bytes" },
+    { reply = { date = DATE, status = 200, headers = { ["Content-Length"] = "4" }, body = "hello", method = "HEAD" },
+      says = "is 4" },
+    { reply = { date = DATE, status = 200, headers = { ["Content-Length"] = "5" }, method = "GET" },
+      says = "no body" },
+    { reply = { date = DATE, status = 200, length = 5 }, says = "no body" },
+    { reply = { date = DATE, status = 200, length = 5, body = "" }, says = "no body" },
+    { reply = { date = DATE, status = 200, headers = { ["Content-Length"] = "3" }, body = Stream.from_string("abc"), length = 4 },
+      says = "header is 3, but the length is 4" },
+    { reply = { date = DATE, status = 204, headers = { ["Content-Length"] = "0" } }, says = "status 204" },
+    { reply = { date = DATE, status = 101, length = 0 }, says = "status 101" },
+    { reply = { date = DATE, status = 200, headers = { ["Content-Length"] = "5", ["content-length"] = "5" }, body = "hello" },
+      says = "headers Content-Length and content-length: Content-Length is given twice" },
+    { reply = { date = DATE, status = 200, headers = { ["Content-Length"] = "5 " }, body = "hello" },
+      says = "not digits" },
+    { reply = { date = DATE, status = 200, headers = { ["Content-Length"] = "+5" }, body = "hello" },
+      says = "not digits" },
+    { reply = { date = DATE, status = 200, headers = { ["Content-Length"] = "5, 5" }, body = "hello" },
+      says = "not digits" },
+    { reply = { date = DATE, status = 200, headers = { ["Content-Length"] = "" }, method = "HEAD" },
+      says = "not digits" },
+    { reply = { date = DATE, status = 200, headers = { ["Content-Length"] = string.rep("9", 19) }, method = "HEAD" },
+      says = "too large" },
   }
   for i, case in ipairs(refused) do
-    local why = wire.check(case[1] as wire.Reply)
-    assert(why:find(case[2] as string, 1, true) ~= nil, tostring(i) .. ": " .. why)
+    local why = wire.check(case.reply)
+    assert(why:find(case.says, 1, true) ~= nil, tostring(i) .. ": " .. why)
   end
 end
 

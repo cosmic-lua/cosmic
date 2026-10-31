@@ -676,25 +676,49 @@ local function test_copy_tree_drops_setuid_and_setgid(tmp: string)
 end
 
 local function test_basename_as_basename_names_it()
-  local cases: {{string}} = {
-    { "a", "a" }, { "a/b", "b" }, { "a/b/", "b" }, { "/a", "a" },
-    { "/", "/" }, { "//", "/" }, { "", "" }, { "a//b//", "b" }, { ".", "." },
+  local record Named
+    path: string
+    want: string
+  end
+  local cases: {Named} = {
+    { path = "a", want = "a" },
+    { path = "a/b", want = "b" },
+    { path = "a/b/", want = "b" },
+    { path = "/a", want = "a" },
+    { path = "/", want = "/" },
+    { path = "//", want = "/" },
+    { path = "", want = "" },
+    { path = "a//b//", want = "b" },
+    { path = ".", want = "." },
   }
   for _, case in ipairs(cases) do
-    assert(Fs.basename(case[1]) == case[2],
-      case[1] .. ": " .. Fs.basename(case[1]))
+    assert(Fs.basename(case.path) == case.want,
+      case.path .. ": " .. Fs.basename(case.path))
   end
 end
 
 local function test_dirname_as_dirname_answers()
-  local cases: {{string}} = {
-    { "a", "." }, { "a/b", "a" }, { "a/b/", "a" }, { "/a", "/" },
-    { "/a/", "/" }, { "/", "/" }, { "//", "/" }, { "", "." },
-    { "a//b", "a" }, { "/a/b/c", "/a/b" }, { "a/..", "a" }, { "//a", "/" },
+  local record Named
+    path: string
+    want: string
+  end
+  local cases: {Named} = {
+    { path = "a", want = "." },
+    { path = "a/b", want = "a" },
+    { path = "a/b/", want = "a" },
+    { path = "/a", want = "/" },
+    { path = "/a/", want = "/" },
+    { path = "/", want = "/" },
+    { path = "//", want = "/" },
+    { path = "", want = "." },
+    { path = "a//b", want = "a" },
+    { path = "/a/b/c", want = "/a/b" },
+    { path = "a/..", want = "a" },
+    { path = "//a", want = "/" },
   }
   for _, case in ipairs(cases) do
-    assert(Fs.dirname(case[1]) == case[2],
-      case[1] .. ": " .. Fs.dirname(case[1]))
+    assert(Fs.dirname(case.path) == case.want,
+      case.path .. ": " .. Fs.dirname(case.path))
   end
 end
 

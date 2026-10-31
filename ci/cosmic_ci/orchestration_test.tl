@@ -63,6 +63,33 @@ local record PortableCase
   words: string
   shared: boolean
 end
+local record ShareAttestationCase
+  name: string
+  shares: string
+  --- The share job's artifact: absent where it uploaded none.
+  upload: boolean
+  --- Its attestation text, else the legs' digest's.
+  attestation?: string
+  --- Its bytes: another build's where true.
+  changed?: boolean
+  --- The shares the alpine leg and the job name.
+  leg_half?: string
+  half?: string
+  ok: boolean
+end
+local record AttestCase
+  name: string
+  total: string
+  shares: string
+  --- The share the portable phase recorded.
+  ran?: string
+  expected?: string
+end
+local record PortableShareCase
+  name: string
+  shard: string
+  words: string
+end
 local record DarwinCase
   name: string
   target: string
@@ -225,6 +252,109 @@ local function test_provenance_failures_are_durable(tmp: string)
     missing_runner_temp .. "/cosmic-ci/products/portable-product-b/executed-cosmic.sha256"))
   assert(not Fixture.call("missing-attestation", append(base, { "provenance" }), project,
     tmp .. "/logs", context(candidate, missing_runner_temp)).result.ok)
+end
+
+--- The job that runs another share of a leg's portable suite uploads the
+--- bytes it ran with their attestation (`portable-share-<job>`), which
+--- the join hashes and holds to the legs' digest: as many as it is told to
+--- expect (COSMIC_CI_PORTABLE_SHARES) must be there, and together with the
+--- leg they must name each share of the suite exactly once.
+local function test_provenance_holds_a_portable_share_to_the_legs_bytes(tmp: string)
+  local base, project = command(tmp)
+  local candidate = tmp .. "/candidate"
+  assert(Fs.mkdirs(candidate))
+  assert(Fs.write(candidate .. "/AGENTS.md", "fixture\n"))
+  local template = tmp .. "/products-template"
+  assert(Fs.mkdirs(template))
+  local digest = ""
+  for _, name in ipairs({ "a", "b" }) do
+    local product = template .. "/portable-product-" .. name
+    assert(Fs.mkdirs(product))
+    assert(Fs.write(product .. "/cosmic", Fixture.synthetic(tmp .. "/lane.db", "/runner-" .. name .. "/cosmic")))
+    digest = Hash.hex_sha256(Fixture.stripped(product .. "/cosmic", tmp .. "/lane.db"))
+    assert(Fs.write(product .. "/executed-cosmic.sha256", digest .. "  cosmic\n") and
+        Fs.write(product .. "/expected-platforms", "2\n"))
+  end
+  local good = digest .. "  cosmic\n"
+  local cases: {ShareAttestationCase} = {
+    { name = "same", shares = "1", upload = true, leg_half = "1/2", half = "2/2", ok = true },
+    { name = "none-expected", shares = "0", upload = false, ok = true },
+    { name = "different", shares = "1", upload = true, attestation = string.rep("0", 64) .. "  cosmic\n",
+      leg_half = "1/2", half = "2/2", ok = false },
+    { name = "corrupt", shares = "1", upload = true, attestation = "corrupt\n", leg_half = "1/2", half = "2/2", ok = false },
+    { name = "bytes-disagree", shares = "1", upload = true, attestation = good, changed = true,
+      leg_half = "1/2", half = "2/2", ok = false },
+    { name = "missing", shares = "1", upload = false, leg_half = "1/2", ok = false },
+    { name = "unexpected", shares = "0", upload = true, half = "2/2", ok = false },
+    { name = "duplicate-half", shares = "1", upload = true, leg_half = "1/2", half = "1/2", ok = false },
+    { name = "missing-half", shares = "1", upload = true, half = "2/2", ok = false },
+    { name = "unnamed-half", shares = "1", upload = true, leg_half = "1/2", ok = false },
+    { name = "other-count", shares = "1", upload = true, leg_half = "1/3", half = "2/3", ok = false },
+  }
+  for _, case in ipairs(cases) do
+    local runner_temp = tmp .. "/" .. case.name .. "-runner-temp"
+    assert(Fs.mkdirs(runner_temp .. "/cosmic-ci"))
+    assert(assert(Child.run({ "/bin/cp", "-R", template, runner_temp .. "/cosmic-ci/products" })).ok)
+    local products = runner_temp .. "/cosmic-ci/products"
+    if case.leg_half ~= nil then
+      assert(Fs.write(products .. "/portable-product-a/portable-share", case.leg_half .. "\n"))
+    end
+    if case.upload then
+      local dir = products .. "/portable-share-s"
+      assert(Fs.mkdirs(dir))
+      assert(Fs.write(dir .. "/cosmic", Fixture.synthetic(tmp .. "/lane.db", "/runner-s/cosmic",
+        if case.changed == true then "changed" else nil end)))
+      assert(Fs.write(dir .. "/executed-cosmic.sha256", case.attestation or good))
+      if case.half ~= nil then assert(Fs.write(dir .. "/portable-share", case.half .. "\n")) end
+    end
+    local outcome = Fixture.call("share-" .. case.name, append(base, { "provenance" }), project,
+      tmp .. "/logs", context(candidate, runner_temp, { COSMIC_CI_PORTABLE_SHARES = case.shares }))
+    assert(outcome.result.ok == case.ok, case.name .. ": the join answered " ..
+        tostring(outcome.result.ok) .. ": " .. Fixture.read(outcome.err))
+  end
+end
+
+--- The legs' `attest` writes the number of products to expect, the job
+--- count (`strategy.job-total`) less the jobs that run a share of a
+--- leg's portable suite and upload none (COSMIC_CI_PORTABLE_SHARES), so
+--- that prerelease.yml still finds its four lanes.
+local function test_attest_expects_the_products_without_the_share_jobs(tmp: string)
+  local base, project = command(tmp)
+  local cases: {AttestCase} = {
+    { name = "whole", total = "4", shares = "", expected = "4\n" },
+    { name = "shared", total = "5", shares = "1", ran = "2/2\n", expected = "4\n" },
+    { name = "all-shares", total = "5", shares = "5" },
+  }
+  for _, case in ipairs(cases) do
+    local fake = tmp .. "/attest-" .. case.name
+    local runner_temp = fake .. "-runner-temp"
+    local work = runner_temp .. "/cosmic-ci/platform"
+    local product = work .. "/product"
+    local diagnostics = work .. "/portable-diagnostics"
+    assert(Fs.mkdirs(fake) and Fs.mkdirs(product) and Fs.mkdirs(diagnostics))
+    assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+    local built = Fixture.synthetic(tmp .. "/attest.db", "/runner/cosmic")
+    local portable = Fixture.synthetic(tmp .. "/attest.db", "/fresh/cosmic")
+    local digest = Hash.hex_sha256(built) .. "\n"
+    local executed = Hash.hex_sha256(portable) .. "\n"
+    assert(Fs.write(product .. "/cosmic", built) and Fs.write(work .. "/cosmic.before.sha256", digest))
+    assert(Fs.write(diagnostics .. "/cosmic-portable", portable) and
+        Fs.write(diagnostics .. "/portable-artifact.before.sha256", executed) and
+        Fs.write(diagnostics .. "/portable-artifact.after.sha256", executed))
+    if case.ran ~= nil then assert(Fs.write(diagnostics .. "/portable-share", case.ran)) end
+    local outcome = Fixture.call("attest-" .. case.name, append(base, { "platform", "attest", case.total }),
+      project, tmp .. "/logs", context(fake, runner_temp, {
+        TARGET = "x86_64-linux-musl", COSMIC_CI_PORTABLE_SHARES = case.shares,
+      }))
+    assert(outcome.result.ok == (case.expected ~= nil), case.name .. ": attest answered " ..
+        tostring(outcome.result.ok) .. ": " .. Fixture.read(outcome.err))
+    if case.expected ~= nil then
+      assert(Fs.read(product .. "/expected-platforms") == case.expected, case.name .. ": expected " ..
+          tostring((Fs.read(product .. "/expected-platforms"))))
+      assert(Fs.read(product .. "/portable-share") == (case.ran or "none\n"), case.name .. ": the share attested is " ..
+          tostring((Fs.read(product .. "/portable-share"))))
+    end
+  end
 end
 
 local function test_platform_requires_cosmic_worker(tmp: string)
@@ -1542,6 +1672,57 @@ exit 0
       case.event .. ": " .. tostring(env["COSMIC_VERDICT_CACHE"]))
     assert((env["COSMIC_TEST_NO_SHARED"] == "1") == case.shared,
       case.event .. ": COSMIC_TEST_NO_SHARED=" .. tostring(env["COSMIC_TEST_NO_SHARED"]))
+  end
+end
+
+--- The job that runs the second half of alpine-x86_64's portable suite
+--- is told its share (COSMIC_CI_PORTABLE_SHARD) and runs only that
+--- share's tests (`--shard`), which the suite itself is not given; where
+--- none is named, the whole suite runs.
+local function test_a_portable_share_runs_its_share_of_the_portable_suite(tmp: string)
+  local base, project = command(tmp)
+  local cases: {PortableShareCase} = {
+    { name = "first", shard = "1/2", words = "test --census --shard 1/2\n" },
+    { name = "second", shard = "2/2", words = "test --census --shard 2/2\n" },
+    { name = "whole", shard = "", words = "test --census\n" },
+  }
+  for _, case in ipairs(cases) do
+    local fake = tmp .. "/portable-share-" .. case.name
+    local runner_temp = fake .. "-runner-temp"
+    local work = runner_temp .. "/cosmic-ci/platform"
+    local diagnostics = work .. "/portable-diagnostics"
+    local fresh = work .. "/portable-source"
+    assert(Fs.mkdirs(fake) and Fs.mkdirs(diagnostics) and
+        Fs.mkdirs(fresh .. "/o") and Fs.mkdirs(fresh .. "/ci/testdata/portable"))
+    assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+    build_resolver(fresh)
+    assert(Fs.write(fresh .. "/o/build.db", "db"))
+    assert(Fs.write(fresh .. "/ci/testdata/portable/work_db_integrity.tl", "\n"))
+    local executable = diagnostics .. "/cosmic-portable"
+    Fixture.write(executable, [[#!/bin/sh
+if [ "$1" = test ]; then printf '%s\n' "$*" > "$SEEN.words"; env > "$SEEN.env"; fi
+exit 0
+]], 493)
+    assert(Fs.write(diagnostics .. "/portable-artifact.before.sha256",
+      Hash.hex_sha256((assert(Fs.read(executable)))) .. "\n"))
+    local seen = fake .. "-seen"
+    local outcome = Fixture.call("portable-share-" .. case.name,
+      append(base, { "platform", "portable" }), project, tmp .. "/logs",
+      context(fake, runner_temp, {
+        TARGET = "x86_64-linux-musl", SEEN = seen,
+        COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
+        COSMIC_CI_HARNESS_MOVED = "0", COSMIC_CI_PORTABLE_SUITE = "run",
+        COSMIC_CI_PORTABLE_SHARD = case.shard,
+        COSMIC_VERDICT_CACHE = runner_temp .. "/verdicts/verdicts.db",
+        XDG_CACHE_HOME = tmp .. "/cache",
+      }))
+    assert(outcome.result.ok, case.name .. ": the portable phase failed: " .. Fixture.read(outcome.err))
+    local words = assert(Fs.read(seen .. ".words"))
+    assert(words == case.words, case.name .. ": the suite ran " .. words)
+    assert(Fs.read(diagnostics .. "/portable-share") == (if case.shard == "" then "whole" else case.shard end) .. "\n",
+      case.name .. ": the share recorded is " .. tostring((Fs.read(diagnostics .. "/portable-share"))))
+    local env = assert(Fs.read(seen .. ".env"))
+    assert(not env:find("COSMIC_CI_PORTABLE_SHARD", 1, true), case.name .. ": the suite was given the share")
   end
 end
 

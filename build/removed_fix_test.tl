@@ -235,15 +235,21 @@ end
 
 local function test_a_field_of_another_record_of_the_module_is_not_a_removed_member_of_the_module()
   -- `Fs.truncate`, `Json.items` and `Sqlite.close` were removed from the modules, not from the records they declare
-  local cases: {{string}} = {
-    { "cosmic.fs", "Fs", "Stat", "truncate", "s.truncate" },
-    { "cosmic.json", "Json", "Value", "items", "s.items" },
-    { "cosmic.sqlite", "Sqlite", "Handle", "close", "s.close" },
-    { "cosmic.sqlite", "Sqlite", "Handle", "cell", "s:cell(1)" },
+  local record Read
+    module: string
+    owner: string
+    nested: string
+    member: string
+    read: string
+  end
+  local cases: {Read} = {
+    { module = "cosmic.fs", owner = "Fs", nested = "Stat", member = "truncate", read = "s.truncate" },
+    { module = "cosmic.json", owner = "Json", nested = "Value", member = "items", read = "s.items" },
+    { module = "cosmic.sqlite", owner = "Sqlite", nested = "Handle", member = "close", read = "s.close" },
+    { module = "cosmic.sqlite", owner = "Sqlite", nested = "Handle", member = "cell", read = "s:cell(1)" },
   }
   for _, case in ipairs(cases) do
-    local module, record, nested, member, read = case[1], case[2], case[3], case[4], case[5]
-    assert(module ~= nil and record ~= nil and nested ~= nil and member ~= nil and read ~= nil)
+    local module, record, nested, member, read = case.module, case.owner, case.nested, case.member, case.read
     assert(Removed.members[module .. "." .. member] ~= nil, module .. "." .. member .. " is no removed member")
     local p = only("local " .. record .. " = require(\"" .. module .. "\")\nlocal function f(s: " .. record .. "." .. nested ..
         ")\n  print(" .. read .. ")\nend\nreturn f\n", { [module] = nested_stub(record, nested) })

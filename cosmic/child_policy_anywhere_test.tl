@@ -41,7 +41,7 @@ local function skip_where_seatbelt_holds(what: string)
 end
 
 --- A grant of the program itself, which a child needs to run at all.
-local function itself(program: string, more?: {Sandbox.Grant}): {Sandbox.Grant}
+local function itself(program: string, more?: {Sandbox.Grant}): mut {Sandbox.Grant}
   local grants: mut {Sandbox.Grant} = { { path = program, letters = "rx" } }
   for _, grant in ipairs(more or {}) do grants[#grants + 1] = grant end
   return grants
@@ -152,13 +152,17 @@ local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
     for i, grant in ipairs(base) do copy[i] = grant end
     return copy
   end
-  local cases: {{any}} = {
-    { { grants = grants(), set_env_digests = { X = string.rep("0", 64) } }, 'set_env_digests "X"' },
+  local record Unmet
+    policy: Sandbox.Policy
+    says: string
+  end
+  local cases: {Unmet} = {
+    { policy = { grants = grants(), set_env_digests = { X = string.rep("0", 64) } }, says = 'set_env_digests "X"' },
   }
   for _, case in ipairs(cases) do
-    local none, why = Child.start({ probe, "print hi" }, { policy = case[1] as Sandbox.Policy })
-    assert(none == nil, case[2])
-    assert(why:find("^child: start: sandbox: ") and why:find(case[2] as string, 1, true), why)
+    local none, why = Child.start({ probe, "print hi" }, { policy = case.policy })
+    assert(none == nil, case.says)
+    assert(why:find("^child: start: sandbox: ") and why:find(case.says, 1, true), why)
     assert(why:find("not yet available", 1, true) or why:find("cannot start", 1, true), why)
   end
   local from = grants()
@@ -240,7 +244,8 @@ local function test_a_policy_of_too_many_grants_fails_before_it_makes_anything(t
   for _, count in ipairs({ most, most + 44 }) do
     local grants = itself(probe)
     for i = #grants + 1, count do
-      grants[i] = { path = tmp .. "/g" .. tostring(i), letters = "r" }
+      local grant: Sandbox.Grant = { path = tmp .. "/g" .. tostring(i), letters = "r" }
+      grants[#grants + 1] = grant
     end
     local none, why = Child.start({ probe, "print hi" }, { policy = { grants = grants, tmp = true } })
     assert(none == nil, "a start over the most was made")

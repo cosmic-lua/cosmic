@@ -22,8 +22,8 @@
 -- typed, and the tests that guard them are live. Until then "remove the test" would delete the guard.
 --
 -- TODO: report the malformed or odd format strings and patterns of the standard library's string functions (`%y`, a
--- pattern missing its `]`), once the checker types `string.format` and the pattern functions from their literal arguments
--- (doc/plans/new-checker-types.md, "the order the pieces land in"): the fork warns of these as a `hint`.
+-- pattern missing its `]`), once the checker types `string.format` and the pattern functions from their literal arguments:
+-- the fork warns of these as a `hint`.
 local Lexer = require("lang.lexer")
 local Scopes = require("lang.scopes")
 local Types = require("lang.types")

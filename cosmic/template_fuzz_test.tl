@@ -1157,7 +1157,7 @@ local record Tag
   --- Each slot in the tag, as its number, then what it is: "attr", "url"
   --- or "refuse" (outside a quoted value, or the content of a <meta> that
   --- has http-equiv).
-  slots: mut {{string}}
+  mut slots: mut {{string}}
 end
 
 local function read_tag(s: string): Tag
@@ -1277,11 +1277,15 @@ local function read_tag(s: string): Tag
   for _, a in ipairs(tag.attrs) do
     equiv = equiv or a:find("^http%-equiv=") ~= nil
   end
+  local settled: mut {{string}} = {}
   for n, slot in ipairs(tag.slots) do
     if tag.name == "meta" and equiv and named[n] == "content" then
-      slot[2] = "refuse"
+      settled[#settled + 1] = { assert(slot[1]), "refuse" }
+    else
+      settled[#settled + 1] = slot
     end
   end
+  tag.slots = settled
   return tag
 end
 

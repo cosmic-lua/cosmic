@@ -837,12 +837,14 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
       local answers: mut {integer:{integer}} = {}
       local waiting: mut {integer:{Poll.Task}} = {}
       for i = 1, count do
-        waiting[i] = {}
+        local row: mut {Poll.Task} = {}
+        waiting[i] = row
         for r = 1, 3 do
-          waiting[i][r] = Poll.spawn(function()
+          local task = Poll.spawn(function()
             local ok, why = Poll.readable(readers[i], Clock.seconds(5))
             table.insert(seen, tostring(i) .. "r" .. tostring(r) .. (if ok then "" else " " .. why end))
           end)
+          row[#row + 1] = task
         end
         Poll.spawn(function()
           -- The writer is writable, but this wait does not ask that.

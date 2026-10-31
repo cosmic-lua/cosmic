@@ -30,72 +30,103 @@ end
 
 --- Pairs of what a policy stands for and the policy: a table of the fields
 --- of [`Test.Needs`], and the [`Test.policy`] call that makes it.
-local SAME: {{string}} = {
-  { "{ }", "Test.policy { }" },
-  { '{ reads = { "testdata/", "bin/zig.pin" } }',
-    'Test.policy { grants = { { path = "testdata/", letters = "r" }, ' ..
-      '{ path = "bin/zig.pin", letters = "r" } } }' },
-  { '{ host = { "/etc/localtime", "/proc/self/maps" } }',
-    'Test.policy { grants = { { path = "/etc/localtime", letters = "r" }, ' ..
-      '{ path = "/proc/self/maps", letters = "r" } } }' },
-  { '{ reads = { "a", "b" }, host = { "/etc/hosts" } }',
-    'Test.policy { grants = { { path = "a", letters = "r" }, ' ..
-      '{ path = "/etc/hosts", letters = "r" }, { path = "b", letters = "r" } } }' },
-  { "{ system = true }", 'Test.policy { profiles = { "system" } }' },
+--- What a policy stands for, as a table of the fields of [`Test.Needs`], and the policy.
+local record Same
+  needs: string
+  policy: string
+end
+
+--- A [`Test.policy`] call, and the words its refusal holds.
+local record Refusal
+  call: string
+  says: string
+end
+
+local SAME: {Same} = {
+  { needs = "{ }", policy = "Test.policy { }" },
+  {
+    needs = '{ reads = { "testdata/", "bin/zig.pin" } }',
+    policy = 'Test.policy { grants = { { path = "testdata/", letters = "r" }, ' ..
+      '{ path = "bin/zig.pin", letters = "r" } } }',
+  },
+  {
+    needs = '{ host = { "/etc/localtime", "/proc/self/maps" } }',
+    policy = 'Test.policy { grants = { { path = "/etc/localtime", letters = "r" }, ' ..
+      '{ path = "/proc/self/maps", letters = "r" } } }',
+  },
+  {
+    needs = '{ reads = { "a", "b" }, host = { "/etc/hosts" } }',
+    policy = 'Test.policy { grants = { { path = "a", letters = "r" }, ' ..
+      '{ path = "/etc/hosts", letters = "r" }, { path = "b", letters = "r" } } }',
+  },
+  { needs = "{ system = true }", policy = 'Test.policy { profiles = { "system" } }' },
   -- The profile alone is the program held to the module's closure; with the
   -- grant of o/bin, which the program is in, it is the program itself.
-  { "{ lua = true }", 'Test.policy { profiles = { "cosmic" } }' },
-  { '{ lua = true, host = { "/proc" }, nests = true, network = { "127.0.0.1" } }',
-    'Test.policy { profiles = { "cosmic" }, grants = { { path = "/proc", letters = "r" } }, ' ..
-      'promises = { "nest" }, loopback = { "127.0.0.1" } }' },
+  { needs = "{ lua = true }", policy = 'Test.policy { profiles = { "cosmic" } }' },
+  {
+    needs = '{ lua = true, host = { "/proc" }, nests = true, network = { "127.0.0.1" } }',
+    policy = 'Test.policy { profiles = { "cosmic" }, grants = { { path = "/proc", letters = "r" } }, ' ..
+      'promises = { "nest" }, loopback = { "127.0.0.1" } }',
+  },
   -- The profile "proc" is the grant of /proc by hand, to the key.
-  { '{ host = { "/proc" } }', 'Test.policy { profiles = { "proc" } }' },
-  { '{ lua = true, host = { "/proc" }, nests = true, network = { "127.0.0.1" } }',
-    'Test.policy { profiles = { "cosmic", "proc" }, promises = { "nest" }, ' ..
-      'loopback = { "127.0.0.1" } }' },
-  { '{ system = true, tool = true, host = { "/etc/hosts", "/proc" } }',
-    'Test.policy { profiles = { "system", "cosmic", "proc" }, grants = { { path = "o/bin", letters = "rx" }, ' ..
-      '{ path = "/etc/hosts", letters = "r" } } }' },
-  { "{ tool = true }",
-    'Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }' },
-  { '{ tool = true, store = true, reads = { "a" } }',
-    'Test.policy { profiles = { "cosmic" }, grants = { { path = "a", letters = "r" }, ' ..
-      '{ path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } } }' },
-  { "{ tool = true, system = true }",
-    'Test.policy { profiles = { "system", "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }' },
-  { "{ nests = true }", 'Test.policy { promises = { "nest" } }' },
-  { '{ env = { "PATH", "HOME", "PATH" } }',
-    'Test.policy { env = { "PATH", "HOME", "PATH" } }' },
-  { '{ network = { "127.0.0.1", "127.0.0.2" } }',
-    'Test.policy { loopback = { "127.0.0.1", "127.0.0.2" } }' },
+  { needs = '{ host = { "/proc" } }', policy = 'Test.policy { profiles = { "proc" } }' },
+  {
+    needs = '{ lua = true, host = { "/proc" }, nests = true, network = { "127.0.0.1" } }',
+    policy = 'Test.policy { profiles = { "cosmic", "proc" }, promises = { "nest" }, ' ..
+      'loopback = { "127.0.0.1" } }',
+  },
+  {
+    needs = '{ system = true, tool = true, host = { "/etc/hosts", "/proc" } }',
+    policy = 'Test.policy { profiles = { "system", "cosmic", "proc" }, grants = { { path = "o/bin", letters = "rx" }, ' ..
+      '{ path = "/etc/hosts", letters = "r" } } }',
+  },
+  { needs = "{ tool = true }",
+    policy = 'Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }' },
+  {
+    needs = '{ tool = true, store = true, reads = { "a" } }',
+    policy = 'Test.policy { profiles = { "cosmic" }, grants = { { path = "a", letters = "r" }, ' ..
+      '{ path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } } }',
+  },
+  { needs = "{ tool = true, system = true }",
+    policy = 'Test.policy { profiles = { "system", "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }' },
+  { needs = "{ nests = true }", policy = 'Test.policy { promises = { "nest" } }' },
+  { needs = '{ env = { "PATH", "HOME", "PATH" } }', policy = 'Test.policy { env = { "PATH", "HOME", "PATH" } }' },
+  { needs = '{ network = { "127.0.0.1", "127.0.0.2" } }',
+    policy = 'Test.policy { loopback = { "127.0.0.1", "127.0.0.2" } }' },
   -- Three grants are the fields they stand for, not reads.
-  { "{ store = true }",
-    'Test.policy { grants = { { path = "o/cosmic.db", letters = "r" } } }' },
-  { "{ noexec = true }",
-    'Test.policy { grants = { { path = "/noexec", letters = "rwc" } } }' },
-  { '{ caches = { "zig" } }',
-    'Test.policy { grants = { { path = "/cache/zig", letters = "rwxc" } } }' },
-  { '{ caches = { "zig", "bootstrap" }, reads = { "a" }, store = true, ' ..
+  { needs = "{ store = true }", policy = 'Test.policy { grants = { { path = "o/cosmic.db", letters = "r" } } }' },
+  { needs = "{ noexec = true }", policy = 'Test.policy { grants = { { path = "/noexec", letters = "rwc" } } }' },
+  { needs = '{ caches = { "zig" } }',
+    policy = 'Test.policy { grants = { { path = "/cache/zig", letters = "rwxc" } } }' },
+  {
+    needs = '{ caches = { "zig", "bootstrap" }, reads = { "a" }, store = true, ' ..
       'noexec = true, host = { "/etc/hosts" } }',
-    'Test.policy { grants = { { path = "/cache/zig", letters = "rwxc" }, ' ..
+    policy = 'Test.policy { grants = { { path = "/cache/zig", letters = "rwxc" }, ' ..
       '{ path = "a", letters = "r" }, { path = "/noexec", letters = "rwc" }, ' ..
       '{ path = "/cache/bootstrap", letters = "rwxc" }, ' ..
-      '{ path = "o/cosmic.db", letters = "r" }, { path = "/etc/hosts", letters = "r" } } }' },
+      '{ path = "o/cosmic.db", letters = "r" }, { path = "/etc/hosts", letters = "r" } } }',
+  },
   -- A file above the project root is a field, not a host read.
-  { '{ parent = { "bin/cosmic-bootstrap", ".github/workflows/ci.yml" } }',
-    'Test.policy { grants = { { path = "/parent/bin/cosmic-bootstrap", letters = "r" }, ' ..
-      '{ path = "/parent/.github/workflows/ci.yml", letters = "r" } } }' },
-  { '{ parent = { "a" }, host = { "/etc/hosts" }, reads = { "b" } }',
-    'Test.policy { grants = { { path = "/etc/hosts", letters = "r" }, ' ..
-      '{ path = "/parent/a", letters = "r" }, { path = "b", letters = "r" } } }' },
+  {
+    needs = '{ parent = { "bin/cosmic-bootstrap", ".github/workflows/ci.yml" } }',
+    policy = 'Test.policy { grants = { { path = "/parent/bin/cosmic-bootstrap", letters = "r" }, ' ..
+      '{ path = "/parent/.github/workflows/ci.yml", letters = "r" } } }',
+  },
+  {
+    needs = '{ parent = { "a" }, host = { "/etc/hosts" }, reads = { "b" } }',
+    policy = 'Test.policy { grants = { { path = "/etc/hosts", letters = "r" }, ' ..
+      '{ path = "/parent/a", letters = "r" }, { path = "b", letters = "r" } } }',
+  },
   -- A promise with no `needs` field changes no key before the filter runs.
-  { "{ }", 'Test.policy { promises = { "fork", "jit", "fattr" }, tmp = true }' },
-  { '{ reads = { "testdata" }, system = true, tool = true, nests = true, ' ..
+  { needs = "{ }", policy = 'Test.policy { promises = { "fork", "jit", "fattr" }, tmp = true }' },
+  {
+    needs = '{ reads = { "testdata" }, system = true, tool = true, nests = true, ' ..
       'env = { "PATH", "TMPDIR" }, network = { "127.0.0.1" } }',
-    'Test.policy { profiles = { "cosmic", "system" }, promises = { "nest", "fork" }, ' ..
+    policy = 'Test.policy { profiles = { "cosmic", "system" }, promises = { "nest", "fork" }, ' ..
       'grants = { { path = "testdata", letters = "r" }, { path = "o/bin", letters = "rx" } }, ' ..
       'env = { "PATH", "TMPDIR" }, ' ..
-      'loopback = { "127.0.0.1" }, tmp = true, isolate = {}, limits = {} }' },
+      'loopback = { "127.0.0.1" }, tmp = true, isolate = {}, limits = {} }',
+  },
 }
 
 --- A policy is the declaration of the `needs` it stands for: the text a
@@ -104,26 +135,26 @@ local SAME: {{string}} = {
 --- and as the harness translates it.
 local function test_a_policy_is_keyed_as_its_needs()
   for _, pair in ipairs(SAME) do
-    local chunk = assert(load("return " .. pair[1]))
+    local chunk = assert(load("return " .. pair.needs))
     local from_needs = assert(test_inputs.as_declared(chunk() as Test.Needs))
-    local from_policy, why_policy = declared(pair[2])
-    assert(from_policy ~= nil, pair[2] .. ": " .. why_policy)
+    local from_policy, why_policy = declared(pair.policy)
+    assert(from_policy ~= nil, pair.policy .. ": " .. why_policy)
     assert(test_inputs.canonical(from_needs) == test_inputs.canonical(from_policy),
-      pair[2] .. "\n" .. test_inputs.canonical(from_policy) .. "\nis not\n" ..
+      pair.policy .. "\n" .. test_inputs.canonical(from_policy) .. "\nis not\n" ..
         test_inputs.canonical(from_needs))
     -- What the worker is handed is what the build read: the runtime's
     -- translation is the build's.
-    local handed, why_handed = runtime_needs(pair[2])
-    assert(handed ~= nil, pair[2] .. ": " .. tostring(why_handed))
+    local handed, why_handed = runtime_needs(pair.policy)
+    assert(handed ~= nil, pair.policy .. ": " .. tostring(why_handed))
     assert(test_inputs.canonical(test_inputs.as_declared(handed)) ==
-        test_inputs.canonical(from_needs), pair[2] .. ": the worker is handed another needs")
+        test_inputs.canonical(from_needs), pair.policy .. ": the worker is handed another needs")
     from_needs.line, from_policy.line = 0, 0
     for field, value in pairs(from_needs as {string:any}) do
       local other = (from_policy as {string:any})[field]
       if value is {string} and other is {string} then
-        assert(table.concat(value, " ") == table.concat(other, " "), pair[2] .. " " .. field)
+        assert(table.concat(value, " ") == table.concat(other, " "), pair.policy .. " " .. field)
       else
-        assert(value == other, pair[2] .. " " .. field)
+        assert(value == other, pair.policy .. " " .. field)
       end
     end
   end
@@ -133,93 +164,107 @@ end
 --- the field, rather than accepted as a declaration that keys nothing of
 --- it.
 local function test_a_policy_with_no_needs_is_refused()
-  local cases: {{string}} = {
-    { 'Test.policy { isolate = { "file" } }', "fixture_test.tl:2: test.policy: isolate is not yet taken" },
-    { 'Test.policy { limits = { processes = 4 } }', "test.policy: limits is not yet taken" },
-    { 'Test.policy { set_env = { A = "1" } }', "test.policy: set_env is not yet taken" },
-    { 'Test.policy { set_env_digests = { A = "ab" } }', "test.policy: set_env_digests is refused" },
-    { 'Test.policy { connect = { "example.com:443" } }',
-      "test.policy: connect is refused: no test reaches a host but loopback" },
-    { "Test.policy { tmp = false }", "test.policy: tmp = false is not yet taken" },
-    { "Test.policy { user = 1000 }", "test.policy: user is refused: the harness chooses" },
-    { "Test.policy { user = 1000, group = 1000 }", "is refused: the harness chooses" },
-    { 'Test.policy { user = "me" }', "test.policy: user takes a whole number" },
-    { 'Test.policy { grants = { { path = "o/cosmic.db", letters = "rw" } } }',
-      'test.policy: grants[1].path o/cosmic.db is the store, granted { path = "o/cosmic.db"' },
-    { 'Test.policy { grants = { { path = "o/cosmic.db", letters = "r", from = "x" } } }',
-      "test.policy: grants[1].path o/cosmic.db is the store" },
-    { 'Test.policy { profiles = { "cosmic" }, grants = { { path = "o/cosmic.db", letters = "r" } } }',
-      'test.policy: profiles: "cosmic" without the grant of o/bin holds the program to what ' ..
-        'the module requires, which is refused beside o/cosmic.db' },
-    { 'Test.policy { profiles = { "system", "cosmic" } }',
-      "which is refused beside system; grant { path = \"o/bin\", letters = \"rx\" }" },
-    { 'Test.policy { profiles = { "cosmic" }, grants = { { path = "/cache/zig", letters = "rwxc" } } }',
-      "which is refused beside /cache/zig" },
-    { 'Test.policy { grants = { { path = "o/bin", letters = "rx" } } }',
-      'test.policy: grants: .path o/bin is the program\'s directory, granted only beside ' ..
-        'the profile "cosmic"' },
-    { 'Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "r" } } }',
-      'test.policy: grants[1].path o/bin is the directory the program is in, granted ' ..
-        '{ path = "o/bin", letters = "rx" }' },
-    { 'Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rwx" } } }',
-      "test.policy: grants[1].path o/bin is the directory the program is in" },
-    { 'Test.policy { profiles = { "cosmic" }, ' ..
+  local cases: {Refusal} = {
+    { call = 'Test.policy { isolate = { "file" } }',
+      says = "fixture_test.tl:2: test.policy: isolate is not yet taken" },
+    { call = 'Test.policy { limits = { processes = 4 } }', says = "test.policy: limits is not yet taken" },
+    { call = 'Test.policy { set_env = { A = "1" } }', says = "test.policy: set_env is not yet taken" },
+    { call = 'Test.policy { set_env_digests = { A = "ab" } }', says = "test.policy: set_env_digests is refused" },
+    { call = 'Test.policy { connect = { "example.com:443" } }',
+      says = "test.policy: connect is refused: no test reaches a host but loopback" },
+    { call = "Test.policy { tmp = false }", says = "test.policy: tmp = false is not yet taken" },
+    { call = "Test.policy { user = 1000 }", says = "test.policy: user is refused: the harness chooses" },
+    { call = "Test.policy { user = 1000, group = 1000 }", says = "is refused: the harness chooses" },
+    { call = 'Test.policy { user = "me" }', says = "test.policy: user takes a whole number" },
+    { call = 'Test.policy { grants = { { path = "o/cosmic.db", letters = "rw" } } }',
+      says = 'test.policy: grants[1].path o/cosmic.db is the store, granted { path = "o/cosmic.db"' },
+    { call = 'Test.policy { grants = { { path = "o/cosmic.db", letters = "r", from = "x" } } }',
+      says = "test.policy: grants[1].path o/cosmic.db is the store" },
+    {
+      call = 'Test.policy { profiles = { "cosmic" }, grants = { { path = "o/cosmic.db", letters = "r" } } }',
+      says = 'test.policy: profiles: "cosmic" without the grant of o/bin holds the program to what ' ..
+        'the module requires, which is refused beside o/cosmic.db',
+    },
+    { call = 'Test.policy { profiles = { "system", "cosmic" } }',
+      says = "which is refused beside system; grant { path = \"o/bin\", letters = \"rx\" }" },
+    { call = 'Test.policy { profiles = { "cosmic" }, grants = { { path = "/cache/zig", letters = "rwxc" } } }',
+      says = "which is refused beside /cache/zig" },
+    {
+      call = 'Test.policy { grants = { { path = "o/bin", letters = "rx" } } }',
+      says = 'test.policy: grants: .path o/bin is the program\'s directory, granted only beside ' ..
+        'the profile "cosmic"',
+    },
+    {
+      call = 'Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "r" } } }',
+      says = 'test.policy: grants[1].path o/bin is the directory the program is in, granted ' ..
+        '{ path = "o/bin", letters = "rx" }',
+    },
+    { call = 'Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rwx" } } }',
+      says = "test.policy: grants[1].path o/bin is the directory the program is in" },
+    {
+      call = 'Test.policy { profiles = { "cosmic" }, ' ..
         'grants = { { path = "o/bin", letters = "rx", from = "x" } } }',
-      "test.policy: grants[1].path o/bin is the directory the program is in" },
-    { 'Test.policy { grants = { { path = "/noexec", letters = "rwxc" } } }',
-      'test.policy: grants[1].path /noexec is the private scratch the harness gives, granted ' ..
-        '{ path = "/noexec", letters = "rwc" }' },
-    { 'Test.policy { grants = { { path = "/noexec", letters = "rwc", from = "/t" } } }',
-      "test.policy: grants[1].path /noexec is the private scratch" },
-    { 'Test.policy { grants = { { path = "/cache/zig", letters = "rwc" } } }',
-      'test.policy: grants[1].path /cache/<name> is a host cache, granted { path = "/cache/<name>", ' ..
-        'letters = "rwxc" }' },
-    { 'Test.policy { grants = { { path = "/cache/zig", letters = "rwxc", from = "/t" } } }',
-      "test.policy: grants[1].path /cache/<name> is a host cache" },
-    { 'Test.policy { grants = { { path = "/cache/nope", letters = "rwxc" } } }',
-      "test.policy: grants[1].path /cache/nope: no cache nope; the caches are bootstrap, zig" },
-    { 'Test.policy { grants = { { path = "d", letters = "rwc" } } }',
-      'test.policy: grants[1].letters "rwc" is not yet taken' },
-    { 'Test.policy { grants = { { path = "d", letters = "rx" } } }',
-      'test.policy: grants[1].letters "rx" is not yet taken' },
-    { 'Test.policy { grants = { { path = "d", letters = "r", from = "/e" } } }',
-      "test.policy: grants[1].from is not yet taken" },
-    { 'Test.policy { grants = { { path = "d", letters = "wr" } } }',
-      "test.policy: grants[1].letters takes letters of rwxcu, in that order" },
-    { 'Test.policy { grants = { { letters = "r" } } }', "test.policy: grants[1].path takes a path" },
-    { 'Test.policy { profiles = { "net" } }', "test.policy: profiles: no profile net" },
-    { 'Test.policy { grants = { { path = "/parent/a", letters = "rw" } } }',
-      "grants[1].path /parent/<file> is a file of the project root's parent directory" },
-    { 'Test.policy { grants = { { path = "/parent/a", letters = "r", from = "/e" } } }',
-      "grants[1].path /parent/<file> is a file" },
-    { 'Test.policy { grants = { { path = "/parent/", letters = "r" } } }', "names no file" },
-    { 'Test.policy { grants = { { path = "/parent/a/", letters = "r" } } }', 'ends in a "/"' },
-    { 'Test.policy { grants = { { path = "/parent/../a", letters = "r" } } }', 'has a ".." name' },
-    { 'Test.policy { grants = { { path = "/parent/a/./b", letters = "r" } } }', 'has a "." name' },
-    { 'Test.policy { grants = { { path = "/parent/a//b", letters = "r" } } }', "has an empty name" },
-    { 'Test.policy { grants = { { path = "/parent/$HOME", letters = "r" } } }', "holds a $" },
-    { 'Test.policy { database = "x.db" }', "test.policy: database is refused" },
-    { 'Test.policy { promises = { "exec" } }', "test.policy: promises: no promise exec" },
-    { "Test.policy { reeds = {} }", "test.policy: has no field reeds; it has connect, database, env" },
-    { 'Test.policy { env = "PATH" }', "test.policy: env takes a list of string literals, written out" },
-    { "Test.policy { tmp = 1 }", "test.policy: tmp takes true or false" },
-    { 'Test.policy { limits = { cpu = 1 } }', "test.policy: limits takes open_files" },
-    { 'Test.policy { loopback = { "localhost" } }', 'test.policy: loopback "localhost": loopback takes loopback' },
-    { 'Test.policy { loopback = { "10.0.0.1" } }', "test.policy: loopback" },
-    { 'Test.policy { grants = { { path = "/d/", letters = "r" } } }',
-      "test.policy: grants: \"/d/\" names a directory" },
-    { 'Test.policy { grants = { { path = "../x", letters = "r" } } }', "test.policy: grants:" },
-    { 'Test.policy { env = { "PATH", "*" } }', 'no wildcard "*" in a policy' },
-    { 'Test.policy { env = { "" } }', "test.policy: env: an empty name" },
-    { "Test.policy { env = { \"A\\n\" } }", "write declared paths plainly" },
-    { "Test.policy { env = { X } }", "test.policy: env takes a string written out as a literal" },
-    { "Test.policy(1)", "hand it one table written out as a literal: Test.policy" },
-    { 'Test.policy { env = { "A" }, env = { "B" } }', "env is declared twice" },
+      says = "test.policy: grants[1].path o/bin is the directory the program is in",
+    },
+    {
+      call = 'Test.policy { grants = { { path = "/noexec", letters = "rwxc" } } }',
+      says = 'test.policy: grants[1].path /noexec is the private scratch the harness gives, granted ' ..
+        '{ path = "/noexec", letters = "rwc" }',
+    },
+    { call = 'Test.policy { grants = { { path = "/noexec", letters = "rwc", from = "/t" } } }',
+      says = "test.policy: grants[1].path /noexec is the private scratch" },
+    {
+      call = 'Test.policy { grants = { { path = "/cache/zig", letters = "rwc" } } }',
+      says = 'test.policy: grants[1].path /cache/<name> is a host cache, granted { path = "/cache/<name>", ' ..
+        'letters = "rwxc" }',
+    },
+    { call = 'Test.policy { grants = { { path = "/cache/zig", letters = "rwxc", from = "/t" } } }',
+      says = "test.policy: grants[1].path /cache/<name> is a host cache" },
+    { call = 'Test.policy { grants = { { path = "/cache/nope", letters = "rwxc" } } }',
+      says = "test.policy: grants[1].path /cache/nope: no cache nope; the caches are bootstrap, zig" },
+    { call = 'Test.policy { grants = { { path = "d", letters = "rwc" } } }',
+      says = 'test.policy: grants[1].letters "rwc" is not yet taken' },
+    { call = 'Test.policy { grants = { { path = "d", letters = "rx" } } }',
+      says = 'test.policy: grants[1].letters "rx" is not yet taken' },
+    { call = 'Test.policy { grants = { { path = "d", letters = "r", from = "/e" } } }',
+      says = "test.policy: grants[1].from is not yet taken" },
+    { call = 'Test.policy { grants = { { path = "d", letters = "wr" } } }',
+      says = "test.policy: grants[1].letters takes letters of rwxcu, in that order" },
+    { call = 'Test.policy { grants = { { letters = "r" } } }', says = "test.policy: grants[1].path takes a path" },
+    { call = 'Test.policy { profiles = { "net" } }', says = "test.policy: profiles: no profile net" },
+    { call = 'Test.policy { grants = { { path = "/parent/a", letters = "rw" } } }',
+      says = "grants[1].path /parent/<file> is a file of the project root's parent directory" },
+    { call = 'Test.policy { grants = { { path = "/parent/a", letters = "r", from = "/e" } } }',
+      says = "grants[1].path /parent/<file> is a file" },
+    { call = 'Test.policy { grants = { { path = "/parent/", letters = "r" } } }', says = "names no file" },
+    { call = 'Test.policy { grants = { { path = "/parent/a/", letters = "r" } } }', says = 'ends in a "/"' },
+    { call = 'Test.policy { grants = { { path = "/parent/../a", letters = "r" } } }', says = 'has a ".." name' },
+    { call = 'Test.policy { grants = { { path = "/parent/a/./b", letters = "r" } } }', says = 'has a "." name' },
+    { call = 'Test.policy { grants = { { path = "/parent/a//b", letters = "r" } } }', says = "has an empty name" },
+    { call = 'Test.policy { grants = { { path = "/parent/$HOME", letters = "r" } } }', says = "holds a $" },
+    { call = 'Test.policy { database = "x.db" }', says = "test.policy: database is refused" },
+    { call = 'Test.policy { promises = { "exec" } }', says = "test.policy: promises: no promise exec" },
+    { call = "Test.policy { reeds = {} }", says = "test.policy: has no field reeds; it has connect, database, env" },
+    { call = 'Test.policy { env = "PATH" }', says = "test.policy: env takes a list of string literals, written out" },
+    { call = "Test.policy { tmp = 1 }", says = "test.policy: tmp takes true or false" },
+    { call = 'Test.policy { limits = { cpu = 1 } }', says = "test.policy: limits takes open_files" },
+    { call = 'Test.policy { loopback = { "localhost" } }',
+      says = 'test.policy: loopback "localhost": loopback takes loopback' },
+    { call = 'Test.policy { loopback = { "10.0.0.1" } }', says = "test.policy: loopback" },
+    { call = 'Test.policy { grants = { { path = "/d/", letters = "r" } } }',
+      says = "test.policy: grants: \"/d/\" names a directory" },
+    { call = 'Test.policy { grants = { { path = "../x", letters = "r" } } }', says = "test.policy: grants:" },
+    { call = 'Test.policy { env = { "PATH", "*" } }', says = 'no wildcard "*" in a policy' },
+    { call = 'Test.policy { env = { "" } }', says = "test.policy: env: an empty name" },
+    { call = "Test.policy { env = { \"A\\n\" } }", says = "write declared paths plainly" },
+    { call = "Test.policy { env = { X } }", says = "test.policy: env takes a string written out as a literal" },
+    { call = "Test.policy(1)", says = "hand it one table written out as a literal: Test.policy" },
+    { call = 'Test.policy { env = { "A" }, env = { "B" } }', says = "env is declared twice" },
   }
   for _, case in ipairs(cases) do
-    local got, trouble = declared(case[1])
-    assert(got == nil and trouble:find(case[2], 1, true) ~= nil,
-      case[1] .. ": " .. tostring(trouble) .. " does not say " .. case[2])
+    local got, trouble = declared(case.call)
+    assert(got == nil and trouble:find(case.says, 1, true) ~= nil,
+      case.call .. ": " .. tostring(trouble) .. " does not say " .. case.says)
     -- A policy the build refuses for what it says, the worker refuses
     -- too; one it refuses for an entry's own rule (a path, an address),
     -- which only the build checks, the worker takes.
@@ -228,8 +273,8 @@ local function test_a_policy_with_no_needs_is_refused()
         not trouble:find("test.policy: loopback", 1, true) and
         not trouble:find("written out", 1, true) and not trouble:find("plainly", 1, true) and
         not trouble:find("declared twice", 1, true) and not trouble:find("hand it", 1, true) then
-      local needs, why = runtime_needs(case[1])
-      assert(needs == nil, case[1] .. ": the worker takes it, as " .. tostring(needs))
+      local needs, why = runtime_needs(case.call)
+      assert(needs == nil, case.call .. ": the worker takes it, as " .. tostring(needs))
       assert(why ~= "")
     end
   end
@@ -292,25 +337,26 @@ end
 --- worker is given no host grant of and a `program:` it cannot find fail
 --- the build, naming the rule; a Linux-class name does not.
 local function test_a_requirement_that_breaks_a_rule_fails_the_build()
-  local cases: {{string}} = {
-    { 'Test.policy { requires = { "sandbxo" } }', "unknown requirement \"sandbxo\"" },
-    { 'Test.policy { requires = { "path:relative" } }', "absolute path" },
-    { 'Test.policy { requires = { "landlock:0" } }', "positive integer" },
-    { 'Test.policy { requires = { "root", "root" } }', "\"root\" is written twice" },
-    { 'Test.policy { requires = { "path:/etc/hosts" } }', "needs a host grant of the path" },
-    { 'Test.policy { requires = { "path:/etc/hosts" }, grants = { { path = "/etc/passwd", letters = "r" } } }',
-      "needs a host grant of the path" },
-    { 'Test.policy { requires = { "program:jq" } }', "needs the profile \"system\" and env = { \"PATH\" }" },
-    { 'Test.policy { requires = { "program:jq" }, profiles = { "system" } }',
-      "needs the profile \"system\" and env = { \"PATH\" }" },
-    { 'Test.policy { requires = { "program:jq" }, env = { "PATH" } }',
-      "needs the profile \"system\" and env = { \"PATH\" }" },
-    { 'Test.policy { requires = "root" }', "requires takes a list of string literals" },
+  local cases: {Refusal} = {
+    { call = 'Test.policy { requires = { "sandbxo" } }', says = "unknown requirement \"sandbxo\"" },
+    { call = 'Test.policy { requires = { "path:relative" } }', says = "absolute path" },
+    { call = 'Test.policy { requires = { "landlock:0" } }', says = "positive integer" },
+    { call = 'Test.policy { requires = { "root", "root" } }', says = "\"root\" is written twice" },
+    { call = 'Test.policy { requires = { "path:/etc/hosts" } }', says = "needs a host grant of the path" },
+    { call = 'Test.policy { requires = { "path:/etc/hosts" }, grants = { { path = "/etc/passwd", letters = "r" } } }',
+      says = "needs a host grant of the path" },
+    { call = 'Test.policy { requires = { "program:jq" } }',
+      says = "needs the profile \"system\" and env = { \"PATH\" }" },
+    { call = 'Test.policy { requires = { "program:jq" }, profiles = { "system" } }',
+      says = "needs the profile \"system\" and env = { \"PATH\" }" },
+    { call = 'Test.policy { requires = { "program:jq" }, env = { "PATH" } }',
+      says = "needs the profile \"system\" and env = { \"PATH\" }" },
+    { call = 'Test.policy { requires = "root" }', says = "requires takes a list of string literals" },
   }
   for _, case in ipairs(cases) do
-    local found, why = declared(case[1])
+    local found, why = declared(case.call)
     assert(found == nil and why:find("fixture_test.tl:2: test.policy: ", 1, true) ~= nil and
-        why:find(case[2], 1, true) ~= nil, case[1] .. ": " .. tostring(why))
+        why:find(case.says, 1, true) ~= nil, case.call .. ": " .. tostring(why))
   end
   for _, call in ipairs({
       'Test.policy { requires = { "path:/etc/hosts" }, grants = { { path = "/etc/hosts", letters = "r" } } }',
