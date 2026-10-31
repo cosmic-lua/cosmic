@@ -6,6 +6,8 @@ local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Sqlite = require("cosmic.sqlite")
 
+local formats: {Compress.Format} = { "raw", "zlib", "gzip" }
+
 -- Feeds `data` through `stream` in pieces of `size` bytes (the whole of
 -- it in one piece when `size` is nil), draining each piece's held
 -- output, collecting every update's output plus finish's, and returns
@@ -51,7 +53,7 @@ end
 
 local function test_raw_zlib_gzip_roundtrip_many_small_chunks()
   local plain = string.rep("the quick brown fox jumps over the lazy dog. ", 500)
-  for _, format in ipairs({ "raw", "zlib", "gzip" } as {Compress.Format}) do
+  for _, format in ipairs(formats) do
     roundtrip(format, plain, 7)
   end
 end
@@ -62,7 +64,7 @@ local function test_raw_zlib_gzip_roundtrip_one_big_chunk()
   -- more than once.
   local piece = string.rep("cosmic ", 97) .. "\0\1\2\3"
   local plain = string.rep(piece, (8 * 1024 * 1024) // #piece + 1)
-  for _, format in ipairs({ "raw", "zlib", "gzip" } as {Compress.Format}) do
+  for _, format in ipairs(formats) do
     roundtrip(format, plain)
   end
 end
@@ -394,7 +396,6 @@ local function test_a_decompression_bomb_comes_out_in_bounded_pieces()
     { packed = xz_bomb, make = xz_decoder },
     { packed = bz2_bomb, make = bz2_decoder },
   }
-  local formats: {Compress.Format} = { "raw", "zlib", "gzip" }
   for _, format in ipairs(formats) do
     local enc = assert(Compress.deflater(format, 9))
     local packed = assert(enc:update(zeros)) .. assert(enc:finish())
@@ -415,7 +416,6 @@ end
 
 local function test_a_tiny_output_limit_still_decodes_everything()
   local plain = string.rep("the quick brown fox jumps over the lazy dog. ", 300)
-  local formats: {Compress.Format} = { "raw", "zlib", "gzip" }
   for _, format in ipairs(formats) do
     local enc = assert(Compress.deflater(format))
     local packed = assert(enc:update(plain)) .. assert(enc:finish())
@@ -630,8 +630,8 @@ local function test_xz_memory_limit_is_enforced()
 end
 
 local function test_raw_and_zlib_truncation_is_reported_as_truncation()
-  local formats: {Compress.Format} = { "raw", "zlib" }
-  for _, format in ipairs(formats) do
+  local stream_formats: {Compress.Format} = { "raw", "zlib" }
+  for _, format in ipairs(stream_formats) do
     local enc = assert(Compress.deflater(format))
     local packed = assert(enc:update(string.rep("abcdefgh", 200))) .. assert(enc:finish())
     for _, cut in ipairs({ 1, 4, #packed // 2 }) do

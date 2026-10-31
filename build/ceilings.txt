@@ -946,7 +946,7 @@ cosmic/fs_append_tool_test.tl nil_not_allowed 1
 
 cosmic/fs_test.tl nil_not_allowed 2
 
-cosmic/hash_test.tl nil_not_allowed 15
+cosmic/hash_test.tl nil_not_allowed 13
 
 cosmic/html_fuzz_test.tl nil_not_allowed 1
 
@@ -1098,17 +1098,16 @@ cosmic/tar_test.tl nil_not_allowed 5
 
 cosmic/template_build_test.tl nil_not_allowed 3
 
-cosmic/template_check_test.tl nil_not_allowed 4
 
 cosmic/template_fuzz_test.tl nil_not_allowed 38
 
-cosmic/template_go_test.tl nil_not_allowed 16
+cosmic/template_go_test.tl nil_not_allowed 2
 
 cosmic/template_html5lib_tokenizer_test.tl nil_not_allowed 5
 
 cosmic/template_html5lib_tree_test.tl nil_not_allowed 12
 
-cosmic/template_test.tl nil_not_allowed 74
+cosmic/template_test.tl nil_not_allowed 29
 
 cosmic/test.tl nil_not_allowed 1
 
@@ -1606,7 +1605,6 @@ cosmic/flags.tl index_may_be_nil 2
 
 cosmic/fs_test.tl index_may_be_nil 4
 
-cosmic/hash_test.tl index_may_be_nil 5
 
 
 cosmic/html_test.tl index_may_be_nil 1
@@ -1687,17 +1685,14 @@ cosmic/stream_test.tl index_may_be_nil 2
 
 
 
-cosmic/template_check_test.tl index_may_be_nil 1
 
 cosmic/template_fuzz_test.tl index_may_be_nil 4
 
-cosmic/template_go_test.tl index_may_be_nil 3
 
 cosmic/template_html5lib_tokenizer_test.tl index_may_be_nil 3
 
 cosmic/template_html5lib_tree_test.tl index_may_be_nil 1
 
-cosmic/template_test.tl index_may_be_nil 12
 
 cosmic/test_policy_test.tl index_may_be_nil 7
 
@@ -3445,7 +3440,7 @@ cosmic/csv_test.tl any_use 2
 
 cosmic/hash.tl any_use 1
 
-cosmic/hash_test.tl any_use 9
+cosmic/hash_test.tl any_use 2
 
 cosmic/html.tl any_use 1
 
@@ -3851,7 +3846,7 @@ cosmic/clock_test.tl cast_refused 1
 
 cosmic/compress.tl cast_refused 1
 
-cosmic/compress_test.tl cast_refused 13
+cosmic/compress_test.tl cast_refused 11
 
 cosmic/coverage.tl cast_refused 1
 
@@ -3865,7 +3860,7 @@ cosmic/fs_test.tl cast_refused 2
 
 cosmic/hash.tl cast_refused 1
 
-cosmic/hash_test.tl cast_refused 14
+cosmic/hash_test.tl cast_refused 8
 
 cosmic/html.tl cast_refused 2
 
@@ -6144,7 +6139,6 @@ cosmic/fs_test.tl literal_needs_type 1
 
 cosmic/hash_example.tl literal_needs_type 1
 
-cosmic/hash_test.tl literal_needs_type 1
 
 cosmic/html_example.tl literal_needs_type 1
 
