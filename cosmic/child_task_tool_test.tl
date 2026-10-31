@@ -49,7 +49,7 @@ local function reloaded(alter: function({string: any})): Entry
     end
     local ok, err = pcall(call)
     for name, value in pairs(before) do real[name] = value end
-    assert(ok, tostring(err))
+    if not ok then error(err, 0) end
   end
   return {
     run = function(argv: {string}, opts?: Child.Options): Child.Result?, string

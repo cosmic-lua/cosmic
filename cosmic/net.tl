@@ -724,10 +724,11 @@ end
 --- program, so a channel whose start has answered holds them already and
 --- this does not wait; a `timeout_ns` no wait can last raises.
 -- TODO: receive the pair in the process that started the child, and hand
--- the relay's process the listeners as descriptors of their own, which
--- cosmic.child can now do by requiring cosmic.internal.socket: until that
--- is done the relay's process receives them itself, so that Child only
--- moves the channel.
+-- the relay's process the listeners as descriptors of their own, once
+-- Child.start binds the listeners itself (cosmic.child can require
+-- cosmic.internal.socket now that the raw tables are plain modules): until
+-- then the relay's process receives them itself, so that Child only moves
+-- the channel.
 --- @param channel integer The descriptor of the channel's receiving end
 --- @param opts? Net.ListenOptions The listeners' options
 --- @return {Net.Listener}|nil The listeners
