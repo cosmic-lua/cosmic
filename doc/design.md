@@ -480,13 +480,13 @@ input to the build, never to the runtime. one database holds:
   function, naming that function, plus hand-authored rows for the
   `strerror()` messages a syscall can raise. an FTS5 index over it,
   `catalog_fts`, is what an uncaught error's message is looked up
-  in. the guidance that prints is the doc comment of the function
-  the message came from, joined from `docs` by symbol -- there is no
-  second place to write it, so documenting a function is documenting
-  its failures. the runtime also prints the Teal line the error was
-  raised on: tl's generated Lua keeps the line numbers of the Teal it
-  came from, so the line a Lua error names is a line of the module's
-  own source, read straight out of `modules`.
+  in. a row's own text prints as guidance; a row with none prints
+  one line naming the function the message came from and
+  `cosmic docs <symbol>`, which shows its doc comment. the runtime
+  also prints the Teal line the error was raised on: tl's generated
+  Lua keeps the line numbers of the Teal it came from, so the line
+  a Lua error names is a line of the module's own source, read
+  straight out of `modules`.
 
 A module may pair `foo.d.tl` with `foo.tl`: the declaration supplies
 its checked interface, documentation, bound aliases and documentation
@@ -619,8 +619,7 @@ importer with the compiler built from the checker, `lang/`, in two
 stages (below), writes `cosmic.db`, and writes one
 portable [`bin/cosmic`], each in the build directory. the tool carries `carried.db`, that projection
 without the tree's own tests and examples, and with the docs, uses
-and examples of the public standard library alone (and the doc rows
-the error catalog's guidance joins to): `cosmic test` and a lookup
+and examples of the public standard library alone: `cosmic test` and a lookup
 inside the tree read the rest from the projection, `cosmic.db`, and a release has no
 use for them. a fresh clone and CI run `boot`; a
 developer runs `bin/cosmic build` the other hundred times a day.
