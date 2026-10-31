@@ -19,6 +19,7 @@ Test.policy{
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
   env = {
+    "COSMIC_FIXTURE_COMPILES",
     "COSMIC_FIXTURE_PRODUCT",
     "COSMIC_FIXTURE_SHARED_COMPILES",
     "COSMIC_FIXTURE_SOURCE",
@@ -62,21 +63,16 @@ Test.policy{
 
 -- What one stage's `docs` may take: the rebuild, the settling rebuild
 -- where the case settles, and the command they re-enter. A compiler
--- case's edited stage compiles the whole tree cold twice, once by the
--- stale tool and once on re-entry with the compiler it built; the two
--- that redefine the compiler's identity then parse every source again
--- (the TODO on build.importer's `running_analyzer`). On October 31 the
--- 270 s this was ended all three on linux-x86_64 and alpine-x86_64 (as
--- it had on alpine-x86_64 on October 30), after a first rebuild of 134 s
--- and, in the identity cases, a settle of 84 s and at least 50 s more. On
--- a four-core x86-64 host with an every-core product each of those
--- stages took 213 to 218 s beside the file's other tests, its first
--- rebuild 109 s and its settle 63 to 105 s: about 290 s on the slowest
--- leg (orchestration.tl's `fixed_point_test_timeout_ns` scales it), and
--- this keeps 1.5 times that. A sharing case's stage takes far
--- less. The driver bounds each test and the file (orchestration.tl's
+-- case's stage compiles the whole tree cold once, in its settle; the
+-- build.plans case's settles parse every source again too. On a four-core
+-- x86-64 host with an every-core product the longest stage, that case's
+-- edited one, took 137 s beside the file's other tests (a seeded rebuild
+-- of 25 s, a settle of 109 s): about 185 s on the slowest leg
+-- (orchestration.tl's `fixed_point_test_timeout_ns` scales it), and this
+-- keeps 1.6 times that. A sharing case's stage takes far less. The driver
+-- bounds each test and the file (orchestration.tl's
 -- `fixed_point_test_timeout_ns`).
-local stage_timeout_ns <const> = Clock.seconds(430)
+local stage_timeout_ns <const> = Clock.seconds(300)
 
 local function count_occurrences(text: string, needle: string): integer
   local count = 0
@@ -88,6 +84,36 @@ local function count_occurrences(text: string, needle: string): integer
     at = from + #needle
   end
   return count
+end
+
+--- What one rebuild said it compiled and took back, in the order the
+--- rebuilds ran: build.reboot's "rebuilt the tool in ... (N modules
+--- compiled, M cached)".
+local record Rebuild
+  compiled: integer
+  cached: integer
+end
+
+local function rebuilds_in(err: string): {Rebuild}
+  local found: mut {Rebuild} = {}
+  for compiled, cached in err:gmatch("rebuilt the tool in [%d.]+ s %((%d+) modules? compiled, (%d+) cached%)") do
+    found[#found + 1] = { compiled = assert(math.tointeger(tonumber(compiled))),
+      cached = assert(math.tointeger(tonumber(cached))) }
+  end
+  return found
+end
+
+--- A copy of the leg's compiles (COSMIC_FIXTURE_COMPILES, orchestration.tl's
+--- `seed_compiles`) for one case's edited stage to take back
+--- (COSMIC_BUILD_CACHE), in a directory of its own and 0700, since
+--- build/shared_compiles.tl's `open` refuses a file in a directory another
+--- user could write, as a umask of 002 leaves the case's.
+local function seeded_compiles(case_root: string): string
+  local dir = case_root .. "/compiles"
+  assert(sys.mkdir(dir, 0x1c0))
+  local path = dir .. "/cache.db"
+  Fixture.copy(Fixture.required("COSMIC_FIXTURE_COMPILES"), path, 0x180)
+  return path
 end
 
 -- The fixed point of the self-rebuild. The tool a boot wrote (the
@@ -113,7 +139,16 @@ end
 -- compiled cold in this run by another case's rebuild. Only a case whose
 -- subject is the rebuild's way, not what a compiler compiles, shares:
 -- see [`test_a_rebuilt_compiler_lands_on_the_booted_tool`] for why those
--- cases compile cold.
+-- cases' settles compile cold. A case that shares none takes the leg's
+-- compiles (COSMIC_FIXTURE_COMPILES, [`seeded_compiles`]) in its edited
+-- stage alone, where the product rebuilds: those are the boot's compiles,
+-- made under the product's compiler identity, so the rebuild takes back
+-- what it would compile again identically, as any rebuild in a booted
+-- checkout does, and compiles only what the edit moves; the settle after
+-- it finds no row under the edited compiler's identity. Its undone stage
+-- shares nothing, so its settle compiles the whole tree cold under the
+-- product's identity: each settle must take nothing back, and the
+-- seeded rebuild more than it compiles.
 local function run_fixed_point_case(tmp: string, name: string, file: string,
                                     edit: function(string): string, settles: boolean,
                                     shares: boolean)
@@ -135,15 +170,19 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
   local original = Fixture.read(path)
   local base = Fixture.environment({
     COSMIC_PORTABLE_CACHE = case_root .. "/cache" })
-  local values = base
+  local shared = base
   if shares then
-    values = Maps.with(base, { COSMIC_BUILD_CACHE = Fixture.required("COSMIC_FIXTURE_SHARED_COMPILES") })
+    shared = Maps.with(base, { COSMIC_BUILD_CACHE = Fixture.required("COSMIC_FIXTURE_SHARED_COMPILES") })
   end
   for _, stage in ipairs({ "edited", "undone" }) do
+    local values = shared
     if stage == "edited" then
       local edited = edit(original)
       assert(edited ~= original, name .. ": the edit changed nothing")
       Fixture.write(path, edited)
+      if not shares then
+        values = Maps.with(base, { COSMIC_BUILD_CACHE = seeded_compiles(case_root) })
+      end
     else
       Fixture.write(path, original)
     end
@@ -163,6 +202,21 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
     assert(settled_lines == want, name .. ": " .. stage .. ": built its " ..
         "database again " .. tostring(settled_lines) .. " times, want " ..
         tostring(want))
+    if not shares then
+      local made = rebuilds_in(err)
+      assert(#made == 1 + want, name .. ": " .. stage .. ": reported " ..
+          tostring(#made) .. " rebuilds, want " .. tostring(1 + want))
+      local first = assert(made[1])
+      if stage == "edited" then
+        assert(first.cached > first.compiled, name .. ": edited: the rebuild took back " ..
+            tostring(first.cached) .. " compiles of the leg's and made " .. tostring(first.compiled))
+      end
+      local settle = assert(made[#made])
+      if settles then
+        assert(settle.cached == 0, name .. ": " .. stage .. ": the settle took back " ..
+            tostring(settle.cached) .. " compiles, want none")
+      end
+    end
   end
   assert(Fixture.meta(program, case_root .. "/rebuilt.db")["built_from"] == assert(sys.realpath(tree)),
     name .. ": the tool two self-rebuilds left is built from another path")
@@ -189,7 +243,10 @@ end
 -- the whole tree again with its own compiler.
 --
 -- This case and the two that redefine the compiler's identity share no
--- compiles: what they check is what a compiler compiles. The undone
+-- compiles with another case, and their settles take none back: what
+-- they check is what a compiler compiles. (The edited stage's first
+-- rebuild takes the leg's, the product's own: [`run_fixed_point_case`].)
+-- The undone
 -- stage ends on a tool whose compiler the edited compiler compiled,
 -- compiling the whole tree again under the identity of the product's
 -- compiler, and the product must come of it byte for byte. A sharing
