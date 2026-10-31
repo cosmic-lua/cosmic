@@ -17,7 +17,7 @@
 --- builder could say exactly which binding a name reads; the port does not, so that the two read alike.
 ---
 --- **Bindings of C.** [`cosmic.sys`] and the raw process and socket tables are typed from the declarations the build derives
---- from their headers ([`build.gen_syscalls`]; the tree checks declare them, [`build.tree_checks`]'s `bindings_of`), so their
+--- from their headers ([`build.gen_syscalls`], whose `targets` are the tables the contract holds), so their
 --- calls are judged by rules 1 and 6, rule 11 reads them, and a function stored into a field of one is a stand-in for a
 --- binding (rule 5's exception), by the type of the field's owner. A program checked without them (`external` in
 --- [`lang.declarations`]) has their calls untyped, and so unjudged.
@@ -700,6 +700,12 @@ local function binding_tables(run: Run): {Types.Decl: string}
     local root = Report.root_of(run.subject.program, target.path)
     if root ~= nil then
       out[root] = target.path
+    elseif run.subject.program.modules[target.path] ~= nil then
+      -- A program without the module (it requires none, or `external` leaves it untyped) has no calls to judge; one
+      -- that holds it as something that is no table has lost it from the contract, which must be told.
+      table.insert(run.problems, string.format("%s: %s is a table of C bindings derived from %s, but the program " ..
+          "holds a module of that name that declares no table: its calls are no longer held to the contract",
+        run.subject.file, target.path, target.target.header))
     end
   end
   return out
