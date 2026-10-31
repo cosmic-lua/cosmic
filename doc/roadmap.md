@@ -274,12 +274,12 @@ promises lean on come first:
 - [`Server.serve`] past HTTP/1.1 over plain sockets, each once a caller
   needs it: TLS, for a server reached past the loopback (a certificate
   and key handed to the listener, over the TLS stack curl already
-  carries); HTTP/2; a reply compressed for an `Accept-Encoding` the
-  client sent, the server choosing the coding and writing `Vary`;
-  routing, a table of methods and path patterns to handlers in place
-  of one handler's `if`s; and static files, a directory served by
-  [`Url.segments`] with types, answering ranges ([`Server.range`]) and
-  conditional requests ([`Server.none_match`]).
+  carries); HTTP/2; routing, a table of methods and path patterns to
+  handlers in place of one handler's `if`s; static files, a directory
+  served by [`Url.segments`] with types, answering ranges
+  ([`Server.range`]) and conditional requests ([`Server.none_match`]);
+  and a reply compressed at a level of its own, and in brotli, where
+  `compress` writes zstd and gzip at their defaults.
 - an `Archive.add_tree(writer, dir, opts?)` that walks a directory into an
   [`Archive.create`] writer, once a caller needs one. `cosmic archive
   create` ([`build/archive.tl`]) is the only walk today, and it gathers and

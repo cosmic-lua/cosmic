@@ -2587,7 +2587,7 @@ core/surface_test.tl field_unknown 2
 
 cosmic/errors_test.tl field_unknown 1
 
-cosmic/http/server.tl field_unknown 12
+cosmic/http/server.tl field_unknown 4
 
 cosmic/http/wire.tl field_unknown 12
 
@@ -6720,7 +6720,7 @@ cosmic/child_relay_test.tl not_assignable 1
 
 cosmic/html_test.tl not_assignable 2
 
-cosmic/http/server.tl not_assignable 4
+cosmic/http/server.tl not_assignable 3
 
 
 
