@@ -47,6 +47,9 @@ local record TreeProgram
   --- The complaints of [`Driver.reserved`] for `entries` less the programs of a `testdata/` directory: "" for none.
   reserved: function(entries: {{string}}, names: {string: boolean}): string
 
+  --- The complaints of [`Driver.paired`] for `entries` less the programs of a `testdata/` directory: "" for none.
+  paired: function(entries: {{string}}): string
+
   --- `files` and `written` as one list of entries, and which files of it are `written`: the sources the build writes
   --- from other files ([`TreeProgram.derived_of`]) are files of the tree, named for the file each comes from.
   record Joined
@@ -117,6 +120,10 @@ end
 
 function TreeProgram.reserved(entries: {{string}}, names: {string: boolean}): string
   return Driver.reserved(entries, skipped, names)
+end
+
+function TreeProgram.paired(entries: {{string}}): string
+  return Driver.paired(entries, skipped)
 end
 
 function TreeProgram.splice(build: Driver.Build, module: string, file: string): boolean?, string

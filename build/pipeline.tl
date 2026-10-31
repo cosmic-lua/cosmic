@@ -357,6 +357,10 @@ local function entries_of(db: Sqlite.Handle): {{string}}?, {string: string}, str
       kinds[file] = kind
     end
   end
+  local paired = TreeProgram.paired(entries)
+  if paired ~= "" then
+    return nil, {}, paired
+  end
   return entries, kinds, ""
 end
 
