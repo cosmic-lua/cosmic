@@ -106,12 +106,6 @@ allowed["build.memprobe.sink"] = "where a mark writes its line, which a test tak
 allowed["build.dataset.load"] = "the loader load_text composes and falls back on, tested directly " ..
   "over rows a test builds, whose keys no file need hold"
 
--- TODO: drop this once the artifact writer compresses the release cores
--- with it (the later stages of doc/plans/compressed-cores.md): it is
--- public API, but until then only its tests call it.
-allowed["cosmic.compress.zstd"] = "public API: a zstd frame that names its size, for a program " ..
-  "whose reader refuses any other, such as the portable artifact's decode stub"
-
 allowed["cosmic.http.public_key_pin"] = "public API: how a program makes the pin `opts.pin` holds a " ..
   "server's key to; cosmic's own fetches choose roots, not pins"
 

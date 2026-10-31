@@ -5,6 +5,7 @@
 --- assembly has to refuse what it cannot build whole and leave the
 --- previous tool where it was.
 
+local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local artifact = require("build.artifact")
@@ -53,6 +54,7 @@ local function directory(tmp: string, without?: {string}, no_database?: boolean)
     if not omitted then
       assert(Fs.mkdirs(layout.cores .. "/" .. name))
       assert(Fs.write(build_paths.core(layout, name), image))
+      assert(Fs.write(build_paths.stub(layout, name), "STUB-" .. name))
     end
   end
   assert(Fs.mkdirs(layout.bin))
@@ -98,7 +100,13 @@ end
 local function test_assemble_writes_the_prefix_and_the_carried_database(tmp: string)
   local build_directory, records_path = directory(tmp)
   assert(run("--assemble", records_path, build_directory) == 0)
-  local prefix = assert(artifact.prefix(records, cores))
+  -- A whole boot stores each release core compressed beside its stub.
+  local stubs: {string:string} = { x86 = "STUB-x86", arm = "STUB-arm", mac = "STUB-mac" }
+  local packing: artifact.Packing = { stubs = stubs,
+    compress = function(core: string): string?, string
+      return Compress.zstd(core, artifact.zstd_level())
+    end }
+  local prefix = assert(artifact.prefix(records, cores, nil, packing))
   assert(tool_of(build_directory) == assert(artifact.program(prefix, carried)))
 end
 
