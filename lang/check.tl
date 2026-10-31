@@ -191,8 +191,9 @@ local record Check
   --- The rule behind each code of [`lang.check_codes`].
   catalog: {Codes.Row}
 
-  --- What the fix of a value that is none of the arms of a recursive alias adds, by the alias (`<module> <name>`): the library's
-  --- own advice for the type it declares, in words that name its functions.
+  --- What the fix of a value that is none of the arms of a recursive alias adds, and what a table literal wanted as an
+  --- interface is told in place of the generic fix, by the type (`<module> <name>`): the library's own advice for the type it
+  --- declares, in words that name its functions.
   advice: {string: string}
 end
 
@@ -201,6 +202,8 @@ Check.catalog = Codes.catalog
 Check.advice = {
   ["cosmic.json Json.Value empty"] = "write an empty array as `Json.array()`, which encodes as `[]`, and an empty object as a typed " ..
     "local (`local none: {string: Json.Value} = {}`): an unmarked empty table encodes as `{}`",
+  ["cosmic.time Time.CivilFields"] = "write the literal where it is typed as the record that lists it: `local wall: Time.Wall = " ..
+    "{ ... }`, or `Time.Civil`; for a date alone, `Time.parse_date(text, zone)` reads one",
   ["cosmic.json Json.Value"] = "for a record or a class of your own, or a value you decoded, call `Json.encode_any`, which takes any value",
 }
 
@@ -400,6 +403,11 @@ local record Ctx
   --- The text of each local that is given a string literal and never assigned, by id: what a literal pattern or format
   --- held in a local says.
   consts: mut {integer: string}
+  --- The integer literal as written (`0`) that starts each local declared without a type, by binding: an `integer` the
+  --- program may mean as a `number`.
+  starts: mut {integer: string}
+  --- The name the assignment being checked writes, which [`refused`] reads for the fix of a `number` it refuses.
+  mut written: Ast.Name?
   --- The name of the function of the string library each local that is given one and never assigned holds, by id.
   library: mut {integer: string}
   --- The reads of `table.move` not yet taken as the callee of a call, by the id of the node ([`Writes.move_stray`]).
@@ -1010,6 +1018,15 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
     if code == "number_for_integer" then
       fix = "convert with `math.tointeger(" .. text_of(ctx, e) .. ")` or `math.floor(" .. text_of(ctx, e) ..
         ")`, or declare what takes it `number`"
+      local target = ctx.written
+      local bound = if target ~= nil then target.binding else nil end
+      local start = if bound ~= nil then ctx.starts[bound] else nil end
+      if start ~= nil and target ~= nil then
+        -- `math.tointeger` of a fraction is nil, and the name is an integer only because it started as one.
+        local float = if start:find("^%d+$") then start .. ".0" else nil end
+        fix = "start " .. subject(ctx, target) .. " as " .. (if float ~= nil then "`" .. float .. "`" else "a float" end) ..
+          " where it is declared, or declare what takes it `number` (`local " .. target.text .. ": number = " .. start .. "`)"
+      end
     elseif code == "not_listed" then
       fix = "list the interface in the declaration of " .. quoted(Types.display(r.sub, ctx.binders)) .. " with `is " ..
         Types.display(r.super, ctx.binders) .. "`: a type conforms to an interface only by listing it"
@@ -1924,10 +1941,12 @@ local function table_literal(ctx: Ctx, e: Ast.Table, expected: Type?): Type
     elseif kind == "record" or kind == "class" then
       return literal_record(ctx, e, want)
     end
+    local advised = Check.advice[want.decl.module .. " " .. want.decl.name]
     report(ctx, "literal_shape", e, "a table literal cannot make " .. tq(ctx, want) .. ", " ..
         (if kind == "interface" then "an interface" elseif kind == "enum" then "an enum" else "a userdata record" end),
-      if kind == "interface" then "make the value with a class that lists " .. quoted(want.decl.name) ..
-          " (`class C is " .. want.decl.name .. "`)" else "write a value of " .. quoted(want.decl.name) end, { show(ctx, want) })
+      if kind == "interface" then (if advised ~= nil then advised else "make the value with a class that lists " ..
+          quoted(want.decl.name) .. " (`class C is " .. want.decl.name .. "`)" end) else "write a value of " ..
+          quoted(want.decl.name) end, { show(ctx, want) })
     items_unshaped(ctx, e.items)
     return ctx.invalid
   elseif (want.tag == "array") then
@@ -5969,6 +5988,9 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
     local want = wants[i]
     local written = s.values[i]
     local held = ctx.scoped.vars[b.id]
+    if written ~= nil and want == nil and peel(written).kind == "Integer" then
+      ctx.starts[b.id] = text_of(ctx, peel(written))
+    end
     if written ~= nil and held ~= nil and not held.assigned then
       local literal = peel(written)
       if (literal.kind == "String") then
@@ -6485,6 +6507,10 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
         report(ctx, "view_written", target, owner .. " is a view " .. tq(ctx, base) .. ", so " .. subject(ctx, target) ..
             " cannot be assigned",
           "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received", { show(ctx, base) })
+      -- TODO: queue the hole check of a write to a view too, so one run reports `view_written` and `array_hole` where
+      -- today declaring the array `mut` shows the hole in a second run: it adds `array_hole` errors to the many files
+      -- that build/ceilings.txt pins for `view_written`, which a pin may not take, so it waits on the last `view_written`
+      -- row leaving build/ceilings.txt.
       elseif removes and Writes.is_length_of(target.key, target.object) then
         -- The last element goes, so the elements left are the first ones. Of several targets, another may write the key
         -- the length names after this one is gone (`t[#t], t[#t + 1] = nil, v`).
@@ -6670,7 +6696,9 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
       -- Only a literal nil deletes the key of a map; any other value is one of its value type.
       local written = peel(at)
       if not (deletes[i] == true and (written.kind == "Nil")) then
+        ctx.written = if target.kind == "Name" then target else nil end
         local _ = expect(ctx, at, t, want, " in the assignment to " .. subject(ctx, target))
+        ctx.written = nil
       end
     end
   end
@@ -7567,7 +7595,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,

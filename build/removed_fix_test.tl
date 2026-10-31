@@ -316,3 +316,20 @@ local function test_an_error_about_a_name_that_was_not_removed_keeps_the_checker
   local typed = only("local x: integer = \"s\"\nprint(x)\n")
   assert(typed.code == "not_assignable" and typed.fix:find("^pass a value of type `integer`") ~= nil, typed.fix)
 end
+
+--- The stub of cosmic.sqlite's row: an interface whose values are read by column, with a function that answers one.
+local ROWS <const> = "local record Sqlite\n  interface Row\n    count: function(Row): integer\n  end\n" ..
+  "  first: function(): Row\nend\nreturn Sqlite\n"
+
+local function test_a_row_indexed_like_a_list_says_how_a_row_is_read()
+  local stubs: {string: string} = { ["cosmic.sqlite"] = ROWS }
+  local why = assert(Removed.indexed["cosmic.sqlite.Row"])
+  local p = only("local Sqlite = require(\"cosmic.sqlite\")\nlocal row = Sqlite.first()\nprint(row[1])\n", stubs)
+  assert(p.code == "not_indexable" and p.removed and p.fix == why, p.fix)
+  assert(why:find("row:text(i)", 1, true) and why:find("row:integer(i)", 1, true) and why:find("row:texts()", 1, true), why)
+  -- the same record from a module that is not cosmic.sqlite, and a record the catalog does not list, keep the checker's fix
+  local own = only("local Sqlite = require(\"own.sqlite\")\nlocal row = Sqlite.first()\nprint(row[1])\n", { ["own.sqlite"] = ROWS })
+  assert(own.code == "not_indexable" and not own.removed and own.fix:find("^index an array") ~= nil, own.fix)
+  local plain = only("local record R\n  n: integer\nend\nlocal r: R = { n = 1 }\nprint(r[1])\n")
+  assert(not plain.removed, plain.fix)
+end
