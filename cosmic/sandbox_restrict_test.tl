@@ -7,7 +7,6 @@
 --- they are not applicable, and where this host's kernel refuses Landlock
 --- or seccomp a child that reports it skips its case (Test.skip).
 
-local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 -- The child loads these from the store, which holds this test's closure alone.
@@ -181,7 +180,7 @@ end
 --- forked, and nothing outside the sandbox. Below ABI 6 the filter keeps
 --- the calls to the pid it was built for.
 local function test_the_signal_scope_lets_a_forked_process_signal_what_is_inside(tmp: string)
-  local abi, _ = RawTables.process().landlock_abi()
+  local abi, _ = require("cosmic.internal.process").landlock_abi()
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local sibling = assert(Child.start({ probe, "sleep-forever" }, { process_group = false }))
   local said = in_child(restricted(

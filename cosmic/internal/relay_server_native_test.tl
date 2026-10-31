@@ -3,7 +3,6 @@
 --- numeric endpoint the relay has checked and returns the socket over
 --- the control stream.
 local Clock = require("cosmic.clock")
-local RawTables = require("build.raw_tables")
 local Fixture = require("build.relay_wire_fixture")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -19,7 +18,7 @@ Test.policy{ loopback = { "127.0.0.1" }, promises = { "fork" } }
 -- cosmic/internal/connector.tl): the connector is Linux x86_64 and aarch64
 -- only, and the test skips elsewhere.
 
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 local function require_native_connector()
   local result, why, number = process.connector_probe({ host = "127.0.0.1", port = 9 }, "pointer")

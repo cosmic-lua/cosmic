@@ -120,19 +120,6 @@ local function allow(names: {string}, why: string)
   end
 end
 
-allowed["build.raw_tables.fields"] = "test support: a test of which members the core's tables hold reads them by name, " ..
-  "the tables of wrappers whose declarations are no type of them"
-
-allowed["build.raw_tables.pair_ends"] = "test support: a test that makes a connector pair by the core's own table, under failed " ..
-  "allocations, holds its ends by it"
-
-allowed["build.raw_tables.connector_pair"] = "test support: a test of the connector makes a pair to start it on"
-
-allowed["build.raw_tables.bound_port"] = "test support: a test that listens on port 0 reads the port the kernel gave"
-
-allowed["build.raw_tables.hash"] = "test support: a test of the C hash functions' refusals calls them raw, as the wrapper's " ..
-  "declared kinds would stop it"
-
 allow({
   "build.syntax_analyzer.analyze",
   "build.syntax_derivation.rows_of", "build.syntax_match.matches", "build.syntax_match.text",
@@ -1027,7 +1014,7 @@ local requirers: {string: Restriction} = {
   },
   ["cosmic.internal.globals"] = {
     files = { "build.fuzz", "build.load_module",
-      "build.raw_tables_test", "build.sandbox", "build.sealed_worker_test", "build.standalone",
+      "build.sandbox", "build.sealed_worker_test", "build.standalone",
       "build.test_closure_diagnostic_test", "build.test_closure_test", "build.type_watch", "core.load_env_test", "core.surface_test",
       "cosmic.coverage_test", "cosmic.flags_test", "test.coverage_cache_test" },
     why = "only the modules that run a program or a hook as a chunk of Lua text take the globals whole, as its " ..
@@ -2603,7 +2590,6 @@ end
 --- the build does not see as an edge, so `require`, the one way the build follows, is the only way the rest load one.
 local packagers: {string: string} = {
   ["build/link_resolve.tl"] = "refuses a step into `package.loaded` or `package.preload` when it resolves a name",
-  ["build/raw_tables.tl"] = "hands the core's raw tables, which the store's searchers give, a type",
   ["build/removed_fix.tl"] = "reads the catalog from `package.loaded`",
   ["build/sandbox.tl"] = "asks whether the core preloads a module",
   ["build/test_worker.tl"] = "holds `require` to a test's closure through the searchers and `package.loaded`",

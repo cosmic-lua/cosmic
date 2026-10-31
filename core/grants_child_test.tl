@@ -8,7 +8,6 @@
 --- a start refuses of a grant before any ruleset is made is
 --- core/grants_refused_test.tl's, which needs none.
 
-local RawTables = require("build.raw_tables")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -30,7 +29,7 @@ Test.policy{
   requires = { "landlock" },
 }
 
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 --- What a script left on stdout and stderr, and how its program ended.
 local record Outcome
