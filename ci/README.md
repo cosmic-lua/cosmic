@@ -713,10 +713,22 @@ verdicts, which would otherwise ride along whole in each save.
   trimmed, saved on `COSMIC_CI_SAVES` and seeded as a leg's are; the
   cache entry holds the checked suite's rows alone, where the same job's
   narrowing run kept a `verdicts.db` of another 8700 rows nothing read.
-- `checked-narrowing` (`linux-x86_64-checked-narrowing`), the whole
+- `checked-narrowing` (`linux-x86_64-checked-narrowing-<part>`), the whole
   suite on a checked run (`--check-types`, `platform checked-narrowing`)
   on the release tool, which stands on no verdict and reads no checked
-  core: it boots and keeps and saves nothing. A full run only.
+  core: it boots and keeps and saves nothing. Two jobs of one matrix, a
+  share of the tests each (`cosmic test --check-types --shard I/2`,
+  `COSMIC_CI_NARROWING_SHARD`), bound to 900 s
+  (`checked_narrowing_timeout_ns`): the whole run's 726 to 861 s are
+  about 363 to 431 s a share (a lower estimate: each share compiles the
+  tree it tests). A share does not check that some test enters each C
+  function, which only a whole run answers, and no job makes that run with
+  these tests: a checked run enters no function a plain one does not
+  (the tests that differ skip in it, and those that ask for a checked
+  run skip in every run, build/type_watch.tl), so the legs' whole native
+  suites on the same release core hold the check in every full run.
+  Its `operations.db` is kept as
+  `ci-driver-linux-x86_64-checked-narrowing-<part>`. A full run only.
 - `format` (`linux-x86_64-format`), a light run's format check
   (`platform format`), which a full run makes in linux-aarch64's assemble.
   There it is `fix --check .`; on a light run it lays out only what the
@@ -772,9 +784,10 @@ merges (5 s), runs the gathering suite (some 100 s) and the fixture
 measured figures above, not a measurement, puts the run's checked path
 at 520 to 563 s after the shares start where most stood and 615 to
 759 s where none did, against 1934 to 2326 s of the one job and the legs' 946 to
-1503 s. The narrowing run, 150 to 195 s to its boot, its 726 to 861 s and
-10 s, takes 890 to 1070 s. So the longest of them ends with the shortest
-leg, and the legs are the queue's path.
+1503 s. A narrowing share takes 150 to 195 s to its boot, some 363 to 431 s
+of tests (half the whole run's 726 to 861 s, a lower estimate: each share
+compiles the tree it tests) and 10 s, 523 to 636 s or a little more, and
+ends before the shortest leg; the legs are the queue's path.
 
 ### the Linux legs' container
 

@@ -2001,28 +2001,39 @@
     # fact that is false fails the test (cosmic_ci's
     # phase_checked_narrowing). It stands on no verdict and runs every
     # test, on the release tool and no checked core, so it boots and
-    # builds nothing else, and keeps and saves no verdicts. A job of its
+    # builds nothing else, and keeps and saves no verdicts. Jobs of their
     # own on linux-x86_64's host, beside the legs and the checked suite's
-    # shares: it takes thirteen to fifteen minutes, which the shares' job
-    # would add to its path. A full run only.
-    # TODO: run this suite in shares too (`cosmic test --check-types
-    # --shard`), as `checked-shard` does the checked core's: its whole
-    # run makes the check of the C functions some test enters, which a
-    # checked run keeps no verdict to answer for in a gathering run
-    # (`checked`), so it waits on that check's being held elsewhere:
-    # the native suites of every full run's legs make it on the same
-    # core, over tests this one adds to.
+    # shares, in two shares of the tests (`cosmic test --check-types
+    # --shard I/2`, COSMIC_CI_NARROWING_SHARD, as `checked-shard` splits
+    # the checked core's suite). The whole run takes thirteen to fifteen
+    # minutes, which one job would make a full run's longest after the
+    # legs and a failed queue run's tail; a share takes half of those
+    # tests' time after a boot of three minutes, within the bound it has
+    # of its own (orchestration.tl's `checked_narrowing_timeout_ns`). A
+    # share does not check that some test enters each C function, which
+    # only a whole run answers, and no job makes that run on this core
+    # with these tests: a checked run enters no function a plain one does
+    # not. The tests that differ between them skip in a checked run (they
+    # compare the tree's bytecode with the binary's), and the ones that
+    # ask for one (the declared-types tests, build/type_watch.tl) skip in
+    # every run until the compile writes the checks of returns and
+    # fields. So linux-x86_64's leg, which runs the whole suite on the
+    # same release core in every full run, enters every function this run
+    # could. The declared-types step of that leg is a run of chosen
+    # files, which makes no such check. A full run only.
     "checked-narrowing": {
       needs: ["reuse", "scope"],
       if: "!cancelled() && needs.reuse.outputs.run == '' && needs.scope.outputs.scope != 'light'",
-      name: "linux-x86_64-checked-narrowing",
+      name: "linux-x86_64-checked-narrowing-${{ matrix.part }}",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
+      strategy: {"fail-fast": false, matrix: {part: [1, 2]}},
       "runs-on": "ubuntu-24.04",
       permissions: {contents: "read", packages: "read", actions: "read"},
-      "timeout-minutes": 45,
+      "timeout-minutes": 25,
       env: {
         COSMIC_WORKER: "linux-x86_64-checked",
         TARGET: "x86_64-linux-musl",
+        COSMIC_CI_NARROWING_SHARD: "${{ matrix.part }}/${{ strategy.job-total }}",
         COSMIC_CI_REQUIRE_SANDBOX: "1",
         COSMIC_CI_DECLARED_KEYS: "0",
         COSMIC_CI_EVENT: "${{ github.event_name }}",
@@ -2137,7 +2148,7 @@
           if: "always()",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
-            name: "ci-driver-linux-x86_64-checked-narrowing",
+            name: "ci-driver-linux-x86_64-checked-narrowing-${{ matrix.part }}",
             path: "${{ runner.temp }}/cosmic-ci/operations.db",
             "if-no-files-found": "ignore",
             "retention-days": 7,
