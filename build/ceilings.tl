@@ -84,6 +84,14 @@ local record Ceilings
   --- ceiling that has a neighbour conflicts with every change to that neighbour, and most pull requests move some pin.
   crowded: function(text: string): string
 
+  --- `text` in the layout of the file: a ceiling stands alone between blank lines, exactly one blank line (never a run of
+  --- them) follows each ceiling that another line follows, comments and `[stage]` lines stay as they are against the
+  --- line below them, and the text neither begins with a blank line nor ends in more than its one newline. A merge that
+  --- leaves none or a run, and a pin removed with its blank line left behind, are laid out again by `bin/cosmic fix`,
+  --- so that a pin removed beside another merges with it: git merges two changes only where an unchanged line lies
+  --- between them, and a run of blank lines is changed by both.
+  spaced: function(text: string): string
+
   --- The keys of `ceilings` that name a file `root` lacks, one line each: a ceiling that no run can meet, since the check of
   --- the tree finds no error in a file that is not there.
   dead: function(root: string, ceilings: Table): {string}
@@ -381,6 +389,27 @@ function Ceilings.crowded(text: string): string
     end
   end
   return out
+end
+
+function Ceilings.spaced(text: string): string
+  local out: mut {string} = {}
+  local blank = false
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    if line == "" then
+      blank = true
+    else
+      local previous = out[#out]
+      if previous ~= nil and (blank or (previous:sub(1, 1) ~= "#" and previous:match("^%[[a-z]+%]$") == nil)) then
+        out[#out + 1] = ""
+      end
+      out[#out + 1] = line
+      blank = false
+    end
+  end
+  if #out == 0 then
+    return ""
+  end
+  return table.concat(out, "\n") .. "\n"
 end
 
 function Ceilings.read(root: string): Ceilings.Table?, string

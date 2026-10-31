@@ -166,6 +166,49 @@ local function test_a_ceiling_with_a_neighbour_is_named_with_its_place()
   assert(lines_of(Ceilings.crowded("[checked]\nbuild/a.tl x 1\nbuild/b.tl x 1\nbuild/c.tl x 1\n\nbuild/d.tl x 1\n")) == 2)
 end
 
+local function test_spaced_puts_exactly_one_blank_line_between_ceilings()
+  -- Missing blank lines are inserted after a ceiling, whatever follows it, and runs collapse to one.
+  assert(Ceilings.spaced("[checked]\nbuild/a.tl x 1\nbuild/b.tl x 1\n") == "[checked]\nbuild/a.tl x 1\n\nbuild/b.tl x 1\n")
+  assert(Ceilings.spaced("[checked]\nbuild/a.tl x 1\n# why\nbuild/b.tl x 1\n[untyped]\nbuild/c.tl 2\n") ==
+      "[checked]\nbuild/a.tl x 1\n\n# why\nbuild/b.tl x 1\n\n[untyped]\nbuild/c.tl 2\n")
+  assert(Ceilings.spaced("[checked]\nbuild/a.tl x 1\n\n\n\nbuild/b.tl x 1\n") == "[checked]\nbuild/a.tl x 1\n\nbuild/b.tl x 1\n")
+  -- A comment or a stage line keeps the line below it, and a blank line the writer left after one stays one.
+  assert(Ceilings.spaced("# why\n[checked]\n# why\nbuild/a.tl x 1\n") == "# why\n[checked]\n# why\nbuild/a.tl x 1\n")
+  assert(Ceilings.spaced("# why\n\n\n[checked]\n") == "# why\n\n[checked]\n")
+  -- Neither the start nor the end of the file holds a blank line, and the end is one newline.
+  assert(Ceilings.spaced("\n\n[checked]\nbuild/a.tl x 1\n\n\n") == "[checked]\nbuild/a.tl x 1\n")
+  assert(Ceilings.spaced("[checked]\nbuild/a.tl x 1") == "[checked]\nbuild/a.tl x 1\n")
+  assert(Ceilings.spaced("") == "" and Ceilings.spaced("\n\n") == "")
+end
+
+local function test_a_ceiling_removed_beside_another_leaves_the_layout_once_laid_out()
+  local before = "[checked]\nbuild/a.tl nil_not_allowed 1\n\nbuild/b.tl nil_not_allowed 2\n\nbuild/c.tl nil_not_allowed 3\n\nbuild/d.tl nil_not_allowed 4\n"
+  -- Deleting a row and its blank line leaves one blank line; deleting only the row leaves a run, which is laid out.
+  local only_row = before:gsub("build/b%.tl nil_not_allowed 2\n", "")
+  assert(only_row:find("\n\n\n", 1, true) ~= nil)
+  assert(Ceilings.spaced(only_row) == "[checked]\nbuild/a.tl nil_not_allowed 1\n\nbuild/c.tl nil_not_allowed 3\n\nbuild/d.tl nil_not_allowed 4\n")
+  -- A text in the layout is its own layout, and what is laid out is read as the same ceilings.
+  assert(Ceilings.spaced(before) == before and Ceilings.spaced(Ceilings.spaced(only_row)) == Ceilings.spaced(only_row))
+  local laid = parsed(Ceilings.spaced(only_row))
+  assert(Ceilings.of(laid, "checked")["build/c.tl nil_not_allowed"] == 3 and Ceilings.of(laid, "checked")["build/b.tl nil_not_allowed"] == nil)
+end
+
+local function test_the_file_of_the_tree_is_in_the_layout_and_its_rows_are_read()
+  local text, why = Fs.read("build/ceilings.txt")
+  assert(text ~= nil, why)
+  assert(Ceilings.spaced(text) == text, "build/ceilings.txt is not laid out: run bin/cosmic fix")
+  local rows = 0
+  for line in text:gmatch("[^\n]+") do
+    if line:find("^[^#%[%s]") ~= nil then rows = rows + 1 end
+  end
+  local counted = 0
+  local stages: {Ceilings.Stage} = { "scoped", "declared", "untyped", "checked", "examples", "testdata" }
+  for _, stage in ipairs(stages) do
+    for _ in pairs(Ceilings.of(parsed(text), stage)) do counted = counted + 1 end
+  end
+  assert(counted == rows, tostring(counted) .. " ceilings read of " .. tostring(rows) .. " rows")
+end
+
 local function test_the_file_of_the_tree_keeps_each_ceiling_alone_between_blank_lines()
   local text, why = Fs.read("build/ceilings.txt")
   assert(text ~= nil, why)

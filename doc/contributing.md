@@ -90,6 +90,10 @@ a code with no row left in any stage is closed: take its last row out
 and add it to `Ceilings.closed` in [`build/ceilings.tl`], and
 `Ceilings.parse` refuses a line for it from then on.
 
+the file keeps exactly one blank line between ceilings, so that pins lowered
+side by side merge: after a merge, or a row deleted, `bin/cosmic fix` lays it
+out again and `bin/cosmic fix --check .` refuses it otherwise.
+
 the tree check `ceilings` ([`build/ceilings_base.tl`]) holds the file to
 the file at the merge base with main and names each line that raised a
 count or added a row. CI runs it on every branch push and in the merge

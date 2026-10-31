@@ -71,6 +71,7 @@ local tree = require("build.tree")
 local example_checks = require("build.example_checks")
 local Memprobe = require("build.memprobe")
 local tree_checks = require("build.tree_checks")
+local Ceilings = require("build.ceilings")
 local CeilingsBase = require("build.ceilings_base")
 local Env = require("cosmic.env")
 local Sqlite = require("cosmic.sqlite")
@@ -669,6 +670,34 @@ function fix.narrowed(root: string, every: fix.Chosen, changed: {string},
     whole = every.whole, every = every, noted = noted }
 end
 
+--- Lays out the ceilings file of the tree at `root` ([`Ceilings.spaced`]): exactly one blank line between ceilings, so
+--- that pins removed side by side merge. It is written back unless `checking`; a file that changes, or would, is
+--- appended to `changed`, and one that cannot be read or written to `failures`. A tree without the file has nothing to lay out.
+function fix.space_ceilings(root: string, checking: boolean, changed: mut {string}, failures: mut {string})
+  local file = root .. "/" .. Ceilings.path
+  local there, _ = Fs.exists(file)
+  if there ~= true then
+    return
+  end
+  local source, read_trouble = Fs.read(file)
+  if source == nil then
+    failures[#failures + 1] = Ceilings.path .. ": " .. read_trouble
+    return
+  end
+  local out = Ceilings.spaced(source)
+  if out == source then
+    return
+  end
+  if not checking then
+    local written, write_trouble = Fs.write(file, out)
+    if not written then
+      failures[#failures + 1] = Ceilings.path .. ": " .. write_trouble
+      return
+    end
+  end
+  changed[#changed + 1] = Ceilings.path
+end
+
 --- Lays out each YAML file of `files` ([`build.flow`]), writing it back
 --- unless `checking`: each one that changes, or would, is appended to
 --- `changed`, and each one refused -- not in flow style, or not one
@@ -1163,6 +1192,9 @@ local function lay_out_c(ctx: Fix)
     end
   end
   fix.lay_out(picked.flow_files, ctx.checking == true, changed, failures)
+  if picked.whole then
+    fix.space_ceilings(root, ctx.checking == true, changed, failures)
+  end
 end
 
 --- Lays out the Teal file `file`, whose text is `source` and whose parse is `chunk`, with [`build.fix.format`] (`layout`

@@ -2082,7 +2082,7 @@ end
 --- The sources are the `.tl` files under `root` ([`sources_of`]).
 ---
 --- The tree's own ceilings file is held to its layout here, once for the run: a ceiling with a neighbour conflicts with
---- every change to it ([`Ceilings.crowded`]).
+--- every change to it ([`Ceilings.crowded`]), and so does a run of blank lines ([`Ceilings.spaced`]).
 function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle): {string}
   local ceilings, why = ceilings_for(root, "scoped", pinned)
   if ceilings == nil then
@@ -2095,7 +2095,11 @@ function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sql
       local _, count = crowded:gsub("\n", "\n")
       local first = crowded:match("^[^\n]*\n[^\n]*\n[^\n]*\n") or crowded
       return { "reading the ceilings: " .. tostring(count) .. " of them have a neighbour, the first of which are\n" ..
-          first:gsub("\n$", "") }
+          first:gsub("\n$", "") .. "\nrun bin/cosmic fix" }
+    end
+    if Ceilings.spaced(text or "") ~= text then
+      return { "reading the ceilings: " .. Ceilings.path .. " has a run of blank lines, or a blank line at its start or " ..
+          "end, where exactly one blank line stands between ceilings; run bin/cosmic fix" }
     end
   end
   pinned = ceilings

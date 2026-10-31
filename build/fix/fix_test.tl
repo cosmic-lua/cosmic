@@ -279,6 +279,28 @@ local function test_yaml_is_laid_out_in_place(tmp: string)
   assert(#changed == 0, "a laid-out file is left alone")
 end
 
+--- The ceilings file is laid out in place (one blank line between ceilings), not written under `--check`, and a tree
+--- without one has nothing to lay out.
+local function test_the_ceilings_file_is_laid_out_in_place(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/build"))
+  local path = tmp .. "/build/ceilings.txt"
+  local crowded = "[checked]\nbuild/a.tl x 1\nbuild/b.tl x 1\n\n\n\nbuild/c.tl x 1\n"
+  assert(Fs.write(path, crowded))
+  local changed: mut {string} = {}
+  local failures: mut {string} = {}
+  fix.space_ceilings(tmp, true, changed, failures)
+  assert(#changed == 1 and changed[1] == "build/ceilings.txt" and #failures == 0 and Fs.read(path) == crowded,
+    "--check writes nothing")
+  fix.space_ceilings(tmp, false, changed, failures)
+  assert(Fs.read(path) == "[checked]\nbuild/a.tl x 1\n\nbuild/b.tl x 1\n\nbuild/c.tl x 1\n")
+  changed = {}
+  fix.space_ceilings(tmp, true, changed, failures)
+  assert(#changed == 0 and #failures == 0, "a laid-out file is left alone")
+  assert(Fs.remove(path))
+  fix.space_ceilings(tmp, false, changed, failures)
+  assert(#changed == 0 and #failures == 0, "no file, nothing to lay out")
+end
+
 --- Markdown and Zig are taken to have their links checked, named or
 --- under a directory named, past the build's output; they are not Teal
 --- to render.

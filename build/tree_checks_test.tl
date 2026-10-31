@@ -1471,6 +1471,16 @@ local function test_the_scope_check_refuses_a_ceiling_with_a_neighbour_in_the_tr
   local only = crowded[1]
   assert(only:find("reading the ceilings: 2 of them have a neighbour", 1, true), only)
   assert(only:find("build/ceilings.txt:2: `build/there.tl view_written 1`", 1, true), only)
+  assert(only:sub(-#"run bin/cosmic fix") == "run bin/cosmic fix", only)
+  -- A run of blank lines, or a blank line at an end of the file, is refused too, saying how to lay it out.
+  for _, text in ipairs({ "[checked]\nbuild/there.tl view_written 1\n\n\nbuild/there.tl field_fixed 1\n",
+      "\n[checked]\nbuild/there.tl view_written 1\n", "[checked]\nbuild/there.tl view_written 1\n\n" }) do
+    assert(Fs.write(root .. "/build/ceilings.txt", text))
+    local spaced = tree_checks.scoped(root)
+    assert(#spaced == 1, table.concat(spaced, "\n"))
+    assert(spaced[1]:find("run of blank lines", 1, true) ~= nil, spaced[1])
+    assert(spaced[1]:sub(-#"run bin/cosmic fix") == "run bin/cosmic fix", spaced[1])
+  end
   assert(Fs.write(root .. "/build/ceilings.txt",
     "[checked]\nbuild/there.tl view_written 1\n\nbuild/there.tl field_fixed 1\n\nbuild/there.tl map_field 1\n\nbuild/there.tl no_value 1\n"))
   for _, line in ipairs(tree_checks.scoped(root)) do
