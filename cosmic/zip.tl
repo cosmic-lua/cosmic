@@ -139,6 +139,16 @@ local record Zip
     --- a target longer than 4096 bytes or holding a NUL byte, and a
     --- path ending in `/`.
     add_symlink: function(self: Writer, path: string, target: string, opts?: EntryOptions): boolean, string
+    --- A file at `path` whose body is what is written to the
+    --- [`Stream.Writer`] it answers, compressed as it comes, as
+    --- [`add_file`] writes a [`Stream.Reader`] body: for a body made a
+    --- piece at a time, such as a document [`cosmic.xml`] writes, which
+    --- is then never held whole. Closing it ends the entry; until then
+    --- the archive takes no other entry and does not close, and aborting
+    --- it abandons the archive, whose bytes are written already.
+    --- `opts.size`, when given, is what the body must come to. Nil and
+    --- why where [`add_file`] refuses the path or the method.
+    file_writer: function(self: Writer, path: string, opts?: EntryOptions): Stream.Writer?, string
     --- Writes the central directory and closes the underlying
     --- Stream.Writer, committing it. Returns `true, ""`, or `false` and why.
     close: function(self: Writer): boolean, string
@@ -978,86 +988,165 @@ local function write_whole(self: EntryWriter, path: string, data: string, method
   return put(self, payload)
 end
 
---- A [`Stream.Reader`] body, read to its end and compressed as it
---- goes, its CRC32 and sizes in a data descriptor after it. `hint` is
---- the size `opts.size` promised, if any. Fills `done`.
-local function write_streamed(self: EntryWriter, path: string, body: Stream.Reader, method: integer,
-                              dos_time: integer, dos_date: integer, hint: integer?, done: Written): boolean, string
+--- A streamed body's state between its local header and its data
+--- descriptor.
+local record Streamed
+  path: string
+  method: integer
+  dos_time: integer
+  dos_date: integer
+  local_offset: integer
+  type_bits: integer
+  mode: integer
+  hint?: integer
+  done: Written
+  feed: FeedWriter
+end
+
+--- Starts a body whose CRC32 and sizes are known only once it is all
+--- written: its local header, and the writer that compresses and counts
+--- it. `hint` is the size `opts.size` promised, if any.
+local function begin_streamed(self: EntryWriter, path: string, method: integer, dos_time: integer,
+                              dos_date: integer, type_bits: integer, mode: integer, hint: integer?):
+    Streamed?, string
   local encoder: Compress.Stream?
   if method == 8 then
     local made, dtrouble = Compress.deflater("raw")
-    if made == nil then return false, dtrouble end
+    if made == nil then return nil, dtrouble end
     encoder = made
   elseif method == ZSTD then
     local made, etrouble = Compress.zstd_encoder()
-    if made == nil then return false, etrouble end
+    if made == nil then return nil, etrouble end
     encoder = made
   end
-  local sink = self.sink
   local wide = hint ~= nil and hint >= STREAM_ZIP64_AT
+  local local_offset = self.offset
   local ok, trouble = put(self, local_header(path, method, dos_time, dos_date, 0, 0, 0,
     FLAG_DESCRIPTOR, wide))
-  if not ok then return false, trouble end
+  if not ok then return nil, trouble end
+  local done: Written = { crc = 0, usize = 0, csize = 0 }
   local feed: FeedWriter = {
     put = function(data: string): boolean, string return put(self, data) end,
     fail = function(why: string): boolean, string return self.sink:fail(why) end,
     done = done, encoder = encoder, wide = wide,
     too_big = "zip: " .. path .. ": a streamed entry of 4 GiB or more needs opts.size",
   }
-  local copied, ctrouble = Stream.copy(body, feed)
-  if copied == nil then
-    -- A failed write is the sink's already, said as the Writer said it.
-    local usable, failure = sink:usable()
-    if not usable then return false, failure end
-    return sink:fail("zip: add_file: " .. ctrouble)
-  end
+  local made: Streamed = {
+    path = path, method = method, dos_time = dos_time, dos_date = dos_date,
+    local_offset = local_offset, type_bits = type_bits, mode = mode, hint = hint, done = done,
+    feed = feed,
+  }
+  return made, ""
+end
+
+--- Ends a streamed body: what its encoder holds back, its data
+--- descriptor, and the central directory record that lists it.
+local function finish_streamed(self: EntryWriter, st: Streamed): boolean, string
+  local sink = self.sink
+  local done = st.done
+  local encoder = st.feed.encoder
   if encoder ~= nil then
     local tail, ftrouble = encoder:finish()
     if tail == nil then return sink:fail(ftrouble) end
-    ok, trouble = emit(feed, tail)
+    local ok, trouble = emit(st.feed, tail)
     if not ok then return false, trouble end
   end
+  local hint = st.hint
   if hint ~= nil and hint ~= done.usize then
-    return sink:fail("zip: " .. path .. ": body is " .. String.counted(done.usize, "byte") .. ", not " ..
+    return sink:fail("zip: " .. st.path .. ": body is " .. String.counted(done.usize, "byte") .. ", not " ..
         String.counted(hint, "byte"))
   end
-  if wide then
-    return put(self, DESCRIPTOR_SIG .. string.pack("<I4I8I8", done.crc, done.csize, done.usize))
+  local descriptor = if st.feed.wide then
+    DESCRIPTOR_SIG .. string.pack("<I4I8I8", done.crc, done.csize, done.usize)
+    else
+    DESCRIPTOR_SIG .. string.pack("<I4I4I4", done.crc, done.csize, done.usize)
+    end
+  local ok, trouble = put(self, descriptor)
+  if not ok then return false, trouble end
+  table.insert(self.cd_parts, central_header(st.path, st.method, st.dos_time, st.dos_date, done.crc,
+    done.csize, done.usize, attributes(st.type_bits, st.mode), st.local_offset, FLAG_DESCRIPTOR))
+  self.count = self.count + 1
+  return true, ""
+end
+
+--- What [`Zip.Writer`]'s [`file_writer`] answers: an entry's body, written
+--- a piece at a time.
+local class BodyWriter is Stream.Writer
+  owner: EntryWriter
+  streamed: Streamed
+  mut ended: boolean
+
+  function write(self, chunk: string): boolean, string
+    if self.ended then return false, "zip: " .. self.streamed.path .. ": the entry is closed" end
+    local usable, why = self.owner.sink:usable()
+    if not usable then return false, why end
+    return self.streamed.feed:write(chunk)
   end
-  return put(self, DESCRIPTOR_SIG .. string.pack("<I4I4I4", done.crc, done.csize, done.usize))
+
+  function close(self): boolean, string
+    if self.ended then return true, "" end
+    self.ended = true
+    self.owner.open = nil
+    return finish_streamed(self.owner, self.streamed)
+  end
+
+  function abort(self): boolean, string
+    if self.ended then return true, "" end
+    self.ended = true
+    self.owner.open = nil
+    -- The entry's header is written already: the archive cannot be whole.
+    return self.owner:abort()
+  end
 end
 
 --- One entry of Unix type `type_bits`: its local header, `body`, and
 --- the central directory record that lists it. `hint` is a streamed
 --- body's promised size.
+--- Why `self` takes no entry at `path` by `method_name` now, or "": it
+--- failed or closed, an entry written a piece at a time is still open, or
+--- the path or the method is one no archive holds.
+local function refusal_of(self: EntryWriter, path: string, method_name: Zip.Method): string
+  local usable, why = self.sink:usable()
+  if not usable then return why end
+  local open = self.open
+  if open ~= nil then return "zip: " .. path .. ": " .. open.streamed.path .. " is still open" end
+  local refusal = nul_refusal(path, "in a path")
+  if refusal ~= "" then return refusal end
+  if #path > PATH_LIMIT then return "zip: path longer than 65535 bytes" end
+  if METHOD_NUMBERS[method_name] == nil then
+    return "zip: unknown method '" .. method_name .. "'"
+  end
+  return ""
+end
+
 local function put_entry(self: EntryWriter, path: string, body: string | Stream.Reader,
                          method_name: Zip.Method, type_bits: integer, mode: integer, mtime: integer,
                          hint?: integer): boolean, string
-  local usable, why = self.sink:usable()
-  if not usable then return false, why end
-  local refusal = nul_refusal(path, "in a path")
+  local refusal = refusal_of(self, path, method_name)
   if refusal ~= "" then return false, refusal end
-  if #path > PATH_LIMIT then return false, "zip: path longer than 65535 bytes" end
-  local method = METHOD_NUMBERS[method_name]
-  if method == nil then return false, "zip: unknown method '" .. method_name .. "'" end
+  local method = assert(METHOD_NUMBERS[method_name])
   local dos_date, dos_time = 0x21, 0
   if not self.deterministic then dos_date, dos_time = unix_to_dos(mtime) end
-  local local_offset = self.offset
-  local done: Written = { crc = 0, usize = 0, csize = 0 }
-  local ok: boolean
-  local trouble: string
-  local flags = 0
   if body is string then
-    ok, trouble = write_whole(self, path, body, method, dos_time, dos_date, done)
-  else
-    flags = FLAG_DESCRIPTOR
-    ok, trouble = write_streamed(self, path, body, method, dos_time, dos_date, hint, done)
+    local local_offset = self.offset
+    local done: Written = { crc = 0, usize = 0, csize = 0 }
+    local ok, trouble = write_whole(self, path, body, method, dos_time, dos_date, done)
+    if not ok then return false, trouble end
+    table.insert(self.cd_parts, central_header(path, method, dos_time, dos_date, done.crc,
+      done.csize, done.usize, attributes(type_bits, mode), local_offset, 0))
+    self.count = self.count + 1
+    return true, ""
   end
-  if not ok then return false, trouble end
-  table.insert(self.cd_parts, central_header(path, method, dos_time, dos_date, done.crc,
-    done.csize, done.usize, attributes(type_bits, mode), local_offset, flags))
-  self.count = self.count + 1
-  return true, ""
+  local st, strouble = begin_streamed(self, path, method, dos_time, dos_date, type_bits, mode, hint)
+  if st == nil then return false, strouble end
+  local copied, ctrouble = Stream.copy(body, st.feed)
+  if copied == nil then
+    -- A failed write is the sink's already, said as the Writer said it.
+    local usable, failure = self.sink:usable()
+    if not usable then return false, failure end
+    return self.sink:fail("zip: add_file: " .. ctrouble)
+  end
+  return finish_streamed(self, st)
 end
 
 --- What [`Zip.writer`] answers.
@@ -1072,6 +1161,8 @@ local class EntryWriter is Zip.Writer
   --- there are.
   mut cd_parts: mut {string}
   mut count: integer
+  --- The entry [`file_writer`] answered, while it is open.
+  mut open?: BodyWriter
 
   function add_file(self, path: string, data: string | Stream.Reader,
                     fopts?: Zip.EntryOptions): boolean, string
@@ -1085,6 +1176,26 @@ local class EntryWriter is Zip.Writer
     if path:sub(-1) == "/" then return false, "zip: a file's path ends in /: " .. path end
     return put_entry(self, path, data, fopts.method or "deflate", S_IFREG, fopts.mode or 0x1a4,
       fopts.mtime or 0, fopts.size)
+  end
+
+  function file_writer(self, path: string, fopts?: Zip.EntryOptions): Stream.Writer?, string
+    fopts = fopts or {}
+    local size = fopts.size
+    if size ~= nil and (math.type(size) ~= "integer" or size < 0) then
+      error("zip: opts.size must be an integer of at least 0", 2)
+    end
+    if path:sub(-1) == "/" then return nil, "zip: a file's path ends in /: " .. path end
+    local method_name: Zip.Method = fopts.method or "deflate"
+    local refusal = refusal_of(self, path, method_name)
+    if refusal ~= "" then return nil, refusal end
+    local dos_date, dos_time = 0x21, 0
+    if not self.deterministic then dos_date, dos_time = unix_to_dos(fopts.mtime or 0) end
+    local st, why = begin_streamed(self, path, assert(METHOD_NUMBERS[method_name]), dos_time, dos_date, S_IFREG,
+      fopts.mode or 0x1a4, size)
+    if st == nil then return nil, why end
+    local body: BodyWriter = { owner = self, streamed = st, ended = false }
+    self.open = body
+    return body, ""
   end
 
   function add_dir(self, path: string, fopts?: Zip.EntryOptions): boolean, string
@@ -1110,6 +1221,8 @@ local class EntryWriter is Zip.Writer
     -- Closed or failed already: close answers that without writing.
     local usable, _ = sink:usable()
     if not usable then return sink:close("") end
+    local open = self.open
+    if open ~= nil then return false, "zip: " .. open.streamed.path .. " is still open" end
     local count = self.count
     local cd = table.concat(self.cd_parts)
     local cd_offset = self.offset
@@ -1148,7 +1261,7 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
   opts = opts or {}
   local zw: EntryWriter = {
     sink = Stream.sticky(w, "zip"), deterministic = opts.deterministic or false,
-    offset = opts.offset or 0, cd_parts = {}, count = 0,
+    offset = opts.offset or 0, cd_parts = {}, count = 0, open = nil,
   }
   return zw
 end

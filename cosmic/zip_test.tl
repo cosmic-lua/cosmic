@@ -1071,3 +1071,55 @@ local function test_entry_ignores_case_when_asked()
   assert(ar:entry("\u{E9}t\u{E9}.txt", { ignore_case = true }) == nil)
   assert(ar:close())
 end
+
+--- `file_writer` takes an entry's body a piece at a time, compressed as
+--- it comes, by every method, and the archive reads it back whole.
+local function test_file_writer_writes_a_body_in_pieces()
+  local methods: {Zip.Method} = { "store", "deflate", "zstd" }
+  for _, method in ipairs(methods) do
+    local out = Stream.collect()
+    local w = Zip.writer(out)
+    local body = assert(w:file_writer("big.txt", { method = method }))
+    for i = 1, 100 do assert(body:write("line " .. tostring(i) .. "\n")) end
+    assert(body:close())
+    assert(w:add_file("after.txt", "next"))
+    assert(w:close())
+    local r = assert(Zip.open_string(out:result()))
+    local text = assert(Stream.read_all((assert((assert(r:entry("big.txt"))):open()))))
+    assert(#text == 792 and text:sub(-9) == "line 100\n", method .. ": " .. tostring(#text))
+    assert(assert(Stream.read_all((assert((assert(r:entry("after.txt"))):open())))) == "next")
+    assert(r:close())
+  end
+end
+
+--- While a body is open the archive takes no other entry and does not
+--- close; a body short of its promised size fails the archive; writing
+--- to a closed body is refused; and aborting a body abandons the archive.
+local function test_file_writer_holds_the_archive_while_open()
+  local w = Zip.writer(Stream.collect())
+  local body = assert(w:file_writer("a.txt"))
+  local added, why = w:add_file("b.txt", "x")
+  assert(not added and why == "zip: b.txt: a.txt is still open", why)
+  local second, swhy = w:file_writer("c.txt")
+  assert(second == nil and swhy == "zip: c.txt: a.txt is still open", swhy)
+  local closed, cwhy = w:close()
+  assert(not closed and cwhy == "zip: a.txt is still open", cwhy)
+  assert(body:write("abc"))
+  assert(body:close())
+  local late, lwhy = body:write("more")
+  assert(not late and lwhy == "zip: a.txt: the entry is closed", lwhy)
+  assert(w:close())
+
+  local short = Zip.writer(Stream.collect())
+  local promised = assert(short:file_writer("p.txt", { size = 10 }))
+  assert(promised:write("123"))
+  local ended, ewhy = promised:close()
+  assert(not ended and ewhy == "zip: p.txt: body is 3 bytes, not 10 bytes", ewhy)
+
+  local kept = Stream.collect()
+  local abandoned = Zip.writer(kept)
+  local part = assert(abandoned:file_writer("x.txt"))
+  assert(part:write("partial"))
+  assert(part:abort())
+  assert(kept:result() == "", "the archive was not aborted")
+end
