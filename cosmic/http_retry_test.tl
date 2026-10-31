@@ -83,15 +83,55 @@ end
 
 local function test_a_retry_after_beyond_max_wait_returns_the_response_at_once()
   local began = Clock.monotonic_ns()
+  -- The first 429 is within the limit and retried, the second beyond it
+  -- and returned, so a request that never retries fails here too.
   local got = assert(Http.get(url, {
-    retry = { attempts = 3, backoff_ns = 0, max_wait_ns = Clock.seconds(5) },
+    retry = { attempts = 4, backoff_ns = 0, max_wait_ns = Clock.seconds(5) },
     script = {
-      reply(1, "429 Too Many Requests", "Retry-After: 3600\r\n"),
-      reply(2, "200 OK", ""),
+      reply(1, "429 Too Many Requests", "Retry-After: 0\r\n"),
+      reply(2, "429 Too Many Requests", "Retry-After: 3600\r\n"),
+      reply(3, "200 OK", ""),
     },
   }))
   assert(Clock.monotonic_ns() - began < Clock.seconds(2), "the request waited")
-  assert(got.status == 429 and got.headers["x-n"] == "1", tostring(got.status))
+  assert(got.status == 429 and got.headers["x-n"] == "2", tostring(got.headers["x-n"]))
+end
+
+local function test_one_attempt_sends_the_request_once()
+  local got = assert(Http.get(url, {
+    retry = { attempts = 1, backoff_ns = 0 },
+    script = { reply(1, "503 Service Unavailable", ""), reply(2, "200 OK", "") },
+  }))
+  assert(got.status == 503 and got.headers["x-n"] == "1", tostring(got.status))
+end
+
+local function test_a_backoff_above_max_wait_is_capped()
+  local began = Clock.monotonic_ns()
+  local got = assert(Http.get(url, {
+    retry = { attempts = 2, backoff_ns = Clock.seconds(30), max_wait_ns = Clock.ms(200) },
+    script = { reply(1, "503 Service Unavailable", ""), reply(2, "200 OK", "") },
+  }))
+  local waited = Clock.monotonic_ns() - began
+  assert(waited >= Clock.ms(150) and waited < Clock.seconds(5), tostring(waited))
+  assert(got.status == 200, tostring(got.status))
+end
+
+--- A `Retry-After` of many digits that are zeros is the small number it
+--- spells, not a wait too long to be taken; so is one padded with the
+--- whitespace HTTP allows.
+local function test_a_retry_after_with_leading_zeros_or_padding_is_read()
+  for _, value in ipairs({ "0000000000000", " \t0 \t", "000" }) do
+    local began = Clock.monotonic_ns()
+    local got = assert(Http.get(url, {
+      retry = { attempts = 2, backoff_ns = 0, max_wait_ns = Clock.seconds(6) },
+      script = {
+        reply(1, "429 Too Many Requests", "Retry-After: " .. value .. "\r\n"),
+        reply(2, "200 OK", ""),
+      },
+    }))
+    assert(got.status == 200, "Retry-After " .. value .. " returned " .. tostring(got.status))
+    assert(Clock.monotonic_ns() - began < Clock.seconds(2), "the request waited")
+  end
 end
 
 local function test_a_retry_after_date_in_the_past_is_no_wait()
@@ -159,6 +199,41 @@ local function test_a_request_retries_with_its_method()
   assert(got.status == 200 and got.body == "done", tostring(got.status))
 end
 
+--- A download whose `cancelled` answers true is not parked by a retry's
+--- wait: it fails "interrupted" before the wait, sending no second request
+--- (the 200 would write a file).
+local function test_a_cancelled_download_does_not_wait_or_retry(tmp: string)
+  local began = Clock.monotonic_ns()
+  local result = Http.download_result(url, tmp .. "/got", {
+    retry = { attempts = 2 },
+    cancelled = function(): boolean return true end,
+    script = {
+      reply(1, "429 Too Many Requests", "Retry-After: 30\r\n"),
+      reply(2, "200 OK", "", "body"),
+    },
+  })
+  assert(Clock.monotonic_ns() - began < Clock.seconds(5), "the download waited")
+  assert(result.kind == "failed" and result.reason == "interrupted", result.reason)
+  assert(Fs.stat(tmp .. "/got") == nil, "the 200 was read")
+end
+
+--- `cancelled` answering true during the wait ends it between slices.
+local function test_a_download_cancelled_during_the_wait_stops_waiting(tmp: string)
+  local began = Clock.monotonic_ns()
+  local ok, why = Http.download(url, tmp .. "/got", {
+    retry = { attempts = 2 },
+    cancelled = function(): boolean return Clock.monotonic_ns() - began > Clock.ms(300) end,
+    script = {
+      reply(1, "429 Too Many Requests", "Retry-After: 30\r\n"),
+      reply(2, "200 OK", "", "body"),
+    },
+  })
+  local took = Clock.monotonic_ns() - began
+  assert(not ok and why == "interrupted", tostring(why))
+  assert(took >= Clock.ms(300) and took < Clock.seconds(5), tostring(took))
+  assert(Fs.stat(tmp .. "/got") == nil, "the 200 was read")
+end
+
 local function test_a_failed_open_is_not_retried()
   local response, why = Http.open(url, {
     retry = { attempts = 3, backoff_ns = 0 },
@@ -181,6 +256,7 @@ local function test_a_policy_of_the_wrong_shape_raises_naming_the_option(tmp: st
   local cases: {Case} = {
     { option = "attempts", policy = { attempts = 0 } },
     { option = "attempts", policy = { attempts = -3 } },
+    { option = "statuses", policy = { attempts = 2, statuses = {} } },
     { option = "statuses", policy = { attempts = 2, statuses = { 99 } } },
     { option = "statuses", policy = { attempts = 2, statuses = { 600 } } },
     { option = "statuses", policy = { attempts = 2, statuses = { 429, 0 } } },

@@ -49,8 +49,8 @@ local record Http
   record Retry
     --- The most requests sent in all, the first included: at least 1.
     attempts: integer
-    --- The statuses that are sent again, `{429, 503}` by default. Each
-    --- is an integer from 100 to 599.
+    --- The statuses that are sent again, `{429, 503}` by default. At
+    --- least one, each an integer from 100 to 599.
     statuses?: {integer}
     --- How long to wait before the first retry, in nanoseconds; 1
     --- second by default. Each retry waits twice as long as the one
@@ -87,8 +87,9 @@ local record Http
   --- `timeout_ns` bounds the whole request and has no default. The
   --- transfer counts them in milliseconds, and `low_speed_ns` in whole
   --- seconds, each rounded up, so no span but 0 is read as none.
-  --- `sha256`, `sha512`, `sha3_256` and `cancelled` are read only by
-  --- [`Http.download_result`] and [`Http.download`].
+  --- `sha256`, `sha512` and `sha3_256` are read only by
+  --- [`Http.download_result`] and [`Http.download`], and so is `cancelled`
+  --- but for the waits of `retry`, which it ends too.
   ---
   --- `via`, a unix address ([`Net.unix`]), sends the request over the
   --- socket file at its path instead of the network. The URL still gives
@@ -146,7 +147,8 @@ local record Http
   --- attempts run out, as a non-2xx status is not a failure here. A
   --- request that fails (`nil` and why) is not retried. While the
   --- innermost open [`Signal.guard`] catches SIGINT or SIGTERM during a
-  --- wait, the wait ends and the call fails with "interrupted".
+  --- wait, the wait ends and the call fails with "interrupted"; so does
+  --- `cancelled` answering true before or during one.
   ---
   --- An option of the wrong shape is a bug, and [`Http.open`] raises
   --- for it, naming the option: a value of the wrong Lua type (the
@@ -155,10 +157,11 @@ local record Http
   --- `max_redirects` is at most 32767 and `low_speed_ns` at most
   --- 65535 seconds. A `retry` raises the same way, naming
   --- `opts.retry.attempts` and the like: attempts below 1, statuses not
-  --- a list of integers from 100 to 599, or a span below 0. A value of the right shape that cannot be sent as given
-  --- is data, returned as `nil, err`: a method that is no HTTP token,
-  --- a header name or value holding CR, LF or NUL (or a name that is
-  --- empty or holds ':'), a URL holding NUL or one curl rejects.
+  --- a list of one or more integers from 100 to 599, or a span below 0.
+  --- A value of the right shape that cannot be sent as given is data,
+  --- returned as `nil, err`: a method that is no HTTP token, a header
+  --- name or value holding CR, LF or NUL (or a name that is empty or
+  --- holds ':'), a URL holding NUL or one curl rejects.
   record Options
     --- The HTTP method, case-sensitive; GET, or POST when there is a `body`.
     method?: string
@@ -895,8 +898,8 @@ local function retry_of(opts: Http.Options, level: integer): Policy?
   if listed == nil then
     statuses[429], statuses[503] = true, true
   else
-    local bad = "http: opts.retry.statuses must be a list of integers from 100 to 599"
-    if type(listed) ~= "table" then error(bad, level) end
+    local bad = "http: opts.retry.statuses must be a list of one or more integers from 100 to 599"
+    if type(listed) ~= "table" or #listed == 0 then error(bad, level) end
     for index = 1, #listed do
       local status = listed[index]
       if status == nil or math.type(status) ~= "integer" or status < 100 or status > 599 then
@@ -929,6 +932,8 @@ local function raw_options(given: Http.Options?, method?: string,
     -- A redirect's Location names a host the socket may not serve.
     if follow == nil then follow = false end
   end
+  -- Only to raise at `CALLER`, which no deeper call can; [`opened`] reads
+  -- the policy it uses.
   local _ = retry_of(opts, CALLER)
   local trust, untold = trust_of(opts)
   if untold ~= "" then
@@ -1048,13 +1053,15 @@ end
 --- past is 0. The date reader is loaded here, for cosmic.time brings in
 --- cosmic.fs, which a program that never sees a dated header does not need.
 local function retry_after(text: string): integer?
-  local value = text:match("^%s*(.-)%s*$")
+  -- Optional whitespace in HTTP is a space or a tab alone.
+  local value = text:match("^[ \t]*(.-)[ \t]*$")
   if value == nil then return nil end
   if value:find("^%d+$") then
+    local digits = value:gsub("^0+(%d)", "%1")
     -- Nine digits is more seconds than any `max_wait_ns` a nanosecond
     -- count holds, and keeps the product below from overflowing.
-    if #value > 9 then return math.maxinteger end
-    return (math.tointeger(tonumber(value)) or 0) * SECOND
+    if #digits > 9 then return math.maxinteger end
+    return (math.tointeger(tonumber(digits)) or 0) * SECOND
   end
   local Time = require("cosmic.time")
   local at, _ = Time.parse_http(value)
@@ -1083,9 +1090,11 @@ end
 local PAUSE_SLICE <const> = 100 * MS
 
 --- Sleeps `ns`, in slices, and answers false as soon as the innermost open
---- [`Signal.guard`] catches a signal or closes during it. A signal caught
---- before the wait began is not one: the stamp is taken when it starts.
-local function pause(ns: integer): boolean
+--- [`Signal.guard`] catches a signal or closes during it, or `cancelled`
+--- answers true, asked before the wait and after each slice. A signal
+--- caught before the wait began is not one: the stamp is taken when it starts.
+local function pause(ns: integer, cancelled: (function(): boolean)?): boolean
+  if cancelled ~= nil and cancelled() then return false end
   local guard = Innermost.active()
   local stamp = 0
   if guard ~= nil then
@@ -1101,6 +1110,7 @@ local function pause(ns: integer): boolean
       local _ = guard:cancelled()
       if guard.state.closed or guard.state.read ~= stamp then return false end
     end
+    if cancelled ~= nil and cancelled() then return false end
     if not slept then return true end
   end
 end
@@ -1119,6 +1129,7 @@ local function opened(url: string, opts: Http.Options?, method: string?): Http.R
     return nil, unmade
   end
   local policy = retry_of(opts or {}, CALLER - 1)
+  local cancelled = opts and opts.cancelled
   local attempt = 1
   while true do
     local handle, trouble, code = http.open(url, raw)
@@ -1133,7 +1144,9 @@ local function opened(url: string, opts: Http.Options?, method: string?): Http.R
       local wait = retry_wait(handle:headers(), attempt, policy)
       if wait <= policy.max_wait_ns then
         handle:close()
-        if wait > 0 and not pause(wait) then return nil, "interrupted" end
+        if (wait > 0 or cancelled ~= nil) and not pause(wait, cancelled) then
+          return nil, "interrupted"
+        end
         again = true
       end
     end
