@@ -585,6 +585,7 @@ local format_test_timeout_ns <const> = Clock.seconds(300)
 -- each bound is several times that.
 local launcher_test_timeout_ns <const> = Clock.seconds(60)
 local launcher_noexec_test_timeout_ns <const> = Clock.seconds(60)
+local launcher_packed_test_timeout_ns <const> = Clock.seconds(90)
 local self_rebuild_test_timeout_ns <const> = Clock.seconds(600)
 -- A self-rebuild test rebuilds the tool: the docs verb's from a cold
 -- compile of the whole tree, 140 to 180 s on four cores (the tree has
@@ -851,7 +852,8 @@ end
 --- `launcher_noexec` declares private noexec scratch and runs on Linux
 --- only; the ordinary launcher fixture still runs on every platform.
 local SANDBOXED_FIXTURES <const>: {string:boolean} = {
-  product = true, runtime = true, launcher = true, launcher_noexec = true, identity = true, performance = true,
+  product = true, runtime = true, launcher = true, launcher_packed = true, launcher_noexec = true,
+  identity = true, performance = true,
 }
 
 function Orchestration.sandboxed_fixtures(): {string:boolean}
@@ -2273,6 +2275,10 @@ local function phase_fixtures(p: PlatformContext): integer
       { kind = "runtime", from = runtime } } })
   add({ name = "launcher-regression", source = "launcher",
     timeout_ns = launcher_test_timeout_ns,
+    extra = { COSMIC_FIXTURE_TARGET = target },
+    placements = launcher_placements })
+  add({ name = "launcher-packed-regression", source = "launcher_packed",
+    timeout_ns = launcher_packed_test_timeout_ns,
     extra = { COSMIC_FIXTURE_TARGET = target },
     placements = launcher_placements })
   if Orchestration.noexec_fixture(target) then
