@@ -393,15 +393,16 @@ local function test_depth_limits()
   assert(decode_failure('{"a":{"b":1}}', { max_depth = 1 }) == "json: JSON nests deeper than 1 level at line 1, column 6 (pointer \"/a\")",
     "an object counts")
   assert(decoded(deep, { max_depth = 65 }) ~= nil, "the limit is the caller's")
-  local root: {any} = {}
+  local root: mut {Json.Value} = {}
   local t = root
   for _ = 2, 64 do
-    local inner: {any} = {}
+    local inner: mut {Json.Value} = {}
     t[1] = inner
     t = inner
   end
   assert(encoded(root) ~= "", "64 levels encode by default")
-  t[1] = {}
+  local past: mut {Json.Value} = {}
+  t[1] = past
   assert(encode_failure(root):match("^json: cannot encode a value nested deeper than 64 levels"), "65 do not")
   local cycle: mut {any} = {}
   cycle[1] = cycle
@@ -503,9 +504,12 @@ local function random_value(pick: function(integer, integer): integer, depth: in
   if kind == 4 then return random_string(pick) end
   if kind == 5 then return Json.null end
   if kind == 6 then
-    local list = Json.array()
-    for i = 1, pick(0, 4) do list[i] = random_value(pick, depth + 1) end
-    return list
+    local made: mut {Json.Value} = {}
+    for _ = 1, pick(0, 4) do
+      local element = random_value(pick, depth + 1)
+      made[#made + 1] = element
+    end
+    return Json.array(made)
   end
   local obj: mut {string: any} = {}
   for _ = 1, pick(0, 4) do

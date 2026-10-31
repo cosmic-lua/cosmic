@@ -60,7 +60,7 @@ local function test_attach_leaves_no_connection_whenever_an_allocation_fails(tmp
   local before = next_descriptor(tmp)
   local searched = #Store.databases()
   local ended = under_every_failure(function()
-    Store.attach(path)
+    Store.attach(path, { unchecked_bytecode = true })
   end)
   assert(ended > 0, "attaching allocates")
   -- A run can attach and still count a refusal Lua shrugged off (a

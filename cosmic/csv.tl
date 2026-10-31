@@ -1,4 +1,5 @@
---- CSV and TSV text as records and rows: an RFC 4180 reader.
+--- CSV and TSV text as records and rows: an RFC 4180 reader, and a
+--- writer of what it reads.
 ---
 ---     local records = assert(Csv.parse('id,name\n1,"Smith, Ann"\n2,"say ""hi"""\n'))
 ---     -- { {"id", "name"}, {"1", "Smith, Ann"}, {"2", 'say "hi"'} }
@@ -6,6 +7,8 @@
 ---     -- made.columns is { "id", "name" }, made.rows is { { id = "1", name = "Ann" } }
 ---     local found = assert(Csv.records('a,b\n\n"x\ny"\n'))
 ---     -- { {fields = {"a", "b"}, line = 1}, {fields = {"x\ny"}, line = 3} }
+---     local text = Csv.encode({ { "id", "name" }, { "1", "Smith, Ann" } })
+---     -- 'id,name\n1,"Smith, Ann"\n'
 ---
 --- What is read:
 ---
@@ -59,6 +62,9 @@
 --- A line counts as the refusals above count it: a quoted line break
 --- starts a line, so a record that spans two pushes every later one down,
 --- and a skipped blank line is still a line.
+---
+--- `encode` writes records so that `parse`, with the same delimiter,
+--- reads them back as they were: a field is quoted only where it must be.
 
 --- What `read` found: the records, and the line each began on.
 local record Scan
@@ -67,11 +73,21 @@ local record Scan
 end
 
 local record Csv
-  --- What a reader may be told.
+  --- What [`Csv.encode`] ends a record with: LF or CRLF.
+  enum LineEnd
+    "\n"
+    "\r\n"
+  end
+
+  --- What a reader or [`Csv.encode`] may be told.
   record Options
     --- The one byte between fields (default `,`). It may not be `"`, CR
-    --- or LF: the readers raise for one that is.
+    --- or LF: the readers and `encode` raise for one that is.
     delimiter?: string
+    --- What `encode` ends each record with: `"\n"` (the default) or
+    --- `"\r\n"`, which RFC 4180 names. The readers take either and
+    --- ignore this.
+    line_end?: Csv.LineEnd
   end
 
   --- A record `records` read: its fields and the line it began on.
@@ -310,6 +326,59 @@ end
 ---     assert(#found[2].fields == 1 and found[3].line == 3)
 function Csv.records(text: string, opts?: Csv.Options): {Csv.Record}?, string
   return located(text, delimiter_of(opts))
+end
+
+--- `field` as `encode` writes it: in quotes, each quote doubled, when it
+--- holds the delimiter, a quote, CR or LF (a CR before the line end is
+--- dropped from an unquoted field), begins with the byte order mark (a
+--- reader drops one at the start of the text), or is the empty only field
+--- of its record (which would be a blank line, no record); as it is
+--- otherwise.
+local function written(field: string, delimiter: string, only: boolean): string
+  if field:find(delimiter, 1, true) ~= nil or field:find('["\r\n]') ~= nil or field:sub(1, 3) == BOM or
+      (only and field == "") then
+    return '"' .. field:gsub('"', '""') .. '"'
+  end
+  return field
+end
+
+--- `records` as CSV text that [`Csv.parse`], with the same
+--- `opts.delimiter`, reads back as they were: each record's fields joined
+--- by the delimiter, each record ended by `opts.line_end`, the last one
+--- too. A field is quoted only where it must be: when it holds the
+--- delimiter, a quote or a line break, begins with the UTF-8 byte order
+--- mark, or is the empty only field of its record. No records is `""`.
+--- Raises for a record with no fields, which text cannot hold (a blank
+--- line is no record), a field that is not a string, a delimiter `parse`
+--- raises for, and a `line_end` that is not LF or CRLF.
+---
+---     local text = Csv.encode({ { "id", "note" }, { "1", 'say "hi", twice' } })
+---     assert(text == 'id,note\n1,"say ""hi"", twice"\n')
+function Csv.encode(records: {{string}}, opts?: Csv.Options): string
+  local delimiter = delimiter_of(opts)
+  local line_end: Csv.LineEnd = "\n"
+  if opts ~= nil and opts.line_end ~= nil then
+    line_end = opts.line_end
+  end
+  if line_end ~= "\n" and line_end ~= "\r\n" then
+    error("csv: encode ends a record with LF or CRLF, not " .. string.format("%q", tostring(line_end)), 2)
+  end
+  local lines: mut {string} = {}
+  for number, record in ipairs(records) do
+    if #record == 0 then
+      error("csv: record " .. tostring(number) .. " has no fields, which CSV cannot hold", 2)
+    end
+    local parts: mut {string} = {}
+    for index, field in ipairs(record) do
+      if type(field) ~= "string" then
+        error("csv: record " .. tostring(number) .. ", field " .. tostring(index) .. " is a " .. type(field) ..
+            ", not a string", 2)
+      end
+      parts[index] = written(field, delimiter, #record == 1)
+    end
+    lines[#lines + 1] = table.concat(parts, delimiter) .. line_end
+  end
+  return table.concat(lines)
 end
 
 --- The column names for `header`'s fields, one to a field and in its
