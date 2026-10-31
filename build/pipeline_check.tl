@@ -14,6 +14,7 @@ local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local logger = require("build.logger")
 local TreeProgram = require("build.tree_program")
+local tree = require("build.tree")
 local check_memo = require("build.check_memo")
 local Hash = require("cosmic.hash")
 
@@ -186,7 +187,11 @@ function PipelineCheck.compare(
     declared: {string},
     checked: {string}
 ): {string}
-  local options, why = Pipeline.options(root)
+  local standing, standing_why = tree.standing(root)
+  if standing == nil then
+    return { "the pipeline's options: " .. standing_why }
+  end
+  local options, why = Pipeline.options(root, standing.own)
   if options == nil then
     return { "the pipeline's options: " .. why }
   end

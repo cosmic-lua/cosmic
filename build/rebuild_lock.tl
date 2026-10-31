@@ -46,7 +46,7 @@
 --- any descriptor of the file drops every fcntl lock the process holds
 --- on it, so a holder opens and closes no other while it holds the lock.
 --- A sandboxed test worker never takes it, since only the tree's own
---- tool ([`reboot.own_tool`]) rebuilds.
+--- tool ([`tree.own_tool`]) rebuilds.
 -- The SQLite half stays: any checkout can build a commit from before
 -- the flock (a bisect, an older branch), and that tool takes only
 -- SQLite's.

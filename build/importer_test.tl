@@ -132,7 +132,7 @@ local function requires_of_fixture(root: string, path: string): {string}?, strin
   if handle == nil then
     return nil, open_trouble
   end
-  local staged, stage_trouble = work.stage(handle, false)
+  local staged, stage_trouble = work.stage(handle, { own = false })
   if staged == nil then
     work.close(handle)
     return nil, stage_trouble
@@ -160,7 +160,7 @@ local function compile_fixture(root: string): importer.Result?, string
   if handle == nil then
     return nil, open_trouble
   end
-  local staged, stage_trouble = work.stage(handle, false)
+  local staged, stage_trouble = work.stage(handle, { own = false })
   if staged == nil then
     work.close(handle)
     return nil, stage_trouble
@@ -231,7 +231,7 @@ local function test_compile_consumes_shared_cache_on_success_and_failure()
         valued(2) end,
     }))
     local handle = assert(work.open(root))
-    assert(work.stage(handle, false))
+    assert(work.stage(handle, { own = false }))
     local shared, trace = traced_cache()
     local result, trouble = importer.compile(handle, "cache-lifetime", false, shared)
     assert(trace.finished == 1, "compile did not finish its cache exactly once")
@@ -252,7 +252,7 @@ end
 local function test_compile_finishes_shared_cache_when_derivation_fails()
   local root = assert(write_fixture("cache-derive", { ["cosmic/claimed.tl"] = "return {}\n" }))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local shared, trace = traced_cache()
   local result, trouble = importer.compile(handle, "cache-lifetime", false, shared)
   assert(result == nil and trouble:find("reserved", 1, true) ~= nil, trouble)
@@ -268,7 +268,7 @@ local function test_self_compile_consumes_cache_after_identity_selection()
       ["core/empty.h"] = "",
     }))
     local handle = assert(work.open(root))
-    assert(work.stage(handle, true))
+    assert(work.stage(handle, { own = true }))
     if phase == "record" then
       assert(handle.db:exec("CREATE TRIGGER refuse_identity BEFORE INSERT ON meta " ..
           "WHEN NEW.key = 'compiler' BEGIN SELECT RAISE(ABORT, 'identity refused'); END"))
@@ -523,7 +523,7 @@ end
 --- the build it made a moment ago where nothing has moved since.
 local function compile_again(root: string): importer.Result
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "importer-test", false, nil, nil, true))
   work.close(handle)
   return result
@@ -702,7 +702,7 @@ end
 --- fingerprints too.
 local function boot_hash_of(root: string): string
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   local fingerprint = assert(identity.record_fingerprint(handle.db, handle.root))
   work.close(handle)
   return fingerprint.boot
@@ -711,7 +711,7 @@ end
 --- The tool's hash over what its C core is built from.
 local function image_hash_of(root: string): string
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   local fingerprint = assert(identity.record_fingerprint(handle.db, handle.root))
   work.close(handle)
   return fingerprint.image
@@ -779,8 +779,8 @@ local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
       "importer.withheld = withheld\nreturn importer\n"))
   local function identities(): {string}
     local handle = assert(work.open(root))
-    assert(work.stage(handle, true))
-    assert(importer.derive(handle, true))
+    assert(work.stage(handle, { own = true }))
+    assert(importer.derive(handle))
     local found = assert(identity.record_identities(handle.db))
     work.close(handle)
     return { found.compiler, found.runtime_basis }
@@ -822,8 +822,8 @@ local function test_compiler_identity_follows_the_new_checkers_declarations()
       "importer.withheld = withheld\nreturn importer\n"))
   local function hashes(): {string}, boolean
     local handle = assert(work.open(root))
-    assert(work.stage(handle, true))
-    assert(importer.derive(handle, true))
+    assert(work.stage(handle, { own = true }))
+    assert(importer.derive(handle))
     local found = assert(identity.record_identities(handle.db))
     local fingerprint = assert(identity.record_fingerprint(handle.db, handle.root))
     local rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM files WHERE path GLOB 'lang/*'"))
@@ -911,7 +911,7 @@ local function test_boot_hash_leaves_out_tests()
   assert(Fs.write(root .. "/cosmic/example.tl", "changed"))
   assert(boot_hash_of(root) ~= original, "the module beside the tests did not move it")
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   local rows = assert(Sqlite.text_rows(handle.db,
     "SELECT (SELECT count(*) FROM tool WHERE path GLOB '*_test.tl'), " ..
       "(SELECT count(*) FROM files WHERE path = 'cosmic/added_test.tl')"))
@@ -995,7 +995,7 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
     }, "\n"),
   }))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result = compiled_clean(handle)
   assert(writer.write_result(handle, handle.dir .. "/cosmic.db", result))
   local shipped = assert(Sqlite.open(handle.dir .. "/cosmic.db"))
@@ -1051,8 +1051,8 @@ local function test_compiler_identity_is_the_same_on_a_fresh_database()
       "return importer\n"))
   local function compiler_identity(): string
     local handle = assert(work.open(root))
-    assert(work.stage(handle, true))
-    assert(importer.derive(handle, true))
+    assert(work.stage(handle, { own = true }))
+    assert(importer.derive(handle))
     local found = assert(identity.record_identities(handle.db))
     work.close(handle)
     return found.compiler
@@ -1106,8 +1106,8 @@ local function test_writer_identity_follows_the_writer_closure()
       "importer.helper = helper\nreturn importer\n"))
   local function writer_identity(): string
     local handle = assert(work.open(root))
-    assert(work.stage(handle, true))
-    assert(importer.derive(handle, true))
+    assert(work.stage(handle, { own = true }))
+    assert(importer.derive(handle))
     local found = assert(identity.record_identities(handle.db))
     work.close(handle)
     return found.writer
@@ -1181,7 +1181,7 @@ local function test_generated_lua_keeps_teal_line_numbers()
   }, "\n") .. "\n"
   assert(Fs.write(root .. "/lines.tl", source))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result = compiled_clean(handle)
   local lua: string? = nil
   for _, m in ipairs(result.modules) do
@@ -1219,7 +1219,7 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
     "--- A thing.\nlocal record Thing\nend\nreturn Thing\n"))
   local function derived_with(boot_hash: string, plant: boolean, analyzer?: string): integer
     local handle = assert(work.open(root))
-    assert(work.stage(handle, true))
+    assert(work.stage(handle, { own = true }))
     assert(Sqlite.run(handle.db,
       "INSERT OR REPLACE INTO meta (key, value) VALUES ('boot_hash', ?1)",
       { { text = boot_hash } }))
@@ -1238,7 +1238,7 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
           "'Planted', 'Planted', 0, 'record', '', '', 1 " ..
           "FROM inputs WHERE path = 'cosmic.thing'"))
     end
-    assert(importer.derive(handle, true))
+    assert(importer.derive(handle))
     local rows = assert(Sqlite.text_rows(handle.db,
       "SELECT count(*) FROM docs WHERE symbol = 'Planted'"))
     work.close(handle)
@@ -1274,12 +1274,12 @@ local function test_own_tree_staging_skips_the_ci_driver_tree()
   assert(Fs.write(root .. "/ci/o/build.db", "not a real sqlite database"))
 
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   local staged = assert(Sqlite.text_rows(handle.db,
     "SELECT path FROM files WHERE path GLOB 'ci/*'"))
   assert(#staged == 0, "staging recorded a file under ci/: " .. tostring(staged[1]))
 
-  assert(importer.derive(handle, true))
+  assert(importer.derive(handle))
   local inputs = assert(Sqlite.text_rows(handle.db,
     "SELECT file FROM inputs WHERE file GLOB 'ci/*'"))
   assert(#inputs == 0, "derived inputs included a module under ci/: " ..
@@ -1313,7 +1313,7 @@ local function test_compile_rejects_an_exported_tuple()
     }, "\n") .. "\n",
   }))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   local result, trouble = importer.compile(handle, "api-contract-test")
   work.close(handle)
   assert(result ~= nil, trouble)
@@ -1347,7 +1347,7 @@ local function test_compile_rejects_a_dropped_error_slot()
     }, "\n") .. "\n",
   }))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   local result, trouble = importer.compile(handle, "error-slot-test")
   work.close(handle)
   assert(result ~= nil, trouble)
@@ -1390,7 +1390,7 @@ local function test_generated_syscall_docs_carry_header_lines()
     }, "\n") .. "\n",
   }))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   local result = assert(importer.compile(handle, "syscall-lines-test"))
   assert(writer.write_result(handle, root .. "/out.db", result))
   work.close(handle)
@@ -1462,8 +1462,8 @@ end
 --- over the tree at `root` once it has parsed it.
 local function identities_of(root: string): {string}
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
-  assert(importer.derive(handle, true))
+  assert(work.stage(handle, { own = true }))
+  assert(importer.derive(handle))
   local found = assert(identity.record_identities(handle.db))
   local analyzer = importer.analyzer_identity((assert(importer.tree_code(handle))))
   work.close(handle)
@@ -1781,7 +1781,7 @@ local function test_an_unjudged_compile_is_judged_by_the_next()
     }, "\n") .. "\n",
   }))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   local unjudged, unjudged_trouble = importer.compile(handle, "unjudged-test", true)
   assert(unjudged ~= nil, unjudged_trouble)
   local result, trouble = importer.compile(handle, "unjudged-test")
@@ -1819,7 +1819,7 @@ local function test_an_unjudged_refused_compile_is_not_shared()
   }))
   local path = root .. "/cache/cache.db"
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   local result, trouble = importer.compile(handle,
     "unjudged-test",
     true,
@@ -1863,7 +1863,7 @@ local function test_a_passing_unjudged_compile_is_cached()
     }, "\n") .. "\n",
   }))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, true))
+  assert(work.stage(handle, { own = true }))
   local unjudged, unjudged_trouble = importer.compile(handle, "unjudged-test", true)
   assert(unjudged ~= nil, unjudged_trouble)
   assert(unjudged.compiled > 0, "the rebuild compiled nothing")
@@ -1928,7 +1928,7 @@ local function compiled_with_references(case: string): work.Handle
     }, "\n"),
   }))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   compiled_clean(handle)
   return handle
 end

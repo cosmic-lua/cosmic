@@ -32,7 +32,7 @@ local function own_tree(tmp: string, files: {string: string}): work.Handle, stri
     assert(Fs.write(root .. "/" .. file, text))
   end
   local handle = assert(work.open(root))
-  local staged, why = work.stage(handle, true)
+  local staged, why = work.stage(handle, { own = true })
   assert(staged ~= nil, tostring(why))
   return handle, root
 end
@@ -79,7 +79,7 @@ local function test_a_project_stages_none_and_says_nothing(tmp: string)
   assert(Fs.write(root .. "/lang/prelude.d.tl", PRELUDE))
   assert(Fs.write(root .. "/lang/stdlib.d.tl", STDLIB))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local texts, why = CheckerDeclarations.staged(handle.db, root)
   assert(texts == nil and why == "", tostring(why))
   assert(work.close(handle))

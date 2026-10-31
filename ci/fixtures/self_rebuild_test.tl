@@ -234,11 +234,13 @@ local function archive_tree(tree: string)
 end
 
 -- Copies the fixture-only runtime into the archived tree's tool,
--- executable, and returns its path.
+-- executable, and returns its path. The runtime was booted from the tree
+-- the product was, at another path; it is put here as the tool a boot of
+-- this copy would have written, built from this copy.
 local function place_runtime(fixture_dir: string, tree: string): string
   local program = BuildPaths.directory(tree) .. "/bin/cosmic"
   Fixture.mkdir(BuildPaths.directory(tree) .. "/bin")
-  Fixture.copy(fixture_dir .. "/runtime.old", program, 0x1ed)
+  Fixture.retargeted(fixture_dir .. "/runtime.old", program, assert(sys.realpath(tree)), 0x1ed)
   return program
 end
 
@@ -721,15 +723,14 @@ local function test_self_rebuild_fix_verb(tmp: string)
     "fix: second invocation reported staleness though the tool is fresh")
 end
 
--- A stale cosmic that is not the tree's own tool (one outside its build
--- directory, as a
--- release, the bootstrap cache's or one on PATH is) refuses rather than
--- rebuild, since the rebuild would write the tree's tool over its own
--- file. `docs` meets the refusal in `build.reboot.stale_exit`, `test` and
--- a file run in `build.reboot.guard`, and `db` with an option it lacks in
--- the check build/dispatch.tl makes before it calls a refused command
--- line a usage error.
-local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
+-- A cosmic that is not the tree's own tool (one outside its build
+-- directory, as a release, the bootstrap cache's or one on PATH is) is
+-- built from no checkout of this path, so the tree is a project to it: it
+-- never rebuilds itself from the tree, which would write the tree's tool
+-- over its own file. A verb that compiles the tree refuses, since the tree
+-- holds the `cosmic` directory only the tool built from it may read, and
+-- says to run bin/cosmic.
+local function test_a_cosmic_outside_the_tree_is_a_project_to_it_and_rebuilds_nothing(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local case_root = tmp .. "/case-foreign"
   local tree = case_root .. "/tree"
@@ -748,21 +749,55 @@ local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
       { "docs", "cosmic.child" },
       { "test", "build/embed_test.tl" },
       { "build/embed_test.tl" },
-      -- An option the tree may have added is not refused as a usage error.
       { "db", "--an-option-this-tool-lacks" },
   }) do
     local argv = { program }
     for _, word in ipairs(verb) do argv[#argv + 1] = word end
     local outcome = Fixture.call_with_environment("foreign-" .. (assert(verb[1]):gsub("/", "-")),
       argv, tree, diagnostics, values)
-    assert(outcome.result.code == 3, assert(verb[1]) .. ": exit status was " ..
-        tostring(outcome.result.code) .. ", want 3")
-    Fixture.contains(outcome.err, "is not the tree's own tool")
-    assert(not Fixture.read(outcome.err):find("rebuilding it from the tree", 1, true),
+    local err = Fixture.read(outcome.err)
+    if verb[1] == "test" or verb[1] == "build/embed_test.tl" then
+      assert(outcome.result.code ~= 0, assert(verb[1]) .. ": a tool outside the tree compiled it")
+      Fixture.contains(outcome.err, "run bin/cosmic")
+    end
+    assert(not err:find("rebuilding it from the tree", 1, true),
       assert(verb[1]) .. ": a tool outside the tree rebuilt itself")
     assert(Fixture.hash(program) == before_hash,
       assert(verb[1]) .. ": a tool outside the tree was overwritten")
     assert(Fs.exists(BuildPaths.directory(tree) .. "/bin/cosmic") == false,
       assert(verb[1]) .. ": a tool outside the tree wrote one into it")
+  end
+end
+
+-- A tool in the tree's build directory that records another tree (a
+-- copy of the tool of a checkout at another path) or none (a tool from
+-- before the record) is the tree's own tool of a tree it was not built
+-- from. Every verb that needs to know what the tree is refuses and says to
+-- boot, rather than go on as if the tree were a project. The boot it names
+-- is `self_driven_test.tl`'s, which holds the tool it writes to the tree.
+local function test_a_tool_of_the_trees_build_directory_built_from_another_refuses(tmp: string)
+  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local case_root = tmp .. "/case-moved"
+  local tree = case_root .. "/tree"
+  local diagnostics = case_root .. "/logs"
+  Fixture.mkdir(diagnostics)
+  archive_tree(tree)
+  local program = BuildPaths.directory(tree) .. "/bin/cosmic"
+  Fixture.mkdir(BuildPaths.directory(tree) .. "/bin")
+  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = case_root .. "/cache" })
+  -- Built from another path, and from none.
+  for index = 1, 2 do
+    local recorded: string? = nil
+    if index == 1 then recorded = "/where/the/checkout/was" end
+    Fixture.retargeted(fixture_dir .. "/runtime.old", program, recorded, 0x1ed)
+    local before_hash = Fixture.hash(program)
+    for _, verb in ipairs({ { "docs", "cosmic.child" }, { "todos" }, { "test", "build/embed_test.tl" } }) do
+      local argv = { program }
+      for _, word in ipairs(verb) do argv[#argv + 1] = word end
+      local outcome = Fixture.call_with_environment("moved-" .. assert(verb[1]), argv, tree, diagnostics, values)
+      assert(outcome.result.code ~= 0, assert(verb[1]) .. ": went on as if the tree were a project")
+      Fixture.contains(outcome.err, "run bin/zig build boot")
+      assert(Fixture.hash(program) == before_hash, assert(verb[1]) .. ": a refusing tool was overwritten")
+    end
   end
 end

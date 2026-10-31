@@ -289,7 +289,7 @@ local function test_a_settled_source_rewrite_runs_new_bytecode(tmp: string)
   local handle = assert(work.open(tmp))
   local now = Clock.now_ns
   Clock.now_ns = function(): integer return now() + Clock.seconds(3) end
-  local ok, staged, trouble = pcall(work.stage, handle, false)
+  local ok, staged, trouble = pcall(work.stage, handle, { own = false })
   Clock.now_ns = now
   assert(ok and staged ~= nil, tostring(trouble))
   assert(work.close(handle))

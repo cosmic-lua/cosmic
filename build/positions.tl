@@ -15,6 +15,7 @@
 
 local Fs = require("cosmic.fs")
 local type module = require("build.module")
+local type tree = require("build.tree")
 local type Module = module.Plan
 
 local record positions
@@ -105,10 +106,11 @@ end
 --- them out, and `cosmic/internal/`'s are guarded by the reserved
 --- `cosmic.internal.` namespace, which no ordinary `require` satisfies.
 --- @param modules every module the tree holds, with its requires
---- @param own_tree whether the tree is cosmic's own
+--- @param standing what the tree is to the running tool: cosmic's own tree may define `cosmic.*` and holds what that
+---   reserves
 --- @param carried whether the running binary carries a row of a module,
 ---   which tells a project tree's Teal `cosmic.internal.*` from a raw table
-function positions.check(modules: {positions.Module}, own_tree: boolean,
+function positions.check(modules: {positions.Module}, standing: tree.Standing,
                          carried?: function(name: string): boolean): boolean, string
   local by_path: mut {string:positions.Module} = {}
   local entries: mut {string:string} = {}
@@ -122,7 +124,7 @@ function positions.check(modules: {positions.Module}, own_tree: boolean,
     for _, name in ipairs(m.requires) do
       local other = by_path[name]
       local internal = name:sub(1, 16) == "cosmic.internal."
-      if internal and not own_tree and (other ~= nil or (carried ~= nil and carried(name))) then
+      if internal and not standing.own and (other ~= nil or (carried ~= nil and carried(name))) then
         return false, m.file .. ": " .. name .. " is internal to cosmic's own tree; " ..
           "`cosmic.internal.*` is the standard library's, and a project may not require it"
       end
@@ -133,7 +135,7 @@ function positions.check(modules: {positions.Module}, own_tree: boolean,
       if other ~= nil then
         local home = home_of(other.file)
         local open = home == "" or (not home:find("/", 1, true) and entries[home] == nil) or
-          (own_tree and (home == "cosmic/internal" or OPEN_MEMBERS[name] == true))
+          (standing.own and (home == "cosmic/internal" or OPEN_MEMBERS[name] == true))
         if not open and not Fs.within(m.file, home) then
           local home_entry = entries[home]
           local entry = if home_entry ~= nil then ("its entry is " .. home_entry) else
@@ -141,11 +143,11 @@ function positions.check(modules: {positions.Module}, own_tree: boolean,
           return false, m.file .. ": " .. name .. " is private to " .. home ..
             "/; only a file inside it may import it (" .. entry .. ")"
         end
-        if own_tree and Fs.within(other.file, "build") and not may_import_build(m) then
+        if standing.own and Fs.within(other.file, "build") and not may_import_build(m) then
           return false, m.file .. ": " .. name .. " is private to build/; " ..
             "only build/, cmd/, test/ and tests may import it"
         end
-        if own_tree and other.kind == "test" and m.kind ~= "test" then
+        if standing.own and other.kind == "test" and m.kind ~= "test" then
           return false, m.file .. ": " .. name .. " is a test; only a test may " ..
             "import one, since the tool carries none"
         end

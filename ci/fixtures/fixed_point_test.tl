@@ -2,6 +2,7 @@ local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
 local Fixture = require("cosmic_ci.fixture")
 local Maps = require("cosmic_ci.maps")
+local sys = require("cosmic.sys")
 
 local Test = require("cosmic.test")
 
@@ -83,7 +84,8 @@ end
 -- The fixed point of the self-rebuild. The tool a boot wrote (the
 -- product) is made stale by `edit` of `file` and rebuilt, then made stale
 -- again by undoing it and rebuilt once more. The result must be the
--- product again, byte for byte (prefix, database and all). The second
+-- product again, byte for byte (prefix, database and all) but for the row
+-- that names the tree it is built from, which is the case's. The second
 -- rebuild is done by a tool the first built, so this holds only when a
 -- tool built by a rebuild compiles and writes what a boot does.
 -- `settles` is whether `file` is in the writer's identity (`build.identity`'s
@@ -115,8 +117,10 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
   Fixture.source_tree(tree)
   local program = BuildPaths.directory(tree) .. "/bin/cosmic"
   Fixture.mkdir(BuildPaths.directory(tree) .. "/bin")
-  Fixture.copy(product, program, 0x1ed)
-  local booted = Fixture.hash(product)
+  -- The product was booted in the checkout the driver built in: put in this copy, it is the tool a boot here
+  -- would have written, built from this copy.
+  Fixture.retargeted(product, program, assert(sys.realpath(tree)), 0x1ed)
+  local booted = Fixture.stripped(product, case_root .. "/booted.db")
 
   local path = tree .. "/" .. file
   local original = Fixture.read(path)
@@ -151,7 +155,9 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
         "database again " .. tostring(settled_lines) .. " times, want " ..
         tostring(want))
   end
-  assert(Fixture.hash(program) == booted, name .. ": the tool two " ..
+  assert(Fixture.meta(program, case_root .. "/rebuilt.db")["built_from"] == assert(sys.realpath(tree)),
+    name .. ": the tool two self-rebuilds left is built from another path")
+  assert(Fixture.stripped(program, case_root .. "/rebuilt.db") == booted, name .. ": the tool two " ..
       "self-rebuilds left is not the tool the boot wrote")
 end
 
