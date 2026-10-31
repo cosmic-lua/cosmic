@@ -51,7 +51,8 @@ end
 
 --- `bytes`, an artifact, with the database's `built_from` row set to `built_from`, or removed where that is nil,
 --- and everything else as it was. The database is vacuumed, as the writer leaves it, so what two tools built from
---- different paths differ in is that row alone: with the row removed they are the same bytes.
+--- different paths differ in is that row alone: with the row removed they are the same bytes, however many times
+--- either was rewritten.
 --- `scratch` is a path to write the database at while it is rewritten.
 function ArtifactRow.with(bytes: string, scratch: string, built_from: string?): string
   local parts = ArtifactRow.apart(bytes)
@@ -67,6 +68,13 @@ function ArtifactRow.with(bytes: string, scratch: string, built_from: string?): 
   assert(db:close())
   local database = assert(Fs.read(scratch))
   assert(Fs.remove(scratch))
+  -- The header counts the transactions that wrote the file (bytes 24-27, and 92-95 for the version that count is
+  -- valid for) and the schema's changes (40-43, which a vacuum is), so a database rewritten twice would differ
+  -- from one rewritten once in nothing that is a row. They are set to zero, so what comes out depends on the rows
+  -- alone.
+  local zero = "\0\0\0\0"
+  database = database:sub(1, 24) .. zero .. database:sub(29, 40) .. zero .. database:sub(45, 92) .. zero ..
+    database:sub(97)
   local trailer = parts.magic .. string.pack(">I4I4I8I8I8I8", parts.version, parts.length,
     parts.manifest_offset, parts.manifest_length, #parts.head, #database)
   return parts.head .. database .. trailer

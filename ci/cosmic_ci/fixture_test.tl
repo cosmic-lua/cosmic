@@ -119,3 +119,14 @@ local function test_tools_built_from_other_paths_are_one_tool_without_the_row(tm
   assert(Fixture.stripped(tmp .. "/near", tmp .. "/s.db") == Fixture.stripped(tmp .. "/far", tmp .. "/s.db"),
     "the paths left more than the row")
 end
+
+--- A tool rewritten twice is the same bytes as one rewritten once, once the row is removed: the attestation of a
+--- portable artifact that was retargeted compares it with the product that was not.
+local function test_a_tool_rewritten_twice_is_the_tool_rewritten_once(tmp: string)
+  Fixture.write(tmp .. "/tool", Fixture.synthetic(tmp .. "/a.db", "/a"))
+  Fixture.retargeted(tmp .. "/tool", tmp .. "/moved", "/elsewhere")
+  Fixture.write(tmp .. "/twice", Fixture.stripped(tmp .. "/moved", tmp .. "/s.db"))
+  assert(Fixture.read(tmp .. "/twice") == Fixture.stripped(tmp .. "/tool", tmp .. "/s.db"),
+    "a second rewrite left its mark")
+  assert(Fixture.meta(tmp .. "/twice", tmp .. "/m.db")["boot_hash"] == "kept", "the zeroed header unreads the database")
+end
