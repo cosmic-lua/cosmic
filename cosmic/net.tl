@@ -15,7 +15,10 @@
 ---
 --- A connection is one object for both directions; `shutdown("write")`
 --- tells the peer the end of what was sent while its answer is still
---- read. The direction is a [`Net.Shutdown`]: "read", "write" or "both",
+--- read. That suits a protocol whose request ends at end of file; after a
+--- framed request (HTTP, a length prefix) do not half-close, since some
+--- servers take the FIN as the client leaving and drop the answer. HTTP
+--- over a unix socket is [`Http.request`] with `via`. The direction is a [`Net.Shutdown`]: "read", "write" or "both",
 --- and any other string does not compile.
 ---
 --- Every wait -- to connect, to accept, to read, to write -- lasts at

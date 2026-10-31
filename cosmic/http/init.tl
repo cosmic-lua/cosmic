@@ -1,5 +1,8 @@
 --- HTTP and HTTPS requests, typed: HTTP and HTTPS only, with no cookies,
---- no HTTP/2 and no compressed transfer-encoding.
+--- no HTTP/2 and no decoding of a compressed body: no `Accept-Encoding` is
+--- sent, and the body is never decoded. A body a server compresses anyway
+--- arrives as sent; check `headers["content-encoding"]` and give the body
+--- to [`Compress.inflate`] when it says so.
 ---
 ---     local got = assert(Http.get("https://example.com/"))
 ---     if got.status // 100 ~= 2 then error("HTTP " .. got.status .. ": " .. got.body) end

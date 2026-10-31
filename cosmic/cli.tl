@@ -269,7 +269,9 @@ local record Cli
   --- scalars a `value` column, and any other value one row; a nested
   --- object or array is JSON text for `json_extract`, a boolean is 0 or
   --- 1, `_json` is the whole row, and a key that would collide (`A` with
-  --- `a`, or `_json`, `rowid`) is renamed `_2`. With no statement it prints each
+  --- `a`, or `_json`, `rowid`) is renamed `_2`. `SELECT *` answers the file's
+  --- columns and then `_json` last; name the columns (`SELECT a, b`) to get
+  --- only the file's. With no statement it prints each
   --- table's row count, columns with the types stored, and a sample row.
   --- A missing column or table is answered with the ones there are.
   --- Exit codes as below, 1 for a file it cannot read or load. The

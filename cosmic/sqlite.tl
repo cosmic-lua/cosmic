@@ -1,4 +1,5 @@
---- SQLite, typed.
+--- SQLite, typed: cosmic's embedded SQL database, a `db` in one file or in
+--- memory, with no server and nothing to install.
 ---
 --- Values keep their type: text and bytes are different, and a parameter
 --- is bound by naming what it is. On top of a handle this module gives
@@ -160,6 +161,11 @@ local record Sqlite
   --- checker does not see (a cast, an `any`, a Lua chunk) that indexes a row
   --- reads the row's internal slots, kinds mixed with values, and nothing
   --- refuses it: read a row only through its accessors.
+  ---
+  --- Every accessor is positional, so a `SELECT` whose columns are
+  --- reordered still type-checks and reads the wrong column. [`Sqlite.map`]
+  --- keeps the order beside the reads, in one function; prefer it to
+  --- numbering columns at each call.
   ---
   ---     local db = assert(Sqlite.memory())
   ---     local rows = assert(Sqlite.rows(db, "SELECT 7, 'seven', NULL, x'ff'"))
@@ -967,6 +973,10 @@ end
 --- `work` raises, the transaction rolls back and the same error is
 --- raised again. A transaction already open on `handle` makes `BEGIN`
 --- fail, so calls do not nest.
+---
+--- `DETACH` of an attached database fails with "database X is locked"
+--- while a transaction that read that database is open. `ATTACH` it,
+--- `transact`, and `DETACH` once the transaction has committed.
 ---
 --- The statements of one transaction are written through the same
 --- handle:
