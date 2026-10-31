@@ -139,8 +139,8 @@ local function test_a_command_line_it_refuses_says_how_to_fix_it(tmp: string)
   refused({ "-o", tmp .. "/o", one, pair }, pair .. ": " .. one .. " is also the module one, and a module has one type source")
   refused({ "-o", tmp .. "/o", pair, one }, "Delete " .. pair)
   local named: {{string}} = { { "math.tl", "math" }, { "string.d.tl", "string" }, { "table.tl", "table" } }
-  for _, pair in ipairs(named) do
-    local name, module = assert(pair[1]), assert(pair[2])
+  for _, each in ipairs(named) do
+    local name, module = assert(each[1]), assert(each[2])
     local language = file(tmp, name, "return {}\n")
     refused({ "-o", tmp .. "/o", one, language }, name .. ": its module is named for `" .. module ..
         "`, which the binary answers at run time with the language's own module")

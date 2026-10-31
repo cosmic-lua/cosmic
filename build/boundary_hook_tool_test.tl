@@ -47,8 +47,8 @@ local LIB <const> = table.concat({
 
 --- The tests of the project: sound calls pass; a call that sends an integer for the string and a float for the integer is
 --- one row each at the line of the call, and the functions run on. The calls are made by chunks of Lua text, which a
---- program of the checker's grammar may `load` and hand a function to: the chunk is not checked against the types of the
---- function it calls, as a library written in C would not be.
+--- program of the checker's grammar may `load` and pass a function to (an argument of `...: any`): the chunk is not
+--- checked against the types of the function it calls, as a library written in C would not be.
 local SUITE <const> = table.concat({
   "local Lib = require(\"lib\")",
   "",
@@ -58,10 +58,10 @@ local SUITE <const> = table.concat({
   "end",
   "",
   "local function test_a_value_of_another_kind_is_found_at_the_caller_and_the_function_runs_on()",
-  "  local take = assert(load(\"return take(42)\", \"=take_sender\", \"t\", { take = Lib.take }))",
-  "  assert(tostring(take()) == \"42nil\")",
-  "  local half = assert(load(\"return half(1.5)\", \"=half_sender\", \"t\", { half = Lib.half }))",
-  "  assert(tostring(half()) == \"0.0\")",
+  "  local take = assert(load(\"local take = ...; return take(42)\", \"=take_sender\"))",
+  "  assert(tostring(take(Lib.take)) == \"42nil\")",
+  "  local half = assert(load(\"local half = ...; return half(1.5)\", \"=half_sender\"))",
+  "  assert(tostring(half(Lib.half)) == \"0.0\")",
   "end",
   "",
 }, "\n")
@@ -115,8 +115,8 @@ local function test_a_checked_run_reports_the_parameter_that_is_false_at_the_cal
     seen[#seen + 1] = table.concat(row:texts(), " | ")
   end
   local want = {
-    "parameter | half_sender:1 | parameter n of half (lib.tl:5) | integer | float | 1",
-    "parameter | take_sender:1 | parameter name of take (lib.tl:1) | string | integer | 1",
+    "parameter | boundary_test.tl:10 | parameter name of take (lib.tl:1) | string | integer | 1",
+    "parameter | boundary_test.tl:12 | parameter n of half (lib.tl:5) | integer | float | 1",
   }
   assert(#seen == 2, table.concat(seen, "\n"))
   assert(seen[1] == want[1], seen[1])

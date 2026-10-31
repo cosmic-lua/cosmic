@@ -2,7 +2,7 @@
 --- by the new checker (`COSMIC_GRAMMAR=new`), each read of a place a test narrowed is wrapped in a call of `__fact`
 --- ([`lang.fact_wraps`]), and the tool's worker runs the tests with the hook that checks them. A narrowing that is false at
 --- run time is reported at its read in the summary and in the working database's `type_violations`, as kind "fact"; a
---- correct program reports nothing. The narrowing is made false by a chunk of Lua text the program `load`s and hands a
+--- correct program reports nothing. The narrowing is made false by a chunk of Lua text the program `load`s and passes a
 --- record: it clears a field the checker took to be fixed, which no program of the checker's grammar can do by a cast.
 ---
 --- The project is compiled by the tool the test starts, in the new mode whatever the mode of the suite that runs this test.
@@ -68,7 +68,7 @@ local LIB <const> = table.concat({
 }, "\n")
 
 --- The tests of the project: a sound read passes, and a read of the field, after a call that cleared it, is found where it
---- is false. The call is a chunk of Lua text, which is not checked against the record it is handed.
+--- is false. The call is a chunk of Lua text, which is not checked against the record it is passed.
 local SUITE <const> = table.concat({
   "local Lib = require(\"lib\")",
   "",
@@ -79,8 +79,10 @@ local SUITE <const> = table.concat({
   "",
   "local function test_an_unsound_read_is_found()",
   "  local box: Lib.Box = { value = \"kept\" }",
-  "  local poke = assert(load(\"b.value = nil\", \"=poke\", \"t\", { b = box }))",
-  "  local ok, message = pcall(Lib.reread, box, poke)",
+  "  local clear = assert(load(\"local b = ...; b.value = nil\", \"=poke\"))",
+  "  local ok, message = pcall(function(): string",
+  "    return Lib.reread(box, function() clear(box) end)",
+  "  end)",
   "  assert(not ok and tostring(message):find(\"fact violated at lib.tl:\", 1, true) ~= nil, tostring(message))",
   "end",
   "",
