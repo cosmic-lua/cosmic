@@ -14,7 +14,7 @@ static int mbed_verify_cb(void *ptr, mbedtls_x509_crt *crt,
                           int depth, uint32_t *flags)
 {
   struct Curl_cfilter *cf = (struct Curl_cfilter *)ptr;
-  struct ssl_primary_config *conn_config = Curl_ssl_cf_get_primary_config(cf);
+  struct ssl_filter_config *conn_config = Curl_ssl_cf_get_filter_config(cf);
   struct Curl_easy *data = CF_DATA_CURRENT(cf);
 --- replace
 uint32_t cosmic_tls_distrust(CURL *easy, const mbedtls_x509_crt *crt,
@@ -24,7 +24,7 @@ static int mbed_verify_cb(void *ptr, mbedtls_x509_crt *crt,
                           int depth, uint32_t *flags)
 {
   struct Curl_cfilter *cf = (struct Curl_cfilter *)ptr;
-  struct ssl_primary_config *conn_config = Curl_ssl_cf_get_primary_config(cf);
+  struct ssl_filter_config *conn_config = Curl_ssl_cf_get_filter_config(cf);
   struct Curl_easy *data = CF_DATA_CURRENT(cf);
 
   *flags |= cosmic_tls_distrust(data, crt, depth);
