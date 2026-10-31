@@ -11,6 +11,7 @@
 --- open document's are those of its last check; every other module's are
 --- the stage's (the `requires` rows).
 
+local AnalysisSchema = require("build.analysis_schema")
 local Store = require("cosmic.store")
 local plans = require("build.plans")
 local plan = require("build.lsp.plan")
@@ -46,7 +47,7 @@ local function listed(src: source.View): {Module}
   if held.files == src.files then return held.modules end
   local out: mut {Module} = {}
   for file, m in pairs(src.files) do
-    if m.kind ~= "decl" and m.kind ~= "vendor" then
+    if not AnalysisSchema.is_declaration(m.kind) and m.kind ~= "vendor" then
       out[#out + 1] = module_of(m.path, file, m.kind, {})
     end
   end
@@ -73,7 +74,7 @@ end
 local function edges_of(src: source.View, subject: Module, opened: {string:{string}}): {string:{string}}
   local out: mut {string:{string}} = {}
   for file, m in pairs(src.files) do
-    if m.kind ~= "decl" and m.kind ~= "vendor" then
+    if not AnalysisSchema.is_declaration(m.kind) and m.kind ~= "vendor" then
       out[m.path] = opened[file] or src.requires[m.source_hash] or {}
     end
   end

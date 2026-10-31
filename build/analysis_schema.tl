@@ -84,6 +84,40 @@ local function kind_case(column: string): string
   return table.concat(out)
 end
 
+local declaration_kind <const> = "decl"
+
+--- The kind a build gives a declaration it writes or derives and says nothing more of ([`build.derivation`],
+--- [`build.lsp.plan`]).
+function analysis_schema.declaration_kind(): string
+  return declaration_kind
+end
+
+--- The kinds that are a declaration, a file of types that no program runs, not a module: the one place that says
+--- which, asked in SQL ([`analysis_schema.declaration`]) and in Teal ([`analysis_schema.is_declaration`]). A kind a
+--- derived declaration is given belongs here before it is written to the `derived` table.
+local declarations <const>: {string} = { declaration_kind }
+
+--- The SQL expression that is true of a row whose kind in `column` is a declaration. `column` is an SQL identifier of
+--- the query, never data: it is spliced into the statement.
+function analysis_schema.declaration(column: string): string
+  return column .. " IN ('" .. table.concat(declarations, "', '") .. "')"
+end
+
+--- The SQL expression that is true of a row whose kind in `column` is no declaration: a module, a test, an example,
+--- a main, or whatever else a build reads that is not a file of types. `column` is an SQL identifier of the query, never
+--- data: it is spliced into the statement.
+function analysis_schema.not_declaration(column: string): string
+  return column .. " NOT IN ('" .. table.concat(declarations, "', '") .. "')"
+end
+
+--- Whether `kind`, the kind of a module of a build, is a declaration.
+function analysis_schema.is_declaration(kind: string): boolean
+  for _, each in ipairs(declarations) do
+    if kind == each then return true end
+  end
+  return false
+end
+
 --- The kind of the Teal file `path`, below the root, as the `inputs` view says it: `decl`, `test`, `example`, `main` or
 --- `module`.
 function analysis_schema.kind_of(path: string): string
