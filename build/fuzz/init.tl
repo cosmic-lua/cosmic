@@ -8,6 +8,14 @@
 --- which is how a parser that stops terminating is attributed to its
 --- input instead of hanging the suite.
 ---
+--- `FUZZ_SECONDS` bounds how long a property may spend drawing: past it,
+--- once `FUZZ_ITERS` or the default 64 inputs have not all been drawn but at
+--- least 64 have, the run stops, prints how many inputs it drew and why,
+--- and holds its labels to that many. It is for a deep run (the nightly
+--- fuzz.yml) over properties whose every input costs a tenth of a second
+--- or more, where `FUZZ_ITERS=10000` is hours; it never fails a property
+--- by itself, and the inputs drawn are the first ones of the seed.
+---
 --- A failing input is shrunk before it is reported: the draws that built
 --- it are cut and lowered for as long as the input they build still
 --- fails, so the report names a small case rather than the first one
@@ -37,6 +45,7 @@
 --- names a label fails when too few did, so one whose inputs mostly
 --- stop there is found out too.
 
+local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -68,6 +77,10 @@ local BUDGET_MESSAGE <const> = "instruction budget exceeded"
 
 local DEFAULT_SEED <const> = 1
 local DEFAULT_ITERS <const> = 64
+
+--- The fewest inputs a run bounded by `FUZZ_SECONDS` draws before it may
+--- stop: the default count, which `requires` and `shares` are held to.
+local MIN_BUDGETED <const> = DEFAULT_ITERS
 
 --- VM instructions one check may spend: seconds of work even under
 --- coverage, far past what one parse of a small input should need.
@@ -132,6 +145,10 @@ local record Fuzz
     max_iters?: integer
     --- VM instructions one check may spend.
     budget?: integer
+    --- Seconds the property may spend drawing, in place of
+    --- `FUZZ_SECONDS` (none by default); see the module doc. Not held
+    --- before 64 inputs have been drawn.
+    seconds?: integer
     --- The directory of inputs checked before any is drawn: failures
     --- found before, kept so they stay fixed. `testdata/fuzz/` and the
     --- property's name, slugged, by default; one that does not exist
@@ -333,6 +350,39 @@ local function build(gen: function(Fuzz.Source): string, values: {integer}): str
   return input, draws
 end
 
+--- [`build`] for a candidate of shrinking, under `budget`: the input it
+--- builds and its draws, or nil when the generator spent the budget on it.
+--- A replay gives a draw past the end of its list the low end of its
+--- range, so a generator that loops until a draw is not the low end (a
+--- `while src:int(1, 3) == 1 do`) never ends on a list cut short, and
+--- grows without bound; the candidate is then no failing input, and the
+--- shrink goes on. A generator must stop at the low end of a draw (see
+--- [`Fuzz.more`]), but this is what keeps one that does not from taking
+--- the machine. A generator that raises otherwise raises here as before.
+local record Built
+  mut input?: string
+  mut draws: {Draw}
+end
+
+local function build_within(gen: function(Fuzz.Source): string, values: {integer}, budget: integer): string?, {Draw}
+  local made: Built = { draws = {} }
+  if arm then
+    arm(if (read_hook()) ~= nil then budget * CHECKED_BUDGET_FACTOR else budget end)
+  end
+  local ok, raised = pcall(function()
+    local input, draws = build(gen, values)
+    made.input, made.draws = input, draws
+  end)
+  if arm then arm() end
+  if not ok then
+    if String.ends_with(tostring(raised), BUDGET_MESSAGE) then
+      return nil, {}
+    end
+    error(raised, 0)
+  end
+  return made.input, made.draws
+end
+
 --- The one input a case names -- `p.case`, else `FUZZ_CASE` -- as the
 --- property's slug and the seed of the source that drew it, as a report
 --- prints them. Nil when neither is set; raises when one is set to
@@ -373,6 +423,9 @@ local function run(p: Fuzz.Property): integer
   end
   if case_name ~= nil then iters, whole = 1, false end
   local budget = p.budget or DEFAULT_BUDGET
+  local seconds = p.seconds or nonnegative_env("FUZZ_SECONDS", 0)
+  local began_ns = Clock.monotonic_ns()
+  local asked = iters
   local kept: string?
   local dir = p.dir
   if dir ~= nil then
@@ -384,7 +437,14 @@ local function run(p: Fuzz.Property): integer
   if case_name == nil then replayed = check_corpus(p, budget, kept) end
   local counts: mut {string: integer} = {}
   local seeds = Rand.new(seed)
-  for i = 1, iters do
+  for i = 1, asked do
+    if seconds > 0 and i > MIN_BUDGETED and Clock.monotonic_ns() - began_ns >= Clock.seconds(seconds) then
+      iters = i - 1
+      print(("fuzz %s: stopped after %s of %d, %s spent (FUZZ_SECONDS=%d): every input costs about %.2f s"):
+          format(p.name, plural.count(iters, "input"), asked, plural.count(seconds, "second"), seconds,
+            (Clock.monotonic_ns() - began_ns) / 1e9 / iters))
+      break
+    end
     local draws: mut {Draw} = {}
     local mine: {string: boolean} = {}
     local case = case_seed or seeds:int(math.mininteger, math.maxinteger)
@@ -422,7 +482,8 @@ local function run(p: Fuzz.Property): integer
               reproduce), 0)
       end
       local function fails(values: {integer}): boolean, {Draw}
-        local candidate, used = build(p.gen, values)
+        local candidate, used = build_within(p.gen, values, budget)
+        if candidate == nil then return false, used end
         local still, _ = attempt(p.check, candidate, budget)
         return not still, used
       end
