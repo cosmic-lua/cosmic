@@ -180,3 +180,14 @@ local function test_a_saving_run_with_a_share_unfinished_is_a_timeout()
   fake, code = wait({ stuck }, { HOLD = "1", SHARE_SECONDS = "1620" })
   assert(code == 0 and outputs(fake) == "result=timeout\nfailed=\n", outputs(fake))
 end
+
+--- The listing is read in full: shares the API lists only on its second
+--- page (linked as GitHub's `Link` header does) count.
+local function test_shares_on_a_later_page_count()
+  local first = listed(job("other", "completed", "success", 60), job("s1", "completed", "success", 60),
+    job("s2", "completed", "success", 60))
+  local second = listed(job("s3", "completed", "success", 60), job("s4", "completed", "success", 60))
+  local fake, code = wait({ "[" .. first .. "," .. second .. "]" })
+  assert(code == 0 and outputs(fake) == "result=success\nfailed=\n", outputs(fake))
+  assert(#fake.calls == 2, #fake.calls)
+end

@@ -1935,14 +1935,13 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
   -- saved, and past the download (to save the shares' rows) where main
   -- or the nightly does.
   assert(stopping["if"] == FULL .. " && (steps.shares-wait.outputs.result == 'timeout' || " ..
-      "(steps.shares-wait.outputs.result != 'success' && github.event_name != 'push' && " ..
-      "github.event_name != 'schedule'))" and assert(stopping["run"]):find("exit 1", 1, true) ~= nil,
+      "(steps.shares-wait.outputs.result != 'success' && env.COSMIC_CI_SAVES != 'true'))" and assert(stopping["run"]):find("exit 1", 1, true) ~= nil,
     "the checked job goes on past a failed share where it saves nothing: " .. tostring(stopping["if"]))
   assert(failing["if"] == FULL .. " && steps.shares-wait.outputs.result != 'success'" and
       assert(failing["run"]):find("exit 1", 1, true) ~= nil, "the checked job does not fail where a share failed: " ..
       tostring(failing["if"]))
   -- Where the run saves, the wait holds for every share to complete.
-  assert(wenv["HOLD"] == "${{ (github.event_name == 'push' || github.event_name == 'schedule') && '1' || '' }}",
+  assert(wenv["HOLD"] == "${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule') && '1' || '' }}",
     "the checked job's wait does not hold for every share where it saves: " .. tostring(wenv["HOLD"]))
   -- A timed out wait takes no rows and trims none to save.
   local trimming = step_with_id(checked_steps, "verdicts-trim")

@@ -1440,7 +1440,7 @@
             GH_TOKEN: "${{ github.token }}",
             REPOSITORY: "${{ github.repository }}",
             RUN_ID: "${{ github.run_id }}",
-            HOLD: "${{ (github.event_name == 'push' || github.event_name == 'schedule') && '1' || '' }}",
+            HOLD: "${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule') && '1' || '' }}",
             JOBS: "linux-x86_64-checked-shard-1 linux-x86_64-checked-shard-2 linux-x86_64-checked-shard-3 linux-x86_64-checked-shard-4",
             LIMIT_SECONDS: "3000",
             SHARE_SECONDS: "1620",
@@ -1449,7 +1449,7 @@
         },
         {
           name: "stop where a share failed and nothing is saved",
-          if: "env.COSMIC_CI_SCOPE == 'full' && (steps.shares-wait.outputs.result == 'timeout' || (steps.shares-wait.outputs.result != 'success' && github.event_name != 'push' && github.event_name != 'schedule'))",
+          if: "env.COSMIC_CI_SCOPE == 'full' && (steps.shares-wait.outputs.result == 'timeout' || (steps.shares-wait.outputs.result != 'success' && env.COSMIC_CI_SAVES != 'true'))",
           shell: "sh",
           env: {FAILED: "${{ steps.shares-wait.outputs.failed }}"},
           run: "echo \"a share of the checked suite did not pass: ${FAILED:-(none finished in time)}\"; exit 1",

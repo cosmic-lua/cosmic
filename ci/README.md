@@ -651,17 +651,18 @@ verdicts, which would otherwise ride along whole in each save.
   of the failed jobs sees the shares it carried over) every 20 s, and
   goes on once all four completed with success. A share that completed
   with anything else, or one running 1620 s after it started (its own
-  timeout is 1500 s), makes the wait `failure`; a wait that lasts 3000 s
-  with a share not completed or not listed (one that never got a runner,
-  whatever start the API lists for it) ends as `timeout`. Either way the
-  job fails. Where the run saves nothing (the queue, a dispatch) it fails
-  at once on the first share that did not pass. In a run that saves
-  (main's push, the nightly) the wait holds until every share has
-  completed (`HOLD`), so that the rows it takes are all there, and the
-  job then takes them and runs no test, so that it saves the rows (a
-  failed share keeps its own, without the failed test's) and main's
-  newest entry no longer holds that test's pass; on `timeout` it takes
-  and saves nothing. `ci`
+  timeout is 1500 s), makes the wait `failure`, at once on the first,
+  where the run saves nothing (the queue, a dispatch, a branch). In a run
+  that saves (a push to main, the nightly: `HOLD`) the wait holds until
+  every share has completed, so that the rows it takes are all there,
+  and a share past its 1620 s is waited for there, not reported; a wait
+  that lasts 3000 s with a share not completed or not listed (one that
+  never got a runner, whatever start the API lists for it) ends as
+  `timeout`. Either way the job fails. After `failure` in a run that
+  saves it takes the shares' rows and runs no test, so that it saves the
+  rows (a failed share keeps its own, without the failed test's) and
+  main's newest entry no longer holds that test's pass; on `timeout` it
+  takes and saves nothing. `ci`
   fails on the share itself (it needs `checked-shard` too). The suite
   step runs only where the wait answered `success`, so the gather stands
   on all four shares' verdicts (a passed share has uploaded its
