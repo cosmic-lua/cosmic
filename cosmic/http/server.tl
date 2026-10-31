@@ -15,6 +15,7 @@
 ---         return { status = 200, body = "you asked for " .. req.path .. "\n" }
 ---       end,
 ---     })
+--- @public
 
 local Clock = require("cosmic.clock")
 local Compress = require("cosmic.compress")

@@ -20,6 +20,7 @@ Test.policy{
     { path = "vendor/bzip2/", letters = "r" },
     { path = "vendor/cares/include/", letters = "r" },
     { path = "vendor/curl/include/", letters = "r" },
+    { path = "vendor/expat/lib/", letters = "r" },
     { path = "vendor/lua/src/", letters = "r" },
     { path = "vendor/mbedtls/include/", letters = "r" },
     { path = "vendor/mbedtls/tf-psa-crypto/", letters = "r" },

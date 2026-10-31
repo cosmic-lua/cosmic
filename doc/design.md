@@ -221,7 +221,7 @@ with a policy in it is Teal, stored once in the database and shared
 by every target.
 
 native, per target: the Lua VM; SQLite; mbedtls, which also serves
-hashing and HMAC; miniz for deflate; yyjson for JSON; argon2 and a
+hashing and HMAC; miniz for deflate; yyjson for JSON; expat for XML; argon2 and a
 regex engine, both planned; the syscall table; the database VFS and the
 entry. measured stripped on
 x86_64 musl: Lua 360 KB, SQLite with the flags below 1.1 MB, FTS5
@@ -292,6 +292,10 @@ and yyjson is fuzzed upstream (OSS-Fuzz), keeps 64-bit integers
 exact, and reads RFC 8259 unless a caller names JSON5 for the one
 read. it reads; the core's own C walks the document into Lua values and
 writes JSON back, with yyjson printing each float's shortest form.
+XML starts in C on the same half: expat is fuzzed upstream (OSS-Fuzz),
+bounds entity expansion, and reads no external entity unless a handler
+asks, and the core sets none. it reads; the core's own C hands each
+event to Lua, appending it under `lua_pcall` so no raise crosses expat.
 the benchmark harness, not taste, moves a module across the line in
 either direction.
 
@@ -926,12 +930,12 @@ a record whose anchor no longer matches fails the build by name.
 
 vendored: Lua 5.5, the SQLite amalgamation and twelve of its ext/misc
 extensions, mbedtls, miniz, bzip2,
-xz's liblzma decoder, zstd, c-ares, curl, yyjson, Mozilla's CA bundle, the
+xz's liblzma decoder, zstd, c-ares, curl, yyjson, expat, Mozilla's CA bundle, the
 IANA time zone database's compiled `zoneinfo`, and tl;
 argon2's reference implementation built without threads and the regex
 engine are planned. a library that needs a configuration header gets a
 hand-written one under `core/` (`curl_config.h`, `ares_config.h`,
-`xz_config/config.h`, `mbedtls_cosmic_config.h`), never one generated
+`xz_config/config.h`, `mbedtls_cosmic_config.h`, `expat_config.h`), never one generated
 by the library's own configure step.
 
 each tree keeps its upstream license file (`vendor/<name>/COPYING`,
@@ -1199,7 +1203,7 @@ core/bridge.lua     the boot bridge: its compile of the seed's files and of the 
 lang/               the Teal checker and compiler: lexer, parser, scopes, types, flow, code generator
 cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
-build/              the importer, checker driver, embed (Teal; private to build/ cmd/ test/ tests)
+build/              the importer, checker driver, embed (Teal; private to build/, mains, tests, test/)
 doc/                prose
 bin/cosmic          the stable way to run the tree's tool, wherever the build directory is
 ```
@@ -1235,6 +1239,21 @@ whose every file is a flat module of its own. `build/` is private
 besides: in cosmic's own tree only `build/` itself, the binary under
 `cmd/`, a test, and test support under `test/` may import `build.*`,
 so the standard library never depends on the tool that builds it.
+two more rules hold in every project. a module whose path has an
+`internal` directory, `app/internal/store.tl`, may be required only
+by modules under `app/`, as in Go (a top-level `internal/` is the
+project's own); that rule stands in the closed-directory rule's
+place for the module. a module of a closed directory that holds the
+line `--- @public` in the doc block that opens it is open to every importer, which
+is how [`cosmic.http.server`] and five others are. in cosmic's own
+tree a test, and test support (a file of the top-level `test/`
+directory), may be required only by a test or test support, since
+the tool carries neither, and two places do not fit the directory
+rule and are stated exceptions with a `TODO:` each in
+[`build/positions.tl`]:
+`cosmic/internal/` is internal to the tree root, since the tool and
+its tests are the library's implementation too, and `build/` is
+private to the tool.
 that is the position rule again rather than a list to maintain: it
 names places, the binary the tool is and the tests that check it,
 never modules, so a new file under `build/` or a new test needs no
@@ -1385,6 +1404,8 @@ in [roadmap.md](roadmap.md).
 [`Test.policy`]: ../cosmic/test.tl
 
 [`build.pipeline`]: ../build/pipeline.tl
+[`build/positions.tl`]: ../build/positions.tl
+[`cosmic.http.server`]: ../cosmic/http/server.tl
 [`cosmic.internal.globals`]: ../cosmic/internal/globals.d.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`doc/guides/project.md`]: guides/project.md

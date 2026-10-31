@@ -46,6 +46,7 @@ local Test = require("cosmic.test")
 local Udp = require("build.udp_fixture")
 local unix_socket = require("build.unix_socket")
 local Vector = require("cosmic.vector")
+local Xml = require("cosmic.xml")
 
 --- The socket cases listen on the worker's own loopback.
 Test.policy{ requires = { "checked" }, loopback = { "127.0.0.1" } }
@@ -817,6 +818,26 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
   end)
   assert(ended > 0, "decoding and encoding allocate")
   assert_c_heap(bytes, blocks, "JSON under refusal")
+end
+
+--- A parser holds expat's state and the character data it has not yet
+--- answered on the C heap, and appends each event under `lua_pcall`; a
+--- refusal anywhere, Lua's, expat's or the text buffer's, raises or
+--- answers nil and a message, and leaves nothing behind.
+local function test_xml_leaves_nothing_whenever_an_allocation_fails()
+  local text = '<!DOCTYPE r [<!ENTITY e "entity">]><r xmlns:x="urn:x" x:k="v">' ..
+    string.rep("text &e; ", 40) .. '<!-- c --><?pi data?><x:i a="1"/></r>'
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    local p <close> = assert(Xml.parser({ namespaces = true }))
+    local first = assert(p:feed(text:sub(1, 100)))
+    local rest = assert(p:feed(text:sub(101)))
+    local last = assert(p:finish())
+    assert(#first + #rest + #last == 7, tostring(#first + #rest + #last))
+  end)
+  assert(ended > 0, "parsing allocates")
+  assert_c_heap(bytes, blocks, "XML under refusal")
 end
 
 --- yyjson refusing its document alone -- which an allocation walk,
