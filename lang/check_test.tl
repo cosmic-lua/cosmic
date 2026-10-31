@@ -1285,8 +1285,6 @@ local function test_code_that_may_shorten_an_array_ends_what_a_length_test_showe
   -- a call, a method call, a call of the library, or of a function that never runs code of the array
   reads_after("  touch()\n", "index_may_be_nil")
   reads_after("  table.remove(zs)\n", "index_may_be_nil")
-  reads_after("  local t = tostring(n)\n", "index_may_be_nil")
-  reads_after("  local t = (\"a\"):upper()\n", "index_may_be_nil")
   reads_after("  pcall(touch)\n", "index_may_be_nil")
   -- a nil written to any index, one array being another's name, whichever target
   reads_after("  zs[#zs] = nil\n", "index_may_be_nil")
@@ -1314,7 +1312,7 @@ local function test_code_that_may_shorten_an_array_ends_what_a_length_test_showe
   -- a function made there may run when the array is shorter
   reads("if #zs > 0 then\n  local read = function(): integer\n    return zs[1]\n  end\nend\n", "index_may_be_nil")
   -- a message that runs code runs it after the test
-  reads("assert(#zs > 0, tostring(n))\nn = zs[1]\n", "index_may_be_nil")
+  reads("assert(#zs > 0, tostring(none()))\nn = zs[1]\n", "index_may_be_nil")
   -- a call in the test itself, and a message that changes the state without a call
   reads("assert(#zs > 0 and none() ~= nil, (if n == 0 then \"a\" else \"b\" end))\nn = zs[1]\n", "index_may_be_nil")
   reads("assert(#zs > 0, \"empty\")\nn = zs[1]\n", "")
@@ -1323,6 +1321,89 @@ local function test_code_that_may_shorten_an_array_ends_what_a_length_test_showe
   reads("if #zs > 0 then\n  while n < 3 do\n    n = zs[1]\n    n = n + 1\n  end\nend\n", "")
   -- a test inside a condition is the state of its operand: a call before the test is before it
   reads("local ok = #zs > 0 and none() == nil and zs[1] + 1 == 2\n", "nil_not_allowed")
+end
+
+-- A value of a class that declares `__tostring` runs code of the program where `tostring` meets it, and that code may shorten
+-- any array.
+local EATER <const> = "local class Eater\n  n: integer\n  function __tostring(self): string\n    table.remove(zs)\n" ..
+  "    return \"x\"\n  end\n  function shrink(self): string\n    table.remove(zs)\n    return \"y\"\n  end\nend\n" ..
+  "local function shrink(): string\n  table.remove(zs)\n  return \"z\"\nend\nlocal e: Eater = { n = 1 }\n"
+
+local function test_a_call_of_the_standard_library_given_plain_values_ends_no_length_fact()
+  for _, call in ipairs({ "tostring(n)", "tostring(#zs)", "tostring(true)", "tostring(nil)", "rawlen(zs)", "math.tointeger(n)", "tonumber(\"1\")",
+      "(\"a\"):upper()", "(\"abc\"):find(\"b\")", "(\"abc\"):sub(1, 2)", "string.upper(\"a\")", "string.format(\"%d\", n)",
+      "string.sub(\"abc\", n, 2)", "math.max(n, 2)", "table.concat({ \"a\" })", "select(1, n)" }) do
+    reads_after("  local t = " .. call .. "\n", "")
+  end
+  -- a recursive alias of plain values is plain
+  reads("local type Tree = string | {Tree}\nlocal tr: Tree = { \"a\", { \"b\" } }\nif #zs > 0 then\n  local t = tostring(tr)\n  n = zs[1]\nend\n", "")
+  -- in the message of an `assert` that tests the length, and in the test itself
+  reads("assert(#zs > 0, tostring(n))\nn = zs[1]\n", "")
+  reads("assert(#zs > 0, \"short: \" .. string.format(\"%d\", #zs))\nn = zs[1]\n", "")
+  reads("assert(#zs > 0 and #tostring(n) > 0)\nn = zs[1]\n", "")
+  reads("assert(#zs == 2, tostring(#zs))\nassert(zs[1] == 1)\nn = zs[2]\n", "")
+end
+
+local function test_a_call_that_may_run_code_of_the_program_ends_the_length_fact_though_it_is_the_library_s()
+  -- `tostring` of a class value runs its `__tostring`, which here shortens the array
+  reads(EATER .. "if #zs > 0 then\n  local t = tostring(e)\n  n = zs[1]\nend\n", "index_may_be_nil")
+  reads(EATER .. "local function show(a: any): integer\n  if #zs > 0 then\n    local t = tostring(a)\n    return zs[1]\n  end\n" ..
+      "  return 0\nend\nn = show(e)\n", "index_may_be_nil")
+  reads(EATER .. "if #zs > 0 then\n  local t = string.format(\"%s\", e)\n  n = zs[1]\nend\n", "index_may_be_nil")
+  reads(EATER .. "if #zs > 0 then\n  local es: {Eater} = { e }\n  local t = tostring(es)\n  n = zs[1]\nend\n",
+    "index_may_be_nil")
+  reads(EATER .. "local u: Eater | integer = e\nif #zs > 0 then\n  local t = tostring(u)\n  n = zs[1]\nend\n",
+    "index_may_be_nil")
+  -- the library tables are not the program's to extend, so a name of them is always the library's
+  reads("function string.trim(s: string): string\n  table.remove(zs)\n  return s\nend\nif #zs > 0 then\n  local t = string.trim(\"x\")\n  n = zs[1]\nend\n",
+    "field_unknown field_unknown index_may_be_nil")
+  reads(EATER .. "assert(#zs > 0, tostring(e))\nn = zs[1]\n", "index_may_be_nil")
+  -- a function given a callback, a function that writes an array, and one that calls
+  reads_after("  local t = (\"a\"):gsub(\"a\", function(c: string): string\n    table.remove(zs)\n    return c\n  end)\n",
+    "index_may_be_nil")
+  reads_after("  table.sort(zs)\n", "index_may_be_nil")
+  reads_after("  table.insert(zs, 1)\n", "index_may_be_nil")
+  reads_after("  pcall(touch)\n", "index_may_be_nil")
+  -- a name that is not the library's, or is it under another name, or is a method of a value that is no string
+  -- a method of a value that is no string, though the call looks the library's
+  reads(EATER .. "if #zs > 0 then\n  local t = e:shrink()\n  n = zs[1]\nend\n", "index_may_be_nil")
+  reads(EATER .. "if #zs > 0 then\n  local t = (\"%s\"):format(e)\n  n = zs[1]\nend\n", "index_may_be_nil")
+  reads(EATER .. "local u: Eater | string = e\nif #zs > 0 then\n  local t = u:upper()\n  n = zs[1]\nend\n", "field_unknown index_may_be_nil")
+  reads(EATER .. "if #zs > 0 then\n  local t = math.tointeger(e)\n  n = zs[1]\nend\n", "index_may_be_nil")
+  -- a class given to a library function that takes any, or in a value that holds one
+  reads(EATER .. "if #zs > 0 then\n  local t = select(1, e)\n  n = zs[1]\nend\n", "index_may_be_nil")
+  reads(EATER .. "if #zs > 0 then\n  local t = table.unpack({ e })\n  n = zs[1]\nend\n", "index_may_be_nil")
+  reads(EATER .. "local m: Eater? = e\nif #zs > 0 then\n  local t = tostring(m)\n  n = zs[1]\nend\n", "index_may_be_nil")
+  reads(EATER .. "local record Holder\n  held: Eater\nend\nlocal h: Holder = { held = e }\nif #zs > 0 then\n  local t = tostring(h)\n" ..
+      "  n = zs[1]\nend\n", "index_may_be_nil")
+  reads(EATER .. "local ms: {string: Eater} = { a = e }\nif #zs > 0 then\n  local t = tostring(ms)\n  n = zs[1]\nend\n", "index_may_be_nil")
+  -- a user call as the argument, as the receiver, and in the test of an assert
+  reads(EATER .. "if #zs > 0 then\n  local t = string.upper(shrink())\n  n = zs[1]\nend\n", "index_may_be_nil")
+  reads(EATER .. "if #zs > 0 then\n  local t = shrink():upper()\n  n = zs[1]\nend\n", "index_may_be_nil")
+  reads(EATER .. "assert(#zs > 0 and #string.upper(shrink()) > 0)\nn = zs[1]\n", "index_may_be_nil")
+  -- a callback of gsub, written in place or held in a variable
+  reads(EATER .. "if #zs > 0 then\n  local t = string.gsub(\"a\", \"a\", function(c: string): string\n    table.remove(zs)\n    return c\n  end)\n" ..
+      "  n = zs[1]\nend\n", "index_may_be_nil")
+  reads(EATER .. "local cb = function(c: string): string\n  table.remove(zs)\n  return c\nend\nif #zs > 0 then\n  local t = (\"a\"):gsub(\"a\", cb)\n" ..
+      "  n = zs[1]\nend\n", "index_may_be_nil")
+  -- the values a vararg gives are of no known type
+  reads(EATER .. "local function f(...: any): integer\n  if #zs > 0 then\n    local t = string.format(\"%s\", ...)\n    return zs[1]\n  end\n" ..
+      "  return 0\nend\nn = f(e)\n", "nil_not_allowed index_may_be_nil")
+  reads_after("  local ts = tostring\n  local t = ts(n)\n", "index_may_be_nil")
+  reads_after("  local t = tostring(none())\n  local u = tostring(touch)\n", "index_may_be_nil")
+  reads("assert(#zs > 0, tostring(none()))\nn = zs[1]\n", "index_may_be_nil")
+  reads("assert(#zs > 0 and none() ~= nil, tostring(n))\nn = zs[1]\n", "index_may_be_nil")
+end
+
+local function test_a_call_of_math_given_numbers_leaves_a_fill_loop_a_fill_loop()
+  local head = "local u: mut {integer} = { 1, 2, 3 }\nlocal k: integer = 2\nlocal function pick(): integer\n  return 1\nend\n"
+  assert(codes_of(head .. "for i = 1, #u do\n  u[i] = math.max(i, 2)\nend\n") == "")
+  assert(codes_of(head .. "for i = 1, #u do\n  u[i] = math.max(i + 1, #u * 2, -i)\nend\n") == "")
+  -- a name that is not the index may hold anything, a call is a call, and a name of another library is not math
+  assert(codes_of(head .. "for i = 1, #u do\n  u[i] = math.max(i, k)\nend\n") == "array_hole")
+  assert(codes_of(head .. "for i = 1, #u do\n  u[i] = math.max(i, pick())\nend\n") == "array_hole")
+  assert(codes_of(head .. "for i = 1, #u do\n  u[i] = pick()\nend\n") == "array_hole")
+  assert(codes_of(head .. "for i = 1, #u do\n  u[i] = #string.upper(\"a\")\nend\n") == "array_hole")
 end
 
 local function test_no_metamethod_runs_in_the_body_of_a_fill_loop_while_three_refusals_stand()
