@@ -551,7 +551,7 @@ local function members_docs(chunk: Ast.Chunk, lines: {string}, symbol: string, m
       elseif (member.kind == "Method") then
         -- TODO: drop the metamethod half of this branch (`__x` is a method of a class), once the tree writes the
         -- `__close` of a metatable as the metamethod field the new checker takes: the tree writes it as a
-        -- method today, which the checker refuses (`class_metamethod`, doc/plans/new-checker-types.md).
+        -- method today, which the checker refuses (`class_metamethod`).
         --
         -- A method named `__x` is a metamethod, as the field of that name is.
         local meta = member.name.name:sub(1, 2) == "__"

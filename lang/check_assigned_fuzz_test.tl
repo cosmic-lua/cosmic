@@ -1,4 +1,4 @@
---- Definite assignment, held to the semantics it is a rule about ("assigned before read" in doc/plans/strict-teal.md).
+--- Definite assignment, held to the semantics it is a rule about (assigned before read).
 --- A program of branches, loops, `break`, `return`, `continue` and calls that never return is drawn over one local
 --- `x: integer` declared with no value, and run: every way the program's choices (which branch, how often a loop goes
 --- round) can fall is followed, and the program is bad when some way reads `x` before it is assigned. A function that
