@@ -25,35 +25,38 @@ local function build_dir(root: string): string
   return (assert(build_paths.prepare(root)))
 end
 
-local function run_program(path: string): Child.Result
-  return (assert(Child.run({ path }, {
+local function run_program(path: string, expression: string): Child.Result
+  return (assert(Child.run({ path, expression }, {
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
 end
+
+--- The one program every case runs, so the tree is built once: its main returns the value of the Lua expression
+--- it is given, whatever type that is (a main's result is read at run time, whatever it is declared). Building
+--- a program joins every `cosmic.*` module's rows, which a program of its own for each case would do nine times.
+local MAIN <const> = [[
+return function(args: {string}): any
+  local chunk = assert(load("return " .. (args[1] or "nil"), "=status", "t"))
+  return chunk()
+end
+]]
 
 --- An exit keeps only the low byte, so 256 would read as success. It is
 --- refused with exit 2, as are a negative number, a fraction, other text
 --- and a boolean. Nil is 0, and a float with an integer's value, or text
 --- naming one, is that integer.
 local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
-  -- Each main returns the type of its value: a main's result is read at run time, whatever it is declared.
-  local mains: {string:{string}} = { big = { "integer", "256" }, text = { "string", "\"three\"" },
-    fits = { "integer", "7" }, float = { "number", "1.5" }, yes = { "boolean", "true" },
-    negative = { "integer", "-1" }, whole = { "number", "3.0" }, none = { "integer?", "nil" },
-    numeric = { "string", "\"5\"" } }
-  for name, returned in pairs(mains) do
-    assert(Fs.mkdirs(tmp .. "/cmd/" .. name))
-    assert(Fs.write(tmp .. "/cmd/" .. name .. "/main.tl",
-      "return function(): " .. assert(returned[1]) .. "\n  return " .. assert(returned[2]) .. "\nend\n"))
-  end
+  assert(Fs.mkdirs(tmp .. "/cmd/status"))
+  assert(Fs.write(tmp .. "/cmd/status/main.tl", MAIN))
   assert(embed.tree(tmp, true))
-  for name, code in pairs({ fits = 7, whole = 3, none = 0, numeric = 5 } as {string:integer}) do
-    local r = run_program(build_dir(tmp) .. "/bin/" .. name)
+  local program = build_dir(tmp) .. "/bin/status"
+  for expression, code in pairs({ ["7"] = 7, ["3.0"] = 3, ["nil"] = 0, ["\"5\""] = 5 } as {string:integer}) do
+    local r = run_program(program, expression)
     assert(r.code == code, "an exit status that fits is the program's own: " ..
-        name .. " exited " .. tostring(r.code) .. ": " .. tostring(r.stderr))
+        expression .. " exited " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   end
-  for _, name in ipairs({ "big", "text", "float", "yes", "negative" }) do
-    local r = run_program(build_dir(tmp) .. "/bin/" .. name)
-    assert(r.code == 2, name .. " exited " .. tostring(r.code) .. ": " .. tostring(r.stderr))
+  for _, expression in ipairs({ "256", "\"three\"", "1.5", "true", "-1" }) do
+    local r = run_program(program, expression)
+    assert(r.code == 2, expression .. " exited " .. tostring(r.code) .. ": " .. tostring(r.stderr))
     assert(tostring(r.stderr):find("returned no exit status", 1, true) ~= nil, tostring(r.stderr))
   end
 end

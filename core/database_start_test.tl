@@ -354,15 +354,16 @@ end
 local function test_a_database_for_another_core_is_refused(tmp: string)
   local core = core_path()
   if core == nil then return end
+  -- Each is refused before a module is read, so none carries the library: writing it three times is most of the test.
   local other = tmp .. "/other.db"
   write_database(other, { info_module() },
-    { main = "probe.main", core = string.rep("0", 64), library = true })
+    { main = "probe.main", core = string.rep("0", 64), library = false })
   refused(core, other, "it was written for another core than this one")
   local unrecorded = tmp .. "/unrecorded.db"
-  write_database(unrecorded, { info_module() }, { main = "probe.main", library = true })
+  write_database(unrecorded, { info_module() }, { main = "probe.main", library = false })
   refused(core, unrecorded, "it records no core_sha256")
   local garbled = tmp .. "/garbled.db"
-  write_database(garbled, { info_module() }, { main = "probe.main", core = "not hex", library = true })
+  write_database(garbled, { info_module() }, { main = "probe.main", core = "not hex", library = false })
   refused(core, garbled, "not a sha256 in hex")
 end
 
