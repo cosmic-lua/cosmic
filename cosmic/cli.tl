@@ -1040,6 +1040,9 @@ local module: Module = {
     docs = {
       about = "a symbol's or module's docs, or a search",
       usage = "[words...]",
+      spec = {
+        ["--json"] = { about = "print one JSON object per entry found (ndjson), not the page" },
+      },
     },
     uses = {
       about = "every place that refers to a symbol",

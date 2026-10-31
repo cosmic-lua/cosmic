@@ -14,6 +14,7 @@ local Cli = require("cosmic.cli")
 local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Json = require("cosmic.json")
 local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -3037,10 +3038,43 @@ function docs.answer(view: docs.View, words: {string}): docs.Answer?, string
   return { lines = lines, found = #missed == 0, said = table.concat(said, ", ") }, ""
 end
 
+--- `cosmic docs --json <words...>`: one JSON object per entry
+--- [`docs.lookup`] finds for each query [`docs.asked`] names, in the order
+--- the page shows them, a line each, for a script or an agent to read:
+--- `query`, `exact` (whether the query names the entry), `module`,
+--- `symbol` (empty for a module), `kind`, `file`, `line`, `signature` and
+--- `text`. A query that finds nothing has no line. Nil and why when a
+--- database cannot be read; `found` is false when a query found nothing,
+--- and `said` is empty.
+function docs.records(view: docs.View, words: {string}): docs.Answer?, string
+  local lines: mut {string} = {}
+  local all = true
+  for _, asking in ipairs(docs.asked(words) or { "cosmic" }) do
+    local found, trouble = docs.lookup(view, asking)
+    if found == nil then
+      return nil, trouble
+    end
+    if #found == 0 then all = false end
+    for _, entry in ipairs(found) do
+      local line, encode_trouble = Json.encode({
+        query = asking, exact = found.exact, module = entry.module,
+        symbol = entry.symbol, kind = entry.kind, file = entry.file,
+        line = entry.line, signature = entry.signature, text = entry.text,
+      })
+      if line == nil then
+        return nil, encode_trouble
+      end
+      lines[#lines + 1] = line
+    end
+  end
+  return { lines = lines, found = all, said = "" }, ""
+end
+
 --- `cosmic docs <words...>`: prints what [`docs.answer`] says of the
 --- words, then its summary on stderr; fails when a word finds nothing.
+--- With `--json` it prints [`docs.records`] instead.
 local function run(argv: {string}): integer
-  local parsed, parse_trouble = Flags.parse(argv, 2, {})
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(assert(Cli.verbs["docs"]).spec))
   if parsed == nil then
     log:complain("docs: " .. parse_trouble)
     return 2
@@ -3064,6 +3098,17 @@ local function run(argv: {string}): integer
   if view == nil then
     log:complain("docs: " .. view_trouble)
     return 1
+  end
+  if parsed.set["--json"] == true then
+    local records, records_trouble = docs.records(view, parsed.words)
+    if records == nil then
+      log:complain("docs: " .. records_trouble)
+      return 1
+    end
+    for _, line in ipairs(records.lines) do
+      log:say(line)
+    end
+    return if records.found then 0 else 1 end
   end
   local answer, trouble = docs.answer(view, parsed.words)
   if answer == nil then

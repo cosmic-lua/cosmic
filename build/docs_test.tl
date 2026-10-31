@@ -1,4 +1,5 @@
 local Fs = require("cosmic.fs")
+local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
@@ -951,6 +952,23 @@ local function test_several_qualified_names_are_each_looked_up(dir: string)
   assert(answered(missing):find("cosmic.fs Fs.read (", 1, true), answered(missing))
   assert(answered(missing):find("\nNothing named or documented as 'Nope.unheard'.", 1, true),
     answered(missing))
+end
+
+--- `--json` prints the entries a lookup finds, as [`docs.answer`] would
+--- show them, one JSON object per line, qualified names in the order given.
+local function test_records_are_one_json_object_per_entry(dir: string)
+  local db = built(dir, fs_tree())
+  local both = assert(docs.records(view({ db }), { "Fs.write", "Fs.read" }))
+  local lines = both.lines
+  assert(both.found and #lines == 2, tostring(#lines))
+  local write = assert(Json.decode_object(nth(lines, 1)))
+  local read = assert(Json.decode_object(nth(lines, 2)))
+  assert(write["symbol"] == "write" and write["module"] == "cosmic.fs", nth(lines, 1))
+  assert(read["symbol"] == "read" and read["exact"] == true, nth(lines, 2))
+  assert(read["file"] == "cosmic/fs.tl" and math.type(read["line"]) == "integer", nth(lines, 2))
+  assert(type(read["signature"]) == "string" and type(read["text"]) == "string", nth(lines, 2))
+  local missing = assert(docs.records(view({ db }), { "Fs.read", "Nope.unheard" }))
+  assert(not missing.found, "a query that finds nothing fails the run")
 end
 
 --- `cosmic` alone, which a search finds in nearly every comment, lists
