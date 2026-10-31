@@ -296,7 +296,8 @@ end
 --- stored compressed, with the target's real stub (`.packed-release`,
 --- `.packed-test`), and test launchers whose stub is a script that fails
 --- (`.stub-fails`), writes too little (`.stub-short`) or the right length
---- of the wrong bytes (`.stub-zero`).
+--- of the wrong bytes (`.stub-zero`), or waits on two FIFOs while it runs
+--- (`.stub-slow`).
 local function write_launcher_fixture(argv: {string}): integer
   local records_path, payload_root, output = argv[1], argv[2], argv[3]
   assert(records_path ~= nil and payload_root ~= nil and output ~= nil,
@@ -326,6 +327,10 @@ local function write_launcher_fixture(argv: {string}): integer
     ["stub-fails"] = script_stub("echo 'stand-in decoder: refusing' >&2; exit 7"),
     ["stub-short"] = script_stub("printf short"),
     ["stub-zero"] = script_stub("head -c \"$4\" /dev/zero"),
+    -- Tells the test it is running, then waits to be let go: the launcher
+    -- is held while its stub decodes.
+    ["stub-slow"] = script_stub("printf 'ready\\n' > \"$COSMIC_PORTABLE_TEST_STUB_READY\"\n" ..
+        "IFS= read -r released < \"$COSMIC_PORTABLE_TEST_STUB_GO\"\nexit 3"),
   }
   for name, body in pairs(scripts) do
     local stubs: mut {string:string} = {}

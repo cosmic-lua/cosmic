@@ -585,6 +585,11 @@ function artifact.keyed_head(head: string): string
         offset > manifest_offset - stored_length then
       return head
     end
+    -- A raw entry stores what it is: its two pairs must agree, or the
+    -- `digest` keyed below would be one nothing checks.
+    if codec == codec_raw and (stored_length ~= length or stored_digest ~= digest) then
+      return head
+    end
     if shell_end < 0 then
       shell_end = offset
     else

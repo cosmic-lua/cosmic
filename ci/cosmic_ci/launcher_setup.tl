@@ -48,7 +48,7 @@ function LauncherSetup.build(root: string, output: string,
     output .. "/launcher" }, root, diagnostics)
 
   for _, kind in ipairs({ "release", "test", "packed-release", "packed-test", "stub-fails",
-      "stub-short", "stub-zero" }) do
+      "stub-short", "stub-zero", "stub-slow" }) do
     local path = output .. "/launcher." .. kind
     local bytes = Fixture.read(path)
     Fixture.write(path, bytes, 0x1ed)
@@ -67,7 +67,7 @@ function LauncherSetup.build(root: string, output: string,
     "COSMIC_PORTABLE_TEST_", 1, true),
     "test launcher omits fixture hook names")
   for _, kind in ipairs({ "release", "test", "packed-release", "packed-test", "stub-fails",
-      "stub-short", "stub-zero" }) do
+      "stub-short", "stub-zero", "stub-slow" }) do
     Fixture.assert_executable(output .. "/launcher." .. kind)
   end
   return output

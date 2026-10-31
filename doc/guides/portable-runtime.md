@@ -116,7 +116,8 @@ Manifest and trailer offsets are relative to the whole file. Integer range
 checks happen before addition. Stored ranges cannot overlap. Identities (target,
 configuration and kind) must be unique, and a compressed core needs a stub of
 its target. Version 1 artifacts, written by a release before this format, are
-refused by name: `artifact format version 1; this release reads version 2`. The database must begin with the SQLite header.
+refused by name: `artifact format version 1; this release reads version 2`.
+The database must begin with the SQLite header.
 [`core/portable.c`](../../core/portable.c) checks these rules again before the
 runtime trusts a range.
 
@@ -140,9 +141,9 @@ retained portable prefix: valid
 
 The stronger retention guarantee comes from
 [`core/store.c`](../../core/store.c), which rehashes every manifest stored range,
-core or stub, against its stored digest before returning retained prefix bytes. `runtime_test.tl` and
-`self_rebuild_test.tl` exercise that guarantee across rename, unlink,
-replacement, and database-only rebuilds.
+core or stub, against its stored digest before returning retained prefix
+bytes. `runtime_test.tl` and `self_rebuild_test.tl` exercise that guarantee
+across rename, unlink, replacement, and database-only rebuilds.
 
 ## select and cache one core
 
@@ -173,7 +174,9 @@ checksum, and never writes more than the length it is given. The launcher
 reads its exit status (no pipeline hides it), removes the stub, and checks the
 staged core's length and digest as for a raw one. A stub that fails, writes
 the wrong bytes or cannot run (a `noexec` cache, which it names) stops the
-launch, and a signal removes the stub as it does any staged file.
+launch, and a signal removes the stub as it does any staged file (the shell
+holds its trap while the stub runs, so the signal takes effect when the stub
+returns).
 
 A warm core is hashed until it has been verified and left alone: once startup
 has hashed an entry and a second has passed since the entry last changed,
@@ -374,20 +377,20 @@ database-only rebuild fast without claiming old native code matches new C,
 Zig, or vendor inputs. Retained-descriptor access also lets a database-only
 rebuild finish after the starting artifact is renamed or unlinked.
 
-`bin/zig build boot -Dboot-cores=all` writes the portable artifact above,
-every release core behind the launcher, each compressed beside its decoder stub,
-which is what CI verifies and what a release is. A bare `bin/zig build boot` builds the host's core alone and
-writes the same layout with a placeholder where each other core goes: a
-script that says the tool was booted for its host alone and exits 1
-([`artifact.placeholder`]), an entry of the manifest like any, so the core
-accepts it (it requires a core for every target) and runs as it does from any
-artifact. It runs every verb the same, and a rebuild reuses its prefix, so it
-stays what it is, and a boot it starts is a bare one when its prefix holds a
-placeholder ([`artifact.host_only`]) and `-Dboot-cores=all` when not. What
-needs another target's core refuses and names that boot: `cosmic build` of a
-portable program, which would run on this host alone and say nothing of it
-(`--host` is all such a tool writes), and the tests of one, which declare
-`all_cores` and are skipped, saying so.
+`bin/zig build boot -Dboot-cores=all` writes the portable artifact above, every
+release core behind the launcher, each compressed beside its decoder stub, which
+is what CI verifies and what a release is. A bare `bin/zig build boot` builds
+the host's core alone and writes the same layout with a placeholder where each
+other core goes: a script that says the tool was booted for its host alone and
+exits 1 ([`artifact.placeholder`]), an entry of the manifest like any, so the
+core accepts it (it requires a core for every target) and runs as it does from
+any artifact. It runs every verb the same, and a rebuild reuses its prefix, so
+it stays what it is, and a boot it starts is a bare one when its prefix holds a
+placeholder ([`artifact.host_only`]) and `-Dboot-cores=all` when not. What needs
+another target's core refuses and names that boot: `cosmic build` of a portable
+program, which would run on this host alone and say nothing of it (`--host` is
+all such a tool writes), and the tests of one, which declare `all_cores` and are
+skipped, saying so.
 
 ## test identity and transport
 

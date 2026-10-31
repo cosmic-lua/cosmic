@@ -1,3 +1,4 @@
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Fixture = require("cosmic_ci.fixture")
@@ -14,7 +15,7 @@ local Test = require("cosmic.test")
 -- the ones the second stage adds. The stub in the compressed fixtures is the
 -- build's own (cosmic-unzstd); in `stub-fails`, `stub-short` and `stub-zero`
 -- it is a script that fails, writes too little, or writes the right length
--- of zeros.
+-- of zeros; in `stub-slow` it waits for the test while it decodes.
 Test.policy{
   grants = {
     { path = "o/fixtures/product/prefix", letters = "r" },
@@ -23,6 +24,7 @@ Test.policy{
     { path = "o/fixtures/launcher/launcher.stub-fails", letters = "r" },
     { path = "o/fixtures/launcher/launcher.stub-short", letters = "r" },
     { path = "o/fixtures/launcher/launcher.stub-zero", letters = "r" },
+    { path = "o/fixtures/launcher/launcher.stub-slow", letters = "r" },
     { path = "o/fixtures/launcher/payloads/socket-x86_64-linux-musl", letters = "r" },
     { path = "o/fixtures/launcher/payloads/socket-aarch64-linux-musl", letters = "r" },
     { path = "o/fixtures/launcher/payloads/socket-aarch64-macos", letters = "r" },
@@ -277,6 +279,88 @@ local function test_concurrent_cold_starts_and_signals_while_the_stub_is_staged(
     outcome_ok(run(ctx, "after-kill", killed_cache), "launch after a SIGKILL")
     only_core(killed_cache)
   end)
+end
+
+--- A launcher whose stub is held while it decodes, and the cache it works in.
+--- Returns the launch once the stub has said it is running.
+local function held_in_decoder(ctx: Context, active: Process.Fleet, label: string): Process.Running, string, string
+  local cache = ctx.work .. "/" .. label .. "-cache"
+  local ready = Process.fifo(ctx.work, ctx.diagnostics, label .. "-ready")
+  local go = Process.fifo(ctx.work, ctx.diagnostics, label .. "-go")
+  local launch = Process.start(label, { ctx.artifact }, ctx.work,
+    environment(cache, { COSMIC_PORTABLE_TEST_STUB_READY = ready, COSMIC_PORTABLE_TEST_STUB_GO = go }),
+    ctx.diagnostics)
+  Process.adopt(active, launch)
+  Process.await_ready(ctx.work, ctx.diagnostics, label, ready, launch)
+  return launch, cache, go
+end
+
+--- Nothing in `cache` is public.
+local function nothing_published(cache: string)
+  for _, name in ipairs((assert(Fs.list(cache)))) do
+    assert(String.starts_with(name, "."), "a decode that was cut short published " .. name)
+  end
+end
+
+-- A signal reaches the launcher while the stub itself runs. The shell holds
+-- a trap until its foreground command returns, so a SIGTERM takes effect when
+-- the stub does, and the launch ends without publishing; a SIGKILL leaves the
+-- staged stub and core, private and never public. The next start is whole.
+local function test_signals_while_the_stub_is_decoding(tmp: string)
+  local ctx = packed(tmp .. "/term", "stub-slow")
+  local whole = packed(tmp .. "/whole")
+  Process.supervised(function(active: Process.Fleet)
+    local term, term_cache, term_go = held_in_decoder(ctx, active, "decode-term")
+    assert(term.handle:stop(sys.SIGTERM))
+    Process.release(ctx.work, ctx.diagnostics, "decode-term", term_go)
+    assert(not Process.finish(term).ok, "a terminated launch succeeded")
+    no_private_entries(term_cache, ".stub.")
+    no_private_entries(term_cache, ".core.")
+    nothing_published(term_cache)
+    outcome_ok(run(whole, "after-term", term_cache), "launch after a signal in the decoder")
+    only_core(term_cache)
+
+    local kill, kill_cache, kill_go = held_in_decoder(ctx, active, "decode-kill")
+    assert(kill.handle:stop(sys.SIGKILL))
+    assert(not Process.finish(kill).ok, "a killed launch succeeded")
+    -- The orphaned stand-in ends when let go; the launcher is not there to publish.
+    Process.release(ctx.work, ctx.diagnostics, "decode-kill", kill_go)
+    nothing_published(kill_cache)
+    outcome_ok(run(whole, "after-kill-decode", kill_cache), "launch after a SIGKILL in the decoder")
+    only_core(kill_cache)
+  end)
+end
+
+--- The cost of a signed stub's first exec on macOS, which the launcher's
+--- TODO (build/launcher.tl) waits on: the best of three cold starts of the
+--- packed launcher against the best of three of the raw one, in fresh caches.
+--- The difference is the stub's cut, its first exec and its decode; it is
+--- written to stderr and to `cold-start-timing` in the case's diagnostics.
+--- It asserts nothing about the figure: it says it is read, not judged.
+local function test_the_first_exec_of_a_staged_stub_is_timed_on_macos(tmp: string)
+  local ctx = packed(tmp)
+  if ctx.target ~= "aarch64-macos" then
+    Test.skip("the figure is for macOS, whose first exec of a new binary validates its signature")
+    return
+  end
+  Fixture.mkdir(tmp .. "/raw")
+  local plain = setup(tmp .. "/raw", "test")
+  local function best(c: Context, name: string): integer
+    local least: integer? = nil
+    for n = 1, 3 do
+      local started = Clock.monotonic_ns()
+      outcome_ok(run(c, name .. tostring(n), c.work .. "/" .. name .. tostring(n) .. "-cache"), name)
+      local took = Clock.monotonic_ns() - started
+      if least == nil or took < least then least = took end
+    end
+    return assert(least)
+  end
+  local packed_ns, raw_ns = best(ctx, "packed-cold"), best(plain, "raw-cold")
+  local line = "launcher cold start: packed " .. tostring(packed_ns // 1000000) .. " ms, raw " ..
+    tostring(raw_ns // 1000000) .. " ms, stub and decode " ..
+    tostring((packed_ns - raw_ns) // 1000000) .. " ms\n"
+  Fixture.write(ctx.diagnostics .. "/cold-start-timing", line)
+  local _, _ = Fs.put(Fs.stderr, line)
 end
 
 -- The CPU check is the launcher's first act, ahead of the cache and any stub.

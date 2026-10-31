@@ -406,6 +406,24 @@ local function test_a_head_with_compressed_cores_is_keyed_by_their_digests_and_s
   assert(artifact.keyed_head(damaged) == damaged, "a damaged range was keyed by its digest")
 end
 
+--- A raw entry stores what it is, so its stored and decoded pairs agree. One
+--- whose `digest` differs from its stored digest would be keyed by a digest
+--- nothing checks: the head is keyed whole instead.
+local function test_a_raw_entry_whose_digest_disagrees_keys_the_head_whole()
+  local images: {string:string} = { x86 = fixture.elf("code", "comp_dir /one"), arm = core_named("arm"),
+    mac = core_named("mac") }
+  local prefix = assert(artifact.prefix(records, images))
+  local base = assert(artifact.split((assert(artifact.program(prefix, "SQLite format 3\0db"))))).head
+  assert(artifact.keyed_head(base) ~= base, "the DWARF core keys the head by its image")
+  local digest = Hash.sha256(core_named("arm"))
+  local manifest_at = #base - 4096 + 1
+  local at = assert(base:find(digest, manifest_at, true))
+  assert(base:find(digest, at + 1, true) ~= nil, "the entry names the digest twice")
+  local second = assert(base:find(digest, at + 1, true))
+  local damaged = base:sub(1, second - 1) .. string.char((assert(digest:byte(1)) + 1) % 256) .. base:sub(second + 1)
+  assert(artifact.keyed_head(damaged) == damaged, "a raw entry was keyed by a digest it does not have")
+end
+
 --- Version 1 is what a release before this one wrote. A reader names both
 --- versions rather than calling the file damaged.
 local function test_a_version_1_artifact_is_refused_naming_both_versions()

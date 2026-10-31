@@ -319,7 +319,11 @@ end
 
 --- The decode fits the workspace of the stub's window and no more: a
 --- virtual memory limit far under zstd's default window (128 MiB), which
---- a decoder that allocated for a hostile header would pass.
+--- a decoder that allocated for a hostile header would fail. The limit is 24
+--- MB and not a fraction of the core: the stub's static workspace for its
+--- 8 MiB window alone is larger than the core, so a limit well under the
+--- core's size cannot be met. It holds the stub to the workspace plus the
+--- core, and to nothing sized by the frame header.
 local function test_the_decode_fits_a_small_memory_limit(tmp: string)
   if not on_linux() then
     Test.skip("ulimit -v is not enforced on macOS")

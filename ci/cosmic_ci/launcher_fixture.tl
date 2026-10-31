@@ -27,7 +27,8 @@ local private_environment = {
   "COSMIC_PORTABLE_CORE_OFFSET", "COSMIC_PORTABLE_CORE_LENGTH",
   "COSMIC_PORTABLE_CORE_SHA256", "COSMIC_PORTABLE_TEST_HOOK",
   "COSMIC_PORTABLE_TEST_READY", "COSMIC_PORTABLE_TEST_GO",
-  "COSMIC_PORTABLE_TEST_CPUINFO",
+  "COSMIC_PORTABLE_TEST_CPUINFO", "COSMIC_PORTABLE_TEST_STUB_READY",
+  "COSMIC_PORTABLE_TEST_STUB_GO",
   "PORTABLE_PAYLOAD_MARKER", "PORTABLE_PAYLOAD_EXIT",
   "PORTABLE_PAYLOAD_SIGNAL", "PORTABLE_EXPECT_CWD",
   "PORTABLE_EXPECT_UMASK", "PORTABLE_CHECK_IO",
@@ -57,7 +58,8 @@ end
 --- the contract's launcher: `test` (the default) holds each payload raw, and
 --- `packed-test` the same stored compressed beside the decoder stub;
 --- `stub-fails`, `stub-short` and `stub-zero` have a stand-in stub that fails,
---- writes too little or the wrong bytes (test/portable/tool.tl).
+--- writes too little or the wrong bytes, and `stub-slow` one that waits on
+--- the FIFOs named by COSMIC_PORTABLE_TEST_STUB_READY and _GO (test/portable/tool.tl).
 function LauncherFixture.setup(tmp: string, kind?: string): Context
   local work = tmp .. "/launcher"
   local program = work .. "/program space"

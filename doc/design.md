@@ -542,8 +542,8 @@ the core it decodes to (length, sha256). the core's length and digest are its
 identity: the cache entry is named for them, and the stamp, the runtime
 identity, a verdict's key and the launcher's environment hold them. a raw entry's
 two are equal. a reader of version 2 refuses version 1 by name. the launcher
-retains an open descriptor before executing the selected core; startup validates the complete manifest and trailer against that same
-descriptor. the runtime's VFS reads only the validated database range from the
+retains an open descriptor before executing the selected core; startup
+validates the complete manifest and trailer against that same descriptor. the runtime's VFS reads only the validated database range from the
 retained descriptor. it never reopens the logical pathname, so rename, unlink,
 and atomic replacement after adoption cannot mix files. the last partial range
 is hashed over its real length, never zero-padded.
