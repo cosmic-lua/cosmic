@@ -43,7 +43,8 @@ local parts: {{string}} = {
     '<row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2"><v>1250.5</v></c><c r="D2" t="b"><v>1</v></c><c><v>7</v></c></row>' ..
     '<row r="3"><c r="A3" s="1"><v>45658</v></c><c r="B3" s="2"><v>45658.5</v></c>' ..
     '<c r="C3" s="1" t="e"><v>#N/A</v></c><c r="D3" s="3"><v>1.5</v></c>' ..
-    '<c r="E3" s="1"><v>1</v></c><c r="F3" s="1"><v>60</v></c></row>' ..
+    '<c r="E3" s="1"><v>1</v></c><c r="F3" s="1"><v>60</v></c><c r="G3" s="2"><v>60.5</v></c>' ..
+    '<c r="H3" s="1"><v>0.5</v></c><c r="I3" s="1"><v>-1</v></c></row>' ..
     "</sheetData></worksheet>" },
 }
 local out = Stream.collect()
@@ -137,7 +138,10 @@ The days count from 1899-12-30, or, where the workbook's `workbookPr`
 says `date1904`, from 1904-01-01; [`Time.parse_date`] gives the first
 moment of either. Excel counts 1900 as a leap year, as Lotus 1-2-3 did:
 so a serial before 60 counts from a day later, and 60 itself is a
-February 29 that never was, which is written as Excel shows it.
+February 29 that never was, which is written as Excel shows it. A
+serial under 1 is a time of day with no date, written as the time
+alone, and one under 0 is no date at all, written as its number, as
+Excel shows neither as a date.
 
 ```teal continue
 local date_styles: mut {integer: boolean} = {}
@@ -161,17 +165,28 @@ local workbook = part("/xl/workbook.xml")
 local pr = Xml.child(workbook, "workbookPr")
 local flag = if pr ~= nil then pr.attributes["date1904"] else nil end
 local date1904 = flag == "1" or flag == "true"
-local epoch = assert(Time.parse_date(if date1904 then "1904-01-01" else "1899-12-30" end))
-local function date(serial: number): string
+local function clock(fraction: number): string
+  local seconds = math.floor(fraction * 86400 + 0.5)
+  return string.format("%02d:%02d:%02d", seconds // 3600, seconds // 60 % 60, seconds % 60)
+end
+
+local function date(serial: number, from1904: boolean): string
+  if serial < 0 then return tostring(serial) end
   local days = serial
-  if not date1904 and serial < 61 then
-    if math.floor(serial) == 60 then return "1900-02-29" end
+  if not from1904 then
+    if serial < 1 then return clock(serial) end
+    if math.floor(serial) == 60 then
+      local time = serial - 60
+      return "1900-02-29" .. (if time == 0 then "" else "T" .. clock(time) end)
+    end
     if serial < 60 then days = serial + 1 end
   end
+  local epoch = assert(Time.parse_date(if from1904 then "1904-01-01" else "1899-12-30" end))
   local ns = epoch + math.floor(days * 86400 + 0.5) * 1000000000
   if days == math.floor(days) then return Time.format_date(ns) end
   return (Time.format_rfc3339(ns):gsub("Z$", ""))
 end
+assert(date(0, true) == "1904-01-01" and date(1.5, true) == "1904-01-02T12:00:00")
 ```
 
 ## cells
@@ -200,7 +215,7 @@ local function value(c: Xml.Element): string
   if t == "b" then return if raw == "1" then "TRUE" else "FALSE" end end
   local style = math.tointeger(c.attributes["s"] or "0")
   local number = if t == nil or t == "n" then tonumber(raw) else nil end
-  if number ~= nil and style ~= nil and date_styles[style] == true then return date(number) end
+  if number ~= nil and style ~= nil and date_styles[style] == true then return date(number, date1904) end
   return raw
 end
 ```
@@ -248,7 +263,7 @@ assert(book:close())
 Sales
 Region,Total
 North East,1250.5,,TRUE,7
-2025-01-01,2025-01-01T12:00:00,#N/A,1.5,1900-01-01,1900-02-29
+2025-01-01,2025-01-01T12:00:00,#N/A,1.5,1900-01-01,1900-02-29,1900-02-29T12:00:00,12:00:00,-1
 ```
 
 ## going further
