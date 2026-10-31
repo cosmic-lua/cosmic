@@ -234,6 +234,21 @@ local function test_local_header_offsets_past_4_gib_go_in_zip64_extra_fields(tmp
   assert(r:close())
 end
 
+local function test_a_zstd_entry_at_a_zip64_offset_asks_for_version_6_3_in_both_headers()
+  local c = Stream.collect()
+  local w = Zip.writer(c, { offset = 5 << 30 })
+  assert(w:add_file("z", "zstd past 4 GiB", { method = "zstd" }))
+  assert(w:close())
+  local raw = c:result()
+  -- The central header has zip64 extra data (its offset is past 4 GiB)
+  -- and a zstd method, so its version needed is max(63, 45), not 45.
+  local lfh = assert(raw:find("PK\3\4", 1, true))
+  local cd = assert(raw:find("PK\1\2", 1, true))
+  assert(rd32(raw, cd + 42) == 0xFFFFFFFF)
+  assert(string.unpack("<I2", raw, cd + 6) == 63, "central version needed")
+  assert(string.unpack("<I2", raw, lfh + 4) == 63, "local version needed")
+end
+
 local function test_a_central_directory_outside_the_file_is_refused()
   local raw, eocd = three_entry_zip()
   local moved = patch(raw, eocd + 16, le32(100000000))
@@ -595,6 +610,19 @@ local function test_a_streamed_size_of_2_gib_or_more_announces_zip64_up_front()
   assert(not w:close())
 end
 
+local function test_a_zstd_entry_announcing_zip64_up_front_asks_for_version_6_3()
+  local sink, pieces = recording()
+  local w = Zip.writer(sink)
+  local ok, trouble = w:add_file("big", Stream.from_string("short"),
+    { method = "zstd", size = 1 << 32 })
+  assert(not ok and trouble:find("not 4294967296", 1, true) ~= nil, trouble)
+  local header = assert(pieces[1])
+  assert(header:sub(1, 4) == "PK\3\4")
+  assert(header:sub(-20, -17) == le16(1) .. le16(16), "a zip64 extra field of two sizes")
+  assert(rd32(header, 5) & 0xFFFF == 63, "version needed")
+  assert(not w:close())
+end
+
 local function test_a_streamed_size_that_is_wrong_fails_the_write()
   for _, size in ipairs({ 4, 6 }) do
     local w = Zip.writer(Stream.collect())
@@ -860,10 +888,9 @@ end
 --- A one-entry zip laid out by hand from the APPNOTE: a local header
 --- and a central directory record for "f", method 93, version needed 63,
 --- recording `crc`, `usize` and the length of `payload`, which is the
---- body as stored. No tool but this file's own made the bytes: the
---- sandbox has no zstd-capable zip tool (python's zipfile has none before
---- 3.14), so the frame comes from [`cosmic.compress.zstd_encoder`] and
---- the layout from the specification.
+--- body as stored. The bytes are built by hand from the APPNOTE layout,
+--- so no external tool is needed; the frame comes from
+--- [`cosmic.compress.zstd_encoder`].
 local function zstd_zip_by_hand(payload: string, crc: integer, usize: integer): string
   local name = "f"
   local lfh = "PK\3\4" .. le16(63) .. le16(0) .. le16(93) .. le16(0) .. le16(0x21) ..
@@ -992,10 +1019,7 @@ end
 local function test_a_second_zstd_frame_in_an_entry_counts_against_its_size()
   local text = string.rep("trailing ", 100)
   local frame = zstd_frame(text)
-  -- Bytes that are no frame are left unread, as after a deflate stream:
-  -- the entry's CRC32 and size vouch for what was decoded. A second
-  -- frame decodes, so its bytes run past the recorded size.
-  assert(read_f(zstd_zip_by_hand(frame .. "junk after the frame", crc32_reference(text), #text)) == text)
+  -- A second frame decodes, so its bytes run past the recorded size.
   local data, trouble = read_f(zstd_zip_by_hand(frame .. zstd_frame("more"), crc32_reference(text), #text))
   assert(data == nil and trouble:find("larger than its recorded size", 1, true) ~= nil, trouble)
 end

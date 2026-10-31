@@ -3,7 +3,7 @@
 --- sequential scan, plus a streaming writer. Store (method 0) and
 --- deflate (method 8, through [`cosmic.compress`]'s `inflater`/
 --- `deflater`) and Zstandard (method 93, through its `zstd_decoder`/
---- `zstd_encoder`) are the only methods understood. Zip64 is read and
+--- `zstd_encoder`) are the methods understood. Zip64 is read and
 --- written wherever an archive needs it: on the end-of-central-
 --- directory record (more than 65535 entries, or a central directory
 --- at or past the 4 GiB mark) and in each entry's extra field (a size
@@ -153,11 +153,13 @@ local FLAG_DESCRIPTOR <const> = 8
 --- A streamed entry of at least this many bytes (as `opts.size` says)
 --- is written as zip64 from its local header on.
 local STREAM_ZIP64_AT <const> = 1 << 31
---- Zip's compression method number for Zstandard (APPNOTE 4.4.5).
+--- Zip's compression method number for Zstandard.
 local ZSTD <const> = 93
---- The "version needed to extract" of a Zstandard entry, 6.3 (APPNOTE
---- 4.4.3) and of a zip64 one, 4.5; an entry needing both says the larger.
+--- The "version needed to extract" of a Zstandard entry, 6.3: the value
+--- libzip, Python's zipfile and Info-ZIP give method 93. An entry that
+--- needs both this and zip64 says the larger.
 local VERSION_ZSTD <const> = 63
+--- The "version needed to extract" of a zip64 entry, 4.5.
 local VERSION_ZIP64 <const> = 45
 local VERSION_DEFAULT <const> = 20
 --- The longest symlink target read out of an entry body.
@@ -428,6 +430,11 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
     if inflater == nil then return nil, itrouble end
     body = Stream.transform(raw, inflater)
   elseif method == ZSTD then
+    -- The decoder keeps its default 128 MiB window. A declared window
+    -- is only address space until decoded bytes fill it, and those are
+    -- bounded by the entry's recorded size through CheckedReader. A
+    -- limit derived from that size would refuse cosmic's own encoder
+    -- output, which declares a 2 MiB window even for an empty entry.
     local decoder, dtrouble = Compress.zstd_decoder()
     if decoder == nil then return nil, dtrouble end
     body = Stream.transform(raw, decoder)

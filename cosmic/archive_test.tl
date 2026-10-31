@@ -686,6 +686,27 @@ local function holds_only(dir: string, kept: mut {string})
   assert(table.concat(names, ",") == table.concat(kept, ","), table.concat(names, ","))
 end
 
+local function test_max_entry_bytes_bounds_the_decoded_output_of_a_zstd_zip_entry(tmp: string)
+  local archive = tmp .. "/zbomb.zip"
+  local big = string.rep("\0", 4 << 20)
+  local zw = Zip.writer((assert(Stream.create(archive))))
+  assert(zw:add_file("big", big, { method = "zstd" }))
+  assert(zw:close())
+  assert(#assert(Fs.read(archive)) < 8192, "the bomb is not small")
+  -- 4 MiB decoded from a few hundred bytes: the limit counts the decoded size.
+  local dest = tmp .. "/out"
+  local written, why = Archive.extract(archive, dest, { max_entry_bytes = 4096 })
+  assert(written == nil, "extracted a bomb")
+  assert(why:find("archive: big is larger than max_entry_bytes (4096 bytes)", 1, true), why)
+  holds_only(dest, {})
+  -- An entry whose decoded size is within the limit is extracted.
+  assert(Archive.extract(archive, tmp .. "/at", { max_entry_bytes = #big }))
+  assert(Fs.read(tmp .. "/at/big") == big)
+  written, why = Archive.extract(archive, tmp .. "/over", { max_entry_bytes = #big - 1 })
+  assert(written == nil and why:find("max_entry_bytes (4194303 bytes)", 1, true) ~= nil, tostring(why))
+  holds_only(tmp .. "/over", {})
+end
+
 local function test_extract_refuses_a_zip_bomb_and_leaves_no_file(tmp: string)
   local archive = tmp .. "/bomb.zip"
   zip_of(archive, { "big" }, { string.rep("\0", 4 << 20) })

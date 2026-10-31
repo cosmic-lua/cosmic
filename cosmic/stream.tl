@@ -309,8 +309,9 @@ local record Stream
     --- long, or the write fails. One that is no integer, or is negative,
     --- raises, whatever the body.
     size?: integer
-    --- "deflate" (the default), "store" or "zstd". Only a zip's [`add_file`] reads
-    --- it: a directory and a symlink are stored, and a tar has no method.
+    --- "deflate" (the default), "store" or "zstd". Only a zip's
+    --- [`add_file`] reads it: a directory and a symlink are stored, and
+    --- a tar has no method.
     method?: EntryMethod
   end
 

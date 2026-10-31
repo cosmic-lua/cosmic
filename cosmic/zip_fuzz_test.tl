@@ -109,6 +109,7 @@ local function walk(input: string): boolean, string
       if body ~= nil then
         local data = Stream.read_all(body)
         if data ~= nil then Fuzz.label("body read") end
+        if data ~= nil and e.method == 93 then Fuzz.label("zstd body read") end
         if data ~= nil and #data ~= e.size then
           return false, ("%s: read %d bytes of a body of %d"):format(e.path, #data, e.size)
         end
@@ -130,7 +131,7 @@ local function test_the_reader_is_total_on_mutated_archives(tmp: string)
       return Fuzz.mutate(src, archive, 8)
     end,
     check = walk,
-    requires = { "opened", "body read", "no end record" },
+    requires = { "opened", "body read", "zstd body read", "no end record" },
   })
 end
 
@@ -329,7 +330,8 @@ local function test_the_reader_is_total_on_hostile_records(tmp: string)
     dir = tmp,
     gen = gen_laid_out,
     check = walk,
-    requires = { "opened", "entry", "body read", "local header refused", "refused at open" },
+    requires = { "opened", "entry", "body read", "zstd body read", "local header refused",
+      "refused at open" },
   })
 end
 
