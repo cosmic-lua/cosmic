@@ -1,7 +1,9 @@
 local Fs = require("cosmic.fs")
+local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
+local dataset = require("build.dataset")
 local docs = require("build.docs")
 local rebuild = require("build.rebuild")
 local sys = require("cosmic.sys")
@@ -951,6 +953,94 @@ local function test_several_qualified_names_are_each_looked_up(dir: string)
   assert(answered(missing):find("cosmic.fs Fs.read (", 1, true), answered(missing))
   assert(answered(missing):find("\nNothing named or documented as 'Nope.unheard'.", 1, true),
     answered(missing))
+end
+
+--- `--json` prints the entries a lookup finds, as [`docs.answer`] would
+--- show them, one JSON object per line, qualified names in the order given.
+local function test_records_are_one_json_object_per_entry(dir: string)
+  local db = built(dir, fs_tree())
+  local both = assert(docs.records(view({ db }), { "Fs.write", "Fs.read" }))
+  local lines = both.lines
+  assert(both.found and #lines == 2, tostring(#lines))
+  local write = assert(Json.decode_object(nth(lines, 1)))
+  local read = assert(Json.decode_object(nth(lines, 2)))
+  assert(write["symbol"] == "Fs.write" and write["module"] == "cosmic.fs", nth(lines, 1))
+  assert(read["symbol"] == "Fs.read" and read["exact"] == true, nth(lines, 2))
+  assert(read["file"] == "cosmic/fs.tl" and math.type(read["line"]) == "integer", nth(lines, 2))
+  assert(type(read["signature"]) == "string" and type(read["text"]) == "string", nth(lines, 2))
+  local missing = assert(docs.records(view({ db }), { "Fs.read", "Nope.unheard" }))
+  assert(not missing.found, "a query that finds nothing fails the run")
+end
+
+--- An example's entry carries its code as the page prints it under the
+--- heading, and a guide section's or module's text has its links
+--- unlinked as the page prints it.
+local function test_records_carry_an_examples_code_and_unlink_text(dir: string)
+  local db = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = fs_example("read", "Reads a file back.",
+      "  print(Fs.read(\"x\"))"),
+    ["cosmic/linked.tl"] = source("--- Wraps [`Fs.read`] for callers.", "", "local record Linked", "end", "",
+      "return Linked"),
+  }))
+  local read = assert(docs.lookup(view({ db }), "Fs.read"))
+  local shown = assert(docs.render(view({ db }), nth(read, 1)))
+  local found = assert(docs.records(view({ db }), { "file", "back" }))
+  local code: string? = nil
+  for _, line in ipairs(found.lines) do
+    local object = assert(Json.decode_object(line))
+    if object["kind"] == "example" then code = tostring(object["code"]) end
+  end
+  assert(code ~= nil, "an example entry has code")
+  assert(code:find('function Example.read()', 1, true), code)
+  for line in code:gmatch("[^\n]+") do
+    assert(table.concat(shown, "\n"):find("    " .. line, 1, true), line)
+  end
+  local module = assert(docs.records(view({ db }), { "cosmic.linked" }))
+  assert(#module.lines > 0, "the module is found")
+  for _, line in ipairs(module.lines) do
+    assert(not line:find("[`", 1, true), line)
+  end
+end
+
+--- With no words `--json` lists every module the page lists, and with
+--- `cosmic` the standard library's alone, as modules and not as a search
+--- for the word.
+local function test_records_list_the_modules_as_the_page_does(dir: string)
+  local db = built(dir, fs_tree())
+  local all = assert(docs.records(view({ db }), {}))
+  local library = assert(docs.records(view({ db }), { "cosmic" }))
+  assert(all.found and library.found)
+  local names: mut {string} = {}
+  for _, line in ipairs(all.lines) do
+    local object = assert(Json.decode_object(line))
+    assert(object["kind"] == "module" and object["symbol"] == "", line)
+    names[#names + 1] = tostring(object["module"])
+  end
+  assert(#names == #assert(docs.index(view({ db }))), table.concat(names, ","))
+  assert(#library.lines > 0 and #library.lines < #all.lines,
+    tostring(#library.lines) .. " of " .. tostring(#all.lines))
+  for _, line in ipairs(library.lines) do
+    assert(line:find('"module":"cosmic.', 1, true), line)
+  end
+end
+
+--- The pipeline the help shows, `cosmic docs --json ... | cosmic sql --from
+--- docs=-`, run in-process: the records load as the `docs` table and the
+--- query answers a row per function.
+local function test_records_load_as_a_table_sql_can_filter(dir: string)
+  local db = built(dir, fs_tree())
+  local records = assert(docs.records(view({ db }), { "Fs.read", "Fs.write" }))
+  local handle = assert(Sqlite.memory())
+  assert(dataset.load_text(handle, "docs", "ndjson",
+    table.concat(records.lines, "\n") .. "\n"))
+  local q = assert(Sqlite.query(handle,
+    "SELECT symbol, line FROM docs WHERE kind = 'function' ORDER BY symbol"))
+  local seen: mut {string} = {}
+  for row in q:each() do
+    seen[#seen + 1] = row:text(1)
+  end
+  q:close()
+  assert(table.concat(seen, ",") == "Fs.read,Fs.write", table.concat(seen, ","))
 end
 
 --- `cosmic` alone, which a search finds in nearly every comment, lists
