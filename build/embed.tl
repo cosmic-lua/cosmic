@@ -117,11 +117,6 @@ local module_column_list = table.concat(module_columns, ", ")
 local catalog_columns = { "kind", "module", "symbol", "message", "text",
   "file", "line" }
 
---- A catalog row's guidance, as an uncaught error prints it ([`Errors.guidance`]):
---- its own text, or else its symbol's doc comment.
-local guidance_text <const> = "coalesce(catalog.text, (SELECT d.text FROM docs d " ..
-  "WHERE d.module = catalog.module AND d.source_symbol = catalog.symbol))"
-
 --- The `<name>` of `cmd/<name>/main.tl`, from its import path.
 local function name_of(main: string): string?
   return main:match("^cmd%.([^%.]+)%.main$")
@@ -263,10 +258,10 @@ function embed.database(project: string, main: string, roots?: string): string?,
     -- The guidance a program's own errors can match: the standard
     -- library's own extracted rows. It never runs the build, so a row
     -- about the build could only ever match by accident. A row's text
-    -- is its symbol's doc comment when it has none of its own, looked
-    -- up here: the docs themselves are not carried.
+    -- is NULL when it has none of its own: the docs are not carried, and
+    -- [`Errors.guidance`] names the symbol for `cosmic docs` instead.
     copied, copy_trouble = copy_rows(binary, out, "catalog", catalog_columns,
-      "SELECT kind, module, symbol, message, " .. guidance_text .. ", file, " ..
+      "SELECT kind, module, symbol, message, text, file, " ..
         "line FROM catalog WHERE module LIKE 'cosmic.%' ORDER BY id")
     if not copied then
       return false, copy_trouble
@@ -346,7 +341,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
         "ORDER BY d.path, d.requires",
       "INSERT INTO catalog (kind, module, symbol, message, text, file, " ..
         "line) SELECT kind, module, symbol, message, " ..
-        guidance_text:gsub("FROM docs", "FROM project.docs") .. ", file, line " ..
+        "text, file, line " ..
         "FROM project.catalog " ..
         "WHERE module IN (SELECT path FROM main.modules) ORDER BY id",
       -- The files under the project's `static/`, which [`cosmic.web.assets`]
@@ -421,15 +416,16 @@ end
 --- @param roots the roots its executables trust by default, as
 ---   `cosmic build --roots` names them ([`embed.database`]); nil records
 ---   none, which is "minimal"
+--- @param carried the `built_from` the tool carries, as [`tree.standing`] takes it
 function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: GrammarMode.Mode,
-                    roots?: string): {string}?, string
+                    roots?: string, carried?: string): {string}?, string
   local mode = grammar
   if mode == nil then
     local chosen, chosen_trouble = GrammarMode.mode()
     if chosen == nil then return nil, chosen_trouble end
     mode = chosen
   end
-  local standing, standing_trouble = tree.standing(root)
+  local standing, standing_trouble = tree.standing(root, carried)
   if standing == nil then return nil, standing_trouble end
   if standing.own then
     return nil, "this is cosmic's own tree, which bin/zig build boot builds"
@@ -439,7 +435,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
   if handle == nil then
     return nil, open_trouble
   end
-  local staged, stage_trouble = work.stage(handle, false)
+  local staged, stage_trouble = work.stage(handle, standing)
   if staged == nil then
     local _, _ = work.close(handle)
     return nil, stage_trouble

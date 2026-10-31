@@ -3,6 +3,7 @@
 
 local Fs = require("cosmic.fs")
 local fix = require("build.fix")
+local tree = require("build.tree")
 local link_resolve = require("build.link_resolve")
 local type docs = require("build.docs")
 local Sqlite = require("cosmic.sqlite")
@@ -12,6 +13,16 @@ local laid = require("build.fix.laid")
 local SyntaxNode = require("build.syntax_node")
 
 --- The element of `list` at `index`, which the case knows is there.
+--- [`fix.chosen`] for `root`, which a tool built from it holds to be cosmic's own where `own`, and which any other is a
+--- project to.
+local function chosen(root: string, paths: {string}, own?: boolean): fix.Chosen?, string
+  local carried: string? = nil
+  if own == true then carried = assert(tree.built_from(root)) end
+  local standing, why = tree.standing(root, carried)
+  assert(standing ~= nil, why)
+  return fix.chosen(root, paths, standing)
+end
+
 local function nth<T>(list: {T}, index: integer): T
   local found = list[index]
   assert(found ~= nil, "the list has an element at " .. tostring(index))
@@ -30,7 +41,7 @@ end
 local function test_a_path_that_is_not_there_is_missing_before_it_is_judged(tmp: string)
   assert(Fs.write(tmp .. "/real.tl", "local x = 1\nprint(x)\n"))
   assert(Fs.write(tmp .. "/notes.txt", "not Teal at all\n"))
-  local picked, trouble = fix.chosen(tmp, {
+  local picked, trouble = chosen(tmp, {
     tmp .. "/real.tl",
     tmp .. "/nope",
     tmp .. "/nosuchdir/",
@@ -57,12 +68,12 @@ local function test_a_template_is_chosen_to_be_parsed_not_laid_out(tmp: string)
   assert(Fs.mkdirs(tmp .. "/pages"))
   assert(Fs.write(tmp .. "/pages/init.tmpl", "{{type Page from pages.data}}\n"))
   assert(Fs.write(tmp .. "/pages/data.tl", "return {}\n"))
-  local named = assert(fix.chosen(tmp, { tmp .. "/pages/init.tmpl" }))
+  local named = assert(chosen(tmp, { tmp .. "/pages/init.tmpl" }))
   assert(#named.files == 0 and #named.refused == 0, "a template is no Teal to lay out")
   assert(#named.templates == 1 and named.templates[1] == tmp .. "/pages/init.tmpl")
-  local dir = assert(fix.chosen(tmp, { tmp .. "/pages" }))
+  local dir = assert(chosen(tmp, { tmp .. "/pages" }))
   assert(#dir.files == 1 and #dir.templates == 1 and dir.templates[1] == tmp .. "/pages/init.tmpl")
-  local every = assert(fix.chosen(tmp, {}))
+  local every = assert(chosen(tmp, {}))
   assert(#every.templates == 1 and every.templates[1] == "pages/init.tmpl", table.concat(every.templates, " "))
 end
 
@@ -70,7 +81,7 @@ end
 --- cosmic's own tree, whose headers and compiler they assume.
 local function test_c_is_taken_only_in_cosmics_own_tree(tmp: string)
   assert(Fs.write(tmp .. "/a.c", "int a;\n"))
-  local picked = assert(fix.chosen(tmp, { tmp .. "/a.c", tmp }))
+  local picked = assert(chosen(tmp, { tmp .. "/a.c", tmp }))
   assert(#picked.c_files == 0, "a tree of another's has no C checked")
   assert(nth(picked.refused, 1):find("only in cosmic's own tree", 1, true) ~= nil,
     picked.refused[1])
@@ -82,10 +93,10 @@ local function test_c_is_taken_only_in_cosmics_own_tree(tmp: string)
   assert(Fs.write(tmp .. "/own/core/a.c", "int a;\n"))
   assert(Fs.write(tmp .. "/own/core/a.h", "int a;\n"))
   assert(Fs.write(tmp .. "/own/vendor/lua/b.c", "int b;\n"))
-  local all = assert(fix.chosen(tmp .. "/own", {}))
+  local all = assert(chosen(tmp .. "/own", {}, true))
   assert(#all.c_files == 2 and all.c_files[1] == "core/a.c" and all.c_files[2] == "core/a.h",
     "the whole tree covers its own C and not the vendored: " .. table.concat(all.c_files, ", "))
-  local named = assert(fix.chosen(tmp .. "/own", { tmp .. "/own/core/a.h" }))
+  local named = assert(chosen(tmp .. "/own", { tmp .. "/own/core/a.h" }, true))
   assert(#named.c_files == 1 and #named.refused == 0, "a header named is checked")
 end
 
@@ -100,14 +111,14 @@ local function test_only_the_whole_own_tree_is_whole(tmp: string)
   assert(Fs.mkdirs(own .. "/vendor/lua"))
   assert(Fs.write(own .. "/build/importer.tl", "return {}\n"))
   assert(Fs.write(own .. "/cosmic/thing.tl", "return {}\n"))
-  assert(assert(fix.chosen(own, {})).whole, "no path named covers the whole tree")
-  assert(assert(fix.chosen(own, { own })).whole, "the root named covers the whole tree")
-  assert(not assert(fix.chosen(own, { own .. "/build" })).whole, "build/ is a part of it")
+  assert(assert(chosen(own, {}, true)).whole, "no path named covers the whole tree")
+  assert(assert(chosen(own, { own }, true)).whole, "the root named covers the whole tree")
+  assert(not assert(chosen(own, { own .. "/build" }, true)).whole, "build/ is a part of it")
   local other = tmp .. "/other"
   assert(Fs.mkdirs(other))
   assert(Fs.write(other .. "/thing.tl", "return {}\n"))
-  assert(not assert(fix.chosen(other, {})).whole, "a tree of another's is never whole")
-  assert(not assert(fix.chosen(other, { other })).whole, "a tree of another's is never whole")
+  assert(not assert(chosen(other, {})).whole, "a tree of another's is never whole")
+  assert(not assert(chosen(other, { other })).whole, "a tree of another's is never whole")
 end
 
 --- A program's modules, as its own database holds them, which
@@ -146,7 +157,7 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
   end
   assert(Fs.write(own .. "/core/a.c", "int a;\n"))
   assert(Fs.write(own .. "/lib/b.c", "int b;\n"))
-  local every = assert(fix.chosen(own, {}))
+  local every = assert(chosen(own, {}, true))
   assert(every.whole and #every.c_files == 2, "the fixture is no tree of cosmic's own")
   local db = program_modules()
   local function names(files: {string}): string
@@ -205,7 +216,7 @@ local function test_yaml_in_flow_style_is_taken(tmp: string)
   assert(Fs.mkdirs(tmp .. "/.github/workflows"))
   assert(Fs.write(tmp .. "/.github/workflows/a.yml", "{a: 1}\n"))
   assert(Fs.write(tmp .. "/.github/workflows/b.yml", "a: 1\n"))
-  local picked = assert(fix.chosen(tmp, { tmp .. "/.github/workflows/b.yml", tmp }))
+  local picked = assert(chosen(tmp, { tmp .. "/.github/workflows/b.yml", tmp }))
   assert(#picked.flow_files == 1 and picked.flow_files[1] == tmp .. "/.github/workflows/b.yml",
     table.concat(picked.flow_files, " "))
 
@@ -216,12 +227,12 @@ local function test_yaml_in_flow_style_is_taken(tmp: string)
   assert(Fs.write(tmp .. "/own/build/importer.tl", "return {}\n"))
   assert(Fs.write(tmp .. "/own/.github/actions/x/action.yml", "# c\n{a: 1}\n"))
   assert(Fs.write(tmp .. "/own/.github/block.yml", "a: 1\n"))
-  picked = assert(fix.chosen(tmp .. "/own", { tmp .. "/own" }))
+  picked = assert(chosen(tmp .. "/own", { tmp .. "/own" }, true))
   assert(#picked.flow_files == 1 and picked.flow_files[1] == tmp .. "/own/.github/actions/x/action.yml",
     table.concat(picked.flow_files, " "))
   -- `.github/` named, or a directory under it, covers what it holds.
   for _, dir in ipairs({ tmp .. "/own/.github", tmp .. "/own/.github/actions", tmp .. "/own/.github/actions/" }) do
-    picked = assert(fix.chosen(tmp .. "/own", { dir }))
+    picked = assert(chosen(tmp .. "/own", { dir }, true))
     assert(#picked.flow_files == 1 and picked.flow_files[1]:match("/%.github/actions/x/action%.yml$") ~= nil,
       dir .. ": " .. table.concat(picked.flow_files, " "))
     assert(not nth(picked.flow_files, 1):find("//", 1, true), picked.flow_files[1])
@@ -239,12 +250,12 @@ local function test_yaml_in_flow_style_is_taken(tmp: string)
   assert(Fs.write(tmp .. "/.github/own/vendor/lua/.github/v.yml", "{a: 1}\n"))
   local nested = tmp .. "/.github/own"
   for _, named in ipairs({ {}, { nested } }) do
-    picked = assert(fix.chosen(nested, named))
+    picked = assert(chosen(nested, named, true))
     local got = table.concat(picked.flow_files, " ")
     assert(#picked.flow_files == 1 and got:match("%.github/workflows/w%.yml$") ~= nil, got)
   end
   for _, dir in ipairs({ nested .. "/vendor/lua", nested .. "/docs" }) do
-    picked = assert(fix.chosen(nested, { dir }))
+    picked = assert(chosen(nested, { dir }, true))
     assert(#picked.flow_files == 0, dir .. ": " .. table.concat(picked.flow_files, " "))
   end
 end
@@ -281,7 +292,7 @@ local function test_the_core_and_the_skills_have_their_links_checked(tmp: string
   assert(Fs.write(tmp .. "/core/a_test.tl", "local x = 1\n"))
   assert(Fs.write(tmp .. "/.claude/skills/a/SKILL.md", "# A\n"))
   assert(Fs.write(tmp .. "/.other/b.md", "# B\n"))
-  local all = assert(fix.chosen(tmp, {}))
+  local all = assert(chosen(tmp, {}))
   assert(table.concat(all.checked, " ") == ".claude/skills/a/SKILL.md core/a_test.tl",
     table.concat(all.checked, " "))
   assert(#all.files == 0, table.concat(all.files, " "))
@@ -293,10 +304,10 @@ local function test_markdown_and_zig_are_taken_to_be_checked(tmp: string)
   assert(Fs.write(tmp .. "/build.zig", "const x = 1;\n"))
   assert(Fs.write(tmp .. "/doc/a.md", "# A\n"))
   assert(Fs.write(tmp .. "/o/b.md", "# B\n"))
-  local all = assert(fix.chosen(tmp, {}))
+  local all = assert(chosen(tmp, {}))
   assert(table.concat(all.checked, " ") == "build.zig doc/a.md", table.concat(all.checked, " "))
   assert(#all.files == 0, "Markdown is no Teal source")
-  local named = assert(fix.chosen(tmp, { tmp .. "/doc/a.md", tmp .. "/doc" }))
+  local named = assert(chosen(tmp, { tmp .. "/doc/a.md", tmp .. "/doc" }))
   assert(#named.refused == 0, table.concat(named.refused, "\n"))
   assert(#named.checked == 2 and named.checked[1] == tmp .. "/doc/a.md", table.concat(named.checked, " "))
 end
@@ -453,7 +464,7 @@ local function test_markdown_and_zig_are_never_rewritten(tmp: string)
   assert(Fs.write(tmp .. "/a.md", "#  Messy   heading\n"))
   assert(Fs.write(tmp .. "/b.zig", "const   x = 1;\n"))
   for _, named in ipairs({ {}, { tmp }, { tmp .. "/a.md", tmp .. "/b.zig" } }) do
-    local picked = assert(fix.chosen(tmp, named))
+    local picked = assert(chosen(tmp, named))
     local rewritten = table.concat(picked.files, " ") .. table.concat(picked.c_files, " ") ..
       table.concat(picked.flow_files, " ")
     assert(rewritten == "", rewritten)
@@ -497,11 +508,11 @@ local function test_nothing_under_static_is_chosen(tmp: string)
   assert(Fs.write(tmp .. "/static/p.tmpl", "{{ unclosed\n"))
   assert(Fs.write(tmp .. "/static/docs/readme.md", "[dead](nowhere.md)\n"))
   assert(Fs.write(tmp .. "/main.tl", "return 1\n"))
-  local every = assert(fix.chosen(tmp, {}))
+  local every = assert(chosen(tmp, {}))
   assert(#every.files == 1 and every.files[1] == "main.tl", table.concat(every.files, " "))
   assert(#every.templates == 0 and #every.checked == 0 and #every.refused == 0)
   for _, path in ipairs({ tmp .. "/static", tmp .. "/static/a.tl", tmp .. "/static/docs/readme.md" }) do
-    local named = assert(fix.chosen(tmp, { path }))
+    local named = assert(chosen(tmp, { path }))
     assert(#named.files == 0 and #named.templates == 0 and #named.checked == 0, path)
     assert(#named.refused == 1 and named.refused[1]:find("carried verbatim", 1, true) ~= nil, path)
   end
@@ -648,4 +659,20 @@ local function test_a_file_changed_while_being_laid_out_is_not_written(tmp: stri
   local done = fix.lay_out_source(file, source, chunk, false, nil)
   assert(done.state == "changed" and done.why == "not written: " .. file .. " changed while being laid out", done.why)
   assert(Fs.read(file) == "local   x=2\n", "the edit was overwritten")
+end
+
+--- A named Teal file that identity rejects as an input is set apart for a check of its own, in a project that is not cosmic's:
+--- the build never reads it. A file the build reads, or one inside cosmic's own tree, is not.
+local function test_a_named_file_outside_the_build_is_set_apart_to_be_checked_alone(tmp: string)
+  local dir = tmp .. "/project"
+  assert(Fs.mkdirs(dir .. "/bin"))
+  assert(Fs.mkdirs(dir .. "/lib"))
+  assert(Fs.write(dir .. "/bin/a.tl", "return 1\n"))
+  assert(Fs.write(dir .. "/lib/b.tl", "return 2\n"))
+  assert(Fs.write(tmp .. "/stray.tl", "return 3\n"))
+  local picked = assert(chosen(dir, { dir .. "/bin/a.tl", dir .. "/lib/b.tl", tmp .. "/stray.tl" }))
+  local alone = assert(picked.alone)
+  assert(#alone == 2 and alone[1] == dir .. "/bin/a.tl" and alone[2] == tmp .. "/stray.tl",
+    "bin/a.tl and the file outside the root are checked alone, lib/b.tl is the build's: " .. table.concat(alone, ","))
+  assert(#picked.files == 3, "each is laid out all the same")
 end

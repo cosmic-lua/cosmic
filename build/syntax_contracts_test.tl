@@ -349,6 +349,18 @@ local function test_the_calls_of_a_binding_of_c_are_judged_as_any_others_are()
   })
 end
 
+--- A table of C bindings the program holds as a module that declares no table is told, not dropped from the contract:
+--- its calls would go unjudged without a word. A program without the module judges nothing of it, and says nothing.
+local function test_a_binding_the_program_holds_without_a_table_is_told_by_name()
+  local lost = Fixture.port(Fixture.PRELUDE .. "local sys = require('cosmic.sys')\nreturn sys\n",
+    { ["cosmic.sys"] = "local n: integer = 1\nreturn n\n" }, nil)
+  local told = table.concat(lost.problems, "\n")
+  assert(told:find("cosmic.sys is a table of C bindings derived from core/syscalls.h", 1, true) ~= nil and
+      told:find("declares no table", 1, true) ~= nil, told)
+  local absent = Fixture.port(Fixture.PRELUDE .. "local record M end\nreturn M\n", {}, nil)
+  assert(#absent.problems == 0, table.concat(absent.problems, "\n"))
+end
+
 local function test_an_exported_bare_boolean_over_a_binding_is_flagged()
   local sys = "local sys = require('cosmic.sys')\nlocal record M end\n"
   local bare = "calls cosmic.sys.unlink itself and answers a bare boolean"

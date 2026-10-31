@@ -52,7 +52,7 @@ local function build_and_write(root: string, whom: string, out: string,
                                tool?: string): work.Handle
   write_project(root, whom)
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, tool or "closure-store-test"))
   assert(writer.write_result(handle, out, result))
   return handle
@@ -398,7 +398,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
   local function addresses(): {string:string}
     write_project(root, "world")
     local handle = assert(work.open(root))
-    assert(work.stage(handle, false))
+    assert(work.stage(handle, { own = false }))
     local result = assert(importer.compile(handle, "closure-store-test"))
     assert(writer.write_result(handle, tmp .. "/whole.db", result))
     local by_path: mut {string:importer.Module} = {}

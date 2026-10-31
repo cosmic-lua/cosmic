@@ -25,6 +25,7 @@
 -- [`build.error_render`]'s `lines` does with the databases it is given, once [`Driver.Build`] answers the problems over their
 -- ceilings and not only the lines that list them: the lines of an error carry the pointer ([`Pipeline.generate`]'s `hints`),
 -- which the lines of a warning and of a text that does not parse do not.
+local AnalysisSchema = require("build.analysis_schema")
 local Ceilings = require("build.ceilings")
 local CheckerDeclarations = require("build.checker_declarations")
 local CompileGrammar = require("build.compile_grammar")
@@ -50,7 +51,6 @@ local SyntaxContracts = require("build.syntax_contracts")
 local SyntaxDerivation = require("build.syntax_derivation")
 local TreeProgram = require("build.tree_program")
 local standard_text = require("build.standard_text")
-local tree = require("build.tree")
 local type Plans = require("build.plans")
 local type Derivation = require("build.derivation")
 local type Module = Plans.Module
@@ -103,11 +103,11 @@ local record Pipeline
     mut stubbed: Driver.Build?
   end
 
-  --- The options for the tree at `root`: in cosmic's own tree the declarations and the ceilings it holds; in any other
-  --- tree, a project's, the declarations of the standard library the tool carries ([`build.checker_declarations`]) and no
-  --- ceiling, so that every error of the checker refuses. nil and why where the tree cannot be told, or the tool carries
-  --- none of the declarations (a tool older than this one: boot it again).
-  options: function(root: string): Options?, string
+  --- The options for the tree at `root`, `own` when it is cosmic's own ([`build.tree`]): the declarations and the
+  --- ceilings it holds; in any other tree, a project's, the declarations of the standard library the tool carries
+  --- ([`build.checker_declarations`]) and no ceiling, so that every error of the checker refuses. nil and why where the
+  --- tool carries none of the declarations (a tool older than this one: boot it again).
+  options: function(root: string, own: boolean): Options?, string
 
   --- The options for a project outside cosmic's tree, whose globals are the declarations `texts` ([`Pipeline.options`] gives
   --- the ones the tool carries): no ceilings, so every error of the checker refuses.
@@ -214,7 +214,7 @@ Pipeline.tool = GrammarMode.tool
 --- Whether the stub of the module `module` of the file `file` is held to its source's type: a standard-library module that
 --- the error-slot discipline covers.
 local function judges_stub(file: string, module: string): boolean
-  return SyntaxContracts.kind_of(file) == "module" and module:sub(1, 7) == "cosmic."
+  return AnalysisSchema.kind_of(file) == "module" and module:sub(1, 7) == "cosmic."
 end
 
 --- Why the stub `made` of a module does not stand for its source `source` (the module read by `built`), or "" where it does.
@@ -266,12 +266,8 @@ function Pipeline.alone(): Pipeline.Options?, string
   return Pipeline.project(carried), ""
 end
 
-function Pipeline.options(root: string): Pipeline.Options?, string
-  local standing, standing_why = tree.standing(root)
-  if standing == nil then
-    return nil, standing_why
-  end
-  if not standing.own then
+function Pipeline.options(root: string, own: boolean): Pipeline.Options?, string
+  if not own then
     return Pipeline.alone()
   end
   local prelude, prelude_why = Fs.read(root .. "/" .. CheckerDeclarations.prelude_file())

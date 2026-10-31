@@ -20,6 +20,7 @@ local clock = require("build.clock")
 local artifact = require("build.artifact")
 local build_paths = require("build.paths")
 local plural = require("build.plural")
+local tree = require("build.tree")
 local Hash = require("cosmic.hash")
 local String = require("cosmic.string")
 
@@ -120,7 +121,13 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
     log:complain("boot: " .. open_trouble)
     return nil
   end
-  local staged, stage_trouble = work.stage(handle, true)
+  local standing, standing_trouble = tree.booted(root)
+  if standing == nil then
+    local _, _ = work.close(handle)
+    log:complain("boot: " .. standing_trouble)
+    return nil
+  end
+  local staged, stage_trouble = work.stage(handle, standing)
   if staged == nil then
     local _, _ = work.close(handle)
     log:complain("boot: " .. stage_trouble)

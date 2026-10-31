@@ -54,13 +54,7 @@ local sys = require("cosmic.sys")
 -- why: its restriction takes the checks (threads, descriptors) with it.
 local type raw_process = require("cosmic.internal.process")
 
-local handed: any = select(2, ...)
-local raw: raw_process
-if type(handed) == "table" then
-  raw = handed as raw_process
-else
-  raw = require("cosmic.internal.process")
-end
+local raw = require("cosmic.internal.process")
 
 local record Sandbox
   --- How far a program is isolated from the host

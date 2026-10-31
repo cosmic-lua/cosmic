@@ -86,19 +86,13 @@ local isatty = sys.isatty
 -- The calls that start, feed and reap a child, and hold this process's
 -- signals while it does, live in the raw process table, under the
 -- reserved `cosmic.internal.` namespace -- see cosmic/store.tl for
--- why this indirection exists. It is off the public surface so that
+-- why. It is off the public surface so that
 -- nothing but a handle reaps a child a handle owns: in an adopting
 -- process `collect` reaps every child with `waitpid(-1)`, and a
 -- public one would take a status from under it.
 local type raw_process = require("cosmic.internal.process")
 
-local handed: any = select(2, ...)
-local raw: raw_process
-if type(handed) == "table" then
-  raw = handed as raw_process
-else
-  raw = require("cosmic.internal.process")
-end
+local raw = require("cosmic.internal.process")
 
 local record Result
   --- The child's exit status, or nil when a signal ended it.

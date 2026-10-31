@@ -30,7 +30,6 @@ local onecrl = require("build.onecrl")
 local roots = require("build.roots")
 local schema = require("build.schema")
 local symbols = require("build.symbols")
-local tree = require("build.tree")
 local work = require("build.work")
 local bind = require("build.bind")
 local rebuild_lock = require("build.rebuild_lock")
@@ -256,9 +255,8 @@ local unstubbed_modules =
 
 --- The catalog entries ([`build.syntax_analyzer`]'s `CatalogEntry`) found while parsing
 --- each planned module: every literal `return nil, ...` under a
---- top-level function. The guidance a match prints is that function's
---- own documentation, joined from `docs` at lookup, so `text` is left
---- NULL here. `id` is left for SQLite to assign, in this SELECT's own
+--- top-level function. The guidance a match prints, where `text` is
+--- left NULL here, is a line naming that function ([`Errors.guidance`]). `id` is left for SQLite to assign, in this SELECT's own
 --- deterministic order -- the hand-authored rows below claim the low
 --- ids first, so this always continues after them the same way on
 --- every build.
@@ -441,30 +439,18 @@ end
 --- symbols: nothing in cosmic's own tree, whose projection documents its
 --- standard library itself; in a project, `given`, or the standard
 --- library of the binary running.
-local function library_for(root: string, given: link_index.Library?):
-    link_index.Library?, string
-  local standing, trouble = tree.standing(root)
-  if standing == nil then
-    return nil, trouble
+local function library_for(own: boolean, given: link_index.Library?): link_index.Library?
+  if own then
+    return nil
   end
-  if standing.own then
-    return nil, ""
-  end
-  if given ~= nil then
-    return given, ""
-  end
-  return link_index.running(), ""
+  return given or link_index.running()
 end
 
 --- The links of the tree `handle` holds, waiting for its symbols
 --- ([`link_index.pending`]), with what they may name beside its own.
 local function pending_links(handle: work.Handle, given: link_index.Library?, by: string):
     link_index.Pending?, string
-  local library, trouble = library_for(handle.root, given)
-  if library == nil and trouble ~= "" then
-    return nil, trouble
-  end
-  return link_index.pending(handle.db, handle.root, library, by)
+  return link_index.pending(handle.db, handle.root, library_for(work.standing(handle).own, given), by)
 end
 
 --- The signature of `result`'s projection as the writer whose identity
@@ -717,7 +703,7 @@ local function project(handle: work.Handle,
   if not stored then
     return false, store_trouble
   end
-  local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis', 'writer')"
+  local metadata = "('boot_hash', 'image_hash', 'built_from', 'compiler', 'runtime_basis', 'writer')"
   local carried, meta_trouble = db:exec(
     "INSERT INTO out.meta (key, value) SELECT key, value FROM meta " ..
       "WHERE key IN " .. metadata)
@@ -765,11 +751,7 @@ local function project(handle: work.Handle,
   -- module's source, which the module's key holds, and of build.stub,
   -- which the compiler's identity in `meta` holds. A project's tables
   -- stay empty.
-  local standing, own_trouble = tree.standing(handle.root)
-  if standing == nil then
-    return false, own_trouble
-  end
-  if standing.own then
+  if work.standing(handle).own then
     local filled, fill_trouble = bom.fill(db, handle.root, "out.")
     if not filled then
       return false, fill_trouble
@@ -1148,17 +1130,13 @@ local carry: {string} = {
   -- compile's hints read the tool's rows only for the public standard
   -- library ([`symbols.public_only`]). Inside it they read the tree's own
   -- projection first, and find nothing for `build.*` until a build has
-  -- written one. So a doc row about any other module is carried only for
-  -- the catalog, whose guidance is the doc comment of the function an
-  -- error came from (core/main.c, [`build.embed`]).
+  -- written one. So a doc row about any other module is carried only as an
+  -- internal type a public alias names.
   --
   -- A user guide ([`symbols.guide_module`]) is a generated test module, so
   -- `dropped` names it, but its own row -- the guide's prose -- is what
   -- `cosmic docs quickstart` answers with.
   --
-  -- The catalog's rows are looked up as a set (`IN`), not by a correlated
-  -- `EXISTS`, which SQLite answers here by scanning the catalog for each of
-  -- the thirty thousand doc rows: most of a second of every tool rebuild.
   dropped_modules .. carried_alias_signatures ..
     "INSERT INTO main.docs (module, symbol, source_symbol, exported, " ..
     "kind, signature, text, file, line) SELECT module, symbol, " ..
@@ -1166,7 +1144,7 @@ local carry: {string} = {
     "FROM whole.docs d WHERE (d.symbol = '' AND " ..
     symbols.guide_module("d.module") .. ") OR (module NOT IN dropped AND (" ..
     symbols.public_only("d.module", true) ..
-    " OR (d.module, d.source_symbol) IN (SELECT module, symbol FROM whole.catalog) OR " ..
+    " OR " ..
     carried_internal_types .. ")) ORDER BY id",
   dropped_modules .. "INSERT INTO main.uses SELECT * FROM whole.uses u " ..
     "WHERE module NOT IN dropped AND from_module NOT IN dropped AND " ..

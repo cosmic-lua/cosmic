@@ -39,7 +39,9 @@ conflict with the parent's squash.
    does compile it compiles in worker processes, one fewer than the
    processors (`COSMIC_BUILD_JOBS` names another count, `1` none). only
    the tree's own tool rebuilds or boots: another cosmic (a release) run
-   in a stale tree refuses and exits 3.
+   in a stale tree refuses and exits 3. a tool built from another path
+   (a worktree's copied build directory, a moved checkout) refuses the
+   checkout: run `bin/zig build boot` there.
 
    on an x86_64 box the build runs the checked core and the host's
    shipped core, which are built for x86-64-v3, so the box's CPU needs

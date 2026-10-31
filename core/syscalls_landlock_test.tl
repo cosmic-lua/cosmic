@@ -7,7 +7,6 @@
 --- are not run (`requires`) or, where only the call can tell, skipped
 --- (Test.skip).
 
-local RawTables = require("build.raw_tables")
 local Net = require("cosmic.net")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -26,7 +25,7 @@ Test.policy{
   requires = { "landlock" },
 }
 
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
 --- the script its first argument holds: a static executable that reads

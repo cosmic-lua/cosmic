@@ -16,7 +16,6 @@
 --- the design. Every test calls [`Test.skip`] on any other host, where Landlock
 --- and seccomp hold a child, so the whole module skips there.
 
-local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -88,7 +87,7 @@ local function start(tmp: string, text: string, parameters: {string:string}, arg
   local path = tmp .. "/out-" .. tostring(counter)
   local out = assert(sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 420))
   local null = assert(sys.open("/dev/null", sys.O_RDONLY))
-  local pid, why = RawTables.process().spawn(argv[1], argv, nil, nil, null, out, out, false, nil,
+  local pid, why = require("cosmic.internal.process").spawn(argv[1], argv, nil, nil, null, out, out, false, nil,
     { seatbelt = { profile = text, parameters = parameters } })
   local _, _ = sys.close(out)
   local _, _ = sys.close(null)
@@ -110,7 +109,7 @@ local function reap(running: Running, seconds: number): Ended
   if running.pid == nil then
     return { started = false, why = running.why or "", code = -1, signal = -1, timed_out = false, text = "" }
   end
-  local process = RawTables.process()
+  local process = require("cosmic.internal.process")
   local deadline = Clock.monotonic_ns() + Clock.seconds(seconds)
   local timed_out = false
   local status = assert(process.waitpid(running.pid, true))

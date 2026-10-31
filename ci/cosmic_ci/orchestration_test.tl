@@ -165,10 +165,12 @@ local function test_provenance_failures_are_durable(tmp: string)
   assert(Fs.write(candidate .. "/AGENTS.md", "fixture\n"))
   local template = tmp .. "/products-template"
   assert(Fs.mkdirs(template))
+  -- The lanes' tools differ in the checkout each was built in, and agree on the rest.
   for _, name in ipairs({ "a", "b" }) do
     local product = template .. "/portable-product-" .. name
-    assert(Fs.mkdirs(product) and Fs.write(product .. "/cosmic", "bytes"))
-    local digest = Hash.hex_sha256("bytes")
+    assert(Fs.mkdirs(product))
+    assert(Fs.write(product .. "/cosmic", Fixture.synthetic(tmp .. "/lane.db", "/runner-" .. name .. "/cosmic")))
+    local digest = Hash.hex_sha256(Fixture.stripped(product .. "/cosmic", tmp .. "/lane.db"))
     assert(Fs.write(product .. "/executed-cosmic.sha256", digest .. "  cosmic\n") and
         Fs.write(product .. "/expected-platforms", "2\n"))
   end
@@ -189,7 +191,7 @@ local function test_provenance_failures_are_durable(tmp: string)
 
   local bad_runner_temp = seeded_runner_temp("bad")
   assert(Fs.write(bad_runner_temp .. "/cosmic-ci/products/portable-product-b/cosmic",
-    "changed"))
+    Fixture.synthetic(tmp .. "/lane.db", "/runner-b/cosmic", "changed")))
   assert(not Fixture.call("bad-provenance", append(base, { "provenance" }), project,
     tmp .. "/logs", context(candidate, bad_runner_temp)).result.ok)
 

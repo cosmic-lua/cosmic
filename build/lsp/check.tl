@@ -121,8 +121,9 @@ local function importer_hints(checker: Checker): importer.Hints
 end
 
 --- A checker of the tree at `root`, made ready on its first check.
-function check.new(root: string, err: function(line: string), hints: function(): check.Hinted): Checker
-  local view = source.new(root, err)
+function check.new(root: string, err: function(line: string), hints: function(): check.Hinted,
+                   carried?: string): Checker
+  local view = source.new(root, err, carried)
   return {
     root = root,
     source = view,
@@ -396,7 +397,7 @@ local function checked_of(checker: Checker, document: Document): Checked
   local path, kind = named.path, named.kind
   local listed = source.module(checker.source, document.name)
   if listed ~= nil then path, kind = listed.path, listed.kind end
-  local own_tree = source.own_tree(checker.source)
+  local own_tree = source.standing(checker.source).own
   local planned = syntax_read.plan_of(document.name, text, path, kind, own_tree, generated)
   remember(checker, document, planned.requires)
   local refusals = planned.refusals
@@ -442,7 +443,7 @@ end
 --- Whether the file `name` is in a tree of its own inside cosmic's
 --- ([`identity.is_foreign_tree`]), which a build of it never reads.
 local function apart(checker: Checker, name: string): boolean
-  return source.own_tree(checker.source) and identity.is_foreign_tree(identity.first_of(name))
+  return source.standing(checker.source).own and identity.is_foreign_tree(identity.first_of(name))
 end
 
 --- The diagnostics of `document`, each encoded, its positions counted in

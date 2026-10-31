@@ -37,7 +37,7 @@ end
 local function compile(root: string, cache: string, checks: boolean): importer.Result
   project(root)
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result, trouble = importer.compile(handle,
     "keys-test",
     false,
@@ -115,7 +115,7 @@ local function test_the_working_database_keeps_the_two_apart(tmp: string)
   local root = tmp .. "/project"
   project(root)
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local plain = assert(importer.compile(handle, "keys-test", false, nil, false))
   local checked = assert(importer.compile(handle, "keys-test", false, nil, true))
   assert(checked.compiled == #checked.modules and checked.cached == 0,
@@ -136,7 +136,7 @@ local function test_the_module_holding_the_hook_is_compiled_without_checks(tmp: 
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.write(root .. "/build/test_worker.tl", library))
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   -- Unjudged: the discipline holds this file to the exemptions the tree's own module of the name has.
   local result, trouble = importer.compile(handle, "keys-test", true, nil, true)
   work.close(handle)

@@ -7,6 +7,7 @@
 --- ([`build.lsp.publish`]).
 
 local Fs = require("cosmic.fs")
+local tree = require("build.tree")
 local session_fixture = require("build.lsp.session_fixture")
 
 local change, close, counts = session_fixture.change, session_fixture.close, session_fixture.counts
@@ -75,11 +76,12 @@ local function test_cosmics_own_tree_keeps_build_to_itself()
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.write(root .. "/build/importer.tl", EMPTY))
   local text = 'local importer = require("build.importer")\nreturn importer\n'
-  local refused = only(nth(served(root, { initialize(root), open(root, "lib/thing.tl", text) }), 1))
+  local built = assert(tree.built_from(root))
+  local refused = only(nth(served(root, { initialize(root), open(root, "lib/thing.tl", text) }, nil, built), 1))
   assert(refused.message == "build.importer is private to build/; only build/, cmd/, test/ and " ..
       "tests may import it", refused.message)
   local test = served(root, { initialize(root), open(root, "lib/thing_test.tl",
-    'local importer = require("build.importer")\nlocal function test_it() assert(importer) end\n') })
+    'local importer = require("build.importer")\nlocal function test_it() assert(importer) end\n') }, nil, built)
   assert(counts(test) == "0", messages_of(nth(test, 1)))
 end
 
@@ -285,7 +287,8 @@ local function test_a_tree_of_its_own_inside_cosmics_publishes_nothing()
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.write(root .. "/build/importer.tl", EMPTY))
   local bad = 'local n: integer = "no"\nreturn n\n'
-  local ran = served(root, { initialize(root), open(root, "ci/thing.tl", bad), open(root, "cin/thing.tl", bad) })
+  local ran = served(root, { initialize(root), open(root, "ci/thing.tl", bad), open(root, "cin/thing.tl", bad) }, nil,
+    (assert(tree.built_from(root))))
   assert(counts(ran) == "0,1", counts(ran) .. "\n" .. messages_of(nth(ran, 2)))
 end
 

@@ -1,6 +1,7 @@
 local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
 local Fixture = require("cosmic_ci.fixture")
+local sys = require("cosmic.sys")
 
 local Test = require("cosmic.test")
 
@@ -62,10 +63,20 @@ Test.policy{
 -- `COSMIC_BOOTSTRAP`. The product is itself such a cosmic, so it can
 -- drive the boot of the tree it was booted from -- the next pin, proved
 -- before it is one -- and a boot it drives, from another path, must write
--- the product again, byte for byte. The zig caches are the candidate's,
+-- the product again, byte for byte, but for the one row that names the path
+-- it was built from ([`built_from`]), which is that path. The zig caches are the candidate's,
 -- and every C file compiles from a copy there, the same from every path
 -- (build.zig's `Own`), so none of it compiles again: only the tree does.
 local boot_timeout_ns <const> = Clock.seconds(450)
+
+--- `product` as a tool built from the tree at `tree`, which it runs a file of: the product is built from the checkout
+--- CI booted it in, and a file of a copy of that tree at another path is run by a tool built from that copy or it
+--- reads the tree as a project. Written under `tmp`; answers its path.
+local function built_from(product: string, tree: string, tmp: string): string
+  local path = tmp .. "/cosmic"
+  Fixture.retargeted(product, path, assert(sys.realpath(tree)), 0x1ed)
+  return path
+end
 
 local function test_the_product_boots_its_own_tree_to_itself(tmp: string)
   local product = Fixture.required("COSMIC_FIXTURE_PRODUCT") .. "/cosmic"
@@ -81,8 +92,12 @@ local function test_the_product_boots_its_own_tree_to_itself(tmp: string)
       COSMIC_BOOTSTRAP = product,
       COSMIC_PORTABLE_CACHE = tmp .. "/portable-cache",
     }), boot_timeout_ns))
-  assert(Fixture.hash(BuildPaths.directory(tree) .. "/bin/cosmic") == Fixture.hash(product),
-    "the tool a boot the product drove wrote is not the product")
+  local written = BuildPaths.directory(tree) .. "/bin/cosmic"
+  local made = Fixture.meta(written, tmp .. "/written.db")
+  assert(made["built_from"] == assert(sys.realpath(tree)), "the tool a boot wrote is built from another path")
+  -- The same tool but for the path it was built from: the prefix, the modules, their bytecode and every other row.
+  assert(Fixture.stripped(written, tmp .. "/stripped.db") == Fixture.stripped(product, tmp .. "/stripped.db"),
+    "the tool a boot the product drove wrote is not the product but for the path it was built from")
 end
 
 --- The caller prepares terminals before confinement; no policy grants
@@ -94,7 +109,7 @@ local function test_the_product_prepares_and_restores_terminals(tmp: string)
   local diagnostics = tmp .. "/logs"
   Fixture.mkdir(diagnostics)
   local outcome = Fixture.call_with_environment("pty-bindings",
-    { product, source .. "/test/terminal/pty.tl", "bindings" }, tmp, diagnostics,
+    { built_from(product, source, tmp), source .. "/test/terminal/pty.tl", "bindings" }, tmp, diagnostics,
     Fixture.environment(), Clock.seconds(30))
   local captured = Fixture.succeeded("pty-bindings", outcome)
   local out = Fixture.read(captured.out)
@@ -117,7 +132,7 @@ local function test_the_product_relays_a_sandboxed_terminal(tmp: string)
   local diagnostics = tmp .. "/logs"
   Fixture.mkdir(diagnostics)
   local outcome = Fixture.call_with_environment("pty-relay",
-    { product, source .. "/test/terminal/relay.tl" }, tmp, diagnostics,
+    { built_from(product, source, tmp), source .. "/test/terminal/relay.tl" }, tmp, diagnostics,
     Fixture.environment(), Clock.seconds(120))
   local captured = Fixture.succeeded("pty-relay", outcome)
   local out = Fixture.read(captured.out)

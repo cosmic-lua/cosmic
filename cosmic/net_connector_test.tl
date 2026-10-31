@@ -2,7 +2,7 @@
 --- another process or an earlier call made, taken as a listener, and the
 --- confined native connector (core/connector.c) as a connection maker.
 local Clock = require("cosmic.clock")
-local RawTables = require("build.raw_tables")
+local ConnectorEnds = require("build.connector_ends")
 local Connector = require("cosmic.internal.connector")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -13,8 +13,8 @@ local type raw_socket = require("cosmic.internal.socket")
 
 Test.policy{ loopback = { "127.0.0.1" }, promises = { "fork" } }
 
-local process = RawTables.process("cosmic.internal.connector")
-local socket = RawTables.socket()
+local process = require("cosmic.internal.process")
+local socket = require("cosmic.internal.socket")
 
 --- How many connections one connector process makes at once, as the core says.
 local FLIGHT <const> = socket.CONNECTOR_FLIGHT
@@ -75,7 +75,7 @@ end
 --- port, and what holds it full. Skips where this kernel answers anyway.
 local function hung_port(): integer, {raw_socket.Socket}
   local listener = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
-  local port = RawTables.bound_port(listener)
+  local port = ConnectorEnds.bound_port(listener)
   local held: mut {raw_socket.Socket} = { listener }
   for n = 1, 6 do
     held[#held + 1] = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = port }))
@@ -97,13 +97,13 @@ end
 local function test_a_listener_received_over_a_socketpair_accepts_a_loopback_connection()
   local before = descriptor_count()
   local original = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 8))
-  local pair = RawTables.connector_pair("cosmic.internal.connector")
+  local pair = ConnectorEnds.connector_pair()
   assert(socket.sendfds(pair.controller, { original:fd() }))
   local received = assert(socket.recvfds(pair.connector, 1))
   local adopted = assert(received[1], "recvfds answers the descriptor it was asked for")
   Poll.run(function()
     local listener = assert(Net.listener_from(adopted:fd(), { timeout_ns = Clock.seconds(5) }))
-    local bound_port = RawTables.bound_port(original)
+    local bound_port = ConnectorEnds.bound_port(original)
     assert(listener.address.kind == "tcp" and listener.address.host == "127.0.0.1" and
         listener.address.port == bound_port, "the adopted listener names the socket's own address")
     local task = Poll.spawn(function()
@@ -167,7 +167,7 @@ local function test_listener_from_refuses_what_is_no_listening_tcp_socket(tmp: s
   assert(sys.close(ends.reader) and sys.close(ends.writer))
   -- A stream socket that is connected, not listening.
   local server = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
-  local bound_port = RawTables.bound_port(server)
+  local bound_port = ConnectorEnds.bound_port(server)
   local client = assert(socket.connect({ kind = "tcp", host = "127.0.0.1", port = bound_port }, 5000))
   refuses(client:fd(), "a connected socket", { "not listening" })
   -- A datagram socket.

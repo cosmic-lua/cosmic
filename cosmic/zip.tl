@@ -16,19 +16,9 @@ local Time = require("cosmic.time")
 local String = require("cosmic.string")
 
 --- The raw compress table, [`cosmic.compress`]'s too, for `crc32`: a body's checksum
---- is no compressor's and the C sum keeps the bytes off the Lua loop. It
---- arrives as the second argument `require` passes this chunk's loader
---- (core/store.c's `raw_modules`); boot mode falls back to requiring it by
---- name, which only boot's own preload answers.
-local type raw_compress = require("cosmic.internal.compress")
+--- is no compressor's and the C sum keeps the bytes off the Lua loop.
 
-local handed: any = select(2, ...)
-local sums: raw_compress
-if type(handed) == "table" then
-  sums = handed as raw_compress
-else
-  sums = require("cosmic.internal.compress")
-end
+local sums = require("cosmic.internal.compress")
 
 local record Zip
   --- A zip's entry: a [`Stream.ArchiveEntry`] that also says how its body

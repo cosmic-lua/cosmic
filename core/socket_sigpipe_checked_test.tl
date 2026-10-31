@@ -1,4 +1,3 @@
-local RawTables = require("build.raw_tables")
 local _net = require("cosmic.net")
 local sys = require("cosmic.sys")
 local unix_socket = require("build.unix_socket")
@@ -8,7 +7,7 @@ local type raw_socket = require("cosmic.internal.socket")
 
 Test.policy{ requires = { "checked" }, loopback = { "127.0.0.1" } }
 
-local raw = RawTables.socket()
+local raw = require("cosmic.internal.socket")
 
 local function pair(path: string): raw_socket.Socket, raw_socket.Socket
   local address: raw_socket.Address = { kind = "unix", path = path }
