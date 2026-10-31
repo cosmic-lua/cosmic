@@ -16,6 +16,16 @@ local Pipeline = require("build.pipeline")
 local build_paths = require("build.paths")
 local this_program = require("build.this_program")
 
+--- Whether a module of the database file at `path` holds `needle` in its bytecode, which the database stores
+--- deflated: the file's own bytes show none of it.
+local function carries(path: string, needle: string): boolean
+  local db = assert(Sqlite.open(path))
+  local rows = assert(Sqlite.text_rows(db,
+    "SELECT count(*) FROM modules WHERE instr(inflate(bytecode), CAST(?1 AS BLOB)) > 0", { { text = needle } }))
+  assert(db:close())
+  return assert(rows[1]):text(1) ~= "0"
+end
+
 --- The program itself, which this test starts; it carries the declarations of the standard library.
 Test.policy{ profiles = { "cosmic" }, grants = {
   { path = "o/bin", letters = "rx" },
@@ -158,8 +168,8 @@ local function test_a_checked_run_reports_the_fact_that_is_false(tmp: string)
   assert(table.concat(row:texts(), " | ") == "fact | lib.tl:" .. read_site() ..
       " | shape | kind one of square | a table whose kind is nil | 1", table.concat(row:texts(), " | "))
   -- the module the run was made of carries the wrap of the read `assert` narrowed too
-  local aside = assert(Fs.read(assert(build_paths.directory(root)) .. "/cosmic.checked.db"))
-  assert(aside:find("__fact", 1, true) ~= nil, "the checked projection carries no wrap")
+  assert(carries(assert(build_paths.directory(root)) .. "/cosmic.checked.db", "__fact"),
+    "the checked projection carries no wrap")
 end
 
 --- What a drawn program leaves unused of its header, read, so that the tool, which refuses a warning, takes it, and the
@@ -231,6 +241,6 @@ local function test_the_programs_the_flows_property_draws_break_no_fact_when_the
     assert(row:text(1) ~= "fact", table.concat(row:texts(), " | "))
   end
   -- the modules the run was made of carry the wraps
-  local aside = assert(Fs.read(assert(build_paths.directory(root)) .. "/cosmic.checked.db"))
-  assert(aside:find("__fact", 1, true) ~= nil, "the checked projection carries no wrap")
+  assert(carries(assert(build_paths.directory(root)) .. "/cosmic.checked.db", "__fact"),
+    "the checked projection carries no wrap")
 end

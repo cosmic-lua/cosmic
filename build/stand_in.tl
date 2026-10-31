@@ -274,7 +274,7 @@ local function database(path: string): string?, string
       -- bytecode: `cosmic.*` modules of kind "module" load trusted, as
       -- the binary's own, and the main, under no such name, does not.
       local ok, insert_trouble = Sqlite.run(db, "INSERT INTO modules (path, file, kind, " ..
-          "source_hash, key, bytecode, tests, source) VALUES (?1, '', ?2, x'', x'', ?3, '', x'')",
+          "source_hash, key, bytecode, tests, source) VALUES (?1, '', ?2, x'', x'', deflate(?3), '', x'')",
         { text(name), text(if name == main_module then "main" else "module" end), bind.blob(bytecode) })
       if not ok then return false, name .. ": " .. insert_trouble end
       for _, required in ipairs(module.requires) do

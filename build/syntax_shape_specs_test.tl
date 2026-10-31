@@ -74,13 +74,13 @@ end
 --- The refusal of `declaration`'s record `R` names `field` and holds `reason`.
 local function refused(declaration: string, field: string, reason: string)
   local source, trouble = of_record(declaration)
-  assert(source == nil, "the build accepted a record it has no spec for")
+  assert(source == nil, "the build accepted a record it has no spec for:\n" .. tostring(source))
   assert(trouble:find("main.tl:", 1, true) ~= nil and trouble:find('record_of("R")', 1, true) ~= nil, trouble)
   assert(trouble:find(field .. ": ", 1, true) ~= nil, ("%q not named in: %s"):format(field, trouble))
   assert(trouble:find(reason, 1, true) ~= nil, ("%q not said in: %s"):format(reason, trouble))
 end
 
-local function test_each_field_kind_is_the_shape_a_hand_written_spec_names()
+local function test_each_field_kind_is_read_through_its_own_check()
   local source, why = of_record(table.concat({
     'local enum Level "warn" "debug" end',
     "local record Inner",
@@ -101,17 +101,28 @@ local function test_each_field_kind_is_the_shape_a_hand_written_spec_names()
     "  omitted?: integer",
     "end",
   }, "\n"))
-  has(source, why, [[Shape.record_of("R", Shape.record({
-    ["a"] = Shape.optional(Shape.any), ["b"] = Shape.boolean, ["i"] = Shape.integer,
-    ["inner"] = Shape.record({ ["n"] = Shape.integer }),
-    ["level"] = Shape.one_of("debug", "warn"),
-    ["list"] = Shape.list(Shape.record({ ["n"] = Shape.integer })),
-    ["map"] = Shape.map(Shape.list(Shape.number)),
-    ["maybe"] = Shape.optional(Shape.record({ ["n"] = Shape.integer })),
-    ["n"] = Shape.number,
-    ["o"] = Shape.optional(Shape.string),
-    ["omitted"] = Shape.optional(Shape.integer),
-    ["s"] = Shape.string }), function(): R error("witness") end)]])
+  assert(source ~= nil, why)
+  has(source, why, 'Shape.record_of("R", (function(sh_s1: boolean): Shape.Spec<R>')
+  has(source, why, "Shape.string")
+  has(source, why, "Shape.integer")
+  has(source, why, "Shape.number")
+  has(source, why, "Shape.boolean")
+  -- a field of `any` and a field that may be omitted may be missing
+  has(source, why, "Shape.optional(Shape.any)")
+  has(source, why, "Shape.optional(Shape.string)")
+  has(source, why, "Shape.optional(Shape.integer)")
+  -- arrays, maps, records and enums are read through their own checks
+  has(source, why, "Shape.list((function(sh_s")
+  has(source, why, "Shape.map(Shape.list(Shape.number))")
+  has(source, why, "Shape.Spec<Inner>")
+  has(source, why, "Shape.Spec<Level>")
+  has(source, why, 'if sh_v == "debug" then return "debug", "" end if sh_v == "warn" then return "warn", "" end')
+  has(source, why, 'Shape.build.not_one_of(sh_p, sh_v, "debug", "warn")')
+  -- the record is built field by field, and the node describes its fields in byte order
+  has(source, why, 'return { ["a"] = sh_v')
+  has(source, why, '{ kind = "record", optional = false, fields = {')
+  has(source, why, 'Shape.build.object(sh_value, sh_path, { "a", "b", "i", "inner", "level", "list", "map", "maybe", "n", "o", "omitted", "s" }, sh_s1)')
+  has(source, why, '{ kind = "one_of", optional = false, values = { "debug", "warn" } }')
 end
 
 --- `any` holds nil, so the store folds `any?` into `any`, and `f?: any` keeps nothing of the `?` in the field's type: each is
@@ -125,9 +136,11 @@ local function test_an_optional_field_of_any_is_an_optional_field()
     "  z: string?",
     "end",
   }, "\n"))
-  has(source, why, [[Shape.record_of("R", Shape.record({
-    ["w"] = Shape.optional(Shape.any), ["x"] = Shape.optional(Shape.any),
-    ["y"] = Shape.optional(Shape.string), ["z"] = Shape.optional(Shape.string) }), function(): R error("witness") end)]])
+  assert(source ~= nil, why)
+  has(source, why, "local sh_c2 = Shape.optional(Shape.any)")
+  has(source, why, "local sh_c3 = Shape.optional(Shape.any)")
+  has(source, why, "local sh_c4 = Shape.optional(Shape.string)")
+  has(source, why, "local sh_c5 = Shape.optional(Shape.string)")
 end
 
 local function test_what_is_spliced_is_a_call_the_parser_reads()
@@ -172,9 +185,8 @@ local function test_a_module_the_calling_module_requires_names_its_record()
       "",
     }, "\n"),
   })
-  has(source, why, [[Shape.record_of("shapes.Line", Shape.record({
-    ["from"] = Shape.record({ ["x"] = Shape.number, ["y"] = Shape.number }),
-    ["to"] = Shape.record({ ["x"] = Shape.number, ["y"] = Shape.number }) }), function(): Shapes.Line error("witness") end)]])
+  has(source, why, 'Shape.record_of("shapes.Line", (function(sh_s1: boolean): Shape.Spec<Shapes.Line>')
+  has(source, why, "Shape.Spec<Shapes.Point>")
 end
 
 local function test_a_record_of_the_standard_library_is_read_too()
@@ -185,9 +197,8 @@ local function test_a_record_of_the_standard_library_is_read_too()
     "return OPTIONS, Json",
     "",
   }, "\n") })
-  has(source, why, [[Shape.record_of("cosmic.json.DecodeOptions", Shape.record({]])
-  has(source, why, [["max_depth"] = Shape.optional(Shape.integer)]])
-  has(source, why, "function(): Json.DecodeOptions error(\"witness\") end")
+  has(source, why, 'Shape.record_of("cosmic.json.DecodeOptions", (function(sh_s1: boolean): Shape.Spec<Json.DecodeOptions>')
+  has(source, why, "local sh_c2 = Shape.optional(Shape.integer)")
 end
 
 local function test_a_nested_own_record_is_named_by_its_path()
@@ -198,7 +209,7 @@ local function test_a_nested_own_record_is_named_by_its_path()
     "  end",
     "end",
   }, "\n"), 'Shape.record_of("Outer.R")')
-  has(source, why, [[Shape.record_of("Outer.R", Shape.record({ ["n"] = Shape.integer })]])
+  has(source, why, 'Shape.record_of("Outer.R", (function(sh_s1: boolean): Shape.Spec<Outer.R>')
 end
 
 local function test_a_function_field_is_refused_by_name()
@@ -231,6 +242,18 @@ local function test_a_field_nested_in_a_list_or_map_is_named_with_its_place()
   refused("local type V = string | {V}\nlocal record R\n  v: V\nend", "R.v", "a recursive alias has no shape")
   refused("local record R\n  m: {string: string | integer}\nend", "R.m{}", "a union of more than one type has no shape")
   refused("local record R\n  m: {integer: string}\nend", "R.m", "a map keyed by anything but a string has no shape")
+end
+
+-- The function that checks a record names two locals for each field, and Lua allows 200 in one function.
+local function test_a_record_with_too_many_fields_is_refused_naming_the_limit()
+  local lines: mut {string} = { "local record R" }
+  for i = 1, 91 do lines[#lines + 1] = ("  f%d: string"):format(i) end
+  lines[#lines + 1] = "end"
+  refused(table.concat(lines, "\n"), "R", "more fields than the 90 allowed")
+  local fits: mut {string} = { "local record R" }
+  for i = 1, 90 do fits[#fits + 1] = ("  f%d: string"):format(i) end
+  fits[#fits + 1] = "end"
+  assert(of_record(table.concat(fits, "\n")) ~= nil)
 end
 
 local function test_a_record_that_holds_itself_is_refused()
@@ -298,8 +321,8 @@ local function test_a_record_in_a_function_is_the_one_its_block_declares()
     "return { first, second }",
     "",
   }, "\n") })
-  has(source, why, [[Shape.record_of("R", Shape.record({ ["a"] = Shape.string }),]])
-  has(source, why, [[Shape.record_of("R", Shape.record({ ["b"] = Shape.integer }),]])
+  has(source, why, 'Shape.record_of("R", (function(sh_s1: boolean): Shape.Spec<R> local sh_c2 = Shape.string')
+  has(source, why, 'Shape.record_of("R", (function(sh_s1: boolean): Shape.Spec<R> local sh_c2 = Shape.integer')
 end
 
 local function test_a_record_declared_below_the_call_is_not_read()
@@ -319,13 +342,15 @@ end
 
 local function test_an_enum_value_with_an_escape_is_read_as_the_value_it_spells()
   local source, why = of_record('local enum Level "a\\nb" "c" end\nlocal record R\n  level: Level\nend')
-  has(source, why, [[["level"] = Shape.one_of("a\
-b", "c")]])
+  has(source, why, [[if sh_v == "a\
+b" then return "a\
+b", "" end if sh_v == "c" then return "c", "" end]])
 end
 
 local function test_a_call_over_several_lines_is_resolved()
   local source, why = of_record("local record R\n  n: integer\nend", 'Shape.record_of(\n  "R"\n)')
-  has(source, why, [[Shape.record_of("R", Shape.record({ ["n"] = Shape.integer }),]])
+  has(source, why, 'Shape.record_of("R", (function(sh_s1: boolean): Shape.Spec<R>')
+  has(source, why, "Shape.integer")
 end
 
 local function test_two_calls_on_one_line_are_each_resolved()
@@ -341,13 +366,14 @@ local function test_two_calls_on_one_line_are_each_resolved()
     "return both",
     "",
   }, "\n") })
-  has(source, why, [[Shape.record_of("A", Shape.record({ ["a"] = Shape.string }),]])
-  has(source, why, [[Shape.record_of("B", Shape.record({ ["b"] = Shape.integer }),]])
+  has(source, why, 'Shape.record_of("A", (function(sh_s1: boolean): Shape.Spec<A> local sh_c2 = Shape.string')
+  has(source, why, 'Shape.record_of("B", (function(sh_s1: boolean): Shape.Spec<B> local sh_c2 = Shape.integer')
 end
 
 local function test_a_comment_after_the_call_does_not_hide_it()
   local source, why = of_record("local record R\n  n: integer\nend", 'Shape.record_of("R") -- the spec of R')
-  has(source, why, [[Shape.record_of("R", Shape.record({ ["n"] = Shape.integer }),]])
+  has(source, why, 'Shape.record_of("R", (function(sh_s1: boolean): Shape.Spec<R>')
+  has(source, why, "Shape.integer")
 end
 
 local function test_a_call_through_another_name_is_not_a_call()
@@ -376,7 +402,7 @@ local function test_a_record_a_module_re_exports_under_an_alias_is_read_through_
     }, "\n"),
     ["main.tl"] = 'local Shape = require("cosmic.shape")\nlocal type Sb = require("sb")\nreturn Shape.record_of("sb.Policy")\n',
   })
-  has(source, why, [[Shape.record_of("sb.Policy", Shape.record({ ["n"] = Shape.integer }), function(): Sb.Policy error("witness") end)]])
+  has(source, why, 'Shape.record_of("sb.Policy", (function(sh_s1: boolean): Shape.Spec<Sb.Policy>')
 end
 
 local function test_the_splices_are_the_last_first_and_a_refusal_names_its_line()
@@ -400,7 +426,7 @@ local function test_the_splices_are_the_last_first_and_a_refusal_names_its_line(
   -- Each goes right after its call's name.
   assert(source:sub(first.at - 2, first.at) == '"A"', source:sub(first.at - 2, first.at))
   assert(source:sub(last.at - 2, last.at) == '"B"', source:sub(last.at - 2, last.at))
-  assert(first.text:find("function(): A error(\"witness\") end", 1, true) ~= nil, first.text)
+  assert(first.text:find("Shape.Spec<A>", 1, true) ~= nil, first.text)
   local want = source:sub(1, first.at) .. first.text .. source:sub(first.at + 1, last.at) .. last.text ..
     source:sub(last.at + 1)
   assert(ShapeSpecs.spliced(source, found.splices) == want, ShapeSpecs.spliced(source, found.splices))
@@ -410,4 +436,23 @@ local function test_the_splices_are_the_last_first_and_a_refusal_names_its_line(
   assert(unread.line == 8, tostring(unread.line))
   assert(unread.refusal:find("main.tl:8: Shape.record_of: the name must be a string literal", 1, true) ~= nil,
     unread.refusal)
+end
+
+--- A call that already passes a check and a node is left as it is, and so is a mention of `record_of` that is no call: what
+--- a program passes there is a function and data the checker types, so it can only answer the type it names.
+local function test_a_call_with_more_than_the_name_and_a_mention_are_left_as_written()
+  local head = table.concat({
+    'local Shape = require("cosmic.shape")',
+    "local record A",
+    "  a: string",
+    "end",
+    "",
+  }, "\n")
+  local function unchanged(tail: string)
+    local source = head .. tail
+    local found = ShapeSpecs.splices(build_of({ ["main.tl"] = source }), "main", "main.tl", source)
+    assert(#found.splices == 0 and found.refusal == "", "spliced or refused: " .. tail .. " -> " .. found.refusal)
+  end
+  unchanged('local S = Shape.record_of("A", nil)\nreturn S\n')
+  unchanged('local f = Shape.record_of\nreturn f\n')
 end

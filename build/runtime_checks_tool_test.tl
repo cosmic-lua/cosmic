@@ -7,11 +7,22 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
+local artifact = require("build.artifact")
 local build_paths = require("build.paths")
 local this_program = require("build.this_program")
 
 --- The program itself, which this test starts.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+
+--- Whether a module of the database file at `path` holds `needle` in its bytecode, which the database stores
+--- deflated: the file's own bytes show none of it.
+local function carries(path: string, needle: string): boolean
+  local db = assert(Sqlite.open(path))
+  local rows = assert(Sqlite.text_rows(db,
+    "SELECT count(*) FROM modules WHERE instr(inflate(bytecode), CAST(?1 AS BLOB)) > 0", { { text = needle } }))
+  assert(db:close())
+  return assert(rows[1]):text(1) ~= "0"
+end
 
 --- The module under test: `hello` takes nil out of `name` with an `assert`, and the checker takes the `assert` for what it
 --- is, so the read of `name` after it is wrapped in a call of `__fact` in a checked run.
@@ -140,16 +151,17 @@ local function test_no_executable_carries_a_check(tmp: string)
   local checked, text = invoke(root, tmp, { "test", "--check-types" })
   assert(checked.ok, text)
   local directory = assert(build_paths.directory(root))
-  local aside = assert(Fs.read(directory .. "/cosmic.checked.db"))
-  assert(aside:find("__fact", 1, true), "the checked projection carries no check")
+  assert(carries(directory .. "/cosmic.checked.db", "__fact"), "the checked projection carries no check")
 
   local built, built_text = invoke(root, tmp, { "build", "--host" },
     { COSMIC_TEST_CHECK_TYPES = "1" })
   assert(built.ok, built_text)
   local executable = assert(Fs.read(directory .. "/bin/hello"))
   assert(executable:find("hello", 1, true), "the executable does not carry the program's code")
-  assert(not executable:find("__fact", 1, true), "an executable carries a run-time check")
-  local projection = assert(Fs.read(directory .. "/cosmic.db"))
-  assert(not projection:find("__fact", 1, true), "the tree's projection carries a check")
-  assert(projection:find("greet", 1, true))
+  local parts = assert(artifact.split(executable))
+  assert(Fs.write(tmp .. "/hello.db", parts.database))
+  assert(carries(tmp .. "/hello.db", "greet"), "the executable's database lacks the program's module")
+  assert(not carries(tmp .. "/hello.db", "__fact"), "an executable carries a run-time check")
+  assert(not carries(directory .. "/cosmic.db", "__fact"), "the tree's projection carries a check")
+  assert(carries(directory .. "/cosmic.db", "greet"))
 end

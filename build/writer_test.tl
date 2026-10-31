@@ -612,6 +612,58 @@ local function test_a_source_is_deflated_again_by_a_core_of_another_image(tmp: s
   assert(assert(rows[1]):text(1) == "1", "another core's compressed source was shipped")
 end
 
+--- The compressed bytecode a projection ships is kept in the working
+--- database by compile key, so a write with no base compresses none of an
+--- unchanged tree: its modules carry the cached bytes, an edit's compile
+--- is kept and the old one dropped, and a core of another image never
+--- ships bytes the first made.
+local function test_bytecode_is_deflated_once_per_compile_and_core(tmp: string)
+  local handle = build_and_write(tmp .. "/a", "world", tmp .. "/first.db")
+  local keys = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM deflated_bytecode"))
+  assert(assert(keys[1]):text(1) ~= "0", "writing a projection fills the cache")
+
+  -- Bytes the cache serves are what ships: a planted row would show.
+  assert(handle.db:exec("UPDATE deflated_bytecode SET data = deflate(x'00')"))
+  assert(work.stage(handle, { own = false }))
+  local result = assert(importer.compile(handle, "writer-test"))
+  assert(writer.write_result(handle, tmp .. "/planted.db", result))
+  local planted = assert(Sqlite.open(tmp .. "/planted.db"))
+  local shipped = assert(Sqlite.text_rows(planted,
+    "SELECT count(*) FROM modules WHERE inflate(bytecode) = x'00'"))
+  assert(planted:close())
+  assert(assert(shipped[1]):text(1) ~= "0", "a cached compressed chunk was not shipped")
+  assert(handle.db:exec("DELETE FROM deflated_bytecode"))
+
+  write_project(tmp .. "/a", "moon")
+  assert(work.stage(handle, { own = false }))
+  result = assert(importer.compile(handle, "writer-test"))
+  assert(writer.write_result(handle, tmp .. "/second.db", result))
+  local stale = assert(Sqlite.text_rows(handle.db,
+    "SELECT count(*) FROM deflated_bytecode WHERE key NOT IN (SELECT key FROM plan)"))
+  assert(assert(stale[1]):text(1) == "0", "the cache holds a compile no module names")
+
+  assert(handle.db:exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('image_hash', 'other-core')"))
+  assert(work.stage(handle, { own = false }))
+  result = assert(importer.compile(handle, "writer-test"))
+  assert(writer.write_result(handle, tmp .. "/third.db", result))
+  local cores = assert(Sqlite.text_rows(handle.db, "SELECT DISTINCT core FROM deflated_bytecode"))
+  assert(#cores == 1 and assert(cores[1]):text(1) == "6f746865722d636f7265",
+    "the cache holds a core's bytes that is not the writing core's")
+  assert(work.close(handle))
+
+  assert(work.close((build_and_write(tmp .. "/b", "moon", tmp .. "/fresh.db"))))
+  local second = assert(Sqlite.open(tmp .. "/second.db"))
+  local fresh = assert(Sqlite.open(tmp .. "/fresh.db"))
+  local function chunks(db: Sqlite.Handle): string
+    local rows = assert(Sqlite.text_rows(db,
+      "SELECT group_concat(hex(inflate(bytecode)), ',') FROM (SELECT bytecode FROM modules ORDER BY path)"))
+    return assert(rows[1]):text(1)
+  end
+  assert(chunks(second) == chunks(fresh), "a projection served from the cache ships other bytecode than a fresh one")
+  assert(second:close())
+  assert(fresh:close())
+end
+
 --- A module's edge to a name the plan does not ship, a declaration with
 --- no implementation, is kept for the checker in `decl_imports` and
 --- left out of `imports`, which the program's closures are made of.
