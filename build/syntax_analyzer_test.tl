@@ -404,3 +404,19 @@ local function test_a_todo_comment_is_no_module_documentation()
   assert(module_text(lines("-- Doc.", "--", "-- TODO: later", "--", "-- More doc.", "local x = 1", "return x")) == "Doc.\n\nMore doc.")
   assert(module_text(lines("--- Doc.", "--- TODO: later", "local x = 1", "return x")) == "Doc.")
 end
+
+--- The line that declares a table of C bindings is for the build: no doc text shows it, with LF or CR LF line ends, and
+--- a line that only holds it among other words stays.
+local function test_the_binding_line_is_no_documentation()
+  local function module_text(source: string): string?
+    for _, entry in ipairs(analyzed(source).docs) do
+      if entry.kind == "module" then return entry.text end
+    end
+    return nil
+  end
+  assert(module_text(lines("--- A table.", "--- @kind binding", "local x = 1", "return x")) == "A table.")
+  assert(module_text("--- A table.\r\n--- @kind binding\r\nlocal x = 1\r\nreturn x\r\n") == "A table.")
+  assert((module_text(lines("--- @kind binding", "local x = 1", "return x")) or "") == "")
+  assert(module_text(lines("--- A table, @kind binding in prose.", "local x = 1", "return x")) ==
+      "A table, @kind binding in prose.")
+end

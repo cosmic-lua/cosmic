@@ -51,6 +51,12 @@ local function test_a_declaration_is_a_binding_only_given_the_line_on_a_line_of_
     { "b/plain.d.tl", "local record R end\n", "decl" },
     { "b/module.tl", "--- @kind binding\nreturn 1\n", "module" },
     { "b/test_test.tl", "--- @kind binding\n", "test" },
+    -- A file saved with CR LF line ends declares it as one with LF does, in the view and in Teal.
+    { "b/crlf.d.tl", "--- A table.\r\n--- @kind binding\r\nlocal record R end\r\n", "binding" },
+    { "b/crlf_last.d.tl", "local record R end\r\n--- @kind binding\r\n", "binding" },
+    { "b/crlf_after.d.tl", "--- @kind binding \r\nlocal record R end\r\n", "decl" },
+    -- Only a declaration claims it, and a declaration that is a test's still does.
+    { "b/helper_test.d.tl", "--- @kind binding\nlocal record R end\n", "binding" },
   }
   local db = assert(Sqlite.memory())
   assert(Sqlite.run(db, "CREATE TABLE files (path TEXT PRIMARY KEY, sha256 TEXT, data BLOB) WITHOUT ROWID"))

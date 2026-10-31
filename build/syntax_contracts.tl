@@ -21,6 +21,13 @@
 --- calls are judged by rules 1 and 6, rule 11 reads them, and a function stored into a field of one is a stand-in for a
 --- binding (rule 5's exception), by the type of the field's owner. A program checked without them (`external` in
 --- [`lang.declarations`]) has their calls untyped, and so unjudged.
+---
+--- **Declaring a binding.** A declaration file (`.d.tl`) opts in with the line `--- @kind binding` on a line of its own
+--- (LF or CR LF), as the generator writes it into what it derives. Its kind is then `binding` in the build's `inputs`
+--- ([`build.analysis_schema`]), and every call of its module's functions is held as a call of [`cosmic.sys`] is: the failure
+--- is handled (rule 1), a reason is not parsed (rule 6), an exported function does not answer a bare boolean over one (rule
+--- 11), and a function stored into a field of its table is a stand-in. Only a `.d.tl` can claim it, the docs do not show
+--- the line, and a module the program holds under the name of a binding that declares no table is told by name.
 --
 -- TODO: judge the calls the checker could not type (a call has no callee in [`Checked.callees`] where its callee is `invalid`: a
 -- value an error already reported, a call through one; the `[untyped]` ceilings of build/ceilings.txt count them per file, and the
@@ -83,13 +90,26 @@ end
 
 SyntaxContracts.rules = { "calls", "functions", "exports", "wrappers", "readings", "casts", "types", "modes" }
 
+--- What [`SyntaxContracts.declared_in`] answered last, for which index and with how many sources it held then: every
+--- module of a build asks of the same index, and an index does not change once its sources are read.
+local record LastDeclared
+  mut index: Driver.Index?
+  mut count: integer
+  mut names: {string}
+end
+local last_declared: LastDeclared = { index = nil, count = 0, names = {} }
+
 function SyntaxContracts.declared_in(index: Driver.Index): {string}
+  if last_declared.index == index and last_declared.count == #index.sources then
+    return last_declared.names
+  end
   local out: mut {string} = {}
   for _, source in ipairs(index.sources) do
     if source.dialect == "decl" and AnalysisSchema.declares_binding(source.text) then
       out[#out + 1] = source.module
     end
   end
+  last_declared.index, last_declared.count, last_declared.names = index, #index.sources, out
   return out
 end
 

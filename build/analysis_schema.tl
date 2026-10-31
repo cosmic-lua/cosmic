@@ -80,9 +80,10 @@ function analysis_schema.binding_tag(): string
   return binding_tag
 end
 
---- Whether the text of a declaration file holds [`analysis_schema.binding_tag`] as a line of its own.
+--- Whether the text of a declaration file holds [`analysis_schema.binding_tag`] as a line of its own, a file saved with
+--- CR LF line ends as well as one with LF.
 function analysis_schema.declares_binding(text: string): boolean
-  return ("\n" .. text .. "\n"):find("\n" .. binding_tag .. "\n", 1, true) ~= nil
+  return ("\n" .. text:gsub("\r\n", "\n") .. "\n"):find("\n" .. binding_tag .. "\n", 1, true) ~= nil
 end
 
 --- The SQL expression for the kind of the file whose path is in `column`: `binding`, `decl`, `test`, `example`, `main` or
@@ -91,8 +92,8 @@ end
 local function kind_case(column: string, source?: string): string
   local out: mut {string} = { "CASE" }
   if source ~= nil then
-    out[#out + 1] = " WHEN " .. column .. " GLOB '*.d.tl' AND instr(char(10) || " .. source .. " || char(10), char(10) || '" ..
-      binding_tag .. "' || char(10)) > 0 THEN 'binding'"
+    out[#out + 1] = " WHEN " .. column .. " GLOB '*.d.tl' AND instr(char(10) || replace(" .. source ..
+      ", char(13) || char(10), char(10)) || char(10), char(10) || '" .. binding_tag .. "' || char(10)) > 0 THEN 'binding'"
   end
   for _, rule in ipairs(kinds) do
     local glob, kind, except = assert(rule[1]), assert(rule[2]), assert(rule[3])
