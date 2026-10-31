@@ -842,7 +842,6 @@ build/work_test.tl nil_not_allowed 1
 
 build/work_tool_test.tl nil_not_allowed 1
 
-build/workflows_test.tl nil_not_allowed 21
 
 
 
@@ -1913,7 +1912,7 @@ build/work.tl view_written 3
 
 build/work_test.tl view_written 2
 
-build/workflows_test.tl view_written 2
+build/workflows_test.tl view_written 1
 
 core/connector_public_fuzz_test.tl view_written 2
 
@@ -3389,7 +3388,6 @@ build/verb_list_test.tl any_use 3
 
 build/work_test.tl any_use 1
 
-build/workflows_test.tl any_use 4
 
 core/allocation_test.tl any_use 4
 
