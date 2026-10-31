@@ -215,7 +215,9 @@ local record Http
     status: integer
     --- The response's headers, keyed by lowercased name.
     headers: {string:string}
-    --- The effective URL, after every redirect taken.
+    --- The effective URL, after every redirect taken, with no userinfo:
+    --- a user name or password in the request's URL or a redirect's is
+    --- left out.
     url: string
     --- What curl wrote to the connection; for tests with a `script`.
     --- Raises after `close`.

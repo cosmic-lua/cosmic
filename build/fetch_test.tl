@@ -204,7 +204,13 @@ local function test_credentials_never_reach_a_message_or_the_json(tmp: string)
   assert(mismatch.code == 1 and not mismatch.err:find("hunter2", 1, true), mismatch.err)
   local json = run({ "--head", "--json", secret }, { reply("200 OK", "") })
   assert(json.code == 0 and not json.out:find("hunter2", 1, true), json.out)
-  assert(json.out:find("***@cosmic.test", 1, true), json.out)
+  -- libcurl 8.23.0 leaves userinfo out of the effective URL, the URL's own and a redirect's
+  -- (CVE-2026-94266), so what the JSON shows is without it before `redact_url` sees it.
+  assert(json.out:find('"url": "http://cosmic.test/data"', 1, true), json.out)
+  local moved = run({ "--head", "--json", "http://cosmic.test/data" }, {
+    reply("302 Found", "Location: http://user:hunter2@cosmic.test/final\r\n"), reply("200 OK", "") })
+  assert(moved.code == 0 and not moved.out:find("hunter2", 1, true), moved.out .. moved.err)
+  assert(moved.out:find('"url": "http://cosmic.test/final"', 1, true), moved.out)
   local refused = run({ "http://user:hunter2@127.0.0.1:" .. tostring(closed_port()) .. "/" })
   assert(refused.code == 1 and not refused.err:find("hunter2", 1, true), refused.err)
 end
