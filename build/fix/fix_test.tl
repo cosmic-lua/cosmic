@@ -649,3 +649,19 @@ local function test_a_file_changed_while_being_laid_out_is_not_written(tmp: stri
   assert(done.state == "changed" and done.why == "not written: " .. file .. " changed while being laid out", done.why)
   assert(Fs.read(file) == "local   x=2\n", "the edit was overwritten")
 end
+
+--- A named Teal file that identity rejects as an input is set apart for a check of its own, in a project that is not cosmic's:
+--- the build never reads it. A file the build reads, or one inside cosmic's own tree, is not.
+local function test_a_named_file_outside_the_build_is_set_apart_to_be_checked_alone(tmp: string)
+  local dir = tmp .. "/project"
+  assert(Fs.mkdirs(dir .. "/bin"))
+  assert(Fs.mkdirs(dir .. "/lib"))
+  assert(Fs.write(dir .. "/bin/a.tl", "return 1\n"))
+  assert(Fs.write(dir .. "/lib/b.tl", "return 2\n"))
+  assert(Fs.write(tmp .. "/stray.tl", "return 3\n"))
+  local picked = assert(fix.chosen(dir, { dir .. "/bin/a.tl", dir .. "/lib/b.tl", tmp .. "/stray.tl" }))
+  local alone = assert(picked.alone)
+  assert(#alone == 2 and alone[1] == dir .. "/bin/a.tl" and alone[2] == tmp .. "/stray.tl",
+    "bin/a.tl and the file outside the root are checked alone, lib/b.tl is the build's: " .. table.concat(alone, ","))
+  assert(#picked.files == 3, "each is laid out all the same")
+end

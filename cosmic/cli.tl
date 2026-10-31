@@ -161,8 +161,11 @@ local record Cli
   --- declaration of its own file, one file, or, written in full
   --- (`module.member`), one symbol; in Markdown it also
   --- writes the definitions GitHub needs to show one, at the file's
-  --- end. It never lays out a Markdown or Zig file. The tree is found
-  --- as `test` finds it
+  --- end. It never lays out a Markdown or Zig file. A Teal file named
+  --- that the build never reads (under `bin/` or a hidden directory,
+  --- or outside the tree) is checked on its own as
+  --- `--standalone` checks a file, and fails the run if refused. The
+  --- tree is found as `test` finds it
   fix: string
   --- `cosmic build [options] [path...]`: builds the tree in the working
   --- directory, then writes one executable in its build directory's
