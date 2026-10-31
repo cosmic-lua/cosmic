@@ -3,10 +3,16 @@ local Json = require("cosmic.json")
 local Poll = require("cosmic.poll")
 local Server = require("cosmic.http.server")
 local Shape = require("cosmic.shape")
+local Nodes = require("build.shape_nodes")
 local Stream = require("cosmic.stream")
 local Types = require("cosmic.web.types")
 local Url = require("cosmic.url")
 local Web = require("cosmic.web")
+
+--- A record node read as a map of untrusted values, which is all a hand-written record says of its type.
+local function dynamic(node: Shape.Node): Shape.Spec<{string:any}>
+  return Nodes.loose(node)
+end
 
 --- Why `invalid` refuses, or nil for none.
 local function message_of(invalid: Types.Invalid?): string?
@@ -45,6 +51,45 @@ local record Counts
   big: integer?
 end
 local COUNTS <const> = Shape.record_of("Counts")
+
+local record Texts
+  s: string
+  t: string?
+end
+local TEXTS <const> = Shape.record_of("Texts")
+
+local record Lists
+  nums: {integer}
+  tags: {string}?
+end
+local LISTS <const> = Shape.record_of("Lists")
+
+local record Deepest
+  d: string
+end
+local record Deeper
+  c: Deepest
+end
+local record Deep
+  b: Deeper
+end
+local record Top
+  a: Deep
+end
+local TOP <const> = Shape.record_of("Top")
+
+local record Inner
+  x: integer
+end
+local record Maybe
+  a: Inner?
+end
+local MAYBE <const> = Shape.record_of("Maybe")
+
+local record Mapped
+  m: {string: string}
+end
+local MAPPED <const> = Shape.record_of("Mapped")
 
 --- The first error of `invalid`, which every refusal here lists.
 local function first_error(invalid: Types.Invalid): Types.FieldError
@@ -195,7 +240,7 @@ end
 local PICK <const> = Shape.record_of("Pick")
 
 local function test_one_of_compares_text_or_the_listed_kind()
-  local spec = Shape.record({ c = Shape.one_of("red", "green"), n = Shape.one_of(1, 2.5), t = Shape.one_of(true) })
+  local spec = dynamic(Nodes.record({ c = Nodes.one_of("red", "green"), n = Nodes.one_of(1, 2.5), t = Nodes.one_of(true) }))
   local r: Types.Parsed<{string:any}> = Input.bind_strings(decoded("c=green&n=2.50&t=on"), spec)
   assert(r.invalid == nil, message_of(r.invalid))
   assert(assert(r.value).c == "green" and assert(r.value).n == 2.5 and assert(r.value).t == true)
@@ -209,20 +254,19 @@ local function test_one_of_compares_text_or_the_listed_kind()
 end
 
 local function test_a_string_with_a_nul_is_refused()
-  local spec = Shape.record({ s = Shape.string, t = Shape.optional(Shape.string) })
-  local r: Types.Parsed<{string:any}> = Input.bind_strings(pairs_of({ { "s", "a\0b" }, { "t", "ok" } }), spec)
+  local r: Types.Parsed<Texts> = Input.bind_strings(pairs_of({ { "s", "a\0b" }, { "t", "ok" } }), TEXTS.spec)
   local invalid = r.invalid
   assert(invalid ~= nil and #invalid.errors == 1)
   assert(invalid.errors[1].field == "s" and invalid.errors[1].code == "type")
-  r = Input.bind_strings(pairs_of({ { "s", "" } }), spec)
+  r = Input.bind_strings(pairs_of({ { "s", "" } }), TEXTS.spec)
   assert(r.invalid == nil and assert(r.value).s == "", "an empty string is a string")
 end
 
 local function test_a_list_takes_every_value_and_names_the_bad_element()
-  local spec = Shape.record({ nums = Shape.list(Shape.integer), tags = Shape.optional(Shape.list(Shape.string)) })
-  local r: Types.Parsed<{string:any}> = Input.bind_strings(decoded("nums=1"), spec)
+  local spec = LISTS.spec
+  local r: Types.Parsed<Lists> = Input.bind_strings(decoded("nums=1"), spec)
   assert(r.invalid == nil)
-  local nums = assert(r.value).nums as {integer}
+  local nums = assert(r.value).nums
   assert(#nums == 1 and nums[1] == 1 and assert(r.value).tags == nil)
   r = Input.bind_strings(decoded(""), spec)
   assert(r.invalid == nil and Json.is_array(assert(r.value).nums), "no value is the empty list")
@@ -237,8 +281,8 @@ local function test_unknown_names_are_dropped_and_a_strict_record_refuses_them()
   assert(r.invalid == nil)
   local bound = r.value as {string:any}
   assert(bound["is_admin"] == nil, "the spec is the allow-list")
-  local strict = Shape.strict_record({ n = Shape.integer })
-  local s: Types.Parsed<{string:any}> = Input.bind_strings(decoded("n=1&zz=1&aa=2&csrf_token=t"), strict)
+  local strict = COUNTS:strict().spec
+  local s: Types.Parsed<Counts> = Input.bind_strings(decoded("n=1&zz=1&aa=2&csrf_token=t"), strict)
   local invalid = s.invalid
   assert(invalid ~= nil and #invalid.errors == 2, "csrf_token is the web layer's")
   assert(invalid.errors[1].field == "aa" and invalid.errors[1].code == "unknown")
@@ -250,13 +294,12 @@ end
 local function test_nested_records_read_dotted_names()
   local r: Types.Parsed<Everything> = Input.bind_strings(decoded(GOOD .. "&address.zip=0123"), EVERYTHING.spec)
   assert(r.invalid == nil and assert(r.value).address.zip == 123)
-  local spec = Shape.record({ a = Shape.record({ b = Shape.record({ c = Shape.record({ d = Shape.string }) }) }) })
-  local deep: Types.Parsed<{string:any}> = Input.bind_strings(decoded("a.b.c.d=x"), spec)
+  local deep: Types.Parsed<Top> = Input.bind_strings(decoded("a.b.c.d=x"), TOP.spec)
   assert(deep.invalid == nil, "three levels below the top are read")
-  local opt = Shape.record({ a = Shape.optional(Shape.record({ x = Shape.integer })) })
-  local none: Types.Parsed<{string:any}> = Input.bind_strings(decoded("y=1"), opt)
+  assert(assert(deep.value).a.b.c.d == "x", "and the checked tree holds the field at the bottom")
+  local none: Types.Parsed<Maybe> = Input.bind_strings(decoded("y=1"), MAYBE.spec)
   assert(none.invalid == nil and assert(none.value).a == nil, "no name under a. leaves the optional record nil")
-  local some: Types.Parsed<{string:any}> = Input.bind_strings(decoded("a.x="), opt)
+  local some: Types.Parsed<Maybe> = Input.bind_strings(decoded("a.x="), MAYBE.spec)
   local invalid = some.invalid
   assert(invalid ~= nil, "one name under it asks for the rest")
   assert(first_error(invalid).field == "a.x")
@@ -294,41 +337,44 @@ local function test_errors_by_field_joins_several_messages()
 end
 
 local function test_check_spec_refuses_what_text_cannot_carry()
-  local function refuses(spec: Shape.Spec, source: string, needle: string)
+  local function refuses(spec: Shape.Node, source: string, needle: string)
     local ok, err = pcall(function(): any
       Input.check_spec(spec, source)
       return nil
     end)
     assert(not ok and tostring(err):find(needle, 1, true) ~= nil, tostring(err))
   end
-  refuses(Shape.record({ m = Shape.map(Shape.string) }), "form", "m of a form is a map")
-  refuses(Shape.record({ l = Shape.list(Shape.record({ x = Shape.string })) }), "query", "list of records")
-  refuses(Shape.record({ a = Shape.record({ b = Shape.record({ c = Shape.record({ d = Shape.record({
-    e = Shape.string }) }) }) }) }), "form", "deeper than 3")
-  refuses(Shape.record({ n = Shape.number }), "path", "must be a string, integer, boolean or one_of")
-  refuses(Shape.record({ n = Shape.optional(Shape.integer) }), "path", "and present")
-  refuses(Shape.record({ l = Shape.list(Shape.string) }), "path", "a list")
-  refuses(Shape.string, "form", "binds to a record")
+  refuses(Nodes.record({ m = Nodes.map(Nodes.string) }), "form", "m of a form is a map")
+  refuses(Nodes.record({ l = Nodes.list(Nodes.record({ x = Nodes.string })) }), "query", "list of records")
+  refuses(Nodes.record({ a = Nodes.record({ b = Nodes.record({ c = Nodes.record({ d = Nodes.record({
+    e = Nodes.string }) }) }) }) }), "form", "deeper than 3")
+  refuses(Nodes.record({ n = Nodes.number }), "path", "must be a string, integer, boolean or one_of")
+  refuses(Nodes.record({ n = Nodes.optional(Nodes.integer) }), "path", "and present")
+  refuses(Nodes.record({ l = Nodes.list(Nodes.string) }), "path", "a list")
+  refuses(Nodes.string, "form", "binds to a record")
   -- Shape.record refuses a hand-built kind, so corrupt a built spec.
-  local odd = Shape.record({ x = Shape.optional(Shape.string) })
+  local odd = Nodes.record({ x = Nodes.optional(Nodes.string) })
   local leaf = assert(odd.fields).x as any as {string:any}
   leaf["kind"] = "bogus"
   refuses(odd, "form", "x of a form is of kind bogus")
-  local listing = Shape.record({ x = Shape.list(Shape.optional(Shape.string)) })
+  local listing = Nodes.record({ x = Nodes.list(Nodes.optional(Nodes.string)) })
   local element = assert(assert(listing.fields).x.of) as any as {string:any}
   element["kind"] = "bogus"
   refuses(listing, "query", "list of kind bogus")
-  refuses(Shape.record({}), "cookie", "is not a source")
-  Input.check_spec(Shape.record({ m = Shape.map(Shape.string) }), "body")
-  Input.check_spec(EVERYTHING.spec, "form")
-  Input.check_spec(Shape.record({ id = Shape.integer, kind = Shape.one_of("a"), s = Shape.string }), "path")
+  refuses(Nodes.record({}), "cookie", "is not a source")
+  Input.check_spec(Nodes.record({ m = Nodes.map(Nodes.string) }), "body")
+  Input.check_spec(Input.described(EVERYTHING.spec), "form")
+  Input.check_spec(Nodes.record({ id = Nodes.integer, kind = Nodes.one_of("a"), s = Nodes.string }), "path")
 end
 
 local function test_bind_strings_refuses_a_spec_that_is_no_record()
-  local ok = pcall(Input.bind_strings, decoded("a=1"), Shape.string)
+  local ok, _ = pcall(function()
+    local _ = Input.bind_strings(decoded("a=1"), Shape.string)
+  end)
   assert(not ok)
-  local m = Shape.record({ m = Shape.map(Shape.string) })
-  ok = pcall(Input.bind_strings, decoded("a=1"), m)
+  ok, _ = pcall(function()
+    local _ = Input.bind_strings(decoded("a=1"), MAPPED.spec)
+  end)
   assert(not ok, "a map is a programming error, found while binding")
 end
 
@@ -611,15 +657,25 @@ local function test_a_json_body_reports_where_it_failed()
   assert(e.code == "integer" and e.message:find("1.5", 1, true) ~= nil)
 end
 
+--- A record of no declared shape, as the typed value of the JSON body binder: `spec` checks, and nothing describes fields.
+local function typed_by<T>(name: string, spec: Shape.Spec<T>): Shape.Typed<T>
+  local function into(_self: Shape.Typed<T>, _value: any): T?, string
+    return nil, ""
+  end
+  local function decode_into(_self: Shape.Typed<T>, _text: string, _opts?: Json.DecodeOptions): T?, string
+    return nil, ""
+  end
+  local function strict(self: Shape.Typed<T>): Shape.Typed<T>
+    return self
+  end
+  return {
+    name = name, spec = spec, make = function(_strict: boolean): Shape.Spec<T> return spec end,
+    node = Nodes.record({}), into = into, decode_into = decode_into, strict = strict,
+  }
+end
+
 local function test_a_json_pointer_with_escapes_is_one_dotted_field()
-  local spec = Shape.record({ ["a/b"] = Shape.record({ ["c~d"] = Shape.integer }) })
-  local typed: Shape.Typed<{string:any}> = { name = "Escapes", spec = spec,
-    into = function(_self: Shape.Typed<{string:any}>, _v: any): {string:any}?, string
-      return nil, ""
-    end,
-    decode_into = function(_self: Shape.Typed<{string:any}>, _t: string): {string:any}?, string
-      return nil, ""
-    end }
+  local typed = typed_by("Escapes", Shape.map(Shape.map(Shape.integer)))
   with_request("POST", { json = { ["a/b"] = { ["c~d"] = "x" } } }, function(req: Web.Request)
     local read = Input.json_into(req, typed)
     local e = first_error(assert(read.invalid))
@@ -636,14 +692,7 @@ local function test_a_json_body_failure_at_an_odd_key_keeps_its_pointer()
   }
   for _, case in ipairs(cases) do
     local key, want_pointer, want_field = assert(case[1]), assert(case[2]), assert(case[3])
-    local spec = Shape.record({ [key] = Shape.list(Shape.integer) })
-    local typed: Shape.Typed<{string:any}> = { name = "Odd", spec = spec,
-      into = function(_self: Shape.Typed<{string:any}>, _v: any): {string:any}?, string
-        return nil, ""
-      end,
-      decode_into = function(_self: Shape.Typed<{string:any}>, _t: string, _o?: Json.DecodeOptions): {string:any}?, string
-        return nil, ""
-      end }
+    local typed = typed_by("Odd", Shape.map(Shape.list(Shape.integer)))
     with_request("POST", { json = { [key] = { 1, "x" } } }, function(req: Web.Request)
       local read = Input.json_into(req, typed)
       local e = assert(assert(read.invalid).errors[1])
@@ -690,22 +739,28 @@ local function test_form_into_and_query_into_bind_a_request()
   assert(Web.test_client(app):post("/x?n=4", { form = { n = "z" } }).status == 200)
 end
 
-local record Gaps
-  xs: {integer}
+--- The list `xs` of a bound record, read as what it is: a map from the indexes that are there.
+local SPARSE <const> = Shape.sparse_list(Shape.optional(Shape.integer))
+
+local function xs_of(r: Types.Parsed<{string:any}>): {integer: integer}
+  local bound = assert(r.value)
+  local xs, why = Shape.into(bound["xs"], SPARSE)
+  if xs == nil then error(why) end
+  return xs
 end
 
 local function test_a_list_item_that_is_absent_stays_a_hole_at_its_position()
-  local spec = Shape.record({ xs = Shape.list(Shape.optional(Shape.integer)) })
-  local r: Types.Parsed<Gaps> = Input.bind_strings(decoded("xs=1&xs=&xs=3"), spec)
+  local spec = dynamic(Nodes.record({ xs = Nodes.list(Nodes.optional(Nodes.integer)) }))
+  local r = Input.bind_strings(decoded("xs=1&xs=&xs=3"), spec)
   assert(r.invalid == nil, message_of(r.invalid))
-  local xs = assert(r.value).xs
+  local xs = xs_of(r)
   assert(xs[1] == 1 and xs[2] == nil and xs[3] == 3, "the third item keeps its position")
   assert(Json.is_array(xs), "the list is marked as an array")
   assert(Json.encode_any(xs) == "[1,null,3]", "and a handler that encodes it writes the hole as null")
   r = Input.bind_strings(decoded("xs=1&xs="), spec)
   assert(r.invalid == nil, message_of(r.invalid))
-  local short = assert(r.value).xs
-  assert(#short == 1 and short[1] == 1 and Json.is_array(short), "a hole at the end leaves the list as long as before")
+  local short = xs_of(r)
+  assert(short[1] == 1 and short[2] == nil and Json.is_array(short), "a hole at the end leaves the list as long as before")
   r = Input.bind_strings(decoded("xs=1&xs=x"), spec)
   local invalid = r.invalid
   assert(invalid ~= nil and #invalid.errors == 1 and assert(invalid.errors[1]).field == "xs.1",

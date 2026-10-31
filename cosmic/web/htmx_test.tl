@@ -351,7 +351,7 @@ local function test_other_paths_and_methods_under_the_prefix_are_refused()
   assert(post.status == 405 and post.headers["allow"] == "GET, HEAD")
 end
 
-local function test_the_assets_have_ranges_and_gzip_from_the_static_files_handler()
+local function test_the_assets_have_ranges_gzip_and_zstd_from_the_static_files_handler()
   local client = Web.test_client(Web.app{})
   local whole = client:get(Htmx.path())
   local part = client:get(Htmx.path(), { headers = { ["Range"] = "bytes=0-9" } })
@@ -364,6 +364,10 @@ local function test_the_assets_have_ranges_and_gzip_from_the_static_files_handle
   assert(packed.headers["etag"] == whole_headers_etag:sub(1, -2) .. '-gzip"')
   assert(packed.headers["vary"] == "Accept-Encoding" and #packed.body < #whole.body)
   assert(packed.headers["cache-control"] == "public, max-age=31536000, immutable")
+  local squeezed = client:get(Htmx.path(), { headers = { ["Accept-Encoding"] = "zstd, gzip" } })
+  assert(squeezed.status == 200 and squeezed.headers["content-encoding"] == "zstd")
+  assert(squeezed.headers["etag"] == whole_headers_etag:sub(1, -2) .. '-zstd"')
+  assert(squeezed.headers["vary"] == "Accept-Encoding" and #squeezed.body < #whole.body)
 end
 
 local function test_a_root_catch_all_does_not_shadow_the_assets_and_builtin_false_leaves_the_prefix_to_routes()

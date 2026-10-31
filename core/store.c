@@ -219,9 +219,16 @@ static int return_upvalue (lua_State *L) {
   return 1;
 }
 
-/* Reads one module's bytecode out of one database. Returns 1 with the
- * chunk on the stack, 0 when that database does not hold it, and -1 with
- * a message on the stack when the read itself failed.
+/* No more than the database would hold as one value, so a stream that
+ * decodes to more fails before it is all in memory, as `inflate` in SQL
+ * does ([`core/sqlite.c`]). */
+static size_t inflate_limit (sqlite3 *db) {
+  return (size_t)sqlite3_limit(db, SQLITE_LIMIT_LENGTH, -1);
+}
+
+/* Reads one module's bytecode out of one database, inflating it. Returns 1
+ * with the chunk on the stack, 0 when that database does not hold it, and
+ * -1 with a message on the stack when the read itself failed.
  *
  * `is_binary` says whether `db` is the one attached to the running
  * executable, as opposed to a project's own build database. `*trusted`
@@ -270,10 +277,30 @@ static int load_from (lua_State *L, sqlite3 *db, const char *name,
   }
   const char *kind = (const char *)sqlite3_column_text(stmt, 1);
   *trusted = is_binary && names_trusted_kind(name, kind);
+  /* The build stores bytecode deflated ([`build.writer`]). Inflated into
+   * a block of its own, so the statement is finalized before anything can
+   * fail; the block is freed right after `luaL_loadbufferx`, which runs
+   * protected and so returns, never raises, with it in hand. */
+  unsigned char *code = NULL;
+  size_t code_len = 0;
+  const char *why = cosmic_inflate_raw(
+    bytes, (size_t)len, inflate_limit(db), &code, &code_len);
+  sqlite3_finalize(stmt);
+  if (why != NULL) {
+    /* Memory running out is told as every other path of this function
+     * tells it, not as the module's fault. */
+    if (strcmp(why, "not enough memory") == 0) {
+      lua_pushliteral(L, "not enough memory");
+    }
+    else {
+      lua_pushfstring(L, "bad bytecode of module '%s': %s", name, why);
+    }
+    return -1;
+  }
   char chunk[256];
   snprintf(chunk, sizeof chunk, "@%s", name);
-  int loaded = luaL_loadbufferx(L, bytes, (size_t)len, chunk, "b");
-  sqlite3_finalize(stmt);
+  int loaded = luaL_loadbufferx(L, (const char *)code, code_len, chunk, "b");
+  cosmic_free(code);
   if (loaded != LUA_OK) {
     return -1;
   }
@@ -476,30 +503,10 @@ static int lookup (lua_State *L, sqlite3 *db, const char *sql,
   return found;
 }
 
-/* One module's compiled bytes, for a caller that must load a chunk in
- * an environment of its own -- which is how the compiler runs
- * without the names the surface removed. */
-static int store_bytecode (lua_State *L) {
-  const char *name = luaL_checkstring(L, 1);
-  int list = lua_upvalueindex(1);
-  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
-
-  static const char *query =
-    "SELECT bytecode FROM main.modules WHERE path = ?1";
-  for (lua_Integer i = 1; i <= count; i++) {
-    sqlite3 *db = database_at(L, list, i);
-    if (db != NULL && lookup(L, db, query, name)) {
-      return cosmic_succeeded(L);
-    }
-  }
-  lua_pushnil(L);
-  lua_pushfstring(L, "no module '%s' in the store", name);
-  return 2;
-}
-
-/* Replaces the raw deflate stream on top of the stack with what it
- * decodes to. Returns NULL, or why not with the stream left in place. */
-static const char *inflate_top (lua_State *L) {
+/* Replaces the raw deflate stream on top of the stack, read from `db`,
+ * with what it decodes to. Returns NULL, or why not with the stream left in
+ * place. */
+static const char *inflate_top (lua_State *L, sqlite3 *db) {
   int at = lua_gettop(L);
   size_t len;
   const char *stream = lua_tolstring(L, at, &len);
@@ -507,7 +514,7 @@ static const char *inflate_top (lua_State *L) {
   int slot = lua_gettop(L);
   unsigned char *text = NULL;
   size_t text_len = 0;
-  const char *why = cosmic_inflate_raw(stream, len, SIZE_MAX, &text,
+  const char *why = cosmic_inflate_raw(stream, len, inflate_limit(db), &text,
                                        &text_len);
   if (why != NULL) {
     lua_closeslot(L, slot);
@@ -520,6 +527,34 @@ static const char *inflate_top (lua_State *L) {
   lua_remove(L, slot);
   lua_replace(L, at);
   return NULL;
+}
+
+/* One module's compiled bytes, for a caller that must load a chunk in
+ * an environment of its own -- which is how the compiler runs
+ * without the names the surface removed. The build stores it deflated
+ * ([`build.writer`]), so it is inflated here. */
+static int store_bytecode (lua_State *L) {
+  const char *name = luaL_checkstring(L, 1);
+  int list = lua_upvalueindex(1);
+  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
+
+  static const char *query =
+    "SELECT bytecode FROM main.modules WHERE path = ?1";
+  for (lua_Integer i = 1; i <= count; i++) {
+    sqlite3 *db = database_at(L, list, i);
+    if (db != NULL && lookup(L, db, query, name)) {
+      const char *why = inflate_top(L, db);
+      if (why != NULL) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "the bytecode of '%s': %s", name, why);
+        return 2;
+      }
+      return cosmic_succeeded(L);
+    }
+  }
+  lua_pushnil(L);
+  lua_pushfstring(L, "no module '%s' in the store", name);
+  return 2;
 }
 
 /* One module's Teal source, or a declaration's, from the database
@@ -537,7 +572,7 @@ static int store_source (lua_State *L) {
   };
   for (size_t i = 0; db != NULL && i < sizeof queries / sizeof *queries; i++) {
     if (lookup(L, db, queries[i], name)) {
-      const char *why = inflate_top(L);
+      const char *why = inflate_top(L, db);
       if (why != NULL) {
         lua_pushnil(L);
         lua_pushfstring(L, "the source of '%s' in the binary: %s", name, why);
