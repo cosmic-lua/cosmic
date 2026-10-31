@@ -146,3 +146,37 @@ local function test_an_unreadable_environment_is_refused()
     assert(SharesWait.wait(env, fake.host) == 2 and #fake.calls == 0 and #fake.outputs == 0)
   end
 end
+
+--- A queued share with a start the API lists is bounded by the limit
+--- alone, not by the share's own timeout.
+local function test_a_queued_share_with_a_start_is_not_bounded_by_it()
+  local queued = listed(job("s1", "completed", "success", 60), job("s2", "queued", "-", 2000),
+    job("s3", "completed", "success", 60), job("s4", "completed", "success", 60))
+  local fake, code = wait({ queued }, { SHARE_SECONDS = "1620" })
+  assert(code == 0 and outputs(fake) == "result=timeout\nfailed=\n", outputs(fake))
+end
+
+--- Where the run saves (HOLD), a failed share is reported once every
+--- share completed, so the rows saved are all there; elsewhere at once.
+local function test_a_saving_run_waits_for_every_share_before_a_failure()
+  local failing = listed(table.unpack(shares({ s2 = "failure" })))
+  local done = listed(table.unpack(shares({ s1 = "success", s2 = "failure", s3 = "success", s4 = "success" })))
+  local fake, code = wait({ failing, failing, done }, { HOLD = "1" })
+  assert(code == 0 and outputs(fake) == "result=failure\nfailed=s2 (failure)\n", outputs(fake))
+  assert(#fake.sleeps == 2, #fake.sleeps)
+  fake, code = wait({ failing })
+  assert(code == 0 and outputs(fake) == "result=failure\nfailed=s2 (failure)\n" and #fake.sleeps == 0, outputs(fake))
+end
+
+--- A share still running when the limit ends a saving run's wait is a
+--- timeout, not a failure, whatever else failed; a share past its own
+--- timeout is waited for there, not reported.
+local function test_a_saving_run_with_a_share_unfinished_is_a_timeout()
+  local failing = listed(table.unpack(shares({ s2 = "failure" })))
+  local fake, code = wait({ failing }, { HOLD = "1" })
+  assert(code == 0 and outputs(fake) == "result=timeout\nfailed=s2 (failure)\n", outputs(fake))
+  local stuck = listed(job("s1", "completed", "success", 60), job("s2", "in_progress", "-", 2000),
+    job("s3", "completed", "success", 60), job("s4", "completed", "success", 60))
+  fake, code = wait({ stuck }, { HOLD = "1", SHARE_SECONDS = "1620" })
+  assert(code == 0 and outputs(fake) == "result=timeout\nfailed=\n", outputs(fake))
+end

@@ -1,28 +1,32 @@
 --- Waits for the jobs of this run that others' results stand on (ci.yml's
---- "wait for the shares" in `checked`: the four shares of the checked
---- suite, which `checked` gathers after its own boot and build), asking
---- the API as queue_seed.tl does, and writes to $GITHUB_OUTPUT
---- `result=<success|failure|timeout>` and `failed=<names>`:
+--- "wait for the shares of the checked suite" in `checked`: the shares of
+--- the checked suite, which `checked` gathers after its own boot and
+--- build), asking the API as queue_seed.tl does, and writes to
+--- $GITHUB_OUTPUT `result=<success|failure|timeout>` and `failed=<names>`:
 ---
 --- - `success`, once every job of JOBS (blank-separated names) completed
 ---   with success;
---- - `failure`, as soon as one of them completed with anything else
----   (failure, cancelled, skipped, timed out), naming it in `failed`, or
----   has run longer than SHARE_SECONDS since it started, which its own
----   timeout-minutes forbids, so the API's answer is no sign it will finish;
+--- - `failure`, once one of them completed with anything else (failure,
+---   cancelled, skipped, timed out) or has run longer than SHARE_SECONDS
+---   since it started, which its own timeout-minutes forbids, naming
+---   them in `failed`. Where HOLD is "1" (a run that saves the shares'
+---   rows) it is reported only once every job completed, so the rows it
+---   reads are all there; otherwise at once;
 --- - `timeout`, once LIMIT_SECONDS have passed since the step began with
----   one not completed, or none listed (a job still queued has no start to
----   bound, so this alone ends a wait for one that never gets a runner).
+---   a job not completed, or none listed. Only this bounds a job still
+---   queued, and, where HOLD is "1", one past SHARE_SECONDS: a job the
+---   API lists as queued has no start to bound, whatever `started_at`
+---   says. `failed` names what failed so far.
 ---
---- It reads the jobs of the run's latest execution (`filter=latest`, the
---- API's default), not of one attempt: a re-run of the failed jobs lists
---- the jobs it carried over from the attempt before, which an attempt's
---- own listing leaves out. A job listed more than once is read by its
---- newest start. A call that fails is asked again after WAIT_SECONDS (20),
---- until LIMIT_SECONDS. A job not listed counts as not completed. It never
---- fails its step but for an environment it cannot read (2): the step's
---- `if` decides what each result does. Each call is cut off after
---- CALL_SECONDS (15).
+--- It reads the jobs of the run's latest execution (the API's default),
+--- not of one attempt: a re-run of the failed jobs lists the jobs it
+--- carried over from the attempt before, which an attempt's own listing
+--- leaves out. A job listed more than once is read by its newest start.
+--- All pages of the listing are read. A call that fails is asked again
+--- after WAIT_SECONDS (20), until LIMIT_SECONDS. A job not listed counts
+--- as not completed. It never fails its step but for an environment it
+--- cannot read (2): the step's `if` decides what each result does. Each
+--- call is cut off after CALL_SECONDS (15).
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Github = require("cosmic_ci.github")
@@ -62,6 +66,8 @@ local JOBS_PAGE <const> = Shape.record_of("JobsPage")
 --- A job as the API lists it.
 local record Job
   completed: boolean
+  --- Whether the API lists it in progress: only then is `started` a start.
+  running: boolean
   conclusion: string
   --- Seconds since the epoch where it has started.
   started?: integer
@@ -84,7 +90,7 @@ local function jobs_of(pages: {string}): {string:Job}?
       local name = tostring(row.name)
       local seen = out[name]
       if seen == nil or (started or 0) >= (seen.started or 0) then
-        out[name] = { completed = row.status == "completed",
+        out[name] = { completed = row.status == "completed", running = row.status == "in_progress",
           conclusion = if row.conclusion == nil then "none" else tostring(row.conclusion) end,
           started = started }
       end
@@ -113,11 +119,12 @@ function SharesWait.wait(env: {string:string}, host: Github.Host): integer
   if limit == nil then return refuse(why) end
   share, why = whole(env, "SHARE_SECONDS", 1620)
   if share == nil then return refuse(why) end
+  local hold = env["HOLD"] == "1"
   local path = "repos/" .. repository .. "/actions/runs/" .. run .. "/jobs?per_page=100"
   local deadline = host.now() + limit
   local result, failed = "", ""
   while true do
-    local pages = Github.ask(host, path, false, call)
+    local pages = Github.ask(host, path, true, call)
     local listed = pages and jobs_of(pages) or nil
     if listed ~= nil then
       local pending: mut {string} = {}
@@ -130,17 +137,18 @@ function SharesWait.wait(env: {string:string}, host: Github.Host): integer
           if job.conclusion ~= "success" then
             bad[#bad + 1] = name .. " (" .. job.conclusion .. ")"
           end
-        elseif job.started ~= nil and host.now() > job.started + share then
+        elseif job.running and job.started ~= nil and host.now() > job.started + share and not hold then
           bad[#bad + 1] = name .. " (still running " .. tostring(share) .. " s after it started)"
         else
           pending[#pending + 1] = name
         end
       end
-      if #bad > 0 then
-        result, failed = "failure", table.concat(bad, ", ")
+      failed = table.concat(bad, ", ")
+      if #pending == 0 then
+        result = if #bad > 0 then "failure" else "success" end
         break
-      elseif #pending == 0 then
-        result = "success"
+      elseif #bad > 0 and not hold then
+        result = "failure"
         break
       end
       host.print("waiting for: " .. table.concat(pending, ", "))

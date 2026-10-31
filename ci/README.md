@@ -650,15 +650,18 @@ verdicts, which would otherwise ride along whole in each save.
   the API for the run's jobs (the latest execution of each, so a re-run
   of the failed jobs sees the shares it carried over) every 20 s, and
   goes on once all four completed with success. A share that completed
-  with anything else ends the wait at once as `failure`, as does one
-  running 1620 s after it started (its own timeout is 1500 s); a wait
-  that lasts 3000 s with a share not completed or not listed (one that
-  never got a runner) ends as `timeout`. Either way the job fails: at
-  once where the run saves nothing (the queue, a dispatch), as a failed
-  share skipped it before, and, in a run that saves (main's push, the
-  nightly), after it took the shares' rows and ran no test, so that it
-  saves the rows (a failed share keeps its own, without the failed
-  test's) and main's newest entry no longer holds that test's pass. `ci`
+  with anything else, or one running 1620 s after it started (its own
+  timeout is 1500 s), makes the wait `failure`; a wait that lasts 3000 s
+  with a share not completed or not listed (one that never got a runner,
+  whatever start the API lists for it) ends as `timeout`. Either way the
+  job fails. Where the run saves nothing (the queue, a dispatch) it fails
+  at once on the first share that did not pass. In a run that saves
+  (main's push, the nightly) the wait holds until every share has
+  completed (`HOLD`), so that the rows it takes are all there, and the
+  job then takes them and runs no test, so that it saves the rows (a
+  failed share keeps its own, without the failed test's) and main's
+  newest entry no longer holds that test's pass; on `timeout` it takes
+  and saves nothing. `ci`
   fails on the share itself (it needs `checked-shard` too). The suite
   step runs only where the wait answered `success`, so the gather stands
   on all four shares' verdicts (a passed share has uploaded its
@@ -735,8 +738,9 @@ verdicts (10 s), 365 to 408 s or 460 to 604 s; `checked` starts with
 the shares and repeats the 175 to 218 s beside them, so it waits for the
 last share only if that ends later; after the last share it downloads and
 merges (5 s), runs the gathering suite (some 100 s) and the fixture
-(40 s), and stages its seed (10 s), some 155 s: the run's checked path
-ends 520 to 563 s after the shares start where most stood and 615 to
+(40 s), and stages its seed (10 s), some 155 s: an estimate from the
+measured figures above, not a measurement, puts the run's checked path
+at 520 to 563 s after the shares start where most stood and 615 to
 759 s where none did, against 1934 to 2326 s of the one job and the legs' 946 to
 1503 s. The narrowing run, 150 to 195 s to its boot, its 726 to 861 s and
 10 s, takes 890 to 1070 s. So the longest of them ends with the shortest
