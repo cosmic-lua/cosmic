@@ -516,13 +516,12 @@ local function test_compress_leaves_nothing_whenever_an_allocation_fails()
   assert(ended > 0, "decoding allocates")
 end
 
---- A one-byte update asks for next to nothing. Each used to reserve a
---- 64 KiB slice in its output buffer, which boxed that much memory every
---- time (some 80 us a call), so a stream of them allocated at least
---- once an update. After fifty updates to warm the stream and the
---- coverage hook, 1950 more of every bzip2, xz and zstd codec, in both
---- directions, must run on 200 granted allocations; counting allocations,
---- not time, is what keeps this from flaking.
+--- A one-byte update allocates nothing in proportion to the codec's
+--- output slice: after fifty updates to warm the stream and the coverage
+--- hook, 1950 more of every bzip2, xz and zstd codec, in both directions,
+--- run on 50 granted allocations (they need fewer than 5; a slice boxed
+--- per update needs thousands). Counting allocations, not time, keeps
+--- this from flaking.
 local function test_one_byte_updates_do_not_allocate_a_slice_each()
   local noise: mut {string} = {}
   local x = 4242
@@ -548,7 +547,7 @@ local function test_one_byte_updates_do_not_allocate_a_slice_each()
   }
   local count = 2000
   local warm = 50
-  local granted = 200
+  local granted = 50
   for _, codec in ipairs(codecs) do
     local packer = assert(codec.encoder())
     local packed = assert(packer:update(plain)) .. assert(packer:finish())
