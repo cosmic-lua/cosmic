@@ -1,14 +1,16 @@
 --- Seeded pseudorandom numbers. A source made from a seed draws the same
 --- sequence on every run, and on every target for `int`, `float` and
 --- `bytes`, so a run that depends on chance can be replayed by naming
---- its seed; `normal` and `gamma` agree across targets only as far as
---- their `log` (and for `gamma` `pow`) do. The generator is xoshiro256**,
+--- its seed; `normal` and `gamma` (and their bulk forms) agree across
+--- targets only as far as their `log` (and for `gamma` `pow`) do. The generator is xoshiro256**,
 --- its state filled from the seed by splitmix64. It is not cryptographic: never derive a key, token or
 --- nonce from it; draw those from [`Rand.entropy`].
 ---
 --- - [`Rand.new`] makes a seeded [`Rand.Source`], whose `int`, `float`,
 ---   `bytes`, `normal` and `gamma` draw from it: use one for shuffles,
----   simulations and tests that must replay.
+---   simulations and tests that must replay. Its `floats`, `normals` and
+---   `gammas` draw many values at once, in the C core, to the same
+---   sequence: use them where a run needs thousands of draws.
 --- - [`Rand.uniform`], [`Rand.normal`] and [`Rand.gamma`] are the
 ---   samplers behind `Source:int`, `normal` and `gamma`, each taking any
 ---   function that draws 64 random bits: use them to draw from another
@@ -51,8 +53,36 @@ local record Rand
     --- shape below 1, `pow`. A shape far below 1 can underflow a draw
     --- to 0, and a large `shape * scale` can overflow one to infinity.
     mut gamma: function(self: Source, shape: number, scale?: number): number
+
+    --- `count` floats, each drawn as `float` draws one, in one call to the
+    --- core. The values and the generator's state after them are exactly
+    --- those of `count` successive `float` calls, on every target, so bulk
+    --- and single draws interleave freely. Raises when `count` is negative
+    --- or past 1048576 (2^20), drawing nothing.
+    mut floats: function(self: Source, count: integer): {number}
+
+    --- `count` values, each drawn as `normal(mean, stddev)` draws one, in
+    --- one call to the core. The values and the generator's state after
+    --- them are exactly those of `count` successive `normal` calls on the
+    --- same target, so bulk and single draws interleave freely. Raises
+    --- when `count` is negative or past 1048576 (2^20), or for a `mean`
+    --- or `stddev` `normal` refuses, drawing nothing.
+    mut normals: function(self: Source, count: integer, mean?: number, stddev?: number): {number}
+
+    --- `count` values, each drawn as `gamma(shape, scale)` draws one, in
+    --- one call to the core. The values and the generator's state after
+    --- them are exactly those of `count` successive `gamma` calls on the
+    --- same target, so bulk and single draws interleave freely. Raises
+    --- when `count` is negative or past 1048576 (2^20), or for a `shape`
+    --- or `scale` `gamma` refuses, drawing nothing.
+    mut gammas: function(self: Source, count: integer, shape: number, scale?: number): {number}
   end
 end
+
+--- The kinds of draw [`sys.rand_draw`] takes, as core/rand.h's.
+local KIND_FLOAT <const> = 0
+local KIND_NORMAL <const> = 1
+local KIND_GAMMA <const> = 2
 
 local record State
   mut s0: integer
@@ -177,6 +207,48 @@ local function standard_gamma(draw: function(): integer, shape: number): number
   end
 end
 
+--- `count` values of `kind` from `st`'s generator by the core, which
+--- advances the state: it is lent as four words and written back.
+local function bulk(st: State, kind: integer, count: integer, first: number, second: number): {number}
+  local words: mut {integer} = { st.s0, st.s1, st.s2, st.s3 }
+  local values = sys.rand_draw(words, kind, count, first, second)
+  -- The core writes four integers back; assert narrows what a read of the array cannot.
+  st.s0 = assert(words[1])
+  st.s1 = assert(words[2])
+  st.s2 = assert(words[3])
+  st.s3 = assert(words[4])
+  return values
+end
+
+--- The most values one bulk draw returns, as core/rand.h's.
+local BULK_MAX <const> = 1 << 20
+
+--- Raises unless `mean` and `stddev` suit a normal draw of `name`, blaming
+--- the frame `level` above the caller of this check.
+local function check_normal(name: string, level: integer, m: number, sd: number)
+  if not (finite(m) and finite(sd) and sd >= 0.0) then
+    error(("rand: %s(%s, %s): mean and stddev must be finite, stddev not negative")
+        :format(name, tostring(m), tostring(sd)), level + 1)
+  end
+end
+
+--- Raises unless `shape` and `scale` suit a gamma draw of `name`, blaming
+--- as [`check_normal`] does.
+local function check_gamma(name: string, level: integer, k: number, theta: number)
+  if not (finite(k) and finite(theta) and k > 0.0 and theta > 0.0) then
+    error(("rand: %s(%s, %s): shape and scale must be finite and positive")
+        :format(name, tostring(k), tostring(theta)), level + 1)
+  end
+end
+
+--- Raises unless `count` is a number of values one bulk draw of `name`
+--- returns, blaming as [`check_normal`] does.
+local function check_count(name: string, level: integer, count: integer)
+  if count < 0 or count > BULK_MAX then
+    error(("rand: %s(%d): count is negative or past %d"):format(name, count, BULK_MAX), level + 1)
+  end
+end
+
 --- A float drawn from the normal distribution of mean `mean` (default 0)
 --- and standard deviation `stddev` (default 1), by Marsaglia's polar
 --- method, from `draw`, a function returning 64 random bits as a Lua
@@ -192,10 +264,7 @@ end
 --- @return number The value
 function Rand.normal(draw: function(): integer, mean?: number, stddev?: number): number
   local m, sd = mean or 0.0, stddev or 1.0
-  if not (finite(m) and finite(sd) and sd >= 0.0) then
-    error(("rand: normal(%s, %s): mean and stddev must be finite, stddev not negative")
-        :format(tostring(m), tostring(sd)), 2)
-  end
+  check_normal("normal", 2, m, sd)
   return m + sd * standard_normal(draw)
 end
 
@@ -214,10 +283,7 @@ end
 --- @return number The value
 function Rand.gamma(draw: function(): integer, shape: number, scale?: number): number
   local k, theta = shape, scale or 1.0
-  if not (finite(k) and finite(theta) and k > 0.0 and theta > 0.0) then
-    error(("rand: gamma(%s, %s): shape and scale must be finite and positive")
-        :format(tostring(k), tostring(theta)), 2)
-  end
+  check_gamma("gamma", 2, k, theta)
   return standard_gamma(draw, k) * theta
 end
 
@@ -259,6 +325,22 @@ function Rand.new(seed: integer): Rand.Source
     end,
     gamma = function(_self: Rand.Source, shape: number, scale?: number): number
       return Rand.gamma(draw, shape, scale)
+    end,
+    floats = function(_self: Rand.Source, count: integer): {number}
+      check_count("floats", 2, count)
+      return bulk(st, KIND_FLOAT, count, 0.0, 0.0)
+    end,
+    normals = function(_self: Rand.Source, count: integer, mean?: number, stddev?: number): {number}
+      local m, sd = mean or 0.0, stddev or 1.0
+      check_count("normals", 2, count)
+      check_normal("normals", 2, m, sd)
+      return bulk(st, KIND_NORMAL, count, m, sd)
+    end,
+    gammas = function(_self: Rand.Source, count: integer, shape: number, scale?: number): {number}
+      local k, theta = shape, scale or 1.0
+      check_count("gammas", 2, count)
+      check_gamma("gammas", 2, k, theta)
+      return bulk(st, KIND_GAMMA, count, k, theta)
     end,
   }
 end

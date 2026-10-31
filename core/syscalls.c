@@ -9,6 +9,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <math.h>
 #include <poll.h>
 #include <pwd.h>
 #include <stdarg.h>
@@ -80,6 +81,7 @@ extern int clone (int (*)(void *), void *, int, void *, ...);
 #include "syscalls.h"
 #include "portable.h"
 #include "process.h"
+#include "rand.h"
 #include "startup.h"
 #include "store.h"
 
@@ -432,6 +434,43 @@ COSMIC_SYSCALL(entropy, 1) {
     return cosmic_fail(L, number);
   }
   luaL_pushresultsize(&buffer, (size_t)count);
+  return 1;
+}
+
+COSMIC_SYSCALL(rand_draw, 5) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  lua_Integer kind = luaL_checkinteger(L, 2);
+  luaL_argcheck(L, kind >= COSMIC_RAND_FLOAT && kind <= COSMIC_RAND_GAMMA, 2, "the kind is not 0, 1 or 2");
+  lua_Integer count = luaL_checkinteger(L, 3);
+  luaL_argcheck(L, count >= 0 && count <= COSMIC_RAND_BULK_MAX, 3,
+                "the count is negative or past 1048576");
+  double first = (double)luaL_checknumber(L, 4), second = (double)luaL_checknumber(L, 5);
+  if (kind == COSMIC_RAND_NORMAL) {
+    luaL_argcheck(L, isfinite(first) && isfinite(second) && second >= 0.0, 4,
+                  "a normal's mean and stddev must be finite, stddev not negative");
+  } else if (kind == COSMIC_RAND_GAMMA) {
+    luaL_argcheck(L, isfinite(first) && isfinite(second) && first > 0.0 && second > 0.0, 4,
+                  "a gamma's shape and scale must be finite and positive");
+  }
+  struct cosmic_rand generator;
+  for (int word = 0; word < 4; word++) {
+    if (lua_rawgeti(L, 1, word + 1) != LUA_TNUMBER || !lua_isinteger(L, -1))
+      return luaL_argerror(L, 1, "the state is not four integers");
+    generator.s[word] = (uint64_t)lua_tointeger(L, -1);
+    lua_pop(L, 1);
+  }
+  /* The table is made at its size before the first draw, so storing a
+   * value cannot allocate or raise with the generator half advanced. */
+  lua_createtable(L, (int)count, 0);
+  for (lua_Integer i = 1; i <= count; i++) {
+    lua_pushnumber(L, cosmic_rand_next(&generator, (enum cosmic_rand_kind)kind, first, second));
+    lua_rawseti(L, -2, i);
+  }
+  /* The four slots exist, read above, so storing back cannot allocate. */
+  for (int word = 0; word < 4; word++) {
+    lua_pushinteger(L, (lua_Integer)generator.s[word]);
+    lua_rawseti(L, 1, word + 1);
+  }
   return 1;
 }
 
