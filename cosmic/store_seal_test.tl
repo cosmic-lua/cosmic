@@ -58,7 +58,7 @@ local function attach(tmp: string)
   requires("fixture.loop_a", "fixture.loop_b")
   requires("fixture.loop_b", "fixture.loop_a")
   assert(db:close())
-  assert(Store.attach(path))
+  assert(Store.attach(path, { unchecked_bytecode = true }))
   attached = true
 end
 
@@ -278,7 +278,7 @@ local function test_seal_carries_an_extra_module_as_the_main(tmp: string)
   local extra: Store.Extra = { name = "main", bytecode = string.dump((assert(load("return 1")))),
     source = "return 1\n", requires = { "fixture.leaf", "fixture.nowhere" } }
   local path = tmp .. "/extra.db"
-  local digest = assert(Store.seal({ "fixture.leaf" }, path, { extra = extra }))
+  local digest = assert(Store.seal({ "fixture.leaf" }, path, { extra = extra, unchecked_bytecode = true }))
   assert(modules_of(path) == "fixture.leaf main")
   assert(count_of(path, "imports") == 1, "its edge to a name left out is no row")
   local db = assert(Sqlite.open(path))
@@ -288,23 +288,47 @@ local function test_seal_carries_an_extra_module_as_the_main(tmp: string)
   assert(db:close())
   assert(rows[1]:text(1) == "main" and rows[1]:text(2) == "1" and rows[1]:text(3) == "return 1\n")
   assert(rows[2]:text(1) == "main", "the extra module is the database's main")
-  assert(digest == (assert(Store.seal({ "fixture.leaf" }, tmp .. "/again.db", { extra = extra }))))
+  assert(digest == (assert(Store.seal({ "fixture.leaf" }, tmp .. "/again.db", { extra = extra, unchecked_bytecode = true }))))
   -- A script that requires nothing is a program of no sealed names.
-  assert(Store.seal({}, tmp .. "/alone.db", { extra = extra }))
+  assert(Store.seal({}, tmp .. "/alone.db", { extra = extra, unchecked_bytecode = true }))
   assert(modules_of(tmp .. "/alone.db") == "main")
   Test.raises(function()
-    Store.seal({ "fixture.leaf", "main" }, tmp .. "/x.db", { extra = extra })
+    Store.seal({ "fixture.leaf", "main" }, tmp .. "/x.db", { extra = extra, unchecked_bytecode = true })
   end, "also one of the names")
   Test.raises(function()
-    Store.seal({ "fixture.leaf" }, tmp .. "/y.db", { extra = extra, main = "fixture.leaf" })
+    Store.seal({ "fixture.leaf" }, tmp .. "/y.db", { extra = extra, main = "fixture.leaf", unchecked_bytecode = true })
   end, "both given")
   -- It may not shadow a module the store holds, or any of `cosmic.`.
   for _, name in ipairs({ "fixture.app", "cosmic.fs", "cosmic.nothing" }) do
     Test.raises(function()
-      Store.seal({ "fixture.leaf" }, tmp .. "/z.db", { extra = {
+      Store.seal({ "fixture.leaf" }, tmp .. "/z.db", { unchecked_bytecode = true, extra = {
         name = name, bytecode = extra.bytecode, source = "", requires = {} } })
     end, "must not shadow")
   end
+end
+
+--- Bytecode the store loads is bytecode nothing checked, so a caller says it
+--- takes that: an attach without the option, or a seal of `extra` without it,
+--- raises naming the option, and nothing is attached or written.
+local function test_attach_and_extra_name_the_unchecked_bytecode_option(tmp: string)
+  attach(tmp)
+  local before = #Store.databases()
+  Test.raises(function() Store.attach(tmp .. "/fixture.db") end, "unchecked_bytecode")
+  Test.raises(function()
+    Store.attach(tmp .. "/fixture.db", { unchecked_bytecode = false })
+  end, "unchecked_bytecode")
+  assert(#Store.databases() == before, "a refused attach opens nothing")
+  local extra: Store.Extra = { name = "main", bytecode = assert(Store.bytecode("cosmic.json")),
+    source = "return 1\n", requires = {} }
+  local path = tmp .. "/unflagged.db"
+  Test.raises(function() Store.seal({ "fixture.leaf" }, path, { extra = extra }) end,
+    "unchecked_bytecode")
+  Test.raises(function()
+    Store.seal({ "fixture.leaf" }, path, { extra = extra, unchecked_bytecode = false })
+  end, "unchecked_bytecode")
+  assert(Fs.exists(path) ~= true, "a refused seal writes nothing")
+  -- The option is for `extra` alone: sealing the store's own rows needs none.
+  assert(Store.seal({ "fixture.leaf" }, tmp .. "/plain.db"))
 end
 
 --- The tests that name a module are not carried, so adding one moves no
@@ -325,7 +349,7 @@ local function test_seal_digest_ignores_tests_and_drops_dangling_edges(tmp: stri
   assert(Sqlite.run(db, "INSERT INTO modules VALUES ('fixture.leaf', 'fixture.leaf.tl', " ..
       "'module', X'00', X'0102', deflate(CAST('nothing' AS BLOB)), 'fixture/leaf_test.tl', X'')"))
   assert(db:close())
-  assert(Store.attach(path))
+  assert(Store.attach(path, { unchecked_bytecode = true }))
   local after = assert(Store.seal(set, tmp .. "/after.db"))
   assert(before == after, "a test moved the digest")
 end
