@@ -238,7 +238,6 @@ function check.closed(checker: Checker, document: Document)
   if checker.open[document.name] ~= document then return end
   local regraphs = check.regraphs(checker, document)
   checker.open[document.name] = nil
-  document.kept = nil
   local listed = source.module(checker.source, document.name)
   if regraphs then
     checker.graph_moved = true
@@ -483,6 +482,11 @@ end
 -- `epoch`, once a check records which modules it was served: any module served otherwise than it was checks every open
 -- document again, one it does not read among them.
 
+-- TODO: key a kept result by what the document's own listing and the importer's hints were ([`importer_hints`]), once a check
+-- records them: a restage that changes the listing of the document's own file (its kind) without moving a module served, or a
+-- change of the docs databases, bumps no epoch, so the result kept (and what [`check.diagnose`] publishes) stands until the
+-- text or the epoch moves.
+
 -- TODO: let completion read the last result of a document whose text parsed, once completion exists: a text being typed
 -- does not parse, and its kept result is then nothing found.
 
@@ -494,9 +498,7 @@ local function checked_now(checker: Checker, document: Document): Checked
     return kept.checked
   end
   checker.ran[document.name] = (checker.ran[document.name] or 0) + 1
-  local ok, outcome = pcall(checked_of, checker, document)
-  if not ok then error(tostring(outcome), 0) end
-  local checked: Checked = outcome
+  local checked = checked_of(checker, document)
   -- The epoch after the check, which may move it (`remember`, [`program_of`]): the next ask is of the same program.
   document.kept = { text = document.text, epoch = checker.epoch, checked = checked }
   return checked

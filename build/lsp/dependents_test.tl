@@ -179,7 +179,7 @@ local function test_closing_an_unchanged_document_checks_no_dependent()
   local ran = served_between(root, { opened(root, { "main" }),
     { session_fixture.close(root, "helper.tl") } }, between)
   assert(ran.dependents == 0, tostring(ran.dependents))
-  assert(ran.checks["main.tl"] == 1, tostring(ran.checks["main.tl"]))
+  assert(ran.ran["main.tl"] == 1, tostring(ran.ran["main.tl"]))
 end
 
 --- A document opened with another text than its file's and closed in
@@ -209,7 +209,7 @@ local function test_closing_a_changed_document_checks_each_dependent_once()
     local changed = served_between(root, { start, change_it }, between)
     local closed = served_between(root, { start, change_it, { session_fixture.close(root, "helper.tl") } },
       between)
-    local before, after = changed.checks["main.tl"] or 0, closed.checks["main.tl"] or 0
+    local before, after = changed.ran["main.tl"] or 0, closed.ran["main.tl"] or 0
     assert(after - before == 1, tostring(before) .. " then " .. tostring(after))
     assert(closed.dependents - changed.dependents == queued, tostring(closed.dependents))
     assert(told_main(closed) == CHECKED_AGAIN, told_main(closed))
