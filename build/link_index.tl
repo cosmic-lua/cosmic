@@ -37,6 +37,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local AnalysisSchema = require("build.analysis_schema")
 local bind = require("build.bind")
 local link_resolve = require("build.link_resolve")
 local link_text = require("build.link_text")
@@ -169,10 +170,10 @@ local text = bind.text
 local raw_links =
   "SELECT m.path, i.file, l.line, l.column, l.form, " ..
   "CASE l.doc WHEN 1 THEN 'doc' ELSE 'comment' END, l.text, l.target, l.own, l.alias " ..
-  "FROM (SELECT path FROM plan UNION SELECT path FROM inputs WHERE kind = 'decl') m " ..
+  "FROM (SELECT path FROM plan UNION SELECT path FROM inputs WHERE " .. AnalysisSchema.declaration("kind") .. ") m " ..
   "JOIN inputs i ON i.path = m.path AND i.origin <> 'vendor' " ..
-  "AND (i.kind = 'decl' OR NOT EXISTS (SELECT 1 FROM inputs d " ..
-  "WHERE d.path = i.path AND d.kind = 'decl')) " ..
+  "AND (" .. AnalysisSchema.declaration("i.kind") .. " OR NOT EXISTS (SELECT 1 FROM inputs d " ..
+  "WHERE d.path = i.path AND " .. AnalysisSchema.declaration("d.kind") .. ")) " ..
   "JOIN links l ON l.source_hash = i.source_hash " ..
   "UNION ALL SELECT '', f.path, l.line, l.column, l.form, " ..
   "CASE f.kind WHEN 'markdown' THEN 'text' ELSE 'comment' END, l.text, l.target, l.own, '' " ..
