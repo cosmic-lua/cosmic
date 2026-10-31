@@ -374,12 +374,38 @@ local function test_a_writer_refuses_and_stays_refused()
   assert(not ok and why == "xml: event 1: text outside the root element", why)
   local again, still = w:write({ { kind = "start", name = "r" } })
   assert(not again and still == why, still)
-  local open = Xml.writer(Stream.collect())
-  assert(open:write({ { kind = "start", name = "r" } }))
+  local unfinished = Stream.collect()
+  local open = Xml.writer(unfinished)
+  assert(open:write({ { kind = "start", name = "r" }, { kind = "text", text = "t" } }))
+  assert(unfinished:result() == "<r>t", unfinished:result())
   local closed, unclosed = open:close()
   assert(not closed and unclosed == "xml: <r> is not closed", unclosed)
+  assert(unfinished:result() == "", "the target was not aborted: " .. unfinished:result())
   local named = Xml.writer(Stream.collect())
-  assert(named:write({ { kind = "start", name = "{urn:a}r" } }))
-  local bound, clash = named:write({ { kind = "start", name = "ns1:x" } })
-  assert(not bound and clash == "xml: event 2: the prefix ns1 is bound by the writer already", clash)
+  assert(named:write({ { kind = "start", name = "r" }, { kind = "start", name = "{urn:a}x" } }))
+  local bound, clash = named:write({ { kind = "start", name = "ns1:y" } })
+  assert(not bound and clash == "xml: event 3: the prefix ns1 is bound by the writer already", clash)
+  -- Once the binding's element is closed, a later batch may name the prefix, as a
+  -- whole document's events may.
+  local later_out = Stream.collect()
+  local later = Xml.writer(later_out)
+  assert(later:write({ { kind = "start", name = "r" }, { kind = "start", name = "{urn:a}x" },
+    { kind = "end", name = "{urn:a}x" } }))
+  assert(later:write({ { kind = "start", name = "ns1:y", attributes = { ["xmlns:ns1"] = "urn:y" } },
+    { kind = "end", name = "ns1:y" }, { kind = "end", name = "r" } }))
+  assert(later:close())
+  assert(later_out:result() == '<r><ns1:x xmlns:ns1="urn:a"/><ns1:y xmlns:ns1="urn:y"/></r>', later_out:result())
+end
+
+--- A writer closed once stays closed and keeps what it wrote: a second
+--- `close` answers true, and `abort` after it leaves the document as it is.
+local function test_a_closed_writer_keeps_its_document()
+  local out = Stream.collect()
+  local w = Xml.writer(out)
+  assert(w:write({}))
+  assert(w:write({ { kind = "start", name = "r" }, { kind = "end", name = "r" } }))
+  assert(w:close())
+  assert(w:close())
+  assert(w:abort())
+  assert(out:result() == "<r/>", out:result())
 end

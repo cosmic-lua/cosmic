@@ -122,6 +122,8 @@ local record Xml
     --- The document is done: writes what is held and closes the target.
     --- false and why when it is not a whole document (an element left
     --- open, or no root), or a write failed: the target is aborted then.
+    --- Safe to call more than once: once the document is closed, `close`
+    --- answers true and `abort` leaves it as it is.
     close: function(Writer): boolean, string
     --- Abandons the document and aborts the target.
     abort: function(Writer): boolean, string
@@ -379,13 +381,17 @@ local class EventWriter is Xml.Writer
   mut pending_name?: string
   --- Why the writer is finished; "" while it is not.
   mut failed: string
+  --- The document was written whole and the target closed.
+  mut closed: boolean
 
   function write(self, events: {Xml.Event}): boolean, string
     if self.failed ~= "" then return false, self.failed end
     local why = self:take(events)
     if why == "" then
-      local ok, trouble = self.target:write(table.concat(self.out))
+      local text = table.concat(self.out)
       self.out = {}
+      if text == "" then return true, "" end
+      local ok, trouble = self.target:write(text)
       if ok then return true, "" end
       why = "xml: " .. trouble
     end
@@ -397,8 +403,8 @@ local class EventWriter is Xml.Writer
   function take(self, events: {Xml.Event}): string
     local scopes = self.scopes
     -- A prefix the events name themselves, declared or in a plain name, is never
-    -- bound, and one this writer bound is never named, so no name changes
-    -- namespace.
+    -- bound, and one this writer has bound where the events stand is never
+    -- named, so no name changes namespace.
     for index, e in ipairs(events) do
       local names: mut {string} = {}
       if e.kind == "start" then names[1] = e.name or "" end
@@ -408,7 +414,7 @@ local class EventWriter is Xml.Writer
         local declared = name:match("^xmlns:(.+)$")
         for _, prefix in ipairs({ used or "", declared or "" }) do
           if prefix ~= "" then
-            if self.generated[prefix] == true then
+            if self:in_scope(prefix) then
               return "xml: event " .. tostring(self.count + index) .. ": the prefix " .. prefix ..
                 " is bound by the writer already"
             end
@@ -509,7 +515,19 @@ local class EventWriter is Xml.Writer
     return ""
   end
 
+  --- Whether this writer bound `prefix` in a scope still open.
+  function in_scope(self, prefix: string): boolean
+    if self.generated[prefix] ~= true then return false end
+    for _, bound in ipairs(self.scopes.bound) do
+      for _, p in pairs(bound) do
+        if p == prefix then return true end
+      end
+    end
+    return false
+  end
+
   function close(self): boolean, string
+    if self.closed then return true, "" end
     if self.failed == "" then
       local unclosed = self.open[#self.open]
       if unclosed ~= nil then
@@ -518,6 +536,7 @@ local class EventWriter is Xml.Writer
         self.failed = "xml: no root element"
       else
         self.failed = "xml: the writer is closed"
+        self.closed = true
         return self.target:close()
       end
     end
@@ -527,6 +546,8 @@ local class EventWriter is Xml.Writer
   end
 
   function abort(self): boolean, string
+    -- What was closed is written: there is nothing left to abandon.
+    if self.closed then return true, "" end
     if self.failed == "" then self.failed = "xml: the writer is abandoned" end
     return self.target:abort()
   end
@@ -538,7 +559,7 @@ function Xml.writer(target: Stream.Writer): Xml.Writer
   local made: EventWriter = {
     target = target, out = {}, open = {}, written = {},
     scopes = { bound = {}, declared = {}, next = 0 }, generated = {}, roots = 0, count = 0,
-    pending = nil, pending_name = nil, failed = "",
+    pending = nil, pending_name = nil, failed = "", closed = false,
   }
   return made
 end
@@ -552,7 +573,8 @@ end
 --- declared with an `xmlns:` attribute on the first element that needs it
 --- and used by the elements inside it. A prefix the events declare or
 --- name for themselves is never chosen; written a batch at a time
---- ([`Xml.writer`]), one the writer bound already may not be named after.
+--- ([`Xml.writer`]), one the writer has bound in an element still open may
+--- not be named inside it.
 --- nil and why, naming the event, when they are no document: an element
 --- that is not closed, or closed by another name; no root element, or a
 --- second; text outside the root; a name that is no XML name, or one in a
