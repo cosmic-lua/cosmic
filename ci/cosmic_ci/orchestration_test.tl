@@ -80,6 +80,7 @@ local record ChecksCase
   status: integer
   ok: boolean
   ran?: string
+  share?: string
 end
 
 --- `Orchestration.harness_moved`, its answer as two values.
@@ -1275,6 +1276,10 @@ local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_che
   local narrowing = assert(jobs["checked-narrowing"], "ci.yml has no checked narrowing job")
   assert(phases_of(narrowing) == "boot checked-narrowing",
     "the checked narrowing job runs the phases " .. phases_of(narrowing))
+  local narrowing_share = env_of(narrowing)["COSMIC_CI_NARROWING_SHARD"]
+  assert(narrowing_share ~= nil and
+      narrowing_share:match("^%${{ matrix%.part }}/%${{ strategy%.job%-total }}$") ~= nil,
+    "a checked narrowing job does not run a share of the suite")
   local light = assert(jobs["format"], "ci.yml has no format job")
   assert(phases_of(light) == "boot format", "the format job runs the phases " .. phases_of(light))
 end
@@ -1760,9 +1765,11 @@ local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tm
 end
 
 --- The `checked-narrowing` phase runs the whole suite on a checked run
---- (`test --check-types`, no module named) on the linux-x86_64 leg, with
---- the checked run's test timeout, fails where that run fails or reports
---- nothing of its checks, and does nothing on another target.
+--- (`test --check-types`, no module named) on the linux-x86_64 leg, or the
+--- share of it COSMIC_CI_NARROWING_SHARD names (`--shard I/N`, which the jobs
+--- of ci.yml's `checked-narrowing` matrix set), with the checked run's test
+--- timeout, fails where that run fails or reports nothing of its checks, and
+--- does nothing on another target.
 local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_linux_x86_64(tmp: string)
   local base, project = command(tmp)
   -- The checked job's leg promises these and `checked`, which the run's
@@ -1772,6 +1779,10 @@ local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_
   local cases: {ChecksCase} = {
     { name = "linux", target = "x86_64-linux-musl", report = true, status = 0, ok = true,
       ran = "test --check-types 120 " .. promised .. "\n" },
+    { name = "linux-share", target = "x86_64-linux-musl", report = true, status = 0, ok = true,
+      share = "2/2", ran = "test --check-types --shard 2/2 120 " .. promised .. "\n" },
+    { name = "linux-share-failing", target = "x86_64-linux-musl", report = true, status = 1, ok = false,
+      share = "1/2", ran = "test --check-types --shard 1/2 120 " .. promised .. "\n" },
     { name = "linux-failing", target = "x86_64-linux-musl", report = true, status = 1, ok = false,
       ran = "test --check-types 120 " .. promised .. "\n" },
     { name = "linux-unchecked", target = "x86_64-linux-musl", report = false, status = 0, ok = false,
@@ -1795,7 +1806,7 @@ local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_
         summary .. "exit " .. tostring(case.status) .. "\nEOF\n" ..
         "chmod 755 o/bin/cosmic\n", 493)
     local env = context(fake, runner_temp, { TARGET = case.target, TMPDIR = tmp,
-      COSMIC_WORKER = "linux-x86_64-checked",
+      COSMIC_WORKER = "linux-x86_64-checked", COSMIC_CI_NARROWING_SHARD = case.share or "",
       COSMIC_CI_EVENT = "push", COSMIC_CI_HARNESS_MOVED = "0" })
     for _, phase in ipairs({ "boot", "checked-narrowing" }) do
       local outcome = Fixture.call("checked-narrowing-" .. case.name .. "-" .. phase,
