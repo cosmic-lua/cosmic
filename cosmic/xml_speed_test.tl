@@ -1,8 +1,11 @@
 --- The speed of [`cosmic.xml`], held to a ratio and never to a clock: four times
 --- the input costs about four times the time, read whole or in small chunks, a
 --- long token or a long run of text, an element at a time or written back. A
---- limit of eight catches a form that is quadratic (sixteen), as reading a
---- token a chunk left open again at every chunk would be.
+--- limit of eight catches a form that is quadratic (sixteen). Two hold a known
+--- one off: reading a token a chunk left open again at every chunk (an eager
+--- parser fails the long token's at about fourteen times), and a run of text
+--- held back in a buffer that grew by a fixed step. The rest hold the reader
+--- whole, subtrees and the writer to linear as they change.
 local Speed = require("lang.speed")
 local Test = require("cosmic.test")
 local Xml = require("cosmic.xml")
