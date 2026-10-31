@@ -147,6 +147,8 @@ local record Driver
     adjust: (function(globals: {string: Scopes.Global}))?
     --- The modules that are bindings of C, whose types the checker does not read: a type name of one is `invalid`.
     external: {string}
+    --- The names of the language's own modules ([`Declarations.Program.library`]); none where not given.
+    library?: {string: boolean}
     --- Whether the checker keeps the type of each node: the `types` of a result. A run that reads none leaves it, and saves the
     --- time of recording them.
     types: boolean
@@ -576,8 +578,8 @@ local function test_functions(scoped: Scopes.Scoped, tokens: Lexer.Tokens): {int
 end
 
 --- A program for the bindings of C `external` names.
-local function program_of(external: {string}): Declarations.Program
-  local program = Declarations.new()
+local function program_of(external: {string}, library: {string: boolean}?): Declarations.Program
+  local program = Declarations.new(nil, library)
   for _, name in ipairs(external) do
     program.external[name] = true
   end
@@ -586,7 +588,7 @@ end
 
 function Driver.new(options: Driver.Options): Driver.Build
   local build: Driver.Build = {
-    program = program_of(options.external), problems = {}, timing = { prepare = 0, lower = 0, check = 0 },
+    program = program_of(options.external, options.library), problems = {}, timing = { prepare = 0, lower = 0, check = 0 },
     provide = function(_self: Driver.Build, _provider: Driver.Provider) end,
     parsed = function(_self: Driver.Build, _name: string): Driver.Outcome? return nil end,
     provides = function(_self: Driver.Build, _name: string): boolean
@@ -845,7 +847,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     for index, entry in ipairs(global_entries) do
       global_entries[index] = again(entry)
     end
-    build.program = program_of(options.external)
+    build.program = program_of(options.external, options.library)
     attach()
     for _, entry in ipairs(global_entries) do
       lower_entry(entry)
