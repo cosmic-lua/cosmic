@@ -93,6 +93,24 @@ local function test_kolkata_is_half_past_with_no_changes()
   says(kolkata, "2026-07-15T12:00:00Z", "2026-07-15T17:30:00+05:30", 19800, "IST", false)
 end
 
+--- tzdata 2026e moved Manitoba to permanent UTC-05 from 2026-10-31, and
+--- 2026f recorded that Cuba does not fall back on 2026-11-01 but stays at
+--- UTC-04 until 2027-11-07. A binary carrying 2026d has Winnipeg at -06:00
+--- and Havana at -05:00 on 2026-11-15.
+local function test_winnipeg_and_havana_follow_tzdata_2026f()
+  local function offset(z: Time.Zone, text: string): integer
+    return Time.civil(at(text), z).offset
+  end
+  local winnipeg = zone("America/Winnipeg")
+  assert(offset(winnipeg, "2026-10-30T12:00:00Z") == -5 * 3600, "Winnipeg is on daylight time")
+  assert(offset(winnipeg, "2026-11-15T12:00:00Z") == -5 * 3600, "Winnipeg stays at -05:00")
+  assert(offset(winnipeg, "2027-01-15T12:00:00Z") == -5 * 3600, "Winnipeg stays at -05:00 in winter")
+  local havana = zone("America/Havana")
+  assert(offset(havana, "2026-10-30T12:00:00Z") == -4 * 3600, "Havana is on daylight time")
+  assert(offset(havana, "2026-11-15T12:00:00Z") == -4 * 3600, "Havana does not fall back")
+  assert(offset(havana, "2027-11-06T12:00:00Z") == -4 * 3600, "Havana stays at -04:00 until 2027-11-07")
+end
+
 --- Samoa crossed the date line: 2011-12-30 never happened in Apia.
 local function test_apia_skipped_a_whole_day()
   local apia = zone("Pacific/Apia")
