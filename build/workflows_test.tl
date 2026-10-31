@@ -48,7 +48,7 @@ local record Step
   with?: {string: any}
 end
 local record Strategy
-  ["fail-fast"]?: boolean
+  ["fail-fast"]?: any
   matrix?: {string: any}
 end
 local record Job
@@ -321,6 +321,7 @@ end
 --- run but a branch push, or failed). ci.yml's COSMIC_CI_SCOPE is this, and
 --- a matrix, which cannot read `env`, tests it again.
 local FULL_RUN <const> = "needs.scope.outputs.scope != 'light'"
+local QUEUE_FAIL_FAST <const> = "${{ github.event_name == 'merge_group' }}"
 
 local function strings_of(value: any, what: string): {string}
   local list, err: {string}?, string = Shape.into(value, Shape.list(Shape.string))
@@ -1641,8 +1642,8 @@ local function test_a_main_push_reuses_the_queue_run()
       "shares: $SHARES; checked narrowing: $NARROWING; format: $FORMAT\"; " ..
       "[ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$SHARES\" = success ] && " ..
       "[ \"$NARROWING\" = success ] && [ \"$FORMAT\" = success ] || { [ \"$EVENT\" != merge_group ] || " ..
-      "echo \"a failed leg cancels a queue run, so the other legs may read cancelled; " ..
-      "an error annotation names the failed leg\"; exit 1; }",
+      "echo \"a failed leg cancels the other jobs of its matrix on a queue run, so those read cancelled; " ..
+      "the one that reads failure failed\"; exit 1; }",
     "the join passes on more or less than the legs and the checked suite: " .. tostring(assert(check).run))
   local reads <const>: {string: boolean} = { RESULT = true, CHECKED = true, SHARES = true, NARROWING = true,
     FORMAT = true, QUEUE_RUN = true, EVENT = true }
@@ -2087,8 +2088,8 @@ local function test_the_checked_suite_runs_in_shares_that_a_job_gathers()
   local strategy = assert(shard.strategy)
   local parts, parts_err: {integer}?, string = Shape.into(assert(strategy.matrix)["part"], Shape.list(Shape.integer))
   parts = assert(parts, parts_err)
-  assert(#parts >= 2 and strategy["fail-fast"] == false,
-    "the checked suite is split in no shares, or one failing cancels the others")
+  assert(#parts >= 2 and strategy["fail-fast"] == QUEUE_FAIL_FAST,
+    "the checked suite is split in no shares, or one failing cancels the others outside the merge queue")
   for i, part in ipairs(parts) do assert(part == i, "the shares are not numbered from 1") end
   assert(shard["name"] == "linux-x86_64-checked-shard-${{ matrix.part }}", "a share's name: " .. tostring(shard["name"]))
   local env = map_of(shard.env)
@@ -2382,44 +2383,22 @@ local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
   assert(placed >= 3, "only " .. tostring(placed) .. " jobs move their tree")
 end
 
---- A failed job of the merge queue's run has the run cancelled,
---- so the gate reports without waiting on the legs still running. A job
---- of its own does it, the only job of the run that holds `actions: write`
---- besides the cache's `prune` and `invalidate`: it starts with the legs, needs nothing, is needed by
---- nothing (the gate, which a ruleset requires, never waits on it), and
---- is on the queue's run alone. The legs keep `actions: read`.
-local function test_a_failed_queue_job_has_the_run_cancelled_by_a_job_of_its_own()
+--- A failed leg of the merge queue's run cancels the rest of its own
+--- matrix, `fail-fast` on the queue's run alone: every other event runs
+--- every leg to its end. No job holds a runner to watch the run, and none
+--- but `prune` and `invalidate` holds `actions: write`, which a job that
+--- runs the candidate's code must not.
+local function test_a_failed_queue_leg_cancels_the_rest_of_its_matrix()
   local jobs = ci_workflow().jobs
-  local cancel = job_of(jobs, "cancel")
-  assert(cancel["if"] == "github.event_name == 'merge_group'", "cancel runs on: " .. tostring(cancel["if"]))
-  assert(cancel.needs == nil, "cancel waits on a job, so it cannot start with the legs")
-  local permissions = map_of(cancel.permissions)
-  local count = 0
-  for _ in pairs(permissions) do count = count + 1 end
-  assert(count == 2 and permissions["actions"] == "write" and permissions["contents"] == "read",
-    "cancel holds more than `contents: read` and `actions: write`")
-  local checkout = cancel.steps[1]
-  local with = with_of(assert(checkout))
-  assert(assert(checkout).uses == CHECKOUT,
-    "cancel's first step is no checkout")
-  assert(with["persist-credentials"] == false and with["fetch-depth"] == 1 and
-      with["sparse-checkout"] == "/.github/scripts/cancel-on-failure.sh\n",
-    "cancel checks out more than its script, or keeps the token")
-  assert(cancel.name == "cancel the run on a failed leg", "cancel's name: " .. tostring(cancel.name))
-  assert((assert(cancel["timeout-minutes"])) > (assert(job_of(jobs, "platform")["timeout-minutes"])),
-    "cancel stops before the legs may")
-  for name, job in pairs(jobs) do
-    for _, need in ipairs(needs_of(job)) do
-      assert(need ~= "cancel", name .. " waits on the job that cancels the run")
-    end
+  assert(jobs["cancel"] == nil, "a job cancels the run, holding a runner for all of it")
+  for _, name in ipairs({ "platform", "checked-shard" }) do
+    local strategy = assert(job_of(jobs, name).strategy)
+    assert(strategy["fail-fast"] == QUEUE_FAIL_FAST,
+      name .. " fails fast elsewhere than on the merge queue: " .. tostring(strategy["fail-fast"]))
   end
   for _, name in ipairs({ "platform", "checked" }) do
     assert(map_of(job_of(jobs, name).permissions)["actions"] == "read", name .. " can write `actions`")
   end
-  local env = map_of(assert(cancel.steps[2]).env)
-  assert(env["SELF"] == cancel.name, "cancel does not know its own name")
-  assert(assert(assert(cancel.steps[2]).run) == ".github/scripts/cancel-on-failure.sh",
-    "cancel runs another script")
 end
 
 --- A branch several commits behind main restores the verdicts main
@@ -2515,8 +2494,7 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
     "prune cannot prune the cache, or may do more")
   for name, job in pairs(jobs) do
     local p = map_of(job.permissions)
-    -- `cancel` writes `actions` to cancel the queue's run, and no more.
-    assert(name == "prune" or name == "invalidate" or name == "cancel" or p["actions"] ~= "write",
+    assert(name == "prune" or name == "invalidate" or p["actions"] ~= "write",
       "job " .. name .. " may write the cache")
   end
 
@@ -2698,16 +2676,13 @@ end
 --- start (some 6 s, up to about 100 s in a burst). Its `prune` and
 --- `invalidate` are too: run on a branch push with every step skipped,
 --- each took a runner's start (up to about 170 s in a burst) to show a
---- check that did nothing. So is `cancel`, which watches the merge
---- queue's run alone: its `if` is the event, as a leg of no other run
---- could cancel it.
+--- check that did nothing.
 local BRANCH_SKIPS <const> = { "refs/heads/main", "ref_name == 'main'", "event_name != 'push'" }
 local SKIPPED_ON_A_BRANCH <const>: {string: boolean} = {
   [DIR .. "/ci.yml seed"] = true,
   [DIR .. "/ci.yml reuse"] = true,
   [DIR .. "/ci.yml prune"] = true,
   [DIR .. "/ci.yml invalidate"] = true,
-  [DIR .. "/ci.yml cancel"] = true,
   -- The checked suite's shares and the checked narrowing run, of a full run only: a branch push runs no
   -- checked suite, and the job's boot costs what a runner's start does.
   [DIR .. "/ci.yml checked-shard"] = true,
@@ -2757,16 +2732,13 @@ local function test_the_scope_is_decided_once()
   assert(reading >= 6, "too few jobs read the scope: " .. tostring(reading))
 end
 
---- Every job of the run gates it: none continues on error, so the job that cancels the run on a failed leg has no failure to
---- pass over, and the script names no exemption. A job that gates nothing needs the exemption back, with a test of its own.
-local function test_every_job_gates_the_run_and_the_cancel_job_passes_over_none()
+--- Every job of the run gates it: none continues on error, so a failed
+--- job always fails the run.
+local function test_every_job_gates_the_run()
   local jobs = ci_workflow().jobs
   for id, job in pairs(jobs) do
-    assert(job["continue-on-error"] ~= true, id .. " fails without gating, and the cancel job does not pass over it")
+    assert(job["continue-on-error"] ~= true, id .. " fails without gating")
   end
-  assert(map_of(assert(job_of(jobs, "cancel").steps[2]).env)["EXEMPT"] == nil, "the cancel job passes over a job")
-  local script = assert(Fs.read(".github/scripts/cancel-on-failure.sh"))
-  assert(script:find("EXEMPT", 1, true) == nil, "cancel-on-failure.sh still reads an exemption")
 end
 
 local function test_a_branch_push_starts_no_job_it_skips()
