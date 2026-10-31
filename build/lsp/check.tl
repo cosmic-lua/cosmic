@@ -76,6 +76,16 @@ local record check
     mut requires: {string}?
   end
 
+  --- What one check of a document read, for the questions asked of the types of its nodes ([`build.lsp.definition`]).
+  record Reading
+    --- The program's result for the document's module: its tree, scopes and the type of each node. It is the program's
+    --- until the next check puts another document in it.
+    outcome: Driver.Outcome
+    --- What a build put in the document's text before the checker read it (the `text` of the outcome), the last first
+    --- ([`ShapeSpecs.Splice`]).
+    splices: {ShapeSpecs.Splice}
+  end
+
   --- The databases a message's hint looks a name up in, and whether each is read as the public standard library's.
   record Hinted
     databases: {Sqlite.Handle}
@@ -285,6 +295,8 @@ local record Checked
   --- Whether the places found are in a template's Teal, not in the
   --- document's own text.
   generated: boolean
+  --- The program's result for the module, with the types of its nodes: nil where nothing was checked.
+  outcome: Driver.Outcome?
 end
 
 --- What each other open document required at its last check, by name.
@@ -385,13 +397,15 @@ local function checked_of(checker: Checker, document: Document): Checked
   if generated then
     local compiled, trouble = Template.compile(document.text, document.name, { dialects = nil })
     if compiled == nil then
-      return { refusals = { plan.refusal_of(trouble) }, text = text, splices = none, generated = false }
+      return { refusals = { plan.refusal_of(trouble) }, text = text, splices = none, generated = false,
+        outcome = nil }
     end
     text = compiled
   end
   --- What was found, its places in `spliced` as spliced by `splices`.
-  local function checked(refusals: {plan.Refusal}, spliced: string, splices: {ShapeSpecs.Splice}): Checked
-    return { refusals = refusals, text = spliced, splices = splices, generated = generated }
+  local function checked(refusals: {plan.Refusal}, spliced: string, splices: {ShapeSpecs.Splice},
+                         outcome?: Driver.Outcome): Checked
+    return { refusals = refusals, text = spliced, splices = splices, generated = generated, outcome = outcome }
   end
   local named = plan.named(document.name)
   local path, kind = named.path, named.kind
@@ -437,13 +451,27 @@ local function checked_of(checker: Checker, document: Document): Checked
   local compiled = syntax_read.generated(assert(subject), reading, importer_hints(checker), planned.requires,
     function(name: string): boolean return checker.source.modules[name] ~= nil end)
   for _, refusal in ipairs(compiled.refusals) do refusals[#refusals + 1] = refusal end
-  return checked(refusals, spliced, splices)
+  return checked(refusals, spliced, splices, program.build:result(path, true))
 end
 
 --- Whether the file `name` is in a tree of its own inside cosmic's
 --- ([`identity.is_foreign_tree`]), which a build of it never reads.
 local function apart(checker: Checker, name: string): boolean
   return source.standing(checker.source).own and identity.is_foreign_tree(identity.first_of(name))
+end
+
+--- Brings the stage up to the files on disk, and answers whether `document` is checked against it: false in a root no build
+--- was started in and for a file in a tree of its own. A build started where there was none moves every open document, which
+--- is checked again against the modules now found; the check that finds it says so, and no other need.
+local function staged(checker: Checker, document: Document): boolean
+  local outside = source.outside(checker.source)
+  source.refresh(checker.source)
+  if source.outside(checker.source) or apart(checker, document.name) then return false end
+  if outside then
+    checker.graph_moved = true
+    checker.epoch = checker.epoch + 1
+  end
+  return true
 end
 
 --- The diagnostics of `document`, each encoded, its positions counted in
@@ -454,17 +482,9 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
     document.published = none
     return none
   end
-  local outside = source.outside(checker.source)
-  source.refresh(checker.source)
-  if source.outside(checker.source) or apart(checker, document.name) then
+  if not staged(checker, document) then
     document.published = none
     return none
-  end
-  -- A build was started where there was none: every open document is
-  -- checked again, against the modules now found.
-  if outside then
-    checker.graph_moved = true
-    checker.epoch = checker.epoch + 1
   end
   refresh_program(checker)
   checker.checks[document.name] = (checker.checks[document.name] or 0) + 1
@@ -505,6 +525,20 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
   document.published_text = document.text
   document.published_epoch = checker.epoch
   return out
+end
+
+--- `document` checked again as [`check.diagnose`] checks it, and what that read of it, or nil where nothing was: a file no
+--- build reads, a root with no build, a template (whose places are in its Teal), a text that does not parse or whose
+--- `require`s are refused. The check is made again and not read from the last: the program holds one document's result at a
+--- time.
+function check.read(checker: Checker, document: Document): check.Reading?
+  if unread(document) or document.name:match("%.tmpl$") ~= nil then return nil end
+  if not staged(checker, document) then return nil end
+  refresh_program(checker)
+  local checked = checked_of(checker, document)
+  local found = checked.outcome
+  if found == nil or checked.generated then return nil end
+  return { outcome = found, splices = checked.splices }
 end
 
 return check

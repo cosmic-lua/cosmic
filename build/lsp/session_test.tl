@@ -1,6 +1,6 @@
 --- `cosmic lsp`'s sessions ([`build.lsp.session`], [`build.lsp.check`]):
 --- the protocol's lifecycle, a document's diagnostics, where they are and
---- how they are worded, hover, formatting, and one session over a
+--- how they are worded, hover, definition, formatting, and one session over a
 --- loopback connection. What a `require` reads is in source_test.tl.
 
 local Clock = require("cosmic.clock")
@@ -66,6 +66,17 @@ local function fs_docs(root: string): Sqlite.Handle
       "function Fs.read(path: string): string return path end\nreturn Fs\n",
   })
 end
+
+local record Located
+  uri: string
+  range: {string: Spot}
+end
+
+local record DefinitionSent
+  result: Located?
+end
+
+local DEFINITION_SENT <const>: Shape.Typed<DefinitionSent> = Shape.record_of("DefinitionSent")
 
 --- The markdown of the hover `ran` answered request `id` with, or nil.
 local function hovered(ran: Ran, id: integer): string?
@@ -140,6 +151,174 @@ local function test_hover_shows_the_docs_of_a_required_symbol()
   assert(value:find("cosmic.fs.read", 1, true) ~= nil and value:find("Reads the whole of a file.", 1, true) ~= nil,
     value)
   assert(hovered(ran, 3) == nil, "a name nothing documents")
+end
+
+--- The location `ran` answered the definition request `id` with, or nil for `null`.
+local function defined(ran: Ran, id: integer): Located?
+  return assert(DEFINITION_SENT:decode_into(answer(ran, id))).result
+end
+
+--- Asserts that `found` is in the file `name` below `root`, on `line` from character `from` up to `to`.
+local function assert_located(found: Located?, root: string, name: string, line: integer, from: integer, to: integer)
+  local where = assert(found, "no definition")
+  assert(where.uri == "file://" .. root .. "/" .. name, where.uri)
+  local start, finish = assert(where.range["start"]), assert(where.range["end"])
+  local got = tostring(start.line) .. ":" .. tostring(start.character) .. "-" .. tostring(finish.line) .. ":" ..
+    tostring(finish.character)
+  assert(got == tostring(line) .. ":" .. tostring(from) .. "-" .. tostring(line) .. ":" .. tostring(to), got)
+end
+
+local function test_definition_is_advertised()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root) })
+  assert(initialized(answer(ran, 1)).capabilities.definitionProvider)
+end
+
+local function test_definition_of_a_local_and_a_parameter_is_where_it_is_declared()
+  local root = session_fixture.project()
+  local text = 'local count = 1\nlocal function twice(n: integer): integer\n  return n * count\nend\n' ..
+    'local _ = twice(count)\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 4, 18),
+    at(3, "textDocument/definition", root, "main.tl", 2, 9),
+    at(4, "textDocument/definition", root, "main.tl", 2, 13),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 0, 6, 11)
+  assert_located(defined(ran, 3), root, "main.tl", 1, 21, 22)
+  assert_located(defined(ran, 4), root, "main.tl", 0, 6, 11)
+end
+
+local function test_definition_of_a_function_is_its_declaration()
+  local root = session_fixture.project()
+  local text = 'local function twice(n: integer): integer\n  return n * 2\nend\nlocal _ = twice(2)\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 3, 12),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 0, 15, 20)
+end
+
+local function test_definition_of_a_field_and_a_type_is_their_declaration()
+  local root = session_fixture.project()
+  local text = 'local record Shape\n  sides: integer\nend\n\nfunction Shape.make(): Shape\n' ..
+    '  return { sides = 3 }\nend\n\nlocal s: Shape = Shape.make()\nlocal _ = s.sides\n' ..
+    'local t: Shape = { sides = 4 }\nreturn t\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    -- `sides` of `s.sides`, `Shape` of `s: Shape`, `make` of `Shape.make()`, `sides` of the table.
+    at(2, "textDocument/definition", root, "main.tl", 9, 13),
+    at(3, "textDocument/definition", root, "main.tl", 8, 9),
+    at(4, "textDocument/definition", root, "main.tl", 8, 24),
+    at(5, "textDocument/definition", root, "main.tl", 10, 20),
+    at(6, "textDocument/definition", root, "main.tl", 9, 11),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 1, 2, 7)
+  assert_located(defined(ran, 3), root, "main.tl", 0, 13, 18)
+  assert_located(defined(ran, 4), root, "main.tl", 4, 15, 19)
+  assert_located(defined(ran, 5), root, "main.tl", 1, 2, 7)
+  assert_located(defined(ran, 6), root, "main.tl", 8, 6, 7)
+end
+
+local function test_definition_follows_a_require_to_the_module_that_declares_it()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", "local record point\n  x: integer\n  record Corner\n    y: integer\n  end\nend\n\n" ..
+      "function point.origin(): point\n  return { x = 0 }\nend\n\nreturn point\n"))
+  local text = 'local point = require("lib.point")\nlocal p: point = point.origin()\n' ..
+    'local c: point.Corner = { y = 1 }\nlocal _ = p.x, c\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    -- `origin`, `x`, the nested type `Corner`, its field `y`, and `point` itself, which the document declares.
+    at(2, "textDocument/definition", root, "main.tl", 1, 24),
+    at(3, "textDocument/definition", root, "main.tl", 3, 12),
+    at(4, "textDocument/definition", root, "main.tl", 2, 18),
+    at(5, "textDocument/definition", root, "main.tl", 2, 27),
+    at(6, "textDocument/definition", root, "main.tl", 1, 10),
+  })
+  assert_located(defined(ran, 2), root, "lib/point.tl", 7, 15, 21)
+  assert_located(defined(ran, 3), root, "lib/point.tl", 1, 2, 3)
+  assert_located(defined(ran, 4), root, "lib/point.tl", 2, 9, 15)
+  assert_located(defined(ran, 5), root, "lib/point.tl", 3, 4, 5)
+  assert_located(defined(ran, 6), root, "main.tl", 0, 6, 11)
+end
+
+local function test_definition_of_a_member_is_found_through_a_class_an_interface_and_an_optional()
+  local root = session_fixture.project()
+  local text = 'local class Counter\n  n: integer\n  function bump(self): integer\n    return self.n + 1\n  end\nend\n' ..
+    'local c: Counter = { n = 1 }\nlocal _ = c.n\nlocal _ = c:bump()\n' ..
+    'local interface Named\n  name: string\nend\nlocal interface Aged is Named\n  age: integer\nend\n' ..
+    'local function f(a: Aged): string\n  return a.name\nend\n' ..
+    'local record A\n  v: integer\nend\nlocal function g(a: A?): integer\n  return a.v\nend\nreturn { f, g }\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    -- A class's field and method, a field only the interface listed declares, and a field of an optional receiver.
+    at(2, "textDocument/definition", root, "main.tl", 7, 12),
+    at(3, "textDocument/definition", root, "main.tl", 8, 13),
+    at(4, "textDocument/definition", root, "main.tl", 16, 12),
+    at(5, "textDocument/definition", root, "main.tl", 22, 12),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 1, 2, 3)
+  assert_located(defined(ran, 3), root, "main.tl", 2, 11, 15)
+  assert_located(defined(ran, 4), root, "main.tl", 10, 2, 6)
+  assert_located(defined(ran, 5), root, "main.tl", 19, 2, 3)
+end
+
+--- A build rewrites a document's text where it calls [`Shape.record_of`], which moves every byte after the call: a place
+--- after one is still the place in the text as written.
+local function test_definition_after_a_record_shape_call_counts_the_text_as_written()
+  local root = session_fixture.project()
+  local text = 'local Shape = require("cosmic.shape")\nlocal record R\n  n: integer\nend\n' ..
+    'local R_SHAPE <const> = Shape.record_of("R") local keep: integer = 1\n' ..
+    "local r: R = assert(R_SHAPE:into({ n = 1 }))\nlocal _ = r.n, keep\n"
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    -- `keep` after the call, on its line and below it, and `n` of `r.n`.
+    at(2, "textDocument/definition", root, "main.tl", 6, 15),
+    at(3, "textDocument/definition", root, "main.tl", 4, 53),
+    at(4, "textDocument/definition", root, "main.tl", 6, 12),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 4, 51, 55)
+  assert_located(defined(ran, 3), root, "main.tl", 4, 51, 55)
+  assert_located(defined(ran, 4), root, "main.tl", 2, 2, 3)
+end
+
+local function test_definition_reads_the_text_of_an_open_module()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", "local record point\n  x: integer\nend\nreturn point\n"))
+  local text = 'local point = require("lib.point")\nlocal p: point = { x = 1 }\nlocal _ = p.x\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    open(root, "lib/point.tl", "-- moved down\n\nlocal record point\n  y: integer\n  x: integer\nend\nreturn point\n"),
+    at(2, "textDocument/definition", root, "main.tl", 2, 12),
+  })
+  assert_located(defined(ran, 2), root, "lib/point.tl", 4, 2, 3)
+end
+
+local function test_definition_counts_utf16_units_or_bytes_as_negotiated()
+  local root = session_fixture.project()
+  -- "😀" is four bytes and two UTF-16 units.
+  local text = 'local count = 1\nlocal _ = { "😀", count }\n'
+  local wide = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 1, 20),
+  })
+  assert_located(defined(wide, 2), root, "main.tl", 0, 6, 11)
+  local narrow = served(root, { initialize(root, '{"general":{"positionEncodings":["utf-8"]}}'),
+    open(root, "main.tl", text), at(2, "textDocument/definition", root, "main.tl", 1, 22),
+  })
+  assert_located(defined(narrow, 2), root, "main.tl", 0, 6, 11)
+end
+
+local function test_definition_of_nothing_the_report_knows_is_null()
+  local root = session_fixture.project()
+  local text = 'local n = 1\nlocal _ = tostring(n)\nlocal s = "x" .. 1 -- n\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    -- A global of the standard library, a number, white space, a comment, a line past the end, and no document.
+    at(2, "textDocument/definition", root, "main.tl", 1, 12),
+    at(3, "textDocument/definition", root, "main.tl", 0, 10),
+    at(4, "textDocument/definition", root, "main.tl", 1, 5),
+    at(5, "textDocument/definition", root, "main.tl", 2, 20),
+    at(6, "textDocument/definition", root, "main.tl", 40, 0),
+    at(7, "textDocument/definition", root, "other.tl", 0, 0),
+  })
+  for id = 2, 7 do
+    assert(defined(ran, id) == nil, "request " .. tostring(id))
+    assert(answer(ran, id):find('"result":null', 1, true) ~= nil, answer(ran, id))
+  end
 end
 
 --- A build writes the projection anew and renames it into place: a

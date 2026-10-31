@@ -26,6 +26,7 @@
 ---
 ---     local target = assert(Grant.parse("API.Example.com.:443"))
 ---     print(target.kind, target.text) -- name  api.example.com:443
+--- @public
 
 local record Grant
   --- What a target's host is.

@@ -1096,7 +1096,7 @@ build/link_index_test.tl index_may_be_nil 3
 
 build/patch_test.tl index_may_be_nil 2
 
-build/positions_test.tl index_may_be_nil 2
+build/positions_test.tl index_may_be_nil 1
 
 build/refresh_fuzz_test.tl index_may_be_nil 1
 
