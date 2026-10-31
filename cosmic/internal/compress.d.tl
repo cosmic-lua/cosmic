@@ -60,6 +60,8 @@ local record compress
   zstd_decoder: function(max_window?: integer): Stream?, string
   -- Raises on a level outside 1 to 19.
   zstd_encoder: function(level?: integer): Stream?, string
+  -- Raises on a preset outside 0 to 9.
+  xz_encoder: function(preset?: integer, extreme?: boolean): Stream?, string
   -- Raises on a level outside 1 to 9.
   bz2_encoder: function(level?: integer): Stream?, string
   -- The running CRC-32 (IEEE) of `data`; pass the previous value as `crc`
