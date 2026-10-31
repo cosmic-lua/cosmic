@@ -142,9 +142,11 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
     "SELECT count(*) FROM catalog_fts WHERE catalog_fts MATCH 'coverage'")
   assert(count_of(nth(guidance, 1):text(1)) > 0, "the error catalog is in, and indexed")
   local text = rows_of(path,
-    "SELECT coalesce(length(text), 0) FROM catalog WHERE symbol = 'Coverage.start'")
-  assert(#text == 1 and count_of(nth(text, 1):text(1)) > 0,
-    "a row carries its guidance, though the docs it comes from are not")
+    "SELECT text IS NULL, length(file) > 0, line > 0 FROM catalog " ..
+      "WHERE symbol = 'Coverage.start'")
+  assert(#text == 1 and nth(text, 1):text(1) == "1" and nth(text, 1):text(2) == "1" and
+      nth(text, 1):text(3) == "1",
+    "a row with no text of its own carries none, nor the doc comment: it carries where it is")
   local about_build = rows_of(path,
     "SELECT count(*) FROM catalog WHERE module LIKE 'build.%'")
   assert(nth(about_build, 1):text(1) == "0", "guidance about the build is not")
