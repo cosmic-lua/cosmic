@@ -118,22 +118,9 @@ print(math.floor(total))
 
 ## discarding a result on purpose
 
-A call used as a statement drops everything it returns, and the checker accepts it. Write `local _, _ = call()` where
-the drop is a choice, so a reader sees that the result was seen and left. One `_` for each value the call returns.
-
-```teal
-local function try(): boolean, string
-  return false, "no such file"
-end
-
-local _, _ = try()
-local ok, why = try()
-print(ok, why)
-```
-
-```output
-false	no such file
-```
+A result that may be a failure (`nil, why` or `false, why`) must be handled. Where the failure cannot matter, write
+`local _, _ = call()`, one `_` for each value the call returns. `cosmic docs project` has the case and an example, in the
+section "discarding a failure on purpose".
 
 ## optionals are written T?
 

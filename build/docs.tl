@@ -1061,8 +1061,10 @@ local function searched(db: Sqlite.Handle, public: boolean, query: string): {doc
   end
   local out: mut {docs.Entry} = {}
   local kept = 0
+  local offered = false
   local function offer_sections()
-    if kept == AHEAD or kept == #from_docs then
+    if not offered and (kept == AHEAD or kept == #from_docs) then
+      offered = true
       for _, entry in ipairs(from_guides) do out[#out + 1] = entry end
     end
   end

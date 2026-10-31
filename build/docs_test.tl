@@ -2593,9 +2593,17 @@ local function test_a_search_finds_the_section_of_a_guide_that_says_the_word()
     "## more\n\n" .. table.concat(filler, " ")
   local db = database({
     { "doc.guides.language", "", "module", "", page, "doc/guides/language.md", "1" },
+    { "cosmic.a", "A.one", "function", "function A.one()", "Narrowing one.", "cosmic/a.tl", "1" },
+    { "cosmic.a", "A.two", "function", "function A.two()", "Narrowing two.", "cosmic/a.tl", "2" },
+    { "cosmic.a", "A.three", "function", "function A.three()", "Narrowing three.", "cosmic/a.tl", "3" },
+    { "cosmic.a", "A.four", "function", "function A.four()", "Narrowing four.", "cosmic/a.tl", "4" },
   }, {})
   local narrowing = assert(docs.lookup(view({ db }), "narrowing"))
-  local section = assert(narrowing[1])
+  local section: docs.Entry? = nil
+  for _, entry in ipairs(narrowing) do
+    if entry.kind == "section" and section == nil then section = entry end
+  end
+  section = assert(section, "no section offered")
   assert(section.kind == "section" and section.source_symbol == "doc.guides.language#narrowing",
     section.kind .. " " .. section.source_symbol)
   assert(section.text:find("branch it guards", 1, true) and not section.text:find("fixed unless", 1, true),
@@ -2603,6 +2611,11 @@ local function test_a_search_finds_the_section_of_a_guide_that_says_the_word()
   local discard = assert(docs.lookup(view({ db }), "discard result"))
   assert(assert(discard[1]).source_symbol == "doc.guides.language#discarding-a-result-on-purpose",
     assert(discard[1]).source_symbol)
+  local seen = 0
+  for _, entry in ipairs(narrowing) do
+    if entry.source_symbol == "doc.guides.language#narrowing" then seen = seen + 1 end
+  end
+  assert(seen == 1, "a section is offered once, not " .. tostring(seen))
   local text = table.concat(assert(docs.answer(view({ db }), { "narrowing" })).lines, "\n")
   assert(text:find("doc.guides.language#narrowing (doc/guides/language.md)", 1, true), text)
   assert(text:find("A test narrows a value", 1, true) and not text:find("Rules of the language", 1, true), text)
