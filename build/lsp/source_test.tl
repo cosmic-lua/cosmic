@@ -903,3 +903,35 @@ local function test_a_text_two_files_hold_keeps_its_rows_until_both_let_go()
   assert(rows_of(assert(src.scratch), "places", hash) == 0)
   source.close(src)
 end
+
+--- A buffer being typed does not parse, and the places of what the parser recovered are still found.
+local function test_the_places_of_a_buffer_with_a_syntax_error_are_still_found()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local broken = POINT .. "local x = = 1\n"
+  local placed = assert(source.places(src, "lib.point", open_with("lib/point.tl", broken)), "no places")
+  assert(assert(placed.spots["point.x"], "no places while the buffer has a syntax error").line == 2)
+  assert(rows_of(assert(src.scratch), "parsed", Hash.hex_sha256(broken)) == 0)
+  source.close(src)
+end
+
+--- A file the tree stops listing lets go of its scratch rows at the next refresh.
+local function test_a_file_the_tree_no_longer_lists_lets_go_of_its_scratch_rows()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local edited = "-- moved down\n\n" .. POINT
+  assert(source.places(src, "lib.point", open_with("lib/point.tl", edited)) ~= nil)
+  local scratch = assert(src.scratch)
+  assert(rows_of(scratch, "places", Hash.hex_sha256(edited)) > 0)
+  assert(Fs.remove(root .. "/lib/point.tl"))
+  source.stale(src)
+  source.refresh(src)
+  assert(rows_of(scratch, "places", Hash.hex_sha256(edited)) == 0)
+  source.close(src)
+end

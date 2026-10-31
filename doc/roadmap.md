@@ -351,7 +351,7 @@ promises lean on come first:
   triggering its refreshes as needed, rather than parsing or checking on its own.
   Unsaved open buffers are derived into a private in-memory scratch database that
   the lsp process owns ([`build/lsp/source.tl`]), by the rows a build writes, so
-  `build.db` is never written by the session and the build never sees a buffer.
+  no unsaved text or scratch row is written to `build.db`, and the build never sees a buffer.
 
 ## documentation and examples
 

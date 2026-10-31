@@ -7,7 +7,8 @@
 --- private in-memory database that only this process reads
 --- ([`source.places`]); `build.db` is never written, so nothing a `cosmic
 --- test` holds it for waits on the session, and no build sees an unsaved
---- text.
+--- text: no unsaved text or scratch row is written to `build.db` (its
+--- staging of the files on disk below is the build's own).
 ---
 --- The database is brought up to the files on disk by the build's own
 --- staging ([`rebuild.stage`]: [`work.stage`], then [`importer.derive`]),
@@ -73,9 +74,12 @@
 -- outer record is told the record has no such field.
 
 local AnalysisSchema = require("build.analysis_schema")
+local Ast = require("lang.ast")
 local Fs = require("cosmic.fs")
 local Derivation = require("build.syntax_derivation")
+local Driver = require("build.driver")
 local Node = require("build.syntax_node")
+local Places = require("build.syntax_places")
 local Sqlite = require("cosmic.sqlite")
 local Template = require("cosmic.template")
 local build_paths = require("build.paths")
@@ -727,8 +731,9 @@ function source.release(src: source.View, file: string)
 end
 
 --- Derives the text `text` of the file `file`, whose SHA-256 is `hash`, into the scratch database, once a text: the rows
---- are [`Derivation.insert`]'s, as the stage writes them. The file's earlier text goes. A text that does not parse writes
---- none, and is not tried again while the file holds it.
+--- are [`Derivation.insert`]'s, as the stage writes them, the whole analysis of the text at its first read after an edit.
+--- The file's earlier text goes. A text that does not parse writes its places alone, from the parser's recovered tree. A
+--- text is not tried again while a file holds it.
 local function derive(src: source.View, scratch: Sqlite.Handle, file: string, text: string, hash: string)
   local old = src.scratched[file]
   if old == hash then return end
@@ -738,7 +743,25 @@ local function derive(src: source.View, scratch: Sqlite.Handle, file: string, te
   if tried then return end
   -- Not the check's chunk, which is the parse of the text with its splices put in.
   local chunk, _ = Node.parse(text, file)
-  if chunk == nil then return end
+  if chunk == nil then
+    -- A text being typed does not parse: the places of what the parser recovered are written, and no other row, as a
+    -- partial tree says nothing safe of the rest of the analysis. It has no `parsed` row, so it is not a parse.
+    local dialect: Ast.Dialect = "tl"
+    if file:match("%.d%.tl$") ~= nil then dialect = "decl" end
+    local recovered = Driver.parse(Driver.source(file, file, text, dialect)).chunk
+    for ordinal, place in ipairs(Places.found(recovered)) do
+      local ok, _ = Sqlite.run(scratch,
+        "INSERT INTO places (source_hash, ordinal, symbol, kind, line, column, length) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        { { text = hash }, { integer = ordinal }, { text = place.symbol }, { text = place.kind },
+          { integer = place.line }, { integer = place.column }, { integer = place.length } })
+      if not ok then
+        forget_rows(scratch, hash)
+        return
+      end
+    end
+    src.tally.derived = src.tally.derived + 1
+    return
+  end
   local ok, why = Derivation.insert(scratch, hash, file, text, chunk, false)
   if not ok then
     forget_rows(scratch, hash)
@@ -778,9 +801,6 @@ end
 -- TODO: feed an open document's `requires` from its scratch `requires` rows, in place of the ones the check reads of its
 -- syntax tree, once the scratch database is derived for every open document.
 
--- TODO: derive an edited document into the scratch database on a debounce rather than at the first read of its places, if
--- the latency of a definition request after an edit is felt: the whole analysis of the text is derived, not only its places.
-
 -- TODO: answer without reading the module's text, once `places` rows carry whether their line is ASCII-only: the text is read
 -- for every request only to count the line's characters in the protocol's units ([`build.lsp.lines`]).
 
@@ -819,10 +839,12 @@ end
 --- Lets go of the scratch database in the files whose text is the staged file's now, the rows of `build.db` answering
 --- for it ([`source.places`]): after a stage, a document saved.
 local function settle(src: source.View)
-  if not src.stubs then return end
   for file, hash in pairs(src.scratched) do
     local staged = src.files[file]
-    if staged ~= nil and staged.source_hash == hash then
+    if staged == nil then
+      -- A file the tree no longer lists (deleted, renamed) has no module to answer for.
+      source.release(src, file)
+    elseif src.stubs and staged.source_hash == hash then
       local db, _ = database(src)
       if db == nil then return end
       local _, derived = read_places(db, hash)
