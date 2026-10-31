@@ -57,6 +57,11 @@ local function test_a_changeset_it_cannot_mean_is_refused()
     [changeset({ '{"issuerName":"' .. b64("x") .. '"}' })] = "change 1 names neither",
     [changeset({ '{"subject":"' .. b64("x") .. '","pubKeyHash":"' .. b64("short") .. '"}' })] = "change 1 names neither",
     ["[]"] = "not a OneCRL changeset",
+    -- a field of another kind is refused, not read as missing: the feed would otherwise revoke less without a word
+    [changeset({ '{"issuerName":5,"serialNumber":"AA=="}' })] = "$.changes[0].issuerName: want string, got integer",
+    [changeset({ '{"enabled":"false","issuerName":"AA==","serialNumber":"AA=="}' })] =
+      "$.changes[0].enabled: want boolean, got string",
+    [changeset({ '5' })] = "$.changes[0]: json: expected a JSON object, got number",
   }
   for text, want in pairs(cases) do
     local found, why = onecrl.parse(text)

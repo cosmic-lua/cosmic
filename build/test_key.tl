@@ -456,7 +456,7 @@ end
 -- it does, so the two cannot drift apart.
 local erased_require = "(SELECT 1 FROM modules m WHERE m.path = i.path " ..
   "AND m.kind IN ('module', 'main') " ..
-  "AND instr(m.bytecode, CAST(i.requires AS BLOB)) = 0)"
+  "AND instr(inflate(m.bytecode), CAST(i.requires AS BLOB)) = 0)"
 
 --- The `imports` rows of `db` a module makes by value, by importer: an
 --- edge is kept unless the importer's bytecode lacks the name it
@@ -540,7 +540,7 @@ end
 --- otherwise leave out unnoticed.
 function test_key.harness(db: Sqlite.Handle): Harness?, string
   local modules, trouble = Sqlite.text_rows(db,
-    "SELECT path, source_hash, lower(hex(sha256(bytecode))) FROM modules " ..
+    "SELECT path, source_hash, lower(hex(sha256(inflate(bytecode)))) FROM modules " ..
       "WHERE kind IN ('module', 'main')")
   if modules == nil then return nil, trouble end
   local imported, imports_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports")
@@ -831,7 +831,7 @@ local function extras_digest(rec: Recording): string
   local extras = rec.extras
   if extras ~= nil then return extras end
   local databases = Store.databases()
-  local query = "SELECT path, lower(hex(source_hash)), lower(hex(sha256(bytecode))), " ..
+  local query = "SELECT path, lower(hex(source_hash)), lower(hex(sha256(inflate(bytecode)))), " ..
     "coalesce((SELECT group_concat(requires, ' ' ORDER BY requires) FROM decl_imports d " ..
     "WHERE d.path = modules.path), '')"
   -- With its stub ([`sealed_fill`] carries it), where the program has

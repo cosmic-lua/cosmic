@@ -1,5 +1,6 @@
 --- The tests of [`build.pipeline`]: a module read, checked against its ceilings and written as Lua and bytecode by the
 --- new checker. The Lua is run, and compared with what the generator writes alone ([`lang.codegen`]) over the files of the tree.
+local ShapeStub = require("build.shape_stub")
 local Ceilings = require("build.ceilings")
 local Codegen = require("lang.codegen")
 local CompileGrammar = require("build.compile_grammar")
@@ -32,17 +33,7 @@ Test.policy{ grants = {
 } }
 
 --- The standard library of the checker's own tests, as the globals of every module, and the `cosmic.*` modules the cases name.
-local STANDARD <const>: {string: string} = {
-  ["cosmic.shape"] = table.concat({
-    "local record Shape",
-    "  record_of: function(string, ...: any): any",
-    "  record: function(any): any",
-    "  integer: any",
-    "end",
-    "return Shape",
-    "",
-  }, "\n"),
-}
+local STANDARD <const>: {string: string} = ShapeStub.standard()
 
 --- The ceilings `text` holds, with no code closed: a program here has the errors the checker finds in it, whatever codes
 --- the tree has closed.
@@ -472,6 +463,16 @@ local record Refusal
   says: string
 end
 
+local record Stubbed
+  source: string
+  stub: string
+end
+
+local record Expected
+  source: string
+  wanted: string
+end
+
 local DROPPED <const> = "m.tl:14: get: its error slot is dropped; bind both results, wrap it in assert(...), or return it whole"
 
 --- Programs the contract rules refuse, each refused by the compile with exactly these words.
@@ -684,17 +685,30 @@ local function test_a_standard_library_module_asked_for_before_the_stub_module_i
 end
 
 local function test_a_stub_that_types_a_module_otherwise_than_its_source_is_refused()
-  local cases: {{string}} = {
-    { "local record Box\n  n: integer\n  more: string\nend\nreturn Box\n", "local record Box\n  n: integer\nend\nreturn Box\n" },
-    { "local record Box\n  f: function(string): integer\nend\nreturn Box\n",
-      "local record Box\n  f: function(string): string\nend\nreturn Box\n" },
-    { "local record Box\n  record Inner\n    x: integer\n  end\n  inner: Inner\nend\nreturn Box\n",
-      "local record Box\n  record Inner\n    x: string\n  end\n  inner: Inner\nend\nreturn Box\n" },
-    { "local record Box\n  items: {integer}\nend\nreturn Box\n", "local record Box\n  items: {string}\nend\nreturn Box\n" },
-    { "local record Box\n  n: integer\nend\nreturn Box\n", "local record Box\n  n: integer\n  extra: boolean\nend\nreturn Box\n" },
+  local cases: {Stubbed} = {
+    {
+      source = "local record Box\n  n: integer\n  more: string\nend\nreturn Box\n",
+      stub = "local record Box\n  n: integer\nend\nreturn Box\n",
+    },
+    {
+      source = "local record Box\n  f: function(string): integer\nend\nreturn Box\n",
+      stub = "local record Box\n  f: function(string): string\nend\nreturn Box\n",
+    },
+    {
+      source = "local record Box\n  record Inner\n    x: integer\n  end\n  inner: Inner\nend\nreturn Box\n",
+      stub = "local record Box\n  record Inner\n    x: string\n  end\n  inner: Inner\nend\nreturn Box\n",
+    },
+    {
+      source = "local record Box\n  items: {integer}\nend\nreturn Box\n",
+      stub = "local record Box\n  items: {string}\nend\nreturn Box\n",
+    },
+    {
+      source = "local record Box\n  n: integer\nend\nreturn Box\n",
+      stub = "local record Box\n  n: integer\n  extra: boolean\nend\nreturn Box\n",
+    },
   }
   for _, case in ipairs(cases) do
-    local source, stub = assert(case[1]), assert(case[2])
+    local source, stub = case.source, case.stub
     local entries: {{string}} = { { "cosmic/box.tl", source } }
     local kinds: {string: string} = { ["cosmic/box.tl"] = "module" }
     local m = module_of("cosmic.box", "cosmic/box.tl", "module", source, {})
@@ -772,21 +786,21 @@ local function test_into_answers_the_records_type_and_no_annotation_can_say_anot
 end
 
 local function test_a_program_refused_for_its_types_is_refused_with_the_checkers_words_through_the_renderer()
-  local programs: {{string}} = {
-    { "local n: string = 1\nreturn n\n", "(not_assignable)" },
-    { "local function f(a: integer): integer\n  return a\nend\nreturn f(1, 2)\n", "(arity)" },
-    { "return undefined_name\n", "(unknown_variable)" },
-    { "local record R\n  n: integer\nend\nlocal r: R = { n = 1 }\nreturn r.m\n", "(field_unknown)" },
-    { "local unused = 1\nreturn 2\n", "(unused" },
-    { "local x: integer = \"a\"\nreturn x\n", "(not_assignable)" },
-    { "local function f(a: integer): string\n  return a\nend\nreturn f(1)\n", "(not_assignable)" },
-    { "local t: {string} = { 1 }\nreturn t\n", "(not_assignable)" },
-    { "local function f(a: string): integer\n  return #a\nend\nreturn f(1)\n", "(not_assignable)" },
-    { "local s: string? = nil\nreturn #s\n", "(nil_not_allowed)" },
-    { "local record R\n  n: integer\nend\nlocal r: R = { n = 1, m = 2 }\nreturn r\n", "(literal_unknown)" },
+  local programs: {Expected} = {
+    { source = "local n: string = 1\nreturn n\n", wanted = "(not_assignable)" },
+    { source = "local function f(a: integer): integer\n  return a\nend\nreturn f(1, 2)\n", wanted = "(arity)" },
+    { source = "return undefined_name\n", wanted = "(unknown_variable)" },
+    { source = "local record R\n  n: integer\nend\nlocal r: R = { n = 1 }\nreturn r.m\n", wanted = "(field_unknown)" },
+    { source = "local unused = 1\nreturn 2\n", wanted = "(unused" },
+    { source = "local x: integer = \"a\"\nreturn x\n", wanted = "(not_assignable)" },
+    { source = "local function f(a: integer): string\n  return a\nend\nreturn f(1)\n", wanted = "(not_assignable)" },
+    { source = "local t: {string} = { 1 }\nreturn t\n", wanted = "(not_assignable)" },
+    { source = "local function f(a: string): integer\n  return #a\nend\nreturn f(1)\n", wanted = "(not_assignable)" },
+    { source = "local s: string? = nil\nreturn #s\n", wanted = "(nil_not_allowed)" },
+    { source = "local record R\n  n: integer\nend\nlocal r: R = { n = 1, m = 2 }\nreturn r\n", wanted = "(literal_unknown)" },
   }
   for _, case in ipairs(programs) do
-    local source, wanted = assert(case[1]), assert(case[2])
+    local source, wanted = case.source, case.wanted
     local made, why = generated(source)
     assert(made == nil, "the compile accepts:\n" .. source)
     -- the renderer's layout: the file, the line, the column, the words, the code and the fix

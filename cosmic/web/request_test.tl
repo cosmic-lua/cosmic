@@ -263,6 +263,8 @@ end
 local function test_a_forwarded_client_is_an_address_or_the_peer()
   local app, seen = recording({ trusted_proxy = true })
   local client = Web.test_client(app)
+  -- TODO: give these positional rows a record, as the case lists of cosmic/hash_test.tl have, once #3348 (Shape) merges:
+  -- it moves cosmic/web, which this change leaves alone.
   local cases: {{string}} = {
     { "203.0.113.9", "203.0.113.9" }, { "2001:db8::1", "2001:db8::1" }, { "::1", "::1" },
     { "999.1.1.1", "127.0.0.1" }, { "1.2.3.4.5", "127.0.0.1" }, { "1.2.3", "127.0.0.1" },

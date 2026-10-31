@@ -40,7 +40,7 @@ local function attach(tmp: string)
     assert(db:exec(statement))
   end
   local function module(name: string, bytecode: string)
-    assert(Sqlite.run(db, "INSERT INTO modules VALUES (?1, ?2, 'module', X'00', X'0102', ?3, '', X'')",
+    assert(Sqlite.run(db, "INSERT INTO modules VALUES (?1, ?2, 'module', X'00', X'0102', deflate(?3), '', X'')",
       { text(name), text(name .. ".tl"), { blob = bytecode } }))
   end
   local function requires(name: string, other: string)
@@ -182,9 +182,32 @@ local function test_seal_takes_a_reserved_name_from_the_binary(tmp: string)
   local path = tmp .. "/binary.db"
   assert(Store.seal({ "cosmic.codec" }, path))
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db, "SELECT bytecode FROM modules"))
+  local rows = assert(Sqlite.text_rows(db, "SELECT inflate(bytecode) FROM modules"))
   assert(db:close())
   assert(rows[1]:text(1) == assert(Store.bytecode("cosmic.codec")), "the binary's own bytecode")
+end
+
+--- A sealed module's bytecode is stored deflated: a module of the binary
+--- weighs less than the chunk the core loads, and the main a caller gives
+--- is stored as `inflate` returns it. A store that kept the chunk as
+--- written would carry some twice the bytes. That the core loads what is
+--- stored is cosmic/store_tool_test.tl's.
+local function test_seal_stores_bytecode_deflated(tmp: string)
+  attach(tmp)
+  local extra: Store.Extra = { name = "main", source = "return ...\n", requires = {},
+    bytecode = string.dump(function(...: any): any return ... end, true) }
+  local path = tmp .. "/deflated.db"
+  assert(Store.seal({ "cosmic.codec" }, path, { extra = extra }))
+  local db = assert(Sqlite.open(path))
+  local rows = assert(Sqlite.rows(db,
+    "SELECT path, bytecode, inflate(bytecode) FROM modules ORDER BY path"))
+  assert(db:close())
+  assert(#rows == 2)
+  local codec, main = assert(rows[1]), assert(rows[2])
+  assert(codec:text(1) == "cosmic.codec" and main:text(1) == "main")
+  assert(#codec:blob(2) < #codec:blob(3), "a module of the binary is stored as it was loaded")
+  assert(codec:blob(3):sub(1, 4) == "\27Lua", "what it inflates to is a chunk")
+  assert(main:blob(3) == extra.bytecode, "the chunk comes back as it went in")
 end
 
 --- The tz database goes only with cosmic.time, the CA roots only with
@@ -260,7 +283,7 @@ local function test_seal_carries_an_extra_module_as_the_main(tmp: string)
   assert(count_of(path, "imports") == 1, "its edge to a name left out is no row")
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db,
-    "SELECT kind, bytecode = ?1, source FROM modules WHERE path = 'main' " ..
+    "SELECT kind, inflate(bytecode) = ?1, source FROM modules WHERE path = 'main' " ..
       "UNION ALL SELECT value, '', '' FROM meta WHERE key = 'main'", { { blob = extra.bytecode } }))
   assert(db:close())
   assert(rows[1]:text(1) == "main" and rows[1]:text(2) == "1" and rows[1]:text(3) == "return 1\n")
@@ -300,7 +323,7 @@ local function test_seal_digest_ignores_tests_and_drops_dangling_edges(tmp: stri
   assert(db:exec("CREATE TABLE imports (path TEXT NOT NULL, requires TEXT NOT NULL, " ..
       "PRIMARY KEY (path, requires)) WITHOUT ROWID"))
   assert(Sqlite.run(db, "INSERT INTO modules VALUES ('fixture.leaf', 'fixture.leaf.tl', " ..
-      "'module', X'00', X'0102', CAST('nothing' AS BLOB), 'fixture/leaf_test.tl', X'')"))
+      "'module', X'00', X'0102', deflate(CAST('nothing' AS BLOB)), 'fixture/leaf_test.tl', X'')"))
   assert(db:close())
   assert(Store.attach(path))
   local after = assert(Store.seal(set, tmp .. "/after.db"))
