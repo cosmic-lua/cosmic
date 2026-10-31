@@ -1,4 +1,5 @@
---- SQLite, typed.
+--- SQLite, typed: cosmic's embedded SQL database, a `db` in one file or in
+--- memory, with no server and nothing to install.
 ---
 --- Values keep their type: text and bytes are different, and a parameter
 --- is bound by naming what it is. On top of a handle this module gives
@@ -141,7 +142,13 @@ local record Sqlite
     immutable?: boolean
   end
 
-  --- One result row, read a column at a time. A column is its position
+  --- One result row. Every accessor is positional, so a `SELECT` whose
+  --- columns are reordered still type-checks and reads the wrong column:
+  --- [`Sqlite.map`] keeps the column order beside the reads, in one
+  --- function, and is the way to read rows rather than numbering columns
+  --- at each call.
+  ---
+  --- A row is read a column at a time. A column is its position
   --- from 1; the accessor names the type the caller expects, and a
   --- column of any other type raises, as does a position the row has no
   --- column at, so a query that does not answer what the reader assumed
@@ -957,6 +964,10 @@ end
 --- `work` raises, the transaction rolls back and the same error is
 --- raised again. A transaction already open on `handle` makes `BEGIN`
 --- fail, so calls do not nest.
+---
+--- `DETACH` of an attached database fails with "database X is locked"
+--- while a transaction that read that database is open. `ATTACH` it,
+--- `transact`, and `DETACH` once the transaction has committed.
 ---
 --- The statements of one transaction are written through the same
 --- handle:
