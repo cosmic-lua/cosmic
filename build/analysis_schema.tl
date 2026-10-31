@@ -80,9 +80,31 @@ function analysis_schema.binding_tag(): string
   return binding_tag
 end
 
---- Whether `text` holds `tag` as a line of its own, a file saved with CR LF line ends as well as one with LF.
+--- The doc block that opens `text`: its first lines up to the first one that does not begin with `--`, a blank line
+--- among them, each ended by a line feed, whatever line ends the file has. A tag outside it (in a string, a function's
+--- doc, the code) says nothing. [`tag_in_block`] is the same cut in SQL.
+local function leading_block(text: string): string
+  local out: mut {string} = {}
+  for line in (text:gsub("\r\n", "\n") .. "\n"):gmatch("([^\n]*)\n") do
+    if line:sub(1, 2) ~= "--" then break end
+    out[#out + 1] = line
+  end
+  return table.concat(out, "\n") .. "\n"
+end
+
+--- Whether the doc block that opens `text` holds `tag` as a line of its own, a file saved with CR LF line ends as well
+--- as one with LF.
 local function holds_line(text: string, tag: string): boolean
-  return ("\n" .. text:gsub("\r\n", "\n") .. "\n"):find("\n" .. tag .. "\n", 1, true) ~= nil
+  return ("\n" .. leading_block(text)):find("\n" .. tag .. "\n", 1, true) ~= nil
+end
+
+--- The SQL expression that is true where the doc block that opens the text `source` holds `tag` as a line of its own:
+--- the cut [`leading_block`] makes, found by a recursive walk over the lines, which `GLOB` and `instr` cannot do.
+local function tag_in_block(source: string, tag: string): string
+  local text = "(replace(" .. source .. ", char(13) || char(10), char(10)) || char(10))"
+  local walk = "(WITH RECURSIVE r(p) AS (SELECT 1 UNION ALL SELECT p + instr(substr(" .. text .. ", p), char(10)) " ..
+    "FROM r WHERE substr(" .. text .. ", p, 2) = '--') SELECT max(p) FROM r)"
+  return "instr(char(10) || substr(" .. text .. ", 1, " .. walk .. " - 1), char(10) || '" .. tag .. "' || char(10)) > 0"
 end
 
 --- Whether the text of a declaration file holds [`analysis_schema.binding_tag`] as a line of its own, a file saved with
@@ -117,8 +139,7 @@ end
 local function kind_case(column: string, source?: string): string
   local out: mut {string} = { "CASE" }
   if source ~= nil then
-    out[#out + 1] = " WHEN " .. column .. " GLOB '*.d.tl' AND instr(char(10) || replace(" .. source ..
-      ", char(13) || char(10), char(10)) || char(10), char(10) || '" .. binding_tag .. "' || char(10)) > 0 THEN 'binding'"
+    out[#out + 1] = " WHEN " .. column .. " GLOB '*.d.tl' AND " .. tag_in_block(source, binding_tag) .. " THEN 'binding'"
   end
   for _, rule in ipairs(kinds) do
     local glob, kind, except = assert(rule[1]), assert(rule[2]), assert(rule[3])

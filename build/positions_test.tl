@@ -101,6 +101,10 @@ local function test_position_opens_a_module_that_says_it_is_public()
       { "lib/init.tl" }, { "lib/part.tl" }, { "main.tl", "lib.part" },
     }, own, nil, { ["lib/part.tl"] = "-- see --- @public for what it means\nlocal x = 1\n" })
     assert(not ok, "the line inside another line opens nothing")
+    ok, trouble = positioned({
+      { "lib/init.tl" }, { "lib/part.tl" }, { "main.tl", "lib.part" },
+    }, own, nil, { ["lib/part.tl"] = "local x = [[\n--- @public\n]]\n" })
+    assert(not ok, "the line in a string, after the doc block, opens nothing")
   end
 end
 
@@ -268,6 +272,13 @@ local function test_position_holds_an_internal_directory_to_the_modules_around_i
   ok, trouble = positioned({ { "app/internal/init.tl" }, { "app/internal/deep/x.tl" }, { "app/main.tl", "app.internal",
     "app.internal.deep.x" } }, false)
   assert(ok, trouble)
+  -- The internal package itself is internal to its parent: `a/internal/init.tl` is the module a.internal, which a
+  -- module outside a/ may not require (on main the top-level directory `a/` was a namespace, and it could).
+  ok, trouble = positioned({ { "a/internal/init.tl" }, { "a/main.tl", "a.internal" } }, false)
+  assert(ok, trouble)
+  ok, trouble = positioned({ { "a/internal/init.tl" }, { "other/main.tl", "a.internal" } }, false)
+  assert(not ok and trouble:find("other/main.tl: a.internal is internal to a/ (it sits in a/internal/)", 1, true) ~= nil,
+    trouble)
   -- A directory that only holds the word is no internal one.
   ok, trouble = positioned({ { "app/internals/store.tl" }, { "other/main.tl", "app.internals.store" } }, true)
   assert(not ok and trouble:find("is private to app/internals/", 1, true) ~= nil, "a different name keeps the ordinary rule: " .. tostring(trouble))

@@ -1239,12 +1239,12 @@ whose every file is a flat module of its own. `build/` is private
 besides: in cosmic's own tree only `build/` itself, the binary under
 `cmd/`, a test, and test support under `test/` may import `build.*`,
 so the standard library never depends on the tool that builds it.
-two rules hold in every project. a module whose path has an
+two more rules hold in every project. a module whose path has an
 `internal` directory, `app/internal/store.tl`, may be required only
 by modules under `app/`, as in Go (a top-level `internal/` is the
 project's own); that rule stands in the closed-directory rule's
 place for the module. a module of a closed directory that holds the
-line `--- @public` in its doc block is open to every importer, which
+line `--- @public` in the doc block that opens it is open to every importer, which
 is how [`cosmic.http.server`] and five others are. in cosmic's own
 tree a test, and test support (a file of the top-level `test/`
 directory), may be required only by a test or test support, since

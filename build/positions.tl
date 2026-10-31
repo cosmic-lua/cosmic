@@ -90,12 +90,13 @@ end
 --- it may import a member of it. A directory's own `init.tl` is a member
 --- of the directory around it, so it is the one path into a closed
 --- directory from outside; a nested directory without one has no path
---- in at all. A module that holds the line `--- @public`
+--- in at all. A module whose opening doc block holds the line `--- @public`
 --- ([`build.analysis_schema`]'s `public_tag`) is open to every importer, wherever it sits.
 ---
 --- **An `internal` directory.** A module whose path has an `internal` directory component, `X/internal/...`, may be
 --- required only by modules under `X/` (the project's root for a top-level `internal/`), as Go has it. It stands in
---- the place of the closed-directory rule for that module.
+--- the place of the closed-directory rule for that module, `X/internal/init.tl` included: the internal package itself
+--- is internal to its parent.
 ---
 --- Three more hold in cosmic's own tree alone (`standing.own`). A test and test support (a file of the top-level
 --- `test/` directory) may be required only by a test or test support, since the tool carries neither

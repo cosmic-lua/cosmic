@@ -44,7 +44,12 @@ local function test_a_declaration_is_a_binding_only_given_the_line_on_a_line_of_
   local cases: {{string}} = {
     { "b/first.d.tl", "--- @kind binding\nlocal record R end\nreturn R\n", "binding" },
     { "b/middle.d.tl", "--- A table.\n--- @kind binding\nlocal record R end\n", "binding" },
-    { "b/last.d.tl", "local record R end\n--- @kind binding", "binding" },
+    -- Only the doc block that opens the file declares it: a line after code, in a string or in a function's doc does not.
+    { "b/last.d.tl", "local record R end\n--- @kind binding", "decl" },
+    { "b/after_blank.d.tl", "--- A table.\n\n--- @kind binding\nlocal record R end\n", "decl" },
+    { "b/string.d.tl", "local s = [[\n--- @kind binding\n]]\n", "decl" },
+    { "b/mixed.d.tl", "--- A table.\n-- a note\n--- @kind binding\nlocal record R end\n", "binding" },
+    { "b/no_newline.d.tl", "--- @kind binding", "binding" },
     { "b/inside.d.tl", "-- see --- @kind binding for what it means\nlocal record R end\n", "decl" },
     { "b/after.d.tl", "--- @kind binding \nlocal record R end\n", "decl" },
     { "b/other.d.tl", "--- @kind bindings\nlocal record R end\n", "decl" },
@@ -53,7 +58,8 @@ local function test_a_declaration_is_a_binding_only_given_the_line_on_a_line_of_
     { "b/test_test.tl", "--- @kind binding\n", "test" },
     -- A file saved with CR LF line ends declares it as one with LF does, in the view and in Teal.
     { "b/crlf.d.tl", "--- A table.\r\n--- @kind binding\r\nlocal record R end\r\n", "binding" },
-    { "b/crlf_last.d.tl", "local record R end\r\n--- @kind binding\r\n", "binding" },
+    { "b/crlf_last.d.tl", "--- A table.\r\n--- @kind binding\r\n", "binding" },
+    { "b/crlf_late.d.tl", "local record R end\r\n--- @kind binding\r\n", "decl" },
     { "b/crlf_after.d.tl", "--- @kind binding \r\nlocal record R end\r\n", "decl" },
     -- Only a declaration claims it, and a declaration that is a test's still does.
     { "b/helper_test.d.tl", "--- @kind binding\nlocal record R end\n", "binding" },
@@ -121,6 +127,11 @@ local function test_the_public_line_is_read_on_a_line_of_its_own()
   assert(analysis_schema.declares_public("--- A module.\n--- @public\nlocal x = 1\n"))
   assert(analysis_schema.declares_public("--- A module.\r\n--- @public\r\nlocal x = 1\r\n"))
   assert(analysis_schema.declares_public("--- @public"))
+  -- Only in the doc block that opens the file.
+  assert(not analysis_schema.declares_public("local x = 1\n--- @public\n"))
+  assert(not analysis_schema.declares_public("--- A module.\n\n--- @public\nlocal x = 1\n"))
+  assert(not analysis_schema.declares_public("local s = [[\n--- @public\n]]\n"))
+  assert(analysis_schema.declares_public("--- A module.\n-- a note\n--- @public\nlocal x = 1\n"))
   assert(not analysis_schema.declares_public("-- see --- @public for what it means\n"))
   assert(not analysis_schema.declares_public("--- @public \n"))
   assert(not analysis_schema.declares_public("--- @publicly\n"))
