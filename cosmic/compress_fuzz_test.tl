@@ -24,6 +24,10 @@ local function decode(input: string, step: integer, max_bytes: integer): string,
   repeat
     local piece = input:sub(pos, pos + step - 1)
     pos = pos + step
+    -- An empty update between pieces gives zstd nothing to do.
+    local empty, empty_trouble = dec:update("", max_bytes)
+    if empty == nil then return table.concat(parts), empty_trouble end
+    parts[#parts + 1] = empty
     while true do
       local out, trouble = dec:update(piece, max_bytes)
       if out == nil then return table.concat(parts), trouble end

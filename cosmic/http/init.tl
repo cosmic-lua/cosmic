@@ -124,8 +124,9 @@ local record Http
     --- each coding the response's `Content-Encoding` names, the last
     --- first. `deflate` is read as zlib (RFC 9110) or, as servers also
     --- send it, raw deflate; `identity` is no coding. A coding none of
-    --- these names, corrupt data, or bytes after the compressed data
-    --- fail the read, naming the coding. `headers` stay as the server
+    --- these names fails the open (nil and why, the response closed);
+    --- corrupt data, or bytes after the compressed data, fail the read,
+    --- naming the coding. `headers` stay as the server
     --- sent them, so a Content-Length counts the bytes before decoding;
     --- a download's `sha256` and `sha512` are of the bytes after it.
     --- False by default, so a body comes as the server sent it.
@@ -288,10 +289,11 @@ end
 
 local decoding_reader_mt: metatable<DecodingReader> = { __index = DecodingReader }
 
---- Whether `head`, two bytes or more, begins a zlib stream (RFC 1950):
+--- Whether `head` begins a zlib stream (RFC 1950):
 --- deflate's method, and a header that is a multiple of 31.
 local function zlib_header(head: string): boolean
   local cmf, flg = head:byte(1, 2)
+  if flg == nil then return false end -- a lone byte: raw refuses it at finish
   return cmf & 0x0f == 8 and (cmf * 256 + flg) % 31 == 0
 end
 
@@ -367,6 +369,12 @@ function DecodingReader:read(max_bytes?: integer): string | nil, string
 end
 
 function DecodingReader:close(): boolean, string
+  local codec = self.codec
+  if codec ~= nil then
+    -- Frees the decoder now, not at collection; `rest` stays.
+    do local _ <close> = codec end
+    self.codec = nil
+  end
   return self.source:close()
 end
 
@@ -392,6 +400,8 @@ function DecodedResponse:read(max_bytes?: integer): string | nil, string
 end
 
 function DecodedResponse:close(): boolean, string
+  -- Each reader frees its codec and closes the one beneath it, down to `inner`.
+  local _, _ = self.body:close()
   return self.inner:close()
 end
 
@@ -434,6 +444,7 @@ local function decoded(response: Http.Response): Http.Response | nil, string
   return out, ""
 end
 
+--- The level `error` raises a refusal of `opts` at from [`counted`]:
 --- past [`raw_options`], the local function that called it ([`opened`]
 --- or [`downloading`]) and the public entry point that called that
 --- itself, at the entry point's caller. No call on that path is a tail

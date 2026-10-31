@@ -152,10 +152,11 @@ end
 --- A streaming decoder for zstd (RFC 8878): frames one after another
 --- and skippable frames among them are handled, and each frame's
 --- checksum, when it has one, is verified. The decoder refuses, with
---- "zstd window larger than the limit", a frame whose header asks for
+--- "zstd window larger than the limit", a frame whose header declares
 --- a window over `max_window` bytes (default 128 MiB, which every level
---- the `zstd` command writes without `--long` or `--ultra` fits); a
---- window is a power of two, so the limit is rounded down to one.
+--- the `zstd` command writes without `--long` or `--ultra` fits): the
+--- limit is compared with the window the header declares, which is not
+--- always a power of two, however the input is split.
 --- Raises when `max_window` is under 1024.
 function Compress.zstd_decoder(max_window?: integer): Compress.Stream | nil, string
   return raw.zstd_decoder(max_window)

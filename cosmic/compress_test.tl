@@ -856,7 +856,7 @@ local function test_zstd_corrupt_checksum_is_refused()
   local bad = hello_zst:sub(1, -2) .. string.char((hello_zst:byte(-1) + 1) % 256)
   local out, trouble = drive(assert(Compress.zstd_decoder()), bad)
   assert(trouble == "compress: corrupt zstd data", trouble)
-  assert(out == "hello, cosmic!" or out == "", out)
+  assert(out == "", out)
   -- A flipped byte in the content is caught by the same checksum.
   local flipped = hello_zst:sub(1, 9) .. "j" .. hello_zst:sub(11)
   local _, flipped_trouble = drive(assert(Compress.zstd_decoder()), flipped)
@@ -879,12 +879,36 @@ local function test_zstd_window_limit_is_enforced()
   local out, trouble = assert(Compress.zstd_decoder()):update(wide)
   assert(out == nil and trouble == "compress: zstd window larger than the limit", trouble)
   assert(drain(assert(Compress.zstd_decoder(1 << 28)), wide, 100) == "hello, cosmic!")
-  -- A limit between powers of two rounds down: 2^28 - 1 allows 2^27.
+  -- The limit is compared as given, not rounded: 2^28 - 1 refuses 2^28.
   local _, rounded = assert(Compress.zstd_decoder((1 << 28) - 1)):update(wide)
   assert(rounded == "compress: zstd window larger than the limit", rounded)
   -- hello_zst asks for 2 MiB, which 1 MiB refuses.
   local _, small = assert(Compress.zstd_decoder(1 << 20)):update(hello_zst)
   assert(small == "compress: zstd window larger than the limit", small)
+end
+
+local function test_zstd_window_limit_holds_for_a_frame_decoded_in_one_pass()
+  -- A frame whose header declares a 256 MiB window and 300 bytes of "a":
+  -- zstd decodes it whole before it looks at the window, so the limit
+  -- is judged from the header, however the bytes arrive.
+  local frame = "\40\181\47\253\64\144\44\0\99\9\0\97"
+  local refused = "compress: zstd window larger than the limit"
+  local _, whole = assert(Compress.zstd_decoder()):update(frame)
+  assert(whole == refused, whole)
+  local _, bounded = assert(Compress.zstd_decoder()):update(frame, 100)
+  assert(bounded == refused, bounded)
+  local _, bytewise = drive(assert(Compress.zstd_decoder()), frame, 1)
+  assert(bytewise == refused, bytewise)
+  assert(drain(assert(Compress.zstd_decoder(1 << 28)), frame, 100) == string.rep("a", 300))
+end
+
+local function test_zstd_decoder_survives_many_empty_updates_mid_frame()
+  local dec = assert(Compress.zstd_decoder())
+  local parts = { assert(dec:update(hello_zst:sub(1, 10))) }
+  for _ = 1, 40 do parts[#parts + 1] = assert(dec:update("")) end
+  parts[#parts + 1] = assert(dec:update(hello_zst:sub(11)))
+  parts[#parts + 1] = assert(dec:finish())
+  assert(table.concat(parts) == "hello, cosmic!")
 end
 
 local function test_zstd_encoder_writes_what_the_zstd_command_writes()

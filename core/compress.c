@@ -162,6 +162,10 @@ struct stream {
   } u;
 
   ZSTD_DCtx *zd;
+  uint64_t zwindow;  /* zstd: the largest window, in bytes, a frame may declare */
+  int zhdr_ok;       /* zstd: the current frame's header has been checked */
+  int zdrain;        /* zstd: the last step stopped at the output limit, so
+                        zstd may hold output it can give with no input */
 
   /* Encoder state. */
   tdefl_compressor *tdefl;
@@ -589,8 +593,38 @@ static const char *zstd_why (size_t rc) {
 static int zstd_step (struct stream *s, const unsigned char *p, size_t n,
                       size_t *used, struct sink *out, const char **err) {
   size_t i = 0;
+  /* zstd counts a call that is given nothing and holds nothing as a
+   * failure to progress, and gives up after sixteen. */
+  if (n == 0 && !s->zdrain) {
+    *used = 0;
+    return STEP_INPUT;
+  }
+  /* zstd decodes a frame whole, before it looks at the window it
+   * declares, when the frame's header gives a content size that fits
+   * and every byte is in hand; so the window is judged here, from the
+   * header, whatever the input's split. A header cut short is left
+   * unconsumed to be offered again with more. */
+  if (!s->zhdr_ok) {
+    ZSTD_frameHeader h;
+    size_t need = ZSTD_getFrameHeader(&h, p, n);
+    if (ZSTD_isError(need)) {
+      *err = zstd_why(need);
+      return STEP_ERROR;
+    }
+    if (need > 0) {
+      *used = 0;
+      return STEP_INPUT;
+    }
+    if (h.frameType == ZSTD_frame && h.windowSize > s->zwindow) {
+      *err = "zstd window larger than the limit";
+      return STEP_ERROR;
+    }
+    s->zhdr_ok = 1;
+  }
+  s->zdrain = 0;
   for (;;) {
     if (out->budget == 0) {
+      s->zdrain = 1;
       *used = i;
       return STEP_FULL;
     }
@@ -674,7 +708,10 @@ static int start_member (struct stream *s, const char **err) {
     s->codec_open = 1;
     return 0;
   }
-  if (s->op == OP_ZSTD) return 0; /* the context starts each frame afresh */
+  if (s->op == OP_ZSTD) { /* the context starts each frame afresh */
+    s->zhdr_ok = 0;
+    return 0;
+  }
   /* One stream at a time, without LZMA_CONCATENATED: stream padding and
    * what follows the last stream are this file's to judge, the same
    * way gzip and bzip2 members are. Re-initializing a live decoder
@@ -877,11 +914,12 @@ static int bz2_decoder (lua_State *L) {
   return cosmic_succeeded(L);
 }
 
-/* The largest window log a `max_window`-byte window holds: zstd's
- * windows are powers of two, so one of 2^n bytes up to it is allowed. */
+/* The smallest window log whose window holds `max_window` bytes (or
+ * zstd's largest), so zstd's own limit, a backstop to the header check
+ * in [`zstd_step`], never refuses a window that check allows. */
 static int window_log (lua_Integer max_window) {
   int log = ZSTD_WINDOWLOG_MIN;
-  while (log < ZSTD_WINDOWLOG_MAX && ((lua_Integer)1 << (log + 1)) <= max_window) {
+  while (log < ZSTD_WINDOWLOG_MAX && ((lua_Integer)1 << log) < max_window) {
     log++;
   }
   return log;
@@ -893,16 +931,18 @@ static int zstd_decoder (lua_State *L) {
                 "the window limit must be at least 1024");
   struct stream *s = new_stream(L, OP_ZSTD);
   s->ph = PH_BETWEEN;
+  s->zwindow = (uint64_t)max_window;
   s->zd = ZSTD_createDCtx_advanced(zstd_memory);
-  if (s->zd == NULL ||
-      ZSTD_isError(ZSTD_DCtx_setParameter(s->zd, ZSTD_d_windowLogMax,
-                                          window_log(max_window)))) {
+  if (s->zd == NULL) {
     s->finished = 1;
     release(s);
     lua_pushnil(L);
     lua_pushstring(L, "compress: out of memory");
     return 2;
   }
+  /* Cannot fail: window_log stays within the parameter's bounds. */
+  (void)ZSTD_DCtx_setParameter(s->zd, ZSTD_d_windowLogMax,
+                               window_log(max_window));
   return cosmic_succeeded(L);
 }
 

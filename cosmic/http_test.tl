@@ -1239,6 +1239,17 @@ local function test_decompress_fails_a_corrupt_truncated_or_trailed_body()
   end
 end
 
+local function test_decompress_fails_a_one_byte_deflate_body_without_raising()
+  for _, body in ipairs({ "x", "\8" } as {string}) do
+    local response = assert(Http.open(url, { decompress = true,
+      script = { reply("200 OK", "Content-Encoding: deflate\r\n", body) } }))
+    local chunk, why = response:read()
+    while chunk ~= nil do chunk, why = response:read() end
+    assert(why:find("^http: cannot decode the deflate body: ") ~= nil, why)
+    response:close()
+  end
+end
+
 local function test_decompress_reads_an_empty_body_as_empty()
   local response, body = fetch({
     "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: 1000\r\nConnection: close\r\n\r\n",
