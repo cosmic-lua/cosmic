@@ -499,6 +499,14 @@ local function test_compress_leaves_nothing_whenever_an_allocation_fails()
     assert(#out > 0)
   end)
   assert_c_heap(bytes, blocks, "zstd encoding under refusal")
+  -- Preset 0, whose dictionary is the smallest: every refusal is walked,
+  -- and each walk allocates what the preset asks for.
+  ended = ended + under_every_failure(function()
+    local encoder = assert(Compress.xz_encoder(0))
+    local out = assert(encoder:update(string.rep(hello, 64))) .. assert(encoder:finish())
+    assert(#out > 0)
+  end)
+  assert_c_heap(bytes, blocks, "xz encoding under refusal")
   assert(ended > 0, "decoding allocates")
 end
 

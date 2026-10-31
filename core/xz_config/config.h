@@ -1,9 +1,10 @@
-/* Hand-written configuration for the vendored liblzma decoder subset,
- * in place of the autoconf/cmake-generated config.h upstream expects.
- * Turns on only what the decode path needs: the LZMA2 filter (and
- * LZMA1, which the range coder it reuses is built from), the delta and
- * x86/arm64 BCJ filters, and the CRC-32, CRC-64 and SHA-256 integrity
- * checks. The build's three targets (musl Linux x86_64/aarch64,
+/* Hand-written configuration for the vendored liblzma subset, in place
+ * of the autoconf/cmake-generated config.h upstream expects. Turns on
+ * only what the decode path needs: the LZMA2 filter (and LZMA1, which
+ * the range coder it reuses is built from), the delta and x86/arm64 BCJ
+ * filters, and the CRC-32, CRC-64 and SHA-256 integrity checks; and,
+ * for the encoder, the .xz container with LZMA2 alone and the three
+ * match finders the presets 0 to 9 name (hc3, hc4, bt4). The build's three targets (musl Linux x86_64/aarch64,
  * macOS aarch64) are all little-endian with 8-byte size_t and a
  * standards-conforming <stdint.h>/<stdbool.h>; only the hardware CRC
  * choice below branches, and on the target, never the host. */
@@ -25,6 +26,12 @@
 #define HAVE_DECODER_DELTA 1
 #define HAVE_DECODER_X86 1
 #define HAVE_DECODER_ARM64 1
+
+#define HAVE_ENCODERS 1
+#define HAVE_ENCODER_LZMA2 1
+#define HAVE_MF_HC3 1
+#define HAVE_MF_HC4 1
+#define HAVE_MF_BT4 1
 
 #define HAVE_CHECK_CRC32 1
 #define HAVE_CHECK_CRC64 1
