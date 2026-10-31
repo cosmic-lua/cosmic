@@ -81,10 +81,10 @@ local function test_a_request_without_pace_does_not_wait_on_a_pacer()
 end
 
 --- The retry's wait (300 ms from the first request's start) is longer than
---- the interval (100 ms), so the pacer adds nothing to it; with the sum the
---- retry would take 400 ms.
+--- the interval (200 ms), so the pacer adds nothing to it; with the sum the
+--- retry would take 500 ms.
 local function test_a_retry_waits_the_longer_of_its_wait_and_the_interval()
-  local pacer = Http.pacer(Clock.ms(100))
+  local pacer = Http.pacer(Clock.ms(200))
   local began = Clock.monotonic_ns()
   local got = assert(Http.get(url, {
     pace = pacer, retry = { attempts = 2, backoff_ns = Clock.ms(300) },
@@ -93,7 +93,7 @@ local function test_a_retry_waits_the_longer_of_its_wait_and_the_interval()
   local took = Clock.monotonic_ns() - began
   assert(got.status == 200 and got.headers["x-n"] == "2", tostring(got.status))
   assert(took >= Clock.ms(280), "the retry did not wait out its backoff: " .. tostring(took))
-  assert(took < Clock.ms(390), "the pacer's wait was added to the retry's: " .. tostring(took))
+  assert(took < Clock.ms(450), "the pacer's wait was added to the retry's: " .. tostring(took))
 end
 
 --- The other way round: the interval (200 ms) outlasts the retry's wait
@@ -140,17 +140,35 @@ local function test_cancelled_during_a_pacer_wait_stops_waiting()
 end
 
 --- A request cut short while it waited did not start, so it leaves the
---- pacer's last start where it was.
+--- pacer's last start where it was. Cut short 200 ms in, a stamp would put
+--- the next request at 600 ms; left alone, it is due at 400.
 local function test_an_interrupted_wait_does_not_mark_a_start()
   local pacer = Http.pacer(Clock.ms(400))
-  assert(Http.get(url, { pace = pacer, script = ok_script() }))
   local began = Clock.monotonic_ns()
+  assert(Http.get(url, { pace = pacer, script = ok_script() }))
   local _, why = Http.get(url, {
-    pace = pacer, script = ok_script(), cancelled = function(): boolean return true end,
+    pace = pacer, script = ok_script(),
+    cancelled = function(): boolean return Clock.monotonic_ns() - began > Clock.ms(200) end,
   })
   assert(why == "interrupted", tostring(why))
   assert(Http.get(url, { pace = pacer, script = ok_script() }))
-  assert(Clock.monotonic_ns() - began < Clock.ms(1500), "the interrupted wait marked a start")
+  local took = Clock.monotonic_ns() - began
+  assert(took >= Clock.ms(380), "the third request did not wait: " .. tostring(took))
+  assert(took < Clock.ms(520), "the interrupted wait marked a start: " .. tostring(took))
+end
+
+--- A request that fails to connect still counts as a start: the attempt
+--- loaded the API, so the next request waits the interval after it.
+local function test_a_refused_connection_counts_as_a_start()
+  local pacer = Http.pacer(Clock.ms(300))
+  local began = Clock.monotonic_ns()
+  -- Nothing binds port 1, so the connection is refused.
+  local response, why = Http.get("http://127.0.0.1:1/", { pace = pacer })
+  assert(response == nil and why ~= "", tostring(why))
+  assert(Http.get(url, { pace = pacer, script = ok_script() }))
+  local took = Clock.monotonic_ns() - began
+  assert(took >= Clock.ms(300), "the request after a refusal did not wait: " .. tostring(took))
+  assert(took < Clock.seconds(5), tostring(took))
 end
 
 local function test_an_interval_of_zero_never_waits()
@@ -168,8 +186,6 @@ local function test_pacer_refuses_a_negative_interval()
   assert(err:find("http_pace_test:", 1, true) ~= nil, err)
 end
 
---- A table that is no pacer raises naming the option, from each entry
---- point, with a first reply of 200 that would never ask for a wait.
 -- TODO: test a `pace` of a wrong Lua type (a string, a number) and a
 -- fractional [`Http.pacer`] interval once a test may hold a mistyped value
 -- without a cast, which build/ceilings.txt forbids adding: only a
@@ -178,6 +194,8 @@ local class Fake is Http.Pacer
   interval_ns: integer
 end
 
+--- A table that is no pacer raises naming the option, from each entry
+--- point, with a first reply of 200 that would never ask for a wait.
 local function test_a_pace_that_is_no_pacer_raises_naming_the_option(tmp: string)
   local fake: Fake = { interval_ns = 0 }
   local function opts(): Http.Options
