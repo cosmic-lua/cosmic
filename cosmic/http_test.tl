@@ -537,6 +537,18 @@ local function test_a_request_without_a_user_agent_sends_cosmic()
 end
 
 -- curl lets a custom header replace its own, whatever the name's case.
+local function test_the_default_user_agent_goes_with_decompress_headers()
+  local _, _, sent = fetch({ reply("200 OK", "") }, { decompress = true })
+  assert(sent:find("\r\nUser-Agent: cosmic\r\n", 1, true) ~= nil, sent)
+  assert(sent:find("\r\nAccept-Encoding: zstd, gzip, deflate\r\n", 1, true) ~= nil, sent)
+  local _, _, own = fetch({ reply("200 OK", "") },
+    { decompress = true, headers = { ["user-agent"] = "mine/1" } })
+  sent = own
+  assert(count(sent:lower(), "\r\nuser-agent:") == 1, sent)
+  assert(sent:find("\r\nuser-agent: mine/1\r\n", 1, true) ~= nil, sent)
+  assert(sent:find("\r\nAccept-Encoding: zstd, gzip, deflate\r\n", 1, true) ~= nil, sent)
+end
+
 local function test_a_callers_user_agent_replaces_the_default()
   for _, name in ipairs({ "User-Agent", "user-agent" }) do
     local _, _, sent = fetch({ reply("200 OK", "") },
