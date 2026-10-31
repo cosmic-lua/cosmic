@@ -194,6 +194,7 @@ end
 local runner_checkout <const> = "/home/runner/work/cosmic/cosmic"
 
 local function product_of(tmp: string): string
+  assert(Fs.mkdirs(tmp))
   return Fixture.synthetic(tmp .. "/product.db", runner_checkout)
 end
 
