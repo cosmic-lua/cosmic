@@ -52,6 +52,26 @@ local function test_a_require_by_a_name_the_build_cannot_read_is_refused()
   refused("local ok = pcall(require)\nreturn ok\n", 1, "one literal module name")
 end
 
+-- The raw tables are plain modules, and this check is all that keeps a project from requiring one: a `require` that is
+-- not a literal call is a way to name a module the check cannot read, whatever carries it.
+local function test_require_is_not_reached_by_a_value_a_table_or_a_loaded_chunk()
+  -- read as a value or by a computed name, it does not parse: the build follows a require only where it is called on a literal
+  for _, source in ipairs({
+      "local r = require\nreturn r(\"cosmic.internal.process\")\n",
+      "local t = { r = require }\nreturn t.r(\"cosmic.internal.process\")\n",
+      "local r = select(1, require)\nreturn r(\"cosmic.internal.process\")\n",
+      "local env = { require = require }\nreturn load(\"return require('cosmic.internal.process')\", \"=x\", \"t\", env)\n",
+  }) do
+    local chunk, why = Node.parse(source, "p.tl")
+    assert(chunk == nil and why:find("read as a value", 1, true) ~= nil, source .. "\n" .. tostring(why))
+  end
+  local computed, why = Node.parse("local ok, p = pcall(require, \"cosmic.\" .. \"internal.process\")\nreturn ok, p\n", "p.tl")
+  assert(computed == nil and why:find("names its module by an expression", 1, true) ~= nil, tostring(why))
+  refused("return _G[\"require\"]\n", 1, "`_G`")
+  -- the chunk `load` builds with no environment has no `require` to call (core/load_env_test.tl holds that)
+  accepted("local f = load(\"return require('cosmic.internal.process')\")\nreturn f\n")
+end
+
 local function test_debug_is_refused_whatever_the_way_it_is_read()
   refused("local r = debug.getregistry()\nreturn r\n", 1, "`debug`")
   refused("local d = debug\nreturn d\n", 1, "`debug`")

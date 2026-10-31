@@ -21,17 +21,11 @@
 local Codec = require("cosmic.codec")
 
 -- The raw module behind every function here lives under the reserved
--- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
--- indirection exists.
+-- `cosmic.internal.` namespace -- see cosmic/store.tl for why it is off
+-- the public surface.
 local type raw_hash = require("cosmic.internal.hash")
 
-local extra: any = select(2, ...)
-local raw: raw_hash
-if type(extra) == "table" then
-  raw = extra as raw_hash
-else
-  raw = require("cosmic.internal.hash")
-end
+local raw = require("cosmic.internal.hash")
 
 local record Hash
   --- The digest algorithms, by exactly these lower-case names: `md5`,

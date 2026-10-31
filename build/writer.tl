@@ -256,9 +256,8 @@ local unstubbed_modules =
 
 --- The catalog entries ([`build.syntax_analyzer`]'s `CatalogEntry`) found while parsing
 --- each planned module: every literal `return nil, ...` under a
---- top-level function. The guidance a match prints is that function's
---- own documentation, joined from `docs` at lookup, so `text` is left
---- NULL here. `id` is left for SQLite to assign, in this SELECT's own
+--- top-level function. The guidance a match prints, where `text` is
+--- left NULL here, is a line naming that function ([`Errors.guidance`]). `id` is left for SQLite to assign, in this SELECT's own
 --- deterministic order -- the hand-authored rows below claim the low
 --- ids first, so this always continues after them the same way on
 --- every build.
@@ -1132,17 +1131,13 @@ local carry: {string} = {
   -- compile's hints read the tool's rows only for the public standard
   -- library ([`symbols.public_only`]). Inside it they read the tree's own
   -- projection first, and find nothing for `build.*` until a build has
-  -- written one. So a doc row about any other module is carried only for
-  -- the catalog, whose guidance is the doc comment of the function an
-  -- error came from (core/main.c, [`build.embed`]).
+  -- written one. So a doc row about any other module is carried only as an
+  -- internal type a public alias names.
   --
   -- A user guide ([`symbols.guide_module`]) is a generated test module, so
   -- `dropped` names it, but its own row -- the guide's prose -- is what
   -- `cosmic docs quickstart` answers with.
   --
-  -- The catalog's rows are looked up as a set (`IN`), not by a correlated
-  -- `EXISTS`, which SQLite answers here by scanning the catalog for each of
-  -- the thirty thousand doc rows: most of a second of every tool rebuild.
   dropped_modules .. carried_alias_signatures ..
     "INSERT INTO main.docs (module, symbol, source_symbol, exported, " ..
     "kind, signature, text, file, line) SELECT module, symbol, " ..
@@ -1150,7 +1145,7 @@ local carry: {string} = {
     "FROM whole.docs d WHERE (d.symbol = '' AND " ..
     symbols.guide_module("d.module") .. ") OR (module NOT IN dropped AND (" ..
     symbols.public_only("d.module", true) ..
-    " OR (d.module, d.source_symbol) IN (SELECT module, symbol FROM whole.catalog) OR " ..
+    " OR " ..
     carried_internal_types .. ")) ORDER BY id",
   dropped_modules .. "INSERT INTO main.uses SELECT * FROM whole.uses u " ..
     "WHERE module NOT IN dropped AND from_module NOT IN dropped AND " ..

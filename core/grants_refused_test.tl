@@ -5,7 +5,6 @@
 --- with no Landlock answers the query with a reason and an errno, on every
 --- platform, so none of it needs a sandbox.
 
-local RawTables = require("build.raw_tables")
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
 local stand_in = require("build.stand_in")
@@ -17,7 +16,7 @@ local type _ = require("cosmic.child")
 --- test's own directory and never started.
 Test.policy{}
 
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 local function test_a_degenerate_grant_raises(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))

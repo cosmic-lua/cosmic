@@ -2,7 +2,6 @@
 --- would otherwise write a shell script, each of its verbs, and what it
 --- reads its script and words from.
 
-local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -229,7 +228,7 @@ local function test_the_process_verbs(tmp: string)
   -- `sockets-open` counts the sockets it holds from descriptor 3, as it has them.
   local none = run({ probe, "sockets-open" })
   assert(none.ok and none.stdout == "sockets 0\n", tostring(none.stdout))
-  local raw = RawTables.socket()
+  local raw = require("cosmic.internal.socket")
   local held = assert(raw.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 8))
   local counted = assert(Child.run({ probe, "sockets-open" },
     { env = {}, fds = { [3] = held:fd() }, stdout = "capture", stderr = "capture",

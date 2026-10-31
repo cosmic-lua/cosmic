@@ -6,6 +6,7 @@
 
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
+local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
@@ -754,17 +755,8 @@ end
 --- The raw handle's close answers nothing: it cannot fail, so a `true`
 --- would tell its caller nothing.
 local function test_the_raw_handle_close_returns_no_values()
-  -- The raw module is handed only to cosmic.http's own loader, as the
-  -- store's searcher's second answer; asking the searcher by hand gets it.
-  local raw: {string: function(string, {string: any}): any, string}? = nil
-  for _, searcher in ipairs(package.searchers as {function(string): any, any}) do
-    local loader, extra = searcher("cosmic.http")
-    if type(loader) == "function" and type(extra) == "table" and
-        (extra as {string: any}).open ~= nil then
-      raw = extra as {string: function(string, {string: any}): any, string}
-    end
-  end
-  assert(raw ~= nil, "no searcher handed over the raw module")
+  local raw = require("cosmic.internal.http") as {string: function(string, {string: any}): any, string} -- cast: the table
+  -- cosmic/internal/http.d.tl declares, called with a script that its `Options` have no field for
   local handle = assert(raw.open(url, { script = { reply("200 OK", "", "body") } }))
     as {string: function(any): any...}
   assert(select("#", handle.close(handle)) == 0, "close returns no values")
@@ -1149,6 +1141,164 @@ local function test_get_refuses_another_method_and_a_body()
   end
   local got, trouble = Http.get(url, { method = "GET", script = script })
   assert(got ~= nil and got.status == 200, trouble)
+end
+
+--- `plain` compressed as `coding` names it, through cosmic.compress.
+local function encoded(coding: string, plain: string): string
+  local codec: Compress.Stream
+  if coding == "zstd" then
+    codec = assert(Compress.zstd_encoder())
+  elseif coding == "zlib" then
+    codec = assert(Compress.deflater("zlib"))
+  elseif coding == "raw" then
+    codec = assert(Compress.deflater("raw"))
+  elseif coding == "gzip" then
+    codec = assert(Compress.deflater("gzip"))
+  else
+    error("no encoder for " .. coding)
+  end
+  return assert(codec:update(plain)) .. assert(codec:finish())
+end
+
+local function test_decompress_asks_for_and_decodes_each_coding()
+  local plain = string.rep("a compressed body, ", 200)
+  local record Coding
+    header: string
+    coding: string
+  end
+  local cases: {Coding} = {
+    { header = "zstd", coding = "zstd" }, { header = "gzip", coding = "gzip" },
+    { header = "x-gzip", coding = "gzip" }, { header = "GZip", coding = "gzip" },
+    -- deflate is zlib by RFC 9110, and raw deflate as servers also send it.
+    { header = "deflate", coding = "zlib" }, { header = "deflate", coding = "raw" },
+  }
+  for _, case in ipairs(cases) do
+    local body = encoded(case.coding, plain)
+    local response, got, sent = fetch({ reply("200 OK", "Content-Encoding: " .. case.header .. "\r\n", body) },
+      { decompress = true })
+    assert(got == plain, case.header .. "/" .. case.coding .. ": " .. tostring(#got))
+    assert(sent:find("\r\nAccept-Encoding: zstd, gzip, deflate\r\n", 1, true) ~= nil, sent)
+    -- The headers stay as the server sent them.
+    assert(response.headers["content-encoding"] == case.header)
+    assert(response.headers["content-length"] == tostring(#body))
+    assert(response.status == 200 and response.url == url)
+  end
+end
+
+local function test_decompress_decodes_stacked_codings_last_first()
+  local plain = "twice compressed"
+  local body = encoded("zstd", encoded("gzip", plain))
+  local _, got = fetch({ reply("200 OK", "Content-Encoding: gzip, identity,zstd\r\n", body) },
+    { decompress = true })
+  assert(got == plain, got)
+end
+
+local function test_without_decompress_the_body_comes_as_sent()
+  local body = encoded("gzip", "plain")
+  local _, got, sent = fetch({ reply("200 OK", "Content-Encoding: gzip\r\n", body) })
+  assert(got == body)
+  assert(sent:lower():find("accept-encoding", 1, true) == nil, sent)
+  _, got = fetch({ reply("200 OK", "Content-Encoding: identity\r\n", "plain") }, { decompress = true })
+  assert(got == "plain", got)
+end
+
+local function test_decompress_keeps_an_accept_encoding_the_caller_names()
+  local headers: {string:string} = { ["accept-encoding"] = "gzip", ["X-Other"] = "1" }
+  local _, got, sent = fetch({ reply("200 OK", "Content-Encoding: gzip\r\n", encoded("gzip", "mine")) },
+    { decompress = true, headers = headers })
+  assert(got == "mine", got)
+  assert(count(sent:lower(), "accept-encoding:") == 1, sent)
+  assert(sent:find("\r\naccept-encoding: gzip\r\n", 1, true) ~= nil, sent)
+  -- The caller's table is not written to.
+  assert(headers["Accept-Encoding"] == nil and headers["accept-encoding"] == "gzip")
+end
+
+local function test_decompress_refuses_a_coding_it_cannot_read()
+  local response, trouble = Http.open(url, { decompress = true,
+    script = { reply("200 OK", "Content-Encoding: gzip, br\r\n", "whatever") } })
+  assert(response == nil and trouble == 'http: cannot decode a body of Content-Encoding "br"', trouble)
+end
+
+local function test_decompress_fails_a_corrupt_truncated_or_trailed_body()
+  local packed = encoded("zstd", string.rep("z", 1000))
+  local record Corrupt
+    body: string
+    trouble: string
+  end
+  local cases: {Corrupt} = {
+    { body = "garbage!", trouble = "http: cannot decode the zstd body: compress: not a zstd stream" },
+    { body = packed:sub(1, -3), trouble = "http: cannot decode the zstd body: compress: truncated zstd stream" },
+    { body = packed .. "more", trouble = "http: cannot decode the zstd body: bytes follow the compressed data" },
+    { body = "z", trouble = "http: cannot decode the zstd body: compress: not a zstd stream" },
+    -- The first byte of the magic alone, shorter than any frame.
+    { body = "\40", trouble = "http: cannot decode the zstd body: compress: truncated zstd stream" },
+  }
+  for _, case in ipairs(cases) do
+    local response = assert(Http.open(url, { decompress = true,
+      script = { reply("200 OK", "Content-Encoding: zstd\r\n", case.body) } }))
+    local trouble: string
+    while true do
+      local chunk, why = response:read()
+      if chunk == nil then
+        trouble = why
+        break
+      end
+    end
+    assert(trouble == case.trouble, trouble)
+    -- And again: a failed body stays failed.
+    local again, why = response:read()
+    assert(again == nil and why == case.trouble, why)
+    response:close()
+  end
+end
+
+local function test_decompress_fails_a_one_byte_deflate_body_without_raising()
+  local bodies: {string} = { "x", "\8" }
+  for _, body in ipairs(bodies) do
+    local response = assert(Http.open(url, { decompress = true,
+      script = { reply("200 OK", "Content-Encoding: deflate\r\n", body) } }))
+    local chunk, why = response:read()
+    while chunk ~= nil do chunk, why = response:read() end
+    assert(why:find("^http: cannot decode the deflate body: ") ~= nil, why)
+    response:close()
+  end
+end
+
+local function test_decompress_reads_an_empty_body_as_empty()
+  local response, body = fetch({
+    "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: 1000\r\nConnection: close\r\n\r\n",
+  }, { method = "HEAD", decompress = true })
+  assert(response.status == 200 and body == "", body)
+  local _, none = fetch({ reply("204 No Content", "Content-Encoding: zstd\r\n") }, { decompress = true })
+  assert(none == "", none)
+end
+
+local function test_decompress_gives_a_bomb_out_in_pieces_no_larger_than_asked()
+  local plain = string.rep("\0", 4 << 20)
+  local response = assert(Http.open(url, { decompress = true,
+    script = { reply("200 OK", "Content-Encoding: zstd\r\n", encoded("zstd", plain)) } }))
+  local total = 0
+  while true do
+    local chunk, trouble = response:read(4096)
+    if chunk == nil then
+      assert(trouble == "", trouble)
+      break
+    end
+    assert(#chunk <= 4096, tostring(#chunk))
+    total = total + #chunk
+  end
+  response:close()
+  assert(total == #plain, tostring(total))
+end
+
+local function test_request_and_download_decompress_too(tmp: string)
+  local plain = string.rep("downloaded and decoded ", 100)
+  local script = { reply("200 OK", "Content-Encoding: gzip\r\n", encoded("gzip", plain)) }
+  local got = assert(Http.get(url, { decompress = true, script = script }))
+  assert(got.body == plain)
+  local path = tmp .. "/decoded"
+  assert(Http.download(url, path, { decompress = true, sha256 = Hash.hex_sha256(plain), script = script }))
+  assert(Fs.read(path) == plain)
 end
 
 --- A `false` where a method is wanted is a method that is not GET, not an

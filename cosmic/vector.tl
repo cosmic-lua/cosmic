@@ -68,17 +68,11 @@
 local Sqlite = require("cosmic.sqlite")
 
 -- The raw module behind every function here lives under the reserved
--- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
--- indirection exists.
+-- `cosmic.internal.` namespace -- see cosmic/store.tl for why it is off
+-- the public surface.
 local type raw_vector = require("cosmic.internal.vector")
 
-local extra: any = select(2, ...)
-local raw: raw_vector
-if type(extra) == "table" then
-  raw = extra as raw_vector
-else
-  raw = require("cosmic.internal.vector")
-end
+local raw = require("cosmic.internal.vector")
 
 local record Vector
   --- The k nearest, best first: ids and scores side by side. A score is
