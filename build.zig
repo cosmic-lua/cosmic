@@ -598,6 +598,7 @@ pub fn build(b: *std.Build) void {
     const mbedtls = patched(b, trees, "mbedtls");
     const bzip2 = patched(b, trees, "bzip2");
     const xz = patched(b, trees, "xz");
+    const zstd = patched(b, trees, "zstd");
     const cares = patched(b, trees, "cares");
     const curl = patched(b, trees, "curl");
     const yyjson = patched(b, trees, "yyjson");
@@ -611,6 +612,7 @@ pub fn build(b: *std.Build) void {
         .{ "mbedtls", mbedtls }, .{ "bzip2", bzip2 },
         .{ "xz", xz },           .{ "cares", cares },
         .{ "curl", curl },       .{ "yyjson", yyjson },
+        .{ "zstd", zstd },
     }) |pair| {
         const install = b.addInstallDirectory(.{
             .source_dir = pair[1],
@@ -761,7 +763,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .debug,
         }),
     });
-    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .cares = cares, .curl = curl, .yyjson = yyjson, .config = vendor_config };
+    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .zstd = zstd, .cares = cares, .curl = curl, .yyjson = yyjson, .config = vendor_config };
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
@@ -1063,6 +1065,7 @@ fn analyze(
         run.addDirectoryArg2(sources.mbedtls.path(b, "include"), .{ .prefix = "-I" });
         run.addDirectoryArg2(sources.bzip2, .{ .prefix = "-I" });
         run.addDirectoryArg2(sources.xz.path(b, "src/liblzma/api"), .{ .prefix = "-I" });
+        run.addDirectoryArg2(sources.zstd.path(b, "lib"), .{ .prefix = "-I" });
         run.addDirectoryArg2(sources.cares.path(b, "include"), .{ .prefix = "-I" });
         run.addDirectoryArg2(sources.curl.path(b, "include"), .{ .prefix = "-I" });
         run.addDirectoryArg2(sources.yyjson.path(b, "src"), .{ .prefix = "-I" });
@@ -1086,6 +1089,7 @@ const Sources = struct {
     mbedtls: std.Build.LazyPath,
     bzip2: std.Build.LazyPath,
     xz: std.Build.LazyPath,
+    zstd: std.Build.LazyPath,
     cares: std.Build.LazyPath,
     curl: std.Build.LazyPath,
     yyjson: std.Build.LazyPath,
@@ -1158,6 +1162,7 @@ fn vendorLibrary(
     const mbedtls = sources.mbedtls;
     const bzip2 = sources.bzip2;
     const xz = sources.xz;
+    const zstd = sources.zstd;
     const cares = sources.cares;
     const curl = sources.curl;
     const yyjson = sources.yyjson;
@@ -1331,6 +1336,49 @@ fn vendorLibrary(
         },
     });
 
+    // zstd's encoder and decoder, single-threaded (ZSTD_MULTITHREAD is
+    // never defined, so zstdmt and its thread pool are not vendored) and
+    // in C alone: the x86_64 Huffman decoder in assembly is left out
+    // (ZSTD_DISABLE_ASM), and so is BMI2's runtime dispatch
+    // (DYNAMIC_BMI2=0), which would choose code by what the processor
+    // has, a feature no key holds (build/dispatched_features_test.tl).
+    // No legacy formats (before v0.8, 2016), no tracing hooks (weak
+    // symbols nothing defines), and xxhash's names under zstd's prefix,
+    // as zstd's own makefile builds it.
+    mod.addCSourceFiles(.{
+        .root = zstd.path(b, "lib"),
+        .files = &.{
+            "common/entropy_common.c",
+            "common/error_private.c",
+            "common/fse_decompress.c",
+            "common/xxhash.c",
+            "common/zstd_common.c",
+            "compress/fse_compress.c",
+            "compress/hist.c",
+            "compress/huf_compress.c",
+            "compress/zstd_compress.c",
+            "compress/zstd_compress_literals.c",
+            "compress/zstd_compress_sequences.c",
+            "compress/zstd_compress_superblock.c",
+            "compress/zstd_double_fast.c",
+            "compress/zstd_fast.c",
+            "compress/zstd_lazy.c",
+            "compress/zstd_ldm.c",
+            "compress/zstd_opt.c",
+            "compress/zstd_preSplit.c",
+            "decompress/huf_decompress.c",
+            "decompress/zstd_ddict.c",
+            "decompress/zstd_decompress.c",
+            "decompress/zstd_decompress_block.c",
+        },
+        .flags = &.{
+            "-std=c11",                 debug_dir,
+            "-DZSTD_DISABLE_ASM",       "-DDYNAMIC_BMI2=0",
+            "-DZSTD_LEGACY_SUPPORT=0",  "-DZSTD_TRACE=0",
+            "-DXXH_NAMESPACE=ZSTD_",
+        },
+    });
+
     // mbedtls: the PSA crypto subtree, then the TLS 1.2/1.3 client and
     // X.509 layer above it, all under the one configuration header (see
     // [`mbedtls_config`]). The crypto files below are the ones that hold
@@ -1483,6 +1531,7 @@ fn vendorIncludes(
     mod.addIncludePath(xz_src.path(b, "liblzma/rangecoder"));
     mod.addIncludePath(xz_src.path(b, "liblzma/delta"));
     mod.addIncludePath(xz_src.path(b, "liblzma/simple"));
+    mod.addIncludePath(sources.zstd.path(b, "lib"));
     const crypto = sources.mbedtls.path(b, "tf-psa-crypto");
     for (crypto_include_dirs) |dir| {
         mod.addIncludePath(crypto.path(b, dir));

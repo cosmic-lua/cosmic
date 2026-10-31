@@ -445,9 +445,10 @@ local function test_the_c_heap_counts_its_blocks_and_refusals()
   assert_c_heap(bytes, blocks, "a refused inflater")
 end
 
---- "hello, cosmic!", as `xz -c` and `bzip2 -c` write it.
+--- "hello, cosmic!", as `xz -c`, `bzip2 -c` and `zstd -c` write it.
 local hello = "hello, cosmic!"
 local hello_xz = "\253\55\122\88\90\0\0\4\230\214\180\70\2\0\33\1\28\0\0\0\16\207\88\204\1\0\13\104\101\108\108\111\44\32\99\111\115\109\105\99\33\0\0\0\195\231\225\101\211\83\88\122\0\1\38\14\8\27\224\4\31\182\243\125\1\0\0\0\0\4\89\90"
+local hello_zst = "\40\181\47\253\4\88\113\0\0\104\101\108\108\111\44\32\99\111\115\109\105\99\33\150\176\201\168"
 local hello_bz2 = "\66\90\104\57\49\65\89\38\83\89\153\84\167\133\0\0\3\17\128\96\4\10\102\136\0\32\0\34\0\30\160\128\105\166\135\131\39\44\211\152\60\93\201\20\225\66\66\101\82\158\20"
 
 --- Decodes `packed` with `stream` in two pieces and at most four bytes
@@ -492,6 +493,8 @@ local function test_compress_leaves_nothing_whenever_an_allocation_fails()
     { name = "xz", input = hello_xz .. "trailing",
       make = function(): Compress.Stream | nil, string return Compress.xz_decoder() end },
     { name = "bz2", input = hello_bz2 .. "trailing", make = Compress.bz2_decoder },
+    { name = "zstd", input = hello_zst .. "trailing",
+      make = function(): Compress.Stream | nil, string return Compress.zstd_decoder() end },
   }
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
@@ -510,6 +513,12 @@ local function test_compress_leaves_nothing_whenever_an_allocation_fails()
     assert(#out > 0)
   end)
   assert_c_heap(bytes, blocks, "deflating under refusal")
+  ended = ended + under_every_failure(function()
+    local encoder = assert(Compress.zstd_encoder())
+    local out = assert(encoder:update(string.rep(hello, 64))) .. assert(encoder:finish())
+    assert(#out > 0)
+  end)
+  assert_c_heap(bytes, blocks, "zstd encoding under refusal")
   assert(ended > 0, "decoding allocates")
 end
 

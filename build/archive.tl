@@ -1,7 +1,7 @@
 --- `cosmic archive`: list, unpack and pack the archives a file turns out
 --- to be, for the question ("what is in this release tarball?") that a
 --- script costs more than. It is [`cosmic.archive`] (which detects a zip
---- or a plain, gzip, xz or bzip2 tar from the file's first bytes, not
+--- or a plain, gzip, xz, bzip2 or zstd tar from the file's first bytes, not
 --- its name, and refuses a member that would land outside the target,
 --- and writes the format a file's name asks for) behind a command
 --- line.
@@ -48,7 +48,7 @@ local spec = Cli.verbs.archive.spec
 
 local usage = "cosmic archive list [--json] <file>|-; " ..
   "cosmic archive extract [-C <dir>] [--force] <file>|- [<member>...]; " ..
-  "cosmic archive create [--reproducible] <out.tar.gz|out.tgz|out.tar|out.zip> <path>..."
+  "cosmic archive create [--reproducible] <out.tar.gz|out.tgz|out.tar.zst|out.tzst|out.tar|out.zip> <path>..."
 
 --- What a run answers: an exit code and the complaint that goes with it
 --- (none for 0).

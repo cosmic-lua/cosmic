@@ -112,7 +112,7 @@ kernel                               Linux; macOS
     lua 5.5                          vendored pristine
     sqlite3                          vendored pristine
     mbedtls, miniz, bzip2, xz,       vendored pristine
-    c-ares, curl, yyjson
+    zstd, c-ares, curl, yyjson
     argon2, a regex engine           planned
     syscall table                    C, one function per syscall
   cosmic binary
@@ -837,7 +837,7 @@ for all of them -- and hands zig their manifest;
 a record whose anchor no longer matches fails the build by name.
 
 vendored: Lua 5.5, the SQLite amalgamation, mbedtls, miniz, bzip2,
-xz's liblzma decoder, c-ares, curl, yyjson, Mozilla's CA bundle, the
+xz's liblzma decoder, zstd, c-ares, curl, yyjson, Mozilla's CA bundle, the
 IANA time zone database's compiled `zoneinfo`, and tl;
 argon2's reference implementation built without threads and the regex
 engine are planned. a library that needs a configuration header gets a

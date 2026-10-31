@@ -334,7 +334,7 @@ local function test_xz_corrupt_magic_is_refused()
 end
 
 -- Everything below exercises the bounded-output contract and the
--- member and trailer rules the three multi-member decoders share.
+-- member and trailer rules the four multi-member decoders share.
 
 -- 8 MiB of NUL bytes as `xz -0 --check=crc32` writes it: 1352 bytes.
 local xz_bomb = assert(Codec.unhex(
@@ -374,12 +374,25 @@ local bz2_bomb = assert(Codec.unhex("425a6839314159265359a23d4b580040404080c0000
 local hello_gz = "\31\139\8\0\0\0\0\0\2\3\203\72\205\201\201\215\81\72\206\47\206\205\76\86\4\0\92\110\87\198\14\0\0\0"
 local hello_bz2 = "\66\90\104\57\49\65\89\38\83\89\153\84\167\133\0\0\3\17\128\96\4\10\102\136\0\32\0\34\0\30\160\128\105\166\135\131\39\44\211\152\60\93\201\20\225\66\66\101\82\158\20"
 local hello_xz = "\253\55\122\88\90\0\0\4\230\214\180\70\2\0\33\1\28\0\0\0\16\207\88\204\1\0\13\104\101\108\108\111\44\32\99\111\115\109\105\99\33\0\0\0\195\231\225\101\211\83\88\122\0\1\38\14\8\27\224\4\31\182\243\125\1\0\0\0\0\4\89\90"
+-- `printf 'hello, cosmic!' | zstd -c`: one frame, its content's checksum
+-- in the last four bytes.
+local hello_zst = "\40\181\47\253\4\88\113\0\0\104\101\108\108\111\44\32\99\111\115\109\105\99\33\150\176\201\168"
+
+-- The same 8 MiB of NULs as `zstd -19` writes it: 274 bytes.
+local zstd_bomb = assert(Codec.unhex(
+  "28b52ffd04684c000008000100fcff391002020010000200100002001000020010000200100002001000020010000200" ..
+    "100002001000020010000200100002001000020010000200100002001000020010000200100002001000020010000200" ..
+    "100002001000020010000200100002001000020010000200100002001000020010000200100002001000020010000200" ..
+    "100002001000020010000200100002001000020010000200100002001000020010000200100002001000020010000200" ..
+    "100002001000020010000200100002001000020010000200100002001000020010000200100002001000020010000200" ..
+    "1000020010000200100002001000020010000200100002001000030010000fdff661"))
 
 local type Maker = function(): Compress.Stream
 
 local function gzip_decoder(): Compress.Stream return (assert(Compress.inflater("gzip"))) end
 local function bz2_decoder(): Compress.Stream return (assert(Compress.bz2_decoder())) end
 local function xz_decoder(): Compress.Stream return (assert(Compress.xz_decoder())) end
+local function zstd_decoder(): Compress.Stream return (assert(Compress.zstd_decoder())) end
 
 -- Feeds `data` in one update and drains it the way the contract asks,
 -- asserting no call returns more than `max_bytes` bytes. Returns the whole
@@ -403,6 +416,7 @@ local function test_a_decompression_bomb_comes_out_in_bounded_pieces()
   local cases: {{string, Maker}} = {
     { xz_bomb, xz_decoder },
     { bz2_bomb, bz2_decoder },
+    { zstd_bomb, zstd_decoder },
   }
   local formats: {Compress.Format} = { "raw", "zlib", "gzip" }
   for _, format in ipairs(formats) do
@@ -435,6 +449,7 @@ local function test_a_tiny_output_limit_still_decodes_everything()
   end
   assert(drain(xz_decoder(), hello_xz, 3) == "hello, cosmic!")
   assert(drain(bz2_decoder(), hello_bz2, 3) == "hello, cosmic!")
+  assert(drain(zstd_decoder(), hello_zst, 3) == "hello, cosmic!")
 end
 
 local function test_finish_refuses_while_output_is_pending()
@@ -443,6 +458,7 @@ local function test_finish_refuses_while_output_is_pending()
   local cases: {{string, Maker}} = {
     { bz2_bomb, bz2_decoder },
     { xz_bomb, xz_decoder },
+    { zstd_bomb, zstd_decoder },
   }
   for _, case in ipairs(cases) do
     local dec = case[2]()
@@ -582,6 +598,7 @@ local function test_trailing_bytes_become_rest_however_the_input_is_split()
     { gzip_decoder, hello_gz, { "TRAILER", "\31\0tar padding", "\31" } },
     { bz2_decoder, hello_bz2, { "TRAILER", "BZh0", "BZ" } },
     { xz_decoder, hello_xz, { "TRAILER", "\253\55\122\88\90\1", "\253\55" } },
+    { zstd_decoder, hello_zst, { "TRAILER", "\40\181\47\0", "\40\181\47", "\80\42\77" } },
   }
   for _, case in ipairs(cases) do
     local make, member = case[1], case[2]
@@ -598,6 +615,7 @@ local function test_trailing_bytes_in_the_same_chunk_mark_done_at_once()
     { gzip_decoder, hello_gz },
     { bz2_decoder, hello_bz2 },
     { xz_decoder, hello_xz },
+    { zstd_decoder, hello_zst },
   }
   for _, case in ipairs(cases) do
     local dec = case[1]()
@@ -647,6 +665,7 @@ local function test_the_first_member_must_carry_the_magic()
     { gzip_decoder, "compress: not a gzip stream" },
     { bz2_decoder, "compress: not a bzip2 stream" },
     { xz_decoder, "compress: not an xz stream" },
+    { zstd_decoder, "compress: not a zstd stream" },
   }
   for _, case in ipairs(cases) do
     local out, trouble = case[1]():update("TRAILER")
@@ -665,6 +684,12 @@ local function test_argument_shape_errors_raise()
   assert(not pcall(Compress.deflater, "raw", 11))
   assert(not pcall(Compress.deflater, "raw", -1))
   assert(not pcall(Compress.xz_decoder, 0))
+  assert(not pcall(Compress.zstd_decoder, 1023))
+  assert(not pcall(Compress.zstd_encoder, 0))
+  assert(not pcall(Compress.zstd_encoder, 20))
+  assert((Compress.zstd_decoder(1024)))
+  assert((Compress.zstd_encoder(1)))
+  assert((Compress.zstd_encoder(19)))
   assert(not pcall(Compress.crc32, "x", -1))
   assert(not pcall(Compress.crc32, "x", 1 << 32))
   local dec = assert(Compress.inflater("raw"))
@@ -778,4 +803,142 @@ local function test_sql_deflate_and_inflate_speak_raw_deflate()
     assert(trouble:find(case[2], 1, true) ~= nil, trouble)
   end
   assert(db:close())
+end
+
+local function test_zstd_known_vector_decodes_one_byte_at_a_time()
+  -- `printf 'hello, cosmic!' | zstd -c`
+  local vector = "\40\181\47\253\4\88\113\0\0\104\101\108\108\111\44\32\99\111\115\109\105\99\33\150\176\201\168"
+  local dec = assert(Compress.zstd_decoder())
+  local out, trouble = drive(dec, vector, 1)
+  assert(trouble == "", trouble)
+  assert(out == "hello, cosmic!", out)
+  assert(dec:done())
+  assert(dec:rest() == "")
+end
+
+local function test_zstd_multi_frame_decodes_every_frame()
+  -- `printf first | zstd -c` .. `printf second | zstd -c`
+  local vector = "\40\181\47\253\4\88\41\0\0\102\105\114\115\116\90\143\190\228" ..
+    "\40\181\47\253\4\88\49\0\0\115\101\99\111\110\100\55\0\94\77"
+  for _, size in ipairs({ 1, 5 } as {integer}) do
+    local out, trouble = drive(assert(Compress.zstd_decoder()), vector, size)
+    assert(trouble == "", trouble)
+    assert(out == "firstsecond", out)
+  end
+end
+
+local function test_zstd_skippable_frames_are_skipped()
+  -- A skippable frame: a magic from 0x184D2A50 to 0x184D2A5F, a
+  -- little-endian length, and that many bytes, which decode to nothing.
+  local skip = "\80\42\77\24\3\0\0\0abc"
+  local last = "\95\42\77\24\0\0\0\0"
+  for _, size in ipairs({ 1, 7 } as {integer}) do
+    local dec = assert(Compress.zstd_decoder())
+    local out, trouble = drive(dec, skip .. hello_zst .. last .. hello_zst, size)
+    assert(trouble == "", trouble)
+    assert(out == "hello, cosmic!hello, cosmic!", out)
+    assert(dec:rest() == "")
+  end
+  -- A stream of skippable frames alone holds nothing, and is no error.
+  local out, trouble = drive(assert(Compress.zstd_decoder()), skip)
+  assert(out == "" and trouble == "", trouble)
+end
+
+local function test_zstd_frame_without_a_checksum_decodes()
+  -- `printf 'hello, cosmic!' | zstd -c --no-check`
+  local vector = "\40\181\47\253\0\88\113\0\0\104\101\108\108\111\44\32\99\111\115\109\105\99\33"
+  local out, trouble = drive(assert(Compress.zstd_decoder()), vector)
+  assert(trouble == "", trouble)
+  assert(out == "hello, cosmic!", out)
+end
+
+local function test_zstd_corrupt_checksum_is_refused()
+  local bad = hello_zst:sub(1, -2) .. string.char((hello_zst:byte(-1) + 1) % 256)
+  local out, trouble = drive(assert(Compress.zstd_decoder()), bad)
+  assert(trouble == "compress: corrupt zstd data", trouble)
+  assert(out == "hello, cosmic!" or out == "", out)
+  -- A flipped byte in the content is caught by the same checksum.
+  local flipped = hello_zst:sub(1, 9) .. "j" .. hello_zst:sub(11)
+  local _, flipped_trouble = drive(assert(Compress.zstd_decoder()), flipped)
+  assert(flipped_trouble == "compress: corrupt zstd data", flipped_trouble)
+end
+
+local function test_zstd_truncated_input_errors_on_finish()
+  for _, cut in ipairs({ 1, 4, 20 } as {integer}) do
+    local dec = assert(Compress.zstd_decoder())
+    assert(dec:update(hello_zst:sub(1, #hello_zst - cut)))
+    local last, trouble = dec:finish()
+    assert(last == nil and trouble == "compress: truncated zstd stream", tostring(trouble))
+  end
+end
+
+local function test_zstd_window_limit_is_enforced()
+  -- `printf 'hello, cosmic!' | zstd -c --long=28`: its header asks for a
+  -- 256 MiB window, over the default limit of 128 MiB.
+  local wide = "\40\181\47\253\4\144\113\0\0\104\101\108\108\111\44\32\99\111\115\109\105\99\33\150\176\201\168"
+  local out, trouble = assert(Compress.zstd_decoder()):update(wide)
+  assert(out == nil and trouble == "compress: zstd window larger than the limit", trouble)
+  assert(drain(assert(Compress.zstd_decoder(1 << 28)), wide, 100) == "hello, cosmic!")
+  -- A limit between powers of two rounds down: 2^28 - 1 allows 2^27.
+  local _, rounded = assert(Compress.zstd_decoder((1 << 28) - 1)):update(wide)
+  assert(rounded == "compress: zstd window larger than the limit", rounded)
+  -- hello_zst asks for 2 MiB, which 1 MiB refuses.
+  local _, small = assert(Compress.zstd_decoder(1 << 20)):update(hello_zst)
+  assert(small == "compress: zstd window larger than the limit", small)
+end
+
+local function test_zstd_encoder_writes_what_the_zstd_command_writes()
+  -- One frame, its window from the level and no content size (a stream
+  -- does not know it), then the checksum: byte for byte the command's.
+  local enc = assert(Compress.zstd_encoder())
+  assert(assert(enc:update("hello, cosmic!")) .. assert(enc:finish()) == hello_zst)
+  -- `zstd -19` differs only in the window its level asks for.
+  local enc19 = assert(Compress.zstd_encoder(19))
+  local packed = assert(enc19:update("hello, cosmic!")) .. assert(enc19:finish())
+  assert(packed == hello_zst:sub(1, 5) .. "\104" .. hello_zst:sub(7), Codec.hex(packed))
+end
+
+local function test_zstd_round_trips_at_every_level_and_chunking()
+  local plain = string.rep("the quick brown fox jumps over the lazy dog. ", 2000) ..
+    table.concat((function(): {string}
+      local t: {string} = {}
+      for i = 1, 4096 do t[i] = string.char((i * 2654435761 >> 13) % 256) end
+      return t
+    end)())
+  for _, level in ipairs({ 1, 3, 9, 19 } as {integer}) do
+    for _, size in ipairs({ 1000, #plain } as {integer}) do
+      local packed, enc_trouble = drive(assert(Compress.zstd_encoder(level)), plain, size)
+      assert(enc_trouble == "", enc_trouble)
+      assert(#packed < #plain, level .. ": " .. #packed)
+      local dec = assert(Compress.zstd_decoder())
+      local out, dec_trouble = drive(dec, packed, size)
+      assert(dec_trouble == "", dec_trouble)
+      assert(out == plain, level .. "/" .. size .. ": " .. #out)
+    end
+  end
+  -- Nothing in is one empty frame out, which decodes to nothing.
+  local empty = assert(Compress.zstd_encoder())
+  local packed = assert(empty:update("")) .. assert(empty:finish())
+  assert(packed:sub(1, 4) == "\40\181\47\253", Codec.hex(packed))
+  local out, trouble = drive(assert(Compress.zstd_decoder()), packed)
+  assert(out == "" and trouble == "", trouble)
+end
+
+local function test_zstd_encoder_output_is_the_same_from_run_to_run()
+  local plain = string.rep("reproducible ", 5000)
+  local first = assert(Compress.zstd_encoder(12))
+  local a = assert(first:update(plain)) .. assert(first:finish())
+  local second = assert(Compress.zstd_encoder(12))
+  local b = assert(second:update(plain:sub(1, 777))) .. assert(second:update(plain:sub(778))) ..
+    assert(second:finish())
+  assert(a == b, "the same input and level, split differently, came out differently")
+end
+
+local function test_zstd_encoder_throws_after_finish()
+  local enc = assert(Compress.zstd_encoder())
+  assert(enc:update("x"))
+  assert(enc:finish())
+  assert(not pcall(enc.update, enc, "y"))
+  assert(not pcall(enc.finish, enc))
+  assert(enc:pending() == false)
 end

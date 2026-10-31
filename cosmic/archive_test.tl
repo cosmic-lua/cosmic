@@ -13,7 +13,7 @@ local Zip = require("cosmic.zip")
 local Archive = require("cosmic.archive")
 
 --- `tar -cf a.tar src` (a directory holding src/short.txt and the
---- symlink src/adir/alink -> short.txt), then gzip/xz/bzip2 -c.
+--- symlink src/adir/alink -> short.txt), then gzip/xz/bzip2/zstd -c.
 local TAR_GZ_B64 <const> =
   "H4sICDBss2oAA2EudGFyAO3V0QrCIBiGYS/FKyh16q5n1GCjkaAGXX7bDoIGFTuwUb3PiYqCv3yoKR72ojA1qp2b29GynfvaGWe998p5obSqvBHSlS5sckm5iVKKGEJ+te7d/JdKY/6pCzHv8rXU+aaAvbXP89fVIn8zDoRUhep58Of5d+0wBJm7NrZbl4INTPe/Ofax5Cew/v3XldK8/59wz78Z+vOpzB5z/nW9In9rdC2kKf0xTf48fwAAAAAAAAAAAADAb7gBw+SVgAAoAAA="
 
@@ -22,6 +22,9 @@ local TAR_XZ_B64 <const> =
 
 local TAR_BZ2_B64 <const> =
   "QlpoOTFBWSZTWftqLH0AAPT7hcqAAEBAAf+AGIRubZ5AAACAAhAIMADNphKKAABoAAACVTT1MgAGgAAAKqalPNDVG1G1AzU9NTanqPKcBmsKrFONp8mSgiNPggJSyiluAckAYE4xZRQYkEiolBUalRrg8M5RFkwl0yyyoDkigrmCAL0deBq2rRoSoPotGICxQgMcGrSsmUvqLy62tESPmWJiZo0f1ez81bXaV7RQUZiZYvLeRqTYfG/HNuTOEHm8gy9Pk3uKAQPxdyRThQkPtqLH0A=="
+
+local TAR_ZST_B64 <const> =
+  "KLUv/WQAJ3UEAHKGExGwPWADsgCrOsnsItKS9ykZpILXuCDGtMfc8R4eIktnVVRrMnROreYlL8RwQsqsE8wIl9wJYVzmeKak+7yijPbe8l1KIS/et/ff9AYUZRggUClKiQf9HerhCgpwqhmaGD06YBvOphLFgCIdQKwQT01gVKPD9kCeG9CCp6AwDoD9g6kBAxLAFMB4Km+1uTwT"
 
 local function make_tar(path: string)
   local w = assert(Stream.create(path))
@@ -95,8 +98,11 @@ local function test_open_stream_reads_a_plain_tar_from_a_stream_one_byte_at_a_ti
   assert(by["adir/link"].linkpath == "short.txt")
 end
 
-local function test_open_stream_reads_gzip_xz_and_bzip2_tars()
-  for _, b64 in ipairs({ TAR_GZ_B64, TAR_XZ_B64, TAR_BZ2_B64 }) do
+local function test_open_stream_reads_gzip_xz_bzip2_and_zstd_tars()
+  -- The zstd tar again behind a skippable frame, as a parallel zstd
+  -- (pzstd) begins its output.
+  local skipped = "\80\42\77\24\4\0\0\0skip" .. assert(Codec.unbase64(TAR_ZST_B64))
+  for _, b64 in ipairs({ TAR_GZ_B64, TAR_XZ_B64, TAR_BZ2_B64, TAR_ZST_B64, Codec.base64(skipped) }) do
     local bytes = assert(Codec.unbase64(b64))
     local by = walked((assert(Archive.open_stream(Stream.from_string(bytes)))))
     local n = 0
@@ -336,6 +342,16 @@ end
 local function test_extract_a_bzip2_compressed_tar_made_by_system_tar(tmp: string)
   local path = tmp .. "/a.tar.bz2"
   assert(Fs.write(path, (assert(Codec.unbase64(TAR_BZ2_B64)))))
+  local dest = tmp .. "/out"
+  local written = assert(Archive.extract(path, dest))
+  table.sort(written)
+  assert(#written == 3, table.concat(written, ","))
+  assert(Fs.read(dest .. "/src/short.txt") == "hello there")
+end
+
+local function test_extract_a_zstd_compressed_tar_made_by_system_tar(tmp: string)
+  local path = tmp .. "/a.tar.zst"
+  assert(Fs.write(path, (assert(Codec.unbase64(TAR_ZST_B64)))))
   local dest = tmp .. "/out"
   local written = assert(Archive.extract(path, dest))
   table.sort(written)
@@ -1134,6 +1150,7 @@ local function sniffed(path: string): string
   local head = assert(Fs.read(path)):sub(1, 262)
   if head:sub(1, 2) == "PK" then return "zip" end
   if head:sub(1, 2) == "\31\139" then return "gzip" end
+  if head:sub(1, 4) == "\40\181\47\253" then return "zstd" end
   if head:sub(258, 262) == "ustar" then return "tar" end
   return "unknown"
 end
@@ -1141,10 +1158,12 @@ end
 local function test_create_writes_the_format_its_name_asks_for_and_open_reads_it_back(tmp: string)
   local named: {string:string} = {
     ["a.tar"] = "tar", ["a.tar.gz"] = "gzip", ["A.TGZ"] = "gzip", ["a.zip"] = "zip", ["A.Zip"] = "zip",
+    ["a.tar.zst"] = "zstd", ["A.TZST"] = "zstd",
   }
+  local formats: {string:string} = { gzip = "tar.gz", zstd = "tar.zst" }
   for name, format in pairs(named) do
     local path = tmp .. "/" .. name
-    assert(Archive.format_of(path) == (format == "gzip" and "tar.gz" or format), name)
+    assert(Archive.format_of(path) == (formats[format] or format), name)
     pack((assert(Archive.create(path))))
     assert(sniffed(path) == format, name .. ": " .. sniffed(path))
     local r = assert(Archive.open(path))
@@ -1167,7 +1186,7 @@ local function test_create_writes_the_format_its_name_asks_for_and_open_reads_it
 end
 
 local function test_create_writes_nothing_at_the_path_until_close(tmp: string)
-  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.zip" }) do
+  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.tar.zst", "a.zip" }) do
     local path = tmp .. "/" .. name
     local w = assert(Archive.create(path))
     assert(w:add_file("x", "y"))
@@ -1180,7 +1199,7 @@ end
 local function test_create_aborted_leaves_nothing_behind(tmp: string)
   local dir = tmp .. "/out"
   assert(Fs.mkdirs(dir))
-  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.zip" }) do
+  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.tar.zst", "a.zip" }) do
     local w = assert(Archive.create(dir .. "/" .. name))
     assert(w:add_file("x", "y"))
     assert(w:abort())
@@ -1190,7 +1209,7 @@ local function test_create_aborted_leaves_nothing_behind(tmp: string)
 end
 
 local function test_create_deterministic_writes_the_same_bytes_whatever_the_times(tmp: string)
-  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.zip" }) do
+  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.tar.zst", "a.zip" }) do
     for i, mtime in ipairs({ 1700000000, 1234567890 }) do
       local w = assert(Archive.create(tmp .. "/" .. i .. name, { deterministic = true }))
       assert(w:add_file("x", "y", { mtime = mtime }))
@@ -1204,8 +1223,8 @@ local function test_create_refuses_a_name_it_cannot_write_and_creates_nothing(tm
   local dir = tmp .. "/out"
   assert(Fs.mkdirs(dir))
   local cases: {string:string} = {
-    ["a.data"] = "end it in .tar.gz, .tgz, .tar or .zip",
-    ["a"] = "end it in .tar.gz, .tgz, .tar or .zip",
+    ["a.data"] = "end it in .tar.gz, .tgz, .tar.zst, .tzst, .tar or .zip",
+    ["a"] = "end it in .tar.gz, .tgz, .tar.zst, .tzst, .tar or .zip",
     ["a.tar.xz"] = "no xz encoder",
     ["a.tbz2"] = "no bzip2 encoder",
   }

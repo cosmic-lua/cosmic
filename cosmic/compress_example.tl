@@ -25,4 +25,20 @@ function Example.inflate()
   assert(back == nil and why ~= "")
 end
 
+--- A zstd stream written a chunk at a time and read back through a
+--- decoder that holds each update's output to a bound.
+function Example.zstd_encoder()
+  local enc = assert(Compress.zstd_encoder(9))
+  local parts: {string} = {}
+  for _ = 1, 100 do parts[#parts + 1] = assert(enc:update("cosmic zstd ")) end
+  parts[#parts + 1] = assert(enc:finish())
+  local packed = table.concat(parts)
+  local dec = assert(Compress.zstd_decoder())
+  local out = { assert(dec:update(packed, 256)) }
+  while dec:pending() do out[#out + 1] = assert(dec:update("", 256)) end
+  out[#out + 1] = assert(dec:finish())
+  print(#packed, #table.concat(out))
+  assert(table.concat(out) == string.rep("cosmic zstd ", 100))
+end
+
 return Example

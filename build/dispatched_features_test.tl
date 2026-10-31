@@ -36,12 +36,13 @@ Test.policy{
     { path = "vendor/sqlite/", letters = "r" },
     { path = "vendor/xz/", letters = "r" },
     { path = "vendor/yyjson/", letters = "r" },
+    { path = "vendor/zstd/", letters = "r" },
   },
 }
 
 --- The vendored libraries build.zig compiles C from, each walked whole.
 local LIBRARIES <const> = { "bzip2", "cares", "curl", "lua", "mbedtls", "miniz", "sqlite",
-  "xz", "yyjson" }
+  "xz", "yyjson", "zstd" }
 
 --- The vendored trees build.zig patches that hold no C: the Teal
 --- compiler, which the core loads as Lua.
@@ -106,6 +107,12 @@ local SITES <const>: {string:Site} = {
   -- that says it may: neither reads a feature.
   ["vendor/xz/src/liblzma/check/crc_common.h"] = { lines = "02b9a4dfc40599e0", reads = {} },
   ["core/xz_config/config.h"] = { lines = "6696e76730b82c2d", reads = {} },
+  -- zstd's cpuid, and the two that call it for BMI1 and BMI2: every
+  -- choice made by what it answers is under `#if DYNAMIC_BMI2`, which
+  -- build.zig sets to 0, so it chooses no code.
+  ["vendor/zstd/lib/common/cpu.h"] = { lines = "2a52cdfcf036b836", reads = {} },
+  ["vendor/zstd/lib/common/zstd_internal.h"] = { lines = "7db2f12b59d3e0b4", reads = {} },
+  ["vendor/zstd/lib/compress/zstd_compress.c"] = { lines = "e1810b0562e88cca", reads = {} },
   -- `cpu_features`, which answers what the processor has for a key
   -- (build/declared_key.tl's `features`), its declaration and its test:
   -- none chooses code by it. syscalls.c asks Apple's
@@ -331,4 +338,14 @@ local function test_the_sha_instructions_are_compiled_out()
     local text = assert(Fs.read(path))
     assert(text:find("MBEDTLS_SHA%d+_USE_") ~= nil, path .. " gates its instructions otherwise")
   end
+end
+
+--- zstd chooses its BMI2 code by the processor only under
+--- DYNAMIC_BMI2, which build.zig defines as 0 for zstd's compile; the
+--- sites named for zstd read nothing on that ground alone.
+local function test_zstd_dispatch_is_compiled_out()
+  local build = assert(Fs.read("build.zig"))
+  assert(build:find('"-DDYNAMIC_BMI2=0"', 1, true) ~= nil, "build.zig no longer turns zstd's dispatch off")
+  local macros = assert(Fs.read("vendor/zstd/lib/common/portability_macros.h"))
+  assert(macros:find("#ifndef DYNAMIC_BMI2", 1, true) ~= nil, "zstd no longer takes DYNAMIC_BMI2 from outside")
 end
