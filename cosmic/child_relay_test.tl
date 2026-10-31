@@ -166,7 +166,7 @@ local function sealed_client(tmp: string): string, string
   local chunk = assert(load(CLIENT, "=relay_client"))
   local requires = { "cosmic.clock", "cosmic.fs", "cosmic.net" }
   local path = tmp .. "/client.db"
-  local digest = assert(Store.seal(Store.closure(requires), path, { extra = { name = "relay_client",
+  local digest = assert(Store.seal(Store.closure(requires), path, { unchecked_bytecode = true, extra = { name = "relay_client",
     bytecode = string.dump(chunk), source = CLIENT, requires = requires } }))
   return path, digest
 end

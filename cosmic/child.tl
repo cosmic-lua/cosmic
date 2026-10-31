@@ -66,6 +66,7 @@
 --- memory, up to `capture_limit` unread bytes of each, after which the
 --- child is left to wait until the caller reads. Nothing streamed is
 --- dropped, and nothing is kept for the Result.
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Poll = require("cosmic.poll")
@@ -2652,7 +2653,7 @@ end
 local function reached_by(merged: Rules.Policy, base: string, file: boolean,
                           user: MappedUser): {integer: boolean}?, string
   if merged.tmp == true and not file then
-    local given = sys.getenv("TMPDIR")
+    local given = Env.read("TMPDIR")
     local tmpdir = "/tmp"
     if given ~= nil and #given > 0 then tmpdir = given end
     local real, _ = sys.realpath(tmpdir)

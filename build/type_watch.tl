@@ -8,7 +8,10 @@
 -- compile, make [`skip_reason`] answer nothing for a checked run: until then a checked run
 -- meets violations of parameters alone (rows of kind "parameter", which `during` already reads), and the tests that ask
 -- `during` would pass having checked a part of what they are about. `__fact` ([`lang.fact_wraps`]) carries narrowed reads
--- only, not the declared kind of a value crossing a boundary.
+-- only, not the declared kind of a value crossing a boundary. The same change makes tests that run in a checked run and
+-- no plain one, and so possibly enter a C function none of the legs' whole runs do: CI's checked narrowing runs
+-- (`checked-narrowing` in ci.yml) are shares of the suite and make no check of that, so it must then make a whole run
+-- somewhere, a job of its own or the declared-types step as a run of the whole suite.
 local Test = require("cosmic.test")
 local Globals = require("cosmic.internal.globals")
 local worker = require("build.test_worker")

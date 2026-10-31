@@ -187,7 +187,7 @@ local record test
 end
 
 --- The variable a test deadline's default is read from, in seconds.
-local timeout_variable = "COSMIC_TEST_TIMEOUT"
+local timeout_variable <const>: Env.Name = "COSMIC_TEST_TIMEOUT"
 --- A test's deadline when neither the command line nor the
 --- environment names one, in seconds: the slowest test in this tree
 --- takes about a second, so this leaves a loaded CI host ample room
@@ -1143,7 +1143,7 @@ local function limits_of(values: {string:string}): State.Limits?, string
     end
     return seconds, ""
   end
-  local from_env = Env.get(timeout_variable)
+  local from_env = Env.read(timeout_variable)
   if from_env ~= nil and from_env ~= "" then
     local seconds, trouble = seconds_of(from_env, timeout_variable)
     if seconds == nil then return nil, trouble end
@@ -1370,15 +1370,15 @@ local function read_command(ctx: Run): integer?
     selectors[#selectors + 1] = selector
   end
   ctx.selectors = selectors
-  ctx.forced = parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1"
+  ctx.forced = parsed.set["--all"] == true or Env.read("COSMIC_TEST_ALL") == "1"
   -- A run that stands on nothing another checkout reached, though it
   -- still shares what it reaches: what answers for every test is this
   -- checkout's own evidence, or a run.
   ctx.consult = not (parsed.set["--no-shared"] == true or
-    Env.get("COSMIC_TEST_NO_SHARED") == "1")
+    Env.read("COSMIC_TEST_NO_SHARED") == "1")
   -- Only the CI gathering run asks this (ci/cosmic_ci/orchestration.tl's
   -- `checked_suite`); it reads verdicts the shares of the same run kept.
-  ctx.accept_foreign = Env.get("COSMIC_TEST_FOREIGN_FEATURES") == "1"
+  ctx.accept_foreign = Env.read("COSMIC_TEST_FOREIGN_FEATURES") == "1"
   ctx.census = parsed.set["--census"] == true
   -- TODO: run a checked run's three tests that compare the bytecode of a
   -- module with the binary's (build/harness_epoch_test.tl,
@@ -1387,8 +1387,8 @@ local function read_command(ctx: Run): integer?
   -- below) where they read the tree's, so their bytecode is not the one they
   -- compare it with: it waits on a way for a test to read the tree's
   -- projection and the binary's own modules in a checked run.
-  ctx.checks = parsed.set["--check-types"] == true or Env.get("COSMIC_TEST_CHECK_TYPES") == "1"
-  ctx.bail = parsed.set["--bail"] == true or Env.get("COSMIC_TEST_BAIL") == "1"
+  ctx.checks = parsed.set["--check-types"] == true or Env.read("COSMIC_TEST_CHECK_TYPES") == "1"
+  ctx.bail = parsed.set["--bail"] == true or Env.read("COSMIC_TEST_BAIL") == "1"
   return nil
 end
 
@@ -1503,10 +1503,10 @@ local function choose_sandbox(ctx: Run): integer?
   -- project that sets COSMIC_TEST_PROMISES for another reason is no concern of a run
   -- that is not held.
   local promises: {string} = {}
-  ctx.held = sandbox_mode == "on" or Env.get("COSMIC_SANDBOX") == "must" or
-    Env.get("COSMIC_CI_REQUIRE_SANDBOX") == "1"
+  ctx.held = sandbox_mode == "on" or Env.read("COSMIC_SANDBOX") == "must" or
+    Env.read("COSMIC_CI_REQUIRE_SANDBOX") == "1"
   if ctx.held == true then
-    local read, promises_trouble = host_names.read_promises(Env.get("COSMIC_TEST_PROMISES") or "")
+    local read, promises_trouble = host_names.read_promises(Env.read("COSMIC_TEST_PROMISES") or "")
     if read == nil then
       local _, _ = work.close(handle)
       log:complain("test: COSMIC_TEST_PROMISES: " .. promises_trouble)
@@ -1514,7 +1514,7 @@ local function choose_sandbox(ctx: Run): integer?
     end
     promises = read
   end
-  ctx.promises, ctx.leg = promises, Env.get("COSMIC_TEST_LEG") or ""
+  ctx.promises, ctx.leg = promises, Env.read("COSMIC_TEST_LEG") or ""
   -- Each worker runs sandboxed where the kernel can sandbox one, unless
   -- the switch turns it off. Either way each test is keyed by what it
   -- declares; unsandboxed, the run trusts that where a sandboxed run
@@ -1524,14 +1524,14 @@ local function choose_sandbox(ctx: Run): integer?
   -- through a file COSMIC_VERDICT_CACHE names ([`shared_verdicts.chosen`]):
   -- no sandbox held what its tests read, so what it reached is another
   -- checkout's to stand on only where both were asked to.
-  local must = Env.get("COSMIC_SANDBOX") == "must"
+  local must = Env.read("COSMIC_SANDBOX") == "must"
   local unenforced = "each test is keyed by what it declares, which nothing holds it to"
   local sandboxed, sandbox_summary = false, ""
   -- A run started, however deep, in a worker a Landlock ruleset holds
   -- can sandbox none of its own, whose roots are made of mounts: it
   -- fails, naming what lets that worker's test nest one, rather than
   -- run them unsandboxed and pass having confined nothing.
-  local holder = Env.get(confine.held_variable)
+  local holder = Env.read(confine.held_variable)
   if sandbox_mode ~= "off" and holder ~= nil and holder ~= "" then
     local _, _ = work.close(handle)
     log:complain("test: this run was started in " .. holder .. "'s worker, which a " ..
@@ -1565,7 +1565,7 @@ local function choose_sandbox(ctx: Run): integer?
       -- run them without and pass having confined nothing.
       local held = if sandbox_mode == "on" then test_sandbox.switch .. "=1" elseif
         must then "COSMIC_SANDBOX=must" elseif
-        Env.get("COSMIC_CI_REQUIRE_SANDBOX") == "1" then "COSMIC_CI_REQUIRE_SANDBOX=1" else nil end
+        Env.read("COSMIC_CI_REQUIRE_SANDBOX") == "1" then "COSMIC_CI_REQUIRE_SANDBOX=1" else nil end
       if held ~= nil then
         local _, _ = work.close(handle)
         log:complain("test: " .. held .. ", but no worker can be sandboxed here: " .. why)

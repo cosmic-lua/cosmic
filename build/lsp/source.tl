@@ -67,7 +67,10 @@
 -- outer record is told the record has no such field.
 
 local AnalysisSchema = require("build.analysis_schema")
+local Ast = require("lang.ast")
+local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
+local Places = require("build.syntax_places")
 local Sqlite = require("cosmic.sqlite")
 local Template = require("cosmic.template")
 local build_paths = require("build.paths")
@@ -115,6 +118,11 @@ local record source
     --- opened anew.
     mut stages: integer
     mut reopened: integer
+    --- Texts parsed here to find where they declare their types
+    --- ([`source.places`]): an open document that differs from the staged
+    --- file, or a file whose `places` rows are not the running
+    --- analyzer's.
+    mut parses: integer
   end
 
   --- A module's text as its file holds it, not as the checker is served it (a stub, a template's Teal): where a place in
@@ -123,6 +131,24 @@ local record source
     --- The module's file, below the root.
     file: string
     text: string
+  end
+
+  --- Where a name is declared in a module's text: the line (from 1), the column and the length in bytes, the checker's
+  --- ([`lang.lexer`]'s `y` and `x`).
+  record Spot
+    line: integer
+    column: integer
+    length: integer
+  end
+
+  --- Where a module declares its types and their members, by dotted symbol ([`build.syntax_places`]), and the text and the
+  --- file they are places in.
+  record Placed
+    --- The module's file, below the root.
+    file: string
+    text: string
+    --- The first place of each symbol.
+    spots: {string:Spot}
   end
 
   --- An open document's text, and its SHA-256.
@@ -167,6 +193,8 @@ local record source
     --- The stub made here of each text, by its SHA-256: "" for a text
     --- with none.
     mut made: mut {string:string}
+    --- Where each text, by its SHA-256, declares its types and members: read from the `places` rows or parsed here.
+    mut placed: mut {string:{string:Spot}}
     tally: Tally
     --- Where complaints go, without their newline.
     err: function(line: string)
@@ -176,9 +204,10 @@ end
 local type Module = source.Module
 local type Served = source.Served
 local type Written = source.Written
+local type Spot = source.Spot
 local type Tally = source.Tally
 
---- The most stubs kept of texts made here: an open module's every edit
+--- The most stubs kept of texts made here, and the most texts whose places are kept: an open module's every edit
 --- makes one.
 local MADE_HELD <const> = 64
 
@@ -201,7 +230,7 @@ end
 --- A source for the tree at `root`, staged at its first [`source.refresh`].
 function source.new(root: string, err: function(line: string), carried?: string): source.View
   local tally: Tally = { database_stubs = 0, made_stubs = 0, sources = 0, templates = 0,
-    whole_splices = 0, stages = 0, reopened = 0 }
+    whole_splices = 0, stages = 0, reopened = 0, parses = 0 }
   return {
     root = root,
     carried = carried,
@@ -217,6 +246,7 @@ function source.new(root: string, err: function(line: string), carried?: string)
     pending = true,
     told_busy = false,
     made = {},
+    placed = {},
     tally = tally,
     err = err,
   }
@@ -626,7 +656,7 @@ end
 
 --- The text of the module `name` as written: an open document's, else the working database's. nil where the database lists
 --- none, for a template, whose file is not Teal, and where the database cannot be read as [`source.served`] cannot.
-function source.written(src: source.View, name: string, open: source.Open): Written?
+local function written_of(src: source.View, name: string, open: source.Open): Written?
   local found = src.modules[name]
   if found == nil or found.file:match("%.tmpl$") ~= nil then return nil end
   local opened = open(found.file)
@@ -636,6 +666,80 @@ function source.written(src: source.View, name: string, open: source.Open): Writ
   local held = first(db, "SELECT source FROM inputs WHERE file = ?1", found.file)
   if held == nil then return nil end
   return { file = found.file, text = held }
+end
+
+--- Parses `text`, the file `file`, for where it declares its types and members, once a text.
+local function parsed_spots(src: source.View, file: string, text: string): {string:Spot}
+  local spots: mut {string:Spot} = {}
+  local dialect: Ast.Dialect = "tl"
+  if file:match("%.d%.tl$") ~= nil then dialect = "decl" end
+  src.tally.parses = src.tally.parses + 1
+  local read = Driver.parse(Driver.source(file, file, text, dialect))
+  for _, found in ipairs(Places.found(read.chunk)) do
+    if spots[found.symbol] == nil then
+      spots[found.symbol] = { line = found.line, column = found.column, length = found.length }
+    end
+  end
+  return spots
+end
+
+-- TODO: answer an open document that differs from the staged file from the working database, once the editor's unsaved
+-- buffers are derived into it: until then the buffer is parsed here, once a text.
+
+-- TODO: answer from the rows of a database another analyzer derived, once the session can restage with its own analyzer
+-- without waiting for another run to release the write lock: until then the staged text is parsed here.
+
+-- TODO: answer without reading the module's text, once `places` rows carry whether their line is ASCII-only: the text is read
+-- for every request only to count the line's characters in the protocol's units ([`build.lsp.lines`]).
+
+--- Where the module `name` declares its types and their members ([`build.syntax_places`]), in its text as written
+--- (an open document's, else the working database's), nil where that is none. The rows the stage derived of the file
+--- (`places`) answer it, unparsed, while the text is the staged file's: not open, or open and the same. Another text, an
+--- open document that was edited, is parsed here, once; so is a file whose rows are not the running analyzer's, and one
+--- the stage could not parse (it has no `parsed` row). A module generated from another file (`mapped`) has rows of none,
+--- and none of its symbols is found.
+function source.places(src: source.View, name: string, open: source.Open): source.Placed?
+  local found = src.modules[name]
+  if found == nil then return nil end
+  local written = written_of(src, name, open)
+  if written == nil then return nil end
+  local opened = open(found.file)
+  local hash = found.source_hash
+  local staged = opened == nil or opened.hash == hash
+  if not staged and opened ~= nil then hash = opened.hash end
+  local spots = src.placed[hash]
+  if spots == nil then
+    local db, _ = database(src)
+    if db == nil then return nil end
+    if staged and src.stubs then
+      local rows, _ = Sqlite.text_rows(db,
+        "SELECT symbol, line, column, length FROM places WHERE source_hash = ?1 ORDER BY ordinal",
+        { { text = hash } })
+      if rows == nil then return nil end
+      local derived = #rows > 0
+      if not derived then
+        local parsed, _ = Sqlite.text_rows(db, "SELECT 1 FROM parsed WHERE source_hash = ?1", { { text = hash } })
+        derived = parsed ~= nil and #parsed > 0
+      end
+      local held: mut {string:Spot} = {}
+      for _, row in ipairs(rows) do
+        local symbol = row:text(1)
+        if held[symbol] == nil then
+          held[symbol] = { line = math.tointeger(tonumber(row:text(2))) or 1,
+            column = math.tointeger(tonumber(row:text(3))) or 1, length = math.tointeger(tonumber(row:text(4))) or 1 }
+        end
+      end
+      spots = held
+      if not derived then spots = parsed_spots(src, found.file, written.text) end
+    else
+      spots = parsed_spots(src, found.file, written.text)
+    end
+    local count = 0
+    for _ in pairs(src.placed) do count = count + 1 end
+    if count >= MADE_HELD then src.placed = {} end
+    src.placed[hash] = spots
+  end
+  return { file = written.file, text = written.text, spots = spots }
 end
 
 --- Lets go of the database, which is opened again when next read.

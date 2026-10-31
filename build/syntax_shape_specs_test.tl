@@ -456,3 +456,14 @@ local function test_a_call_with_more_than_the_name_and_a_mention_are_left_as_wri
   unchanged('local S = Shape.record_of("A", nil)\nreturn S\n')
   unchanged('local f = Shape.record_of\nreturn f\n')
 end
+
+--- A module that names `record_of` but does not require cosmic.shape (in a comment, here) has nothing to splice, and is
+--- not lowered to find that out: nor is anything it requires, which for a module of the build is most of the build.
+local function test_a_module_that_only_names_record_of_is_not_lowered()
+  local main = 'local Lib = require("lib")\n-- Shape.record_of("R") is how a record is checked\nreturn Lib\n'
+  local build = build_of({ ["main.tl"] = main, ["lib.tl"] = "local record Lib\n  n: integer\nend\nreturn Lib\n" })
+  local found = ShapeSpecs.splices(build, "main", "main.tl", main)
+  assert(found.refusal == "" and #found.splices == 0, found.refusal)
+  assert(build.program.modules["lib"] == nil, "lowered what a module that splices nothing requires")
+  assert(build.program.modules["main"] == nil, "lowered a module that splices nothing")
+end
