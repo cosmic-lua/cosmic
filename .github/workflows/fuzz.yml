@@ -103,7 +103,10 @@
         # directory (build/paths.tl) and the launcher's cores both lie
         # under $XDG_CACHE_HOME, so a step without it looks for the
         # checked core under /github/home/.cache, where the build did
-        # not put it. The bootstrap below puts the driver there too.
+        # not put it. The bootstrap below puts the driver there too. The
+        # driver action's `zig-cache` input sets it as well, but with
+        # ci.yml's zig-cache seed variables, whose directories this job
+        # does not restore.
         {
           name: "name the cosmic cache every later step shares",
           "working-directory": "/",

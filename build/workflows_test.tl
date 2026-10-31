@@ -2403,19 +2403,32 @@ local function test_an_unprivileged_job_shares_one_cache_and_runs_its_tools_as_t
         local set = 0
         local first_tool = 0
         for i, step in ipairs(job.steps) do
+          local what = where .. " step " .. tostring(step.name)
           local run = step.run
+          local named = map_of(step.env)["XDG_CACHE_HOME"] ~= nil
+          local sets = false
           if run is string then
-            if run:find('XDG_CACHE_HOME=$RUNNER_TEMP/cache" >> "$GITHUB_ENV"', 1, true) ~= nil then
-              if set == 0 then set = i end
-            else
-              assert(run:find("XDG_CACHE_HOME=", 1, true) == nil,
-                where .. " step " .. tostring(step.name) .. " names a cache of its own")
-            end
-            if run:find("bin/", 1, true) ~= nil or run:find("cosmic-driver ", 1, true) ~= nil then
+            local assigns = run:find("XDG_CACHE_HOME%s*=") ~= nil or run:find("export%s+XDG_CACHE_HOME") ~= nil
+            sets = assigns and run:find("GITHUB_ENV", 1, true) ~= nil
+            named = named or (assigns and not sets)
+            local padded = " " .. run
+            local tool = padded:find("[%s;&|(\"']%.*/*bin/[%a-]") ~= nil or
+              padded:find("[%s;&|(]cosmic%-driver%f[^%w_%-]") ~= nil
+            if tool then
               if first_tool == 0 then first_tool = i end
               assert(step.shell == nil or step.shell:find("setpriv", 1, true) ~= nil,
-                where .. " step " .. tostring(step.name) .. " runs the tree's tools as root")
+                what .. " runs the tree's tools as root")
             end
+          end
+          assert(not named, what .. " names a cache of its own")
+          local uses = step.uses
+          if uses is string and uses:find("^%./") ~= nil then
+            assert(step.shell == nil or step.shell:find("setpriv", 1, true) ~= nil,
+              what .. " runs a local action as root")
+          end
+          if sets and set == 0 then
+            set = i
+            assert(step["if"] == nil, what .. " shares the cache only under a condition")
           end
         end
         assert(set > 0, where .. " never names the cache its steps share")
