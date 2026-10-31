@@ -73,6 +73,12 @@ local record Zip
     --- entry at a time; nil and `""` after the last. Independent of
     --- `entries`.
     next: function(Reader): Entry?, string
+    --- The entry whose path is `path`, from the list `entries` builds, so
+    --- the same rules hold: the first call must come before `close`.
+    --- The first in directory order where an archive holds the path twice.
+    --- Nil and why when the archive holds no such entry, or as `entries`
+    --- answers.
+    entry: function(Reader, path: string): Entry?, string
     --- Releases the file the archive is read from, if it has one; no
     --- entry can be opened afterward.
     close: function(Reader): boolean, string
@@ -615,6 +621,8 @@ local class EntryReader is Zip.Reader
   mut walked: integer
   --- What `entries` has built, once it has.
   mut listed?: {Zip.Entry}
+  --- `listed` by path, once `entry` has looked one up.
+  mut by_path?: {string: Zip.Entry}
   mut closed: boolean
 
   function next(self): Zip.Entry?, string
@@ -646,6 +654,23 @@ local class EntryReader is Zip.Reader
     end
     self.listed = all
     return all, ""
+  end
+
+  function entry(self, path: string): Zip.Entry?, string
+    local by_path = self.by_path
+    if by_path == nil then
+      local all, trouble = self:entries()
+      if all == nil then return nil, trouble end
+      local made: mut {string: Zip.Entry} = {}
+      for _, e in ipairs(all) do
+        if made[e.path] == nil then made[e.path] = e end
+      end
+      self.by_path = made
+      by_path = made
+    end
+    local found = by_path[path]
+    if found == nil then return refuse("no entry " .. string.format("%q", path)) end
+    return found, ""
   end
 
   function close(self): boolean, string
@@ -729,7 +754,8 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
 
   local zr: EntryReader = {
     pread = pread, closer = closer, cd_offset = cd_offset, cd_size = cd_size, links = links,
-    walk = cursor(pread, cd_offset, cd_size), walked = 0, listed = nil, closed = false, entry_mt = entry_mt,
+    walk = cursor(pread, cd_offset, cd_size), walked = 0, listed = nil, by_path = nil, closed = false,
+    entry_mt = entry_mt,
   }
   return zr, ""
 end
