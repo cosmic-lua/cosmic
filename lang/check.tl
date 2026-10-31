@@ -4729,7 +4729,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         local sub = Generics.new(store, given_fn, Calls.hooks(ctx))
         for k, p in ipairs(given_fn.params) do
           local passed = seen.params[k]
-          if passed ~= nil and passed.type.tag ~= "invalid" then
+          if passed ~= nil and not Calls.mentions_invalid(passed.type) then
             Generics.match(sub, p.type, passed.type, "into", k)
           end
         end
@@ -4738,7 +4738,15 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
           local held = Generics.value(sub, k)
           if held ~= nil then solved[#solved + 1] = held end
         end
-        if #solved == #given_fn.tparams and #sub.conflicts == 0 then
+        -- The instance is taken only if every type parameter is solved, none conflicts, and each meets its bound.
+        local meets = #solved == #given_fn.tparams and #sub.conflicts == 0
+        for k, tp in ipairs(given_fn.tparams) do
+          local bound, held = tp.bound, solved[k]
+          if meets and bound ~= nil and held ~= nil and not below(ctx, held, bound) then
+            meets = false
+          end
+        end
+        if meets then
           local instance = Relation.specialize(store, given_fn, solved)
           if instance ~= nil then
             Generics.match(solver, wanted_fn, instance, "into", i)
@@ -4780,6 +4788,10 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
       given[#given + 1] = held
     else
       given[#given + 1] = ctx.invalid
+      -- TODO: report a parameter nothing solved even when an argument is `invalid` (`solver.invalid`), once a call whose
+      -- argument is `invalid` after an error already reported gives no secondary hole: removing the test now makes
+      -- `pairs`, `ipairs`, `coroutine.close` and `coroutine.status` of an `invalid` value fail in cosmic/poll.tl,
+      -- cosmic/sqlite.tl and build/fuzz/init.tl, each after the error that made the value `invalid`.
       if solver.tainted[i] ~= true and not solver.invalid then
         unbound[#unbound + 1] = i
       elseif solver.tainted[i] == true and not solver.invalid then
@@ -4904,6 +4916,14 @@ function Calls.holes(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, solved: In
     { Types.display(c, ctx.binders) })
 end
 
+function Calls.mentions_invalid(t: Type): boolean
+  if t.tag == "invalid" then return true end
+  for _, part in ipairs(Types.parts(t)) do
+    if Calls.mentions_invalid(part) then return true end
+  end
+  return false
+end
+
 --- A call of the generic function `c`: its type parameters solved from the arguments and the type expected, then the
 --- instance applied as any function is.
 function Calls.generic(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast.Exp}, recv: Type?,
@@ -4977,6 +4997,8 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
         local made = solved.fn
         if made == nil then
           failure = solved.why
+        elseif solved.holes ~= nil and #solved.holes > 0 then
+          failure = "a type parameter gets no type from the arguments"
         else
           c = made
         end
