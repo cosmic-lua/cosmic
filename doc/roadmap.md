@@ -219,6 +219,9 @@ promises lean on come first:
   checks every path (a FIFO refused by name, the output skipped) before
   creating the archive and prints each name it packs, which a plain walk
   would not do for it.
+- zstd in a zip (method 93) for [`cosmic.zip`], reading and writing, over
+  the codec [`cosmic.compress`] carries, once a caller meets such a zip:
+  the reader understands stored and deflated entries alone.
 - `format`, `check`: small modules a program
   otherwise hand-rolls.
 - `ast`, `teal`, `doc` and `embed` exist only as build internals under
@@ -348,6 +351,7 @@ four-producer provenance join.
 [`ci/cosmic_ci/queue_stage_test.tl`]: ../ci/cosmic_ci/queue_stage_test.tl
 [`core/coverage.c`]: ../core/coverage.c
 [`core/json.c`]: ../core/json.c
+[`cosmic.compress`]: ../cosmic/compress.tl
 [`cosmic.html`]: ../cosmic/html.tl
 [`cosmic.http`]: ../cosmic/http/init.tl
 [`cosmic.net`]: ../cosmic/net.tl
@@ -356,6 +360,7 @@ four-producer provenance join.
 [`cosmic.template`]: ../cosmic/template/init.tl
 [`cosmic.test`]: ../cosmic/test.tl
 [`cosmic.url`]: ../cosmic/url.tl
+[`cosmic.zip`]: ../cosmic/zip.tl
 [`cosmic/errors.tl`]: ../cosmic/errors.tl
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl
 [`cosmic/shape_example.tl`]: ../cosmic/shape_example.tl
