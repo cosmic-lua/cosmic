@@ -7,12 +7,17 @@
 #include <string.h>
 
 #include "bzlib.h"
+#include "check.h"
 #include "fail.h"
 #include "fault.h"
 #include "lauxlib.h"
 #include "lzma.h"
 #include "memory.h"
 #include "miniz.h"
+
+/* For the *_advanced constructors, which take the allocator below. */
+#define ZSTD_STATIC_LINKING_ONLY
+#include "zstd.h"
 
 /* bzlib built with BZ_NO_STDIO asks its embedder to supply this: it is
  * called only for an assertion inside the library itself (a bug in
@@ -36,11 +41,23 @@ _Noreturn void bz_internal_error (int errcode) {
  * room to spare, and far short of what a hostile header could ask. */
 #define DEFAULT_XZ_MEMLIMIT ((lua_Integer)256 << 20)
 
+/* The zstd decoder's window ceiling when the caller names none: zstd's
+ * own default (ZSTD_WINDOWLOG_LIMIT_DEFAULT), which every level the
+ * `zstd` command writes without --long or --ultra fits. */
+#define DEFAULT_ZSTD_WINDOW ((lua_Integer)1 << 27)
+
+/* The zstd encoder's levels: those the `zstd` command takes without
+ * --ultra. 20 to 22 ask for far more memory to write and to read. */
+#define MAX_ZSTD_LEVEL 19
+#define DEFAULT_ZSTD_LEVEL 3
+
 typedef enum {
   OP_INFLATE,
   OP_DEFLATE,
   OP_BZ2,
   OP_XZ,
+  OP_ZSTD,        /* the zstd decoder */
+  OP_ZSTD_ENCODE, /* the zstd encoder */
 } stream_op;
 
 typedef enum {
@@ -49,9 +66,9 @@ typedef enum {
   FMT_GZIP,
 } stream_format;
 
-/* Where a decoder is, member by member. gzip, bzip2 and xz all allow
- * one member (stream) after another; raw deflate and zlib are exactly
- * one member. */
+/* Where a decoder is, member by member. gzip, bzip2, xz and zstd all
+ * allow one member (stream, or zstd frame) after another; raw deflate
+ * and zlib are exactly one member. */
 typedef enum {
   PH_BETWEEN,  /* looking for the next member's magic */
   PH_MEMBER,   /* inside a member */
@@ -144,8 +161,15 @@ struct stream {
     lzma_stream lzma;
   } u;
 
+  ZSTD_DCtx *zd;
+  uint64_t zwindow;  /* zstd: the largest window, in bytes, a frame may declare */
+  int zhdr_ok;       /* zstd: the current frame's header has been checked */
+  int zdrain;        /* zstd: the last step stopped at the output limit, so
+                        zstd may hold output it can give with no input */
+
   /* Encoder state. */
   tdefl_compressor *tdefl;
+  ZSTD_CCtx *zc;
   int wrote_header;
   uint32_t enc_crc;
   uint32_t enc_isize;
@@ -209,6 +233,10 @@ static void release (struct stream *s) {
   s->tdefl = NULL;
   cosmic_free(s->inf);
   s->inf = NULL;
+  ZSTD_freeDCtx(s->zd);
+  s->zd = NULL;
+  ZSTD_freeCCtx(s->zc);
+  s->zc = NULL;
   cosmic_free(s->in.p);
   memset(&s->in, 0, sizeof s->in);
   s->in_pos = 0;
@@ -534,12 +562,120 @@ static int xz_step (struct stream *s, const unsigned char *p, size_t n,
   }
 }
 
+/* zstd's allocator: the core's own, so the checked core counts and
+ * refuses what zstd allocates as it does the rest of this file's. */
+static void *zstd_alloc (void *opaque, size_t size) {
+  (void)opaque;
+  return cosmic_malloc(size);
+}
+
+static void zstd_free (void *opaque, void *block) {
+  (void)opaque;
+  cosmic_free(block);
+}
+
+static const ZSTD_customMem zstd_memory = {zstd_alloc, zstd_free, NULL};
+
+/* What a zstd failure says, for one of the decoder's codes. */
+static const char *zstd_why (size_t rc) {
+  switch (ZSTD_getErrorCode(rc)) {
+    case ZSTD_error_memory_allocation:
+    return "out of memory";
+    case ZSTD_error_frameParameter_windowTooLarge:
+    return "zstd window larger than the limit";
+    default:
+    return "corrupt zstd data";
+  }
+}
+
+/* One frame, regular or skippable: ZSTD_decompressStream answers 0 at
+ * the end of each, and is ready for the next without a reset. */
+static int zstd_step (struct stream *s, const unsigned char *p, size_t n,
+                      size_t *used, struct sink *out, const char **err) {
+  size_t i = 0;
+  /* zstd counts a call that is given nothing and holds nothing as a
+   * failure to progress, and gives up after sixteen. */
+  if (n == 0 && !s->zdrain) {
+    *used = 0;
+    return STEP_INPUT;
+  }
+  /* zstd decodes a frame whole, before it looks at the window it
+   * declares, when the frame's header gives a content size that fits
+   * and every byte is in hand; so the window is judged here, from the
+   * header, whatever the input's split. A header cut short is left
+   * unconsumed to be offered again with more. */
+  if (!s->zhdr_ok) {
+    ZSTD_frameHeader h;
+    size_t need = ZSTD_getFrameHeader(&h, p, n);
+    if (ZSTD_isError(need)) {
+      *err = zstd_why(need);
+      return STEP_ERROR;
+    }
+    if (need > 0) {
+      *used = 0;
+      return STEP_INPUT;
+    }
+    if (h.frameType == ZSTD_frame && h.windowSize > s->zwindow) {
+      *err = "zstd window larger than the limit";
+      return STEP_ERROR;
+    }
+    s->zhdr_ok = 1;
+  }
+  s->zdrain = 0;
+  for (;;) {
+    if (out->budget == 0) {
+      s->zdrain = 1;
+      *used = i;
+      return STEP_FULL;
+    }
+    size_t out_take = out->budget < CODEC_SLICE ? out->budget : CODEC_SLICE;
+    char *dst = luaL_prepbuffsize(out->b, out_take);
+    ZSTD_outBuffer o = {dst, out_take, 0};
+    ZSTD_inBuffer in = {p + i, n - i, 0};
+    size_t rc = ZSTD_decompressStream(s->zd, &o, &in);
+    i += in.pos;
+    luaL_addsize(out->b, o.pos);
+    out->budget -= o.pos;
+    if (ZSTD_isError(rc)) {
+      *err = zstd_why(rc);
+      return STEP_ERROR;
+    }
+    if (rc == 0) {
+      *used = i;
+      return STEP_END;
+    }
+    /* Output short of the room it had means zstd flushed all it holds,
+     * so with the input gone it waits for more. */
+    if (i == n && o.pos < out_take) {
+      *used = i;
+      return STEP_INPUT;
+    }
+  }
+}
+
 /* ---- members ---- */
+
+/* Whether `p[0..n)` begins a zstd frame or a skippable frame
+ * (0x184D2A50 to 0x184D2A5F, little-endian), as magic_match answers. */
+static int zstd_magic (const unsigned char *p, size_t n) {
+  static const unsigned char frame[] = {0x28, 0xb5, 0x2f, 0xfd};
+  static const unsigned char skippable[] = {0x50, 0x2a, 0x4d, 0x18};
+  int frame_ok = 1;
+  int skip_ok = 1;
+  for (size_t k = 0; k < 4; k++) {
+    if (k == n) return frame_ok || skip_ok ? -1 : 0;
+    frame_ok = frame_ok && p[k] == frame[k];
+    skip_ok = skip_ok && (k == 0 ? (p[k] & 0xf0) == skippable[k]
+                                 : p[k] == skippable[k]);
+  }
+  return frame_ok || skip_ok;
+}
 
 /* Whether `p[0..n)` begins the next member: 1 when it does, 0 when it
  * cannot, -1 when too few bytes have arrived to tell. */
 static int magic_match (const struct stream *s, const unsigned char *p,
                         size_t n) {
+  if (s->op == OP_ZSTD) return zstd_magic(p, n);
   static const unsigned char gz[] = {0x1f, 0x8b};
   static const unsigned char bz[] = {'B', 'Z', 'h', 0};
   static const unsigned char xz[] = {0xfd, '7', 'z', 'X', 'Z', 0};
@@ -572,6 +708,10 @@ static int start_member (struct stream *s, const char **err) {
     s->codec_open = 1;
     return 0;
   }
+  if (s->op == OP_ZSTD) { /* the context starts each frame afresh */
+    s->zhdr_ok = 0;
+    return 0;
+  }
   /* One stream at a time, without LZMA_CONCATENATED: stream padding and
    * what follows the last stream are this file's to judge, the same
    * way gzip and bzip2 members are. Re-initializing a live decoder
@@ -594,6 +734,8 @@ static int member_step (struct stream *s, const unsigned char *p, size_t n,
     return bz2_step(s, p, n, used, out, err);
     case OP_XZ:
     return xz_step(s, p, n, used, out, err);
+    case OP_ZSTD:
+    return zstd_step(s, p, n, used, out, err);
     default:
     return s->format == FMT_GZIP ? gzip_step(s, p, n, used, out, err)
                                  : inflate_step(s, p, n, used, out, err);
@@ -601,14 +743,16 @@ static int member_step (struct stream *s, const unsigned char *p, size_t n,
 }
 
 static const char *not_a_stream (const struct stream *s) {
-  return s->op == OP_BZ2  ? "not a bzip2 stream"
-         : s->op == OP_XZ ? "not an xz stream"
-                          : "not a gzip stream";
+  return s->op == OP_BZ2    ? "not a bzip2 stream"
+         : s->op == OP_XZ   ? "not an xz stream"
+         : s->op == OP_ZSTD ? "not a zstd stream"
+                            : "not a gzip stream";
 }
 
 static const char *truncated (const struct stream *s) {
   if (s->op == OP_BZ2) return "truncated bzip2 stream";
   if (s->op == OP_XZ) return "truncated xz stream";
+  if (s->op == OP_ZSTD) return "truncated zstd stream";
   if (s->format == FMT_GZIP) return "truncated gzip stream";
   return "truncated compressed stream";
 }
@@ -770,6 +914,58 @@ static int bz2_decoder (lua_State *L) {
   return cosmic_succeeded(L);
 }
 
+/* The smallest window log whose window holds `max_window` bytes (or
+ * zstd's largest), so zstd's own limit, a backstop to the header check
+ * in [`zstd_step`], never refuses a window that check allows. */
+static int window_log (lua_Integer max_window) {
+  int log = ZSTD_WINDOWLOG_MIN;
+  while (log < ZSTD_WINDOWLOG_MAX && ((lua_Integer)1 << log) < max_window) {
+    log++;
+  }
+  return log;
+}
+
+static int zstd_decoder (lua_State *L) {
+  lua_Integer max_window = luaL_optinteger(L, 1, DEFAULT_ZSTD_WINDOW);
+  luaL_argcheck(L, max_window >= ((lua_Integer)1 << ZSTD_WINDOWLOG_MIN), 1,
+                "the window limit must be at least 1024");
+  struct stream *s = new_stream(L, OP_ZSTD);
+  s->ph = PH_BETWEEN;
+  s->zwindow = (uint64_t)max_window;
+  s->zd = ZSTD_createDCtx_advanced(zstd_memory);
+  if (s->zd == NULL) {
+    s->finished = 1;
+    release(s);
+    lua_pushnil(L);
+    lua_pushstring(L, "compress: out of memory");
+    return 2;
+  }
+  /* Cannot fail: window_log stays within the parameter's bounds. */
+  (void)ZSTD_DCtx_setParameter(s->zd, ZSTD_d_windowLogMax,
+                               window_log(max_window));
+  return cosmic_succeeded(L);
+}
+
+static int zstd_encoder (lua_State *L) {
+  int level = cosmic_optint(L, 1, DEFAULT_ZSTD_LEVEL);
+  luaL_argcheck(L, level >= 1 && level <= MAX_ZSTD_LEVEL, 1,
+                "level must be 1 to 19");
+  struct stream *s = new_stream(L, OP_ZSTD_ENCODE);
+  s->zc = ZSTD_createCCtx_advanced(zstd_memory);
+  /* A checksum on every frame, as the `zstd` command writes one. */
+  if (s->zc == NULL ||
+      ZSTD_isError(ZSTD_CCtx_setParameter(s->zc, ZSTD_c_compressionLevel,
+                                          level)) ||
+      ZSTD_isError(ZSTD_CCtx_setParameter(s->zc, ZSTD_c_checksumFlag, 1))) {
+    s->finished = 1;
+    release(s);
+    lua_pushnil(L);
+    lua_pushstring(L, "compress: out of memory");
+    return 2;
+  }
+  return cosmic_succeeded(L);
+}
+
 /* ---- encoder ---- */
 
 /* Compresses `data` (which may be empty, to flush) with `flush`,
@@ -787,6 +983,31 @@ static void deflate_chunk (struct stream *s, const unsigned char *data,
     luaL_addlstring(out, (const char *)buffer, out_size);
     if (status != TDEFL_STATUS_OKAY) break; /* done, or a bad parameter */
     if (in_pos >= len && out_size < sizeof buffer) break;
+  }
+}
+
+/* Compresses `data` with `mode`, appending to `out`: every byte is
+ * taken, and with ZSTD_e_end the frame is closed. Answers NULL, or why
+ * it failed. */
+static const char *zstd_chunk (struct stream *s, const unsigned char *data,
+                               size_t len, ZSTD_EndDirective mode,
+                               luaL_Buffer *out) {
+  ZSTD_inBuffer in = {data, len, 0};
+  for (;;) {
+    char *dst = luaL_prepbuffsize(out, CODEC_SLICE);
+    ZSTD_outBuffer o = {dst, CODEC_SLICE, 0};
+    size_t rc = ZSTD_compressStream2(s->zc, &o, &in, mode);
+    luaL_addsize(out, o.pos);
+    if (ZSTD_isError(rc)) {
+      return ZSTD_getErrorCode(rc) == ZSTD_error_memory_allocation
+                 ? "out of memory"
+                 : ZSTD_getErrorName(rc);
+    }
+    /* ZSTD_e_continue is done once the input is taken and the output
+     * had room to spare; ZSTD_e_end once nothing is left to flush. */
+    if (mode == ZSTD_e_end ? rc == 0 : in.pos == in.size && o.pos < o.size) {
+      return NULL;
+    }
   }
 }
 
@@ -823,6 +1044,14 @@ static int stream_update (lua_State *L) {
     s->enc_crc = lzma_crc32(data, len, s->enc_crc);
     s->enc_isize += (uint32_t)len;
     deflate_chunk(s, data, len, TDEFL_NO_FLUSH, &out);
+    luaL_pushresult(&out);
+    lua_pushliteral(L, "");
+    s->finished = 0;
+    return 2;
+  }
+  if (s->op == OP_ZSTD_ENCODE) {
+    const char *why = zstd_chunk(s, data, len, ZSTD_e_continue, &out);
+    if (why != NULL) return fail(L, s, &out, why);
     luaL_pushresult(&out);
     lua_pushliteral(L, "");
     s->finished = 0;
@@ -885,6 +1114,15 @@ static int stream_finish (lua_State *L) {
       push_u32le(&out, s->enc_crc);
       push_u32le(&out, s->enc_isize);
     }
+    release(s);
+    luaL_pushresult(&out);
+    return cosmic_succeeded(L);
+  }
+  if (s->op == OP_ZSTD_ENCODE) {
+    /* An empty string, not NULL, as for deflate_chunk above. */
+    const char *why =
+        zstd_chunk(s, (const unsigned char *)"", 0, ZSTD_e_end, &out);
+    if (why != NULL) return fail(L, s, &out, why);
     release(s);
     luaL_pushresult(&out);
     return cosmic_succeeded(L);
@@ -967,6 +1205,7 @@ static const luaL_Reg stream_methods[] = {
 static const luaL_Reg module[] = {
   {"inflater", inflater},     {"deflater", deflater},
   {"xz_decoder", xz_decoder}, {"bz2_decoder", bz2_decoder},
+  {"zstd_decoder", zstd_decoder}, {"zstd_encoder", zstd_encoder},
   {"crc32", compress_crc32},  {NULL, NULL},
 };
 
