@@ -460,6 +460,20 @@ local function apart(checker: Checker, name: string): boolean
   return source.standing(checker.source).own and identity.is_foreign_tree(identity.first_of(name))
 end
 
+--- Brings the stage up to the files on disk, and answers whether `document` is checked against it: false in a root no build
+--- was started in and for a file in a tree of its own. A build started where there was none moves every open document, which
+--- is checked again against the modules now found; the check that finds it says so, and no other need.
+local function staged(checker: Checker, document: Document): boolean
+  local outside = source.outside(checker.source)
+  source.refresh(checker.source)
+  if source.outside(checker.source) or apart(checker, document.name) then return false end
+  if outside then
+    checker.graph_moved = true
+    checker.epoch = checker.epoch + 1
+  end
+  return true
+end
+
 --- The diagnostics of `document`, each encoded, its positions counted in
 --- `encoding`'s units.
 function check.diagnose(checker: Checker, document: Document, encoding: string): {string}
@@ -468,17 +482,9 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
     document.published = none
     return none
   end
-  local outside = source.outside(checker.source)
-  source.refresh(checker.source)
-  if source.outside(checker.source) or apart(checker, document.name) then
+  if not staged(checker, document) then
     document.published = none
     return none
-  end
-  -- A build was started where there was none: every open document is
-  -- checked again, against the modules now found.
-  if outside then
-    checker.graph_moved = true
-    checker.epoch = checker.epoch + 1
   end
   refresh_program(checker)
   checker.checks[document.name] = (checker.checks[document.name] or 0) + 1
@@ -527,8 +533,7 @@ end
 --- time.
 function check.read(checker: Checker, document: Document): check.Reading?
   if unread(document) or document.name:match("%.tmpl$") ~= nil then return nil end
-  source.refresh(checker.source)
-  if source.outside(checker.source) or apart(checker, document.name) then return nil end
+  if not staged(checker, document) then return nil end
   refresh_program(checker)
   local checked = checked_of(checker, document)
   local found = checked.outcome

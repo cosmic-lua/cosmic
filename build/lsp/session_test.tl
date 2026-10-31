@@ -239,6 +239,44 @@ local function test_definition_follows_a_require_to_the_module_that_declares_it(
   assert_located(defined(ran, 6), root, "main.tl", 0, 6, 11)
 end
 
+local function test_definition_of_a_member_is_found_through_a_class_an_interface_and_an_optional()
+  local root = session_fixture.project()
+  local text = 'local class Counter\n  n: integer\n  function bump(self): integer\n    return self.n + 1\n  end\nend\n' ..
+    'local c: Counter = { n = 1 }\nlocal _ = c.n\nlocal _ = c:bump()\n' ..
+    'local interface Named\n  name: string\nend\nlocal interface Aged is Named\n  age: integer\nend\n' ..
+    'local function f(a: Aged): string\n  return a.name\nend\n' ..
+    'local record A\n  v: integer\nend\nlocal function g(a: A?): integer\n  return a.v\nend\nreturn { f, g }\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    -- A class's field and method, a field only the interface listed declares, and a field of an optional receiver.
+    at(2, "textDocument/definition", root, "main.tl", 7, 12),
+    at(3, "textDocument/definition", root, "main.tl", 8, 13),
+    at(4, "textDocument/definition", root, "main.tl", 16, 12),
+    at(5, "textDocument/definition", root, "main.tl", 22, 12),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 1, 2, 3)
+  assert_located(defined(ran, 3), root, "main.tl", 2, 11, 15)
+  assert_located(defined(ran, 4), root, "main.tl", 10, 2, 6)
+  assert_located(defined(ran, 5), root, "main.tl", 19, 2, 3)
+end
+
+--- A build rewrites a document's text where it calls [`Shape.record_of`], which moves every byte after the call: a place
+--- after one is still the place in the text as written.
+local function test_definition_after_a_record_shape_call_counts_the_text_as_written()
+  local root = session_fixture.project()
+  local text = 'local Shape = require("cosmic.shape")\nlocal record R\n  n: integer\nend\n' ..
+    'local R_SHAPE <const> = Shape.record_of("R") local keep: integer = 1\n' ..
+    "local r: R = assert(R_SHAPE:into({ n = 1 }))\nlocal _ = r.n, keep\n"
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    -- `keep` after the call, on its line and below it, and `n` of `r.n`.
+    at(2, "textDocument/definition", root, "main.tl", 6, 15),
+    at(3, "textDocument/definition", root, "main.tl", 4, 53),
+    at(4, "textDocument/definition", root, "main.tl", 6, 12),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 4, 51, 55)
+  assert_located(defined(ran, 3), root, "main.tl", 4, 51, 55)
+  assert_located(defined(ran, 4), root, "main.tl", 2, 2, 3)
+end
+
 local function test_definition_reads_the_text_of_an_open_module()
   local root = session_fixture.project()
   assert(Fs.mkdirs(root .. "/lib"))

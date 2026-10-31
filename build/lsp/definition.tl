@@ -12,7 +12,8 @@
 ---
 --- Nothing is answered for a place the report does not know: a global the standard library declares, a name the
 --- checker left unresolved, a module the working database does not list (the binary's own `cosmic.*` modules in a
---- project), a template, a text that does not parse.
+--- project), a template, a text that does not parse, a document that requires a module the build refuses (a cycle of
+--- imports, a module the project does not have), and a type declared inside a function.
 ---
 --- A place in another module is found in that module's text as it is written ([`source.written`]), an open document's
 --- or else the working database's, parsed here: the checker is served the module as a stub, whose positions are not
@@ -22,6 +23,13 @@
 -- TODO: answer a symbol of the binary's own `cosmic.*` modules, once the checker is served the positions of their sources: it
 -- reads their declarations alone, so in a project the working database has no text for them ([`source.written`]) and
 -- the answer is none.
+
+-- TODO: answer a field of a type declared inside a function body, once the lowering names such a type by something that tells
+-- it from another of the same name in the module: the declarations are found by their names at the top of the module and in
+-- its `do` blocks, where the name is the type's alone.
+
+-- TODO: answer the value of an enum that a string literal stands for, once the type report keeps the enum a literal was read
+-- as: the report types the literal `"w"` as the string, and the enum's values are found only by a member access.
 
 -- TODO: read the result of the last check in place of checking the document again, once the session's program keeps a
 -- module's result across the check of another document ([`build.lsp.held`]): each request costs a check of the document.
@@ -68,7 +76,6 @@ local record definition
   record Declared
     name: Ast.Binding
     members: {Ast.Member}
-    values: {Ast.EnumValue}
   end
 end
 
@@ -84,17 +91,17 @@ end
 --- What the declaration `n` declares if it is the type `name`: nil for anything else.
 local function declared(n: Ast.Node, name: string): Declared?
   if n.kind == "Record" and n.name.name == name then
-    return { name = n.name, members = n.members, values = {} }
+    return { name = n.name, members = n.members }
   elseif n.kind == "Interface" and n.name.name == name then
-    return { name = n.name, members = n.members, values = {} }
+    return { name = n.name, members = n.members }
   elseif n.kind == "Class" and n.name.name == name then
-    return { name = n.name, members = n.members, values = {} }
+    return { name = n.name, members = n.members }
   elseif n.kind == "Enum" and n.name.name == name then
-    return { name = n.name, members = {}, values = n.values }
+    return { name = n.name, members = {} }
   elseif n.kind == "Alias" and n.name.name == name then
-    return { name = n.name, members = {}, values = {} }
+    return { name = n.name, members = {} }
   elseif n.kind == "Import" and n.name.name == name then
-    return { name = n.name, members = {}, values = {} }
+    return { name = n.name, members = {} }
   end
   return nil
 end
@@ -126,14 +133,11 @@ local function type_in(stats: {Ast.Stat}, names: {string}): Declared?
   return current
 end
 
---- The token of the field, method or enum value `name` of the declaration `held`.
+--- The token of the field or method `name` of the declaration `held`.
 local function member_token(held: Declared, name: string): integer?
   for _, member in ipairs(held.members) do
     if member.kind == "FieldDecl" and member.name.name == name then return member.name.first end
     if member.kind == "Method" and member.name.name == name then return member.name.first end
-  end
-  for _, value in ipairs(held.values) do
-    if value.value == name then return value.first end
   end
   return nil
 end
@@ -179,7 +183,7 @@ local function decl_site(request: Request, decl: Types.Decl): Site?
   return { place = place, token = held.name.first }
 end
 
---- Where the field, method or enum value `name` of the type `decl` is declared: in the type, or in the interface it lists
+--- Where the field or method `name` of the type `decl` is declared: in the type, or in the interface it lists
 --- that declares it, or by a `function R.f()` statement of the module of either.
 local function member_site(request: Request, decl: Types.Decl, name: string): Site?
   local owner = decl
