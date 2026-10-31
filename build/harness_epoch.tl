@@ -109,7 +109,7 @@ harness_epoch.acknowledged = {
 
   ["build.key_parts"] = "8d6552f9b67824ad5158996a1806062870f2e0a7f8eac6d42f27b3fa26337fc2",
 
-  ["build.launcher"] = "40a625bfb41cc84e48dd9c3ff9241aeeb8a8945a41116c054286c45d3e181975",
+  ["build.launcher"] = "f63b34f9b3b26b36a59c5c7cef59230fc3d9abe428a6c911a9623c53c8c8a9cd",
 
   ["build.load_module"] = "a54bd951a24ee621ba85cda899b57226f1203ebc7ff8e710fad39459d5ba6e63",
 
@@ -123,7 +123,7 @@ harness_epoch.acknowledged = {
 
   ["build.test_inputs"] = "3e1795794c1f76e4fc42314b7ed0ac1f455848397e86c01005de697d21e45581",
 
-  ["build.test_key"] = "4e94d131b7097f10249bb6a739621695486aaa7d48121dd43774a11f804ea4ae",
+  ["build.test_key"] = "f05c5ce85aa06bd54a63c9286a3500bc9433ce57aa84e75d7b232c9af1ef0725",
 
   ["build.test_policy"] = "b1eda91fc78d4da9c2216a5a78b3394c64e7bcf51cacb3d4469bc053ade829ea",
 

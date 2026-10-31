@@ -48,3 +48,30 @@ local function test_a_main_is_cmd_name_main(_: string)
   assert(analysis_schema.kind_of("cmd/tool/sub/main.tl") == "module")
   assert(analysis_schema.kind_of("cmd/main.tl") == "module")
 end
+
+--- The declaration predicate selects the rows the literal comparisons it replaced did, in SQL and in Teal, over every
+--- kind a row of `inputs` has (a derived row's kind is given, so `vendor` and a kind that is none are in it too).
+local function test_the_declaration_predicate_selects_what_the_comparisons_did(_: string)
+  local db = assert(Sqlite.memory())
+  assert(Sqlite.run(db, "CREATE TABLE files (path TEXT PRIMARY KEY, sha256 TEXT, data BLOB) WITHOUT ROWID"))
+  for _, statement in ipairs(analysis_schema.statements) do assert(Sqlite.run(db, statement)) end
+  local kinds = { "decl", "module", "main", "test", "example", "vendor", "binding", "" }
+  for index, kind in ipairs(kinds) do
+    assert(Sqlite.run(db, "INSERT INTO derived (file, path, kind, origin, from_hash, source, source_hash) " ..
+        "VALUES (?1, ?2, ?3, 'fixture', 'h', '', 'h')", { { text = "f" .. tostring(index) }, { text = "m" .. tostring(index) },
+          { text = kind } }))
+  end
+  local function selected(where: string): string
+    local rows = assert(Sqlite.text_rows(db, "SELECT path FROM inputs WHERE " .. where .. " ORDER BY path"))
+    local out: mut {string} = {}
+    for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
+    return table.concat(out, " ")
+  end
+  assert(selected(analysis_schema.declaration("kind")) == selected("kind = 'decl'"))
+  assert(selected(analysis_schema.not_declaration("kind")) == selected("kind <> 'decl'"))
+  assert(selected(analysis_schema.not_declaration("kind") .. " AND kind <> 'vendor'") ==
+      selected("kind NOT IN ('decl', 'vendor')"))
+  for _, kind in ipairs(kinds) do
+    assert(analysis_schema.is_declaration(kind) == (kind == "decl"), kind)
+  end
+end
