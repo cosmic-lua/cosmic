@@ -349,6 +349,9 @@ promises lean on come first:
   type of the object before a `.` or `:`.
   The direction is for `cosmic lsp` to read the working database, extending it and
   triggering its refreshes as needed, rather than parsing or checking on its own.
+  Unsaved open buffers are derived into a private in-memory scratch database that
+  the lsp process owns ([`build/lsp/source.tl`]), by the rows a build writes, so
+  `build.db` is never written by the session and the build never sees a buffer.
 
 ## documentation and examples
 
@@ -432,6 +435,7 @@ four-producer provenance join.
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
 [`build/lsp/definition.tl`]: ../build/lsp/definition.tl
 [`build/lsp/session.tl`]: ../build/lsp/session.tl
+[`build/lsp/source.tl`]: ../build/lsp/source.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
 [`check.read`]: ../build/lsp/check.tl
 [`Child.end_strays`]: ../cosmic/child.tl

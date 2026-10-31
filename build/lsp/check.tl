@@ -238,6 +238,7 @@ function check.closed(checker: Checker, document: Document)
   if checker.open[document.name] ~= document then return end
   local regraphs = check.regraphs(checker, document)
   checker.open[document.name] = nil
+  source.release(checker.source, document.name)
   local listed = source.module(checker.source, document.name)
   if regraphs then
     checker.graph_moved = true
