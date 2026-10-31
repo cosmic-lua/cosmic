@@ -34,7 +34,9 @@
 --- A session checks every document in one program kept between checks ([`build.lsp.held`]): the document's text is put in it,
 --- and each module served is put in it again where what it is served as changes, so that a check lowers the standard library
 --- once and the stubs the document reaches, and not the project. A document whose text has not changed since its last check,
---- with no module served dropped since, publishes what it published then.
+--- with no module served dropped since, publishes what it published then, and answers the questions asked of its types from the
+--- result of that check ([`check.read`]), kept in memory: it depends on the editor's unsaved text, which the working
+--- database does not hold.
 
 local Ast = require("lang.ast")
 local Driver = require("build.driver")
@@ -75,12 +77,37 @@ local record check
     mut published_epoch: integer
     --- What its text required at its last check, nil before one.
     mut requires: {string}?
+    --- The result of its last check, for the questions asked of its types ([`check.read`]): a function of its text and
+    --- of the program, which the checker's `epoch` stands for. It is the session's and not the working database's, since
+    --- the text is the editor's and not a staged file's.
+    mut kept: Kept?
+  end
+
+  --- What a document's check found, and what it was of.
+  record Kept
+    text: string
+    epoch: integer
+    checked: Checked
+  end
+
+  --- What one check of a document found: what the checker and a build refuse of it, and the text and splices they are
+  --- positioned in.
+  record Checked
+    refusals: {plan.Refusal}
+    --- The Teal checked, after the build's rewrite: a template's is the Teal it compiles to.
+    text: string
+    splices: {ShapeSpecs.Splice}
+    --- Whether the places found are in a template's Teal, not in the
+    --- document's own text.
+    generated: boolean
+    --- The program's result for the module, with the types of its nodes: nil where nothing was checked.
+    outcome: Driver.Outcome?
   end
 
   --- What one check of a document read, for the questions asked of the types of its nodes ([`build.lsp.definition`]).
   record Reading
-    --- The program's result for the document's module: its tree, scopes and the type of each node. It is the program's
-    --- until the next check puts another document in it.
+    --- The program's result for the document's module: its tree, scopes and the type of each node. It is the document's
+    --- ([`Document`]'s `kept`), and outlives the check of another document.
     outcome: Driver.Outcome
     --- What a build put in the document's text before the checker read it (the `text` of the outcome), the last first
     --- ([`ShapeSpecs.Splice`]).
@@ -117,11 +144,15 @@ local record check
     --- How many times each document was checked, by name, those
     --- answered from its last check among them: what a test reads.
     checks: mut {string:integer}
+    --- How many times each document was checked for real, by name: the checks [`Checker`]'s `checks` counts that were
+    --- not answered from a kept result ([`Document`]'s `kept`). What a test reads.
+    ran: mut {string:integer}
   end
 end
 
 local type Checker = check.Checker
 local type Document = check.Document
+local type Checked = check.Checked
 
 --- The hints of `checker` as the importer asks for them.
 local function importer_hints(checker: Checker): importer.Hints
@@ -146,6 +177,7 @@ function check.new(root: string, err: function(line: string), hints: function():
     hints = hints,
     graph_moved = false,
     checks = {},
+    ran = {},
   }
 end
 
@@ -153,7 +185,7 @@ end
 --- the root where `outside`.
 function check.document(uri: string, name: string, text: string, outside?: boolean): Document
   return { uri = uri, text = text, name = name, outside = outside == true, hash = nil, published = nil,
-    published_text = "", published_epoch = 0, requires = nil }
+    published_text = "", published_epoch = 0, requires = nil, kept = nil }
 end
 
 --- Whether `document` is no module a build at the root reads
@@ -206,6 +238,7 @@ function check.closed(checker: Checker, document: Document)
   if checker.open[document.name] ~= document then return end
   local regraphs = check.regraphs(checker, document)
   checker.open[document.name] = nil
+  document.kept = nil
   local listed = source.module(checker.source, document.name)
   if regraphs then
     checker.graph_moved = true
@@ -284,20 +317,6 @@ local function refresh_program(checker: Checker)
       end
     end
   end
-end
-
---- What one check of a document found: what the checker and a build refuse of it, and the text and splices they are
---- positioned in.
-local record Checked
-  refusals: {plan.Refusal}
-  --- The Teal checked, after the build's rewrite: a template's is the Teal it compiles to.
-  text: string
-  splices: {ShapeSpecs.Splice}
-  --- Whether the places found are in a template's Teal, not in the
-  --- document's own text.
-  generated: boolean
-  --- The program's result for the module, with the types of its nodes: nil where nothing was checked.
-  outcome: Driver.Outcome?
 end
 
 --- What each other open document required at its last check, by name.
@@ -457,6 +476,32 @@ local function checked_of(checker: Checker, document: Document): Checked
   return checked(refusals, spliced, splices, program.build:result(path, true))
 end
 
+-- TODO: bound the results kept to the documents most recently asked of (the least recently used dropped), once a session is seen
+-- to hold enough open documents for them to matter: every open document keeps its tree, scopes and types until it is closed.
+
+-- TODO: invalidate a kept result by the keys of the modules its document reads ([`source.key`]) in place of the checker's
+-- `epoch`, once a check records which modules it was served: any module served otherwise than it was checks every open
+-- document again, one it does not read among them.
+
+-- TODO: let completion read the last result of a document whose text parsed, once completion exists: a text being typed
+-- does not parse, and its kept result is then nothing found.
+
+--- The check of `document` as it stands: the one kept from the last, where the text and the checker's `epoch` are those it
+--- was of, else a check made now and kept. A text that does not parse is kept as well, its outcome nil.
+local function checked_now(checker: Checker, document: Document): Checked
+  local kept = document.kept
+  if kept ~= nil and kept.text == document.text and kept.epoch == checker.epoch then
+    return kept.checked
+  end
+  checker.ran[document.name] = (checker.ran[document.name] or 0) + 1
+  local ok, outcome = pcall(checked_of, checker, document)
+  if not ok then error(tostring(outcome), 0) end
+  local checked: Checked = outcome
+  -- The epoch after the check, which may move it (`remember`, [`program_of`]): the next ask is of the same program.
+  document.kept = { text = document.text, epoch = checker.epoch, checked = checked }
+  return checked
+end
+
 --- Whether the file `name` is in a tree of its own inside cosmic's
 --- ([`identity.is_foreign_tree`]), which a build of it never reads.
 local function apart(checker: Checker, name: string): boolean
@@ -496,9 +541,7 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
       document.published_epoch == checker.epoch then
     return published
   end
-  local ok, outcome = pcall(checked_of, checker, document)
-  if not ok then error(tostring(outcome), 0) end
-  local checked: Checked = outcome
+  local checked = checked_now(checker, document)
   local text_lines = lines.lines_of(document.text)
   local starts = lines.checker_starts(checked.text)
   local out: mut {string} = {}
@@ -530,15 +573,16 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
   return out
 end
 
---- `document` checked again as [`check.diagnose`] checks it, and what that read of it, or nil where nothing was: a file no
---- build reads, a root with no build, a template (whose places are in its Teal), a text that does not parse or whose
---- `require`s are refused. The check is made again and not read from the last: the program holds one document's result at a
---- time.
+--- What the check of `document` read of it ([`check.diagnose`] checks it, and the last check is read where the text and the
+--- program are those it was of), or nil where nothing was: a file no build reads, a root with no build, a template (whose
+--- places are in its Teal), a text that does not parse or whose `require`s are refused. The result outlives the check of
+--- another document: a replacement in the program ([`Driver.Build.replace`]) begins another and leaves an outcome
+--- answered before as it was.
 function check.read(checker: Checker, document: Document): check.Reading?
   if unread(document) or document.name:match("%.tmpl$") ~= nil then return nil end
   if not staged(checker, document) then return nil end
   refresh_program(checker)
-  local checked = checked_of(checker, document)
+  local checked = checked_now(checker, document)
   local found = checked.outcome
   if found == nil or checked.generated then return nil end
   return { outcome = found, splices = checked.splices }
