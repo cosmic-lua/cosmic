@@ -39,7 +39,7 @@ name: ten hex digits of the content hash are part of the name, as in
 may be cached for a year (`immutable`). A page links the fingerprinted name,
 and a plain name still works with revalidation. A stale fingerprint is a
 404, never a different file's bytes. A file is answered with a strong ETag
-from its content hash, `If-None-Match`, `Range` and a stored gzip variant,
+from its content hash, `If-None-Match`, `Range` and stored zstd and gzip variants,
 and a request for a hidden file or a path that climbs out of the root is a
 404.
 
