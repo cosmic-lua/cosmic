@@ -152,13 +152,17 @@ local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
     for i, grant in ipairs(base) do copy[i] = grant end
     return copy
   end
-  local cases: {{any}} = {
-    { { grants = grants(), set_env_digests = { X = string.rep("0", 64) } }, 'set_env_digests "X"' },
+  local record Unmet
+    policy: Sandbox.Policy
+    says: string
+  end
+  local cases: {Unmet} = {
+    { policy = { grants = grants(), set_env_digests = { X = string.rep("0", 64) } }, says = 'set_env_digests "X"' },
   }
   for _, case in ipairs(cases) do
-    local none, why = Child.start({ probe, "print hi" }, { policy = case[1] as Sandbox.Policy })
-    assert(none == nil, case[2])
-    assert(why:find("^child: start: sandbox: ") and why:find(case[2] as string, 1, true), why)
+    local none, why = Child.start({ probe, "print hi" }, { policy = case.policy })
+    assert(none == nil, case.says)
+    assert(why:find("^child: start: sandbox: ") and why:find(case.says, 1, true), why)
     assert(why:find("not yet available", 1, true) or why:find("cannot start", 1, true), why)
   end
   local from = grants()

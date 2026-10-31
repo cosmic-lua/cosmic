@@ -221,21 +221,25 @@ end
 --- literal or is refused: nothing in it closes the literal early or
 --- swallows its close.
 local function test_a_docs_policy_line_that_would_escape_its_literal_is_refused()
-  local cases: {{string}} = {
-    { "tmp = true }, _x = { env = { \"A\"", "closes a brace it never opened" },
-    { "env = { \"A\"", "leaves a brace open" },
-    { "tmp = true -- }", "holds a comment" },
-    { "env = { [[a}]] }", "holds a long bracket" },
-    { "env = { \"a }", "leaves a string open" },
+  local record Refusal
+    content: string
+    says: string
+  end
+  local cases: {Refusal} = {
+    { content = "tmp = true }, _x = { env = { \"A\"", says = "closes a brace it never opened" },
+    { content = "env = { \"A\"", says = "leaves a brace open" },
+    { content = "tmp = true -- }", says = "holds a comment" },
+    { content = "env = { [[a}]] }", says = "holds a long bracket" },
+    { content = "env = { \"a }", says = "leaves a string open" },
   }
   for _, case in ipairs(cases) do
     local blocks: {Block} = {
-      { lang = "policy", modifiers = no_mods, content = case[1], line = 4 },
+      { lang = "policy", modifiers = no_mods, content = case.content, line = 4 },
       block("teal", "local x = 1", no_mods),
     }
     local code, trouble = generate.from_blocks(blocks, "fixture.md")
-    assert(code == nil, case[1] .. " was spliced")
-    assert(trouble == "line 4: the policy line " .. case[2], case[1] .. ": " .. trouble)
+    assert(code == nil, case.content .. " was spliced")
+    assert(trouble == "line 4: the policy line " .. case.says, case.content .. ": " .. trouble)
   end
   local ok = generate.from_blocks({
     { lang = "policy", modifiers = no_mods, content = 'env = { "}{" }, tmp = true', line = 4 },

@@ -6,6 +6,18 @@
 
 local Json = require("cosmic.json")
 
+--- A text `input` and the `err` its reading is refused with.
+local record Said
+  input: string
+  err: string
+end
+
+--- A singular query `text` and the `steps` it reads as.
+local record Read
+  text: string
+  steps: Json.Steps
+end
+
 local function steps_text(steps: Json.Steps): string
   local parts: mut {string} = {}
   for _, step in ipairs(steps) do
@@ -48,21 +60,27 @@ local function test_a_pointer_is_read_against_the_value()
   assert(same_steps(assert(Json.from_pointer(DOC, "/nil")), { "nil" }), "a null stand-in is a value")
   local digits = assert(Json.decode('{"2": "two"}'))
   assert(same_steps(assert(Json.from_pointer(digits, "/2")), { "2" }), "a number into an object is a name")
-  local cases: {{string}} = {
-    { "users", 'json: pointer "users": a JSON Pointer is empty or starts with `/`' },
-    { "/users/01", 'json: no value at pointer "/users/01": the value at pointer "/users" is an array, ' ..
-        'and "01" is no index' },
-    { "/users/-", 'json: no value at pointer "/users/-": `-` names the place past the last element' },
-    { "/users/2", 'json: no value at pointer "/users/2"' },
-    { "/users/0/name/x", 'json: no value at pointer "/users/0/name/x": the value at pointer ' ..
-        '"/users/0/name" is string' },
-    { "/a~2", 'json: pointer "/a~2": the `~` at byte 3 is neither `~0` nor `~1`' },
-    { "/a~", 'json: pointer "/a~": the `~` at byte 3 is neither `~0` nor `~1`' },
-    { "/missing", 'json: no value at pointer "/missing"' },
+  local cases: {Said} = {
+    { input = "users", err = 'json: pointer "users": a JSON Pointer is empty or starts with `/`' },
+    {
+      input = "/users/01",
+      err = 'json: no value at pointer "/users/01": the value at pointer "/users" is an array, ' ..
+        'and "01" is no index',
+    },
+    { input = "/users/-", err = 'json: no value at pointer "/users/-": `-` names the place past the last element' },
+    { input = "/users/2", err = 'json: no value at pointer "/users/2"' },
+    {
+      input = "/users/0/name/x",
+      err = 'json: no value at pointer "/users/0/name/x": the value at pointer ' ..
+        '"/users/0/name" is string',
+    },
+    { input = "/a~2", err = 'json: pointer "/a~2": the `~` at byte 3 is neither `~0` nor `~1`' },
+    { input = "/a~", err = 'json: pointer "/a~": the `~` at byte 3 is neither `~0` nor `~1`' },
+    { input = "/missing", err = 'json: no value at pointer "/missing"' },
   }
   for _, case in ipairs(cases) do
-    local _, err = Json.from_pointer(DOC, case[1])
-    assert(err == case[2], case[1] .. ": " .. err)
+    local _, err = Json.from_pointer(DOC, case.input)
+    assert(err == case.err, case.input .. ": " .. err)
   end
   -- `~01` is `~1` read as text, not `/`: `~0` is undone last.
   local tilde = assert(Json.decode('{"~1": 1}'))
@@ -91,24 +109,25 @@ local function test_a_normalized_path_counts_from_0()
 end
 
 local function test_a_singular_query_reads_as_steps()
-  local cases: {{any}} = {
-    { "$", {} },
-    { "$.users[0].name", { "users", 1, "name" } },
-    { "$['users'][1][\"name\"]", { "users", 2, "name" } },
-    { "$.users[-1]", { "users", -1 } },
-    { "$['it\\'s']", { "it's" } },
-    { "$[\"a\\\"b\"]", { 'a"b' } },
-    { "$['\\u00e9\\ud83d\\ude00\\n\\/']", { "\u{e9}\u{1f600}\n/" } },
-    { "$.\u{e9}t\u{e9}", { "\u{e9}t\u{e9}" } },
-    { "$ .a [ 0 ] ['b']", { "a", 1, "b" } },
-    { "$[9007199254740991]", { 9007199254740992 } },
+  local cases: {Read} = {
+    { text = "$", steps = {} },
+    { text = "$.users[0].name", steps = { "users", 1, "name" } },
+    { text = "$['users'][1][\"name\"]", steps = { "users", 2, "name" } },
+    { text = "$.users[-1]", steps = { "users", -1 } },
+    { text = "$['it\\'s']", steps = { "it's" } },
+    { text = "$[\"a\\\"b\"]", steps = { 'a"b' } },
+    { text = "$['\\u00e9\\ud83d\\ude00\\n\\/']", steps = { "\u{e9}\u{1f600}\n/" } },
+    { text = "$.\u{e9}t\u{e9}", steps = { "\u{e9}t\u{e9}" } },
+    { text = "$ .a [ 0 ] ['b']", steps = { "a", 1, "b" } },
+    { text = "$[9007199254740991]", steps = { 9007199254740992 } },
   }
   for _, case in ipairs(cases) do
-    local text, want = case[1] as string, case[2] as Json.Steps
+    local text, want = case.text, case.steps
     local steps, err = Json.from_path(text)
     assert(steps ~= nil and same_steps(steps, want), text .. ": " .. err .. " " .. steps_text(steps or {}))
   end
-  for _, steps in ipairs({ {}, { "users", 1, "name" }, { "it's", "\0", -3 } } as {Json.Steps}) do
+  local normalized: {Json.Steps} = { {}, { "users", 1, "name" }, { "it's", "\0", -3 } }
+  for _, steps in ipairs(normalized) do
     assert(same_steps(assert(Json.from_path((assert(Json.path(steps))))), steps), "a normalized path reads back")
   end
 end
@@ -116,33 +135,33 @@ end
 --- What the subset leaves out, or the RFC's grammar refuses, is refused,
 --- naming the byte.
 local function test_queries_are_read_strictly()
-  local cases: {{string}} = {
-    { "users", "byte 1: a query starts with `$`" },
-    { "$users", "byte 2: a segment starts with `.`, `..` or `[`" },
-    { "$.a ", "byte 4: blank space after the last segment" },
-    { "$. a", "byte 3: after `.` comes a name or `*`" },
-    { "$.1a", "byte 3: after `.` comes a name or `*`" },
-    { "$..", "byte 4: after `..` comes a name, `*` or `[`" },
-    { "$[01]", "byte 3: an index is 0, or has no leading zero and is not -0" },
-    { "$[-0]", "byte 3: an index is 0, or has no leading zero and is not -0" },
-    { "$[-a]", "byte 3: an index is 0, or has no leading zero and is not -0" },
-    { "$[9007199254740992]", "byte 3: an index past 2^53 - 1" },
-    { "$[1:2]", "byte 4: slices (`start:end:step`) are not in the subset cosmic reads" },
-    { "$[:2]", "byte 3: slices (`start:end:step`) are not in the subset cosmic reads" },
-    { "$[?@.a]", "byte 3: filters (`?`) are not in the subset cosmic reads" },
-    { "$[0, 1]", "byte 4: unions (`[a, b]`) are not in the subset cosmic reads" },
-    { "$['a'", "byte 6: expected `]`" },
-    { "$['a]", "byte 3: a string the query ends inside" },
-    { "$['\\q']", "byte 4: `\\q` is no escape a JSONPath string has" },
-    { "$['\\ud83d']", "byte 4: a high surrogate with no low one after it" },
-    { "$['\\ude00']", "byte 4: a low surrogate with no high one before it" },
-    { "$['a\nb']", "byte 5: a control character in a string, which must be escaped" },
-    { "$[a]", "byte 3: a selector is a name in quotes, an index or `*`" },
-    { "$['\xff']", "byte 4: a byte that is not UTF-8" },
+  local cases: {Said} = {
+    { input = "users", err = "byte 1: a query starts with `$`" },
+    { input = "$users", err = "byte 2: a segment starts with `.`, `..` or `[`" },
+    { input = "$.a ", err = "byte 4: blank space after the last segment" },
+    { input = "$. a", err = "byte 3: after `.` comes a name or `*`" },
+    { input = "$.1a", err = "byte 3: after `.` comes a name or `*`" },
+    { input = "$..", err = "byte 4: after `..` comes a name, `*` or `[`" },
+    { input = "$[01]", err = "byte 3: an index is 0, or has no leading zero and is not -0" },
+    { input = "$[-0]", err = "byte 3: an index is 0, or has no leading zero and is not -0" },
+    { input = "$[-a]", err = "byte 3: an index is 0, or has no leading zero and is not -0" },
+    { input = "$[9007199254740992]", err = "byte 3: an index past 2^53 - 1" },
+    { input = "$[1:2]", err = "byte 4: slices (`start:end:step`) are not in the subset cosmic reads" },
+    { input = "$[:2]", err = "byte 3: slices (`start:end:step`) are not in the subset cosmic reads" },
+    { input = "$[?@.a]", err = "byte 3: filters (`?`) are not in the subset cosmic reads" },
+    { input = "$[0, 1]", err = "byte 4: unions (`[a, b]`) are not in the subset cosmic reads" },
+    { input = "$['a'", err = "byte 6: expected `]`" },
+    { input = "$['a]", err = "byte 3: a string the query ends inside" },
+    { input = "$['\\q']", err = "byte 4: `\\q` is no escape a JSONPath string has" },
+    { input = "$['\\ud83d']", err = "byte 4: a high surrogate with no low one after it" },
+    { input = "$['\\ude00']", err = "byte 4: a low surrogate with no high one before it" },
+    { input = "$['a\nb']", err = "byte 5: a control character in a string, which must be escaped" },
+    { input = "$[a]", err = "byte 3: a selector is a name in quotes, an index or `*`" },
+    { input = "$['\xff']", err = "byte 4: a byte that is not UTF-8" },
   }
   for _, case in ipairs(cases) do
-    local q, err = Json.query(case[1])
-    assert(q == nil and err == "json: JSONPath " .. case[2], ("%q: %s"):format(case[1], err))
+    local q, err = Json.query(case.input)
+    assert(q == nil and err == "json: JSONPath " .. case.err, ("%q: %s"):format(case.input, err))
   end
   local _, many = Json.from_path("$..a")
   assert(many == 'json: JSONPath "$..a" selects many values (segment 1): read it with Json.query', many)
