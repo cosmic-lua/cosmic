@@ -401,4 +401,6 @@ local function test_a_todo_comment_is_no_module_documentation()
   assert(module_text(lines("-- TODO: make this greet in Klingon too", "", "local x = 1", "return x")) == nil)
   assert(module_text(lines("-- TODO: make this greet", "-- in Klingon too", "", "local x = 1", "return x")) == nil)
   assert(module_text(lines("-- Greets.", "--", "-- TODO: Klingon,", "-- too.", "local x = 1", "return x")) == "Greets.\n")
+  assert(module_text(lines("-- Doc.", "--", "-- TODO: later", "--", "-- More doc.", "local x = 1", "return x")) == "Doc.\n\nMore doc.")
+  assert(module_text(lines("--- Doc.", "--- TODO: later", "local x = 1", "return x")) == "Doc.")
 end
