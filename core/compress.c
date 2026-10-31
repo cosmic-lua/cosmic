@@ -491,6 +491,9 @@ static int gzip_step (struct stream *s, const unsigned char *p, size_t n,
 /* ---- bzip2 and xz ---- */
 
 /* The most output one library call is offered at a time. */
+/* TODO: an update reserves a whole slice in its buffer however little it
+ * gives, so a stream of one-byte updates spends ~80 us on each, in every
+ * codec; waits on someone needing small updates to be cheap. */
 #define CODEC_SLICE ((size_t)1 << 16)
 
 static int bz2_step (struct stream *s, const unsigned char *p, size_t n,

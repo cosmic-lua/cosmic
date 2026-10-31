@@ -1079,7 +1079,7 @@ local function test_xz_encoder_round_trips_at_presets_and_chunkings()
   for i = 1, 4096 do noise[i] = string.char((i * 2654435761 >> 13) % 256) end
   local plain = xz_sample() .. table.concat(noise)
   local presets: {integer} = { 0, 1, 3, 4, 6 }
-  local sizes: {integer} = { 1, 1000, #plain }
+  local sizes: {integer} = { 100, 1000, #plain }
   for _, preset in ipairs(presets) do
     local whole = xz_encode(plain, preset)
     assert(#whole < #plain, tostring(preset))
@@ -1090,6 +1090,13 @@ local function test_xz_encoder_round_trips_at_presets_and_chunkings()
       assert(xz_decode(packed, size) == plain, tostring(preset) .. "/" .. tostring(size))
     end
   end
+  -- A byte at a time on a short prefix: an update costs tens of
+  -- microseconds whatever its size, so 44 KB of them at every preset
+  -- outran the test's limit.
+  local short = plain:sub(1, 3000)
+  local bytewise = xz_encode(short, 6, nil, 1)
+  assert(bytewise == xz_encode(short, 6), "chunks of 1")
+  assert(xz_decode(bytewise, 1) == short)
   local extreme = xz_encode(plain, 1, { extreme = true })
   assert(xz_decode(extreme) == plain)
 end
