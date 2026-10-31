@@ -2244,8 +2244,9 @@ local function say_violations(rec: Recording)
     plural.count(total, "violation"), distinct, plural.count(places, "place"),
     rec.violations_dropped > 0 and string.format("; %s more went unrecorded",
       plural.count(rec.violations_dropped, "kind")) or ""))
-  log:say(string.format("test: run-time types: %d fact wraps and %d parameter checks written in the compile; " ..
-      "%s stood on checked verdicts", rec.fact_wraps, rec.parameter_checks, plural.count(rec.tally.cached, "test")))
+  log:say(string.format("test: run-time types: %s and %s written in the compile; %s stood on checked verdicts",
+    plural.count(rec.fact_wraps, "fact wrap"), plural.count(rec.parameter_checks, "parameter check"),
+    plural.count(rec.tally.cached, "test")))
   local tests, seconds = 0, 0
   for id, _ in pairs(rec.violators) do
     tests = tests + 1

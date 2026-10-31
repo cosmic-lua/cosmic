@@ -588,7 +588,8 @@ local function hook(_: integer, text: string, ...: any): any...
         check = checks[text]
       else
         malformed[text] = true
-        note_unreadable("a check spec", text)
+        -- "-" is the spec of a boundary the declared types leave nothing to check at, not a spec gone wrong.
+        if text ~= "-" then note_unreadable("a check spec", text) end
       end
     end
     -- A spec that does not parse checks nothing and is no failure of the

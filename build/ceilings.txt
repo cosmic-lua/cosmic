@@ -5137,7 +5137,7 @@ build/sandbox.tl and_ternary 3
 
 build/sandbox_connect.tl and_ternary 3
 
-build/shared_compiles.tl and_ternary 4
+build/shared_compiles.tl and_ternary 3
 
 build/shared_sqlite.tl and_ternary 1
 

@@ -96,6 +96,7 @@ local allowed: mut {string: string} = {}
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
+allowed["build.shared_verdicts.rows_kept"] = "the bound a file of a checked run's verdicts keeps, which the file's name decides; the settle of the same module applies it, and a test holds the names to it"
 allowed["build.memprobe.enabled"] = "the switch `COSMIC_MEMPROBE` sets for a run, which a test turns on to read the line a mark writes"
 
 allowed["build.type_watch.skip_reason"] = "the reason `during` skips with, which a test reads for a checked and a plain run " ..
@@ -174,7 +175,7 @@ for _, name in ipairs({ "plan", "name_servers", "upstream_addresses", "resolved_
   allowed["cosmic.internal.relay_start." .. name] = "tested directly: a step of `handover` and " ..
     "`direct_handover`, which are composed from it, each tested over fixtures of its own"
 end
-for _, name in ipairs({ "install_checks", "dropped_violations", "most_kept", "fact", "cross" }) do
+for _, name in ipairs({ "dropped_violations", "most_kept", "fact", "cross" }) do
   allowed["build.test_worker." .. name] = "the seam that lets a test run the hook a checked run's Lua calls " ..
     "in its own process, over Lua it compiled with the checks, and read what the hook met; " ..
     "`run` calls them for a worker"
@@ -1015,7 +1016,7 @@ local requirers: {string: Restriction} = {
   ["cosmic.internal.globals"] = {
     files = { "build.fuzz", "build.load_module",
       "build.sandbox", "build.sealed_worker_test", "build.standalone",
-      "build.test_closure_diagnostic_test", "build.test_closure_test", "build.type_watch", "core.load_env_test", "core.surface_test",
+      "build.test_closure_diagnostic_test", "build.test_closure_test", "build.test_worker_test", "build.type_watch", "core.load_env_test", "core.surface_test",
       "cosmic.coverage_test", "cosmic.flags_test", "test.coverage_cache_test" },
     why = "only the modules that run a program or a hook as a chunk of Lua text take the globals whole, as its " ..
       "environment: it holds `require`, which a chunk loads modules the build does not see by; any other module " ..

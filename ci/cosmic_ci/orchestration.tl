@@ -1714,10 +1714,11 @@ local function phase_checked_narrowing(p: PlatformContext): integer
   end
   -- Nor was one whose compile wrote no check, however many of its tests stood: the line counts what the compile
   -- wrote (cache hits included), not what the workers met.
-  local wraps, checks = text:match("test: run%-time types: (%d+) fact wraps and (%d+) parameter checks written")
+  local wraps, checks = text:match("test: run%-time types: (%d+) fact wraps? and (%d+) parameter checks? written")
   if status == 0 and (wraps == nil or wraps == "0" or checks == "0") then
-    local _, _ = Fs.put(Fs.stderr, "checked narrowing: the compile wrote " .. tostring(wraps) .. " fact wraps and " ..
-        tostring(checks) .. " parameter checks, so the run carried none\n")
+    local _, _ = Fs.put(Fs.stderr, "checked narrowing: the compile wrote " ..
+        Plural.count(math.tointeger(tonumber(wraps or "0")) or 0, "fact wrap") .. " and " ..
+        Plural.count(math.tointeger(tonumber(checks or "0")) or 0, "parameter check") .. ", so the run carried none\n")
     return 1
   end
   return status
