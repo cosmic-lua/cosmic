@@ -420,3 +420,14 @@ local function test_the_binding_line_is_no_documentation()
   assert(module_text(lines("--- A table, @kind binding in prose.", "local x = 1", "return x")) ==
       "A table, @kind binding in prose.")
 end
+
+--- The line that opens a module to every importer is for the build too: no doc text shows it.
+local function test_the_public_line_is_no_documentation()
+  for _, entry in ipairs(analyzed(lines("--- A parser.", "--- @public", "local x = 1", "return x")).docs) do
+    if entry.kind == "module" then
+      assert(entry.text == "A parser.", entry.text)
+      return
+    end
+  end
+  error("the module has no doc")
+end

@@ -104,6 +104,7 @@ local record protocol
     positionEncoding: string
     textDocumentSync: SyncOptions
     hoverProvider: boolean
+    definitionProvider: boolean
     documentFormattingProvider?: boolean
   end
 
@@ -134,6 +135,12 @@ local record protocol
 
   record Hover
     contents: MarkupContent
+  end
+
+  --- A place in a document: where a definition is.
+  record Location
+    uri: string
+    range: Range
   end
 
   record TextEdit
@@ -342,6 +349,13 @@ function protocol.path_of(uri: string): string?
   if rest == nil then return nil end
   local path, _ = Url.unescape(rest)
   return path
+end
+
+--- The `file:` URI of the absolute path `path`, each segment percent-escaped.
+function protocol.uri_of(path: string): string
+  local out: mut {string} = {}
+  for segment in path:gmatch("[^/]+") do out[#out + 1] = Url.escape(segment) end
+  return "file:///" .. table.concat(out, "/")
 end
 
 --- The segments of the absolute path `path`, the first as many of them
