@@ -38,10 +38,11 @@ local record Archive
   --- declared in [`cosmic.stream`] for the reason [`Entry`] is.
   type Writer = Stream.ArchiveWriter
 
-  --- What [`Archive.create`] writes: a tar compressed with gzip or
-  --- zstd, a plain tar, or a zip.
+  --- What [`Archive.create`] writes: a tar compressed with gzip,
+  --- bzip2 or zstd, a plain tar, or a zip.
   enum Format
     "tar.gz"
+    "tar.bz2"
     "tar.zst"
     "tar"
     "zip"
@@ -279,31 +280,30 @@ end
 
 --- The format [`Archive.create`] would write at `path`, from the
 --- suffix the name ends in, whatever its case: `.tar.gz` or `.tgz`,
---- `.tar.zst` or `.tzst`, `.tar`, `.zip`. Any other name is nil and why, naming the suffixes
---- it knows. Nothing is read or created, so a caller can refuse a name
---- before doing work for it.
+--- `.tar.bz2`, `.tbz2` or `.tbz`, `.tar.zst` or `.tzst`, `.tar`, `.zip`.
+--- Any other name is nil and why, naming the suffixes it knows. Nothing
+--- is read or created, so a caller can refuse a name before doing work
+--- for it.
 function Archive.format_of(path: string): Archive.Format?, string
   local lower = path:lower()
   if lower:match("%.zip$") then return "zip", "" end
   if lower:match("%.tar%.gz$") or lower:match("%.tgz$") then return "tar.gz", "" end
   if lower:match("%.tar%.zst$") or lower:match("%.tzst$") then return "tar.zst", "" end
   if lower:match("%.tar$") then return "tar", "" end
+  if lower:match("%.tar%.bz2$") or lower:match("%.tbz2?$") then return "tar.bz2", "" end
   -- TODO: once cosmic.compress carries an xz encoder (it has only
-  -- `xz_decoder`), write `.tar.xz` here, and `.tar.bz2` likewise once
-  -- it carries a bzip2 encoder (it has only `bz2_decoder`).
+  -- `xz_decoder`), write `.tar.xz` here.
   if lower:match("%.tar%.xz$") or lower:match("%.txz$") then
-    return refuse(path .. ": cannot write .tar.xz, there is no xz encoder; use .tar.gz, .tgz, .tar.zst, .tzst, .tar or .zip")
+    return refuse(path .. ": cannot write .tar.xz, there is no xz encoder; use .tar.gz, .tgz, .tar.bz2, .tbz2, .tar.zst, .tzst, .tar or .zip")
   end
-  if lower:match("%.tar%.bz2$") or lower:match("%.tbz2?$") then
-    return refuse(path .. ": cannot write .tar.bz2, there is no bzip2 encoder; use .tar.gz, .tgz, .tar.zst, .tzst, .tar or .zip")
-  end
-  return refuse(path .. ": cannot tell the format from the name; end it in .tar.gz, .tgz, .tar.zst, .tzst, .tar or .zip")
+  return refuse(path .. ": cannot tell the format from the name; end it in .tar.gz, .tgz, .tar.bz2, .tbz2, .tar.zst, .tzst, .tar or .zip")
 end
 
 --- A writer of a new archive at `path`, of the format its name ends
 --- in, whatever its case: `.tar.gz` or `.tgz` (a tar compressed with
---- gzip), `.tar.zst` or `.tzst` (with zstd, at its default level), `.tar`
---- or `.zip`. The inverse of [`Archive.open`], which
+--- gzip), `.tar.bz2`, `.tbz2` or `.tbz` (with bzip2, at the `bzip2`
+--- command's block size), `.tar.zst` or `.tzst` (with zstd, at its
+--- default level), `.tar` or `.zip`. The inverse of [`Archive.open`], which
 --- reads any of them back. The bytes go to a temporary neighbor, as
 --- [`Stream.create`] writes, so `path` holds nothing until `close`
 --- succeeds, and then the whole archive; a failed call or `abort`
@@ -321,6 +321,10 @@ function Archive.create(path: string, opts?: Archive.CreateOptions): Archive.Wri
   if format == "tar.gz" then
     local ctrouble: string
     codec, ctrouble = Compress.deflater("gzip")
+    if codec == nil then return refuse(path .. ": " .. ctrouble) end
+  elseif format == "tar.bz2" then
+    local ctrouble: string
+    codec, ctrouble = Compress.bz2_encoder()
     if codec == nil then return refuse(path .. ": " .. ctrouble) end
   elseif format == "tar.zst" then
     local ctrouble: string

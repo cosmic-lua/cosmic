@@ -629,16 +629,14 @@ local function test_reproducible_packs_the_same_bytes_whatever_the_times(tmp: st
   end
 end
 
-local function test_create_refuses_xz_bzip2_and_what_it_cannot_name(tmp: string)
+local function test_create_refuses_xz_and_what_it_cannot_name(tmp: string)
   local src = make_tree(tmp)
   local xz = in_dir(src, { "create", tmp .. "/x.tar.xz", "loose.txt" })
   assert(xz.code == 2 and xz.out == "", xz.out)
   assert(xz.err:find("no xz encoder", 1, true), xz.err)
   assert(Fs.exists(tmp .. "/x.tar.xz") ~= true)
-  local bz = in_dir(src, { "create", tmp .. "/x.tar.bz2", "loose.txt" })
-  assert(bz.code == 2 and bz.err:find("no bzip2 encoder", 1, true) ~= nil, bz.err)
   local unknown = in_dir(src, { "create", tmp .. "/x.data", "loose.txt" })
-  assert(unknown.code == 2 and unknown.err:find("end it in .tar.gz, .tgz, .tar.zst, .tzst, .tar or .zip", 1, true) ~= nil, unknown.err)
+  assert(unknown.code == 2 and unknown.err:find("end it in .tar.gz, .tgz, .tar.bz2, .tbz2, .tar.zst, .tzst, .tar or .zip", 1, true) ~= nil, unknown.err)
 end
 
 local function test_create_refuses_the_name_before_it_reads_the_paths(tmp: string)
@@ -653,6 +651,15 @@ local function test_create_writes_a_zstd_tar(tmp: string)
   assert(ran.code == 0 and ran.err == "", ran.err)
   assert(assert(Fs.read(tmp .. "/x.tar.zst")):sub(1, 4) == "\40\181\47\253")
   local listed = run({ "list", tmp .. "/x.tar.zst" })
+  assert(listed.code == 0 and listed.out:find("loose.txt\t5\t", 1, true) ~= nil, listed.out .. listed.err)
+end
+
+local function test_create_writes_a_bzip2_tar(tmp: string)
+  local src = make_tree(tmp)
+  local ran = in_dir(src, { "create", tmp .. "/x.tar.bz2", "loose.txt" })
+  assert(ran.code == 0 and ran.err == "", ran.err)
+  assert(assert(Fs.read(tmp .. "/x.tar.bz2")):sub(1, 4) == "BZh9")
+  local listed = run({ "list", tmp .. "/x.tar.bz2" })
   assert(listed.code == 0 and listed.out:find("loose.txt\t5\t", 1, true) ~= nil, listed.out .. listed.err)
 end
 

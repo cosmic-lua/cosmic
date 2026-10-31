@@ -1,7 +1,7 @@
 --- Compression and expansion: one-shot deflate and inflate in the raw,
 --- zlib and gzip framings, streaming encoders and decoders for the same
---- three and for zstd, and streaming decoders (no encoders) for xz and
---- bzip2.
+--- three, for zstd and for bzip2, and a streaming decoder (no encoder)
+--- for xz.
 
 -- The raw module behind the streaming codecs lives under the reserved
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why it is off
@@ -162,6 +162,17 @@ end
 --- output for the same input and level is the same from run to run.
 function Compress.zstd_encoder(level?: integer): Compress.Stream?, string
   return raw.zstd_encoder(level)
+end
+
+--- A streaming bzip2 encoder: `level` is the block size in units of
+--- 100 kB, 1 to 9 (default 9, the `bzip2` command's); raises on a level
+--- out of range. It writes one stream, byte for byte what `bzip2 -c
+--- -<level>` writes for the same input however the input is split, and
+--- an encoder given nothing writes the 14 bytes of an empty stream.
+--- It holds about 400 kB plus eight times the block size (3.7 MB at
+--- level 9) until it finishes.
+function Compress.bz2_encoder(level?: integer): Compress.Stream?, string
+  return raw.bz2_encoder(level)
 end
 
 return Compress

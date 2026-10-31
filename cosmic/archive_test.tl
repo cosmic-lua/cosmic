@@ -1199,6 +1199,7 @@ local function sniffed(path: string): string
   if head:sub(1, 2) == "PK" then return "zip" end
   if head:sub(1, 2) == "\31\139" then return "gzip" end
   if head:sub(1, 4) == "\40\181\47\253" then return "zstd" end
+  if head:sub(1, 3) == "BZh" then return "bzip2" end
   if head:sub(258, 262) == "ustar" then return "tar" end
   return "unknown"
 end
@@ -1207,8 +1208,9 @@ local function test_create_writes_the_format_its_name_asks_for_and_open_reads_it
   local named: {string:string} = {
     ["a.tar"] = "tar", ["a.tar.gz"] = "gzip", ["A.TGZ"] = "gzip", ["a.zip"] = "zip", ["A.Zip"] = "zip",
     ["a.tar.zst"] = "zstd", ["A.TZST"] = "zstd",
+    ["a.tar.bz2"] = "bzip2", ["A.TBZ2"] = "bzip2", ["a.tbz"] = "bzip2",
   }
-  local formats: {string:string} = { gzip = "tar.gz", zstd = "tar.zst" }
+  local formats: {string:string} = { gzip = "tar.gz", zstd = "tar.zst", bzip2 = "tar.bz2" }
   for name, format in pairs(named) do
     local path = tmp .. "/" .. name
     assert(Archive.format_of(path) == (formats[format] or format), name)
@@ -1234,7 +1236,7 @@ local function test_create_writes_the_format_its_name_asks_for_and_open_reads_it
 end
 
 local function test_create_writes_nothing_at_the_path_until_close(tmp: string)
-  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.tar.zst", "a.zip" }) do
+  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.tar.bz2", "a.tar.zst", "a.zip" }) do
     local path = tmp .. "/" .. name
     local w = assert(Archive.create(path))
     assert(w:add_file("x", "y"))
@@ -1247,7 +1249,7 @@ end
 local function test_create_aborted_leaves_nothing_behind(tmp: string)
   local dir = tmp .. "/out"
   assert(Fs.mkdirs(dir))
-  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.tar.zst", "a.zip" }) do
+  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.tar.bz2", "a.tar.zst", "a.zip" }) do
     local w = assert(Archive.create(dir .. "/" .. name))
     assert(w:add_file("x", "y"))
     assert(w:abort())
@@ -1257,7 +1259,7 @@ local function test_create_aborted_leaves_nothing_behind(tmp: string)
 end
 
 local function test_create_deterministic_writes_the_same_bytes_whatever_the_times(tmp: string)
-  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.tar.zst", "a.zip" }) do
+  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.tar.bz2", "a.tar.zst", "a.zip" }) do
     for i, mtime in ipairs({ 1700000000, 1234567890 }) do
       local w = assert(Archive.create(tmp .. "/" .. tostring(i) .. name, { deterministic = true }))
       assert(w:add_file("x", "y", { mtime = mtime }))
@@ -1271,10 +1273,9 @@ local function test_create_refuses_a_name_it_cannot_write_and_creates_nothing(tm
   local dir = tmp .. "/out"
   assert(Fs.mkdirs(dir))
   local cases: {string:string} = {
-    ["a.data"] = "end it in .tar.gz, .tgz, .tar.zst, .tzst, .tar or .zip",
-    ["a"] = "end it in .tar.gz, .tgz, .tar.zst, .tzst, .tar or .zip",
+    ["a.data"] = "end it in .tar.gz, .tgz, .tar.bz2, .tbz2, .tar.zst, .tzst, .tar or .zip",
+    ["a"] = "end it in .tar.gz, .tgz, .tar.bz2, .tbz2, .tar.zst, .tzst, .tar or .zip",
     ["a.tar.xz"] = "no xz encoder",
-    ["a.tbz2"] = "no bzip2 encoder",
   }
   for name, says in pairs(cases) do
     local format, format_why = Archive.format_of(name)
