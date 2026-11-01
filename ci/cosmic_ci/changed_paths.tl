@@ -22,12 +22,12 @@
 --- replaces with git's recorded answers (testdata/changed_paths, made
 --- again by its record.sh).
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Github = require("cosmic_ci.github")
 local Plural = require("cosmic_ci.plural")
 local Proc = require("cosmic.proc")
-local Clock = require("cosmic.clock")
 local StepEnv = require("cosmic_ci.step_env")
 
 local record ChangedPaths

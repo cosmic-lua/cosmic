@@ -67,8 +67,8 @@ local Fs = require("cosmic.fs")
 local Github = require("cosmic_ci.github")
 local Plural = require("cosmic_ci.plural")
 local Shape = require("cosmic.shape")
-local Time = require("cosmic.time")
 local StepEnv = require("cosmic_ci.step_env")
+local Time = require("cosmic.time")
 
 local record CommitVerdicts
   merge_base: function(env: {string:string}, host: Github.Host): integer

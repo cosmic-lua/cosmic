@@ -66,12 +66,11 @@ local function compare_file_prefixes(left: string, right: string,
     "compared file prefixes differ")
 end
 
--- Require one or more digits followed only by optional newlines.
 -- Counts the cores a cache holds: the plain files directly inside
 -- `directory`, its public entries. A name beginning with "." is the
 -- launcher's or startup's own (a verified stamp, a repair lock). The
--- portable cache is assumed flat, as launcher_test.tl's `only_core` and
--- `no_private_entries` assume of a cache directory.
+-- portable cache is assumed flat, as [`LauncherFixture.only_core`] and
+-- [`LauncherFixture.no_private_entries`] assume of a cache directory.
 local function count_cache_files(directory: string): integer
   local count = 0
   for _, name in ipairs((assert(Fs.list(directory)))) do

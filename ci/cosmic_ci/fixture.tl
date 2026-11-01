@@ -194,7 +194,10 @@ function Fixture.copy_tree(label: string, from: string, to: string)
   assert(copied, label .. ": " .. trouble)
 end
 
---- The prefix length the runtime fixture in `fixture_dir` recorded.
+--- The prefix length the runtime fixture in `fixture_dir` recorded. It
+--- rejects the whole value if it is anything but digits (and trailing
+--- newlines): a loose `%d+` search would silently accept and truncate a
+--- malformed value, such as one with extra trailing text.
 function Fixture.read_prefix_length(fixture_dir: string): integer
   local text = Fixture.read(fixture_dir .. "/runtime.old.prefix-length")
   local digits = text:match("^(%d+)\n*$")

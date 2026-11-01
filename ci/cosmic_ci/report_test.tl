@@ -7,8 +7,8 @@ local GithubApi = require("cosmic_ci.github_api")
 local Report = require("cosmic_ci.report")
 local State = require("cosmic_ci.state")
 local Stream = require("cosmic.stream")
-local Zip = require("cosmic.zip")
 local TestSupport = require("cosmic_ci.test_support")
+local Zip = require("cosmic.zip")
 
 local repository <const> = "owner/repo"
 

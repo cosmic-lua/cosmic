@@ -278,9 +278,6 @@ local function apply_docs_marker_edit(tree: string)
   Fixture.write(path, table.concat(lines, "\n") .. "\n")
 end
 
--- Rejects the whole value if it is anything but digits: a loose `%d+` search
--- would instead silently accept and truncate a malformed value (e.g. extra
--- trailing text).
 local function cache_entries(cache: string): integer
   local count = 0
   for _, name in ipairs((assert(Fs.list(cache)))) do

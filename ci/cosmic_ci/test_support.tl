@@ -1,4 +1,4 @@
---- Helpers the tests of `cosmic_ci` share. Test support.
+--- Helpers the tests of `cosmic_ci` share.
 local record TestSupport
 end
 
