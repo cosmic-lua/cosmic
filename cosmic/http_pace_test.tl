@@ -188,10 +188,6 @@ local function test_pacer_refuses_a_negative_interval()
   assert(err:find("http_pace_test:", 1, true) ~= nil, err)
 end
 
--- TODO: test a `pace` of a wrong Lua type (a string, a number) and a
--- fractional [`Http.pacer`] interval once a test may hold a mistyped value
--- without a cast, which build/ceilings.txt forbids adding: only a
--- class of the right shape, not made by Http.pacer, is built here.
 local class Fake is Http.Pacer
   interval_ns: integer
 end
@@ -214,6 +210,56 @@ local function test_a_pace_that_is_no_pacer_raises_naming_the_option(tmp: string
     local err = raised(entry)
     assert(err:find("http: opts.pace must be made by Http.pacer", 1, true) ~= nil, name .. ": " .. err)
     assert(err:find("http_pace_test:", 1, true) ~= nil, name .. ": " .. err)
+  end
+  assert(Fs.stat(tmp .. "/never") == nil)
+end
+
+--- The message of the raise that calling `entry` with `literal`, Lua source,
+--- ends in. `load` reads the source as plain Lua, which the checker does not
+--- type, so `entry` is handed a value of a Lua type its parameter does not
+--- declare, with no cast. `entry` is a function of this file, so the raise
+--- is blamed on it, the caller.
+local function raised_with(literal: string, entry: any): string
+  local chunk = assert(load("local entry = ...\nlocal ok, err = pcall(entry, " .. literal ..
+      ")\nif ok then return \"no raise\" end\nreturn tostring(err)", "=mistyped"))
+  local said = chunk(entry)
+  assert(said is string, "the chunk answered no string")
+  return said
+end
+
+--- [`Http.pacer`] refuses a fractional interval, naming `interval_ns`.
+local function test_pacer_refuses_a_fractional_interval()
+  local err = raised_with("1.5", function(interval: integer) local _ = Http.pacer(interval) end)
+  assert(err:find("http: pacer interval_ns must be an integer of at least 0", 1, true) ~= nil, err)
+  assert(err:find("http_pace_test:", 1, true) ~= nil, err)
+end
+
+--- A `pace` of the wrong Lua type (a string, a number, a boolean) raises
+--- naming the option, from each entry point.
+local function test_a_pace_of_the_wrong_lua_type_raises_naming_the_option(tmp: string)
+  for _, literal in ipairs({ '"x"', "5", "1.5", "true" }) do
+    local entries: {string:function(Http.Pacer)} = {
+      open = function(pace: Http.Pacer)
+        local _ = Http.open(url, { pace = pace, script = ok_script() })
+      end,
+      get = function(pace: Http.Pacer)
+        local _ = Http.get(url, { pace = pace, script = ok_script() })
+      end,
+      request = function(pace: Http.Pacer)
+        local _ = Http.request("PUT", url, { pace = pace, script = ok_script() })
+      end,
+      download = function(pace: Http.Pacer)
+        local _ = Http.download(url, tmp .. "/never", { pace = pace, script = ok_script() })
+      end,
+      download_result = function(pace: Http.Pacer)
+        local _ = Http.download_result(url, tmp .. "/never", { pace = pace, script = ok_script() })
+      end,
+    }
+    for name, entry in pairs(entries) do
+      local err = raised_with(literal, entry)
+      assert(err:find("http: opts.pace must be made by Http.pacer", 1, true) ~= nil, name .. " " .. literal .. ": " .. err)
+      assert(err:find("http_pace_test:", 1, true) ~= nil, name .. " " .. literal .. ": " .. err)
+    end
   end
   assert(Fs.stat(tmp .. "/never") == nil)
 end
