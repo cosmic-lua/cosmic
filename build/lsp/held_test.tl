@@ -412,6 +412,32 @@ local function test_a_docs_database_written_in_place_checks_the_document_again()
   assert(writer:close())
 end
 
+--- Guards against a docs database committed to while a check reads it being recorded as already read: the next ask checks again.
+local function test_a_docs_database_written_during_a_check_checks_the_document_again()
+  local root = helped()
+  local path = root .. "/docs.db"
+  local writer = assert(Sqlite.open(path, { writable = true }))
+  for _, statement in ipairs(schema.create("")) do assert(writer:exec(statement)) end
+  documented(writer, "cosmic.fs", "Fs.read")
+  local reader = assert(Sqlite.open(path))
+  local asked = 0
+  local checker = check.new(root, function(_line: string) end, function(): check.Hinted
+    asked = asked + 1
+    -- The first ask is the key read before the check, the second the check's own lookup.
+    if asked == 2 then documented(writer, "cosmic.json", "Json.read") end
+    return { databases = { reader }, public = { false } }
+  end)
+  local main = document_of(root, "main.tl", "print(read)\n")
+  check.opened(checker, main)
+  assert(#check.diagnose(checker, main, "utf-16") == 1)
+  assert(checker.ran["main.tl"] == 1, tostring(checker.ran["main.tl"]))
+  local found = check.diagnose(checker, main, "utf-16")
+  assert(checker.ran["main.tl"] == 2, tostring(checker.ran["main.tl"]))
+  assert(assert(found[1]):find("Json.read", 1, true) ~= nil, assert(found[1]))
+  assert(reader:close())
+  assert(writer:close())
+end
+
 --- Guards against a session holding the whole program of every document it has open: the documents asked of least recently
 --- drop their results, are checked again when asked of, and publish what they published while nothing they read moved.
 local function test_only_the_documents_asked_of_last_keep_their_results()

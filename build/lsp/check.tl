@@ -658,11 +658,14 @@ local function digest_of(checker: Checker, names: {string}): string
   return Hash.hex_sha256(table.concat(keys, "\1"))
 end
 
---- What the check of `document` just made was of.
-local function basis_of(checker: Checker, document: Document): Basis
+--- What the check of `document` just made was of. `hints` is the hints key ([`hints_key`]) read before the check: a docs
+--- database committed to during the check is then seen as moved by the next ask, not recorded as already read.
+--- TODO: read `reads` and `digest` before the check as well, once the requires a check finds can be known before it runs:
+--- a module's file written between the check's read and this call is recorded as already seen.
+local function basis_of(checker: Checker, document: Document, hints: string): Basis
   local reads = reads_of(checker, document)
   return { text = document.text, epoch = checker.epoch, listing = listing_of(checker, document),
-    hints = hints_key(checker), reads = reads, digest = digest_of(checker, reads) }
+    hints = hints, reads = reads, digest = digest_of(checker, reads) }
 end
 
 --- Whether a check of `document` that was of `basis` would find what it found: nothing it was of moved.
@@ -684,9 +687,10 @@ local function checked_now(checker: Checker, document: Document): Checked
     return kept.checked
   end
   checker.ran[document.name] = (checker.ran[document.name] or 0) + 1
+  local hints = hints_key(checker)
   local checked = checked_of(checker, document)
   -- The basis after the check, which may move the epoch (`remember`, [`program_of`]): the next ask is of the same program.
-  document.kept = { basis = basis_of(checker, document), checked = checked }
+  document.kept = { basis = basis_of(checker, document, hints), checked = checked }
   if checked.outcome ~= nil and not checked.generated then document.parsed = document.kept end
   bounded(checker, document)
   return checked
