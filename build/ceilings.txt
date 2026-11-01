@@ -1161,7 +1161,7 @@ lang/check_generics_test.tl nil_not_allowed 24
 
 lang/check_test.tl nil_not_allowed 26
 
-lang/codegen.tl nil_not_allowed 20
+lang/codegen.tl nil_not_allowed 19
 
 lang/codegen_fuzz_test.tl nil_not_allowed 12
 
