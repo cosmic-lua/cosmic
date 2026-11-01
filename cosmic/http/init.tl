@@ -171,7 +171,10 @@ local record Http
   --- request waits the longer of the two, not their sum. A request
   --- that fails to connect still counts as a start. Each call and each
   --- retry attempt is paced, not each redirect hop followed inside one
-  --- open. The same entry points as `retry` pace. The wait ends as a
+  --- open (curl follows them there). A caller who needs every hop paced
+  --- passes `follow = false` and follows `Location` itself, as the
+  --- [pacing guide](../../doc/guides/http-pacing.md#every-redirect-hop)
+  --- shows. The same entry points as `retry` pace. The wait ends as a
   --- retry's does: the call fails with "interrupted" when the innermost open
   --- [`Signal.guard`] catches SIGINT or SIGTERM during it, or `cancelled`
   --- answers true before or during it.
@@ -240,9 +243,6 @@ local record Http
     --- any status is returned at once.
     retry?: Retry
     --- The pacer that spaces requests out: see above. None by default.
-    -- TODO: pace each redirect hop once cosmic.internal.http's `open`
-    -- hands the redirects it follows to this module, which now cannot wait
-    -- between them: curl follows them inside one open.
     pace?: Pacer
     --- The CA roots to trust: "minimal", "mozilla", "none", or a list of
     --- the SHA-256 digests of roots this binary carries; when nil,
@@ -969,10 +969,13 @@ end
 --- `Http.get(base .. id, { pace = api, retry = { attempts = 3 } })`.
 ---
 --- A call and each of its retry attempts is one request to a pacer; the
---- redirect hops followed inside one open are not paced. A request that
---- fails to connect still counts as a start, since the attempt loads the
---- API. The first request through a pacer does not wait. Raises, naming
---- `interval_ns`, for one that is not an integer of at least 0.
+--- redirect hops followed inside one open are not paced; to pace each,
+--- pass `follow = false` and follow `Location` by hand
+--- ([guide](../../doc/guides/http-pacing.md#every-redirect-hop)). A
+--- request that fails to connect still counts as a start, since the
+--- attempt loads the API. The first request through a pacer does not
+--- wait. Raises, naming `interval_ns`, for one that is not an integer of
+--- at least 0.
 function Http.pacer(interval_ns: integer): Http.Pacer
   if math.type(interval_ns) ~= "integer" or interval_ns < 0 then
     error("http: pacer interval_ns must be an integer of at least 0", 2)

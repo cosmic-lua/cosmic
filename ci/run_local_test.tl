@@ -1,3 +1,11 @@
+--- The tests of [`ci/run-local`]. CI does not run this file: its `ci/`
+--- step selects `cosmic_ci` alone (.github/workflows/ci.yml), and this file
+--- sits beside that directory, not in it. Run it by hand after a change to
+--- run_local.tl or to this file: `cd ci && ../bin/cosmic test run_local_test.tl`.
+--- On a root host its credential tests make a directory under /tmp, which a
+--- test's sandbox does not let it write; `COSMIC_TEST_SANDBOX=0` runs them.
+---
+--- [`ci/run-local`]: run-local
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
@@ -40,7 +48,7 @@ local function checkout(tmp: string): string, {string:string}
   assert(Fs.mkdirs(root .. "/o/bin") and Fs.mkdirs(root .. "/ci/cosmic_ci"))
   assert(Fs.write(root .. "/ci/cosmic_ci/driver.tl", "fixture driver\n"))
   assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
+  assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
   assert(Fs.write(root .. "/tracked", "old\n"))
   assert(Fs.write(root .. "/ci/run_local.tl", "fixture entry\n"))
   assert(Fs.write(root .. "/.gitignore", "o/\nignored\n"))
@@ -347,7 +355,7 @@ local function test_root_probe_grants_a_copy_without_mutating_cached_relaunch(tm
       if position < #words then probe[#probe + 1] = word end
     end
     probe[#probe + 1] = "assert(require('cosmic.proc').executable()==" ..
-      string.format("%q", tostring((assert(Proc.executable())))) .. "); print('copied runtime identity')"
+      string.format("%q", tostring((assert(Proc.executable())))) .. ")\nprint('copied runtime identity')"
     local result = assert(run(probe, { env = options.env, fds = options.fds, cwd = "/",
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) }))
     assert(result.ok and result.stdout == "copied runtime identity\n", result.stderr)
