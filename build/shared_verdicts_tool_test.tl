@@ -5,7 +5,7 @@
 --- key (build/declared_key.tl), while a changed file or variable its
 --- module declares, or `--all`, runs it again. Sharing across checkout
 --- paths requires sandboxed workers: those cases stop where the host
---- cannot sandbox one (`shares`). Failure cases run unsandboxed with an
+--- cannot sandbox one ([`skip_unless_shared`]). Failure cases run unsandboxed with an
 --- explicit cache: their assertions concern cache handling, not isolation.
 --- They declare `tool` because they start this program.
 
@@ -22,7 +22,7 @@ local build_paths = require("build.paths")
 
 --- The program itself, which its tests start, roots of their own for
 --- the sandboxed workers of the runs they start (`nests`), and the
---- variables `shares` reads, which hold a run to sandboxing.
+--- variables [`skip_unless_shared`] reads, which hold a run to sandboxing.
 Test.policy{
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
@@ -55,23 +55,23 @@ local function run(root: string, output: string, env: {string:string},
   return text
 end
 
---- Whether the run that printed `text` shared its verdicts. Only a run
---- whose workers are sandboxed shares any. The workers nest in this
---- test's own sandbox, which a host may refuse (the kernel lets root nest
---- one only two deep: core/syscalls.c's `map_ids`); the case then says
---- it is skipped ([`Test.skip`]) and returns: CI's unprivileged
---- runners nest them.
-local function shares(text: string): boolean
-  if text:find("; sandboxed", 1, true) ~= nil then return true end
+--- Ends the running test as skipped ([`Test.skip`]) where the run that
+--- printed `text` shared no verdicts. Only a run whose workers are
+--- sandboxed shares any. The workers nest in this test's own sandbox,
+--- which a host may refuse (the kernel lets root nest one only two deep:
+--- core/syscalls.c's `map_ids`); the case then says it is skipped: CI's
+--- unprivileged runners nest them.
+local function skip_unless_shared(text: string)
+  if text:find("; sandboxed", 1, true) ~= nil then return end
   if assert(sys.uname()).sysname == "Linux" then Test.skip(confine.unsandboxed_reason(text)) end
-  return false
+  Test.skip("this platform sandboxes no worker")
 end
 
 --- The environment a run of the suite is started with: the pinned one,
 --- its workers sandboxed where they can be, whatever this run's own
 --- switch says -- this test's worker, unsandboxed, may start runs that
 --- are, and a run sandboxed and required to be may start runs that
---- cannot be, which `shares` holds it to.
+--- cannot be, which [`skip_unless_shared`] holds it to.
 local function environment(): {string:string}
   local env = this_program.environment()
   env.COSMIC_TEST_SANDBOX = nil
@@ -137,7 +137,7 @@ local type Said = function(string, string, string, arg4?: {string}): string
 --- A shared cache seeded by a first checkout's run under `tmp`: the
 --- environment its runs are given, a `said` that runs `cosmic test` on
 --- a checkout and checks what it printed, and that first run's output,
---- or nil where the run shared nothing, as `shares` has it. Each case
+--- the test skipped where the run shared nothing. Each case
 --- below seeds its own, so none starts more nested runs than a test's
 --- bound (10 s in CI) holds under load.
 local function seeded(tmp: string): {string:string}, Said, string
@@ -159,13 +159,12 @@ local function seeded(tmp: string): {string:string}, Said, string
   end
   checkout(tmp .. "/first", "one\n")
   local first = said("first", tmp .. "/first", "5 ran, 0 stood")
-  if not shares(first) then return env, said, nil end
+  skip_unless_shared(first)
   return env, said, first
 end
 
 local function test_a_second_checkout_stands_on_the_first_ones_verdicts(tmp: string)
   local _, said, first = seeded(tmp)
-  if first == nil then return end
   tmp = assert(Fs.absolute(tmp))
   -- Every file of the second has an inode and times of its own.
   checkout(tmp .. "/second", "one\n")
@@ -185,8 +184,7 @@ end
 --- was elsewhere before its last `cd`, stands on the first one's
 --- verdicts: nothing a test is given differs.
 local function test_a_rebooted_run_stands_on_the_first_ones_verdicts(tmp: string)
-  local env, said, first = seeded(tmp)
-  if first == nil then return end
+  local env, said, _ = seeded(tmp)
   tmp = assert(Fs.absolute(tmp))
   env.COSMIC_REBOOTED = "1"
   env.OLDPWD = tmp .. "/elsewhere"
@@ -197,12 +195,11 @@ end
 --- A checkout runs what no shared verdict answers for: a file a module
 --- declares that differs, or an edit in the checkout itself.
 local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: string)
-  local _, said, first = seeded(tmp)
-  if first == nil then return end
+  local _, said, _ = seeded(tmp)
   tmp = assert(Fs.absolute(tmp))
   -- A file beneath what a module declares differs: its tests run.
   checkout(tmp .. "/changed", "two\n")
-  said("changed", tmp .. "/changed", "4 ran, 1 stood")
+  said("changed", tmp .. "/changed", "4 ran, 1 stood, 1 of them on another checkout's verdict")
   -- An edit to one module's input in a checkout runs that module's
   -- tests, looked up in the cache and not found there, while the rest
   -- stand on the checkout's own verdicts: no key of the run moved but
@@ -237,8 +234,7 @@ end
 --- nothing of the cache either, and a checkout whose variable a module
 --- declares differs runs that module's tests.
 local function test_a_chosen_edited_module_or_another_variable_runs(tmp: string)
-  local env, said, first = seeded(tmp)
-  if first == nil then return end
+  local env, said, _ = seeded(tmp)
   tmp = assert(Fs.absolute(tmp))
   -- Chosen alone, the edited module's every test is looked up, and
   -- none is missing from the cache for want of a run: each ran in this
@@ -255,8 +251,7 @@ end
 --- Asked for every test, or told to stand on no shared verdict, a
 --- checkout runs everything.
 local function test_asked_for_or_told_to_share_nothing_every_test_runs(tmp: string)
-  local _, said, first = seeded(tmp)
-  if first == nil then return end
+  local _, said, _ = seeded(tmp)
   tmp = assert(Fs.absolute(tmp))
   -- Asked for, every test runs, whatever stands.
   checkout(tmp .. "/all", "one\n")
@@ -268,8 +263,7 @@ end
 
 --- Without the cache, a checkout runs everything.
 local function test_without_the_cache_a_checkout_runs_everything(tmp: string)
-  local env, said, first = seeded(tmp)
-  if first == nil then return end
+  local env, said, _ = seeded(tmp)
   tmp = assert(Fs.absolute(tmp))
   env.COSMIC_VERDICT_CACHE = "0"
   checkout(tmp .. "/alone", "one\n")
@@ -309,7 +303,7 @@ end
   database_checkout(tmp .. "/first", "one")
   local first = run(tmp .. "/first", tmp .. "/first.out", env)
   assert(first:find("1 ran, 0 stood", 1, true), first)
-  if not shares(first) then return end
+  skip_unless_shared(first)
   database_checkout(tmp .. "/same", "one")
   local same = run(tmp .. "/same", tmp .. "/same.out", env)
   assert(same:find("0 ran, 1 stood", 1, true), same)
@@ -347,8 +341,8 @@ end
 
 --- The environment the link cases run in, sharing through a cache in
 --- `tmp`, once a first checkout whose link leads to "a" has run and
---- shared its verdicts; nil where it shared nothing.
-local function linked(tmp: string): {string:string}?
+--- shared its verdicts, the test skipped where it shared nothing.
+local function linked(tmp: string): {string:string}
   local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
@@ -356,7 +350,7 @@ local function linked(tmp: string): {string:string}?
   link_checkout(tmp .. "/first", "a")
   local first = run(tmp .. "/first", tmp .. "/first.out", env)
   assert(first:find("2 ran, 0 stood", 1, true), first)
-  if not shares(first) then return nil end
+  skip_unless_shared(first)
   return env
 end
 
@@ -366,7 +360,6 @@ end
 --- same stands on the first one's verdicts.
 local function test_a_link_a_test_reads_is_keyed_by_what_it_is(tmp: string)
   local env = linked(tmp)
-  if env == nil then return end
   link_checkout(tmp .. "/same", "a")
   local same = run(tmp .. "/same", tmp .. "/same.out", env)
   assert(same:find("0 ran, 2 stood", 1, true), same)
@@ -379,7 +372,6 @@ end
 --- it again, and fails them.
 local function test_a_link_made_a_file_runs_what_read_it_again(tmp: string)
   local env = linked(tmp)
-  if env == nil then return end
   link_checkout(tmp .. "/file", nil)
   local file = run(tmp .. "/file", tmp .. "/file.out", env, nil, true)
   assert(file:find("2 of 2 tests failed", 1, true), file)
@@ -440,7 +432,7 @@ end
   attached_checkout(tmp .. "/first", "one")
   local first = run(tmp .. "/first", tmp .. "/first.out", env)
   assert(first:find("2 ran, 0 stood", 1, true), first)
-  if not shares(first) then return end
+  skip_unless_shared(first)
   attached_checkout(tmp .. "/same", "one")
   local same = run(tmp .. "/same", tmp .. "/same.out", env)
   assert(same:find("1 ran, 1 stood", 1, true), same)
@@ -538,7 +530,7 @@ end
     assert(text:find(wanted, 1, true), name .. ": " .. text)
     return text
   end
-  if not shares(said("first", "one", "2 ran, 0 stood")) then return end
+  skip_unless_shared(said("first", "one", "2 ran, 0 stood"))
   said("same", "one", "1 ran, 1 stood")
   said("other", "two", "2 ran, 0 stood")
 end
@@ -556,7 +548,7 @@ local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(
   checkout(tmp .. "/first", "one\n")
   local first = run(tmp .. "/first", tmp .. "/first.out", env, { "suite/reads_test.tl" })
   assert(first:find("4 ran, 0 stood", 1, true), first)
-  if not shares(first) then return end
+  skip_unless_shared(first)
   local db = assert(Sqlite.open(cache, { writable = true }))
   local tables = assert(Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'declared%'"))
@@ -658,7 +650,7 @@ local function test_a_touched_file_runs_nothing_again(tmp: string)
   local words = { "suite/reads_test.tl" }
   local first = run(tmp .. "/first", tmp .. "/first.out", env, words)
   assert(first:find("4 ran, 0 stood", 1, true), first)
-  if not shares(first) then return end
+  skip_unless_shared(first)
   touch(tmp .. "/first/suite/data.txt")
   local touched = run(tmp .. "/first", tmp .. "/touched.out", env, words)
   assert(touched:find("0 ran, 4 stood", 1, true), touched)
@@ -681,7 +673,7 @@ local function test_a_checkout_made_again_at_the_same_path_stands_on_the_last(tm
   checkout(tmp .. "/here", "one\n")
   local first = run(tmp .. "/here", tmp .. "/first.out", env, words)
   assert(first:find("4 ran, 0 stood", 1, true), first)
-  if not shares(first) then return end
+  skip_unless_shared(first)
   assert(Fs.remove_tree(build_paths.required(tmp .. "/here")))
   assert(Fs.remove_tree(tmp .. "/here"))
   checkout(tmp .. "/here", "one\n")
@@ -711,7 +703,7 @@ local function test_a_failure_here_is_not_answered_from_elsewhere(tmp: string)
   local failed = run(tmp .. "/second", tmp .. "/failed.out", env,
     { "suite/outside_test.tl" }, true)
   assert(failed:find("1 of 1 test failed", 1, true), failed)
-  if not shares(failed) then return end
+  skip_unless_shared(failed)
   -- The first passes, and shares it.
   assert(Fs.set_mtime(tmp .. "/outside/f", ready))
   local first = run(tmp .. "/first", tmp .. "/first.out", env, { "suite/outside_test.tl" })
@@ -776,7 +768,7 @@ local function test_a_failure_that_read_less_is_not_answered_from_elsewhere(tmp:
   assert(Fs.set_mtime(tmp .. "/outside/f", unready))
   local failed = run(tmp .. "/second", tmp .. "/failed.out", env, {}, true)
   assert(failed:find("1 of 1 test failed", 1, true), failed)
-  if not shares(failed) then return end
+  skip_unless_shared(failed)
   assert(Fs.set_mtime(tmp .. "/outside/f", ready))
   local passed = run(tmp .. "/first", tmp .. "/passed.out", env, {})
   assert(passed:find("1 ran", 1, true), passed)
@@ -793,7 +785,7 @@ local function test_a_failure_here_runs_again_without_the_cache(tmp: string)
   assert(Fs.set_mtime(tmp .. "/outside/f", unready))
   local failed = run(tmp .. "/second", tmp .. "/failed.out", env, {}, true)
   assert(failed:find("1 of 1 test failed", 1, true), failed)
-  if not shares(failed) then return end
+  skip_unless_shared(failed)
   env.COSMIC_VERDICT_CACHE = "0"
   local alone = run(tmp .. "/second", tmp .. "/alone.out", env, {}, true)
   assert(alone:find("1 of 1 test failed", 1, true), alone)
@@ -822,9 +814,9 @@ end
 --- (and not of another image) are: the same host in all but the
 --- features, which a test cannot make differ. `extra` is written into
 --- the checkout, beside reads_test.tl, before it runs, and `fails` says
---- whether the run fails. Nil where the run shared nothing (`shares`).
+--- whether the run fails. The test skips where the run shared nothing.
 local function seeded_as_another_host(tmp: string, extra: {string:string},
-                                      fails: boolean): AsAnotherHost?
+                                      fails: boolean): AsAnotherHost
   local root = assert(Fs.absolute(tmp))
   assert(Fs.mkdirs(root .. "/outside"))
   assert(Fs.write(root .. "/outside/f", "out\n"))
@@ -840,7 +832,7 @@ local function seeded_as_another_host(tmp: string, extra: {string:string},
   end
   table.sort(words)
   local first = run(root .. "/first", root .. "/first.out", as_a, words, fails)
-  if not shares(first) then return nil end
+  skip_unless_shared(first)
   -- What host b says of itself, on a cache of its own.
   local probing = varied(as_a, {}, { COSMIC_HOST_ID = "host-b",
     COSMIC_VERDICT_CACHE = root .. "/cache-b/verdicts.db" })
@@ -867,7 +859,6 @@ end
 --- tests.
 local function test_a_gathering_run_stands_on_the_rows_of_a_host_of_other_features(tmp: string)
   local held = seeded_as_another_host(tmp, {}, false)
-  if held == nil then return end
   local root = held.root
   checkout(root .. "/local", "one\n")
   local alone = run(root .. "/local", root .. "/local.out", held.env, { "suite/reads_test.tl" })
@@ -893,7 +884,6 @@ local function test_a_gathering_run_runs_what_the_other_hosts_rows_do_not_answer
     ["extra_test.tl"] = "local function test_extra() assert(1 == 1) end\n",
     ["fails_test.tl"] = "local function test_fails() assert(false) end\n",
   }, true)
-  if held == nil then return end
   local root = held.root
   local gathering = varied(held.env, {}, { COSMIC_TEST_FOREIGN_FEATURES = "1" })
   checkout(root .. "/gather", "one\n")

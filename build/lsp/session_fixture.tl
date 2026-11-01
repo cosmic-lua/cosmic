@@ -154,10 +154,12 @@ function session_fixture.made_project(root: string): string
 end
 
 --- A database as the tool carries one (the schema of [`build.schema`]), holding the standard-library module `path`, its
---- file `file` and the text `text`, and `places` of it, each a `{ symbol, kind, line, column, length, plain }`, the last "1" for a name on an ASCII line: what a session
---- given it as its `store` takes for the binary's own, where a test needs the module's text and places it names (the
+--- file `file` and the text `text`, and `places` of it, each a `{ symbol, kind, line, column, length, plain }`, the last "1" for a name on an ASCII line, and the `members` rows of
+--- its types, each a `{ owner, name, kind, scope, type, doc }`: what a session
+--- given it as its `store` takes for the binary's own, where a test needs the module's text, places and members it names (the
 --- default [`Store.databases`] carries the real ones).
-function session_fixture.carrying(path: string, file: string, text: string, places: {{string}}): Sqlite.Handle
+function session_fixture.carrying(path: string, file: string, text: string, places: {{string}},
+                                  members?: {{string}}): Sqlite.Handle
   local db = assert(Sqlite.memory())
   for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
   assert(Sqlite.run(db, "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
@@ -169,6 +171,13 @@ function session_fixture.carrying(path: string, file: string, text: string, plac
       { { text = path }, { text = tostring(ordinal) }, { text = place[1] or "" }, { text = place[2] or "" },
         { text = place[3] or "0" }, { text = place[4] or "0" }, { text = place[5] or "0" },
         { text = place[6] or "0" } }))
+  end
+  for ordinal, member in ipairs(members or {}) do
+    assert(Sqlite.run(db, "INSERT INTO members (module, ordinal, owner, name, kind, scope, type, doc) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+      { { text = path }, { text = tostring(ordinal) }, { text = member[1] or "" }, { text = member[2] or "" },
+        { text = member[3] or "" }, { text = member[4] or "both" }, { text = member[5] or "" },
+        { text = member[6] or "" } }))
   end
   return db
 end

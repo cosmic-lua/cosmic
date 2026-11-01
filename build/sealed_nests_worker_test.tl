@@ -19,28 +19,29 @@ local confine = require("build.confine")
 -- where the host gives no nest.
 Test.policy{ profiles = { "cosmic" }, promises = { "nest" }, requires = { "nest" } }
 
---- Whether this worker runs on a sealed database ([`sealed`] of
---- build/sealed_worker_test.tl, for a worker that nests).
-local function sealed(): Proc.Relaunch?
+--- This worker's relaunch, the test skipped where it runs on no sealed
+--- database (`skip_unless_sealed` of build/sealed_worker_test.tl, for a
+--- worker that nests).
+local function sealed_or_skip(): Proc.Relaunch
   local relaunch = Proc.relaunch()
   local on_database = relaunch ~= nil and relaunch.argv[2] == "--database"
   if Env.get(confine.held_variable) ~= nil then
     assert(on_database, "a sandboxed worker that nests was not given a sealed database")
   end
   if not on_database then Test.skip("this worker does not run on a sealed database") end
-  return relaunch
+  local held = assert(relaunch, "Test.skip ends the test where there is no relaunch")
+  return held
 end
 
 local function test_a_worker_that_nests_runs_on_a_sealed_database()
-  if sealed() == nil then return end
+  sealed_or_skip()
   assert(Store.source("cosmic.zip") == nil, "a module outside the closure is in the program")
   assert(Store.bytecode("build.writer") == nil)
   assert(Store.bytecode("cosmic.store") ~= nil, "a module of the closure is not")
 end
 
 local function test_a_worker_that_nests_confines_a_child_on_the_same_database()
-  local relaunch = sealed()
-  if relaunch == nil then return end
+  local relaunch = sealed_or_skip()
   local argv: mut {string} = {}
   for i, word in ipairs(relaunch.argv) do argv[i] = word end
   argv[#argv + 1] = "-e"

@@ -216,6 +216,12 @@ local record source
   --- The types a text declares, by dotted symbol ([`build.syntax_places`]).
   type Members = {string:MemberOwner}
 
+  --- The `members` of a module of the binary, as of the SHA-256 of the text they were derived of.
+  record CarriedRows
+    hash: string
+    rows: Members
+  end
+
   --- An open document's text, and its SHA-256.
   record Text
     text: string
@@ -267,6 +273,10 @@ local record source
     --- `MADE_HELD`, and all go when another would pass it.
     mut carried_held: mut {string:Placed}
     mut carried_count: integer
+    --- The `members` read of the binary's own modules ([`source.members`]) by module, as of the `carried` hash of the text
+    --- they are of, bounded as `carried_held` is.
+    mut carried_rows: mut {string:CarriedRows}
+    mut carried_rows_count: integer
     --- Whether the extracted texts of the binary's modules no module of the running tool names are removed
     --- ([`source.extracted`]), which is done once.
     mut pruned: boolean
@@ -342,6 +352,8 @@ function source.new(root: string, err: function(line: string), carried?: string,
     made = {},
     carried_held = {},
     carried_count = 0,
+    carried_rows = {},
+    carried_rows_count = 0,
     pruned = false,
     stub_only = {},
     scratch = nil,
@@ -637,7 +649,7 @@ function source.refused(src: source.View): boolean
 end
 
 --- The complaint about the file `name` (below the root) where the last stage staged nothing and the file is one of a
---- declaration and a source of one module on disk, or nil: what a document of that file is told, at its first line. The pair
+--- declaration and a source of one module on disk, or one of two declarations of it, or nil: what a document of that file is told, at its first line. The pair
 --- is found as the build finds one, by the files a module may be written in ([`build.driver.candidates`]). A declaration
 --- file whose `text` (the document's, as it is open) names no kind is told so as well ([`build.driver.naming`]).
 function source.refusal(src: source.View, name: string, text?: string): string?
@@ -645,12 +657,13 @@ function source.refusal(src: source.View, name: string, text?: string): string?
   if TreeProgram.skipped(name) then return nil end
   local module = Declarations.module_of(name)
   local declaration: string? = nil
+  local second: string? = nil
   local code: string? = nil
   for _, file in ipairs(Driver.candidates(module)) do
     local there, _ = Fs.exists(src.root .. "/" .. file)
     if there == true then
       if file:match("%.d%.tl$") ~= nil then
-        declaration = declaration or file
+        if declaration == nil then declaration = file elseif second == nil then second = file end
       else
         code = code or file
       end
@@ -658,6 +671,9 @@ function source.refusal(src: source.View, name: string, text?: string): string?
   end
   if src.trouble ~= "" and declaration ~= nil and code ~= nil and (name == declaration or name == code) then
     return Driver.pairing(declaration, code, module)
+  end
+  if src.trouble ~= "" and declaration ~= nil and second ~= nil and (name == declaration or name == second) then
+    return Driver.doubling(declaration, second, module)
   end
   if text ~= nil and name:match("%.d%.tl$") ~= nil then
     local unnamed = Driver.naming(name, text, source.standing(src).own)
@@ -1391,17 +1407,8 @@ function source.extracted(src: source.View, placed: source.Placed): string?
   return path
 end
 
---- The `members` rows of a text, by owner, with the docs of the same symbols, in `db`, which holds the parse of the text
---- `hash`; nil where it holds none or cannot be read.
-local function read_members(db: Sqlite.Handle, hash: string): source.Members?
-  local parsed, _ = Sqlite.text_rows(db, "SELECT 1 FROM parsed WHERE source_hash = ?1", { { text = hash } })
-  if parsed == nil or #parsed == 0 then return nil end
-  local rows, _ = Sqlite.text_rows(db,
-    "SELECT owner, name, kind, scope, type, coalesce((SELECT text FROM docs WHERE docs.source_hash = members.source_hash " ..
-      "AND docs.source_symbol IN (members.owner || '.' || members.name, members.owner || ':' || members.name) " ..
-      "ORDER BY length(text) DESC LIMIT 1), '') FROM members WHERE source_hash = ?1 ORDER BY ordinal",
-    { { text = hash } })
-  if rows == nil then return nil end
+--- The types and members the rows `rows` list, each a `owner, name, kind, scope, type, doc`, by owner.
+local function members_of_rows(rows: {Sqlite.Row}): source.Members
   local kinds: mut {string:string} = {}
   local supers: mut {string:mut {string}} = {}
   local members: mut {string:mut {source.MemberRow}} = {}
@@ -1431,15 +1438,62 @@ local function read_members(db: Sqlite.Handle, hash: string): source.Members?
   return out
 end
 
+--- The `members` rows of a text, by owner, with the docs of the same symbols, in `db`, which holds the parse of the text
+--- `hash`; nil where it holds none or cannot be read.
+local function read_members(db: Sqlite.Handle, hash: string): source.Members?
+  local parsed, _ = Sqlite.text_rows(db, "SELECT 1 FROM parsed WHERE source_hash = ?1", { { text = hash } })
+  if parsed == nil or #parsed == 0 then return nil end
+  local rows, _ = Sqlite.text_rows(db,
+    "SELECT owner, name, kind, scope, type, coalesce((SELECT text FROM docs WHERE docs.source_hash = members.source_hash " ..
+      "AND docs.source_symbol IN (members.owner || '.' || members.name, members.owner || ':' || members.name) " ..
+      "ORDER BY length(text) DESC LIMIT 1), '') FROM members WHERE source_hash = ?1 ORDER BY ordinal",
+    { { text = hash } })
+  if rows == nil then return nil end
+  return members_of_rows(rows)
+end
+
+--- The types the binary's own module `name` declares and their members: the `members` of the tool's database
+--- ([`build.writer`]'s `insert_members`), with the docs of their symbols. nil for a name that is no `cosmic.*` module, for
+--- a module the tool carries no members of (one generated from another file has none), and where the database cannot be
+--- read: a tool made before the table. The database is the last of the view's `store`, which a tool's own is. The rows
+--- are kept by module, as of the module's hash, which is all a hit reads.
+local function carried_members(src: source.View, name: string): source.Members?
+  if name:sub(1, 7) ~= "cosmic." then return nil end
+  local databases = src.store or Store.databases()
+  local held = databases[#databases]
+  if held == nil then return nil end
+  local named, _ = Sqlite.text_rows(held, "SELECT CAST(source_hash AS TEXT) FROM modules WHERE path = ?1",
+    { { text = name } })
+  if named == nil then return nil end
+  local first_row = named[1]
+  if first_row == nil then return nil end
+  local kept = src.carried_rows[name]
+  if kept ~= nil and kept.hash == first_row:text(1) then return kept.rows end
+  local rows, _ = Sqlite.text_rows(held,
+    "SELECT owner, name, kind, scope, type, doc FROM members WHERE module = ?1 ORDER BY ordinal", { { text = name } })
+  if rows == nil or #rows == 0 then return nil end
+  local made = members_of_rows(rows)
+  if src.carried_rows[name] == nil then
+    if src.carried_rows_count >= MADE_HELD then
+      src.carried_rows = {}
+      src.carried_rows_count = 0
+    end
+    src.carried_rows_count = src.carried_rows_count + 1
+  end
+  src.carried_rows[name] = { hash = first_row:text(1), rows = made }
+  return made
+end
+
 --- The types the module `name` declares and their members, from the rows derived of its text: the open document's, else
 --- the working database's, or `given` where that is the text the caller means (the text a check read, which is no text
 --- being typed). The staged file's own rows answer while the text is the staged file's and they are the running analyzer's;
 --- any other text is derived into the scratch database, once a text, as [`source.places`] does. nil where the module is
 --- not listed, or the text does not parse, and a module generated from another file (`mapped`) is as the rows of its text
---- say.
+--- say. A name the database lists no module of is looked up among the binary's own modules, in the rows the tool carries
+--- ([`carried_members`]).
 function source.members(src: source.View, name: string, open: source.Open, given?: string): source.Members?
   local found = src.modules[name]
-  if found == nil then return nil end
+  if found == nil then return carried_members(src, name) end
   if found.file:match("%.tmpl$") ~= nil then return nil end
   local opened = open(found.file)
   local text: string? = nil

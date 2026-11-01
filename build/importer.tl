@@ -69,6 +69,10 @@ local record importer
     --- The files of the modules `refused` names for what they hold, in the
     --- order named, not those left out only for requiring one of them.
     own_refused?: mut {string}
+    --- For each file the run left out as refused, whether for what it holds or for requiring a module that was, the
+    --- positions in `refused` of the refusals that hold it out: its own, or those of every refused module it rests on.
+    --- A run that named a file uses it to show why that file did not compile.
+    refusal_roots?: mut {string:{integer}}
     --- One line per module a file run ([`importer.compile_for`]) left
     --- out, since it does not parse or compile and the file does not
     --- reach it. A module left out only because it requires one of
@@ -1086,6 +1090,10 @@ local function compile_derived(handle: work.Handle, tool: string,
   local lenient = target == nil
   local refusals: mut {string} = {}
   local own_refused: mut {string} = {}
+  -- The positions in `refusals` of what holds each refused module out, by path and by file ([`importer.Result`]'s
+  -- `refusal_roots`).
+  local roots_of: mut {string:{integer}} = {}
+  local roots_by_file: mut {string:{integer}} = {}
   if lenient then
     for _, one in ipairs(broken or {}) do
       local holders, holders_trouble = Sqlite.text_rows(handle.db,
@@ -1098,6 +1106,8 @@ local function compile_derived(handle: work.Handle, tool: string,
         failed[row:text(1)] = true
         local held_file = row:text(2)
         own_refused[#own_refused + 1] = held_file
+        roots_of[row:text(1)] = { #refusals }
+        roots_by_file[held_file] = { #refusals }
       end
     end
   end
@@ -1168,6 +1178,7 @@ local function compile_derived(handle: work.Handle, tool: string,
   end
   local result: importer.Result = {
     modules = {}, tool = tool, main = nil, refused = refusals, own_refused = own_refused,
+    refusal_roots = roots_by_file,
     left_out = left, compiled = 0, cached = 0, shared = 0, parses = parses, fact_wraps = 0, parameter_checks = 0,
     catalog = pipeline.catalog,
   }
@@ -1236,17 +1247,32 @@ local function compile_derived(handle: work.Handle, tool: string,
         failed[m.path] = true
       elseif lenient and leans_on(m, failed) then
         local lacking = ""
+        local resting: mut {integer} = {}
+        local seen: mut {integer:boolean} = {}
         for _, name in ipairs(m.requires) do
-          if failed[name] == true and lacking == "" then
-            lacking = name
+          if failed[name] == true then
+            if lacking == "" then
+              lacking = name
+            end
+            for _, position in ipairs(roots_of[name] or {}) do
+              if seen[position] ~= true then
+                seen[position] = true
+                resting[#resting + 1] = position
+              end
+            end
           end
         end
+        table.sort(resting)
+        roots_of[m.path] = resting
+        roots_by_file[m.file] = resting
         failed[m.path] = true
         result.refused[#result.refused + 1] = m.file .. ": not compiled: it requires " .. lacking ..
           ", which the new checker refused"
       elseif refusal ~= nil then
         result.refused[#result.refused + 1] = refusal
         own_refused[#own_refused + 1] = m.file
+        roots_of[m.path] = { #result.refused }
+        roots_by_file[m.file] = { #result.refused }
       else
         local stands, look_trouble = cached_stands(cache, key)
         if not stands and look_trouble ~= "" then
@@ -1295,6 +1321,8 @@ local function compile_derived(handle: work.Handle, tool: string,
             if lenient then
               result.refused[#result.refused + 1] = generate_trouble
               own_refused[#own_refused + 1] = m.file
+              roots_of[m.path] = { #result.refused }
+              roots_by_file[m.file] = { #result.refused }
               failed[m.path] = true
             elseif needed == nil or needed[m.path] == true then
               progress.failure = generate_trouble
@@ -1524,6 +1552,7 @@ function importer.compile(handle: work.Handle, tool: string, unjudged?: boolean,
     local was = before.result
     local again_result: importer.Result = {
       modules = was.modules, tool = was.tool, main = was.main, refused = was.refused, own_refused = was.own_refused,
+      refusal_roots = was.refusal_roots,
       left_out = was.left_out,
       compiled = 0, cached = #was.modules, shared = 0, parses = was.parses, catalog = was.catalog,
       fact_wraps = was.fact_wraps, parameter_checks = was.parameter_checks,

@@ -137,6 +137,10 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
     if first:match("%.d%.tl$") ~= nil and code ~= nil then
       paired[name] = Driver.pairing(first, code, name)
     end
+    local twin = others[1]
+    if first:match("%.d%.tl$") ~= nil and paired[name] == nil and twin ~= nil and twin:match("%.d%.tl$") ~= nil then
+      paired[name] = Driver.doubling(first, twin, name)
+    end
     if first:match("%.d%.tl$") ~= nil and paired[name] == nil then
       local unnamed = Driver.naming(first, first_text, true)
       if unnamed ~= "" then
