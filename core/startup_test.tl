@@ -23,7 +23,6 @@ local function environment(): mut {string:string}
   return env
 end
 
---- Word `i` of the argv a relaunch starts: the core, `--artifact`, the artifact.
 --- This start's relaunch, skipping the test where it has none or its argv
 --- names no artifact (a host program, or a start with nothing to relaunch).
 local function relaunch_or_skip(): Proc.Relaunch
@@ -36,6 +35,7 @@ local function relaunch_or_skip(): Proc.Relaunch
   return found
 end
 
+--- Word `i` of the argv a relaunch starts: the core, `--artifact`, the artifact.
 local function argv_at(relaunch: Proc.Relaunch, i: integer): string
   local word = assert(relaunch.argv[i], "a relaunch's argv holds word " .. tostring(i))
   return word

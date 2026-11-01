@@ -1656,10 +1656,6 @@ end
 --- architecture fails with EBADARCH, not "No error information".
 local function test_the_errnos_only_macos_has_are_named_there()
   local uname = assert(sys.uname())
-  if uname.sysname ~= "Darwin" then
-    Test.skip("only macOS has these errnos")
-    return
-  end
   local names: mut {string:string} = {}
   for number = 1, 4095 do
     local name = sys.errno_name(number)
@@ -1669,7 +1665,11 @@ local function test_the_errnos_only_macos_has_are_named_there()
   end
   for _, name in ipairs({ "EBADARCH", "EBADEXEC", "EBADMACHO", "ESHLIBVERS", "EAUTH",
       "ENEEDAUTH", "EDEVERR", "EPWROFF", "ENOATTR", "EFTYPE", "EQFULL" }) do
-    assert(names[name] ~= nil and names[name] ~= "No error information", name .. " is unnamed")
+    if uname.sysname == "Darwin" then
+      assert(names[name] ~= nil and names[name] ~= "No error information", name .. " is unnamed")
+    else
+      assert(names[name] == nil, name .. " is a macOS errno, named on " .. uname.sysname)
+    end
   end
 end
 

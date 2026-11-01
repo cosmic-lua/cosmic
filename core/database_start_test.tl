@@ -288,7 +288,10 @@ local function test_an_unreadable_database_is_refused(tmp: string)
   local path = info_database(tmp, "locked.db")
   assert(sys.chmod(path, 0))
   -- A process that may read it whatever its mode finds a good database.
-  if sys.access(path, sys.R_OK) then return end
+  if sys.access(path, sys.R_OK) then
+    Test.skip("this process reads a mode 0 file, so it finds a good database")
+    return
+  end
   refused(core, path, "Permission denied")
 end
 

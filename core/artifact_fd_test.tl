@@ -23,7 +23,7 @@ local _net = require("cosmic.net")
 --- descriptor.
 -- Declared for the program's descriptor, which only a worker that runs the
 -- whole program holds: one on a sealed database has none, so each test here
--- would return unchecked, and no test would enter the bindings it tries.
+-- would skip, and no test would enter the bindings it tries.
 Test.policy{
   grants = {
     { path = "core/syscalls.h", letters = "r" },

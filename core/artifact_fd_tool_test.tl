@@ -30,7 +30,6 @@ local function program_of(relaunch: Proc.Relaunch): string
   return program
 end
 
---- The descriptor a relaunch hands its child in `slot`.
 --- This start's relaunch, skipping the test where it has none (a host
 --- program, which no start of the core relaunches).
 local function relaunch_or_skip(): Proc.Relaunch
@@ -40,6 +39,7 @@ local function relaunch_or_skip(): Proc.Relaunch
   return found
 end
 
+--- The descriptor a relaunch hands its child in `slot`.
 local function fd_of(relaunch: Proc.Relaunch, slot: integer): integer
   local fd = assert(relaunch.fds[slot], "a relaunch hands a descriptor in slot " .. tostring(slot))
   return fd
@@ -86,7 +86,8 @@ local function test_a_tool_has_the_tree_s_own_program_in_the_tree()
   local artifact = sys.stat("/proc/self/fd/" .. tostring(fd_of(relaunch, slot)))
   local own = sys.stat("/tree/o/bin/cosmic")
   if artifact == nil or own == nil or artifact.dev ~= own.dev or artifact.ino ~= own.ino then
-    return -- another program runs the tree's tests: it keeps its own name
+    Test.skip("another program runs the tree's tests: it keeps its own name")
+    return
   end
   local executable, _ = Proc.executable()
   assert(executable == "/tree/o/bin/cosmic", tostring(executable))
