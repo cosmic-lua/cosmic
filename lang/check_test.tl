@@ -938,7 +938,9 @@ local function test_an_or_or_and_whose_left_operand_is_never_adds_no_type_and_no
   assert(codes_of(conj) == "", codes_of(conj))
   -- a never left does not excuse a right operand that is wrong for its position
   local wrong = "local sn0: string? = nil\nif sn0 ~= nil then\n  local n: integer = sn0 or \"a\"\n  print(n)\nend\n"
-  assert(codes_of(wrong) ~= "", codes_of(wrong))
+  assert(codes_of(wrong) == "not_assignable", codes_of(wrong))
+  local wrong_and = "local sn0: string? = nil\nif sn0 ~= nil then\n  local n: string = sn0 and 1\n  print(n)\nend\n"
+  assert(codes_of(wrong_and) == "not_assignable", codes_of(wrong_and))
 end
 
 local function test_a_write_through_a_union_or_onto_a_string_is_refused()
