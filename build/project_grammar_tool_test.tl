@@ -54,7 +54,7 @@ end
 local function test_a_project_written_in_forms_the_new_grammar_refuses_is_refused_with_the_fix(tmp: string)
   local root = copy_of(tmp, "fork_only", "new")
   local result, text = tested(root, tmp, "new")
-  assert(not result.ok and result.code == 1, text)
+  assert(not result.ok and result.code == 4, text)
   -- nil for a type that does not hold it: the error says what to write
   assert(text:find("lookup.tl:10:12: nil is given as return value 1, where `Entry` is wanted (nil_not_allowed): give a value, " ..
       "or declare what takes it `Entry?`", 1, true) ~= nil, text)
