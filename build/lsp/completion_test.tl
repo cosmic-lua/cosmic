@@ -297,14 +297,144 @@ local function test_nothing_is_offered_in_a_comment_or_a_string()
   assert(answer(ran, 5):find('"result":null', 1, true) ~= nil, answer(ran, 5))
 end
 
-local function test_a_receiver_that_is_a_call_is_not_taken_for_its_last_name()
+--- `text` without its last `|`, and the line and character (in UTF-16 units) the `|` was at.
+local function marked(text: string): string, integer, integer
+  local mark = assert(text:match(".*()|"), "no cursor in the text")
+  local before = text:sub(1, mark - 1)
+  local _, line = before:gsub("\n", "")
+  local row = before:match("[^\n]*$") or ""
+  local units = 0
+  for _, code in utf8.codes(row) do units = units + (if code >= 0x10000 then 2 else 1 end) end
+  return before .. text:sub(mark + 1), line, units
+end
+
+--- The labels of the items offered at the `|` of `text`, after `base` (a text that parses) was open and `text` was typed.
+local function offered(base: string, text: string, labels: {string}): string
   local root = session_fixture.project()
-  local text = POINT .. 'local _ = p\n'
+  local typed, line, character = marked(text)
+  local ran = served(root, { initialize(root), open(root, "main.tl", base),
+    change(root, "main.tl", typed), ask(2, root, "main.tl", line, character) })
+  return has(items(ran, 2), labels)
+end
+
+local function test_a_receiver_that_is_a_call_is_taken_for_the_type_the_call_answers()
+  local base = POINT .. 'local function make(): Point\n  return Point.origin()\nend\nlocal _ = p\n'
+  local head = POINT .. 'local function make(): Point\n  return Point.origin()\nend\n'
+  -- A function of the document, a function of a table of functions, and a call of a call's result.
+  assert(offered(base, head .. 'local _ = make().|\n', { "x", "y", "origin" }) == "x,y")
+  assert(offered(base, head .. 'local _ = Point.origin().|\n', { "x", "y", "origin" }) == "x,y")
+  -- Typed on a line of its own, where the statement does not parse either.
+  assert(offered(base, head .. 'make().|\n', { "x", "y" }) == "x,y")
+  -- A call with arguments that hold brackets of their own.
+  assert(offered(base, head .. 'local _ = make({ 1, (2) }, "a)").|\n', { "x", "y" }) == "x,y")
+  -- A function that answers nothing a table has.
+  assert(offered(base, head .. 'local _ = tostring(1).|\n', { "x", "y" }) == "")
+end
+
+local function test_a_receiver_that_is_an_index_is_taken_for_the_element_or_the_value()
+  local base = POINT .. 'local list: {Point} = { p }\nlocal named: {string: Point} = { a = p }\nlocal _ = p\n'
+  local head = POINT .. 'local list: {Point} = { p }\nlocal named: {string: Point} = { a = p }\n'
+  assert(offered(base, head .. 'local _ = list[1].|\n', { "x", "y" }) == "x,y")
+  assert(offered(base, head .. 'local _ = named["a"].|\n', { "x", "y" }) == "x,y")
+  assert(offered(base, head .. 'local _ = named.a.|\n', { "x", "y" }) == "x,y")
+  -- The array itself has no field of a point.
+  assert(offered(base, head .. 'local _ = list.|\n', { "x", "y" }) == "")
+end
+
+local function test_a_receiver_that_is_a_method_call_is_taken_for_the_type_the_method_answers()
+  local base = COUNTER:gsub("end\nlocal c", "  function me(self): Counter\n    return self\n  end\nend\nlocal c", 1) ..
+    'local _ = c\n'
+  local head = base:sub(1, -13)
+  local found = offered(base, head .. 'local _ = c:me():|\n', { "bump", "me", "n" })
+  assert(found == "bump,me", found)
+  local fields = offered(base, head .. 'local _ = c:me().|\n', { "bump", "me", "n" })
+  assert(fields == "bump,me,n", fields)
+  -- A chain of methods and fields.
+  assert(offered(base, head .. 'local _ = c:me():me().|\n', { "n" }) == "n")
+end
+
+local function test_a_name_narrowed_at_the_cursor_is_taken_for_the_type_it_was_narrowed_to()
+  local text = 'local record Cat\n  meow: integer\nend\nlocal record Dog\n  bark: integer\nend\n' ..
+    'local function a(x: Cat | Dog)\n  if x is Cat then\n    local _ = x.meow\n  end\nend\n' ..
+    'local function b(x: Cat | Dog)\n  if x is Dog then\n    local _ = x.bark\n  end\nend\nreturn { a, b }\n'
+  local root = session_fixture.project()
+  -- Each is typed in a function whose test narrows to one of the records, so whichever record the declared union was
+  -- taken for, one of them is not the narrowed one.
   local ran = served(root, { initialize(root), open(root, "main.tl", text),
-    change(root, "main.tl", POINT .. 'local _ = Point.origin().\n'),
-    ask(2, root, "main.tl", 10, 26),
+    change(root, "main.tl", (text:gsub("x%.meow", "x.", 1))),
+    ask(2, root, "main.tl", 8, 16),
+    change(root, "main.tl", (text:gsub("x%.bark", "x.", 1))),
+    ask(3, root, "main.tl", 13, 16),
   })
-  assert(count(items(ran, 2)) == 0, ran.err)
+  local cat = has(items(ran, 2), { "meow", "bark" })
+  local dog = has(items(ran, 3), { "meow", "bark" })
+  assert(cat == "meow" and dog == "bark", cat .. " " .. dog .. ran.err)
+end
+
+local TYPE_BASE <const> = POINT .. 'local record Box<T>\n  item: T\nend\nlocal _ = p\n'
+
+local function test_the_types_are_offered_in_every_type_position()
+  local positions: {string} = {
+    'local x: |',
+    'local x:|',
+    'local x = p is |',
+    'local x: Box<|',
+    'local x: Box<integer, |',
+    'local x: {|',
+    'local x: {string: |',
+    'local x: integer | |',
+    'local type Alias = |',
+    'local record R\n  field: |\nend',
+    'local record R\n  field: {|\nend',
+    'local record R is |\nend',
+    'local interface I is |\nend',
+    'local function g(): |\nend',
+    'local function g(): integer, |\nend',
+    'local function g(a: |\nend',
+    'local function g(a: integer, b: |\nend',
+    'local record R\n  fn: function(|)\nend',
+  }
+  for _, position in ipairs(positions) do
+    local found = offered(TYPE_BASE, TYPE_BASE:sub(1, -13) .. position .. '\n', { "Point", "Box", "integer", "p" })
+    -- The types and the primitive types, and no value.
+    assert(found == "Point,Box,integer" or found == "Point,integer", position .. " offered " .. found)
+  end
+  -- A word typed narrows the types.
+  assert(offered(TYPE_BASE, TYPE_BASE:sub(1, -13) .. 'local x = p is Po|\n', { "Point", "Box", "integer" }) == "Point")
+  -- An expression is no type position, so a value and not only a type is offered.
+  for _, position in ipairs({ 'local x = |', 'local x = p < |', 'local x = {|}', 'local x = f(|)' }) do
+    local found = offered(TYPE_BASE, TYPE_BASE:sub(1, -13) .. position .. '\n', { "Point", "p" })
+    assert(found == "Point,p", position .. " offered " .. found)
+  end
+end
+
+local function test_nothing_is_offered_inside_a_comment_or_a_string_of_several_lines()
+  local base = POINT .. 'local _ = p\n'
+  for _, position in ipairs({
+      '--[[\nnote p.|\n]]\n',
+      '--[[ note\nmore p|',
+      '--[==[ note\n]] more p|\n]==]\n',
+      'local s = [[\nline p.|\n]]\n',
+      'local s = [==[\n]]\n pla|n\n]==]\n',
+      'local s = [[ unfinished p|',
+      'local s = "unfinished p|',
+      '-- line comment p.|',
+  }) do
+    assert(offered(base, POINT .. position, { "p", "x", "y", "Point" }) == "", position)
+  end
+end
+
+local function test_a_cursor_right_after_a_comment_or_a_string_of_several_lines_is_in_code()
+  local base = POINT .. 'local _ = p\n'
+  assert(offered(base, POINT .. 'local s = [[a\nb]] .. p|\n', { "p", "Point" }) == "p,Point")
+  local both = offered(base, POINT .. 'local s = [==[a\nb]==] .. P|\n', { "p", "Point" })
+  assert(both == "p,Point", both)
+  assert(offered(base, POINT .. '--[[\nnote\n]] local _ = p.|\n', { "x", "y" }) == "x,y")
+  -- A line comment ends with its line.
+  assert(offered(base, POINT .. '-- note p.\nlocal _ = p.|\n', { "x", "y" }) == "x,y")
+  -- A quote inside a comment opens no string, and a comment mark inside a long string no comment.
+  assert(offered(base, POINT .. '--[[ it\'s ]] local _ = p.|\n', { "x", "y" }) == "x,y")
+  assert(offered(base, POINT .. 'local s = [[ -- ]] .. p.|\n', { "x", "y" }) == "x,y")
 end
 
 local function test_positions_count_utf16_units_or_bytes_as_negotiated()
@@ -320,6 +450,29 @@ local function test_positions_count_utf16_units_or_bytes_as_negotiated()
   local bytes = assert(items(narrow, 2)["count"], narrow.err).textEdit
   assert(assert(bytes.range["start"]).character == 20 and assert(bytes.range["end"]).character == 23,
     tostring(assert(bytes.range["start"]).character))
+end
+
+local function test_a_call_or_an_index_is_found_after_a_wide_character_in_utf16_units_or_bytes()
+  local root = session_fixture.project()
+  local base = POINT .. 'local list: {Point} = { p }\nlocal _ = p\n'
+  local head = POINT .. 'local list: {Point} = { p }\n'
+  -- "😀" is four bytes and two UTF-16 units: `local s = "😀" .. list[1].` is 26 units and 29 bytes.
+  local text = head .. 'local s = "😀" .. list[1].\n'
+  local wide = served(root, { initialize(root), open(root, "main.tl", base), change(root, "main.tl", text),
+    ask(2, root, "main.tl", 11, 26) })
+  assert(has(items(wide, 2), { "x", "y" }) == "x,y", wide.err)
+  local edit = assert(items(wide, 2)["x"]).textEdit
+  assert(assert(edit.range["start"]).character == 26 and assert(edit.range["end"]).character == 26)
+  local narrow = served(root, { initialize(root, '{"general":{"positionEncodings":["utf-8"]}}'),
+    open(root, "main.tl", base), change(root, "main.tl", text), ask(2, root, "main.tl", 11, 29) })
+  assert(has(items(narrow, 2), { "x", "y" }) == "x,y", narrow.err)
+  -- A type position and a word typed after a wide character.
+  local typed = head .. 'local s = "😀" local t: Po\n'
+  local position = served(root, { initialize(root), open(root, "main.tl", base), change(root, "main.tl", typed),
+    ask(2, root, "main.tl", 11, 26) })
+  local point = assert(items(position, 2)["Point"], position.err).textEdit
+  assert(assert(point.range["start"]).character == 24 and assert(point.range["end"]).character == 26,
+    tostring(assert(point.range["start"]).character))
 end
 
 local function test_a_name_is_found_after_a_wide_character_on_a_line_that_does_not_parse()

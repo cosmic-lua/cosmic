@@ -1,37 +1,40 @@
 --- Completion for `cosmic lsp` ([`build.lsp.session`]): what can be typed at the cursor.
 ---
---- What it offers, by what the text before the cursor on its line says:
+--- What it offers, by where the cursor is in the whole text (the lexer's tokens) and what the parser recovers of it:
 ---
+--- - In a comment or a string, of one line or of several (`--[[ ]]`, `[[ ]]`, `[==[ ]==]`): nothing. Right after one, as in
+---   any other code.
 --- - Inside `require("`: the modules the working database lists ([`source.View`]'s `modules`) and the public modules the docs
 ---   know, whose names start with what is typed.
---- - After `x.` or `x:`, where `x` is a name, or names joined by dots (`a.b.c`): the members of the type the receiver has. A
----   local, a parameter, a function or a type of the document, a module it requires and a global of the standard library
----   may head the chain. `.` offers a record's or class's fields and methods, an interface's (its own and those of the
----   interfaces it lists), the functions of a module or of a declaration used as a value, and an enum's values; `:` offers the
----   methods. A member's `detail` is its signature in the docs where they have it, else its type. Its `documentation` is the
----   docs' text of the same symbol, for a type of another module; the members themselves are the checker's declarations of
----   that module, which an open document or the stage's stub gives ([`build.lsp.source`]), so an unsaved module is
----   completed as the person has it.
---- - After a `:` and a space, a type position: the types in scope and the primitive types.
+--- - After `x.` or `x:`: the members of the type the receiver has. The receiver is any chain of names, calls and indexes
+---   (`a.b`, `f().x`, `a[1].x`, `m.f():x`), which the parser reads back from the tokens before the separator. A local, a
+---   parameter, a function or a type of the document, a module it requires and a global of the standard library may head it.
+---   Where the last text that parsed has the same expression at the same place, its type is the checker's, narrowing
+---   included (`x` after `if x is T then`); else it is worked out from the declared types of the names, the members, the
+---   element of an array or a map and the result of a function. `.` offers a record's or class's fields and methods, an
+---   interface's (its own and those of the interfaces it lists), the functions of a module or of a declaration used as a
+---   value, and an enum's values; `:` offers the methods. A member's `detail` is its signature in the docs where they have
+---   it, else its type. Its `documentation` is the docs' text of the same symbol, for a type of another module; the members
+---   themselves are the checker's declarations of that module, which an open document or the stage's stub gives
+---   ([`build.lsp.source`]), so an unsaved module is completed as the person has it.
+--- - In a type position, wherever the grammar has one (after `:`, `is`, `<` and `,` of type arguments, `{`, `|`, a return
+---   type, `local type T =`, a field of a record, ...): the types in scope and the primitive types.
 --- - Anywhere else, the names in scope: the locals, parameters, functions and types visible at the cursor
 ---   ([`Scopes.in_scope`]), then the globals of the standard library.
 ---
 --- Names and members come from the document's last check that parsed ([`check.last`]): a text being typed (`p.`) does not
---- parse, so the cursor is placed in that text by what the two texts share, and the receiver is read from the line, as
---- written. A name declared in the text typed since is not offered. Nothing is offered in a comment or a string, or in a
---- document the checker read nothing of.
+--- parse, so the cursor is placed in that text by what the two texts share. What is typed at the cursor is read from the text
+--- as it is, with a placeholder name where the word being typed is: the lexer says whether the cursor is in a comment or a
+--- string, and the parser, which recovers a tree of a text that does not parse, says what node the placeholder is in. A name
+--- declared in the text typed since is not offered. Nothing is offered in a document the checker read nothing of.
 
--- TODO: offer the names of a type position in all of them (after `is`, `<`, `{`, `->`, in a `local type` and a
--- `record ... is`), and the types nested in a record after `point.` in one, once the line is read by the parser's token
--- before the cursor (the partial expression it recovers) rather than by a pattern: only a `:` and a space is a type
--- position here.
+-- TODO: offer only the types nested in a declaration after `point.` in a type position, once the declarations list a
+-- declaration's nested types apart from its fields: every member of the receiver is offered there now.
 
--- TODO: take a receiver that is a call or an index (`f().x`, `a[1].x`) and the type of a name narrowed at the cursor, once
--- completion reads the partial expression the parser recovers: the receiver is only a name or names joined by dots, typed
--- as they were declared.
-
--- TODO: tell a comment or a string that spans lines (`--[[ ]]`, `[[ ]]`) from code, once the cursor's token is read from the
--- lexer: only a `--` or a quote before the cursor on its line is told.
+-- TODO: type a name narrowed at the cursor where the last text that parsed has no read of it at that place (a name just
+-- typed after `if x is T then`), once the checker keeps the flow at a position and not only the reads of narrowed places
+-- ([`Check.Checked.narrowed`]): the declared type is used. Likewise a call receiver typed since the last parse takes its
+-- function's declared result, with the type parameters of a generic function left unsolved.
 
 -- TODO: offer the documentation of the members of the document's own module and of a module edited and unsaved, once the
 -- derivation writes the docs rows of the scratch database ([`source.places`]): the docs are the last build's, so a member
@@ -46,6 +49,7 @@
 -- `completionItem/resolve`, and offer snippets for a call's parameters, once a request needs them: names are ordered by
 -- the depth of their scope and then by name, and every item carries its text.
 
+local Ast = require("lang.ast")
 local Declarations = require("lang.declarations")
 local Driver = require("build.driver")
 local Lexer = require("lang.lexer")
@@ -59,21 +63,15 @@ local lines = require("build.lsp.lines")
 local protocol = require("build.lsp.protocol")
 
 local record completion
-  --- What the text before the cursor says is typed.
+  --- What is typed at the cursor.
   record Context
     --- "modules", "members", "types" or "names".
     mut what: string
     --- The part of the name typed already, and the byte of the line it starts at.
-    prefix: string
-    start: integer
-    --- For "members": the names the receiver is, and whether the separator is `:`.
-    chain: {string}
-    method: boolean
-    --- For a `:` after one name: that it is a declaration's annotation (`local c:`, a parameter), and so a type follows.
-    annotation: boolean
-    --- For a `:` after one name that starts its line: that it is a record's field as well as a method call, a type
-    --- following if the name has no methods.
-    field: boolean
+    mut prefix: string
+    mut start: integer
+    --- For "members": whether the separator is `:`.
+    mut method: boolean
   end
 
   --- A member of a declaration.
@@ -101,66 +99,124 @@ local ENUM_MEMBER <const> = 20
 local STRUCT <const> = 22
 local TYPE_PARAMETER <const> = 25
 
---- Whether the end of `before`, the line up to the cursor, is in a comment or a string of its line.
-local function quoted_or_commented(before: string): boolean
-  local quote: string? = nil
-  local at = 1
-  while at <= #before do
-    local c = before:sub(at, at)
-    if quote ~= nil then
-      if c == "\\" then
-        at = at + 1
-      elseif c == quote then
-        quote = nil
-      end
-    elseif c == '"' or c == "'" then
-      quote = c
-    elseif c == "-" and before:sub(at + 1, at + 1) == "-" then
-      return true
+--- The name the cursor's word is replaced by in the text the parser reads, which no program uses.
+local PLACEHOLDER <const> = "COSMIC_COMPLETION_HERE"
+
+--- What a receiver is parsed after, so that it is the value of a statement the parser takes whole.
+local HEAD <const> = "local _ = "
+
+--- Where the cursor, before byte `at` of the text that `tokens` are of, is: "comment", "quoted" (in a string a quote opened
+--- on its line, which `require("` completes), "string" (in a long string) or "code". The lexer reads the whole text, so a
+--- comment or a string of several lines is told; the end of a line comment and of a string left open at the end of its line
+--- are inside it, the byte after a closed one is not.
+local function lexical(tokens: Lexer.Tokens, at: integer): string
+  local low, high = 1, Lexer.count(tokens)
+  -- The first token that starts at or after the cursor: the comments before it are the nearest before the cursor.
+  while low < high do
+    local middle = (low + high) // 2
+    if Lexer.offset(tokens, middle) >= at then
+      high = middle
+    else
+      low = middle + 1
     end
-    at = at + 1
   end
-  return quote ~= nil
+  local comments = tokens.comments[low]
+  if comments ~= nil then
+    for _, comment in ipairs(comments) do
+      local stop = comment.offset + comment.length
+      if at >= comment.offset + 2 then
+        if comment.text:match("^%-%-%[=*%[") ~= nil then
+          if at < stop then return "comment" end
+        elseif at <= stop then
+          return "comment"
+        end
+      end
+    end
+  end
+  if low > 1 then
+    local token = low - 1
+    local kind = Lexer.kind(tokens, token)
+    local text = Lexer.text(tokens, token)
+    local quote = text:sub(1, 1) == '"' or text:sub(1, 1) == "'"
+    local stop = Lexer.stop(tokens, token)
+    if kind == "string" and at < stop then
+      if quote then return "quoted" end
+      return "string"
+    elseif kind == "$ERR$" and at <= stop then
+      -- A form left open: a string to the end of its line, a long string or a long comment to the end of the text.
+      if quote then return "quoted" end
+      if text:match("^%-%-") ~= nil then return "comment" end
+      if text:match("^%[=*%[") ~= nil then return "string" end
+    end
+  end
+  return "code"
 end
 
---- What is typed at the end of `before`, the line up to the cursor, or nil where nothing is to be completed.
-local function context_of(before: string): Context?
-  local quote, wanted = before:match("require%s*%(?%s*([\"'])([%w_%.%-]*)$")
-  if quote ~= nil and wanted ~= nil then
-    return { what = "modules", prefix = wanted, start = #before - #wanted + 1, chain = {}, method = false,
-      annotation = false, field = false }
-  end
-  if quoted_or_commented(before) then return nil end
-  local word = before:match("[%a_][%w_]*$") or ""
-  local head = before:sub(1, #before - #word)
-  local start = #head + 1
-  local sep = head:sub(-1)
-  if (sep == "." and head:sub(-2) ~= "..") or (sep == ":" and head:sub(-2) ~= "::") then
-    local receiver = head:sub(1, -2)
-    local expr = receiver:match("[%a_][%w_%.]*$")
-    if expr == nil then return nil end
-    -- The end of a call, an index or a string is a receiver this does not read.
-    local beyond = receiver:sub(#receiver - #expr, #receiver - #expr)
-    if beyond:match("[%w_%)%]}\"'%.:]") ~= nil then return nil end
-    local chain: mut {string} = {}
-    for name in (expr .. "."):gmatch("([^%.]*)%.") do
-      if name:match("^[%a_][%w_]*$") == nil then return nil end
-      chain[#chain + 1] = name
+--- The index of the token that opens the bracket token `close` closes, nil where the tokens before it do not.
+local function opener(tokens: Lexer.Tokens, close: integer): integer?
+  local depth = 0
+  for at = close, 1, -1 do
+    local kind = Lexer.kind(tokens, at)
+    if kind == ")" or kind == "]" or kind == "}" then
+      depth = depth + 1
+    elseif kind == "(" or kind == "[" or kind == "{" then
+      depth = depth - 1
+      if depth == 0 then return at end
     end
-    local beginning = receiver:sub(1, #receiver - #expr)
-    local annotation = sep == ":" and #chain == 1 and
-      (beginning:match("local%s+$") ~= nil or beginning:match("global%s+$") ~= nil or
-        beginning:match("function[^%(]*%([^%)]*$") ~= nil)
-    local field = sep == ":" and #chain == 1 and beginning:match("^%s*$") ~= nil
-    return { what = "members", prefix = word, start = start, chain = chain, method = sep == ":",
-      annotation = annotation, field = field }
   end
-  if head:match(":%s+$") ~= nil and head:match("::%s*$") == nil then
-    return { what = "types", prefix = word, start = start, chain = {}, method = false, annotation = false,
-      field = false }
+  return nil
+end
+
+--- The index of the first token of the receiver that ends at token `last`: a name, or a parenthesised expression, followed by
+--- any number of fields (`.x`), methods (`:x`), calls and indexes. nil where the tokens are none.
+local function receiver_start(tokens: Lexer.Tokens, last: integer): integer?
+  local at = last
+  while at >= 1 do
+    local kind = Lexer.kind(tokens, at)
+    if kind == "identifier" then
+      local sep = at - 1
+      if sep > 1 and (Lexer.kind(tokens, sep) == "." or Lexer.kind(tokens, sep) == ":") then
+        at = sep - 1
+      else
+        return at
+      end
+    elseif kind == ")" or kind == "]" then
+      local open = opener(tokens, at)
+      if open == nil then return nil end
+      local callee = open - 1
+      local before: Lexer.Kind = "$EOF$"
+      if callee >= 1 then before = Lexer.kind(tokens, callee) end
+      if before == "identifier" or before == ")" or before == "]" then
+        at = callee
+      elseif kind == ")" then
+        return open
+      else
+        return nil
+      end
+    else
+      return nil
+    end
   end
-  return { what = "names", prefix = word, start = start, chain = {}, method = false, annotation = false,
-    field = false }
+  return nil
+end
+
+--- The deepest node of `chunk` that holds token `token`.
+local function innermost(chunk: Ast.Chunk, token: integer): Ast.Node
+  local node: Ast.Node = chunk
+  local descending = true
+  while descending do
+    local inside: mut {Ast.Node} = {}
+    Ast.children(node, function(child: Ast.Node)
+      if child.first <= token and token <= child.last then inside[1] = child end
+    end)
+    local child = inside[1]
+    if child == nil then
+      descending = false
+    else
+      node = child
+    end
+  end
+  return node
 end
 
 --- Whether `name` starts with what was typed, in either case.
@@ -268,9 +324,9 @@ local function members_of(program: Declarations.Program, decl: Types.Decl, value
   return out
 end
 
---- The declaration the name `name` is at the token of the request, and whether it is used as a value: a binding in scope, else
---- a global of the standard library.
-local function head_of(request: Request, scope: {string: Scopes.Var}, name: string): Types.Decl?, boolean
+--- The type of the name `name` at the token of the request, the declaration it is, and whether it is used as a value: a
+--- binding in scope, else a global of the standard library.
+local function head_of(request: Request, scope: {string: Scopes.Var}, name: string): Types.Type?, Types.Decl?, boolean
   local program = request.program
   local var = scope[name]
   if var ~= nil then
@@ -278,40 +334,160 @@ local function head_of(request: Request, scope: {string: Scopes.Var}, name: stri
     local t: Types.Type? = nil
     if checked ~= nil then t = checked.vars[var.id] end
     local typed, value = receiver_of(t)
-    if typed ~= nil then return typed, value end
+    if typed ~= nil then return t, typed, value end
     local lowered = request.outcome.lowered
     if lowered ~= nil then
       local entry = lowered.entries[var.id]
-      if entry ~= nil and entry.decl ~= nil then return entry.decl, true end
+      if entry ~= nil and entry.decl ~= nil then return t, entry.decl, true end
     end
     if var.module ~= "" then
       local root = Report.root_of(program, var.module)
-      if root ~= nil then return root, true end
+      if root ~= nil then return t, root, true end
     end
-    return nil, false
+    return t, nil, false
   end
   local entry = program.globals[name]
-  if entry ~= nil and entry.decl ~= nil then return entry.decl, true end
+  if entry ~= nil and entry.decl ~= nil then return nil, entry.decl, true end
   local overloads = program.values[name]
-  if overloads ~= nil then return receiver_of(overloads[1]) end
-  return nil, false
+  if overloads ~= nil then
+    local decl, value = receiver_of(overloads[1])
+    return overloads[1], decl, value
+  end
+  return nil, nil, false
 end
 
---- The declaration `chain` names, with the members of each name read from the one before.
-local function receiver_decl(request: Request, scope: {string: Scopes.Var}, chain: {string}): Types.Decl?, boolean
-  local first = chain[1]
-  if first == nil then return nil, false end
-  local decl, value = head_of(request, scope, first)
-  for at = 2, #chain do
-    if decl == nil then return nil, false end
-    local want = chain[at]
-    local found: Types.Type? = nil
-    for _, member in ipairs(members_of(request.program, decl, value)) do
-      if member.name == want then found = member.type end
-    end
-    decl, value = receiver_of(found)
+--- A receiver typed: its type where it has one, and the declaration its members are read from.
+local record Typed
+  type: Types.Type?
+  decl: Types.Decl?
+  value: boolean
+end
+
+--- What typing the receiver of a request reads.
+local record Ground
+  request: Request
+  scope: {string: Scopes.Var}
+  reading: check.Reading
+  --- The text the reading was of, and the text of the document now.
+  old: string
+  new: string
+  --- The tokens of the text the receiver was parsed from, and what to add to a byte of it to find the byte in `new`.
+  tokens: Lexer.Tokens
+  delta: integer
+end
+
+local function typed_of(t: Types.Type?): Typed
+  local decl, value = receiver_of(t)
+  return { type = t, decl = decl, value = value }
+end
+
+--- `t` without its `nil`, where that leaves one type.
+local function stripped(t: Types.Type?): Types.Type?
+  if t ~= nil and t.tag == "union" and #t.members == 1 then return t.members[1] end
+  return t
+end
+
+--- The first value a function of type `t` answers.
+local function returned(t: Types.Type?): Types.Type?
+  local fn = stripped(t)
+  if fn == nil or fn.tag ~= "fn" then return nil end
+  local alt = fn.rets[1]
+  if alt == nil then return nil end
+  local first = alt.items[1]
+  if first ~= nil then return first end
+  return alt.tail
+end
+
+--- The type the last check gave the expression `node` of the receiver, when the text it was of has the same text at the
+--- same place: the checker's own, which the narrowing there has been applied to. nil where it has none.
+local function located(ground: Ground, node: Ast.Node): Types.Type?
+  local from = Lexer.offset(ground.tokens, node.first) + ground.delta
+  local to = Lexer.stop(ground.tokens, node.last) - 1 + ground.delta
+  local old, new = ground.old, ground.new
+  local first = earlier_count(old, new, from - 1) + 1
+  local last = earlier_count(old, new, to)
+  if from < 1 or last - first ~= to - from or old:sub(first, last) ~= new:sub(from, to) then
+    return nil
   end
-  return decl, value
+  local outcome = ground.request.outcome
+  local tokens = outcome.chunk.tokens
+  local start = check.checker_offset(ground.reading, first)
+  local finish = check.checker_offset(ground.reading, last)
+  local low, high = token_near(tokens, start), token_near(tokens, finish)
+  if Lexer.offset(tokens, low) ~= start or Lexer.stop(tokens, high) - 1 ~= finish then
+    return nil
+  end
+  -- The deepest node that spans those tokens and was typed.
+  local found: Types.Type? = nil
+  local at: Ast.Node = outcome.chunk
+  local descending = true
+  while descending do
+    if at.first == low and at.last == high then found = outcome.types[at.id] or found end
+    local inside: mut {Ast.Node} = {}
+    Ast.children(at, function(child: Ast.Node)
+      if child.first <= low and high <= child.last then inside[1] = child end
+    end)
+    local child = inside[1]
+    if child == nil then
+      descending = false
+    else
+      at = child
+    end
+  end
+  -- A type name used as a value is `invalid` there: the declaration is read by name.
+  if found ~= nil and found.tag == "invalid" then return nil end
+  return found
+end
+
+--- The member `name` of `base`, typed.
+local function member_typed(request: Request, base: Typed, name: string): Typed?
+  local t = stripped(base.type)
+  if t ~= nil and t.tag == "map" then return typed_of(t.value) end
+  if base.decl == nil then return nil end
+  local found: Types.Type? = nil
+  for _, member in ipairs(members_of(request.program, base.decl, base.value)) do
+    if member.name == name then found = member.type end
+  end
+  if found == nil then return nil end
+  return typed_of(found)
+end
+
+--- The expression `node`, typed: as the last check typed it where the text has it at that place, else from what its parts
+--- are declared to be. nil where it is not known.
+local function typed_node(ground: Ground, node: Ast.Node): Typed?
+  local known = located(ground, node)
+  if known ~= nil then return typed_of(known) end
+  if node.kind == "Paren" then return typed_node(ground, node.inner) end
+  if node.kind == "Name" then
+    local t, decl, value = head_of(ground.request, ground.scope, node.text)
+    return { type = t, decl = decl, value = value }
+  end
+  if node.kind == "Field" then
+    local base = typed_node(ground, node.object)
+    if base == nil then return nil end
+    return member_typed(ground.request, base, node.name)
+  end
+  if node.kind == "Index" then
+    local base = typed_node(ground, node.object)
+    if base == nil then return nil end
+    local t = stripped(base.type)
+    if t ~= nil and t.tag == "array" then return typed_of(t.element) end
+    if t ~= nil and t.tag == "map" then return typed_of(t.value) end
+    return nil
+  end
+  if node.kind == "Call" then
+    local callee = typed_node(ground, node.callee)
+    if callee == nil then return nil end
+    return typed_of(returned(callee.type))
+  end
+  if node.kind == "MethodCall" then
+    local base = typed_node(ground, node.object)
+    if base == nil then return nil end
+    local method = member_typed(ground.request, base, node.name)
+    if method == nil then return nil end
+    return typed_of(returned(method.type))
+  end
+  return nil
 end
 
 --- The prefix the docs spell a member of `decl` with: "" for a module's own record, the path under it for a nested one,
@@ -407,9 +583,8 @@ local function fits(space: Scopes.Space, types: boolean): boolean
 end
 
 --- The names in scope, then the globals of the standard library, whose names start with the prefix typed.
-local function name_items(request: Request, scope: {string: Scopes.Var}, context: Context,
+local function name_items(request: Request, scope: {string: Scopes.Var}, types: boolean, context: Context,
                           out: mut {protocol.CompletionItem}, edit: protocol.Range)
-  local types = context.what == "types"
   local checked = request.outcome.checked
   local names: mut {string} = {}
   for name in pairs(scope) do names[#names + 1] = name end
@@ -485,6 +660,34 @@ local function module_items(checker: check.Checker, d: hover.Docs, context: Cont
   end
 end
 
+--- The module names, if the cursor is in the string of a `require(`: the word typed and the byte of the line it starts at.
+local function required(before: string): string?
+  local quote, wanted = before:match("require%s*%(?%s*([\"'])([%w_%.%-]*)$")
+  if quote == nil then return nil end
+  return wanted
+end
+
+--- The receiver of the separator at token `sep` of `tokens`, which are of `text`, parsed by itself: the node, the tokens it
+--- is of and what to add to a byte of them to find it in `text`. nil where no receiver ends there.
+local function receiver_at(document: check.Document, text: string, tokens: Lexer.Tokens, sep: integer):
+    Ast.Exp?, Lexer.Tokens?, integer
+  local first = receiver_start(tokens, sep - 1)
+  if first == nil then return nil, nil, 0 end
+  local from = Lexer.offset(tokens, first)
+  local small = HEAD .. text:sub(from, Lexer.offset(tokens, sep) - 1) .. Lexer.text(tokens, sep) .. PLACEHOLDER
+  local dialect: Ast.Dialect = "tl"
+  if document.name:match("%.d%.tl$") ~= nil then dialect = "decl" end
+  local chunk = Driver.parse(Driver.source(document.name, document.name, small, dialect)).chunk
+  local stat = chunk.body.stats[1]
+  if stat == nil or stat.kind ~= "Local" then return nil, nil, 0 end
+  local value = stat.values[1]
+  if value == nil then return nil, nil, 0 end
+  if value.kind == "Field" or value.kind == "MethodCall" then
+    return value.object, chunk.tokens, from - 1 - #HEAD
+  end
+  return nil, nil, 0
+end
+
 --- The completions at `where` of `document`, whose characters count in `encoding`'s units: nil where nothing is open there.
 --- An empty list is a place where nothing can be typed, or nothing is known.
 function completion.at(checker: check.Checker, d: hover.Docs, document: check.Document, where: protocol.Position,
@@ -494,9 +697,22 @@ function completion.at(checker: check.Checker, d: hover.Docs, document: check.Do
   local start = split.starts[where.line + 1]
   if line == nil or start == nil then return nil end
   local byte = lines.byte_of(line, where.character, encoding)
-  local context = context_of(line:sub(1, byte - 1))
+  local before = line:sub(1, byte - 1)
   local out: mut {protocol.CompletionItem} = {}
-  if context == nil then return { isIncomplete = false, items = out } end
+  -- The byte of the text the cursor is before.
+  local cursor = start + byte - 1
+  local state = lexical(Lexer.lex(document.text, document.name).tokens, cursor)
+  if state == "comment" or state == "string" then return { isIncomplete = false, items = out } end
+  local prefix = before:match("[%a_][%w_]*$") or ""
+  local context: Context = { what = "names", prefix = prefix, start = byte - #prefix, method = false }
+  local wanted = required(before)
+  if wanted ~= nil and state == "quoted" then
+    context.what = "modules"
+    context.prefix = wanted
+    context.start = #before - #wanted + 1
+  elseif state == "quoted" then
+    return { isIncomplete = false, items = out }
+  end
   local edit = protocol.range(lines.position(split, start + context.start - 1, encoding),
     lines.position(split, start + byte - 1, encoding))
   if context.what == "modules" then
@@ -507,24 +723,42 @@ function completion.at(checker: check.Checker, d: hover.Docs, document: check.Do
   if last == nil then return { isIncomplete = false, items = out } end
   local outcome = last.reading.outcome
   -- The byte before the cursor, in the text the reading was of, then in the text the checker read.
-  local before = earlier_count(last.text, document.text, start + byte - 2)
-  local token = token_near(outcome.chunk.tokens, check.checker_offset(last.reading, math.max(before, 1)))
+  local earlier = earlier_count(last.text, document.text, cursor - 1)
+  local token = token_near(outcome.chunk.tokens, check.checker_offset(last.reading, math.max(earlier, 1)))
   local request: Request = { program = last.reading.program, outcome = outcome }
   local scope = Scopes.in_scope(outcome.scoped, token)
-  if context.what == "members" and context.annotation then
-    -- A type follows the colon of a declaration, and nothing is typed yet.
-    context.what = "types"
-    name_items(request, scope, context, out, edit)
-  elseif context.what == "members" then
-    local decl, value = receiver_decl(request, scope, context.chain)
-    if context.field and (decl == nil or #members_of(request.program, decl, value) == 0) then
-      context.what = "types"
-      name_items(request, scope, context, out, edit)
-    elseif decl ~= nil then
-      member_items(request, d, decl, value, context, out, edit)
+  -- The text with the word being typed replaced by a name, as the parser recovers a tree of it. The rest of a word the
+  -- cursor is inside of goes with it.
+  local rest = line:sub(byte):match("^[%w_]*") or ""
+  local spliced = document.text:sub(1, cursor - 1 - #prefix) .. PLACEHOLDER .. document.text:sub(cursor + #rest)
+  local dialect: Ast.Dialect = "tl"
+  if document.name:match("%.d%.tl$") ~= nil then dialect = "decl" end
+  local chunk = Driver.parse(Driver.source(document.name, document.name, spliced, dialect)).chunk
+  local tokens = chunk.tokens
+  local at = token_near(tokens, cursor - #prefix)
+  if Lexer.text(tokens, at) ~= PLACEHOLDER or Lexer.offset(tokens, at) ~= cursor - #prefix then
+    name_items(request, scope, false, context, out, edit)
+    return { isIncomplete = false, items = out }
+  end
+  local node = innermost(chunk, at)
+  local sep: Lexer.Kind = "$EOF$"
+  if at > 1 then sep = Lexer.kind(tokens, at - 1) end
+  if node.kind == "TypeName" and #node.path == 1 and node.path[1] == PLACEHOLDER then
+    name_items(request, scope, true, context, out, edit)
+  elseif sep == "." or sep == ":" then
+    context.what = "members"
+    context.method = sep == ":"
+    local receiver, small, delta = receiver_at(document, spliced, tokens, at - 1)
+    if receiver ~= nil and small ~= nil then
+      local ground: Ground = { request = request, scope = scope, reading = last.reading, old = last.text,
+        new = document.text, tokens = small, delta = delta }
+      local typed = typed_node(ground, receiver)
+      if typed ~= nil and typed.decl ~= nil then
+        member_items(request, d, typed.decl, typed.value, context, out, edit)
+      end
     end
   else
-    name_items(request, scope, context, out, edit)
+    name_items(request, scope, false, context, out, edit)
   end
   return { isIncomplete = false, items = out }
 end
