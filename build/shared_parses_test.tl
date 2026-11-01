@@ -229,7 +229,7 @@ local function test_a_kept_parse_comes_back_whole(tmp: string)
   -- Bounded together: a compile used long ago goes before a parse used
   -- lately, though the parse was written first.
   local kept: shared_compiles.Kept = { key = "k", lua = "return {}\n", bytecode = "\27Lua",
-    references = {} }
+    references = {}, fact_wraps = 0, parameter_checks = 0 }
   assert(shared_compiles.settle(cache, { kept = {}, used = {},
     parses = { { key = key, made = made } }, parses_used = {} }, 10))
   assert(shared_compiles.settle(cache, { kept = { kept }, used = {} }, 5))

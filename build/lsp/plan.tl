@@ -27,6 +27,8 @@ local record plan
     plan: build_module.Plan?
     refusals: {Refusal}
     halted: boolean
+    --- Whether the text parses.
+    parsed: boolean
     --- What it requires and where, in order: none for a text that does not parse.
     requires: {Site}
   end

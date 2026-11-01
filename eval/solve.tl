@@ -17,11 +17,6 @@ local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 
---- The status a run ended with, written inside the guarded call and read after it.
-local record Ended
-  mut status: integer
-end
-
 local record Solve
   --- What a run was asked for on the command line.
   record Options
@@ -386,41 +381,33 @@ function Solve.main(argv: {string}): integer
   local started = Time.monotonic_ns()
   -- The run's own guard holds a SIGINT or SIGTERM until finished_at and
   -- exit_code are written, then delivers it as it closes.
-  -- TODO: hold the guard in a `<close>` local again and drop the `pcall`, once ci/cosmic-driver.pin names a release
-  -- that declares [`Signal.Guard`] as a class: a `<close>` local must be one.
-  local guard = assert(Signal.guard())
-  local ended: Ended = { status = 0 }
-  local ran, raised = pcall(function()
-    local result, trouble = Child.run(command, {
-      env = env,
-      cwd = arena .. "/project",
-      stdin = "null",
-      stdout = outputs[1],
-      stderr = outputs[2],
-      timeout_ns = Time.seconds(options.timeout),
-      sandbox = { unveil = unveil },
-    })
-    for _, out in ipairs(outputs) do local _, _ = Fs.close(out) end
-    local status: integer
-    if result ~= nil then
-      status = Solve.status(result)
-    elseif guard:cancelled() ~= 0 then
-      status = 128 + guard:cancelled()
-    else
-      complain(trouble .. " (where the sandbox is unavailable, eval/README.md has the manual launch)")
-      status = 125
-    end
-    local _, _ = Fs.write(arena .. "/finished_at", now())
-    local _, _ = Fs.write(arena .. "/exit_code", tostring(status) .. "\n")
-    local seconds = (Time.monotonic_ns() - started) // 1000000000
-    complain(arena .. ": exit " .. tostring(status) .. " after " .. tostring(seconds) .. "s" ..
-        (if result ~= nil and result.timed_out then " (past the " .. tostring(options.timeout) ..
-            "s deadline)" else "" end))
-    ended.status = status
-  end)
-  local _, _ = guard:close()
-  if not ran then error(raised, 0) end
-  return ended.status
+  local guard <close> = assert(Signal.guard())
+  local result, trouble = Child.run(command, {
+    env = env,
+    cwd = arena .. "/project",
+    stdin = "null",
+    stdout = outputs[1],
+    stderr = outputs[2],
+    timeout_ns = Time.seconds(options.timeout),
+    sandbox = { unveil = unveil },
+  })
+  for _, out in ipairs(outputs) do local _, _ = Fs.close(out) end
+  local status: integer
+  if result ~= nil then
+    status = Solve.status(result)
+  elseif guard:cancelled() ~= 0 then
+    status = 128 + guard:cancelled()
+  else
+    complain(trouble .. " (where the sandbox is unavailable, eval/README.md has the manual launch)")
+    status = 125
+  end
+  local _, _ = Fs.write(arena .. "/finished_at", now())
+  local _, _ = Fs.write(arena .. "/exit_code", tostring(status) .. "\n")
+  local seconds = (Time.monotonic_ns() - started) // 1000000000
+  complain(arena .. ": exit " .. tostring(status) .. " after " .. tostring(seconds) .. "s" ..
+      (if result ~= nil and result.timed_out then " (past the " .. tostring(options.timeout) ..
+          "s deadline)" else "" end))
+  return status
 end
 
 return Solve

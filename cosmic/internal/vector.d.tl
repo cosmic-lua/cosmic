@@ -1,5 +1,6 @@
 -- Packed vectors and an in-memory corpus at the Lua boundary, as the core
 -- provides them. A vector is a string of little-endian 32-bit floats.
+--- @kind binding
 
 local record vector
   -- n vectors of one dimension count in one buffer, each with an id.

@@ -319,8 +319,15 @@ and keeps no verdict of it. A held run fails it.
 ## run-time type checks
 
 `cosmic test --check-types` (`COSMIC_TEST_CHECK_TYPES=1`) shows where the checker's conclusion from a test is false at
-run time. It compiles the tree with a check at each read of a place a test narrowed (below) and runs every test,
-whatever verdict stands, since only a worker reports. The new checker keeps nil out of every declared type itself. It
+run time. It compiles the tree with a check at each read of a place a test narrowed (below). Its verdicts are its
+own: a checked run stands on the pass an earlier checked run earned under the same key, which holds the mode by name
+(a `checks` part, with the harness digest of [`build.test_worker`], where the hooks live), and never on an unchecked
+run's. The key holds the checked bytecode of the closure, so an edit that changes what the checks do moves the keys of
+the tests that load it and no others. A checked run keeps its verdicts in `verdicts/verdicts-checked.db` beside
+`verdicts.db` (or the file `COSMIC_VERDICT_CACHE` names), which keeps twice as many rows.
+A test keeps no verdict in a checked run unless its worker reported the harness's own hooks and it met no violation
+of any kind, so a test that meets one runs in every checked run and reports it again. `--all` runs every test. The
+new checker keeps nil out of every declared type itself. It
 writes a check at the entry of a function for each typed parameter ([`lang.boundary_checks`]): a statement on the line of
 the `)` that ends the parameters, so no line moves and a tail call stays one, which hands the hook the values and the
 kinds the declared types admit. A value of another kind is a row of kind `parameter` at the line of the caller. A
@@ -342,7 +349,11 @@ modules carry checks.
 The run ends with the count, the distinct violations and the commonest
 ten, each with the line that sent the value: the caller for a parameter,
 the `return` or the write for the others. `cosmic sql --build 'SELECT *
-FROM type_violations'` lists all of them, from the latest checked run.
+FROM type_violations'` lists all of them, from the latest checked run, and
+`type_violation_tests` the tests that met each, which are the tests that
+never stand. A line beneath says how many fact wraps and parameter checks the
+compile wrote, which is 0 for an unchecked compile whatever the tests did, and
+how many tests stood.
 
 A module compiled with checks is another compile of the same source: it
 has its own keys, and the tool and the executables `cosmic build` writes
@@ -400,8 +411,9 @@ wrongly is a failing test and a row of `type_violations` of a real run ([`build/
 
 CI runs the whole suite so in the `checked-narrowing` jobs of a full run,
 two shares of it (`cosmic-driver cosmic_ci/driver.tl platform
-checked-narrowing`, `--check-types --shard I/2`), and
-`bin/cosmic test --check-types` runs it anywhere.
+checked-narrowing`, `--check-types --shard I/2`), standing on the checked
+verdicts of earlier runs as the legs' suites stand on theirs (ci/README.md's
+`checked-narrowing`), and `bin/cosmic test --check-types` runs it anywhere.
 
 ## fuzz tests
 
@@ -491,6 +503,13 @@ progress line, the coverage, the summary) moves no digest, and needs
 nothing here. Where a part of the runner could be either, it is in
 [`build/test_key.tl`].
 
+The hooks of a checked run (`install_checks`, the hooks it defines, what they record) and the judge's checks that
+apply to a checked run alone are the code of [`build.test_worker`] that no ordinary run executes. The keys of a checked
+run hold that module's digest, so an edit confined to them moves those keys and no other, and needs no bump: a bump
+would run the ordinary suites on a change that cannot alter them. This is the one exception to the rule below. An edit
+to the module's ordinary judging, its run or its sandbox setup bumps, as does an edit to [`build/test_key.tl`] or
+[`build/declared_key.tl`] that alters a checked pass.
+
 Bump `epoch` in the same edit where the change can alter a pass or a
 fail:
 
@@ -550,6 +569,7 @@ Other rules:
 [`build.test_worker`]: ../build/test_worker.tl
 [`build.this_program`]: ../build/this_program.tl
 [`build.tree_checks`]: ../build/tree_checks.tl
+[`build/declared_key.tl`]: ../build/declared_key.tl
 [`build/fact_hook_tool_test.tl`]: ../build/fact_hook_tool_test.tl
 [`build/harness_epoch_test.tl`]: ../build/harness_epoch_test.tl
 [`build/rebuild_lock_tool_test.tl`]: ../build/rebuild_lock_tool_test.tl

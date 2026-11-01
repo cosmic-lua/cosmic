@@ -153,6 +153,20 @@ local function test_a_checked_run_reports_the_fact_that_is_false(tmp: string)
     "the checked projection carries no wrap")
 end
 
+--- The test that meets the false fact keeps no verdict, so the second run reports it again and the clean one stands:
+--- a standing verdict must not hide a violation a `pcall` swallowed.
+local function test_a_swallowed_violation_is_reported_by_every_run(tmp: string)
+  local root = project(tmp)
+  local first, first_text = invoke(root, tmp, { "test", "--check-types" })
+  assert(first.ok and first_text:find("2 ran, 0 stood", 1, true) ~= nil, first_text)
+  local second, second_text = invoke(root, tmp, { "test", "--check-types" })
+  assert(second.ok, second_text)
+  assert(second_text:find("1 ran, 1 stood", 1, true) ~= nil, second_text)
+  assert(second_text:find("run-time types: 1 violation, 1 distinct, at 1 place", 1, true) ~= nil,
+    "a standing verdict hid the false fact: " .. second_text)
+  assert(#violations(root) == 1, tostring(#violations(root)) .. " rows")
+end
+
 --- What a drawn program leaves unused of its header, read, so that the tool, which refuses a warning, takes it, and the
 --- module's export: the program is run by `run` and not as the module loads, so that a test can catch a failed `assert`.
 local FOOTER <const> = table.concat({

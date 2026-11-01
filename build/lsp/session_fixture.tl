@@ -3,11 +3,13 @@
 --- read of the messages it sends back.
 
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local build_paths = require("build.paths")
+local schema = require("build.schema")
 local protocol = require("build.lsp.protocol")
 local session = require("build.lsp.session")
 local source = require("build.lsp.source")
@@ -135,7 +137,8 @@ local function copied(tally: source.Tally): source.Tally
   return { database_stubs = tally.database_stubs, made_stubs = tally.made_stubs,
     sources = tally.sources, templates = tally.templates,
     whole_splices = tally.whole_splices, stages = tally.stages, reopened = tally.reopened,
-    derived = tally.derived }
+    derived = tally.derived, member_rows = tally.member_rows, member_declarations = tally.member_declarations,
+    scratch_stubs = tally.scratch_stubs, scratch_requires = tally.scratch_requires, texts_read = tally.texts_read }
 end
 
 --- Makes the directory `root` a project to a session, as one a build has
@@ -146,6 +149,26 @@ function session_fixture.made_project(root: string): string
   local directory = assert(build_paths.prepare(root))
   assert(Fs.write(build_paths.under(directory).projection, ""))
   return root
+end
+
+--- A database as the tool carries one (the schema of [`build.schema`]), holding the standard-library module `path`, its
+--- file `file` and the text `text`, and `places` of it, each a `{ symbol, kind, line, column, length, plain }`, the last "1" for a name on an ASCII line: what a session
+--- given it as its `store` takes for the binary's own, where a test needs the module's text and places it names (the
+--- default [`Store.databases`] carries the real ones).
+function session_fixture.carrying(path: string, file: string, text: string, places: {{string}}): Sqlite.Handle
+  local db = assert(Sqlite.memory())
+  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  assert(Sqlite.run(db, "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
+      "VALUES (?1, ?2, 'module', CAST(?3 AS BLOB), x'00', x'00', '', deflate(?4))",
+    { { text = path }, { text = file }, { text = Hash.hex_sha256(text) }, { text = text } }))
+  for ordinal, place in ipairs(places) do
+    assert(Sqlite.run(db, "INSERT INTO places (module, ordinal, symbol, kind, line, column, length, plain) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+      { { text = path }, { text = tostring(ordinal) }, { text = place[1] or "" }, { text = place[2] or "" },
+        { text = place[3] or "0" }, { text = place[4] or "0" }, { text = place[5] or "0" },
+        { text = place[6] or "0" } }))
+  end
+  return db
 end
 
 --- A new directory that is a project to a session ([`made_project`]).

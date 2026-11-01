@@ -384,6 +384,17 @@ local record Reader
   requires: function(name: string): {string}
 end
 
+--- What this module requires for a type alone (`local type`), which `requires` records though none of it runs here, and
+--- why the identity of the code that reads ([`Pipeline.coded`]) leaves it out. Only this module's own require is left
+--- out: one that another module of the walk requires is in it. Every key `coded` names but a parse's holds each of these
+--- through the compiler's identity ([`build.identity`]'s `compiler_roots`), and a parse's holds the analyzer's modules
+--- by source ([`build.importer`]'s `analyzer_identity`).
+local type_only <const>: {string:string} = {
+  ["build.plans"] = "the `Module` and `Generated` types of what a compile plans and keeps; build.importer runs the plan",
+  ["build.derivation"] = "the types of what a parse is handed and tallies (`Fresh`, `Parses`, `Source`); it runs the " ..
+    "parse, and is a root of the analyzer's identity",
+}
+
 --- The identity of the code that reads and checks in the new mode ([`Pipeline.coded`]), over the modules `reader` answers for.
 local function identity(reader: Reader): string
   local parts: mut {string} = {}
@@ -398,7 +409,9 @@ local function identity(reader: Reader): string
         parts[#parts + 1] = name .. "\n" .. source
       end
       for _, next_name in ipairs(reader.requires(name)) do
-        stack[#stack + 1] = next_name
+        if name ~= "build.pipeline" or type_only[next_name] == nil then
+          stack[#stack + 1] = next_name
+        end
       end
     end
   end
@@ -749,7 +762,8 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
   result.types = {}
   result.callees = {}
   if kept == true then
-    return { lua = code, bytecode = "", references = references, refused = refused }, ""
+    return { lua = code, bytecode = "", references = references, refused = refused,
+      fact_wraps = emitted.fact_wraps or 0, parameter_checks = emitted.parameter_checks or 0 }, ""
   end
   if m.kind == "test" then
     code = LuaTail.with_test_tail(code, m.tests)
@@ -758,7 +772,8 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
   if bytecode == nil then
     return nil, dump_trouble
   end
-  return { lua = code, bytecode = bytecode, references = references, refused = refused }, ""
+  return { lua = code, bytecode = bytecode, references = references, refused = refused,
+    fact_wraps = emitted.fact_wraps or 0, parameter_checks = emitted.parameter_checks or 0 }, ""
 end
 
 --- How many modules [`Pipeline.generate`] has written, for the probe's marks ([`Memprobe.mark`]).

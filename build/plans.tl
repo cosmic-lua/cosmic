@@ -24,6 +24,10 @@ local record plans
     references: {SyntaxReceivers.Reference}
     --- A refusal, its contracts' or its stub's, kept for this unjudged run alone.
     refused: boolean
+    --- How many reads of a narrowed place and how many typed parameters its Lua checks ([`build.compile_grammar.emit`]):
+    --- what a checked compile wrote, 0 for an unchecked one.
+    fact_wraps: integer
+    parameter_checks: integer
   end
   --- A module's key and the graph digest less its own file and compiler.
   record Keys

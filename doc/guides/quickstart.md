@@ -374,11 +374,10 @@ The same line holds a [`Signal.guard`], a [`cosmic.net`] socket or an
 integer, which `<close>` cannot hold: [`Fs.close`] closes it, and
 [`Fs.read`] reads a whole file without one.
 
-A type of your own is closable too: declare it as a class with a
-`function __close(self)` method (`local class Handle ... function
-__close(self) ... end end`), and a table literal makes each value;
-[`Fs.Scratch`] is one. Without it the compiler refuses `<close>` with
-`to-be-closed variable h has a non-closable type Handle`.
+A type of your own is closable too: declare it a class whose body has
+`function __close(self)`, and make each value as a table literal.
+[`Fs.Scratch`] is one. Without the method the compiler refuses `<close>`
+with `to-be-closed variable h has a non-closable type Handle`.
 
 ## ending early
 

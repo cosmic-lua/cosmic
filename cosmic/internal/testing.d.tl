@@ -5,6 +5,7 @@
 --- setup makes (`mount`, `umount2`, `unshare`, `setns`, `chroot`) and
 --- [`vector_kernel`], which are real in every core. `configuration` says which core is
 --- running, "sanitized" for the checked one.
+--- @kind binding
 
 local record testing
   --- The running core's configuration: "sanitized" for the checked one.

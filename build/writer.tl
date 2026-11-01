@@ -259,6 +259,15 @@ local insert_stubs =
   "JOIN main.stubs s ON s.source_hash = i.source_hash " ..
   "WHERE p.path GLOB 'cosmic.*' ORDER BY p.path"
 
+--- The `places` ([`build.syntax_places`]) of each planned `cosmic.*` module's source, which `modules` carries as it was
+--- parsed. A module generated from another file (`mapped`) has none, as it has none in the working database.
+local insert_places =
+  "INSERT INTO out.places (module, ordinal, symbol, kind, line, column, length, plain) " ..
+  "SELECT p.path, l.ordinal, l.symbol, l.kind, l.line, l.column, l.length, l.plain FROM plan p " ..
+  "JOIN inputs i ON i.path = p.path AND i.kind = 'module' " ..
+  "JOIN main.places l ON l.source_hash = i.source_hash " ..
+  "WHERE p.path GLOB 'cosmic.*' ORDER BY p.path, l.ordinal"
+
 --- Each planned `cosmic.*` module `insert_stubs` found no stub of.
 local unstubbed_modules =
   "SELECT p.path FROM plan p JOIN inputs i ON i.path = p.path AND i.kind = 'module' " ..
@@ -809,8 +818,10 @@ local function project(handle: work.Handle,
   -- moves when one does. It also carries its standard
   -- library's stubs (`insert_stubs`): a stub is a function of its
   -- module's source, which the module's key holds, and of build.stub,
-  -- which the compiler's identity in `meta` holds. A project's tables
-  -- stay empty.
+  -- which the compiler's identity in `meta` holds. The places of those
+  -- sources (`insert_places`) are a function of the source and of
+  -- build.syntax_places, the code of the tool, which `boot_hash` holds.
+  -- A project's tables stay empty.
   if work.standing(handle).own then
     local filled, fill_trouble = bom.fill(db, handle.root, "out.")
     if not filled then
@@ -848,6 +859,10 @@ local function project(handle: work.Handle,
     local stubbed, stub_trouble = db:exec(insert_stubs)
     if not stubbed then
       return false, stub_trouble
+    end
+    local placed, place_trouble = db:exec(insert_places)
+    if not placed then
+      return false, place_trouble
     end
     -- A module the binary carried no stub of would be typed from its
     -- source, slower and with nothing to say so.
@@ -1178,6 +1193,7 @@ local carry: {string} = {
     "WHERE path NOT IN dropped ORDER BY path, name",
   "INSERT INTO main.decls SELECT * FROM whole.decls ORDER BY path",
   "INSERT INTO main.stubs SELECT * FROM whole.stubs ORDER BY path",
+  "INSERT INTO main.places SELECT * FROM whole.places ORDER BY module, ordinal",
   "INSERT INTO main.payload SELECT * FROM whole.payload ORDER BY path",
   "INSERT INTO main.zoneinfo (name, data) SELECT name, data FROM whole.zoneinfo " ..
     "ORDER BY name",

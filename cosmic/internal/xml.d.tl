@@ -1,6 +1,7 @@
 -- XML at the Lua boundary, as the core (core/xml.c, over expat) provides
 -- it. cosmic/xml.tl documents the contract. A fallible function answers
 -- `value, ""` on success and `nil, error` on failure.
+--- @kind binding
 
 local record xml
   -- What an event is; cosmic/xml.tl's Kind describes each.

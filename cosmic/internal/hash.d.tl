@@ -1,6 +1,7 @@
 -- Digests, HMACs and streaming digests and HMACs at the Lua boundary, as the
 -- core provides them. Every fallible function answers `value, ""` on
 -- success and `nil, error` on failure.
+--- @kind binding
 
 local record hash
   -- An incremental digest or HMAC: one type, since both take chunks and

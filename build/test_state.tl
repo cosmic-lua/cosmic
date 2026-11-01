@@ -121,6 +121,13 @@ local record test_state
     scratch: string
   end
 
+  --- One test's share of a violation a checked run met.
+  record MetViolation
+    key: string
+    test: string
+    count: integer
+  end
+
   record Recording
     records: Sqlite.Handle
     root: string
@@ -177,6 +184,9 @@ local record test_state
     --- its key, in the order first met, the test that first met it, how many
     --- the workers kept no record of.
     checks: boolean
+    --- What a checked run's keys hold beside the bytes ([`declared_key.Spec`]'s `checks`), nil for
+    --- an ordinary run.
+    mut checks_part?: string
     --- The file of each module of the tree, by its name, which a traceback
     --- names a frame by.
     files: mut {string:string}
@@ -184,6 +194,18 @@ local record test_state
     violation_order: mut {string}
     violation_tests: mut {string:string}
     violations_dropped: integer
+    --- Which test met which violation, and how often (`take_violations`): a
+    --- row to each test and distinct violation, in the order met. Where
+    --- `violation_tests` names only the first test to meet one.
+    --- How many reads of a narrowed place and how many typed parameters the compile of this run wrote a check of
+    --- ([`importer.Result`]'s `fact_wraps`), summed over the tree: 0 for an unchecked run.
+    fact_wraps: integer
+    parameter_checks: integer
+    violation_met: mut {MetViolation}
+    --- How many violations each test that met any reported, those its worker
+    --- kept no record of included, and the seconds it ran.
+    violators: mut {string:integer}
+    violator_ns: mut {string:integer}
     --- How many jobs `--bail` left unstarted after the first failure
     --- (`run_jobs`). Such a test made no verdict, pass or fail, and is
     --- in no figure of the tally.

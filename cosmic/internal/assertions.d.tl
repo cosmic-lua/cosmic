@@ -1,5 +1,6 @@
 --- A counting `assert`, provided by core/assertions.c and handed only to
 --- [`build.test_worker`] when it loads from the binary's own tree.
+--- @kind binding
 
 local record assertions
   --- Lua's own `assert` -- the same results, the same messages, the same

@@ -92,7 +92,7 @@ end
 
 --- The shape of the schema. A file of another shape holds nothing the
 --- tree cannot produce again, so it is thrown away.
-local version <const> = "31"
+local version <const> = "33"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -168,12 +168,27 @@ local version <const> = "31"
 --- reading a source again. A guide's example is at the line of the
 --- module extracted from the guide.
 --- `places` is where each type a source declares, and each field, method
---- and `function R.f` of one, has its name ([`build.syntax_places`]): a
---- row each by dotted symbol from the top of the module (`R`, `R.Inner`,
+--- and `function R.f` of one, and each value of an enum, has its name
+--- ([`build.syntax_places`]): a row each by dotted symbol from the top of the module (`R`, `R.Inner`,
 --- `R.f`), its kind, and the line, byte column and byte length of the
---- name. `cosmic lsp` finds a declaration in another module by it
---- ([`build.lsp.source`]) without parsing the module. A source derived
---- from another file (`mapped`) has none: its lines are not the file's.
+--- name, and whether that name is `plain`: its line holds only ASCII and the
+--- protocol numbers the lines before it as the lexer does, so its protocol
+--- character is its column less one. `cosmic lsp` finds a declaration in
+--- another module by it ([`build.lsp.source`]) without parsing the module,
+--- and without reading its text where the place is plain. A source derived
+--- from another file (`mapped`) has the rows its `-- line` map names, at the
+--- map's line of that file (column 1, length 0), and none if it has no map.
+--- `members` is what each type a source declares has: a row for the type
+--- (`name` ""), and one for each field, method, enum value and `function
+--- R.f` of it ([`build.syntax_members`]), under the same dotted symbol as
+--- `places`, with its kind, where it is offered (`scope`) and its type as
+--- written. `cosmic lsp` completes the members of a module by it
+--- ([`build.lsp.completion`]) without the checker's declarations of the
+--- module. It is a table of its own because neither neighbour can hold
+--- it: `places` has a row for where a name is declared and no more, and
+--- `docs` is the documentation's view (a symbol is named as the module
+--- exports it, a type no export reaches is left out, a member has no
+--- scope or kind a read of it needs).
 ---
 --- `executable` is [`build.coverage.syntax_lines.executable`]'s answer for one
 --- source, keyed by content hash the same way as `parsed`: which lines
@@ -356,7 +371,8 @@ local version <const> = "31"
 --- `type_violations` holds what the last `cosmic test --check-types` run
 --- reported ([`build.test`]'s `keep_violations`): a row for each distinct
 --- violation, where it was met and the first test that met it, replacing
---- the run before's.
+--- the run before's. `type_violation_tests` holds a row for every test that
+--- met each, with how often, so the tests that meet any are counted.
 ---
 --- The statements of `derived`, `inputs` and the tables a parse fills
 --- are [`build.analysis_schema`]'s, which this places between the
@@ -457,8 +473,10 @@ for _, statement in ipairs({
                                          tool TEXT NOT NULL,
                                          lua TEXT NOT NULL,
                                          bytecode BLOB NOT NULL,
-                                         seen INTEGER NOT NULL) WITHOUT ROWID]],
-    [[CREATE INDEX IF NOT EXISTS compiled_by_seen ON compiled (key, seen)]],
+                                         seen INTEGER NOT NULL,
+                                         fact_wraps INTEGER NOT NULL DEFAULT 0,
+                                         parameter_checks INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID]],
+    [[CREATE INDEX IF NOT EXISTS compiled_by_checks ON compiled (key, seen, fact_wraps, parameter_checks)]],
     [[CREATE TABLE IF NOT EXISTS deflated (source_hash TEXT NOT NULL,
                                          core TEXT NOT NULL,
                                          data BLOB NOT NULL,
@@ -567,6 +585,15 @@ for _, statement in ipairs({
                                                 test TEXT NOT NULL,
                                                 PRIMARY KEY (kind, site, target, declared,
                                                              actual)) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS type_violation_tests (test TEXT NOT NULL,
+                                                     kind TEXT NOT NULL,
+                                                     site TEXT NOT NULL,
+                                                     target TEXT NOT NULL,
+                                                     declared TEXT NOT NULL,
+                                                     actual TEXT NOT NULL,
+                                                     count INTEGER NOT NULL,
+                                                     PRIMARY KEY (test, kind, site, target, declared,
+                                                                  actual)) WITHOUT ROWID]],
 }) do
   work.schema[#work.schema + 1] = statement
 end
@@ -693,6 +720,35 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean): Took?, st
   local fresh, count_trouble = counted_none(db, "SELECT count(*) FROM sqlite_master")
   if fresh == nil then
     return nil, count_trouble
+  end
+  if not fresh then
+    -- A file of an older tool has `compiled` without the counts of the checks a compile wrote: a row of it is an
+    -- unchecked compile, of 0 checks, which the default says. The index that holds them is made after.
+    -- Each column is added if it is missing; a run that opens the file at the same moment may add it first, which
+    -- shows as a duplicate column, and the table is read again before that is taken for a failure. The index the
+    -- file may hold of the old layout, which nothing reads, goes.
+    for _, name in ipairs({ "fact_wraps", "parameter_checks" }) do
+      local columns, columns_trouble = Sqlite.text_rows(db, "PRAGMA table_info(compiled)")
+      if columns == nil then return nil, columns_trouble end
+      local present = #columns == 0
+      for _, column in ipairs(columns) do
+        if column:text(2) == name then present = true end
+      end
+      if not present then
+        local added, add_trouble = db:exec("ALTER TABLE compiled ADD COLUMN " .. name .. " INTEGER NOT NULL DEFAULT 0")
+        if not added then
+          local again, again_trouble = Sqlite.text_rows(db, "PRAGMA table_info(compiled)")
+          if again == nil then return nil, again_trouble end
+          local now_present = false
+          for _, column in ipairs(again) do
+            if column:text(2) == name then now_present = true end
+          end
+          if not now_present then return nil, add_trouble end
+        end
+      end
+    end
+    local dropped, drop_trouble = db:exec("DROP INDEX IF EXISTS compiled_by_seen")
+    if not dropped then return nil, drop_trouble end
   end
   if fresh then
     local begun, begin_trouble = begin_waiting(db, path, wait)

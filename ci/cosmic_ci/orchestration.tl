@@ -70,6 +70,7 @@ local record Orchestration
     verdicts?: string): {string:string}
   fixture_run: function(source: string, env: {string:string}, tmpdir: string,
     compiles: string): {string:string}
+  say_figures: function(name: string, directory: string, to?: integer): integer
   fixture_project: function(driver: string, work: string, group?: string): string
   forget_run: function(env: {string:string}): {string:string}
   suite_run: function(extra?: {string:string}): SuiteRun
@@ -423,7 +424,11 @@ end
 --- Nor is the checked suite's file either's (`checked`): the local
 --- suite's rows would crowd the checked suite's toward the file's bound,
 --- and the checked suite's census (`--census`) counts only its own
---- suite's rows when the file is its own.
+--- suite's rows when the file is its own. The checked narrowing run's
+--- (`narrowing`) is another: its rows are keyed by the checked
+--- compile, share no key with the others, and the tool bounds that
+--- name at twice the rows of the others (build/shared_verdicts.tl's
+--- `rows_kept`).
 function Orchestration.suite_verdicts(env: {string:string}, name: string): string
   local shared = env["COSMIC_VERDICT_CACHE"] or ""
   if shared:sub(1, 1) ~= "/" then return "0" end
@@ -535,6 +540,19 @@ end
 
 local replay = Orchestration.replay
 
+--- Says the figures a fixture called `name` left in `directory`
+--- ([`Fixture.figures_variable`]), one line each, `name: line`, to `to`
+--- (stderr by default), and how many. A figure that cannot be said fails
+--- nothing: the log is for reading.
+function Orchestration.say_figures(name: string, directory: string, to?: integer): integer
+  local said = 0
+  for _, line in ipairs(Fixture.figure_lines(directory)) do
+    local _, _ = Fs.put(to or Fs.stderr, name .. ": " .. line .. "\n")
+    said = said + 1
+  end
+  return said
+end
+
 local function logged(c: Context, phase: string, command: {string}, out: string,
                       err: string, timeout: integer, cwd?: string, env?: {string:string}): integer
   local status = operation(c, phase, command, timeout, cwd, env, out, err)
@@ -602,36 +620,33 @@ local self_rebuild_per_test_timeout_s <const> = "300"
 -- back in its edited stage's first rebuild (COSMIC_FIXTURE_COMPILES) and
 -- compiles the whole tree cold in each stage's settle, under the edited
 -- compiler's identity and then the product's. On a four-core x86-64
--- host, with an every-core product and the tree of October 31 (1103
--- modules), the identity cases took 177 to 184 s beside the file's other
--- tests and the build.plans case 264 s, its settles 107 to 109 s, since
--- they also parse every source again (the TODO on build.importer's
--- `analyzer_identity`); its edited stage, 137 s, is the longest. The
--- other four share one file of compiles made afresh each run
--- (COSMIC_FIXTURE_SHARED_COMPILES): the first compiles the tree cold in
--- 110 s, and the rest, started after it, only what their edits move, in
--- 31 to 41 s. So the file ends about when the build.plans case does: 275
--- s on four workers. The x86-64 legs take 1.23 (linux-x86_64) to 1.28
--- (alpine-x86_64) times that host's time on a cold rebuild (134 s on
--- October 31 and 139 s on October 30, against 109 s) and 1.30 to 1.35
--- times on a settle (84 to 87 s against 63 to 66 s). So on alpine-x86_64
--- the longest stage takes about 185 s, the build.plans case about 355 s
--- and the file about 370 s. The bounds keep 1.5 to 1.6 times that, as
--- #2834 did for the suite's: the group's 600 s, a test's 540 s, and a
--- stage's 300 s (fixtures/fixed_point_test.tl), which names a hung stage
--- as long as the stage before it took under 240 s. The stage's 270 s,
--- sized on October 9 from a first rebuild of 134 s on a four-core x86-64
--- host, ended the compiler cases' edited stages on alpine-x86_64 on
--- October 30 and on both x86-64 legs on October 31, where those stages
--- compiled the tree cold twice and the identity cases' parsed it again
--- after.
+-- host, with an every-core product and the tree of October 31 (1107
+-- modules), they took 158 to 168 s beside the file's other tests, their
+-- settles 58 to 61 s. The other four share one file of compiles made
+-- afresh each run (COSMIC_FIXTURE_SHARED_COMPILES): the first compiles
+-- the tree cold in 97 s, and the rest, started after it, only what their
+-- edits move, in 32 to 36 s. So the file ends about when the last
+-- compiler case does: 206 s on four workers. The x86-64 legs take 1.23
+-- (linux-x86_64) to 1.28 (alpine-x86_64) times that host's time on a
+-- cold rebuild (134 s on October 31 and 139 s on October 30, against
+-- 109 s) and 1.30 to 1.35 times on a settle (84 to 87 s against 63 to 66
+-- s). So on alpine-x86_64 the longest stage takes about 130 s, a
+-- compiler case about 220 s and the file about 275 s. The bounds keep
+-- 1.5 to 1.6 times that, as #2834 did for the suite's: the group's 440 s,
+-- a test's 340 s, and a stage's 210 s (fixtures/fixed_point_test.tl),
+-- which names a hung stage as long as the stage before it took under 130
+-- s. The stage's 270 s, sized on October 9 from a first rebuild of 134 s
+-- on a four-core x86-64 host, ended the compiler cases' edited stages on
+-- alpine-x86_64 on October 30 and on both x86-64 legs on October 31,
+-- where those stages compiled the tree cold twice and the identity
+-- cases' parsed it again after.
 -- TODO: the compiler cases still compile the whole tree cold, so the
 -- file's cost follows the tree (about 5% a day the week of October 3) and
 -- these bounds will be passed again: report the group's elapsed time
 -- against its bound from [`fixture_run_spec`], so the growth shows before
 -- it fails a run.
-local fixed_point_test_timeout_ns <const> = Clock.seconds(600)
-local fixed_point_per_test_timeout_s <const> = "540"
+local fixed_point_test_timeout_ns <const> = Clock.seconds(440)
+local fixed_point_per_test_timeout_s <const> = "340"
 --- The whole suite on the checked core: see [`checked_suite`]'s comment
 --- for what it takes. Sized from the merge queue's runs of 17 to 19 October 2026: the 7800 tests took 800 to 1114 s in
 --- 14 of its 36 completed runs and over 1200 s in one, a change that adds 45 tests (15 s of test time in 2900 s
@@ -752,7 +767,8 @@ local checked_suite_test_timeout_s <const> = "120"
 --- runner. It is the share's own, not the whole run's bound halved, which
 --- would leave the compile 0 s over the slowest whole run.
 
--- TODO: lower this bound once CI's own runs of a share show its elapsed time.
+-- TODO: lower this bound, from the number of rows that moved as [`gather_budget`] bounds the checked gather, once
+-- CI's own runs of a share standing on verdicts show its elapsed time.
 local checked_narrowing_timeout_ns <const> = Clock.seconds(900)
 local checked_narrowing_test_timeout_s <const> = "120"
 
@@ -1017,6 +1033,8 @@ local record Prepared
   env: {string:string}
   out: string
   err: string
+  --- Where the fixture leaves its figures ([`Fixture.figures_variable`]).
+  figures: string
 end
 
 --- What a fixture group has prepared, once it has started.
@@ -1040,6 +1058,12 @@ local function prepare_fixture(c: Context, work: string, spec: FixtureSpec,
   local diagnostics = work .. "/fixture-test-diagnostics/" .. name
   mkdir(diagnostics)
   mkdir(diagnostics .. "/tmp")
+  mkdir(diagnostics .. "/figures")
+  -- A work directory a run reuses holds an earlier attempt's figures, which
+  -- would be said again if this attempt wrote none.
+  for _, stale in ipairs((assert(Fs.list(diagnostics .. "/figures")))) do
+    if stale:match("%.figure$") then assert(Fs.remove(diagnostics .. "/figures/" .. stale)) end
+  end
   -- No --census: a fixture's run holds too few tests for its key parts
   -- to say much, and an unsandboxed one's are keyed by nothing.
   local env = environment(spec.extra)
@@ -1051,14 +1075,18 @@ local function prepare_fixture(c: Context, work: string, spec: FixtureSpec,
   command[#command + 1] = "fixtures/" .. source .. "_test.tl"
   return { project = project, command = command,
     out = diagnostics .. "/test.out", err = diagnostics .. "/test.err",
-    env = Orchestration.fixture_run(source, env, diagnostics .. "/tmp",
-      work .. "/fixture-compiles.db") }
+    figures = diagnostics .. "/figures",
+    -- The path is part of the fixture's declared key, so it must be the same
+    -- on every run: `work` is under $RUNNER_TEMP/cosmic-ci/platform.
+    env = Maps.with(Orchestration.fixture_run(source, env, diagnostics .. "/tmp",
+      work .. "/fixture-compiles.db"), { [Fixture.figures_variable] = diagnostics .. "/figures" }) }
 end
 
 local function fixture_run_spec(c: Context, work: string, spec: FixtureSpec): integer
   local prepared = prepare_fixture(c, work, spec)
   local status = logged(c, "fixture: " .. spec.name, prepared.command,
     prepared.out, prepared.err, spec.timeout_ns, prepared.project, prepared.env)
+  Orchestration.say_figures(spec.name, prepared.figures)
   record_suite(c, "fixture " .. spec.name, status, prepared.out)
   return status
 end
@@ -1095,12 +1123,16 @@ local function fixture_group(c: Context, work: string, spec: FixtureSpec,
       if outcome.code == 0 then
         assert(replay_ok, "could not replay retained output")
       end
+      Orchestration.say_figures(spec.name, made.figures)
       record_suite(c, "fixture " .. spec.name, outcome.code, made.out)
       return outcome.code
     end,
     abandon = function(_: Runner.Outcome)
       local begun = held.prepared
-      if begun ~= nil then replay(begun.out, begun.err) end
+      if begun ~= nil then
+        replay(begun.out, begun.err)
+        Orchestration.say_figures(spec.name, begun.figures)
+      end
     end,
   }
 end
@@ -1705,10 +1737,11 @@ end
 --- linux-x86_64 target alone: each read the checker narrowed by a test is
 --- written as a check of the test's fact, and a test that meets a read
 --- whose fact is false fails there ("fact violated at <file>:<y>:<x>",
---- doc/testing.md's "checked narrowing"). It runs every test, since a
---- checked run stands on no verdict. ci.yml runs it in the `checked-narrowing`
---- jobs, after `boot`, each a share of the tests where COSMIC_CI_NARROWING_SHARD
---- names one (`I/N`, `--shard`). A share makes no check that some test enters
+--- doc/testing.md's "checked narrowing"). A checked run stands on verdicts of its own, kept in `narrowing.db`
+--- ([`suite_verdicts`]): where [`stands`] says it may, it runs the tests whose key moved, else every test
+--- (`--all`). ci.yml runs it in the `checked-narrowing` jobs, after `boot`, each a share of the tests where
+--- COSMIC_CI_NARROWING_SHARD names one (`I/N`, `--shard`), which restore the rows of the tree's base on main and
+--- keep their own for the merge job and the run behind in the queue. A share makes no check that some test enters
 --- each C function, which only a whole run does (build/test.tl); that check
 --- is held on this core by the linux-x86_64 leg's whole native suite in every
 --- full run, since a checked run enters no C function a plain one does not:
@@ -1722,22 +1755,37 @@ end
 local function phase_checked_narrowing(p: PlatformContext): integer
   if p.target ~= "x86_64-linux-musl" then return 0 end
   local c = p.operation
-  local argv: mut {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic", "test", "--check-types" }
   local share = named("COSMIC_CI_NARROWING_SHARD")
-  if share ~= nil then
-    argv[#argv + 1] = "--shard"
-    argv[#argv + 1] = share
+  -- Its verdicts are in `narrowing.db`, a file of its own in the directory ci.yml saves and restores
+  -- ([`suite_verdicts`]), on which the run stands where it may (`stands`) and which `--census` says the
+  -- misses of.
+  local run = Orchestration.suite_run({
+    COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "narrowing"),
+    COSMIC_TEST_TIMEOUT = checked_narrowing_test_timeout_s })
+  local argv: mut {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic" }
+  for at, word in ipairs(with_census(run.words, share)) do
+    argv[#argv + 1] = word
+    if at == 1 then argv[#argv + 1] = "--check-types" end
   end
   mkdir(p.local_diagnostics)
   local out = p.local_diagnostics .. "/checked-narrowing-test.out"
-  local values = release_promises(Maps.with(Orchestration.suite_run().env,
-    { COSMIC_TEST_TIMEOUT = checked_narrowing_test_timeout_s }))
+  local values = release_promises(run.env)
   local status = logged(c, "checked narrowing", argv, out,
     p.local_diagnostics .. "/checked-narrowing-test.err", checked_narrowing_timeout_ns, c.root, values)
   -- A run that prints no "run-time types" line (the summary of a checked
   -- run) was not one: its modules carried no checks.
-  if status == 0 and read(out):find("test: run-time types:", 1, true) == nil then
+  local text = read(out)
+  if status == 0 and text:find("test: run-time types:", 1, true) == nil then
     local _, _ = Fs.put(Fs.stderr, "checked narrowing: the run reported nothing of the checks, so it carried none\n")
+    return 1
+  end
+  -- Nor was one whose compile wrote no check, however many of its tests stood: the line counts what the compile
+  -- wrote (cache hits included), not what the workers met.
+  local wraps, checks = text:match("test: run%-time types: (%d+) fact wraps? and (%d+) parameter checks? written")
+  if status == 0 and (wraps == nil or wraps == "0" or checks == "0") then
+    local _, _ = Fs.put(Fs.stderr, "checked narrowing: the compile wrote " ..
+        Plural.count(math.tointeger(tonumber(wraps or "0")) or 0, "fact wrap") .. " and " ..
+        Plural.count(math.tointeger(tonumber(checks or "0")) or 0, "parameter check") .. ", so the run carried none\n")
     return 1
   end
   return status
@@ -2268,7 +2316,7 @@ local function phase_fixtures(p: PlatformContext): integer
     if s ~= 0 then return s end
   end
   -- The fixed-point regression is the slowest fixture on every leg
-  -- (about 370 s on the x86-64 legs: `fixed_point_test_timeout_ns` says
+  -- (about 275 s on the x86-64 legs: `fixed_point_test_timeout_ns` says
   -- why), and what it checks, that the compiler compiles itself to
   -- itself, is the same on every platform. So no gating run runs it (ci.yml sets
   -- COSMIC_CI_FIXED_POINT=skip); main's scheduled run runs it on every

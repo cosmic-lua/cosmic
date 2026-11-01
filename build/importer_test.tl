@@ -10,6 +10,7 @@ local Test = require("cosmic.test")
 local identity = require("build.identity")
 local docs = require("build.docs")
 local importer = require("build.importer")
+local Hash = require("cosmic.hash")
 local GrammarMode = require("build.grammar_mode")
 local Pipeline = require("build.pipeline")
 local type _ = require("build.test_inputs")
@@ -18,6 +19,7 @@ local type _ = require("build.test_inputs")
 local type _ = require("build.module")
 local type _ = require("build.inputs")
 local work = require("build.work")
+local build_paths = require("build.paths")
 local writer = require("build.writer")
 local shared_compiles = require("build.shared_compiles")
 local Lexer = require("lang.lexer")
@@ -1318,43 +1320,6 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
     "rows another analyzer derived were kept")
 end
 
---- A settling tool parses with the tree's code but carries a compiler
---- identity its writer took by that writer's definition, which may not
---- be the one the tool it writes carries. [`importer.settled_analyzer`]
---- names the rows it derived as that tool will name its own, so that
---- tool does not parse every source again; rows another analyzer
---- derived keep their name.
-local function test_a_settled_analyzer_names_its_rows_as_the_written_tool_will()
-  local root = assert(Fs.mkdtemp("cosmic-importer-test-settled-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "lang",
-      "patch/lua", "vendor/lua", "bin" }) do
-    assert(Fs.mkdirs(root .. "/" .. dir))
-  end
-  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
-  assert(Fs.write(root .. "/cosmic/thing.tl",
-    "--- A thing.\nlocal record Thing\nend\nreturn Thing\n"))
-  local function analyzer_of(db: Sqlite.Handle): string
-    local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'analyzer'"))
-    return nth(rows, 1):text(1)
-  end
-  local handle = assert(work.open(root))
-  assert(work.stage(handle, { own = true }))
-  assert(importer.derive(handle))
-  local derived = analyzer_of(handle.db)
-  local compiler = "the compiler identity the written tool carries"
-  local code = assert(importer.tree_code(handle))
-  local written = Pipeline.coded(importer.analyzer_identity({ compiler = compiler,
-    requires = code.requires, source = code.source }))
-  assert(written ~= derived, "the written tool's analyzer is named as the running one's")
-  assert(importer.settled_analyzer(handle, compiler))
-  assert(analyzer_of(handle.db) == written, "the derived rows were not named as the written tool names its own")
-  -- Rows another analyzer derived are not the running tool's to rename.
-  assert(Sqlite.run(handle.db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', 'an older analyzer')"))
-  assert(importer.settled_analyzer(handle, compiler))
-  assert(analyzer_of(handle.db) == "an older analyzer", "rows another analyzer derived were renamed")
-  work.close(handle)
-end
-
 --- Where a source declares its types and members (`places`) is a parse's row like the rest: written for the source's
 --- hash, gone with the hash when the file is edited, and forgotten when the analyzer that derived it is not this one.
 local function test_places_follow_the_source_they_were_read_from()
@@ -1378,7 +1343,7 @@ local function test_places_follow_the_source_they_were_read_from()
     if plant == true then
       -- Under the real source's hash, so only the analyzer sweep can remove it.
       assert(Sqlite.run(handle.db, "INSERT OR REPLACE INTO places (source_hash, ordinal, symbol, kind, line, column, " ..
-          "length) SELECT source_hash, 99, 'Planted', 'type', 1, 1, 1 FROM inputs WHERE path = 'cosmic.thing'"))
+          "length, plain) SELECT source_hash, 99, 'Planted', 'type', 1, 1, 1, 0 FROM inputs WHERE path = 'cosmic.thing'"))
     end
     assert(importer.derive(handle))
     local rows = assert(Sqlite.text_rows(handle.db, "SELECT symbol || ' ' || line || ':' || column FROM places " ..
@@ -1646,13 +1611,22 @@ end
 
 --- An edit to a module a compile or a parse runs to decide what it
 --- stores, to a module one requires, to the names the checker is
---- stripped of, or to a pin or a patch of Teal or Lua, moves both
---- identities: every compile and parse is made again.
+--- stripped of, or to a pin or a patch of Teal or Lua, moves the
+--- compiler's identity: every compile is made again. The analyzer's own
+--- identity ([`importer.analyzer_identity`], before the checker's readers
+--- wrap it) moves only for the analyzer's modules and the pins, so an edit
+--- to a module only a compile runs moves none of it. (In cosmic's tree
+--- the checker's readers reach build.withheld, so an edit to it parses
+--- again there: build/importer_boot_test.tl holds what they reach.)
 local function test_compiler_identity_follows_what_shapes_a_compile()
   local root = identity_fixture("identity-follows")
   local seen: mut {string:string} = {}
   local original = identities_of(root)
   seen[nth(original, 1)] = "the original tree"
+  local parsed: {string:boolean} = {
+    ["build/derivation.tl"] = true, ["build/analysis_schema.tl"] = true, ["build/bind.tl"] = true,
+    ["build/cache_names.tl"] = true, ["vendor/lua/PIN"] = true, ["patch/lua/01.txt"] = true,
+  }
   for _, path in ipairs({ "build/plans.tl", "build/derivation.tl", "build/withheld.tl", "build/withheld_helper.tl",
       "build/tree.tl", "build/analysis_schema.tl", "build/bind.tl", "build/cache_names.tl", "vendor/lua/PIN",
       "patch/lua/01.txt" }) do
@@ -1661,7 +1635,11 @@ local function test_compiler_identity_follows_what_shapes_a_compile()
     local after = identities_of(root)
     assert(seen[nth(after, 1)] == nil, "an edit to " .. path ..
         " did not move the compiler identity from that of " .. tostring(seen[nth(after, 1)]))
-    assert(after[2] ~= before[2], "an edit to " .. path .. " did not move the analyzer identity")
+    if parsed[path] == true then
+      assert(after[2] ~= before[2], "an edit to " .. path .. " did not move the analyzer identity")
+    else
+      assert(after[2] == before[2], "an edit to " .. path .. ", which no parse runs, moved the analyzer identity")
+    end
     seen[nth(after, 1)] = path
   end
 end
@@ -1675,8 +1653,8 @@ end
 --- build.importer is outside the set, but every module it calls is in
 --- the set or named below with the reason it is not; a new require of it
 --- fails here until it is one or the other. Every module of the
---- analyzer's but the standard library's is the compiler's too, since
---- the analyzer's identity starts from the compiler's.
+--- analyzer's but the standard library's is the compiler's too, so a
+--- compile is made again wherever a parse is.
 ---
 --- A `cosmic.*` require is let through whole: it is the standard
 --- library the compile runs on, which the identity leaves out. This
@@ -1720,6 +1698,8 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.work"] = "stages the tree and keeps the records; " ..
       "the schema a parse's rows are shaped by is build.analysis_schema's",
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
+    ["build.grammar_mode"] = "makes the tool string a compile key holds of the compiler's identity " ..
+      "(`importer.own_tool`): what it decides is in every key, and no compile stores it",
     ["build.pipeline"] = "the compile with the new checker (COSMIC_GRAMMAR=new), keyed by the code that reads it " ..
       "(`Pipeline.coded`) and not by the compiler's identity, which a default run keeps",
   }
@@ -2142,4 +2122,98 @@ local function test_the_module_shape_does_not_reach_the_plans_or_the_readers()
   for _, name in ipairs({ "build.plans", "build.syntax_contracts", "build.syntax_receivers" }) do
     assert(seen[name] ~= true, "the shared module shape pulled in " .. name)
   end
+end
+
+--- The compile keys of a checked run ([`importer.checked_tool`], [`GrammarMode.tool`]) and its verdict keys
+--- ([`build.declared_key`]'s `checks`) name what the compile writes by one format, [`GrammarMode.checks_format`]:
+--- the importer is outside the compiler's identity of the modules it may require, so it spells the same text, and
+--- this holds the two together.
+local function test_the_importer_spells_the_checks_format_of_the_grammar_mode()
+  assert(importer.checked_tool("tool", true) == Hash.hex_sha256("tool\0" .. GrammarMode.checks_format))
+  assert(GrammarMode.tool("tool", "new", true) == Hash.hex_sha256("tool\0grammar-new\0" .. GrammarMode.checks_format))
+end
+
+--- A module whose Lua a checked compile writes checks into: `hello` takes nil out of `name` with an `assert` (a
+--- read the test narrowed, so a wrap of `__fact`) and types its parameter (a parameter check).
+local COUNTED <const> = table.concat({
+  "local record Greet",
+  "  hello: function(string?): string",
+  "end",
+  "local module: Greet = {",
+  "  hello = function(name: string?): string",
+  "    assert(name)",
+  "    return name",
+  "  end,",
+  "}",
+  "return module",
+  "",
+}, "\n")
+
+--- Stages the fixture at `root` and compiles it, checked or not, handing `shared` on when given; the result.
+local function compile_counted(root: string, checks: boolean, shared?: importer.Shared): importer.Result
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, { own = false }))
+  local result, trouble = importer.compile(handle, "counted-test", false, shared, checks)
+  work.close(handle)
+  assert(result ~= nil, trouble)
+  assert(#result.refused == 0, table.concat(result.refused, "\n"))
+  return result
+end
+
+--- The number of checks a checked compile wrote is the same whichever way the compile came: made (cold), standing in
+--- the working database (warm), or copied from another checkout's through the shared cache; an unchecked compile
+--- writes none, though a module names `__fact` in a string. A count lost in a cache would read as an unchecked
+--- compile, and fail the run that has to tell the two apart.
+local function test_the_checks_written_survive_every_compile_path()
+  local files = { ["greet.tl"] = COUNTED, ["marker.tl"] = "local record M\n  text: string\nend\nlocal m: M = { text = \"__fact\" }\nreturn m\n" }
+  local root = assert(write_fixture("counted", files))
+  local cache = root .. "/cache/cache.db"
+  local cold = compile_counted(root, true, shared_compiles.for_build({ COSMIC_BUILD_CACHE = cache }))
+  assert(cold.compiled == 2 and cold.cached == 0, "the first compile was not made")
+  assert(cold.fact_wraps > 0 and cold.parameter_checks > 0,
+    "a checked compile wrote " .. tostring(cold.fact_wraps) .. " wraps and " .. tostring(cold.parameter_checks) .. " checks")
+  local warm = compile_counted(root, true)
+  assert(warm.compiled == 0 and warm.cached == 2, "a standing compile was made again")
+  assert(warm.fact_wraps == cold.fact_wraps and warm.parameter_checks == cold.parameter_checks,
+    "a compile that stands lost its counts: " .. tostring(warm.fact_wraps) .. " and " .. tostring(warm.parameter_checks))
+  local other = assert(write_fixture("counted-other", files))
+  local copied = compile_counted(other, true, shared_compiles.for_build({ COSMIC_BUILD_CACHE = cache }))
+  assert(copied.shared == 2 and copied.compiled == 0, "the shared compile was not taken: " .. tostring(copied.shared))
+  assert(copied.fact_wraps == cold.fact_wraps and copied.parameter_checks == cold.parameter_checks,
+    "a shared compile lost its counts: " .. tostring(copied.fact_wraps) .. " and " .. tostring(copied.parameter_checks))
+  local plain = compile_counted(assert(write_fixture("counted-plain", files)), false)
+  assert(plain.fact_wraps == 0 and plain.parameter_checks == 0, "an unchecked compile reported checks")
+end
+
+--- A working database of an older tool has `compiled` without the counts: the new tool opens it, adds them, reads
+--- the rows it holds as compiles of no checks, and compiles a checked tree afresh.
+local function test_a_build_directory_of_the_old_tool_opens_under_the_new_one()
+  local root = assert(write_fixture("counted-old", { ["greet.tl"] = COUNTED }))
+  local first = compile_counted(root, false)
+  assert(first.compiled == 1 and first.fact_wraps == 0)
+  local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db", { writable = true }))
+  assert(db:exec("DROP INDEX compiled_by_checks"))
+  assert(db:exec("ALTER TABLE compiled DROP COLUMN fact_wraps"))
+  assert(db:exec("ALTER TABLE compiled DROP COLUMN parameter_checks"))
+  assert(db:close())
+  local again = compile_counted(root, false)
+  assert(again.compiled == 0 and again.cached == 1, "the old file's compile did not stand")
+  assert(again.fact_wraps == 0 and again.parameter_checks == 0)
+  local checked = compile_counted(root, true)
+  assert(checked.compiled == 1 and checked.fact_wraps > 0 and checked.parameter_checks > 0,
+    "a checked compile of the old file was not made")
+end
+
+--- A file with one of the two columns only (a run that added the first and was ended) opens, and gains the other.
+local function test_a_build_directory_with_one_count_column_gains_the_other()
+  local root = assert(write_fixture("counted-half", { ["greet.tl"] = COUNTED }))
+  assert(compile_counted(root, false).compiled == 1)
+  local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db", { writable = true }))
+  assert(db:exec("DROP INDEX compiled_by_checks"))
+  assert(db:exec("ALTER TABLE compiled DROP COLUMN parameter_checks"))
+  assert(db:close())
+  local again = compile_counted(root, false)
+  assert(again.compiled == 0 and again.cached == 1, "the half-migrated file's compile did not stand")
+  local checked = compile_counted(root, true)
+  assert(checked.parameter_checks > 0)
 end
