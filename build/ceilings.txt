@@ -3676,7 +3676,6 @@ cosmic/declared_types_test.tl cast_refused 1
 
 cosmic/fs_append_test.tl cast_refused 1
 
-
 cosmic/hash_test.tl cast_refused 8
 
 cosmic/html_test.tl cast_refused 7
@@ -4019,8 +4018,6 @@ cosmic/declared_types_test.tl close_not_closable 1
 cosmic/fs.tl close_not_closable 1
 
 cosmic/fs_append_tool_test.tl close_not_closable 2
-
-
 
 cosmic/http/init.tl close_not_closable 1
 
