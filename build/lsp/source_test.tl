@@ -5,7 +5,9 @@
 --- file changed on disk, and only then; which roots are staged; and the
 --- files a build reads no module from.
 
+local AnalysisSchema = require("build.analysis_schema")
 local Clock = require("cosmic.clock")
+local Derivation = require("build.syntax_derivation")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
@@ -1007,6 +1009,37 @@ local function test_a_closed_or_saved_buffer_lets_go_of_its_scratch_rows()
   source.close(src)
 end
 
+--- A save lets go of the rows of the text it staged, and keeps those of the other text the file holds; a text used again is the
+--- latest, so the one a third text pushes out is the one left alone longest.
+local function test_a_save_keeps_the_rows_of_the_other_text_and_use_orders_the_texts()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local saved = "-- saved\n" .. POINT
+  local typing = "-- typing\n\n" .. POINT
+  local scratch_hash = Hash.hex_sha256(saved)
+  local typing_hash = Hash.hex_sha256(typing)
+  assert(source.places(src, "lib.point", open_with("lib/point.tl", saved)) ~= nil)
+  assert(source.places(src, "lib.point", open_with("lib/point.tl", typing)) ~= nil)
+  local scratch = assert(src.scratch)
+  assert(Fs.write(root .. "/lib/point.tl", saved))
+  source.stale(src)
+  source.refresh(src)
+  assert(rows_of(scratch, "places", scratch_hash) == 0, "the saved text is answered by build.db now")
+  assert(rows_of(scratch, "places", typing_hash) > 0, "the text being typed keeps its rows")
+  assert(#assert(src.scratched["lib/point.tl"]) == 1)
+  -- Used again, a text is the latest: the third pushes out the other.
+  local third = "-- third\n" .. POINT
+  local first = "-- first\n" .. POINT
+  assert(source.places(src, "lib.point", open_with("lib/point.tl", first)) ~= nil)
+  assert(source.places(src, "lib.point", open_with("lib/point.tl", typing)) ~= nil)
+  assert(source.places(src, "lib.point", open_with("lib/point.tl", third)) ~= nil)
+  assert(rows_of(scratch, "places", typing_hash) > 0 and rows_of(scratch, "places", Hash.hex_sha256(first)) == 0)
+  source.close(src)
+end
+
 --- Two files holding one text share its rows: the first to go leaves them.
 local function test_a_text_two_files_hold_keeps_its_rows_until_both_let_go()
   local root = project()
@@ -1288,8 +1321,57 @@ local function test_a_session_serves_an_edited_open_document_from_its_scratch_ro
     tostring(tally.made_stubs) .. "," .. tostring(tally.scratch_stubs) .. "," .. tostring(tally.scratch_requires))
 end
 
+--- Every row of every analysis table, as text, of the text `text` the file `file` derived with and without what a check made of it.
+local function dumped(file: string, kind: string, text: string, shared: boolean): string
+  local planned = syntax_read.plan_of(file, text, "lib.shapes", kind, false, false)
+  local chunk = assert(planned.chunk, "the text parses")
+  local db = assert(Sqlite.memory())
+  for _, statement in ipairs(AnalysisSchema.statements) do
+    if statement:find("^%s*CREATE VIEW") == nil then assert(db:exec(statement)) end
+  end
+  local known: Derivation.Known? = nil
+  if shared then known = assert(planned.known) end
+  assert(Derivation.insert(db, "h", file, text, chunk, false, nil, known))
+  local out: mut {string} = {}
+  for _, name in ipairs(AnalysisSchema.tables) do
+    local columns = assert(Sqlite.text_rows(db, "SELECT count(*) FROM pragma_table_info('" .. name .. "')"))
+    local count = math.tointeger(tonumber(assert(columns[1]):text(1))) or 0
+    local rows = assert(Sqlite.text_rows(db, "SELECT * FROM " .. name))
+    for _, row in ipairs(rows) do
+      local cells: mut {string} = {}
+      for n = 1, count do cells[n] = row:text(n) end
+      out[#out + 1] = name .. "|" .. table.concat(cells, "|")
+    end
+  end
+  table.sort(out)
+  assert(db:close())
+  return table.concat(out, "\n")
+end
+
+--- The rows derived of the parse and analysis a check made are those a reading of the text alone derives, for a module with
+--- docs, a test with a policy, a call of [`Shape.record_of`], and a module that requires others.
+local function test_the_rows_derived_of_what_the_check_made_are_the_rows_of_a_reading_of_the_text()
+  local texts: {{string}} = {
+    { "lib/docs.tl", "module",
+      "--- A point.\nlocal record point\n  --- The x.\n  x: integer\nend\n--- Makes one.\n" ..
+        "local function make(): point\n  return { x = 1 }\nend\nfunction point.origin(): point\n  return make()\nend\nreturn point\n" },
+    { "lib/policy_test.tl", "test",
+      'local Test = require("cosmic.test")\nTest.policy{ profiles = { "cosmic" } }\nlocal function test_a()\n  assert(true)\nend\n' },
+    { "lib/shaped.tl", "module",
+      'local Shape = require("cosmic.shape")\nlocal record R\n  n: integer\nend\n' ..
+        'local SPEC <const>: Shape.Typed<R> = Shape.record_of("R")\nlocal b = require("lib.b")\nreturn SPEC\n' },
+    { "lib/shapes.tl", "module", THREE },
+  }
+  for _, one in ipairs(texts) do
+    local file, kind, text = assert(one[1]), assert(one[2]), assert(one[3])
+    local alone = dumped(file, kind, text, false)
+    assert(#alone > 0 and alone == dumped(file, kind, text, true), file)
+  end
+end
+
 --- The rows of an edited open document are derived of the check's own parse and analysis ([`build.lsp.plan`]'s `Planned`),
---- not of a second reading of the text, and are the rows a reading of the text alone gives.
+--- not of a second reading of the text, and are the rows a reading of the text alone gives
+--- ([`test_the_rows_derived_of_what_the_check_made_are_the_rows_of_a_reading_of_the_text`]).
 local function test_an_edited_document_is_derived_of_the_parse_and_analysis_the_check_made()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))

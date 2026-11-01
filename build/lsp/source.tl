@@ -828,7 +828,17 @@ end
 local function derive(src: source.View, scratch: Sqlite.Handle, file: string, text: string, hash: string, quiet?: boolean,
                       parsed?: Ast.Chunk, known?: Derivation.Known)
   local old: {string} = src.scratched[file] or {}
-  if holds(old, hash) then return end
+  if holds(old, hash) then
+    -- Used again: the latest, so that the text another request left untouched is the one pushed out.
+    if old[1] ~= hash then
+      local reordered: mut {string} = { hash }
+      for _, each in ipairs(old) do
+        if each ~= hash then reordered[#reordered + 1] = each end
+      end
+      src.scratched[file] = reordered
+    end
+    return
+  end
   local tried = held_by_another(src, hash, file)
   if quiet == true and not tried and src.underived[hash] ~= nil then return end
   -- Not the check's chunk, which is the parse of the text with its splices put in. `parsed` and `known` are the parse and
@@ -1249,7 +1259,7 @@ end
 
 --- Removes the directories of `directory` (a build directory's `cosmic_source`) named for a text that no module of the
 --- running tool has: a tool built again leaves the extracted text of each module it changed. Only a directory named by
---- hex digits, as [`source.extracted`] makes them, is looked at, and a link is removed, never followed
+--- 64 lowercase hex digits, as [`source.extracted`] makes them, is looked at, and a link is removed, never followed
 --- ([`Fs.remove_tree`]). Nothing is removed where the tool's modules cannot be read. A session of another tool that
 --- extracted a text of its own meanwhile makes it again when it next asks ([`source.extracted`]), which says if it
 --- cannot.
@@ -1264,7 +1274,7 @@ local function prune_extracted(src: source.View, directory: string)
   local entries, _ = Fs.list(directory)
   if entries == nil then return end
   for _, entry in ipairs(entries) do
-    if entry:find("^%x+$") ~= nil and named[entry] == nil then
+    if #entry == 64 and entry:find("^[0-9a-f]+$") ~= nil and named[entry] == nil then
       local removed, trouble = Fs.remove_tree(directory .. "/" .. entry)
       if not removed then
         src.err("cosmic: lsp: removing the source of a binary no longer in use: " .. trouble)
@@ -1394,7 +1404,14 @@ local function settle(src: source.View)
       local db, _ = database(src)
       if db == nil then return end
       local _, derived = read_places(db, staged.source_hash)
-      if derived then source.release(src, file) end
+      if derived then
+        -- Only the staged text: the edit beside it keeps its rows.
+        unmark(src, file, staged.source_hash)
+        local scratch = src.scratch
+        if scratch ~= nil and not held_by_another(src, staged.source_hash, file) then
+          forget_rows(scratch, staged.source_hash)
+        end
+      end
     end
   end
 end
