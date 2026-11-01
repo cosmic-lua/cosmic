@@ -7,7 +7,12 @@
 local log = require("build.logger").log
 
 local record exit_status
+  --- The exit code of a run whose tree, or a module the run needs, did not compile: the checker refused it, or it
+  --- does not parse. A failing test, a failed write and a lost file are 1.
+  mut uncompiled: integer
 end
+
+exit_status.uncompiled = 4
 
 --- The exit status `value` asks for, as `cosmic_tostatus` reads it:
 --- nil is 0, and a number or numeric text (" 3 ", "0x3", "3.0") whose
