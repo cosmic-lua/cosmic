@@ -23,26 +23,19 @@ local function find(): string?
 end
 ]]
 
---- The codes of checking `body` after the prelude.
+--- [`Programs.codes_of`] of `body` after the prelude.
 local function codes_of(body: string): string
-  local r = Programs.run(PRELUDE .. body)
-  assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. body)
-  return Programs.codes(r)
+  return Programs.codes_of(PRELUDE .. body)
 end
 
---- Checks that `body` is taken, and runs with every narrowed read checked, and prints `want` (joined by commas).
+--- [`Programs.stands`] of `body` after the prelude.
 local function stands(body: string, want: string)
-  local x = Programs.execute(PRELUDE .. body, true)
-  assert(#x.run.before == 0, table.concat(x.run.before, " ") .. " in\n" .. body)
-  assert(x.ran, Programs.codes(x.run) .. " in\n" .. body)
-  assert(x.fault == nil, tostring(x.fault) .. " in\n" .. x.lua)
-  assert(table.concat(x.printed, ",") == want, table.concat(x.printed, ",") .. ", wanted " .. want .. " in\n" .. body)
+  Programs.stands(PRELUDE .. body, want)
 end
 
---- Checks that `body` is refused with exactly `codes`.
+--- [`Programs.refused`] of `body` after the prelude.
 local function refused(body: string, codes: string)
-  local got = codes_of(body)
-  assert(got == codes, "wanted " .. codes .. ", got " .. got .. " in\n" .. body)
+  Programs.refused(PRELUDE .. body, codes)
 end
 
 -- what a test narrows ----------------------------------------------------------------------------------------
