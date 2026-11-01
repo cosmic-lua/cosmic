@@ -1042,15 +1042,15 @@ local function test_a_name_the_scope_builder_cannot_resolve_is_refused_past_its_
 end
 
 --- A declaration the lowering refuses is listed past its pin with the place, the message and the fix; a
---- module imported by a literal name is found, with the name below `ci/`'s own root; a pin above what the
+--- module imported by a literal name is found; a pin above what the
 --- tree has is told to fall.
 local function test_a_declaration_the_lowering_refuses_is_refused_past_its_pin_with_its_fix(dir: string)
   local root = dir .. "/declareroot"
   assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.mkdirs(root .. "/ci/cosmic_ci"))
-  assert(Fs.write(root .. "/ci/cosmic_ci/shape.tl", source("local record Shape", "  n: integer", "end", "return Shape")))
-  assert(Fs.write(root .. "/build/ok.tl", source("local type Shape = require(\"cosmic_ci.shape\")", "local x: Shape", "return x")))
-  assert(Fs.write(root .. "/build/bad.tl", source("local type Shape = require(\"cosmic_ci.shape\")",
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shape.tl", source("local record Shape", "  n: integer", "end", "return Shape")))
+  assert(Fs.write(root .. "/build/ok.tl", source("local type Shape = require(\"lib.shape\")", "local x: Shape", "return x")))
+  assert(Fs.write(root .. "/build/bad.tl", source("local type Shape = require(\"lib.shape\")",
     "local x: {Shape: string?}", "local y: {number: integer}", "local z: {string?}", "return x")))
   local found = table.concat(tree_checks.declared(root, {}), "\n")
   assert(found:find("build/bad.tl:3:11: a map is keyed by `integer`, not `number`", 1, true) and
@@ -1068,6 +1068,25 @@ local function test_a_declaration_the_lowering_refuses_is_refused_past_its_pin_w
       "build/ceilings.txt's [declared]" and
       fallen[2] == "build/gone.tl key_type: pinned 1 but 0 found; lower the pin in build/ceilings.txt's [declared]",
     table.concat(fallen, "\n"))
+end
+
+--- `ci/` is a project of its own: its modules are named from its own root and checked there, so the tree's checks read none of
+--- its files, whatever they hold, and a file of the tree that requires into it by the name `ci/` gives it is refused.
+local function test_the_trees_checks_read_no_file_of_ci_and_refuse_a_require_into_it(dir: string)
+  local root = dir .. "/foreigner"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/ci/cosmic_ci"))
+  assert(Fs.write(root .. "/ci/cosmic_ci/shape.tl", source("local record Shape", "  n: integer", "end", "return Shape")))
+  assert(Fs.write(root .. "/ci/cosmic_ci/bad.tl", source("print(unknown_to_the_tree)", "local n: integer = \"s\"", "return n")))
+  assert(Fs.write(root .. "/build/into.tl", source("local Shape = require(\"cosmic_ci.shape\")", "return Shape")))
+  assert(Fs.write(root .. "/build/whole.tl", source("local Shape = require(\"ci.cosmic_ci.shape\")", "return Shape")))
+  local found = table.concat(tree_checks.checked(root, {}), "\n")
+  assert(found:find("build/into.tl:1:", 1, true) and found:find("the project has no module `cosmic_ci.shape`", 1, true) and
+      found:find("(require_unknown)", 1, true), found)
+  assert(found:find("build/whole.tl:1:", 1, true) and found:find("the project has no module `ci.cosmic_ci.shape`", 1, true), found)
+  assert(found:find("ci/cosmic_ci/bad.tl", 1, true) == nil, found)
+  assert(table.concat(tree_checks.scoped(root, {}), "\n"):find("ci/", 1, true) == nil)
+  assert(table.concat(tree_checks.declared(root, {}), "\n"):find("ci/", 1, true) == nil)
 end
 
 --- Files that require each other reach the same modules, and keep their own answers.
@@ -1358,7 +1377,7 @@ local function test_an_edit_of_the_declaration_of_a_module_given_as_declaration_
   assert(Fs.mkdirs(root .. "/q"))
   assert(Fs.write(root .. "/p/foo.d.tl", source("local record Box", "  s: string", "end", "return Box")))
   assert(Fs.write(root .. "/p/foo.tl", source("local record Box", "  n: integer", "end", "return Box")))
-  assert(Fs.write(root .. "/q/use.tl", source("local Box = require(\"foo\")", "local b: Box = { s = \"x\" }", "return b")))
+  assert(Fs.write(root .. "/q/use.tl", source("local Box = require(\"p.foo\")", "local b: Box = { s = \"x\" }", "return b")))
   local memo = assert(Sqlite.memory())
   assert(#tree_checks.checked(root, {}, memo) == 0, table.concat(tree_checks.checked(root, {}), "\n"))
   assert(Fs.write(root .. "/p/foo.d.tl", source("local record Box", "  s: integer", "end", "return Box")))

@@ -1738,7 +1738,7 @@ build/dispatched_features_test.tl view_written 1
 
 build/docs.tl view_written 5
 
-build/driver.tl view_written 3
+build/driver.tl view_written 2
 
 build/fetch_test.tl view_written 1
 

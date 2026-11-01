@@ -34,6 +34,9 @@ local function build_of(files: {{string}}): Driver.Build, Driver.Index
     globals = { Driver.declarations("std", "std.d.tl", Programs.library, {}) },
     adjust = nil, external = { "cosmic.sys" },
     types = true,
+    meant = function(name: string): {string}
+      return Driver.ending(index, name)
+    end,
   })
   build:provide(Driver.files(index))
   return build, index
@@ -54,7 +57,7 @@ end
 
 local RECORD <const> = "local record Box\n  n: integer\nend\nreturn Box\n"
 
-local function test_a_file_is_the_module_its_path_names_and_answers_to_the_tail_of_its_path()
+local function test_a_file_is_the_module_its_path_names_and_answers_to_that_name_alone()
   local index = Driver.index({
     { "build/a.tl", "return 1\n" }, { "cosmic/http/init.tl", "return 2\n" }, { "ci/cosmic_ci/x.tl", "return 3\n" },
     { "ci/cosmic_ci/y.d.tl", "global record Y\nend\n" }, { "testdata/t.tl", "return 4\n" },
@@ -64,10 +67,9 @@ local function test_a_file_is_the_module_its_path_names_and_answers_to_the_tail_
   assert(#index.sources == 4 and index.by_module["testdata.t"] == nil)
   local x = assert(index.by_module["ci.cosmic_ci.x"])
   assert(x.filename == "ci/cosmic_ci/x.tl" and x.dialect == "tl" and x.checked)
-  assert(index.by_module["cosmic_ci.x"] == x and index.by_module["x"] == x)
-  assert(x.aliases[1] == "cosmic_ci.x" and x.aliases[2] == "x", table.concat(x.aliases, " "))
-  assert(index.by_module["cosmic.http"] ~= nil and index.by_module["http"] == index.by_module["cosmic.http"])
-  local y = assert(index.by_module["y"])
+  assert(index.by_module["cosmic_ci.x"] == nil and index.by_module["x"] == nil and #x.aliases == 0)
+  assert(index.by_module["cosmic.http"] ~= nil and index.by_module["http"] == nil)
+  local y = assert(index.by_module["ci.cosmic_ci.y"])
   assert(y.dialect == "decl" and y.module == "ci.cosmic_ci.y")
   assert(Driver.files(index)("build.a") == index.by_module["build.a"] and Driver.files(index)("nope") == nil)
 end
@@ -354,28 +356,21 @@ local function test_the_driver_checks_what_the_checker_does_alone()
   assert(#Check.codes > 0 and Ceilings.path == "build/ceilings.txt")
 end
 
-local function test_a_declaration_answers_under_every_name_whichever_is_asked_first()
+local function test_a_declaration_answers_to_its_whole_module_name_whichever_file_comes_first()
   local decl = { "p/foo.d.tl", "local record Box\n  s: string\nend\nreturn Box\n" }
-  local user = { "q/use.tl", "local Box = require(\"foo\")\nlocal b: Box = { s = \"x\" }\nreturn b\n" }
+  local user = { "q/use.tl", "local Box = require(\"p.foo\")\nlocal b: Box = { s = \"x\" }\nreturn b\n" }
   local orders = { { decl, user }, { user, decl } }
   for _, files in ipairs(orders) do
     local index = Driver.index(files, nothing)
     local winner = assert(index.by_module["p.foo"])
-    assert(winner.dialect == "decl" and index.by_module["foo"] == winner)
-    assert(#winner.aliases == 1 and winner.aliases[1] == "foo")
-    local pairs_asked: {{string}} = { { "foo", "p.foo" }, { "p.foo", "foo" } }
-    for _, asked in ipairs(pairs_asked) do
-      local one, other = asked[1], asked[2]
-      assert(one ~= nil and other ~= nil)
-      local build = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, {}) },
-        adjust = nil, external = {}, types = false })
-      build:provide(Driver.files(index))
-      local first = assert(build:parsed(one))
-      local second = assert(build:parsed(other))
-      assert(first == second and first.source.filename == "p/foo.d.tl", one .. " then " .. other)
-      local used = assert(build:result("use", true))
-      assert(#used.errors == 0, codes_of(used.errors))
-    end
+    assert(winner.dialect == "decl" and index.by_module["foo"] == nil and #winner.aliases == 0)
+    local build = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, {}) },
+      adjust = nil, external = {}, types = false })
+    build:provide(Driver.files(index))
+    local first = assert(build:parsed("p.foo"))
+    assert(first.source.filename == "p/foo.d.tl" and build:parsed("foo") == nil)
+    local used = assert(build:result("q.use", true))
+    assert(#used.errors == 0, codes_of(used.errors))
   end
 end
 
@@ -583,7 +578,7 @@ local function test_a_source_written_from_another_file_is_the_module_it_says_and
   }, nothing)
   local guide = assert(index.by_module["doc.guides.x"])
   assert(guide.filename == "doc/guides/x.md" and guide.pinned == "" and guide.dialect == "tl" and guide.checked)
-  assert(index.by_module["x"] == guide and index.by_module["doc.guides.x.md"] == nil)
+  assert(index.by_module["x"] == nil and index.by_module["doc.guides.x.md"] == nil)
   local sys = assert(index.by_module["cosmic.sys"])
   assert(sys.filename == "gen/sys.d.tl" and sys.pinned == "core/sys.h" and sys.dialect == "decl")
   local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
@@ -831,4 +826,40 @@ local function test_a_problem_of_an_argument_keeps_the_call_the_checker_named_an
   local argument = call.argument
   assert(argument ~= nil and argument.callee == "put" and argument.position == 1, codes_of(result.errors))
   assert(assignment.argument == nil)
+end
+
+--- The message of the `require_unknown` that `user` (a module of `files`) is refused for, and "" where it has none.
+local function refusal_of(files: {{string}}, user: string): string
+  local build = build_of(files)
+  local result = assert(build:result(user, true))
+  for _, e in ipairs(result.bodies) do
+    if e.code == "require_unknown" then
+      return e.msg
+    end
+  end
+  return ""
+end
+
+local function test_a_module_is_required_by_its_whole_name_and_a_bare_last_segment_is_refused_with_the_one_it_may_mean()
+  local m = { "b/m.tl", "local record M\n  n: integer\nend\nlocal m: M = { n = 1 }\nreturn m\n" }
+  local bare = { "use.tl", "local m = require(\"m\")\nreturn m\n" }
+  assert(refusal_of({ m, bare }, "use") == "the project has no module `m`; did you mean `b.m` (b/m.tl)?",
+    refusal_of({ m, bare }, "use"))
+  local whole = { "use.tl", "local m = require(\"b.m\")\nlocal n: integer = m.n\nreturn n\n" }
+  local result = assert(build_of({ m, whole }):result("use", true))
+  assert(#result.errors == 0, codes_of(result.errors))
+end
+
+local function test_two_modules_ending_in_a_name_are_both_named_and_neither_is_chosen_by_order()
+  local a = { "a/m.tl", "return 1\n" }
+  local b = { "b/m.tl", "return 2\n" }
+  local bare = { "use.tl", "local m = require(\"m\")\nreturn m\n" }
+  local want = "the project has no module `m`; did you mean one of `a.m` (a/m.tl), `b.m` (b/m.tl)?"
+  assert(refusal_of({ a, b, bare }, "use") == want, refusal_of({ a, b, bare }, "use"))
+  assert(refusal_of({ b, a, bare }, "use") == want, refusal_of({ b, a, bare }, "use"))
+end
+
+local function test_a_missing_module_with_no_candidate_gets_no_hint()
+  local bare = { "use.tl", "local m = require(\"nope\")\nreturn m\n" }
+  assert(refusal_of({ { "b/m.tl", "return 2\n" }, bare }, "use") == "the project has no module `nope`")
 end

@@ -321,9 +321,7 @@ end
 
 function Pipeline.over(entries: {{string}}, kinds: {string: string}, options: Pipeline.Options, stubs?: {string: string}):
     Pipeline.Built
-  -- The binary answers a `require` of a module of the language, which no tail of a project file's name may stand for.
-  local index = TreeProgram.index(entries, kinds,
-    if options.project == true then TreeProgram.library_modules(options.globals) else nil end)
+  local index = TreeProgram.index(entries, kinds)
   local standard = options.standard or Pipeline.carried()
   return {
     build = TreeProgram.build(index, options.globals, options.types, nil, standard), ceilings = options.ceilings, index = index,
@@ -536,8 +534,6 @@ function Pipeline.derive(db: Sqlite.Handle, own: boolean, fresh: {Derivation.Fre
   if entries == nil then
     return false, trouble
   end
-  -- No `unaliased` here, as [`Pipeline.over`] gives its index: this index only finds each source by the name of its file, which
-  -- no alias changes, and the build that checks the tree has refused a file named for a module of the language already.
   local index = TreeProgram.index(entries, kinds)
   -- A source is found by the name of its file in the database, which for a declaration written from a header is the header's.
   local by_file: mut {string: Driver.Source} = {}

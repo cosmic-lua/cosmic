@@ -34,7 +34,7 @@ local record TreeProgram
   --- ceilings are kept under as well for a source the build writes from another file ([`Driver.index`]), all in the new
   --- grammar, less the programs of a `testdata/` directory. `kinds` says of a file what the working database says
   --- of its input; a `test` has its functions called from outside.
-  index: function(entries: {{string}}, kinds: {string: string}, unaliased?: {string: boolean}): Driver.Index
+  index: function(entries: {{string}}, kinds: {string: string}): Driver.Index
 
   --- The names of the language's own modules, which no project file may be named for: the lowercase records of the standard
   --- library's declarations (`math`, `string`, ...) and `_G`, which the checker answers itself. The binary answers a `require`
@@ -102,10 +102,10 @@ end
 
 local skipped = TreeProgram.skipped
 
-function TreeProgram.index(entries: {{string}}, kinds: {string: string}, unaliased?: {string: boolean}): Driver.Index
+function TreeProgram.index(entries: {{string}}, kinds: {string: string}): Driver.Index
   return Driver.index(entries, skipped, function(file: string, _text: string): Driver.Extra
     return { tests = kinds[file] == "test" }
-  end, unaliased)
+  end)
 end
 
 function TreeProgram.library_modules(globals: TreeProgram.Globals): {string: boolean}
@@ -361,6 +361,9 @@ function TreeProgram.build(index: Driver.Index, globals: TreeProgram.Globals, ty
   local build = Driver.new({
     globals = globals.sources, adjust = globals.adjust, external = external, types = types == true,
     library = TreeProgram.library_modules(globals),
+    meant = function(name: string): {string}
+      return Driver.ending(index, name)
+    end,
   })
   if stubs ~= nil then
     -- The modules whose stub is read in place of their source are answered ahead of the tree's files.

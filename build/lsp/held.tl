@@ -59,6 +59,9 @@ function held.new(options: Pipeline.Options, serve: function(module: string): Dr
     if focus ~= nil and focus.module == module then return focus.source end
     return serve(module)
   end
+  -- TODO: name the modules a refused `require("m")` may have meant ([`Driver.Options.meant`]) from the working database's module
+  -- names: the editor serves its modules from the database (`serve`), which build/lsp/source.tl reads one at a time, so it
+  -- lists none and the refusal there carries no "did you mean".
   local build = TreeProgram.build(index, options.globals, true, nil, provider)
   return {
     options = options,

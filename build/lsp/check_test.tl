@@ -203,6 +203,22 @@ local function test_a_file_named_for_a_module_of_the_language_is_not_what_its_re
     found.message)
 end
 
+--- A module is required by its whole name, the one the run time resolves: the editor refuses `require("m")` of `b/m.tl` on the
+--- requiring document, and accepts `require("b.m")`.
+local function test_a_bare_last_segment_of_a_module_is_refused_on_the_requiring_document()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/b"))
+  assert(Fs.write(root .. "/b/m.tl", "local record M\n  n: integer\nend\nreturn M\n"))
+  local bare = 'local m = require("m")\nprint(m)\n'
+  local found = only(nth(served(root, { initialize(root), open(root, "main.tl", bare) }), 1))
+  assert(found.message:find("the project has no module `m`", 1, true) == 1 and
+      found.message:find("(require_unknown)", 1, true) ~= nil, found.message)
+  assert(edge(found, "start").line == 0, tostring(edge(found, "start").line))
+  local whole = 'local M = require("b.m")\nlocal m: M = { n = 1 }\nreturn m\n'
+  local good = served(root, { initialize(root), open(root, "main.tl", whole) })
+  assert(counts(good) == "0", messages_of(nth(good, 1)))
+end
+
 --- A `.d.tl` beside a `.tl` of its module is refused by the build, and each of the two documents is told so at its first
 --- line, in the words the build uses ([`build.driver.pairing`]); deleting the declaration clears it, though the pair was cached.
 local function test_a_declaration_beside_its_source_is_refused_in_each_document_of_the_pair()
