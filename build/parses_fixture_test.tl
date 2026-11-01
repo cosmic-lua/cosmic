@@ -55,6 +55,55 @@ local function test_an_empty_field_is_not_no_row(tmp: string)
   assert(none == "" and empty ~= none, "a row of one empty text is not no rows")
 end
 
+--- What [`parses_fixture.dump`] answers for `sql` of an empty database.
+local function answer(tmp: string, name: string, sql: string): string
+  local path = tmp .. "/" .. name .. ".db"
+  local db = assert(Sqlite.open(path, { writable = true, create = true }))
+  assert(db:close())
+  return parses_fixture.dump(path, sql)
+end
+
+local function test_null_is_not_an_empty_text_in_any_column(tmp: string)
+  local null = answer(tmp, "a", "SELECT NULL, 1")
+  local empty = answer(tmp, "b", "SELECT '', 1")
+  assert(null ~= empty, "NULL and '' dump alike in the first column")
+  null = answer(tmp, "c", "SELECT 1, NULL")
+  empty = answer(tmp, "d", "SELECT 1, ''")
+  assert(null ~= empty, "NULL and '' dump alike in the last column")
+end
+
+local function test_one_null_is_not_no_rows(tmp: string)
+  local null = answer(tmp, "null", "SELECT NULL")
+  local none = answer(tmp, "none", "SELECT 1 WHERE 0")
+  assert(none == "" and null ~= none, "a row of one NULL dumps as no rows do")
+end
+
+local function test_one_empty_text_is_not_no_rows(tmp: string)
+  local empty = answer(tmp, "empty", "SELECT ''")
+  local none = answer(tmp, "none", "SELECT 1 WHERE 0")
+  assert(empty ~= none, "a row of one empty text dumps as no rows do")
+end
+
+local function test_one_null_is_not_one_empty_text(tmp: string)
+  assert(answer(tmp, "null", "SELECT NULL") ~= answer(tmp, "empty", "SELECT ''"))
+end
+
+local function test_a_text_written_like_null_is_not_null(tmp: string)
+  local text = answer(tmp, "text", "SELECT '\\N'")
+  local null = answer(tmp, "null", "SELECT NULL")
+  assert(text ~= null, "the text \\N dumps as NULL does")
+  text = answer(tmp, "text2", "SELECT '\\N', 1")
+  null = answer(tmp, "null2", "SELECT NULL, 1")
+  assert(text ~= null, "the text \\N dumps as NULL does among other fields")
+end
+
+local function test_nulls_and_empties_dump_as_written(tmp: string)
+  assert(answer(tmp, "mixed", "SELECT NULL, ''") == "\\N\t")
+  assert(answer(tmp, "empty", "SELECT ''") == '""')
+  assert(answer(tmp, "null", "SELECT NULL") == "\\N")
+  assert(answer(tmp, "text", "SELECT '\\N'") == '"\\N"')
+end
+
 local function test_plain_rows_dump_as_they_did(tmp: string)
   local text = dumped(tmp, "plain", { "a", "b" }, { { "1", "x y" }, { "2", "z" } })
   assert(text == "1\tx y\n2\tz", text)
