@@ -534,6 +534,10 @@ local function test_a_path_in_a_tree_of_its_own_is_refused_not_passed_as_checked
     assert(named.refused[1]:find("in ci/, a project of its own", 1, true) ~= nil and
         named.refused[1]:find("with ci/ as the working directory", 1, true) ~= nil, named.refused[1])
   end
+  -- `--changed` refuses the same paths: its list is checked by [`fix.foreign_paths`].
+  local listed = fix.foreign_paths(own, { own .. "/main.tl", own .. "/ci/cosmic_ci/a.tl", own .. "/ci" })
+  assert(#listed == 2 and listed[1]:find("ci/cosmic_ci/a.tl: in ci/, a project of its own", 1, true) ~= nil and
+      listed[2]:find("with ci/ as the working directory", 1, true) ~= nil, table.concat(listed, "\n"))
   -- A project that is not cosmic's own has no tree of its own inside it.
   assert(Fs.mkdirs(tmp .. "/project/ci"))
   assert(Fs.write(tmp .. "/project/ci/a.tl", "return 1\n"))

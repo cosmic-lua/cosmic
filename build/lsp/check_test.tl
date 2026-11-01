@@ -217,6 +217,10 @@ local function test_a_bare_last_segment_of_a_module_is_refused_on_the_requiring_
   local whole = 'local M = require("b.m")\nlocal m: M = { n = 1 }\nreturn m\n'
   local good = served(root, { initialize(root), open(root, "main.tl", whole) })
   assert(counts(good) == "0", messages_of(nth(good, 1)))
+  -- Nor is the document's own module: `b/m.tl` requiring `m` would be told `b.m`, a cycle.
+  assert(Fs.write(root .. "/b/m.tl", 'local m = require("m")\nprint(m)\n'))
+  local own = only(nth(served(root, { initialize(root), open(root, "b/m.tl", 'local m = require("m")\nprint(m)\n') }), 1))
+  assert(own.message:find("the project has no module `m` (require_unknown)", 1, true) == 1, own.message)
   -- A module the document may not require is no hint: `x/y/m.tl` is private to `x/y/`.
   assert(Fs.mkdirs(root .. "/x/y"))
   assert(Fs.write(root .. "/x/y/m.tl", "local record M\n  n: integer\nend\nreturn M\n"))

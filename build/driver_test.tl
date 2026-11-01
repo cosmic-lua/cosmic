@@ -871,3 +871,15 @@ local function test_a_hint_names_only_what_the_file_may_require()
   assert(refusal_of({ deep, inside }, "x.y.use") == "the project has no module `y.m`; did you mean `x.y.m` (x/y/m.tl)?",
     refusal_of({ deep, inside }, "x.y.use"))
 end
+
+local function test_a_hint_never_names_the_file_itself_and_a_long_list_is_cut_short()
+  local own = { "b/m.tl", "local m = require(\"m\")\nreturn m\n" }
+  assert(refusal_of({ own }, "b.m") == "the project has no module `m`", refusal_of({ own }, "b.m"))
+  local files: mut {{string}} = { { "use.tl", "local m = require(\"m\")\nreturn m\n" } }
+  for n = 1, 25 do
+    files[#files + 1] = { string.format("d%02d/m.tl", n), "return 1\n" }
+  end
+  local said = refusal_of(files, "use")
+  assert(said:find("did you mean one of `d01.m` (d01/m.tl), `d02.m` (d02/m.tl), `d03.m` (d03/m.tl), `d04.m` (d04/m.tl), " ..
+      "`d05.m` (d05/m.tl) and 20 more?", 1, true) ~= nil and #said < 300, said)
+end

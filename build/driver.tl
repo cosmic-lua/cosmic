@@ -732,7 +732,13 @@ function Driver.new(options: Driver.Options): Driver.Build
     elseif #found == 1 then
       return "; did you mean " .. found[1] .. "?"
     end
-    return "; did you mean one of " .. table.concat(found, ", ") .. "?"
+    -- A long list is a wall of text: the first few say what kind of name was meant.
+    local shown = 5
+    if #found <= shown then
+      return "; did you mean one of " .. table.concat(found, ", ") .. "?"
+    end
+    return "; did you mean one of " .. table.concat(found, ", ", 1, shown) .. " and " .. tostring(#found - shown) ..
+      " more?"
   end
 
   --- The entry for a source that has been read: scoped against the globals.

@@ -175,7 +175,7 @@ function graph.meant(src: source.View, file: string, name: string): {string}
   local tail = "." .. name
   local found: mut {Module} = {}
   for _, m in ipairs(modules) do
-    if #m.path > #tail and m.path:sub(-#tail) == tail and positions.permits(modules, file, kind, m.path, standing, carried) then
+    if m.file ~= file and #m.path > #tail and m.path:sub(-#tail) == tail and positions.permits(modules, file, kind, m.path, standing, carried) then
       found[#found + 1] = m
     end
   end

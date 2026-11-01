@@ -378,7 +378,9 @@ function TreeProgram.meant(index: Driver.Index, own: boolean): function(name: st
     end
     local found: mut {string} = {}
     for _, source in ipairs(candidates) do
-      if source.dialect ~= "tl" or positions.permits(modules, file, kind, source.module, { own = own }) then
+      -- Not the file's own module: a `require` of it is a cycle. (Nor one that requires the file, which the requires of the
+      -- tree would say and this index, of sources, does not.)
+      if source.filename ~= file and (source.dialect ~= "tl" or positions.permits(modules, file, kind, source.module, { own = own })) then
         found[#found + 1] = "`" .. source.module .. "` (" .. source.filename .. ")"
       end
     end

@@ -1895,7 +1895,10 @@ local function format_command(root: string): {string}
   end
   command[#command + 1] = "--changed"
   command[#command + 1] = "--"
-  for line in text:gmatch("[^\n]+") do command[#command + 1] = line end
+  for line in text:gmatch("[^\n]+") do
+    -- `ci/` is checked as the project it is ([`ci_command`]), which the tree's run refuses a path of.
+    if line ~= "ci" and not String.starts_with(line, "ci/") then command[#command + 1] = line end
+  end
   return command
 end
 
