@@ -202,6 +202,77 @@ local function test_a_file_named_for_a_module_of_the_language_is_not_what_its_re
     found.message)
 end
 
+--- A `.d.tl` beside a `.tl` of its module is refused by the build, and each of the two documents is told so at its first
+--- line, in the words the build uses ([`build.driver.pairing`]); deleting the declaration clears it, though the pair was cached.
+local function test_a_declaration_beside_its_source_is_refused_in_each_document_of_the_pair()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  local declaration = "local record M\n  n: integer\nend\nreturn M\n"
+  local source = "local record M\n  n: integer\nend\nlocal m: M = { n = 1 }\nreturn m\n"
+  assert(Fs.write(root .. "/lib/m.d.tl", declaration))
+  assert(Fs.write(root .. "/lib/m.tl", source))
+  local send = serving(root)
+  local first = send({ initialize(root), open(root, "lib/m.tl", source), open(root, "lib/m.d.tl", declaration) })
+  local words = "lib/m.tl is already the module lib.m. A .d.tl is only for a module implemented in C, and the .tl is what " ..
+    "is checked, so one module cannot have both. If the .tl is the module, delete lib/m.d.tl. To keep both, rename " ..
+    "one of them so that they are different modules."
+  local in_source, in_declaration = only(nth(first, 1)), only(nth(first, 2))
+  assert(in_source.message == words, in_source.message)
+  assert(in_declaration.message == words, in_declaration.message)
+  assert(edge(in_source, "start").line == 0 and edge(in_source, "start").character == 0)
+  -- The declaration is deleted and its document closed: the pair is gone, and the source is published clear.
+  assert(Fs.remove(root .. "/lib/m.d.tl"))
+  local after = send({ close(root, "lib/m.d.tl"), session_fixture.changed_on_disk(root, "lib/m.d.tl"),
+    change(root, "lib/m.tl", source .. "\n") })
+  local last = publications(after)
+  local final = assert(last[#last])
+  assert(final.uri:sub(-9) == "/lib/m.tl" and #final.diagnostics == 0, final.uri .. " " .. tostring(#final.diagnostics))
+end
+
+--- A pair that appears after a good stage, and one that is gone, are told with no change to the text of the open document:
+--- the stage moves what the check was of, so the publish kept is made again.
+local function test_a_pair_that_comes_and_goes_on_disk_moves_a_document_that_did_not_change()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  local declaration = "local record M\n  n: integer\nend\nreturn M\n"
+  local source = "local record M\n  n: integer\nend\nlocal m: M = { n = 1 }\nreturn m\n"
+  assert(Fs.write(root .. "/lib/m.tl", source))
+  local send = serving(root)
+  local good = send({ initialize(root), open(root, "lib/m.tl", source) })
+  assert(counts(good) == "0", messages_of(nth(good, 1)))
+  -- The declaration appears on disk beside the source; the document is the same text.
+  assert(Fs.write(root .. "/lib/m.d.tl", declaration))
+  local refused = publications(send({ session_fixture.changed_on_disk(root, "lib/m.d.tl"),
+    change(root, "lib/m.tl", source) }))
+  local told = assert(refused[#refused])
+  assert(told.uri:sub(-9) == "/lib/m.tl" and #told.diagnostics == 1, told.uri .. " " .. tostring(#told.diagnostics))
+  -- It is deleted again; the document is still the same text.
+  assert(Fs.remove(root .. "/lib/m.d.tl"))
+  local cleared = publications(send({ session_fixture.changed_on_disk(root, "lib/m.d.tl"),
+    change(root, "lib/m.tl", source) }))
+  local clear = assert(cleared[#cleared])
+  assert(clear.uri:sub(-9) == "/lib/m.tl" and #clear.diagnostics == 0, clear.uri .. " " .. tostring(#clear.diagnostics))
+end
+
+--- A pair under `testdata/` is a fixture of a test, left out of the program, and its documents are told nothing, though
+--- another pair of the tree is refused.
+local function test_a_pair_under_testdata_is_told_nothing_though_another_pair_is_refused()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.mkdirs(root .. "/testdata"))
+  local declaration = "local record M\n  n: integer\nend\nreturn M\n"
+  local source = "local record M\n  n: integer\nend\nlocal m: M = { n = 1 }\nreturn m\n"
+  for _, dir in ipairs({ "lib", "testdata" }) do
+    assert(Fs.write(root .. "/" .. dir .. "/m.d.tl", declaration))
+    assert(Fs.write(root .. "/" .. dir .. "/m.tl", source))
+  end
+  local ran = served(root, { initialize(root), open(root, "lib/m.tl", source), open(root, "testdata/m.tl", source),
+    open(root, "testdata/m.d.tl", declaration) })
+  assert(#nth(ran, 1) == 1, messages_of(nth(ran, 1)))
+  assert(#nth(ran, 2) == 0, messages_of(nth(ran, 2)))
+  assert(#nth(ran, 3) == 0, messages_of(nth(ran, 3)))
+end
+
 --- Closing a document that stood for its file with another text checks
 --- the other open documents again: the cycle of imports it closed is gone
 --- with it.

@@ -136,8 +136,8 @@ local function test_a_command_line_it_refuses_says_how_to_fix_it(tmp: string)
   refused({ tmp .. "/missing.tl" }, "check the path")
   refused({ decl }, "every file named is a .d.tl")
   local pair = file(tmp, "one.d.tl", "local record One\nend\nreturn One\n")
-  refused({ "-o", tmp .. "/o", one, pair }, pair .. ": " .. one .. " is also the module one, and a module has one type source")
-  refused({ "-o", tmp .. "/o", pair, one }, "Delete " .. pair)
+  refused({ "-o", tmp .. "/o", one, pair }, pair .. ": " .. one .. " is already the module one")
+  refused({ "-o", tmp .. "/o", pair, one }, "delete " .. pair)
   local named: {{string}} = { { "math.tl", "math" }, { "string.d.tl", "string" }, { "table.tl", "table" } }
   for _, each in ipairs(named) do
     local name, module = assert(each[1]), assert(each[2])

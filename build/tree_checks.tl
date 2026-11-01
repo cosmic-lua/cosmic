@@ -2291,7 +2291,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
       }
       rows[#rows + 1] = row
       row_of[source] = row
-      -- A module given as a declaration and a source is read from the declaration; the key holds both texts.
+      -- A module given as two files (`x.tl` and `x/init.tl`) is read from the first; the key holds both texts.
       local exact = Hash.hex_sha256(source.text)
       hashes[row.module] = (hashes[row.module] or "") .. exact
       -- A source the build mends or writes from another file is read as its text says, comments and all.

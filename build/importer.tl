@@ -1017,10 +1017,9 @@ local record Hinting
 end
 
 --- Every module path `target` reaches through what each source at a
---- path requires, itself included: a declaration's requires as well as
---- its implementation's, since a caller is checked against the one and
---- runs the other. A name no source of the tree is (a standard-library
---- module), or one whose only source does not parse, reaches no further.
+--- path requires, itself included. A name no source of the tree is (a
+--- standard-library module), or one whose only source does not parse,
+--- reaches no further.
 local function reach(db: Sqlite.Handle, target: string): {string:boolean}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.path, r.name FROM inputs i JOIN requires r ON r.source_hash = i.source_hash " ..
