@@ -895,6 +895,30 @@ local function test_zstd_frame_short_of_its_declared_size_is_corrupt_however_spl
       assert(out == (if frame == one then "x" else "" end), out)
     end
   end
+  -- What is held of one frame is not carried into the next: a skippable
+  -- frame with a payload (whose length zstd reports as its content size),
+  -- and a frame that declares no size, each after one that declared 1.
+  local record Case
+    frames: string
+    want: string
+  end
+  local cases: {Case} = {
+    { frames = one .. "\80\42\77\24\4\0\0\0abcd", want = "x" },
+    { frames = one .. "\40\181\47\253\0\0\9\0\0y", want = "xy" },
+  }
+  for _, case in ipairs(cases) do
+    for size = 1, #case.frames do
+      local out, trouble = drive(assert(Compress.zstd_decoder()), case.frames, size)
+      assert(trouble == "", ("split by %d: %q"):format(size, trouble))
+      assert(out == case.want, ("split by %d: %q"):format(size, out))
+    end
+  end
+  -- A second frame short of its declared size is corrupt as the first is.
+  local twice = one .. short
+  for size = 1, #twice do
+    local _, trouble = drive(assert(Compress.zstd_decoder()), twice, size)
+    assert(trouble == "compress: corrupt zstd data", ("split by %d: %q"):format(size, trouble))
+  end
 end
 
 local function test_zstd_malformed_frame_header_is_corrupt()
