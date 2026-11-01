@@ -945,6 +945,9 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
   assert(sandboxed == listed and listed > 0, "a sandboxed fixture has no module")
 end
 
+--- A stand-in for the tree's tool that records its words, apart for the tree (`.ran`) and for a run in `ci/` (`.ci`).
+local FAKE_TOOL <const> = "#!/bin/sh\ncase \"$PWD\" in */ci) printf '%s' \"$*\" > \"$0.ci\";; *) printf '%s' \"$*\" > \"$0.ran\";; esac\n"
+
 --- COSMIC_CI_FORMAT=skip skips the format check on a leg, as ci.yml
 --- sets on every leg but one; any other value runs it.
 local function test_the_format_check_runs_unless_the_leg_skips_it(tmp: string)
@@ -961,7 +964,8 @@ local function test_the_format_check_runs_unless_the_leg_skips_it(tmp: string)
     assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(boundary))
     assert(Fs.write(boundary .. "/hashes.sha256", ""))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
-    Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nprintf '%s' \"$*\" > \"$0.ran\"\nexit 7\n", 493)
+    assert(Fs.mkdirs(fake .. "/ci"))
+    Fixture.write(fake .. "/o/bin/cosmic", FAKE_TOOL .. "exit 7\n", 493)
     local outcome = Fixture.call("format-" .. case.name, append(base, { "platform", "format" }),
       project, tmp .. "/logs", context(fake, runner_temp, {
         TARGET = "x86_64-linux-musl", COSMIC_CI_FORMAT = case.switch,
@@ -971,6 +975,7 @@ local function test_the_format_check_runs_unless_the_leg_skips_it(tmp: string)
     local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
     assert((ran ~= nil) == case.ran, case.name .. ": the check ran: " .. tostring(ran))
     if case.ran then assert(ran == "fix --check .", ran) end
+    assert(Fs.read(fake .. "/o/bin/cosmic.ci") == nil, case.name .. ": ci/ was checked after a tree that failed")
   end
 end
 
@@ -992,9 +997,9 @@ local function test_the_format_check_lays_out_only_the_paths_changed(tmp: string
   }) do
     local fake = tmp .. "/format-changed-" .. assert(case["name"])
     local runner_temp = fake .. "-runner-temp"
-    assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(runner_temp))
+    assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(fake .. "/ci") and Fs.mkdirs(runner_temp))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
-    Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nprintf '%s' \"$*\" > \"$0.ran\"\nexit 0\n", 493)
+    Fixture.write(fake .. "/o/bin/cosmic", FAKE_TOOL .. "exit 0\n", 493)
     local outcome = Fixture.call("format-changed-" .. assert(case["name"]), append(base, { "platform", "format" }),
       project, tmp .. "/logs", context(fake, runner_temp, {
         TARGET = "x86_64-linux-musl", COSMIC_CI_FORMAT = "run",
@@ -1003,7 +1008,24 @@ local function test_the_format_check_lays_out_only_the_paths_changed(tmp: string
     assert(outcome.result.ok, assert(case["name"]) .. ": the format phase failed")
     local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
     assert(ran == case["ran"], assert(case["name"]) .. ": the check ran " .. tostring(ran))
+    assert(Fs.read(fake .. "/o/bin/cosmic.ci") == "fix --check", assert(case["name"]) .. ": ci/ was not checked as its own project")
   end
+end
+
+--- `ci/` is checked as a project of its own after the tree: the same tool, `fix --check` with `ci/` as the working
+--- directory, and its refusal fails the phase though the tree's check passed.
+local function test_the_format_check_checks_ci_from_its_own_directory(tmp: string)
+  local base, project = command(tmp)
+  local fake = tmp .. "/format-ci"
+  local runner_temp = fake .. "-runner-temp"
+  assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(fake .. "/ci") and Fs.mkdirs(runner_temp))
+  assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+  Fixture.write(fake .. "/o/bin/cosmic", FAKE_TOOL .. 'case "$PWD" in */ci) exit 9;; esac\nexit 0\n', 493)
+  local outcome = Fixture.call("format-ci", append(base, { "platform", "format" }), project, tmp .. "/logs",
+    context(fake, runner_temp, { TARGET = "x86_64-linux-musl", COSMIC_CI_FORMAT = "run" }))
+  assert(not outcome.result.ok, "the format phase passed though ci/ failed its own check")
+  assert(Fs.read(fake .. "/o/bin/cosmic.ran") == "fix --check .")
+  assert(Fs.read(fake .. "/o/bin/cosmic.ci") == "fix --check")
 end
 
 --- COSMIC_CI_CHECK_MEMO names a directory that holds the check's memo
@@ -1031,12 +1053,12 @@ local function test_the_format_check_takes_and_leaves_its_memo(tmp: string)
     local fake = tmp .. "/format-memo-" .. case.name
     local runner_temp = fake .. "-runner-temp"
     local memo = runner_temp .. "/check-memo"
-    assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(memo))
+    assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(fake .. "/ci") and Fs.mkdirs(memo))
     local held = case.held
     if held then assert(Fs.write(memo .. "/translate-check.db", held)) end
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     -- The check says what memo it found, and leaves one.
-    Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nd=$(dirname \"$0\")/..\n" ..
+    Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\ncase \"$PWD\" in */ci) exit 0;; esac\nd=$(dirname \"$0\")/..\n" ..
         "cat \"$d/translate-check.db\" > \"$0.saw\" 2>/dev/null || : > \"$0.saw\"\n" ..
         "printf new > \"$d/translate-check.db\"\nexit " .. tostring(case.exit) .. "\n", 493)
     local outcome = Fixture.call("format-memo-" .. case.name, append(base, { "platform", "format" }),
@@ -1067,7 +1089,7 @@ local function test_the_format_check_waits_on_a_suites_boundary_alone(tmp: strin
     local fake = tmp .. "/format-boundary-" .. case.name
     local runner_temp = fake .. "-runner-temp"
     local diagnostics = runner_temp .. "/cosmic-ci/platform/local-diagnostics"
-    assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(diagnostics))
+    assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(fake .. "/ci") and Fs.mkdirs(diagnostics))
     local kept: mut {string} = {}
     if case.immediate then kept[#kept + 1] = "local-immediate" end
     if case.boundary then kept[#kept + 1] = "local-boundary" end
@@ -1076,7 +1098,7 @@ local function test_the_format_check_waits_on_a_suites_boundary_alone(tmp: strin
       assert(Fs.write(diagnostics .. "/" .. snapshot .. "/hashes.sha256", ""))
     end
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
-    Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nprintf '%s' \"$*\" > \"$0.ran\"\nexit 0\n", 493)
+    Fixture.write(fake .. "/o/bin/cosmic", FAKE_TOOL .. "exit 0\n", 493)
     local outcome = Fixture.call("format-boundary-" .. case.name, append(base, { "platform", "format" }),
       project, tmp .. "/logs", context(fake, runner_temp, {
         TARGET = "x86_64-linux-musl", COSMIC_CI_FORMAT = "run",
