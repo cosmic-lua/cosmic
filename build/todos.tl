@@ -28,6 +28,7 @@ local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
+local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")
 local build_paths = require("build.paths")
 local clock = require("build.clock")
@@ -121,7 +122,7 @@ end
 
 --- How long one git call may take before it is ended and its answer
 --- taken as none: a TODO is listed unblamed rather than not at all.
-local git_timeout_ns = Time.seconds(30)
+local git_timeout_ns = Clock.seconds(30)
 
 --- A stand-in for git, which [`todos.list`] takes in its place: answers one
 --- call's arguments (past `-C root`) with its output where it succeeds
@@ -251,7 +252,7 @@ local function spawning(program: string, root: string): Blamer
       if handle == nil then return nil end
       local run: BlameRun = {
         file = file,
-        deadline = Time.monotonic_ns() + git_timeout_ns,
+        deadline = Clock.monotonic_ns() + git_timeout_ns,
         handle = handle,
         said = function(): string?
           local result, _ = handle:wait()
@@ -274,7 +275,7 @@ local function spawning(program: string, root: string): Blamer
         local waited_on = run.handle
         if waited_on ~= nil then handles[#handles + 1] = waited_on end
       end
-      local done, trouble = Child.wait_any(handles, Time.ms(100))
+      local done, trouble = Child.wait_any(handles, Clock.ms(100))
       if done == nil then return nil, trouble ~= Poll.TIMEOUT end
       return run_of[done], false
     end,
@@ -343,7 +344,7 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
       break
     end
     local done, failed = blamer.wait(running)
-    local now = Time.monotonic_ns()
+    local now = Clock.monotonic_ns()
     local still: mut {BlameRun} = {}
     for _, run in ipairs(running) do
       if rawequal(run, done) then
@@ -593,10 +594,10 @@ end
 --- `??????????` for one outside what Time's nanoseconds hold (a forged
 --- commit date), rather than a date the product wrapped to.
 function todos.date(seconds: integer): string
-  if seconds < math.mininteger // Time.seconds(1) + 1 or seconds > math.maxinteger // Time.seconds(1) then
+  if seconds < math.mininteger // Clock.seconds(1) + 1 or seconds > math.maxinteger // Clock.seconds(1) then
     return "??????????"
   end
-  return Time.format_date(Time.seconds(seconds))
+  return Time.format_date(Clock.seconds(seconds))
 end
 
 --- One TODO as `todos` lists it: where, when, which commit, and what,
@@ -686,7 +687,7 @@ end
 --- @param at the tree, the working directory by default
 --- @param seen how a test has the check see the running tool ([`reboot.Seen`])
 function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local found_root, root_trouble = Fs.absolute(at or ".")
   if found_root == nil then
     log:complain(root_trouble)

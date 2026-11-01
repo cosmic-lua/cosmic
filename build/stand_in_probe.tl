@@ -8,15 +8,16 @@ local Signal = require("cosmic.signal")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Proc = require("cosmic.proc")
+local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local String = require("cosmic.string")
 
-local SLICE_NS <const> = Time.ms(5)
+local SLICE_NS <const> = Clock.ms(5)
 
 --- How long `signal` waits for one it sent itself to end it, and the
 --- status it ends with past that.
-local SIGNAL_WAIT_NS <const> = Time.seconds(2)
+local SIGNAL_WAIT_NS <const> = Clock.seconds(2)
 local SIGNAL_MISSED <const> = 4
 
 local signals: {string:integer} = {
@@ -49,10 +50,10 @@ end
 --- long a slice's sleep takes (a host may coalesce short timers into
 --- longer ones): the status a trap ends it with, or nil.
 local function sleep_for(ns: integer): integer?
-  local deadline = Time.monotonic_ns() + ns
+  local deadline = Clock.monotonic_ns() + ns
   while true do
     if trap_fired() then return probe.trapped end
-    local left = deadline - Time.monotonic_ns()
+    local left = deadline - Clock.monotonic_ns()
     if left <= 0 then break end
     local _, _ = sys.nanosleep(math.min(left, SLICE_NS))
   end
@@ -199,11 +200,11 @@ local verbs: {string:function(string, string): integer?} = {
     return nil
   end,
   sleep = function(ms: string): integer?
-    return sleep_for(Time.ms(number(ms) or 0))
+    return sleep_for(Clock.ms(number(ms) or 0))
   end,
   ["sleep-forever"] = function(): integer?
     while true do
-      local stopped = sleep_for(Time.seconds(1))
+      local stopped = sleep_for(Clock.seconds(1))
       if stopped ~= nil then return stopped end
     end
   end,
@@ -351,7 +352,7 @@ local verbs: {string:function(string, string): integer?} = {
     return put_all(1, if value ~= nil then name .. "=" .. value .. "\n" else name .. " unset\n" end)
   end,
   connect = function(path: string): integer?
-    local conn, trouble = Net.connect(Net.unix(path), { timeout_ns = Time.seconds(5) })
+    local conn, trouble = Net.connect(Net.unix(path), { timeout_ns = Clock.seconds(5) })
     if conn == nil then return put_all(1, trouble .. "\n") end
     local _, _ = conn:close()
     return put_all(1, "connected\n")
@@ -361,7 +362,7 @@ local verbs: {string:function(string, string): integer?} = {
     if port == nil or port < 0 or port > 65535 then
       return failed("connect-tcp", "no port " .. word)
     end
-    local conn, trouble = Net.connect(Net.tcp(host, port), { timeout_ns = Time.seconds(5) })
+    local conn, trouble = Net.connect(Net.tcp(host, port), { timeout_ns = Clock.seconds(5) })
     if conn == nil then return put_all(1, trouble .. "\n") end
     local _, _ = conn:close()
     return put_all(1, "connected\n")
@@ -371,16 +372,16 @@ local verbs: {string:function(string, string): integer?} = {
     if port == nil or port < 0 or port > 65535 then
       return failed("bind-tcp", "no port " .. word)
     end
-    local server, trouble = Net.listen(Net.tcp(host, port), { timeout_ns = Time.seconds(5) })
+    local server, trouble = Net.listen(Net.tcp(host, port), { timeout_ns = Clock.seconds(5) })
     if server == nil then return put_all(1, trouble .. "\n") end
     local _, _ = server:close()
     return put_all(1, "bound\n")
   end,
   ["loopback-tcp"] = function(host: string): integer?
-    local server, trouble = Net.listen(Net.tcp(host, 0), { timeout_ns = Time.seconds(5) })
+    local server, trouble = Net.listen(Net.tcp(host, 0), { timeout_ns = Clock.seconds(5) })
     if server == nil then return put_all(1, trouble .. "\n") end
     local conn, connect_trouble = Net.connect(Net.tcp(host, assert(server.address.port)),
-      { timeout_ns = Time.seconds(5) })
+      { timeout_ns = Clock.seconds(5) })
     if conn == nil then
       local _, _ = server:close()
       return put_all(1, connect_trouble .. "\n")
@@ -393,9 +394,9 @@ local verbs: {string:function(string, string): integer?} = {
     return put_all(1, "connected\n")
   end,
   ["loopback-unix"] = function(path: string): integer?
-    local server, trouble = Net.listen(Net.unix(path), { timeout_ns = Time.seconds(5) })
+    local server, trouble = Net.listen(Net.unix(path), { timeout_ns = Clock.seconds(5) })
     if server == nil then return put_all(1, trouble .. "\n") end
-    local conn, connect_trouble = Net.connect(Net.unix(path), { timeout_ns = Time.seconds(5) })
+    local conn, connect_trouble = Net.connect(Net.unix(path), { timeout_ns = Clock.seconds(5) })
     if conn == nil then
       local _, _ = server:close()
       return put_all(1, connect_trouble .. "\n")

@@ -10,6 +10,7 @@
 
 local Fuzz = require("build.fuzz")
 local Store = require("cosmic.store")
+local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")
 
 local NS <const> = 1000000000
@@ -145,9 +146,9 @@ local function reference(): integer
       string.pack(">i4BB", 0, 0, 0):rep(count), "A\0", ("A"):rep(count * 6 - 2) })
     local least = math.maxinteger
     for _ = 1, 3 do
-      local started = Time.monotonic_ns()
+      local started = Clock.monotonic_ns()
       pcall(Time.zone_from_tzif, data, "Fuzz/Zone")
-      least = math.min(least, Time.monotonic_ns() - started)
+      least = math.min(least, Clock.monotonic_ns() - started)
     end
     reference_ns = 10 * least
   end
@@ -162,9 +163,9 @@ end
 --- host ([`reference`]), so a slow host (the checked core, a loaded one) does not fail
 --- it.
 local function total(data: string): boolean, string
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   local ok, zone, why = pcall(Time.zone_from_tzif, data, "Fuzz/Zone")
-  local elapsed = Time.monotonic_ns() - started
+  local elapsed = Clock.monotonic_ns() - started
   if elapsed > NS and elapsed > 20 * reference() then
     return false, ("reading %d bytes took %d ms, a linear read of the largest %d ms"):format(
       #data, elapsed // 1000000, reference() // 1000000)

@@ -34,6 +34,15 @@ local record Connection
     "both"
   end
 
+  -- TODO: make [`Conn`] a class, so a connection is held in a `<close>` local
+  -- (`local c <close> = assert(Net.connect(...))`, which `close_not_closable` refuses for an
+  -- interface), once [`Stream.Reader`]'s `skip` is optional and each Reader declares `skip?:`
+  -- (the TODO in cosmic/stream.tl): a class that implements Reader without `skip` is
+  -- `interface_disagrees` today, a row a new module's ceiling cannot take. The class goes
+  -- in a module below cosmic/internal/connector.tl, which names [`Conn`] and which
+  -- cosmic/net.tl requires: `SocketConn` and `new_conn` move there from cosmic/net.tl,
+  -- [`Conn`] aliases the class here, and connector.tl calls `new_conn` in place of the
+  -- `make_conn` cosmic/net.tl registers through `Leaf.register`.
   --- A connection, answered by `accept` and [`Net.connect`]: a
   --- [`Stream.Reader`] of what the peer sends and a [`Stream.Writer`] to
   --- it.

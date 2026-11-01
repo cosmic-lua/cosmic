@@ -20,6 +20,7 @@ local RelayStart = require("cosmic.internal.relay_start")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
+local SeatbeltFixture = require("build.seatbelt_fixture")
 local type raw_process = require("cosmic.internal.process")
 
 --- [`Store.seal`] reads the rows of every module it carries through
@@ -33,13 +34,6 @@ Test.policy{
   grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
   env = { "TMPDIR" },
 }
-
---- Ends the test where Seatbelt does not hold a child.
-local function macos_only()
-  if assert(sys.uname()).sysname ~= "Darwin" then
-    Test.skip("Seatbelt holds a child on macOS alone")
-  end
-end
 
 --- The program: "flows" speaks to the relay the proxy variables name and
 --- says what came back, a line `name<TAB>value` each; "wait" sleeps until it
@@ -232,21 +226,6 @@ local function echoing(listener: Net.Listener, count: mut {integer}): Poll.Task
   end)
 end
 
---- What Seatbelt denied lately, as the system's log names it, which says
---- what a profile lacks. Empty where the log cannot be read.
--- TODO: bound the `log show` well under the time left to the test: its
--- 60 s outlasts the test's 10 s timeout, so a check that fails on a busy
--- runner can lose its message to the timeout.
-local function denials(): string
-  local result = Child.run({ "/usr/bin/log", "show", "--last", "2m", "--style", "compact",
-    "--predicate", "eventMessage CONTAINS \"Sandbox: \"" },
-    { stdout = "capture", stderr = "capture", stdin = "null", timeout_ns = Clock.seconds(60) })
-  if result == nil then return "" end
-  local lines: mut {string} = {}
-  for line in (result.stdout or ""):gmatch("[^\n]+") do lines[#lines + 1] = line end
-  return "\nlog: " .. table.concat(lines, "\n", math.max(1, #lines - 60), #lines)
-end
-
 --- `message`, and what Seatbelt denied where the check it explains
 --- `failed`. An assertion's message is built before the check runs, and
 --- the log is read only for a failure: each read takes a second or more on
@@ -254,7 +233,7 @@ end
 --- outlasted its timeout.
 local function explained(failed: boolean, message: string): string
   if not failed then return message end
-  return message .. denials()
+  return message .. SeatbeltFixture.denials("2m")
 end
 
 --- Asserts `ok`, failing with `message` and what Seatbelt denied.
@@ -321,7 +300,7 @@ end
 --- token the proxy variables carry; an ungranted one is refused by the relay
 --- and never reached, as is a request without the token or with another.
 local function test_a_granted_server_is_reached_through_the_relay_and_an_ungranted_one_is_not(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local seen = flows(tmp)
   local said, report = seen.said, seen.report
   holds(said.connect == "HTTP/1.1 200 Connection established" and said.connect_echo == "echo:ping",
@@ -348,7 +327,7 @@ end
 --- connection to the granted server, to another port of the loopback and to
 --- an address outside are each refused by Seatbelt.
 local function test_the_program_reaches_nothing_but_the_relay_directly(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local seen = flows(tmp)
   local said, report = seen.said, seen.report
   for _, name in ipairs({ "direct_granted", "direct_ungranted", "direct_outside" }) do
@@ -361,7 +340,7 @@ end
 --- reads, each naming the one port and the one token, 64 hex digits, as the
 --- password of the user "cosmic"; its own loopback is left direct.
 local function test_the_program_is_given_the_relay_and_its_token(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local said, report = flows(tmp).said, ""
   local token, port = tostring(said.env_HTTPS_PROXY):match("^http://cosmic:(%x+)@127%.0%.0%.1:(%d+)$")
   assert(token ~= nil and #token == 64, "HTTPS_PROXY is " .. redacted(tostring(said.env_HTTPS_PROXY)) .. report)
@@ -395,7 +374,7 @@ end
 --- The relay lives as long as its program: it is ended and reaped once the
 --- program is waited for, and one that dies ends the program at its next wait.
 local function test_the_relay_ends_with_its_program(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   Poll.run(function()
     local handle = waiting(tmp)
     local relay = assert(handle._relay, "the start runs a relay")
@@ -464,7 +443,7 @@ end
 --- the program's `localhost:PORT` rule reaches, and hands both sockets to
 --- the relay: no other process can listen at either while it runs.
 local function test_no_other_process_can_listen_at_the_relays_port(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   Poll.run(function()
     local handle = waiting(tmp)
     local port = relay_port(handle)
@@ -483,7 +462,7 @@ end
 --- connect to the port, so holding one would give the program a way in past
 --- the token and the relay.
 local function test_the_program_holds_no_listener_of_the_relays(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local result, why = Child.run({ assert(Proc.executable()), "listeners" }, { policy = {
     database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { "127.0.0.1:9" } },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(90) })
@@ -499,7 +478,7 @@ end
 --- resolver's files it grants and refuses a file it does not, and a program
 --- it does not run, /bin/cat, is refused.
 local function test_the_relay_is_held_by_a_profile_of_its_own(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local secret = tmp .. "/secret"
   assert(Fs.write(secret, "secret"))
   local client = sealed_client(tmp)
@@ -548,7 +527,7 @@ end
 --- through the system's DNS configuration and name servers, and connected.
 --- Skipped where this host itself reaches no such name.
 local function test_a_public_name_is_resolved_and_reached_through_the_relay(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local name = "example.com"
   local found, resolve_why = Net.resolve(name, { timeout_ns = Clock.seconds(5) })
   if found == nil then
@@ -595,7 +574,7 @@ end
 --- 127.0.0.1 not literally, is refused as one of them, which the relay
 --- would otherwise name only a loopback address.
 local function test_a_granted_name_of_the_hosts_loopback_is_refused_as_its_own(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local line, log = connect_through(tmp, "localhost:9")
   assert(line:find("^HTTP/1.1 403 ") and line:find("127.0.0.1 is one of this host's own addresses", 1, true),
     line .. "\nrelay: " .. log)
@@ -608,7 +587,7 @@ end
 --- (sslip.io answers `10-1-2-3.sslip.io` with 10.1.2.3); skipped where this
 --- host has no such routable (not link-local) address or the name does not resolve to it alone.
 local function test_a_granted_name_of_another_host_address_is_refused_as_its_own(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local address: string?
   for _, entry in ipairs((assert(sys.getifaddrs()))) do
     if entry.family == "ipv4" and not entry.loopback and not entry.address:find("^169%.254%.") then
@@ -644,7 +623,7 @@ end
 --- The proxy variables are the relay's to set, so a policy with `connect`
 --- that names one is refused on macOS too.
 local function test_a_policy_with_connect_may_not_set_a_proxy_variable(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local handle, why = Child.start({ assert(Proc.executable()), "wait" }, { policy = {
     database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { "127.0.0.1:9" },
     set_env = { HTTPS_PROXY = "http://elsewhere:1" } } })
@@ -655,7 +634,7 @@ end
 --- files, and is no policy a program could ask for: a profile of the system,
 --- with no write.
 local function test_the_relays_policy_grants_reads_alone(_tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local policy = RelayStart.seatbelt_policy("/tmp/relay.db", string.rep("0", 64))
   assert(assert(policy.database).path == "/tmp/relay.db" and assert(policy.profiles)[1] == "system")
   for _, grant in ipairs(policy.grants or {}) do

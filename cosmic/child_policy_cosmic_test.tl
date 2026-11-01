@@ -14,6 +14,7 @@ local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local searchable = require("build.searchable")
 local build_paths = require("build.paths")
+local ChildPolicy = require("build.child_policy_fixture")
 
 --- The temporary directory, and this program, which the child runs. Every
 --- test starts a child under a policy, which a host with no sandbox to give
@@ -26,14 +27,6 @@ Test.policy{
   requires = { "sandbox" },
 }
 
---- Whether `why`, a start's failure, is the host giving no sandbox.
-local function unsandboxable(why: string): boolean
-  for _, word in ipairs({ "Landlock", "seccomp", "not implemented", "namespace", "own /proc" }) do
-    if why:find(word, 1, true) then return true end
-  end
-  return false
-end
-
 --- Runs this program under `policy` on `args` from `cwd`: what it printed
 --- and how it ended; skips the test where the host gives no sandbox.
 local function ran(args: {string}, policy: Sandbox.Policy, cwd: string): Child.Result
@@ -42,7 +35,7 @@ local function ran(args: {string}, policy: Sandbox.Policy, cwd: string): Child.R
   local result, why = Child.run(argv, { policy = policy, cwd = cwd, stdout = "capture",
     stderr = "capture" })
   if result == nil then
-    assert(unsandboxable(why), "the start was refused: " .. why)
+    assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
     Test.skip(why)
   end
   return result
