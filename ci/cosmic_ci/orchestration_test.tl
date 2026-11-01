@@ -1952,7 +1952,7 @@ end
 
 --- What the checked job's leg promises and `checked`, which the run's core
 --- does not have: the phase leaves that one out.
-local narrowing_promised <const> = "all_cores,sandbox,landlock,userns,nest,own_proc,proc,unix_socket,loopback,path:/bin/sh," ..
+local narrowing_promised <const> = "all_cores,sandbox,landlock,userns,nest,own_proc,proc,unix_socket,path:/bin/sh," ..
   "path:/bin/cat,path:/proc/thread-self/children,path:/usr/bin/env,path:/etc/passwd"
 
 --- Runs the `checked-narrowing` phase of a fixture checkout for each of
