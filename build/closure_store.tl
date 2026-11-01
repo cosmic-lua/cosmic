@@ -299,6 +299,7 @@ local function read_basis(whole: string): closure_store.Basis?, string
       { owner = "file", columns = "module name text line source", from = "examples", order = "id" },
       { owner = "from_module", columns = "module symbol path anchor from_file line column kind form source text", from = "links", order = "module, symbol, path, anchor, from_file, line, column" },
       { owner = "path", columns = "source", from = "stubs", order = "path" },
+      { owner = "module", columns = "ordinal symbol kind line column length plain", from = "places", order = "ordinal" },
     }
     for _, group in ipairs(groups) do
       local columns: mut {string} = {}
@@ -328,7 +329,7 @@ local function read_basis(whole: string): closure_store.Basis?, string
       "SELECT path FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
     if names == nil then return nil, names_trouble end
     local basis: closure_store.Basis = {
-      modules = {}, shared = Hash.hex_sha256("closure-store-7\n" .. shared_row:text(1)),
+      modules = {}, shared = Hash.hex_sha256("closure-store-8\n" .. shared_row:text(1)),
       kinds = {}, pairable = {}, decls = {}, decl_requires = {},
     }
     for _, row in ipairs(rows) do
@@ -542,6 +543,10 @@ local function closed(uses_from: string): {string}
     -- checker run in the worker (teal.standard_text) reads as a
     -- project's does.
     "INSERT INTO main.stubs SELECT * FROM whole.stubs WHERE path IN temp.wanted ORDER BY path",
+    -- Where its modules declare their types and members (`cosmic lsp` reads
+    -- them of a sealed database too).
+    "INSERT INTO main.places SELECT * FROM whole.places WHERE module IN temp.wanted " ..
+      "ORDER BY module, ordinal",
     "INSERT INTO main.docs (module, symbol, source_symbol, exported, kind, signature, " ..
       "text, file, line) SELECT module, symbol, source_symbol, exported, kind, signature, " ..
       "text, file, line FROM whole.docs WHERE module IN temp.wanted " ..
