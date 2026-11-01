@@ -29,6 +29,7 @@ local type raw_process = require("cosmic.internal.process")
 --- launcher (the grant of o/bin). The system's own paths are what the
 --- core and its loader are read from. The servers are on 127.0.0.1.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic", "system" },
   loopback = { "127.0.0.1" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },

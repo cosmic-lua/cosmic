@@ -1,5 +1,7 @@
 # reading a spreadsheet
 
+<!-- policy: cpu_features = true -->
+
 An `.xlsx` file is a zip of XML parts: the workbook names its sheets, a
 relationships part says where each one is, a shared strings part holds
 the text of the cells, and each sheet holds its rows. This guide reads one

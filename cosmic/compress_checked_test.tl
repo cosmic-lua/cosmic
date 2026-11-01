@@ -8,7 +8,7 @@ local Compress = require("cosmic.compress")
 local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
 
-Test.policy{ requires = { "checked" } }
+Test.policy{ cpu_features = true, requires = { "checked" } }
 
 local function gzip_decoder(): Compress.Stream return (assert(Compress.inflater("gzip"))) end
 
