@@ -23,7 +23,7 @@ local function analyzed(source: string, name?: string): Analyzer.Analysis
   return (assert(found, why))
 end
 
---- One source both analyzers read, and the dimension its test is about, which must hold rows.
+--- One source and the rows of the analysis it exists for.
 local record Fixture
   name: string
   dimension: string
@@ -207,6 +207,27 @@ local function test_a_fixture_is_analyzed_with_the_rows_it_exists_for()
   for _, case in ipairs(FIXTURES) do
     local found, why = Analyzer.analyze(case.source, "fixture.tl")
     assert(found ~= nil, case.name .. ": " .. tostring(why))
+    local rows: integer
+    if case.dimension == "analyzer tests" then
+      rows = #found.tests
+    elseif case.dimension == "analyzer export" then
+      rows = #found.export
+    elseif case.dimension == "analyzer catalog" then
+      rows = #found.catalog
+    elseif case.dimension == "analyzer docs" then
+      rows = #found.docs
+    elseif case.dimension == "analyzer references" then
+      rows = #found.references
+    elseif case.dimension == "analyzer bound" then
+      rows = #found.bound
+    elseif case.dimension == "analyzer examples" then
+      rows = #found.examples
+    elseif case.dimension == "analyzer inputs" then
+      rows = if found.inputs ~= nil then 1 else 0 end
+    else
+      rows = 1
+    end
+    assert(rows > 0, case.name .. ": no " .. case.dimension .. " rows")
   end
 end
 

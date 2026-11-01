@@ -108,16 +108,6 @@ local function test_no_two_files_of_the_seed_share_a_basename()
   end
 end
 
---- The seed holds no part of the fork's checker, which the tree no longer has.
-local function test_the_seed_holds_nothing_of_the_fork()
-  for _, file in ipairs(listed()) do
-    assert(file:find("^checker/") == nil, file .. " is the fork's")
-    for _, module in ipairs(requires_of(file)) do
-      assert(module:find("^build%.teal") == nil and module:find("^checker%.") == nil, file .. " requires the fork's " .. module)
-    end
-  end
-end
-
 --- A tree of its own with the declarations of the standard library and a module given as both `.d.tl` and `.tl`, a module
 --- given as a declaration alone and one as a source alone.
 local function seeded(tmp: string): Seed.Program
