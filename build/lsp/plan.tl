@@ -63,14 +63,11 @@ local type Named = plan.Named
 
 --- The import path and kind a build gives the file `name` below the root
 --- that the working database does not list yet: the `inputs` view's
---- reading of a path (build/analysis_schema.tl), and a template's
---- (build/derivation.tl), the convention a `.tl` file gets with its
---- extension swapped.
---
--- TODO: give a `.d.tl` that declares itself a binding (`--- @kind binding`) the kind `binding` here, as the view does:
--- this function has the path alone and no text. It waits on replacing its reading of a path with
--- [`build.analysis_schema`]'s `kind_of`, which also answers `main` (the third copy of the kind mapping).
-function plan.named(name: string): Named
+--- reading of a path ([`build.analysis_schema`]'s `kind_of`, given the
+--- `text` of the file, which a declaration's kind is read from), and a
+--- template's (build/derivation.tl), the convention a `.tl` file gets
+--- with its extension swapped.
+function plan.named(name: string, text?: string): Named
   if name:match("%.tmpl$") ~= nil then
     local template = name:gsub("%.tmpl$", ""):gsub("/init$", "")
     return { path = (template:gsub("/", ".")), kind = "module" }
@@ -78,18 +75,7 @@ function plan.named(name: string): Named
   local stem = name:gsub("%.d%.tl$", "")
   if stem == name then stem = name:gsub("/init%.tl$", "") end
   if stem == name then stem = name:gsub("%.tl$", "") end
-  local path = stem:gsub("/", ".")
-  local kind = "module"
-  if name:match("%.d%.tl$") ~= nil then
-    kind = analysis_schema.declaration_kind()
-  elseif name:match("_test%.tl$") ~= nil then
-    kind = "test"
-  elseif name:match("_example%.tl$") ~= nil then
-    kind = "example"
-  elseif name:match("^cmd/[^/]+/main%.tl$") ~= nil then
-    kind = "main"
-  end
-  return { path = path, kind = kind }
+  return { path = (stem:gsub("/", ".")), kind = analysis_schema.kind_of(name, text) }
 end
 
 --- The number `digits` spell.
