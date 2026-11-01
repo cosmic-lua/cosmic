@@ -30,8 +30,8 @@
 -- cache-same-contents-hit of cosmic-lua/zig, not yet sent upstream).
 
 local Child = require("cosmic.child")
--- TODO: read these through Env.read once ci/cosmic-driver.pin names a release whose cosmic.env declares them; COSMIC_ZIG_CACHE_SEED and
--- COSMIC_ZIG_GLOBAL_CACHE join Env.Name then.
+-- TODO: read these through Env.read once ci/cosmic-driver.pin names a release whose Env.Name declares them
+-- (COSMIC_ZIG_CACHE_SEED and COSMIC_ZIG_GLOBAL_CACHE are in Env.Name already; the pinned release lacks them).
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Plural = require("cosmic_ci.plural")
