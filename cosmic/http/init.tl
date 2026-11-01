@@ -47,6 +47,79 @@ local Stream = require("cosmic.stream")
 -- not load it.
 local type Net = require("cosmic.net")
 
+--- The body of a curl handle, which it owns.
+local class HandleReader is Stream.Reader
+  handle: raw_http.Handle
+  mut closed: boolean
+
+  function read(self, max_bytes?: integer): string?, string
+    if self.closed then return nil, "http: the response is closed" end
+    return self.handle:read(max_bytes)
+  end
+
+  function close(self): boolean, string
+    self.closed = true
+    self.handle:close()
+    return true, ""
+  end
+end
+
+--- The class behind [`Http.Response`], the type [`Http.open`] answers.
+local class Response is Stream.Reader
+  --- The final response's HTTP status code, after any redirect taken.
+  status: integer
+  --- The response's headers, keyed by lowercased name.
+  headers: {string:string}
+  --- The effective URL, after every redirect taken, with no userinfo:
+  --- a user name or password in the request's URL or a redirect's is
+  --- left out.
+  url: string
+  --- Internal: where `read` takes the body from, the handle's or a decoder over it.
+  --- No caller reads or writes it.
+  mut body: Stream.Reader
+  --- Internal: the curl handle the response owns. No caller reads or writes it.
+  handle: raw_http.Handle
+  --- Internal: present only on a response whose body is decoded (see `opts.decompress`).
+  --- No caller reads or writes it.
+  mut skip?: function(Response, n: integer): boolean, string
+
+  --- The next chunk of the body, as [`Stream.Reader`] reads it; decoded
+  --- when `opts.decompress` asked for it.
+  function read(self, max_bytes?: integer): string?, string
+    return self.body:read(max_bytes)
+  end
+
+  --- Releases the body, each decoder freeing its codec and closing the
+  --- reader beneath it, down to the handle.
+  function close(self): boolean, string
+    return self.body:close()
+  end
+
+  function __close(self)
+    local _, _ = self:close()
+  end
+
+  --- What curl wrote to the connection; for tests with a `script`.
+  --- Raises after `close`.
+  function sent(self): string
+    return self.handle:sent()
+  end
+end
+
+--- The Response over a handle whose final headers are known.
+local function respond(handle: raw_http.Handle): Response
+  local body: HandleReader = { handle = handle, closed = false }
+  local response: Response = {
+    status = handle:status(),
+    headers = handle:headers(),
+    url = handle:url(),
+    handle = handle,
+    body = body,
+    skip = nil,
+  }
+  return response
+end
+
 local record Http
   --- When and how long [`Http.Options.retry`] sends a request again.
   record Retry
@@ -118,7 +191,7 @@ local record Http
   ---
   --- `script` is for tests: instead of connecting anywhere, the Nth
   --- connection curl opens (one request each) reads `script[N]` as the
-  --- server's whole reply, and [`Response:sent`] returns what curl wrote.
+  --- server's whole reply, and the `sent` of a [`Http.Response`] returns what curl wrote.
   --- Over https that reply is the server's side of the TLS handshake,
   --- which a canned one cannot complete, but it can carry a certificate
   --- to see how it is verified.
@@ -288,20 +361,7 @@ local record Http
   --- succeeds and is idempotent, a `<close>` variable closes the
   --- response when it goes out of scope, and a `read` after either
   --- fails. `sent` after close raises.
-  interface Response is Stream.Reader
-    __close: function(Response)
-    --- The final response's HTTP status code, after any redirect taken.
-    status: integer
-    --- The response's headers, keyed by lowercased name.
-    headers: {string:string}
-    --- The effective URL, after every redirect taken, with no userinfo:
-    --- a user name or password in the request's URL or a redirect's is
-    --- left out.
-    url: string
-    --- What curl wrote to the connection; for tests with a `script`.
-    --- Raises after `close`.
-    sent: function(Response): string
-  end
+  type Response = Response
 
   --- The outcome of a download, classified where it succeeds or fails.
   enum DownloadKind
@@ -389,43 +449,6 @@ local SECOND <const> = Clock.seconds(1)
 
 -- How an object of this module is made: see the note on objects in
 -- cosmic/stream.tl.
-
---- The Response over a curl handle, which it owns.
-local class CurlResponse is Http.Response
-  handle: raw_http.Handle
-  mut closed: boolean
-
-  function read(self, max_bytes?: integer): string?, string
-    if self.closed then return nil, "http: the response is closed" end
-    return self.handle:read(max_bytes)
-  end
-
-  function close(self): boolean, string
-    self.closed = true
-    self.handle:close()
-    return true, ""
-  end
-
-  function sent(self): string
-    return self.handle:sent()
-  end
-
-  function __close(self)
-    local _, _ = self:close()
-  end
-end
-
---- The Response over a handle whose final headers are known.
-local function respond(handle: raw_http.Handle): Http.Response
-  local response: CurlResponse = {
-    status = handle:status(),
-    headers = handle:headers(),
-    url = handle:url(),
-    handle = handle,
-    closed = false,
-  }
-  return response
-end
 
 --- The codings [`Http.Options.decompress`] asks for, best first.
 local ACCEPTED <const> = "zstd, gzip, deflate"
@@ -560,43 +583,14 @@ local function skip_decoding(self: DecodingReader, n: integer): boolean, string
   return discard(self, n)
 end
 
---- A Response whose body is read through `body`, a DecodingReader
---- over `inner`, the response as received.
-local class DecodedResponse is Http.Response
-  status: integer
-  headers: {string:string}
-  url: string
-  inner: Http.Response
-  body: Stream.Reader
-  mut skip: function(DecodedResponse, n: integer): boolean, string
-
-  function read(self, max_bytes?: integer): string?, string
-    return self.body:read(max_bytes)
-  end
-
-  function close(self): boolean, string
-    -- Each reader frees its codec and closes the one beneath it, down to `inner`.
-    local _, _ = self.body:close()
-    return self.inner:close()
-  end
-
-  function sent(self): string
-    return self.inner:sent()
-  end
-
-  function __close(self)
-    local _, _ = self:close()
-  end
-end
-
-local function skip_decoded(self: DecodedResponse, n: integer): boolean, string
+local function skip_decoded(self: Response, n: integer): boolean, string
   return discard(self.body, n)
 end
 
 --- `response` with its body decoded from each coding its
 --- Content-Encoding names, or nil and why when one is none this reads
 --- (the response is closed then). `response` itself when it names none.
-local function decoded(response: Http.Response): Http.Response?, string
+local function decoded(response: Response): Response?, string
   local named = response.headers["content-encoding"]
   if named == nil then return response, "" end
   local codings: mut {string} = {}
@@ -611,7 +605,7 @@ local function decoded(response: Http.Response): Http.Response?, string
     end
   end
   if #codings == 0 then return response, "" end
-  local body: Stream.Reader = response
+  local body: Stream.Reader = response.body
   for i = #codings, 1, -1 do
     local coding = codings[i]
     if coding ~= nil then
@@ -622,15 +616,9 @@ local function decoded(response: Http.Response): Http.Response?, string
       body = reader
     end
   end
-  local out: DecodedResponse = {
-    status = response.status,
-    headers = response.headers,
-    url = response.url,
-    inner = response,
-    body = body,
-    skip = skip_decoded,
-  }
-  return out, ""
+  response.body = body
+  response.skip = skip_decoded
+  return response, ""
 end
 
 --- The level `error` raises a refusal of `opts` at from [`counted`]:
@@ -1210,7 +1198,7 @@ end
 --- [`Http.open`]'s work, which each public entry point that opens
 --- calls itself (`CALLER`); `method`, when given, stands in for
 --- `opts.method`.
-local function opened(url: string, opts: Http.Options?, method: string?): Http.Response?, string
+local function opened(url: string, opts: Http.Options?, method: string?): Response?, string
   local sent, refused = sendable(url)
   if sent == nil then
     return nil, refused
@@ -1264,7 +1252,7 @@ local function opened(url: string, opts: Http.Options?, method: string?): Http.R
 end
 
 --- `response`'s whole body, read and closed, as [`Http.Body`].
-local function whole(response: Http.Response): Http.Body?, string
+local function whole(response: Response): Http.Body?, string
   local body, read_trouble = Stream.read_all(response)
   local _, _ = response:close()
   if body == nil then
@@ -1291,7 +1279,7 @@ end
 --- in through [`Url.escape`], a path segment or query value at a time.
 --- A space or control byte in the host or user info fails, naming
 --- the byte; a user name or password goes in through [`Url.escape`].
-function Http.open(url: string, opts?: Http.Options): Http.Response?, string
+function Http.open(url: string, opts?: Http.Options): Response?, string
   local response, trouble = opened(url, opts, nil)
   if response == nil then
     return nil, trouble
@@ -1364,7 +1352,7 @@ end
 --- A Reader over a Response that fails with "interrupted" once
 --- `cancelled` answers true.
 local class CancellableReader is Stream.Reader
-  response: Http.Response
+  response: Response
   cancelled: function(): boolean
 
   function read(self, max_bytes?: integer): string?, string
@@ -1383,7 +1371,7 @@ end
 --- `response` as a Reader that fails with "interrupted" once `cancelled`
 --- answers true: asked before each read and once more at the end of the
 --- body, so a body that came whole is still refused after a cancel.
-local function cancellable(response: Http.Response, cancelled: function(): boolean): Stream.Reader
+local function cancellable(response: Response, cancelled: function(): boolean): Stream.Reader
   local reader: CancellableReader = {
     response = response, cancelled = cancelled,
   }
@@ -1393,7 +1381,7 @@ end
 -- Own both resources while user cancellation code may raise: a failed
 -- call must not leave a staged file waiting for garbage collection.
 local record PendingDownload
-  mut response?: Http.Response
+  mut response?: Response
   mut file?: Stream.FileWriter
   __close: function(PendingDownload)
 end
