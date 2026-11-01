@@ -64,17 +64,7 @@ local class HandleReader is Stream.Reader
   end
 end
 
---- An open response, and a [`cosmic.stream`] Reader of its body.
---- `status`, `headers` and `url` (the effective URL, after every
---- redirect taken) are already known when [`Http.open`] returns them;
---- `read` pulls the body a chunk at a time, `nil, ""` at its clean
---- end and the same error again after a failure. `headers` is keyed
---- by lowercased name, and a name the response repeats has its
---- values joined with ", " (RFC 9110 5.3) -- Set-Cookie's, which may
---- hold commas themselves, with "\n" instead. `close` always
---- succeeds and is idempotent, a `<close>` variable closes the
---- response when it goes out of scope, and a `read` after either
---- fails. `sent` after close raises.
+--- The class behind [`Http.Response`], the type [`Http.open`] answers.
 local class Response is Stream.Reader
   --- The final response's HTTP status code, after any redirect taken.
   status: integer
@@ -84,12 +74,13 @@ local class Response is Stream.Reader
   --- a user name or password in the request's URL or a redirect's is
   --- left out.
   url: string
-  --- Where `read` takes the body from: the handle's, or a decoder over it.
-  --- Internal: no caller reads or writes it.
+  --- Internal: where `read` takes the body from, the handle's or a decoder over it.
+  --- No caller reads or writes it.
   mut body: Stream.Reader
-  --- The curl handle the response owns. Internal.
+  --- Internal: the curl handle the response owns. No caller reads or writes it.
   handle: raw_http.Handle
-  --- Present only on a response whose body is decoded (see `opts.decompress`). Internal.
+  --- Internal: present only on a response whose body is decoded (see `opts.decompress`).
+  --- No caller reads or writes it.
   mut skip?: function(Response, n: integer): boolean, string
 
   --- The next chunk of the body, as [`Stream.Reader`] reads it; decoded
@@ -359,6 +350,17 @@ local record Http
     cancelled?: function(): boolean
   end
 
+  --- An open response, and a [`cosmic.stream`] Reader of its body.
+  --- `status`, `headers` and `url` (the effective URL, after every
+  --- redirect taken) are already known when [`Http.open`] returns them;
+  --- `read` pulls the body a chunk at a time, `nil, ""` at its clean
+  --- end and the same error again after a failure. `headers` is keyed
+  --- by lowercased name, and a name the response repeats has its
+  --- values joined with ", " (RFC 9110 5.3) -- Set-Cookie's, which may
+  --- hold commas themselves, with "\n" instead. `close` always
+  --- succeeds and is idempotent, a `<close>` variable closes the
+  --- response when it goes out of scope, and a `read` after either
+  --- fails. `sent` after close raises.
   type Response = Response
 
   --- The outcome of a download, classified where it succeeds or fails.
