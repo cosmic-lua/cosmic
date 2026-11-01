@@ -110,6 +110,8 @@ local record ChecksCase
   --- The compile wrote no check (the summary says 0 fact wraps), though the run is checked.
   empty?: boolean
   share?: string
+  --- Added to the run's environment: what a job that restores verdicts sets.
+  env?: {string:string}
 end
 
 --- `Orchestration.harness_moved`, its answer as two values.
@@ -1948,34 +1950,16 @@ local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tm
   end
 end
 
---- The `checked-narrowing` phase runs the whole suite on a checked run
---- (`test --check-types`, no module named) on the linux-x86_64 leg, or the
---- share of it COSMIC_CI_NARROWING_SHARD names (`--shard I/N`, which the jobs
---- of ci.yml's `checked-narrowing` matrix set), with the checked run's test
---- timeout, fails where that run fails or reports nothing of its checks, and
---- does nothing on another target.
-local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_linux_x86_64(tmp: string)
+--- What the checked job's leg promises and `checked`, which the run's core
+--- does not have: the phase leaves that one out.
+local narrowing_promised <const> = "all_cores,sandbox,landlock,userns,nest,own_proc,proc,unix_socket,path:/bin/sh," ..
+  "path:/bin/cat,path:/proc/thread-self/children,path:/usr/bin/env,path:/etc/passwd"
+
+--- Runs the `checked-narrowing` phase of a fixture checkout for each of
+--- `cases` and holds what the fixture's tool was run as, and whether the
+--- phase failed, to the case.
+local function run_narrowing_cases(tmp: string, cases: {ChecksCase})
   local base, project = command(tmp)
-  -- The checked job's leg promises these and `checked`, which the run's
-  -- core does not have: the phase leaves that one out.
-  local promised = "all_cores,sandbox,landlock,userns,nest,own_proc,proc,unix_socket,path:/bin/sh,path:/bin/cat," ..
-    "path:/proc/thread-self/children,path:/usr/bin/env,path:/etc/passwd"
-  local cases: {ChecksCase} = {
-    { name = "linux", target = "x86_64-linux-musl", report = true, status = 0, ok = true,
-      ran = "test --check-types 120 " .. promised .. "\n" },
-    { name = "linux-share", target = "x86_64-linux-musl", report = true, status = 0, ok = true,
-      share = "2/2", ran = "test --check-types --shard 2/2 120 " .. promised .. "\n" },
-    { name = "linux-share-failing", target = "x86_64-linux-musl", report = true, status = 1, ok = false,
-      share = "1/2", ran = "test --check-types --shard 1/2 120 " .. promised .. "\n" },
-    { name = "linux-failing", target = "x86_64-linux-musl", report = true, status = 1, ok = false,
-      ran = "test --check-types 120 " .. promised .. "\n" },
-    { name = "linux-unchecked", target = "x86_64-linux-musl", report = false, status = 0, ok = false,
-      ran = "test --check-types 120 " .. promised .. "\n" },
-    { name = "linux-empty", target = "x86_64-linux-musl", report = true, status = 0, ok = false, empty = true,
-      ran = "test --check-types 120 " .. promised .. "\n" },
-    { name = "linux-aarch64", target = "aarch64-linux-musl", report = true, status = 0, ok = true,
-      ran = nil },
-  }
   for _, case in ipairs(cases) do
     local fake = tmp .. "/" .. case.name
     local runner_temp = fake .. "-runner-temp"
@@ -1991,12 +1975,14 @@ local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_
         "'test: run-time types: " .. written .. " written in the compile; 0 tests stood on checked verdicts'\n" else "" end
     Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
         "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
-        "if [ \"$1\" = test ]; then printf '%s %s %s\\n' \"$*\" \"$COSMIC_TEST_TIMEOUT\" \"$COSMIC_TEST_PROMISES\" >> \"$0.ran\"; fi\n" ..
+        "if [ \"$1\" = test ]; then printf '%s %s %s %s\\n' \"$*\" \"$COSMIC_TEST_TIMEOUT\" \"$COSMIC_TEST_PROMISES\" \"${COSMIC_VERDICT_CACHE:--}\" >> \"$0.ran\"; fi\n" ..
         summary .. "exit " .. tostring(case.status) .. "\nEOF\n" ..
         "chmod 755 o/bin/cosmic\n", 493)
-    local env = context(fake, runner_temp, { TARGET = case.target, TMPDIR = tmp,
+    local given: mut {string:string} = { TARGET = case.target, TMPDIR = tmp,
       COSMIC_WORKER = "linux-x86_64-checked", COSMIC_CI_NARROWING_SHARD = case.share or "",
-      COSMIC_CI_EVENT = "push", COSMIC_CI_HARNESS_MOVED = "0" })
+      COSMIC_CI_EVENT = "push", COSMIC_CI_HARNESS_MOVED = "0" }
+    for name, value in pairs(case.env or {}) do given[name] = (value:gsub("@", tmp)) end
+    local env = context(fake, runner_temp, given)
     for _, phase in ipairs({ "boot", "checked-narrowing" }) do
       local outcome = Fixture.call("checked-narrowing-" .. case.name .. "-" .. phase,
         append(base, { "platform", phase }), project, tmp .. "/logs", env)
@@ -2006,6 +1992,60 @@ local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_
     local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
     assert(ran == case.ran, case.name .. ": " .. tostring(ran))
   end
+end
+
+--- The `checked-narrowing` phase runs the whole suite on a checked run
+--- (`test --check-types`, no module named) on the linux-x86_64 leg, or the
+--- share of it COSMIC_CI_NARROWING_SHARD names (`--shard I/N`, which the jobs
+--- of ci.yml's `checked-narrowing` matrix set), with the checked run's test
+--- timeout, fails where that run fails or reports nothing of its checks, and
+--- does nothing on another target.
+local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_linux_x86_64(tmp: string)
+  local promised = narrowing_promised
+  local cases: {ChecksCase} = {
+    -- A run that requires no sandbox stands on nothing: every test runs, and the cache variable names no file here.
+    { name = "linux", target = "x86_64-linux-musl", report = true, status = 0, ok = true,
+      ran = "test --check-types --census --all 120 " .. promised .. " 0\n" },
+    { name = "linux-share", target = "x86_64-linux-musl", report = true, status = 0, ok = true,
+      share = "2/2", ran = "test --check-types --census --all --shard 2/2 120 " .. promised .. " 0\n" },
+    { name = "linux-share-failing", target = "x86_64-linux-musl", report = true, status = 1, ok = false,
+      share = "1/2", ran = "test --check-types --census --all --shard 1/2 120 " .. promised .. " 0\n" },
+    { name = "linux-failing", target = "x86_64-linux-musl", report = true, status = 1, ok = false,
+      ran = "test --check-types --census --all 120 " .. promised .. " 0\n" },
+    { name = "linux-unchecked", target = "x86_64-linux-musl", report = false, status = 0, ok = false,
+      ran = "test --check-types --census --all 120 " .. promised .. " 0\n" },
+    { name = "linux-empty", target = "x86_64-linux-musl", report = true, status = 0, ok = false, empty = true,
+      ran = "test --check-types --census --all 120 " .. promised .. " 0\n" },
+    { name = "linux-aarch64", target = "aarch64-linux-musl", report = true, status = 0, ok = true,
+      ran = nil },
+  }
+  run_narrowing_cases(tmp, cases)
+end
+
+--- The phase stands on `narrowing.db`, beside the file COSMIC_VERDICT_CACHE
+--- names, where the job may stand on verdicts (it requires the sandbox):
+--- a share and a merge-queue run both, the queue's also stopping at the
+--- first failure, and every test where the queue's change moves the
+--- harness.
+local function test_the_checked_narrowing_phase_stands_on_a_verdict_file_of_its_own(tmp: string)
+  local promised = narrowing_promised
+  local cases: {ChecksCase} = {
+    -- A job that restores verdicts (ci.yml's names the file and requires the sandbox) stands on them in
+    -- `narrowing.db`, beside the file it names; the merge queue's run also stops at its first failure.
+    { name = "linux-standing", target = "x86_64-linux-musl", report = true, status = 0, ok = true,
+      share = "1/2", env = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_VERDICT_CACHE = "@/verdicts/verdicts.db" },
+      ran = "test --check-types --census --shard 1/2 120 " .. promised .. " " .. tmp .. "/verdicts/narrowing.db\n" },
+    { name = "linux-queue", target = "x86_64-linux-musl", report = true, status = 0, ok = true, share = "2/2",
+      env = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "merge_group", COSMIC_CI_HARNESS_MOVED = "0",
+        COSMIC_VERDICT_CACHE = "@/verdicts/verdicts.db" },
+      ran = "test --check-types --census --bail --shard 2/2 120 " .. promised .. " " .. tmp .. "/verdicts/narrowing.db\n" },
+    -- A queue run whose change moves the harness runs every test, standing on none.
+    { name = "linux-queue-moved", target = "x86_64-linux-musl", report = true, status = 0, ok = true,
+      env = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "merge_group", COSMIC_CI_HARNESS_MOVED = "1",
+        COSMIC_VERDICT_CACHE = "@/verdicts/verdicts.db" },
+      ran = "test --check-types --census --all --bail 120 " .. promised .. " " .. tmp .. "/verdicts/narrowing.db\n" },
+  }
+  run_narrowing_cases(tmp, cases)
 end
 
 --- A native suite that passed with none standing ran every test it

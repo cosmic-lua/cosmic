@@ -708,21 +708,48 @@ verdicts, which would otherwise ride along whole in each save.
   narrowing run kept a `verdicts.db` of another 8700 rows nothing read.
 - `checked-narrowing` (`linux-x86_64-checked-narrowing-<part>`), the whole
   suite on a checked run (`--check-types`, `platform checked-narrowing`)
-  on the release tool, which restores and saves no verdict yet (a checked
-  run can stand on its own, doc/testing.md) and reads no checked core: it
-  boots and runs every test of its share. Two jobs of one matrix, a
-  share of the tests each (`cosmic test --check-types --shard I/2`,
-  `COSMIC_CI_NARROWING_SHARD`), bound to 900 s
-  (`checked_narrowing_timeout_ns`): the whole run's 726 to 861 s are
-  about 363 to 431 s a share (a lower estimate: each share compiles the
-  tree it tests). A share does not check that some test enters each C
-  function, which only a whole run answers, and no job makes that run with
-  these tests: a checked run enters no function a plain one does not
-  (the tests that differ skip in it, and those that ask for a checked
-  run skip in every run, build/type_watch.tl), so the legs' whole native
-  suites on the same release core hold the check in every full run.
-  Its `operations.db` is kept as
-  `ci-driver-linux-x86_64-checked-narrowing-<part>`. A full run only.
+  on the release tool, which reads no checked core: it boots and runs the
+  tests of its share. Two jobs of one matrix, a share of the tests each
+  (`cosmic test --check-types --shard I/2`, `COSMIC_CI_NARROWING_SHARD`),
+  bound to 900 s (`checked_narrowing_timeout_ns`): the whole run's 726 to
+  861 s are about 363 to 431 s a share where no verdict stands (a lower
+  estimate: each share compiles the tree it tests). A checked run stands on
+  verdicts of its own (doc/testing.md), which it keeps in `narrowing.db`
+  under a cache name of its own, `verdicts-linux-x86_64-checked-narrowing-<host>-<features>-<digest>`
+  (`leg-host-id` with `linux-x86_64-checked-narrowing`: the same host as the
+  checked job's, and a prefix no hash of its name can reach, `n` being no hex
+  digit). Each share restores the entry of the tree's base on main whole,
+  which holds the rows of both shares, since adding or removing a test moves
+  tests between shares (`test.dealt`), and in the merge queue takes both
+  shares' verdicts of the run ahead too (two `queue-ahead` calls of a minute
+  at most each, `READY_SECONDS` 660, the later share's start plus its
+  boot and tests where none stood). It runs the tests whose key moved
+  (`stands`: a push and the queue; not the nightly, a manual run, or a queue run
+  whose change moves build/harness_epoch.tl, which run every test), says in
+  `--census` which key parts moved for the rest, trims to the rows its run
+  used and keeps them as `verdicts-linux-x86_64-checked-narrowing-shard-<part>`.
+- `checked-narrowing-merge` (`linux-x86_64-checked-narrowing`), the job whose
+  result stands for the narrowing run where a run saves, after its shares:
+  the pinned driver in the leg's container, no boot and no test. It merges the
+  shares' artifacts into an empty cache (it only looks up the base's entry,
+  as `checked` does: a restore would put rows no test reaches in front of
+  the merged ones, which the trim would leave whole, the merge stamping them
+  used at 0), trims as `checked` does, seeds (`seed-linux-x86_64-checked-narrowing`,
+  in `LEGS`) and saves the one entry on `COSMIC_CI_SAVES`. Past a failed share it
+  runs where it saves (a push to main, the nightly) to fail and take the failed
+  test's pass out of main's newest entry, and is skipped in the merge queue. The
+  `ci` gate reads its result beside the shares'; `prune` and `invalidate` wait
+  on it. The pinned driver's `verdicts-merge` and `verdicts-trim` apply no row
+  bound, so the 16384 rows the tool keeps for this file
+  (`shared_verdicts.rows_kept`) are held where tests run, in the shares. A
+  share does not check that some test enters each C function, which only a
+  whole run answers, and no job makes that run with these tests: a checked run
+  enters no function a plain one does not (the tests that differ skip in it,
+  and those that ask for a checked run skip in every run,
+  build/type_watch.tl), so the legs' whole native suites on the same release
+  core hold the check in every full run. Their `operations.db` is kept as
+  `ci-driver-linux-x86_64-checked-narrowing-<part>` (the merge's as
+  `ci-driver-linux-x86_64-checked-narrowing`). A full run only.
 - `format` (`linux-x86_64-format`), a light run's format check
   (`platform format`), which a full run makes in linux-aarch64's assemble.
   There it is `fix --check .`; on a light run it lays out only what the
