@@ -506,7 +506,9 @@ input to the build, never to the runtime. one database holds:
   straight out of `modules`.
 
 A module has one type source. A `foo.d.tl` is the declaration of a
-module whose code is C, and it has no `foo.tl`; a `foo.tl` is its own
+module whose code is C, says so with the line `--- @kind binding` in its leading comment, and has no `foo.tl`; a build
+refuses a `.d.tl` that names no kind. ([`lang/prelude.d.tl`] and [`lang/stdlib.d.tl`], the globals, say `--- @kind language`,
+which no other file may.) A `foo.tl` is its own
 declaration, its written record. A build refuses a `foo.d.tl` beside a
 `foo.tl`, naming both files. The declaration remains in `decls`.
 

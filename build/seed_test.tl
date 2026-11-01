@@ -117,7 +117,7 @@ local function seeded(tmp: string): Seed.Program
   end
   assert(Fs.write(tmp .. "/both.d.tl", "local record R\nend\nreturn R\n"))
   assert(Fs.write(tmp .. "/both.tl", "local record R\nend\nreturn {} as R\n"))
-  assert(Fs.write(tmp .. "/alone.d.tl", "local record R\nend\nreturn R\n"))
+  assert(Fs.write(tmp .. "/alone.d.tl", "--- @kind binding\nlocal record R\nend\nreturn R\n"))
   -- A declaration, a source and a package's entry: the complaint names the first source, as a build does.
   assert(Fs.mkdirs(tmp .. "/three"))
   assert(Fs.write(tmp .. "/three.d.tl", "local record R\nend\nreturn R\n"))
@@ -141,4 +141,32 @@ local function test_the_seed_refuses_a_declaration_beside_a_source(tmp: string)
   assert(declared == nil and declared_why == "", tostring(declared_why))
   local code, code_why = program.module("code")
   assert(code ~= nil and code_why == "" and code.file == "code.tl")
+end
+
+--- The seed holds the two files of the globals to the line that says they are the language's, and a declaration it is asked
+--- for to one that names a kind, as a build does.
+local function test_the_seed_refuses_declarations_that_name_no_kind(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/lang"))
+  local stdlib = assert(Fs.read("lang/stdlib.d.tl"))
+  local bare_stdlib = stdlib:gsub("^%-%-%- @kind language\n", "")
+  assert(bare_stdlib ~= stdlib, "the real library names its kind")
+  assert(Fs.write(tmp .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
+  assert(Fs.write(tmp .. "/lang/stdlib.d.tl", bare_stdlib))
+  assert(Fs.write(tmp .. "/code.tl", "local n: integer = 1\nreturn n\n"))
+  local module, why = Seed.program(tmp, {}).module("code")
+  assert(module == nil and why == "lang/stdlib.d.tl: the language's own declarations must say so: add the line " ..
+      "`--- @kind language` to its leading comment", tostring(why))
+  -- The globals whole, a declaration the seed is asked for that names nothing is refused.
+  assert(Fs.write(tmp .. "/lang/stdlib.d.tl", stdlib))
+  assert(Fs.write(tmp .. "/bare.d.tl", "local record R\nend\nreturn R\n"))
+  assert(Fs.write(tmp .. "/named.d.tl", "--- @kind binding\nlocal record R\nend\nreturn R\n"))
+  local program = Seed.program(tmp, {})
+  local refused, refused_why = program.module("bare")
+  assert(refused == nil and refused_why == "bare.d.tl: a .d.tl must name what it is, and this one names nothing. If it " ..
+      "declares a module implemented in C, add the line `--- @kind binding` to its leading comment; otherwise write it as " ..
+      "a .tl (types and code in a .tl are checked and real at run time).", tostring(refused_why))
+  local named, named_why = program.module("named")
+  assert(named == nil and named_why == "", tostring(named_why))
+  local code, code_why = program.module("code")
+  assert(code ~= nil and code_why == "")
 end

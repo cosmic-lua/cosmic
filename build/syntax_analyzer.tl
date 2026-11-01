@@ -197,18 +197,22 @@ local function todo_comments(run: {Lexer.Comment}): {integer:boolean}
   return skipped
 end
 
---- Whether the comment `c` is a line only the build reads: the one that declares a table of C bindings or the one that
---- opens a module ([`build.analysis_schema`]'s `binding_tag` and `public_tag`), whatever its line end.
+--- Whether the comment `c` is a line only the build reads: the one that names the kind of a declaration or the one that
+--- opens a module ([`build.analysis_schema`]'s `kind_tags` and `public_tag`), whatever its line end.
 local function is_build_tag(c: Lexer.Comment): boolean
   local line = c.text:gsub("\r$", "")
-  return line == AnalysisSchema.binding_tag() or line == AnalysisSchema.public_tag()
+  if line == AnalysisSchema.public_tag() then return true end
+  for _, tag in ipairs(AnalysisSchema.kind_tags()) do
+    if line == tag then return true end
+  end
+  return false
 end
 
 --- The body of each comment in `run` that is documentation: the `---` lines when the run has any, so a `--` note
 --- beside them stays out of the doc text, and every line of a run of `--` alone, which documents a script or a
 --- module. A `TODO:` comment, with the lines that carry it on, is never documentation, and the blank line it leaves
---- beside another is dropped with it; nor are the lines that declare a table of C bindings or open a module
---- ([`build.analysis_schema`]'s `binding_tag` and `public_tag`), which are for the build.
+--- beside another is dropped with it; nor are the lines that name the kind of a declaration or open a module
+--- ([`build.analysis_schema`]'s `kind_tags` and `public_tag`), which are for the build.
 local function doc_bodies(run: {Lexer.Comment}): {string}
   local any = false
   for _, c in ipairs(run) do

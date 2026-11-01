@@ -623,10 +623,11 @@ end
 
 --- The complaint about the file `name` (below the root) where the last stage staged nothing and the file is one of a
 --- declaration and a source of one module on disk, or nil: what a document of that file is told, at its first line. The pair
---- is found as the build finds one, by the files a module may be written in ([`build.driver.candidates`]).
-function source.refusal(src: source.View, name: string): string?
+--- is found as the build finds one, by the files a module may be written in ([`build.driver.candidates`]). A declaration
+--- file whose `text` (the document's, as it is open) names no kind is told so as well ([`build.driver.naming`]).
+function source.refusal(src: source.View, name: string, text?: string): string?
   -- A fixture of a test is no part of the program, as in a build ([`build.tree_program.skipped`]).
-  if src.trouble == "" or TreeProgram.skipped(name) then return nil end
+  if TreeProgram.skipped(name) then return nil end
   local module = Declarations.module_of(name)
   local declaration: string? = nil
   local code: string? = nil
@@ -640,8 +641,12 @@ function source.refusal(src: source.View, name: string): string?
       end
     end
   end
-  if declaration ~= nil and code ~= nil and (name == declaration or name == code) then
+  if src.trouble ~= "" and declaration ~= nil and code ~= nil and (name == declaration or name == code) then
     return Driver.pairing(declaration, code, module)
+  end
+  if text ~= nil and name:match("%.d%.tl$") ~= nil then
+    local unnamed = Driver.naming(name, text, source.standing(src).own)
+    if unnamed ~= "" then return unnamed end
   end
   return nil
 end

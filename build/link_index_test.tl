@@ -78,6 +78,7 @@ local function linking_tree(dir: string): Sqlite.Handle
       "return text"),
     ["cosmic/raw.d.tl"] = source(
       "--- Raw calls, which [`cosmic.fs.read`] wraps.",
+      "--- @kind binding",
       "local record raw",
       "  --- Opens.",
       "  open: function(path: string): integer",

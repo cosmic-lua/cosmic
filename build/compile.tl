@@ -18,7 +18,8 @@
 ---
 --- THE GRAMMAR is the new checker's, which `--grammar new` names and the verb takes by
 --- default; `--grammar teal` is refused, pointing to the project guide. The files named are the
---- whole program, a `.d.tl` among them declares the globals every file may use (the standard library's), and a `cosmic.*`
+--- whole program, a `.d.tl` among them declares the globals every file may use and must carry `--- @kind binding` (`--- @kind language`
+--- is only for the build of cosmic's own tree, which this is not), and a `cosmic.*`
 --- module no file named is the module of is then typed `invalid` and reported, since the checker cannot declare the binary's own
 --- modules. With no `.d.tl` named the files are checked as `cosmic --standalone` checks a file: against the globals and the
 --- `cosmic.*` modules this binary carries, and a warning is listed with the errors, so `--errors` names what `--standalone` would
@@ -251,6 +252,15 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
   local entries: mut {{string}} = {}
   for _, source in ipairs(todo) do
     entries[#entries + 1] = { source.relative, source.text }
+  end
+  -- A declaration beside a source of its module, or one that says nothing of what it is, is refused as a build refuses it
+  -- ([`build.driver.declared`]); the files given are a project's, which has no declarations of the language.
+  local declared = require("build.driver").declared(entries, function(_path: string): boolean
+    return false
+  end, false)
+  if declared ~= "" then
+    complain(declared)
+    return bare.refused
   end
   local TreeProgram = require("build.tree_program")
   local library = TreeProgram.library_modules(options.globals)

@@ -73,7 +73,7 @@ local function test_a_package_module_is_its_init()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib/shapes"))
   assert(Fs.write(root .. "/lib/shapes/init.tl", THREE))
-  assert(Fs.write(root .. "/lib/decl.d.tl", "local record decl\n  sides: integer\nend\nreturn decl\n"))
+  assert(Fs.write(root .. "/lib/decl.d.tl", "--- @kind binding\nlocal record decl\n  sides: integer\nend\nreturn decl\n"))
   local main = 'local shapes = require("lib.shapes")\nlocal decl = require("lib.decl")\n' ..
     "local n: integer = shapes.sides + decl.sides\nreturn n\n"
   local diagnostics = nth(served(root, { initialize(root), open(root, "main.tl", main) }), 1)
@@ -395,7 +395,7 @@ local function test_each_module_is_served_as_its_stub_where_it_has_one()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/shapes.tl", THREE))
-  assert(Fs.write(root .. "/lib/decl.d.tl", "local record decl\n  sides: integer\nend\nreturn decl\n"))
+  assert(Fs.write(root .. "/lib/decl.d.tl", "--- @kind binding\nlocal record decl\n  sides: integer\nend\nreturn decl\n"))
   local main = 'local shapes = require("lib.shapes")\nlocal decl = require("lib.decl")\n' ..
     'local n: integer = shapes.sides + decl.sides\nreturn n\n'
   local send = serving(root)
@@ -1245,7 +1245,7 @@ local function test_what_an_open_document_requires_is_read_from_the_rows_of_its_
   assert(Fs.write(root .. "/lib/shapes.tl", THREE))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
   assert(Fs.write(root .. "/main.tl", main))
-  assert(Fs.write(root .. "/lib/decl.d.tl", "local record decl\n  sides: integer\nend\nreturn decl\n"))
+  assert(Fs.write(root .. "/lib/decl.d.tl", "--- @kind binding\nlocal record decl\n  sides: integer\nend\nreturn decl\n"))
   local src = source.new(root, function(_: string) end)
   source.refresh(src)
   local found = assert(source.module(src, "main.tl"))
