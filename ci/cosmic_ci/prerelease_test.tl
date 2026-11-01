@@ -22,7 +22,8 @@ Test.policy{ profiles = { "cosmic", "system" }, grants = { { path = "o/bin", let
 local commit <const> = string.rep("c", 40)
 local repository <const> = "owner/repo"
 local run_prefix <const> = "https://github.com/owner/repo/actions/runs/"
-local tag <const> = "next-" .. commit
+local day <const> = "20261018"
+local tag <const> = day .. "-" .. commit
 
 local function read(path: string): string return (assert(Fs.read(path))) end
 local function write(path: string, data: string) assert(Fs.write(path, data)) end
@@ -330,6 +331,8 @@ local record Repo
   releases: mut {Release}
   mut assets: integer
   mut compare: {string}
+  --- The committer date the API answers for the commit.
+  mut committed: string
   fail: mut {string:string}
   --- Each request as "METHOD path" ("UPLOAD name" for an upload).
   log: mut {string}
@@ -337,6 +340,7 @@ local record Repo
   uploaded: mut {string:string}
 end
 
+local day_committed <const> = "2026-10-18T23:59:59Z"
 local api <const> = "https://api.test/"
 local uploads <const> = "https://uploads.test/"
 local blob <const> = "https://blob.test/"
@@ -463,6 +467,11 @@ local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply?, str
   if (rest:match("^releases%?per_page=100") and method == "GET") == true then
     return serve_page(r, rest), ""
   end
+  if (rest == "commits/" .. commit and method == "GET") == true then
+    if r.fail["commit"] then return reply(500, said("Server Error")), "" end
+    return reply(200, '{"sha":' .. json(commit) .. ',"commit":{"committer":{"date":' .. json(r.committed) ..
+        "}}}"), ""
+  end
   local by_tag = rest:match("^releases/tags/(.+)$")
   if by_tag ~= nil and method == "GET" then
     if r.fail["by-tag"] then return reply(500, said("Server Error")), "" end
@@ -562,7 +571,7 @@ local function repo(tmp: string, bytes?: string): Repo
   local client = assert(GithubApi.live({ GH_TOKEN = "fake-token", GITHUB_API_URL = "https://api.test" }))
   local r: Repo = { client = client, release = s.release, temp = tmp .. "/runner",
     tags = {}, annotated = {}, tag_objects = {}, branches = {}, releases = {}, assets = 100,
-    compare = {}, fail = {}, log = {}, uploaded = {} }
+    compare = {}, committed = day_committed, fail = {}, log = {}, uploaded = {} }
   client.send = function(request: GithubApi.Request): GithubApi.Reply?, string
     return serve(r, request)
   end
@@ -622,6 +631,42 @@ local function count(r: Repo, prefix: string): integer
 end
 
 local function logged(r: Repo): string return table.concat(r.log, "\n") end
+
+--- The tag is the UTC day of the commit's committer date, then the
+--- commit, so a rerun gives the same tag; no `next-` form is made.
+local function test_commit_day_is_the_utc_date_of_the_committer_date()
+  assert(Prerelease.commit_day("2026-10-18T23:59:59Z") == "20261018")
+  assert(Prerelease.commit_day("2026-01-02T00:00:00Z") == "20260102")
+  for _, bad in ipairs({ "", "2026-10-18", "2026-10-18T23:59:59+02:00", "2026-10-18T23:59:59.5Z",
+      "26-10-18T23:59:59Z", "2026-10-18T23:59:59Z\n" }) do
+    refused("no UTC time", function() Prerelease.commit_day(bad) end)
+  end
+end
+
+local function test_publish_tags_the_commit_by_its_committer_date(tmp: string)
+  local r = repo(tmp)
+  r.committed = "2026-10-19T00:00:00Z"
+  local made = "20261019-" .. commit
+  assert(publish(r) == "prerelease published and verified: " .. made)
+  assert(r.tags[made] == commit and r.tags[tag] == nil)
+  for _, rel in ipairs(r.releases) do assert(rel.tag == made and not rel.tag:find("^next%-")) end
+  -- The day is the commit's, not the run's: the same commit gives the same tag.
+  r.temp = tmp .. "/rerun"
+  assert(Fs.mkdirs(r.temp))
+  assert(publish(r) == "prerelease already published and verified: " .. made)
+  assert(#r.releases == 1)
+end
+
+local function test_publish_refuses_a_commit_the_api_gives_no_date(tmp: string)
+  local r = repo(tmp)
+  r.fail["commit"] = "1"
+  refused("commits/" .. commit, function() publish(r) end)
+  assert(#r.releases == 0 and next(r.tags) == nil)
+  r.fail["commit"] = nil
+  r.committed = "yesterday"
+  refused("no UTC time", function() publish(r) end)
+  assert(#r.releases == 0 and next(r.tags) == nil)
+end
 
 local function test_publish_creates_tag_and_release(tmp: string)
   local r = repo(tmp)
@@ -847,9 +892,9 @@ local function test_publish_refuses_two_releases_for_the_tag(tmp: string)
   seed(r, false, staged(r))
   seed(r, true, {})
   refused("2 releases are tagged " .. tag, function() publish(r) end)
-  -- The published one by its tag, the draft from the list's first page,
-  -- and nothing else was asked.
-  assert(#r.log == 2, logged(r))
+  -- The commit's date, the published one by its tag, the draft from the
+  -- list's first page, and nothing else was asked.
+  assert(#r.log == 3, logged(r))
 end
 
 --- A name the draft holds already is no upload: GitHub's 422 fails the

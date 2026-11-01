@@ -660,11 +660,11 @@ local record Cli
   --- binary it reads is never written
   refresh: string
   --- `cosmic release [--commit hex] [--until time] [--list [-n count] | -o file | --cache] [--pin file] [--json]`:
-  --- finds cosmic's own releases, the `next-<commit>` prereleases of
+  --- finds cosmic's own releases, the `YYYYMMDD-<commit>` (earlier, `next-<commit>`) prereleases of
   --- cosmic-lua/cosmic on GitHub, picks one and verifies it. Releases
   --- are found by their tags and main's history, newest commit first, as
   --- the API's list of releases serves only 1000 and not by time; a
-  --- `--commit` reads only the releases of the tags its prefix starts,
+  --- `--commit` reads only the releases of the tags of the commits its prefix starts,
   --- refusing a prefix that names more than 10. With no criterion it
   --- picks the release of the latest commit on main that has one;
   --- `--commit` the one whose commit starts with the hex (7 to 40

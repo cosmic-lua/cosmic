@@ -1,7 +1,7 @@
 -- The prerelease gate, for prerelease.yml's publish job: `stage` checks
 -- the products every platform leg uploaded name the same bytes, which
 -- each leg executed, and stages the release from them; `publish` makes
--- that release the immutable next-<commit> prerelease, or verifies the
+-- that release the immutable <YYYYMMDD>-<commit> prerelease, or verifies the
 -- one already there. Neither executes a byte it reads: the candidate
 -- product is data here. `publish` drives the GitHub API through
 -- [`GithubApi`], whose token comes from GH_TOKEN or GITHUB_TOKEN.
@@ -23,6 +23,9 @@ local record Prerelease
   --- The assets a published prerelease holds, and the order a resumed
   --- draft uploads the missing ones in.
   assets: function(): {string}
+  --- The `YYYYMMDD` of a committer date as the API writes it
+  --- (`YYYY-MM-DDTHH:MM:SSZ`, UTC); raises on any other form.
+  commit_day: function(date: string): string
   --- What `stage` reads from its environment: PRODUCTS, RELEASE,
   --- SOURCE_COMMIT and SOURCE_RUN_URL.
   record Stage
@@ -44,6 +47,9 @@ local record Prerelease
     commit: string
     run_prefix: string
     mut temp: string
+    --- The UTC day of the commit's committer date, `YYYYMMDD`, which
+    --- names the tag; `publish` reads it from the API when nil.
+    mut date?: string
   end
   --- The release `publish` makes: a draft prerelease.
   record NewRelease
@@ -341,8 +347,43 @@ local function api_probe(p: Prerelease.Publish, path: string): boolean
   return false
 end
 
+--- The tag a commit is published under: the UTC day of its committer
+--- date, so a rerun of the same commit gives the same tag, then the
+--- commit. There is no semver and no alias that moves.
 local function tag_of(p: Prerelease.Publish): string
-  return "next-" .. p.commit
+  local date = p.date
+  assert(date ~= nil, "the tag's date is not read yet")
+  return date .. "-" .. p.commit
+end
+
+function Prerelease.commit_day(date: string): string
+  local year, month, day = date:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)T%d%d:%d%d:%d%dZ$")
+  assert(year ~= nil and month ~= nil and day ~= nil, "the commit's committer date is no UTC time: " .. date)
+  return year .. month .. day
+end
+
+--- A commit as the API answers it: the committer date is all `publish` reads.
+local record CommitPerson
+  date?: any
+end
+local record CommitInner
+  committer?: CommitPerson
+end
+local record CommitJson
+  commit?: CommitInner
+end
+local COMMIT_JSON <const> = Shape.record_of("CommitJson")
+
+--- The UTC day the commit was committed, from the API.
+local function committed_day(p: Prerelease.Publish): string
+  local path = "repos/" .. p.repository .. "/commits/" .. p.commit
+  local decoded, why = COMMIT_JSON:decode_into(api_object(p, path))
+  assert(decoded ~= nil, "GET " .. path .. ": " .. why)
+  local inner = decoded.commit
+  local person = if inner ~= nil then inner.committer else nil end
+  local date = if person ~= nil then person.date else nil end
+  assert(date is string, "GET " .. path .. " names no committer date")
+  return Prerelease.commit_day(date)
 end
 
 --- The pages of 100 the releases list serves: GitHub stops at its 1000th,
@@ -613,12 +654,13 @@ local function flag(value: any, name: string): boolean
   return value
 end
 
---- Publishes the release staged under `p.release` as next-<commit>, or
+--- Publishes the release staged under `p.release` as <YYYYMMDD>-<commit>, or
 --- verifies the one already there. A draft left by an interrupted run is
 --- resumed only by accepting the assets it holds that are identical to
 --- the staged ones. Raises on any failure; the line to print on success,
 --- or on a skip ([`ensure_tag`]), a warning annotation.
 function Prerelease.publish(p: Prerelease.Publish): string
+  if p.date == nil then p.date = committed_day(p) end
   local tag = tag_of(p)
   local digest = Hash.hex_sha256(read(p.release .. "/cosmic"))
   local ids = release_ids(p)

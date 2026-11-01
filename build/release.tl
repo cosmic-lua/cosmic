@@ -1,6 +1,9 @@
 --- `cosmic release`: finds cosmic's own releases, picks one, and
---- downloads and verifies it. A release is the `next-<commit>`
---- prerelease ci/cosmic_ci/prerelease.tl publishes for a commit on main,
+--- downloads and verifies it. A release is the `YYYYMMDD-<commit>`
+--- prerelease (the UTC day of the commit, then the commit) that
+--- ci/cosmic_ci/prerelease.tl publishes for a commit on main; the
+--- earlier ones are tagged `next-<commit>`, and both are found,
+--- the tag of each kept as it is,
 --- holding three assets: `cosmic`, `SHA256SUMS` (`<sha256>  cosmic`) and
 --- `source.json` (the commit, the digest and the run that made it).
 ---
@@ -9,8 +12,8 @@
 --- 11 answering 422 or not by the server it reaches, and orders them by
 --- the day of each tagged commit, so a draft published days after its
 --- commit lands among the old. Instead the API's git matching-refs names
---- every `next-` tag in one request (all of them, a few hundred bytes
---- each); main's commits are read newest first, a page of 100 at a time;
+--- every tag in one request (all of them, a few hundred bytes each,
+--- those of neither form passed over); main's commits are read newest first, a page of 100 at a time;
 --- and each commit that has a tag is asked for its release by the tag,
 --- until enough are found. ci/cosmic_ci/prerelease.tl makes the tag
 --- before the draft, so a tag may have only a draft, or nothing, behind
@@ -18,7 +21,8 @@
 --- the newest release is that of the latest commit on main that has one,
 --- three requests. The history read ends once every tagged commit has
 --- been passed, or at its end, and fails rather than answer in part past
---- 100 pages. A draft, a release not tagged `next-<40 hex>` and one
+--- 100 pages. A draft, a release tagged neither `YYYYMMDD-<40 hex>` nor
+--- `next-<40 hex>` and one
 --- missing any of the three assets, or with others, are passed over.
 ---
 --- With no criterion the newest is picked. `--commit <hex>` keeps the
@@ -29,11 +33,12 @@
 --- first whose release was published by then is the pick. Both may be
 --- given. A prefix that matches two releases is refused, naming both.
 ---
---- A `--commit` reads no history: matching-refs names the tags
---- `next-<prefix>` starts, and each is asked for its release by its tag,
---- so a prefix naming more than 10 tags is refused as too short to tell
---- one. A full commit names its one tag without asking. Its matches are
---- sorted newest first by when they were published.
+--- A `--commit` reads no history: matching-refs names every tag, those
+--- whose commit starts with the prefix are kept (a date comes before the
+--- commit in a tag, so the API cannot match it), and each is asked for
+--- its release by its tag, so a prefix naming more than 10 tags is
+--- refused as too short to tell one. Its matches are sorted newest first
+--- by when they were published.
 ---
 --- A release is verified before anything about it is printed or kept:
 --- its SHA256SUMS names one digest for `cosmic`, and its source.json
@@ -134,7 +139,7 @@ local record verb
   --- The digest SHA256SUMS names for `cosmic`, or nil and why.
   sums_digest: function(text: string): string?, string
   --- The three lines of ci/cosmic-driver.pin for a release.
-  pin_text: function(commit: string, digest: string): string
+  pin_text: function(tag: string, commit: string, digest: string): string
 end
 
 local spec <const> = assert((assert(Cli.verbs["release"])).spec)
@@ -195,8 +200,17 @@ local required_assets <const> = { "cosmic", "SHA256SUMS", "source.json" }
 
 --- The release's binary URL, as bin/cosmic-bootstrap requires the pin to
 --- name it.
-local function binary_url(commit: string): string
-  return downloads .. "next-" .. commit .. "/cosmic"
+local function binary_url(tag: string): string
+  return downloads .. tag .. "/cosmic"
+end
+
+--- The commit a release tag names, or nil for a tag that is not one:
+--- `YYYYMMDD-<40 hex>`, or `next-<40 hex>` as the earlier releases are.
+local function tag_commit(tag: string): string?
+  local commit = tag:match("^next%-(%x+)$")
+  if commit == nil then commit = tag:match("^%d%d%d%d%d%d%d%d%-(%x+)$") end
+  if commit == nil or #commit ~= 40 or commit:find("[A-F]") ~= nil then return nil end
+  return commit
 end
 
 function verb.sums_digest(text: string): string?, string
@@ -214,8 +228,8 @@ function verb.sums_digest(text: string): string?, string
   return found, ""
 end
 
-function verb.pin_text(commit: string, digest: string): string
-  return commit .. "\n" .. binary_url(commit) .. "\n" .. digest .. "\n"
+function verb.pin_text(tag: string, commit: string, digest: string): string
+  return commit .. "\n" .. binary_url(tag) .. "\n" .. digest .. "\n"
 end
 
 --- The release `r` names, or nil when it is not a published prerelease
@@ -226,14 +240,14 @@ local function usable(r: ApiRelease): verb.Release?
   if r.draft or not r.prerelease or published == nil or #r.assets ~= #required_assets then
     return nil
   end
-  local commit = r.tag_name:match("^next%-(%x+)$")
-  if commit == nil or #commit ~= 40 or commit:find("[A-F]") ~= nil then return nil end
+  local commit = tag_commit(r.tag_name)
+  if commit == nil then return nil end
   local names: mut {string:boolean} = {}
   for _, asset in ipairs(r.assets) do names[asset.name] = true end
   for _, name in ipairs(required_assets) do
     if names[name] ~= true then return nil end
   end
-  return { tag = r.tag_name, commit = commit, published_at = published, url = binary_url(commit) }
+  return { tag = r.tag_name, commit = commit, published_at = published, url = binary_url(r.tag_name) }
 end
 
 --- How many requests a run has made, which picks each one's script.
@@ -397,27 +411,45 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       end)
       return found
     end
+    --- Every tag of the repository that names a release's commit, by
+    --- commit, in the order the API lists them; nil and why on failure.
+    local function tagged_commits(): {string:{string}}?, {string}, string
+      local refs_url = repo_url .. "/git/matching-refs/tags/"
+      local refs_text, refs_why = call(refs_url)
+      if refs_text == nil then
+        if refs_why == "" then refs_why = refs_url .. ": HTTP 404" end
+        return nil, {}, refs_why
+      end
+      local refs, refs_trouble = Shape.decode_into(refs_text, REFS)
+      if refs == nil then return nil, {}, refs_url .. ": no list of refs: " .. refs_trouble end
+      local by_commit: mut {string:mut {string}} = {}
+      local order: mut {string} = {}
+      for _, ref in ipairs(refs) do
+        local tag = ref.ref:match("^refs/tags/(.+)$")
+        local commit = if tag ~= nil then tag_commit(tag) else nil end
+        if tag ~= nil and commit ~= nil then
+          local have = by_commit[commit]
+          if have == nil then
+            by_commit[commit] = { tag }
+            order[#order + 1] = commit
+          else
+            have[#have + 1] = tag
+          end
+        end
+      end
+      return by_commit, order, ""
+    end
     if prefix ~= nil then
       local tags: mut {string} = {}
-      if #prefix == 40 then
-        tags[1] = "next-" .. prefix
-      else
-        local url = repo_url .. "/git/matching-refs/tags/next-" .. prefix
-        local text, why = call(url)
-        -- No match answers `[]`, so a 404 is a repository not found.
-        if text == nil then
-          if why == "" then why = url .. ": HTTP 404" end
-          return nil, why
+      local by_commit, order, tags_why = tagged_commits()
+      if by_commit == nil then return nil, tags_why end
+      for _, commit in ipairs(order) do
+        if commit:sub(1, #prefix) == prefix then
+          for _, tag in ipairs(by_commit[commit] or {}) do tags[#tags + 1] = tag end
         end
-        local refs, shape_trouble = Shape.decode_into(text, REFS)
-        if refs == nil then return nil, url .. ": no list of refs: " .. shape_trouble end
-        if #refs > max_tags then
-          return nil, plural.count(#refs, "tag") .. " start with next-" .. prefix .. "; give more of it"
-        end
-        for _, ref in ipairs(refs) do
-          local tag = ref.ref:match("^refs/tags/(next%-%x+)$")
-          if tag ~= nil then tags[#tags + 1] = tag end
-        end
+      end
+      if #tags > max_tags then
+        return nil, plural.count(#tags, "tag") .. " are of commits starting with " .. prefix .. "; give more of it"
       end
       for _, tag in ipairs(tags) do
         local url = releases_url .. "/tags/" .. tag
@@ -433,25 +465,11 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       end
       return sorted(), ""
     end
-    -- Each commit that has a `next-` tag, and how many of them the
+    -- Each commit that has a release tag, and how many of them the
     -- history read has yet to pass.
-    local tagged: mut {string:boolean} = {}
-    local unpassed = 0
-    local refs_url = repo_url .. "/git/matching-refs/tags/next-"
-    local refs_text, refs_why = call(refs_url)
-    if refs_text == nil then
-      if refs_why == "" then refs_why = refs_url .. ": HTTP 404" end
-      return nil, refs_why
-    end
-    local refs, refs_trouble = Shape.decode_into(refs_text, REFS)
-    if refs == nil then return nil, refs_url .. ": no list of refs: " .. refs_trouble end
-    for _, ref in ipairs(refs) do
-      local commit = ref.ref:match("^refs/tags/next%-(%x+)$")
-      if commit ~= nil and #commit == 40 and tagged[commit:lower()] == nil then
-        tagged[commit:lower()] = true
-        unpassed = unpassed + 1
-      end
-    end
+    local tagged, order, tags_why = tagged_commits()
+    if tagged == nil then return nil, tags_why end
+    local unpassed = #order
     if unpassed == 0 then return found, "" end
     local asked: mut {string:boolean} = {}
     local query = "?sha=main&per_page=" .. tostring(per_page)
@@ -469,18 +487,21 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       if commits == nil then return nil, url .. ": no list of commits: " .. shape_trouble end
       for _, commit in ipairs(commits) do
         -- History that grew between two pages' requests repeats a commit.
-        if tagged[commit.sha] == true and asked[commit.sha] == nil then
+        local commit_tags = tagged[commit.sha]
+        if commit_tags ~= nil and asked[commit.sha] == nil then
           asked[commit.sha] = true
           unpassed = unpassed - 1
-          local release_url = releases_url .. "/tags/next-" .. commit.sha
-          local release_text, release_why = call(release_url)
-          if release_text == nil and release_why ~= "" then return nil, release_why end
-          if release_text ~= nil then
-            local r, release_trouble =
-              Shape.decode_into(release_text, RELEASE.spec, { null_value = Json.null })
-            if r == nil then return nil, release_url .. ": no release: " .. release_trouble end
-            take(r)
-            if #found >= need then return found, "" end
+          for _, tag in ipairs(commit_tags) do
+            local release_url = releases_url .. "/tags/" .. tag
+            local release_text, release_why = call(release_url)
+            if release_text == nil and release_why ~= "" then return nil, release_why end
+            if release_text ~= nil then
+              local r, release_trouble =
+                Shape.decode_into(release_text, RELEASE.spec, { null_value = Json.null })
+              if r == nil then return nil, release_url .. ": no release: " .. release_trouble end
+              take(r)
+              if #found >= need then return found, "" end
+            end
           end
           if unpassed == 0 then return found, "" end
         end
@@ -518,10 +539,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local release = found[1]
   if release == nil then
     local where = ""
-    if prefix ~= nil and #prefix == 40 then
-      where = ", by its tag"
-    elseif prefix ~= nil then
-      where = ", among the tags next-" .. prefix .. " starts"
+    if prefix ~= nil then
+      where = ", among the tags of commits starting " .. prefix
     end
     if until_text ~= nil then where = where .. ", published by --until " .. until_text end
     return fail("no release matches" .. where)
@@ -575,7 +594,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         published_at = release.published_at, url = release.url, sha256 = digest }, { pretty = true }))
       return written(to.out(encoded .. "\n"))
     end
-    return written(to.out(verb.pin_text(release.commit, digest)))
+    return written(to.out(verb.pin_text(release.tag, release.commit, digest)))
   end
 
   local binary = assets_url .. release.tag .. "/cosmic"
@@ -640,7 +659,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
 
   if pin ~= nil then
-    local ok, write_trouble = Fs.write(pin, verb.pin_text(release.commit, digest))
+    local ok, write_trouble = Fs.write(pin, verb.pin_text(release.tag, release.commit, digest))
     if not ok then return fail(write_trouble) end
   end
   if kept ~= nil then return written(to.out(kept .. "\n")) end
