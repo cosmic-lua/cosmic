@@ -6323,7 +6323,7 @@ end
 --- may be nil into `t` is an error of its own statement, and a checked run (`cosmic test --check-types`) tests the read.
 ---
 --- TODO: read the index of a loop whose body calls a function, once the checker can show that no code the call runs names
---- the array (`Writes.unreachable` shows it only for a local made `{}`): a body with a call keeps the read `T?` now.
+--- the array ([`Writes.unreachable`] shows it only for a local made `{}`): a body with a call keeps the read `T?` now.
 function Writes.counted_read(ctx: Ctx, node: Ast.Index): boolean
   local key = peel(node.key)
   if key.kind ~= "Name" or key.binding == nil then
