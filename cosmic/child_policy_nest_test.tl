@@ -36,7 +36,7 @@ local record Outcome
 end
 
 --- Runs `argv` under `policy`, starting in `cwd`: its output (stderr beside
---- stdout) and how it ended. Skips the test, returning nil, where the host
+--- stdout) and how it ended. Skips the test where the host
 --- gives no sandbox; fails it where the start is refused for another reason.
 local function under(argv: {string}, policy: Sandbox.Policy, cwd: string,
                      fds?: {integer:integer | string}): Outcome
@@ -45,9 +45,9 @@ local function under(argv: {string}, policy: Sandbox.Policy, cwd: string,
   if result == nil then
     assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
     Test.skip(why)
-    return nil
   end
-  return { code = result.code or -1, said = result.stdout or "" }
+  local held = assert(result, "Test.skip ends the test where the start is refused")
+  return { code = held.code or -1, said = held.stdout or "" }
 end
 
 --- A stand-in, a working directory holding `ro/a`, a directory `rw` beside
@@ -103,7 +103,6 @@ local function test_nest_holds_files_by_the_root_alone(tmp: string)
   local at = placed(tmp)
   local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
   local read = under({ at.probe, "cat ro/a" }, policy, at.work)
-  if read == nil then return end
   assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
   -- Not granted, so not there; read-only where not granted `w`.
   local other = under({ at.probe, "cat " .. at.extra .. "/e" }, policy, at.work)
@@ -186,7 +185,6 @@ local function test_a_handed_directory_is_held_by_landlock_without_nest(tmp: str
   local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "fork" }, grants = at.grants }
   local ran = under({ at.probe, "cat /proc/self/fd/3/e" }, policy, at.work, { [3] = dir })
   sys.close(dir)
-  if ran == nil then return end
   assert(ran.code == 1 and ran.said:find("Permission denied", 1, true), tostring(ran.code) .. ": " .. ran.said)
 end
 
@@ -204,7 +202,6 @@ local function test_a_nested_sandbox_is_confined_to_its_own_grants(tmp: string)
   -- The first sandbox reads the extra directory, the stand-in's own sandbox,
   -- granted the stand-in and the working directory, does not.
   local own = under({ at.probe, "cat " .. at.extra .. "/e" }, policy, at.work)
-  if own == nil then return end
   assert(own.code == 0 and own.said == "epsilon\n", tostring(own.code) .. ": " .. own.said)
   local ran = under({ at.probe, "run-isolated " .. at.probe .. " cat ro/a" }, policy, at.work)
   assert(ran.code == 0, ran.said)
@@ -228,7 +225,6 @@ local function test_a_nested_sandbox_with_a_network_of_its_own_brings_its_loopba
   local at = placed(tmp)
   local ran = under({ at.probe, "run-looped " .. at.probe .. " print hi" },
     nested(at), at.work)
-  if ran == nil then return end
   assert(ran.code == 0 and ran.said == "exit 0\nhi\n", tostring(ran.code) .. ": " .. ran.said)
 end
 
@@ -237,7 +233,6 @@ local function test_a_nested_sandbox_needs_nest(tmp: string)
   local policy = nested(at)
   policy.promises = { "fork" }
   local ran = under({ at.probe, "run-isolated " .. at.probe .. " print hi" }, policy, at.work)
-  if ran == nil then return end
   assert(ran.code == 0, ran.said)
   assert(ran.said:find("namespace was refused", 1, true), ran.said)
 end

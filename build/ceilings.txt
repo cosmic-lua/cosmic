@@ -657,7 +657,7 @@ build/sandbox_probe.tl nil_not_allowed 1
 build/sandbox_probe_test.tl nil_not_allowed 3
 
 
-build/sandboxed_verdicts_test.tl nil_not_allowed 6
+build/sandboxed_verdicts_test.tl nil_not_allowed 3
 
 
 build/schema_test.tl nil_not_allowed 5
@@ -680,7 +680,7 @@ build/shared_verdicts.tl nil_not_allowed 10
 
 build/shared_verdicts_test.tl nil_not_allowed 3
 
-build/shared_verdicts_tool_test.tl nil_not_allowed 4
+build/shared_verdicts_tool_test.tl nil_not_allowed 3
 
 
 build/sql_store_test.tl nil_not_allowed 1
@@ -828,18 +828,15 @@ cosmic/child.tl nil_not_allowed 66
 
 cosmic/child_drain_test.tl nil_not_allowed 1
 
-cosmic/child_policy_cosmic_test.tl nil_not_allowed 1
 
 cosmic/child_policy_database_sandboxed_test.tl nil_not_allowed 1
 
 cosmic/child_policy_isolate_test.tl nil_not_allowed 5
 
-cosmic/child_policy_nest_test.tl nil_not_allowed 1
 
 
-cosmic/child_policy_system_test.tl nil_not_allowed 2
+cosmic/child_policy_system_test.tl nil_not_allowed 1
 
-cosmic/child_policy_test.tl nil_not_allowed 1
 
 cosmic/child_policy_user_test.tl nil_not_allowed 1
 
@@ -5478,9 +5475,7 @@ build/links.tl compare_disjoint 2
 
 build/lsp/hover.tl compare_disjoint 1
 
-build/sandboxed_verdicts_test.tl compare_disjoint 6
 
-build/shared_verdicts_tool_test.tl compare_disjoint 6
 
 
 
@@ -5518,17 +5513,13 @@ cosmic/child.tl compare_disjoint 9
 
 cosmic/child_drain_test.tl compare_disjoint 11
 
-cosmic/child_policy_isolate_test.tl compare_disjoint 19
+cosmic/child_policy_isolate_test.tl compare_disjoint 3
 
-cosmic/child_policy_nest_test.tl compare_disjoint 5
 
-cosmic/child_policy_root_user_test.tl compare_disjoint 12
+cosmic/child_policy_root_user_test.tl compare_disjoint 3
 
-cosmic/child_policy_system_test.tl compare_disjoint 1
 
-cosmic/child_policy_test.tl compare_disjoint 10
 
-cosmic/child_policy_user_test.tl compare_disjoint 7
 
 cosmic/child_seatbelt_test.tl compare_disjoint 1
 

@@ -8,7 +8,7 @@
 --- declaration's requires declared, every requirement a test module
 --- declares promised by a CI leg, every verb's spec listed and
 --- readable, no public doc citing the build or carrying a TODO, no
---- literal plural after a number, every file under ci/testdata
+--- literal plural after a number, no test returning early (a skip is [`Test.skip`]), every file under ci/testdata
 --- type-checking standalone, and every `.tl` file scoping, lowering and checking in the new checker's grammar but for
 --- what the ceilings pin. Each asks the tree's projection,
 --- `cosmic.db`, which holds every module's docs, uses, imports,
@@ -59,6 +59,7 @@ local PluralSites = require("build.plural_sites")
 local ShapeKey = require("build.shape_key")
 local Scopes = require("lang.scopes")
 local SyntaxNode = require("build.syntax_node")
+local TestReturns = require("build.test_returns")
 local ScopesCover = require("lang.scopes_cover")
 local Warnings = require("lang.warnings")
 local TreeProgram = require("build.tree_program")
@@ -2696,6 +2697,61 @@ function tree_checks.text_loaders(root: string, files?: {string: string}): {stri
       end
     end
   end
+  return out
+end
+
+--- The trees whose tests may still return early, by path prefix, and why. A prefix that no test under it returns early
+--- from any more is told to go.
+-- TODO: once core/'s tests skip by [`Test.skip`] (cosmic-lua/cosmic#3498 converts most; its [`unix_socket.skipped`] callers
+-- remain), drop this prefix.
+local early_returns: {string: string} = {
+  ["core/"] = "its tests are converted by their own change",
+}
+
+--- Each early return of a test in a `*_test.tl` file of the tree under `root` ([`TestReturns`]), as `<file>:<line>:
+--- <test> returns early ...`, and then each prefix of `pending` (by default `early_returns`) that nothing under it needs
+--- any more. A test that cannot check its subject here declares `requires` or calls `Test.skip(reason)` (doc/testing.md,
+--- "skipping"); a `return` passes having checked nothing.
+function tree_checks.test_returns(root: string, pending?: {string: string}): {string}
+  local sources, trouble = sources_of(root)
+  if sources == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local excused = pending or early_returns
+  local out: mut {string} = {}
+  local used: mut {string: boolean} = {}
+  for _, entry in ipairs(sources) do
+    local file, text = entry[1], entry[2]
+    if file ~= nil and text ~= nil and file:match("_test%.tl$") ~= nil and text:find("return", 1, true) ~= nil then
+      local chunk, parse_trouble = SyntaxNode.parse(text, file)
+      if chunk == nil then
+        out[#out + 1] = file .. ": cannot read it to check its early returns: " .. parse_trouble
+      else
+        for _, site in ipairs(TestReturns.of_chunk(chunk)) do
+          local covered: string? = nil
+          for prefix in pairs(excused) do
+            if file:sub(1, #prefix) == prefix then covered = prefix end
+          end
+          if covered ~= nil then
+            used[covered] = true
+          else
+            out[#out + 1] = file .. ":" .. tostring(site[1]) .. ": " .. tostring(site[2]) .. " returns early (`" ..
+              tostring(site[3]) .. "`), which passes having checked nothing: declare `requires`, or call " ..
+              "`Test.skip(reason)` (doc/testing.md, \"skipping\"), after which nothing runs"
+          end
+        end
+      end
+    end
+  end
+  local stale: mut {string} = {}
+  for prefix in pairs(excused) do
+    if used[prefix] ~= true then
+      stale[#stale + 1] = prefix .. ": excused from the early-return check, but no test there returns early any " ..
+        "more -- remove the exemption"
+    end
+  end
+  table.sort(stale)
+  for _, line in ipairs(stale) do out[#out + 1] = line end
   return out
 end
 

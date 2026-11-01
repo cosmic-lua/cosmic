@@ -178,7 +178,7 @@ end
 --- A connection to a unix listener whose backlog is full fails at once,
 --- however long it may wait, rather than waiting for room.
 local function test_connecting_to_a_full_backlog_fails_at_once(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local path = tmp .. "/s.sock"
   local _full <close> = full(path)
   local began = Clock.monotonic_ns()
@@ -267,7 +267,7 @@ end
 --- A unix connection has no TCP address to give: it answers nil and
 --- why, rather than a made-up address.
 local function test_a_unix_connection_has_no_peer_address(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local server <close> = assert(Net.listen(Net.unix(tmp .. "/p.sock")))
   local client <close> = assert(Net.connect(server.address))
   local accepted <close> = assert(server:accept())
@@ -312,7 +312,7 @@ end
 --- A listener's `address` is the one given, built again by [`Net.unix`]:
 --- a unix one keeps its path and nothing else.
 local function test_a_unix_listeners_address_is_built_again_from_its_path(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local given = { kind = "unix", path = tmp .. "/s.sock", host = "unused", port = 9 }
   local server <close> = assert(Net.listen(given))
   local address = server.address
@@ -326,7 +326,7 @@ end
 --- A listener at a relative path removes its own socket file at close
 --- wherever the process has moved since.
 local function test_close_removes_a_relative_socket_file_after_a_chdir(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local was = assert(sys.getcwd())
   assert(sys.chdir(tmp))
   local server, trouble = Net.listen(Net.unix("rel.sock"))
@@ -338,7 +338,7 @@ local function test_close_removes_a_relative_socket_file_after_a_chdir(tmp: stri
 end
 
 local function test_close_removes_the_socket_file_it_made(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local path = tmp .. "/s.sock"
   local server = assert(Net.listen(Net.unix(path)))
   assert(Fs.stat(path) ~= nil, "no socket file")
@@ -354,7 +354,7 @@ end
 --- with nothing listening: connecting there is refused, and listening
 --- there fails rather than take the name.
 local function test_a_socket_file_left_behind_is_refused_and_kept(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local path = tmp .. "/s.sock"
   local moved = tmp .. "/moved.sock"
   do
@@ -374,7 +374,7 @@ local function test_a_socket_file_left_behind_is_refused_and_kept(tmp: string)
 end
 
 local function test_connecting_where_there_is_no_socket_file_fails(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local path = tmp .. "/none.sock"
   local conn, why = Net.connect(Net.unix(path))
   assert(conn == nil and why == path .. ": No such file or directory", why)
@@ -416,7 +416,7 @@ end
 --- from its directory, absolute or relative: only the file's own name
 --- is bounded, and the working directory is where it was after.
 local function test_a_long_path_is_reached_from_its_directory(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local deep = tmp .. "/" .. string.rep("d", 100) .. "/" .. string.rep("e", 100)
   assert(Fs.mkdirs(deep))
   local was = assert(sys.getcwd())
@@ -497,7 +497,7 @@ end
 --- needs no whole path: the listener serves there, and close removes
 --- its file from wherever the process has moved to.
 local function test_a_listener_past_path_max_serves_and_removes_its_file(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local was = assert(sys.getcwd())
   local ok, failure: boolean, any = pcall(function()
     enter_deep(tmp)
@@ -648,7 +648,7 @@ end
 --- In a task, a connection to a unix listener whose backlog is full
 --- fails at once, as one out of a run does.
 local function test_in_a_run_a_connect_to_a_full_backlog_fails_at_once(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local path = tmp .. "/s.sock"
   local _full <close> = full(path)
   local conn: Net.Conn? = nil
