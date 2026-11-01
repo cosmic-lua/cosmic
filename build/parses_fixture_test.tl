@@ -55,6 +55,99 @@ local function test_an_empty_field_is_not_no_row(tmp: string)
   assert(none == "" and empty ~= none, "a row of one empty text is not no rows")
 end
 
+--- What [`parses_fixture.dump`] answers for `sql` of an empty database.
+local function answer(tmp: string, name: string, sql: string): string
+  local path = tmp .. "/" .. name .. ".db"
+  local db = assert(Sqlite.open(path, { writable = true, create = true }))
+  assert(db:close())
+  return parses_fixture.dump(path, sql)
+end
+
+local function test_null_is_not_an_empty_text_in_any_column(tmp: string)
+  local null = answer(tmp, "a", "SELECT NULL, 1")
+  local empty = answer(tmp, "b", "SELECT '', 1")
+  assert(null ~= empty, "NULL and '' dump alike in the first column")
+  null = answer(tmp, "c", "SELECT 1, NULL")
+  empty = answer(tmp, "d", "SELECT 1, ''")
+  assert(null ~= empty, "NULL and '' dump alike in the last column")
+end
+
+--- Guards the scheme: a bare NULL cannot dump as no rows do.
+local function test_one_null_is_not_no_rows(tmp: string)
+  local null = answer(tmp, "null", "SELECT NULL")
+  local none = answer(tmp, "none", "SELECT 1 WHERE 0")
+  assert(none == "" and null ~= none, "a row of one NULL dumps as no rows do")
+end
+
+--- Guards the scheme: a quoted empty text cannot dump as no rows do.
+local function test_one_empty_text_is_not_no_rows(tmp: string)
+  local empty = answer(tmp, "empty", "SELECT ''")
+  local none = answer(tmp, "none", "SELECT 1 WHERE 0")
+  assert(empty ~= none, "a row of one empty text dumps as no rows do")
+end
+
+local function test_one_null_is_not_one_empty_text(tmp: string)
+  local null = answer(tmp, "null", "SELECT NULL")
+  local empty = answer(tmp, "empty", "SELECT ''")
+  assert(null ~= empty, "one NULL dumps as one empty text does")
+end
+
+--- Guards the scheme: the bare NULL cannot collide with a text that reads like it.
+local function test_a_text_written_like_null_is_not_null(tmp: string)
+  local text = answer(tmp, "text", "SELECT '\\N'")
+  local null = answer(tmp, "null", "SELECT NULL")
+  assert(text ~= null, "the text \\N dumps as NULL does")
+  text = answer(tmp, "text2", "SELECT '\\N', 1")
+  null = answer(tmp, "null2", "SELECT NULL, 1")
+  assert(text ~= null, "the text \\N dumps as NULL does among other fields")
+end
+
+local function test_nulls_and_empties_dump_as_written(tmp: string)
+  assert(answer(tmp, "mixed", "SELECT NULL, ''") == "\\N\t")
+  assert(answer(tmp, "empty", "SELECT ''") == '""')
+  assert(answer(tmp, "null", "SELECT NULL") == "\\N")
+  assert(answer(tmp, "text", "SELECT '\\N'") == '"\\N"')
+end
+
+local function test_a_null_among_rows_keeps_its_row(tmp: string)
+  assert(answer(tmp, "rows", "SELECT NULL UNION ALL SELECT 'x'") == "\\N\nx")
+  assert(answer(tmp, "rows2", "SELECT 'x' UNION ALL SELECT NULL UNION ALL SELECT ''") == 'x\n\\N\n""')
+end
+
+local function test_a_null_and_a_null_like_text_in_one_row(tmp: string)
+  assert(answer(tmp, "both", "SELECT '\\N', NULL, '', 'a'") == '"\\N"\t\\N\t\ta')
+end
+
+--- Guards the one-pass read: a query answering NULL on random rows dumps every
+--- row as `\N` or `x`. Read twice and paired by position, as it once was, some
+--- row pairs a NULL's text with a value's kind, or the reverse, and dumps `""`;
+--- with 200 rows the chance that every row agrees is negligible.
+local function test_nulls_stay_on_their_rows_when_a_query_answers_differently(tmp: string)
+  local sql = "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 200) " ..
+    "SELECT CASE WHEN random() % 2 = 0 THEN NULL ELSE 'x' END FROM n"
+  local text = answer(tmp, "random", sql)
+  assert(text:find('""', 1, true) == nil, text)
+  local nulls, xs = 0, 0
+  for line in text:gmatch("[^\n]+") do
+    if line == "\\N" then nulls = nulls + 1 elseif line == "x" then xs = xs + 1 end
+  end
+  assert(nulls + xs == 200, text)
+end
+
+local function test_non_null_cells_dump_as_text_rows_answers_them(tmp: string)
+  local sql = "SELECT 1, 1.5, 1.0e+300, 30000000000.0, -0.0, 'a b', x'61', x'', 'q\"', 9223372036854775807, 0.1"
+  local path = tmp .. "/kinds.db"
+  local db = assert(Sqlite.open(path, { writable = true, create = true }))
+  local texts = assert(Sqlite.text_rows(db, sql))
+  assert(db:close())
+  local want = assert(texts[1]):texts()
+  local fields: mut {string} = {}
+  for i, field in ipairs(want) do
+    fields[i] = Csv.encode_field(field, { delimiter = "\t" })
+  end
+  assert(parses_fixture.dump(path, sql) == table.concat(fields, "\t"))
+end
+
 local function test_plain_rows_dump_as_they_did(tmp: string)
   local text = dumped(tmp, "plain", { "a", "b" }, { { "1", "x y" }, { "2", "z" } })
   assert(text == "1\tx y\n2\tz", text)
