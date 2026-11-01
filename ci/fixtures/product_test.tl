@@ -1,6 +1,8 @@
+local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Fixture = require("cosmic_ci.fixture")
+local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 
 -- The product (o/fixtures/product), each file of it the test reads,
@@ -107,9 +109,10 @@ local function test_transported_product(tmp: string)
   assert(#stored == entry.stored_length and Hash.hex_sha256(stored) == entry.stored_digest,
     "selected core's stored range differs from its digest")
   assert(entry.codec == 1, "the release stores its core compressed")
-  -- TODO: once ci/cosmic-driver.pin names a release with Compress.zstd and Compress.zstd_decoder, call them in-process instead
-  -- The pinned release has no decoder to call, so the target's own stub decodes
-  -- the stored range, as the launcher runs it: on the artifact, at the range.
+  assert(assert(Stream.run(assert(Compress.zstd_decoder(1 << 23)), stored, entry.length)) == core,
+    "selected core's stored range decodes to something other than the build's core")
+  -- The target's own stub decodes the stored range too, as the launcher
+  -- runs it: on the artifact, at the range.
   -- A product carried between legs may lose its modes, so the stub runs
   -- from a copy of its bytes made executable here.
   local stub_path = tmp .. "/cosmic-unzstd"

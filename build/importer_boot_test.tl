@@ -17,7 +17,8 @@ local writer = require("build.writer")
 local build_paths = require("build.paths")
 
 Test.policy{ grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" },
-  { path = "lang/prelude.d.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" } } }
+  { path = "lang/prelude.d.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" },
+  { path = "build/pipeline.tl", letters = "r" } } }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.
@@ -85,10 +86,10 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   assert(writer.write_result(handle, build_dir(root) .. "/cosmic.db", result))
   work.close(handle)
   local out = assert(Sqlite.open(build_dir(root) .. "/cosmic.db"))
-  local compiled_by = assert(Sqlite.text_rows(out,
-    "SELECT value FROM meta WHERE key = 'compiler'"))
+  local based_on = assert(Sqlite.text_rows(out,
+    "SELECT value FROM meta WHERE key = 'runtime_basis'"))
   local binary: importer.Code = {
-    compiler = compiled_by[1]:text(1),
+    basis = based_on[1]:text(1),
     requires = function(name: string): {string}?, string
       local rows, trouble = Sqlite.text_rows(out,
         "SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
@@ -207,4 +208,59 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     "a cut parse was named otherwise than the whole one")
   assert(not kept, "rows a cut parse left were kept under the mended name")
   assert(out:close())
+end
+
+--- The code that reads ([`build.pipeline`]'s `coded`) is named by the modules build.pipeline runs, not by build.plans,
+--- which it requires for a type alone: a parse is named by it ([`build.importer`]'s `running_analyzer`), so an edit
+--- to build.plans, which no parse runs, would otherwise parse every source again. An edit to a module it runs moves it.
+local function test_the_code_that_reads_leaves_out_what_build_pipeline_names_for_a_type()
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-coded-"))
+  for _, dir in ipairs({ "build", "core" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.mkdirs(root .. "/lang"))
+  assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
+  assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
+  assert(Fs.write(root .. "/build/ceilings.txt", "[checked]\n"))
+  local function record_of(name: string): string
+    return "local record " .. name .. "\n  mut n: integer\nend\n" .. name .. ".n = 0\nreturn " .. name .. "\n"
+  end
+  assert(Fs.write(root .. "/build/helper.tl", record_of("helper")))
+  assert(Fs.write(root .. "/build/plans.tl", record_of("plans")))
+  assert(Fs.write(root .. "/build/pipeline.tl", "local helper = require(\"build.helper\")\n" ..
+      "local type Plans = require(\"build.plans\")\nlocal record pipeline\n  mut n: integer\nend\n" ..
+      "local function count(p: Plans): integer return p.n + helper.n end\npipeline.n = count({ n = 0 })\n" ..
+      "return pipeline\n"))
+  local function named(): string
+    local handle = assert(work.open(root))
+    assert(work.stage(handle, { own = true }))
+    assert(importer.derive(handle))
+    local name = assert(pipeline.coded_of("a tool", handle.db))
+    work.close(handle)
+    return name
+  end
+  local original = named()
+  assert(Fs.write(root .. "/build/plans.tl", record_of("plans") .. "-- edited\n"))
+  assert(named() == original, "an edit to build.plans, which build.pipeline names for a type alone, moved its name")
+  assert(Fs.write(root .. "/build/helper.tl", record_of("helper") .. "-- edited\n"))
+  assert(named() ~= original, "an edit to a module build.pipeline runs did not move its name")
+end
+
+--- build.pipeline's code identity leaves out build.plans and build.derivation as what build.pipeline requires for a
+--- type alone (build/pipeline.tl's `type_only`): a require of either that runs its code would be named by no parse.
+--- So every require of them in build/pipeline.tl is a `local type`.
+local function test_build_pipeline_requires_what_its_identity_leaves_out_for_a_type_alone()
+  local source = assert(Fs.read("build/pipeline.tl"))
+  for _, name in ipairs({ "build.plans", "build.derivation" }) do
+    local quoted = "require(\"" .. name .. "\")"
+    local found = 0
+    for line in source:gmatch("[^\n]+") do
+      if line:find(quoted, 1, true) ~= nil then
+        found = found + 1
+        assert(line:match("^local type [%w_]+ = require%(") ~= nil,
+          "build/pipeline.tl requires " .. name .. " for more than a type: " .. line)
+      end
+    end
+    assert(found == 1, "build/pipeline.tl requires " .. name .. " " .. tostring(found) .. " times, want 1")
+  end
 end

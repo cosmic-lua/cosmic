@@ -17,6 +17,7 @@
 
 local Fs = require("cosmic.fs")
 local Ast = require("lang.ast")
+local AnalysisSchema = require("build.analysis_schema")
 local gen_syscalls = require("build.gen_syscalls")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
@@ -371,18 +372,56 @@ local function declaration_of(name: string): string
   return (assert(Fs.read("cosmic/internal/" .. name .. ".d.tl")))
 end
 
---- Every declaration under cosmic/internal, and each the build derives
---- from a header, is what the running core registers.
+--- A declaration file: its path below the root and its text.
+local record Declaration
+  path: string
+  text: string
+end
+
+--- The raw modules among `declarations`, by the kind `binding` the build
+--- gives a declaration ([`build.analysis_schema`]'s `kind_of`, which the
+--- `inputs` view of the build's database also answers), and a line for each
+--- declaration that is none. Such a declaration is no raw module for this
+--- test to skip: it is named, with the line that makes it one.
+local function split_bindings(declarations: {Declaration}): {string}, {string}
+  local names: mut {string} = {}
+  local refused: mut {string} = {}
+  for _, each in ipairs(declarations) do
+    if AnalysisSchema.kind_of(each.path, each.text) == "binding" then
+      names[#names + 1] = assert(each.path:match("([^/]+)%.d%.tl$"), each.path .. " is no declaration file")
+    else
+      refused[#refused + 1] = each.path .. " is no binding: if it declares a module implemented in C, add the line `" ..
+        AnalysisSchema.binding_tag() .. "` to its leading comment block"
+    end
+  end
+  table.sort(names)
+  table.sort(refused)
+  return names, refused
+end
+
+--- Every declaration of a raw module: each under cosmic/internal, and each
+--- the build derives from a header.
+local function declarations_of_the_core(): {Declaration}
+  local out: mut {Declaration} = {}
+  for _, entry in ipairs((assert(Fs.list("cosmic/internal")))) do
+    if entry:match("%.d%.tl$") ~= nil then
+      local path = "cosmic/internal/" .. entry
+      out[#out + 1] = { path = path, text = assert(Fs.read(path)) }
+    end
+  end
+  for name in pairs(derived) do
+    out[#out + 1] = { path = "cosmic/internal/" .. name .. ".d.tl", text = declaration_of(name) }
+  end
+  return out
+end
+
+--- Every binding of C -- each declaration under cosmic/internal, and each
+--- the build derives from a header -- is what the running core registers.
 local function test_every_declaration_is_what_the_core_registers()
   local problems: mut {string} = {}
-  local names: mut {string} = {}
-  for _, entry in ipairs((assert(Fs.list("cosmic/internal")))) do
-    local name = entry:match("^(.+)%.d%.tl$")
-    if name ~= nil then names[#names + 1] = name end
-  end
-  assert(#names > 0, "no declarations under cosmic/internal")
-  for name in pairs(derived) do names[#names + 1] = name end
-  table.sort(names)
+  local names, refused = split_bindings(declarations_of_the_core())
+  assert(#refused == 0, table.concat(refused, "\n"))
+  assert(#names > 0, "no bindings under cosmic/internal")
   for _, name in ipairs(names) do
     local raw = raw_module(name)
     local maker = makers[name]
@@ -484,6 +523,18 @@ local function test_every_raw_module_has_a_declaration()
   for _, name in pairs(wrappers) do
     assert(values[name] == false, "cosmic.internal." .. name .. " is handed to a wrapper but plain in raw_values")
   end
+end
+
+--- A declaration without the binding line is named, not left out of the
+--- comparison with the core.
+local function test_an_untagged_declaration_is_named_rather_than_skipped()
+  local names, refused = split_bindings({
+    { path = "cosmic/internal/tagged.d.tl", text = "--- A raw module.\n--- @kind binding\n\nlocal record tagged\nend\nreturn tagged\n" },
+    { path = "cosmic/internal/bare.d.tl", text = "--- A raw module.\n\nlocal record bare\nend\nreturn bare\n" },
+  })
+  assert(#names == 1 and names[1] == "tagged", table.concat(names, ","))
+  assert(#refused == 1 and refused[1]:find("cosmic/internal/bare.d.tl is no binding", 1, true) ~= nil and
+      refused[1]:find("--- @kind binding", 1, true) ~= nil, table.concat(refused, "\n"))
 end
 
 --- An entry of `raw_modules` this test cannot read -- a macro standing

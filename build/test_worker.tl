@@ -72,6 +72,11 @@ local record worker
     --- how many more it kept no record of ([`worker.install_checks`]).
     violations?: {Violation}
     dropped?: integer
+    --- Whether the hooks this process defines are the harness's own: `__fact` and `__cosmic_tc`
+    --- are [`worker.fact`] and the parameter hook, not the stub that a wrapped chunk defines where
+    --- none is. Set where the report is made, so a worker that installed nothing, or lost the
+    --- hooks, reports false ([`worker.judge`] fails a checked run's test for it).
+    mut checked?: boolean
   end
 
   --- One value that crossed a typed boundary of a checked run
@@ -183,6 +188,9 @@ local record worker
     --- of names; nil for no such hold.
     carried?: {string:boolean}
     closure?: {string:boolean}
+    --- Whether the run is checked (`--check-types`): a report that does not say its hooks are the
+    --- harness's fails its test.
+    checks?: boolean
   end
 
   --- A finished worker's verdict: its report, nil where there is none,
@@ -211,6 +219,7 @@ local record worker
   most_kept: integer
 
   install_checks: function()
+  hooks_held: function(): boolean
   --- Crosses a boundary by hand, as the Lua of a checked function does by calling the `__cosmic_tc` that [`install_checks`]
   --- defines ([`lang.boundary_checks`]): `text` is the spec ("p" parameters, "r" return values, "f" a field written) and
   --- `values` the values crossing it. It answers nothing, where the global answers the values: a test that needs them keeps
@@ -545,6 +554,23 @@ local function verify(fact: Fact, value: any): any
       ", the checker proved " .. fact.declared, 0)
 end
 
+local unreadable_sites: mut {string:worker.Violation} = {}
+
+-- Records a check the hook could not use, a spec that does not parse or a violation it could not
+-- record, as a row of kind "unreadable". The test goes on as it did, but its run reports the row and
+-- keeps no verdict of it, so a check that checks nothing is never taken for one that held.
+local function note_unreadable(what: string, text: string)
+  local shown_text = lua_sub(text, 1, 60)
+  local key = what .. "\0" .. shown_text
+  local known = unreadable_sites[key]
+  if known ~= nil then
+    again(known)
+    return
+  end
+  keep(unreadable_sites, key, { kind = "unreadable", at = "?", target = what, declared = shown_text,
+    actual = "unreadable", count = 1 })
+end
+
 local function hook(_: integer, text: string, ...: any): any...
   local check = checks[text]
   if check == nil then
@@ -556,11 +582,14 @@ local function hook(_: integer, text: string, ...: any): any...
           return verify(facts[text], (...))
         end
         malformed[text] = true
+        note_unreadable("a fact spec", text)
       -- A parse that succeeds leaves its check in `checks`.
       elseif lua_pcall(parse_check, text) then
         check = checks[text]
       else
         malformed[text] = true
+        -- "-" is the spec of a boundary the declared types leave nothing to check at, not a spec gone wrong.
+        if text ~= "-" then note_unreadable("a check spec", text) end
       end
     end
     -- A spec that does not parse checks nothing and is no failure of the
@@ -581,6 +610,8 @@ local function hook(_: integer, text: string, ...: any): any...
         -- A check that fails to say so is no failure of the test.
         latest.met = nil
         local noted = lua_pcall(note, check, index, value, index > given)
+        -- Reachable only when recording runs out of memory; the row keeps the verdict out, which fails safe.
+        if not noted then note_unreadable("a violation it could not record", check.at) end
         local met = latest.met
         -- A parameter of the standard library that meets a kind its declaration refuses ends the call, at the first
         -- one: either the caller or the declaration is wrong, and both are fixed.
@@ -735,8 +766,20 @@ end
 --- place of the read, the place as written, what the checker proved and what
 --- the value was) before it fails the read. Install them before a test's
 --- module loads: the boundaries its load crosses are checked too.
+-- Whether the globals hold the harness's own hooks now, once [`install_checks`] has said which globals: no before.
+local hooks_are_held: function(): boolean = function(): boolean return false end
+
+--- Whether `__fact` and `__cosmic_tc` are the harness's own hooks now ([`worker.install_checks`] defines them): what a
+--- worker reports as `checked`.
+function worker.hooks_held(): boolean
+  return hooks_are_held()
+end
+
 function worker.install_checks()
   local globals = _G as {string:any}
+  hooks_are_held = function(): boolean
+    return rawget(globals, "__fact") == fact and rawget(globals, "__cosmic_tc") == hook
+  end
   rawset(globals, "__cosmic_ty", lua_type)
   rawset(globals, "__cosmic_mt", math_type)
   rawset(globals, "__cosmic_tc", hook)
@@ -838,6 +881,7 @@ function worker.encode(report: worker.Report): string
   if dropped ~= nil and dropped > 0 then
     table.insert(lines, "dropped " .. tostring(dropped))
   end
+  if report.checked == true then table.insert(lines, "checked 1") end
   lines[#lines + 1] = "end"
   return table.concat(lines, "\n") .. "\n"
 end
@@ -925,6 +969,8 @@ function worker.decode(text: string): worker.Report?, string
         local entry: worker.Violation = { kind = kind, at = at, target = target, declared = declared,
           actual = actual, count = math.tointeger(tonumber(count)) or 1 }
         met[#met + 1] = entry
+      elseif tag == "checked" then
+        report.checked = rest == "1"
       elseif tag == "dropped" then
         local count = math.tointeger(tonumber(rest))
         if count == nil or count < 0 then return nil, "a malformed count: " .. line end
@@ -1213,6 +1259,11 @@ function worker.judge(judging: worker.Judging): worker.Judgement
   if report == nil then
     return { passed = false, skipped = "", message = "the test process " .. ending(result) ..
         " before it reported (" .. decode_trouble .. ")" }
+  end
+  if report.passed and judging.checks == true and report.checked ~= true then
+    return { report = report, passed = false, skipped = "", message = "its worker was to run with the checks of " ..
+        "a checked run, but `__fact` or `__cosmic_tc` was not the harness's own hook when it reported, so its pass " ..
+        "would have checked nothing" }
   end
   local judgement: worker.Judgement = { report = report, passed = report.passed,
     message = report.message }
@@ -1557,6 +1608,7 @@ function worker.run(argv: {string}): integer
   table.sort(modules)
   report.modules = modules
   report.violations, report.dropped = worker.violations(), worker.dropped_violations()
+  report.checked = worker.hooks_held()
   local written, trouble = put(worker.report_fd, worker.encode(report))
   if not written then
     complain("the test report: " .. trouble)

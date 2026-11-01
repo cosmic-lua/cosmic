@@ -457,22 +457,24 @@ local function test_a_successful_run_closes_the_descriptors_it_held(tmp: string)
   assert(descriptors() == before, "a successful run left a descriptor open")
 end
 
---- The run holds a signal guard for its whole length and closes it once, on success and on a failed phase.
-local function test_a_run_closes_its_signal_guard_once(tmp: string)
+--- The run holds a signal guard for its whole length and closes it, on success and on a failed phase.
+local function test_a_run_closes_its_signal_guard(tmp: string)
   local root, env = checkout(tmp)
   local seams = Local.calls()
-  local real = seams.signal_close
-  local closed: Count = { value = 0 }
-  seams.signal_close = function(guard: Signal.Guard): boolean, string
-    closed.value = closed.value + 1
-    return real(guard)
+  local real = seams.signal_guard
+  local guards: mut {Signal.Guard} = {}
+  seams.signal_guard = function(): Signal.Guard?, string
+    local guard, trouble = real()
+    if guard ~= nil then guards[#guards + 1] = guard end
+    return guard, trouble
   end
   local ok = trying(root, env, { "build" })
   local failed = trying(root, env, { "fail" })
-  seams.signal_close = real
+  seams.signal_guard = real
   assert(ok.ok and ok.code == 0, ok.raised)
   assert(failed.ok and failed.code == 23, failed.raised)
-  assert(closed.value == 2, "the guard was closed " .. tostring(closed.value) .. " times in two runs")
+  assert(#guards == 2, "two runs opened " .. tostring(#guards) .. " guards")
+  for _, guard in ipairs(guards) do assert(guard.state.closed, "a run left its guard open") end
 end
 
 local record CredentialedTally

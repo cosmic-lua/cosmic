@@ -142,9 +142,8 @@ local insert_imports =
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
 --- Every edge of the source the checker reads for a planned module or a
---- declaration ([`build.schema`]'s `decl_imports`): the declaration's
---- where there is one, as in [`insert_bound`], so the edges include those
---- to names the plan does not hold. Each path also has the row with the
+--- declaration ([`build.schema`]'s `decl_imports`), so the edges include
+--- those to names the plan does not hold. Each path also has the row with the
 --- empty name, so that a path with no edge is told from one the table
 --- knows nothing of.
 local insert_decl_imports =
@@ -155,15 +154,9 @@ local insert_decl_imports =
   "SELECT m.path, r.name FROM (SELECT path FROM plan UNION SELECT path " ..
   "FROM inputs WHERE " .. AnalysisSchema.declaration("kind") .. ") m " ..
   "JOIN inputs i ON i.path = m.path " ..
-  "AND (" .. AnalysisSchema.declaration("i.kind") .. " OR NOT EXISTS (SELECT 1 FROM inputs d " ..
-  "WHERE d.path = i.path AND " .. AnalysisSchema.declaration("d.kind") .. ")) " ..
   "JOIN requires r ON r.source_hash = i.source_hash " ..
   "ORDER BY 1, 2"
 
---- A paired declaration supplies the documented interface and its aliases,
---- just as it supplies the types a caller checks against. The implementation
---- alone supplies executable rows, import edges, uses and errors.
----
 --- The names each planned module and each declaration binds to a
 --- module ([`build.syntax_analyzer`]'s `Bound`), kept whatever the module they
 --- name: a project's binds the standard library's.
@@ -173,8 +166,6 @@ local insert_bound =
   "FROM (SELECT path FROM plan UNION SELECT path FROM inputs " ..
   "WHERE " .. AnalysisSchema.declaration("kind") .. ") m " ..
   "JOIN inputs i ON i.path = m.path " ..
-  "AND (" .. AnalysisSchema.declaration("i.kind") .. " OR NOT EXISTS (SELECT 1 FROM inputs d " ..
-  "WHERE d.path = i.path AND " .. AnalysisSchema.declaration("d.kind") .. ")) " ..
   "JOIN bound b ON b.source_hash = i.source_hash ORDER BY m.path, b.name"
 
 --- The documented symbols ([`build.syntax_analyzer`]'s `DocEntry`) found while parsing
@@ -182,7 +173,6 @@ local insert_bound =
 --- is the C header it is generated from), in module order and then
 --- source order. Which of them a reader sees is [`build.docs`]'s to
 --- decide: it answers a project only for the public standard library.
---- A declaration wins over a paired implementation, as the checker does.
 --- `id` is left for SQLite to assign in that order, so it is the same on
 --- every build of the same tree.
 local insert_docs =
@@ -193,8 +183,6 @@ local insert_docs =
   "FROM (SELECT path FROM plan UNION SELECT path FROM inputs " ..
   "WHERE " .. AnalysisSchema.declaration("kind") .. ") m " ..
   "JOIN inputs i ON i.path = m.path " ..
-  "AND (" .. AnalysisSchema.declaration("i.kind") .. " OR NOT EXISTS (SELECT 1 FROM inputs d " ..
-  "WHERE d.path = i.path AND " .. AnalysisSchema.declaration("d.kind") .. ")) " ..
   "JOIN docs d ON d.source_hash = i.source_hash ORDER BY m.path, d.ordinal"
 
 --- The uses ([`build.syntax_analyzer`]'s `Reference`) found: each
@@ -271,6 +259,15 @@ local insert_stubs =
   "JOIN main.stubs s ON s.source_hash = i.source_hash " ..
   "WHERE p.path GLOB 'cosmic.*' ORDER BY p.path"
 
+--- The `places` ([`build.syntax_places`]) of each planned `cosmic.*` module's source, which `modules` carries as it was
+--- parsed. A module generated from another file (`mapped`) has none, as it has none in the working database.
+local insert_places =
+  "INSERT INTO out.places (module, ordinal, symbol, kind, line, column, length, plain) " ..
+  "SELECT p.path, l.ordinal, l.symbol, l.kind, l.line, l.column, l.length, l.plain FROM plan p " ..
+  "JOIN inputs i ON i.path = p.path AND i.kind = 'module' " ..
+  "JOIN main.places l ON l.source_hash = i.source_hash " ..
+  "WHERE p.path GLOB 'cosmic.*' ORDER BY p.path, l.ordinal"
+
 --- Each planned `cosmic.*` module `insert_stubs` found no stub of.
 local unstubbed_modules =
   "SELECT p.path FROM plan p JOIN inputs i ON i.path = p.path AND i.kind = 'module' " ..
@@ -295,8 +292,7 @@ local insert_catalog_extracted =
 --- takes a module's rows from it where the module stands as it was, and
 --- fills the rest from the working database as a write of nothing does.
 --- `reused` is the temporary table of the modules that stand: those whose
---- file, kind, source and key are the base's, and that no declaration
---- stands in for. A row it carries is the row the full statement would
+--- file, kind, source and key are the base's. A row it carries is the row the full statement would
 --- write, since each is a function of what the table's test holds equal and
 --- of the identities [`usable_base`] holds equal. Each statement below is
 --- the full one beside it, with the base's rows for those modules in
@@ -310,8 +306,7 @@ local make_reused <const> = {
   "INSERT INTO temp.reused (path) SELECT p.path FROM plan p " ..
     "JOIN inputs i ON i.path = p.path AND " .. AnalysisSchema.not_declaration("i.kind") .. " " ..
     "JOIN prev.modules r ON r.path = p.path AND r.file = i.file AND r.kind = i.kind " ..
-    "AND r.source_hash = CAST(i.source_hash AS BLOB) AND r.key = CAST(p.key AS BLOB) " ..
-    "WHERE NOT EXISTS (SELECT 1 FROM inputs d WHERE d.path = p.path AND " .. AnalysisSchema.declaration("d.kind") .. ")",
+    "AND r.source_hash = CAST(i.source_hash AS BLOB) AND r.key = CAST(p.key AS BLOB)",
 }
 
 --- The modules of a write that starts from a base. The rows a module that
@@ -357,8 +352,6 @@ local insert_docs_reusing <const> =
   "FROM (SELECT path FROM plan WHERE path NOT IN " .. reused_modules .. " " ..
   "UNION SELECT path FROM inputs WHERE " .. AnalysisSchema.declaration("kind") .. ") m " ..
   "JOIN inputs i ON i.path = m.path " ..
-  "AND (" .. AnalysisSchema.declaration("i.kind") .. " OR NOT EXISTS (SELECT 1 FROM inputs d " ..
-  "WHERE d.path = i.path AND " .. AnalysisSchema.declaration("d.kind") .. ")) " ..
   "JOIN docs d ON d.source_hash = i.source_hash) ORDER BY module, ordinal"
 
 local insert_uses_reusing <const> =
@@ -825,8 +818,10 @@ local function project(handle: work.Handle,
   -- moves when one does. It also carries its standard
   -- library's stubs (`insert_stubs`): a stub is a function of its
   -- module's source, which the module's key holds, and of build.stub,
-  -- which the compiler's identity in `meta` holds. A project's tables
-  -- stay empty.
+  -- which the compiler's identity in `meta` holds. The places of those
+  -- sources (`insert_places`) are a function of the source and of
+  -- build.syntax_places, the code of the tool, which `boot_hash` holds.
+  -- A project's tables stay empty.
   if work.standing(handle).own then
     local filled, fill_trouble = bom.fill(db, handle.root, "out.")
     if not filled then
@@ -864,6 +859,10 @@ local function project(handle: work.Handle,
     local stubbed, stub_trouble = db:exec(insert_stubs)
     if not stubbed then
       return false, stub_trouble
+    end
+    local placed, place_trouble = db:exec(insert_places)
+    if not placed then
+      return false, place_trouble
     end
     -- A module the binary carried no stub of would be typed from its
     -- source, slower and with nothing to say so.
@@ -1194,6 +1193,7 @@ local carry: {string} = {
     "WHERE path NOT IN dropped ORDER BY path, name",
   "INSERT INTO main.decls SELECT * FROM whole.decls ORDER BY path",
   "INSERT INTO main.stubs SELECT * FROM whole.stubs ORDER BY path",
+  "INSERT INTO main.places SELECT * FROM whole.places ORDER BY module, ordinal",
   "INSERT INTO main.payload SELECT * FROM whole.payload ORDER BY path",
   "INSERT INTO main.zoneinfo (name, data) SELECT name, data FROM whole.zoneinfo " ..
     "ORDER BY name",

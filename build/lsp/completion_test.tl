@@ -2,6 +2,7 @@
 --- inside `require("`, a line that does not parse, and the positions counted in the units the session negotiated.
 
 local Fs = require("cosmic.fs")
+local build_paths = require("build.paths")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
@@ -297,14 +298,161 @@ local function test_nothing_is_offered_in_a_comment_or_a_string()
   assert(answer(ran, 5):find('"result":null', 1, true) ~= nil, answer(ran, 5))
 end
 
-local function test_a_receiver_that_is_a_call_is_not_taken_for_its_last_name()
+--- `text` without its last `|`, and the line and character (in UTF-16 units) the `|` was at.
+local function marked(text: string): string, integer, integer
+  local mark = assert(text:match(".*()|"), "no cursor in the text")
+  local before = text:sub(1, mark - 1)
+  local _, line = before:gsub("\n", "")
+  local row = before:match("[^\n]*$") or ""
+  local units = 0
+  for _, code in utf8.codes(row) do units = units + (if code >= 0x10000 then 2 else 1 end) end
+  return before .. text:sub(mark + 1), line, units
+end
+
+--- The labels of the items offered at the `|` of `text`, after `base` (a text that parses) was open and `text` was typed.
+local function offered(base: string, text: string, labels: {string}): string
   local root = session_fixture.project()
-  local text = POINT .. 'local _ = p\n'
+  local typed, line, character = marked(text)
+  local ran = served(root, { initialize(root), open(root, "main.tl", base),
+    change(root, "main.tl", typed), ask(2, root, "main.tl", line, character) })
+  return has(items(ran, 2), labels)
+end
+
+local function test_a_receiver_that_is_a_call_is_taken_for_the_type_the_call_answers()
+  local base = POINT .. 'local function make(): Point\n  return Point.origin()\nend\nlocal _ = p\n'
+  local head = POINT .. 'local function make(): Point\n  return Point.origin()\nend\n'
+  -- A function of the document, a function of a table of functions, and a call of a call's result.
+  assert(offered(base, head .. 'local _ = make().|\n', { "x", "y", "origin" }) == "x,y")
+  assert(offered(base, head .. 'local _ = Point.origin().|\n', { "x", "y", "origin" }) == "x,y")
+  -- Typed on a line of its own, where the statement does not parse either.
+  assert(offered(base, head .. 'make().|\n', { "x", "y" }) == "x,y")
+  -- A call with arguments that hold brackets of their own.
+  assert(offered(base, head .. 'local _ = make({ 1, (2) }, "a)").|\n', { "x", "y" }) == "x,y")
+  -- A function that answers nothing a table has.
+  assert(offered(base, head .. 'local _ = tostring(1).|\n', { "x", "y" }) == "")
+end
+
+local function test_a_receiver_that_is_an_index_is_taken_for_the_element_or_the_value()
+  local base = POINT .. 'local list: {Point} = { p }\nlocal named: {string: Point} = { a = p }\nlocal _ = p\n'
+  local head = POINT .. 'local list: {Point} = { p }\nlocal named: {string: Point} = { a = p }\n'
+  assert(offered(base, head .. 'local _ = list[1].|\n', { "x", "y" }) == "x,y")
+  assert(offered(base, head .. 'local _ = named["a"].|\n', { "x", "y" }) == "x,y")
+  assert(offered(base, head .. 'local _ = named.a.|\n', { "x", "y" }) == "x,y")
+  -- The array itself has no field of a point.
+  assert(offered(base, head .. 'local _ = list.|\n', { "x", "y" }) == "")
+end
+
+local function test_a_receiver_that_is_a_method_call_is_taken_for_the_type_the_method_answers()
+  local base = COUNTER:gsub("end\nlocal c", "  function me(self): Counter\n    return self\n  end\nend\nlocal c", 1) ..
+    'local _ = c\n'
+  local head = base:sub(1, -13)
+  local found = offered(base, head .. 'local _ = c:me():|\n', { "bump", "me", "n" })
+  assert(found == "bump,me", found)
+  local fields = offered(base, head .. 'local _ = c:me().|\n', { "bump", "me", "n" })
+  assert(fields == "bump,me,n", fields)
+  -- A chain of methods and fields.
+  assert(offered(base, head .. 'local _ = c:me():me().|\n', { "n" }) == "n")
+end
+
+local function test_a_name_declared_again_since_the_last_parse_is_not_typed_by_the_old_binding()
+  local base = POINT .. 'local _ = p\n'
+  assert(offered(base, POINT .. 'local p = { z = 1 }\nlocal _ = p.|\n', { "x", "y" }) == "")
+  -- A name the typed text leaves alone keeps its type.
+  assert(offered(base, POINT .. 'local q = { z = 1 }\nlocal _ = p.|\n', { "x", "y" }) == "x,y")
+end
+
+local function test_a_receiver_that_is_a_call_with_a_string_or_a_table_is_found()
+  local base = POINT .. 'local function make(a: any): Point\n  return Point.origin()\nend\nlocal _ = p\n'
+  local head = POINT .. 'local function make(a: any): Point\n  return Point.origin()\nend\n'
+  assert(offered(base, head .. 'local _ = make("a").|\n', { "x", "y" }) == "x,y")
+  assert(offered(base, head .. 'local _ = make({}).|\n', { "x", "y" }) == "x,y")
+  -- A call with no parentheses: its argument is a string or a table.
+  assert(offered(base, head .. 'local _ = make"a".|\n', { "x", "y" }) == "x,y")
+  assert(offered(base, head .. 'local _ = make{}.|\n', { "x", "y" }) == "x,y")
+end
+
+local function test_a_name_narrowed_at_the_cursor_is_taken_for_the_type_it_was_narrowed_to()
+  local text = 'local record Cat\n  meow: integer\nend\nlocal record Dog\n  bark: integer\nend\n' ..
+    'local function a(x: Cat | Dog)\n  if x is Cat then\n    local _ = x.meow\n  end\nend\n' ..
+    'local function b(x: Cat | Dog)\n  if x is Dog then\n    local _ = x.bark\n  end\nend\nreturn { a, b }\n'
+  local root = session_fixture.project()
+  -- Each is typed in a function whose test narrows to one of the records, so whichever record the declared union was
+  -- taken for, one of them is not the narrowed one.
   local ran = served(root, { initialize(root), open(root, "main.tl", text),
-    change(root, "main.tl", POINT .. 'local _ = Point.origin().\n'),
-    ask(2, root, "main.tl", 10, 26),
+    change(root, "main.tl", (text:gsub("x%.meow", "x.", 1))),
+    ask(2, root, "main.tl", 8, 16),
+    change(root, "main.tl", (text:gsub("x%.bark", "x.", 1))),
+    ask(3, root, "main.tl", 13, 16),
   })
-  assert(count(items(ran, 2)) == 0, ran.err)
+  local cat = has(items(ran, 2), { "meow", "bark" })
+  local dog = has(items(ran, 3), { "meow", "bark" })
+  assert(cat == "meow" and dog == "bark", cat .. " " .. dog .. ran.err)
+end
+
+local TYPE_BASE <const> = POINT .. 'local record Box<T>\n  item: T\nend\nlocal _ = p\n'
+
+local function test_the_types_are_offered_in_every_type_position()
+  local positions: {string} = {
+    'local x: |',
+    'local x:|',
+    'local x = p is |',
+    'local x: Box<|',
+    'local x: Box<integer, |',
+    'local x: {|',
+    'local x: {string: |',
+    'local x: integer | |',
+    'local type Alias = |',
+    'local record R\n  field: |\nend',
+    'local record R\n  field: {|\nend',
+    'local record R is |\nend',
+    'local interface I is |\nend',
+    'local function g(): |\nend',
+    'local function g(): integer, |\nend',
+    'local function g(a: |\nend',
+    'local function g(a: integer, b: |\nend',
+    'local record R\n  fn: function(|)\nend',
+  }
+  for _, position in ipairs(positions) do
+    local found = offered(TYPE_BASE, TYPE_BASE:sub(1, -13) .. position .. '\n', { "Point", "Box", "integer", "p" })
+    -- The types and the primitive types, and no value.
+    assert(found == "Point,Box,integer" or found == "Point,integer", position .. " offered " .. found)
+  end
+  -- A word typed narrows the types.
+  assert(offered(TYPE_BASE, TYPE_BASE:sub(1, -13) .. 'local x = p is Po|\n', { "Point", "Box", "integer" }) == "Point")
+  -- An expression is no type position, so a value and not only a type is offered.
+  for _, position in ipairs({ 'local x = |', 'local x = p < |', 'local x = {|}', 'local x = f(|)' }) do
+    local found = offered(TYPE_BASE, TYPE_BASE:sub(1, -13) .. position .. '\n', { "Point", "p" })
+    assert(found == "Point,p", position .. " offered " .. found)
+  end
+end
+
+local function test_nothing_is_offered_inside_a_comment_or_a_string_of_several_lines()
+  local base = POINT .. 'local _ = p\n'
+  for _, position in ipairs({
+      '--[[\nnote p.|\n]]\n',
+      '--[[ note\nmore p|',
+      '--[==[ note\n]] more p|\n]==]\n',
+      'local s = [[\nline p.|\n]]\n',
+      'local s = [==[\n]]\n pla|n\n]==]\n',
+      'local s = [[ unfinished p|',
+      'local s = "unfinished p|',
+      '-- line comment p.|',
+  }) do
+    assert(offered(base, POINT .. position, { "p", "x", "y", "Point" }) == "", position)
+  end
+end
+
+local function test_a_cursor_right_after_a_comment_or_a_string_of_several_lines_is_in_code()
+  local base = POINT .. 'local _ = p\n'
+  assert(offered(base, POINT .. 'local s = [[a\nb]] .. p|\n', { "p", "Point" }) == "p,Point")
+  local both = offered(base, POINT .. 'local s = [==[a\nb]==] .. P|\n', { "p", "Point" })
+  assert(both == "p,Point", both)
+  assert(offered(base, POINT .. '--[[\nnote\n]] local _ = p.|\n', { "x", "y" }) == "x,y")
+  -- A line comment ends with its line.
+  assert(offered(base, POINT .. '-- note p.\nlocal _ = p.|\n', { "x", "y" }) == "x,y")
+  -- A quote inside a comment opens no string, and a comment mark inside a long string no comment.
+  assert(offered(base, POINT .. '--[[ it\'s ]] local _ = p.|\n', { "x", "y" }) == "x,y")
+  assert(offered(base, POINT .. 'local s = [[ -- ]] .. p.|\n', { "x", "y" }) == "x,y")
 end
 
 local function test_positions_count_utf16_units_or_bytes_as_negotiated()
@@ -320,6 +468,29 @@ local function test_positions_count_utf16_units_or_bytes_as_negotiated()
   local bytes = assert(items(narrow, 2)["count"], narrow.err).textEdit
   assert(assert(bytes.range["start"]).character == 20 and assert(bytes.range["end"]).character == 23,
     tostring(assert(bytes.range["start"]).character))
+end
+
+local function test_a_call_or_an_index_is_found_after_a_wide_character_in_utf16_units_or_bytes()
+  local root = session_fixture.project()
+  local base = POINT .. 'local list: {Point} = { p }\nlocal _ = p\n'
+  local head = POINT .. 'local list: {Point} = { p }\n'
+  -- "😀" is four bytes and two UTF-16 units: `local s = "😀" .. list[1].` is 26 units and 29 bytes.
+  local text = head .. 'local s = "😀" .. list[1].\n'
+  local wide = served(root, { initialize(root), open(root, "main.tl", base), change(root, "main.tl", text),
+    ask(2, root, "main.tl", 11, 26) })
+  assert(has(items(wide, 2), { "x", "y" }) == "x,y", wide.err)
+  local edit = assert(items(wide, 2)["x"]).textEdit
+  assert(assert(edit.range["start"]).character == 26 and assert(edit.range["end"]).character == 26)
+  local narrow = served(root, { initialize(root, '{"general":{"positionEncodings":["utf-8"]}}'),
+    open(root, "main.tl", base), change(root, "main.tl", text), ask(2, root, "main.tl", 11, 29) })
+  assert(has(items(narrow, 2), { "x", "y" }) == "x,y", narrow.err)
+  -- A type position and a word typed after a wide character.
+  local typed = head .. 'local s = "😀" local t: Po\n'
+  local position = served(root, { initialize(root), open(root, "main.tl", base), change(root, "main.tl", typed),
+    ask(2, root, "main.tl", 11, 26) })
+  local point = assert(items(position, 2)["Point"], position.err).textEdit
+  assert(assert(point.range["start"]).character == 24 and assert(point.range["end"]).character == 26,
+    tostring(assert(point.range["start"]).character))
 end
 
 local function test_a_name_is_found_after_a_wide_character_on_a_line_that_does_not_parse()
@@ -356,6 +527,256 @@ local function test_the_members_of_a_module_open_and_unsaved_are_the_text_the_pe
     ask(2, root, "main.tl", 1, 16),
   })
   assert(has(items(ran, 2), { "origin", "fresh" }) == "origin,fresh", answer(ran, 2) .. ran.err)
+end
+
+--- A module of the working database is completed from its `members` rows: its fields and functions with their types as written
+--- and the docs of the same symbol, a nested type's, an enum's values, the interfaces a declaration lists, and none of it
+--- from the checker's declarations of its stub.
+local function test_the_members_of_a_module_of_the_project_are_read_from_its_rows_with_their_docs()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shape.tl", table.concat({
+    "local record shape",
+    "  --- The width.",
+    "  width: integer",
+    "  record Inner",
+    "    --- How deep.",
+    "    depth: integer",
+    "  end",
+    "  inner: Inner",
+    "end",
+    "",
+    "--- Makes a shape.",
+    "function shape.make(size: integer): shape",
+    "  return { width = size, inner = { depth = 1 } }",
+    "end",
+    "",
+    "return shape",
+    "",
+  }, "\n")))
+  local text = 'local shape = require("lib.shape")\nlocal s = shape.make(1)\nlocal _ = s\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    change(root, "main.tl", 'local shape = require("lib.shape")\nlocal s = shape.make(1)\nlocal _ = s.\n'),
+    ask(2, root, "main.tl", 2, 12),
+    change(root, "main.tl", 'local shape = require("lib.shape")\nlocal _ = shape.\n'),
+    ask(3, root, "main.tl", 1, 16),
+    change(root, "main.tl", 'local shape = require("lib.shape")\nlocal s = shape.make(1)\nlocal _ = s.inner.\n'),
+    ask(4, root, "main.tl", 2, 18),
+  })
+  local instance = items(ran, 2)
+  assert(has(instance, { "width", "inner", "make" }) == "width,inner", ran.err)
+  assert(assert(instance["width"]).detail == "integer" and assert(assert(instance["width"]).documentation).value == "The width.")
+  local value = items(ran, 3)
+  assert(has(value, { "make", "width" }) == "make,width", ran.err)
+  assert(assert(value["make"]).kind == FUNCTION and assert(value["make"]).detail == "function(size: integer): shape")
+  assert(assert(assert(value["make"]).documentation).value == "Makes a shape.")
+  local nested = items(ran, 4)
+  assert(has(nested, { "depth" }) == "depth" and assert(assert(nested["depth"]).documentation).value == "How deep.", ran.err)
+  -- The receiver is typed by the checker; the members it is offered come from the rows.
+  assert(ran.tally.member_rows == 3 and ran.tally.member_declarations == 0,
+    tostring(ran.tally.member_rows) .. "," .. tostring(ran.tally.member_declarations))
+end
+
+--- A class's methods and an interface's listed interfaces and an enum's values are rows too.
+local function test_the_members_of_classes_interfaces_and_enums_of_a_module_are_read_from_its_rows()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/kinds.tl", table.concat({
+    "local interface Named",
+    "  name: string",
+    "end",
+    "local interface Aged is Named",
+    "  age: integer",
+    "end",
+    "local class Counter",
+    "  n: integer",
+    "  --- Adds one.",
+    "  function bump(self): integer return self.n + 1 end",
+    "end",
+    "function Counter.new(): Counter return { n = 0 } end",
+    "local enum Color",
+    "  \"red\"",
+    "  \"green\"",
+    "end",
+    "local record kinds",
+    "  aged: Aged",
+    "  counter: Counter",
+    "  color: Color",
+    "end",
+    "return kinds",
+    "",
+  }, "\n")))
+  local ran = served(root, { initialize(root),
+    open(root, "main.tl", 'local kinds = require("lib.kinds")\nlocal k: kinds = nil\nlocal _ = k\n'),
+    change(root, "main.tl", 'local kinds = require("lib.kinds")\nlocal k: kinds = nil\nlocal _ = k.aged.\n'),
+    ask(2, root, "main.tl", 2, 18),
+    change(root, "main.tl", 'local kinds = require("lib.kinds")\nlocal k: kinds = nil\nlocal _ = k.counter:\n'),
+    ask(3, root, "main.tl", 2, 20),
+    change(root, "main.tl", 'local kinds = require("lib.kinds")\nlocal k: kinds = nil\nlocal _ = k.counter.\n'),
+    ask(4, root, "main.tl", 2, 20),
+    change(root, "main.tl", 'local kinds = require("lib.kinds")\nlocal k: kinds = nil\nlocal _ = k.color.\n'),
+    ask(5, root, "main.tl", 2, 18),
+  })
+  assert(has(items(ran, 2), { "name", "age" }) == "name,age", answer(ran, 2) .. ran.err)
+  local methods = items(ran, 3)
+  assert(has(methods, { "bump", "new", "n" }) == "bump,new", ran.err)
+  assert(assert(methods["bump"]).kind == METHOD and assert(assert(methods["bump"]).documentation).value == "Adds one.")
+  assert(has(items(ran, 4), { "n", "bump", "new" }) == "n,bump,new", ran.err)
+  assert(ran.tally.member_declarations == 0, tostring(ran.tally.member_declarations) .. ran.err)
+end
+
+--- The docs of the document's own module are the rows of the text the last check was of, so a member still has its docs
+--- while the line being typed does not parse.
+local function test_the_members_of_the_own_module_have_their_docs_while_the_line_does_not_parse()
+  local root = session_fixture.project()
+  local function base(doc: string): string
+    return 'local record Box\n  --- ' .. doc .. '\n  side: integer\nend\n\nlocal b: Box = { side = 1 }\n'
+  end
+  assert(Fs.write(root .. "/main.tl", base("The side.") .. 'local _ = b\n'))
+  local ran = served(root, { initialize(root), open(root, "main.tl", base("The side.") .. 'local _ = b\n'),
+    change(root, "main.tl", base("The side.") .. 'local _ = b.\n'),
+    ask(2, root, "main.tl", 6, 12),
+    -- Edited and not saved: the docs are those of the text the check read.
+    change(root, "main.tl", base("The edited side.") .. 'local _ = b\n'),
+    ask(4, root, "main.tl", 0, 0),
+    change(root, "main.tl", base("The edited side.") .. 'local _ = b.\n'),
+    ask(3, root, "main.tl", 6, 12),
+  })
+  local side = assert(items(ran, 2)["side"], ran.err)
+  assert(assert(side.documentation).value == "The side." and side.detail == "integer", answer(ran, 2))
+  assert(assert(assert(items(ran, 3)["side"]).documentation).value == "The edited side.", answer(ran, 3))
+  assert(ran.tally.member_declarations == 0, tostring(ran.tally.member_declarations))
+end
+
+--- A module open and edited is derived into the scratch database: its docs are the unsaved text's.
+local function test_the_members_of_a_module_open_and_unsaved_have_the_docs_of_the_text_the_person_has()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", 'local record point\n  --- Old.\n  x: integer\nend\nreturn point\n'))
+  local edited = 'local record point\n  --- New.\n  x: integer\n  --- Fresh.\n  y: integer\nend\nreturn point\n'
+  local text = 'local point = require("lib.point")\nlocal p: point = nil\nlocal _ = p\n'
+  local ran = served(root, { initialize(root), open(root, "lib/point.tl", edited), open(root, "main.tl", text),
+    change(root, "main.tl", 'local point = require("lib.point")\nlocal p: point = nil\nlocal _ = p.\n'),
+    ask(2, root, "main.tl", 2, 12),
+  })
+  local found = items(ran, 2)
+  assert(assert(assert(found["x"], ran.err).documentation).value == "New.", answer(ran, 2))
+  assert(assert(assert(found["y"]).documentation).value == "Fresh.")
+  assert(ran.tally.member_declarations == 0 and ran.tally.derived >= 1)
+end
+
+--- Two types of a module that one name stands for are not told apart in the rows, so the checker answers for them: the
+--- members of the first are not the second's, and a type in a block is no top-level type of its name.
+local function test_a_name_declared_twice_or_in_a_block_is_completed_by_the_checker_and_not_merged()
+  local root = session_fixture.project()
+  local base = 'local record R\n  n: integer\nend\nlocal a: R = { n = 1 }\n' ..
+    'local record R\n  other: integer\nend\nlocal b: R = { other = 1 }\n' ..
+    'do\n  local record Q\n    inner: integer\n  end\n  local c: Q = { inner = 1 }\nend\n'
+  assert(Fs.write(root .. "/main.tl", base .. 'local _ = a\n'))
+  local ran = served(root, { initialize(root), open(root, "main.tl", base .. 'local _ = a\n'),
+    change(root, "main.tl", base .. 'local _ = a.\n'),
+    ask(2, root, "main.tl", 14, 12),
+    change(root, "main.tl", base .. 'local _ = b.\n'),
+    ask(3, root, "main.tl", 14, 12),
+  })
+  assert(has(items(ran, 2), { "n", "other" }) == "n", answer(ran, 2) .. ran.err)
+  assert(has(items(ran, 3), { "n", "other" }) == "other", answer(ran, 3) .. ran.err)
+  local inblock = 'local record Q\n  top: integer\nend\ndo\n  local record Q\n    inner: integer\n  end\n' ..
+    '  local c: Q = { inner = 1 }\n  local _ = c\nend\n'
+  assert(Fs.write(root .. "/other.tl", inblock))
+  local again = served(root, { initialize(root), open(root, "other.tl", inblock),
+    change(root, "other.tl", (inblock:gsub("local _ = c\n", "local _ = c.\n"))),
+    ask(2, root, "other.tl", 8, 14),
+  })
+  assert(has(items(again, 2), { "top", "inner" }) == "inner", answer(again, 2) .. again.err)
+end
+
+--- `local R = setmetatable(R, {})` binds the name again, so the checker gives the new binding the `function R.f` statement and
+--- none to the type: `R.` offers no `f`.
+local function test_a_function_statement_about_a_rebound_name_is_not_a_function_of_the_type()
+  local root = session_fixture.project()
+  -- `R` at the cursor is the type; the `function R.f` below is about the local that binds the name again.
+  local tail = 'local R = setmetatable(R, {})\nfunction R.f(): integer return 1 end\n'
+  local head = 'local record R\n  n: integer\nend\n'
+  assert(Fs.write(root .. "/main.tl", head .. 'local _ = R\n' .. tail))
+  local ran = served(root, { initialize(root), open(root, "main.tl", head .. 'local _ = R\n' .. tail),
+    change(root, "main.tl", head .. 'local _ = R.\n' .. tail),
+    ask(2, root, "main.tl", 3, 12),
+  })
+  assert(has(items(ran, 2), { "f" }) == "", answer(ran, 2) .. ran.err)
+end
+
+--- The checker refuses `function C.x` where the class has a field `x`, and a class's `function C.__index`: neither is a
+--- function of the class, and `C.` offers none.
+local function test_a_function_the_checker_refuses_to_give_a_class_is_not_offered()
+  local root = session_fixture.project()
+  local base = 'local class C\n  x: integer\nend\nfunction C.x(): integer return 1 end\n' ..
+    'function C.__index(): integer return 1 end\nfunction C.ok(): integer return 1 end\n'
+  assert(Fs.write(root .. "/main.tl", base .. 'local _ = C\n'))
+  local ran = served(root, { initialize(root), open(root, "main.tl", base .. 'local _ = C\n'),
+    change(root, "main.tl", base .. 'local _ = C.\n'),
+    ask(2, root, "main.tl", 6, 12),
+  })
+  assert(has(items(ran, 2), { "x", "__index", "ok" }) == "ok", answer(ran, 2) .. ran.err)
+end
+
+--- A module whose doc comment was removed in the open text has no documentation, though the docs database of the last build
+--- still has the old text.
+local function test_the_docs_of_the_rows_are_the_only_docs_of_a_member_they_hold()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  local tail = 'function point.f(): integer\n  return 1\nend\n\nreturn point\n'
+  local old = 'local record point\n  x: integer\nend\n\n--- The old f.\n' .. tail
+  assert(Fs.write(root .. "/lib/point.tl", old))
+  -- The projection of the last build documents `f`.
+  local scratch = assert(Fs.mkdtemp("cosmic-lsp-docs-"))
+  local db = docs_fixture.database(scratch, { ["lib/point.tl"] = old })
+  assert(db:exec("VACUUM INTO '" .. scratch .. "/whole.db'"))
+  assert(db:close())
+  assert(Fs.rename(scratch .. "/whole.db", build_paths.under((assert(build_paths.directory(root)))).projection))
+  local edited = 'local record point\n  x: integer\nend\n\n' .. tail
+  local text = 'local point = require("lib.point")\nlocal _ = point\n'
+  local ran = served(root, { initialize(root), open(root, "lib/point.tl", edited), open(root, "main.tl", text),
+    change(root, "main.tl", 'local point = require("lib.point")\nlocal _ = point.\n'),
+    ask(2, root, "main.tl", 1, 16),
+  }, {})
+  local f = assert(items(ran, 2)["f"], ran.err)
+  assert(f.documentation == nil, answer(ran, 2) .. ran.err)
+end
+
+--- A class's `function R.f` is offered on an instance as a method, with the doc of the function.
+local function test_a_class_function_offered_as_a_method_has_its_docs()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/c.tl", 'local class C\n  n: integer\nend\n--- Makes one.\n' ..
+      'function C.make(): C return { n = 0 } end\nreturn C\n'))
+  local text = 'local C = require("lib.c")\nlocal c: C = nil\nlocal _ = c\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    change(root, "main.tl", 'local C = require("lib.c")\nlocal c: C = nil\nlocal _ = c:\n'),
+    ask(2, root, "main.tl", 2, 12),
+  })
+  local make = assert(items(ran, 2)["make"], ran.err)
+  assert(make.kind == METHOD and assert(make.documentation).value == "Makes one.", answer(ran, 2))
+end
+
+--- A function field that takes a value of the record first is a field every value holds: offered of an instance and not of
+--- the table of the record's functions.
+local function test_a_record_function_field_taking_self_is_offered_of_a_value_and_not_of_the_table()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/r.tl", 'local record R\n  area: function(self: R): integer\n  w: integer\nend\n' ..
+      'function R.make(): R return { w = 1, area = nil } end\nreturn R\n'))
+  local text = 'local R = require("lib.r")\nlocal r: R = nil\nlocal _ = r\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    change(root, "main.tl", 'local R = require("lib.r")\nlocal r: R = nil\nlocal _ = r.\n'),
+    ask(2, root, "main.tl", 2, 12),
+    change(root, "main.tl", 'local R = require("lib.r")\nlocal r: R = nil\nlocal _ = R.\n'),
+    ask(3, root, "main.tl", 2, 12),
+  })
+  local instance, value = items(ran, 2), items(ran, 3)
+  assert(has(instance, { "area", "w", "make" }) == "area,w", answer(ran, 2) .. ran.err)
+  assert(assert(instance["area"]).kind == FUNCTION and assert(instance["area"]).detail == "function(self: R): integer")
+  assert(has(value, { "area", "w", "make" }) == "w,make" or has(value, { "area", "w", "make" }) == "make", answer(ran, 3) .. ran.err)
 end
 
 --- Checking another document begins another program ([`Driver.Build.replace`]); the types of a document's kept check name

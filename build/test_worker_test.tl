@@ -5,7 +5,9 @@
 local type Child = require("cosmic.child")
 local type Sandbox = require("cosmic.sandbox")
 local Clock = require("cosmic.clock")
+local Globals = require("cosmic.internal.globals")
 local worker = require("build.test_worker")
+local test_key = require("build.test_key")
 
 --- The element of `list` at `index`, which the case knows is there.
 local function nth<T>(list: {T}, index: integer): T
@@ -86,6 +88,62 @@ local function test_a_worker_that_ran_an_unkeyed_module_fails_its_test()
   assert(report ~= nil and report.passed)
   -- Given no set of what the tool carries, nothing of what it ran is held.
   assert(judged({ "build.docs" }, false).passed)
+end
+
+--- A checked run's worker reports whether the hooks it defined are the harness's own when it reports; one that
+--- does not say so fails a checked run's test, since its pass would have checked nothing, and no other run's.
+local function test_a_checked_run_fails_a_worker_that_installed_no_hooks()
+  local function judged(checked: boolean?, checks: boolean?): worker.Judgement
+    local report = passing({})
+    report.checked = checked
+    return worker.judge({ result = ended(report), trouble = "", timeout_ns = Clock.seconds(1),
+      sandboxed = true, checks = checks })
+  end
+  local missing = judged(nil, true)
+  assert(not missing.passed and missing.message:find("harness's own hook", 1, true) ~= nil, missing.message)
+  assert(judged(false, true).passed == false)
+  assert(judged(true, true).passed)
+  assert(judged(nil, false).passed, "an unchecked run needs no hooks")
+  assert(judged(nil, nil).passed)
+  local back = assert(worker.decode(worker.encode((function(): worker.Report
+    local report = passing({})
+    report.checked = true
+    return report
+  end)())))
+  assert(back.checked == true)
+end
+
+--- A worker reports `checked` only while `__fact` and `__cosmic_tc` are the harness's own hooks: one a test took
+--- away or replaced reports false, so a pass that checked nothing keeps no verdict.
+local function test_the_hooks_are_held_only_while_they_are_the_harness_s_own()
+  local function run(text: string)
+    assert(load(text, "=hooks", "t", Globals.table()))()
+  end
+  worker.install_checks()
+  assert(worker.hooks_held())
+  run("local fact = __fact; __fact = function(v) return v end; _G.__kept_fact = fact")
+  assert(not worker.hooks_held(), "a replaced __fact was taken for the harness's")
+  run("__fact = __kept_fact; __kept_fact = nil")
+  assert(worker.hooks_held())
+  run("_G.__kept_tc = __cosmic_tc; __cosmic_tc = nil")
+  assert(not worker.hooks_held(), "a missing __cosmic_tc was taken for the harness's")
+  run("__cosmic_tc = __kept_tc; __kept_tc = nil")
+  assert(worker.hooks_held())
+end
+
+--- A checked run keeps no verdict of a test whose worker met a violation: a row in its report, or rows it kept
+--- no record of (`dropped`) each count.
+local function test_a_report_with_a_row_or_dropped_rows_met_something()
+  local function reported(violations: {worker.Violation}?, dropped: integer?): worker.Report
+    return { loaded = true, passed = true, message = "", elapsed_ns = 1, load_hits = {}, test_hits = {},
+      modules = {}, violations = violations, dropped = dropped }
+  end
+  assert(test_key.met_nothing(nil))
+  assert(test_key.met_nothing(reported(nil, nil)))
+  assert(test_key.met_nothing(reported({}, 0)))
+  local row: worker.Violation = { kind = "fact", at = "x.tl:1:1", target = "x", declared = "not nil", actual = "nil", count = 1 }
+  assert(not test_key.met_nothing(reported({ row }, nil)))
+  assert(not test_key.met_nothing(reported({}, 3)), "rows past the worker's limit were taken for none")
 end
 
 --- A worker that reported nothing fails its test by what went wrong.

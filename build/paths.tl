@@ -72,6 +72,11 @@ local record paths
     --- Where the lock's holder sets the tool's database aside to read
     --- it ([`build.reboot`]).
     probe: string
+    --- Where `cosmic lsp` puts the source of a module of the binary's own
+    --- standard library that it answers a go to definition with, a
+    --- directory for each module's source hash
+    --- ([`build.lsp.source`]'s `extracted`).
+    cosmic_source: string
     --- The record of the directory's last use: a file whose
     --- modification time [`prepare`] sets, which [`build.cache_lifetime`]
     --- prunes the directory by.
@@ -103,6 +108,7 @@ function paths.under(directory: string): paths.Layout
     lock = directory .. "/rebuild.lock",
     holder = directory .. "/rebuild.lock.pid",
     probe = directory .. "/rebuild.lock.probe",
+    cosmic_source = directory .. "/cosmic-src",
     used = directory .. "/used",
     zig_global = directory .. "/zig-global",
     zig_cache = directory .. "/zig-cache",

@@ -11,29 +11,30 @@
 --- - A name that is declared where it stands (a binding, the name in a `function R.f`): itself.
 ---
 --- Nothing is answered for a place the report does not know: a global the standard library declares, a name the
---- checker left unresolved, a module the working database does not list (the binary's own `cosmic.*` modules in a
---- project), a template, a text that does not parse, a document that requires a module the build refuses (a cycle of
---- imports, a module the project does not have), and a type declared inside a function.
+--- checker left unresolved, a module the working database does not list and the binary carries no places of (a
+--- `cosmic.*` module generated from another file, as [`cosmic.sys`] is), a template, a text that does not parse, a document
+--- that requires a module the build refuses (a cycle of imports, a module the project does not have).
+---
+--- A type declared inside a function body is named by the lowering as its module, `@` and the id of its node, so that one
+--- of the same name in another function is another type: its members are looked up in that node alone
+--- ([`build.syntax_places`]'s `within`), in the document that declares it.
 ---
 --- A place in another module is looked up by its symbol in the `places` the stage derived of the module's file
 --- ([`source.places`]), and put in the module's text as it is written: the checker is served the
 --- module as a stub, whose positions are not the file's. Only an open document that differs from the staged file is
---- parsed. A place in the document is found in the text the checker read, which a build rewrites (the `splices` of
+--- parsed. A module generated from another file (the syscall modules, from `core/*.h`) is answered in that file, at the
+--- line its `-- line` map gives. A symbol of the binary's own `cosmic.*` modules, which a project's working database does
+--- not list, is looked up in the places the tool carries ([`source.places`]), and its location is a file the tool writes
+--- below the build directory with the module's text ([`source.extracted`]), the binary having no source tree to point at.
+--- A place in the document is found in the text the checker read, which a build rewrites (the `splices` of
 --- [`check.Reading`]), and put back in the document's own text.
 
--- TODO: answer a symbol of the binary's own `cosmic.*` modules, once the checker is served the positions of their sources: it
--- reads their declarations alone, so in a project the working database has no text or `places` for them
--- ([`source.places`]) and the answer is none.
+-- TODO: answer a symbol of the binary's own modules generated from another file ([`cosmic.sys`],
+-- [`cosmic.internal.process`]) in a project, once the tool carries the header their `-- line` map names (`core/*.h`) with
+-- their places: its `places` hold none ([`source.places`]).
 
--- TODO: answer a field of a type declared inside a function body, once the lowering names such a type by something that tells
--- it from another of the same name in the module: the declarations are found by their names at the top of the module and in
--- its `do` blocks, where the name is the type's alone ([`build.syntax_places`]).
-
--- TODO: answer a symbol of a module generated from another file, once the `-- line` map of its source gives its places the
--- lines of the file ([`build.syntax_derivation`]'s `origin_lines`): the stage derives none for it.
-
--- TODO: answer the value of an enum that a string literal stands for, once the type report keeps the enum a literal was read
--- as: the report types the literal `"w"` as the string, and the enum's values are found only by a member access.
+-- TODO: answer a field of a type declared in another module's function body, once its places rows carry the id of the node
+-- that declares it: the lowering names it `module@id`, and [`source.places`] has no row to tell it by.
 
 local Ast = require("lang.ast")
 local Driver = require("build.driver")
@@ -64,6 +65,9 @@ local record definition
     place: Place
     offset: integer
     length: integer
+    --- The range, where it is known without the text of `place`: a `plain` place ([`build.syntax_places`]), whose character
+    --- is its column less one in either encoding.
+    range?: protocol.Range
   end
 
   --- What one request reads.
@@ -74,6 +78,8 @@ local record definition
     encoding: string
     --- The first place of each symbol the document declares, once asked for.
     mut own?: {string:Places.Found}
+    --- The same for the type declared inside a function body (or a `do` block) by the id of its node, once asked for.
+    mut nested?: {integer:{string:Places.Found}}
   end
 end
 
@@ -94,6 +100,27 @@ end
 --- document's module, else in the places of the module's file ([`source.places`]). nil where it declares none, or the
 --- working database lists no such module.
 local function place_of(request: Request, module: string, symbol: string): Site?
+  -- A type declared where no other module can name it is the module and `@` and the id of its node ([`lang.declarations`]).
+  local home, id = module:match("^(.*)@(%d+)$")
+  if home ~= nil and id ~= nil then
+    if home ~= request.here.module then return nil end
+    local number = math.tointeger(id) or 0
+    local nodes: mut {integer:{string:Places.Found}} = {}
+    for key, kept in pairs(request.nested or {}) do nodes[key] = kept end
+    local table_of = nodes[number]
+    if table_of == nil then
+      local built: mut {string:Places.Found} = {}
+      for _, found in ipairs(Places.within(request.outcome.chunk, number)) do
+        if built[found.symbol] == nil then built[found.symbol] = found end
+      end
+      table_of = built
+      nodes[number] = built
+      request.nested = nodes
+    end
+    local found = table_of[symbol]
+    if found == nil then return nil end
+    return site_of_token(request, found.token)
+  end
   if module == request.here.module then
     local own = request.own
     if own == nil then
@@ -113,13 +140,28 @@ local function place_of(request: Request, module: string, symbol: string): Site?
   if placed == nil then return nil end
   local spot = placed.spots[symbol]
   if spot == nil then return nil end
-  local starts = lines.checker_starts(placed.text)
-  local start = starts[spot.line]
+  local uri: string
+  if placed.carried ~= nil then
+    local extracted = source.extracted(checker.source, placed)
+    if extracted == nil then return nil end
+    uri = protocol.uri_of(extracted)
+  else
+    uri = protocol.uri_of(checker.root .. "/" .. placed.file)
+    local opened = checker.open[placed.file]
+    if opened ~= nil then uri = opened.uri end
+  end
+  if spot.plain then
+    local character = spot.column - 1
+    local range = protocol.range({ line = spot.line - 1, character = character },
+      { line = spot.line - 1, character = character + spot.length })
+    return { place = { module = module, original = "", splices = {}, uri = uri }, offset = 0, length = spot.length,
+      range = range }
+  end
+  local text = placed.text()
+  if text == nil then return nil end
+  local start = lines.checker_starts(text)[spot.line]
   if start == nil then return nil end
-  local uri = protocol.uri_of(checker.root .. "/" .. placed.file)
-  local opened = checker.open[placed.file]
-  if opened ~= nil then uri = opened.uri end
-  return { place = { module = module, original = placed.text, splices = {}, uri = uri },
+  return { place = { module = module, original = text, splices = {}, uri = uri },
     offset = start + spot.column - 1, length = spot.length }
 end
 
@@ -245,6 +287,11 @@ local function target(request: Request, tok: integer): Site?
     local decl = decl_of_type(types[leaf.object.id])
     if decl == nil then return nil end
     return member_site(request, decl, leaf.name)
+  elseif leaf.kind == "String" then
+    -- The enum a string literal was read as is the type the report keeps for it.
+    local decl = decl_of_type(types[leaf.id])
+    if decl == nil or decl.kind ~= "enum" then return nil end
+    return place_of(request, decl.module, decl.name .. "." .. leaf.value)
   elseif leaf.kind == "Named" and tok == leaf.first and parent ~= nil and parent.kind == "Table" then
     local decl = decl_of_type(types[parent.id])
     if decl == nil then return nil end
@@ -255,6 +302,7 @@ end
 
 --- The range of `site`, in the units of the session's encoding, in the text the person has.
 local function range_of(request: Request, site: Site): protocol.Range
+  if site.range ~= nil then return site.range end
   local place = site.place
   local first = site.offset
   local last = first + math.max(site.length, 1) - 1

@@ -16,6 +16,7 @@ local reboot = require("build.reboot")
 local tree = require("build.tree")
 local session_fixture = require("build.lsp.session_fixture")
 local source = require("build.lsp.source")
+local syntax_read = require("build.lsp.syntax_read")
 local work = require("build.work")
 
 local change, changed_on_disk, close = session_fixture.change, session_fixture.changed_on_disk,
@@ -302,6 +303,34 @@ local function test_a_database_of_another_schema_is_let_go_of()
   source.stale(src)
   source.refresh(src)
   assert(not holds(src), "a handle on a database of another schema is kept")
+  source.close(src)
+end
+
+--- A stage that refused a pair is told of it by the files of the pair, whichever of the two is asked, and by no other file;
+--- a pair under `testdata/` is a fixture of a test, no part of the program, and is told nothing. The stage that staged
+--- clears it.
+local function test_a_refused_pair_is_told_to_its_files_and_to_no_testdata()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.mkdirs(root .. "/testdata"))
+  local text = "local record M\n  n: integer\nend\nreturn M\n"
+  for _, dir in ipairs({ "lib", "testdata" }) do
+    assert(Fs.write(root .. "/" .. dir .. "/m.d.tl", text))
+    assert(Fs.write(root .. "/" .. dir .. "/m.tl", text))
+  end
+  assert(Fs.write(root .. "/lib/other.tl", "local n: integer = 1\nreturn n\n"))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  assert(source.refused(src), "the stage staged a pair")
+  local told = source.refusal(src, "lib/m.tl")
+  assert(told ~= nil and told:find("lib/m.d.tl: lib/m.tl is already the module lib.m.", 1, true) == 1, tostring(told))
+  assert(source.refusal(src, "lib/m.d.tl") == told)
+  assert(source.refusal(src, "lib/other.tl") == nil)
+  assert(source.refusal(src, "testdata/m.tl") == nil and source.refusal(src, "testdata/m.d.tl") == nil)
+  assert(Fs.remove(root .. "/lib/m.d.tl"))
+  source.stale(src)
+  source.refresh(src)
+  assert(not source.refused(src) and source.refusal(src, "lib/m.tl") == nil)
   source.close(src)
 end
 
@@ -709,7 +738,7 @@ local function test_the_places_of_a_staged_module_are_read_from_the_database_and
   local src = source.new(root, function(_: string) end)
   source.refresh(src)
   local placed = assert(source.places(src, "lib.point", none_open))
-  assert(placed.file == "lib/point.tl" and placed.text == POINT)
+  assert(placed.file == "lib/point.tl" and placed.text() == POINT)
   local x, corner, origin = assert(placed.spots["point.x"]), assert(placed.spots["point.Corner"]),
     assert(placed.spots["point.origin"])
   assert(x.line == 2 and x.column == 3 and x.length == 1)
@@ -730,6 +759,65 @@ local function test_the_places_of_a_staged_module_are_read_from_the_database_and
   source.close(again)
 end
 
+--- A header in the syscall grammar: `read` is declared on line 8.
+local SYSCALLS_H <const> = table.concat({
+  "/*",
+  " * --- Reads bytes.",
+  " * ---@param fd integer descriptor",
+  " * ---@return string|nil data bytes",
+  " * ---@return string error failure",
+  " * ---@return integer errno number",
+  " */",
+  "COSMIC_SYSCALL(read, 1);",
+  "",
+}, "\n") .. "\n"
+
+--- A project that is cosmic's own tree, with the header [`cosmic.sys`] is generated from staged.
+local function own_tree_with_header(header?: string): string, string
+  local root = project()
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.write(root .. "/core/syscalls.h", header or SYSCALLS_H))
+  local built = assert(tree.built_from(root))
+  return root, built
+end
+
+--- A field named like an annotation tag is found at its name, not at the tag on the same line.
+local function test_a_generated_places_column_skips_the_annotation_tag_of_the_same_name()
+  local header = table.concat({
+    "/*", " * ---@class Constants", " * ---@field field integer a constant", " */", "COSMIC_CONSTANT(field)", "",
+    "/*", " * --- Reads bytes.", " * ---@param fd integer descriptor", " * ---@return string|nil data bytes",
+    " * ---@return string error failure", " * ---@return integer errno number", " */", "COSMIC_SYSCALL(read, 1);", "",
+  }, "\n")
+  local root, built = own_tree_with_header(header)
+  local src = source.new(root, function(_: string) end, built)
+  source.refresh(src)
+  local spot = assert(assert(source.places(src, "cosmic.sys", none_open)).spots["sys.field"])
+  assert(spot.line == 3 and spot.column == 14 and spot.length == 5,
+    tostring(spot.line) .. ":" .. tostring(spot.column) .. ":" .. tostring(spot.length))
+  source.close(src)
+end
+
+--- A module generated from a header has the places its `-- line` map names, at the lines of the header, in the header's
+--- text and file: the generated source's own lines say nothing of it.
+local function test_the_places_of_a_generated_module_are_the_headers_and_at_its_lines()
+  local root, built = own_tree_with_header()
+  local src = source.new(root, function(_: string) end, built)
+  source.refresh(src)
+  local placed = assert(source.places(src, "cosmic.sys", none_open))
+  assert(placed.file == "core/syscalls.h" and placed.text() == SYSCALLS_H, placed.file)
+  local read = assert(placed.spots["sys.read"])
+  assert(read.line == 8 and read.column == 16 and read.length == 4,
+    tostring(read.line) .. ":" .. tostring(read.column) .. ":" .. tostring(read.length))
+  -- A symbol the map does not name has no place, and nothing is derived for the module.
+  assert(placed.spots["sys"] == nil and placed.spots["sys.missing"] == nil and src.tally.derived == 0)
+  -- An open document of the header is not read: the rows are the staged header's.
+  local edited = assert(source.places(src, "cosmic.sys", open_with("core/syscalls.h", "// edited\n" .. SYSCALLS_H)))
+  assert(edited.text() == SYSCALLS_H and assert(edited.spots["sys.read"]).line == 8)
+  source.close(src)
+end
+
 --- An open document the same as the staged file is the staged file; an edited one is derived once, into the scratch database.
 local function test_the_places_of_an_open_module_are_derived_only_where_it_differs_from_the_staged_file()
   local root = project()
@@ -742,7 +830,7 @@ local function test_the_places_of_an_open_module_are_derived_only_where_it_diffe
   local edited = "-- moved down\n\n" .. POINT
   for _ = 1, 3 do
     local placed = assert(source.places(src, "lib.point", open_with("lib/point.tl", edited)))
-    assert(placed.text == edited and assert(placed.spots["point.x"]).line == 4)
+    assert(placed.text() == edited and assert(placed.spots["point.x"]).line == 4)
   end
   assert(src.tally.derived == 1, tostring(src.tally.derived))
   -- The file as staged is still what the rows say.
@@ -835,6 +923,37 @@ local function test_an_edited_buffer_is_derived_into_the_scratch_database_alone(
   assert(assert(placed.spots["point.x"]).line == 5 and src.tally.derived == 2, tostring(src.tally.derived))
   assert(rows_of(scratch, "places", hash) == 0 and rows_of(scratch, "parsed", hash) == 0)
   assert(rows_of(scratch, "places", Hash.hex_sha256(again)) > 0)
+  source.close(src)
+end
+
+--- The members of a staged module are read from `build.db` and derived nowhere; an edited buffer's are derived once into the
+--- scratch database with the docs of its text, and the rows of the text before an edit go with it.
+local function test_the_members_of_a_module_are_read_from_the_database_or_derived_once_and_forgotten_on_an_edit()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local staged = assert(source.members(src, "lib.point", none_open))
+  assert(src.tally.derived == 0 and staged["point"] ~= nil and assert(staged["point"]).kind == "record")
+  local first = assert(assert(staged["point"]).members[1])
+  assert(first.name == "x" and first.type == "integer" and first.kind == "field")
+  assert(source.members(src, "lib.missing", none_open) == nil)
+  local edited = "--- Edited.\n" .. POINT:gsub("local record point\n", "local record point\n  --- The x.\n", 1)
+  local hash = Hash.hex_sha256(edited)
+  for _ = 1, 2 do
+    local held = assert(source.members(src, "lib.point", open_with("lib/point.tl", edited)))
+    assert(assert(assert(held["point"]).members[1]).doc == "The x.")
+  end
+  assert(src.tally.derived == 1, tostring(src.tally.derived))
+  local scratch = assert(src.scratch)
+  assert(rows_of(scratch, "members", hash) > 0 and rows_of(assert(src.db), "members", hash) == 0)
+  local again = edited .. "\n"
+  assert(source.members(src, "lib.point", open_with("lib/point.tl", again)) ~= nil)
+  assert(rows_of(scratch, "members", hash) == 0 and rows_of(scratch, "docs", hash) == 0, "the rows of the earlier text go")
+  assert(rows_of(scratch, "members", Hash.hex_sha256(again)) > 0)
+  -- A text that does not parse has no members, as it has no parse.
+  assert(source.members(src, "lib.point", open_with("lib/point.tl", "local record point\n  x: \n")) == nil)
   source.close(src)
 end
 
@@ -952,5 +1071,220 @@ local function test_a_broken_buffer_that_is_fixed_is_derived_whole()
   assert(rows_of(scratch, "parsed", Hash.hex_sha256(fixed)) == 1)
   assert(rows_of(scratch, "places", Hash.hex_sha256(fixed)) > 0)
   assert(rows_of(scratch, "places", Hash.hex_sha256(broken)) == 0)
+  source.close(src)
+end
+
+local THING <const> = "--- A thing.\nlocal record thing\n  size: integer\nend\nfunction thing.make()\nend\nreturn thing\n"
+
+--- A database as the tool carries one, holding the module `cosmic.thing` and its places, a module with none, and the
+--- module [`cosmic.sys`] of a tool whose generated module has none.
+local function carrying(): Sqlite.Handle
+  local db = session_fixture.carrying("cosmic.thing", "cosmic/thing.tl", THING, {
+    { "thing", "type", "2", "14", "5", "1" }, { "thing.size", "field", "3", "3", "4", "1" }, { "thing.make", "field", "5", "16", "4", "1" },
+  })
+  assert(db:exec("INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
+      "VALUES ('cosmic.bare', 'cosmic/bare.tl', 'module', CAST('ab' AS BLOB), x'00', x'00', '', deflate('return 1'))"))
+  return db
+end
+
+--- The places of a module of the binary are read from the `places` and the `modules` of the database the tool carries, in
+--- the text it carries; a name that is no module of the standard library, a module with no places, and a database that
+--- lacks the table (a tool from before it) have none.
+local function test_the_places_of_a_binary_module_are_read_from_the_database_the_tool_carries()
+  local db = carrying()
+  local src = source.new(project(), function(_: string) end, nil, { db })
+  local placed = assert(source.places(src, "cosmic.thing", none_open))
+  assert(placed.file == "cosmic/thing.tl" and placed.text() == THING, placed.text())
+  assert(placed.carried == Hash.hex_sha256(THING), tostring(placed.carried))
+  local size = assert(placed.spots["thing.size"])
+  assert(size.line == 3 and size.column == 3 and size.length == 4)
+  assert(assert(placed.spots["thing"]).column == 14 and placed.spots["thing.none"] == nil)
+  assert(source.places(src, "cosmic.missing", none_open) == nil, "a module the database lacks")
+  assert(source.places(src, "cosmic.bare", none_open) == nil, "a module with no places")
+  assert(source.places(src, "lib.thing", none_open) == nil, "a name outside the standard library")
+  assert(db:exec("DROP TABLE places"))
+  local bare = source.new(project(), function(_: string) end, nil, { db })
+  assert(source.places(bare, "cosmic.thing", none_open) == nil, "a tool with no places table")
+  assert(db:exec("DROP TABLE modules"))
+  assert(source.places(bare, "cosmic.thing", none_open) == nil, "a database with no modules table")
+  assert(source.places(source.new(project(), function(_: string) end, nil, {}), "cosmic.thing", none_open) == nil,
+    "no database")
+  assert(db:close())
+end
+
+--- In a project, which the working database lists no `cosmic.*` module of, the places of a module of the binary are the
+--- tool's own and are put in a read-only file below the build directory, once for a text and named for it. A module the
+--- tool carries no places of has none.
+local function test_a_binary_module_of_a_project_is_placed_in_a_file_the_build_directory_owns()
+  local root = project()
+  local db = carrying()
+  local src = source.new(root, function(_: string) end, nil, { db })
+  source.refresh(src)
+  local placed = assert(source.places(src, "cosmic.thing", none_open))
+  assert(assert(placed.spots["thing.make"]).line == 5 and placed.file == "cosmic/thing.tl")
+  local directory = build_paths.under((assert(build_paths.directory(root)))).cosmic_source
+  local path = assert(source.extracted(src, placed))
+  assert(path == directory .. "/" .. Hash.hex_sha256(THING) .. "/cosmic/thing.tl", path)
+  assert(Fs.read(path) == THING)
+  assert(assert(Fs.stat(path)).mode & 0x1ff == 0x124, "the file is read-only")
+  assert(source.extracted(src, placed) == path, "a second ask names the same file")
+  assert(Fs.write(path, "tampered", 0x1a4))
+  assert(source.extracted(src, placed) == path)
+  assert(Fs.read(path) == THING and assert(Fs.stat(path)).mode & 0x1ff == 0x124, "a changed file is written again")
+  -- The places of a module are kept by its hash: the database is read for the hash alone, and read whole when it moves.
+  local again = assert(source.places(src, "cosmic.thing", none_open))
+  assert(rawequal(again, placed), "the places are kept")
+  assert(db:exec("UPDATE modules SET source_hash = CAST('cd' AS BLOB) WHERE path = 'cosmic.thing'"))
+  local moved = assert(source.places(src, "cosmic.thing", none_open))
+  assert(not rawequal(moved, placed) and moved.carried == "cd", "a module with another hash is read again")
+  assert(source.places(src, "cosmic.sys", none_open) == nil)
+  assert(source.places(src, "cosmic.bare", none_open) == nil)
+  source.close(src)
+  assert(db:close())
+end
+
+--- A module whose first line holds non-ASCII before its type's name, and whose later lines are ASCII.
+local WIDE <const> = 'local s = "é😀" local record point\n  x: integer\nend\nreturn point\n'
+
+--- A place on an ASCII line is put in the protocol's units without the module's text, which is read, once, only for a place
+--- on a line that holds non-ASCII or follows an "\n\r" (the lexer counts it as one break, the protocol as two).
+local function test_a_place_on_an_ascii_line_is_answered_without_reading_the_text()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", WIDE))
+  assert(Fs.write(root .. "/lib/crlf.tl", "-- a\n\rlocal record crlf\n  x: integer\nend\nreturn crlf\n"))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local placed = assert(source.places(src, "lib.point", none_open))
+  local record, field = assert(placed.spots["point"]), assert(placed.spots["point.x"])
+  assert(not record.plain and field.plain, "the line of the type holds non-ASCII, the field's does not")
+  assert(src.tally.texts_read == 0, tostring(src.tally.texts_read))
+  assert(placed.text() == WIDE and placed.text() == WIDE and src.tally.texts_read == 1, tostring(src.tally.texts_read))
+  local doubled = assert(source.places(src, "lib.crlf", none_open))
+  assert(not assert(doubled.spots["crlf"]).plain and not assert(doubled.spots["crlf.x"]).plain,
+    "the lines after an \"\\n\\r\" are numbered another way by the protocol")
+  -- An edited open document is derived with the flag, and its text is the document's: none is read.
+  local edited = assert(source.places(src, "lib.point", open_with("lib/point.tl", "-- é\n" .. WIDE)))
+  assert(assert(edited.spots["point.x"]).plain and not assert(edited.spots["point"]).plain)
+  assert(src.tally.texts_read == 1, tostring(src.tally.texts_read))
+  source.close(src)
+end
+
+--- The stub of an edited open document is the `stubs` row of its text in the scratch database, made once: none is made
+--- here of the text, and the rows of a document that is the staged file's are the database's.
+local function test_the_stub_of_an_edited_open_document_is_read_from_the_scratch_database()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  assert(source.served(src, "lib.shapes", open_with("lib/shapes.tl", THREE)) ~= nil)
+  assert(src.tally.scratch_stubs == 0 and src.tally.database_stubs == 1 and next(src.made) == nil)
+  local edited = open_with("lib/shapes.tl", STRINGS)
+  for _ = 1, 3 do
+    local stub = assert(source.served(src, "lib.shapes", edited))
+    assert(stub.text:find("string", 1, true) ~= nil, stub.text)
+  end
+  assert(src.tally.scratch_stubs == 3 and src.tally.derived == 1 and next(src.made) == nil,
+    tostring(src.tally.scratch_stubs) .. "," .. tostring(src.tally.derived))
+  assert(rows_of(assert(src.scratch), "stubs", Hash.hex_sha256(STRINGS)) == 1)
+  -- A text that does not parse has no row to read, and no stub: the source is served.
+  local broken = assert(source.served(src, "lib.shapes", open_with("lib/shapes.tl", "local record shapes\n")))
+  assert(broken.text == "local record shapes\n" and next(src.made) == nil, "parsed once, and not again for a stub")
+  source.close(src)
+end
+
+--- What an open document requires is read of the rows of its text: the scratch database's where it was edited, `build.db`'s
+--- where it is the staged file, and none where its text does not parse, a declaration or a template.
+local function test_what_an_open_document_requires_is_read_from_the_rows_of_its_text()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
+  local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
+  assert(Fs.write(root .. "/main.tl", main))
+  assert(Fs.write(root .. "/lib/decl.d.tl", "local record decl\n  sides: integer\nend\nreturn decl\n"))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local found = assert(source.module(src, "main.tl"))
+  local staged = assert(source.requires_of(src, found, main, Hash.hex_sha256(main)))
+  assert(table.concat(staged, ",") == "lib.shapes" and src.tally.scratch_requires == 0 and src.tally.derived == 0)
+  local more = 'local decl = require("lib.decl")\n' .. main
+  local edited = assert(source.requires_of(src, found, more, Hash.hex_sha256(more)))
+  assert(table.concat(edited, ",") == "lib.decl,lib.shapes" and src.tally.scratch_requires == 1, table.concat(edited, ","))
+  assert(source.requires_of(src, found, "local x =\n", Hash.hex_sha256("local x =\n")) == nil, "a text that does not parse")
+  assert(source.requires_of(src, assert(source.module(src, "lib/decl.d.tl")), more, Hash.hex_sha256(more)) == nil,
+    "a declaration is required by no one")
+  source.close(src)
+end
+
+--- A session serves an edited open document to its dependents as its scratch stub, and keeps what it requires from the rows
+--- of its text: a dependent sees its new exports at each edit, and no stub is made of its text here.
+local function test_a_session_serves_an_edited_open_document_from_its_scratch_rows()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
+  local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
+  assert(Fs.write(root .. "/main.tl", "return 1\n"))
+  local send = serving(root)
+  local ran = send({ initialize(root), open(root, "main.tl", main), open(root, "lib/shapes.tl", STRINGS),
+    change(root, "main.tl", main) })
+  local first = publications(ran)
+  assert(#assert(first[#first]).diagnostics == 1, "main reads the string the edited document exports")
+  local after = send({ change(root, "lib/shapes.tl", FOUR), change(root, "main.tl", main) })
+  local second = publications(after)
+  assert(#assert(second[#second]).diagnostics == 0, "main reads the integer the document exports now")
+  local tally = after.tally
+  assert(tally.scratch_stubs >= 2 and tally.scratch_stubs == tally.made_stubs and tally.scratch_requires >= 3,
+    tostring(tally.made_stubs) .. "," .. tostring(tally.scratch_stubs) .. "," .. tostring(tally.scratch_requires))
+end
+
+--- A text a quiet ask (a stub, the requires) cannot derive is not marked as derived: a later ask for its places derives it,
+--- and says why where its rows fail to write, which a quiet ask did not.
+local function test_a_text_a_quiet_ask_could_not_derive_is_derived_for_the_places_that_ask_later()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
+  local said: mut {string} = {}
+  local src = source.new(root, function(line: string) said[#said + 1] = line end)
+  source.refresh(src)
+  local found = assert(source.module(src, "lib/shapes.tl"))
+  local broken = "local record shapes\n  sides: integer\n"
+  local refused = 'local Test = require("cosmic.test")\nlocal function f() Test.policy{} end\nreturn {}\n'
+  for _, text in ipairs({ broken, refused }) do
+    local opened = open_with("lib/shapes.tl", text)
+    for _ = 1, 2 do
+      assert(source.served(src, "lib.shapes", opened) ~= nil)
+      assert(source.requires_of(src, found, text, Hash.hex_sha256(text)) == nil or text == refused)
+    end
+    assert(src.scratched["lib/shapes.tl"] == nil and #said == 0, "a quiet ask marks and says nothing")
+  end
+  assert(src.tally.derived == 0, tostring(src.tally.derived))
+  -- The places of the text that does not parse are those the parser recovered.
+  local placed = assert(source.places(src, "lib.shapes", open_with("lib/shapes.tl", broken)))
+  assert(assert(placed.spots["shapes.sides"]).line == 2 and src.tally.derived == 1 and #said == 0)
+  -- The one the analysis refuses is said at the first ask for its places, and answers none.
+  local none = assert(source.places(src, "lib.shapes", open_with("lib/shapes.tl", refused)))
+  assert(next(none.spots) == nil and #said == 1 and said[1]:find("deriving lib/shapes.tl", 1, true) ~= nil, table.concat(said, "\n"))
+  source.close(src)
+end
+
+--- The names the rows of a text give as its requires are the names the check reads of its syntax tree, for the forms of a
+--- `require` the tree knows: both are [`build.syntax_node.require_sites`] of one parse of the text, so they cannot differ.
+local function test_the_requires_rows_of_a_text_are_the_names_the_check_reads_of_its_tree()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local found = assert(source.module(src, "lib/shapes.tl"))
+  local text = table.concat({
+    'local b = require("lib.b")', 'local a = require("lib.a")', 'local again = require("lib.b")',
+    'local ok, c = pcall(require, "lib.c")', 'local type T = require("lib.d")', "return {}", "",
+  }, "\n")
+  local planned = syntax_read.plan_of("lib/shapes.tl", text, "lib.shapes", "module", false, false)
+  local read: mut {string} = {}
+  for _, site in ipairs(planned.requires) do read[#read + 1] = site.name end
+  local rows = assert(source.requires_of(src, found, text, Hash.hex_sha256(text)))
+  assert(#read == 4 and table.concat(rows, ",") == table.concat(read, ","), table.concat(rows, ",") .. " / " .. table.concat(read, ","))
   source.close(src)
 end

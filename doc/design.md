@@ -400,6 +400,11 @@ input to the build, never to the runtime. one database holds:
   which types it the same in a fraction of the time and loads fewer
   modules; cosmic's own build refuses a stub whose type differs from
   its source's.
+- **places**: the tool's alone, where each standard-library module
+  declares its types and their members, by dotted symbol, as lines and
+  columns of the source `modules` holds (build/syntax_places.tl). `cosmic
+  lsp` answers a go to definition of a `cosmic.*` symbol in a project from
+  it, with the module's text written below the build directory.
 - **docs**: one row per symbol a module declares at its top level --
   the module itself, each function, each record, enum or alias and
   every field and value under it, and each documented value -- with
@@ -691,9 +696,10 @@ identity holds the modules that decide generated code, stored analysis and
 acceptance, plus the checker's source and the Teal compiler's and Lua's
 pins and Lua's patches ([`build.identity.compiler_identity`]). module keys carry it; importer
 coordination, diagnostic presentation and general standard-library plumbing
-stay outside it. the analyzer identity keys stored parses and includes that
-compiler identity plus the analyzer modules' sources
-([`build.importer.analyzer_identity`]). the writer identity holds the code and
+stay outside it. the analyzer identity keys stored parses: the runtime basis,
+the analyzer modules' sources and the code that reads
+([`build.importer.analyzer_identity`]), not the whole compiler identity, so an
+edit only a compile runs (build.plans) parses nothing again. the writer identity holds the code and
 core image that determine a projection's bytes, including its standard-library
 dependencies. the projection records which compiler and writer produced it so a
 self-rebuild can settle on its own code. the runtime basis holds the same pins, patches

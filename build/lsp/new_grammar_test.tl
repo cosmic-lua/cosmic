@@ -180,11 +180,13 @@ local function test_a_module_in_the_new_grammar_on_disk_is_staged_and_read()
   assert(ran.tally.database_stubs == 1, tostring(ran.tally.database_stubs))
 end
 
---- An open module's stub is made here from the new parser: the fork's cannot read the module, and serves it whole.
+--- An open module that was edited has its stub made here from the new parser (the scratch database's row): the fork's cannot
+--- read the module, and serves it whole.
 local function test_an_open_module_in_the_new_grammar_is_served_as_a_stub_made_here()
   local root = project()
   assert(Fs.write(root .. "/helper.tl", HELPER))
-  local ran = served(root, { initialize(root), open(root, "helper.tl", HELPER), open(root, "main.tl", MAIN) })
+  local ran = served(root, { initialize(root), open(root, "helper.tl", HELPER .. "-- edited\n"),
+    open(root, "main.tl", MAIN) })
   assert(counts(ran) == "0,0", counts(ran) .. messages_of(nth(ran, 2)))
   assert(ran.tally.made_stubs == 1, tostring(ran.tally.made_stubs))
 end

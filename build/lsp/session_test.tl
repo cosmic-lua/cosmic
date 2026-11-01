@@ -5,6 +5,7 @@
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Shape = require("cosmic.shape")
@@ -12,6 +13,7 @@ local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local build_paths = require("build.paths")
+local tree = require("build.tree")
 local docs_fixture = require("build.docs_fixture")
 local session = require("build.lsp.session")
 local session_fixture = require("build.lsp.session_fixture")
@@ -158,14 +160,19 @@ local function defined(ran: Ran, id: integer): Located?
   return assert(DEFINITION_SENT:decode_into(answer(ran, id))).result
 end
 
---- Asserts that `found` is in the file `name` below `root`, on `line` from character `from` up to `to`.
-local function assert_located(found: Located?, root: string, name: string, line: integer, from: integer, to: integer)
+--- Asserts that `found` is in the file at `path`, on `line` from character `from` up to `to`.
+local function assert_located_at(found: Located?, path: string, line: integer, from: integer, to: integer)
   local where = assert(found, "no definition")
-  assert(where.uri == "file://" .. root .. "/" .. name, where.uri)
+  assert(where.uri == "file://" .. path, where.uri)
   local start, finish = assert(where.range["start"]), assert(where.range["end"])
   local got = tostring(start.line) .. ":" .. tostring(start.character) .. "-" .. tostring(finish.line) .. ":" ..
     tostring(finish.character)
   assert(got == tostring(line) .. ":" .. tostring(from) .. "-" .. tostring(line) .. ":" .. tostring(to), got)
+end
+
+--- Asserts that `found` is in the file `name` below `root`, on `line` from character `from` up to `to`.
+local function assert_located(found: Located?, root: string, name: string, line: integer, from: integer, to: integer)
+  assert_located_at(found, root .. "/" .. name, line, from, to)
 end
 
 local function test_definition_is_advertised()
@@ -342,6 +349,69 @@ local function test_definition_of_a_member_is_found_through_a_class_an_interface
   assert_located(defined(ran, 5), root, "main.tl", 19, 2, 3)
 end
 
+--- Two records of one name, declared in two function bodies: a field of each is its own.
+local function test_definition_of_a_field_of_a_type_declared_in_a_function_body_is_its_own()
+  local root = session_fixture.project()
+  local text = 'local function a(): integer\n  local record P\n    x: integer\n  end\n  local p: P = { x = 1 }\n' ..
+    '  return p.x\nend\nlocal function b(): string\n  local record P\n    y: string\n  end\n' ..
+    '  local p: P = { y = "s" }\n  return p.y\nend\nreturn { a, b }\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    -- `x` of `p.x`, `x` of the table, `P` of `p: P`, then the same of the second function.
+    at(2, "textDocument/definition", root, "main.tl", 5, 11),
+    at(3, "textDocument/definition", root, "main.tl", 4, 17),
+    at(4, "textDocument/definition", root, "main.tl", 4, 11),
+    at(5, "textDocument/definition", root, "main.tl", 12, 11),
+    at(6, "textDocument/definition", root, "main.tl", 11, 17),
+    at(7, "textDocument/definition", root, "main.tl", 11, 11),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 2, 4, 5)
+  assert_located(defined(ran, 3), root, "main.tl", 2, 4, 5)
+  assert_located(defined(ran, 4), root, "main.tl", 1, 15, 16)
+  assert_located(defined(ran, 5), root, "main.tl", 9, 4, 5)
+  assert_located(defined(ran, 6), root, "main.tl", 9, 4, 5)
+  assert_located(defined(ran, 7), root, "main.tl", 8, 15, 16)
+end
+
+--- A method a `function P.f` statement adds to a type of a function body, and a value of such a type a function returns.
+local function test_definition_of_a_method_added_to_a_type_declared_in_a_function_body()
+  local root = session_fixture.project()
+  local text = 'local function make(): integer\n  local record P\n    x: integer\n  end\n' ..
+    '  function P.f(self: P): integer\n    return self.x\n  end\n  local p: P = { x = 1 }\n' ..
+    '  return p:f()\nend\nreturn make\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 8, 12),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 4, 13, 14)
+end
+
+--- The checker cannot name a type of a function body in a signature, so a function cannot return one: the uses of such a
+--- type are in the body, in a function nested in it among them.
+local function test_definition_of_a_field_of_a_body_local_type_in_a_nested_function()
+  local root = session_fixture.project()
+  local text = 'local function make(): integer\n  local record P\n    x: integer\n  end\n' ..
+    '  local function get(p: P): integer\n    return p.x\n  end\n  return get({ x = 1 })\nend\nreturn make\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 5, 13),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 2, 4, 5)
+end
+
+--- A string where an enum is expected stands for one of its values, which a person can go to.
+local function test_definition_of_a_string_literal_is_the_enum_value_it_stands_for()
+  local root = session_fixture.project()
+  local text = 'local enum Color\n  "red"\n  "green"\nend\nlocal function paint(c: Color): Color\n  return c\nend\n' ..
+    'local _ = paint("green")\nlocal _ = paint("red")\nlocal function inner(): string\n  local enum E\n    "a"\n  end\n' ..
+    '  local e: E = "a"\n  return e\nend\nreturn { paint, inner }\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 7, 18),
+    at(3, "textDocument/definition", root, "main.tl", 8, 18),
+    at(4, "textDocument/definition", root, "main.tl", 13, 16),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 2, 2, 9)
+  assert_located(defined(ran, 3), root, "main.tl", 1, 2, 7)
+  assert_located(defined(ran, 4), root, "main.tl", 11, 4, 7)
+end
+
 --- A build rewrites a document's text where it calls [`Shape.record_of`], which moves every byte after the call: a place
 --- after one is still the place in the text as written.
 local function test_definition_after_a_record_shape_call_counts_the_text_as_written()
@@ -394,6 +464,52 @@ local function test_definition_in_another_module_is_read_from_the_places_the_sta
   end)
   assert_located(defined(ran, 3), root, "lib/point.tl", 0, 13, 18)
   assert(ran.tally.derived == 0, tostring(ran.tally.derived))
+end
+
+--- A place on an ASCII line of a module is answered without reading the module's text; one after non-ASCII on its line is
+--- counted in the encoding's units, which needs it.
+local function test_definition_reads_the_text_of_a_module_only_for_a_line_with_non_ascii()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", "local record point\n  x: integer\nend\nreturn point\n"))
+  -- `x` stands after "é" (one UTF-16 unit, two bytes) and "😀" (two units, four bytes) of a string on its line.
+  assert(Fs.write(root .. "/lib/wide.tl", 'local s = "é😀" local record wide x: integer end\nreturn wide\n'))
+  local uses = 'local point = require("lib.point")\nlocal p: point = { x = 1 }\nlocal _ = p.x\n'
+  local ascii = served(root, { initialize(root), open(root, "main.tl", uses),
+    at(2, "textDocument/definition", root, "main.tl", 2, 12),
+  })
+  assert_located(defined(ascii, 2), root, "lib/point.tl", 1, 2, 3)
+  assert(ascii.tally.texts_read == 0, tostring(ascii.tally.texts_read))
+  local reads = 'local wide = require("lib.wide")\nlocal w: wide = { x = 1 }\nlocal _ = w.x\n'
+  local wide = served(root, { initialize(root), open(root, "main.tl", reads),
+    at(2, "textDocument/definition", root, "main.tl", 2, 12),
+  })
+  -- UTF-16: 11 + 1 + 2 + 2 + 18 characters before `x`; in bytes, 11 + 2 + 4 + 2 + 18.
+  assert_located(defined(wide, 2), root, "lib/wide.tl", 0, 34, 35)
+  assert(wide.tally.texts_read == 1, tostring(wide.tally.texts_read))
+  local bytes = served(root, { initialize(root, '{"general":{"positionEncodings":["utf-8"]}}'),
+    open(root, "main.tl", reads), at(2, "textDocument/definition", root, "main.tl", 2, 12),
+  })
+  assert_located(defined(bytes, 2), root, "lib/wide.tl", 0, 37, 38)
+end
+
+--- A symbol of a module generated from a header is defined in the header, at the name on the line the map gives.
+local function test_definition_of_a_symbol_of_a_generated_module_is_in_the_header()
+  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.write(root .. "/core/syscalls.h", table.concat({
+    "/*", " * --- Reads bytes.", " * ---@param fd integer descriptor", " * ---@return string|nil data bytes",
+    " * ---@return string error failure", " * ---@return integer errno number", " */",
+    "COSMIC_SYSCALL(read, 1);", "",
+  }, "\n") .. "\n"))
+  local built = assert(tree.built_from(root))
+  local text = 'local sys = require("cosmic.sys")\nlocal _ = sys.read\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 1, 14),
+  }, nil, built)
+  assert_located(defined(ran, 2), root, "core/syscalls.h", 7, 15, 19)
 end
 
 --- An open module is parsed only where the person has edited it, and once for a text.
@@ -470,6 +586,41 @@ local function test_definition_counts_utf16_units_or_bytes_as_negotiated()
     open(root, "main.tl", text), at(2, "textDocument/definition", root, "main.tl", 1, 22),
   })
   assert_located(defined(narrow, 2), root, "main.tl", 0, 6, 11)
+end
+
+--- A symbol of the binary's own `cosmic.*` modules, which the project's database does not list, is where the tool's
+--- places say, in a read-only file below the build directory that holds the module's text. The tests' sealed databases
+--- carry no places, so the tool's are given as the session's `store`.
+local function test_definition_of_a_binary_module_s_field_is_the_file_extracted_from_the_tool()
+  local root = session_fixture.project()
+  local text = 'local Fs = require("cosmic.fs")\nlocal _ = Fs.read\nlocal t: Fs.Staged? = nil\n'
+  local carried = "--- Files.\nlocal Fs = {}\nfunction Fs.read() end\nlocal record Fs.Staged\nend\nreturn Fs\n"
+  local db = session_fixture.carrying("cosmic.fs", "cosmic/fs.tl", carried,
+    { { "Fs.read", "field", "3", "13", "4", "1" }, { "Fs.Staged", "type", "4", "17", "6", "1" } })
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 1, 15),
+    at(3, "textDocument/definition", root, "main.tl", 2, 12),
+    -- `Fs` of [`Fs.read`], a binding of the project.
+    at(4, "textDocument/definition", root, "main.tl", 1, 11),
+  }, { db })
+  local directory = build_paths.under((assert(build_paths.directory(root)))).cosmic_source
+  local file = directory .. "/" .. Hash.hex_sha256(carried) .. "/cosmic/fs.tl"
+  assert_located_at(defined(ran, 2), file, 2, 12, 16)
+  assert_located_at(defined(ran, 3), file, 3, 16, 22)
+  assert_located(defined(ran, 4), root, "main.tl", 0, 6, 8)
+  assert(Fs.read(file) == carried and assert(Fs.stat(file)).mode & 0x1ff == 0x124, "the file holds the text, read-only")
+  assert(db:close())
+end
+
+--- A tool whose database lists no places (one from before the table) answers none.
+local function test_definition_of_a_binary_module_s_field_is_null_where_the_tool_carries_no_places()
+  local root = session_fixture.project()
+  local text = 'local Fs = require("cosmic.fs")\nlocal _ = Fs.read\n'
+  local bare = assert(Sqlite.memory())
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 1, 15),
+  }, { bare })
+  assert(defined(ran, 2) == nil)
 end
 
 local function test_definition_of_nothing_the_report_knows_is_null()
