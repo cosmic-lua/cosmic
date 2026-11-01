@@ -622,28 +622,28 @@ local function test_a_handle_held_in_a_close_local_is_closed_at_the_end_of_the_b
   do
     local h <close> = assert(Child.start(lua(sleep(30000))))
     pid = h.pid
-    assert(path_exists("/proc/" .. tostring(pid)), "the child runs inside the block")
+    assert(sys.kill(pid, 0), "the child runs inside the block")
   end
-  assert(not path_exists("/proc/" .. tostring(pid)), "the block's end ended and reaped the child")
+  -- Signal zero succeeds for a zombie too, so failing it means the child was reaped.
+  assert(not sys.kill(pid, 0), "the block's end ended and reaped the child")
 end
 
 --- A handle dropped unsettled ends its child and reaps it when it is collected
 --- (the handle's Reaper holds the finalizer), plain or with a streamed output.
 local function test_a_dropped_handle_ends_and_reaps_its_child()
-  if not path_exists("/proc/self") then Test.skip("no /proc to see a process by") end
   local pids: {integer} = {}
   do
     local plain = assert(Child.start(lua(sleep(30000))))
     local streamed = assert(Child.start(lua(sleep(30000), nil, { stdout = "stream" })))
     pids = { plain.pid, streamed.pid }
     for _, pid in ipairs(pids) do
-      assert(path_exists("/proc/" .. tostring(pid)), "the child runs")
+      assert(sys.kill(pid, 0), "the child runs")
     end
   end
   collectgarbage("collect")
   collectgarbage("collect")
   for _, pid in ipairs(pids) do
-    assert(not path_exists("/proc/" .. tostring(pid)), "the dropped handle's child was ended and reaped")
+    assert(not sys.kill(pid, 0), "the dropped handle's child was ended and reaped")
   end
 end
 
