@@ -209,40 +209,6 @@ function Fixture.retargeted(source: string, destination: string, built_from: str
   Fixture.write(destination, ArtifactRow.with(Fixture.read(source), destination .. ".retarget.db", built_from), mode)
 end
 
---- Runs the candidate tool's test/portable/tool.tl `subcommand` with `words`.
-local function candidate_tool(label: string, subcommand: string, words: {string}, diagnostics: string)
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
-  local build = Fixture.required("COSMIC_FIXTURE_BUILD")
-  local argv: mut {string} = { build .. "/bin/cosmic", root .. "/test/portable/tool.tl", subcommand }
-  for _, word in ipairs(words) do argv[#argv + 1] = word end
-  -- The base that names the candidate's build directory, as format_test gives it.
-  Fixture.run(label, argv, root, diagnostics,
-    { COSMIC_BUILD_HOME = (assert(build:match("^(/.+)/[^/]+$"), build)) })
-end
-
--- TODO: once ci/cosmic-driver.pin names a release with Compress.zstd and Compress.zstd_decoder, call them in-process instead
---- The zstd frame of `raw` at `level`, written by the candidate tool in a
---- child, since the pinned release these fixtures are type-checked on has no
---- zstd encoder or decoder. `streamed` asks for the streaming encoder's frame.
-function Fixture.zstd_encode(tmp: string, label: string, raw: string, level: integer, streamed?: boolean): string
-  local input, out = tmp .. "/" .. label .. ".raw", tmp .. "/" .. label .. ".zst"
-  Fixture.write(input, raw)
-  local words: mut {string} = { input, out, tostring(level) }
-  if streamed == true then words[#words + 1] = "stream" end
-  candidate_tool("zstd-encode-" .. label, "zstd-encode", words, tmp .. "/logs")
-  return Fixture.read(out)
-end
-
--- TODO: once ci/cosmic-driver.pin names a release with Compress.zstd and Compress.zstd_decoder, call them in-process instead
---- The `length` bytes the zstd frame `stored` decodes to, by the candidate
---- tool in a child (see [`Fixture.zstd_encode`]).
-function Fixture.zstd_decode(tmp: string, label: string, stored: string, length: integer): string
-  local input, out = tmp .. "/" .. label .. ".zst", tmp .. "/" .. label .. ".decoded"
-  Fixture.write(input, stored)
-  candidate_tool("zstd-decode-" .. label, "zstd-decode", { input, out, tostring(length) }, tmp .. "/logs")
-  return Fixture.read(out)
-end
-
 function Fixture.hash(path: string): string
   return Hash.hex_sha256(Fixture.read(path))
 end

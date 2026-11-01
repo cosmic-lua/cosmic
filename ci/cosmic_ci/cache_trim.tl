@@ -227,12 +227,6 @@ local function invoke(request: CacheTrim.Request): Invoked
   return { report = decoded, trouble = result.stderr or "" }
 end
 
---- What [`CacheTrim.run`] answers, kept where the function that runs it under `pcall` can read it.
-local record Done
-  mut lines: string
-  mut trouble: string
-end
-
 --- The body of [`CacheTrim.run`] while `guard` holds the signals.
 local function trim(guard: Signal.Guard, request: CacheTrim.Request, env: {string:string}, verb: string): string, string
   local value: Report? = nil
@@ -312,16 +306,9 @@ function CacheTrim.run(request: CacheTrim.Request, env: {string:string}): CacheT
     if cleanup ~= "" then cleanup = "\n" .. cleanup end
     return { out = "", err = verb .. ": " .. guard_trouble .. cleanup .. "\n" }
   end
-  -- TODO: hold the guard in a `<close>` local again and drop the `pcall`, once ci/cosmic-driver.pin names a release
-  -- that declares [`Signal.Guard`] as a class: a `<close>` local must be one.
-  local guard: Signal.Guard = opened
-  local done: Done = { lines = "", trouble = "" }
-  local ran, raised = pcall(function()
-    done.lines, done.trouble = trim(guard, request, env, verb)
-  end)
-  local _, _ = guard:close()
-  if not ran then error(raised, 0) end
-  return { out = done.lines, err = done.trouble }
+  local guard <close> = opened
+  local lines, trouble = trim(guard, request, env, verb)
+  return { out = lines, err = trouble }
 end
 
 --- SINCE as nanoseconds, checked before multiplication can overflow.
