@@ -19,8 +19,8 @@ local _sqlite = require("cosmic.sqlite")
 local _store = require("cosmic.store")
 local test_child = require("build.test_child")
 local Test = require("cosmic.test")
-local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
+local SeatbeltFixture = require("build.seatbelt_fixture")
 
 --- The program is this one, which a test starts only with `tool`; its
 --- temporary directory is the test's own.
@@ -37,13 +37,6 @@ local HELD <const> = "false sandbox: restrict: this process is held by a Seatbel
 
 --- What a refused path answers under Seatbelt: EPERM.
 local DENIED <const> = "Operation not permitted"
-
---- Ends the test where Seatbelt does not hold a process.
-local function macos_only()
-  if assert(sys.uname()).sysname ~= "Darwin" then
-    Test.skip("Seatbelt holds a process on macOS alone")
-  end
-end
 
 --- What the child runs first: the modules it uses, loaded before it is
 --- restricted, and the helpers that report. `say(name, ...)` prints
@@ -98,7 +91,7 @@ local function in_child(chunk: string): Said
 end
 
 local function test_a_granted_file_is_read_and_another_is_refused(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only("a process")
   assert(Fs.mkdirs(tmp .. "/granted") and Fs.mkdirs(tmp .. "/other"))
   assert(Fs.write(tmp .. "/granted/a", "alpha") and Fs.write(tmp .. "/other/b", "beta"))
   local said = in_child(string.format([[
@@ -125,7 +118,7 @@ test_child.register("store after restriction", function(_args: {string}): intege
 end)
 
 local function test_the_store_loads_a_module_after_the_restriction(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only("a process")
   local started = this_program.program(test_child.words(tmp, "cosmic.sandbox_restrict_seatbelt_test", "store after restriction"), {
     env = this_program.environment(), stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
@@ -136,7 +129,7 @@ local function test_the_store_loads_a_module_after_the_restriction(tmp: string)
 end
 
 local function test_a_second_restriction_is_refused()
-  macos_only()
+  SeatbeltFixture.macos_only("a process")
   local said = in_child([[
 say("first", Sandbox.restrict({}))
 say("second", Sandbox.restrict({}))
@@ -146,7 +139,7 @@ say("second", Sandbox.restrict({}))
 end
 
 local function test_a_child_under_a_policy_is_refused_after_the_restriction()
-  macos_only()
+  SeatbeltFixture.macos_only("a process")
   local said = in_child([[
 say("restrict", Sandbox.restrict({ profiles = { "system" } }))
 local started, why = Child.start({ "/bin/cat" }, { policy = { profiles = { "system" } },
@@ -162,7 +155,7 @@ end
 --- refused and never restricted, so a later restriction still holds, and a
 --- file no grant names is still read until then.
 local function test_what_cannot_be_held_is_refused_before_anything_is_applied(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only("a process")
   assert(Fs.write(tmp .. "/free", "free") and Fs.write(tmp .. "/held", "held"))
   local said = in_child(string.format([[
 say("nest", Sandbox.restrict({ promises = { "nest" } }))
@@ -185,7 +178,7 @@ say("still", reads(%q))
 end
 
 local function test_a_named_descriptor_is_kept_and_its_path_is_not(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only("a process")
   assert(Fs.write(tmp .. "/f", "held"))
   local said = in_child(string.format([[
 local fd = assert(sys.open(%q, sys.O_RDONLY))
@@ -232,7 +225,7 @@ end
 --- A process a policy's profile holds, started by [`Child.start`], is
 --- refused a restriction before any limit of it is lowered.
 local function test_a_child_under_a_policy_is_refused_a_restriction()
-  macos_only()
+  SeatbeltFixture.macos_only("a process")
   local chunk = [[
 local sys = require("cosmic.sys")
 local Sandbox = require("cosmic.sandbox")
@@ -257,7 +250,7 @@ end
 --- A program started without a policy after the restriction is held by
 --- the process's own profile.
 local function test_a_child_started_without_a_policy_is_held_by_the_profile(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only("a process")
   assert(Fs.write(tmp .. "/granted", "granted-bytes") and Fs.write(tmp .. "/other", "other-bytes"))
   local said = in_child(string.format([[
 say("restrict", Sandbox.restrict({ profiles = { "system" }, promises = { "fork" },
@@ -276,7 +269,7 @@ end
 --- A policy with no limits is given a child's defaults: 1024 open files and
 --- no core dump, each only ever lowered.
 local function test_a_child_s_default_limits_hold_the_process()
-  macos_only()
+  SeatbeltFixture.macos_only("a process")
   local said = in_child([[
 local nofile = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
 say("before", nofile.soft >= 1024 and nofile.hard >= 1024)

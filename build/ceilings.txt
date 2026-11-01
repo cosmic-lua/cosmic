@@ -836,17 +836,16 @@ cosmic/child_policy_cosmic_test.tl nil_not_allowed 1
 
 cosmic/child_policy_database_sandboxed_test.tl nil_not_allowed 1
 
-cosmic/child_policy_isolate_test.tl nil_not_allowed 6
+cosmic/child_policy_isolate_test.tl nil_not_allowed 5
 
 cosmic/child_policy_nest_test.tl nil_not_allowed 1
 
-cosmic/child_policy_root_user_test.tl nil_not_allowed 1
 
 cosmic/child_policy_system_test.tl nil_not_allowed 2
 
 cosmic/child_policy_test.tl nil_not_allowed 1
 
-cosmic/child_policy_user_test.tl nil_not_allowed 2
+cosmic/child_policy_user_test.tl nil_not_allowed 1
 
 cosmic/child_relay_seatbelt_test.tl nil_not_allowed 6
 
@@ -4628,13 +4627,12 @@ cosmic/child_policy_isolate_test.tl or_mix 21
 
 cosmic/child_policy_nest_test.tl or_mix 8
 
-cosmic/child_policy_root_user_test.tl or_mix 5
+cosmic/child_policy_root_user_test.tl or_mix 4
 
 cosmic/child_policy_system_test.tl or_mix 1
 
 cosmic/child_policy_test.tl or_mix 5
 
-cosmic/child_policy_user_test.tl or_mix 1
 
 cosmic/child_relay_curl_test.tl or_mix 1
 

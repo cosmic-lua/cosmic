@@ -16,17 +16,11 @@ local Sandbox = require("cosmic.sandbox")
 local Seatbelt = require("cosmic.sandbox.seatbelt")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
+local SeatbeltFixture = require("build.seatbelt_fixture")
 
 --- The system's own paths, which the child's program, its loader and its
 --- libraries are read and run from, and the temporary directory.
 Test.policy{ env = { "TMPDIR" }, profiles = { "system" } }
-
---- Ends the test where Seatbelt does not hold a child.
-local function macos_only()
-  if assert(sys.uname()).sysname ~= "Darwin" then
-    Test.skip("Seatbelt holds a child on macOS alone")
-  end
-end
 
 --- A program Seatbelt's "system" profile runs.
 local CAT <const> = "/bin/cat"
@@ -98,7 +92,7 @@ local function test_a_root_caller_is_refused_whatever_the_policy_names()
 end
 
 local function test_the_callers_own_user_and_group_run_the_child()
-  macos_only()
+  SeatbeltFixture.macos_only()
   if sys.getuid() == 0 then Test.skip("root is refused") end
   local result = run({ "/usr/bin/id", "-u" }, { profiles = { "system" },
     user = sys.getuid(), group = sys.getgid() })
@@ -106,7 +100,7 @@ local function test_the_callers_own_user_and_group_run_the_child()
 end
 
 local function test_another_user_is_refused_before_a_child_starts()
-  macos_only()
+  SeatbeltFixture.macos_only()
   if sys.getuid() == 0 then Test.skip("root is refused") end
   local handle, why = Child.start({ "/bin/true" }, { policy = { profiles = { "system" },
     user = sys.getuid() + 1 }, stdin = "null", stdout = "null", stderr = "null" })
@@ -118,7 +112,7 @@ end
 --- of /sbin and one that loads the system frameworks (sw_vers reads
 --- /System/Library) run under each.
 local function test_the_system_profile_is_the_same_raw_merged_and_through_json()
-  macos_only()
+  SeatbeltFixture.macos_only()
   local raw: Sandbox.Policy = { profiles = { "system" } }
   local merged = assert(Sandbox.merge(raw))
   local decoded = assert(PolicyJson.decode(PolicyJson.encode(merged)))
@@ -131,7 +125,7 @@ local function test_the_system_profile_is_the_same_raw_merged_and_through_json()
 end
 
 local function test_a_granted_file_is_read(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local granted = files(tmp)
   local result = run({ CAT, granted }, { profiles = { "system" },
     grants = { { path = granted, letters = "r" } } })
@@ -139,7 +133,7 @@ local function test_a_granted_file_is_read(tmp: string)
 end
 
 local function test_another_file_is_refused_as_not_permitted(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local granted, other = files(tmp)
   local result = run({ CAT, other }, { profiles = { "system" },
     grants = { { path = granted, letters = "r" } } })
@@ -148,7 +142,7 @@ local function test_another_file_is_refused_as_not_permitted(tmp: string)
 end
 
 local function test_no_file_is_written_without_a_grant_to_write(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local granted = files(tmp)
   local created = tmp .. "/created"
   local policy: Sandbox.Policy = { profiles = { "system" }, grants = { { path = granted, letters = "r" } } }
@@ -174,7 +168,7 @@ local function refusal(policy: Sandbox.Policy): string
 end
 
 local function test_what_seatbelt_cannot_hold_fails_the_start_with_its_own_refusal(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local granted = files(tmp)
   local function says(field: Sandbox.Policy, expected: string)
     local policy: Sandbox.Policy = field
@@ -194,7 +188,7 @@ end
 --- A database is the program a core runs on, so a program that is not this one
 --- has none to run on it.
 local function test_a_database_is_refused_for_a_program_that_is_not_this_one(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local sealed = tmp .. "/sealed.db"
   assert(Fs.write(sealed, "not a database, but a regular file"))
   local why = refusal({ profiles = { "system" }, database = { path = sealed } })
@@ -202,7 +196,7 @@ local function test_a_database_is_refused_for_a_program_that_is_not_this_one(tmp
 end
 
 local function test_a_grant_from_another_path_is_refused(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local granted = files(tmp)
   local why = refusal({ profiles = { "system" },
     grants = { { path = granted, letters = "r", from = "/granted" } } })
@@ -210,7 +204,7 @@ local function test_a_grant_from_another_path_is_refused(tmp: string)
 end
 
 local function test_more_paths_than_a_start_takes_are_refused(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local grants: mut {Sandbox.Grant} = {}
   for i = 1, 520 do
     local path = tmp .. "/many-" .. tostring(i)
@@ -222,13 +216,13 @@ local function test_more_paths_than_a_start_takes_are_refused(tmp: string)
 end
 
 local function test_a_grant_that_is_not_there_fails_the_start_naming_it(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local why = refusal({ profiles = { "system" }, grants = { { path = tmp .. "/absent", letters = "r" } } })
   assert(why:find("^child: start: sandbox: seatbelt: grant ") and why:find("absent", 1, true), why)
 end
 
 local function test_a_program_nobody_granted_fails_the_start_naming_the_grant(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local granted = files(tmp)
   local child, why = Child.start({ CAT, granted }, { policy = { grants = { { path = granted, letters = "r" } } } })
   assert(child == nil)
@@ -236,7 +230,7 @@ local function test_a_program_nobody_granted_fails_the_start_naming_the_grant(tm
 end
 
 local function test_the_environment_the_policy_gives_is_the_whole_environment(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local granted = files(tmp)
   local result = run({ SH, "-c", "echo \"[$KEPT][$OTHER][$HOME]\"" }, { profiles = { "system" },
     grants = { { path = granted, letters = "r" } }, set_env = { KEPT = "kept" } })
@@ -244,7 +238,7 @@ local function test_the_environment_the_policy_gives_is_the_whole_environment(tm
 end
 
 local function test_the_limits_the_profile_carries_are_the_childs(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local granted = files(tmp)
   local result = run({ SH, "-c", "ulimit -n; ulimit -c" }, { profiles = { "system" },
     grants = { { path = granted, letters = "r" } }, limits = { open_files = 128 } })
@@ -255,7 +249,7 @@ end
 --- The profile a child is started under is whatever the binding is given,
 --- so a refusal of it is the system's own, and the program must not run.
 local function test_a_profile_the_system_refuses_fails_the_start_and_never_runs_the_program(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local marker = tmp .. "/ran"
   local process = require("cosmic.internal.process")
   local argv = { SH, "-c", "echo ran > \"$1\"", "sh", marker }
@@ -268,7 +262,7 @@ local function test_a_profile_the_system_refuses_fails_the_start_and_never_runs_
 end
 
 local function test_a_profile_the_system_accepts_holds_the_program_by_its_parameters(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local process = require("cosmic.internal.process")
   local marker = tmp .. "/marker"
   local profile = "(version 1)\n(allow default)\n(deny file-write* (literal (param \"MARKER\")))\n"
@@ -288,7 +282,7 @@ end
 --- profile grants no /dev/tty, and the start gives the child a session of
 --- its own, which the caller's terminal is not.
 local function test_a_policy_child_leads_a_session_and_opens_no_terminal(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local granted = files(tmp)
   local policy: Sandbox.Policy = { profiles = { "system" },
     grants = { { path = granted, letters = "r" } } }
@@ -310,7 +304,7 @@ end
 --- A policy's child is a group of its own whatever the caller asks, so a
 --- caller that asks for its own group is refused.
 local function test_a_policy_start_that_keeps_the_callers_group_is_refused(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local granted = files(tmp)
   local child, why = Child.start({ CAT, granted }, { process_group = false,
     policy = { profiles = { "system" }, grants = { { path = granted, letters = "r" } } } })
@@ -338,7 +332,7 @@ end
 --- terminal's path, or a path that is none, fails the start at the step
 --- "terminal" rather than giving the program a terminal that is not its stdin.
 local function test_a_terminal_that_is_not_stdins_fails_the_start_at_the_terminal_step()
-  macos_only()
+  SeatbeltFixture.macos_only()
   local process = require("cosmic.internal.process")
   local function start(...: any): integer?, string, integer
     return (process.spawn as function(...: any): integer?, string, integer)(...)

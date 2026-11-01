@@ -12,6 +12,7 @@ local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
+local ChildPolicy = require("build.child_policy_fixture")
 
 Test.policy{
   profiles = { "cosmic", "system" },
@@ -24,16 +25,6 @@ Test.policy{
   },
   requires = { "nest", "program:curl" },
 }
-
---- Whether `why`, a start's failure, is the platform or the host giving no
---- Landlock, seccomp or user namespace.
-local function unsandboxable(why: string): boolean
-  for _, word in ipairs({ "Landlock", "seccomp", "not implemented", "namespace", "own /proc",
-      "root could not be built" }) do
-    if why:find(word, 1, true) then return true end
-  end
-  return false
-end
 
 --- Runs `body` in a run with an HTTP server at a port of 127.0.0.1 that
 --- answers every request "hello from the host".
@@ -70,7 +61,7 @@ local function curl(target: string, url: string, loopback?: {string}): string, i
     policy = { profiles = { "system" }, connect = { target }, loopback = loopback },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   if result == nil then
-    if unsandboxable(why) then Test.skip(why) end
+    if ChildPolicy.unsandboxable(why) then Test.skip(why) end
     error("the start was refused: " .. why)
   end
   out, code = (result.stdout or "") .. (result.stderr or ""), result.code or -1
