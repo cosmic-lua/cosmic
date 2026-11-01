@@ -19,6 +19,7 @@ local confine = require("build.confine")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local build_paths = require("build.paths")
+local support = require("build.test_support_fixture")
 
 --- The program itself, which its tests start, roots of their own for
 --- the sandboxed workers of the runs they start (`nests`), and the
@@ -29,13 +30,6 @@ Test.policy{
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }
-
---- `root`'s build directory ([`build.paths`]), made, with `root` made
---- first where it is not there yet.
-local function build_dir(root: string): string
-  assert(Fs.mkdirs(root))
-  return (assert(build_paths.prepare(root)))
-end
 
 --- Runs `cosmic test` on `root` with `words` after it, answering what
 --- it printed.
@@ -496,8 +490,8 @@ local function test_a_read_of_the_builds_output_is_keyed_by_its_bytes(tmp: strin
   local function said(name: string, tool: string, wanted: string): string
     local root = tmp .. "/" .. name
     assert(Fs.mkdirs(root .. "/suite"))
-    assert(Fs.mkdirs(build_dir(root) .. "/bin"))
-    assert(Fs.write(build_dir(root) .. "/bin/tool", tool))
+    assert(Fs.mkdirs(support.build_dir(root) .. "/bin"))
+    assert(Fs.write(support.build_dir(root) .. "/bin/tool", tool))
     assert(Fs.write(root .. "/suite/output_test.tl", [[
 local Env = require("cosmic.env")
 local Hash = require("cosmic.hash")

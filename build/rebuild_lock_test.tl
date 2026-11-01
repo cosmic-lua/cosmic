@@ -4,20 +4,13 @@ local Poll = require("cosmic.poll")
 local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local rebuild_lock = require("build.rebuild_lock")
-local build_paths = require("build.paths")
-
---- `root`'s build directory ([`build.paths`]), made, with `root` made
---- first where it is not there yet.
-local function build_dir(root: string): string
-  assert(Fs.mkdirs(root))
-  return (assert(build_paths.prepare(root)))
-end
+local support = require("build.test_support_fixture")
 
 --- A tree with a build directory for the lock's files, and the path of its lock file.
 local function tree(tmp: string): string, string
   local root = tmp .. "/tree"
-  assert(build_dir(root))
-  return root, build_dir(root) .. "/rebuild.lock"
+  assert(support.build_dir(root))
+  return root, support.build_dir(root) .. "/rebuild.lock"
 end
 
 --- A run holding the flock alone, as another run holding the lock does
@@ -37,7 +30,7 @@ local function test_a_held_flock_keeps_another_run_out(tmp: string)
   assert(sys.close(other))
   taken, trouble = rebuild_lock.take(root, 0)
   assert(taken == "held", tostring(taken) .. " " .. trouble)
-  assert(Fs.read(build_dir(root) .. "/rebuild.lock.pid") == tostring(sys.getpid()) .. "\nrebuild\n")
+  assert(Fs.read(support.build_dir(root) .. "/rebuild.lock.pid") == tostring(sys.getpid()) .. "\nrebuild\n")
   rebuild_lock.release()
   assert(assert(sys.stat(path)).size == 0, "the lock's file was written")
 end
@@ -47,7 +40,7 @@ end
 --- run out until it is closed.
 local function test_a_claim_is_refused_while_a_run_holds_the_lock(tmp: string)
   local root, path = tree(tmp)
-  local directory = build_dir(root)
+  local directory = support.build_dir(root)
   local other = assert(sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x1a4))
   assert(sys.flock(other, "exclusive"))
   local refused, trouble = rebuild_lock.claim(directory)
@@ -108,14 +101,14 @@ end
 --- itself the holder, by its role.
 local function test_a_holder_takes_its_own_lock_again(tmp: string)
   local root = tmp .. "/tree"
-  assert(build_dir(root))
+  assert(support.build_dir(root))
   local took = assert(rebuild_lock.hold(root, "test", "test"))
   assert(took == true)
   assert(rebuild_lock.holds(root))
   assert(rebuild_lock.take(root, 0, "rebuild") == "held")
   assert(rebuild_lock.hold(root, "write", "o/cosmic.db") == false,
     "a holder took its own lock as though it were new")
-  assert(Fs.read(build_dir(root) .. "/rebuild.lock.pid") ==
+  assert(Fs.read(support.build_dir(root) .. "/rebuild.lock.pid") ==
       tostring(sys.getpid()) .. "\ntest\n")
   rebuild_lock.release()
   assert(not rebuild_lock.holds(root))
@@ -126,12 +119,12 @@ end
 --- A process holds one checkout's lock at once: another's is refused,
 --- by name, rather than taken as the one it holds.
 local function test_a_holder_is_refused_another_checkouts_lock(tmp: string)
-  assert(build_dir(tmp .. "/one") and build_dir(tmp .. "/two"))
+  assert(support.build_dir(tmp .. "/one") and support.build_dir(tmp .. "/two"))
   assert(rebuild_lock.take(tmp .. "/one", 0, "test") == "held")
   local taken, trouble = rebuild_lock.take(tmp .. "/two", 0, "test")
   rebuild_lock.release()
   assert(taken == nil, "took a second checkout's lock")
-  assert(trouble:find(build_dir(tmp .. "/one") .. "/rebuild.lock", 1, true), trouble)
+  assert(trouble:find(support.build_dir(tmp .. "/one") .. "/rebuild.lock", 1, true), trouble)
 end
 
 --- A waiting run names the holder by what it is doing: its role, as the
@@ -140,14 +133,14 @@ end
 --- be rebuilding.
 local function test_the_holder_is_named_by_its_role(tmp: string)
   local root = tmp .. "/tree"
-  assert(build_dir(root))
-  assert(Fs.write(build_dir(root) .. "/rebuild.lock.pid", "1\ntest\n"))
+  assert(support.build_dir(root))
+  assert(Fs.write(support.build_dir(root) .. "/rebuild.lock.pid", "1\ntest\n"))
   local named = rebuild_lock.holder(root)
   assert(named:find("in this checkout is running its tests", 1, true), named)
-  assert(Fs.write(build_dir(root) .. "/rebuild.lock.pid", "1\n"))
+  assert(Fs.write(support.build_dir(root) .. "/rebuild.lock.pid", "1\n"))
   named = rebuild_lock.holder(root)
   assert(named:find("in this checkout is rebuilding the tool", 1, true), named)
-  assert(Fs.write(build_dir(root) .. "/rebuild.lock.pid", tostring(sys.getpid()) .. "\nwrite\n"))
+  assert(Fs.write(support.build_dir(root) .. "/rebuild.lock.pid", tostring(sys.getpid()) .. "\nwrite\n"))
   assert(rebuild_lock.holder(root) ==
       "another cosmic run in this checkout is writing its projection")
 end
@@ -156,12 +149,12 @@ end
 --- holder called its root.
 local function test_a_lock_is_handed_by_the_file_it_names(tmp: string)
   local root = tmp .. "/tree"
-  assert(build_dir(root))
+  assert(support.build_dir(root))
   assert(rebuild_lock.take(root, 0, "test") == "held")
   local handed = rebuild_lock.hand({ KEPT = "1" }, root .. "/.")
   rebuild_lock.release()
   assert(handed.KEPT == "1")
-  assert(handed.COSMIC_REBUILD_LOCK_HANDED == build_dir(root) .. "/rebuild.lock")
+  assert(handed.COSMIC_REBUILD_LOCK_HANDED == support.build_dir(root) .. "/rebuild.lock")
 end
 
 --- A lock file this process cannot write would lock nothing, so it is

@@ -17,13 +17,7 @@ local build_paths = require("build.paths")
 local harness_epoch = require("build.harness_epoch")
 local test_key = require("build.test_key")
 local TypeWatch = require("build.type_watch")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 --- The harness is read from the projection, in the tree's build
 --- directory (`o/cosmic.db`, as a grant names it): its modules
@@ -54,13 +48,6 @@ local function epoch_parts(epoch: string): integer?, string?
   return math.tointeger(tonumber(count)), token
 end
 
-local function holds(list: {string}, wanted: string): boolean
-  for _, value in ipairs(list) do
-    if value == wanted then return true end
-  end
-  return false
-end
-
 --- The two edits of a bump from `epoch` and `retired`: the line to set
 --- `epoch`'s to, with a token drawn from the system's entropy, and the
 --- line to append to `retired`, nil where there is none to retire -- a
@@ -72,7 +59,7 @@ end
 local function bump(epoch: string, retired: {string}): string, string?
   local _, token = epoch_parts(epoch)
   local retire: string? = nil
-  if token ~= nil and not holds(retired, token) then retire = token end
+  if token ~= nil and not support.holds(retired, token) then retire = token end
   local count = #retired + (if retire ~= nil then 1 else 0 end) + 1
   local line = string.format("harness_epoch.epoch = %q",
     string.format("%d-%s", count, Codec.hex((assert(Rand.entropy(4))))))
@@ -374,7 +361,7 @@ local function test_the_file_holds_its_entries_as_the_guard_prints_them()
   local rows = assert(Sqlite.rows(db, "SELECT source FROM modules WHERE path = ?1",
     { { text = "build.harness_epoch" } }))
   db:close()
-  local text = assert(Compress.inflate("raw", nth(rows, 1):blob(1)))
+  local text = assert(Compress.inflate("raw", support.nth(rows, 1):blob(1)))
   local names: mut {string} = {}
   for name in pairs(harness_epoch.acknowledged) do names[#names + 1] = name end
   assert(#names > 0)
