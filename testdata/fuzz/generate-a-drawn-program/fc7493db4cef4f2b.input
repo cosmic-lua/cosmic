@@ -1,0 +1,9 @@
+local record R 
+ x: integer 
+ end 
+ local enum E 
+ "a" 
+ end 
+ repeat 
+ until a 
+ ( a ) .x = a

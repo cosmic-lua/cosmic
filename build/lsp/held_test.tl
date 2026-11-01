@@ -10,6 +10,7 @@ local Test = require("cosmic.test")
 local check = require("build.lsp.check")
 local session = require("build.lsp.session")
 local held = require("build.lsp.held")
+local schema = require("build.schema")
 local session_fixture = require("build.lsp.session_fixture")
 
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
@@ -371,6 +372,70 @@ local function test_a_change_of_the_hint_databases_checks_the_document_again()
   databases = { (assert(Sqlite.open(":memory:"))) }
   assert(#check.diagnose(checker, main, "utf-16") == 0)
   assert(checker.ran["main.tl"] == 2, tostring(checker.ran["main.tl"]))
+end
+
+--- Adds a documented `symbol` of `module` to the docs database `db`.
+local function documented(db: Sqlite.Handle, module: string, symbol: string)
+  assert(Sqlite.run(db,
+    "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, text, file, line) " ..
+      "VALUES (?1, ?2, ?2, 1, 'function', '', 'Docs.', 'x.tl', 1)", { { text = module }, { text = symbol } }))
+end
+
+--- Guards against a docs database written in place under the handle a hint reads, which moves no handle, leaving a result
+--- that worded its pointer from the old rows; and against a database nothing wrote to costing a check.
+local function test_a_docs_database_written_in_place_checks_the_document_again()
+  local root = helped()
+  local path = root .. "/docs.db"
+  local writer = assert(Sqlite.open(path, { writable = true }))
+  for _, statement in ipairs(schema.create("")) do assert(writer:exec(statement)) end
+  documented(writer, "cosmic.fs", "Fs.read")
+  local reader = assert(Sqlite.open(path))
+  local checker = check.new(root, function(_line: string) end, function(): check.Hinted
+    return { databases = { reader }, public = { false } }
+  end)
+  local main = document_of(root, "main.tl", "print(read)\n")
+  check.opened(checker, main)
+  local function message(): string
+    local found = check.diagnose(checker, main, "utf-16")
+    assert(#found == 1, tostring(#found))
+    return assert(found[1])
+  end
+  assert(message():find("see also in docs: Fs.read", 1, true) ~= nil, message())
+  assert(message():find("Json.read", 1, true) == nil)
+  assert(checker.ran["main.tl"] == 1, tostring(checker.ran["main.tl"]))
+  documented(writer, "cosmic.json", "Json.read")
+  assert(message():find("Json.read", 1, true) ~= nil, message())
+  assert(checker.ran["main.tl"] == 2, tostring(checker.ran["main.tl"]))
+  assert(message():find("Json.read", 1, true) ~= nil)
+  assert(checker.ran["main.tl"] == 2, tostring(checker.ran["main.tl"]))
+  assert(reader:close())
+  assert(writer:close())
+end
+
+--- Guards against a docs database committed to while a check reads it being recorded as already read: the next ask checks again.
+local function test_a_docs_database_written_during_a_check_checks_the_document_again()
+  local root = helped()
+  local path = root .. "/docs.db"
+  local writer = assert(Sqlite.open(path, { writable = true }))
+  for _, statement in ipairs(schema.create("")) do assert(writer:exec(statement)) end
+  documented(writer, "cosmic.fs", "Fs.read")
+  local reader = assert(Sqlite.open(path))
+  local asked = 0
+  local checker = check.new(root, function(_line: string) end, function(): check.Hinted
+    asked = asked + 1
+    -- The first ask is the key read before the check, the second the check's own lookup.
+    if asked == 2 then documented(writer, "cosmic.json", "Json.read") end
+    return { databases = { reader }, public = { false } }
+  end)
+  local main = document_of(root, "main.tl", "print(read)\n")
+  check.opened(checker, main)
+  assert(#check.diagnose(checker, main, "utf-16") == 1)
+  assert(checker.ran["main.tl"] == 1, tostring(checker.ran["main.tl"]))
+  local found = check.diagnose(checker, main, "utf-16")
+  assert(checker.ran["main.tl"] == 2, tostring(checker.ran["main.tl"]))
+  assert(assert(found[1]):find("Json.read", 1, true) ~= nil, assert(found[1]))
+  assert(reader:close())
+  assert(writer:close())
 end
 
 --- Guards against a session holding the whole program of every document it has open: the documents asked of least recently
