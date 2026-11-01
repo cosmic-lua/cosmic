@@ -384,6 +384,18 @@ local function test_definition_of_a_method_added_to_a_type_declared_in_a_functio
   assert_located(defined(ran, 2), root, "main.tl", 4, 13, 14)
 end
 
+--- The checker cannot name a type of a function body in a signature, so a function cannot return one: the uses of such a
+--- type are in the body, in a function nested in it among them.
+local function test_definition_of_a_field_of_a_body_local_type_in_a_nested_function()
+  local root = session_fixture.project()
+  local text = 'local function make(): integer\n  local record P\n    x: integer\n  end\n' ..
+    '  local function get(p: P): integer\n    return p.x\n  end\n  return get({ x = 1 })\nend\nreturn make\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 5, 13),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 2, 4, 5)
+end
+
 --- A string where an enum is expected stands for one of its values, which a person can go to.
 local function test_definition_of_a_string_literal_is_the_enum_value_it_stands_for()
   local root = session_fixture.project()
