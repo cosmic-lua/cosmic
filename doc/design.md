@@ -807,7 +807,8 @@ that does run runs in a worker process of its own:
   module it loads up to [`build.boot`], keyed by the digest of every `.tl`
   and `.h` under the root and of the compiler and the bridge, since no
   import graph exists yet to key them by. a boot of a tree none of whose
-  `.tl` or `.h` has changed compiles nothing in the bridge; an edit to any one of them compiles it all again.
+  `.tl` or `.h` has changed compiles nothing in the bridge; an edit to
+  any one of them compiles it all again.
 - *fast*: compile and check run in one process, one transaction,
   against declarations already in the database. each test runs in a worker
   -- the same core relaunched directly, never through the launcher --
