@@ -28,6 +28,7 @@ local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Env = require("cosmic.env")
 local Hash = require("cosmic.hash")
+local Innermost = require("cosmic.internal.innermost_guard")
 local Store = require("cosmic.store")
 
 -- The raw module behind this one lives under the reserved
@@ -44,6 +45,22 @@ local Stream = require("cosmic.stream")
 local type Net = require("cosmic.net")
 
 local record Http
+  --- When and how long [`Http.Options.retry`] sends a request again.
+  record Retry
+    --- The most requests sent in all, the first included: at least 1.
+    attempts: integer
+    --- The statuses that are sent again, `{429, 503}` by default. At
+    --- least one, each an integer from 100 to 599.
+    statuses?: {integer}
+    --- How long to wait before the first retry, in nanoseconds; 1
+    --- second by default. Each retry waits twice as long as the one
+    --- before, up to `max_wait_ns`.
+    backoff_ns?: integer
+    --- The longest one wait, in nanoseconds; 60 seconds by default.
+    --- Also the longest `Retry-After` that is waited out.
+    max_wait_ns?: integer
+  end
+
   --- One request. `follow` defaults to true, `max_redirects` to 10;
   --- a followed 303, or a 301/302 after a POST, turns the request
   --- into a GET, as RFC 9110 says. `method` is case-sensitive, as
@@ -70,8 +87,9 @@ local record Http
   --- `timeout_ns` bounds the whole request and has no default. The
   --- transfer counts them in milliseconds, and `low_speed_ns` in whole
   --- seconds, each rounded up, so no span but 0 is read as none.
-  --- `sha256`, `sha512`, `sha3_256` and `cancelled` are read only by
-  --- [`Http.download_result`] and [`Http.download`].
+  --- `sha256`, `sha512` and `sha3_256` are read only by
+  --- [`Http.download_result`] and [`Http.download`], and so is `cancelled`
+  --- but for the waits of `retry`, which it ends too.
   ---
   --- `via`, a unix address ([`Net.unix`]), sends the request over the
   --- socket file at its path instead of the network. The URL still gives
@@ -114,15 +132,36 @@ local record Http
   --- request fails. A `ca` the TLS stack cannot read, or a choice that
   --- leaves nothing to trust, returns `nil, err`.
   ---
+  --- `retry` sends the request again when the response's status is one
+  --- of `retry.statuses` (429 and 503 by default) and attempts are left:
+  --- the response is closed unread and the whole request goes again,
+  --- body and all, whatever its method, since those statuses say the
+  --- server did not act on it. [`Http.open`], [`Http.get`],
+  --- [`Http.request`], [`Http.download`] and [`Http.download_result`]
+  --- all do it. The wait before a retry is the response's `Retry-After`
+  --- when it has one this module reads (a number of seconds, or an HTTP
+  --- date, a date in the past being no wait), else `retry.backoff_ns`,
+  --- doubled with each retry and capped at `retry.max_wait_ns`. A
+  --- `Retry-After` longer than `max_wait_ns` is not waited out: that
+  --- response is returned as it is. So is the last response when the
+  --- attempts run out, as a non-2xx status is not a failure here. A
+  --- request that fails (`nil` and why) is not retried. While the
+  --- innermost open [`Signal.guard`] catches SIGINT or SIGTERM during a
+  --- wait, the wait ends and the call fails with "interrupted"; so does
+  --- `cancelled` answering true before or during one.
+  ---
   --- An option of the wrong shape is a bug, and [`Http.open`] raises
   --- for it, naming the option: a value of the wrong Lua type (the
   --- integers take no numeric strings), a number with a fraction, or
   --- one out of range. Every integer must be at least 0;
   --- `max_redirects` is at most 32767 and `low_speed_ns` at most
-  --- 65535 seconds. A value of the right shape that cannot be sent as given
-  --- is data, returned as `nil, err`: a method that is no HTTP token,
-  --- a header name or value holding CR, LF or NUL (or a name that is
-  --- empty or holds ':'), a URL holding NUL or one curl rejects.
+  --- 65535 seconds. A `retry` raises the same way, naming
+  --- `opts.retry.attempts` and the like: attempts below 1, statuses not
+  --- a list of one or more integers from 100 to 599, or a span below 0.
+  --- A value of the right shape that cannot be sent as given is data,
+  --- returned as `nil, err`: a method that is no HTTP token, a header
+  --- name or value holding CR, LF or NUL (or a name that is empty or
+  --- holds ':'), a URL holding NUL or one curl rejects.
   record Options
     --- The HTTP method, case-sensitive; GET, or POST when there is a `body`.
     method?: string
@@ -166,8 +205,12 @@ local record Http
     --- False by default, so a body comes as the server sent it.
     decompress?: boolean
     --- Tests only: canned replies, one per connection, in place of the
-    --- network. Every entry must be a string.
+    --- network. Every entry must be a string. With `retry`, attempt N
+    --- reads from entry N on.
     script?: {string}
+    --- The retry policy: see above. None by default, so a response of
+    --- any status is returned at once.
+    retry?: Retry
     --- The CA roots to trust: "minimal", "mozilla", "none", or a list of
     --- the SHA-256 digests of roots this binary carries; when nil,
     --- [`Http.default_roots`].
@@ -820,13 +863,64 @@ local function trusted(trust: Trust): string?, string
   return blob, ""
 end
 
+--- A retry policy with its defaults filled in.
+local record Policy
+  attempts: integer
+  statuses: {integer:boolean}
+  backoff_ns: integer
+  max_wait_ns: integer
+end
+
+--- `value`, a span of `opts.retry` called `name`, or `default` when nil;
+--- raises at `level` for one that is no integer or is below 0.
+local function span_of(value: integer?, name: string, default: integer, level: integer): integer
+  if value == nil then return default end
+  if math.type(value) ~= "integer" or value < 0 then
+    error(("http: opts.retry.%s must be an integer of at least 0"):format(name), level + 1)
+  end
+  return value
+end
+
+--- `opts.retry` as a [`Policy`], or nil when there is none. Raises, naming
+--- the option, for one of the wrong shape, at `level` (`CALLER` when the
+--- caller is one function below [`raw_options`], which is where the
+--- shape is checked).
+local function retry_of(opts: Http.Options, level: integer): Policy?
+  local given = opts.retry
+  if given == nil then return nil end
+  if type(given) ~= "table" then error("http: opts.retry must be a table", level) end
+  local attempts = given.attempts
+  if math.type(attempts) ~= "integer" or attempts < 1 then
+    error("http: opts.retry.attempts must be an integer of at least 1", level)
+  end
+  local statuses: mut {integer:boolean} = {}
+  local listed = given.statuses
+  if listed == nil then
+    statuses[429], statuses[503] = true, true
+  else
+    local bad = "http: opts.retry.statuses must be a list of one or more integers from 100 to 599"
+    if type(listed) ~= "table" or #listed == 0 then error(bad, level) end
+    for index = 1, #listed do
+      local status = listed[index]
+      if status == nil or math.type(status) ~= "integer" or status < 100 or status > 599 then
+        error(bad, level)
+      end
+      statuses[status] = true
+    end
+  end
+  local backoff = span_of(given.backoff_ns, "backoff_ns", SECOND, level)
+  local max_wait = span_of(given.max_wait_ns, "max_wait_ns", 60 * SECOND, level)
+  return { attempts = attempts, statuses = statuses, backoff_ns = backoff, max_wait_ns = max_wait }
+end
+
 --- `opts` as the raw module reads them: its spans in the milliseconds
 --- (and, for `low_speed_ns`, the seconds) it counts them in, its `pin`
 --- as curl takes it, and, with `trusting`, the `ca_blob` of the roots it
 --- chooses ([`trust_of`], [`trusted`]); or nil and why when those cannot
---- be made. `method`, when given, stands in for `opts.method`.
+--- be made. `method`, when given, stands in for `opts.method`. `first`,
+--- when given, is the entry of `opts.script` the request starts at.
 local function raw_options(given: Http.Options?, method?: string,
-                           trusting?: boolean): raw_http.Options?, string
+                           trusting?: boolean, first?: integer): raw_http.Options?, string
   local opts: Http.Options = given or {}
   local via = opts.via
   local follow = opts.follow
@@ -838,6 +932,9 @@ local function raw_options(given: Http.Options?, method?: string,
     -- A redirect's Location names a host the socket may not serve.
     if follow == nil then follow = false end
   end
+  -- Only to raise at `CALLER`, which no deeper call can; [`opened`] reads
+  -- the policy it uses.
+  local _ = retry_of(opts, CALLER)
   local trust, untold = trust_of(opts)
   if untold ~= "" then
     return nil, untold
@@ -863,6 +960,8 @@ local function raw_options(given: Http.Options?, method?: string,
     if not named then copy["Accept-Encoding"] = ACCEPTED end
     headers = copy
   end
+  local script = opts.script
+  if first ~= nil and script ~= nil then script = { table.unpack(script, first) } end
   return {
     unix_socket = via and via.path,
     method = method or opts.method,
@@ -876,7 +975,7 @@ local function raw_options(given: Http.Options?, method?: string,
     low_speed_bytes = opts.low_speed_bytes,
     low_speed_seconds = counted(opts.low_speed_ns, SECOND, 65535 * SECOND, "low_speed_ns"),
     verbose = opts.verbose,
-    script = opts.script,
+    script = script,
     pin = pin_of(opts),
     ca_blob = blob,
   }, ""
@@ -949,6 +1048,73 @@ local function socket_trouble(via: Net.Address, trouble: string, code: string?):
   return "cannot connect to unix socket " .. why
 end
 
+--- How long a `Retry-After` header value asks to wait, in nanoseconds, or
+--- nil when it is neither delta-seconds nor an HTTP date. A date in the
+--- past is 0. The date reader is loaded here, for cosmic.time brings in
+--- cosmic.fs, which a program that never sees a dated header does not need.
+local function retry_after(text: string): integer?
+  -- Optional whitespace in HTTP is a space or a tab alone.
+  local value = text:match("^[ \t]*(.-)[ \t]*$")
+  if value == nil then return nil end
+  if value:find("^%d+$") then
+    local digits = value:gsub("^0+(%d)", "%1")
+    -- Nine digits is more seconds than any `max_wait_ns` a nanosecond
+    -- count holds, and keeps the product below from overflowing.
+    if #digits > 9 then return math.maxinteger end
+    return (math.tointeger(tonumber(digits)) or 0) * SECOND
+  end
+  local Time = require("cosmic.time")
+  local at, _ = Time.parse_http(value)
+  if at == nil then return nil end
+  return math.max(at - Clock.now_ns(), 0)
+end
+
+--- How long to wait before retry number `retry` (1 for the first) of a
+--- response with `headers`: its `Retry-After` when it has one that
+--- reads, which may exceed `policy.max_wait_ns`, else the backoff.
+local function retry_wait(headers: {string:string}, retry: integer, policy: Policy): integer
+  local text = headers["retry-after"]
+  if text ~= nil then
+    local asked = retry_after(text)
+    if asked ~= nil then return asked end
+  end
+  local wait = policy.backoff_ns
+  for _ = 2, retry do
+    if wait > policy.max_wait_ns // 2 then return policy.max_wait_ns end
+    wait = wait * 2
+  end
+  return math.min(wait, policy.max_wait_ns)
+end
+
+-- The longest stretch a wait sleeps before asking the guard again.
+local PAUSE_SLICE <const> = 100 * MS
+
+--- Sleeps `ns`, in slices, and answers false as soon as the innermost open
+--- [`Signal.guard`] catches a signal or closes during it, or `cancelled`
+--- answers true, asked before the wait and after each slice. A signal
+--- caught before the wait began is not one: the stamp is taken when it starts.
+local function pause(ns: integer, cancelled: (function(): boolean)?): boolean
+  if cancelled ~= nil and cancelled() then return false end
+  local guard = Innermost.active()
+  local stamp = 0
+  if guard ~= nil then
+    local _ = guard:cancelled()
+    stamp = guard.state.read
+  end
+  local began = Clock.monotonic_ns()
+  while true do
+    local left = ns - (Clock.monotonic_ns() - began)
+    if left <= 0 then return true end
+    local slept, _ = Clock.sleep_ns(math.min(left, PAUSE_SLICE))
+    if guard ~= nil then
+      local _ = guard:cancelled()
+      if guard.state.closed or guard.state.read ~= stamp then return false end
+    end
+    if cancelled ~= nil and cancelled() then return false end
+    if not slept then return true end
+  end
+end
+
 --- [`Http.open`]'s work, which each public entry point that opens
 --- calls itself (`CALLER`); `method`, when given, stands in for
 --- `opts.method`.
@@ -959,18 +1125,46 @@ local function opened(url: string, opts: Http.Options?, method: string?): Http.R
   end
   url = sent
   local raw, unmade = raw_options(opts, method, true)
-  if raw == nil and unmade ~= "" then
+  if raw == nil then
     return nil, unmade
   end
-  local handle, trouble, code = http.open(url, raw)
-  if handle == nil then
-    if opts ~= nil and opts.via ~= nil then
-      return nil, socket_trouble(opts.via, trouble, code)
+  local policy = retry_of(opts or {}, CALLER - 1)
+  local cancelled = opts and opts.cancelled
+  local attempt = 1
+  while true do
+    local handle, trouble, code = http.open(url, raw)
+    if handle == nil then
+      if opts ~= nil and opts.via ~= nil then
+        return nil, socket_trouble(opts.via, trouble, code)
+      end
+      return nil, trouble
     end
-    return nil, trouble
+    local again = false
+    if policy ~= nil and attempt < policy.attempts and policy.statuses[handle:status()] == true then
+      local wait = retry_wait(handle:headers(), attempt, policy)
+      if wait <= policy.max_wait_ns then
+        handle:close()
+        if (wait > 0 or cancelled ~= nil) and not pause(wait, cancelled) then
+          return nil, "interrupted"
+        end
+        again = true
+      end
+    end
+    if not again then
+      if opts ~= nil and opts.decompress == true then return decoded(respond(handle)) end
+      return respond(handle), ""
+    end
+    attempt = attempt + 1
+    -- Every open starts its script over, so the next attempt is handed
+    -- the entries from its own number on.
+    -- TODO: count the connections an attempt used once cosmic.internal.http's
+    -- handle reports them, so a scripted attempt that followed a redirect
+    -- leaves the next one the entries after its last connection.
+    if opts ~= nil and opts.script ~= nil then
+      raw, unmade = raw_options(opts, method, true, attempt)
+      if raw == nil then return nil, unmade end
+    end
   end
-  if opts ~= nil and opts.decompress == true then return decoded(respond(handle)) end
-  return respond(handle), ""
 end
 
 --- `response`'s whole body, read and closed, as [`Http.Body`].

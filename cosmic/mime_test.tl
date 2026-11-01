@@ -38,7 +38,8 @@ local function test_gzip_keeps_only_a_text_file_it_shrinks_enough()
     state = (state * 1103515245 + 12345) % 2147483648
     noise[i] = string.char((state // 65536) % 256)
   end
-  assert(Mime.gzip("random.txt", table.concat(noise)) == nil, "no gzip that saves under 10%")
+  local none, trouble = Mime.gzip("random.txt", table.concat(noise))
+  assert(none == nil and trouble == "", "no gzip that saves under 10%, and no failure")
 end
 
 local function unzstd(packed: string): string
@@ -62,7 +63,8 @@ local function test_zstd_keeps_only_a_text_file_it_shrinks_enough()
     state = (state * 1103515245 + 12345) % 2147483648
     noise[i] = string.char((state // 65536) % 256)
   end
-  assert(Mime.zstd("random.txt", table.concat(noise)) == nil, "no zstd that saves under 10%")
+  local none, trouble = Mime.zstd("random.txt", table.concat(noise))
+  assert(none == nil and trouble == "", "no zstd that saves under 10%, and no failure")
 end
 
 local function test_scripted_names_the_types_a_browser_runs_script_from()

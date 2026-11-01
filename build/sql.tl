@@ -39,6 +39,7 @@
 local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
 local Clock = require("cosmic.clock")
+local Csv = require("cosmic.csv")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
@@ -328,27 +329,18 @@ local row_lines: Writer = {
   end,
 }
 
---- One CSV field, quoted when it holds a comma, a quote or a line break,
---- is empty, so an empty text is told from NULL's empty field, or begins
---- with a UTF-8 byte order mark, which a CSV reader drops from the start
---- of its text unless a quote comes first.
-local function csv_field(text: string): string
-  if text == "" or text:find('[,"\r\n]') ~= nil or text:sub(1, 3) == "\xEF\xBB\xBF" then
-    return '"' .. text:gsub('"', '""') .. '"'
-  end
-  return text
-end
+--- A field written `""` when empty, so '' is told from NULL's empty field.
+local QUOTE_EMPTY <const>: Csv.FieldOptions = { quote_empty = true }
 
 --- `--to csv`: RFC 4180, a header of the column names, then a record per
---- row: NULL an empty field, '' a quoted empty one, a number as a row
---- line writes it, and text and a blob's bytes as they are, quoted when
---- they are empty, begin with a byte order mark, or hold a comma, a quote
---- or a line break.
+--- row: NULL an empty field, '' a quoted empty one (so it is told from
+--- NULL), a number as a row line writes it, and text and a blob's bytes as
+--- [`Csv.encode_field`] writes them.
 local csv_writer: Writer = {
   header = function(names: {string}): string?
     local fields: mut {string} = {}
     for index, name in ipairs(names) do
-      fields[index] = csv_field(name)
+      fields[index] = Csv.encode_field(name, QUOTE_EMPTY)
     end
     return table.concat(fields, ",")
   end,
@@ -362,7 +354,7 @@ local csv_writer: Writer = {
         local text = cell_text(statement, index)
         fields[#fields + 1] = text
       else
-        local text = csv_field(statement:bytes(index))
+        local text = Csv.encode_field(statement:bytes(index), QUOTE_EMPTY)
         fields[#fields + 1] = text
       end
     end

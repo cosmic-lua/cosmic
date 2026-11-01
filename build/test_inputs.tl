@@ -93,7 +93,7 @@ end
 --- [`confine.must_confine`]), and what a process of the program
 --- running the tests reads to run at all
 --- ([`this_program.runtime_environment`]).
-local pinned_env: mut {string} = { "FUZZ_SEED", "FUZZ_ITERS", "FUZZ_CASE",
+local pinned_env: mut {string} = { "FUZZ_SEED", "FUZZ_ITERS", "FUZZ_SECONDS", "FUZZ_CASE",
   "COSMIC_SANDBOX" }
 for _, name in ipairs(this_program.runtime_environment) do pinned_env[#pinned_env + 1] = name end
 

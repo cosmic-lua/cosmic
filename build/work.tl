@@ -92,7 +92,7 @@ end
 
 --- The shape of the schema. A file of another shape holds nothing the
 --- tree cannot produce again, so it is thrown away.
-local version <const> = "30"
+local version <const> = "31"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -167,6 +167,13 @@ local version <const> = "30"
 --- refuses from ([`build.plans`]'s `refuse_globals`) without
 --- reading a source again. A guide's example is at the line of the
 --- module extracted from the guide.
+--- `places` is where each type a source declares, and each field, method
+--- and `function R.f` of one, has its name ([`build.syntax_places`]): a
+--- row each by dotted symbol from the top of the module (`R`, `R.Inner`,
+--- `R.f`), its kind, and the line, byte column and byte length of the
+--- name. `cosmic lsp` finds a declaration in another module by it
+--- ([`build.lsp.source`]) without parsing the module. A source derived
+--- from another file (`mapped`) has none: its lines are not the file's.
 ---
 --- `executable` is [`build.coverage.syntax_lines.executable`]'s answer for one
 --- source, keyed by content hash the same way as `parsed`: which lines
@@ -234,6 +241,18 @@ local version <const> = "30"
 --- projection beside it instead of compressing every source on each write.
 --- `deflated_bytecode` is the same for a compile's bytecode, by the
 --- compile's key.
+---
+--- `compressed` is the gzip and zstd of a static file (NULL where not worth
+--- keeping), by its path, SHA-256, the digest of the rules that chose them
+--- ([`cosmic.mime`]) and the core that compressed it, which [`build.writer`]
+--- puts in a projection's `payload` instead of compressing every file on
+--- each write. A file whose encoder failed has no row, so it is tried again.
+---
+--- TODO: share `compressed` across checkouts through the shared cache
+--- ([`build.shared_compiles`]'s cache.db), keyed as it is now: it lives in
+--- the working database, so every fresh worktree, clone and CI run of a
+--- project with static files pays the cold compression (about 51 s for
+--- 10.6 MB at level 19). Waits on the shared cache holding the table.
 ---
 --- `link_answers` is what the disk answered the last time
 --- [`build.link_index`]'s `pending` resolved the tree's links, by a
@@ -448,6 +467,13 @@ for _, statement in ipairs({
                                                   core TEXT NOT NULL,
                                                   data BLOB NOT NULL,
                                                   PRIMARY KEY (key, core)) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS compressed (path TEXT NOT NULL,
+                                           sha256 TEXT NOT NULL,
+                                           rules TEXT NOT NULL,
+                                           core TEXT NOT NULL,
+                                           gzip BLOB,
+                                           zstd BLOB,
+                                           PRIMARY KEY (path, sha256, rules, core)) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS link_answers (kind TEXT NOT NULL,
                                           path TEXT NOT NULL,
                                           value TEXT NOT NULL,
