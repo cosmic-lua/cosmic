@@ -237,3 +237,31 @@ local function test_a_lua_file_run_standalone_is_checked_as_teal(tmp: string)
   assert(result.code == 1 and result.stdout == "" and (result.stderr or ""):find("param_untyped", 1, true) ~= nil,
     tostring(result.stdout) .. tostring(result.stderr))
 end
+
+local BAD_TEMPLATE <const> = "oops\n"
+
+--- A file that no file of the run reaches but that stops the build around it is told apart from the file run: the
+--- run says `--standalone` runs the file alone.
+local function test_a_refused_file_beside_the_one_run_names_standalone(tmp: string)
+  local root = tree_of(tmp, "beside", { ["x.tl"] = 'print("hi")\n', ["a.tmpl"] = BAD_TEMPLATE })
+  local result = run_in(root, "x.tl")
+  local said = tostring(result.stdout) .. tostring(result.stderr)
+  assert(result.code ~= 0, said)
+  assert((result.stderr or ""):find("a.tmpl:1:1: a template starts with", 1, true) ~= nil, said)
+  assert((result.stderr or ""):find("cosmic --standalone x.tl", 1, true) ~= nil, said)
+  assert((result.stderr or ""):find("COSMIC_STANDALONE=1", 1, true) ~= nil, said)
+end
+
+--- The hint is wrong where the file run requires the refused file, and where the refused file is the one run.
+local function test_the_standalone_hint_is_left_off_a_file_the_run_needs(tmp: string)
+  local needs = tree_of(tmp, "needs", { ["x.tl"] = 'local a = require("a")\nprint(a)\n',
+    ["a.tmpl"] = BAD_TEMPLATE })
+  local required = run_in(needs, "x.tl")
+  assert(required.code ~= 0, tostring(required.stderr))
+  assert((required.stderr or ""):find("a.tmpl:1:1:", 1, true) ~= nil, tostring(required.stderr))
+  assert((required.stderr or ""):find("--standalone", 1, true) == nil, tostring(required.stderr))
+  local itself = tree_of(tmp, "itself", { ["x.tl"] = SYNTAX_ERROR })
+  local own = run_in(itself, "x.tl")
+  assert(own.code ~= 0, tostring(own.stderr))
+  assert((own.stderr or ""):find("--standalone", 1, true) == nil, tostring(own.stderr))
+end

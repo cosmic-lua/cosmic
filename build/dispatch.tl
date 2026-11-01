@@ -359,6 +359,33 @@ local function module_of(root: string, file: string): string?, string
   return (name:gsub("/", ".")), ""
 end
 
+--- `trouble`, the reason a file run's build failed, with a line saying `--standalone` where the file it names is
+--- neither the file run nor one the file requires by name: the tree around a file is built to run it, so a refused
+--- file beside it stops the run, and `--standalone` runs the file alone.
+--- @param file the path named on the command line
+--- @param name the module of that file
+local function with_standalone_hint(trouble: string, file: string, name: string): string
+  -- TODO: follow the file's requires through the files they name, not its own `require` lines alone, once a build that
+  -- stops at a refused source can say which modules the rest of the tree requires: a file reached only through another
+  -- gets the hint today.
+  local culprit = trouble:match("^([^:\n]+):")
+  if culprit == nil or not (culprit:match("%.tl$") ~= nil or culprit:match("%.tmpl$") ~= nil) then
+    return trouble
+  end
+  local module = culprit:gsub("%.tmpl$", ""):gsub("%.tl$", ""):gsub("/init$", ""):gsub("/", ".")
+  if module == name then
+    return trouble
+  end
+  local Fs = require("cosmic.fs")
+  local source, _ = Fs.read(file)
+  local quoted = module:gsub("%p", "%%%0")
+  if source ~= nil and (source:find("require%s*%(?%s*[\"']" .. quoted .. "[\"']") ~= nil) then
+    return trouble
+  end
+  return trouble .. "\n" .. "cosmic: " .. culprit .. " is not the file run, but a run builds the tree around its file; " ..
+    "`cosmic --standalone " .. file .. "` (or COSMIC_STANDALONE=1) runs the file alone"
+end
+
 --- Runs a file. The file is a module: it is required once its tree is
 --- built, with its arguments (below) set in the global `arg` before its
 --- top level runs, and if what it returns is a function, that function is
@@ -414,7 +441,7 @@ local function run(file: string, argv: {string}): integer
   local staged, stage_trouble = work.stage(handle, standing)
   if staged == nil then
     local _, _ = work.close(handle)
-    log:complain(stage_trouble)
+    log:complain(with_standalone_hint(stage_trouble, file, name))
     return 1
   end
 
@@ -444,7 +471,7 @@ local function run(file: string, argv: {string}): integer
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
-    log:complain(compile_trouble)
+    log:complain(with_standalone_hint(compile_trouble, file, name))
     return 1
   end
   local written, write_trouble =
@@ -750,6 +777,16 @@ local function load_removed_catalog()
   local _, _ = pcall(require, "cosmic.removed")
 end
 
+--- The flags of earlier releases that were the command line's first word, each with what replaced it. Only the first
+--- word is asked: `cosmic test --check-types` is a current flag of a verb.
+local RETIRED_FLAGS <const>: {string: string} = {
+  ["--make"] = "use `cosmic build` to build a program, or `cosmic test` to run a tree's tests",
+  ["--docs"] = "use `cosmic docs`",
+  ["--check-types"] = "use `cosmic test`, which checks the tree's types as it builds (`cosmic test --check-types` also " ..
+    "checks the values at run time)",
+  ["--check-format"] = "use `cosmic fix --check`",
+}
+
 --- Runs the command line and answers its exit code.
 --- @param argv the command line, the verb at slot 1
 function Dispatch.main(argv: {string}): integer
@@ -877,6 +914,12 @@ function Dispatch.main(argv: {string}): integer
     return code
   end
   if verb:sub(1, 1) == "-" then
+    local retired = RETIRED_FLAGS[verb]
+    if retired ~= nil then
+      -- Told as the removed `migrate` verb is, and exits 2 as it does.
+      log:complain("cosmic " .. verb .. " was removed: " .. retired)
+      return 2
+    end
     log:complain("no such option: " .. verb)
     log:complain("`cosmic help` is the whole discovery surface")
     return 2
