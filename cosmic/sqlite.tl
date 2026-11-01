@@ -43,9 +43,6 @@ local type raw_sqlite = require("cosmic.internal.sqlite")
 
 local sqlite = require("cosmic.internal.sqlite")
 
-local type Statement = raw_sqlite.Statement
-local type Value = raw_sqlite.Value
-
 --- The SQLite storage class of a result cell, as [`Sqlite.Row.kind`] names
 --- it.
 local enum Kind
@@ -113,7 +110,7 @@ local interface Row
   --- `kind` names: `{ integer = n }`, `{ number = x }`, `{ text = s }`,
   --- `{ blob = b }`, and `{}` for NULL. It is how a row is copied to
   --- another table.
-  value: function(Row, integer): Value
+  value: function(Row, integer): raw_sqlite.Value
 end
 
 -- A row is one table with a metatable, so reading a result allocates
@@ -137,7 +134,7 @@ local record Stored is {any}
   blob: function(Stored, integer): string
   bytes: function(Stored, integer): string
   texts: function(Stored): {string}
-  value: function(Stored, integer): Value
+  value: function(Stored, integer): raw_sqlite.Value
 end
 
 local stored_mt: metatable<Stored> = { __index = Stored }
@@ -239,7 +236,7 @@ function Stored.texts(self: Stored): {string}
   return out
 end
 
-function Stored.value(self: Stored, index: integer): Value
+function Stored.value(self: Stored, index: integer): raw_sqlite.Value
   local kind, held = cell_at(self, index, "value")
   if held is integer then return { integer = held } end
   if held is number then return { number = held } end
@@ -261,7 +258,7 @@ local record TextStored is {any}
   blob: function(TextStored, integer): string
   bytes: function(TextStored, integer): string
   texts: function(TextStored): {string}
-  value: function(TextStored, integer): Value
+  value: function(TextStored, integer): raw_sqlite.Value
 end
 
 local text_stored_mt: metatable<TextStored> = { __index = TextStored }
@@ -323,14 +320,14 @@ function TextStored.texts(self: TextStored): {string}
   return out
 end
 
-function TextStored.value(self: TextStored, index: integer): Value
+function TextStored.value(self: TextStored, index: integer): raw_sqlite.Value
   return { text = text_at(self, index, "value") }
 end
 
 --- The row `statement` was just stepped to, as typed cells in column
 --- order. Its columns are asked after each step: a schema change
 --- re-prepares the statement, and its columns with it.
-local function cells_of(statement: Statement): Row
+local function cells_of(statement: raw_sqlite.Statement): Row
   local row: Stored = setmetatable({}, stored_mt)
   for index = 0, statement:columns() - 1 do
     local kind = statement:kind(index)
@@ -350,7 +347,7 @@ end
 
 --- The row `statement` was just stepped to, as the bytes of each column
 --- in order, each a "text" cell. Asked after each step, as [`cells_of`] is.
-local function texts_of(statement: Statement): Row
+local function texts_of(statement: raw_sqlite.Statement): Row
   local row: TextStored = setmetatable({}, text_stored_mt)
   for index = 0, statement:columns() - 1 do
     row[index + 1] = statement:bytes(index)
@@ -363,8 +360,8 @@ end
 --- why when the step failed. [`Sqlite.rows`], [`Sqlite.text_rows`] and
 --- [`Sqlite.query`] all step through it, so they agree on what a failure
 --- says.
-local function step_row<T>(statement: Statement,
-                           project: function(Statement): T): T?, string
+local function step_row<T>(statement: raw_sqlite.Statement,
+                           project: function(raw_sqlite.Statement): T): T?, string
   local state, failure = statement:step()
   if state == nil then
     return nil, failure ~= "" and failure or "sqlite: the step failed"
@@ -389,9 +386,13 @@ end
 --- A query's rows read one at a time: see [`Sqlite.query`]. It is a class,
 --- so a query is held in a `<close>` variable.
 local class Query
-  statement: Statement
+  --- The prepared statement the rows are read from.
+  statement: raw_sqlite.Statement
+  --- Whether the statement is still unfinalized.
   mut open: boolean
+  --- Whether the last row has been read.
   mut ended: boolean
+  --- Why stepping failed, "" until it does.
   mut failed: string
 
   --- The next row, and ""; nil and "" after the last; nil and why
