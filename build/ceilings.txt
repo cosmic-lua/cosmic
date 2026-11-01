@@ -460,7 +460,6 @@ cosmic/template_go_test.tl unchecked_binding 1
 
 
 
-build/archive_tool_test.tl nil_not_allowed 1
 
 
 build/artifact_fuzz_test.tl nil_not_allowed 1
@@ -503,12 +502,10 @@ build/child_policy_database_fixture.tl nil_not_allowed 1
 
 build/codec_test.tl nil_not_allowed 5
 
-build/codec_tool_test.tl nil_not_allowed 1
 
 
 
 
-build/compile_tool_test.tl nil_not_allowed 1
 
 
 build/confine.tl nil_not_allowed 6
@@ -583,7 +580,6 @@ build/fuzz/shrink.tl nil_not_allowed 11
 build/hash_sums_fuzz_test.tl nil_not_allowed 1
 
 
-build/hash_tool_test.tl nil_not_allowed 1
 
 build/host_requires.tl nil_not_allowed 5
 
@@ -600,7 +596,6 @@ build/json_query_fuzz_test.tl nil_not_allowed 1
 build/json_query_test.tl nil_not_allowed 3
 
 
-build/json_tool_test.tl nil_not_allowed 1
 
 
 
@@ -621,7 +616,6 @@ build/patch_test.tl nil_not_allowed 1
 
 
 
-build/rand_tool_test.tl nil_not_allowed 1
 
 
 
@@ -676,7 +670,6 @@ build/shared_verdicts_tool_test.tl nil_not_allowed 3
 build/sql_store_test.tl nil_not_allowed 1
 
 
-build/sql_tool_test.tl nil_not_allowed 1
 
 build/sqlite_wait_lua_test.tl nil_not_allowed 1
 
