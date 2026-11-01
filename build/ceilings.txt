@@ -103,8 +103,6 @@ core/declarations_test.tl member_missing 1
 
 # a type that lists an interface and lacks a field it declares (`mut skip` of [`Stream.Reader`]), or declares
 # it with another type: add the field, or make the types agree, in Teal
-build/chunked_reader_fixture.tl interface_disagrees 1
-
 build/codec.tl interface_disagrees 9
 
 build/lsp/session_fixture.tl interface_disagrees 1

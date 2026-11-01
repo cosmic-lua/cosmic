@@ -8,6 +8,7 @@ local record chunked_reader_fixture
 end
 
 local class Chunked is Stream.Reader
+  mut skip: function(Chunked, n: integer): boolean, string
   text: string
   mut at: integer
   size: integer
@@ -25,6 +26,11 @@ local class Chunked is Stream.Reader
   end
 end
 
+local function skip(self: Chunked, n: integer): boolean, string
+  self.at = self.at + n
+  return true, ""
+end
+
 --- A Reader that answers `text` in chunks of `size` bytes, then `last`
 --- (nil for the end) on every read after.
 --- @param text what it answers
@@ -32,7 +38,7 @@ end
 --- @param last the failure every read after the text answers; the end where nil
 --- @return the reader
 function chunked_reader_fixture.chunked(text: string, size: integer, last?: string): Stream.Reader
-  local r: Chunked = { text = text, at = 1, size = size, last = last or "" }
+  local r: Chunked = { skip = skip, text = text, at = 1, size = size, last = last or "" }
   return r
 end
 
