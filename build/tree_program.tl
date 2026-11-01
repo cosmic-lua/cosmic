@@ -378,8 +378,9 @@ function TreeProgram.meant(index: Driver.Index, own: boolean): function(name: st
     end
     local found: mut {string} = {}
     for _, source in ipairs(candidates) do
-      -- Not the file's own module: a `require` of it is a cycle. (Nor one that requires the file, which the requires of the
-      -- tree would say and this index, of sources, does not.)
+      -- Not the file's own module: a `require` of it is a cycle.
+      -- TODO: a candidate that requires `file`, directly or not, is a cycle too, and is still named. Leave it out once
+      -- this index carries each source's requires, which it does not: it holds sources alone.
       if source.filename ~= file and (source.dialect ~= "tl" or positions.permits(modules, file, kind, source.module, { own = own })) then
         found[#found + 1] = "`" .. source.module .. "` (" .. source.filename .. ")"
       end
