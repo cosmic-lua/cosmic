@@ -9,8 +9,10 @@
 --- - [`Rand.new`] makes a seeded [`Rand.Source`], whose `int`, `float`,
 ---   `bytes`, `normal` and `gamma` draw from it: use one for shuffles,
 ---   simulations and tests that must replay.
---- - [`Rand.uniform`] picks an unbiased integer in a range from any
----   function that draws 64 random bits.
+--- - [`Rand.uniform`], [`Rand.normal`] and [`Rand.gamma`] are the
+---   samplers behind `Source:int`, `normal` and `gamma`, each taking any
+---   function that draws 64 random bits: use them to draw from another
+---   bit source, such as [`Rand.entropy`].
 --- - [`Rand.entropy`] draws unguessable bytes from the operating system:
 ---   use it for keys, tokens and nonces.
 ---
@@ -129,19 +131,19 @@ local function finite(x: number): boolean
   return x - x == 0.0
 end
 
---- A float uniform on [0, 1) from `st`, a multiple of 2^-53.
-local function unit(st: State): number
-  return (next64(st) >> 11) * (1.0 / 9007199254740992.0)
+--- A float uniform on [0, 1) from one draw of `draw`, a multiple of 2^-53.
+local function unit(draw: function(): integer): number
+  return (draw() >> 11) * (1.0 / 9007199254740992.0)
 end
 
---- A standard normal draw from `st`, by Marsaglia's polar method: a
+--- A standard normal draw from `draw`, by Marsaglia's polar method: a
 --- point uniform in the unit disc, kept when strictly inside and off the
 --- centre. The pair's second value is dropped, so a draw leaves no state
 --- behind but the generator's.
-local function standard_normal(st: State): number
+local function standard_normal(draw: function(): integer): number
   while true do
-    local u = 2.0 * unit(st) - 1.0
-    local v = 2.0 * unit(st) - 1.0
+    local u = 2.0 * unit(draw) - 1.0
+    local v = 2.0 * unit(draw) - 1.0
     local s = u * u + v * v
     if s < 1.0 and s > 0.0 then
       return u * math.sqrt(-2.0 * math.log(s) / s)
@@ -149,23 +151,23 @@ local function standard_normal(st: State): number
   end
 end
 
---- A gamma draw of shape `shape` and scale 1 from `st`, by Marsaglia and
+--- A gamma draw of shape `shape` and scale 1 from `draw`, by Marsaglia and
 --- Tsang (2000). A shape below 1 draws shape + 1 and scales it by
 --- u^(1/shape), the boost their paper gives.
-local function standard_gamma(st: State, shape: number): number
+local function standard_gamma(draw: function(): integer, shape: number): number
   if shape < 1.0 then
     -- 1 - unit is in (0, 1], so the power is never of 0.
-    local u = 1.0 - unit(st)
-    return standard_gamma(st, shape + 1.0) * u ^ (1.0 / shape)
+    local u = 1.0 - unit(draw)
+    return standard_gamma(draw, shape + 1.0) * u ^ (1.0 / shape)
   end
   local d = shape - 1.0 / 3.0
   local c = 1.0 / math.sqrt(9.0 * d)
   while true do
-    local x = standard_normal(st)
+    local x = standard_normal(draw)
     local t = 1.0 + c * x
     if t > 0.0 then
       local v = t * t * t
-      local u = 1.0 - unit(st)
+      local u = 1.0 - unit(draw)
       local x2 = x * x
       if u < 1.0 - 0.0331 * x2 * x2 or
           math.log(u) < 0.5 * x2 + d * (1.0 - v + math.log(v)) then
@@ -173,6 +175,50 @@ local function standard_gamma(st: State, shape: number): number
       end
     end
   end
+end
+
+--- A float drawn from the normal distribution of mean `mean` (default 0)
+--- and standard deviation `stddev` (default 1), by Marsaglia's polar
+--- method, from `draw`, a function returning 64 random bits as a Lua
+--- integer (any bit pattern). `draw` is called twice per attempt, and an
+--- attempt is kept about 78.5% of the time. Raises when either parameter
+--- is not finite or `stddev` is negative; a `stddev` of 0 gives `mean`.
+--- It is the sampler of `Source:normal`, exported so a caller with
+--- another bit source (the operating system's entropy) shares it. Its
+--- value goes through the target's `log`.
+--- @param draw function The source of 64 random bits
+--- @param mean number The mean, 0 when nil
+--- @param stddev number The standard deviation, 1 when nil
+--- @return number The value
+function Rand.normal(draw: function(): integer, mean?: number, stddev?: number): number
+  local m, sd = mean or 0.0, stddev or 1.0
+  if not (finite(m) and finite(sd) and sd >= 0.0) then
+    error(("rand: normal(%s, %s): mean and stddev must be finite, stddev not negative")
+        :format(tostring(m), tostring(sd)), 2)
+  end
+  return m + sd * standard_normal(draw)
+end
+
+--- A float drawn from the gamma distribution of shape `shape` and scale
+--- `scale` (default 1), whose mean is `shape * scale`, by Marsaglia and
+--- Tsang's method, from `draw`, a function returning 64 random bits as a
+--- Lua integer (any bit pattern). Raises unless both parameters are
+--- finite and positive. It is the sampler of `Source:gamma`, exported so
+--- a caller with another bit source (the operating system's entropy)
+--- shares it. Its value goes through the target's `log` and, for a shape
+--- below 1, `pow`. A shape far below 1 can underflow a draw to 0, and a
+--- large `shape * scale` can overflow one to infinity.
+--- @param draw function The source of 64 random bits
+--- @param shape number The shape
+--- @param scale number The scale, 1 when nil
+--- @return number The value
+function Rand.gamma(draw: function(): integer, shape: number, scale?: number): number
+  local k, theta = shape, scale or 1.0
+  if not (finite(k) and finite(theta) and k > 0.0 and theta > 0.0) then
+    error(("rand: gamma(%s, %s): shape and scale must be finite and positive")
+        :format(tostring(k), tostring(theta)), 2)
+  end
+  return standard_gamma(draw, k) * theta
 end
 
 --- A source drawing the sequence `seed` names. Every integer is a
@@ -188,13 +234,14 @@ function Rand.new(seed: integer): Rand.Source
   local _, last = splitmix(x)
   s3 = last
   local st: State = { s0 = s0, s1 = s1, s2 = s2, s3 = s3 }
+  local function draw(): integer return next64(st) end
 
   return {
     int = function(_self: Rand.Source, min: integer, max: integer): integer
-      return Rand.uniform(function(): integer return next64(st) end, min, max)
+      return Rand.uniform(draw, min, max)
     end,
     float = function(_self: Rand.Source): number
-      return unit(st)
+      return unit(draw)
     end,
     bytes = function(_self: Rand.Source, count: integer): string
       if count < 0 then
@@ -208,20 +255,10 @@ function Rand.new(seed: integer): Rand.Source
       return table.concat(parts):sub(1, count)
     end,
     normal = function(_self: Rand.Source, mean?: number, stddev?: number): number
-      local m, sd = mean or 0.0, stddev or 1.0
-      if not (finite(m) and finite(sd) and sd >= 0.0) then
-        error(("rand: normal(%s, %s): mean and stddev must be finite, stddev not negative")
-            :format(tostring(m), tostring(sd)), 2)
-      end
-      return m + sd * standard_normal(st)
+      return Rand.normal(draw, mean, stddev)
     end,
     gamma = function(_self: Rand.Source, shape: number, scale?: number): number
-      local k, theta = shape, scale or 1.0
-      if not (finite(k) and finite(theta) and k > 0.0 and theta > 0.0) then
-        error(("rand: gamma(%s, %s): shape and scale must be finite and positive")
-            :format(tostring(k), tostring(theta)), 2)
-      end
-      return standard_gamma(st, k) * theta
+      return Rand.gamma(draw, shape, scale)
     end,
   }
 end

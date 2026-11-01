@@ -201,8 +201,12 @@ local function test_a_mapped_parse_stands_only_for_a_mapped_one(tmp: string)
   local env, path = environment(tmp)
   checkout(tmp .. "/doc")
   built_as(tmp .. "/doc", env, "4 sources parsed;")
-  local generated = dump(build_dir(tmp .. "/doc") .. "/build.db",
-    "SELECT source FROM derived WHERE file = 'doc/guides/guide.md'")
+  -- The source itself, not a dump of it, which quotes a text with a line break.
+  local doc_db = assert(Sqlite.open(build_dir(tmp .. "/doc") .. "/build.db"))
+  local derived = assert(Sqlite.text_rows(doc_db, "SELECT source FROM derived WHERE file = 'doc/guides/guide.md'"))
+  assert(doc_db:close())
+  assert(#derived == 1)
+  local generated = assert(derived[1]):text(1)
   local own_line = 0
   local number = 0
   for line in String.lines(generated) do

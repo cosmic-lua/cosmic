@@ -310,8 +310,8 @@ local record State
   --- Where each function ends, and the loop of the function around it that it is made inside.
   mut made: mut {integer: integer}
   mut entry_of: mut {integer: integer}
-  --- The nodes of an expression whose left side is being walked down.
-  mut spine: {Ast.Exp}
+  --- The nodes of an expression whose left side is being walked down: `top` of them, so a nested walk pushes after them.
+  mut spine: mut {Ast.Exp}
   mut top: integer
   --- The sorted names of the declared globals, when a search wants them.
   mut global_names: {string}?
@@ -1104,14 +1104,15 @@ exp = function(e: Ast.Exp)
       break
     end
     top = top + 1
-    spine[top] = cur
+    spine[#spine + 1] = cur
     cur = nxt
   end
   S.top = top
   leaf(cur)
   for i = top, floor + 1, -1 do
     local node = spine[i]
-    spine[i] = nil
+    spine[#spine] = nil
+    S.top = i - 1
     finish(node)
   end
   S.top = floor

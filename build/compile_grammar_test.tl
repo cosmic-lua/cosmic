@@ -246,15 +246,14 @@ local function test_a_syntax_error_in_a_declaration_file_is_refused(tmp: string)
   assert(Fs.exists(tmp .. "/out/user.lua") == false)
 end
 
---- A declaration beside its source is one module, as in a build: a require reads the declaration, and the source is
---- compiled as the implementation. Two sources of one module are two files for it, which the program has one of.
-local function test_a_declaration_beside_its_source_is_one_module_and_two_sources_are_refused(tmp: string)
+--- A declaration beside its source is refused, and so are two sources of one module: the program has one file for a module.
+local function test_a_declaration_beside_its_source_and_two_sources_are_refused(tmp: string)
   local decl = file(tmp, "foo.d.tl", "local record Foo\n  n: integer\nend\nreturn Foo\n")
   local source = file(tmp, "foo.tl", "local record Foo\n  n: integer\nend\nlocal f: Foo = { n = 1 }\nreturn f\n")
   local ran = run({ "-o", tmp .. "/out", decl, source })
-  assert(ran.code == 0, ran.err)
-  assert(Fs.exists(tmp .. "/out/foo.lua") == true)
-  assert(Fs.exists(tmp .. "/out/foo.d.lua") == false)
+  assert(ran.code == 2, ran.err)
+  assert(ran.err:find("is also the module foo, and a module has one type source", 1, true) ~= nil, ran.err)
+  assert(Fs.exists(tmp .. "/out/foo.lua") == false)
   assert(Fs.mkdirs(tmp .. "/foo"))
   local nested = file(tmp, "foo/init.tl", "local n: integer = 1\nreturn n\n")
   local twice = run({ "-o", tmp .. "/out2", source, nested })

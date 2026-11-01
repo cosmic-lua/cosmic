@@ -109,18 +109,21 @@ local function write_tree(root: string, tree: string, gone: string)
   end
   for line in tree:gmatch("[^\n]+") do
     local spec = decode(line)
-    assert(Fs.write(root .. "/" .. spec.name .. ".tl", module_source(spec)))
+    -- A module has one type source: a declared one is its declaration alone, and any other its source.
+    local source = root .. "/" .. spec.name .. ".tl"
+    local declaration = root .. "/" .. spec.name .. ".d.tl"
+    if spec.declared > 0 then
+      assert(Fs.write(declaration, declaration_source(spec)))
+      local _ = Fs.remove(source)
+    else
+      assert(Fs.write(source, module_source(spec)))
+      local _ = Fs.remove(declaration)
+    end
     local example = root .. "/" .. spec.name .. "_example.tl"
     if spec.example > 0 then
       assert(Fs.write(example, example_source(spec)))
     else
       local _ = Fs.remove(example)
-    end
-    local declaration = root .. "/" .. spec.name .. ".d.tl"
-    if spec.declared > 0 then
-      assert(Fs.write(declaration, declaration_source(spec)))
-    else
-      local _ = Fs.remove(declaration)
     end
   end
   assert(Fs.write(root .. "/main.tl", "return function(): integer\n  return 0\nend\n"))
