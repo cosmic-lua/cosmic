@@ -349,6 +349,69 @@ local function test_definition_of_a_member_is_found_through_a_class_an_interface
   assert_located(defined(ran, 5), root, "main.tl", 19, 2, 3)
 end
 
+--- Two records of one name, declared in two function bodies: a field of each is its own.
+local function test_definition_of_a_field_of_a_type_declared_in_a_function_body_is_its_own()
+  local root = session_fixture.project()
+  local text = 'local function a(): integer\n  local record P\n    x: integer\n  end\n  local p: P = { x = 1 }\n' ..
+    '  return p.x\nend\nlocal function b(): string\n  local record P\n    y: string\n  end\n' ..
+    '  local p: P = { y = "s" }\n  return p.y\nend\nreturn { a, b }\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    -- `x` of `p.x`, `x` of the table, `P` of `p: P`, then the same of the second function.
+    at(2, "textDocument/definition", root, "main.tl", 5, 11),
+    at(3, "textDocument/definition", root, "main.tl", 4, 17),
+    at(4, "textDocument/definition", root, "main.tl", 4, 11),
+    at(5, "textDocument/definition", root, "main.tl", 12, 11),
+    at(6, "textDocument/definition", root, "main.tl", 11, 17),
+    at(7, "textDocument/definition", root, "main.tl", 11, 11),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 2, 4, 5)
+  assert_located(defined(ran, 3), root, "main.tl", 2, 4, 5)
+  assert_located(defined(ran, 4), root, "main.tl", 1, 15, 16)
+  assert_located(defined(ran, 5), root, "main.tl", 9, 4, 5)
+  assert_located(defined(ran, 6), root, "main.tl", 9, 4, 5)
+  assert_located(defined(ran, 7), root, "main.tl", 8, 15, 16)
+end
+
+--- A method a `function P.f` statement adds to a type of a function body, and a value of such a type a function returns.
+local function test_definition_of_a_method_added_to_a_type_declared_in_a_function_body()
+  local root = session_fixture.project()
+  local text = 'local function make(): integer\n  local record P\n    x: integer\n  end\n' ..
+    '  function P.f(self: P): integer\n    return self.x\n  end\n  local p: P = { x = 1 }\n' ..
+    '  return p:f()\nend\nreturn make\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 8, 12),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 4, 13, 14)
+end
+
+--- The checker cannot name a type of a function body in a signature, so a function cannot return one: the uses of such a
+--- type are in the body, in a function nested in it among them.
+local function test_definition_of_a_field_of_a_body_local_type_in_a_nested_function()
+  local root = session_fixture.project()
+  local text = 'local function make(): integer\n  local record P\n    x: integer\n  end\n' ..
+    '  local function get(p: P): integer\n    return p.x\n  end\n  return get({ x = 1 })\nend\nreturn make\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 5, 13),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 2, 4, 5)
+end
+
+--- A string where an enum is expected stands for one of its values, which a person can go to.
+local function test_definition_of_a_string_literal_is_the_enum_value_it_stands_for()
+  local root = session_fixture.project()
+  local text = 'local enum Color\n  "red"\n  "green"\nend\nlocal function paint(c: Color): Color\n  return c\nend\n' ..
+    'local _ = paint("green")\nlocal _ = paint("red")\nlocal function inner(): string\n  local enum E\n    "a"\n  end\n' ..
+    '  local e: E = "a"\n  return e\nend\nreturn { paint, inner }\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 7, 18),
+    at(3, "textDocument/definition", root, "main.tl", 8, 18),
+    at(4, "textDocument/definition", root, "main.tl", 13, 16),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 2, 2, 9)
+  assert_located(defined(ran, 3), root, "main.tl", 1, 2, 7)
+  assert_located(defined(ran, 4), root, "main.tl", 11, 4, 7)
+end
+
 --- A build rewrites a document's text where it calls [`Shape.record_of`], which moves every byte after the call: a place
 --- after one is still the place in the text as written.
 local function test_definition_after_a_record_shape_call_counts_the_text_as_written()

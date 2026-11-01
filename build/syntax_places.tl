@@ -3,9 +3,9 @@
 --- ([`build.lsp.source`]'s `places`) in place of reading the module again, and which it reads off the text of an open
 --- document that differs from the staged file ([`build.lsp.definition`]).
 ---
---- A symbol is the dotted path from the top of the module: a type `R`, one nested in it `R.Inner`, a field or method `R.f`,
---- and a `function R.f` statement, which adds to the type `R` outside its declaration. A type declared in a `do` block of
---- the module has the path from that block. Declared members come before the `function` statements, so that the first of
+--- A symbol is the dotted path from the top of the module: a type `R`, one nested in it `R.Inner`, a field or method `R.f`, an
+--- enum's value [`Color.red`], and a `function R.f` statement, which adds to the type `R` outside its declaration. A type
+--- declared in a `do` block of the module has the path from that block. Declared members come before the `function` statements, so that the first of
 --- a symbol's places is the one a declaration gives and not an addition to it.
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
@@ -17,6 +17,7 @@ local record Places
     "field"
     "method"
     "function"
+    "value"
   end
 
   --- One declaration: its dotted `symbol`, and its name's token in the chunk, at `line` and `column` (1-based, a column
@@ -32,33 +33,42 @@ local record Places
 
   --- Every declaration of `chunk`, in the order they are looked up in: the first of a symbol is the one that stands.
   found: function(chunk: Ast.Chunk): {Found}
+
+  --- The declarations of the type that the node with id `id` declares, wherever it stands in `chunk` (inside a function
+  --- body too), with symbols from the type's own name (`R`, `R.f`): the type the lowering names by the module and `@` and
+  --- that id ([`lang.declarations`]), which tells it from another of its name. Empty where no such type stands.
+  within: function(chunk: Ast.Chunk, id: integer): {Found}
 end
 
 --- What a type declaration holds that a symbol is made of: its name and its members.
 local record Declared
   name: Ast.Binding
   members: {Ast.Member}
+  values: {Ast.EnumValue}
 end
 
 --- What the node `n` declares if it declares a type, nil for anything else.
 local function declared(n: Ast.Node): Declared?
   if n.kind == "Record" then
-    return { name = n.name, members = n.members }
+    return { name = n.name, members = n.members, values = {} }
   elseif n.kind == "Interface" then
-    return { name = n.name, members = n.members }
+    return { name = n.name, members = n.members, values = {} }
   elseif n.kind == "Class" then
-    return { name = n.name, members = n.members }
+    return { name = n.name, members = n.members, values = {} }
   elseif n.kind == "Enum" then
-    return { name = n.name, members = {} }
+    return { name = n.name, members = {}, values = n.values }
   elseif n.kind == "Alias" then
-    return { name = n.name, members = {} }
+    return { name = n.name, members = {}, values = {} }
   elseif n.kind == "Import" then
-    return { name = n.name, members = {} }
+    return { name = n.name, members = {}, values = {} }
   end
   return nil
 end
 
-function Places.found(chunk: Ast.Chunk): {Places.Found}
+--- The places read off `chunk` so far, and the function that adds the type `held` at `symbol` to them: its name, its
+--- members and enum values, and the types nested in it.
+local function collector(chunk: Ast.Chunk): {Places.Found}, function(string, Places.Form, integer),
+    function(Declared, string)
   local tokens = chunk.tokens
   local out: mut {Places.Found} = {}
   --- Adds the declaration of `symbol` whose name is the token `token`.
@@ -67,9 +77,11 @@ function Places.found(chunk: Ast.Chunk): {Places.Found}
       column = Lexer.x(tokens, token), length = Lexer.length(tokens, token) }
     out[#out + 1] = found
   end
-  --- Adds the type `held` is at `symbol`, then its members and the types nested in it.
   local function add_type(held: Declared, symbol: string)
     add(symbol, "type", held.name.first)
+    for _, value in ipairs(held.values) do
+      add(symbol .. "." .. value.value, "value", value.first)
+    end
     for _, member in ipairs(held.members) do
       if member.kind == "FieldDecl" then
         add(symbol .. "." .. member.name.name, "field", member.name.first)
@@ -81,6 +93,11 @@ function Places.found(chunk: Ast.Chunk): {Places.Found}
       end
     end
   end
+  return out, add, add_type
+end
+
+function Places.found(chunk: Ast.Chunk): {Places.Found}
+  local out, add, add_type = collector(chunk)
   --- Adds the types of `stats`, and of the `do` blocks in them.
   local function add_types(stats: {Ast.Stat})
     for _, stat in ipairs(stats) do
@@ -108,6 +125,37 @@ function Places.found(chunk: Ast.Chunk): {Places.Found}
   end
   add_types(chunk.body.stats)
   add_functions(chunk.body.stats)
+  return out
+end
+
+function Places.within(chunk: Ast.Chunk, id: integer): {Places.Found}
+  local out, add, add_type = collector(chunk)
+  local pending: mut {Ast.Node} = { chunk }
+  while #pending > 0 do
+    local node = assert(pending[#pending])
+    pending[#pending] = nil
+    if node.kind == "Block" then
+      for _, stat in ipairs(node.stats) do
+        local held = declared(stat)
+        if held ~= nil and stat.id == id then
+          add_type(held, held.name.name)
+          -- The `function R.f` statements of the block the type is declared in add to it, as at the top of a module.
+          for _, other in ipairs(node.stats) do
+            if other.kind == "Function" and #other.path >= 2 then
+              local names: mut {string} = {}
+              for _, part in ipairs(other.path) do names[#names + 1] = part.text end
+              local last = other.path[#other.path]
+              if names[1] == held.name.name and last ~= nil then
+                add(table.concat(names, "."), "function", last.first)
+              end
+            end
+          end
+          return out
+        end
+      end
+    end
+    Ast.children(node, function(child: Ast.Node) pending[#pending + 1] = child end)
+  end
   return out
 end
 

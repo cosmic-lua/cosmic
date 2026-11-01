@@ -13,8 +13,11 @@
 --- Nothing is answered for a place the report does not know: a global the standard library declares, a name the
 --- checker left unresolved, a module the working database does not list and the binary carries no places of (a
 --- `cosmic.*` module generated from another file, as [`cosmic.sys`] is), a template, a text that does not parse, a document
---- that requires a module the build refuses (a cycle of imports, a module the project does not have), and a type declared
---- inside a function.
+--- that requires a module the build refuses (a cycle of imports, a module the project does not have).
+---
+--- A type declared inside a function body is named by the lowering as its module, `@` and the id of its node, so that one
+--- of the same name in another function is another type: its members are looked up in that node alone
+--- ([`build.syntax_places`]'s `within`), in the document that declares it.
 ---
 --- A place in another module is looked up by its symbol in the `places` the stage derived of the module's file
 --- ([`source.places`]), and put in the module's text as it is written: the checker is served the
@@ -26,16 +29,12 @@
 --- A place in the document is found in the text the checker read, which a build rewrites (the `splices` of
 --- [`check.Reading`]), and put back in the document's own text.
 
--- TODO: answer a field of a type declared inside a function body, once the lowering names such a type by something that tells
--- it from another of the same name in the module: the declarations are found by their names at the top of the module and in
--- its `do` blocks, where the name is the type's alone ([`build.syntax_places`]).
-
 -- TODO: answer a symbol of the binary's own modules generated from another file ([`cosmic.sys`],
 -- [`cosmic.internal.process`]) in a project, once the tool carries the header their `-- line` map names (`core/*.h`) with
 -- their places: its `places` hold none ([`source.places`]).
 
--- TODO: answer the value of an enum that a string literal stands for, once the type report keeps the enum a literal was read
--- as: the report types the literal `"w"` as the string, and the enum's values are found only by a member access.
+-- TODO: answer a field of a type declared in another module's function body, once its places rows carry the id of the node
+-- that declares it: the lowering names it `module@id`, and [`source.places`] has no row to tell it by.
 
 local Ast = require("lang.ast")
 local Driver = require("build.driver")
@@ -76,6 +75,8 @@ local record definition
     encoding: string
     --- The first place of each symbol the document declares, once asked for.
     mut own?: {string:Places.Found}
+    --- The same for the type declared inside a function body (or a `do` block) by the id of its node, once asked for.
+    mut nested?: {integer:{string:Places.Found}}
   end
 end
 
@@ -96,6 +97,27 @@ end
 --- document's module, else in the places of the module's file ([`source.places`]). nil where it declares none, or the
 --- working database lists no such module.
 local function place_of(request: Request, module: string, symbol: string): Site?
+  -- A type declared where no other module can name it is the module and `@` and the id of its node ([`lang.declarations`]).
+  local home, id = module:match("^(.*)@(%d+)$")
+  if home ~= nil and id ~= nil then
+    if home ~= request.here.module then return nil end
+    local number = math.tointeger(id) or 0
+    local nodes: mut {integer:{string:Places.Found}} = {}
+    for key, kept in pairs(request.nested or {}) do nodes[key] = kept end
+    local table_of = nodes[number]
+    if table_of == nil then
+      local built: mut {string:Places.Found} = {}
+      for _, found in ipairs(Places.within(request.outcome.chunk, number)) do
+        if built[found.symbol] == nil then built[found.symbol] = found end
+      end
+      table_of = built
+      nodes[number] = built
+      request.nested = nodes
+    end
+    local found = table_of[symbol]
+    if found == nil then return nil end
+    return site_of_token(request, found.token)
+  end
   if module == request.here.module then
     local own = request.own
     if own == nil then
@@ -254,6 +276,11 @@ local function target(request: Request, tok: integer): Site?
     local decl = decl_of_type(types[leaf.object.id])
     if decl == nil then return nil end
     return member_site(request, decl, leaf.name)
+  elseif leaf.kind == "String" then
+    -- The enum a string literal was read as is the type the report keeps for it.
+    local decl = decl_of_type(types[leaf.id])
+    if decl == nil or decl.kind ~= "enum" then return nil end
+    return place_of(request, decl.module, decl.name .. "." .. leaf.value)
   elseif leaf.kind == "Named" and tok == leaf.first and parent ~= nil and parent.kind == "Table" then
     local decl = decl_of_type(types[parent.id])
     if decl == nil then return nil end
