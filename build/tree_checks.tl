@@ -124,7 +124,7 @@ end
 
 allow({
   "build.syntax_analyzer.analyze",
-  "build.syntax_derivation.rows_of", "build.syntax_match.matches", "build.syntax_match.text",
+  "build.syntax_match.matches", "build.syntax_match.text",
 }, "a reader of the syntax tree (build/syntax_*.tl) that the build reaches through its callers (`analysis_of`, " ..
     "`docs`, the pipeline's derive) and that its tests call directly, to say what one read of a source gives")
 
@@ -2267,7 +2267,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
     files[#files + 1] = entry
     derived[nth(entry, 1)] = true
   end
-  -- No [`TreeProgram.paired`] here: a `.d.tl` beside a `.tl` is refused when the tree is built ([`Pipeline.build`]), which the
+  -- No [`TreeProgram.declared`] here: a `.d.tl` beside a `.tl`, or one that names no kind, is refused when the tree is built ([`Pipeline.build`]), which the
   -- checks that read this index follow, and the files given are a tree that built.
   local index = TreeProgram.index(files, {})
   local tree: Tree = { rows = {}, by_module = {}, index = index }

@@ -73,7 +73,7 @@ local function test_a_package_module_is_its_init()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib/shapes"))
   assert(Fs.write(root .. "/lib/shapes/init.tl", THREE))
-  assert(Fs.write(root .. "/lib/decl.d.tl", "local record decl\n  sides: integer\nend\nreturn decl\n"))
+  assert(Fs.write(root .. "/lib/decl.d.tl", "--- @kind binding\nlocal record decl\n  sides: integer\nend\nreturn decl\n"))
   local main = 'local shapes = require("lib.shapes")\nlocal decl = require("lib.decl")\n' ..
     "local n: integer = shapes.sides + decl.sides\nreturn n\n"
   local diagnostics = nth(served(root, { initialize(root), open(root, "main.tl", main) }), 1)
@@ -395,7 +395,7 @@ local function test_each_module_is_served_as_its_stub_where_it_has_one()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/shapes.tl", THREE))
-  assert(Fs.write(root .. "/lib/decl.d.tl", "local record decl\n  sides: integer\nend\nreturn decl\n"))
+  assert(Fs.write(root .. "/lib/decl.d.tl", "--- @kind binding\nlocal record decl\n  sides: integer\nend\nreturn decl\n"))
   local main = 'local shapes = require("lib.shapes")\nlocal decl = require("lib.decl")\n' ..
     'local n: integer = shapes.sides + decl.sides\nreturn n\n'
   local send = serving(root)
@@ -812,10 +812,36 @@ local function test_the_places_of_a_generated_module_are_the_headers_and_at_its_
     tostring(read.line) .. ":" .. tostring(read.column) .. ":" .. tostring(read.length))
   -- A symbol the map does not name has no place, and nothing is derived for the module.
   assert(placed.spots["sys"] == nil and placed.spots["sys.missing"] == nil and src.tally.derived == 0)
-  -- An open document of the header is not read: the rows are the staged header's.
-  local edited = assert(source.places(src, "cosmic.sys", open_with("core/syscalls.h", "// edited\n" .. SYSCALLS_H)))
-  assert(edited.text() == SYSCALLS_H and assert(edited.spots["sys.read"]).line == 8)
+  -- An open document of the header, one the same as the staged file, is the staged file.
+  local same = assert(source.places(src, "cosmic.sys", open_with("core/syscalls.h", SYSCALLS_H)))
+  assert(assert(same.spots["sys.read"]).line == 8)
+  -- One edited and not saved has its own lines: the generator is run on it.
+  local edited_text = "/* edited */\n" .. SYSCALLS_H
+  local edited = assert(source.places(src, "cosmic.sys", open_with("core/syscalls.h", edited_text)))
+  local moved = assert(edited.spots["sys.read"])
+  assert(edited.text() == edited_text and moved.line == 9 and moved.column == 16 and moved.length == 4,
+    tostring(moved.line) .. ":" .. tostring(moved.column))
+  assert(src.tally.derived == 0, "nothing is derived into the scratch database")
+  -- A header being typed that the generator does not read has none.
+  local shifted = "/* edited */\n" .. SYSCALLS_H .. "/*\n * --- X.\n */\nCOSMIC_SYSCALL(half, 2);\n"
+  assert(source.places(src, "cosmic.sys", open_with("core/syscalls.h", shifted)) == nil,
+    "lines inserted above and a half-typed call below: the staged lines are no answer")
   source.close(src)
+end
+
+--- A tree that lists no module generated from a header (its header was deleted since the stage) is answered from the
+--- header the tool carries.
+local function test_a_generated_module_of_a_tree_without_its_header_is_the_one_the_tool_carries()
+  local root = project()
+  local header = "/* A. */\nCOSMIC_SYSCALL(getpid, 0);\n"
+  local db = session_fixture.carrying_origin("cosmic.sys", "core/syscalls.h", header, {
+    { "sys.getpid", "field", "2", "1", "0", "0" } })
+  local src = source.new(root, function(_: string) end, nil, { db })
+  source.refresh(src)
+  local placed = assert(source.places(src, "cosmic.sys", none_open))
+  assert(placed.carried == Hash.hex_sha256(header) and assert(placed.spots["sys.getpid"]).column == 16)
+  source.close(src)
+  assert(db:close())
 end
 
 --- An open document the same as the staged file is the staged file; an edited one is derived once, into the scratch database.
@@ -1112,6 +1138,23 @@ local function test_the_places_of_a_binary_module_are_read_from_the_database_the
   assert(db:close())
 end
 
+--- A module of the binary generated from a header has no `modules` row: its places are the header's lines, with the column
+--- of each name found in the header the tool carries, and the header is the file it is placed in.
+local function test_the_places_of_a_generated_binary_module_are_in_the_header_the_tool_carries()
+  local header = "/* A. */\nint a;\nCOSMIC_SYSCALL(getpid, 0);\n"
+  local db = session_fixture.carrying_origin("cosmic.sys", "core/syscalls.h", header, {
+    { "sys.getpid", "field", "3", "1", "0", "0" }, { "sys.gone", "field", "9", "1", "0", "0" } })
+  local src = source.new(project(), function(_: string) end, nil, { db })
+  local placed = assert(source.places(src, "cosmic.sys", none_open))
+  assert(placed.file == "core/syscalls.h" and placed.text() == header and placed.carried == Hash.hex_sha256(header))
+  local spot = assert(placed.spots["sys.getpid"])
+  assert(spot.line == 3 and spot.column == 16 and spot.length == 6 and not spot.plain, tostring(spot.column) .. "+" .. tostring(spot.length))
+  assert(rawequal(placed, source.places(src, "cosmic.sys", none_open)), "the places are kept")
+  assert(db:exec("DELETE FROM origins"))
+  assert(source.places(src, "cosmic.sys", none_open) == nil, "a tool carrying no header of it")
+  assert(db:close())
+end
+
 --- In a project, which the working database lists no `cosmic.*` module of, the places of a module of the binary are the
 --- tool's own and are put in a read-only file below the build directory, once for a text and named for it. A module the
 --- tool carries no places of has none.
@@ -1202,7 +1245,7 @@ local function test_what_an_open_document_requires_is_read_from_the_rows_of_its_
   assert(Fs.write(root .. "/lib/shapes.tl", THREE))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
   assert(Fs.write(root .. "/main.tl", main))
-  assert(Fs.write(root .. "/lib/decl.d.tl", "local record decl\n  sides: integer\nend\nreturn decl\n"))
+  assert(Fs.write(root .. "/lib/decl.d.tl", "--- @kind binding\nlocal record decl\n  sides: integer\nend\nreturn decl\n"))
   local src = source.new(root, function(_: string) end)
   source.refresh(src)
   local found = assert(source.module(src, "main.tl"))

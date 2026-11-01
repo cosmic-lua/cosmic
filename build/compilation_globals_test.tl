@@ -153,11 +153,11 @@ end
 --- standard library are the tool's own.)
 local function test_a_global_in_a_declaration_file_is_refused(tmp: string)
   local _, trouble = compile_project(tmp, "decl", {
-    ["foo.d.tl"] = "global record Foo\n  n: integer\nend\n",
+    ["foo.d.tl"] = "--- @kind binding\nglobal record Foo\n  n: integer\nend\n",
     ["a.tl"] = 'local _ = require("foo")\nlocal n: integer = 1\nreturn n\n',
     ["b.tl"] = "local f: Foo = { n = 1 }\nlocal n: integer = f.n\nreturn n\n",
   })
-  assert(trouble == "foo.d.tl:1:1" .. REFUSED, trouble)
+  assert(trouble == "foo.d.tl:2:1" .. REFUSED, trouble)
 end
 
 --- A global written in an example of a guide is refused in the file

@@ -74,6 +74,7 @@ local function standard(dir: string): {near.Known}
       "",
       "return Stream"),
     ["cosmic/sys.d.tl"] = joined(
+      "--- @kind binding",
       "local record syscalls",
       "  --- mkdir(2).",
       "  mkdir: function(path: string, mode: integer): boolean",

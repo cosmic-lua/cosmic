@@ -79,6 +79,7 @@ local AnalysisSchema = require("build.analysis_schema")
 local Ast = require("lang.ast")
 local Declarations = require("lang.declarations")
 local Fs = require("cosmic.fs")
+local GenSyscalls = require("build.gen_syscalls")
 local Hash = require("cosmic.hash")
 local Derivation = require("build.syntax_derivation")
 local Driver = require("build.driver")
@@ -622,10 +623,11 @@ end
 
 --- The complaint about the file `name` (below the root) where the last stage staged nothing and the file is one of a
 --- declaration and a source of one module on disk, or nil: what a document of that file is told, at its first line. The pair
---- is found as the build finds one, by the files a module may be written in ([`build.driver.candidates`]).
-function source.refusal(src: source.View, name: string): string?
+--- is found as the build finds one, by the files a module may be written in ([`build.driver.candidates`]). A declaration
+--- file whose `text` (the document's, as it is open) names no kind is told so as well ([`build.driver.naming`]).
+function source.refusal(src: source.View, name: string, text?: string): string?
   -- A fixture of a test is no part of the program, as in a build ([`build.tree_program.skipped`]).
-  if src.trouble == "" or TreeProgram.skipped(name) then return nil end
+  if TreeProgram.skipped(name) then return nil end
   local module = Declarations.module_of(name)
   local declaration: string? = nil
   local code: string? = nil
@@ -639,8 +641,12 @@ function source.refusal(src: source.View, name: string): string?
       end
     end
   end
-  if declaration ~= nil and code ~= nil and (name == declaration or name == code) then
+  if src.trouble ~= "" and declaration ~= nil and code ~= nil and (name == declaration or name == code) then
     return Driver.pairing(declaration, code, module)
+  end
+  if text ~= nil and name:match("%.d%.tl$") ~= nil then
+    local unnamed = Driver.naming(name, text, source.standing(src).own)
+    if unnamed ~= "" then return unnamed end
   end
   return nil
 end
@@ -1000,46 +1006,6 @@ function source.served(src: source.View, name: string, open: source.Open, uncoun
   return serving_as("source", held, key)
 end
 
---- Where the binary's own module `name` declares its types and their members, in the text the tool carries of it: the
---- `places` of the tool's database ([`build.writer`]'s `insert_places`) and the module's `source`, in the units of the
---- file it was parsed from. nil for a name that is no `cosmic.*` module, for a module the tool carries no places of (one
---- generated from another file has none, and a module with no declaration), and where the database cannot be read: a
---- tool made before the table. The database is the last of the view's `store`, which a tool's own is.
-local function carried_places(src: source.View, name: string): source.Placed?
-  if name:sub(1, 7) ~= "cosmic." then return nil end
-  local databases = src.store or Store.databases()
-  local held = databases[#databases]
-  if held == nil then return nil end
-  local named, _ = Sqlite.text_rows(held, "SELECT CAST(source_hash AS TEXT) FROM modules WHERE path = ?1",
-    { { text = name } })
-  if named == nil then return nil end
-  local first_row = named[1]
-  if first_row == nil then return nil end
-  local kept = src.carried_held[name]
-  if kept ~= nil and kept.carried == first_row:text(1) then return kept end
-  local module, _ = Sqlite.text_rows(held,
-    "SELECT CAST(source_hash AS TEXT), file, CAST(inflate(source) AS TEXT) FROM modules WHERE path = ?1",
-    { { text = name } })
-  if module == nil then return nil end
-  local row = module[1]
-  if row == nil then return nil end
-  local rows, _ = Sqlite.text_rows(held,
-    "SELECT symbol, line, column, length, plain FROM places WHERE module = ?1 ORDER BY ordinal", { { text = name } })
-  if rows == nil or #rows == 0 then return nil end
-  local inflated = row:text(3)
-  local placed: source.Placed = { file = row:text(2), text = function(): string? return inflated end,
-    spots = spots_of(rows), carried = row:text(1) }
-  if src.carried_held[name] == nil then
-    if src.carried_count >= MADE_HELD then
-      src.carried_held = {}
-      src.carried_count = 0
-    end
-    src.carried_count = src.carried_count + 1
-  end
-  src.carried_held[name] = placed
-  return placed
-end
-
 --- Where `name` first stands on `line` of `text` as a whole word, as a byte column; 1 where it does not stand there. A word
 --- right after an `@` is a tag of the annotation (`---@field`), not the name.
 local function column_in(text: string, line: integer, name: string): integer, integer
@@ -1061,12 +1027,112 @@ local function column_in(text: string, line: integer, name: string): integer, in
   end
 end
 
--- TODO: derive the places of a mapped module from an open buffer of its origin file, once the stage can generate a module from
--- an unsaved header: until then an open document of the header is ignored, so lines edited above a declaration and not yet
--- saved shift the file's lines from the staged rows.
+--- Keeps the places `placed` of the binary's module `name`, as many as [`MADE_HELD`] modules.
+local function keep_carried(src: source.View, name: string, placed: source.Placed)
+  if src.carried_held[name] == nil then
+    if src.carried_count >= MADE_HELD then
+      src.carried_held = {}
+      src.carried_count = 0
+    end
+    src.carried_count = src.carried_count + 1
+  end
+  src.carried_held[name] = placed
+end
 
--- TODO: answer a mapped module whose origin file is not staged (a header deleted since the stage, or a tree whose stage
--- failed), once the stage keeps the generated module's rows apart from its origin: it answers none, silently.
+--- Where the binary's own module `name`, generated from a header (`origins`), declares its types and their members: the
+--- lines of the header the tool's `places` hold ([`build.syntax_derivation`]'s `origin_lines`), each with the column of
+--- the symbol's last name where it stands on that line, in the header's text as the tool carries it. nil where the tool
+--- carries no header of the module or no places.
+local function carried_origin(src: source.View, held: Sqlite.Handle, name: string): source.Placed?
+  local named, _ = Sqlite.text_rows(held, "SELECT sha256 FROM origins WHERE module = ?1", { { text = name } })
+  if named == nil then return nil end
+  local first_row = named[1]
+  if first_row == nil then return nil end
+  local kept = src.carried_held[name]
+  if kept ~= nil and kept.carried == first_row:text(1) then return kept end
+  local origin, _ = Sqlite.text_rows(held,
+    "SELECT sha256, file, CAST(inflate(source) AS TEXT) FROM origins WHERE module = ?1", { { text = name } })
+  if origin == nil then return nil end
+  local row = origin[1]
+  if row == nil then return nil end
+  local rows, _ = Sqlite.text_rows(held,
+    "SELECT symbol, line, column, length, plain FROM places WHERE module = ?1 ORDER BY ordinal", { { text = name } })
+  if rows == nil or #rows == 0 then return nil end
+  local inflated = row:text(3)
+  local spots: mut {string:Spot} = {}
+  for symbol, spot in pairs(spots_of(rows)) do
+    local last = symbol:match("([^.]+)$") or symbol
+    local column, length = column_in(inflated, spot.line, last)
+    spots[symbol] = { line = spot.line, column = column, length = length, plain = false }
+  end
+  local placed: source.Placed = { file = row:text(2), text = function(): string? return inflated end, spots = spots,
+    carried = row:text(1) }
+  keep_carried(src, name, placed)
+  return placed
+end
+
+--- Where the binary's own module `name` declares its types and their members, in the text the tool carries of it: the
+--- `places` of the tool's database ([`build.writer`]'s `insert_places`) and the module's `source`, in the units of the
+--- file it was parsed from. nil for a name that is no `cosmic.*` module, for a module the tool carries no places of (one
+--- generated from another file has none, and a module with no declaration), and where the database cannot be read: a
+--- tool made before the table. The database is the last of the view's `store`, which a tool's own is.
+local function carried_places(src: source.View, name: string): source.Placed?
+  if name:sub(1, 7) ~= "cosmic." then return nil end
+  local databases = src.store or Store.databases()
+  local held = databases[#databases]
+  if held == nil then return nil end
+  local named, _ = Sqlite.text_rows(held, "SELECT CAST(source_hash AS TEXT) FROM modules WHERE path = ?1",
+    { { text = name } })
+  if named == nil then return nil end
+  local first_row = named[1]
+  if first_row == nil then return carried_origin(src, held, name) end
+  local kept = src.carried_held[name]
+  if kept ~= nil and kept.carried == first_row:text(1) then return kept end
+  local module, _ = Sqlite.text_rows(held,
+    "SELECT CAST(source_hash AS TEXT), file, CAST(inflate(source) AS TEXT) FROM modules WHERE path = ?1",
+    { { text = name } })
+  if module == nil then return nil end
+  local row = module[1]
+  if row == nil then return nil end
+  local rows, _ = Sqlite.text_rows(held,
+    "SELECT symbol, line, column, length, plain FROM places WHERE module = ?1 ORDER BY ordinal", { { text = name } })
+  if rows == nil or #rows == 0 then return nil end
+  local inflated = row:text(3)
+  local placed: source.Placed = { file = row:text(2), text = function(): string? return inflated end,
+    spots = spots_of(rows), carried = row:text(1) }
+  keep_carried(src, name, placed)
+  return placed
+end
+
+--- The places of the module generated from the header `file` as the text `header` has it, an open document's: the
+--- generator ([`build.gen_syscalls`]) is run on `header` and the places of what it generates are those the stage derives
+--- of a generated module ([`build.syntax_derivation`]'s `rows_of`), each with the column of the symbol's last name where
+--- it stands on its line of `header`. Nothing is written to the scratch database: the rows are a function of the text
+--- alone and are made again by each request. nil where `file` is no header a module is generated from, or `header` is not
+--- one the generator reads (a header being typed), which has no places until it is.
+local function buffer_places(file: string, header: string): {string:Spot}?
+  for _, target in ipairs(GenSyscalls.targets) do
+    if target.target.header == file then
+      local generated, _ = GenSyscalls.declaration(header, target.target)
+      if generated == nil then return nil end
+      local name = target.path:gsub("%.", "/") .. ".d.tl"
+      local chunk, _ = Node.parse(generated, name)
+      if chunk == nil then return nil end
+      local rows, _ = Derivation.rows_of(chunk, generated, name, true)
+      if rows == nil then return nil end
+      local spots: mut {string:Spot} = {}
+      for _, place in ipairs(rows.places) do
+        if spots[place.symbol] == nil then
+          local last = place.symbol:match("([^.]+)$") or place.symbol
+          local column, length = column_in(header, place.line, last)
+          spots[place.symbol] = { line = place.line, column = column, length = length, plain = false }
+        end
+      end
+      return spots
+    end
+  end
+  return nil
+end
 
 --- The places of a module generated from another file ([`build.syntax_derivation`]'s `origin_lines`), in that file's text
 --- `written`: the stage's rows, each at the line of the file, with the column of the symbol's last name where it stands
@@ -1125,15 +1191,25 @@ end
 --- stage could not parse (it has no `parsed` row), which has none if it does not parse here either. The text itself is
 --- read when it is asked for (`text` of [`source.Placed`]), and a place on an ASCII line (`plain`) needs none. A module
 --- generated from another file (`mapped`) answers from the rows its `-- line` map gave, in the text of that file
---- ([`mapped_places`]). A name the database lists no module of is looked up among the binary's own modules
---- ([`source.places`]).
+--- ([`mapped_places`]); in an open document of that file that differs from the staged one, from the rows the generator
+--- makes of its text ([`buffer_places`]); where the file is not staged, as a name the database lists no module of: among
+--- the binary's own modules, whose generated ones the tool carries the header of ([`carried_origin`]).
 function source.places(src: source.View, name: string, open: source.Open): source.Placed?
   local found = src.modules[name]
   if found == nil then return carried_places(src, name) end
   if found.file:match("%.tmpl$") ~= nil then return nil end
   if found.origin ~= "tree" then
+    local opened = open(found.file)
     local written = written_of(src, found)
-    if written == nil then return nil end
+    if opened ~= nil and (written == nil or written.text ~= opened.text) then
+      -- A header edited and not saved: its lines are not the stage's.
+      local spots = buffer_places(found.file, opened.text)
+      -- The staged lines are not this text's: a header the generator does not read has no places here.
+      if spots == nil then return nil end
+      local text = opened.text
+      return { file = found.file, text = function(): string? return text end, spots = spots }
+    end
+    if written == nil then return carried_places(src, name) end
     return mapped_places(src, found, written)
   end
   local opened = open(found.file)

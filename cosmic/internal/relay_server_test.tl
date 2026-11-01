@@ -1426,7 +1426,7 @@ local function test_stop_does_not_wait_for_a_request_that_is_not_finished(tmp: s
   end)
 end
 
-local function test_a_spec_that_is_no_spec_raises(tmp: string)
+local function test_a_spec_that_is_no_spec_raises()
   local ok = pcall(Relay.start, { grants = {}, connector = function(): Net.Conn?, string
     return nil, ""
   end })
@@ -1472,7 +1472,6 @@ local function test_a_spec_that_is_no_spec_raises(tmp: string)
     assert(not started, "a spec with no connector started")
     assert(tostring(why):find("spec.connector", 1, true) ~= nil, tostring(why))
     local _, _ = listener:close()
-    assert(tmp ~= nil)
   end)
 end
 

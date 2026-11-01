@@ -33,7 +33,7 @@ end
 --- itself), of the standard library's where the last bit is, and a comment
 --- `salt` names, which an edit that moves no edge changes. A `declared` module is a declaration.
 local function source_of(index: integer, edges: integer, salt: integer, declared: boolean): string
-  local text = ""
+  local text = if declared then "--- @kind binding\n" else "" end
   for other = 1, library - 1 do
     if (edges >> (other - 1)) & 1 == 1 then
       text = text .. "local r" .. tostring(other) .. " = require(\"m" .. tostring(other) .. "\")\n"
