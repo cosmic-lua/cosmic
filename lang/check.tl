@@ -6029,6 +6029,29 @@ local function check_closable(ctx: Ctx, b: Ast.Binding, t: Type)
   if closable(t) then
     return
   end
+  --- The word for the kind of `ty`, "interface" or "record", when it is a named type of that kind that declares `__close`
+  --- (as a field or a method), which a library can mean to be closed and has not made a class; nil for any other type.
+  local function declares_close_without_class(ty: Type): string?
+    if ty.tag ~= "named" or ty.value then
+      return nil
+    end
+    local kind = ty.decl.kind
+    local body = ty.decl.body
+    if body == nil or (kind ~= "interface" and kind ~= "record") then
+      return nil
+    end
+    for _, m in ipairs(body.methods) do
+      if m.name == "__close" then
+        return kind
+      end
+    end
+    for _, f in ipairs(body.fields) do
+      if f.name == "__close" then
+        return kind
+      end
+    end
+    return nil
+  end
   -- Why `held`, which `closable` refused, is no type of a `<close>` local: for a union, its first member that is none.
   local function because(held: Type): string
     if held.tag == "union" then
@@ -6059,12 +6082,22 @@ local function check_closable(ctx: Ctx, b: Ast.Binding, t: Type)
       end
       return what .. tq(ctx, held) .. " declares no `__close` method"
     end
+    local declared = declares_close_without_class(held)
+    if declared ~= nil then
+      return tq(ctx, held) .. " is not a class: it is " .. (if declared == "interface" then "an " else "a " end) .. declared ..
+        " that declares `__close`; only a class's `__close` method is known to be what Lua calls"
+    end
     return tq(ctx, held) .. " is not a class or a userdata record"
   end
   report(ctx, "close_not_closable", b, quoted(b.name) .. " is a `<close>` local of " .. tq(ctx, t) .. ", and " ..
       because(t) .. ": Lua would raise at the declaration, since the value has no `__close` to call at the end of the block",
-    "declare `function __close(self)` as a method on the class or userdata record " .. quoted(b.name) .. " holds (or hold " ..
-      "nil), or release the value by hand and make " .. quoted(b.name) .. " an ordinary local", { show(ctx, t) })
+    (if declares_close_without_class(t) ~= nil then
+      "the library that declares " .. tq(ctx, t) .. " must declare it as a class with `function __close(self)`; until it does, " ..
+        "release the value by hand (its close method) and make " .. quoted(b.name) .. " an ordinary local"
+      else
+      "declare `function __close(self)` as a method on the class or userdata record " .. quoted(b.name) .. " holds (or hold " ..
+        "nil), or release the value by hand and make " .. quoted(b.name) .. " an ordinary local"
+      end), { show(ctx, t) })
 end
 
 --- The type a local declared `declared` has after it is given a value of type `t`: the view of `t` where that is below

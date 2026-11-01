@@ -299,7 +299,9 @@ local function test_a_close_local_holds_nil_or_a_class_that_declares_close()
   refused(head .. "local p <close>: Plain? = nil\n", "close_not_closable")
   refused(head .. "local n <close> = 5\n", "close_not_closable", "`n` is a `<close>` local of `integer`, and `integer` is not a class")
   refused(head .. "local interface Closer\n  __close: function(self: Closer)\nend\nlocal function f(c: Closer)\n" ..
-      "  local x <close> = c\nend\n", "close_not_closable", "`Closer` is not a class")
+      "  local x <close> = c\nend\n", "close_not_closable", "`Closer` is not a class: it is an interface that declares `__close`")
+  refused(head .. "local record Shut\n  __close: function(Shut)\nend\nlocal function g(c: Shut)\n  local x <close> = c\nend\n",
+    "close_not_closable", "`Shut` is not a class: it is a record that declares `__close`")
   refused(head .. "local s <close>: string = \"s\"\n", "close_not_closable")
   refused(head .. "local function f(v: any)\n  local a <close> = v\nend\n", "close_not_closable", "`a` is a `<close>` local of `any`")
   refused(head .. "local q <close>: Plain\n", "close_not_closable")
@@ -324,7 +326,7 @@ local function test_a_close_local_holds_a_class_a_module_answers_with_a_failure(
       "local record Held_module\n  type Guard = Guard\n  guard: function(): Guard?, string\nend\n" ..
       "return Held_module\n" }
   refused(head .. "local g <close> = assert(Held.guard())\n", "close_not_closable",
-    "`Guard` is not a class or a userdata record", record_modules)
+    "`Guard` is not a class: it is a record that declares `__close`", record_modules)
 end
 
 local DEV <const> = "local record dev\n" ..
