@@ -1211,6 +1211,19 @@ local function test_decompress_asks_for_and_decodes_each_coding()
   end
 end
 
+local function test_a_close_variable_closes_a_decoded_response()
+  local kept: Http.Response
+  do
+    local response <close> = assert(Http.open(url, { decompress = true,
+      script = { reply("200 OK", "Content-Encoding: gzip\r\n", encoded("gzip", "x")) } }))
+    kept = response
+    assert(response:read() == "x")
+  end
+  local chunk, trouble = kept:read()
+  assert(chunk == nil and trouble:find("closed", 1, true) ~= nil, trouble)
+  assert(kept:close())
+end
+
 local function test_decompress_decodes_stacked_codings_last_first()
   local plain = "twice compressed"
   local body = encoded("zstd", encoded("gzip", plain))
