@@ -519,6 +519,22 @@ COSMIC_SYSCALL(setrlimit, 3);
 COSMIC_SYSCALL(entropy, 1);
 
 /*
+ * --- Draws `count` values from a xoshiro256** generator, as cosmic.rand's
+ * --- seeded sources do. The generator is its four state words, an array
+ * --- of four integers, which the call leaves as the draws advanced them. A value is what one single draw of that kind
+ * --- would be, bit for bit. Raises for parameters the kind refuses: a
+ * --- normal's mean and standard deviation must be finite and the latter not
+ * --- negative; a gamma's shape and scale must be finite and positive.
+ * ---@param state {integer} the four state words, which the call advances in place
+ * ---@param kind integer 0 for floats on [0, 1), 1 for normal variates, 2 for gamma variates
+ * ---@param count integer how many values, 0 to 1048576
+ * ---@param first number the mean of a normal, the shape of a gamma, unused for a float
+ * ---@param second number the standard deviation of a normal, the scale of a gamma, unused for a float
+ * ---@return {number} values the values
+ */
+COSMIC_SYSCALL(rand_draw, 5);
+
+/*
  * --- Replaces the process with another program. It returns only on failure.
  * ---@param path string the executable to run
  * ---@param argv {string} the arguments, the program's own name first
