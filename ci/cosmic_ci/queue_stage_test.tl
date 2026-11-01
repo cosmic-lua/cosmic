@@ -10,7 +10,7 @@ local CiWorkflow = require("cosmic_ci.ci_workflow")
 local QueueStage = require("cosmic_ci.queue_stage")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 -- The workflow `workflow` decodes, of the checkout around ci/; the
 -- system's `sh` and `grep` run the "seed" job's script.
@@ -388,7 +388,7 @@ local function read_keys(tmp: string, ci: {string: CiWorkflow.Job}, leg: string,
   assert(not script:find("${{", 1, true), "the key read holds an expression the test gives no value: " .. script)
   local result = assert(Child.run({ "/bin/sh", "-e", "-c", script }, {
     env = { PATH = Env.get("PATH") or "/usr/bin:/bin", RUNNER_TEMP = dir, GITHUB_OUTPUT = dir .. "/output" },
-    cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+    cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(result.code == 0, (result.stdout or "") .. (result.stderr or ""))
   return Fs.read(dir .. "/output") or ""
 end

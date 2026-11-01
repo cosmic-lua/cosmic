@@ -14,7 +14,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
@@ -64,7 +64,7 @@ local function run(root: string, output: string, env: {string:string},
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local started = this_program.program(argv, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
-    timeout_ns = Time.seconds(90),
+    timeout_ns = Clock.seconds(90),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))

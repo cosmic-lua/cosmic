@@ -6,11 +6,10 @@
 --- what 64 bits hold: 1677-09-21T00:12:43.145224192Z through
 --- 2262-04-11T23:47:16.854775807Z, on the proleptic Gregorian calendar.
 ---
---- A span of exact time is an integer of nanoseconds too, which [`ms`],
---- [`seconds`], [`minutes`] and [`hours`] make from a count
---- (`Time.seconds(5)`). The clocks and these constructors live in
---- [`cosmic.clock`], which a module that needs no calendar requires
---- instead; this module keeps them as aliases. A span the calendar
+--- A span of exact time is an integer of nanoseconds too, which
+--- [`cosmic.clock`]'s `ms`, `seconds`, `minutes` and `hours` make from a
+--- count (`Clock.seconds(5)`); the clocks live there as well, and this
+--- module does not require it. A span the calendar
 --- measures, whole years, months and days and a remainder, is a
 --- [`Duration`]. [`add_calendar`] moves a moment by one, [`between`]
 --- answers one, and [`parse_duration`] and [`format_duration`] read and
@@ -31,7 +30,6 @@
 --- zone?)` and `format_rfc3339(ns, zone?, opts?)`. Each reads the UTC
 --- calendar without a zone.
 
-local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Number = require("cosmic.number")
@@ -210,23 +208,6 @@ local record Time
 
   --- Coordinated Universal Time, the zone every other is an offset from.
   UTC: Time.Zone
-
-  --- [`cosmic.clock`]'s [`Clock.now_ns`], kept here under its old name.
-  now_ns: function(): integer
-  --- [`cosmic.clock`]'s [`Clock.monotonic_ns`], kept here under its old name.
-  monotonic_ns: function(): integer
-  --- [`cosmic.clock`]'s [`Clock.sleep_ns`], kept here under its old name.
-  sleep_ns: function(integer): boolean, string
-  --- [`cosmic.clock`]'s [`Clock.ms`], kept here under its old name.
-  ms: function(number): integer
-  --- [`cosmic.clock`]'s [`Clock.seconds`], kept here under its old name.
-  seconds: function(number): integer
-  --- [`cosmic.clock`]'s [`Clock.minutes`], kept here under its old name.
-  minutes: function(number): integer
-  --- [`cosmic.clock`]'s [`Clock.hours`], kept here under its old name.
-  hours: function(number): integer
-  --- [`cosmic.clock`]'s [`Clock.ceil`], kept here under its old name.
-  ceil: function(integer, integer): integer
 end
 
 local NS <const> = 1000000000
@@ -2040,14 +2021,5 @@ function Time.format_duration(d: Time.Duration): string
   if #parts == 0 then return "0s" end
   return (if negative then "-" else "" end) .. table.concat(parts)
 end
-
-Time.now_ns = Clock.now_ns
-Time.monotonic_ns = Clock.monotonic_ns
-Time.sleep_ns = Clock.sleep_ns
-Time.ms = Clock.ms
-Time.seconds = Clock.seconds
-Time.minutes = Clock.minutes
-Time.hours = Clock.hours
-Time.ceil = Clock.ceil
 
 return Time

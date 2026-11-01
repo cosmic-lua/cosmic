@@ -13,6 +13,7 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Compress = require("cosmic.compress")
 local Stream = require("cosmic.stream")
+local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")
 local String = require("cosmic.string")
 
@@ -206,7 +207,7 @@ end
 -- DOS date/time, Unix epoch seconds; no timezone -- both sides are UTC
 ------------------------------------------------------------------
 
-local NS_PER_SECOND <const> = Time.seconds(1)
+local NS_PER_SECOND <const> = Clock.seconds(1)
 --- 1980-01-01T00:00:00Z and 2107-12-31T23:59:59Z, the first and last
 --- moments a DOS date holds: its year is seven bits from 1980.
 local DOS_FIRST <const> = 315532800

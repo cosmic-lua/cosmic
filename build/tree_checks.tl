@@ -201,10 +201,6 @@ allowed["build.assertions.lua_assert"] = "tested directly: Lua's own `assert`, k
 allowed["build.c.layout.same"] = "tested directly: whether two layouts are one " ..
   "token stream is the rule `cosmic fix` holds a C rewrite to, and the test " ..
   "states it on sources too small to be a file"
-for _, name in ipairs({ "sleep_ns", "ceil" }) do
-  allowed["cosmic.time." .. name] = "the old name of cosmic.clock's " .. name .. ", kept " ..
-    "for programs outside the tree that call it; in the tree only its own tests do"
-end
 for _, name in ipairs({ "names", "class" }) do
   allowed["build.host_names." .. name] = "tested directly: the table's own reading, which " ..
     "`parse` and `check`, the only calls outside the module, are made of"

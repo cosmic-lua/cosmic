@@ -49,6 +49,7 @@
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Json = require("cosmic.json")
+local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
@@ -317,7 +318,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local to: verb.Io = io or {
     out = bare.out,
     err = bare.err,
-    now = Time.now_ns,
+    now = Clock.now_ns,
     local_zone = function(): Time.Zone?, string
       return Time.local_zone()
     end,

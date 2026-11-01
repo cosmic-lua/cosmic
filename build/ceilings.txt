@@ -2355,7 +2355,7 @@ cosmic/test.tl field_fixed 35
 
 cosmic/test_policy_test.tl field_fixed 2
 
-cosmic/time.tl field_fixed 9
+cosmic/time.tl field_fixed 1
 
 
 
@@ -3798,7 +3798,7 @@ cosmic/time_duration_fuzz_test.tl cast_refused 1
 
 cosmic/time_fuzz_test.tl cast_refused 1
 
-cosmic/time_test.tl cast_refused 8
+cosmic/time_test.tl cast_refused 6
 
 cosmic/time_zone_test.tl cast_refused 7
 

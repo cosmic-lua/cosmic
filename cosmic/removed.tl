@@ -155,6 +155,10 @@ local streamed <const> = "the streaming coders are `cosmic codec`'s, not the lib
   "a program encodes a whole string with Codec.hex, Codec.base64 or " ..
   "Codec.base64url and decodes one with Codec.unhex, Codec.unbase64 or " ..
   "Codec.unbase64url (" .. codec .. ")"
+--- What [`cosmic.time`] says of a clock or span helper [`cosmic.clock`] now holds alone.
+local function moved_to_clock(name: string): string
+  return "use Clock." .. name .. ", the same function in cosmic.clock (" .. clock .. ")"
+end
 local archive <const> = 'local Archive = require("cosmic.archive")'
 local entry_kind <const> = "use Stream.EntryKind, the one enum every archive entry's kind is (" ..
   'local Stream = require("cosmic.stream")' .. ")"
@@ -451,6 +455,14 @@ local module: Module = {
     ["cosmic.time.zone_from_posix"] = "use Time.local_zone({ tz = tz }), which reads a " ..
       "POSIX TZ string when the binary carries no zone of that name; Time.zone(name) " ..
       "answers one it does (" .. time .. ")",
+    ["cosmic.time.now_ns"] = moved_to_clock("now_ns"),
+    ["cosmic.time.monotonic_ns"] = moved_to_clock("monotonic_ns"),
+    ["cosmic.time.sleep_ns"] = moved_to_clock("sleep_ns"),
+    ["cosmic.time.ms"] = moved_to_clock("ms"),
+    ["cosmic.time.seconds"] = moved_to_clock("seconds"),
+    ["cosmic.time.minutes"] = moved_to_clock("minutes"),
+    ["cosmic.time.hours"] = moved_to_clock("hours"),
+    ["cosmic.time.ceil"] = moved_to_clock("ceil"),
     ["cosmic.net.pair"] = "listen at a socket file under a temporary directory and " ..
       "connect to it, for two connections that reach each other: " ..
       "Net.listen(Net.unix(path)), Net.connect(server.address), server:accept(), each " ..
