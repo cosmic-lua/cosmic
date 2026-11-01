@@ -1178,8 +1178,8 @@ block = function(b: Ast.Block): Output
     children[i] = stat(stats[i])
   end
   local space: string? = nil
-  -- The last statement that wrote anything: one that writes nothing (a type) leaves the one before it as the end of the
-  -- line that a `(` would continue.
+  -- The last statement that wrote anything: one that writes nothing (a type, an unused record or import) leaves the
+  -- one before it as the end of the line that a `(` would continue.
   local written: Ast.Stat? = nil
   for i = 1, #stats do
     add_child(out, children[i], space, G.indent)
