@@ -283,8 +283,8 @@ end
 --- holds more programs for every session; a smaller one checks again the documents a person returns to, which a sweep of more
 --- open documents than the cap does for all of them. A document dropped publishes what it published where nothing it read
 --- moved ([`Document`]'s `published_basis`), so only a question about its types checks it again. A document whose current text
---- does not parse keeps its `parsed` (completion reads it, [`check.last`]), so the bound is the cap and the open documents
---- being typed in.
+--- has no result (it does not parse, or a build refuses it before it checks it) keeps its `parsed` (completion reads it,
+--- [`check.last`]), so the bound is the cap and the open documents with no result.
 local KEPT_AT_MOST <const> = 8
 
 --- Lets go of the result kept for `document`, and of its place among the most recently asked. Where `closing` it lets go of

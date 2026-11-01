@@ -498,3 +498,50 @@ local function test_a_document_being_typed_in_keeps_the_last_text_that_parsed_wh
   check.closed(checker, typed)
   assert(typed.parsed == nil)
 end
+
+--- A template an open document requires is read as the Teal it compiles to: the module its `type ... from` names is one the
+--- document reads, so that module's change checks the document again.
+local function test_a_module_read_through_an_open_template_checks_the_document_again()
+  local root = project()
+  local tmpl = "{{type Page from data}}{{mode text}}one {{.title}}"
+  local top = 'local page = require("page")\nlocal s: string = page.render({ title = "t" })\nreturn s\n'
+  assert(Fs.write(root .. "/data.tl", DATA))
+  assert(Fs.write(root .. "/page.tmpl", tmpl))
+  assert(Fs.write(root .. "/top.tl", top))
+  local checker = checker_at(root)
+  local page = document_of(root, "page.tmpl", tmpl)
+  local document = document_of(root, "top.tl", top)
+  check.opened(checker, page)
+  check.opened(checker, document)
+  local first = check.diagnose(checker, document, "utf-16")
+  assert(#first == 0, table.concat(first, "\n"))
+  assert(Fs.write(root .. "/data.tl", (DATA:gsub("title: string", "title: integer"))))
+  check.stale(checker)
+  local told = check.diagnose(checker, document, "utf-16")
+  assert(#told >= 1, "the change of a module the template reads was not noticed")
+end
+
+--- A dependency whose open text does not parse requires none, and is read again once it parses: its key moved with the text.
+local function test_an_open_dependency_that_does_not_parse_is_read_again_once_it_does()
+  local root = project()
+  local inner = "local record inner\n  n: integer\nend\nreturn inner\n"
+  local broken = 'local inner = require(\n'
+  local fixed = 'local inner = require("inner")\nlocal record middle\n  value: inner\nend\nreturn middle\n'
+  local top = 'local middle = require("middle")\nlocal n: integer = middle.value.n\nreturn n\n'
+  assert(Fs.write(root .. "/inner.tl", inner))
+  assert(Fs.write(root .. "/middle.tl", fixed))
+  assert(Fs.write(root .. "/top.tl", top))
+  local checker = checker_at(root)
+  local middle = document_of(root, "middle.tl", broken)
+  local document = document_of(root, "top.tl", top)
+  check.opened(checker, middle)
+  check.opened(checker, document)
+  local _ = check.diagnose(checker, document, "utf-16")
+  check.set_text(middle, fixed)
+  local second = check.diagnose(checker, document, "utf-16")
+  assert(#second == 0, table.concat(second, "\n"))
+  assert(Fs.write(root .. "/inner.tl", (inner:gsub("integer", "string"))))
+  check.stale(checker)
+  local told = check.diagnose(checker, document, "utf-16")
+  assert(#told == 1, table.concat(told, "\n"))
+end
