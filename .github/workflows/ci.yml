@@ -2649,7 +2649,22 @@
         # into `path` itself, with no directory named for it, where the
         # join looks for none (run 41220498855).
         {
+          name: "download the portable share's attestation",
+          id: "share-download",
           if: "env.COSMIC_CI_SCOPE == 'full' && needs.reuse.outputs.run == ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {name: "portable-share-alpine-x86_64", path: "${{ runner.temp }}/cosmic-ci/products/portable-share-alpine-x86_64"},
+        },
+        {
+          name: "download the portable share's attestation: wait before the second try",
+          if: "steps.share-download.outcome == 'failure'",
+          shell: "sh",
+          run: "rm -rf \"${{ runner.temp }}/cosmic-ci/products/portable-share-alpine-x86_64\"; sleep 30",
+        },
+        {
+          name: "download the portable share's attestation: second try",
+          if: "steps.share-download.outcome == 'failure'",
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
           with: {name: "portable-share-alpine-x86_64", path: "${{ runner.temp }}/cosmic-ci/products/portable-share-alpine-x86_64"},
         },

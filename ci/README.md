@@ -1038,7 +1038,8 @@ last week; a run whose artifacts expired it reports from its step times
 alone.
 
 A download that fails its job (ci.yml's `checked` shares, `ci` join
-products and `seed` artifacts, and prerelease.yml's products) is tried
+products and portable share's attestation, `seed` artifacts, and
+prerelease.yml's products) is tried
 twice, because the artifact service fails a request now and then and a
 failure ejects a queue entry. The first try tolerates failure. Where it
 failed, a step removes the target directory and sleeps 30 seconds, and the

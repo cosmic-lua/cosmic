@@ -3395,14 +3395,15 @@ local function test_the_join_compares_the_portable_share_with_the_legs()
     local pattern = with_of(step)["pattern"]
     assert(pattern == nil or not tostring(pattern):find("^portable%-share"),
       "the join downloads the share's attestation by a pattern, which puts one artifact in no directory of its own")
-    if name == "portable-share-alpine-x86_64" then
+    -- The second try (test_a_gating_download_is_tried_twice) runs on the first's failure alone.
+    if name == "portable-share-alpine-x86_64" and step["continue-on-error"] == true then
       downloads = downloads + 1
       assert(step["if"] == FULL .. " && needs.reuse.outputs.run == ''", "the share's attestation is downloaded on " .. tostring(step["if"]))
       assert(param(step, "path") == "${{ runner.temp }}/cosmic-ci/products/portable-share-alpine-x86_64",
         "the share's attestation is downloaded to " .. param(step, "path"))
     end
   end
-  assert(downloads == 1, "the join downloads " .. tostring(downloads) .. " sets of share attestations")
+  assert(downloads == 1, "the join first tries " .. tostring(downloads) .. " downloads of share attestations")
   local compare = step_named(join.steps, "compare the Cosmic bytes executed on every native host")
   assert(map_of(compare.env)["COSMIC_CI_PORTABLE_SHARES"] == "${{ needs.reuse.outputs.run == '' && '1' || '0' }}",
     "the join expects share attestations: " .. tostring(map_of(compare.env)["COSMIC_CI_PORTABLE_SHARES"]))
