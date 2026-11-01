@@ -270,7 +270,6 @@ local function test_each_declared_type_has_its_members_with_their_types_as_writt
   assert(work.close(handle))
 end
 
-
 local function test_the_types_and_members_a_source_declares_have_their_places_and_a_derived_source_without_a_line_map_has_none(tmp: string)
   local source = "local record Things\n  size: integer\nend\nfunction Things.open(): Things return { size = 0 } end\nreturn Things\n"
   local handle = assert(work.open(tmp))
