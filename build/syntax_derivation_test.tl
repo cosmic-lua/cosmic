@@ -209,6 +209,68 @@ local function test_a_derived_source_keeps_its_symbols_at_the_lines_of_the_file_
   assert(nth(staged.analysis.docs, 1).line == 3)
 end
 
+local MEMBERS <const> = table.concat({
+  "local record Shape",
+  "  --- The corner.",
+  "  corner: {integer}",
+  "  area: function(self: Shape): integer",
+  "  record Inner",
+  "    depth: integer",
+  "  end",
+  "end",
+  "function Shape.make(size: integer): Shape return { corner = {} } end",
+  "local interface Named",
+  "  name: string",
+  "end",
+  "local interface Aged is Named",
+  "  age: integer",
+  "end",
+  "local class Counter",
+  "  n: integer",
+  "  function bump(self, by: integer): integer return self.n + by end",
+  "end",
+  "function Counter.new(): Counter return { n = 0 } end",
+  "local enum Color",
+  "  \"red\"",
+  "  \"green\"",
+  "end",
+  "return Shape",
+  "",
+}, "\n")
+
+--- A member of a declared type is a row: its type as written on a line, where it is offered, and a function a `function R.f`
+--- statement adds to a record or a class after the members it declares.
+local function test_each_declared_type_has_its_members_with_their_types_as_written(tmp: string)
+  local handle = assert(work.open(tmp))
+  local ok, why = Derivation.insert(handle.db, "h1", "m.tl", MEMBERS, parsed(MEMBERS, "m.tl"), false)
+  assert(ok, why)
+  local found = rows(handle.db,
+    "SELECT owner || '|' || name || '|' || kind || '|' || scope || '|' || type FROM members ORDER BY ordinal")
+  assert(table.concat(found, "\n") == table.concat({
+    "Shape||record|both|",
+    "Shape|corner|field|both|{integer}",
+    -- A function field taking a Shape first, which no `function Shape.area` gives the table of functions.
+    "Shape|area|field|instance|function(self: Shape): integer",
+    "Shape.Inner||record|both|",
+    "Shape.Inner|depth|field|both|integer",
+    "Named||interface|both|",
+    "Named|name|field|both|string",
+    "Aged||interface|both|Named",
+    "Aged|age|field|both|integer",
+    "Counter||class|both|",
+    "Counter|n|field|instance|integer",
+    "Counter|bump|method|both|function(self, by: integer): integer",
+    "Color||enum|both|",
+    "Color|red|value|value|",
+    "Color|green|value|value|",
+    "Shape|make|function|value|function(size: integer): Shape",
+    "Counter|new|function|value|function(): Counter",
+    "Counter|new|method|instance|function(): Counter",
+  }, "\n"), table.concat(found, "\n"))
+  assert(work.close(handle))
+end
+
+
 local function test_the_types_and_members_a_source_declares_have_their_places_and_a_derived_source_without_a_line_map_has_none(tmp: string)
   local source = "local record Things\n  size: integer\nend\nfunction Things.open(): Things return { size = 0 } end\nreturn Things\n"
   local handle = assert(work.open(tmp))

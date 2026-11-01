@@ -925,6 +925,37 @@ local function test_an_edited_buffer_is_derived_into_the_scratch_database_alone(
   source.close(src)
 end
 
+--- The members of a staged module are read from `build.db` and derived nowhere; an edited buffer's are derived once into the
+--- scratch database with the docs of its text, and the rows of the text before an edit go with it.
+local function test_the_members_of_a_module_are_read_from_the_database_or_derived_once_and_forgotten_on_an_edit()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local staged = assert(source.members(src, "lib.point", none_open))
+  assert(src.tally.derived == 0 and staged["point"] ~= nil and assert(staged["point"]).kind == "record")
+  local first = assert(assert(staged["point"]).members[1])
+  assert(first.name == "x" and first.type == "integer" and first.kind == "field")
+  assert(source.members(src, "lib.missing", none_open) == nil)
+  local edited = "--- Edited.\n" .. POINT:gsub("local record point\n", "local record point\n  --- The x.\n", 1)
+  local hash = Hash.hex_sha256(edited)
+  for _ = 1, 2 do
+    local held = assert(source.members(src, "lib.point", open_with("lib/point.tl", edited)))
+    assert(assert(assert(held["point"]).members[1]).doc == "The x.")
+  end
+  assert(src.tally.derived == 1, tostring(src.tally.derived))
+  local scratch = assert(src.scratch)
+  assert(rows_of(scratch, "members", hash) > 0 and rows_of(assert(src.db), "members", hash) == 0)
+  local again = edited .. "\n"
+  assert(source.members(src, "lib.point", open_with("lib/point.tl", again)) ~= nil)
+  assert(rows_of(scratch, "members", hash) == 0 and rows_of(scratch, "docs", hash) == 0, "the rows of the earlier text go")
+  assert(rows_of(scratch, "members", Hash.hex_sha256(again)) > 0)
+  -- A text that does not parse has no members, as it has no parse.
+  assert(source.members(src, "lib.point", open_with("lib/point.tl", "local record point\n  x: \n")) == nil)
+  source.close(src)
+end
+
 --- Another run holds the write lock of `build.db` for as long as it builds; an edited buffer is still answered, as it
 --- writes nowhere that run holds.
 local function test_an_edited_buffer_is_answered_while_build_db_is_write_locked()

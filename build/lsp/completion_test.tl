@@ -528,6 +528,142 @@ local function test_the_members_of_a_module_open_and_unsaved_are_the_text_the_pe
   assert(has(items(ran, 2), { "origin", "fresh" }) == "origin,fresh", answer(ran, 2) .. ran.err)
 end
 
+--- A module of the working database is completed from its `members` rows: its fields and functions with their types as written
+--- and the docs of the same symbol, a nested type's, an enum's values, the interfaces a declaration lists, and none of it
+--- from the checker's declarations of its stub.
+local function test_the_members_of_a_module_of_the_project_are_read_from_its_rows_with_their_docs()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shape.tl", table.concat({
+    "local record shape",
+    "  --- The width.",
+    "  width: integer",
+    "  record Inner",
+    "    --- How deep.",
+    "    depth: integer",
+    "  end",
+    "  inner: Inner",
+    "end",
+    "",
+    "--- Makes a shape.",
+    "function shape.make(size: integer): shape",
+    "  return { width = size, inner = { depth = 1 } }",
+    "end",
+    "",
+    "return shape",
+    "",
+  }, "\n")))
+  local text = 'local shape = require("lib.shape")\nlocal s = shape.make(1)\nlocal _ = s\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    change(root, "main.tl", 'local shape = require("lib.shape")\nlocal s = shape.make(1)\nlocal _ = s.\n'),
+    ask(2, root, "main.tl", 2, 12),
+    change(root, "main.tl", 'local shape = require("lib.shape")\nlocal _ = shape.\n'),
+    ask(3, root, "main.tl", 1, 16),
+    change(root, "main.tl", 'local shape = require("lib.shape")\nlocal s = shape.make(1)\nlocal _ = s.inner.\n'),
+    ask(4, root, "main.tl", 2, 18),
+  })
+  local instance = items(ran, 2)
+  assert(has(instance, { "width", "inner", "make" }) == "width,inner", ran.err)
+  assert(assert(instance["width"]).detail == "integer" and assert(assert(instance["width"]).documentation).value == "The width.")
+  local value = items(ran, 3)
+  assert(has(value, { "make", "width" }) == "make,width", ran.err)
+  assert(assert(value["make"]).kind == FUNCTION and assert(value["make"]).detail == "function(size: integer): shape")
+  assert(assert(assert(value["make"]).documentation).value == "Makes a shape.")
+  local nested = items(ran, 4)
+  assert(has(nested, { "depth" }) == "depth" and assert(assert(nested["depth"]).documentation).value == "How deep.", ran.err)
+  -- The receiver is typed by the checker; the members it is offered come from the rows.
+  assert(ran.tally.member_rows == 3 and ran.tally.member_declarations == 0,
+    tostring(ran.tally.member_rows) .. "," .. tostring(ran.tally.member_declarations))
+end
+
+--- A class's methods and an interface's listed interfaces and an enum's values are rows too.
+local function test_the_members_of_classes_interfaces_and_enums_of_a_module_are_read_from_its_rows()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/kinds.tl", table.concat({
+    "local interface Named",
+    "  name: string",
+    "end",
+    "local interface Aged is Named",
+    "  age: integer",
+    "end",
+    "local class Counter",
+    "  n: integer",
+    "  --- Adds one.",
+    "  function bump(self): integer return self.n + 1 end",
+    "end",
+    "function Counter.new(): Counter return { n = 0 } end",
+    "local enum Color",
+    "  \"red\"",
+    "  \"green\"",
+    "end",
+    "local record kinds",
+    "  aged: Aged",
+    "  counter: Counter",
+    "  color: Color",
+    "end",
+    "return kinds",
+    "",
+  }, "\n")))
+  local ran = served(root, { initialize(root),
+    open(root, "main.tl", 'local kinds = require("lib.kinds")\nlocal k: kinds = nil\nlocal _ = k\n'),
+    change(root, "main.tl", 'local kinds = require("lib.kinds")\nlocal k: kinds = nil\nlocal _ = k.aged.\n'),
+    ask(2, root, "main.tl", 2, 18),
+    change(root, "main.tl", 'local kinds = require("lib.kinds")\nlocal k: kinds = nil\nlocal _ = k.counter:\n'),
+    ask(3, root, "main.tl", 2, 20),
+    change(root, "main.tl", 'local kinds = require("lib.kinds")\nlocal k: kinds = nil\nlocal _ = k.counter.\n'),
+    ask(4, root, "main.tl", 2, 20),
+    change(root, "main.tl", 'local kinds = require("lib.kinds")\nlocal k: kinds = nil\nlocal _ = k.color.\n'),
+    ask(5, root, "main.tl", 2, 18),
+  })
+  assert(has(items(ran, 2), { "name", "age" }) == "name,age", answer(ran, 2) .. ran.err)
+  local methods = items(ran, 3)
+  assert(has(methods, { "bump", "new", "n" }) == "bump,new", ran.err)
+  assert(assert(methods["bump"]).kind == METHOD and assert(assert(methods["bump"]).documentation).value == "Adds one.")
+  assert(has(items(ran, 4), { "n", "bump", "new" }) == "n,bump,new", ran.err)
+  assert(ran.tally.member_declarations == 0, tostring(ran.tally.member_declarations) .. ran.err)
+end
+
+--- The docs of the document's own module are the rows of the text the last check was of, so a member still has its docs
+--- while the line being typed does not parse.
+local function test_the_members_of_the_own_module_have_their_docs_while_the_line_does_not_parse()
+  local root = session_fixture.project()
+  local function base(doc: string): string
+    return 'local record Box\n  --- ' .. doc .. '\n  side: integer\nend\n\nlocal b: Box = { side = 1 }\n'
+  end
+  assert(Fs.write(root .. "/main.tl", base("The side.") .. 'local _ = b\n'))
+  local ran = served(root, { initialize(root), open(root, "main.tl", base("The side.") .. 'local _ = b\n'),
+    change(root, "main.tl", base("The side.") .. 'local _ = b.\n'),
+    ask(2, root, "main.tl", 6, 12),
+    -- Edited and not saved: the docs are those of the text the check read.
+    change(root, "main.tl", base("The edited side.") .. 'local _ = b\n'),
+    ask(4, root, "main.tl", 0, 0),
+    change(root, "main.tl", base("The edited side.") .. 'local _ = b.\n'),
+    ask(3, root, "main.tl", 6, 12),
+  })
+  local side = assert(items(ran, 2)["side"], ran.err)
+  assert(assert(side.documentation).value == "The side." and side.detail == "integer", answer(ran, 2))
+  assert(assert(assert(items(ran, 3)["side"]).documentation).value == "The edited side.", answer(ran, 3))
+  assert(ran.tally.member_declarations == 0, tostring(ran.tally.member_declarations))
+end
+
+--- A module open and edited is derived into the scratch database: its docs are the unsaved text's.
+local function test_the_members_of_a_module_open_and_unsaved_have_the_docs_of_the_text_the_person_has()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", 'local record point\n  --- Old.\n  x: integer\nend\nreturn point\n'))
+  local edited = 'local record point\n  --- New.\n  x: integer\n  --- Fresh.\n  y: integer\nend\nreturn point\n'
+  local text = 'local point = require("lib.point")\nlocal p: point = nil\nlocal _ = p\n'
+  local ran = served(root, { initialize(root), open(root, "lib/point.tl", edited), open(root, "main.tl", text),
+    change(root, "main.tl", 'local point = require("lib.point")\nlocal p: point = nil\nlocal _ = p.\n'),
+    ask(2, root, "main.tl", 2, 12),
+  })
+  local found = items(ran, 2)
+  assert(assert(assert(found["x"], ran.err).documentation).value == "New.", answer(ran, 2))
+  assert(assert(assert(found["y"]).documentation).value == "Fresh.")
+  assert(ran.tally.member_declarations == 0 and ran.tally.derived >= 1)
+end
+
 --- Checking another document begins another program ([`Driver.Build.replace`]); the types of a document's kept check name
 --- declarations of the program it was made in, whose statics only that program holds.
 local function test_the_functions_of_a_declaration_are_read_from_the_program_the_check_was_made_in()
