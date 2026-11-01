@@ -171,7 +171,8 @@ local function build(tmp: string, case: string, files: {string: string}): {strin
   end
   local lua: mut {string: string} = {}
   for _, m in ipairs(result.modules) do
-    lua[m.path] = m.lua
+    local code = m.lua
+    if code ~= nil then lua[m.path] = code end
   end
   return lua, ""
 end

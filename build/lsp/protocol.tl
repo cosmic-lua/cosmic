@@ -100,11 +100,16 @@ local record protocol
     save: SaveOptions
   end
 
+  record CompletionOptions
+    triggerCharacters: {string}
+  end
+
   record ServerCapabilities
     positionEncoding: string
     textDocumentSync: SyncOptions
     hoverProvider: boolean
     definitionProvider: boolean
+    completionProvider: CompletionOptions
     documentFormattingProvider?: boolean
   end
 
@@ -146,6 +151,21 @@ local record protocol
   record TextEdit
     range: Range
     newText: string
+  end
+
+  --- One completion: `kind` is the protocol's CompletionItemKind, and `textEdit` replaces the text typed of the name.
+  record CompletionItem
+    label: string
+    kind: integer
+    detail: string?
+    documentation: MarkupContent?
+    sortText: string?
+    textEdit: TextEdit
+  end
+
+  record CompletionList
+    isIncomplete: boolean
+    items: {CompletionItem}
   end
 
   record ResponseError

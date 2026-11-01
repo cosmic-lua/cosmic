@@ -1510,6 +1510,22 @@
           name: "download the verdicts the shares kept",
           id: "shares-download",
           if: "env.COSMIC_CI_SCOPE == 'full'",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            pattern: "verdicts-linux-x86_64-checked-shard-*",
+            path: "${{ runner.temp }}/verdicts-shares",
+          },
+        },
+        {
+          name: "download the verdicts the shares kept: wait before the second try",
+          if: "steps.shares-download.outcome == 'failure'",
+          shell: "sh",
+          run: "rm -rf \"${{ runner.temp }}/verdicts-shares\"; sleep 30",
+        },
+        {
+          name: "download the verdicts the shares kept: second try",
+          if: "steps.shares-download.outcome == 'failure'",
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
           with: {
             pattern: "verdicts-linux-x86_64-checked-shard-*",
@@ -2388,7 +2404,35 @@
       permissions: {actions: "read"},
       "timeout-minutes": 10,
       steps: [
+        # The seed is uploaded from $RUNNER_TEMP/seed, so it extracts into
+        # $RUNNER_TEMP itself, which cannot be cleared whole: the wait step
+        # removes the paths queue-stage writes (the test holds the list to
+        # ci/cosmic_ci/queue_stage.tl). The pinned v8 writes each file
+        # truncating (unzip-stream's createWriteStream) and itself
+        # re-extracts into the same directory up to five times, so a
+        # leftover is overwritten; the removal keeps a file only the first
+        # try wrote from outliving it.
         {
+          name: "download the queue run's seed",
+          id: "seed-download",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "seed-${{ matrix.name }}",
+            path: "${{ runner.temp }}",
+            "run-id": "${{ needs.reuse.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "download the queue run's seed: wait before the second try",
+          if: "steps.seed-download.outcome == 'failure'",
+          shell: "sh",
+          run: "cd \"${{ runner.temp }}\" && rm -rf verdicts verdicts-commit build-cache driver-checked seed.keys; sleep 30",
+        },
+        {
+          name: "download the queue run's seed: second try",
+          if: "steps.seed-download.outcome == 'failure'",
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
           with: {
             name: "seed-${{ matrix.name }}",
@@ -2441,7 +2485,27 @@
         # would read it from an output of this run it can find, such as a
         # small artifact.
         {
+          name: "download the queue run's attested product",
+          id: "product-download",
           if: "!matrix.checked",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "portable-product-${{ matrix.name }}",
+            path: "${{ runner.temp }}/product",
+            "run-id": "${{ needs.reuse.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "download the queue run's attested product: wait before the second try",
+          if: "steps.product-download.outcome == 'failure'",
+          shell: "sh",
+          run: "rm -rf \"${{ runner.temp }}/product\"; sleep 30",
+        },
+        {
+          name: "download the queue run's attested product: second try",
+          if: "steps.product-download.outcome == 'failure'",
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
           with: {
             name: "portable-product-${{ matrix.name }}",
@@ -2558,7 +2622,22 @@
           uses: "./.github/actions/cosmic-driver",
         },
         {
+          name: "download the products to compare",
+          id: "products-download",
           if: "env.COSMIC_CI_SCOPE == 'full'",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {pattern: "portable-product-*", path: "${{ runner.temp }}/cosmic-ci/products"},
+        },
+        {
+          name: "download the products to compare: wait before the second try",
+          if: "steps.products-download.outcome == 'failure'",
+          shell: "sh",
+          run: "rm -rf \"${{ runner.temp }}/cosmic-ci/products\"; sleep 30",
+        },
+        {
+          name: "download the products to compare: second try",
+          if: "steps.products-download.outcome == 'failure'",
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
           with: {pattern: "portable-product-*", path: "${{ runner.temp }}/cosmic-ci/products"},
         },
@@ -2570,7 +2649,22 @@
         # into `path` itself, with no directory named for it, where the
         # join looks for none (run 41220498855).
         {
+          name: "download the portable share's attestation",
+          id: "share-download",
           if: "env.COSMIC_CI_SCOPE == 'full' && needs.reuse.outputs.run == ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {name: "portable-share-alpine-x86_64", path: "${{ runner.temp }}/cosmic-ci/products/portable-share-alpine-x86_64"},
+        },
+        {
+          name: "download the portable share's attestation: wait before the second try",
+          if: "steps.share-download.outcome == 'failure'",
+          shell: "sh",
+          run: "rm -rf \"${{ runner.temp }}/cosmic-ci/products/portable-share-alpine-x86_64\"; sleep 30",
+        },
+        {
+          name: "download the portable share's attestation: second try",
+          if: "steps.share-download.outcome == 'failure'",
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
           with: {name: "portable-share-alpine-x86_64", path: "${{ runner.temp }}/cosmic-ci/products/portable-share-alpine-x86_64"},
         },
