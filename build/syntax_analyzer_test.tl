@@ -1,6 +1,8 @@
 --- Tests of [`build.syntax_analyzer`] and [`build.syntax_link_text`]: what each reads of a source, and what the new grammar
 --- changes of the analysis the fork made once, which is what these tests say.
 local Analyzer = require("build.syntax_analyzer")
+local Node = require("build.syntax_node")
+local SyntaxLinkText = require("build.syntax_link_text")
 local Test = require("cosmic.test")
 
 --- The element of `list` at `index`, which the case knows is there.
@@ -224,8 +226,11 @@ local function test_a_fixture_is_analyzed_with_the_rows_it_exists_for()
       rows = #found.examples
     elseif case.dimension == "analyzer inputs" then
       rows = if found.inputs ~= nil then 1 else 0 end
+    elseif case.dimension == "link_text" then
+      local chunk = assert(Node.parse(case.source, "fixture.tl"))
+      rows = #SyntaxLinkText.found(chunk, Node.scope(chunk, "fixture.tl"), case.source)
     else
-      rows = 1
+      error("unknown dimension " .. case.dimension)
     end
     assert(rows > 0, case.name .. ": no " .. case.dimension .. " rows")
   end
