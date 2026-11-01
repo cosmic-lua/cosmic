@@ -3,6 +3,7 @@
 --- nobody has heard of is refused rather than answered.
 
 local Codec = require("cosmic.codec")
+local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 
@@ -452,4 +453,39 @@ local function test_siphash_refuses_a_bad_key_or_variant()
   assert(not pcall(Hash.siphash, key, "m", { finalization = 65 }))
   assert(Hash.siphash(key, "m", {}) == Hash.siphash(key, "m",
     { compression = 2, finalization = 4, size = 8 }))
+end
+
+--- A file of more than two chunks, so that a digest built from one read, or
+--- from the first chunk alone, would differ.
+local function test_file_digests_what_is_larger_than_a_chunk(tmp: string)
+  local piece = fox .. "\n"
+  local whole = string.rep(piece, (2 * (1 << 20) + 12345) // #piece + 1)
+  assert(#whole > 2 * (1 << 20))
+  local path = tmp .. "/big.bin"
+  assert(Fs.write(path, whole))
+  local algorithms: {Hash.Algorithm} = { "md5", "sha1", "sha256", "sha3-256", "sha512" }
+  for _, algorithm in ipairs(algorithms) do
+    local digest, why = Hash.file(algorithm, path)
+    assert(digest == Hash.digest(algorithm, whole), algorithm .. ": " .. why)
+    assert(why == "")
+  end
+  assert(Hash.hex_file("sha256", path) == Hash.hex_sha256(whole))
+end
+
+local function test_file_digests_an_empty_file_and_one_of_exactly_a_chunk(tmp: string)
+  assert(Fs.write(tmp .. "/empty", ""))
+  assert(Hash.file("sha256", tmp .. "/empty") == Hash.sha256(""))
+  local exact = string.rep("x", 1 << 20)
+  assert(Fs.write(tmp .. "/exact", exact))
+  assert(Hash.file("sha256", tmp .. "/exact") == Hash.sha256(exact))
+end
+
+local function test_file_names_the_path_it_cannot_read(tmp: string)
+  local digest, why = Hash.file("sha256", tmp .. "/missing")
+  assert(digest == nil and why:find(tmp .. "/missing", 1, true) ~= nil, why)
+  local hex, hex_why = Hash.hex_file("sha256", tmp .. "/missing")
+  assert(hex == nil and hex_why == why)
+  -- A directory opens but cannot be read.
+  local dir_digest, dir_why = Hash.file("sha256", tmp)
+  assert(dir_digest == nil and dir_why:find(tmp, 1, true) ~= nil, dir_why)
 end

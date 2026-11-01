@@ -372,6 +372,17 @@ local record Json
     value: any
   end
 
+  --- One place where two values differ, as [`Json.diff`] reports it.
+  record Difference
+    --- Where, as a JSON Pointer (RFC 6901): "" for the whole value.
+    path: string
+    --- The wanted value there; nil when the wanted value has nothing at
+    --- `path`. A [`Json.null`] is a value, not nothing.
+    want?: Json.Value
+    --- The value found there; nil when it has nothing at `path`.
+    got?: Json.Value
+  end
+
   --- What [`Json.select`] may be told. Every field is optional.
   record SelectOptions
     --- How deep a descendant segment (`..`) may walk, 1 to
@@ -1016,6 +1027,150 @@ function Json.pointer(steps: Json.Steps): string?, string
     end
   end
   return table.concat(parts), ""
+end
+
+--- Which kind of JSON value `v` is, for [`Json.diff`]: "array" for one
+--- [`Json.layout`] calls an array or has holes, "object", "string",
+--- "number", "boolean" or "null". Raises on a table of mixed keys or a
+--- value that is none of them.
+local function diff_kind(v: any): string
+  if v is string then return "string" end
+  if v is number then return "number" end
+  if v is boolean then return "boolean" end
+  if rawequal(v, raw.null) then return "null" end
+  local t = table_of(v)
+  if t == nil then error("json: diff: a " .. type(v) .. " is not a JSON value", 0) end
+  local layout = Json.layout(t)
+  if layout == "mixed" then error("json: diff: a table with mixed keys is not a JSON value", 0) end
+  return if layout == "object" then "object" else "array" end
+end
+
+--- Raises for a table at `level` (the tables from the root down to it,
+--- itself included) past [`Json.depth_limit`], as `decode` and [`to_value`]
+--- count nesting, or one that contains itself.
+local function diff_level(level: integer, pointer: string)
+  if level > Json.depth_limit then
+    error(("json: diff: nesting at %s is deeper than %d, or a table contains itself"):format(
+      at_pointer(pointer), Json.depth_limit), 0)
+  end
+end
+
+--- `v`, a part of a value [`Json.diff`] walked, copied as a [`Json.Value`]
+--- for a [`Json.Difference`]; nil for nil. A number is kept whatever it is
+--- (NaN and the infinities are values here), which [`Json.to_value`] would
+--- refuse, so the copy is made here, and strings are not checked.
+local function diff_value(v: any, pointer: string, level: integer): Json.Value?
+  if v == nil then return nil end
+  if v is string then return v end
+  if v is number then return v end
+  if v is boolean then return v end
+  if rawequal(v, raw.null) then return Json.null end
+  local t = table_of(v)
+  if diff_kind(v) == "array" and t ~= nil then
+    diff_level(level + 1, pointer)
+    local items: mut {Json.Value} = {}
+    for i = 1, last_position(t) do
+      local item = diff_value(t[i], pointer .. "/" .. tostring(i - 1), level + 1)
+      items[#items + 1] = if item == nil then Json.null else item end
+    end
+    return Json.array(items)
+  end
+  local members: mut {string: Json.Value} = {}
+  if t == nil then return members end
+  diff_level(level + 1, pointer)
+  for _, key in ipairs(Json.members(t, true).keys) do
+    if key is string then
+      local member = diff_value(t[key], pointer .. "/" .. pointer_segment(key), level + 1)
+      if member ~= nil then members[key] = member end
+    end
+  end
+  return members
+end
+
+--- Appends to `out` each place `want` and `got`, either of which may be nil
+--- for nothing, differ, in the order [`Json.diff`] documents.
+local function diff_walk(want: any, got: any, pointer: string, level: integer, out: mut {Json.Difference})
+  if want == nil and got == nil then return end
+  local same: boolean
+  local want_kind = if want == nil then "" else diff_kind(want) end
+  local got_kind = if got == nil then "" else diff_kind(got) end
+  if want_kind ~= got_kind then
+    local wanted, found = diff_value(want, pointer, level), diff_value(got, pointer, level)
+    out[#out + 1] = { path = pointer, want = wanted, got = found }
+    return
+  end
+  if want_kind == "array" then
+    local a, b = table_of(want), table_of(got)
+    if a == nil or b == nil then return end
+    diff_level(level + 1, pointer)
+    local last = math.max(last_position(a), last_position(b))
+    for i = 1, last do
+      diff_walk(a[i], b[i], pointer .. "/" .. tostring(i - 1), level + 1, out)
+    end
+    return
+  end
+  if want_kind == "object" then
+    local a, b = table_of(want), table_of(got)
+    if a == nil or b == nil then return end
+    diff_level(level + 1, pointer)
+    local names: mut {string} = {}
+    local seen: mut {string: boolean} = {}
+    for _, table_ in ipairs({ a, b }) do
+      for _, key in ipairs(Json.members(table_, true).keys) do
+        if key is string and seen[key] == nil then
+          seen[key] = true
+          names[#names + 1] = key
+        end
+      end
+    end
+    table.sort(names)
+    for _, name in ipairs(names) do
+      diff_walk(a[name], b[name], pointer .. "/" .. pointer_segment(name), level + 1, out)
+    end
+    return
+  end
+  if want is number and got is number then
+    -- RFC 8785 reads every number as a double, so 1 and 1.0 are one value,
+    -- and so are two integers past 2^53 that share a double. NaN equals
+    -- NaN, so a value never differs from itself.
+    local x, y = want + 0.0, got + 0.0
+    same = x == y or (x ~= x and y ~= y)
+  else
+    same = rawequal(want, got)
+  end
+  if not same then
+    local wanted, found = diff_value(want, pointer, level), diff_value(got, pointer, level)
+    out[#out + 1] = { path = pointer, want = wanted, got = found }
+  end
+end
+
+--- Where the JSON value `got` differs from `want`, as a list of
+--- [`Json.Difference`], in a walk down both: an array's elements by position,
+--- an object's members by name in byte order. The list is empty when they are
+--- equal. A member or element one value has and the other lacks is a
+--- difference with that side's `want` or `got` nil; values of different kinds
+--- (an object and an array, a string and a number) are one difference at their
+--- place, without a walk into them. An object is its members whatever their
+--- order. Numbers are compared as the doubles [`Json.canonical`] reads them
+--- as: `1`, `1.0` and `1e0` are one number, and an integer past 2^53 is the
+--- double nearest it. NaN equals NaN and each infinity equals itself, so a
+--- value never differs from itself. A table is an object or an array as
+--- [`Json.layout`] says, so an empty table is an object unless
+--- [`Json.array`] marks it.
+---
+--- A [`Json.Value`] is JSON, so the walk does not fail. Raises on a value that
+--- is not one: a table of mixed keys, nesting past [`Json.depth_limit`] (as
+--- `decode` counts it) or a table that contains itself. To diff a decoded
+--- value, check it with [`Json.to_value`] first.
+---
+---     local want = { name = "cosmic", tags = Json.array({ "lua" }), n = 1 }
+---     local got = { name = "cosmic", tags = Json.array({ "lua", "teal" }), n = 1.0 }
+---     local differences = Json.diff(want, got)
+---     assert(#differences == 1 and differences[1].path == "/tags/1" and differences[1].got == "teal")
+function Json.diff(want: Json.Value, got: Json.Value): {Json.Difference}
+  local out: mut {Json.Difference} = {}
+  diff_walk(want, got, "", 0, out)
+  return out
 end
 
 --- The steps the JSON Pointer `text` (RFC 6901) takes through `value`,
