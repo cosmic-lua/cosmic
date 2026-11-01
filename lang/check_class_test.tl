@@ -299,13 +299,59 @@ local function test_a_close_local_holds_nil_or_a_class_that_declares_close()
   refused(head .. "local p <close>: Plain? = nil\n", "close_not_closable")
   refused(head .. "local n <close> = 5\n", "close_not_closable", "`n` is a `<close>` local of `integer`, and `integer` is not a class")
   refused(head .. "local interface Closer\n  __close: function(self: Closer)\nend\nlocal function f(c: Closer)\n" ..
-      "  local x <close> = c\nend\n", "close_not_closable", "`Closer` is not a class")
+      "  local x <close> = c\nend\n", "close_not_closable", "`Closer` is not a class: it is an interface with a `__close`")
+  refused(head .. "local record Shut\n  __close: function(Shut)\nend\nlocal function g(c: Shut)\n  local x <close> = c\nend\n",
+    "close_not_closable", "`Shut` is not a class: it is a record with a `__close`")
   refused(head .. "local s <close>: string = \"s\"\n", "close_not_closable")
   refused(head .. "local function f(v: any)\n  local a <close> = v\nend\n", "close_not_closable", "`a` is a `<close>` local of `any`")
   refused(head .. "local q <close>: Plain\n", "close_not_closable")
   refused(head .. "local both <close>: Guard | Plain\n", "close_not_closable")
   -- the declaration of a class with `__close`, used as a value, is no class value
   refused(head .. "local d <close> = Guard\n", "close_not_closable", "`Guard (declaration)`")
+end
+
+--- Checks that `source` is refused with `close_not_closable`, whose message has `msg` and whose fix has `fix`.
+local function refused_with_fix(source: string, msg: string, fix: string, modules?: {string: string})
+  local r = Programs.run(source, modules)
+  assert(Programs.codes(r) == "close_not_closable", Programs.codes(r) .. " in\n" .. source)
+  local e = assert(r.errors[1])
+  assert(e.msg:find(msg, 1, true) ~= nil, e.msg .. "\nwanted " .. msg)
+  assert(e.fix:find(fix, 1, true) ~= nil, e.fix .. "\nwanted " .. fix)
+end
+
+local function test_close_not_closable_says_an_interface_with_close_is_not_a_class()
+  local own = "local interface Closer\n  __close: function(self: Closer)\nend\n"
+  local use = "local function f(c: Closer)\n  local x <close> = c\nend\n"
+  local lib_fix = "the library that declares `Closer` must declare it as a class with `function __close(self)`; until it does, " ..
+    "call its close function by hand and make `x` an ordinary local"
+  -- a type of the user's own file is theirs to declare as a class
+  refused_with_fix(own .. use, "`Closer` is not a class: it is an interface with a `__close`, and a `<close>` local needs " ..
+      "a class or a userdata record", "declare `Closer` as a class with `function __close(self)`, or call its close function by hand")
+  -- a type of another module is the library's to declare
+  local modules: {string: string} = { lib = "local interface Closer\n  __close: function(self: Closer)\nend\n" ..
+      "local record Lib\n  type Closer = Closer\n  open: function(): Closer?, string\nend\nreturn Lib\n" }
+  local head = "local Lib = require(\"lib\")\n"
+  refused_with_fix(head .. "local x <close> = assert(Lib.open())\n", "`Closer` is not a class: it is an interface with", lib_fix, modules)
+  -- the reason and the fix agree for an optional and for a union
+  refused_with_fix(own .. "local function f(c: Closer?)\n  local x <close> = c\nend\n",
+    "of the union is not closable: `Closer` is not a class: it is an interface with a `__close`",
+    "declare `Closer` as a class with `function __close(self)`")
+  -- a union whose first refused member has no `__close` keeps the old advice
+  refused_with_fix(own .. "local function f(c: string | Closer)\n  local x <close> = c\nend\n", "`string` is not a class or a userdata record",
+    "declare `function __close(self)` as a method on the class or userdata record")
+  -- a `__close` inherited from an interface it extends
+  refused_with_fix(own .. "local interface Child is Closer\n  n: integer\nend\nlocal function f(c: Child)\n  local x <close> = c\nend\n",
+    "`Child` is not a class: it is an interface with a `__close`", "declare `Child` as a class with `function __close(self)`")
+  -- a generic one
+  refused_with_fix("local interface Box<T>\n  __close: function(self: Box<T>)\n  item: T\nend\n" ..
+      "local function f(c: Box<integer>)\n  local x <close> = c\nend\n", "is not a class: it is an interface with a `__close`",
+    "as a class with `function __close(self)`")
+  -- a `__close` that is not a function is no close
+  refused_with_fix("local interface Odd\n  __close: integer\nend\nlocal function f(c: Odd)\n  local x <close> = c\nend\n",
+    "`Odd` is not a class or a userdata record", "declare `function __close(self)` as a method on the class or userdata record")
+  -- an interface without `__close` keeps the old message and advice
+  refused_with_fix("local interface Plain\n  n: integer\nend\nlocal function f(c: Plain)\n  local x <close> = c\nend\n",
+    "`Plain` is not a class or a userdata record", "declare `function __close(self)` as a method on the class or userdata record")
 end
 
 local function test_a_close_local_holds_a_class_a_module_answers_with_a_failure()
@@ -324,7 +370,7 @@ local function test_a_close_local_holds_a_class_a_module_answers_with_a_failure(
       "local record Held_module\n  type Guard = Guard\n  guard: function(): Guard?, string\nend\n" ..
       "return Held_module\n" }
   refused(head .. "local g <close> = assert(Held.guard())\n", "close_not_closable",
-    "`Guard` is not a class or a userdata record", record_modules)
+    "`Guard` is not a class: it is a record with a `__close`", record_modules)
 end
 
 local DEV <const> = "local record dev\n" ..

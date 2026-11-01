@@ -130,6 +130,7 @@ local progress = require("build.progress")
 local coverage_report = require("build.coverage")
 local c_functions = require("build.c_functions")
 local importer = require("build.importer")
+local exit_status = require("build.exit_status")
 local type Module = importer.Module
 local GrammarMode = require("build.grammar_mode")
 local plural = require("build.plural")
@@ -186,6 +187,14 @@ local record test
     index: integer
     --- How many shares there are.
     count: integer
+  end
+
+  --- What [`test.explained`] answers.
+  record Explained
+    --- The lines to show, in order.
+    lines: {string}
+    --- The selectors that matched a refused file.
+    matched: {string:boolean}
   end
 end
 
@@ -266,6 +275,12 @@ function test.selects(selector: string, path: string, file: string, name: string
   return test.matches(selector, path, file) and (named == nil or named == name)
 end
 
+--- The module name a refused file would have: its path without `.tl`, the slashes dots. A refusal line carries only the
+--- file, so a selector that names the module is matched against this.
+local function module_of_file(file: string): string
+  return (file:gsub("%.tl$", ""):gsub("/", "."))
+end
+
 --- Of the compile's refusals `lines` ([`importer.Result`]'s `refused`, each beginning with its file), those a run fails
 --- for: all of them for a run that names no test, and for one that does the refusals of the files its selectors choose. A test
 --- module that requires a refused module is refused itself, which a selector that names it says, so a refusal elsewhere in the
@@ -276,7 +291,7 @@ function test.refusals_of(lines: {string}, selectors: {string}): {string}
     local file = line:match("^([^:\n]+)") or line
     local named = #selectors == 0
     for _, selector in ipairs(selectors) do
-      if test.matches(selector, "", file) then
+      if test.matches(selector, module_of_file(file), file) then
         named = true
       end
     end
@@ -285,6 +300,37 @@ function test.refusals_of(lines: {string}, selectors: {string}): {string}
     end
   end
   return out
+end
+
+--- What a run that names files shows of the compile's refusals `lines` ([`importer.Result`]'s `refused`) for the
+--- `selectors` that match a refused file, by path or by module name. First the refusals that hold those files out
+--- (`roots`, [`importer.Result`]'s `refusal_roots`, gives their positions in `lines`), then the lines of the files
+--- themselves, each line once. A file that requires a refused module has one line, so a dependent never buries the
+--- diagnostic it rests on. Also the selectors that matched such a file.
+function test.explained(lines: {string}, roots: {string:{integer}}, selectors: {string}): test.Explained
+  local explained: mut {string:boolean} = {}
+  local named: mut {integer:boolean} = {}
+  local held: mut {integer:boolean} = {}
+  for position, line in ipairs(lines) do
+    local file = line:match("^([^:\n]+)") or line
+    for _, selector in ipairs(selectors) do
+      if test.matches(selector, module_of_file(file), file) then
+        explained[selector] = true
+        named[position] = true
+      end
+    end
+    if named[position] == true then
+      for _, root in ipairs(roots[file] or { position }) do held[root] = true end
+    end
+  end
+  local out: mut {string} = {}
+  for position, line in ipairs(lines) do
+    if held[position] == true then out[#out + 1] = line end
+  end
+  for position, line in ipairs(lines) do
+    if named[position] == true and held[position] ~= true then out[#out + 1] = line end
+  end
+  return { lines = out, matched = explained }
 end
 
 --- The share `text`, `--shard`'s value, names: `I/N`, whole numbers with
@@ -1653,13 +1699,14 @@ end
 --- The exit code to stop with, or nil to go on.
 local function build_tree(ctx: Run): integer?
   local handle, staged, started = assert(ctx.handle), assert(ctx.staged), assert(ctx.started)
+  local outcome: importer.Outcome = { refused = false }
   local result, compile_trouble = importer.compile(handle,
-    GrammarMode.tool(assert(ctx.tool), assert(ctx.grammar)), false, shared_compiles.for_build(), ctx.checks)
+    GrammarMode.tool(assert(ctx.tool), assert(ctx.grammar)), false, shared_compiles.for_build(), ctx.checks, nil, outcome)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
     log:complain(compile_trouble)
-    return 1
+    return if outcome.refused then exit_status.uncompiled else 1 end
   end
   local written, write_trouble =
     writer.write_result(handle, assert(ctx.database), result)
@@ -1728,14 +1775,23 @@ local function select_tests(ctx: Run): integer?
   if #unmatched > 0 or #unfound > 0 then
     local _, _ = work.close(assert(ctx.handle))
     if #unmatched > 0 then
-      log:complain("no test module matches: " .. table.concat(unmatched, ", "))
-      -- A module the compile refused (the new checker's) has no tests to match, which its refusal says.
-      for _, line in ipairs(result.refused) do
-        local head = line:match("^[^\n]*") or line
-        for _, selector in ipairs(unmatched) do
-          if head:find(selector, 1, true) ~= nil then
-            log:complain(line)
-          end
+      -- A module the compile refused (the new checker's) has no tests to match: its refusals say why, those it rests
+      -- on first.
+      local explained = test.explained(result.refused, result.refusal_roots or {}, unmatched)
+      local refused = explained.matched
+      local absent: mut {string} = {}
+      for _, selector in ipairs(unmatched) do
+        if refused[selector] ~= true then absent[#absent + 1] = selector end
+      end
+      if #absent > 0 then
+        log:complain("no test module matches: " .. table.concat(absent, ", "))
+      end
+      for _, line in ipairs(explained.lines) do
+        log:complain(line)
+      end
+      for _, selector in ipairs(unmatched) do
+        if refused[selector] == true then
+          log:complain(selector .. " did not compile, so it has no tests to run")
         end
       end
     end
@@ -2476,7 +2532,17 @@ local function report(ctx: Run): integer
   end
   local _, _ = log:say("test: " .. test_report.failed(#failures, total + #assert(ctx.refusals),
     #errors, clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary), rec.not_run))
-  return 1
+  -- A refused module outranks a failing test: the tests ran on a tree that did not compile.
+  return if #assert(ctx.refusals) > 0 then exit_status.uncompiled else 1 end
+end
+
+--- The exit code of a run that stopped at `code` after the compile: [`exit_status.uncompiled`] in place of a 1 where a
+--- module its selectors name was refused, since a run that names none of the refused is not about them.
+local function stopped_at(ctx: Run, code: integer): integer
+  if code == 1 and #test.refusals_of(assert(ctx.result).refused, assert(ctx.selectors)) > 0 then
+    return exit_status.uncompiled
+  end
+  return code
 end
 
 --- Builds the tree in the working directory and runs every test it
@@ -2502,7 +2568,7 @@ local function run(argv: {string}): integer
   code = build_tree(ctx)
   if code ~= nil then return code end
   code = select_tests(ctx)
-  if code ~= nil then return code end
+  if code ~= nil then return stopped_at(ctx, code) end
   code = open_records(ctx)
   if code ~= nil then return code end
   make_recording(ctx)

@@ -376,6 +376,8 @@ local record Ctx
   mut member_node: Ast.Node?
   --- The call argument being checked: [`report`] gives it to the error it files.
   mut argument: Codes.Argument?
+  --- Added to the fix of an error reported now: what a call spilling values into later parameters did ([`Calls.spill_note`]).
+  mut spill: string?
   --- The loops being walked, innermost last.
   mut loops: mut {Loop}
   --- The key of each local's place, by id.
@@ -522,6 +524,10 @@ local function report(ctx: Ctx, code: Code, node: Ast.Node, msg: string, fix: st
   local b = base_of(node)
   local tokens = ctx.tokens
   local first, last = b.first, math.max(b.first, b.last)
+  local spill = ctx.spill
+  if spill ~= nil then
+    fix = fix .. spill
+  end
   local why = code == "nil_not_allowed" and dropped_by(ctx, node) or nil
   if why ~= nil then
     code = "narrowing_dropped"
@@ -2513,7 +2519,9 @@ local function overlaps(ctx: Ctx, a: Type, b: Type): boolean
 end
 
 --- What a condition of type `t` is: "bool", "opt" (a `T?` for a `T` that is not a boolean), or "bad" after the error.
-local function condition_kind(ctx: Ctx, node: Ast.Node, t: Type): string
+--- `default` is set where `node` is the left of an `or`, which asks for a default: a value that is never nil there needs no
+--- test, and no default.
+local function condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: boolean): string
   local tag = t.tag
   if is_bool(t) or tag == "never" or tag == "invalid" then
     return "bool"
@@ -2537,12 +2545,16 @@ local function condition_kind(ctx: Ctx, node: Ast.Node, t: Type): string
     return "bad"
   end
   local fix = "remove the condition: " .. s .. " is never false"
-  if is_text(t) then
+  if (t.tag == "var") then
+    fix = "a type parameter may be nil or false: test it with `" .. text_of(ctx, node) .. " ~= nil` where it is bounded"
+  elseif default == true then
+    local place = peel(node).kind
+    fix = s .. " is never nil" .. (if place == "Name" or place == "Field" then " here (a test before may have narrowed it)" else "" end) ..
+      ", so the default is never used: delete `or ...`"
+  elseif is_text(t) then
     fix = "write the test: `" .. text_of(ctx, node) .. " ~= \"\"`"
   elseif tag == "integer" or tag == "number" then
     fix = "write the test: `" .. text_of(ctx, node) .. " ~= 0`"
-  elseif (t.tag == "var") then
-    fix = "a type parameter may be nil or false: test it with `" .. text_of(ctx, node) .. " ~= nil` where it is bounded"
   end
   report(ctx, "condition_type", node, s .. " is " .. tq(ctx, t) .. ", which is no boolean or optional, so it is no condition",
     fix, { show(ctx, t) })
@@ -3587,7 +3599,7 @@ end
 --- `a or b`: both booleans, or a `T?` replaced by a default of its own type.
 local function disjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type?): Type
   local store = ctx.store
-  local left_kind = if left.tag == "invalid" then "bad" else condition_kind(ctx, node.left, left) end
+  local left_kind = if left.tag == "invalid" then "bad" else condition_kind(ctx, node.left, left, true) end
   if left_kind == "bad" then
     local _ = expr(ctx, node.right, nil)
     return ctx.invalid
@@ -4458,6 +4470,7 @@ local record Calls
   --- or none, and arguments of the types `types` and the `tail` an expanding last one gives, all plain ([`Tests.plain`]).
   note_plain: function(ctx: Ctx, node: Ast.Node, recv: Type?, types: {Type}, tail: Type?, lists: {Alt}?)
   replace_type: function(list: mut {Type}, at: integer, t: Type)
+  spill_note: function(ctx: Ctx, args: {Ast.Exp}, n: integer, position: integer, arity?: boolean): string?
   hooks: function(ctx: Ctx): Generics.Hooks
   source: function(at: integer): string
   typed_literal: function(e: Ast.Exp): boolean
@@ -4577,6 +4590,23 @@ function Calls.note_plain(ctx: Ctx, node: Ast.Node, recv: Type?, types: {Type}, 
   ctx.inert[base_of(node).id] = true
 end
 
+--- What to add to the fix of an error at parameter `position` of a call with `n` values from `args`: the last argument is a
+--- call whose values spilled into the following parameters. Nil where they did not.
+function Calls.spill_note(ctx: Ctx, args: {Ast.Exp}, n: integer, position: integer, arity?: boolean): string?
+  local last = args[#args]
+  if last == nil or position <= #args or not (last.kind == "Call" or last.kind == "MethodCall") then
+    return nil
+  end
+  local call = text_of(ctx, last)
+  local answers = n - #args + 1
+  local landed = if arity == true then "are passed as further arguments" else "land in the following parameters" end
+  return "; " .. quoted(call) .. " is the last argument and answers " .. tostring(answers) .. " values, so " ..
+    (if answers == 2 then "value 2" else "values 2.." .. tostring(answers) end) .. " " ..
+    (if answers == 2 and arity ~= true then "lands in the following parameter" else landed end) .. ": write `(" .. call ..
+    ")` to pass its first value alone, or bind it to a local" ..
+    (if call:sub(1, 7) == "assert(" then " (`assert(f())` passes every value of `f()` through)" else "" end)
+end
+
 --- A call of the function `f`, with the arguments checked against its parameters. Answers its return lists. `given`
 --- holds the values of the arguments when the caller typed them already (a generic call types its arguments to solve the
 --- function's type parameters).
@@ -4617,7 +4647,9 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
     if want == nil then
       if not reported and why == "too many" then
         reported = true
+        ctx.spill = Calls.spill_note(ctx, args, n, n, true)
         arity_error(ctx, node, quoted(callee), f, off, n, why)
+        ctx.spill = nil
       end
     else
       local named: string? = nil
@@ -4625,7 +4657,9 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
       if original ~= nil and declared ~= nil and names_invalid(want) then
         named = Calls.shown(ctx, declared, original)
       end
+      ctx.spill = Calls.spill_note(ctx, args, n, i)
       local _ = Calls.expect_argument(ctx, at, t, want, callee, i, named, generic)
+      ctx.spill = nil
     end
   end
   if why == "too few" or (why == "too many" and not reported) then
@@ -6039,6 +6073,49 @@ local function check_closable(ctx: Ctx, b: Ast.Binding, t: Type)
   if closable(t) then
     return
   end
+  --- The type that `closable` refused in `ty` (`ty` itself, or the first member of a union that is none) when it is an
+  --- interface or record with a `__close` function, declared or inherited: what a library can mean to be closed and has not
+  --- made a class. Nil for any other type.
+  local function close_without_class(ty: Type): Type?
+    if ty.tag == "union" then
+      for _, m in ipairs(ty.members) do
+        if not closable(m) then
+          return close_without_class(m)
+        end
+      end
+      return nil
+    end
+    if ty.tag ~= "named" or ty.value then
+      return nil
+    end
+    local to_visit: mut {Type} = { ty }
+    local seen: mut {Decl: boolean} = {}
+    local next_at = 1
+    while next_at <= #to_visit do
+      local at = to_visit[next_at]
+      next_at = next_at + 1
+      if at ~= nil and at.tag == "named" and seen[at.decl] ~= true then
+        seen[at.decl] = true
+        local body = at.decl.body
+        if body ~= nil and (at.decl.kind == "interface" or at.decl.kind == "record") then
+          for _, m in ipairs(body.methods) do
+            if m.name == "__close" and m.type.tag == "fn" then
+              return ty
+            end
+          end
+          for _, f in ipairs(body.fields) do
+            if f.name == "__close" and f.type.tag == "fn" then
+              return ty
+            end
+          end
+          for _, super in ipairs(body.supers) do
+            to_visit[#to_visit + 1] = super
+          end
+        end
+      end
+    end
+    return nil
+  end
   -- Why `held`, which `closable` refused, is no type of a `<close>` local: for a union, its first member that is none.
   local function because(held: Type): string
     if held.tag == "union" then
@@ -6069,12 +6146,28 @@ local function check_closable(ctx: Ctx, b: Ast.Binding, t: Type)
       end
       return what .. tq(ctx, held) .. " declares no `__close` method"
     end
+    local without = close_without_class(held)
+    if without ~= nil and without.tag == "named" then
+      return tq(ctx, held) .. " is not a class: it is " .. (if without.decl.kind == "interface" then "an " else "a " end) ..
+        without.decl.kind .. " with a `__close`, and a `<close>` local needs a class or a userdata record"
+    end
     return tq(ctx, held) .. " is not a class or a userdata record"
   end
+  local without = close_without_class(t)
   report(ctx, "close_not_closable", b, quoted(b.name) .. " is a `<close>` local of " .. tq(ctx, t) .. ", and " ..
       because(t) .. ": Lua would raise at the declaration, since the value has no `__close` to call at the end of the block",
-    "declare `function __close(self)` as a method on the class or userdata record " .. quoted(b.name) .. " holds (or hold " ..
-      "nil), or release the value by hand and make " .. quoted(b.name) .. " an ordinary local", { show(ctx, t) })
+    (if without ~= nil and without.tag == "named" then
+      (if without.decl.module:gsub("@.*$", "") == ctx.input.module then
+        "declare " .. tq(ctx, without) .. " as a class with `function __close(self)`, or call its close function by hand and " ..
+          "make " .. quoted(b.name) .. " an ordinary local"
+        else
+        "the library that declares " .. tq(ctx, without) .. " must declare it as a class with `function __close(self)`; until " ..
+          "it does, call its close function by hand and make " .. quoted(b.name) .. " an ordinary local"
+        end)
+      else
+      "declare `function __close(self)` as a method on the class or userdata record " .. quoted(b.name) .. " holds (or hold " ..
+        "nil), or release the value by hand and make " .. quoted(b.name) .. " an ordinary local"
+      end), { show(ctx, t) })
 end
 
 --- The type a local declared `declared` has after it is given a value of type `t`: the view of `t` where that is below

@@ -344,7 +344,9 @@ local function test_processes_above_the_callers_hard_limit_fails_naming_it(tmp: 
   skip_where_seatbelt_holds("limits.processes")
   local probe, work = place(tmp)
   local hard = assert(sys.getrlimit(sys.RLIMIT_NPROC)).hard
-  if hard == math.maxinteger then return end
+  if hard == math.maxinteger then
+    Test.skip("this process has no hard limit on processes to go above")
+  end
   local why = refused({ probe, "print hi" }, { isolate = { "proc" }, grants = {
     { path = probe, letters = "rx" }, { path = work, letters = "r" } },
     limits = { processes = hard + 1 } })

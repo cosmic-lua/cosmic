@@ -78,7 +78,7 @@ end
 --- Runs `chunk`, after `PRELUDE`, in a child of this program, and answers
 --- what it printed. Skips the test where the child reports `skip=` and
 --- why, which it does where this host's kernel gives no Landlock.
-local function in_child(chunk: string): Said?
+local function in_child(chunk: string): Said
   local started = this_program.program({ "-e", PRELUDE .. chunk }, {
     env = this_program.environment(), stdout = "capture", stderr = "stdout",
     timeout_ns = Clock.seconds(60) })
@@ -89,10 +89,7 @@ local function in_child(chunk: string): Said?
     if name ~= nil then said.lines[name] = value end
   end
   local skip = said.lines.skip
-  if skip ~= nil then
-    Test.skip(skip)
-    return nil
-  end
+  if skip ~= nil then Test.skip(skip) end
   assert(result.code == 0, "the child ended " .. tostring(result.code) .. ": " .. said.raw)
   return said
 end
@@ -123,7 +120,6 @@ say("sibling", reads(%q))
 say("create", writes(%q))
 say("overwrite", writes(%q))
 ]], tmp .. "/ro/a", tmp .. "/other/b", tmp .. "/ro/new", tmp .. "/ro/a")))
-  if said == nil then return end
   assert(said.lines.restrict == "true ", said.raw)
   assert(said.lines.granted == "alpha", said.raw)
   assert(said.lines.sibling == "denied: " .. DENIED, said.raw)
@@ -140,7 +136,6 @@ local function test_w_and_c_give_writing_and_creating(tmp: string)
 say("overwrite", writes(%q))
 say("create", writes(%q))
 ]], tmp .. "/rw/f", tmp .. "/rw/made")))
-  if said == nil then return end
   assert(said.lines.overwrite == "wrote" and said.lines.create == "wrote", said.raw)
   assert(Fs.exists(tmp .. "/rw/made"))
 end
@@ -155,7 +150,6 @@ say("socket", conn ~= nil, why)
 local started, trouble = Child.start({ %q, "print hi" }, { process_group = false })
 say("fork", started ~= nil, trouble)
 ]], probe)))
-  if said == nil then return end
   -- Not "Connection refused", which a socket the filter let through would meet.
   assert(said.lines.socket:find("^false") and said.lines.socket:find("Operation not permitted", 1, true),
     said.raw)
@@ -171,7 +165,6 @@ local function test_the_fork_promise_lets_a_process_start(tmp: string)
 local result, trouble = Child.run({ %q, "print hi" }, { process_group = false, stdout = "capture" })
 if result ~= nil then say("fork", result.ok, result.stdout) else say("fork", false, trouble) end
 ]], probe)))
-  if said == nil then return end
   assert(said.lines.fork:find("^true"), said.raw)
 end
 
@@ -203,7 +196,6 @@ say("parent", parent, parent_why)
   local alive = sys.kill(sibling.pid, 0)
   sibling:stop(sys.SIGKILL)
   assert(sibling:wait())
-  if said == nil then return end
   local refused = "^false.*Operation not permitted"
   assert(said.lines.pid:find("^true"), said.raw)
   -- Never a process outside it, whichever ABI: the kernel's, or the filter's.
@@ -229,7 +221,6 @@ local held = 0
 while sys.dup(0) ~= nil do held = held + 1 end
 say("dups", held <= 24)
 ]]))
-  if said == nil then return end
   assert(said.lines.nofile == "24 24" and said.lines.cpu == "100 100", said.raw)
   -- No core dump unless the policy says so.
   assert(said.lines.core == "0 0", said.raw)
@@ -243,7 +234,6 @@ assert(sys.setrlimit(sys.RLIMIT_NOFILE, 64, 64))
 ]] .. restricted("{}", [[
 say("nofile", limit(sys.RLIMIT_NOFILE))
 ]]))
-  if said == nil then return end
   assert(said.lines.nofile == "64 64", said.raw)
 end
 
@@ -264,7 +254,6 @@ say("b2", reads(%q))
 say("c2", reads(%q))
 ]], tmp .. "/a/f", tmp .. "/b/f", tmp .. "/c/f", tmp .. "/a", tmp .. "/c", tmp .. "/a/f", tmp .. "/b/f",
     tmp .. "/c/f")))
-  if said == nil then return end
   assert(said.lines.a == "a" and said.lines.b == "b" and said.lines.c == "denied: " .. DENIED, said.raw)
   assert(said.lines.second == "true ", said.raw)
   -- A path the second names and the first did not stays refused: the
@@ -282,7 +271,6 @@ local second, second_why = Sandbox.restrict({ limits = { cpu_seconds = 5 } })
 say("second", second, second_why)
 say("cpu", limit(sys.RLIMIT_CPU))
 ]]))
-  if said == nil then return end
   assert(said.lines.second == "true " and said.lines.cpu == "5 5", said.raw)
 end
 
@@ -298,7 +286,6 @@ for i, n in ipairs(seconds) do
   say("cpu" .. tostring(i), limit(sys.RLIMIT_CPU))
 end
 ]]))
-  if said == nil then return end
   for i, n in ipairs({ 50, 25, 10 }) do
     assert(said.lines["r" .. tostring(i)] == "true " and said.lines["cpu" .. tostring(i)] == tostring(n) .. " " .. tostring(n), said.raw)
   end
@@ -323,7 +310,6 @@ say("cpu", limit(sys.RLIMIT_CPU))
 local raised, raised_why = sys.setrlimit(sys.RLIMIT_CPU, 50, 50)
 say("raised", raised, raised_why)
 ]]))
-  if said == nil then return end
   if said.lines.capable == "true" then
     assert(said.lines.lowered:find("^false Operation not permitted"), said.raw)
     return
@@ -392,7 +378,6 @@ say("cpu_after", limit(sys.RLIMIT_CPU):sub(1, 2) ~= "9 ")
 say("nofile_after", limit(sys.RLIMIT_NOFILE) == nofile_before)
 say("free", reads(%q))
 ]], tmp .. "/held", tmp .. "/absent", probe, tmp .. "/free"))
-  if said == nil then return end
   for i, case in ipairs(REFUSED) do
     local answer = said.lines["case" .. tostring(i)] or ""
     assert(answer:find("^false sandbox: ") and answer:find(case.says, 1, true),
@@ -436,7 +421,6 @@ say("reused", fd == slot)
 say("second", Sandbox.restrict({}))
 say("write", writes(%q))
 ]], tmp .. "/rw", which, tmp .. "/rw/f", tmp .. "/rw/f"))
-  if said == nil then return end
   assert(said.lines.first == "true " and said.lines.slots == "3" and said.lines.reused == "true", said.raw)
   -- Refused, naming the descriptor or failing closed; never accepted.
   assert(said.lines.second:find("^false sandbox: restrict: "), said.raw)
@@ -473,7 +457,6 @@ say("mine", mine)
 say("refused", Sandbox.restrict({}))
 say("named", Sandbox.restrict({}, { fds = { mine } }))
 ]], build_paths.resolve(".").projection, tmp))
-  if said == nil then return end
   assert(said.lines.refused == "false sandbox: restrict: descriptor " .. said.lines.mine ..
       " is open and not named in fds: close it, or name it to keep it", said.raw)
 end
@@ -488,7 +471,6 @@ say("named", named, trouble)
 say("through", sys.read(fd, 10))
 say("after", reads(%q))
 ]], tmp .. "/f", tmp .. "/f"))
-  if said == nil then return end
   assert(said.lines.named == "true ", said.raw)
   assert(said.lines.through == "held", said.raw)
   assert(said.lines.after == "denied: " .. DENIED, said.raw)
@@ -498,7 +480,6 @@ local function test_fds_names_a_descriptor_above_2()
   local said = in_child([[
 say("low", Sandbox.restrict({}, { fds = { 1 } }))
 ]])
-  if said == nil then return end
   assert(said.lines.low:find("^false sandbox: restrict: fds names 1, which is not a descriptor above 2"),
     said.raw)
 end
@@ -511,12 +492,10 @@ assert(running:close())
 local after, trouble = Sandbox.restrict({})
 say("reaped", after, trouble)
 ]], probe))
-  if said == nil then return end
   assert(said.lines.reaped == "true ", said.raw)
 end
 
 local function test_a_policy_is_merged_first_so_profiles_resolve()
   local said = in_child(restricted("{ profiles = { \"system\" } }", ""))
-  if said == nil then return end
   assert(said.lines.restrict == "true ", said.raw)
 end

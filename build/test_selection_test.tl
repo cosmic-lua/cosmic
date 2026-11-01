@@ -290,6 +290,81 @@ local function test_cli_fails_when_no_module_matches(tmp: string)
   end
 end
 
+local function test_a_named_file_whose_module_was_refused_is_shown_the_refusal_not_a_missing_module(tmp: string)
+  local root = tmp .. "/refused"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/tally.tl", "local record tally\n  count: function(n: integer): integer\nend\n" ..
+      "function tally.count(n: integer): integer\n  return \"x\"\nend\nreturn tally\n"))
+  assert(Fs.write(root .. "/tally_test.tl",
+    'local tally = require("tally")\nlocal function test_count()\n  assert(tally.count(1) == 1)\nend\n'))
+  assert(Fs.write(root .. "/other.tl", 'local tally = require("tally")\nlocal record other end\nreturn other\n'))
+  assert(Fs.write(root .. "/fine_test.tl", "local function test_fine()\n  assert(true)\nend\n"))
+  local output = tmp .. "/refused.out"
+  local result = invoke(root, output, "tally_test.tl")
+  local text = assert(Fs.read(output))
+  assert(not result.ok, text)
+  assert(not text:find("no test module matches", 1, true), text)
+  local root_at = text:find("tally.tl:5:10:", 1, true)
+  local cascade_at = text:find("tally_test.tl: not compiled: it requires tally", 1, true)
+  assert(root_at ~= nil and cascade_at ~= nil and root_at < cascade_at, text)
+  assert(text:find("tally_test.tl did not compile", 1, true), text)
+  -- Only the dependents the run named: the module nobody named is not told of.
+  assert(not text:find("other.tl: not compiled", 1, true), text)
+  -- A file that is no module of the tree is still missing.
+  local missing = invoke(root, tmp .. "/missing.out", "nothing_test.tl")
+  local missing_text = assert(Fs.read(tmp .. "/missing.out"))
+  assert(not missing.ok, missing_text)
+  assert(missing_text:find("no test module matches: nothing_test.tl", 1, true) ~= nil, missing_text)
+end
+
+--- What a refused module's file shows for a named run, however the module is named or reached.
+local function test_a_named_run_shows_the_refusals_whichever_way_the_file_is_named_or_reached(tmp: string)
+  local bad = 'local n: integer = "x"\nreturn n\n'
+  local passing = "local function test_it()\n  assert(true)\nend\n"
+  local record Case
+    name: string
+    files: {string:string}
+    selector: string
+    shown: {string}
+    absent?: {string}
+  end
+  local cases: {Case} = {
+    { name = "module", files = { ["pkg/x.tl"] = bad,
+      ["pkg/x_test.tl"] = 'local x = require("pkg.x")\n' .. passing }, selector = "pkg.x_test",
+      shown = { "pkg/x.tl:1:", "pkg/x_test.tl: not compiled" } },
+    { name = "chain", files = { ["c.tl"] = bad, ["b.tl"] = 'local c = require("c")\nreturn c\n',
+      ["a_test.tl"] = 'local b = require("b")\n' .. passing }, selector = "a_test.tl",
+      shown = { "c.tl:1:", "a_test.tl: not compiled" }, absent = { "b.tl: not compiled" } },
+    { name = "itself", files = { ["a_test.tl"] = "local n: integer = \"x\"\n" .. passing }, selector = "a_test.tl",
+      shown = { "a_test.tl:1:", "a_test.tl did not compile" } },
+    { name = "parse", files = { ["a_test.tl"] = "local function test_it(\n" }, selector = "a_test.tl",
+      shown = { "a_test.tl", "a_test.tl did not compile" } },
+  }
+  for _, case in ipairs(cases) do
+    local root = tmp .. "/" .. case.name
+    for file, source in pairs(case.files) do
+      assert(Fs.mkdirs(Fs.dirname(root .. "/" .. file)))
+      assert(Fs.write(root .. "/" .. file, source))
+    end
+    local output = tmp .. "/" .. case.name .. ".out"
+    local result = invoke(root, output, case.selector)
+    local text = assert(Fs.read(output))
+    assert(not result.ok, text)
+    assert(not text:find("no test module matches", 1, true), case.name .. ": " .. text)
+    local at = 0
+    for _, word in ipairs(case.shown) do
+      local found = text:find(word, 1, true)
+      assert(found ~= nil and found > at, case.name .. ": " .. word .. " in order in: " .. text)
+      at = found
+    end
+    local absent = case.absent
+    if absent == nil then absent = {} end
+    for _, word in ipairs(absent) do
+      assert(not text:find(word, 1, true), case.name .. ": " .. text)
+    end
+  end
+end
+
 --- `runs.elapsed_ns` is how long the test function took, not merely a
 --- value: a test that sleeps 50 ms is recorded as taking at least that,
 --- and well under 5 s.
@@ -435,5 +510,55 @@ end
     local text = assert(Fs.read(output))
     assert(not result.ok and result.code == 2, text)
     assert(text:find("--shard must be I/N", 1, true), text)
+  end
+end
+
+--- A project of a module `tally.tl` the checker refuses (`bad`) or accepts, its test `tally_test.tl`, a test `fine_test.tl`
+--- that passes or fails (`failing`) and a module `lone.tl` nothing requires that the checker refuses (`lone_bad`).
+local function status_project(root: string, bad: boolean, failing: boolean, lone_bad: boolean)
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/tally.tl", "local record tally\n  count: function(n: integer): integer\nend\n" ..
+      "function tally.count(n: integer): integer\n  return " .. (if bad then '"x"' else "n" end) .. "\nend\nreturn tally\n"))
+  assert(Fs.write(root .. "/tally_test.tl",
+    'local tally = require("tally")\nlocal function test_count()\n  assert(tally.count(1) == 1)\nend\n'))
+  assert(Fs.write(root .. "/fine_test.tl",
+    "local function test_fine()\n  assert(" .. (if failing then "false" else "true" end) .. ")\nend\n"))
+  assert(Fs.write(root .. "/lone.tl", "local n: integer = " .. (if lone_bad then '"x"' else "1" end) .. "\nreturn n\n"))
+end
+
+--- A mutation-testing script tells a mutant the checker refused from one a test killed by the exit status: 4 when the tree, or
+--- a module a named run needs, did not compile, whatever else failed with it, and 1 for a test that fails.
+local function test_a_tree_that_does_not_compile_exits_4_and_a_failing_test_exits_1(tmp: string)
+  local record Case
+    name: string
+    words: {string}
+    code: integer
+    bad?: boolean
+    failing?: boolean
+    lone?: boolean
+    cycle?: boolean
+  end
+  local cases: {Case} = {
+    { name = "passing", words = {}, code = 0 },
+    { name = "failing", words = {}, code = 1, failing = true },
+    { name = "refused", words = {}, code = 4, bad = true },
+    { name = "refused-and-failing", words = {}, code = 4, bad = true, failing = true },
+    { name = "named-refused", words = { "tally_test.tl" }, code = 4, bad = true },
+    { name = "named-cascade-and-failing", words = { "tally_test.tl", "fine_test.tl" }, code = 4, bad = true, failing = true },
+    { name = "named-unaffected-by-a-refusal-elsewhere", words = { "fine_test.tl" }, code = 1, lone = true, failing = true },
+    { name = "named-passing-beside-a-refusal", words = { "fine_test.tl" }, code = 0, lone = true },
+    { name = "cycle", words = {}, code = 4, cycle = true },
+    { name = "named-absent", words = { "nothing_test.tl" }, code = 1 },
+  }
+  for _, case in ipairs(cases) do
+    local root = tmp .. "/" .. case.name
+    status_project(root, case.bad == true, case.failing == true, case.lone == true)
+    if case.cycle == true then
+      assert(Fs.write(root .. "/ping.tl", 'local pong = require("pong")\nreturn pong\n'))
+      assert(Fs.write(root .. "/pong.tl", 'local ping = require("ping")\nreturn ping\n'))
+    end
+    local output = tmp .. "/" .. case.name .. ".out"
+    local result = invoke_words(root, output, case.words)
+    assert(result.code == case.code, case.name .. ": exit " .. tostring(result.code) .. ": " .. assert(Fs.read(output)))
   end
 end
