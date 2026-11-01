@@ -828,15 +828,11 @@ cosmic/child.tl nil_not_allowed 66
 
 cosmic/child_drain_test.tl nil_not_allowed 1
 
-
 cosmic/child_policy_database_sandboxed_test.tl nil_not_allowed 1
 
 cosmic/child_policy_isolate_test.tl nil_not_allowed 5
 
-
-
 cosmic/child_policy_system_test.tl nil_not_allowed 1
-
 
 cosmic/child_policy_user_test.tl nil_not_allowed 1
 
@@ -5477,8 +5473,6 @@ build/lsp/hover.tl compare_disjoint 1
 
 
 
-
-
 build/standalone_test.tl compare_disjoint 2
 
 build/test_key.tl compare_disjoint 4
@@ -5515,11 +5509,7 @@ cosmic/child_drain_test.tl compare_disjoint 11
 
 cosmic/child_policy_isolate_test.tl compare_disjoint 3
 
-
 cosmic/child_policy_root_user_test.tl compare_disjoint 3
-
-
-
 
 cosmic/child_seatbelt_test.tl compare_disjoint 1
 

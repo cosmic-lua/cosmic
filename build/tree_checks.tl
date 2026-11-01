@@ -2702,10 +2702,10 @@ end
 
 --- The trees whose tests may still return early, by path prefix, and why. A prefix that no test under it returns early
 --- from any more is told to go.
--- TODO: once core/'s tests skip by [`Test.skip`] (cosmic-lua/cosmic#3498 converts most; its [`unix_socket.skipped`] callers
--- remain), drop this prefix.
+-- TODO: once cosmic-lua/cosmic#3498 merges and core/'s [`unix_socket.skipped`] callers use `skip_if_refused`, drop this
+-- prefix.
 local early_returns: {string: string} = {
-  ["core/"] = "its tests are converted by their own change",
+  ["core/"] = "cosmic-lua/cosmic#3498 converts its tests, and its unix_socket.skipped callers follow",
 }
 
 --- Each early return of a test in a `*_test.tl` file of the tree under `root` ([`TestReturns`]), as `<file>:<line>:
