@@ -2460,8 +2460,6 @@ lang/warnings.tl field_fixed 2
 # rewrite), a field of a member of a union read without a test, and a method of the standard library the
 # declarations lack
 
-core/surface_test.tl field_unknown 2
-
 cosmic/errors_test.tl field_unknown 1
 
 cosmic/http/server.tl field_unknown 4
@@ -3953,9 +3951,7 @@ cosmic/http/server.tl is_disjoint 1
 # the method
 build/cache_lifetime.tl close_not_closable 1
 
-build/cache_maintenance.tl close_not_closable 8
-
-build/dataset_test.tl close_not_closable 1
+build/cache_maintenance.tl close_not_closable 5
 
 build/fetch_tool_test.tl close_not_closable 2
 
@@ -4017,7 +4013,6 @@ cosmic/net_tool_test.tl close_not_closable 1
 
 cosmic/seatbelt_network_probe_test.tl close_not_closable 4
 
-cosmic/sqlite_example.tl close_not_closable 1
 
 cosmic/time.tl close_not_closable 3
 
@@ -4034,9 +4029,7 @@ cosmic/web/testing.tl close_not_closable 1
 cosmic/web/testing_test.tl close_not_closable 1
 
 
-test/sqlite_query_test.tl close_not_closable 1
 
-test/sqlite_row_test.tl close_not_closable 1
 
 # a condition that is a string, a number, a table or a `boolean?`: the rewrite writes the test (`s ~= ""`, `x ==
 # true`)
@@ -6821,7 +6814,6 @@ cosmic/removed_example.tl literal_missing 1
 
 cosmic/removed_example.tl setmetatable_call 1
 
-cosmic/sqlite_example.tl close_not_closable 1
 
 # TODO: write the JSON documents these examples encode and send as literals, once the new checker takes a literal of mixed
 # values where a JSON value is wanted: a recursive alias (`string | number | boolean | {Value} | {string: Value}`) is

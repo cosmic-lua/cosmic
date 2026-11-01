@@ -1,0 +1,26 @@
+local StepEnv = require("cosmic_ci.step_env")
+
+local function test_required_raises_on_missing_or_empty()
+  assert(StepEnv.required({ A = "x" }, "A") == "x")
+  local ok, trouble = pcall(StepEnv.required, { A = "" }, "A")
+  assert(not ok)
+  assert(tostring(trouble):find("missing required environment variable: A", 1, true) ~= nil)
+  ok, trouble = pcall(StepEnv.required, {}, "B")
+  assert(not ok)
+  assert(tostring(trouble):find("variable: B", 1, true) ~= nil)
+end
+
+local function test_whole_defaults_and_refuses()
+  local value, why = StepEnv.whole({}, "N", 7)
+  assert(value == 7 and why == "")
+  value, why = StepEnv.whole({ N = "" }, "N", 7)
+  assert(value == 7 and why == "")
+  value, why = StepEnv.whole({ N = "12" }, "N", 7)
+  assert(value == 12 and why == "")
+  value, why = StepEnv.whole({ N = "-1" }, "N", 7)
+  assert(value == nil and why == "N is no whole number: -1")
+  value, why = StepEnv.whole({ N = "1.5" }, "N", 7)
+  assert(value == nil and why == "N is no whole number: 1.5")
+  value, why = StepEnv.whole({ N = "x" }, "N", 7)
+  assert(value == nil and why == "N is no whole number: x")
+end

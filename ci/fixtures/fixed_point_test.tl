@@ -73,18 +73,6 @@ Test.policy{
 -- and the file (orchestration.tl's `fixed_point_test_timeout_ns`).
 local stage_timeout_ns <const> = Clock.seconds(210)
 
-local function count_occurrences(text: string, needle: string): integer
-  local count = 0
-  local at = 1
-  while true do
-    local from = text:find(needle, at, true)
-    if from == nil then break end
-    count = count + 1
-    at = from + #needle
-  end
-  return count
-end
-
 --- What one rebuild said it compiled and took back, in the order the
 --- rebuilds ran: build.reboot's "rebuilt the tool in ... (N modules
 --- compiled, M cached)".
@@ -191,11 +179,11 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
     assert(outcome.result.code == 0, name .. ": " .. stage ..
         ": exit status was " .. tostring(outcome.result.code) .. ", want 0")
     local err = Fixture.read(outcome.err)
-    local stale_lines = count_occurrences(err,
+    local stale_lines = Fixture.count_occurrences(err,
       "the tool is stale; rebuilding it from the tree")
     assert(stale_lines == 1, name .. ": " .. stage .. ": reported " ..
         tostring(stale_lines) .. " stale-rebuild lines, want 1")
-    local settled_lines = count_occurrences(err,
+    local settled_lines = Fixture.count_occurrences(err,
       "the tool's database was built by other code than its own; building it again")
     local want = if settles then 1 else 0 end
     assert(settled_lines == want, name .. ": " .. stage .. ": built its " ..

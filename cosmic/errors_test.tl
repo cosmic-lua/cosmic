@@ -125,6 +125,7 @@ local function test_trace_of_names_where_a_coroutine_raised()
   assert(text:find("boom", 1, true) ~= nil, text)
   assert(text:find("inner", 1, true) ~= nil, text)
   assert(Errors.trace_of(worker):find("stack traceback:", 1, true) == 1)
+  assert(Errors.trace_of(worker, "it raised"):find("it raised\nstack traceback:", 1, true) == 1)
 end
 
 --- For the running coroutine the first frame is the caller's, as
@@ -154,6 +155,7 @@ local function test_trace_starts_at_its_caller()
     tostring(second))
   local skipped = here(2):match("stack traceback:\n\t([^\n]*)")
   assert(skipped ~= nil and skipped:find("'here'", 1, true) == nil, tostring(skipped))
+  assert(Errors.trace("where it went wrong"):find("where it went wrong\nstack traceback:", 1, true) == 1)
 end
 
 --- A message Lua wrote shares ordinary words with a row about something

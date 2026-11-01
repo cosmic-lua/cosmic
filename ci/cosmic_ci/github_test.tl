@@ -4,6 +4,7 @@
 local Github = require("cosmic_ci.github")
 local GithubApi = require("cosmic_ci.github_api")
 local Shape = require("cosmic.shape")
+local TestSupport = require("cosmic_ci.test_support")
 
 local record Commit
   sha: string
@@ -22,11 +23,7 @@ end
 local CACHES <const> = Shape.record_of("Caches")
 
 --- A whole reply: a status line, `head`'s header lines, and `body`.
-local function reply(status: string, head: string, body?: string): string
-  body = body or ""
-  return "HTTP/1.1 " .. status .. "\r\n" .. head ..
-    "Content-Length: " .. tostring(#body) .. "\r\nConnection: close\r\n\r\n" .. body
-end
+local reply <const> = TestSupport.reply
 
 --- The live host over a plain-HTTP API whose calls `script` answers in
 --- order, and what each request wrote.
