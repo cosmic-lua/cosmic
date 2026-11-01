@@ -46,10 +46,10 @@ local function under(program: string, policy: Sandbox.Policy, script: string, op
   if result == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)
     Test.skip(why)
-    return nil
   end
-  return { code = result.code or -1, signal = result.signal or -1, said = result.stdout or "",
-    timed_out = result.timed_out }
+  local held = assert(result, "Test.skip ends the test where the start is refused")
+  return { code = held.code or -1, signal = held.signal or -1, said = held.stdout or "",
+    timed_out = held.timed_out }
 end
 
 --- A grant of the program itself, which a child needs to run at all.
@@ -65,7 +65,6 @@ local function test_a_granted_path_is_read_and_its_sibling_is_not(tmp: string)
   assert(Fs.write(tmp .. "/ro/a", "alpha\n") and Fs.write(tmp .. "/other/b", "beta\n"))
   local policy: Sandbox.Policy = { grants = itself(probe, { { path = tmp .. "/ro", letters = "r" } }) }
   local read = under(probe, policy, "cat " .. tmp .. "/ro/a")
-  if read == nil then return end
   assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
   local sibling = under(probe, policy, "cat " .. tmp .. "/other/b")
   assert(sibling.code == 1 and sibling.said:find(DENIED, 1, true), "refused: " .. sibling.said)
@@ -80,7 +79,6 @@ local function test_a_relative_grant_is_relative_to_the_childs_directory(tmp: st
   assert(Fs.write(tmp .. "/work/ro/a", "alpha\n") and Fs.write(tmp .. "/work/shut/b", "beta\n"))
   local policy: Sandbox.Policy = { grants = itself(probe, { { path = "ro", letters = "r" } }) }
   local read = under(probe, policy, "cat ro/a", { cwd = tmp .. "/work" })
-  if read == nil then return end
   assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
   local shut = under(probe, policy, "cat shut/b", { cwd = tmp .. "/work" })
   assert(shut.code == 1 and shut.said:find(DENIED, 1, true), shut.said)
@@ -101,7 +99,6 @@ end
 local function test_a_grant_on_the_directory_above_a_program_gives_it_both_r_and_x(tmp: string)
   local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
   local above = under(probe, { grants = { { path = tmp, letters = "rx" } } }, "print hi")
-  if above == nil then return end
   assert(above.code == 0 and above.said == "hi\n", above.said)
 end
 
@@ -147,7 +144,6 @@ local function test_the_environment_is_the_policys_alone(tmp: string)
   local policy: Sandbox.Policy = { grants = itself(probe), env = { "TMPDIR", "ABSENT" },
     set_env = { SET = "value with spaces" } }
   local out = under(probe, policy, script)
-  if out == nil then return end
   assert(out.code == 0, out.said)
   local want = "TMPDIR=" .. passed .. "\nSET=value with spaces\nABSENT unset\n" ..
     (hidden or "NOT_THERE") .. " unset\n"
@@ -166,7 +162,6 @@ local function test_tmp_is_made_writable_named_by_tmpdir_and_removed(tmp: string
   local policy: Sandbox.Policy = { grants = itself(probe), tmp = true }
   local out = under(probe, policy,
     "env-of TMPDIR; write $TMPDIR/note hello; cat $TMPDIR/note; mkdirs $TMPDIR/sub/deeper; create $TMPDIR/sub/deeper/f x")
-  if out == nil then return end
   assert(out.code == 0, out.said)
   local dir = out.said:match("^TMPDIR=([^\n]+)\n")
   assert(dir ~= nil and out.said:find("\nhello\n", 1, true), out.said)
@@ -222,7 +217,6 @@ local function test_limits_default_and_as_given(tmp: string)
   local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
   local script = "rlimit nofile; rlimit core; rlimit fsize; rlimit cpu"
   local default = under(probe, { grants = itself(probe) }, script)
-  if default == nil then return end
   local hard = assert(sys.getrlimit(sys.RLIMIT_NOFILE)).hard
   local want = math.min(1024, hard)
   assert(default.said == ("nofile %d %d\ncore 0 0\nfsize %d %d\ncpu %d %d\n"):format(want, want,
@@ -269,7 +263,6 @@ local function test_without_fattr_no_promise_lets_a_child_change_a_mode(tmp: str
   searchable.share(file)
   local without = under(probe, { grants = itself(probe, { { path = file, letters = "rw" } }) },
     "chmod " .. file .. " 600")
-  if without == nil then return end
   assert(without.code == 1, without.said)
 end
 
@@ -286,7 +279,6 @@ local function test_fattr_lets_a_child_change_a_mode_of_its_own_file(tmp: string
   searchable.share(file)
   local with = under(probe, { grants = itself(probe, { { path = file, letters = "rw" } }),
     promises = { "fattr" } }, "chmod " .. file .. " 600")
-  if with == nil then return end
   assert(with.code == 0, with.said)
 end
 
@@ -300,7 +292,6 @@ local function test_only_the_descriptors_named_reach_the_program(tmp: string)
   -- The descriptor this process has open and does not name is shut in the child.
   local unnamed = under(probe, policy, "fd-closed " .. tostring(dropped), { fds = { [3] = kept } })
   local _, _ = sys.close(kept), sys.close(dropped)
-  if named == nil then return end
   -- fd-closed ends with status 1 for a descriptor that is open.
   assert(named.code == 1, "descriptor 3 should be open: " .. named.said)
   assert(dropped ~= 3 and unnamed.code == 0, "descriptor " .. tostring(dropped) .. " reached the child: " .. unnamed.said)
@@ -311,7 +302,6 @@ local function test_the_tmp_directory_is_absolute_and_usable_from_another_direct
   assert(Fs.mkdirs(tmp .. "/elsewhere"))
   local out = under(probe, { grants = itself(probe), tmp = true },
     "env-of TMPDIR; write $TMPDIR/note hi; cat $TMPDIR/note", { cwd = tmp .. "/elsewhere" })
-  if out == nil then return end
   assert(out.code == 0, out.said)
   assert(out.said:find("^TMPDIR=/") and out.said:find("\nhi\n", 1, true), out.said)
 end
