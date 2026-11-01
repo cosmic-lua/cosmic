@@ -4,6 +4,7 @@
 
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
+local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 
@@ -991,4 +992,311 @@ local function test_zstd_encoder_throws_after_finish()
   local finished, _ = pcall(enc.finish, enc)
   assert(not finished)
   assert(enc:pending() == false)
+end
+
+-- The text `xz -c` was run over to make the digests below: 6000 words of
+-- a twelve-word vocabulary from a fixed generator, 33483 bytes.
+local function xz_sample(): string
+  local words: {string} = { "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota",
+    "kappa", "lambda", "mu" }
+  local parts: mut {string} = {}
+  local x = 12345
+  for i = 1, 6000 do
+    x = (x * 1103515245 + 12345) % 2147483648
+    parts[#parts + 1] = assert(words[(x >> 8) % #words + 1]) .. (if i % 7 == 0 then "\n" else " " end)
+  end
+  return table.concat(parts)
+end
+
+local function xz_encode(plain: string, preset?: integer, opts?: Compress.XzOptions, size?: integer): string
+  local packed, trouble = drive(assert(Compress.xz_encoder(preset, opts)), plain, size)
+  assert(trouble == "", trouble)
+  return packed
+end
+
+-- Everything `enc` writes for `data` cut into pieces of `size` bytes.
+local function drive_bz2(enc: Compress.Stream, data: string, size?: integer): string
+  local packed, trouble = drive(enc, data, size)
+  assert(trouble == "", trouble)
+  return packed
+end
+
+local function xz_decode(packed: string, size?: integer): string
+  local dec = assert(Compress.xz_decoder())
+  local out, trouble = drive(dec, packed, size)
+  assert(trouble == "", trouble)
+  assert(dec:done())
+  return out
+end
+
+-- SHA-256 of `xz -c -<preset>` over xz_sample(), written once by the xz
+-- command (5.4.5) and found byte for byte what the vendored liblzma
+-- (5.8.4) writes at each preset.
+local record XzDigest
+  preset: integer
+  extreme: boolean
+  digest: string
+end
+
+local xz_digests: {XzDigest} = {
+  { preset = 0, extreme = false, digest = "60043a2d7fb5322f26a19c484cd98eaa529d6fa64c89eab83ef4f772c7c93cf8" },
+  { preset = 1, extreme = false, digest = "552a1b79e51063dd67a47790effa3c3bef25dcd75cb194bb1f7b2911220dd4a3" },
+  { preset = 2, extreme = false, digest = "b4df7970e3ceb31cc94544e808c275936bd24e2d3d5c661146e7da46075c1865" },
+  { preset = 3, extreme = false, digest = "1268f0b70004530c10da991bb3c4f4107f37ea60ad5b393ad85fce4689df49a1" },
+  { preset = 4, extreme = false, digest = "ebb4aa35e852588b5b568b9c140e696ce74e406f8112b8f57173913314b68828" },
+  { preset = 5, extreme = false, digest = "4e307496cf6a6ac04f85f8a2bb84a5f49192753926fef2649ffb8bd7b6e5812f" },
+  { preset = 6, extreme = false, digest = "3ecce4929e0a4f5d206f698ab0abe78a755f4d16d9be4b6bb2f0c91609fd77d0" },
+  { preset = 0, extreme = true, digest = "95f4d3684641589829d7176912c6c2bba39a1671936a455ef0fdd88f51cbb52b" },
+  { preset = 3, extreme = true, digest = "7716bcef7cf13a3bc61e4b631531462616db0df8fa564479d7030e6077b6c840" },
+  { preset = 5, extreme = true, digest = "0a65c82259390bc3839d8ec89f7d430657cf4fd29b15c450bebd8f2adbcd345c" },
+}
+
+local function test_xz_encoder_writes_what_the_xz_command_writes()
+  local plain = xz_sample()
+  assert(Hash.hex_sha256(plain) == "05da26ee65225954f8d39e6d9da87a97ab23490a73b7f31babc548a664d918c0")
+  -- Presets 0 to 6 (the memory of 7 to 9 is left out of a test run), and
+  -- the extremes that differ in what they change.
+  for _, case in ipairs(xz_digests) do
+    local packed = xz_encode(plain, case.preset, { extreme = case.extreme })
+    assert(Hash.hex_sha256(packed) == case.digest,
+      "preset " .. tostring(case.preset) .. (if case.extreme then "e" else "" end) .. ": " .. tostring(#packed) .. " bytes")
+  end
+  -- The default is `xz`'s, preset 6.
+  assert(Hash.hex_sha256(xz_encode(plain)) == "3ecce4929e0a4f5d206f698ab0abe78a755f4d16d9be4b6bb2f0c91609fd77d0")
+end
+
+local function test_xz_encoder_empty_input_is_the_empty_stream()
+  -- `xz -c </dev/null`: header, an index of no blocks, footer.
+  local expected = assert(Codec.unhex(
+    "fd377a585a000004e6d6b446000000001cdf44211fb6f37d010000000004595a"))
+  local enc = assert(Compress.xz_encoder())
+  assert(assert(enc:update("")) .. assert(enc:update("")) .. assert(enc:finish()) == expected)
+  assert(xz_decode(expected) == "")
+end
+
+local function test_xz_encoder_round_trips_at_presets_and_chunkings()
+  local noise: mut {string} = {}
+  for i = 1, 4096 do noise[i] = string.char((i * 2654435761 >> 13) % 256) end
+  local plain = xz_sample() .. table.concat(noise)
+  local presets: {integer} = { 0, 1, 3, 4, 6 }
+  local sizes: {integer} = { 100, 1000, #plain }
+  for _, preset in ipairs(presets) do
+    local whole = xz_encode(plain, preset)
+    assert(#whole < #plain, tostring(preset))
+    for _, size in ipairs(sizes) do
+      -- However the input is split, the stream is the same.
+      local packed = if size == #plain then whole else xz_encode(plain, preset, nil, size) end
+      assert(packed == whole, "preset " .. tostring(preset) .. ", chunks of " .. tostring(size))
+      assert(xz_decode(packed, size) == plain, tostring(preset) .. "/" .. tostring(size))
+    end
+  end
+  -- A byte at a time on a short prefix: an update costs tens of
+  -- microseconds whatever its size, so 44 KB of them at every preset
+  -- outran the test's limit.
+  local short = plain:sub(1, 3000)
+  local bytewise = xz_encode(short, 6, nil, 1)
+  assert(bytewise == xz_encode(short, 6), "chunks of 1")
+  assert(xz_decode(bytewise, 1) == short)
+  local extreme = xz_encode(plain, 1, { extreme = true })
+  assert(xz_decode(extreme) == plain)
+end
+
+local function test_xz_encoder_slides_its_window_past_the_dictionary()
+  -- Preset 0's dictionary is 256 KiB; ~600 KB of text drawn from a few
+  -- hundred generated words repeats a lot but never exactly, so matches
+  -- reach back across the window slide and the position normalisation.
+  local syllables: {string} = { "ka", "to", "mi", "re", "su", "lan", "dor", "vex", "pi", "no" }
+  local vocab: mut {string} = {}
+  local x = 777
+  for i = 1, 300 do
+    local word: mut {string} = {}
+    for _ = 1, 2 + i % 3 do
+      x = (x * 1103515245 + 12345) % 2147483648
+      word[#word + 1] = assert(syllables[(x >> 9) % #syllables + 1])
+    end
+    vocab[i] = table.concat(word)
+  end
+  local parts: mut {string} = {}
+  local size = 0
+  local n = 0
+  while size < 600000 do
+    n = n + 1
+    x = (x * 1103515245 + 12345) % 2147483648
+    local piece = assert(vocab[(x >> 8) % #vocab + 1]) .. (if n % 9 == 0 then "\n" else " " end)
+    parts[#parts + 1] = piece
+    size = size + #piece
+  end
+  local plain = table.concat(parts)
+  assert(#plain > 2 * 262144)
+  local whole = xz_encode(plain, 0)
+  assert(#whole < #plain // 2, tostring(#whole))
+  for _, chunk in ipairs({ 1000, 65536, 300000, #plain }) do
+    assert(xz_decode(whole, chunk) == plain, "decode chunks of " .. tostring(chunk))
+    assert(xz_encode(plain, 0, nil, chunk) == whole, "encode chunks of " .. tostring(chunk))
+  end
+end
+
+local function test_xz_encoder_gives_output_past_one_slice()
+  -- Noise does not compress, so the stream is longer than the 64 KiB
+  -- slice the encoder is offered output room in: each call loops.
+  local noise: mut {string} = {}
+  local x = 1
+  for i = 1, 300000 do
+    x = (x * 1103515245 + 12345) % 2147483648
+    noise[i] = string.char((x >> 16) % 256)
+  end
+  local plain = table.concat(noise)
+  local enc = assert(Compress.xz_encoder(0))
+  local first = assert(enc:update(plain))
+  assert(#first >= 65536, tostring(#first))
+  local packed = first .. assert(enc:finish())
+  assert(#packed > 300000)
+  assert(xz_decode(packed) == plain)
+end
+
+local function test_xz_encoder_throws_after_finish()
+  local enc = assert(Compress.xz_encoder(0))
+  assert(enc:update("x"))
+  assert(enc:finish())
+  local updated, _ = pcall(enc.update, enc, "y")
+  assert(not updated)
+  local finished, _ = pcall(enc.finish, enc)
+  assert(not finished)
+  assert(enc:pending() == false)
+end
+
+-- `bzip2 -c -1` and `bzip2 -c -9` of 40000 lines of "abcdefg", written
+-- once by the command itself (bzip2 1.0.8) and embedded: -1 cuts three
+-- full blocks of 100 kB and a fourth partial one, -9 one.
+local abcdefg_bz2_1 = assert(Codec.unhex(
+  "425a6831314159265359278494e30030d1410000103f8020007043020295007a1282c42505dd22505b44a0b889417512" ..
+    "82dc2505e84a0be6282b24ca6b2d2390eea0124e9820000207f004000e08604052a00f22505844a0b289416a1282dc25" ..
+    "05c84a0b3d84a0bc89417cc50564994d678a9569e40124e704000040fe008001c10c080a5401e84a0b10941661282cea" ..
+    "1282da2505c44a0ba8941791282f98a0ac9329aca70c9939000272e08000081fc0100028430204d5401e250ac5142b24" ..
+    "a15a250ad928570942ba4a15e250af8bb9229c284809829e2680"))
+local abcdefg_bz2_9 = assert(Codec.unhex(
+  "425a6839314159265359ea5990b9009c3fc10000103f8020007043020295007808546008546408546808546c08547008" ..
+    "547408547808547c5dc914e14243a96642e4"))
+
+local function test_bz2_encoder_writes_what_the_bzip2_command_writes()
+  assert(drive_bz2(assert(Compress.bz2_encoder()), "hello, cosmic!") == hello_bz2)
+  local plain = string.rep("abcdefg\n", 40000)
+  assert(drive_bz2(assert(Compress.bz2_encoder(1)), plain) == abcdefg_bz2_1)
+  assert(drive_bz2(assert(Compress.bz2_encoder(9)), plain) == abcdefg_bz2_9)
+  -- However the input is cut, the bytes are the same.
+  assert(drive_bz2(assert(Compress.bz2_encoder(1)), plain, 777) == abcdefg_bz2_1)
+  -- Only the block size in the header differs for a small input.
+  local five = drive_bz2(assert(Compress.bz2_encoder(5)), "hello, cosmic!")
+  assert(five == hello_bz2:sub(1, 3) .. "5" .. hello_bz2:sub(5), Codec.hex(five))
+end
+
+local function test_bz2_round_trips_at_every_level_and_chunking()
+  local noise: mut {string} = {}
+  for i = 1, 4096 do noise[i] = string.char((i * 2654435761 >> 13) % 256) end
+  -- Over 100 kB, so level 1 cuts it into blocks.
+  local plain = string.rep("the quick brown fox jumps over the lazy dog. ", 3000) .. table.concat(noise)
+  local levels: {integer} = { 1, 2, 5, 9 }
+  local sizes: {integer} = { 1000, 70000, #plain }
+  for _, level in ipairs(levels) do
+    for _, size in ipairs(sizes) do
+      local packed = drive_bz2(assert(Compress.bz2_encoder(level)), plain, size)
+      assert(#packed < #plain, tostring(level) .. ": " .. tostring(#packed))
+      local out, trouble = drive(assert(Compress.bz2_decoder()), packed, size)
+      assert(trouble == "", trouble)
+      assert(out == plain, tostring(level) .. "/" .. tostring(size) .. ": " .. tostring(#out))
+    end
+  end
+  -- A byte at a time.
+  local short = plain:sub(1, 3000)
+  local packed = drive_bz2(assert(Compress.bz2_encoder(3)), short, 1)
+  local out, trouble = drive(assert(Compress.bz2_decoder()), packed, 1)
+  assert(trouble == "" and out == short, trouble)
+end
+
+local function test_bz2_encoder_of_nothing_is_an_empty_stream()
+  -- `bzip2 -c < /dev/null`: the header, the end-of-stream magic, a zero CRC.
+  local empty = drive_bz2(assert(Compress.bz2_encoder()), "")
+  assert(empty == assert(Codec.unhex("425a683917724538509000000000")), Codec.hex(empty))
+  local out, trouble = drive(assert(Compress.bz2_decoder()), empty)
+  assert(out == "" and trouble == "", trouble)
+end
+
+local function test_bz2_encoder_update_of_nothing_is_not_a_failure()
+  -- bzlib answers BZ_PARAM_ERROR to a BZ_RUN call that takes and emits
+  -- nothing; an empty update must not surface it.
+  local fresh = assert(Compress.bz2_encoder(1))
+  assert(fresh:update("") == "")
+  -- Only empty updates, then finish: the 14 bytes of an empty stream.
+  assert(fresh:update("") == "")
+  local empty = assert(fresh:finish())
+  assert(empty == assert(Codec.unhex("425a683117724538509000000000")), Codec.hex(empty))
+  -- Between chunks, the stream is the one without the empty updates.
+  local enc = assert(Compress.bz2_encoder(1))
+  local parts: mut {string} = {}
+  for _, piece in ipairs({ "hello, ", "", "cosmic", "", "", "!" }) do
+    parts[#parts + 1] = assert(enc:update(piece), piece)
+  end
+  parts[#parts + 1] = assert(enc:finish())
+  local packed = table.concat(parts)
+  assert(packed == drive_bz2(assert(Compress.bz2_encoder(1)), "hello, cosmic!"), Codec.hex(packed))
+  local out, trouble = drive(assert(Compress.bz2_decoder()), packed)
+  assert(out == "hello, cosmic!" and trouble == "", trouble)
+end
+
+local function test_bz2_encoder_update_whose_output_fills_the_slice_exactly()
+  -- Found by search: at level 1 this input's first update emits exactly
+  -- 65536 bytes, one whole output slice, with all its input taken. The
+  -- call after that has nothing to do, which bzlib reports as an error.
+  local noise: mut {string} = {}
+  local x = 1
+  for i = 1, 64778 do
+    x = (x * 1103515245 + 12345) % 2147483648
+    noise[i] = string.char((x >> 16) % 256)
+  end
+  local plain = table.concat(noise) .. string.rep("abcdefg\n", 25000)
+  local enc = assert(Compress.bz2_encoder(1))
+  local first, why = enc:update(plain)
+  assert(first, why)
+  assert(#first == 65536, "the input no longer fills a slice: " .. tostring(#first))
+  local packed = first .. assert(enc:finish())
+  local out, trouble = drive(assert(Compress.bz2_decoder()), packed)
+  assert(trouble == "" and out == plain, trouble)
+end
+
+local function test_bz2_encoder_level_out_of_range_raises()
+  local low_block, _ = pcall(Compress.bz2_encoder, 0)
+  assert(not low_block)
+  local high_block, _ = pcall(Compress.bz2_encoder, 10)
+  assert(not high_block)
+  assert((Compress.bz2_encoder(1)))
+  assert((Compress.bz2_encoder(9)))
+end
+
+local function test_bz2_encoder_throws_after_finish()
+  local enc = assert(Compress.bz2_encoder())
+  assert(enc:update("x"))
+  assert(enc:finish())
+  local updated, _ = pcall(enc.update, enc, "y")
+  assert(not updated)
+  local finished, _ = pcall(enc.finish, enc)
+  assert(not finished)
+  assert(enc:pending() == false)
+end
+
+local function test_xz_encoder_closed_at_scope_end_frees_its_codec()
+  do
+    local enc <close> = assert(Compress.xz_encoder(0))
+    assert(enc:update("abc"))
+  end
+  -- An encoder never finished is collected too.
+  assert(Compress.xz_encoder(0))
+  collectgarbage("collect")
+end
+
+local function test_xz_encoder_presets_out_of_range_raise()
+  local low, _ = pcall(Compress.xz_encoder, -1)
+  assert(not low)
+  local high, _ = pcall(Compress.xz_encoder, 10)
+  assert(not high)
+  assert((Compress.xz_encoder(0)))
 end

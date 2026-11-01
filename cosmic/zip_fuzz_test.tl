@@ -149,7 +149,7 @@ local EOCD_FIELDS <const> = { "c4", "I2", "I2", "I2", "I2", "I4", "I4", "I2" }
 --- values are a record of their own, so each can be made hostile.
 local record Rec
   fields: {string}
-  values: {any}
+  mut values: {any}
   tail?: string
 end
 
@@ -315,7 +315,16 @@ local function gen_laid_out(src: Fuzz.Source): string
       at = src:int(if r.fields[1] == "c4" then 2 else 1 end, #r.fields)
     end
     if at ~= nil then
-      r.values[at] = hostile(src, r.values[at] as integer, r.fields[at], marks)
+      local made: mut {any} = {}
+      for k, value in ipairs(r.values) do
+        if k == at then
+          local replaced = hostile(src, value as integer, r.fields[at], marks)
+          made[#made + 1] = replaced
+        else
+          made[#made + 1] = value
+        end
+      end
+      r.values = made
     end
   end
 

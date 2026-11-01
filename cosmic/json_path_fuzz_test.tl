@@ -90,16 +90,16 @@ end
 --- "i" a marked array, "h" an unmarked table with a hole below the
 --- position, "e" a marked array the step counts back from the end of.
 local function steps_of(input: string): Json.Steps, {string}
-  local steps: Json.Steps = {}
+  local steps: mut {string | integer} = {}
   local builds: mut {string} = {}
   for i, part in ipairs(Fuzz.unpack(input)) do
     local kind = part:sub(1, 1)
     builds[i] = kind
     if kind == "n" then
-      steps[i] = part:sub(2)
+      steps[#steps + 1] = part:sub(2)
     else
       local n = math.tointeger(tonumber(part:sub(2))) as integer
-      steps[i] = if kind == "e" then -n else n end
+      steps[#steps + 1] = if kind == "e" then -n else n end
     end
   end
   return steps, builds

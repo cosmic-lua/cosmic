@@ -113,3 +113,147 @@ local function test_entropy_refuses_a_degenerate_count()
   assert(not pcall(Rand.entropy, (1 << 20) + 1))
   assert(#assert(Rand.entropy(1 << 20)) == 1 << 20)
 end
+
+--- The mean and variance of `n` draws of `draw`.
+local function moments(draw: function(): number, n: integer): number, number
+  local sum, sq = 0.0, 0.0
+  for _ = 1, n do
+    local x = draw()
+    sum = sum + x
+    sq = sq + x * x
+  end
+  local mean = sum / n
+  return mean, sq / n - mean * mean
+end
+
+local function test_normal_has_its_mean_and_deviation()
+  local src = Rand.new(3)
+  -- 20000 draws put the sample mean within 0.03 of 0 at about four
+  -- standard errors, and the variance within 0.06 of 1.
+  local mean, var = moments(function(): number return src:normal() end, 20000)
+  assert(math.abs(mean) < 0.03, "mean " .. tostring(mean))
+  assert(math.abs(var - 1.0) < 0.06, "variance " .. tostring(var))
+  mean, var = moments(function(): number return src:normal(10, 3) end, 20000)
+  assert(math.abs(mean - 10.0) < 0.1, "mean " .. tostring(mean))
+  assert(math.abs(var - 9.0) < 0.6, "variance " .. tostring(var))
+  assert(src:normal(5, 0) == 5.0)
+end
+
+local function test_normal_replays_from_a_seed()
+  local a, b = Rand.new(9), Rand.new(9)
+  for _ = 1, 100 do
+    assert(a:normal() == b:normal())
+  end
+  assert(Rand.new(9):normal() ~= Rand.new(10):normal())
+end
+
+local function test_normal_refuses_degenerate_parameters()
+  local src = Rand.new(0)
+  Test.raises(function() src:normal(0, -1) end, "stddev not negative")
+  Test.raises(function() src:normal(0 / 0, 1) end, "must be finite")
+  Test.raises(function() src:normal(0, math.huge) end, "must be finite")
+  Test.raises(function() src:normal(math.huge, 1) end, "must be finite")
+  Test.raises(function() src:normal(0, 0 / 0) end, "must be finite")
+end
+
+local function test_normal_has_the_shape_of_a_bell()
+  local src = Rand.new(5)
+  -- A uniform on [-sqrt 3, sqrt 3] has mean 0 and variance 1 too, but
+  -- only 0.577 of its mass within one deviation and a fourth moment of
+  -- 1.8. The normal has 0.6827 (standard error 0.0033 at 20000 draws,
+  -- so the band is over four) and 3.
+  local n, within, fourth = 20000, 0, 0.0
+  for _ = 1, n do
+    local x = src:normal()
+    if math.abs(x) < 1.0 then within = within + 1 end
+    fourth = fourth + x * x * x * x
+  end
+  local fraction = within / n
+  assert(math.abs(fraction - 0.6827) < 0.015, "within one deviation " .. tostring(fraction))
+  fourth = fourth / n
+  assert(math.abs(fourth - 3.0) < 0.3, "fourth moment " .. tostring(fourth))
+end
+
+local function test_gamma_has_its_mean_and_variance_either_side_of_shape_one()
+  local src = Rand.new(4)
+  -- Gamma(k, theta) has mean k * theta and variance k * theta^2; a shape
+  -- below 1 takes the boosted path.
+  local record Case
+    k: number
+    theta: number
+  end
+  local cases: {Case} = {
+    { k = 0.5, theta = 2.0 },
+    { k = 1.0, theta = 1.0 },
+    { k = 4.5, theta = 0.5 },
+  }
+  for _, case in ipairs(cases) do
+    local k, theta = case.k, case.theta
+    local least = math.huge
+    local mean, var = moments(function(): number
+      local x = src:gamma(k, theta)
+      if x < least then least = x end
+      return x
+    end, 20000)
+    local want_mean, want_var = k * theta, k * theta * theta
+    local where = ("gamma(%g, %g): "):format(k, theta)
+    assert(least >= 0.0, where .. "negative draw " .. tostring(least))
+    assert(math.abs(mean - want_mean) < 0.05 * want_mean + 0.02, where .. "mean " .. tostring(mean))
+    assert(math.abs(var - want_var) < 0.1 * want_var + 0.02, where .. "variance " .. tostring(var))
+  end
+end
+
+local function test_gamma_replays_from_a_seed()
+  local a, b = Rand.new(9), Rand.new(9)
+  for _ = 1, 100 do
+    assert(a:gamma(0.3) == b:gamma(0.3))
+    assert(a:gamma(2.5, 4) == b:gamma(2.5, 4))
+  end
+  assert(Rand.new(9):gamma(2) ~= Rand.new(10):gamma(2))
+end
+
+local function test_gamma_refuses_degenerate_parameters()
+  local src = Rand.new(0)
+  Test.raises(function() src:gamma(0) end, "finite and positive")
+  Test.raises(function() src:gamma(-1) end, "finite and positive")
+  Test.raises(function() src:gamma(1, 0) end, "finite and positive")
+  Test.raises(function() src:gamma(1, -2) end, "finite and positive")
+  Test.raises(function() src:gamma(math.huge) end, "finite and positive")
+  Test.raises(function() src:gamma(1, math.huge) end, "finite and positive")
+  Test.raises(function() src:gamma(0 / 0) end, "finite and positive")
+  Test.raises(function() src:gamma(1, 0 / 0) end, "finite and positive")
+end
+
+local function test_gamma_has_the_shape_of_a_gamma()
+  local src = Rand.new(6)
+  -- Targets: P(X < 1) = 1 - e^-1 for shape 1 and P(X < 0.5) =
+  -- erf(sqrt 0.5) for shape 0.5, each within 0.015 (over four standard
+  -- errors at 20000 draws); skewness 2 / sqrt(shape) for shape 4.5,
+  -- within 0.1 (about five).
+  local n, below = 20000, 0
+  for _ = 1, n do
+    if src:gamma(1) < 1.0 then below = below + 1 end
+  end
+  local fraction = below / n
+  assert(math.abs(fraction - (1.0 - math.exp(-1.0))) < 0.015, "below 1: " .. tostring(fraction))
+  -- Gamma(0.5) is half a chi-squared of one degree of freedom, so
+  -- P(X < 0.5) = erf(sqrt(0.5)) = 0.6827; this checks the boosted path.
+  below = 0
+  for _ = 1, n do
+    if src:gamma(0.5) < 0.5 then below = below + 1 end
+  end
+  fraction = below / n
+  assert(math.abs(fraction - 0.6827) < 0.015, "gamma(0.5) below 0.5: " .. tostring(fraction))
+  -- Skewness is 2 / sqrt(shape), 0.943 for 4.5.
+  local k = 4.5
+  local sum, sq, cube = 0.0, 0.0, 0.0
+  for _ = 1, n do
+    local x = src:gamma(k)
+    sum, sq, cube = sum + x, sq + x * x, cube + x * x * x
+  end
+  local mean = sum / n
+  local var = sq / n - mean * mean
+  local third = cube / n - 3.0 * mean * sq / n + 2.0 * mean * mean * mean
+  local skew = third / var ^ 1.5
+  assert(math.abs(skew - 2.0 / math.sqrt(k)) < 0.1, "skewness " .. tostring(skew))
+end

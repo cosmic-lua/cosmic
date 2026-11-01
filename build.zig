@@ -1812,15 +1812,11 @@ fn vendorLibraries(
         },
     });
 
-    // bzip2's decompressor is a true push-streaming API (bz_stream's
-    // next_in/avail_in/next_out), which is what the Compress.Stream
-    // contract needs; BZ_NO_STDIO keeps its file-handle helpers, which
-    // this core never calls, from pulling in FILE*. blocksort.c and
-    // compress.c hold the compress-side symbols bzlib.c references even
-    // though only BZ2_bzDecompress* is ever called here, so they are
-    // compiled for the link to resolve; per-function sections (see the
-    // end of this function) let the linker drop them again, since
-    // nothing reachable calls BZ2_bzCompress. The K&R-flavored source predates
+    // bzip2 is a true push-streaming API (bz_stream's next_in/avail_in/
+    // next_out), which is what the Compress.Stream contract needs, both
+    // ways: BZ2_bzDecompress* reads .bz2 and BZ2_bzCompress* writes it.
+    // BZ_NO_STDIO keeps its file-handle helpers, which this core never
+    // calls, from pulling in FILE*. The K&R-flavored source predates
     // -Wall/-Wextra/-Werror by a wide margin, so it gets its own quiet
     // flag set rather than the core's.
     vendorPart(b, &libraries, configuration, target, "bzip2", &.{bzip2}).addCSourceFiles(.{
@@ -1832,8 +1828,9 @@ fn vendorLibraries(
         .flags = &.{ "-std=c11", debug_dir, "-DBZ_NO_STDIO" },
     });
 
-    // xz's liblzma, a decoder-only subset (LZMA1/LZMA2, the delta and
-    // x86/arm64 BCJ filters, and the CRC-32/CRC-64/SHA-256 checks) --
+    // xz's liblzma, a subset: the decoders (LZMA1/LZMA2, the delta and
+    // x86/arm64 BCJ filters, and the CRC-32/CRC-64/SHA-256 checks) and
+    // the .xz encoder with LZMA2 alone (match finders hc3, hc4, bt4) --
     // see core/xz_config for why: the tree vendors no config.h of its
     // own, autoconf's usual job, so core/xz_config/config.h stands in
     // for it, on an include path of this library's alone.
@@ -1857,25 +1854,43 @@ fn vendorLibraries(
             "liblzma/check/crc64_fast.c",
             "liblzma/check/sha256.c",
             "liblzma/common/block_decoder.c",
+            "liblzma/common/block_encoder.c",
             "liblzma/common/block_header_decoder.c",
+            "liblzma/common/block_header_encoder.c",
             "liblzma/common/block_util.c",
             "liblzma/common/common.c",
+            "liblzma/common/easy_encoder.c",
+            "liblzma/common/easy_preset.c",
             "liblzma/common/filter_common.c",
             "liblzma/common/filter_decoder.c",
+            "liblzma/common/filter_encoder.c",
             "liblzma/common/filter_flags_decoder.c",
+            "liblzma/common/filter_flags_encoder.c",
             "liblzma/common/index.c",
+            "liblzma/common/index_encoder.c",
             "liblzma/common/index_hash.c",
             "liblzma/common/stream_decoder.c",
+            "liblzma/common/stream_encoder.c",
             "liblzma/common/stream_flags_common.c",
             "liblzma/common/stream_flags_decoder.c",
+            "liblzma/common/stream_flags_encoder.c",
             "liblzma/common/vli_decoder.c",
+            "liblzma/common/vli_encoder.c",
             "liblzma/common/vli_size.c",
             "liblzma/delta/delta_common.c",
             "liblzma/delta/delta_decoder.c",
             "liblzma/lz/lz_decoder.c",
+            "liblzma/lz/lz_encoder.c",
+            "liblzma/lz/lz_encoder_mf.c",
+            "liblzma/lzma/fastpos_table.c",
             "liblzma/lzma/lzma2_decoder.c",
+            "liblzma/lzma/lzma2_encoder.c",
             "liblzma/lzma/lzma_decoder.c",
+            "liblzma/lzma/lzma_encoder.c",
+            "liblzma/lzma/lzma_encoder_optimum_fast.c",
+            "liblzma/lzma/lzma_encoder_optimum_normal.c",
             "liblzma/lzma/lzma_encoder_presets.c",
+            "liblzma/rangecoder/price_table.c",
             "liblzma/simple/arm64.c",
             "liblzma/simple/simple_coder.c",
             "liblzma/simple/simple_decoder.c",
@@ -2250,7 +2265,7 @@ fn core(
     // One section per function and per object, so the linker's garbage
     // collection (on by default in a release link) drops each unreachable
     // function rather than keeping a whole file's code for the one
-    // function something calls: bzip2's compressor, the parts of curl,
+    // function something calls: the parts of bzip2, curl,
     // mbedtls and SQLite this core never reaches. Mach-O links get the
     // same effect from subsections-via-symbols already.
     exe.link_function_sections = true;

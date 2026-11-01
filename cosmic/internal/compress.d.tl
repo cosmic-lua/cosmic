@@ -62,6 +62,10 @@ local record compress
   -- the frame declares it as its content size, its window is held to
   -- core/unzstd.h's limit, and input of another size fails.
   zstd_encoder: function(level?: integer, size?: integer): Stream?, string
+  -- Raises on a preset outside 0 to 9.
+  xz_encoder: function(preset?: integer, extreme?: boolean): Stream?, string
+  -- Raises on a level outside 1 to 9.
+  bz2_encoder: function(level?: integer): Stream?, string
   -- The running CRC-32 (IEEE) of `data`; pass the previous value as `crc`
   -- to continue it. Raises when `crc` is outside 0 to 0xffffffff.
   crc32: function(data: string, crc?: integer): integer

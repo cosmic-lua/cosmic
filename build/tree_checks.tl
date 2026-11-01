@@ -1091,7 +1091,8 @@ function tree_checks.requirements(build: Sqlite.Handle): {string:{string}}?, str
       names = {}
       out[row:text(1)] = names
     end
-    names[#names + 1] = row:text(2)
+    local second = row:text(2)
+    names[#names + 1] = second
   end
   return out, ""
 end

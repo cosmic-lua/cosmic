@@ -308,6 +308,25 @@ local function test_a_close_local_holds_nil_or_a_class_that_declares_close()
   refused(head .. "local d <close> = Guard\n", "close_not_closable", "`Guard (declaration)`")
 end
 
+local function test_a_close_local_holds_a_class_a_module_answers_with_a_failure()
+  -- The shape of the signal module's guard: a class that implements an interface, answered as `T?, string` and held as
+  -- `local g <close> = assert(M.guard())`, where `assert` narrows the optional.
+  local modules: {string: string} = { held = "local interface Held\n  n: integer\nend\n" ..
+      "local class Guard is Held\n  n: integer\n  function __close(self)\n  end\nend\n" ..
+      "local record Held_module\n  type Guard = Guard\n  guard: function(): Guard?, string\nend\n" ..
+      "function Held_module.guard(): Guard?, string\n  local g: Guard = { n = 1 }\n  return g, \"\"\nend\n" ..
+      "return Held_module\n" }
+  local head = "local Held = require(\"held\")\n"
+  accepted(head .. "local g <close> = assert(Held.guard())\n", modules)
+  accepted(head .. "local g <close>: Held.Guard = assert(Held.guard())\n", modules)
+  -- the record that sets its metatable by hand, the shape the signal guard had, is still no value to close
+  local record_modules: {string: string} = { held = "local record Guard\n  n: integer\n  __close: function(Guard)\nend\n" ..
+      "local record Held_module\n  type Guard = Guard\n  guard: function(): Guard?, string\nend\n" ..
+      "return Held_module\n" }
+  refused(head .. "local g <close> = assert(Held.guard())\n", "close_not_closable",
+    "`Guard` is not a class or a userdata record", record_modules)
+end
+
 local DEV <const> = "local record dev\n" ..
   "  record Handle\n    userdata\n    __close: function(self: Handle)\n    fd: function(self: Handle): integer\n  end\n" ..
   "  record Bare\n    userdata\n    fd: function(self: Bare): integer\n  end\n" ..

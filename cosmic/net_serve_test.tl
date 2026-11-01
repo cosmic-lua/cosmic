@@ -300,7 +300,7 @@ local function test_a_protocol_ignoring_failures_is_killed_at_grace_ns()
   local started: integer = 0
   local closed: integer = 0
   local closer_mt: metatable<Closer> = { __close = function() closed = closed + 1 end }
-  local held: {Client} = {}
+  local held: mut {Client} = {}
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = Clock.ms(20),
@@ -319,8 +319,10 @@ local function test_a_protocol_ignoring_failures_is_killed_at_grace_ns()
     end,
     on_error = function(trouble: string) errors[#errors + 1] = trouble end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      held[1] = client(addresses[1])
-      held[2] = client(addresses[1])
+      local first = client(addresses[1])
+      held[#held + 1] = first
+      local second = client(addresses[1])
+      held[#held + 1] = second
       while started < 2 do assert(Poll.delay(Clock.ms(1))) end
       server:stop()
     end,

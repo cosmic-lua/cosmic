@@ -1,6 +1,7 @@
 --- Worked examples for [`cosmic.xml`], shown by `cosmic docs` and run by
 --- `cosmic test`.
 
+local Stream = require("cosmic.stream")
 local Xml = require("cosmic.xml")
 
 local record Example end
@@ -93,6 +94,24 @@ function Example.subtrees()
     total = total + assert(math.tointeger(Xml.text(assert(Xml.child(row, "n")))))
   end
   assert(total == 5, tostring(total))
+end
+
+--- `writer` writes a document a batch of events at a time to a stream, so
+--- a document too large to hold is never held: here a row at a time, to a
+--- collector standing in for a file.
+function Example.writer()
+  local out = Stream.collect()
+  local w = Xml.writer(out)
+  assert(w:write({ { kind = "start", name = "rows" } }))
+  for i = 1, 3 do
+    assert(w:write({
+      { kind = "start", name = "row", attributes = { n = tostring(i) } },
+      { kind = "end", name = "row" },
+    }))
+  end
+  assert(w:write({ { kind = "end", name = "rows" } }))
+  assert(w:close())
+  print(out:result()) -- <rows><row n="1"/><row n="2"/><row n="3"/></rows>
 end
 
 return Example

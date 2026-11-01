@@ -355,11 +355,6 @@ local module: Module = {
       "only `cosmic json` calls",
     ["cosmic.csv.rows"] = "use Csv.table(text, opts) and its rows field, the table per record " ..
       "that Csv.rows answered (" .. csv .. ")",
-    ["cosmic.csv.encode"] = "write each record's fields joined by the delimiter, a field that " ..
-      "holds the delimiter, a quote or a line break in quotes with each quote doubled, " ..
-      "and a line feed after the record; also quote a field that begins with the byte order " ..
-      "mark (a reader drops one there) and the empty only field of a record (else the " ..
-      "record is a blank line); there is no writer in the library",
     ["cosmic.shape.failures"] = "use Shape.into(value, spec), which answers the first " ..
       "failure; a config whose author wants every mistake runs again after fixing each (" ..
       shape .. ")",
@@ -419,7 +414,7 @@ local module: Module = {
       "that has gone fails with EPIPE instead (" .. child .. ")",
     ["cosmic.child.guard"] = "use Signal.guard(), the same guard, and hold it in a " ..
       "<close> variable: local g <close> = assert(Signal.guard()) (" .. signal .. ")",
-    ["cosmic.child.Guard"] = "use Signal.Guard, the same record (" .. signal .. ")",
+    ["cosmic.child.Guard"] = "use Signal.Guard, the same type (" .. signal .. ")",
     ["cosmic.sys.guard_child_signals"] = "use Signal.guard(), and hold it in a " ..
       "<close> variable: local g <close> = assert(Signal.guard()) (" .. signal .. ")",
     ["cosmic.sys.cancelled_child_signal"] = "use g:take() on the guard Signal.guard() " ..

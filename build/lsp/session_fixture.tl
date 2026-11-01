@@ -127,7 +127,8 @@ end
 local function copied(tally: source.Tally): source.Tally
   return { database_stubs = tally.database_stubs, made_stubs = tally.made_stubs,
     sources = tally.sources, templates = tally.templates,
-    whole_splices = tally.whole_splices, stages = tally.stages, reopened = tally.reopened }
+    whole_splices = tally.whole_splices, stages = tally.stages, reopened = tally.reopened,
+    parses = tally.parses }
 end
 
 --- Makes the directory `root` a project to a session, as one a build has

@@ -36,8 +36,7 @@ local function test_a_failed_resolver_is_not_used_as_a_directory(tmp: string)
   assert(Fs.put(Fs.stderr, "invalid build home\n"))
   return 2
 ]])
-  local ok, why = pcall(BuildPaths.directory, tmp, {})
-  assert(not ok and tostring(why):find("invalid build home", 1, true) ~= nil, tostring(why))
+  Test.raises(function() BuildPaths.directory(tmp, {}) end, "invalid build home")
 end
 
 local function test_extra_output_is_refused(tmp: string)
@@ -45,8 +44,7 @@ local function test_extra_output_is_refused(tmp: string)
   assert(Fs.put(Fs.stdout, "/first\n/second\n"))
   return 0
 ]])
-  local ok, why = pcall(BuildPaths.directory, tmp, {})
-  assert(not ok and tostring(why):find("did not print one path", 1, true) ~= nil, tostring(why))
+  Test.raises(function() BuildPaths.directory(tmp, {}) end, "did not print one path")
 end
 
 --- The running driver names where it builds a project: outside it.
@@ -68,6 +66,6 @@ end
 
 --- A file run standalone by the driver's own path is not the helper's to start: the words refuse it.
 local function test_the_driver_does_not_run_a_file_standalone()
-  local ok, why = pcall(BuildPaths.driver, { "--standalone", "build/paths.tl" }, {})
-  assert(not ok and tostring(why):find("does not run a file standalone", 1, true) ~= nil, tostring(why))
+  Test.raises(function() BuildPaths.driver({ "--standalone", "build/paths.tl" }, {}) end,
+    "does not run a file standalone")
 end

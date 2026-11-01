@@ -160,9 +160,10 @@ local function miss(path: any, why: string): nil, string
 end
 
 --- A source of the given files, `path` to bytes: for tests and for files
---- a program generates. A path that is no valid relative path raises. With
---- `opts.gzip`, a file worth it is held gzipped too ([`Mime.gzip`]), and with
---- `opts.zstd` zstd-compressed too ([`Mime.zstd`]).
+--- a program generates. A path that is no valid relative path raises, as does a
+--- compression that fails. With `opts.gzip`, a file worth it is held gzipped
+--- too ([`Mime.gzip`]), and with `opts.zstd` zstd-compressed too
+--- ([`Mime.zstd`]).
 --- @param files {string:string} The files by path
 --- @param opts MemoryOptions | nil `gzip` and `zstd` store those variants
 --- @return Assets.Source The source
@@ -173,9 +174,17 @@ function Assets.memory(files: {string:string}, opts?: Assets.MemoryOptions): Ass
     local why = path_refusal(path)
     if why ~= nil then error(("web: assets: memory: %q: %s"):format(tostring(path), why), 2) end
     local gzip: string? = nil
-    if opts ~= nil and opts.gzip == true then gzip = Mime.gzip(path, data) end
+    if opts ~= nil and opts.gzip == true then
+      local packed, trouble = Mime.gzip(path, data)
+      if trouble ~= "" then error(("web: assets: memory: %q: %s"):format(path, trouble), 2) end
+      gzip = packed
+    end
     local zstd: string? = nil
-    if opts ~= nil and opts.zstd == true then zstd = Mime.zstd(path, data) end
+    if opts ~= nil and opts.zstd == true then
+      local packed, trouble = Mime.zstd(path, data)
+      if trouble ~= "" then error(("web: assets: memory: %q: %s"):format(path, trouble), 2) end
+      zstd = packed
+    end
     held[path] = make(path, data, { gzip = gzip, zstd = zstd })
     names[#names + 1] = path
   end
@@ -206,7 +215,7 @@ local record Seen
 end
 
 -- TODO: serve a file past 1 MiB as a Reader with `length` set and a
--- modification-time tag, as doc/plans/web/assets.md section 3.3 has it, once
+-- modification-time tag, once
 -- [`Source.get`] can answer a file without its bytes in memory; every file is
 -- read whole today, so development holds the largest asset in memory.
 --- A source reading the files under `root` from disk, hidden files (a

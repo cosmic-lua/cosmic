@@ -202,7 +202,7 @@ end
 
 analysis_schema.tables = {
   "parsed", "requires", "tests", "catalog", "docs", "refs", "bound", "examples", "test_inputs", "links",
-  "stubs", "globals",
+  "stubs", "globals", "places",
 }
 
 analysis_schema.statements = {
@@ -296,6 +296,14 @@ analysis_schema.statements = {
                                         line INTEGER NOT NULL,
                                         column INTEGER NOT NULL,
                                         PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS places (source_hash TEXT NOT NULL,
+                                       ordinal INTEGER NOT NULL,
+                                       symbol TEXT NOT NULL,
+                                       kind TEXT NOT NULL,
+                                       line INTEGER NOT NULL,
+                                       column INTEGER NOT NULL,
+                                       length INTEGER NOT NULL,
+                                       PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
 }
 
 return analysis_schema

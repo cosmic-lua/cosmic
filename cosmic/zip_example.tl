@@ -59,7 +59,8 @@ function Example.open_string()
 end
 
 --- `entry` opens one entry by its path, as a format built of named
---- parts (a spreadsheet, an EPUB) reads each part it needs.
+--- parts (a spreadsheet, an EPUB) reads each part it needs; with
+--- `ignore_case`, as such a format's part names match, whatever their case.
 function Example.entry()
   local out = Stream.collect()
   local w = Zip.writer(out)
@@ -72,6 +73,23 @@ function Example.entry()
   local none, why = r:entry("missing.txt")
   assert(none == nil)
   print(why) -- zip: no entry "missing.txt"
+  local shouted = assert(r:entry("DOCS/README.TXT", { ignore_case = true }))
+  assert(shouted.path == "docs/readme.txt")
+  assert(r:close())
+end
+
+--- [`file_writer`] takes an entry's body a piece at a time, as a document
+--- written as it is made comes: here three lines, never held together.
+function Example.file_writer()
+  local out = Stream.collect()
+  local w = Zip.writer(out)
+  local body = assert(w:file_writer("log.txt"))
+  for i = 1, 3 do assert(body:write("entry " .. tostring(i) .. "\n")) end
+  assert(body:close())
+  assert(w:close())
+  local r = assert(Zip.open_string(out:result()))
+  local log = assert(r:entry("log.txt"))
+  print(log.size) -- 24
   assert(r:close())
 end
 
