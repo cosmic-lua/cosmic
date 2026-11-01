@@ -712,8 +712,9 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
     log:complain("signal guard: " .. guard_trouble)
     return 1
   end
-  -- Released below; closed, delivering what it holds, only if an error
-  -- leaves `supervise` first.
+  -- Released below, so its close at the end of this scope does nothing
+  -- then; an error that leaves `supervise` first closes it, delivering
+  -- what it holds.
   local g <close> = opened
   local signals: Signals = { pending = 0 }
   local function supervise(): Child.Result?, string
