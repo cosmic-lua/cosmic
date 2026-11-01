@@ -693,9 +693,16 @@ end
 local POINT <const> = "local record point\n  x: integer\n  record Corner\n    y: integer\n  end\nend\n\n" ..
   "function point.origin(): point\n  return { x = 0 }\nend\n\nreturn point\n"
 
---- The places of the staged module `lib.point`, read from the `places` rows the stage derived: nothing is parsed, and a
+--- The number of rows of `table` that hold the text `hash` in `db`.
+local function rows_of(db: Sqlite.Handle, table_name: string, hash: string): integer
+  local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name .. " WHERE source_hash = ?1",
+    { { text = hash } }))
+  return math.tointeger(tonumber(assert(rows[1]):text(1))) or -1
+end
+
+--- The places of the staged module `lib.point`, read from the `places` rows the stage derived: nothing is derived, and a
 --- row changed in the database changes the answer, which only a read of the rows does.
-local function test_the_places_of_a_staged_module_are_read_from_the_database_and_not_parsed()
+local function test_the_places_of_a_staged_module_are_read_from_the_database_and_not_derived()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/point.tl", POINT))
@@ -709,7 +716,7 @@ local function test_the_places_of_a_staged_module_are_read_from_the_database_and
   assert(corner.line == 3 and corner.column == 10 and corner.length == 6)
   assert(assert(placed.spots["point.Corner.y"]).line == 4)
   assert(origin.line == 8 and origin.column == 16 and origin.length == 6)
-  assert(placed.spots["point.missing"] == nil and src.tally.parses == 0, tostring(src.tally.parses))
+  assert(placed.spots["point.missing"] == nil and src.tally.derived == 0, tostring(src.tally.derived))
   -- A row written by hand, in a module whose rows are read for the first time, is what is found.
   local held = assert(Sqlite.open(assert(src.working), { writable = true }))
   assert(held:exec("UPDATE places SET line = 6, column = 1, length = 3 WHERE symbol = 'point.x'"))
@@ -718,34 +725,34 @@ local function test_the_places_of_a_staged_module_are_read_from_the_database_and
   local again = source.new(root, function(_: string) end)
   source.refresh(again)
   local moved = assert(assert(source.places(again, "lib.point", none_open)).spots["point.x"])
-  assert(moved.line == 6 and moved.column == 1 and moved.length == 3 and again.tally.parses == 0)
+  assert(moved.line == 6 and moved.column == 1 and moved.length == 3 and again.tally.derived == 0)
   assert(source.places(again, "lib.missing", none_open) == nil)
   source.close(again)
 end
 
---- An open document the same as the staged file is the staged file; an edited one is parsed once.
-local function test_the_places_of_an_open_module_are_parsed_only_where_it_differs_from_the_staged_file()
+--- An open document the same as the staged file is the staged file; an edited one is derived once, into the scratch database.
+local function test_the_places_of_an_open_module_are_derived_only_where_it_differs_from_the_staged_file()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/point.tl", POINT))
   local src = source.new(root, function(_: string) end)
   source.refresh(src)
   local same = assert(source.places(src, "lib.point", open_with("lib/point.tl", POINT)))
-  assert(assert(same.spots["point.x"]).line == 2 and src.tally.parses == 0, tostring(src.tally.parses))
+  assert(assert(same.spots["point.x"]).line == 2 and src.tally.derived == 0, tostring(src.tally.derived))
   local edited = "-- moved down\n\n" .. POINT
   for _ = 1, 3 do
     local placed = assert(source.places(src, "lib.point", open_with("lib/point.tl", edited)))
     assert(placed.text == edited and assert(placed.spots["point.x"]).line == 4)
   end
-  assert(src.tally.parses == 1, tostring(src.tally.parses))
+  assert(src.tally.derived == 1, tostring(src.tally.derived))
   -- The file as staged is still what the rows say.
   assert(assert(assert(source.places(src, "lib.point", none_open)).spots["point.x"]).line == 2)
-  assert(src.tally.parses == 1)
+  assert(src.tally.derived == 1)
   source.close(src)
 end
 
---- Rows another analyzer derived are none to read: the text is parsed here, and read again when they are the running one's.
-local function test_the_places_of_another_analyzers_rows_are_parsed_here()
+--- Rows another analyzer derived are none to read: the text is derived here, and read again when they are the running one's.
+local function test_the_places_of_another_analyzers_rows_are_derived_here()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/point.tl", POINT))
@@ -758,7 +765,10 @@ local function test_the_places_of_another_analyzers_rows_are_parsed_here()
   -- Read again, as every refresh does, finding the rows are not the running analyzer's.
   source.refresh(src)
   assert(assert(assert(source.places(src, "lib.point", none_open)).spots["point.x"]).line == 2)
-  assert(src.tally.parses == 1, tostring(src.tally.parses))
+  assert(src.tally.derived == 1, tostring(src.tally.derived))
+  local hash = Hash.hex_sha256(POINT)
+  assert(rows_of(assert(src.scratch), "places", hash) > 0, "served from the rows derived here")
+  assert(src.tally.derived == 1)
   source.close(src)
 end
 
@@ -781,21 +791,166 @@ local function test_the_places_of_a_database_another_code_staged_are_none()
 end
 
 --- A staged module with no `parsed` row (one a stage recorded as broken, which a stage that refuses it does not list) has
---- no rows, which says nothing of what it declares: it is read as the text is, and not found empty. A module that parsed
---- and declares nothing is found empty without a parse.
-local function test_the_places_of_a_module_the_stage_has_no_parse_of_are_parsed_here()
+--- no rows, which says nothing of what it declares: it is derived here from the text, and not found empty. A module that parsed
+--- and declares nothing is found empty without a derive.
+local function test_the_places_of_a_module_the_stage_has_no_parse_of_are_derived_here()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/point.tl", POINT))
   assert(Fs.write(root .. "/lib/none.tl", "return 1\n"))
   local src = source.new(root, function(_: string) end)
   source.refresh(src)
-  assert(assert(source.places(src, "lib.none", none_open)).spots["none"] == nil and src.tally.parses == 0)
+  assert(assert(source.places(src, "lib.none", none_open)).spots["none"] == nil and src.tally.derived == 0)
   local held = assert(Sqlite.open(assert(src.working), { writable = true }))
   assert(held:exec("DELETE FROM places"))
   assert(held:exec("DELETE FROM parsed WHERE source_hash IN (SELECT source_hash FROM inputs WHERE path = 'lib.point')"))
   assert(held:close())
   local placed = assert(source.places(src, "lib.point", none_open))
-  assert(assert(placed.spots["point.x"]).line == 2 and src.tally.parses == 1, tostring(src.tally.parses))
+  assert(assert(placed.spots["point.x"]).line == 2 and src.tally.derived == 1, tostring(src.tally.derived))
+  source.close(src)
+end
+
+--- An edited open document is derived into the scratch database and into `build.db` never; a new edit of the file replaces
+--- the rows of the old, and the same text twice derives once.
+local function test_an_edited_buffer_is_derived_into_the_scratch_database_alone()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local edited = "-- moved down\n\n" .. POINT
+  local hash = Hash.hex_sha256(edited)
+  for _ = 1, 2 do
+    local placed = assert(source.places(src, "lib.point", open_with("lib/point.tl", edited)))
+    assert(assert(placed.spots["point.x"]).line == 4)
+  end
+  assert(src.tally.derived == 1, tostring(src.tally.derived))
+  local scratch = assert(src.scratch)
+  assert(rows_of(scratch, "places", hash) > 0 and rows_of(scratch, "parsed", hash) == 1)
+  assert(rows_of(assert(src.db), "places", hash) == 0 and rows_of(assert(src.db), "parsed", hash) == 0,
+    "build.db holds no row of an unsaved text")
+  -- A new edit drops the rows of the text before it.
+  local again = "-- moved down again\n\n\n" .. POINT
+  local placed = assert(source.places(src, "lib.point", open_with("lib/point.tl", again)))
+  assert(assert(placed.spots["point.x"]).line == 5 and src.tally.derived == 2, tostring(src.tally.derived))
+  assert(rows_of(scratch, "places", hash) == 0 and rows_of(scratch, "parsed", hash) == 0)
+  assert(rows_of(scratch, "places", Hash.hex_sha256(again)) > 0)
+  source.close(src)
+end
+
+--- Another run holds the write lock of `build.db` for as long as it builds; an edited buffer is still answered, as it
+--- writes nowhere that run holds.
+local function test_an_edited_buffer_is_answered_while_build_db_is_write_locked()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local held = assert(Sqlite.open(assert(src.working), { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local placed = assert(source.places(src, "lib.point", open_with("lib/point.tl", "\n" .. POINT)))
+  assert(assert(placed.spots["point.x"]).line == 3 and src.tally.derived == 1, tostring(src.tally.derived))
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  source.close(src)
+end
+
+--- A closed document lets go of its rows; a save, which stages the text, lets them go and the rows of `build.db` answer.
+local function test_a_closed_or_saved_buffer_lets_go_of_its_scratch_rows()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local edited = "-- moved down\n\n" .. POINT
+  local hash = Hash.hex_sha256(edited)
+  local buffer = open_with("lib/point.tl", edited)
+  assert(source.places(src, "lib.point", buffer) ~= nil)
+  local scratch = assert(src.scratch)
+  assert(rows_of(scratch, "places", hash) > 0)
+  source.release(src, "lib/point.tl")
+  assert(rows_of(scratch, "places", hash) == 0 and rows_of(scratch, "parsed", hash) == 0)
+  -- Derived again, then saved: the file on disk is the buffer, and the stage derives it.
+  assert(source.places(src, "lib.point", buffer) ~= nil and src.tally.derived == 2)
+  assert(rows_of(scratch, "places", hash) > 0)
+  assert(Fs.write(root .. "/lib/point.tl", edited))
+  source.stale(src)
+  source.refresh(src)
+  assert(rows_of(scratch, "places", hash) == 0 and rows_of(scratch, "parsed", hash) == 0,
+    "the refresh drops what the stage now answers")
+  local placed = assert(source.places(src, "lib.point", buffer))
+  assert(assert(placed.spots["point.x"]).line == 4 and src.tally.derived == 2, tostring(src.tally.derived))
+  source.close(src)
+end
+
+--- Two files holding one text share its rows: the first to go leaves them.
+local function test_a_text_two_files_hold_keeps_its_rows_until_both_let_go()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  assert(Fs.write(root .. "/lib/other.tl", POINT .. "-- other\n"))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local edited = "-- moved down\n\n" .. POINT
+  local hash = Hash.hex_sha256(edited)
+  assert(source.places(src, "lib.point", open_with("lib/point.tl", edited)) ~= nil)
+  assert(source.places(src, "lib.other", open_with("lib/other.tl", edited)) ~= nil)
+  assert(src.tally.derived == 1, tostring(src.tally.derived))
+  source.release(src, "lib/point.tl")
+  assert(rows_of(assert(src.scratch), "places", hash) > 0)
+  source.release(src, "lib/other.tl")
+  assert(rows_of(assert(src.scratch), "places", hash) == 0)
+  source.close(src)
+end
+
+--- A buffer being typed does not parse, and the places of what the parser recovered are still found.
+local function test_the_places_of_a_buffer_with_a_syntax_error_are_still_found()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local broken = POINT .. "local x = = 1\n"
+  local placed = assert(source.places(src, "lib.point", open_with("lib/point.tl", broken)), "no places")
+  assert(assert(placed.spots["point.x"], "no places while the buffer has a syntax error").line == 2)
+  assert(rows_of(assert(src.scratch), "parsed", Hash.hex_sha256(broken)) == 0)
+  source.close(src)
+end
+
+--- A file the tree stops listing lets go of its scratch rows at the next refresh.
+local function test_a_file_the_tree_no_longer_lists_lets_go_of_its_scratch_rows()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local edited = "-- moved down\n\n" .. POINT
+  assert(source.places(src, "lib.point", open_with("lib/point.tl", edited)) ~= nil)
+  local scratch = assert(src.scratch)
+  assert(rows_of(scratch, "places", Hash.hex_sha256(edited)) > 0)
+  assert(Fs.remove(root .. "/lib/point.tl"))
+  source.stale(src)
+  source.refresh(src)
+  assert(rows_of(scratch, "places", Hash.hex_sha256(edited)) == 0)
+  source.close(src)
+end
+
+--- A buffer broken and then fixed: the places-only rows of the broken text go, and the fixed text is derived whole.
+local function test_a_broken_buffer_that_is_fixed_is_derived_whole()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local broken = POINT .. "local x = = 1\n"
+  local fixed = "-- fixed\n" .. POINT
+  assert(source.places(src, "lib.point", open_with("lib/point.tl", broken)) ~= nil)
+  local scratch = assert(src.scratch)
+  assert(rows_of(scratch, "places", Hash.hex_sha256(broken)) > 0)
+  local placed = assert(source.places(src, "lib.point", open_with("lib/point.tl", fixed)))
+  assert(assert(placed.spots["point.x"]).line == 3 and src.tally.derived == 2, tostring(src.tally.derived))
+  assert(rows_of(scratch, "parsed", Hash.hex_sha256(fixed)) == 1)
+  assert(rows_of(scratch, "places", Hash.hex_sha256(fixed)) > 0)
+  assert(rows_of(scratch, "places", Hash.hex_sha256(broken)) == 0)
   source.close(src)
 end

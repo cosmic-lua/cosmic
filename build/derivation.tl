@@ -14,7 +14,7 @@ local bind = require("build.bind")
 local record derivation
   record Parses
     mut parsed: integer
-    shared: integer
+    mut shared: integer
   end
   record Source
     source_hash: string

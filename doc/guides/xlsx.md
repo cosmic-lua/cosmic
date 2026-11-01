@@ -69,9 +69,9 @@ whatever its case, as part names match: here the workbook is stored as
 
 A part's relationships sit beside it, in `_rels/<name>.rels`. Each
 names a target relative to the part, which [`Url.resolve`] resolves as a
-link is followed from a page. They are kept here by id, which a sheet
-names, and by the last word of their type, which is how the workbook
-and the shared strings part are found. One that says
+link is followed from a page. They are kept here in two maps: by id,
+which a sheet names, and by the last word of their type, which is how
+the workbook and the shared strings part are found. One that says
 `TargetMode="External"` names a URL outside the package, such as a
 hyperlink's, and is left out. The package's own relationships, at
 `/_rels/.rels`, say where the workbook is.
@@ -83,20 +83,26 @@ local function part(name: string): Xml.Element
   return (assert(Xml.tree(text, { local_names = true })))
 end
 
-local function relationships(name: string): {string: string}
+local record Relationships
+  by_id: {string: string}
+  by_type: {string: string}
+end
+
+local function relationships(name: string): Relationships
   local dir, file = name:match("^(.*/)([^/]*)$")
-  local found: mut {string: string} = {}
+  local by_id: mut {string: string} = {}
+  local by_type: mut {string: string} = {}
   for _, r in ipairs(Xml.children(part(assert(dir) .. "_rels/" .. assert(file) .. ".rels"), "Relationship")) do
     if r.attributes["TargetMode"] ~= "External" then
       local target = Url.resolve(name, assert(r.attributes["Target"]))
-      found[assert(r.attributes["Id"])] = target
-      found[assert(assert(r.attributes["Type"]):match("[^/]*$"))] = target
+      by_id[assert(r.attributes["Id"])] = target
+      by_type[assert(assert(r.attributes["Type"]):match("[^/]*$"))] = target
     end
   end
-  return found
+  return { by_id = by_id, by_type = by_type }
 end
 
-local workbook_path = assert(relationships("/")["officeDocument"])
+local workbook_path = assert(relationships("/").by_type["officeDocument"])
 local rels = relationships(workbook_path)
 ```
 
@@ -123,7 +129,7 @@ local function string_of(si: Xml.Element): string
 end
 
 local strings: mut {string} = {}
-local shared = rels["sharedStrings"]
+local shared = rels.by_type["sharedStrings"]
 if shared ~= nil then
   for _, si in ipairs(Xml.children(part(shared), "si")) do
     local text = string_of(si)
@@ -158,7 +164,7 @@ Excel shows neither as a date.
 
 ```teal continue
 local date_styles: mut {integer: boolean} = {}
-local styles = rels["styles"]
+local styles = rels.by_type["styles"]
 if styles ~= nil then
   local sheet = part(styles)
   local custom: mut {string: boolean} = {}
@@ -243,13 +249,14 @@ break (Alt-Enter puts one in a cell), so the columns stay where they were.
 It ends the record with a line break, which `print` would double, so that
 is taken off. An empty row is left out as an empty cell is, so each
 record starts with the row's number, its `r`, and the rows left out
-between, or holding no cells, are records of their number alone; a row
-without an `r` is the one after the row before it.
+between, or holding no cells, are records of their number alone. A row
+without an `r` is the one after the row before it, and one numbered at
+or before the row before it is refused, since a sheet's rows ascend.
 
 ```teal continue
 for _, sheet in ipairs(Xml.children(assert(Xml.child(workbook, "sheets")), "sheet")) do
   print(sheet.attributes["name"])
-  local path = assert(rels[assert(sheet.attributes["id"])])
+  local path = assert(rels.by_id[assert(sheet.attributes["id"])])
   local body = assert(assert(book:entry(path:sub(2), { ignore_case = true })):open())
   local last = 0
   local p <close> = assert(Xml.parser({ local_names = true }))
@@ -257,6 +264,7 @@ for _, sheet in ipairs(Xml.children(assert(Xml.child(workbook, "sheets")), "shee
   local function show(events: {Xml.Event})
     for _, row in ipairs(rows:take(events)) do
       local number = math.tointeger(row.attributes["r"] or "") or last + 1
+      assert(number > last, "row " .. tostring(number) .. " follows row " .. tostring(last))
       for skipped = last + 1, number - 1 do print(tostring(skipped)) end
       last = number
       local cells: mut {string} = {}

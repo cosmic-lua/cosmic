@@ -211,7 +211,7 @@ local function test_a_no_output_example_compiles_but_is_never_run()
   assert(result ~= nil, "compile failed: " .. tostring(trouble))
   local m = find_module(result, "doc.guides.fixture")
   assert(m ~= nil, "doc.guides.fixture was not among the compiled modules")
-  assert(#m.tests == 0, "expected no tests, got " .. #m.tests)
+  assert(#m.tests == 0, "expected no tests, got " .. tostring(#m.tests))
   assert(m.source:find("local function example_1", 1, true) ~= nil,
     "expected example_1 in the generated source:\n" .. m.source)
   -- `with_test_tail` appends a `return` only when `m.tests` is
@@ -232,7 +232,7 @@ local function test_a_skip_block_compiles_and_defines_nothing()
   assert(result ~= nil, "compile failed: " .. tostring(trouble))
   local m = find_module(result, "doc.guides.fixture")
   assert(m ~= nil, "doc.guides.fixture was not among the compiled modules")
-  assert(#m.tests == 0, "expected no tests, got " .. #m.tests)
+  assert(#m.tests == 0, "expected no tests, got " .. tostring(#m.tests))
   assert(m.source:find("skipped: intended", 1, true) ~= nil,
     "expected the skip's own reason in the generated source:\n" .. m.source)
 end

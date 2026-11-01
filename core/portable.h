@@ -1,10 +1,11 @@
 /*
- * Cosmic portable artifact format, version 1.
+ * Cosmic portable artifact format, version 2.
  *
  * All integers are unsigned and big endian.  The file is:
  *
  *   16 KiB shell header
- *   16 KiB-aligned exact raw core slices, with zero-filled gaps
+ *   16 KiB-aligned exact stored slices (cores and decoder stubs), with
+ *   zero-filled gaps
  *   one 4 KiB manifest block
  *   SQLite database
  *   48-byte trailer
@@ -14,10 +15,23 @@
  *   magic[8], version:u32, encoded_length:u32, prefix_length:u64,
  *   entry_count:u32, entry_length:u32
  *
- * Each 56-byte entry is:
+ * Each 104-byte entry is:
  *
- *   target_id:u32, configuration_id:u32, offset:u64, length:u64,
- *   sha256[32]
+ *   target_id:u32, configuration_id:u32, kind:u32, codec:u32,
+ *   offset:u64, stored_length:u64, stored_sha256[32],
+ *   length:u64, sha256[32]
+ *
+ * `offset`, `stored_length` and `stored_sha256` locate and name the bytes in
+ * the file; `length` and `sha256` name the core those bytes decode to, and
+ * are the core's identity everywhere else (the cache entry, the stamp, the
+ * runtime digest).  A `kind` of COSMIC_PORTABLE_KIND_CORE is a core and
+ * COSMIC_PORTABLE_KIND_STUB the decoder stub of the same target and
+ * configuration; a stub is always raw.  A `codec` of
+ * COSMIC_PORTABLE_CODEC_RAW stores the bytes as they are (stored length and
+ * digest equal length and digest) and COSMIC_PORTABLE_CODEC_ZSTD stores one
+ * zstd frame, which the stub decodes.  The identity of an entry is its
+ * target, configuration and kind, and is unique.  A compressed core needs a
+ * stub entry.
  *
  * Entries occupy the start of the manifest block and the rest is zero.  The
  * fixed manifest block lets program(prefix, database) locate it without
@@ -27,7 +41,7 @@
  *   manifest_offset:u64, manifest_length:u64,
  *   database_offset:u64, database_length:u64
  *
- * A host program is the same pieces with no launcher and one core, the
+ * A host program is the same pieces with no launcher and one raw core, the
  * running host's, at the very start of the file so that the kernel executes
  * it directly:
  *
@@ -52,12 +66,12 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-#define COSMIC_PORTABLE_VERSION 1u
+#define COSMIC_PORTABLE_VERSION 2u
 #define COSMIC_PORTABLE_SHELL_LENGTH UINT64_C(16384)
 #define COSMIC_PORTABLE_CORE_ALIGNMENT UINT64_C(16384)
 #define COSMIC_PORTABLE_MANIFEST_LENGTH UINT64_C(4096)
 #define COSMIC_PORTABLE_MANIFEST_HEADER_LENGTH 32u
-#define COSMIC_PORTABLE_ENTRY_LENGTH 56u
+#define COSMIC_PORTABLE_ENTRY_LENGTH 104u
 #define COSMIC_PORTABLE_TRAILER_LENGTH UINT64_C(48)
 #define COSMIC_PORTABLE_MAX_ENTRIES 8u
 #define COSMIC_PORTABLE_SHA256_LENGTH 32u
@@ -67,10 +81,22 @@
 #define COSMIC_HOST_TRAILER_MAGIC "CosmicH1"
 #define COSMIC_PORTABLE_MAGIC_LENGTH 8u
 
+#define COSMIC_PORTABLE_KIND_CORE 1u
+#define COSMIC_PORTABLE_KIND_STUB 2u
+#define COSMIC_PORTABLE_CODEC_RAW 0u
+#define COSMIC_PORTABLE_CODEC_ZSTD 1u
+
 struct cosmic_portable_entry {
   uint32_t target_id;
   uint32_t configuration_id;
+  uint32_t kind;
+  uint32_t codec;
+  /* Where the stored bytes lie, how long they are and what they hash to. */
   uint64_t offset;
+  uint64_t stored_length;
+  unsigned char stored_sha256[COSMIC_PORTABLE_SHA256_LENGTH];
+  /* The core they decode to: its length and digest, which equal the stored
+   * ones for a raw entry. */
   uint64_t length;
   unsigned char sha256[COSMIC_PORTABLE_SHA256_LENGTH];
 };
@@ -108,9 +134,11 @@ struct cosmic_artifact {
    * names the database it runs against, and `portable.selected` is that
    * core with the digest the database records for it. */
   int split;
-  /* Whether the selected core range's bytes have been hashed against the
-   * manifest: 0 not yet, 1 they match, -1 they differ. A portable start
-   * checks at startup; a host program only when its identity is asked for. */
+  /* Whether the selected core's bytes have been hashed against the
+   * manifest's digest: 0 not yet, 1 they match, -1 they differ. A portable
+   * start checks the cached raw core at startup; a host program hashes its
+   * range only when its identity is asked for; a compressed range is never
+   * hashed against the raw digest. */
   int core_checked;
 };
 

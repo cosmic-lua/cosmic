@@ -2,10 +2,8 @@ local BuildPaths = require("cosmic_ci.build_paths")
 local Capabilities = require("cosmic_ci.capabilities")
 local Clock = require("cosmic.clock")
 local ContextEnv = require("cosmic_ci.context")
--- TODO: read the COSMIC_CI_* variables through Env.read once
--- build/ci_tree_test.tl also lets cosmic/env.tl name them (it keeps the
--- variables a suite forgets out of the tree's sources), which join
--- Env.Name then.
+-- TODO: read the COSMIC_CI_* variables through Env.read once build/ci_tree_test.tl also lets cosmic/env.tl name them (it keeps
+-- the variables a suite forgets out of the tree's sources); they join Env.Name then.
 local Env = require("cosmic.env")
 local Fixture = require("cosmic_ci.fixture")
 local Fs = require("cosmic.fs")
@@ -589,6 +587,7 @@ local format_test_timeout_ns <const> = Clock.seconds(300)
 -- each bound is several times that.
 local launcher_test_timeout_ns <const> = Clock.seconds(60)
 local launcher_noexec_test_timeout_ns <const> = Clock.seconds(60)
+local launcher_packed_test_timeout_ns <const> = Clock.seconds(90)
 local self_rebuild_test_timeout_ns <const> = Clock.seconds(600)
 -- A self-rebuild test rebuilds the tool: the docs verb's from a cold
 -- compile of the whole tree, 140 to 180 s on four cores (the tree has
@@ -874,7 +873,8 @@ end
 --- `launcher_noexec` declares private noexec scratch and runs on Linux
 --- only; the ordinary launcher fixture still runs on every platform.
 local SANDBOXED_FIXTURES <const>: {string:boolean} = {
-  product = true, runtime = true, launcher = true, launcher_noexec = true, identity = true, performance = true,
+  product = true, runtime = true, launcher = true, launcher_packed = true, launcher_noexec = true,
+  identity = true, performance = true,
 }
 
 function Orchestration.sandboxed_fixtures(): {string:boolean}
@@ -1918,6 +1918,10 @@ local function phase_assemble(p: PlatformContext): integer
     { root .. "/bin/verify-codesign",
       BuildPaths.directory(root) .. "/core/aarch64-macos/cosmic-core" })
   if s ~= 0 then return s end
+  s = checked(c, "stub codesign verification",
+    { root .. "/bin/verify-codesign",
+      BuildPaths.directory(root) .. "/core/aarch64-macos/cosmic-unzstd" })
+  if s ~= 0 then return s end
   assert(ProductSetup.build(root, product, work .. "/product-setup") == product,
     "product setup returned the wrong product")
   write(work .. "/cosmic.before.sha256", hash(product .. "/cosmic") .. "\n")
@@ -1927,6 +1931,15 @@ local function phase_assemble(p: PlatformContext): integer
       COSMIC_FIXTURE_ROOT = root,
       COSMIC_FIXTURE_BUILD = BuildPaths.directory(root),
       COSMIC_FIXTURE_FORMAT = contract .. "/format",
+      COSMIC_FIXTURE_TARGET = target,
+    })
+  if s ~= 0 then return s end
+  -- The zstd decode stub of this leg's target, run on the leg's own host
+  -- (on macOS, the kernel then checks its signature as well).
+  s = fixture_test(c, work, "unzstd-stub", "unzstd",
+    format_test_timeout_ns, {
+      COSMIC_FIXTURE_ROOT = root,
+      COSMIC_FIXTURE_BUILD = BuildPaths.directory(root),
       COSMIC_FIXTURE_TARGET = target,
     })
   if s ~= 0 then return s end
@@ -2316,6 +2329,10 @@ local function phase_fixtures(p: PlatformContext): integer
       { kind = "runtime", from = runtime } } })
   add({ name = "launcher-regression", source = "launcher",
     timeout_ns = launcher_test_timeout_ns,
+    extra = { COSMIC_FIXTURE_TARGET = target },
+    placements = launcher_placements })
+  add({ name = "launcher-packed-regression", source = "launcher_packed",
+    timeout_ns = launcher_packed_test_timeout_ns,
     extra = { COSMIC_FIXTURE_TARGET = target },
     placements = launcher_placements })
   if Orchestration.noexec_fixture(target) then

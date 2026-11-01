@@ -11,6 +11,8 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local artifact = require("build.artifact")
@@ -382,9 +384,13 @@ local function test_a_host_program_names_no_identity_it_cannot_prove(tmp: string
   local out = build_dir(tmp) .. "/bin/who"
   local bytes = assert(Fs.read(out))
   local core = assert(artifact.trusted_core())
+  -- A raw entry names the digest twice, as stored and as the core's.
   local at = bytes:find(core.digest, #core.bytes + 1, true)
   assert(at ~= nil, "the manifest names the core's digest")
-  local lied = bytes:sub(1, at - 1) .. string.rep("\0", 32) .. bytes:sub(at + 32)
+  local again = bytes:find(core.digest, at + 32, true)
+  assert(again ~= nil, "and again as the core's own")
+  local lied = bytes:sub(1, at - 1) .. string.rep("\0", 32) .. bytes:sub(at + 32, again - 1) ..
+    string.rep("\0", 32) .. bytes:sub(again + 32)
   assert(Fs.write(out, lied, 0x1ed))
   local r = run_program(out)
   assert(r.ok, tostring(r.stderr))
@@ -663,4 +669,18 @@ local function test_build_refuses_roots_it_does_not_know(tmp: string)
     env = { COSMIC_BUILD_CACHE = "0" } })
   assert(built.code == 2 and built.stderr:find("--roots takes minimal or mozilla", 1, true) ~= nil,
     built.stdout .. built.stderr)
+end
+
+--- The running core's bytes for a host program, from a portable start whose
+--- artifact holds only its compressed frame: the cached raw core the start
+--- runs from, checked against the manifest's digest.
+local function test_trusted_core_is_the_cached_raw_core_of_a_compressed_start()
+  local relaunch = Proc.relaunch()
+  if relaunch == nil then
+    Test.skip("a native start has no cached core to read")
+    return
+  end
+  local core = assert(artifact.trusted_core())
+  assert(Hash.sha256(core.bytes) == core.digest, "the bytes are the ones the digest names")
+  assert(core.bytes == assert(Fs.read(assert(relaunch.argv[1]))), "and the core this start runs")
 end
