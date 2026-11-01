@@ -2,7 +2,7 @@
 --- modules that reach what it changed, and they are the keys a build that
 --- kept nothing makes ([`plans.full_keys`]), whatever the edit:
 --- a body or a comment, what a module requires (in a cycle too), a
---- declaration that joins or leaves a module, the file a module is in, a
+--- module that becomes a declaration or a source, the file a module is in, a
 --- module added, removed or renamed, the compiler.
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
@@ -31,8 +31,8 @@ end
 --- The source of module `index`: a require of each module whose bit `edges`
 --- holds (any other, those after it too, so that the requires make cycles, and
 --- itself), of the standard library's where the last bit is, and a comment
---- `salt` names, which an edit that moves no edge changes.
-local function source_of(index: integer, edges: integer, salt: integer): string
+--- `salt` names, which an edit that moves no edge changes. A `declared` module is a declaration.
+local function source_of(index: integer, edges: integer, salt: integer, declared: boolean): string
   local text = ""
   for other = 1, library - 1 do
     if (edges >> (other - 1)) & 1 == 1 then
@@ -43,8 +43,9 @@ local function source_of(index: integer, edges: integer, salt: integer): string
     text = text .. "local fs = require(\"cosmic.fs\")\n"
   end
   local name = "m" .. tostring(index)
+  local returned = if declared then name else "{} as " .. name end
   return text .. "local record " .. name .. "\n  value: integer\nend\n-- " .. tostring(salt) ..
-    "\nreturn {} as " .. name .. "\n"
+    "\nreturn " .. returned .. "\n"
 end
 
 --- The keys of the tree at `root` as `dependency_keys` makes them, and as
@@ -70,8 +71,8 @@ local function differing(root: string, tool: string): string
 end
 
 --- What the walk keeps of module `m<index>`: its edges and comment, whether it
---- stands, whether a declaration stands beside it and whether it is in a
---- directory of its own. An edit makes another ([`like`]).
+--- stands, whether it is a declaration (a `.d.tl`, with no source) and whether
+--- it is in a directory of its own. An edit makes another ([`like`]).
 local record Node
   edges: integer
   salt: integer
@@ -125,15 +126,16 @@ local function walk(seed: integer, steps: integer)
   end
   local function path_of(index: integer): string
     local name = "m" .. tostring(index)
-    if node_at(index).nested then return root .. "/" .. name .. "/init.tl" end
-    return root .. "/" .. name .. ".tl"
+    local extension = if node_at(index).declared then ".d.tl" else ".tl" end
+    if node_at(index).nested then return root .. "/" .. name .. "/init" .. extension end
+    return root .. "/" .. name .. extension
   end
   --- Writes the module's source, with a comment of its own.
   local function write(index: integer)
     local node = node_at(index)
     assert(Fs.mkdirs(root .. "/m" .. tostring(index)))
     store(index, like(node, { salt = node.salt + 1 }))
-    assert(Fs.write(path_of(index), source_of(index, node.edges, node.salt + 1)))
+    assert(Fs.write(path_of(index), source_of(index, node.edges, node.salt + 1, node.declared)))
   end
   for index = 1, count do
     if node_at(index).present then write(index) end
@@ -168,13 +170,14 @@ local function walk(seed: integer, steps: integer)
       assert(Fs.write(path_of(index), text))
     elseif edit == 6 then
       what = "a declaration of " .. name
-      local file = root .. "/" .. name .. ".d.tl"
-      if node.declared then
-        assert(Fs.remove(file))
-      else
-        assert(Fs.write(file, "local record " .. name .. "\n  value: integer\nend\nreturn " .. name .. "\n"))
+      -- The module is written again as the other kind: a module has one type source.
+      if node.present then
+        assert(Fs.remove(path_of(index)))
       end
       store(index, like(node, { declared = not node.declared }))
+      if node.present then
+        write(index)
+      end
     elseif edit == 7 then
       -- Added, or removed, leaving what requires it with a name that is none.
       if node.present then
@@ -237,8 +240,8 @@ end
 --- Keys kept for one compiler are not another's.
 local function test_the_keys_kept_for_one_compiler_are_not_served_for_another()
   local root = assert(Fs.mkdtemp("cosmic-dependency-keys-tool-"))
-  assert(Fs.write(root .. "/m1.tl", source_of(1, 0, 1)))
-  assert(Fs.write(root .. "/m2.tl", source_of(2, 1, 1)))
+  assert(Fs.write(root .. "/m1.tl", source_of(1, 0, 1, false)))
+  assert(Fs.write(root .. "/m2.tl", source_of(2, 1, 1, false)))
   local function key_of(tool: string): string
     local handle = assert(work.open(root))
     assert(work.stage(handle, { own = false }))

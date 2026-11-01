@@ -664,44 +664,21 @@ local function test_bytecode_is_deflated_once_per_compile_and_core(tmp: string)
   assert(fresh:close())
 end
 
---- A paired declaration describes the interface; only its implementation
---- contributes executable rows and runtime dependencies.
-local function test_paired_declaration_projects_each_source_in_its_role(tmp: string)
+--- A declaration has no code to run, so its documentation and the links in it are rows of the declaration's file.
+local function test_a_declarations_docs_and_links_are_attributed_to_its_file(tmp: string)
   local db = fixture.database(tmp, {
-    ["decl_dep.tl"] = "local record Dep\n  declared: integer\nend\nreturn Dep\n",
-    ["impl_dep.tl"] = "local record Dep\n  executed: integer\nend\nreturn Dep\n",
-    ["foo.d.tl"] = 'local Dep = require("decl_dep")\n' ..
-      "--- Public interface.\n--- See [`Dep.declared`].\nlocal record Foo\n  answer: integer\n" ..
-      "  fail: function(): nil, string\nend\nreturn Foo\n",
-    ["foo.tl"] = 'local Dep = require("impl_dep")\n' ..
-      "--- Private implementation.\n--- See [`Dep.executed`].\nlocal record Foo\n  answer: integer\nend\n" ..
-      'local x = Dep.executed\nfunction Foo.fail(): nil, string\n' ..
-      '  return nil, "implementation error"\nend\nlocal value: Foo = { answer = 42 }\nreturn value\n',
-    ["only.d.tl"] = "--- Declaration alone.\nlocal record Only\nend\nreturn Only\n",
+    ["dep.tl"] = "local record Dep\n  declared: integer\nend\nreturn Dep\n",
+    ["foo.d.tl"] = 'local Dep = require("dep")\n' ..
+      "--- Public interface.\n--- See [`Dep.declared`].\nlocal record Foo\n  answer: integer\nend\nreturn Foo\n",
   })
-  local function rows(sql: string): Sqlite.Rows
-    return (assert(Sqlite.text_rows(db, sql)))
-  end
-  local module = rows("SELECT file, kind, inflate(source) FROM modules WHERE path = 'foo'")
-  assert(#module == 1 and module[1]:text(1) == "foo.tl" and nth(module, 1):text(2) ~= "decl")
-  assert(nth(module, 1):text(3):find("answer = 42", 1, true), nth(module, 1):text(3))
-  assert(nth(rows("SELECT count(*) FROM decls WHERE path IN ('foo', 'only')"), 1):text(1) == "2")
-  assert(nth(rows("SELECT count(*) FROM modules WHERE path = 'only'"), 1):text(1) == "0")
-  local imports = rows("SELECT requires FROM imports WHERE path = 'foo'")
-  assert(#imports == 1 and imports[1]:text(1) == "impl_dep")
-  local bound = rows("SELECT requires FROM bound WHERE path = 'foo' AND name = 'Dep'")
-  assert(#bound == 1 and bound[1]:text(1) == "decl_dep")
-  local docs = rows("SELECT file, text FROM docs WHERE module = 'foo' AND symbol = 'Foo'")
+  local docs = assert(Sqlite.text_rows(db, "SELECT file, text FROM docs WHERE module = 'foo' AND symbol = 'Foo'"))
   assert(#docs == 1 and docs[1]:text(1) == "foo.d.tl" and nth(docs, 1):text(2):find("Public interface.", 1, true) ~= nil)
-  local uses = rows("SELECT module, symbol, from_file FROM uses WHERE from_module = 'foo'")
-  assert(#uses == 1 and uses[1]:text(1) == "impl_dep" and nth(uses, 1):text(2) == "executed" and
-      nth(uses, 1):text(3) == "foo.tl")
-  local catalog = rows("SELECT message, file FROM catalog WHERE module = 'foo'")
-  assert(#catalog == 1 and catalog[1]:text(1) == "implementation error" and nth(catalog, 1):text(2) == "foo.tl")
-  local links = rows("SELECT module, symbol, from_file FROM links WHERE from_module = 'foo'")
-  assert(#links == 1 and links[1]:text(1) == "decl_dep" and nth(links, 1):text(2) == "declared" and
+  local links = assert(Sqlite.text_rows(db,
+    "SELECT module, symbol, from_file FROM links WHERE from_module = 'foo'"))
+  assert(#links == 1 and links[1]:text(1) == "dep" and nth(links, 1):text(2) == "declared" and
       nth(links, 1):text(3) == "foo.d.tl")
-  assert(nth(rows("SELECT count(*) FROM docs WHERE module = 'only'"), 1):text(1) ~= "0")
+  assert(nth(assert(Sqlite.text_rows(db, "SELECT count(*) FROM modules WHERE path = 'foo'")), 1):text(1) == "0",
+    "a declaration is no module to run")
   assert(db:close())
 end
 
@@ -713,7 +690,6 @@ local function test_an_edge_to_a_declaration_is_kept_beside_the_runtime_edges(tm
     ["only.d.tl"] = "local record Only\n  n: integer\nend\nreturn Only\n",
     ["dep.tl"] = "local record Dep\nend\nreturn Dep\n",
     ["paired.d.tl"] = 'local type Dep = require("dep")\nlocal record Paired\n  dep: Dep\nend\nreturn Paired\n',
-    ["paired.tl"] = "local record Paired\nend\nreturn Paired\n",
     ["foo.tl"] = 'local type Only = require("only")\nlocal Dep = require("dep")\n' ..
       "local record Foo\n  only: Only\nend\nreturn Foo\n",
   })
@@ -729,7 +705,7 @@ local function test_an_edge_to_a_declaration_is_kept_beside_the_runtime_edges(tm
   assert(names("decl_imports") == "dep,only", names("decl_imports"))
   local paired = assert(Sqlite.text_rows(db,
     "SELECT requires FROM decl_imports WHERE path = 'paired' AND requires <> ''"))
-  assert(#paired == 1 and paired[1]:text(1) == "dep", "a pair keeps its declaration's edges")
+  assert(#paired == 1 and paired[1]:text(1) == "dep", "a declaration keeps its edges")
   local leaf = assert(Sqlite.text_rows(db,
     "SELECT requires FROM decl_imports WHERE path = 'dep'"))
   assert(#leaf == 1 and leaf[1]:text(1) == "", "a module with no edge has the empty row")
@@ -846,6 +822,86 @@ local function test_an_edit_to_cosmic_mime_moves_the_signature(tmp: string)
   assert(work.close(handle))
   assert(after ~= nil, trouble)
   assert(after ~= before, "cosmic.mime must be part of the signature")
+end
+
+--- Writes the projection of the tree `handle` holds to `out`.
+local function write_again(handle: work.Handle, out: string)
+  assert(work.stage(handle, { own = false }))
+  local result = assert(importer.compile(handle, "writer-test"))
+  assert(writer.write_result(handle, out, result))
+end
+
+--- The text of the first column of the one row `sql` answers from `db`.
+local function scalar(db: Sqlite.Handle, sql: string): string
+  return nth(assert(Sqlite.text_rows(db, sql)), 1):text(1)
+end
+
+--- The `column` a projection at `out` ships for `path`.
+local function shipped_column(out: string, column: string, path: string): string
+  local db = assert(Sqlite.open(out))
+  local packed = scalar(db, "SELECT " .. column .. " FROM payload WHERE path = '" .. path .. "'")
+  assert(db:close())
+  return packed
+end
+
+--- The gzip a projection at `out` ships for `path`.
+local function shipped_gzip(out: string, path: string): string
+  return shipped_column(out, "gzip", path)
+end
+
+--- A write compresses the static files it has not compressed before, and
+--- only those: the pair is kept by the file's path and bytes, the mime
+--- rules and the core. Reuse is told by marking the kept gzip: a file served
+--- from the cache ships the mark, one compressed afresh ships real gzip. An
+--- edited file is compressed again alone, a change to the rules compresses
+--- all, and what no file uses is dropped. The projection is the bytes an
+--- uncached write gives.
+local function test_static_files_are_compressed_once_per_content(tmp: string)
+  write_project(tmp .. "/p", "world")
+  write_static(tmp .. "/p", ("a { color: red }\n"):rep(200))
+  assert(Fs.write(tmp .. "/p/static/other.css", ("b { color: blue }\n"):rep(200)))
+  local handle = assert(work.open(tmp .. "/p"))
+
+  write_again(handle, tmp .. "/cold.db")
+  assert(scalar(handle.db, "SELECT count(*) FROM compressed") == "5", "a cold write keeps every file")
+  assert(scalar(handle.db, "SELECT count(*) FROM compressed WHERE gzip IS NULL AND zstd IS NULL") == "3",
+    "a file not worth compressing is kept as NULLs")
+
+  assert(handle.db:exec("UPDATE compressed SET gzip = x'6d61726b', zstd = x'7a6d61726b' WHERE gzip IS NOT NULL"))
+  write_again(handle, tmp .. "/warm.db")
+  assert(shipped_gzip(tmp .. "/warm.db", "css/app.css") == "mark", "a warm write compressed again")
+  assert(shipped_gzip(tmp .. "/warm.db", "other.css") == "mark", "a warm write compressed again")
+  assert(shipped_column(tmp .. "/warm.db", "zstd", "css/app.css") == "zmark", "a warm write zstd-compressed again")
+  assert(shipped_column(tmp .. "/warm.db", "zstd", "other.css") == "zmark", "a warm write zstd-compressed again")
+
+  assert(Fs.write(tmp .. "/p/static/other.css", ("c { color: green }\n"):rep(200)))
+  write_again(handle, tmp .. "/edit.db")
+  assert(shipped_gzip(tmp .. "/edit.db", "css/app.css") == "mark", "an edit compressed an unchanged file")
+  assert(shipped_gzip(tmp .. "/edit.db", "other.css") ~= "mark", "an edited file came from the cache")
+  assert(scalar(handle.db, "SELECT count(*) FROM compressed") == "5", "the edited file's old row stayed")
+
+  assert(handle.db:exec("UPDATE compressed SET rules = 'older rules', gzip = x'6d61726b' WHERE gzip IS NOT NULL"))
+  write_again(handle, tmp .. "/rules.db")
+  assert(shipped_gzip(tmp .. "/rules.db", "css/app.css") ~= "mark", "rows of other rules were served")
+  assert(scalar(handle.db, "SELECT count(*) FROM compressed WHERE rules = 'older rules'") == "0",
+    "the old rules' rows stayed")
+
+  assert(handle.db:exec("UPDATE compressed SET core = 'another core', gzip = x'6d61726b' WHERE gzip IS NOT NULL"))
+  write_again(handle, tmp .. "/core.db")
+  assert(shipped_gzip(tmp .. "/core.db", "css/app.css") ~= "mark", "another core's rows were served")
+  assert(scalar(handle.db, "SELECT count(*) FROM compressed WHERE core = 'another core'") == "0",
+    "another core's rows stayed")
+
+  assert(Fs.remove(tmp .. "/p/static/other.css"))
+  write_again(handle, tmp .. "/gone.db")
+  assert(scalar(handle.db, "SELECT count(*) FROM compressed WHERE path = 'other.css'") == "0",
+    "a row no file uses was kept")
+  assert(work.close(handle))
+
+  local fresh = assert(work.open(tmp .. "/p"))
+  write_again(fresh, tmp .. "/fresh.db")
+  assert(work.close(fresh))
+  assert(Fs.read(tmp .. "/gone.db") == Fs.read(tmp .. "/fresh.db"), "a cached write differs from an uncached one")
 end
 
 --- A tree with no `static/` has an empty payload.

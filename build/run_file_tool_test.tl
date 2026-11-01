@@ -35,33 +35,21 @@ local function run_in(root: string, file: string): Child.Result
   return (assert(Child.run(started.argv, started.options)))
 end
 
---- A declaration/implementation pair builds cold and warm. A runtime edit
---- changes the code that runs; a declaration edit changes what callers check.
-local function test_a_paired_declaration_runs_its_implementation(tmp: string)
+--- A declaration beside its source stops a file run, naming both files; the run goes on once the declaration is deleted.
+local function test_a_declaration_beside_its_source_stops_a_file_run(tmp: string)
   local root = tmp .. "/paired"
   assert(Fs.mkdirs(root))
-  assert(Fs.write(root .. "/foo.d.tl",
-    "local record Foo\n  answer: integer\nend\nreturn Foo\n"))
-  local function implementation(answer: integer): string
-    return "local record Foo\n  answer: integer\nend\nlocal foo: Foo = { answer = " .. tostring(answer) .. " }\nreturn foo\n"
-  end
-  assert(Fs.write(root .. "/foo.tl", implementation(42)))
+  assert(Fs.write(root .. "/foo.d.tl", "local record Foo\n  answer: integer\nend\nreturn Foo\n"))
+  assert(Fs.write(root .. "/foo.tl",
+    "local record Foo\n  answer: integer\nend\nlocal foo: Foo = { answer = 42 }\nreturn foo\n"))
   assert(Fs.write(root .. "/main.tl", 'local Foo = require("foo")\nprint(Foo.answer)\n'))
-  local function run(): Child.Result
-    return run_in(root, "main.tl")
-  end
-  for _ = 1, 2 do
-    local result = run()
-    assert(result.code == 0 and result.stdout == "42\n", (result.stdout or "") .. (result.stderr or ""))
-  end
-  assert(Fs.write(root .. "/foo.tl", implementation(43)))
-  local edited = run()
-  assert(edited.code == 0 and edited.stdout == "43\n", (edited.stdout or "") .. (edited.stderr or ""))
-  assert(Fs.write(root .. "/foo.d.tl",
-    "local record Foo\n  renamed: integer\nend\nreturn Foo\n"))
-  local refused = run()
-  assert(refused.code ~= 0 and (refused.stderr or ""):find("answer", 1, true) ~= nil,
-    (refused.stdout or "") .. (refused.stderr or ""))
+  local refused = run_in(root, "main.tl")
+  assert(refused.code ~= 0 and refused.stdout == "", (refused.stdout or "") .. (refused.stderr or ""))
+  assert((refused.stderr or ""):find("foo.d.tl: foo.tl is also the module foo, and a module has one type source", 1, true) ~=
+      nil, refused.stderr)
+  assert(Fs.remove(root .. "/foo.d.tl"))
+  local result = run_in(root, "main.tl")
+  assert(result.code == 0 and result.stdout == "42\n", (result.stdout or "") .. (result.stderr or ""))
 end
 
 --- A tree of `files`, by name, under `tmp`.
@@ -123,14 +111,13 @@ local function test_a_broken_required_file_still_stops_a_file_run(tmp: string)
   end
 end
 
---- What a declaration requires is reached as what its implementation
---- requires is: a caller is checked against it, so a broken module only
---- the declaration requires stops the run.
+--- What a declaration requires is reached as what a source requires is: a
+--- caller is checked against it, so a broken module only the declaration
+--- requires stops the run.
 local function test_a_broken_file_a_declaration_requires_stops_a_file_run(tmp: string)
   local root = tree_of(tmp, "declared", {
     ["good.tl"] = 'local foo = require("foo")\nprint(foo.answer)\n',
     ["foo.d.tl"] = 'local types = require("types")\nlocal record Foo\n  answer: types.N\nend\nreturn Foo\n',
-    ["foo.tl"] = 'local record Foo\n  answer: integer\nend\nlocal foo: Foo = { answer = 42 }\nreturn foo\n',
     ["types.tl"] = 'local record types\n  type N = integer\nend\nlocal n: integer = "s"\nprint(n)\nreturn types\n',
   })
   local result = run_in(root, "good.tl")

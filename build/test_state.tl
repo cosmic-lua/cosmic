@@ -138,6 +138,9 @@ local record test_state
     --- What each test that passed deliberately without checking
     --- ([`Test.passed_unchecked`]) said, one entry per test.
     deliberate: mut {string}
+    --- What each property a test ran stopped drawing for, said on a line of
+    --- its worker's output ([`test_report.stopped_prefix`]), one entry per line.
+    stopped: mut {string}
     --- Whether the run is held ([`Run.held`]).
     held: boolean
     --- Each not applicable test's id and why, in the same shape.

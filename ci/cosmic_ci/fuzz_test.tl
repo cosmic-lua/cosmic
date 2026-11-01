@@ -167,10 +167,62 @@ end
 
 local function test_cancelled_summary_shows_the_end_of_the_output()
   local head = "\nCancelled, at the time limit or by hand, before fuzzing" ..
-    " finished: a property\nthat hangs is the likeliest cause. The end of" ..
-    " its output:\n\n~~~~\n"
-  assert(Fuzz.cancelled_summary(nil) == head .. "~~~~\n")
-  assert(Fuzz.cancelled_summary({ "a", "", "b" }) == head .. "a\n\nb\n~~~~\n")
+    " finished: a property\nthat hangs is the likeliest cause.\n"
+  local end_of = "\nThe end of its output:\n\n~~~~\n"
+  assert(Fuzz.cancelled_summary(nil) == head .. end_of .. "~~~~\n")
+  assert(Fuzz.cancelled_summary({ "a", "", "b" }) == head .. end_of .. "a\n\nb\n~~~~\n")
+end
+
+--- The progress line a run says once ten tests have failed or run long.
+local progress_line <const> = "test: running 185/225 tests, 51 min 14 s; 2 failed so far; longest running: " ..
+  "lang/a_fuzz_test.tl:test_slow 48 min 2 s, core/b_fuzz_test.tl:test_other 3 min 1 s"
+
+local function test_scan_keeps_the_last_progress_line_and_every_slow_test()
+  local output = "build: 1 modules\n" ..
+    "test: running 1/225 tests, 10 s\n" ..
+    "test: slow: lang/c_fuzz_test.tl:test_c took 6 min 2 s\n" ..
+    "test: running 184/225 tests, 38 min 13 s\n" ..
+    "test: slow: lang/d_fuzz_test.tl:test_d took 21 min 0 s\n" ..
+    "test: runningfoo 3/4 tests, 1 s\n" ..
+    progress_line .. "\nsome report"
+  local scanned = Fuzz.scan(pieces(output, 7))
+  assert(scanned.progress == progress_line, tostring(scanned.progress))
+  assert(#scanned.slow == 2 and scanned.slow[1] == "slow: lang/c_fuzz_test.tl:test_c took 6 min 2 s" and
+      scanned.slow[2] == "slow: lang/d_fuzz_test.tl:test_d took 21 min 0 s", table.concat(scanned.slow, "|"))
+  local none = Fuzz.scan(pieces("test: PASS\n", 65536))
+  assert(none.progress == nil and #none.slow == 0)
+end
+
+local function test_scan_and_the_summary_keep_the_properties_a_run_stopped_early()
+  local line = "test: fuzz: 2 properties stopped by FUZZ_SECONDS: a drew 70 of 10000 inputs, b drew 64 of 10000 inputs"
+  local scanned = Fuzz.scan(pieces("test: PASS\n" .. line .. "\n", 5))
+  assert(scanned.stopped == line, tostring(scanned.stopped))
+  local text = Fuzz.slow_summary(scanned)
+  assert(text:find("~~~~\n" .. line .. "\n~~~~\n", 1, true), text)
+  assert(Fuzz.slow_summary(Fuzz.scan(pieces("test: PASS\n", 5))) == "")
+end
+
+local function test_scan_reads_a_progress_line_that_names_long_tests_whole()
+  local long = "test: running 9/225 tests, 40 s; longest running: " .. ("x"):rep(600)
+  local scanned = Fuzz.scan(pieces(long .. "\n", 65536))
+  assert(scanned.progress == long, "a progress line was cut at " .. tostring(#(scanned.progress or "")))
+end
+
+local function test_scan_bounds_the_slow_tests_it_keeps()
+  local lines: mut {string} = {}
+  for i = 1, 100 do lines[i] = "test: slow: t" .. tostring(i) .. " took 6 min 0 s" end
+  local scanned = Fuzz.scan(pieces(table.concat(lines, "\n") .. "\n", 65536))
+  assert(#scanned.slow == 60 and scanned.slow[60] == "slow: t60 took 6 min 0 s")
+end
+
+local function test_cancelled_summary_names_the_tests_still_running()
+  local scanned: Fuzz.Scanned = { progress = progress_line, slow = { "slow: lang/c_fuzz_test.tl:test_c took 6 min 2 s" } }
+  local text = Fuzz.cancelled_summary({ "last" }, scanned)
+  assert(text:find("the longest first:\n\n~~~~\n" .. progress_line .. "\n~~~~\n", 1, true), text)
+  assert(text:find("~~~~\nslow: lang/c_fuzz_test.tl:test_c took 6 min 2 s\n~~~~\n", 1, true), text)
+  assert(text:sub(-#"\nThe end of its output:\n\n~~~~\nlast\n~~~~\n") == "\nThe end of its output:\n\n~~~~\nlast\n~~~~\n", text)
+  -- No progress line, no slow test: the text of a run that said neither.
+  assert(not Fuzz.cancelled_summary({ "x" }, { slow = {} }):find("longest first", 1, true))
 end
 
 --- A checkout whose checked core is a script standing in for it: it
@@ -184,7 +236,7 @@ local function fake_checkout(root: string, exit: string, body?: {string})
   write(root .. "/o/sanitized/bin/cosmic", table.concat(body or {
     "#!/bin/sh",
     "echo \"args: $*\"",
-    "echo \"env: $FUZZ_SEED $FUZZ_ITERS $COSMIC_AUTO_BOOT $COSMIC_TEST_TIMEOUT $TMPDIR\"",
+    "echo \"env: $FUZZ_SEED $FUZZ_ITERS $COSMIC_AUTO_BOOT $COSMIC_TEST_TIMEOUT $TMPDIR $FUZZ_SECONDS\"",
     "echo \"cwd: $(pwd)\"",
     "echo 'build: PASS'",
     "echo 'test: FAIL ./build/a_fuzz_test.tl' >&2",
@@ -209,7 +261,7 @@ local function test_execute_runs_the_checked_core_on_every_property(tmp: string)
   assert(out == read(tmp .. "/log"), "the log differs from the kept output")
   assert(out:find("args: test --all ./build/a_fuzz_test.tl" ..
       " ./build/fuzz/b_fuzz_test.tl\n", 1, true), out)
-  assert(out:find("env: 9 5 0 1200 " .. temp .. "/fuzz\n", 1, true), out)
+  assert(out:find("env: 9 5 0 1200 " .. temp .. "/fuzz 120\n", 1, true), out)
   assert(out:find("cwd: " .. assert(Fs.absolute(root)) .. "\n", 1, true), out)
   local exists = Predicate.is_dir(temp .. "/fuzz")
   assert(exists, "the scratch directory was not made")
@@ -217,6 +269,18 @@ local function test_execute_runs_the_checked_core_on_every_property(tmp: string)
   assert(#summary == 2 and summary[1] == Fuzz.header("9", "5") and
       summary[2] == Fuzz.failure(pieces(out, 65536), "9"), table.concat(summary))
   assert(assert(summary[2]):find("~~~~\ntest: FAIL ./build/a_fuzz_test.tl\n\n", 1, true))
+end
+
+local function test_execute_leaves_the_seconds_a_job_names_alone(tmp: string)
+  local root, temp = tmp .. "/checkout", tmp .. "/runner-temp"
+  fake_checkout(root, "0")
+  assert(Fs.mkdirs(temp))
+  local log_fd = assert(Fs.open_write(tmp .. "/log"))
+  local status = Fuzz.execute({ root = root, temp = temp, env = { FUZZ_SECONDS = "7" }, log = log_fd,
+    summarize = function(_text: string) end })
+  assert(Fs.close(log_fd))
+  assert(status == 0)
+  assert(read(temp .. "/fuzz.out"):find(temp .. "/fuzz 7\n", 1, true), read(temp .. "/fuzz.out"))
 end
 
 local function test_execute_passes_and_says_so_briefly(tmp: string)
@@ -231,6 +295,26 @@ local function test_execute_passes_and_says_so_briefly(tmp: string)
   assert(Fs.close(log_fd))
   assert(status == 0 and read(temp .. "/fuzz.status") == "0\n")
   assert(#summary == 1 and summary[1] == Fuzz.header("", ""))
+end
+
+local function test_execute_lists_the_tests_that_ran_long_whatever_the_status(tmp: string)
+  for _, exit in ipairs({ "0", "3" }) do
+    local root, temp = tmp .. "/checkout" .. exit, tmp .. "/runner-temp" .. exit
+    fake_checkout(root, exit, { "#!/bin/sh",
+      "echo 'test: slow: lang/a_fuzz_test.tl:test_a took 7 min 1 s'",
+      "echo 'test: FAIL b'",
+      "exit " .. exit })
+    assert(Fs.mkdirs(temp))
+    local log_fd = assert(Fs.open_write(tmp .. "/log" .. exit))
+    local summary: mut {string} = {}
+    local status = Fuzz.execute({ root = root, temp = temp, env = {}, log = log_fd,
+      summarize = function(text: string) summary[#summary + 1] = text end })
+    assert(Fs.close(log_fd))
+    assert(tostring(status) == exit)
+    local slow = assert(summary[2], "no slow tests listed: " .. table.concat(summary))
+    assert(slow:find("~~~~\nslow: lang/a_fuzz_test.tl:test_a took 7 min 1 s\n~~~~\n", 1, true), slow)
+    assert((#summary == 3) == (exit == "3"), tostring(#summary))
+  end
 end
 
 local function test_execute_reports_a_core_that_cannot_start(tmp: string)
@@ -288,8 +372,11 @@ local function test_driver_commands_read_the_environment(tmp: string)
   local cancelled = assert(Child.run({ executable, script, "fuzz-cancelled" },
     { cwd = project, env = env, stdout = "capture", stderr = "capture" }))
   assert(cancelled.ok, (cancelled.stdout or "") .. (cancelled.stderr or ""))
-  assert(read(summary) == text ..
-      Fuzz.cancelled_summary(Fuzz.tail(temp .. "/fuzz.out")))
+  local said = Fuzz.cancelled_summary(Fuzz.tail(temp .. "/fuzz.out"), Fuzz.scan(pieces(read(temp .. "/fuzz.out"), 65536)))
+  assert(read(summary) == text .. said)
+  -- The summary is a page of its own, which nobody opens from the log: the
+  -- log says the same.
+  assert(cancelled.stdout == said, cancelled.stdout)
   assert(Fs.remove(temp .. "/fuzz.out"))
   assert(assert(Child.run({ executable, script, "fuzz-cancelled" },
     { cwd = project, env = env, stdout = "null", stderr = "null" })).ok,

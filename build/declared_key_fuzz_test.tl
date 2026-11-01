@@ -61,6 +61,16 @@ local function list_of(d: Drawn, name: string): {string}
   return list
 end
 
+--- `list` with `drop` entries from `at` replaced by `put`, as a new list: the entries before and after are not written in
+--- place, which a list that is not `mut` does not allow.
+local function splice(list: {string}, at: integer, drop: integer, put: {string}): mut {string}
+  local out: mut {string} = {}
+  for i = 1, at - 1 do out[#out + 1] = nth(list, i) end
+  for _, entry in ipairs(put) do out[#out + 1] = entry end
+  for i = at + drop, #list do out[#out + 1] = nth(list, i) end
+  return out
+end
+
 local function draw_string(src: Fuzz.Source, alphabet: {string}, least: integer): string
   local out: mut {string} = {}
   while #out < least or Fuzz.more(src, #out, 6) do out[#out + 1] = Fuzz.pick(src, alphabet) end
@@ -172,11 +182,14 @@ local function shift(src: Fuzz.Source, d: Drawn): Drawn
       out.scalars[a], out.scalars[b] = left:sub(1, -2), left:sub(-1) .. right
     end
   else
-    local list = list_of(out, Fuzz.pick(src, LISTS))
+    local name = Fuzz.pick(src, LISTS)
+    local list = list_of(out, name)
     if #list >= 2 then
       local at = src:int(1, #list - 1)
       local left, right = nth(list, at), nth(list, at + 1)
-      if left ~= "" then list[at], list[at + 1] = left:sub(1, -2), left:sub(-1) .. right end
+      if left ~= "" then
+        out.lists[name] = splice(list, at, 2, { left:sub(1, -2), left:sub(-1) .. right })
+      end
     end
   end
   return out
@@ -204,11 +217,11 @@ local function edit(src: Fuzz.Source, d: Drawn): Drawn
       local entry = nth(list, at)
       if src:int(0, 1) == 0 and #entry >= 2 then
         local cut = src:int(1, #entry - 1)
-        table.insert(list, at + 1, entry:sub(cut + 1))
-        list[at] = entry:sub(1, cut)
+        out.lists[name] = splice(list, at, 1, { entry:sub(1, cut), entry:sub(cut + 1) })
       elseif at < #list then
-        list[at] = entry .. table.remove(list, at + 1)
+        out.lists[name] = splice(list, at, 2, { entry .. nth(list, at + 1) })
       end
+      list = list_of(out, name)
     elseif kind == 3 and #list >= step then
       -- One dropped.
       local at = (src:int(1, #list // step) - 1) * step + 1
@@ -216,7 +229,8 @@ local function edit(src: Fuzz.Source, d: Drawn): Drawn
     else
       -- One added.
       for _ = 1, step do
-        list[#list + 1] = draw_string(src, is_map(name) and ALPHABET or PATH_ALPHABET, 1)
+        local drawn = draw_string(src, is_map(name) and ALPHABET or PATH_ALPHABET, 1)
+        list[#list + 1] = drawn
       end
     end
     if is_map(name) and #list % 2 == 1 then list[#list + 1] = "" end

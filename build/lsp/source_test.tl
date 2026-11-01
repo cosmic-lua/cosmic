@@ -73,7 +73,6 @@ local function test_a_package_module_is_its_init()
   assert(Fs.mkdirs(root .. "/lib/shapes"))
   assert(Fs.write(root .. "/lib/shapes/init.tl", THREE))
   assert(Fs.write(root .. "/lib/decl.d.tl", "local record decl\n  sides: integer\nend\nreturn decl\n"))
-  assert(Fs.write(root .. "/lib/decl.tl", STRINGS))
   local main = 'local shapes = require("lib.shapes")\nlocal decl = require("lib.decl")\n' ..
     "local n: integer = shapes.sides + decl.sides\nreturn n\n"
   local diagnostics = nth(served(root, { initialize(root), open(root, "main.tl", main) }), 1)

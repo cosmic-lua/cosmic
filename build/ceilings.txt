@@ -302,8 +302,6 @@ cosmic/relay/grant.tl 1
 
 cosmic/sandbox/policy.tl 1
 
-cosmic/signal.tl 1
-
 cosmic/sqlite.tl 2
 
 cosmic/store.tl 1
@@ -445,8 +443,6 @@ cosmic/poll.tl setmetatable_call 1
 cosmic/poll_example.tl setmetatable_call 1
 
 cosmic/poll_test.tl setmetatable_call 10
-
-cosmic/signal.tl setmetatable_call 1
 
 cosmic/sqlite.tl setmetatable_call 2
 
@@ -1243,7 +1239,7 @@ lang/relation_refused_test.tl nil_not_allowed 16
 
 lang/relation_test.tl nil_not_allowed 16
 
-lang/scopes.tl nil_not_allowed 59
+lang/scopes.tl nil_not_allowed 58
 
 
 lang/scopes_fuzz_test.tl nil_not_allowed 1
@@ -1718,7 +1714,7 @@ lang/codegen.tl index_may_be_nil 15
 
 lang/codegen_fuzz_test.tl index_may_be_nil 1
 
-lang/declarations.tl index_may_be_nil 13
+lang/declarations.tl index_may_be_nil 11
 
 lang/declarations_test.tl index_may_be_nil 7
 
@@ -1753,7 +1749,7 @@ lang/scopes.tl index_may_be_nil 13
 # an index write through a collection that is a view: `mut` is written on the parameters a function
 # changes and not yet on the locals, which are declared `{T}`
 
-build/archive.tl view_written 2
+build/archive.tl view_written 1
 
 build/boot_test.tl view_written 1
 
@@ -1781,18 +1777,18 @@ build/dataset_test.tl view_written 1
 
 build/declared_key.tl view_written 1
 
-build/declared_key_fuzz_test.tl view_written 6
+build/declared_key_fuzz_test.tl view_written 2
 
 build/declared_key_test.tl view_written 2
 
 
-build/dispatch.tl view_written 3
+build/dispatch.tl view_written 1
 
 build/dispatched_features_test.tl view_written 1
 
 build/docs.tl view_written 5
 
-build/driver.tl view_written 5
+build/driver.tl view_written 3
 
 build/fetch_test.tl view_written 1
 
@@ -1806,16 +1802,12 @@ build/flow_test.tl view_written 1
 
 build/fuzz/init.tl view_written 1
 
-build/fuzz/shrink.tl view_written 3
-
 
 build/host_names.tl view_written 1
 
 build/identity.tl view_written 1
 
 build/importer.tl view_written 3
-
-build/json.tl view_written 2
 
 
 
@@ -1835,21 +1827,15 @@ build/pipeline_check.tl view_written 1
 
 build/policy_rules.tl view_written 2
 
-build/rand.tl view_written 2
-
 build/reboot.tl view_written 1
 
 build/roots.tl view_written 4
 
 build/shared_compiles.tl view_written 1
 
-build/sql.tl view_written 1
-
 build/symbol_index.tl view_written 1
 
 build/syntax_analyzer.tl view_written 1
-
-build/syntax_typed_fixture.tl view_written 2
 
 build/test.tl view_written 36
 
@@ -1866,8 +1852,6 @@ build/test_sandbox_tool_test.tl view_written 1
 build/test_test.tl view_written 1
 
 build/test_worker.tl view_written 8
-
-build/time.tl view_written 1
 
 build/tree_checks.tl view_written 8
 
@@ -1901,14 +1885,13 @@ cosmic/internal/connector_test.tl view_written 1
 
 cosmic/internal/relay_config.tl view_written 1
 
-cosmic/internal/relay_server.tl view_written 2
 
 
 cosmic/internal/relay_wire.tl view_written 3
 
 cosmic/internal/relay_wire_test.tl view_written 1
 
-cosmic/json.tl view_written 8
+cosmic/json.tl view_written 5
 
 cosmic/json_fuzz_test.tl view_written 1
 
@@ -1967,7 +1950,7 @@ lang/check_test.tl view_written 1
 
 lang/codegen_test.tl view_written 1
 
-lang/declarations.tl view_written 15
+lang/declarations.tl view_written 13
 
 lang/flow.tl view_written 12
 
@@ -1989,7 +1972,7 @@ lang/relation_speed_test.tl view_written 1
 
 lang/relation_test.tl view_written 2
 
-lang/scopes.tl view_written 13
+lang/scopes.tl view_written 11
 
 lang/scopes_cover.tl view_written 1
 
@@ -2011,7 +1994,7 @@ build/c/rules.tl view_as_mut 1
 
 build/check_draws.tl view_as_mut 2
 
-build/declared_key_fuzz_test.tl view_as_mut 2
+build/declared_key_fuzz_test.tl view_as_mut 1
 
 build/fix/fix_test.tl view_as_mut 5
 
@@ -2313,7 +2296,7 @@ build/zig_fetch_test.tl field_fixed 3
 
 build/zig_lock_test.tl field_fixed 6
 
-build/zig_test.tl field_fixed 18
+build/zig_test.tl field_fixed 13
 
 core/artifact_fd_tool_test.tl field_fixed 1
 
@@ -2402,8 +2385,6 @@ cosmic/sandbox/policy.tl field_fixed 4
 cosmic/sandbox_test.tl field_fixed 8
 
 
-
-cosmic/signal.tl field_fixed 5
 
 cosmic/sqlite.tl field_fixed 13
 
@@ -3071,7 +3052,6 @@ build/confine.tl overload_none 1
 
 build/dataset_fuzz_test.tl overload_none 2
 
-build/declared_key_fuzz_test.tl overload_none 1
 
 build/declared_key_test.tl overload_none 3
 
@@ -3295,8 +3275,6 @@ build/link_index_test.tl any_use 1
 
 build/link_resolve.tl any_use 1
 
-build/lsp/check.tl any_use 1
-
 build/lsp/session.tl any_use 5
 
 build/perf_validation.tl any_use 7
@@ -3426,8 +3404,6 @@ cosmic/shape.tl any_use 2
 cosmic/shape_fuzz_test.tl any_use 30
 
 cosmic/shape_test.tl any_use 6
-
-cosmic/signal.tl any_use 1
 
 cosmic/sqlite.tl any_use 6
 
@@ -4036,13 +4012,11 @@ cosmic/http/server.tl is_disjoint 1
 # the method
 build/cache_lifetime.tl close_not_closable 1
 
-build/cache_maintenance.tl close_not_closable 9
+build/cache_maintenance.tl close_not_closable 8
 
 build/cache_tool_test.tl close_not_closable 2
 
 build/dataset_test.tl close_not_closable 1
-
-build/fetch.tl close_not_closable 1
 
 build/fetch_tool_test.tl close_not_closable 3
 
@@ -4054,25 +4028,17 @@ build/rebuild_lock.tl close_not_closable 1
 
 build/rebuild_lock_test.tl close_not_closable 1
 
-build/release.tl close_not_closable 1
+build/sqlite_wait_lua_test.tl close_not_closable 5
 
-build/shared_sqlite_test.tl close_not_closable 1
+build/term_relay.tl close_not_closable 3
 
-build/sqlite_wait_lua_test.tl close_not_closable 8
-
-build/term_relay.tl close_not_closable 4
-
-build/term_relay_backpressure_test.tl close_not_closable 1
-
-build/test.tl close_not_closable 2
+build/test.tl close_not_closable 1
 
 build/test_cancelled_verdicts_tool_test.tl close_not_closable 1
 
 build/test_isolation_tool_test.tl close_not_closable 2
 
 build/test_sandbox_run_tool_test.tl close_not_closable 1
-
-build/todos.tl close_not_closable 1
 
 build/udp_fixture_test.tl close_not_closable 4
 
@@ -4086,13 +4052,13 @@ core/lookup_test.tl close_not_closable 2
 
 core/sqlite_lua_test.tl close_not_closable 2
 
-core/sqlite_wait_lua_test.tl close_not_closable 14
+core/sqlite_wait_lua_test.tl close_not_closable 8
 
-cosmic/child.tl close_not_closable 5
+cosmic/child.tl close_not_closable 4
 
 cosmic/child_drain_test.tl close_not_closable 28
 
-cosmic/child_example.tl close_not_closable 5
+cosmic/child_example.tl close_not_closable 2
 
 cosmic/child_lua_test.tl close_not_closable 19
 
@@ -4140,7 +4106,7 @@ cosmic/net_resolve_through_test.tl close_not_closable 14
 
 cosmic/net_resolve_tool_test.tl close_not_closable 2
 
-cosmic/net_serve_test.tl close_not_closable 20
+cosmic/net_serve_test.tl close_not_closable 16
 
 cosmic/net_tcp_test.tl close_not_closable 8
 
@@ -4785,8 +4751,6 @@ cosmic/compress_checked_test.tl or_mix 1
 
 cosmic/compress_test.tl or_mix 4
 
-cosmic/csv_fuzz_test.tl or_mix 1
-
 cosmic/csv_test.tl or_mix 3
 
 cosmic/declared_types_test.tl or_mix 1
@@ -5200,8 +5164,6 @@ cosmic/child.tl and_ternary 29
 cosmic/child_stream_failure_test.tl and_ternary 2
 
 cosmic/compress_test.tl and_ternary 1
-
-cosmic/csv.tl and_ternary 1
 
 cosmic/csv_fuzz_test.tl and_ternary 3
 
@@ -5801,8 +5763,6 @@ cosmic/poll_example.tl literal_missing 1
 
 cosmic/poll_test.tl literal_missing 8
 
-cosmic/signal.tl literal_missing 1
-
 cosmic/sqlite.tl literal_missing 2
 
 cosmic/stream.tl literal_missing 1
@@ -6335,8 +6295,6 @@ cosmic/net_test.tl arms_differ 3
 
 cosmic/shape_test.tl arms_differ 9
 
-cosmic/signal.tl arms_differ 1
-
 cosmic/stream_test.tl arms_differ 1
 
 cosmic/tar.tl arms_differ 1
@@ -6633,8 +6591,6 @@ cosmic/http/server.tl not_assignable 3
 
 
 
-
-cosmic/json.tl not_assignable 1
 
 cosmic/json_test.tl not_assignable 42
 
@@ -6957,10 +6913,10 @@ cosmic/removed_example.tl setmetatable_call 1
 # are the examples that need a type the new checker or the library does not yet have to be written cleanly. A pin only falls.
 
 # TODO: declare the handles these examples close with `<close>` (a child, a connection, a listener, a query, a scratch
-# directory, a response, the signal guard) as classes, and write the metatable of the two examples that build one by hand
+# directory, a response) as classes, and write the metatable of the two examples that build one by hand
 # as a class, once the library's handles are classes (a change of its own, library by library): the new checker refuses
 # `<close>` on a record and a call of `setmetatable`.
-cosmic/child_example.tl close_not_closable 5
+cosmic/child_example.tl close_not_closable 2
 
 cosmic/fs_example.tl close_not_closable 1
 

@@ -173,3 +173,87 @@ local function test_normal_has_the_shape_of_a_bell()
   fourth = fourth / n
   assert(math.abs(fourth - 3.0) < 0.3, "fourth moment " .. tostring(fourth))
 end
+
+local function test_gamma_has_its_mean_and_variance_either_side_of_shape_one()
+  local src = Rand.new(4)
+  -- Gamma(k, theta) has mean k * theta and variance k * theta^2; a shape
+  -- below 1 takes the boosted path.
+  local record Case
+    k: number
+    theta: number
+  end
+  local cases: {Case} = {
+    { k = 0.5, theta = 2.0 },
+    { k = 1.0, theta = 1.0 },
+    { k = 4.5, theta = 0.5 },
+  }
+  for _, case in ipairs(cases) do
+    local k, theta = case.k, case.theta
+    local least = math.huge
+    local mean, var = moments(function(): number
+      local x = src:gamma(k, theta)
+      if x < least then least = x end
+      return x
+    end, 20000)
+    local want_mean, want_var = k * theta, k * theta * theta
+    local where = ("gamma(%g, %g): "):format(k, theta)
+    assert(least >= 0.0, where .. "negative draw " .. tostring(least))
+    assert(math.abs(mean - want_mean) < 0.05 * want_mean + 0.02, where .. "mean " .. tostring(mean))
+    assert(math.abs(var - want_var) < 0.1 * want_var + 0.02, where .. "variance " .. tostring(var))
+  end
+end
+
+local function test_gamma_replays_from_a_seed()
+  local a, b = Rand.new(9), Rand.new(9)
+  for _ = 1, 100 do
+    assert(a:gamma(0.3) == b:gamma(0.3))
+    assert(a:gamma(2.5, 4) == b:gamma(2.5, 4))
+  end
+  assert(Rand.new(9):gamma(2) ~= Rand.new(10):gamma(2))
+end
+
+local function test_gamma_refuses_degenerate_parameters()
+  local src = Rand.new(0)
+  Test.raises(function() src:gamma(0) end, "finite and positive")
+  Test.raises(function() src:gamma(-1) end, "finite and positive")
+  Test.raises(function() src:gamma(1, 0) end, "finite and positive")
+  Test.raises(function() src:gamma(1, -2) end, "finite and positive")
+  Test.raises(function() src:gamma(math.huge) end, "finite and positive")
+  Test.raises(function() src:gamma(1, math.huge) end, "finite and positive")
+  Test.raises(function() src:gamma(0 / 0) end, "finite and positive")
+  Test.raises(function() src:gamma(1, 0 / 0) end, "finite and positive")
+end
+
+local function test_gamma_has_the_shape_of_a_gamma()
+  local src = Rand.new(6)
+  -- Targets: P(X < 1) = 1 - e^-1 for shape 1 and P(X < 0.5) =
+  -- erf(sqrt 0.5) for shape 0.5, each within 0.015 (over four standard
+  -- errors at 20000 draws); skewness 2 / sqrt(shape) for shape 4.5,
+  -- within 0.1 (about five).
+  local n, below = 20000, 0
+  for _ = 1, n do
+    if src:gamma(1) < 1.0 then below = below + 1 end
+  end
+  local fraction = below / n
+  assert(math.abs(fraction - (1.0 - math.exp(-1.0))) < 0.015, "below 1: " .. tostring(fraction))
+  -- Gamma(0.5) is half a chi-squared of one degree of freedom, so
+  -- P(X < 0.5) = erf(sqrt(0.5)) = 0.6827; this checks the boosted path.
+  below = 0
+  for _ = 1, n do
+    if src:gamma(0.5) < 0.5 then below = below + 1 end
+  end
+  fraction = below / n
+  assert(math.abs(fraction - 0.6827) < 0.015, "gamma(0.5) below 0.5: " .. tostring(fraction))
+  -- Skewness is 2 / sqrt(shape), 0.943 for 4.5.
+  local k = 4.5
+  local sum, sq, cube = 0.0, 0.0, 0.0
+  for _ = 1, n do
+    local x = src:gamma(k)
+    sum, sq, cube = sum + x, sq + x * x, cube + x * x * x
+  end
+  local mean = sum / n
+  local var = sq / n - mean * mean
+  local third = cube / n - 3.0 * mean * sq / n + 2.0 * mean * mean * mean
+  local skew = third / var ^ 1.5
+  assert(math.abs(skew - 2.0 / math.sqrt(k)) < 0.1, "skewness " .. tostring(skew))
+end

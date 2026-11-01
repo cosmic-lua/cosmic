@@ -1,7 +1,8 @@
 --- Coverage for [`Http.Options.retry`] without the network: each case
---- reads canned replies through the scripted transport, where the Nth
---- attempt reads entry N, so the reply that comes back says how many
---- requests were sent (each carries an `X-N` header of its own number).
+--- reads canned replies through the scripted transport, where each attempt
+--- reads on from the entry after its predecessor's last connection, so the
+--- reply that comes back says how many requests were sent (each carries
+--- an `X-N` header of its own number).
 --- A caught signal ending a retry's wait is cosmic/http_retry_tool_test.tl's.
 
 local Clock = require("cosmic.clock")
@@ -232,6 +233,20 @@ local function test_a_download_cancelled_during_the_wait_stops_waiting(tmp: stri
   assert(not ok and why == "interrupted", tostring(why))
   assert(took >= Clock.ms(300) and took < Clock.seconds(5), tostring(took))
   assert(Fs.stat(tmp .. "/got") == nil, "the 200 was read")
+end
+
+local function test_an_attempt_that_followed_a_redirect_leaves_the_next_the_entries_after_it()
+  -- The first attempt uses entries 1 and 2 (the redirect and the 429),
+  -- so the second must read entry 3, not entry 2 again.
+  local got = assert(Http.get(url, { retry = { attempts = 2, backoff_ns = 0 }, script = {
+    reply(1, "302 Found", "Location: http://cosmic.test/elsewhere\r\n"),
+    reply(2, "429 Too Many Requests", "Retry-After: 0\r\n"),
+    reply(3, "200 OK", "", "fine"),
+    reply(4, "200 OK", "", "too far"),
+  } }))
+  assert(got.status == 200, tostring(got.status))
+  assert(got.body == "fine", got.body)
+  assert(got.headers["x-n"] == "3", tostring(got.headers["x-n"]))
 end
 
 local function test_a_failed_open_is_not_retried()

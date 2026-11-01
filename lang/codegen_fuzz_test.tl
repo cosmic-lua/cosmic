@@ -258,7 +258,9 @@ local function gen_statement(g: Gen, depth: integer, loop: boolean)
     gen_exp(g, depth - 1)
     add(g, "then", "\n")
     gen_block(g, depth - 1, loop)
-    while g.src:int(1, 3) == 1 do
+    -- The draw that goes on is not the low end of its range, which a replay gives a draw past its list: shrinking a
+    -- failing program must end.
+    while g.src:int(0, 2) == 1 do
       add(g, "elseif")
       gen_exp(g, depth - 1)
       add(g, "then", "\n")
