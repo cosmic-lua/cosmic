@@ -288,9 +288,12 @@ local SPECIAL <const> = "[\0-\8\10-\31\127]"
 --- The most bytes of a reason phrase a refusal's status line carries.
 local MAX_PHRASE <const> = 200
 
-local function lower(text: string): string
+--- `text` in ASCII lower case; the relay's modules share it.
+function relay_wire.lower(text: string): string
   return (text:gsub("%u", string.lower))
 end
+
+local lower <const> = relay_wire.lower
 
 --- The four decimal octets of `text`, or nil.
 local function octets(text: string): {integer}?
@@ -571,6 +574,15 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
       return { status = "more", consumed = 0 }
     end,
   }
+end
+
+--- A decimal port from 1 to 65535 with no leading zero, or nil; the relay's
+--- modules share it.
+function relay_wire.number_of(text: string): integer?
+  if not text:find("^[1-9]%d*$") or #text > 5 then return nil end
+  local port = math.tointeger(tonumber(text))
+  if port == nil or port < 1 or port > 65535 then return nil end
+  return port
 end
 
 --- The reply to a CONNECT that was granted and connected.
