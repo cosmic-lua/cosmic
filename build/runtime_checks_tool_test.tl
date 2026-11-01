@@ -156,18 +156,16 @@ local function test_a_pass_that_meets_a_violation_takes_its_verdict_out(tmp: str
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/greet.tl", greeting))
-  assert(Fs.write(root .. "/liar.d.tl", liar_declaration))
-  assert(Fs.write(root .. "/liar.tl", liar))
   local flag = tmp .. "/flag.txt"
   assert(Fs.write(root .. "/flip_test.tl", table.concat({
     "local Fs = require(\"cosmic.fs\")",
     "local greet = require(\"greet\")",
-    "local liar = require(\"liar\")",
     "",
     "local function test_flip()",
     "  local flag = assert(Fs.read(\"" .. flag .. "\"))",
     "  if flag == \"bad\" then",
-    "    assert(tostring(greet.hello(liar.text())) == \"42\")",
+    "    local send = assert(load(\"local hello = ...; return hello(42)\", \"=sender\"))",
+    "    assert(tostring(send(greet.hello)) == \"42\")",
     "  else",
     "    assert(greet.hello(\"you\") == \"you\")",
     "  end",
