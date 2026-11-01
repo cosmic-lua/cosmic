@@ -157,7 +157,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.sandbox.policy"] = "ce2cbf3101cfe8a57d0d946b3c1fe2b5bdb8626b0fa39f45b9bdcf46b9146c65",
 
-  ["cosmic.sqlite"] = "e5e70f0c6dd0be5a7fcf31c731e4e305584c799aa4f00bffa5a469383a4a9467",
+  ["cosmic.sqlite"] = "82f6f8f49f3ae6ae85b429f066f7998caf6267df3bd3a735ac5c1cbfa544a937",
 
   ["cosmic.string"] = "4696ea716c4b8f796923350161765a4fdc0313355d68c327902536123cf603a5",
 

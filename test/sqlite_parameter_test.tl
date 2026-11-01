@@ -50,6 +50,8 @@ local function test_mismatched_parameters_do_not_execute()
   local gapped = gap as {Sqlite.Value}
   local gap_ok, gap_why = Sqlite.run(db, "INSERT INTO items VALUES (?1, ?2)", gapped)
   assert(not gap_ok and gap_why == "sqlite: parameter 1 has no value (use {} for NULL)", tostring(gap_why))
+  local gap_rows, gap_failure = Sqlite.text_rows(db, "SELECT ?1, ?2", gapped)
+  assert(gap_rows == nil and gap_failure == gap_why, tostring(gap_failure))
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM items"))
   assert(first_row(rows):text(1) == "0")
   assert(db:close())
