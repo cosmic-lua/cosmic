@@ -15,18 +15,22 @@
 --- project), a template, a text that does not parse, a document that requires a module the build refuses (a cycle of
 --- imports, a module the project does not have), and a type declared inside a function.
 ---
---- A place in another module is found in that module's text as it is written ([`source.written`]), an open document's
---- or else the working database's, parsed here: the checker is served the module as a stub, whose positions are not
---- the file's. A place in the document is found in the text the checker read, which a build rewrites (the `splices` of
+--- A place in another module is looked up by its symbol in the `places` the stage derived of the module's file
+--- ([`source.places`]), and put in the module's text as it is written: the checker is served the
+--- module as a stub, whose positions are not the file's. Only an open document that differs from the staged file is
+--- parsed. A place in the document is found in the text the checker read, which a build rewrites (the `splices` of
 --- [`check.Reading`]), and put back in the document's own text.
 
 -- TODO: answer a symbol of the binary's own `cosmic.*` modules, once the checker is served the positions of their sources: it
--- reads their declarations alone, so in a project the working database has no text for them ([`source.written`]) and
--- the answer is none.
+-- reads their declarations alone, so in a project the working database has no text or `places` for them
+-- ([`source.places`]) and the answer is none.
 
 -- TODO: answer a field of a type declared inside a function body, once the lowering names such a type by something that tells
 -- it from another of the same name in the module: the declarations are found by their names at the top of the module and in
--- its `do` blocks, where the name is the type's alone.
+-- its `do` blocks, where the name is the type's alone ([`build.syntax_places`]).
+
+-- TODO: answer a symbol of a module generated from another file, once the `-- line` map of its source gives its places the
+-- lines of the file ([`build.syntax_derivation`]'s `origin_lines`): the stage derives none for it.
 
 -- TODO: answer the value of an enum that a string literal stands for, once the type report keeps the enum a literal was read
 -- as: the report types the literal `"w"` as the string, and the enum's values are found only by a member access.
@@ -37,6 +41,7 @@
 local Ast = require("lang.ast")
 local Driver = require("build.driver")
 local Lexer = require("lang.lexer")
+local Places = require("build.syntax_places")
 local Report = require("build.syntax_report")
 local ShapeSpecs = require("build.syntax_shape_specs")
 local Types = require("lang.types")
@@ -47,21 +52,21 @@ local source = require("build.lsp.source")
 local syntax_read = require("build.lsp.syntax_read")
 
 local record definition
-  --- A module's tree, and the text the person has of it.
+  --- A module's text, and what its sites are in.
   record Place
     module: string
-    chunk: Ast.Chunk
     --- The text the person has: the document's own, or the module's file.
     original: string
-    --- What was put in `original` to make the text `chunk` was read from, as [`check.Reading`] has it: none for a file.
+    --- What was put in `original` to make the text its sites are bytes of, as [`check.Reading`] has it: none for a file.
     splices: {ShapeSpecs.Splice}
     uri: string
   end
 
-  --- A token of a place: what is declared there.
+  --- Where a name is declared: the byte `offset` of the text of `place` (as spliced) its `length` bytes start at.
   record Site
     place: Place
-    token: integer
+    offset: integer
+    length: integer
   end
 
   --- What one request reads.
@@ -70,117 +75,60 @@ local record definition
     outcome: Driver.Outcome
     here: Place
     encoding: string
-  end
-
-  --- What a declaration holds that a name can be found in.
-  record Declared
-    name: Ast.Binding
-    members: {Ast.Member}
+    --- The first place of each symbol the document declares, once asked for.
+    mut own?: {string:Places.Found}
   end
 end
 
-local type Place = definition.Place
 local type Site = definition.Site
 local type Request = definition.Request
-local type Declared = definition.Declared
 
 local function base_of(node: Ast.Node): Ast.Base
   return node
 end
 
---- What the declaration `n` declares if it is the type `name`: nil for anything else.
-local function declared(n: Ast.Node, name: string): Declared?
-  if n.kind == "Record" and n.name.name == name then
-    return { name = n.name, members = n.members }
-  elseif n.kind == "Interface" and n.name.name == name then
-    return { name = n.name, members = n.members }
-  elseif n.kind == "Class" and n.name.name == name then
-    return { name = n.name, members = n.members }
-  elseif n.kind == "Enum" and n.name.name == name then
-    return { name = n.name, members = {} }
-  elseif n.kind == "Alias" and n.name.name == name then
-    return { name = n.name, members = {} }
-  elseif n.kind == "Import" and n.name.name == name then
-    return { name = n.name, members = {} }
-  end
-  return nil
+--- The site of the token `token` of the chunk the document's check read.
+local function site_of_token(request: Request, token: integer): Site
+  local tokens = request.outcome.chunk.tokens
+  return { place = request.here, offset = Lexer.offset(tokens, token), length = Lexer.length(tokens, token) }
 end
 
---- The type declared at the path `names` (a name, then the names nested under it) in the statements `stats`, at the top
---- of the module or in a `do` block of it.
-local function type_in(stats: {Ast.Stat}, names: {string}): Declared?
-  local head = names[1]
-  if head == nil then return nil end
-  local current: Declared? = nil
-  for _, stat in ipairs(stats) do
-    if stat.kind == "Do" then
-      current = type_in(stat.body.stats, { head })
-    else
-      current = declared(stat, head)
+--- Where the module `module` declares `symbol` ([`build.syntax_places`]): in the document's own tree where it is the
+--- document's module, else in the places of the module's file ([`source.places`]). nil where it declares none, or the
+--- working database lists no such module.
+local function place_of(request: Request, module: string, symbol: string): Site?
+  if module == request.here.module then
+    local own = request.own
+    if own == nil then
+      local built: mut {string:Places.Found} = {}
+      for _, found in ipairs(Places.found(request.outcome.chunk)) do
+        if built[found.symbol] == nil then built[found.symbol] = found end
+      end
+      own = built
+      request.own = built
     end
-    if current ~= nil then break end
+    local found = own[symbol]
+    if found == nil then return nil end
+    return site_of_token(request, found.token)
   end
-  for i = 2, #names do
-    if current == nil then return nil end
-    local want = assert(names[i])
-    local nested: Declared? = nil
-    for _, member in ipairs(current.members) do
-      nested = declared(member, want)
-      if nested ~= nil then break end
-    end
-    current = nested
-  end
-  return current
-end
-
---- The token of the field or method `name` of the declaration `held`.
-local function member_token(held: Declared, name: string): integer?
-  for _, member in ipairs(held.members) do
-    if member.kind == "FieldDecl" and member.name.name == name then return member.name.first end
-    if member.kind == "Method" and member.name.name == name then return member.name.first end
-  end
-  return nil
-end
-
---- The token of the last name of the statement `function <path>(...)`, at the top of the module or in a `do` block of it.
-local function function_token(stats: {Ast.Stat}, path: string): integer?
-  for _, stat in ipairs(stats) do
-    if stat.kind == "Function" then
-      local names: mut {string} = {}
-      for _, part in ipairs(stat.path) do names[#names + 1] = part.text end
-      local last = stat.path[#stat.path]
-      if last ~= nil and table.concat(names, ".") == path then return last.first end
-    elseif stat.kind == "Do" then
-      local found = function_token(stat.body.stats, path)
-      if found ~= nil then return found end
-    end
-  end
-  return nil
-end
-
---- The module `module`, as a place to find declarations in: the document's own where it is the document's module, else the
---- module's file as written, parsed. nil where the working database lists none.
-local function place_of(request: Request, module: string): Place?
-  if module == request.here.module then return request.here end
   local checker = request.checker
-  local written = source.written(checker.source, module, check.open_files(checker))
-  if written == nil then return nil end
-  local dialect: Ast.Dialect = "tl"
-  if written.file:match("%.d%.tl$") ~= nil then dialect = "decl" end
-  local parsed = Driver.parse(Driver.source(module, written.file, written.text, dialect))
-  local opened = checker.open[written.file]
-  local uri = protocol.uri_of(checker.root .. "/" .. written.file)
+  local placed = source.places(checker.source, module, check.open_files(checker))
+  if placed == nil then return nil end
+  local spot = placed.spots[symbol]
+  if spot == nil then return nil end
+  local starts = lines.checker_starts(placed.text)
+  local start = starts[spot.line]
+  if start == nil then return nil end
+  local uri = protocol.uri_of(checker.root .. "/" .. placed.file)
+  local opened = checker.open[placed.file]
   if opened ~= nil then uri = opened.uri end
-  return { module = module, chunk = parsed.chunk, original = parsed.text, splices = {}, uri = uri }
+  return { place = { module = module, original = placed.text, splices = {}, uri = uri },
+    offset = start + spot.column - 1, length = spot.length }
 end
 
 --- Where the type `decl` is declared.
 local function decl_site(request: Request, decl: Types.Decl): Site?
-  local place = place_of(request, decl.module)
-  if place == nil then return nil end
-  local held = type_in(place.chunk.body.stats, decl.names)
-  if held == nil then return nil end
-  return { place = place, token = held.name.first }
+  return place_of(request, decl.module, decl.name)
 end
 
 --- Where the field or method `name` of the type `decl` is declared: in the type, or in the interface it lists
@@ -188,15 +136,7 @@ end
 local function member_site(request: Request, decl: Types.Decl, name: string): Site?
   local owner = decl
   if not Report.has_member(decl, name) then owner = Report.declaring(decl, name) or decl end
-  local place = place_of(request, owner.module)
-  if place == nil then return nil end
-  local stats = place.chunk.body.stats
-  local held = type_in(stats, owner.names)
-  local token: integer? = nil
-  if held ~= nil then token = member_token(held, name) end
-  if token == nil then token = function_token(stats, owner.name .. "." .. name) end
-  if token == nil then return nil end
-  return { place = place, token = token }
+  return place_of(request, owner.module, owner.name .. "." .. name)
 end
 
 --- The declaration the type `t` is, or is an optional of.
@@ -268,7 +208,6 @@ local function target(request: Request, tok: integer): Site?
   local leaf = nodes[#nodes]
   local parent = nodes[#nodes - 1]
   if leaf == nil then return nil end
-  local here = request.here
   local scoped = outcome.scoped
   --- The binding the node with id `id` refers to, if the scopes resolved it.
   local function declaration(id: integer): Site?
@@ -276,18 +215,18 @@ local function target(request: Request, tok: integer): Site?
     if var_id == nil then return nil end
     local var = scoped.vars[var_id]
     if var == nil then return nil end
-    return { place = here, token = var.declared }
+    return site_of_token(request, var.declared)
   end
   if leaf.kind == "Name" then
     local found = declaration(leaf.id)
     if found ~= nil then return found end
     -- The names after the first of `function R.f()` declare where they stand.
     if parent ~= nil and parent.kind == "Function" and parent.path[1] ~= leaf then
-      return { place = here, token = leaf.first }
+      return site_of_token(request, leaf.first)
     end
     return nil
   elseif leaf.kind == "Binding" then
-    return { place = here, token = leaf.first }
+    return site_of_token(request, leaf.first)
   elseif leaf.kind == "TypeName" then
     local offset = tok - leaf.first
     local index = offset // 2 + 1
@@ -317,12 +256,11 @@ local function target(request: Request, tok: integer): Site?
   return nil
 end
 
---- The range of the token of `site`, in the units of the session's encoding, in the text the person has.
+--- The range of `site`, in the units of the session's encoding, in the text the person has.
 local function range_of(request: Request, site: Site): protocol.Range
   local place = site.place
-  local tokens = place.chunk.tokens
-  local first = Lexer.offset(tokens, site.token)
-  local last = first + math.max(Lexer.length(tokens, site.token), 1) - 1
+  local first = site.offset
+  local last = first + math.max(site.length, 1) - 1
   local split = lines.lines_of(place.original)
   return protocol.range(
     lines.position(split, syntax_read.unspliced(place.splices, first), request.encoding),
@@ -347,8 +285,7 @@ function definition.at(checker: check.Checker, document: check.Document, where: 
   local outcome = reading.outcome
   local request: Request = {
     checker = checker, outcome = outcome, encoding = encoding,
-    here = { module = outcome.module, chunk = outcome.chunk, original = document.text, splices = reading.splices,
-      uri = document.uri },
+    here = { module = outcome.module, original = document.text, splices = reading.splices, uri = document.uri },
   }
   for _, tok in ipairs(tokens_at(outcome.chunk.tokens, offset)) do
     local site = target(request, tok)

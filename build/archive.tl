@@ -48,7 +48,7 @@ local spec = Cli.verbs.archive.spec or {}
 
 local usage = "cosmic archive list [--json] <file>|-; " ..
   "cosmic archive extract [-C <dir>] [--force] <file>|- [<member>...]; " ..
-  "cosmic archive create [--reproducible] <out.tar.gz|out.tgz|out.tar.bz2|out.tbz2|out.tbz|out.tar.zst|out.tzst|out.tar|out.zip> <path>..."
+  "cosmic archive create [--reproducible] <out.tar.gz|out.tgz|out.tar.xz|out.txz|out.tar.bz2|out.tbz2|out.tbz|out.tar.zst|out.tzst|out.tar|out.zip> <path>..."
 
 --- What a run answers: an exit code and the complaint that goes with it
 --- (none for 0).
@@ -526,7 +526,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
 
   -- What the whole listing tells: which members were seen, and the
   -- files in the way. Read as the entries pass; the entries are not kept.
-  local found: {boolean} = {}
+  local found: mut {integer: boolean} = {}
   local clashes: Clashes = { count = 0, first = {} }
   local reading = { halted = false, finished = false, finish_why = "" }
   local function record(entry: Archive.Entry)

@@ -19,10 +19,19 @@ local record progress
     now: function(): integer
   end
 
+  --- A piece of work a phase has under way, and when it began.
+  record Running
+    name: string
+    started_ns: integer
+  end
+
   --- A phase's progress, which `tick` is told of as work finishes.
   record Phase
-    --- Says a line, when one is due, that `done` of `total` are finished.
-    tick: function(done: integer, total: integer)
+    --- Says a line, when one is due, that `done` of `total` are finished,
+    --- followed by `; <detail>` when `detail` is not empty: what is still
+    --- running, say, so that a phase that stops moving names what holds it.
+    --- `detail` is a function, called only when a line is due.
+    tick: function(done: integer, total: integer, detail?: function(): string)
   end
 end
 
@@ -42,12 +51,29 @@ function progress.elapsed(ns: integer): string
   return tostring(seconds // 60) .. " min " .. tostring(seconds % 60) .. " s"
 end
 
+--- The `count` longest-running of `running` at `now`, longest first, each
+--- as `name <elapsed>` and joined by ", ": what a line names when a
+--- phase stops moving. Empty when nothing runs.
+function progress.longest(running: {progress.Running}, now: integer, count: integer): string
+  local oldest: mut {progress.Running} = {}
+  for _, work in ipairs(running) do oldest[#oldest + 1] = work end
+  table.sort(oldest, function(a: progress.Running, b: progress.Running): boolean
+    return a.started_ns < b.started_ns
+  end)
+  local named: mut {string} = {}
+  for i = 1, math.min(count, #oldest) do
+    local work = assert(oldest[i])
+    named[i] = work.name .. " " .. progress.elapsed(now - work.started_ns)
+  end
+  return table.concat(named, ", ")
+end
+
 local function say_to_stderr(verb: string, detail: string)
   local _, _ = logger.summary(verb, detail)
 end
 
 --- A phase that began now, said as `verb: what <done>/<total> <unit>s,
---- <elapsed>`, `unit` a noun made plural by an `s`.
+--- <elapsed>[; <detail>]`, `unit` a noun made plural by an `s`.
 --- @param options where it says its lines and reads the time, by
 ---   default stderr, as [`build.logger`]'s `summary` writes it, and the
 ---   monotonic clock
@@ -66,7 +92,7 @@ function progress.phase(verb: string, what: string, unit: string,
   -- function may change what a table holds, not a local of its maker.
   local said: {integer} = {}
   return {
-    tick = function(done: integer, total: integer)
+    tick = function(done: integer, total: integer, detail?: function(): string)
       local at = now()
       if at - started_ns < after_ns then return end
       for _, last in ipairs(said) do
@@ -74,8 +100,13 @@ function progress.phase(verb: string, what: string, unit: string,
       end
       table.remove(said)
       table.insert(said, at)
+      local more = ""
+      if detail ~= nil then
+        more = detail()
+        if more ~= "" then more = "; " .. more end
+      end
       say(verb, what .. " " .. tostring(done) .. "/" .. tostring(total) .. " " .. unit .. "s, " ..
-          progress.elapsed(at - started_ns))
+          progress.elapsed(at - started_ns) .. more)
     end,
   }
 end

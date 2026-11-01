@@ -15,19 +15,6 @@ local DELIMITERS <const> = { ",", "\t", ";", "|", "\xa7" }
 
 local BOM <const> = "\xEF\xBB\xBF"
 
---- One field as it is written: quoted when it holds the delimiter, a
---- quote or a line break, begins with what a reader would drop as a byte
---- order mark, or is the empty only field of its record. The line
---- property builds its text field by field, to know where each row's
---- first field lands, which [`Csv.encode`] does not answer.
-local function field_text(field: string, delimiter: string, only: boolean): string
-  if field:find(delimiter, 1, true) or field:find('[\r\n"]') or field:sub(1, 3) == BOM or
-      (only and field == "") then
-    return '"' .. field:gsub('"', '""') .. '"'
-  end
-  return field
-end
-
 --- `records` as [`Csv.encode`] writes them, with `delimiter`: its
 --- writing is what these properties read back.
 local function encode(records: {{string}}, delimiter: string): string
@@ -430,7 +417,8 @@ local function test_each_row_is_at_the_line_its_record_was_written_on(tmp: strin
         if #fields > 0 then
           if width == 0 then width = #fields end
           local texts: mut {string} = {}
-          for at = 1, width do texts[at] = field_text(fields[at] or "", delimiter, width == 1) end
+          local options: Csv.FieldOptions = { delimiter = delimiter, quote_empty = width == 1 }
+          for at = 1, width do texts[at] = Csv.encode_field(fields[at] or "", options) end
           local record = table.concat(texts, delimiter)
           if #out > 1 then
             expected[#expected + 1] = line

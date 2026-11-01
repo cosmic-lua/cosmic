@@ -10,7 +10,10 @@
   # run has checked. A failure's report names the `FUZZ_CASE` that checks
   # its input again anywhere, the failing inputs are kept as an artifact
   # to add to testdata/fuzz/ once fixed (build/fuzz/init.tl), and the
-  # run's summary lists what failed. A failed run is seen as a red run,
+  # run's summary lists what failed. A property whose inputs cost a tenth
+  # of a second or more stops drawing after FUZZ_SECONDS (build/fuzz/init.tl)
+  # and the test log lists those that did (`test: fuzz: ... stopped by
+  # FUZZ_SECONDS`). A failed run is seen as a red run,
   # and in the mail GitHub sends whoever last edited the schedule below.
   # TODO: once the repository has issues enabled, a job on a failed or
   # cancelled run could open one (or comment on the one still open), so a
@@ -29,6 +32,11 @@
           description: "FUZZ_ITERS",
           required: false,
           default: "10000",
+        },
+        seconds: {
+          description: "FUZZ_SECONDS (the most seconds a property draws inputs for)",
+          required: false,
+          default: "120",
         },
       },
     },
@@ -68,6 +76,7 @@
       env: {
         FUZZ_SEED: "${{ inputs.seed || github.run_id }}",
         FUZZ_ITERS: "${{ inputs.iters || '10000' }}",
+        FUZZ_SECONDS: "${{ inputs.seconds || '120' }}",
       },
       steps: [
         {

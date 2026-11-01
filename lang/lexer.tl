@@ -723,9 +723,10 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
       else
         local ce = (find(source, "[\r\n]", pos + 2) or len + 1) - 1
         local comments = pending or {}
-        comments[#comments + 1] = {
+        local comment: Lexer.Comment = {
           text = sub(source, pos, ce), offset = pos, length = ce - pos + 1, y = line, x = x,
         }
+        comments[#comments + 1] = comment
         pending = comments
         pos = ce + 1
       end

@@ -485,12 +485,13 @@ local function test_stopping_the_server_ends_every_stream_long_before_the_grace(
   local ended: mut {string} = {}
   local app = hub_app(hub, { heartbeat_ns = Clock.seconds(30), retry_ms = 100 }, { hubs = { hub } })
   local routes = assert(app.spec.routes)
-  routes[#routes + 1] = Web.get("/queue", function(req: Web.Request): Web.Response
+  local queued = Web.get("/queue", function(req: Web.Request): Web.Response
     local source: Channel.Queue<Sse.Event> = Channel.new()
     queue = source
     return Sse.EventStream(req, Sse.from_queue(source), { heartbeat_ns = Clock.seconds(30),
       on_close = function(why: string) ended[#ended + 1] = why end })
   end)
+  routes[#routes + 1] = queued
   local started = Clock.monotonic_ns()
   serving(Web.app(app.spec), Clock.seconds(8), function(host: string, server: Net.Server)
     local feeds = { open(host, "/events/t"), open(host, "/events/u"), open(host, "/queue") }

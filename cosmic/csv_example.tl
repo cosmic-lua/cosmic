@@ -74,6 +74,16 @@ function Example.encode()
   print(tsv == "a\tb,c\r\n") -- true
 end
 
+--- [`encode_field`] writes one field, quoted only where a reader would misread
+--- it; `quote_empty` quotes the empty one, which `encode` does for a record's
+--- only field.
+function Example.encode_field()
+  assert(Csv.encode_field("Smith, Ann") == '"Smith, Ann"')
+  assert(Csv.encode_field("Ann") == "Ann")
+  assert(Csv.encode_field("a,b", { delimiter = "\t" }) == "a,b")
+  print(Csv.encode_field("", { quote_empty = true })) -- ""
+end
+
 --- Header fields that are empty or differ only in case are renamed, so
 --- every column has a name of its own; `reserved` keeps a name free.
 function Example.column_names()

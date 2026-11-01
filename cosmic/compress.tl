@@ -1,7 +1,6 @@
 --- Compression and expansion: one-shot deflate and inflate in the raw,
 --- zlib and gzip framings, streaming encoders and decoders for the same
---- three, for zstd and for bzip2, and a streaming decoder (no encoder)
---- for xz.
+--- three, for zstd, for xz and for bzip2.
 
 -- The raw module behind the streaming codecs lives under the reserved
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why it is off
@@ -79,6 +78,13 @@ local record Compress
   --- multiples of four between and after streams) is skipped; NULs
   --- that are not a whole multiple of four are trailing bytes.
   type Stream = raw_compress.Stream
+
+  --- What [`Compress.xz_encoder`] takes besides the preset.
+  record XzOptions
+    --- The preset's "extreme" variant, `xz -e`: slower, for a little
+    --- more compression. Default false.
+    extreme: boolean
+  end
 end
 
 --- Compresses `data` whole in the `format` framing, at `level` as
@@ -162,6 +168,35 @@ end
 --- output for the same input and level is the same from run to run.
 function Compress.zstd_encoder(level?: integer): Compress.Stream?, string
   return raw.zstd_encoder(level)
+end
+
+--- A streaming encoder for the .xz container, one stream of one LZMA2
+--- block with a CRC-64 check, as the `xz` command writes: `preset` is
+--- its `-0` to `-9` (default 6) and `opts.extreme` its `-e`. Raises on
+--- a preset out of range. The output for the same input and options is
+--- the same from run to run, and does not depend on how the input is
+--- split into chunks.
+---
+--- A preset sets the encoder's dictionary, and with it the memory the
+--- encoder takes while it runs: about 3 MiB at `0`, 9 at `1`, 17 at `2`,
+--- 32 at `3`, 48 at `4`, 94 at `5` and `6`, 186 at `7`, 370 at `8` and
+--- 674 at `9`. With `extreme` it is 4 MiB at `0`, 13 at `1`, 25 at `2`
+--- and 48 at `3`, and the same at `4` to `9`. The decoder needs about
+--- the dictionary alone (65 MiB for a stream written at `9`).
+---
+--- An encoder keeps that memory until `finish`, `close` or collection,
+--- and Lua's accounting does not see it: a caller that holds many
+--- encoders, or uses presets 8 and 9 in a server, should hold each
+--- `<close>`. Presets are not capped below 9, as the `xz` command's are
+--- not; an allocation the machine refuses answers nil and "compress:
+--- out of memory" (from the constructor) or, from `update` or
+--- `finish`, finishes the stream and answers the same. Only a single
+--- thread is used. [`Compress.xz_decoder`] reads what this writes at
+--- its default memory limit through preset 9.
+function Compress.xz_encoder(preset?: integer, opts?: Compress.XzOptions): Compress.Stream?, string
+  local extreme: boolean? = nil
+  if opts ~= nil then extreme = opts.extreme == true end
+  return raw.xz_encoder(preset, extreme)
 end
 
 --- A streaming bzip2 encoder: `level` is the block size in units of

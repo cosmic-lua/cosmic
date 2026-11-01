@@ -474,7 +474,8 @@ local function run(file: string, argv: {string}): integer
   -- TODO: attach this run's published projection before its writer releases
   -- the publication lock, once writer exposes a stable-consumption callback:
   -- another successful build can replace the path before this attach.
-  local attached, attach_trouble = Store.attach(database)
+  -- The projection is the tool's own output of this run, not a file it was handed.
+  local attached, attach_trouble = Store.attach(database, { unchecked_bytecode = true })
   if not attached then
     log:complain(attach_trouble)
     return 1
@@ -626,9 +627,11 @@ local function help(argv: {string}, asked: string?): integer
     if spelled ~= nil then
       -- A verb spelled as an option (`cosmic --standalone <file>`,
       -- `cosmic -e <chunk>`) is asked about by either spelling.
-      line = {}
-      for slot, word in ipairs(argv) do line[slot] = word end
-      line[2] = spelled
+      local spelled_line: mut {string} = {}
+      for slot, word in ipairs(argv) do
+        spelled_line[#spelled_line + 1] = if slot == 2 then spelled else word end
+      end
+      line = spelled_line
     end
     local parsed, parse_trouble = require("cosmic.flags").parse(line, 2, { ["--help"] = { about = "the index" }, ["-h"] = { about = "the index" } })
     if parsed == nil then
@@ -810,7 +813,7 @@ function Dispatch.main(argv: {string}): integer
     if at ~= nil then
       own = {}
       for slot, given in ipairs(argv) do
-        if slot < at then own[slot] = given end
+        if slot < at then own[#own + 1] = given end
       end
     end
   end

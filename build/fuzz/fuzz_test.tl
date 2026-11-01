@@ -1,3 +1,4 @@
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Fuzz = require("build.fuzz")
@@ -209,6 +210,65 @@ local function test_max_iters_caps_the_count_but_not_a_named_one()
   assert(capped == math.min(asked, 5), "ran " .. tostring(capped))
   local named = Fuzz.run({ name = "named", iters = 9, max_iters = 5, gen = any_bytes, check = holds })
   assert(named == 9, "ran " .. tostring(named))
+end
+
+--- A count a check shares with the test that made it.
+local record Tally
+  mut value: integer
+end
+
+-- A property that costs more per input than its seconds allow stops
+-- drawing once it has drawn the default 64, says so, and is held to the
+-- inputs it drew; one inside its seconds draws them all.
+local function test_seconds_bound_how_long_a_property_draws()
+  local checked: Tally = { value = 0 }
+  local function slow(_input: string): boolean, string
+    checked.value = checked.value + 1
+    local _, _ = Clock.sleep_ns(Clock.ms(20))
+    return true, ""
+  end
+  local n = Fuzz.run({ name = "slow", iters = 1000, seconds = 1, gen = any_bytes, check = slow })
+  assert(n == 64 and checked.value == 64, ("drew %d, checked %d"):format(n, checked.value))
+  local quick = Fuzz.run({ name = "quick", iters = 70, seconds = 600, gen = any_bytes,
+    check = function(_input: string): boolean, string return true, "" end })
+  assert(quick == 70, "ran " .. tostring(quick))
+end
+
+-- The labels a bounded run must reach are counted over the inputs it
+-- drew, not over those it was asked for.
+local function test_a_run_stopped_by_its_seconds_holds_its_shares_to_what_it_drew()
+  local reached: Tally = { value = 0 }
+  local n = Fuzz.run({ name = "stopped shares", iters = 100000, seconds = 1, gen = any_bytes,
+    requires = { "all" }, shares = { all = 1 },
+    check = function(_input: string): boolean, string
+      reached.value = reached.value + 1
+      Fuzz.label("all")
+      local _, _ = Clock.sleep_ns(Clock.ms(20))
+      return true, ""
+    end })
+  assert(n == reached.value and n >= 64 and n < 100000, "drew " .. tostring(n))
+end
+
+-- A generator that goes on until a draw is not the low end of its range
+-- never ends on the cut-short list a candidate of shrinking replays: the
+-- candidate is dropped, as one that no longer fails, and the failure is
+-- reported as it would be for a generator that stops at the low end.
+local function test_a_generator_that_never_ends_on_a_cut_list_does_not_stop_the_shrinking()
+  local err = report({
+    name = "unending",
+    iters = 200,
+    budget = 200000,
+    gen = function(src: Fuzz.Source): string
+      local out: mut {string} = { "x" }
+      while src:int(1, 3) == 1 do out[#out + 1] = "x" end
+      return table.concat(out)
+    end,
+    check = function(input: string): boolean, string
+      return #input < 2, "two or more"
+    end,
+  })
+  assert(err:find("fuzz unending: seed=1 iteration=", 1, true) and err:find("two or more", 1, true), err)
+  assert(err:find("shrunk in ", 1, true), err)
 end
 
 -- A corpus is checked before anything is drawn: an input kept there

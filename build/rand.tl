@@ -410,20 +410,24 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         complain(why)
         return 2
       end
-      local items = lines_of(text)
+      local lines = lines_of(text)
+      local count = #lines
+      -- The lines by slot, a map: a swap of two slots is then no write that could leave a hole.
+      local items: mut {integer: string} = {}
+      for slot, line in ipairs(lines) do items[slot] = line end
       -- Fisher-Yates: each step swaps slot i with a uniform slot from i
       -- to the end, so every order is equally likely. `pick` stops after
       -- the slots it prints, `shuffle` runs to the end.
-      local wanted = #items
+      local wanted = count
       if command == "pick" then
         wanted = request.count or 1
-        if wanted > #items then
-          complain(("cannot pick %d of %s"):format(wanted, plural.count(#items, "line")))
+        if wanted > count then
+          complain(("cannot pick %d of %s"):format(wanted, plural.count(count, "line")))
           return 2
         end
       end
       for slot = 1, wanted do
-        local other = source.int(slot, #items)
+        local other = source.int(slot, count)
         local at_slot = assert(items[slot], "a slot up to the count is a line")
         local at_other = assert(items[other], "a slot drawn up to the end is a line")
         items[slot], items[other] = at_other, at_slot

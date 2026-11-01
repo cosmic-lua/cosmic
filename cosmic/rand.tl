@@ -1,14 +1,14 @@
 --- Seeded pseudorandom numbers. A source made from a seed draws the same
 --- sequence on every run, and on every target for `int`, `float` and
 --- `bytes`, so a run that depends on chance can be replayed by naming
---- its seed; `normal` agrees across targets only as far as their `log`s
---- do. The generator is xoshiro256**, its state filled from the seed by
---- splitmix64. It is not cryptographic: never derive a key, token or
+--- its seed; `normal` and `gamma` agree across targets only as far as
+--- their `log` (and for `gamma` `pow`) do. The generator is xoshiro256**,
+--- its state filled from the seed by splitmix64. It is not cryptographic: never derive a key, token or
 --- nonce from it; draw those from [`Rand.entropy`].
 ---
 --- - [`Rand.new`] makes a seeded [`Rand.Source`], whose `int`, `float`,
----   `bytes` and `normal` draw from it: use one for shuffles, simulations
----   and tests that must replay.
+---   `bytes`, `normal` and `gamma` draw from it: use one for shuffles,
+---   simulations and tests that must replay.
 --- - [`Rand.uniform`] picks an unbiased integer in a range from any
 ---   function that draws 64 random bits.
 --- - [`Rand.entropy`] draws unguessable bytes from the operating system:
@@ -41,6 +41,14 @@ local record Rand
     --- goes through the target's `log`, so a seed's draws agree across
     --- targets only as far as their `log`s do.
     mut normal: function(self: Source, mean?: number, stddev?: number): number
+
+    --- A float drawn from the gamma distribution of shape `shape` and
+    --- scale `scale` (default 1), whose mean is `shape * scale`, by
+    --- Marsaglia and Tsang's method. Raises unless both are finite and
+    --- positive. Its value goes through the target's `log` and, for a
+    --- shape below 1, `pow`. A shape far below 1 can underflow a draw
+    --- to 0, and a large `shape * scale` can overflow one to infinity.
+    mut gamma: function(self: Source, shape: number, scale?: number): number
   end
 end
 
@@ -141,6 +149,32 @@ local function standard_normal(st: State): number
   end
 end
 
+--- A gamma draw of shape `shape` and scale 1 from `st`, by Marsaglia and
+--- Tsang (2000). A shape below 1 draws shape + 1 and scales it by
+--- u^(1/shape), the boost their paper gives.
+local function standard_gamma(st: State, shape: number): number
+  if shape < 1.0 then
+    -- 1 - unit is in (0, 1], so the power is never of 0.
+    local u = 1.0 - unit(st)
+    return standard_gamma(st, shape + 1.0) * u ^ (1.0 / shape)
+  end
+  local d = shape - 1.0 / 3.0
+  local c = 1.0 / math.sqrt(9.0 * d)
+  while true do
+    local x = standard_normal(st)
+    local t = 1.0 + c * x
+    if t > 0.0 then
+      local v = t * t * t
+      local u = 1.0 - unit(st)
+      local x2 = x * x
+      if u < 1.0 - 0.0331 * x2 * x2 or
+          math.log(u) < 0.5 * x2 + d * (1.0 - v + math.log(v)) then
+        return d * v
+      end
+    end
+  end
+end
+
 --- A source drawing the sequence `seed` names. Every integer is a
 --- distinct seed, zero and negative ones included.
 --- @param seed integer The seed
@@ -180,6 +214,14 @@ function Rand.new(seed: integer): Rand.Source
             :format(tostring(m), tostring(sd)), 2)
       end
       return m + sd * standard_normal(st)
+    end,
+    gamma = function(_self: Rand.Source, shape: number, scale?: number): number
+      local k, theta = shape, scale or 1.0
+      if not (finite(k) and finite(theta) and k > 0.0 and theta > 0.0) then
+        error(("rand: gamma(%s, %s): shape and scale must be finite and positive")
+            :format(tostring(k), tostring(theta)), 2)
+      end
+      return standard_gamma(st, k) * theta
     end,
   }
 end

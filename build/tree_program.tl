@@ -34,7 +34,18 @@ local record TreeProgram
   --- ceilings are kept under as well for a source the build writes from another file ([`Driver.index`]), all in the new
   --- grammar, less the programs of a `testdata/` directory. `kinds` says of a file what the working database says
   --- of its input; a `test` has its functions called from outside.
-  index: function(entries: {{string}}, kinds: {string: string}): Driver.Index
+  index: function(entries: {{string}}, kinds: {string: string}, unaliased?: {string: boolean}): Driver.Index
+
+  --- The names of the language's own modules, which no project file may be named for: the lowercase records of the standard
+  --- library's declarations (`math`, `string`, ...) and `_G`, which the checker answers itself. The binary answers a `require`
+  --- of most of them with its own module (what `package.loaded` holds); `io`, `os` and `debug` are removed stand-ins there
+  --- (core/surface.c), refused all the same because the checker declares them. The prelude's records (`metatable`) and the
+  --- capitalised ones (`FILE`) are types, no module. The build gives the set to its program, so that a refused `require` of
+  --- one says it is a global ([`Declarations.Program.library`]).
+  library_modules: function(globals: Globals): {string: boolean}
+
+  --- The complaints of [`Driver.reserved`] for `entries` less the programs of a `testdata/` directory: "" for none.
+  reserved: function(entries: {{string}}, names: {string: boolean}): string
 
   --- `files` and `written` as one list of entries, and which files of it are `written`: the sources the build writes
   --- from other files ([`TreeProgram.derived_of`]) are files of the tree, named for the file each comes from.
@@ -82,10 +93,30 @@ local function skipped(file: string): boolean
   return file:find("^testdata/") ~= nil or file:find("/testdata/", 1, true) ~= nil
 end
 
-function TreeProgram.index(entries: {{string}}, kinds: {string: string}): Driver.Index
+function TreeProgram.index(entries: {{string}}, kinds: {string: string}, unaliased?: {string: boolean}): Driver.Index
   return Driver.index(entries, skipped, function(file: string, _text: string): Driver.Extra
     return { tests = kinds[file] == "test" }
-  end)
+  end, unaliased)
+end
+
+function TreeProgram.library_modules(globals: TreeProgram.Globals): {string: boolean}
+  local library: mut {Driver.Source} = {}
+  for _, source in ipairs(globals.sources) do
+    if source.module == CheckerDeclarations.stdlib_module() then
+      library[#library + 1] = source
+    end
+  end
+  local names: mut {string: boolean} = { ["_G"] = true }
+  for name, declared in pairs(Driver.globals(library, nil)) do
+    if declared.space == "both" and not declared.const and name:match("^%l") ~= nil then
+      names[name] = true
+    end
+  end
+  return names
+end
+
+function TreeProgram.reserved(entries: {{string}}, names: {string: boolean}): string
+  return Driver.reserved(entries, skipped, names)
 end
 
 function TreeProgram.splice(build: Driver.Build, module: string, file: string): boolean?, string
@@ -314,7 +345,10 @@ function TreeProgram.build(index: Driver.Index, globals: TreeProgram.Globals, ty
       external[#external + 1] = derivation.path
     end
   end
-  local build = Driver.new({ globals = globals.sources, adjust = globals.adjust, external = external, types = types == true })
+  local build = Driver.new({
+    globals = globals.sources, adjust = globals.adjust, external = external, types = types == true,
+    library = TreeProgram.library_modules(globals),
+  })
   if stubs ~= nil then
     -- The modules whose stub is read in place of their source are answered ahead of the tree's files.
     build:provide(function(module: string): Driver.Source?

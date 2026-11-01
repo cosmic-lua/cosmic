@@ -405,28 +405,43 @@ local class EventWriter is Xml.DocumentWriter
     -- A prefix the events name themselves, declared or in a plain name, is never
     -- bound, and one this writer has bound where the events stand is never
     -- named, so no name changes namespace.
-    for index, e in ipairs(events) do
-      local names: mut {string} = {}
-      if e.kind == "start" then names[1] = e.name or "" end
-      for attribute in pairs(e.attributes or {}) do names[#names + 1] = attribute end
-      for _, name in ipairs(names) do
-        local used = name:match("^([^{:][^:]*):")
-        local declared = name:match("^xmlns:(.+)$")
-        for _, prefix in ipairs({ used or "", declared or "" }) do
-          if prefix ~= "" then
-            if self:in_scope(prefix) then
-              return "xml: event " .. tostring(self.count + index) .. ": the prefix " .. prefix ..
-                " is bound by the writer already"
-            end
-            scopes.declared[prefix] = true
+    -- The event being written, which a refusal names; set as each is.
+    local at = 0
+    local function refuse(why: string): string
+      return "xml: event " .. tostring(self.count + at) .. ": " .. why
+    end
+    -- Reserves the prefix a name uses or declares; why it may not, or "".
+    local function reserve(name: string): string
+      local used = name:match("^([^{:][^:]*):")
+      local declared = name:match("^xmlns:(.+)$")
+      for _, prefix in ipairs({ used or "", declared or "" }) do
+        if prefix ~= "" then
+          if self:in_scope(prefix) then
+            return refuse("the prefix " .. prefix .. " is bound by the writer already")
           end
+          scopes.declared[prefix] = true
+        end
+      end
+      return ""
+    end
+    for index, e in ipairs(events) do
+      at = index
+      local name = e.name
+      local why = if e.kind == "start" and name ~= nil and name:find(":", 1, true) ~= nil then
+        reserve(name)
+        else
+        ""
+        end
+      if why ~= "" then return why end
+      for attribute in pairs(e.attributes or {}) do
+        if attribute:find(":", 1, true) ~= nil then
+          why = reserve(attribute)
+          if why ~= "" then return why end
         end
       end
     end
     for index, e in ipairs(events) do
-      local function refuse(why: string): string
-        return "xml: event " .. tostring(self.count + index) .. ": " .. why
-      end
+      at = index
       local name = e.name or ""
       local text = e.text or ""
       local pending = self.pending
