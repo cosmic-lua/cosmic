@@ -382,6 +382,17 @@ local function test_scratch_is_private_and_removed_when_closed(tmp: string)
   assert(table.concat(assert(Fs.list(tmp)), " ") == ".scratch-gate")
 end
 
+-- A class declares `__close` as a method, which `<close>` takes; a record that declares it as a field is refused.
+local function test_a_scratch_is_held_in_a_close_local_and_removed_at_the_end_of_its_block(tmp: string)
+  local path: string
+  do
+    local scratch <close> = assert(Fs.scratch(tmp))
+    path = scratch.path
+    assert(Fs.exists(path), "the directory stands while the block runs")
+  end
+  assert(Fs.exists(path) == false, "the block's end removed the directory")
+end
+
 local function test_scratch_holds_its_owner_lock_while_open(tmp: string)
   local scratch <close> = assert(Fs.scratch(tmp))
   local other = assert(sys.open(scratch.path .. "/owner", sys.O_RDWR))
@@ -414,9 +425,8 @@ end
 
 local function test_a_second_close_of_a_scratch_leaves_a_reused_descriptor(tmp: string)
   local scratch = assert(Fs.scratch(tmp))
-  local close = (getmetatable(scratch) as metatable<Fs.Scratch>).__close as function(Fs.Scratch)
   local owner = scratch.owner
-  close(scratch)
+  scratch:__close()
   local opened: mut {integer} = {}
   local reused: integer?
   for i = 1, 64 do
@@ -428,7 +438,7 @@ local function test_a_second_close_of_a_scratch_leaves_a_reused_descriptor(tmp: 
     end
   end
   assert(reused ~= nil, "open hands the freed descriptor out again")
-  close(scratch)
+  scratch:__close()
   assert(sys.fstat(reused) ~= nil, "a second close must not close the descriptor open reused")
   for _, fd in ipairs(opened) do local _, _ = sys.close(fd) end
 end

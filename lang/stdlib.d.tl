@@ -7,7 +7,7 @@
 -- `math.abs`, `math.max`) is declared by overloads. `pcall`, `xpcall` and the `coroutine` library are typed over
 -- `Coroutine<Y, R, S>`, which the language has no other form for.
 --
--- TODO: declare [`Fs.Scratch`] and [`Child.Handle`] as classes in cosmic/fs.tl and cosmic/child.tl (each declares `__close` as a record field and builds its metatable by hand today), which `<close>` refuses
+-- TODO: declare [`Child.Handle`] as a class in cosmic/child.tl (it declares `__close` as a record field and builds its metatable by hand today), which `<close>` refuses
 -- (it takes a class or userdata record that declares `__close` as a method), so that a `<close>` local can hold one, and the TODOs in build/patch.tl, build/zig_fetch.tl and ci/ that wait on
 -- ci/cosmic-driver.pin naming a release that declares them cannot be undone until a release does.
 do
