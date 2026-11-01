@@ -157,7 +157,11 @@ function shared_verdicts.location(environment?: {string:string}, checked?: boole
 end
 
 --- How many rows the file at `path` keeps: more for the file of a checked run's verdicts, which
---- is named `*-checked.db` or `narrowing.db`.
+--- is named `*-checked.db` or `narrowing.db`. The bound is kept where tests run (`settle`); CI's
+--- `verdicts-merge` and `verdicts-trim`, which the pinned driver runs, apply none (the merge unites the
+--- shares' rows, each trimmed to what its run used, and the trim cuts rows by age alone), so the
+--- narrowing file a passing run saves is those rows, at most one per test; a failed run's holds
+--- all a share restored, which the next run's `settle` brings back to the bound.
 function shared_verdicts.rows_kept(path: string): integer
   if path:match("%-checked%.db$") ~= nil or path:match("/narrowing%.db$") ~= nil then
     return kept_checked_rows

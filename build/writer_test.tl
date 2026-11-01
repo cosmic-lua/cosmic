@@ -142,6 +142,7 @@ end
 local function test_a_declaration_ships_its_docs(tmp: string)
   assert(Fs.mkdirs(tmp .. "/a"))
   assert(Fs.write(tmp .. "/a/clock.d.tl", table.concat({
+    "--- @kind binding",
     "local record clock",
     "  --- Seconds since the epoch.",
     "  now: function(): integer",
@@ -157,7 +158,7 @@ local function test_a_declaration_ships_its_docs(tmp: string)
   assert(out:close())
   assert(#rows == 1, tostring(#rows))
   assert(nth(rows, 1):text(1) == "Seconds since the epoch." and nth(rows, 1):text(2) == "clock.d.tl" and
-      nth(rows, 1):text(3) == "3", table.concat(nth(rows, 1):texts(), " "))
+      nth(rows, 1):text(3) == "4", table.concat(nth(rows, 1):texts(), " "))
 end
 
 --- What the tool carries is the projection without the tree's own
@@ -668,7 +669,7 @@ end
 local function test_a_declarations_docs_and_links_are_attributed_to_its_file(tmp: string)
   local db = fixture.database(tmp, {
     ["dep.tl"] = "local record Dep\n  declared: integer\nend\nreturn Dep\n",
-    ["foo.d.tl"] = 'local Dep = require("dep")\n' ..
+    ["foo.d.tl"] = '--- @kind binding\nlocal Dep = require("dep")\n' ..
       "--- Public interface.\n--- See [`Dep.declared`].\nlocal record Foo\n  answer: integer\nend\nreturn Foo\n",
   })
   local docs = assert(Sqlite.text_rows(db, "SELECT file, text FROM docs WHERE module = 'foo' AND symbol = 'Foo'"))
@@ -687,9 +688,9 @@ end
 --- left out of `imports`, which the program's closures are made of.
 local function test_an_edge_to_a_declaration_is_kept_beside_the_runtime_edges(tmp: string)
   local db = fixture.database(tmp, {
-    ["only.d.tl"] = "local record Only\n  n: integer\nend\nreturn Only\n",
+    ["only.d.tl"] = "--- @kind binding\nlocal record Only\n  n: integer\nend\nreturn Only\n",
     ["dep.tl"] = "local record Dep\nend\nreturn Dep\n",
-    ["paired.d.tl"] = 'local type Dep = require("dep")\nlocal record Paired\n  dep: Dep\nend\nreturn Paired\n',
+    ["paired.d.tl"] = '--- @kind binding\nlocal type Dep = require("dep")\nlocal record Paired\n  dep: Dep\nend\nreturn Paired\n',
     ["foo.tl"] = 'local type Only = require("only")\nlocal Dep = require("dep")\n' ..
       "local record Foo\n  only: Only\nend\nreturn Foo\n",
   })

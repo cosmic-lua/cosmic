@@ -188,7 +188,7 @@ local function dependency_graph(db: Sqlite.Handle, modules: {Module}): Graph?, s
   -- A module's own compile is keyed from the slot "\0" .. its path, which holds the module itself.
   --
   -- TODO: drop this slot and the `loads` edge of [`compute_keys`], which only a module that has both a declaration and a
-  -- source could take (the build refuses one, [`build.driver.paired`]), at the next bump of `version` in build/declared_key.tl:
+  -- source could take (the build refuses one, [`build.driver.declared`]), at the next bump of `version` in build/declared_key.tl:
   -- the slot's name is part of every graph key, so removing it moves them all, as that bump does.
   for _, m in ipairs(modules) do
     dependencies["\0" .. m.path] = {

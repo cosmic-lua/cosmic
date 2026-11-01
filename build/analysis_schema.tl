@@ -70,14 +70,54 @@ local kinds <const>: {{string}} = {
   { "cmd/*/main.tl", "main", "cmd/*/*/*" },
 }
 
---- The line a declaration file holds to say it declares a table of C bindings: the kind `binding`, a declaration the
---- contract of the error slots ([`build.syntax_contracts`]) holds the calls of. The generator of a derived declaration
---- writes it too ([`build.gen_syscalls`]).
-local binding_tag <const> = "--- @kind binding"
+--- The kinds a declaration file names itself by, a line of its leading doc block: `--- @kind <kind>`. A declaration that
+--- names none is refused by a build ([`build.driver`]'s `naming`). `binding` is a module implemented in C: a declaration the
+--- contract of the error slots ([`build.syntax_contracts`]) holds the calls of; the generator of a derived declaration
+--- writes it too ([`build.gen_syscalls`]). `language` is the language's own declarations, the build's globals
+--- ([`analysis_schema.is_language_file`]). This list is the one source of the kinds a declaration may name, asked in SQL
+--- ([`kind_case`]) and in Teal ([`analysis_schema.kind_of`]).
+local named_kinds <const>: {string} = { "binding", "language" }
 
---- The line, as [`analysis_schema.declares_binding`] reads it.
+--- The line a declaration file holds to name `kind` (one of [`named_kinds`]).
+local function tag_of(kind: string): string
+  return "--- @kind " .. kind
+end
+
+--- The line a declaration file holds to say it declares a table of C bindings, as [`analysis_schema.declares_binding`] reads it.
 function analysis_schema.binding_tag(): string
-  return binding_tag
+  return tag_of("binding")
+end
+
+--- The line a declaration file holds to say it holds the language's own declarations, as
+--- [`analysis_schema.declares_language`] reads it.
+function analysis_schema.language_tag(): string
+  return tag_of("language")
+end
+
+--- The lines that name a kind of declaration, which are for the build and which the docs leave out.
+function analysis_schema.kind_tags(): {string}
+  local out: mut {string} = {}
+  for _, kind in ipairs(named_kinds) do out[#out + 1] = tag_of(kind) end
+  return out
+end
+
+local prelude_file <const> = "lang/prelude.d.tl"
+local stdlib_file <const> = "lang/stdlib.d.tl"
+
+--- The file of the prelude, below the root of the tree.
+function analysis_schema.prelude_file(): string
+  return prelude_file
+end
+
+--- The file of the standard library's declarations, below the root of the tree.
+function analysis_schema.stdlib_file(): string
+  return stdlib_file
+end
+
+--- Whether `path`, below the root, may name its kind `language`: the two files that are the build's globals, and no other.
+--- A project has no declarations of the language of its own.
+function analysis_schema.is_language_file(path: string): boolean
+  return path == prelude_file or path == stdlib_file
 end
 
 --- The doc block that opens `text`: its first lines up to the first one that does not begin with `--`, a blank line
@@ -110,7 +150,22 @@ end
 --- Whether the text of a declaration file holds [`analysis_schema.binding_tag`] as a line of its own, a file saved with
 --- CR LF line ends as well as one with LF.
 function analysis_schema.declares_binding(text: string): boolean
-  return holds_line(text, binding_tag)
+  return holds_line(text, tag_of("binding"))
+end
+
+--- The kinds of [`named_kinds`] whose line the doc block that opens `text` holds, in that order: more than one is a
+--- declaration that does not say what it is, which a build refuses ([`build.driver`]'s `naming`).
+function analysis_schema.kinds_named(text: string): {string}
+  local out: mut {string} = {}
+  for _, kind in ipairs(named_kinds) do
+    if holds_line(text, tag_of(kind)) then out[#out + 1] = kind end
+  end
+  return out
+end
+
+--- Whether the text of a declaration file holds [`analysis_schema.language_tag`] as a line of its own.
+function analysis_schema.declares_language(text: string): boolean
+  return holds_line(text, tag_of("language"))
 end
 
 local public_tag <const> = "--- @public"
@@ -133,13 +188,16 @@ function analysis_schema.is_support(path: string): boolean
   return globbed("test/*", path)
 end
 
---- The SQL expression for the kind of the file whose path is in `column`: `binding`, `decl`, `test`, `example`, `main` or
---- `module` ([`kinds`]). With `source`, the SQL expression for its text, a declaration file that declares itself a
---- binding is one.
+--- The SQL expression for the kind of the file whose path is in `column`: `binding`, `language`, `decl`, `test`, `example`,
+--- `main` or `module` ([`kinds`]). With `source`, the SQL expression for its text, a declaration file that names its kind
+--- ([`named_kinds`]) is that kind.
 local function kind_case(column: string, source?: string): string
   local out: mut {string} = { "CASE" }
   if source ~= nil then
-    out[#out + 1] = " WHEN " .. column .. " GLOB '*.d.tl' AND " .. tag_in_block(source, binding_tag) .. " THEN 'binding'"
+    for _, kind in ipairs(named_kinds) do
+      out[#out + 1] = " WHEN " .. column .. " GLOB '*.d.tl' AND " .. tag_in_block(source, tag_of(kind)) ..
+        " THEN '" .. kind .. "'"
+    end
   end
   for _, rule in ipairs(kinds) do
     local glob, kind, except = assert(rule[1]), assert(rule[2]), assert(rule[3])
@@ -162,8 +220,8 @@ end
 --- The kinds that are a declaration, a file of types that no program runs, not a module: the one place that says
 --- which, asked in SQL ([`analysis_schema.declaration`]) and in Teal ([`analysis_schema.is_declaration`]). A kind a
 --- derived declaration is given belongs here before it is written to the `derived` table. A `binding` is a declaration
---- of a table of C.
-local declarations <const>: {string} = { declaration_kind, "binding" }
+--- of a table of C, a `language` the language's own.
+local declarations <const>: {string} = { declaration_kind, "binding", "language" }
 
 --- The SQL expression that is true of a row whose kind in `column` is a declaration. `column` is an SQL identifier of
 --- the query, never data: it is spliced into the statement.
@@ -186,12 +244,14 @@ function analysis_schema.is_declaration(kind: string): boolean
   return false
 end
 
---- The kind of the Teal file `path`, below the root, as the `inputs` view says it: `binding`, `decl`, `test`, `example`,
---- `main` or `module`. A declaration is a `binding` only given its `text`; asked of the path alone it is `decl`, which a
---- caller that wants to know a module from a declaration cannot tell from one.
+--- The kind of the Teal file `path`, below the root, as the `inputs` view says it: `binding`, `language`, `decl`, `test`,
+--- `example`, `main` or `module`. A declaration is named for its kind only given its `text`; asked of the path alone it is
+--- `decl`, which is also a declaration that names none (a build refuses that).
 function analysis_schema.kind_of(path: string, text?: string): string
-  if text ~= nil and globbed("*.d.tl", path) and analysis_schema.declares_binding(text) then
-    return "binding"
+  if text ~= nil and globbed("*.d.tl", path) then
+    for _, kind in ipairs(named_kinds) do
+      if holds_line(text, tag_of(kind)) then return kind end
+    end
   end
   for _, rule in ipairs(kinds) do
     local glob, kind, except = assert(rule[1]), assert(rule[2]), assert(rule[3])

@@ -530,9 +530,9 @@ local function checked_of(checker: Checker, document: Document): Checked
     return { refusals = refusals, text = spliced, splices = splices, generated = generated, outcome = outcome,
       program = declarations }
   end
-  -- A file of a pair the stage refused is told so at its first line, whatever else it holds.
-  local pair_refusal = source.refusal(checker.source, document.name)
-  if pair_refusal ~= nil then return checked({ plan.refusal_of(pair_refusal) }, text, none) end
+  -- A file of a pair the stage refused, or a declaration that names no kind, is told so at its first line, whatever else it holds.
+  local told = source.refusal(checker.source, document.name, text)
+  if told ~= nil then return checked({ plan.refusal_of(told) }, text, none) end
   local named = plan.named(document.name)
   local path, kind = named.path, named.kind
   local listed = source.module(checker.source, document.name)

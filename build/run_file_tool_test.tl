@@ -111,19 +111,29 @@ local function test_a_broken_required_file_still_stops_a_file_run(tmp: string)
   end
 end
 
---- What a declaration requires is reached as what a source requires is: a
---- caller is checked against it, so a broken module only the declaration
---- requires stops the run.
-local function test_a_broken_file_a_declaration_requires_stops_a_file_run(tmp: string)
-  local root = tree_of(tmp, "declared", {
+--- What `foo` (the file `file`, a `.tl` or a `.d.tl` that declares itself a binding) requires is reached as what a
+--- source requires is: a caller is checked against it, so a broken module only it requires stops the run.
+local function broken_file_stops_a_file_run(tmp: string, file: string)
+  local record_text = 'local types = require("types")\nlocal record Foo\n  answer: types.N\nend\n'
+  local foo = if file == "foo.d.tl" then "--- @kind binding\n" .. record_text .. "return Foo\n" else record_text .. "return Foo\n" end
+  local root = tree_of(tmp, "declared-" .. file, {
     ["good.tl"] = 'local foo = require("foo")\nprint(foo.answer)\n',
-    ["foo.d.tl"] = 'local types = require("types")\nlocal record Foo\n  answer: types.N\nend\nreturn Foo\n',
+    [file] = foo,
     ["types.tl"] = 'local record types\n  type N = integer\nend\nlocal n: integer = "s"\nprint(n)\nreturn types\n',
   })
   local result = run_in(root, "good.tl")
   local said = tostring(result.stdout) .. tostring(result.stderr)
   assert(result.code == 1 and (result.stderr or ""):find("types.tl: the compiler refused it", 1, true) ~= nil and
       (result.stderr or ""):find("left out", 1, true) == nil, said)
+end
+
+local function test_a_broken_file_a_declaration_requires_stops_a_file_run(tmp: string)
+  broken_file_stops_a_file_run(tmp, "foo.d.tl")
+end
+
+--- A type-only module is a `.tl`, whose requires are reached the same way.
+local function test_a_broken_file_a_type_module_requires_stops_a_file_run(tmp: string)
+  broken_file_stops_a_file_run(tmp, "foo.tl")
 end
 
 --- Files alike are one source to the build; each broken one is told of.

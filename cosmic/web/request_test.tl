@@ -118,7 +118,7 @@ local function test_typed_keys_carry_a_value_per_request()
 end
 
 local function test_url_for_resolves_a_name_from_the_request()
-  local app, seen = recording()
+  local _, seen = recording()
   local named = Web.app{ routes = { Web.get("/items/:id", function(r: Web.Request): Web.Response
     seen[#seen + 1] = r
     return Web.text("ok")
@@ -126,7 +126,6 @@ local function test_url_for_resolves_a_name_from_the_request()
   Web.test_client(named):get("/items/1")
   local seen_1 = assert(seen[1], "expected seen[1]")
   assert(seen_1:url_for("item", { id = 42 }, { v = "2" }) == "/items/42?v=2")
-  assert(app ~= nil)
 end
 
 local function test_client_info_ignores_forwarded_headers_unless_the_proxy_is_trusted()

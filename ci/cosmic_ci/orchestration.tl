@@ -424,7 +424,11 @@ end
 --- Nor is the checked suite's file either's (`checked`): the local
 --- suite's rows would crowd the checked suite's toward the file's bound,
 --- and the checked suite's census (`--census`) counts only its own
---- suite's rows when the file is its own.
+--- suite's rows when the file is its own. The checked narrowing run's
+--- (`narrowing`) is another: its rows are keyed by the checked
+--- compile, share no key with the others, and the tool bounds that
+--- name at twice the rows of the others (build/shared_verdicts.tl's
+--- `rows_kept`).
 function Orchestration.suite_verdicts(env: {string:string}, name: string): string
   local shared = env["COSMIC_VERDICT_CACHE"] or ""
   if shared:sub(1, 1) ~= "/" then return "0" end
@@ -763,7 +767,8 @@ local checked_suite_test_timeout_s <const> = "120"
 --- runner. It is the share's own, not the whole run's bound halved, which
 --- would leave the compile 0 s over the slowest whole run.
 
--- TODO: lower this bound once CI's own runs of a share show its elapsed time.
+-- TODO: lower this bound, from the number of rows that moved as [`gather_budget`] bounds the checked gather, once
+-- CI's own runs of a share standing on verdicts show its elapsed time.
 local checked_narrowing_timeout_ns <const> = Clock.seconds(900)
 local checked_narrowing_test_timeout_s <const> = "120"
 
@@ -1732,10 +1737,11 @@ end
 --- linux-x86_64 target alone: each read the checker narrowed by a test is
 --- written as a check of the test's fact, and a test that meets a read
 --- whose fact is false fails there ("fact violated at <file>:<y>:<x>",
---- doc/testing.md's "checked narrowing"). A checked run stands on verdicts of its own, but
---- the jobs restore and save none yet, so each runs every test. ci.yml runs it in the `checked-narrowing`
---- jobs, after `boot`, each a share of the tests where COSMIC_CI_NARROWING_SHARD
---- names one (`I/N`, `--shard`). A share makes no check that some test enters
+--- doc/testing.md's "checked narrowing"). A checked run stands on verdicts of its own, kept in `narrowing.db`
+--- ([`suite_verdicts`]): where [`stands`] says it may, it runs the tests whose key moved, else every test
+--- (`--all`). ci.yml runs it in the `checked-narrowing` jobs, after `boot`, each a share of the tests where
+--- COSMIC_CI_NARROWING_SHARD names one (`I/N`, `--shard`), which restore the rows of the tree's base on main and
+--- keep their own for the merge job and the run behind in the queue. A share makes no check that some test enters
 --- each C function, which only a whole run does (build/test.tl); that check
 --- is held on this core by the linux-x86_64 leg's whole native suite in every
 --- full run, since a checked run enters no C function a plain one does not:
@@ -1749,16 +1755,21 @@ end
 local function phase_checked_narrowing(p: PlatformContext): integer
   if p.target ~= "x86_64-linux-musl" then return 0 end
   local c = p.operation
-  local argv: mut {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic", "test", "--check-types" }
   local share = named("COSMIC_CI_NARROWING_SHARD")
-  if share ~= nil then
-    argv[#argv + 1] = "--shard"
-    argv[#argv + 1] = share
+  -- Its verdicts are in `narrowing.db`, a file of its own in the directory ci.yml saves and restores
+  -- ([`suite_verdicts`]), on which the run stands where it may (`stands`) and which `--census` says the
+  -- misses of.
+  local run = Orchestration.suite_run({
+    COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "narrowing"),
+    COSMIC_TEST_TIMEOUT = checked_narrowing_test_timeout_s })
+  local argv: mut {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic" }
+  for at, word in ipairs(with_census(run.words, share)) do
+    argv[#argv + 1] = word
+    if at == 1 then argv[#argv + 1] = "--check-types" end
   end
   mkdir(p.local_diagnostics)
   local out = p.local_diagnostics .. "/checked-narrowing-test.out"
-  local values = release_promises(Maps.with(Orchestration.suite_run().env,
-    { COSMIC_TEST_TIMEOUT = checked_narrowing_test_timeout_s }))
+  local values = release_promises(run.env)
   local status = logged(c, "checked narrowing", argv, out,
     p.local_diagnostics .. "/checked-narrowing-test.err", checked_narrowing_timeout_ns, c.root, values)
   -- A run that prints no "run-time types" line (the summary of a checked

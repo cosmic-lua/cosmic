@@ -68,9 +68,14 @@ local function valued(n: integer): string
     " }\nreturn valued\n"
 end
 
---- The declaration of a module `types` whose record `Thing` has a `value` of `kind`.
-local function types_declared(kind: string): string
-  return "local record Types\n  record Thing\n    value: " .. kind .. "\n  end\n  make: function(): Types.Thing\nend\nreturn Types\n"
+--- The module `types` (the file `file`, a `.tl` or a `.d.tl` that declares itself a binding) whose record `Thing` has a
+--- `value` of `kind`. The `.tl` is the type-only module a `.d.tl` may not be.
+local function types_module(file: string, kind: string): string
+  local record_text = "local record Types\n  record Thing\n    value: " .. kind .. "\n  end\n  make: function(): Types.Thing\nend\n"
+  if file:find("%.d%.tl$") ~= nil then
+    return "--- @kind binding\n" .. record_text .. "return Types\n"
+  end
+  return record_text .. "return Types\n"
 end
 
 --- A module `dep` holding `n`.
@@ -306,9 +311,9 @@ local function test_self_compile_consumes_cache_after_identity_selection()
   end
 end
 
---- An edit that changes the public type of a declaration must invalidate a warm dependent.
-local function test_declaration_edit_invalidates_a_warm_dependent()
-  local root, write_trouble = write_fixture("declaration-cache", {
+--- An edit that changes the public type of `file` (see [`types_module`]) must invalidate a warm dependent.
+local function edit_invalidates_a_warm_dependent(file: string)
+  local root, write_trouble = write_fixture("declaration-cache-" .. file, {
     ["main.tl"] = table.concat({
       'local type Types = require("types")',
       "local value: number = 42",
@@ -316,22 +321,32 @@ local function test_declaration_edit_invalidates_a_warm_dependent()
       "return thing",
       "",
     }, "\n"),
-    ["types.d.tl"] = types_declared("number"),
+    [file] = types_module(file, "number"),
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
   assert(compile_fixture(root))
-  assert(Fs.write(root .. "/types.d.tl", types_declared("string")))
+  assert(Fs.write(root .. "/" .. file, types_module(file, "string")))
   local result, trouble = compile_fixture(root)
   assert(result == nil, "a warm compile reused code checked against the old declaration")
   assert(trouble:find("string", 1, true) ~= nil,
     "the changed declaration did not reach the checker: " .. trouble)
 end
 
+--- An edit that changes the public type of a declaration of a binding must invalidate a warm dependent.
+local function test_declaration_edit_invalidates_a_warm_dependent()
+  edit_invalidates_a_warm_dependent("types.d.tl")
+end
+
+--- An edit that changes the public type of a type-only module must invalidate a warm dependent.
+local function test_type_module_edit_invalidates_a_warm_dependent()
+  edit_invalidates_a_warm_dependent("types.tl")
+end
+
 --- Type-only imports participate in the same transitive closure. The main
---- module does not name `types`, but changing that declaration must still
+--- module does not name `types` (the file `file`, see [`types_module`]), but changing it must still
 --- invalidate `helper` and then main in a warm database.
-local function test_declaration_edit_invalidates_transitive_type_only_dependents()
-  local root, write_trouble = write_fixture("transitive-declaration-cache", {
+local function edit_invalidates_transitive_type_only_dependents(file: string)
+  local root, write_trouble = write_fixture("transitive-declaration-cache-" .. file, {
     ["main.tl"] = table.concat({
       'local helper = require("helper")',
       "local record Main",
@@ -353,15 +368,23 @@ local function test_declaration_edit_invalidates_transitive_type_only_dependents
       "return helper",
       "",
     }, "\n"),
-    ["types.d.tl"] = types_declared("number"),
+    [file] = types_module(file, "number"),
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
   assert(compile_fixture(root))
-  assert(Fs.write(root .. "/types.d.tl", types_declared("string")))
+  assert(Fs.write(root .. "/" .. file, types_module(file, "string")))
   local result, trouble = compile_fixture(root)
   assert(result == nil, "a warm compile missed a transitive declaration edit")
   assert(trouble:find("string", 1, true) ~= nil,
     "the transitive declaration did not reach the checker: " .. trouble)
+end
+
+local function test_declaration_edit_invalidates_transitive_type_only_dependents()
+  edit_invalidates_transitive_type_only_dependents("types.d.tl")
+end
+
+local function test_type_module_edit_invalidates_transitive_type_only_dependents()
+  edit_invalidates_transitive_type_only_dependents("types.tl")
 end
 
 --- A module is a declaration or a source, never both: a `.d.tl` beside the `.tl` of its module is refused, naming both files and the fix, and
@@ -369,8 +392,8 @@ end
 local function test_a_declaration_beside_its_source_is_refused()
   local root, write_trouble = write_fixture("declared-implementation-pair", {
     ["lib/dep.tl"] = dep_valued(1),
-    ["lib/dep.d.tl"] = "local record Dep\n  value: number\nend\nreturn Dep\n",
-    ["lib/other.d.tl"] = "local record Other\n  value: number\nend\nreturn Other\n",
+    ["lib/dep.d.tl"] = "--- @kind binding\nlocal record Dep\n  value: number\nend\nreturn Dep\n",
+    ["lib/other.d.tl"] = "--- @kind binding\nlocal record Other\n  value: number\nend\nreturn Other\n",
     ["main.tl"] = 'local dep = require("lib.dep")\nlocal n: number = dep.value\nreturn n\n',
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
@@ -383,6 +406,118 @@ local function test_a_declaration_beside_its_source_is_refused()
   assert(Fs.remove(root .. "/lib/dep.d.tl"))
   local built, built_trouble = compile_fixture(root)
   assert(built ~= nil, "the project did not build once the declaration was deleted: " .. tostring(built_trouble))
+end
+
+--- The words a `.d.tl` that names no kind is refused in.
+local function unnamed_words(file: string): string
+  return file .. ": a .d.tl must name what it is, and this one names nothing. If it declares a module implemented in C, " ..
+    "add the line `--- @kind binding` to its leading comment; otherwise write it as a .tl (types and code in a .tl are " ..
+    "checked and real at run time)."
+end
+
+--- What a build of the tree `files` as cosmic's own tree (not a project) says of it: the trouble of its derive, "" for none.
+local function tree_trouble(dir: string, files: {string: string}): string
+  local db = assert(Sqlite.memory())
+  for _, statement in ipairs(work.schema) do
+    assert(db:exec(statement))
+  end
+  for path, text in pairs(files) do
+    assert(Sqlite.run(db,
+      "INSERT INTO files (path, size, mtime_ns, ino, dev, sha256, data) " ..
+        "VALUES (?1, length(CAST(?2 AS BLOB)), 0, 0, 0, lower(hex(sha256(?2))), ?2)",
+      { { text = path }, { text = text } }))
+  end
+  local handle: work.Handle = { db = db, root = dir, dir = build_paths.required(dir), run = 1, inside = false,
+    standing = { own = true } }
+  local parses, trouble = importer.derive(handle)
+  assert(db:close())
+  assert(parses ~= nil or trouble ~= "", "a derive that gave nothing said nothing")
+  return trouble
+end
+
+--- A `.d.tl` must name what it is. In a project it is refused when it names nothing, whether it holds types only, a
+--- global or a module, and is built when its leading comment says `--- @kind binding`.
+local function test_a_declaration_that_names_nothing_is_refused_in_a_project()
+  local cases: {{string}} = {
+    { "types", "lib/types.d.tl", "local record Types\n  record Page\n  end\nend\nreturn Types\n" },
+    { "global-only", "g.d.tl", "global count: integer\n" },
+    { "global-record", "foo.d.tl", "global record Foo\n  n: integer\nend\n" },
+    { "module", "lib/m.d.tl", "local record M\n  n: integer\nend\nreturn M\n" },
+  }
+  for _, case in ipairs(cases) do
+    local name, file, text = assert(case[1]), assert(case[2]), assert(case[3])
+    local root, write_trouble = write_fixture("unnamed-" .. name, { [file] = text, ["main.tl"] = "local n: integer = 1\nreturn n\n" })
+    assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+    local result, trouble = compile_fixture(root)
+    assert(result == nil and trouble == unnamed_words(file), name .. ": " .. tostring(trouble))
+  end
+end
+
+--- The line `--- @kind binding` makes a declaration a module implemented in C, which a project builds.
+local function test_a_declaration_that_says_it_is_a_binding_is_built_in_a_project()
+  local root, write_trouble = write_fixture("named-binding", {
+    ["lib/m.d.tl"] = "--- A module of C.\n--- @kind binding\nlocal record M\n  n: integer\nend\nreturn M\n",
+    ["main.tl"] = 'local m = require("lib.m")\nlocal n: integer = m.n\nreturn n\n',
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local result, trouble = compile_fixture(root)
+  assert(result ~= nil, tostring(trouble))
+end
+
+--- The language's own kind is for the two files that are the build's globals: anywhere else a project is refused for it,
+--- offering both ways out.
+local function test_a_declaration_of_the_language_outside_its_files_is_refused_in_a_project()
+  for _, file in ipairs({ "lib/m.d.tl", "lang/other.d.tl", "stdlib.d.tl" }) do
+    local root, write_trouble = write_fixture("language-outside", {
+      [file] = "--- @kind language\nlocal record M\n  n: integer\nend\nreturn M\n",
+      ["main.tl"] = "local n: integer = 1\nreturn n\n",
+    })
+    assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+    local result, trouble = compile_fixture(root)
+    local want = file .. ": `--- @kind language` is accepted only when building cosmic's own tree, and this is not one. " ..
+      "If it declares a module implemented in C, add the line " ..
+      "`--- @kind binding` to its leading comment; otherwise write it as a .tl (types and code in a .tl are checked and " ..
+      "real at run time)."
+    assert(result == nil and trouble == want, file .. ": " .. tostring(trouble))
+  end
+end
+
+--- A project has no declarations of the language, whatever it names its files: one at exactly [`lang/stdlib.d.tl`] or
+--- [`lang/prelude.d.tl`] that says `language` is refused, as one anywhere else is.
+local function test_a_project_file_at_the_path_of_the_language_s_own_is_refused_for_the_language_kind()
+  for _, file in ipairs({ "lang/stdlib.d.tl", "lang/prelude.d.tl" }) do
+    local root, write_trouble = write_fixture("language-at-path", {
+      [file] = "--- @kind language\ndo\n  global record Seen\n  end\nend\n",
+      ["main.tl"] = "local n: integer = 1\nreturn n\n",
+    })
+    assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+    local result, trouble = compile_fixture(root)
+    assert(result == nil and trouble:find(file .. ": `--- @kind language` is accepted only when building cosmic's own tree", 1, true) == 1,
+      file .. ": " .. tostring(trouble))
+  end
+end
+
+--- A declaration that names two kinds is refused in a project, naming the file.
+local function test_a_declaration_that_names_two_kinds_is_refused_in_a_project()
+  local root, write_trouble = write_fixture("two-kinds", {
+    ["lib/m.d.tl"] = "--- @kind binding\n--- @kind language\nlocal record M\n  n: integer\nend\nreturn M\n",
+    ["main.tl"] = "local n: integer = 1\nreturn n\n",
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil and trouble:find("lib/m.d.tl: a .d.tl must name exactly one kind", 1, true) == 1, tostring(trouble))
+end
+
+--- The same holds of cosmic's own tree: a `.d.tl` that names nothing is refused, one that names a binding is not, and a
+--- tree's `language` kind outside the two files is.
+local function test_a_declaration_that_names_nothing_is_refused_in_the_tree(tmp: string)
+  local source = "local n: integer = 1\nreturn n\n"
+  local record_text = "local record M\n  n: integer\nend\nreturn M\n"
+  assert(tree_trouble(tmp, { ["cosmic/m.d.tl"] = record_text, ["cosmic/m_user.tl"] = source }) == unnamed_words("cosmic/m.d.tl"))
+  assert(tree_trouble(tmp, { ["build/g.d.tl"] = "global count: integer\n" }) == unnamed_words("build/g.d.tl"))
+  assert(tree_trouble(tmp, { ["cosmic/m.d.tl"] = "--- @kind binding\n" .. record_text, ["cosmic/m_user.tl"] = source }) == "")
+  local outside = tree_trouble(tmp, { ["cosmic/m.d.tl"] = "--- @kind language\n" .. record_text })
+  assert(outside:find("cosmic/m.d.tl: `--- @kind language` is only for the language's own declarations", 1, true) == 1, outside)
 end
 
 --- A project file named for a module of the language (`math`, `string`, `table`, ...) is refused, as a `.tl` and as a `.d.tl`,
@@ -398,7 +533,8 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
   for _, pair in ipairs(refused) do
     local file, name = assert(pair[1]), assert(pair[2])
     local root, write_trouble = write_fixture("language-module", {
-      [file] = "local record M\n  abs: function(integer): string\nend\nreturn M\n",
+      [file] = (if file:find("%.d%.tl$") ~= nil then "--- @kind binding\n" else "" end) ..
+        "local record M\n  abs: function(integer): string\nend\nreturn M\n",
       ["main.tl"] = "local n: integer = 1\nreturn n\n",
     })
     assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
@@ -416,7 +552,7 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
   for _, file in ipairs(allowed) do
     local text = "local n: integer = 1\nreturn n\n"
     if file:find("%.d%.tl$") ~= nil then
-      text = "local record R\n  n: integer\nend\nreturn R\n"
+      text = "--- @kind binding\nlocal record R\n  n: integer\nend\nreturn R\n"
     elseif file:find("_test%.tl$") ~= nil then
       text = "local function test_one()\n  assert(true)\nend\n"
     end
@@ -427,7 +563,7 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
   end
   -- The tail of such a file's name does not stand for the language's module: the call is none of the project's.
   local root, write_trouble = write_fixture("language-module-tail", {
-    ["lib/math.d.tl"] = "local record M\n  abs: function(integer): string\nend\nreturn M\n",
+    ["lib/math.d.tl"] = "--- @kind binding\nlocal record M\n  abs: function(integer): string\nend\nreturn M\n",
     ["main.tl"] = 'local s: string = require("math").abs(-1)\nreturn s\n',
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
@@ -641,6 +777,7 @@ local function test_declaration_dependency_keys_allow_cycles()
       "",
     }, "\n"),
     ["a.d.tl"] = table.concat({
+      "--- @kind binding",
       'local type B = require("b")',
       "local record A",
       "  record Value",
@@ -652,6 +789,7 @@ local function test_declaration_dependency_keys_allow_cycles()
       "",
     }, "\n"),
     ["b.d.tl"] = table.concat({
+      "--- @kind binding",
       'local type A = require("a")',
       "local record B",
       "  record Value",
@@ -1034,6 +1172,7 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
       "",
     }, "\n"),
     ["counter.d.tl"] = table.concat({
+      "--- @kind binding",
       "local record Counter",
       "  record Tally",
       "    bump: function(Tally, integer)",

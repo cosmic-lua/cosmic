@@ -660,7 +660,7 @@ local function parse_new(handle: work.Handle, tally: importer.Parses, made: {Sou
   if fresh == nil then
     return false, trouble
   end
-  return require("build.pipeline").derive(db, fresh, tally, made, broken)
+  return require("build.pipeline").derive(db, work.standing(handle).own, fresh, tally, made, broken)
 end
 
 --- Derives and parses what the staged tree holds that the tables do

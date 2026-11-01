@@ -304,18 +304,7 @@ local CHUNK <const> = 16384
 --- refuses.
 local TLS_ALERT <const> = "\21\3\3\0\2\2\40"
 
---- `text` in lower case.
-local function lower(text: string): string
-  return (text:gsub("%u", string.lower))
-end
-
---- A decimal `port`, or nil.
-local function number_of(text: string): integer?
-  if not text:find("^[1-9]%d*$") or #text > 5 then return nil end
-  local port = math.tointeger(tonumber(text))
-  if port == nil or port < 1 or port > 65535 then return nil end
-  return port
-end
+local lower <const> = Wire.lower
 
 --- `ns` in words: whole seconds, or milliseconds below one.
 local function span(ns: integer): string
@@ -1329,7 +1318,7 @@ local function checked_upstream(up: Relay.Upstream)
   if type(up.host) ~= "string" or up.host == "" or up.host:find("[%c%s]") ~= nil then
     error("relay: spec.upstream.host must be a host name or address", 3)
   end
-  if number_of(tostring(up.port)) == nil or math.type(up.port) ~= "integer" then
+  if math.type(up.port) ~= "integer" or up.port < 1 or up.port > 65535 then
     error("relay: spec.upstream.port must be a port from 1 to 65535", 3)
   end
   local authorization = up.authorization

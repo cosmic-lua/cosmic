@@ -6,6 +6,7 @@
 ---
 --- A module of its own, because [`build.writer`] reads the tree for them and the writer's closure is part of the writer's
 --- identity ([`build.identity`]): it reaches no more of the tree than the files and the store.
+local AnalysisSchema = require("build.analysis_schema")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
@@ -33,7 +34,7 @@ local record CheckerDeclarations
   --- The texts the tree at `root` holds, for a tool being written from it: the files themselves, held to the hashes the
   --- working database `db` staged them with, so that a file edited during the build is no part of the tool. nil and "" where
   --- the database stages neither file (a project's tree, which has no checker of its own); nil and why where it stages them and
-  --- they are not what it staged.
+  --- they are not what it staged or either lacks the `--- @kind language` line.
   staged: function(db: Sqlite.Handle, root: string): Texts?, string
 
   --- The texts the running tool carries, nil and why where it carries none (a tool older than this, or a worker's store of
@@ -41,8 +42,8 @@ local record CheckerDeclarations
   carried: function(): Texts?, string
 end
 
-local PRELUDE <const> = "lang/prelude.d.tl"
-local STDLIB <const> = "lang/stdlib.d.tl"
+local PRELUDE <const> = AnalysisSchema.prelude_file()
+local STDLIB <const> = AnalysisSchema.stdlib_file()
 
 function CheckerDeclarations.prelude_file(): string
   return PRELUDE
@@ -103,6 +104,14 @@ function CheckerDeclarations.staged(db: Sqlite.Handle, root: string): CheckerDec
   local stdlib, stdlib_why = read_as(root, STDLIB, stdlib_hash)
   if stdlib == nil then
     return nil, stdlib_why
+  end
+  -- These two are why `language` is a kind ([`build.analysis_schema`]): the file says it holds the language's own declarations,
+  -- and the build does not take it for that from its path.
+  for _, each in ipairs({ { PRELUDE, prelude }, { STDLIB, stdlib } }) do
+    if not AnalysisSchema.declares_language(each[2] or "") then
+      return nil, (each[1] or "") .. ": the language's own declarations must say so: add the line `" ..
+        AnalysisSchema.language_tag() .. "` to its leading comment"
+    end
   end
   return { prelude = prelude, stdlib = stdlib }, ""
 end

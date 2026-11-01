@@ -1,3 +1,4 @@
+--- @kind language
 -- The Lua standard library's declarations, as the new checker reads them: the trust boundary of the type layer, the typing
 -- the checker takes without proof.
 -- Auditing or changing a declaration is an edit of this file.
@@ -6,10 +7,6 @@
 -- collection it is given takes it `mut`, and one that the fork types by a special case in its checker (`assert`,
 -- `math.abs`, `math.max`) is declared by overloads. `pcall`, `xpcall` and the `coroutine` library are typed over
 -- `Coroutine<Y, R, S>`, which the language has no other form for.
---
--- TODO: declare [`Fs.Scratch`] and [`Child.Handle`] as classes in cosmic/fs.tl and cosmic/child.tl (each declares `__close` as a record field and builds its metatable by hand today), which `<close>` refuses
--- (it takes a class or userdata record that declares `__close` as a method), so that a `<close>` local can hold one, and the TODOs in build/patch.tl, build/zig_fetch.tl and ci/ that wait on
--- ci/cosmic-driver.pin naming a release that declares them cannot be undone until a release does.
 do
   -- What a coroutine's body is given to yield through, since `coroutine.yield` is dynamically scoped and no type says
   -- which coroutine a bare `yield` feeds: `Y` is what it yields and `S` what it is sent.
