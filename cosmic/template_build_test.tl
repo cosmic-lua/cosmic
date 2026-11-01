@@ -208,9 +208,9 @@ local function test_a_template_of_the_tree_is_a_module_the_tree_requires()
   assert(not out:find("javascript", 1, true), out)
 end
 
-local function test_a_template_whose_data_is_a_declaration_builds_and_renders(tmp: string)
+local function test_a_template_whose_data_is_a_type_module_builds_and_renders(tmp: string)
   local lua, trouble = project(tmp, "declared", {
-    ["types.d.tl"] = "local record types\n  record Page\n    title: string\n  end\nend\nreturn types\n",
+    ["types.tl"] = "local record types\n  record Page\n    title: string\n  end\nend\nreturn types\n",
     ["page.tmpl"] = "{{type Page from types}}{{mode text}}{{.title}}" })
   assert(lua ~= nil, trouble)
   local mod = load_module(lua, "page")

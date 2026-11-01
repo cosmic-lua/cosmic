@@ -5,7 +5,7 @@
 --- correct program reports nothing. The narrowing is made false by a chunk of Lua text the program `load`s and passes a
 --- record: it clears a field the checker took to be fixed, which no program of the checker's grammar can do by a cast.
 ---
---- The project is compiled by the tool the test starts, in the new mode whatever the mode of the suite that runs this test.
+--- The project is compiled by the tool the test starts, in the new mode.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")

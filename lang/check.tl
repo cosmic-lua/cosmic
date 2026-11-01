@@ -3584,6 +3584,10 @@ local function disjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Typ
   end
   if left_kind == "bool" then
     local right = expr(ctx, node.right, expected)
+    -- A `never` left cannot occur: the answer is the right operand's, as in the `T?` path below, where `join` drops `never`.
+    if left.tag == "never" then
+      return right
+    end
     if is_bool(right) or right.tag == "never" or right.tag == "invalid" then
       return store.boolean
     end
@@ -3623,11 +3627,13 @@ local function conjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Typ
     local _ = expr(ctx, node.right, nil)
     return ctx.invalid
   end
-  local right = expr(ctx, node.right, left_kind == "bool" and expected or nil)
+  -- A `never` left cannot occur, so it is no boolean: the answer is the right operand or nil, as for a `T?` left.
+  local boolean = left_kind == "bool" and left.tag ~= "never"
+  local right = expr(ctx, node.right, boolean and expected or nil)
   if right.tag == "invalid" then
     return right
   end
-  if left_kind == "bool" then
+  if boolean then
     if is_bool(right) or right.tag == "never" then
       return store.boolean
     end

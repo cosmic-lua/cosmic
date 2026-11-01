@@ -155,7 +155,9 @@ local function test_noexec_scratch_refuses_conflicting_mount_targets(tmp: string
   -- Only Linux has a noexec scratch to conflict with: elsewhere the start
   -- is refused ENOSYS before the mounts are checked for conflicts, and no
   -- requirement names Linux alone.
-  if assert(sys.uname()).sysname ~= "Linux" then return end
+  if assert(sys.uname()).sysname ~= "Linux" then
+    Test.skip("only Linux has a noexec scratch to conflict with")
+  end
   for _, target in ipairs({ "/noexec", "/noexec/inside" }) do
     local pid, trouble, errno = process.spawn("/missing", { "/missing" }, nil, "/",
       nil, nil, nil, false, nil, { noexec_scratch = true, offline = true,

@@ -23,6 +23,7 @@ local Net = require("cosmic.net")
 local Test = require("cosmic.test")
 local Udp = require("build.udp_fixture")
 local sys = require("cosmic.sys")
+local SeatbeltFixture = require("build.seatbelt_fixture")
 
 --- Nothing a profile here reads is the tree's: it is the host's, which the
 --- children run from.
@@ -31,13 +32,6 @@ Test.policy{ env = { "TMPDIR" }, profiles = { "system" } }
 --- Whether a test ends by failing with everything it saw, so that one run's
 --- log shows it whether or not the assertions held.
 local DUMP <const> = false
-
---- Ends the test where Seatbelt does not hold a child.
-local function macos_only()
-  if assert(sys.uname()).sysname ~= "Darwin" then
-    Test.skip("Seatbelt holds a child on macOS alone")
-  end
-end
 
 --- What a test saw, one line each.
 local function new_report(): mut {string}
@@ -214,7 +208,7 @@ end
 
 --- Which forms of a `remote` rule the system's profile compiler takes.
 local function test_which_remote_forms_the_profile_compiler_takes(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local report = new_report()
   local parsed: mut {string:boolean} = {}
   for _, form in ipairs(forms(8080)) do
@@ -240,7 +234,7 @@ end
 --- What each form of the rule reaches over TCP of two live listeners on
 --- 127.0.0.1 and one on ::1, which is the port rule the design relies on.
 local function test_a_port_rule_reaches_its_port_and_no_other(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local report = new_report()
   local allowed <close> = assert(listener("127.0.0.1", 0))
   local other <close> = assert(listener("127.0.0.1", 0))
@@ -309,7 +303,7 @@ local function udp_arrives(socket: Udp.Bound, text: string, tmp: string, port: i
 end
 
 local function test_a_port_rule_and_udp(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local report = new_report()
   local allowed <close> = assert(Udp.bind("127.0.0.1", 0))
   local allowed_port = port_of(allowed.address)
@@ -377,7 +371,7 @@ local function listens(tmp: string, text: string, port: integer): string
 end
 
 local function test_a_port_rule_and_binding(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local report = new_report()
   local probe = assert(listener("127.0.0.1", 0))
   local port = port_of(probe.address)
@@ -414,7 +408,7 @@ local function unix_reach(tmp: string, text: string, parameters: {string:string}
 end
 
 local function test_a_unix_socket_is_denied_under_default_deny(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local report = new_report()
   local mdns = "/var/run/mDNSResponder"
   local real = "/private" .. mdns
@@ -589,7 +583,7 @@ local OUTBOUND <const> = "(allow network-outbound (remote ip \"*:*\"))"
 --- With outbound network and the resolver files and nothing else, what each
 --- resolver does and which refusals the log shows.
 local function test_what_a_resolver_is_refused_with_network_and_resolver_files(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   network_or_skip()
   local report: mut {string} = new_report()
   local text = profile(strict(), { OUTBOUND })
@@ -628,7 +622,7 @@ end
 --- With each Mach service of a list too, and with every one, what works;
 --- then which of the list each resolver cannot do without.
 local function test_which_mach_services_a_resolver_needs(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   network_or_skip()
   local report: mut {string} = new_report()
   local base: {string} = { OUTBOUND, table.concat(resolver_files(nil), "\n") }
@@ -674,7 +668,7 @@ end
 --- Which resolver files the resolvers cannot do without, and whether a rule on
 --- UDP port 53 alone takes the place of all outbound network.
 local function test_which_resolver_files_and_network_a_resolver_needs(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   network_or_skip()
   local report: mut {string} = new_report()
   local function with(files: {string}, network: string): string

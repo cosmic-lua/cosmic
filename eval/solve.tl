@@ -14,6 +14,7 @@ local Child = require("cosmic.child")
 local Signal = require("cosmic.signal")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 
@@ -247,7 +248,7 @@ local function complain(message: string)
 end
 
 local function now(): string
-  local ns = Time.now_ns()
+  local ns = Clock.now_ns()
   return Time.format_rfc3339(ns - ns % 1000000000) .. "\n"
 end
 
@@ -378,7 +379,7 @@ function Solve.main(argv: {string}): integer
     complain(wtrouble)
     return 2
   end
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   -- The run's own guard holds a SIGINT or SIGTERM until finished_at and
   -- exit_code are written, then delivers it as it closes.
   local guard <close> = assert(Signal.guard())
@@ -388,7 +389,7 @@ function Solve.main(argv: {string}): integer
     stdin = "null",
     stdout = outputs[1],
     stderr = outputs[2],
-    timeout_ns = Time.seconds(options.timeout),
+    timeout_ns = Clock.seconds(options.timeout),
     sandbox = { unveil = unveil },
   })
   for _, out in ipairs(outputs) do local _, _ = Fs.close(out) end
@@ -403,7 +404,7 @@ function Solve.main(argv: {string}): integer
   end
   local _, _ = Fs.write(arena .. "/finished_at", now())
   local _, _ = Fs.write(arena .. "/exit_code", tostring(status) .. "\n")
-  local seconds = (Time.monotonic_ns() - started) // 1000000000
+  local seconds = (Clock.monotonic_ns() - started) // 1000000000
   complain(arena .. ": exit " .. tostring(status) .. " after " .. tostring(seconds) .. "s" ..
       (if result ~= nil and result.timed_out then " (past the " .. tostring(options.timeout) ..
           "s deadline)" else "" end))

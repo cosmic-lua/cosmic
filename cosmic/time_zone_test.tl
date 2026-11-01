@@ -5,6 +5,7 @@
 
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
+local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")
 local Test = require("cosmic.test")
 
@@ -414,9 +415,9 @@ local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
   -- and other processes' load stop counting; until then wall time, the
   -- least of many reads, stands in.
   local function read(data: string, near: boolean): integer
-    local started = Time.monotonic_ns()
+    local started = Clock.monotonic_ns()
     local z, why = Time.zone_from_tzif(data, "x")
-    local elapsed = Time.monotonic_ns() - started
+    local elapsed = Clock.monotonic_ns() - started
     if near then
       assert(z ~= nil, why)
       assert(Time.civil(0, z).abbreviation == "CET")

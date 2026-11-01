@@ -330,6 +330,22 @@ local function test_definition_follows_a_require_to_the_module_that_declares_it(
   assert_located(defined(ran, 6), root, "main.tl", 0, 6, 11)
 end
 
+--- A record another module repeats the name of at its top (a module the build holds to a ceiling of `shadows`) is named
+--- by the lowering `module@id` of its node: its field is found in a parse of the text the checker was served of the module,
+--- where that node stands, and not in the first record of the name.
+local function test_definition_of_a_field_of_a_repeated_top_level_record_of_another_module()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/box.tl", "local record Box\n  a: integer\nend\n\nlocal record Box\n  b: integer\nend\n\n" ..
+      "local record M\n  make: function(): Box\nend\n\nlocal m: M = {\n  make = function(): Box\n    return { b = 1 }\n  end,\n}\n" ..
+      "return m\n"))
+  local text = 'local box = require("lib.box")\nlocal x = box.make()\nlocal _ = x.b\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 2, 12),
+  })
+  assert_located(defined(ran, 2), root, "lib/box.tl", 5, 2, 3)
+end
+
 local function test_definition_of_a_member_is_found_through_a_class_an_interface_and_an_optional()
   local root = session_fixture.project()
   local text = 'local class Counter\n  n: integer\n  function bump(self): integer\n    return self.n + 1\n  end\nend\n' ..
@@ -623,6 +639,23 @@ local function test_definition_of_a_binary_module_s_field_is_the_file_extracted_
   assert_located_at(defined(ran, 3), file, staged_line, 12, 18)
   assert_located(defined(ran, 4), root, "main.tl", 0, 6, 8)
   assert(Fs.read(file) == carried and assert(Fs.stat(file)).mode & 0x1ff == 0x124, "the file holds the text, read-only")
+end
+
+--- A symbol of a binary module generated from a header ([`cosmic.sys`]) is in the header the tool carries, written
+--- read-only below the build directory, at the line the module's `-- line` map gave and the column its name stands at.
+local function test_definition_of_a_generated_binary_module_s_function_is_the_header_extracted_from_the_tool()
+  local root = session_fixture.project()
+  local text = 'local sys = require("cosmic.sys")\nlocal _ = sys.getpid\n'
+  local header = "/* The table. */\n\n/*\n * --- The pid.\n */\nCOSMIC_SYSCALL(getpid, 0);\n"
+  local db = session_fixture.carrying_origin("cosmic.sys", "core/syscalls.h", header, { { "sys.getpid", "field", "6", "1", "0", "0" } })
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 1, 16),
+  }, { db })
+  local directory = build_paths.under((assert(build_paths.directory(root)))).cosmic_source
+  local file = directory .. "/" .. Hash.hex_sha256(header) .. "/core/syscalls.h"
+  assert_located_at(defined(ran, 2), file, 5, 15, 21)
+  assert(Fs.read(file) == header and assert(Fs.stat(file)).mode & 0x1ff == 0x124, "the file holds the header, read-only")
+  assert(db:close())
 end
 
 --- A tool whose database lists no places (one from before the table) answers none.

@@ -27,7 +27,7 @@ local Fs = require("cosmic.fs")
 local Github = require("cosmic_ci.github")
 local Plural = require("cosmic_ci.plural")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 local record ChangedPaths
   --- What a run of git came to: whether it exited 0, and what it wrote to standard output.
@@ -69,7 +69,7 @@ function ChangedPaths.live_git(env: {string:string}): ChangedPaths.Git
     local words: mut {string} = { git }
     for _, word in ipairs(argv) do words[#words + 1] = word end
     local timeout_ns: integer? = nil
-    if seconds > 0 then timeout_ns = Time.seconds(seconds) end
+    if seconds > 0 then timeout_ns = Clock.seconds(seconds) end
     local result, _ = Child.run(words, { env = env, stdin = "null", stdout = "capture",
       timeout_ns = timeout_ns })
     if result == nil or not result.ok then return { ok = false, output = "" } end

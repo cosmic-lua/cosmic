@@ -24,7 +24,7 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 local record CeilingsBase
   --- Runs git with `args` in the checkout at `root`: its exit status (-1 where git could not run, or ran out of time) and
@@ -47,7 +47,7 @@ local record CeilingsBase
 end
 
 --- How long one git call may take: a local lookup, or a fetch of one commit.
-local git_timeout_ns <const> = Time.seconds(60)
+local git_timeout_ns <const> = Clock.seconds(60)
 
 function CeilingsBase.live_git(): CeilingsBase.Git
   return function(root: string, args: {string}): integer, string

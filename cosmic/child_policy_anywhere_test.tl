@@ -12,22 +12,13 @@ local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local searchable = require("build.searchable")
 local stand_in = require("build.stand_in")
+local ChildPolicy = require("build.child_policy_fixture")
 
 --- The temporary directory and the environment the tests read; the system's
 --- own paths, whose profile one test reads; and `nests`, since a start of
 --- these policies is a root of its own where it gets as far as a child, which
 --- a worker held by a Landlock ruleset cannot make.
 Test.policy{ env = { "TMPDIR" }, promises = { "nest" }, profiles = { "system" } }
-
---- Whether `why`, a start's failure, is the platform or the host giving no
---- Landlock, seccomp or user namespace.
-local function unsandboxable(why: string): boolean
-  for _, word in ipairs({ "Landlock", "seccomp", "not implemented", "namespace", "own /proc",
-      "root could not be built" }) do
-    if why:find(word, 1, true) then return true end
-  end
-  return false
-end
 
 --- Ends the test where this host holds a child by Seatbelt, which refuses
 --- what it cannot hold in words of its own, in cosmic/child_seatbelt_test.tl:
@@ -101,7 +92,7 @@ local function test_a_start_under_a_policy_is_refused_where_the_platform_has_no_
     -- start directory must be at, beneath or above a grant.
     local result, why = Child.run({ probe, "print hi" }, { policy = policy, cwd = probe:match("^(.*)/") })
     assert(result == nil, "policy " .. tostring(i) .. " started a child where there is no sandbox")
-    assert(unsandboxable(why), "policy " .. tostring(i) .. ": " .. why)
+    assert(ChildPolicy.unsandboxable(why), "policy " .. tostring(i) .. ": " .. why)
   end
 end
 
@@ -195,7 +186,7 @@ local function test_a_policy_with_connect_may_not_name_a_proxy_variable(tmp: str
   local free, why = Child.run({ probe, "env-of HTTPS_PROXY" }, { policy = { grants = itself(probe),
     set_env = { HTTPS_PROXY = "http://mine:1" } }, stdout = "capture", cwd = probe:match("^(.*)/") })
   if free == nil then
-    assert(unsandboxable(why), why)
+    assert(ChildPolicy.unsandboxable(why), why)
   else
     assert(free.stdout == "HTTPS_PROXY=http://mine:1\n", tostring(free.stdout))
   end

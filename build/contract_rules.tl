@@ -33,6 +33,8 @@ local exempt: {string: string} = {
 }
 
 local parsing: {string: string} = {
+  ["build/child_policy_fixture.tl:child_policy_fixture.refused"] =
+    "the sandbox reports a refusal of the policy and of the host in text alone; the test tells them apart to skip the host's",
   ["test/terminal/pty.tl:assert_terminal_refusal"] =
     "the CI terminal fixture checks the public rejection diagnostic, not a recovery decision",
 }

@@ -38,6 +38,11 @@ and a `function f()` with no local `f` in scope, at the line and column
 of the declaration: put the value in a module and require it. It refuses
 them in a `.d.tl` file too.
 
+A `.d.tl` declares a module implemented in C, and says so with the line
+`--- @kind binding` in its leading comment. A build refuses a `.d.tl` that
+does not, naming the file: a file of types or code is a `.tl`, which is checked
+and real at run time.
+
 ## a library module
 
 The first line comment of a module, and the comment above each

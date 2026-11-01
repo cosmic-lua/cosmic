@@ -16,7 +16,7 @@ local type Sandbox = require("cosmic.sandbox")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local test_inputs = require("build.test_inputs")
 local test_policy = require("build.test_policy")
@@ -186,7 +186,7 @@ end
   env.ROOT, env.SCRATCH, env.PATH = root, scratch, "/usr/bin:/bin"
   env.ARTIFACT = launched.argv[3]
   started.options.env, started.options.stdout, started.options.stderr = env, "capture", "capture"
-  started.options.timeout_ns = Time.seconds(60)
+  started.options.timeout_ns = Clock.seconds(60)
   -- The launcher names the artifact by where it was started from: $PWD/$0.
   started.argv = { "../cosmic", "-e", script }
   started.options.cwd = tmp .. "/beside/ci"

@@ -18,6 +18,7 @@ local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local searchable = require("build.searchable")
 local stand_in = require("build.stand_in")
+local ChildPolicy = require("build.child_policy_fixture")
 
 --- The temporary directory, which a start's root is built in, and `nests`,
 --- since the sandboxes this test makes are roots a worker held by a
@@ -27,16 +28,6 @@ Test.policy{
   promises = { "nest" },
   requires = { "nest" },
 }
-
---- Whether `why`, a start's failure, is the host giving no seccomp or user
---- namespace.
-local function unsandboxable(why: string): boolean
-  for _, word in ipairs({ "Landlock", "seccomp", "not implemented", "namespace", "own /proc",
-      "root could not be built" }) do
-    if why:find(word, 1, true) then return true end
-  end
-  return false
-end
 
 --- What a program left and how it ended.
 local record Outcome
@@ -52,7 +43,7 @@ local function under(argv: {string}, policy: Sandbox.Policy, cwd: string,
   local result, why = Child.run(argv,
     { policy = policy, cwd = cwd, stdout = "capture", stderr = "stdout", fds = fds })
   if result == nil then
-    assert(unsandboxable(why), "the start was refused: " .. why)
+    assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
     Test.skip(why)
     return nil
   end

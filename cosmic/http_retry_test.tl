@@ -23,13 +23,6 @@ local function reply(n: integer, status: string, head: string, body?: string): s
     "Content-Length: " .. tostring(#body) .. "\r\nConnection: close\r\n\r\n" .. body
 end
 
---- The message of the raise `fn` ends in.
-local function raised(fn: function()): string
-  local ok, err = pcall(fn)
-  assert(not ok, "expected a raise")
-  return tostring(err)
-end
-
 local function test_a_429_with_retry_after_zero_is_sent_again()
   local got = assert(Http.get(url, { retry = { attempts = 2 }, script = {
     reply(1, "429 Too Many Requests", "Retry-After: 0\r\n", "slow down"),
@@ -291,7 +284,7 @@ local function test_a_policy_of_the_wrong_shape_raises_naming_the_option(tmp: st
       download_result = function() local _ = Http.download_result(url, tmp .. "/never", opts()) end,
     }
     for name, entry in pairs(entries) do
-      local err = raised(entry)
+      local err = Test.raises(entry)
       assert(err:find("http: " .. option .. " must be", 1, true) ~= nil, name .. ": " .. err)
       -- Blamed on this file, the caller, not on a line of cosmic.http.
       assert(err:find("http_retry_test:", 1, true) ~= nil, name .. ": " .. err)
