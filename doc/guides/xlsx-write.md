@@ -1,5 +1,7 @@
 # writing a spreadsheet
 
+<!-- policy: cpu_features = true -->
+
 An `.xlsx` file is a zip of XML parts, and the fewest a spreadsheet
 program opens are five: the content types, the package's relationships,
 the workbook, the workbook's relationships, and a sheet. This guide writes
