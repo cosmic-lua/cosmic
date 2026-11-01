@@ -240,7 +240,7 @@ build/work.tl 1
 
 cosmic/child.tl 11
 
-cosmic/fs.tl 4
+cosmic/fs.tl 3
 
 cosmic/http/init.tl 1
 
@@ -376,7 +376,7 @@ cosmic/child.tl setmetatable_call 4
 
 cosmic/compress_test.tl setmetatable_call 1
 
-cosmic/fs.tl setmetatable_call 4
+cosmic/fs.tl setmetatable_call 3
 
 cosmic/hash_test.tl setmetatable_call 2
 
@@ -2265,7 +2265,7 @@ cosmic/archive_test.tl field_fixed 4
 
 cosmic/channel.tl field_fixed 2
 
-cosmic/child.tl field_fixed 29
+cosmic/child.tl field_fixed 24
 
 cosmic/child_drain_test.tl field_fixed 15
 
@@ -2294,7 +2294,7 @@ cosmic/child_task_tool_test.tl field_fixed 2
 cosmic/compress_test.tl field_fixed 1
 
 
-cosmic/fs.tl field_fixed 4
+cosmic/fs.tl field_fixed 3
 
 cosmic/fs_append_test.tl field_fixed 18
 
@@ -3284,7 +3284,7 @@ core/syscalls_test.tl any_use 29
 
 cosmic/channel_test.tl any_use 1
 
-cosmic/child.tl any_use 12
+cosmic/child.tl any_use 11
 
 
 cosmic/child_terminal_test.tl any_use 8
@@ -3676,8 +3676,6 @@ cosmic/declared_types_test.tl cast_refused 1
 
 cosmic/fs_append_test.tl cast_refused 1
 
-cosmic/fs_test.tl cast_refused 2
-
 cosmic/hash_test.tl cast_refused 8
 
 cosmic/html_test.tl cast_refused 7
@@ -3963,35 +3961,23 @@ build/cache_lifetime.tl close_not_closable 1
 
 build/cache_maintenance.tl close_not_closable 8
 
-build/cache_tool_test.tl close_not_closable 2
-
 build/dataset_test.tl close_not_closable 1
 
-build/fetch_tool_test.tl close_not_closable 3
+build/fetch_tool_test.tl close_not_closable 2
 
 build/lsp/session_test.tl close_not_closable 3
 
-build/lsp/tool_test.tl close_not_closable 4
+build/lsp/tool_test.tl close_not_closable 3
 
 build/rebuild_lock.tl close_not_closable 1
 
 build/rebuild_lock_test.tl close_not_closable 1
 
-build/sqlite_wait_lua_test.tl close_not_closable 5
-
-build/term_relay.tl close_not_closable 3
+build/term_relay.tl close_not_closable 2
 
 build/test.tl close_not_closable 1
 
-build/test_cancelled_verdicts_tool_test.tl close_not_closable 1
-
-build/test_isolation_tool_test.tl close_not_closable 2
-
-build/test_sandbox_run_tool_test.tl close_not_closable 1
-
 build/udp_fixture_test.tl close_not_closable 4
-
-build/zig_lock_test.tl close_not_closable 2
 
 core/allocation_test.tl close_not_closable 12
 
@@ -3999,31 +3985,11 @@ core/grants_child_test.tl close_not_closable 1
 
 core/lookup_test.tl close_not_closable 2
 
-core/sqlite_lua_test.tl close_not_closable 2
-
-core/sqlite_wait_lua_test.tl close_not_closable 8
-
-cosmic/child.tl close_not_closable 4
-
-cosmic/child_drain_test.tl close_not_closable 28
-
-cosmic/child_example.tl close_not_closable 2
-
-cosmic/child_lua_test.tl close_not_closable 19
-
-cosmic/child_stream_failure_test.tl close_not_closable 6
-
-cosmic/child_task_tool_test.tl close_not_closable 13
+cosmic/child.tl close_not_closable 3
 
 cosmic/declared_types_test.tl close_not_closable 1
 
 cosmic/fs.tl close_not_closable 1
-
-cosmic/fs_append_tool_test.tl close_not_closable 2
-
-cosmic/fs_example.tl close_not_closable 1
-
-cosmic/fs_test.tl close_not_closable 4
 
 cosmic/http/init.tl close_not_closable 1
 
@@ -4031,7 +3997,7 @@ cosmic/http/server_example.tl close_not_closable 1
 
 cosmic/http/server_test.tl close_not_closable 38
 
-cosmic/http/server_tool_test.tl close_not_closable 2
+cosmic/http/server_tool_test.tl close_not_closable 1
 
 cosmic/http_example.tl close_not_closable 1
 
@@ -4039,21 +4005,17 @@ cosmic/http_test.tl close_not_closable 1
 
 cosmic/http_timeout_test.tl close_not_closable 3
 
-cosmic/http_tool_test.tl close_not_closable 6
+cosmic/http_tool_test.tl close_not_closable 4
 
 cosmic/internal/connector.tl close_not_closable 1
-
-cosmic/internal/relay_direct_test.tl close_not_closable 2
-
-cosmic/internal/relay_handed_test.tl close_not_closable 1
 
 cosmic/net.tl close_not_closable 1
 
 cosmic/net_example.tl close_not_closable 10
 
-cosmic/net_resolve_through_test.tl close_not_closable 14
+cosmic/net_resolve_through_test.tl close_not_closable 13
 
-cosmic/net_resolve_tool_test.tl close_not_closable 2
+cosmic/net_resolve_tool_test.tl close_not_closable 1
 
 cosmic/net_serve_test.tl close_not_closable 16
 
@@ -4080,8 +4042,6 @@ cosmic/web/sse.tl close_not_closable 1
 cosmic/web/testing.tl close_not_closable 1
 
 cosmic/web/testing_test.tl close_not_closable 1
-
-doc/guides/quickstart.md close_not_closable 1
 
 
 test/sqlite_query_test.tl close_not_closable 1
@@ -5684,7 +5644,7 @@ cosmic/channel_test.tl literal_missing 1
 
 cosmic/child.tl literal_missing 3
 
-cosmic/fs.tl literal_missing 6
+cosmic/fs.tl literal_missing 4
 
 cosmic/http/init.tl literal_missing 1
 
@@ -6195,7 +6155,7 @@ core/syscalls_tool_test.tl arms_differ 1
 
 core/syscalls_tool_unsandboxed_test.tl arms_differ 1
 
-cosmic/child.tl arms_differ 3
+cosmic/child.tl arms_differ 2
 
 cosmic/child_drain_test.tl arms_differ 4
 
@@ -6858,14 +6818,10 @@ cosmic/removed_example.tl setmetatable_call 1
 # [`build.example_checks`] holds in the new mode: `<file> <code> <count>`, the count over all of the file's examples. They
 # are the examples that need a type the new checker or the library does not yet have to be written cleanly. A pin only falls.
 
-# TODO: declare the handles these examples close with `<close>` (a child, a connection, a listener, a query, a scratch
-# directory, a response) as classes, and write the metatable of the two examples that build one by hand
-# as a class, once the library's handles are classes (a change of its own, library by library): the new checker refuses
-# `<close>` on a record and a call of `setmetatable`.
-cosmic/child_example.tl close_not_closable 2
-
-cosmic/fs_example.tl close_not_closable 1
-
+# TODO: declare the handles these examples close with `<close>` (a connection, a listener, a query, a response) as
+# classes, and write the metatable of the two examples that build one by hand as a class, once the library's handles are
+# classes (a change of its own, library by library): the new checker refuses `<close>` on a record and a call of
+# `setmetatable`.
 cosmic/http/server_example.tl close_not_closable 1
 
 cosmic/http_example.tl close_not_closable 1
@@ -6884,8 +6840,6 @@ cosmic/removed_example.tl literal_missing 1
 cosmic/removed_example.tl setmetatable_call 1
 
 cosmic/sqlite_example.tl close_not_closable 1
-
-doc/guides/quickstart.md close_not_closable 1
 
 # TODO: write the JSON documents these examples encode and send as literals, once the new checker takes a literal of mixed
 # values where a JSON value is wanted: a recursive alias (`string | number | boolean | {Value} | {string: Value}`) is

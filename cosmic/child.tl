@@ -630,119 +630,6 @@ local record DrainResult
   reason: string
 end
 
-local record Handle
-  __close: function(Handle)
-  --- The child's process id.
-  pid: integer
-  --- Whether the child leads a process group of its own that this
-  --- handle owns ([`Options.process_group`]).
-  process_group: boolean
-  --- Readers of stdout and stderr, when each was "stream". Each reads
-  --- until the child's end of the pipe closes, or until the child has
-  --- exited and nothing more is waiting: a descendant that escaped the
-  --- group still holding it cannot hold a read up. A wait leaves them
-  --- to read on; `close` ends them once what is queued is read. While
-  --- the innermost open guard has caught a signal, a read or a write
-  --- fails with "child: cancelled by signal N", as a wait does. A read
-  --- or a write that waits past the child's own [`Options.timeout_ns`]
-  --- ends the child as an expired `wait` would: a read then reads what
-  --- it left, and a write fails. A read or raw poll failure follows the
-  --- bytes already queued, then remains the reader's failure on later
-  --- reads.
-  stdout_stream: Stream.Reader?
-  --- See `stdout_stream`.
-  stderr_stream: Stream.Reader?
-  --- A Writer to stdin, when it was "stream": [`Stream.to_fd`] over the
-  --- pipe, so a write goes out whole and a failure is sticky; its `close`
-  --- (or `abort`) closes the child's stdin, so the child reads end of
-  --- file. A write fails once the child has closed its stdin, or has
-  --- exited and nothing else holds it, and after a wait. A write the
-  --- child does not read waits for it, however long: a child that stops
-  --- reading until its streamed stdout is read, which sits unread at
-  --- `capture_limit`, waits forever -- read the outputs as the input
-  --- goes in, or bound the child with a timeout.
-  stdin_stream: Stream.Writer?
-  mut _feed_fd: integer?
-  --- A descriptor readable once the child has exited (`exit_watch`),
-  --- until its status is claimed; -1 where there is none, so that
-  --- setting it makes no new field, which could fail to allocate with
-  --- the descriptor in hand.
-  mut _exit_fd: integer
-  mut _result?: Result
-  mut _status?: raw_process.ChildStatus
-  mut _closed: boolean
-  mut _explicit_close: boolean
-  mut _drain_next: integer
-  _streams?: {Pipe}
-  mut _input_fd: integer?
-  _input?: string
-  _input_at?: integer
-  _limit: integer
-  --- When the child's own `timeout_ns` passes, on the monotonic clock;
-  --- nil for none ([`Options.timeout_ns`]).
-  _deadline: integer?
-  --- The temporary directory a policy's `tmp` made for the child, removed
-  --- once the child is settled; nil for none.
-  mut _tmp: string?
-  --- The network relay that serves a policy's `connect`, a child of its
-  --- own, which a settle ends (the relay's standard input closes, and it
-  --- is ended should it outlive that); nil for none, and once it is ended.
-  mut _relay?: Handle
-  --- Whether the relay was found dead while the child ran, which ended
-  --- the child for want of its way out.
-  mut _relay_gone: boolean
-  --- Of a relay's own handle, the connectors its starter handed it, ended
-  --- with it; nil for any other handle.
-  mut _handover?: RelayConfig.Handover
-  --- The Seatbelt profile and parameters the child was started under, on
-  --- macOS; nil for a child no profile holds.
-  _seatbelt?: raw_process.Seatbelt
-  --- Waits for the child to exit and answers its Result. With
-  --- `timeout_ns`, or once the child's own [`Options.timeout_ns`]
-  --- passes, whichever is first, a child still running is ended --
-  --- SIGTERM, a grace period, then SIGKILL, its group included -- and
-  --- the Result says `timed_out`; [`Child.wait_any`]'s timeout instead
-  --- leaves every child running. While a [`Signal.guard`] is open, a
-  --- SIGINT or SIGTERM it catches ends the wait, timed or not, the same
-  --- way: a child that has not exited is ended and the wait answers nil
-  --- and "child: cancelled by signal N"; the guard keeps the signal, and a
-  --- later wait answers the ended child's Result. In a task of
-  --- [`Poll.run`] that is cancelled, it answers nil and
-  --- [`Poll.CANCELLED`], and leaves the child running. A `timeout_ns`
-  --- below 0 or past [`Poll.MOST_NS`] raises.
-  wait: function(Handle, timeout_ns?: integer): Result?, string
-  --- Fairly copies streamed outputs to borrowed Writers within both required
-  --- bounds. EOF requires closed pipes, including escaped writers. A previous
-  --- guard cancellation may be bypassed only after its signal was taken; a
-  --- fresh signal interrupts without being consumed. Ordinary Reader failures
-  --- remain sticky. No process is ended, reaped to completion, or timed out,
-  --- past the child's own [`Options.timeout_ns`] or not.
-  --- Concurrent reads/drains raise. Sink failure may have written a prefix;
-  --- it ends the selected read ends, and the caller still owns child cleanup.
-  --- The deadline bounds pipe waits, not arbitrary code in a Writer. A zero
-  --- timeout pumps once without waiting and writes at most one chunk per pipe.
-  drain: function(Handle, DrainOptions): DrainResult
-  --- Whether the child has exited, without waiting: `finished` is false
-  --- while it runs, and true with its `result` once it has exited and its
-  --- group is cleared, as `wait` would answer. It services the child's
-  --- captured and streamed outputs and input meanwhile. Once the child's
-  --- own [`Options.timeout_ns`] has passed, a child still running is
-  --- ended as an expired `wait` ends it, which waits for it to go, and
-  --- `finished` is true, its Result `timed_out`. Nil and why when
-  --- settling the child fails.
-  try_wait: function(Handle): TryWait?, string
-  --- Sends `signal` (SIGTERM by default) to the child, or to its whole
-  --- group when `process_group` is true. It does not wait. False and why when the child
-  --- has been reaped already or the signal cannot be sent.
-  stop: function(Handle, signal?: integer): boolean, string
-  --- Ends the child if it is still running, as an expired `wait` does,
-  --- reaps it and closes its stdin stream, and ends its streamed outputs so
-  --- their readers read what is queued and stop. Closing a settled
-  --- handle only ends the streamed outputs. False and why when the
-  --- child or its group cannot be ended.
-  close: function(Handle): boolean, string
-end
-
 --- How often a wait looks for what no descriptor tells it of: the exit
 --- of a child with no `_exit_fd` (a Linux before pidfd_open, a filter
 --- refusing it), a group's last member gone.
@@ -1432,16 +1319,10 @@ end
 
 -- How an object of this module is made. A handle and the Reader and
 -- Writer of a streamed pipe are each one table, whose methods live once
--- on a record's own table, reached through `__index`, with the state in
--- fields: no closure each. A Reader or a Writer is a record of its own
--- ([`PipeReader`], [`FeedWriter`]) implementing the interface it answers. A
--- handle is a public record itself, as cosmic.signal's
--- guard is, whose fields the docs list, so its methods are assigned
--- (`Handle.wait = function(self: Handle, ...)`) to the fields the record
--- declares, with the docs on them: `function Handle:wait` would be listed
--- as an undocumented function beside the documented field. The note on
--- how an object is made in cosmic/stream.tl says why Teal limits how
--- that is written.
+-- on a class's own table, with the state in fields: no closure each. A
+-- Reader or a Writer is a class of its own ([`PipeReader`], [`FeedWriter`])
+-- implementing the interface it answers. The note on how an object is
+-- made in cosmic/stream.tl says why Teal limits how that is written.
 
 local function waiting_read(self: PipeReader, max_bytes?: integer): string?, string
   local child, pipe = self.child, self.pipe
@@ -1736,113 +1617,237 @@ local function closing_outputs(self: Handle)
   end
 end
 
-Handle.try_wait = function(self: Handle): TryWait?, string
-  local _result = self._result
-  if _result then return { finished = true, result = _result }, "" end
-  local _, _ = pump(watching({ self }), 0)
-  local status, trouble = exited(self)
-  if status == nil then
-    if trouble ~= "" then return nil, trouble end
-    if not overdue(self) then return { finished = false }, "" end
-  end
-  local r, settle_trouble = end_child(self)
-  if r == nil then return nil, settle_trouble end
-  return { finished = true, result = r }, ""
-end
+--- A child this module started and owns until it settles; see [`Child.start`]. A `<close>` variable holding it ends
+--- the child, as `close` does, but reports no trouble. A handle dropped unclosed is ended when it is collected.
+local class Handle
+  --- The child's process id.
+  pid: integer
+  --- Whether the child leads a process group of its own that this
+  --- handle owns ([`Options.process_group`]).
+  process_group: boolean
+  --- Readers of stdout and stderr, when each was "stream". Each reads
+  --- until the child's end of the pipe closes, or until the child has
+  --- exited and nothing more is waiting: a descendant that escaped the
+  --- group still holding it cannot hold a read up. A wait leaves them
+  --- to read on; `close` ends them once what is queued is read. While
+  --- the innermost open guard has caught a signal, a read or a write
+  --- fails with "child: cancelled by signal N", as a wait does. A read
+  --- or a write that waits past the child's own [`Options.timeout_ns`]
+  --- ends the child as an expired `wait` would: a read then reads what
+  --- it left, and a write fails. A read or raw poll failure follows the
+  --- bytes already queued, then remains the reader's failure on later
+  --- reads.
+  stdout_stream: Stream.Reader?
+  --- See `stdout_stream`.
+  stderr_stream: Stream.Reader?
+  --- A Writer to stdin, when it was "stream": [`Stream.to_fd`] over the
+  --- pipe, so a write goes out whole and a failure is sticky; its `close`
+  --- (or `abort`) closes the child's stdin, so the child reads end of
+  --- file. A write fails once the child has closed its stdin, or has
+  --- exited and nothing else holds it, and after a wait. A write the
+  --- child does not read waits for it, however long: a child that stops
+  --- reading until its streamed stdout is read, which sits unread at
+  --- `capture_limit`, waits forever -- read the outputs as the input
+  --- goes in, or bound the child with a timeout.
+  stdin_stream: Stream.Writer?
+  mut _feed_fd: integer?
+  --- A descriptor readable once the child has exited (`exit_watch`),
+  --- until its status is claimed; -1 where there is none, so that
+  --- setting it makes no new field, which could fail to allocate with
+  --- the descriptor in hand.
+  mut _exit_fd: integer
+  mut _result?: Result
+  mut _status?: raw_process.ChildStatus
+  mut _closed: boolean
+  mut _explicit_close: boolean
+  mut _drain_next: integer
+  _streams?: {Pipe}
+  mut _input_fd: integer?
+  _input?: string
+  _input_at?: integer
+  _limit: integer
+  --- When the child's own `timeout_ns` passes, on the monotonic clock;
+  --- nil for none ([`Options.timeout_ns`]).
+  _deadline: integer?
+  --- The temporary directory a policy's `tmp` made for the child, removed
+  --- once the child is settled; nil for none.
+  mut _tmp: string?
+  --- The network relay that serves a policy's `connect`, a child of its
+  --- own, which a settle ends (the relay's standard input closes, and it
+  --- is ended should it outlive that); nil for none, and once it is ended.
+  mut _relay?: Handle
+  --- Whether the relay was found dead while the child ran, which ended
+  --- the child for want of its way out.
+  mut _relay_gone: boolean
+  --- Of a relay's own handle, the connectors its starter handed it, ended
+  --- with it; nil for any other handle.
+  mut _handover?: RelayConfig.Handover
+  --- The finalizer that ends the child should this handle be collected unclosed.
+  mut _finalizer?: Finalizer
+  --- The Seatbelt profile and parameters the child was started under, on
+  --- macOS; nil for a child no profile holds.
+  _seatbelt?: raw_process.Seatbelt
 
-Handle.stop = function(self: Handle, signal?: integer): boolean, string
-  if self._closed then return false, "child: process already reaped" end
-  local ok, trouble = sys.kill(target(self), signal or sys.SIGTERM)
-  if not ok then return false, trouble end
-  return true, ""
-end
-
-Handle.wait = function(self: Handle, timeout_ns?: integer): Result?, string
-  Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
-  local _result = self._result
-  if _result then return _result, "" end
-  if timeout_ns == nil and self._deadline == nil and Innermost.active() == nil and not self._streams and
-      not self._input_fd and self._relay == nil and not through_run() then
-    local status, trouble = exited(self, true)
-    if not status then return nil, trouble end
+  --- Waits for the child to exit and answers its Result. With
+  --- `timeout_ns`, or once the child's own [`Options.timeout_ns`]
+  --- passes, whichever is first, a child still running is ended --
+  --- SIGTERM, a grace period, then SIGKILL, its group included -- and
+  --- the Result says `timed_out`; [`Child.wait_any`]'s timeout instead
+  --- leaves every child running. While a [`Signal.guard`] is open, a
+  --- SIGINT or SIGTERM it catches ends the wait, timed or not, the same
+  --- way: a child that has not exited is ended and the wait answers nil
+  --- and "child: cancelled by signal N"; the guard keeps the signal, and a
+  --- later wait answers the ended child's Result. In a task of
+  --- [`Poll.run`] that is cancelled, it answers nil and
+  --- [`Poll.CANCELLED`], and leaves the child running. A `timeout_ns`
+  --- below 0 or past [`Poll.MOST_NS`] raises.
+  function wait(self, timeout_ns?: integer): Result?, string
+    Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
+    local _result = self._result
+    if _result then return _result, "" end
+    if timeout_ns == nil and self._deadline == nil and Innermost.active() == nil and not self._streams and
+        not self._input_fd and self._relay == nil and not through_run() then
+      local status, trouble = exited(self, true)
+      if not status then return nil, trouble end
+      return end_child(self)
+    end
+    local deadline: integer?
+    if timeout_ns ~= nil then deadline = now() + timeout_ns end
+    deadline = sooner(deadline, self)
+    -- Services the child's pipes until it exits, `deadline` passes ("")
+    -- or the wait cannot go on: a signal the innermost open guard
+    -- caught, a task cancelled, a child that cannot be asked about.
+    local why = ""
+    while true do
+      local status, trouble = exited(self)
+      if status ~= nil then return end_child(self) end
+      why = trouble
+      if why ~= "" then break end
+      local active = Innermost.active()
+      if active ~= nil and active:cancelled() ~= 0 then
+        why = cancelled_by(active:cancelled())
+        break
+      end
+      local left = slice(deadline, { self })
+      if left == nil then break end
+      local _, stopped = pump(watching({ self }), left, true, true)
+      if stopped ~= "" then
+        why = stopped
+        break
+      end
+    end
+    local active = Innermost.active()
+    local cancelled = active ~= nil and active:cancelled() or 0
+    if cancelled ~= 0 then
+      -- A wait the guard's signal ended leaves no child running. The
+      -- signal may have landed after the deadline, so say so here.
+      if why == "" then why = cancelled_by(cancelled) end
+      local _, ended_trouble = end_child(self)
+      if ended_trouble ~= "" then
+        -- `why` names the module already.
+        return nil, why .. "; " .. (ended_trouble:gsub("^child: ", ""))
+      end
+      return nil, why
+    end
+    if why ~= "" then return nil, why end
     return end_child(self)
   end
-  local deadline: integer?
-  if timeout_ns ~= nil then deadline = now() + timeout_ns end
-  deadline = sooner(deadline, self)
-  -- Services the child's pipes until it exits, `deadline` passes ("")
-  -- or the wait cannot go on: a signal the innermost open guard
-  -- caught, a task cancelled, a child that cannot be asked about.
-  local why = ""
-  while true do
+
+  --- Fairly copies streamed outputs to borrowed Writers within both required
+  --- bounds. EOF requires closed pipes, including escaped writers. A previous
+  --- guard cancellation may be bypassed only after its signal was taken; a
+  --- fresh signal interrupts without being consumed. Ordinary Reader failures
+  --- remain sticky. No process is ended, reaped to completion, or timed out,
+  --- past the child's own [`Options.timeout_ns`] or not.
+  --- Concurrent reads/drains raise. Sink failure may have written a prefix;
+  --- it ends the selected read ends, and the caller still owns child cleanup.
+  --- The deadline bounds pipe waits, not arbitrary code in a Writer. A zero
+  --- timeout pumps once without waiting and writes at most one chunk per pipe.
+  function drain(self, opts: DrainOptions): DrainResult
+    return drain(self, opts)
+  end
+
+  --- Whether the child has exited, without waiting: `finished` is false
+  --- while it runs, and true with its `result` once it has exited and its
+  --- group is cleared, as `wait` would answer. It services the child's
+  --- captured and streamed outputs and input meanwhile. Once the child's
+  --- own [`Options.timeout_ns`] has passed, a child still running is
+  --- ended as an expired `wait` ends it, which waits for it to go, and
+  --- `finished` is true, its Result `timed_out`. Nil and why when
+  --- settling the child fails.
+  function try_wait(self): TryWait?, string
+    local _result = self._result
+    if _result then return { finished = true, result = _result }, "" end
+    local _, _ = pump(watching({ self }), 0)
     local status, trouble = exited(self)
-    if status ~= nil then return end_child(self) end
-    why = trouble
-    if why ~= "" then break end
-    local active = Innermost.active()
-    if active ~= nil and active:cancelled() ~= 0 then
-      why = cancelled_by(active:cancelled())
-      break
+    if status == nil then
+      if trouble ~= "" then return nil, trouble end
+      if not overdue(self) then return { finished = false }, "" end
     end
-    local left = slice(deadline, { self })
-    if left == nil then break end
-    local _, stopped = pump(watching({ self }), left, true, true)
-    if stopped ~= "" then
-      why = stopped
-      break
+    local r, settle_trouble = end_child(self)
+    if r == nil then return nil, settle_trouble end
+    return { finished = true, result = r }, ""
+  end
+
+  --- Sends `signal` (SIGTERM by default) to the child, or to its whole
+  --- group when `process_group` is true. It does not wait. False and why when the child
+  --- has been reaped already or the signal cannot be sent.
+  function stop(self, signal?: integer): boolean, string
+    if self._closed then return false, "child: process already reaped" end
+    local ok, trouble = sys.kill(target(self), signal or sys.SIGTERM)
+    if not ok then return false, trouble end
+    return true, ""
+  end
+
+  --- Ends the child if it is still running, as an expired `wait` does,
+  --- reaps it and closes its stdin stream, and ends its streamed outputs so
+  --- their readers read what is queued and stop. Closing a settled
+  --- handle only ends the streamed outputs. False and why when the
+  --- child or its group cannot be ended.
+  function close(self): boolean, string
+    closing_outputs(self)
+    if not self._closed then
+      local r, trouble = end_child(self)
+      if not r then return false, trouble end
     end
+    end_streamed(self)
+    return true, ""
   end
-  local active = Innermost.active()
-  local cancelled = active ~= nil and active:cancelled() or 0
-  if cancelled ~= 0 then
-    -- A wait the guard's signal ended leaves no child running. The
-    -- signal may have landed after the deadline, so say so here.
-    if why == "" then why = cancelled_by(cancelled) end
-    local _, ended_trouble = end_child(self)
-    if ended_trouble ~= "" then
-      -- `why` names the module already.
-      return nil, why .. "; " .. (ended_trouble:gsub("^child: ", ""))
-    end
-    return nil, why
-  end
-  if why ~= "" then return nil, why end
-  return end_child(self)
-end
 
-Handle.close = function(self: Handle): boolean, string
-  closing_outputs(self)
-  if not self._closed then
-    local r, trouble = end_child(self)
-    if not r then return false, trouble end
-  end
-  end_streamed(self)
-  return true, ""
-end
-
-Handle.drain = drain
-
-local handle_mt: metatable<Handle> = {
-  __index = Handle,
-  __close = function(self: Handle)
+  function __close(self)
     closing_outputs(self)
     if not self._closed then local _, _ = end_or_kill(self) end
     end_streamed(self)
-  end,
-  __gc = function(self: Handle)
-    closing_outputs(self)
-    if not self._closed then local _, _ = end_or_kill(self) end
-    end_streamed(self)
+  end
+end
+
+--- What ends a child whose handle was dropped unclosed, when the handle is collected. A class declares no `__gc`, so
+--- the handle holds this table, which has one and is collected with it.
+local record Finalizer
+  child: Handle
+end
+
+local finalizer_mt: metatable<Finalizer> = {
+  __gc = function(self: Finalizer)
+    local child = self.child
+    closing_outputs(child)
+    if not child._closed then local _, _ = end_or_kill(child) end
+    end_streamed(child)
   end,
 }
 
 --- A handle for `pid`, owning it until it settles.
 local function make_handle(pid: integer, process_group: boolean, limit: integer,
                            deadline: integer?): Handle
-  local h: Handle = setmetatable({
+  local h: Handle = {
     pid = pid, process_group = process_group, _closed = false, _exit_fd = -1, _limit = limit,
     _explicit_close = false, _drain_next = 1, _deadline = deadline, _relay_gone = false,
-  }, handle_mt)
-  -- Owned only once it has its metatable, so the finalizer covers the child from then; a
+    stdout_stream = nil, stderr_stream = nil, stdin_stream = nil, _feed_fd = nil, _result = nil, _status = nil,
+    _streams = nil, _input_fd = nil, _input = nil, _input_at = nil, _tmp = nil, _relay = nil, _handover = nil,
+    _finalizer = nil, _seatbelt = nil,
+  }
+  h._finalizer = setmetatable({ child = h }, finalizer_mt)
+  -- Owned only once it has its finalizer, so the finalizer covers the child from then; a
   -- failure between the two leaves an unowned child with a finalizer, which waitpid still reaps.
   owned[pid] = true
   return h
