@@ -353,6 +353,20 @@ local function test_a_receiver_that_is_a_method_call_is_taken_for_the_type_the_m
   assert(offered(base, head .. 'local _ = c:me():me().|\n', { "n" }) == "n")
 end
 
+local function test_a_name_declared_again_since_the_last_parse_is_not_typed_by_the_old_binding()
+  local base = POINT .. 'local _ = p\n'
+  assert(offered(base, POINT .. 'local p = { z = 1 }\nlocal _ = p.|\n', { "x", "y" }) == "")
+  -- A name the typed text leaves alone keeps its type.
+  assert(offered(base, POINT .. 'local q = { z = 1 }\nlocal _ = p.|\n', { "x", "y" }) == "x,y")
+end
+
+local function test_a_receiver_that_is_a_call_with_a_string_or_a_table_is_found()
+  local base = POINT .. 'local function make(a: any): Point\n  return Point.origin()\nend\nlocal _ = p\n'
+  local head = POINT .. 'local function make(a: any): Point\n  return Point.origin()\nend\n'
+  assert(offered(base, head .. 'local _ = make("a").|\n', { "x", "y" }) == "x,y")
+  assert(offered(base, head .. 'local _ = make({}).|\n', { "x", "y" }) == "x,y")
+end
+
 local function test_a_name_narrowed_at_the_cursor_is_taken_for_the_type_it_was_narrowed_to()
   local text = 'local record Cat\n  meow: integer\nend\nlocal record Dog\n  bark: integer\nend\n' ..
     'local function a(x: Cat | Dog)\n  if x is Cat then\n    local _ = x.meow\n  end\nend\n' ..
