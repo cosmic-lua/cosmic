@@ -365,6 +365,9 @@ local function test_a_receiver_that_is_a_call_with_a_string_or_a_table_is_found(
   local head = POINT .. 'local function make(a: any): Point\n  return Point.origin()\nend\n'
   assert(offered(base, head .. 'local _ = make("a").|\n', { "x", "y" }) == "x,y")
   assert(offered(base, head .. 'local _ = make({}).|\n', { "x", "y" }) == "x,y")
+  -- A call with no parentheses: its argument is a string or a table.
+  assert(offered(base, head .. 'local _ = make"a".|\n', { "x", "y" }) == "x,y")
+  assert(offered(base, head .. 'local _ = make{}.|\n', { "x", "y" }) == "x,y")
 end
 
 local function test_a_name_narrowed_at_the_cursor_is_taken_for_the_type_it_was_narrowed_to()
