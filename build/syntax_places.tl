@@ -29,14 +29,20 @@ local record Places
     line: integer
     column: integer
     length: integer
+    --- Whether the name's protocol character ([`build.lsp.lines`]) is its byte column less one, in the units of either
+    --- encoding: its line holds only ASCII, and no break before it is counted as two by the protocol and as one by the lexer
+    --- (an "\n" followed by a "\r"). Always false where `found` was given no text.
+    plain: boolean
   end
 
-  --- Every declaration of `chunk`, in the order they are looked up in: the first of a symbol is the one that stands.
-  found: function(chunk: Ast.Chunk): {Found}
+  --- Every declaration of `chunk`, the tree of `text`, in the order they are looked up in: the first of a symbol is the one
+  --- that stands. Without the `text` no place is `plain`.
+  found: function(chunk: Ast.Chunk, text?: string): {Found}
 
   --- The declarations of the type that the node with id `id` declares, wherever it stands in `chunk` (inside a function
   --- body too), with symbols from the type's own name (`R`, `R.f`): the type the lowering names by the module and `@` and
-  --- that id ([`lang.declarations`]), which tells it from another of its name. Empty where no such type stands.
+  --- that id ([`lang.declarations`]), which tells it from another of its name. Empty where no such type stands. No place is
+  --- `plain`: the tree is the document's own, whose positions are the checker's.
   within: function(chunk: Ast.Chunk, id: integer): {Found}
 end
 
@@ -66,15 +72,35 @@ local function declared(n: Ast.Node): Declared?
 end
 
 --- The places read off `chunk` so far, and the function that adds the type `held` at `symbol` to them: its name, its
---- members and enum values, and the types nested in it.
-local function collector(chunk: Ast.Chunk): {Places.Found}, function(string, Places.Form, integer),
+--- members and enum values, and the types nested in it. Places are `plain` ([`Places.Found`]) where the `text` of the tree is given.
+local function collector(chunk: Ast.Chunk, text?: string): {Places.Found}, function(string, Places.Form, integer),
     function(Declared, string)
   local tokens = chunk.tokens
   local out: mut {Places.Found} = {}
+  -- The first byte of the first "\n\r": a line that starts after it is numbered differently by the protocol.
+  local doubled = 0
+  if text ~= nil then doubled = text:find("\n\r", 1, true) or #text + 1 end
+  local ascii: mut {integer:boolean} = {}
+  --- Whether line `y` is plain ([`Places.Found`]'s `plain`).
+  local function plain_line(y: integer): boolean
+    if text == nil then return false end
+    local held = ascii[y]
+    if held ~= nil then return held end
+    local start = tokens.line[y]
+    local stop = tokens.line[y + 1]
+    local result = start ~= nil and start <= doubled
+    if result and start ~= nil then
+      local last = #text
+      if stop ~= nil then last = stop - 1 end
+      result = text:sub(start, last):find("[\128-\255]") == nil
+    end
+    ascii[y] = result
+    return result
+  end
   --- Adds the declaration of `symbol` whose name is the token `token`.
   local function add(symbol: string, kind: Places.Form, token: integer)
     local found: Places.Found = { symbol = symbol, kind = kind, token = token, line = Lexer.y(tokens, token),
-      column = Lexer.x(tokens, token), length = Lexer.length(tokens, token) }
+      column = Lexer.x(tokens, token), length = Lexer.length(tokens, token), plain = plain_line(Lexer.y(tokens, token)) }
     out[#out + 1] = found
   end
   local function add_type(held: Declared, symbol: string)
@@ -96,8 +122,8 @@ local function collector(chunk: Ast.Chunk): {Places.Found}, function(string, Pla
   return out, add, add_type
 end
 
-function Places.found(chunk: Ast.Chunk): {Places.Found}
-  local out, add, add_type = collector(chunk)
+function Places.found(chunk: Ast.Chunk, text?: string): {Places.Found}
+  local out, add, add_type = collector(chunk, text)
   --- Adds the types of `stats`, and of the `do` blocks in them.
   local function add_types(stats: {Ast.Stat})
     for _, stat in ipairs(stats) do

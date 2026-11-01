@@ -96,7 +96,8 @@ local tables: {Definition} = {
   -- binary's own `cosmic.*` modules from, in a project, where the working
   -- database holds no such module ([`build.lsp.source`]'s
   -- `places`). `line` and `column` count from 1, `length` in
-  -- bytes. Only cosmic's own projection and the tool fill it; a program
+  -- bytes; `plain` is 1 where the name's line holds only ASCII and the
+  -- protocol numbers the lines before it as the lexer does. Only cosmic's own projection and the tool fill it; a program
   -- has no editor to answer.
   { name = "places", body = [[(module TEXT NOT NULL,
                   ordinal INTEGER NOT NULL,
@@ -105,6 +106,7 @@ local tables: {Definition} = {
                   line INTEGER NOT NULL,
                   column INTEGER NOT NULL,
                   length INTEGER NOT NULL,
+                  plain INTEGER NOT NULL,
                   PRIMARY KEY (module, ordinal)) WITHOUT ROWID]] },
 
   -- A project's static assets ([`Layout.static`]), one row per

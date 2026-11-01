@@ -104,7 +104,7 @@ function Derivation.rows_of(chunk: Ast.Chunk, source: string, file: string, mapp
   end
   local places: {Places.Found} = {}
   if not mapped then
-    places = Places.found(chunk)
+    places = Places.found(chunk, source)
   elseif lines ~= nil then
     -- A symbol is the dotted path from the module's record ([`sys.Stat.size`]), the map's key the path below it.
     local kept: mut {Places.Found} = {}
@@ -114,7 +114,7 @@ function Derivation.rows_of(chunk: Ast.Chunk, source: string, file: string, mapp
       local line = lines[key]
       if found.export ~= "" and place.symbol:sub(1, #prefix) == prefix and line ~= nil then
         kept[#kept + 1] = { symbol = place.symbol, kind = place.kind, token = place.token, line = line,
-          column = 1, length = 0 }
+          column = 1, length = 0, plain = false }
       end
     end
     places = kept
@@ -268,10 +268,10 @@ function Derivation.insert(db: Sqlite.Handle, source_hash: string, file: string,
     end
   end
   for ordinal, place in ipairs(rows.places) do
-    ok, why = put("INSERT INTO places (source_hash, ordinal, symbol, kind, line, column, length) " ..
-        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    ok, why = put("INSERT INTO places (source_hash, ordinal, symbol, kind, line, column, length, plain) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
       { hash, { integer = ordinal }, text(place.symbol), text(place.kind), { integer = place.line },
-        { integer = place.column }, { integer = place.length } })
+        { integer = place.column }, { integer = place.length }, { integer = if place.plain then 1 else 0 end } })
     if not ok then
       return false, why
     end

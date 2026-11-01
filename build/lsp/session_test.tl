@@ -466,6 +466,33 @@ local function test_definition_in_another_module_is_read_from_the_places_the_sta
   assert(ran.tally.derived == 0, tostring(ran.tally.derived))
 end
 
+--- A place on an ASCII line of a module is answered without reading the module's text; one after non-ASCII on its line is
+--- counted in the encoding's units, which needs it.
+local function test_definition_reads_the_text_of_a_module_only_for_a_line_with_non_ascii()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", "local record point\n  x: integer\nend\nreturn point\n"))
+  -- `x` stands after "é" (one UTF-16 unit, two bytes) and "😀" (two units, four bytes) of a string on its line.
+  assert(Fs.write(root .. "/lib/wide.tl", 'local s = "é😀" local record wide x: integer end\nreturn wide\n'))
+  local uses = 'local point = require("lib.point")\nlocal p: point = { x = 1 }\nlocal _ = p.x\n'
+  local ascii = served(root, { initialize(root), open(root, "main.tl", uses),
+    at(2, "textDocument/definition", root, "main.tl", 2, 12),
+  })
+  assert_located(defined(ascii, 2), root, "lib/point.tl", 1, 2, 3)
+  assert(ascii.tally.texts_read == 0, tostring(ascii.tally.texts_read))
+  local reads = 'local wide = require("lib.wide")\nlocal w: wide = { x = 1 }\nlocal _ = w.x\n'
+  local wide = served(root, { initialize(root), open(root, "main.tl", reads),
+    at(2, "textDocument/definition", root, "main.tl", 2, 12),
+  })
+  -- UTF-16: 11 + 1 + 2 + 2 + 18 characters before `x`; in bytes, 11 + 2 + 4 + 2 + 18.
+  assert_located(defined(wide, 2), root, "lib/wide.tl", 0, 34, 35)
+  assert(wide.tally.texts_read == 1, tostring(wide.tally.texts_read))
+  local bytes = served(root, { initialize(root, '{"general":{"positionEncodings":["utf-8"]}}'),
+    open(root, "main.tl", reads), at(2, "textDocument/definition", root, "main.tl", 2, 12),
+  })
+  assert_located(defined(bytes, 2), root, "lib/wide.tl", 0, 37, 38)
+end
+
 --- A symbol of a module generated from a header is defined in the header, at the name on the line the map gives.
 local function test_definition_of_a_symbol_of_a_generated_module_is_in_the_header()
   local root = assert(Fs.mkdtemp("cosmic-lsp-"))
@@ -569,7 +596,7 @@ local function test_definition_of_a_binary_module_s_field_is_the_file_extracted_
   local text = 'local Fs = require("cosmic.fs")\nlocal _ = Fs.read\nlocal t: Fs.Staged? = nil\n'
   local carried = "--- Files.\nlocal Fs = {}\nfunction Fs.read() end\nlocal record Fs.Staged\nend\nreturn Fs\n"
   local db = session_fixture.carrying("cosmic.fs", "cosmic/fs.tl", carried,
-    { { "Fs.read", "field", "3", "13", "4" }, { "Fs.Staged", "type", "4", "17", "6" } })
+    { { "Fs.read", "field", "3", "13", "4", "1" }, { "Fs.Staged", "type", "4", "17", "6", "1" } })
   local ran = served(root, { initialize(root), open(root, "main.tl", text),
     at(2, "textDocument/definition", root, "main.tl", 1, 15),
     at(3, "textDocument/definition", root, "main.tl", 2, 12),

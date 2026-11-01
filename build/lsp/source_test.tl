@@ -737,7 +737,7 @@ local function test_the_places_of_a_staged_module_are_read_from_the_database_and
   local src = source.new(root, function(_: string) end)
   source.refresh(src)
   local placed = assert(source.places(src, "lib.point", none_open))
-  assert(placed.file == "lib/point.tl" and placed.text == POINT)
+  assert(placed.file == "lib/point.tl" and placed.text() == POINT)
   local x, corner, origin = assert(placed.spots["point.x"]), assert(placed.spots["point.Corner"]),
     assert(placed.spots["point.origin"])
   assert(x.line == 2 and x.column == 3 and x.length == 1)
@@ -805,7 +805,7 @@ local function test_the_places_of_a_generated_module_are_the_headers_and_at_its_
   local src = source.new(root, function(_: string) end, built)
   source.refresh(src)
   local placed = assert(source.places(src, "cosmic.sys", none_open))
-  assert(placed.file == "core/syscalls.h" and placed.text == SYSCALLS_H, placed.file)
+  assert(placed.file == "core/syscalls.h" and placed.text() == SYSCALLS_H, placed.file)
   local read = assert(placed.spots["sys.read"])
   assert(read.line == 8 and read.column == 16 and read.length == 4,
     tostring(read.line) .. ":" .. tostring(read.column) .. ":" .. tostring(read.length))
@@ -813,7 +813,7 @@ local function test_the_places_of_a_generated_module_are_the_headers_and_at_its_
   assert(placed.spots["sys"] == nil and placed.spots["sys.missing"] == nil and src.tally.derived == 0)
   -- An open document of the header is not read: the rows are the staged header's.
   local edited = assert(source.places(src, "cosmic.sys", open_with("core/syscalls.h", "// edited\n" .. SYSCALLS_H)))
-  assert(edited.text == SYSCALLS_H and assert(edited.spots["sys.read"]).line == 8)
+  assert(edited.text() == SYSCALLS_H and assert(edited.spots["sys.read"]).line == 8)
   source.close(src)
 end
 
@@ -829,7 +829,7 @@ local function test_the_places_of_an_open_module_are_derived_only_where_it_diffe
   local edited = "-- moved down\n\n" .. POINT
   for _ = 1, 3 do
     local placed = assert(source.places(src, "lib.point", open_with("lib/point.tl", edited)))
-    assert(placed.text == edited and assert(placed.spots["point.x"]).line == 4)
+    assert(placed.text() == edited and assert(placed.spots["point.x"]).line == 4)
   end
   assert(src.tally.derived == 1, tostring(src.tally.derived))
   -- The file as staged is still what the rows say.
@@ -1079,7 +1079,7 @@ local THING <const> = "--- A thing.\nlocal record thing\n  size: integer\nend\nf
 --- module [`cosmic.sys`] of a tool whose generated module has none.
 local function carrying(): Sqlite.Handle
   local db = session_fixture.carrying("cosmic.thing", "cosmic/thing.tl", THING, {
-    { "thing", "type", "2", "14", "5" }, { "thing.size", "field", "3", "3", "4" }, { "thing.make", "field", "5", "16", "4" },
+    { "thing", "type", "2", "14", "5", "1" }, { "thing.size", "field", "3", "3", "4", "1" }, { "thing.make", "field", "5", "16", "4", "1" },
   })
   assert(db:exec("INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
       "VALUES ('cosmic.bare', 'cosmic/bare.tl', 'module', CAST('ab' AS BLOB), x'00', x'00', '', deflate('return 1'))"))
@@ -1093,7 +1093,7 @@ local function test_the_places_of_a_binary_module_are_read_from_the_database_the
   local db = carrying()
   local src = source.new(project(), function(_: string) end, nil, { db })
   local placed = assert(source.places(src, "cosmic.thing", none_open))
-  assert(placed.file == "cosmic/thing.tl" and placed.text == THING, placed.text)
+  assert(placed.file == "cosmic/thing.tl" and placed.text() == THING, placed.text())
   assert(placed.carried == Hash.hex_sha256(THING), tostring(placed.carried))
   local size = assert(placed.spots["thing.size"])
   assert(size.line == 3 and size.column == 3 and size.length == 4)
@@ -1140,4 +1140,99 @@ local function test_a_binary_module_of_a_project_is_placed_in_a_file_the_build_d
   assert(source.places(src, "cosmic.bare", none_open) == nil)
   source.close(src)
   assert(db:close())
+end
+
+--- A module whose first line holds non-ASCII before its type's name, and whose later lines are ASCII.
+local WIDE <const> = 'local s = "é😀" local record point\n  x: integer\nend\nreturn point\n'
+
+--- A place on an ASCII line is put in the protocol's units without the module's text, which is read, once, only for a place
+--- on a line that holds non-ASCII or follows an "\n\r" (the lexer counts it as one break, the protocol as two).
+local function test_a_place_on_an_ascii_line_is_answered_without_reading_the_text()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", WIDE))
+  assert(Fs.write(root .. "/lib/crlf.tl", "-- a\n\rlocal record crlf\n  x: integer\nend\nreturn crlf\n"))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local placed = assert(source.places(src, "lib.point", none_open))
+  local record, field = assert(placed.spots["point"]), assert(placed.spots["point.x"])
+  assert(not record.plain and field.plain, "the line of the type holds non-ASCII, the field's does not")
+  assert(src.tally.texts_read == 0, tostring(src.tally.texts_read))
+  assert(placed.text() == WIDE and placed.text() == WIDE and src.tally.texts_read == 1, tostring(src.tally.texts_read))
+  local doubled = assert(source.places(src, "lib.crlf", none_open))
+  assert(not assert(doubled.spots["crlf"]).plain and not assert(doubled.spots["crlf.x"]).plain,
+    "the lines after an \"\\n\\r\" are numbered another way by the protocol")
+  -- An edited open document is derived with the flag, and its text is the document's: none is read.
+  local edited = assert(source.places(src, "lib.point", open_with("lib/point.tl", "-- é\n" .. WIDE)))
+  assert(assert(edited.spots["point.x"]).plain and not assert(edited.spots["point"]).plain)
+  assert(src.tally.texts_read == 1, tostring(src.tally.texts_read))
+  source.close(src)
+end
+
+--- The stub of an edited open document is the `stubs` row of its text in the scratch database, made once: none is made
+--- here of the text, and the rows of a document that is the staged file's are the database's.
+local function test_the_stub_of_an_edited_open_document_is_read_from_the_scratch_database()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  assert(source.served(src, "lib.shapes", open_with("lib/shapes.tl", THREE)) ~= nil)
+  assert(src.tally.scratch_stubs == 0 and src.tally.database_stubs == 1 and next(src.made) == nil)
+  local edited = open_with("lib/shapes.tl", STRINGS)
+  for _ = 1, 3 do
+    local stub = assert(source.served(src, "lib.shapes", edited))
+    assert(stub.text:find("string", 1, true) ~= nil, stub.text)
+  end
+  assert(src.tally.scratch_stubs == 3 and src.tally.derived == 1 and next(src.made) == nil,
+    tostring(src.tally.scratch_stubs) .. "," .. tostring(src.tally.derived))
+  assert(rows_of(assert(src.scratch), "stubs", Hash.hex_sha256(STRINGS)) == 1)
+  -- A text that does not parse has no row to read, and no stub: the source is served.
+  local broken = assert(source.served(src, "lib.shapes", open_with("lib/shapes.tl", "local record shapes\n")))
+  assert(broken.text == "local record shapes\n" and next(src.made) ~= nil)
+  source.close(src)
+end
+
+--- What an open document requires is read of the rows of its text: the scratch database's where it was edited, `build.db`'s
+--- where it is the staged file, and none where its text does not parse, a declaration or a template.
+local function test_what_an_open_document_requires_is_read_from_the_rows_of_its_text()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
+  local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
+  assert(Fs.write(root .. "/main.tl", main))
+  assert(Fs.write(root .. "/lib/decl.d.tl", "local record decl\n  sides: integer\nend\nreturn decl\n"))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local found = assert(source.module(src, "main.tl"))
+  local staged = assert(source.requires_of(src, found, main, Hash.hex_sha256(main)))
+  assert(table.concat(staged, ",") == "lib.shapes" and src.tally.scratch_requires == 0 and src.tally.derived == 0)
+  local more = 'local decl = require("lib.decl")\n' .. main
+  local edited = assert(source.requires_of(src, found, more, Hash.hex_sha256(more)))
+  assert(table.concat(edited, ",") == "lib.decl,lib.shapes" and src.tally.scratch_requires == 1, table.concat(edited, ","))
+  assert(source.requires_of(src, found, "local x =\n", Hash.hex_sha256("local x =\n")) == nil, "a text that does not parse")
+  assert(source.requires_of(src, assert(source.module(src, "lib/decl.d.tl")), more, Hash.hex_sha256(more)) == nil,
+    "a declaration is required by no one")
+  source.close(src)
+end
+
+--- A session serves an edited open document to its dependents as its scratch stub, and keeps what it requires from the rows
+--- of its text: a dependent sees its new exports at each edit, and no stub is made of its text here.
+local function test_a_session_serves_an_edited_open_document_from_its_scratch_rows()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
+  local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
+  assert(Fs.write(root .. "/main.tl", "return 1\n"))
+  local send = serving(root)
+  local ran = send({ initialize(root), open(root, "main.tl", main), open(root, "lib/shapes.tl", STRINGS),
+    change(root, "main.tl", main) })
+  local first = publications(ran)
+  assert(#assert(first[#first]).diagnostics == 1, "main reads the string the edited document exports")
+  local after = send({ change(root, "lib/shapes.tl", FOUR), change(root, "main.tl", main) })
+  local second = publications(after)
+  assert(#assert(second[#second]).diagnostics == 0, "main reads the integer the document exports now")
+  local tally = after.tally
+  assert(tally.scratch_stubs >= 2 and tally.scratch_stubs == tally.made_stubs and tally.scratch_requires >= 3,
+    tostring(tally.made_stubs) .. "," .. tostring(tally.scratch_stubs) .. "," .. tostring(tally.scratch_requires))
 end

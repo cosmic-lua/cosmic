@@ -92,7 +92,7 @@ end
 
 --- The shape of the schema. A file of another shape holds nothing the
 --- tree cannot produce again, so it is thrown away.
-local version <const> = "32"
+local version <const> = "33"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -171,8 +171,11 @@ local version <const> = "32"
 --- and `function R.f` of one, and each value of an enum, has its name
 --- ([`build.syntax_places`]): a row each by dotted symbol from the top of the module (`R`, `R.Inner`,
 --- `R.f`), its kind, and the line, byte column and byte length of the
---- name. `cosmic lsp` finds a declaration in another module by it
---- ([`build.lsp.source`]) without parsing the module. A source derived
+--- name, and whether that name is `plain`: its line holds only ASCII and the
+--- protocol numbers the lines before it as the lexer does, so its protocol
+--- character is its column less one. `cosmic lsp` finds a declaration in
+--- another module by it ([`build.lsp.source`]) without parsing the module,
+--- and without reading its text where the place is plain. A source derived
 --- from another file (`mapped`) has the rows its `-- line` map names, at the
 --- map's line of that file (column 1, length 0), and none if it has no map.
 --- `members` is what each type a source declares has: a row for the type
