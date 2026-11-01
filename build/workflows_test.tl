@@ -1905,11 +1905,9 @@ local function phases_of(job: Job): string
 end
 
 --- The checked suite's gathering job (`checked`) runs beside the
---- platform legs where they run, and beside the shares of the suite that
---- `checked-shard` runs (it does not need them): it boots and builds,
---- then waits for the four shares through the API (`shares-wait`, a full
---- run's) and gathers only if every one passed; a light run has none to
---- wait for. It runs on
+--- platform legs where they run, after the shares of the suite that
+--- `checked-shard` runs: it runs where the legs do unless a share
+--- failed (a skipped share, a light run's, is none). It runs on
 --- linux-x86_64's host: its runner, its image and its builder, with its
 --- zig build outputs and compiles restored under that leg's names (which
 --- that leg saves, and this job does not), and its verdicts under a name
@@ -1923,72 +1921,21 @@ end
 local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x86_64s_host()
   local jobs = ci_workflow().jobs
   local platform, checked = job_of(jobs, "platform"), job_of(jobs, "checked")
-  -- It starts beside the shares: no share in its `needs`, which would
-  -- put its boot and build after the last of them.
-  assert(table.concat(needs_of(checked), ",") == "reuse,scope",
+  assert(table.concat(needs_of(checked), ",") == "reuse,scope,checked-shard",
     "the checked job waits on " .. tostring((Json.encode_any(checked["needs"]))))
-  assert(checked["if"] == "!cancelled() && needs.reuse.outputs.run == ''",
-    "the checked job runs other than where the legs do: " .. tostring(checked["if"]))
-  -- It waits for every share after its build, polling the run's jobs by
-  -- the shares' names, and the gather stands on that wait alone.
+  -- Past a failed share it runs only where it saves (main's push, the
+  -- nightly: a branch push has no shares to fail), to take the failed test's pass out of the cache, and fails.
+  assert(checked["if"] == "!cancelled() && needs.reuse.outputs.run == '' && " ..
+      "(needs.checked-shard.result != 'failure' || github.event_name == 'push' || github.event_name == 'schedule')",
+    "the checked job runs other than where the legs do, unless a share failed off a saving run: " ..
+      tostring(checked["if"]))
   local checked_steps = checked.steps
-  local waiting, waiting_at = step_with_id(checked_steps, "shares-wait")
-  local _, building_at = step_running(checked_steps, "platform checked-build")
-  local stopping, stopping_at = step_named(checked_steps, "stop where a share failed and nothing is saved")
-  local _, downloading_at = step_with_id(checked_steps, "shares-download")
   local failing, failing_at = step_named(checked_steps, "fail where a share failed")
-  local suite_step, running_at = step_with_id(checked_steps, "checked-suite")
-  assert(building_at < waiting_at and waiting_at < stopping_at and stopping_at < downloading_at and
-      downloading_at < failing_at and failing_at < running_at,
-    "the checked job does not wait for the shares after its build and before it takes their verdicts")
-  assert(waiting["if"] == FULL and waiting["run"] == "cosmic-driver cosmic_ci/driver.tl shares-wait" and
-      waiting["continue-on-error"] == nil, "the checked job's wait: " .. tostring(waiting["run"]))
-  local wenv = map_of(waiting.env)
-  local shard_job = job_of(ci_workflow().jobs, "checked-shard")
-  local shard_parts, shard_err: {integer}?, string = Shape.into(assert(assert(shard_job.strategy).matrix)["part"],
-    Shape.list(Shape.integer))
-  shard_parts = assert(shard_parts, shard_err)
-  local shard_names: mut {string} = {}
-  for _, part in ipairs(shard_parts) do
-    shard_names[#shard_names + 1] = "linux-x86_64-checked-shard-" .. tostring(part)
-  end
-  assert(wenv["JOBS"] == table.concat(shard_names, " "), "the checked job waits for other jobs than the shares: " ..
-      tostring(wenv["JOBS"]))
-  assert(wenv["REPOSITORY"] == "${{ github.repository }}" and wenv["RUN_ID"] == "${{ github.run_id }}" and
-      wenv["GH_TOKEN"] == "${{ github.token }}", "the checked job's wait asks for another run's jobs")
-  -- Bounded: a share is given its own timeout and a margin, the wait a
-  -- limit, and the step and the job minutes to hold the limit.
-  local limit, share = math.tointeger(tonumber(wenv["LIMIT_SECONDS"])), math.tointeger(tonumber(wenv["SHARE_SECONDS"]))
-  local shard_minutes = math.tointeger(shard_job["timeout-minutes"])
-  local step_minutes = math.tointeger(waiting["timeout-minutes"])
+  local _, running_at = step_with_id(checked_steps, "checked-suite")
+  assert(failing["if"] == "env.COSMIC_CI_SCOPE == 'full' && needs.checked-shard.result == 'failure'" and
+      failing_at < running_at, "the checked job does not fail, before its suite, where a share failed")
   local gather_minutes = math.tointeger(checked["timeout-minutes"])
-  assert(limit ~= nil and share ~= nil and shard_minutes ~= nil and step_minutes ~= nil and gather_minutes ~= nil,
-    "the checked job's wait is not bounded")
-  assert(share > shard_minutes * 60 and limit > share and step_minutes * 60 > limit and
-      gather_minutes > step_minutes, "the checked job's wait outlasts its step or its job, or a share's own timeout")
-  -- A share that did not pass stops the job, at once where nothing is
-  -- saved, and past the download (to save the shares' rows) where main
-  -- or the nightly does.
-  assert(stopping["if"] == FULL .. " && (steps.shares-wait.outputs.result == 'timeout' || " ..
-      "(steps.shares-wait.outputs.result != 'success' && env.COSMIC_CI_SAVES != 'true'))" and assert(stopping["run"]):find("exit 1", 1, true) ~= nil,
-    "the checked job goes on past a failed share where it saves nothing: " .. tostring(stopping["if"]))
-  assert(failing["if"] == FULL .. " && steps.shares-wait.outputs.result != 'success'" and
-      assert(failing["run"]):find("exit 1", 1, true) ~= nil, "the checked job does not fail where a share failed: " ..
-      tostring(failing["if"]))
-  -- Where the run saves, the wait holds for every share to complete.
-  assert(wenv["HOLD"] == "${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule') && '1' || '' }}",
-    "the checked job's wait does not hold for every share where it saves: " .. tostring(wenv["HOLD"]))
-  -- A timed out wait takes no rows and trims none to save.
-  local trimming = step_with_id(checked_steps, "verdicts-trim")
-  assert((trimming["if"] or ""):find("steps.shares-wait.outputs.result != 'timeout'", 1, true) ~= nil,
-    "the checked job trims, and so saves, the rows of an unfinished wait: " .. tostring(trimming["if"]))
-  assert(suite_step["if"] == FULL .. " && steps.shares-wait.outputs.result == 'success'",
-    "the checked job gathers other than on every share's passing: " .. tostring(suite_step["if"]))
-  for _, step in ipairs(checked_steps) do
-    assert(not (step["if"] or ""):find("needs.checked-shard", 1, true) and
-        not (step.run or ""):find("needs.checked-shard", 1, true),
-      "the checked job reads a share's result from `needs`, which it does not have: " .. tostring(step.name))
-  end
+  assert(gather_minutes ~= nil and gather_minutes <= 20, "the checked job's time is not sized for a gather")
   assert(platform["if"] == "!cancelled() && needs.reuse.outputs.run == ''", tostring(platform["if"]))
   local penv, cenv = map_of(platform.env), map_of(checked.env)
   assert(penv["COSMIC_CI_CHECKED_SUITE"] == "skip", "a leg runs the checked suite: " ..
@@ -2256,9 +2203,34 @@ local function test_the_checked_suite_runs_in_shares_that_a_job_gathers()
       diag["if"] == "failure()", "a share keeps its diagnostics otherwise")
 end
 
---- The checked narrowing run, the whole suite on a checked run, is a
---- job of its own, `checked-narrowing`, on a full run where the legs
---- run: it stands on no verdict and uses no checked core, so it boots
+--- The checked narrowing run's shares check no C function is entered by
+--- some test, which only a whole run does (build/test.tl). They need not:
+--- a checked run enters no C function a plain one does not (the tests that
+--- differ skip in it, and those that ask for one skip in every run,
+--- build/type_watch.tl), and linux-x86_64's leg runs the whole native
+--- suite on the same release core in every full run, with no share of it
+--- and no selected files. This holds the leg to that.
+local function test_a_full_runs_linux_x86_64_leg_holds_the_c_function_check_the_narrowing_shares_lack()
+  local jobs = ci_workflow().jobs
+  local platform = job_of(jobs, "platform")
+  assert(map_of(platform.env)["COSMIC_CI_SHARD"] == LEG_SHARD, "the leg's share is another than the matrix's")
+  local leg = assert(platform_legs("full")["linux-x86_64"], "a full run has no linux-x86_64 leg")
+  assert(leg_shard(leg) == "" and leg["shard"] == "", "linux-x86_64 runs a share of a full run's suite")
+  assert(phases_of(platform):find("local-suite", 1, true) ~= nil, "the legs run no native suite: " .. phases_of(platform))
+  -- The step that runs the suite skips only alpine-x86_64's portable share
+  -- job, which is no leg: every leg of a full run runs it.
+  local suite_step = step_named(platform.steps, "run release Cosmic's native suite")
+  assert((suite_step["if"] == nil or suite_step["if"] == "matrix.shard != 'portable-2/2'") and
+      (suite_step.run or ""):find("platform local-suite", 1, true) ~= nil,
+    "the legs' native suite is conditional or another: " .. tostring(suite_step["if"]))
+  local step = step_named(platform.steps, "run the declared-types tests on a checked run")
+  assert((step.run or ""):find("platform declared-types", 1, true) ~= nil, "the declared-types step is another")
+end
+
+--- The checked narrowing run, the whole suite on a checked run, is jobs
+--- of their own, `checked-narrowing`, on a full run where the legs
+--- run, a share of the tests each (`cosmic test --check-types --shard
+--- I/N`): it stands on no verdict and uses no checked core, so it boots
 --- and keeps no verdicts and saves nothing. A branch push's format check
 --- is a job of its own too (`format`), which a full run does not run
 --- (its legs make that check in assemble).
@@ -2269,8 +2241,27 @@ local function test_the_checked_narrowing_run_and_a_light_runs_format_check_have
   local format = assert(job_of(jobs, "format"), "no job runs the light format check")
   assert(Json.encode_any(narrowing["needs"]) == '["reuse","scope"]' and narrowing["if"] == job_of(jobs, "checked-shard")["if"],
     "the checked narrowing runs elsewhere than a share does: " .. tostring(narrowing["if"]))
-  assert(narrowing["name"] == "linux-x86_64-checked-narrowing", tostring(narrowing["name"]))
+  local strategy = assert(narrowing.strategy, "the checked narrowing is split in no shares")
+  local parts, parts_err: {integer}?, string = Shape.into(assert(strategy.matrix)["part"], Shape.list(Shape.integer))
+  parts = assert(parts, parts_err)
+  assert(#parts >= 2 and strategy["fail-fast"] == false,
+    "the checked narrowing is split in no shares, or one failing cancels the others")
+  for i, part in ipairs(parts) do
+    assert(part == i, "the narrowing shares are not numbered from 1")
+  end
+  assert(narrowing["name"] == "linux-x86_64-checked-narrowing-${{ matrix.part }}", tostring(narrowing["name"]))
   assert(phases_of(narrowing) == "boot checked-narrowing", "the checked narrowing runs " .. phases_of(narrowing))
+  -- A share's job holds its boot and the share's bound, and fewer minutes
+  -- than the whole run's job had.
+  local script = assert(Fs.read("ci/cosmic_ci/orchestration.tl"))
+  local bound = math.tointeger(tonumber(script:match("checked_narrowing_timeout_ns <const> = Clock%.seconds%((%d+)%)")))
+  assert(bound ~= nil and bound > 0, "a narrowing share has no bound of its own")
+  local minutes = math.tointeger(narrowing["timeout-minutes"])
+  assert(minutes ~= nil and minutes * 60 >= bound + 600 and minutes < 45,
+    "a narrowing share's job holds " .. tostring(minutes) .. " minutes for its boot and a bound of " .. tostring(bound) .. " s")
+  local kept_db = assert(param((step_named(narrowing.steps, "preserve CI driver database")), "name"))
+  assert(kept_db == "ci-driver-linux-x86_64-checked-narrowing-${{ matrix.part }}",
+    "a narrowing share keeps its operations as " .. kept_db)
   held_to_the_leg("checked-narrowing", narrowing, platform, joined({ { "name the leg's host" }, SETUP_STEPS }),
     function(_: string, theirs: string?): string?
       return theirs
@@ -2285,6 +2276,8 @@ local function test_the_checked_narrowing_run_and_a_light_runs_format_check_have
   assert(nenv["COSMIC_WORKER"] == "linux-x86_64-checked" and nenv["COSMIC_CI_REQUIRE_SANDBOX"] == "1" and
       nenv["COSMIC_CI_DECLARED_KEYS"] == "0" and nenv["COSMIC_CI_CHECKED_SUITE"] == nil and nenv["COSMIC_CI_FORMAT"] == nil,
     "the checked narrowing is not run as the checked job was: " .. tostring((Json.encode(nenv))))
+  assert(nenv["COSMIC_CI_NARROWING_SHARD"] == "${{ matrix.part }}/${{ strategy.job-total }}",
+    "a narrowing share's COSMIC_CI_NARROWING_SHARD: " .. tostring(nenv["COSMIC_CI_NARROWING_SHARD"]))
   -- The format check: a branch push's and the scheduled run's, which
   -- names the paths the branch changed from the base it found, boots,
   -- and lays out only those.
@@ -2468,6 +2461,64 @@ local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
     end
   end
   assert(placed >= 3, "only " .. tostring(placed) .. " jobs move their tree")
+end
+
+--- A job whose steps drop to an unprivileged user (a `setpriv` default
+--- shell) has one cosmic cache for them all, and none of its steps runs
+--- the tree's tools as the container's root. The build directory
+--- (build/paths.tl) and the launcher's cores lie under $XDG_CACHE_HOME:
+--- a step that lacks the build step's value looks for the built tool in
+--- another directory, and the root's launcher refuses a cache leaf the
+--- user made.
+local function test_an_unprivileged_job_shares_one_cache_and_runs_its_tools_as_that_user()
+  local checked = 0
+  for path, workflow in pairs(decoded_workflows()) do
+    for job_name, job in pairs(workflow.jobs) do
+      local shell = ""
+      for _, defaults in ipairs(run_defaults(job, workflow)) do
+        shell = defaults["shell"] or shell
+      end
+      if shell:find("setpriv", 1, true) ~= nil then
+        checked = checked + 1
+        local where = path .. " " .. job_name
+        local set = 0
+        local first_tool = 0
+        for i, step in ipairs(job.steps) do
+          local what = where .. " step " .. tostring(step.name)
+          local run = step.run
+          local named = map_of(step.env)["XDG_CACHE_HOME"] ~= nil
+          local sets = false
+          if run is string then
+            local assigns = run:find("XDG_CACHE_HOME%s*=") ~= nil or run:find("export%s+XDG_CACHE_HOME") ~= nil
+            sets = assigns and run:find("GITHUB_ENV", 1, true) ~= nil
+            named = named or (assigns and not sets)
+            local padded = " " .. run
+            local tool = padded:find("[%s;&|(\"']%.*/*bin/[%a-]") ~= nil or
+              padded:find("[%s;&|(]cosmic%-driver%f[^%w_%-]") ~= nil
+            if tool then
+              if first_tool == 0 then first_tool = i end
+              assert(step.shell == nil or step.shell:find("setpriv", 1, true) ~= nil,
+                what .. " runs the tree's tools as root")
+            end
+          end
+          assert(not named, what .. " names a cache of its own")
+          local uses = step.uses
+          if uses is string and uses:find("^%./") ~= nil then
+            assert(step.shell == nil or step.shell:find("setpriv", 1, true) ~= nil,
+              what .. " runs a local action as root")
+          end
+          if sets and set == 0 then
+            set = i
+            assert(step["if"] == nil, what .. " shares the cache only under a condition")
+          end
+        end
+        assert(set > 0, where .. " never names the cache its steps share")
+        assert(first_tool == 0 or set < first_tool,
+          where .. " names the shared cache after a step that uses the tree's tools")
+      end
+    end
+  end
+  assert(checked >= 1, "no job drops to an unprivileged user")
 end
 
 --- A failed leg of the merge queue's run cancels the rest of its own

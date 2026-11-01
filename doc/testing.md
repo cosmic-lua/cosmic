@@ -409,8 +409,9 @@ writes the wraps given `facts` (no flag of `cosmic compile` asks for them), and 
 --check-types` has the build write them for the tree ([`build.pipeline`]'s `generate`), so a read the checker narrowed
 wrongly is a failing test and a row of `type_violations` of a real run ([`build/fact_hook_tool_test.tl`] plants one).
 
-CI runs the whole suite so in the `checked-narrowing` job of a full run
-(`cosmic-driver cosmic_ci/driver.tl platform checked-narrowing`), and
+CI runs the whole suite so in the `checked-narrowing` jobs of a full run,
+two shares of it (`cosmic-driver cosmic_ci/driver.tl platform
+checked-narrowing`, `--check-types --shard I/2`), and
 `bin/cosmic test --check-types` runs it anywhere.
 
 ## fuzz tests
@@ -421,6 +422,11 @@ seeded source. A check must hold for all of them. The module doc of
 [`build.fuzz`] has the full contract.
 
 - `FUZZ_SEED` and `FUZZ_ITERS` (64 by default) choose the inputs.
+- `FUZZ_SECONDS` bounds the seconds a property spends drawing (none by
+  default): past them, with 64 inputs drawn, it stops, says how many it
+  drew and is held to those. The nightly `fuzz.yml` sets 120, for the
+  properties whose every input costs a tenth of a second or more.
+  Prefer it to a `max_iters` guessed from a measurement.
 - A failure is shrunk and kept in the test's directory.
 - `FUZZ_CASE=<property>:<case>` checks the one input a report names.
   `FUZZ_SEED=<seed> FUZZ_ITERS=<iteration>` reruns the way to it.

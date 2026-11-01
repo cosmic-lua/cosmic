@@ -625,7 +625,10 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
             "SELECT name FROM requires WHERE source_hash = ?1 ORDER BY ordinal", { text(hash) })
           if rows == nil then return nil, rows_trouble end
           names = {}
-          for _, row in ipairs(rows) do names[#names + 1] = row:text(1) end
+          for _, row in ipairs(rows) do
+            local first = row:text(1)
+            names[#names + 1] = first
+          end
         end
         for _, next_name in ipairs(names) do stack[#stack + 1] = next_name end
       end
@@ -1049,7 +1052,8 @@ local function reach(db: Sqlite.Handle, target: string): {string:boolean}?, stri
       list = {}
       requires[row:text(1)] = list
     end
-    list[#list + 1] = row:text(2)
+    local second = row:text(2)
+    list[#list + 1] = second
   end
   local reached: mut {string:boolean} = { [target] = true }
   local pending: mut {string} = { target }

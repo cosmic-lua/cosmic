@@ -113,7 +113,8 @@ local function names_by_hash(db: Sqlite.Handle,
       list = {}
       out[row:text(1)] = list
     end
-    list[#list + 1] = row:text(2)
+    local second = row:text(2)
+    list[#list + 1] = second
   end
   return out, ""
 end

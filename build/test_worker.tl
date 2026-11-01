@@ -966,8 +966,9 @@ function worker.decode(text: string): worker.Report?, string
         if actual == nil then return nil, "a malformed violation: " .. line end
         local met = report.violations or {}
         report.violations = met
-        met[#met + 1] = { kind = kind, at = at, target = target, declared = declared,
+        local entry: worker.Violation = { kind = kind, at = at, target = target, declared = declared,
           actual = actual, count = math.tointeger(tonumber(count)) or 1 }
+        met[#met + 1] = entry
       elseif tag == "checked" then
         report.checked = rest == "1"
       elseif tag == "dropped" then

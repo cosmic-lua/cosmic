@@ -321,7 +321,9 @@ end
 
 function Pipeline.over(entries: {{string}}, kinds: {string: string}, options: Pipeline.Options, stubs?: {string: string}):
     Pipeline.Built
-  local index = TreeProgram.index(entries, kinds)
+  -- The binary answers a `require` of a module of the language, which no tail of a project file's name may stand for.
+  local index = TreeProgram.index(entries, kinds,
+    if options.project == true then TreeProgram.library_modules(options.globals) else nil end)
   local standard = options.standard or Pipeline.carried()
   return {
     build = TreeProgram.build(index, options.globals, options.types, nil, standard), ceilings = options.ceilings, index = index,
@@ -362,6 +364,12 @@ function Pipeline.build(db: Sqlite.Handle, options: Pipeline.Options): Pipeline.
   local entries, kinds, trouble = entries_of(db)
   if entries == nil then
     return nil, trouble
+  end
+  if options.project == true then
+    local reserved = TreeProgram.reserved(entries, TreeProgram.library_modules(options.globals))
+    if reserved ~= "" then
+      return nil, reserved
+    end
   end
   return Pipeline.over(entries, kinds, options), ""
 end
@@ -511,6 +519,8 @@ function Pipeline.derive(db: Sqlite.Handle, fresh: {Derivation.Fresh}, tally: De
   if entries == nil then
     return false, trouble
   end
+  -- No `unaliased` here, as [`Pipeline.over`] gives its index: this index only finds each source by the name of its file, which
+  -- no alias changes, and the build that checks the tree has refused a file named for a module of the language already.
   local index = TreeProgram.index(entries, kinds)
   -- A source is found by the name of its file in the database, which for a declaration written from a header is the header's.
   local by_file: mut {string: Driver.Source} = {}
@@ -720,13 +730,15 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
     local problems = read.problems
     local allowed = Ceilings.of(built.ceilings, "untyped")[m.file] or 0
     if read.untyped > allowed then
+      local calls = String.counted(read.untyped, "call")
       if built.ceilings.none == true then
-        problems[#problems + 1] = m.file .. ": " .. String.counted(read.untyped, "call") .. " the checker gave no function, " ..
+        problems[#problems + 1] = m.file .. ": " .. calls .. " the checker gave no function, " ..
           "which no rule of the discipline judged: type what it calls through"
       else
-        problems[#problems + 1] = m.file .. ": " .. String.counted(read.untyped, "call") .. " the checker gave no function, " ..
+        local message = m.file .. ": " .. calls .. " the checker gave no function, " ..
           "which no rule of the discipline judged, pinned " .. tostring(allowed) ..
           "; type what it calls through rather than raise the pin (build/ceilings.txt's [untyped])"
+        problems[#problems + 1] = message
       end
     end
     if #problems > 0 and judged ~= false then

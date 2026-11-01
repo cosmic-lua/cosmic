@@ -552,7 +552,8 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
     for i = 1, select("#", ...) do
       parts[i] = tostring((select(i, ...)))
     end
-    done.printed[#done.printed + 1] = table.concat(parts, "\t")
+    local line = table.concat(parts, "\t")
+    done.printed[#done.printed + 1] = line
   end
   env.__fact = hook or own_fact
   local loaded: {string: any} = {}

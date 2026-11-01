@@ -32,10 +32,10 @@
 --- calendar without a zone.
 
 local Clock = require("cosmic.clock")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Number = require("cosmic.number")
 local String = require("cosmic.string")
-local sys = require("cosmic.sys")
 
 local record Time
   --- The fields [`from_civil`] reads of a moment on a calendar, which a
@@ -1319,7 +1319,7 @@ function Time.local_zone(opts?: Time.LocalOptions): Time.Zone?, string
     localtime = opts.localtime or localtime
     timezone = opts.timezone or timezone
   end
-  if tz == nil and not (opts ~= nil and opts.unset == true) then tz = sys.getenv("TZ") end
+  if tz == nil and not (opts ~= nil and opts.unset == true) then tz = Env.read("TZ") end
   local cacheable = opts == nil
   if cacheable then
     local cached: Time.Zone?

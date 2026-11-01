@@ -75,3 +75,15 @@ local function test_a_missing_method_is_told_the_metatable()
   lines = test_report.failures({ { message = "a test_b: a:1: attempt to call a nil value (field 'x')" } }, "")
   assert(#lines == 1)
 end
+
+--- Properties that stopped drawing are one line, sorted, naming what each drew.
+local function test_stopped_properties_are_one_sorted_line()
+  assert(#test_report.stopped({}) == 0)
+  local lines = test_report.stopped({ "b drew 64 of 10000 inputs in 130 s (FUZZ_SECONDS=120): each cost about 2.03 s",
+    "a drew 70 of 10000 inputs in 121 s (FUZZ_SECONDS=120): each cost about 1.73 s" })
+  assert(#lines == 1)
+  assert(lines[1] == "test: fuzz: 2 properties stopped by FUZZ_SECONDS: a drew 70 of 10000 inputs, b drew 64 of 10000 inputs",
+    tostring(lines[1]))
+  assert(test_report.stopped({ "x drew 64 of 99 inputs in 5 s (FUZZ_SECONDS=1)" })[1] ==
+      "test: fuzz: 1 property stopped by FUZZ_SECONDS: x drew 64 of 99 inputs")
+end

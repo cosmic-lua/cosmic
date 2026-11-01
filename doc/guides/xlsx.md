@@ -4,7 +4,7 @@ An `.xlsx` file is a zip of XML parts: the workbook names its sheets, a
 relationships part says where each one is, a shared strings part holds
 the text of the cells, and each sheet holds its rows. This guide reads one
 with [`cosmic.zip`], [`cosmic.xml`], [`cosmic.url`] and [`cosmic.time`],
-in about a hundred lines, dates included, and shows where a fuller
+in about 120 lines, dates included, and shows where a fuller
 reader would go on from there.
 
 ## a workbook to read
@@ -15,6 +15,7 @@ here, so they run anywhere. A real file is read the same way from
 drops with `local_names`.
 
 ```teal
+local Csv = require("cosmic.csv")
 local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
 local Url = require("cosmic.url")
@@ -34,7 +35,8 @@ local parts: {{string}} = {
     "</Relationships>" },
   { "xl/sharedStrings.xml", "<sst " .. main .. "><si><t>Region</t></si><si><t>Total</t></si>" ..
     "<si><r><t>North</t></r><r><t> East</t></r>" ..
-    '<rPh sb="0" eb="5"><t>nosu</t></rPh></si></sst>' },
+    '<rPh sb="0" eb="5"><t>nosu</t></rPh></si>' ..
+    '<si><t>Fish, "fresh"\ndaily</t></si></sst>' },
   { "xl/styles.xml", "<styleSheet " .. main .. '><numFmts><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm"/>' ..
     '<numFmt numFmtId="165" formatCode="[h]:mm"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="14"/>' ..
     '<xf numFmtId="164"/><xf numFmtId="165"/></cellXfs></styleSheet>' },
@@ -42,7 +44,10 @@ local parts: {{string}} = {
     '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>' ..
     '<row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2"><v>1250.5</v></c><c r="D2" t="b"><v>1</v></c><c><v>7</v></c></row>' ..
     '<row r="3"><c r="A3" s="1"><v>45658</v></c><c r="B3" s="2"><v>45658.5</v></c>' ..
-    '<c r="C3" s="1" t="e"><v>#N/A</v></c><c r="D3" s="3"><v>1.5</v></c></row>' ..
+    '<c r="C3" s="1" t="e"><v>#N/A</v></c><c r="D3" s="3"><v>1.5</v></c>' ..
+    '<c r="E3" s="1"><v>1</v></c><c r="F3" s="1"><v>60</v></c><c r="G3" s="2"><v>60.5</v></c>' ..
+    '<c r="H3" s="1"><v>0.5</v></c><c r="I3" s="1"><v>-1</v></c></row>' ..
+    '<row r="4"><c r="A4" t="s"><v>3</v></c><c r="B4"><v>3</v></c></row><row r="5"/>' ..
     "</sheetData></worksheet>" },
 }
 local out = Stream.collect()
@@ -129,9 +134,17 @@ its quoted text, its escaped (`\d`) and padding (`_d`, `*d`) characters
 and its `[...]` sections; one with `[h]`, `[m]` or `[s]`, as built-in 46
 is, shows elapsed time, a duration and no date. A cell is read as a date
 only when it holds a number: an error, such as `#N/A`, or a formula's
-text is written as it is. [`Time.parse_date`] gives the first moment of
-1899-12-30, from which the days count. The time of day has no zone, so
-it is written without one.
+text is written as it is. The time of day has no zone, so it is written
+without one.
+
+The days count from 1899-12-30, or, where the workbook's `workbookPr`
+says `date1904`, from 1904-01-01; [`Time.parse_date`] gives the first
+moment of either. Excel counts 1900 as a leap year, as Lotus 1-2-3 did:
+so a serial before 60 counts from a day later, and 60 itself is a
+February 29 that never was, which is written as Excel shows it. A
+serial under 1 is a time of day with no date, written as the time
+alone, and one under 0 is no date at all, written as its number, as
+Excel shows neither as a date.
 
 ```teal continue
 local date_styles: mut {integer: boolean} = {}
@@ -151,12 +164,32 @@ if styles ~= nil then
   end
 end
 
-local epoch = assert(Time.parse_date("1899-12-30"))
-local function date(serial: number): string
-  local ns = epoch + math.floor(serial * 86400 + 0.5) * 1000000000
-  if serial == math.floor(serial) then return Time.format_date(ns) end
+local workbook = part("/xl/workbook.xml")
+local pr = Xml.child(workbook, "workbookPr")
+local flag = if pr ~= nil then pr.attributes["date1904"] else nil end
+local date1904 = flag == "1" or flag == "true"
+local function clock(fraction: number): string
+  local seconds = math.floor(fraction * 86400 + 0.5)
+  return string.format("%02d:%02d:%02d", seconds // 3600, seconds // 60 % 60, seconds % 60)
+end
+
+local function date(serial: number, from1904: boolean): string
+  if serial < 0 then return tostring(serial) end
+  local days = serial
+  if not from1904 then
+    if serial < 1 then return clock(serial) end
+    if math.floor(serial) == 60 then
+      local time = serial - 60
+      return "1900-02-29" .. (if time == 0 then "" else "T" .. clock(time) end)
+    end
+    if serial < 60 then days = serial + 1 end
+  end
+  local epoch = assert(Time.parse_date(if from1904 then "1904-01-01" else "1899-12-30" end))
+  local ns = epoch + math.floor(days * 86400 + 0.5) * 1000000000
+  if days == math.floor(days) then return Time.format_date(ns) end
   return (Time.format_rfc3339(ns):gsub("Z$", ""))
 end
+assert(date(0, true) == "1904-01-01" and date(1.5, true) == "1904-01-02T12:00:00")
 ```
 
 ## cells
@@ -185,7 +218,7 @@ local function value(c: Xml.Element): string
   if t == "b" then return if raw == "1" then "TRUE" else "FALSE" end end
   local style = math.tointeger(c.attributes["s"] or "0")
   local number = if t == nil or t == "n" then tonumber(raw) else nil end
-  if number ~= nil and style ~= nil and date_styles[style] == true then return date(number) end
+  if number ~= nil and style ~= nil and date_styles[style] == true then return date(number, date1904) end
   return raw
 end
 ```
@@ -194,10 +227,15 @@ end
 
 A sheet can hold a great many rows, so it is read a row at a time:
 [`Xml.subtrees`] answers each `row` whole as the parser reaches its
-end, from the sheet's body read in chunks.
+end, from the sheet's body read in chunks. Each row is written as CSV with
+[`Csv.encode`], which quotes a cell that holds a comma, a quote or a line
+break (Alt-Enter puts one in a cell), so the columns stay where they were.
+It ends the record with a line break, which `print` would double, so that
+is taken off. A row with no cells has no line in CSV, and [`Csv.encode`]
+raises for one, so it is left out: the lines printed do not count the
+sheet's rows, which a row's `r` numbers.
 
 ```teal continue
-local workbook = part("/xl/workbook.xml")
 for _, sheet in ipairs(Xml.children(assert(Xml.child(workbook, "sheets")), "sheet")) do
   print(sheet.attributes["name"])
   local path = assert(rels[assert(sheet.attributes["id"])])
@@ -214,7 +252,7 @@ for _, sheet in ipairs(Xml.children(assert(Xml.child(workbook, "sheets")), "shee
         local text = value(c)
         cells[#cells + 1] = text
       end
-      print(table.concat(cells, ","))
+      if #cells > 0 then print((Csv.encode({ cells }):gsub("\n$", ""))) end
     end
   end
   while true do
@@ -234,17 +272,15 @@ assert(book:close())
 Sales
 Region,Total
 North East,1250.5,,TRUE,7
-2025-01-01,2025-01-01T12:00:00,#N/A,1.5
+2025-01-01,2025-01-01T12:00:00,#N/A,1.5,1900-01-01,1900-02-29,1900-02-29T12:00:00,12:00:00,-1
+"Fish, ""fresh""
+daily",3
 ```
 
 ## going further
 
 What this leaves out is the spreadsheet's own business, not the file's:
 
-- A workbook may count its dates from 1904-01-01 instead, which its
-  `workbookPr` says with `date1904="1"`; this reader counts from 1900's.
-- Excel counts 1900 as a leap year, so the serials 1 to 59 come out a day
-  early here, and 60 names a February 29 that never was.
 - The built-in formats 27 to 36 and 50 to 58, East Asian dates, are left
   out.
 - A formula's cell holds an `f` beside the `v` it last computed.
@@ -267,6 +303,7 @@ And some of what a reader of any file meets:
 [`cosmic.url`]: ../../cosmic/url.tl
 [`cosmic.xml`]: ../../cosmic/xml.tl
 [`cosmic.zip`]: ../../cosmic/zip.tl
+[`Csv.encode`]: ../../cosmic/csv.tl
 [`Time.parse_date`]: ../../cosmic/time.tl
 [`Url.resolve`]: ../../cosmic/url.tl
 [`Xml.subtrees`]: ../../cosmic/xml.tl

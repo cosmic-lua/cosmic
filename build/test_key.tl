@@ -560,7 +560,8 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
   for _, row in ipairs(imported) do
     local list = imports[row:text(1)] or {}
     imports[row:text(1)] = list
-    list[#list + 1] = row:text(2)
+    local second = row:text(2)
+    list[#list + 1] = second
   end
   local names: mut {string} = {}
   local runs: mut {string} = {}
@@ -620,7 +621,7 @@ end
 --- as the file's is, so the census and key-parts lines, which say it
 --- as one word, stay parseable. Nil and why for another.
 function test_key.epoch_of(): string?, string
-  local named = Env.get("COSMIC_TEST_HARNESS_EPOCH") or ""
+  local named = Env.read("COSMIC_TEST_HARNESS_EPOCH") or ""
   if named == "" then return harness_epoch.epoch, "" end
   if not named:match("^%d+%-%x+$") then
     return nil, string.format("COSMIC_TEST_HARNESS_EPOCH is %q, not a count, a dash and " ..
@@ -1025,7 +1026,7 @@ function test_key.scratch(): string?, string
   -- Padded so the scratch directory's path is as long on this host as
   -- a sandbox's is, and as macOS's is ([`test_sandbox.scratch_length`]),
   -- past the temporary directory's resolved path and mkdtemp's six.
-  local base, base_trouble = Fs.absolute(Env.get_or("TMPDIR", "/tmp"))
+  local base, base_trouble = Fs.absolute(Env.read("TMPDIR") or "/tmp")
   if base == nil then return nil, base_trouble end
   local separator = if base:sub(-1) == "/" then 0 else 1 end
   local made, trouble = Fs.mkdtemp(test_sandbox.padded("cosmic-test-",
@@ -1739,7 +1740,7 @@ function test_key.ask_host(rec: Recording, modules: {Module},
           local prefix, _ = artifact.trusted_prefix()
           return prefix == nil or artifact.host_only(prefix)
         end
-        if Env.get("COSMIC_TEST_PLATFORM") == "other" then
+        if Env.read("COSMIC_TEST_PLATFORM") == "other" then
           linux, portable, checked = false, false, false
         end
         host = host_requires.new({
@@ -1854,7 +1855,7 @@ function test_key.gather(rec: Recording, from: Gather): string?
   -- not cosmic's own, so it can see the core move every store's address
   -- (build/sandboxed_verdicts_test.tl): mixed into the stores' salt
   -- alone, never in its place.
-  local store_core = Env.get("COSMIC_TEST_STORE_RUNTIME")
+  local store_core = Env.read("COSMIC_TEST_STORE_RUNTIME")
   if not from.own_tree and store_core ~= nil and store_core ~= "" then
     store_runtime = hex_sha256(store_runtime .. "\0" .. store_core)
   end
@@ -1912,7 +1913,7 @@ end
 function test_key.compiler_identity(own_tree: boolean): Compiler
   local tool = Store.meta("compiler") or ""
   local compiled_by = Store.meta("compiled_by") or ""
-  local compiler_salt = Env.get("COSMIC_TEST_COMPILER_SALT")
+  local compiler_salt = Env.read("COSMIC_TEST_COMPILER_SALT")
   if not own_tree and compiler_salt ~= nil and compiler_salt ~= "" then
     tool = hex_sha256(tool .. "\0" .. compiler_salt)
     compiled_by = tool
@@ -1991,13 +1992,13 @@ function test_key.begin(rec: Recording, from: Begin)
     local hooks = assert(from.harness.modules["build.test_worker"], "the harness names no digest of build.test_worker")
     -- A run in a tree of a project stands in for an edit to the hooks, as COSMIC_TEST_COMPILER_SALT does for a
     -- compiler (build/sandboxed_verdicts_test.tl).
-    local hooks_salt = Env.get("COSMIC_TEST_HOOKS_SALT")
+    local hooks_salt = Env.read("COSMIC_TEST_HOOKS_SALT")
     if not from.own_tree and hooks_salt ~= nil and hooks_salt ~= "" then
       hooks = hex_sha256(hooks .. "\0" .. hooks_salt)
     end
     rec.checks_part = GrammarMode.checks_format .. "\0" .. hooks
   end
-  local store_salt = Env.get("COSMIC_TEST_STORE_SALT")
+  local store_salt = Env.read("COSMIC_TEST_STORE_SALT")
   if not from.own_tree and store_salt ~= nil and store_salt ~= "" then
     rec.store_salt = hex_sha256(rec.store_salt .. "\0" .. store_salt)
   end

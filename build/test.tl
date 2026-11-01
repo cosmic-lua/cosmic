@@ -153,7 +153,8 @@ local worker = require("build.test_worker")
 local test_key = require("build.test_key")
 local type State = require("build.test_state")
 
-local log = require("build.logger").log
+local logger = require("build.logger")
+local log = logger.log
 local bind = require("build.bind")
 local verb_spec = require("build.verb_spec")
 
@@ -189,7 +190,7 @@ local record test
 end
 
 --- The variable a test deadline's default is read from, in seconds.
-local timeout_variable = "COSMIC_TEST_TIMEOUT"
+local timeout_variable <const>: Env.Name = "COSMIC_TEST_TIMEOUT"
 --- A test's deadline when neither the command line nor the
 --- environment names one, in seconds: the slowest test in this tree
 --- takes about a second, so this leaves a loaded CI host ample room
@@ -867,6 +868,31 @@ local function take_violations(rec: Recording, id: string, reported: worker.Repo
   rec.violations_dropped = rec.violations_dropped + unrecorded
 end
 
+--- How long a test runs before its end is said on a line of its own.
+local slow_ns <const> = Clock.minutes(5)
+--- How many of the longest-running tests a progress line names.
+local named <const> = 3
+
+--- What a progress line adds to its count: how many tests have failed
+--- (their reports come at the end of the run), and the longest-running
+--- of `running`, each with how long it has run, so that a run that stops
+--- moving names the tests that hold it.
+local function running_detail(rec: Recording, running: {Job}): string
+  local under_way: mut {progress.Running} = {}
+  for i, job in ipairs(running) do
+    under_way[i] = { name = job.id, started_ns = assert(job.started_ns) }
+  end
+  local parts: mut {string} = {}
+  if #rec.failures > 0 then
+    parts[1] = tostring(#rec.failures) .. " failed so far"
+  end
+  local longest = progress.longest(under_way, Clock.monotonic_ns(), named)
+  if longest ~= "" then
+    parts[#parts + 1] = "longest running: " .. longest
+  end
+  return table.concat(parts, "; ")
+end
+
 --- Records one finished job: the verdict its worker reported, or a
 --- failure that says why there is no report to go by
 --- ([`test_key.judge`], which also says whether it checked, and
@@ -876,6 +902,11 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
   rec.tally.ran = rec.tally.ran + 1
   local id = job.id
   local wall_ns = Clock.monotonic_ns() - assert(job.started_ns)
+  if wall_ns >= slow_ns then
+    -- Said when it ends, so that a run cut short still names the tests
+    -- that took the time it spent.
+    local _, _ = logger.summary("test", "slow: " .. id .. " took " .. progress.elapsed(wall_ns))
+  end
   local judged = test_key.judge(rec, job, result, trouble, refused, unavailable)
   local reported, passed, message = judged.report, judged.passed, judged.message
   local skipped, unchecked = judged.skipped, judged.unchecked
@@ -892,6 +923,15 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
     rec.unchecked[#rec.unchecked + 1] = id
   end
   local deliberate = judged.deliberate
+  local printed = result and result.stdout
+  if passed and printed ~= nil and printed ~= "" then
+    local prefix = test_report.stopped_prefix()
+    for line in printed:gmatch("[^\n]+") do
+      if line:sub(1, #prefix) == prefix then
+        table.insert(rec.stopped, line:sub(#prefix + 1))
+      end
+    end
+  end
   -- A test that said why it did not check keeps its verdict: its pass is a
   -- function of its key, and it is counted apart.
   if passed and deliberate ~= "" then
@@ -1102,7 +1142,9 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
       sweep(rec, running)
     end
     running = still
-    phase.tick(next_job - 1 - #running, #jobs)
+    phase.tick(next_job - 1 - #running, #jobs, function(): string
+      return running_detail(rec, running)
+    end)
   end
   if cancelled == 0 and next_job <= #jobs then rec.not_run = #jobs - next_job + 1 end
   for _, job in ipairs(running) do
@@ -1152,7 +1194,7 @@ local function limits_of(values: {string:string}): State.Limits?, string
     end
     return seconds, ""
   end
-  local from_env = Env.get(timeout_variable)
+  local from_env = Env.read(timeout_variable)
   if from_env ~= nil and from_env ~= "" then
     local seconds, trouble = seconds_of(from_env, timeout_variable)
     if seconds == nil then return nil, trouble end
@@ -1203,6 +1245,9 @@ local function say_skips(rec: Recording)
   local deliberate: mut {string} = {}
   for i, reason in ipairs(rec.deliberate) do deliberate[i] = reason end
   for _, line in ipairs(test_report.deliberate(deliberate)) do log:say(line) end
+  local stopped: mut {string} = {}
+  for i, entry in ipairs(rec.stopped) do stopped[i] = entry end
+  for _, line in ipairs(test_report.stopped(stopped)) do log:say(line) end
   local nas: mut {string} = {}
   for i, na in ipairs(rec.nas) do nas[i] = na end
   for _, line in ipairs(test_report.nas(nas)) do log:say(line) end
@@ -1379,15 +1424,15 @@ local function read_command(ctx: Run): integer?
     selectors[#selectors + 1] = selector
   end
   ctx.selectors = selectors
-  ctx.forced = parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1"
+  ctx.forced = parsed.set["--all"] == true or Env.read("COSMIC_TEST_ALL") == "1"
   -- A run that stands on nothing another checkout reached, though it
   -- still shares what it reaches: what answers for every test is this
   -- checkout's own evidence, or a run.
   ctx.consult = not (parsed.set["--no-shared"] == true or
-    Env.get("COSMIC_TEST_NO_SHARED") == "1")
+    Env.read("COSMIC_TEST_NO_SHARED") == "1")
   -- Only the CI gathering run asks this (ci/cosmic_ci/orchestration.tl's
   -- `checked_suite`); it reads verdicts the shares of the same run kept.
-  ctx.accept_foreign = Env.get("COSMIC_TEST_FOREIGN_FEATURES") == "1"
+  ctx.accept_foreign = Env.read("COSMIC_TEST_FOREIGN_FEATURES") == "1"
   ctx.census = parsed.set["--census"] == true
   -- TODO: run a checked run's three tests that compare the bytecode of a
   -- module with the binary's (build/harness_epoch_test.tl,
@@ -1396,8 +1441,8 @@ local function read_command(ctx: Run): integer?
   -- below) where they read the tree's, so their bytecode is not the one they
   -- compare it with: it waits on a way for a test to read the tree's
   -- projection and the binary's own modules in a checked run.
-  ctx.checks = parsed.set["--check-types"] == true or Env.get("COSMIC_TEST_CHECK_TYPES") == "1"
-  ctx.bail = parsed.set["--bail"] == true or Env.get("COSMIC_TEST_BAIL") == "1"
+  ctx.checks = parsed.set["--check-types"] == true or Env.read("COSMIC_TEST_CHECK_TYPES") == "1"
+  ctx.bail = parsed.set["--bail"] == true or Env.read("COSMIC_TEST_BAIL") == "1"
   return nil
 end
 
@@ -1512,10 +1557,10 @@ local function choose_sandbox(ctx: Run): integer?
   -- project that sets COSMIC_TEST_PROMISES for another reason is no concern of a run
   -- that is not held.
   local promises: {string} = {}
-  ctx.held = sandbox_mode == "on" or Env.get("COSMIC_SANDBOX") == "must" or
-    Env.get("COSMIC_CI_REQUIRE_SANDBOX") == "1"
+  ctx.held = sandbox_mode == "on" or Env.read("COSMIC_SANDBOX") == "must" or
+    Env.read("COSMIC_CI_REQUIRE_SANDBOX") == "1"
   if ctx.held == true then
-    local read, promises_trouble = host_names.read_promises(Env.get("COSMIC_TEST_PROMISES") or "")
+    local read, promises_trouble = host_names.read_promises(Env.read("COSMIC_TEST_PROMISES") or "")
     if read == nil then
       local _, _ = work.close(handle)
       log:complain("test: COSMIC_TEST_PROMISES: " .. promises_trouble)
@@ -1523,7 +1568,7 @@ local function choose_sandbox(ctx: Run): integer?
     end
     promises = read
   end
-  ctx.promises, ctx.leg = promises, Env.get("COSMIC_TEST_LEG") or ""
+  ctx.promises, ctx.leg = promises, Env.read("COSMIC_TEST_LEG") or ""
   -- Each worker runs sandboxed where the kernel can sandbox one, unless
   -- the switch turns it off. Either way each test is keyed by what it
   -- declares; unsandboxed, the run trusts that where a sandboxed run
@@ -1533,14 +1578,14 @@ local function choose_sandbox(ctx: Run): integer?
   -- through a file COSMIC_VERDICT_CACHE names ([`shared_verdicts.chosen`]):
   -- no sandbox held what its tests read, so what it reached is another
   -- checkout's to stand on only where both were asked to.
-  local must = Env.get("COSMIC_SANDBOX") == "must"
+  local must = Env.read("COSMIC_SANDBOX") == "must"
   local unenforced = "each test is keyed by what it declares, which nothing holds it to"
   local sandboxed, sandbox_summary = false, ""
   -- A run started, however deep, in a worker a Landlock ruleset holds
   -- can sandbox none of its own, whose roots are made of mounts: it
   -- fails, naming what lets that worker's test nest one, rather than
   -- run them unsandboxed and pass having confined nothing.
-  local holder = Env.get(confine.held_variable)
+  local holder = Env.read(confine.held_variable)
   if sandbox_mode ~= "off" and holder ~= nil and holder ~= "" then
     local _, _ = work.close(handle)
     log:complain("test: this run was started in " .. holder .. "'s worker, which a " ..
@@ -1574,7 +1619,7 @@ local function choose_sandbox(ctx: Run): integer?
       -- run them without and pass having confined nothing.
       local held = if sandbox_mode == "on" then test_sandbox.switch .. "=1" elseif
         must then "COSMIC_SANDBOX=must" elseif
-        Env.get("COSMIC_CI_REQUIRE_SANDBOX") == "1" then "COSMIC_CI_REQUIRE_SANDBOX=1" else nil end
+        Env.read("COSMIC_CI_REQUIRE_SANDBOX") == "1" then "COSMIC_CI_REQUIRE_SANDBOX=1" else nil end
       if held ~= nil then
         local _, _ = work.close(handle)
         log:complain("test: " .. held .. ", but no worker can be sandboxed here: " .. why)
@@ -1819,7 +1864,7 @@ local function make_recording(ctx: Run)
     violations_dropped = 0, fact_wraps = assert(ctx.result).fact_wraps,
     parameter_checks = assert(ctx.result).parameter_checks, violation_met = {}, violators = {}, violator_ns = {},
     failures = failures, errors = errors, outputs = {}, reruns = {},
-    failed = {}, skips = {}, unchecked = {}, deliberate = {}, held = ctx.held, nas = {}, unmet = {}, answered = {},
+    failed = {}, skips = {}, unchecked = {}, deliberate = {}, stopped = {}, held = ctx.held, nas = {}, unmet = {}, answered = {},
     hits = hits, by_test = by_test, unowned = unowned, tally = tally, not_run = 0,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
     consult_shared = ctx.consult,
@@ -1921,7 +1966,8 @@ local function require_of_host(ctx: Run): integer?
       end
     end)
     if not asked then
-      rec.errors[#rec.errors + 1] = "C coverage prerequisite probe: " .. tostring(trouble)
+      local message = "C coverage prerequisite probe: " .. tostring(trouble)
+      rec.errors[#rec.errors + 1] = message
     end
   end
   return nil

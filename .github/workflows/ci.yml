@@ -1276,38 +1276,26 @@
     # test enters each C function. The suite's own time is a minute or
     # two; what the job costs is the boot and checked build it repeats,
     # the checked core being what it runs
-    # (COSMIC_CI_CHECKED_SUITE=gather). It keeps the suite's verdicts
-    # under a cache name of its own (`linux-x86_64-checked`), saved and
-    # seeded as a leg's are; it restores linux-x86_64's zig build outputs
-    # and compiles, which that leg saves. Its tree moves to a path of the
-    # commit's own, as a leg's does.
-    #
-    # It does not need the shares, so that its boot and build run beside
-    # them; `shares-wait` (shares_wait.tl, through the API) holds it
-    # before it takes their verdicts, and the suite runs only on its
-    # `success`: every share passed. A share that did not pass fails the
-    # job. Where the run saves nothing it fails at once; where it saves
-    # (main's push, the nightly) the wait holds for every share to
-    # complete (HOLD), then the job takes their rows, runs no test and
-    # fails, so the save drops the failed test's pass from main's newest
-    # entry. A wait that timed out with a share unfinished takes no rows
-    # and saves nothing. `ci` fails on the share itself (it needs
-    # `checked-shard`).
-    #
-    # On a branch push (`light`) the shares do not run, and it runs none
-    # of the checked suite's steps but the pinned CI driver's check,
+    # (COSMIC_CI_CHECKED_SUITE=gather). It boots and builds only what the
+    # suite reads, and keeps the suite's verdicts under a cache name of
+    # its own (`linux-x86_64-checked`), saved and seeded as a leg's are;
+    # it restores linux-x86_64's zig build outputs and compiles, which
+    # that leg saves. Its tree moves to a path of the commit's own, as a
+    # leg's does. Where `platform` runs, it runs, unless a share failed.
+    # On a branch push (`light`) the shares do not run, and it runs
+    # none of the checked suite's steps but the pinned CI driver's check,
     # which the legs run only on a full run: some 30 to 60 s where this
     # job has no suite. The tree's format check, which answers the same
     # on every host and runs on one leg in a full run's assemble, is the
     # `format` job's on a light run.
     checked: {
-      needs: ["reuse", "scope"],
-      if: "!cancelled() && needs.reuse.outputs.run == ''",
+      needs: ["reuse", "scope", "checked-shard"],
+      if: "!cancelled() && needs.reuse.outputs.run == '' && (needs.checked-shard.result != 'failure' || github.event_name == 'push' || github.event_name == 'schedule')",
       name: "linux-x86_64-checked",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
       permissions: {contents: "read", packages: "read", actions: "read"},
-      "timeout-minutes": 60,
+      "timeout-minutes": 20,
       env: {
         COSMIC_CI_SCOPE: "${{ needs.scope.outputs.scope == 'light' && 'light' || 'full' }}",
         COSMIC_WORKER: "linux-x86_64-checked",
@@ -1497,7 +1485,7 @@
         # bin/verify-codesign, bin/perf and build/paths.tl) must
         # type-check under the pinned driver in the new grammar, not only
         # the tree's: the check above compiles ci/ on it, and this the
-        # rest, each file ci/bootstrap-files.txt lists run with --help.
+        # rest, each file ci/bootstrap-files.txt lists checked with --standalone --check.
         # Every scope, since it takes well under a second a file.
         {
           name: "type-check the bootstrap's scripts on the pinned driver",
@@ -1513,33 +1501,6 @@
           name: "build the checked core and the format decoder",
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "cosmic-driver cosmic_ci/driver.tl platform checked-build",
-        },
-        # Everything above runs beside the shares; from here the job
-        # stands on them (see the job's comment). The step's limits
-        # nest in the job's timeout (build/workflows_test.tl).
-        {
-          name: "wait for the shares of the checked suite",
-          id: "shares-wait",
-          if: "env.COSMIC_CI_SCOPE == 'full'",
-          shell: "sh",
-          "timeout-minutes": 52,
-          env: {
-            GH_TOKEN: "${{ github.token }}",
-            REPOSITORY: "${{ github.repository }}",
-            RUN_ID: "${{ github.run_id }}",
-            HOLD: "${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule') && '1' || '' }}",
-            JOBS: "linux-x86_64-checked-shard-1 linux-x86_64-checked-shard-2 linux-x86_64-checked-shard-3 linux-x86_64-checked-shard-4",
-            LIMIT_SECONDS: "3000",
-            SHARE_SECONDS: "1620",
-          },
-          run: "cosmic-driver cosmic_ci/driver.tl shares-wait",
-        },
-        {
-          name: "stop where a share failed and nothing is saved",
-          if: "env.COSMIC_CI_SCOPE == 'full' && (steps.shares-wait.outputs.result == 'timeout' || (steps.shares-wait.outputs.result != 'success' && env.COSMIC_CI_SAVES != 'true'))",
-          shell: "sh",
-          env: {FAILED: "${{ steps.shares-wait.outputs.failed }}"},
-          run: "echo \"a share of the checked suite did not pass: ${FAILED:-(none finished in time)}\"; exit 1",
         },
         # The verdicts the shares kept, one artifact each, each in a
         # directory of its own, merged into an empty cache: the rows
@@ -1561,22 +1522,21 @@
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "for share in \"${{ runner.temp }}\"/verdicts-shares/*/; do cosmic-driver cosmic_ci/driver.tl verdicts-merge \"$share\" || exit 1; done",
         },
-        # Where a share did not pass (this job gets here then only where
-        # it saves, the nightly and main's push) the run is red, and runs
-        # no test again: its cache is the shares' rows, the failed share's
+        # Where a share failed (this job runs then only where it saves,
+        # the nightly and main's push) the run is red, and runs no test
+        # again: its cache is the shares' rows, the failed share's
         # without the failed test's, so the save below takes that pass
         # out of main's newest entry as the whole suite's job did.
         {
           name: "fail where a share failed",
-          if: "env.COSMIC_CI_SCOPE == 'full' && steps.shares-wait.outputs.result != 'success'",
+          if: "env.COSMIC_CI_SCOPE == 'full' && needs.checked-shard.result == 'failure'",
           shell: "sh",
-          run: "echo \"a share of the checked suite did not pass\"; exit 1",
+          run: "echo \"a share of the checked suite failed\"; exit 1",
         },
-        # Only on four passing shares' verdicts, whatever the steps above.
         {
           name: "run the checked core's suite",
           id: "checked-suite",
-          if: "env.COSMIC_CI_SCOPE == 'full' && steps.shares-wait.outputs.result == 'success'",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "cosmic-driver cosmic_ci/driver.tl platform checked",
         },
         {
@@ -1588,7 +1548,7 @@
         {
           name: "keep only this run's test verdicts",
           id: "verdicts-trim",
-          if: "always() && env.COSMIC_CI_SCOPE == 'full' && steps.driver.outcome == 'success' && steps.shares-wait.outputs.result != 'timeout'",
+          if: "always() && env.COSMIC_CI_SCOPE == 'full' && steps.driver.outcome == 'success'",
           run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}",
         },
         {
@@ -2000,31 +1960,42 @@
     # checker narrowed by a test is checked against the real run, and a
     # fact that is false fails the test (cosmic_ci's
     # phase_checked_narrowing). A checked run can stand on verdicts of its
-    # own, but this job restores and saves none yet (TODO: restore and
-    # save its verdicts, as the checked suite's jobs do), so it runs every
-    # test, on the release tool
-    # and no checked core, so it boots and builds nothing else. A job of its
+    # own, but these jobs restore and save none yet (TODO: restore and
+    # save their verdicts, as the checked suite's jobs do), so each runs
+    # every test of its share, on the release tool and no checked core,
+    # so it boots and builds nothing else. Jobs of their
     # own on linux-x86_64's host, beside the legs and the checked suite's
-    # shares: it takes thirteen to fifteen minutes, which the shares' job
-    # would add to its path. A full run only.
-    # TODO: run this suite in shares too (`cosmic test --check-types
-    # --shard`), as `checked-shard` does the checked core's: its whole
-    # run makes the check of the C functions some test enters, which a
-    # checked run keeps no verdict to answer for in a gathering run
-    # (`checked`), so it waits on that check's being held elsewhere:
-    # the native suites of every full run's legs make it on the same
-    # core, over tests this one adds to.
+    # shares, in two shares of the tests (`cosmic test --check-types
+    # --shard I/2`, COSMIC_CI_NARROWING_SHARD, as `checked-shard` splits
+    # the checked core's suite). The whole run takes thirteen to fifteen
+    # minutes, which one job would make a full run's longest after the
+    # legs and a failed queue run's tail; a share takes half of those
+    # tests' time after a boot of three minutes, within the bound it has
+    # of its own (orchestration.tl's `checked_narrowing_timeout_ns`). A
+    # share does not check that some test enters each C function, which
+    # only a whole run answers, and no job makes that run on this core
+    # with these tests: a checked run enters no function a plain one does
+    # not. The tests that differ between them skip in a checked run (they
+    # compare the tree's bytecode with the binary's), and the ones that
+    # ask for one (the declared-types tests, build/type_watch.tl) skip in
+    # every run until the compile writes the checks of returns and
+    # fields. So linux-x86_64's leg, which runs the whole suite on the
+    # same release core in every full run, enters every function this run
+    # could. The declared-types step of that leg is a run of chosen
+    # files, which makes no such check. A full run only.
     "checked-narrowing": {
       needs: ["reuse", "scope"],
       if: "!cancelled() && needs.reuse.outputs.run == '' && needs.scope.outputs.scope != 'light'",
-      name: "linux-x86_64-checked-narrowing",
+      name: "linux-x86_64-checked-narrowing-${{ matrix.part }}",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
+      strategy: {"fail-fast": false, matrix: {part: [1, 2]}},
       "runs-on": "ubuntu-24.04",
       permissions: {contents: "read", packages: "read", actions: "read"},
-      "timeout-minutes": 45,
+      "timeout-minutes": 25,
       env: {
         COSMIC_WORKER: "linux-x86_64-checked",
         TARGET: "x86_64-linux-musl",
+        COSMIC_CI_NARROWING_SHARD: "${{ matrix.part }}/${{ strategy.job-total }}",
         COSMIC_CI_REQUIRE_SANDBOX: "1",
         COSMIC_CI_DECLARED_KEYS: "0",
         COSMIC_CI_EVENT: "${{ github.event_name }}",
@@ -2139,7 +2110,7 @@
           if: "always()",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
-            name: "ci-driver-linux-x86_64-checked-narrowing",
+            name: "ci-driver-linux-x86_64-checked-narrowing-${{ matrix.part }}",
             path: "${{ runner.temp }}/cosmic-ci/operations.db",
             "if-no-files-found": "ignore",
             "retention-days": 7,

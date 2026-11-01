@@ -72,6 +72,8 @@ local record compile_grammar
   record Standalone
     globals: {Driver.Source}
     adjust: function(globals: {string: Scopes.Global})
+    --- The names of the language's own modules ([`Driver.Options.library`]).
+    library: {string: boolean}
     standard: Driver.Provider
     --- What a project's program may not say of a checked file ([`build.project_refusals`]), which a standalone run refuses; the
     --- caller supplies it, since the seed that holds this module does not hold that one.
@@ -308,7 +310,9 @@ function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: bool
   local alone = if #globals == 0 then standalone else nil end
   local build: Driver.Build
   if alone ~= nil then
-    build = Driver.new({ globals = alone.globals, adjust = alone.adjust, external = {}, types = false })
+    build = Driver.new({
+      globals = alone.globals, adjust = alone.adjust, external = {}, types = false, library = alone.library,
+    })
   else
     build = Driver.new({ globals = globals, adjust = nil, external = bindings_of(sources, provided), types = false })
   end

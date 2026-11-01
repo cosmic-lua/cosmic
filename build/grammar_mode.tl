@@ -43,7 +43,7 @@ function GrammarMode.of(word: string?): GrammarMode.Mode?, string
 end
 
 function GrammarMode.mode(): GrammarMode.Mode?, string
-  return GrammarMode.of(Env.get("COSMIC_GRAMMAR"))
+  return GrammarMode.of(Env.read("COSMIC_GRAMMAR"))
 end
 
 --- What a checked compile writes, which every key of a checked run holds: the compile keys

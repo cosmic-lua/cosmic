@@ -85,6 +85,24 @@ function test_report.deliberate(reasons: {string}): {string}
   return lines
 end
 
+--- The line a fuzz property prints, in the output of the worker running it, when
+--- it stops drawing inputs at its time limit (FUZZ_SECONDS, build/fuzz/init.tl);
+--- the rest of the line is "<property> drew N of M inputs in S s ...".
+function test_report.stopped_prefix(): string
+  return "fuzz stopped: "
+end
+
+--- The one line that says which properties stopped drawing at their time
+--- limit, sorted, or none when none did: what they drew of what was asked.
+function test_report.stopped(entries: mut {string}): {string}
+  table.sort(entries)
+  if #entries == 0 then return {} end
+  local names: mut {string} = {}
+  for i, entry in ipairs(entries) do names[i] = entry:match("^(.-) in %d+ s") or entry end
+  return { "test: fuzz: " .. plural.count(#entries, "property", "properties") ..
+      " stopped by FUZZ_SECONDS: " .. table.concat(names, ", ") }
+end
+
 --- Each not applicable test with why, sorted as the skips are: its
 --- module requires what this platform never has.
 function test_report.nas(nas: mut {string}): {string}

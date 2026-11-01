@@ -289,6 +289,73 @@ local function test_definition_reads_the_text_of_an_open_module()
   assert_located(defined(ran, 2), root, "lib/point.tl", 4, 2, 3)
 end
 
+--- A module `lib.point` and a main that asks for the places of its field and its function.
+local POINT <const> = "local record point\n  x: integer\nend\n\nfunction point.origin(): point\n  return { x = 0 }\nend\n\n" ..
+  "return point\n"
+local USES_POINT <const> = 'local point = require("lib.point")\nlocal p: point = point.origin()\nlocal _ = p.x\n'
+
+--- A place in another module is read from the `places` the stage derived, and the module is not parsed: a row changed in
+--- the database moves the answer, which a parse of the file would not.
+local function test_definition_in_another_module_is_read_from_the_places_the_stage_derived()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local working = build_paths.under((assert(build_paths.directory(root)))).working
+  local ran = session_fixture.served_between(root, {
+    { initialize(root), open(root, "main.tl", USES_POINT) },
+    { at(3, "textDocument/definition", root, "main.tl", 2, 12) },
+  }, function(_after: integer)
+    local held = assert(Sqlite.open(working, { writable = true }))
+    assert(held:exec("UPDATE places SET line = 1, column = 14, length = 5 WHERE symbol = 'point.x'"))
+    assert(held:close())
+  end)
+  assert_located(defined(ran, 3), root, "lib/point.tl", 0, 13, 18)
+  assert(ran.tally.parses == 0, tostring(ran.tally.parses))
+end
+
+--- An open module is parsed only where the person has edited it, and once for a text.
+local function test_definition_parses_an_open_module_only_where_it_differs_from_the_staged_file()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local same = served(root, { initialize(root), open(root, "main.tl", USES_POINT),
+    open(root, "lib/point.tl", POINT),
+    at(2, "textDocument/definition", root, "main.tl", 2, 12),
+  })
+  assert_located(defined(same, 2), root, "lib/point.tl", 1, 2, 3)
+  assert(same.tally.parses == 0, tostring(same.tally.parses))
+  local edited = served(root, { initialize(root), open(root, "main.tl", USES_POINT),
+    open(root, "lib/point.tl", "-- moved down\n\n" .. POINT),
+    at(2, "textDocument/definition", root, "main.tl", 2, 12),
+    at(3, "textDocument/definition", root, "main.tl", 1, 24),
+    at(4, "textDocument/definition", root, "main.tl", 2, 12),
+  })
+  assert_located(defined(edited, 2), root, "lib/point.tl", 3, 2, 3)
+  assert_located(defined(edited, 3), root, "lib/point.tl", 6, 15, 21)
+  assert_located(defined(edited, 4), root, "lib/point.tl", 3, 2, 3)
+  assert(edited.tally.parses == 1, tostring(edited.tally.parses))
+end
+
+--- The editor's word that a file changed on disk stages the tree again, so a definition asked after it finds the place
+--- where the file now has it.
+local function test_definition_follows_a_module_saved_with_its_declarations_moved()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local send = session_fixture.serving(root)
+  local first = send({ initialize(root), open(root, "main.tl", USES_POINT),
+    at(2, "textDocument/definition", root, "main.tl", 2, 12),
+  })
+  assert_located(defined(first, 2), root, "lib/point.tl", 1, 2, 3)
+  assert(Fs.write(root .. "/lib/point.tl", "\n\n" .. POINT))
+  local second = send({ session_fixture.changed_on_disk(root, "lib/point.tl"),
+    at(3, "textDocument/definition", root, "main.tl", 2, 12),
+  })
+  assert_located(defined(second, 3), root, "lib/point.tl", 3, 2, 3)
+  assert(second.tally.stages == 2 and second.tally.parses == 0,
+    tostring(second.tally.stages) .. "," .. tostring(second.tally.parses))
+end
+
 local function test_definition_counts_utf16_units_or_bytes_as_negotiated()
   local root = session_fixture.project()
   -- "😀" is four bytes and two UTF-16 units.
