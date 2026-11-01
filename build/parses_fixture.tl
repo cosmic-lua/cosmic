@@ -6,9 +6,10 @@
 ---
 --- The rows are written with [`cosmic.csv.encode`], a tab between fields
 --- and a line between rows, so a field that holds a tab, a quote or a line
---- break is quoted, and no two row sets dump alike (see [`dump`]): the parse
---- tables hold text, such as a source, that has all of them, and the tests
---- compare dumps with `==`. Plain fields come out as they are.
+--- break is quoted, so no field's text runs into the next (see [`dump`] for
+--- what else it tells apart): the parse tables hold text, such as a source,
+--- that has all of them, and the tests compare dumps with `==`. Plain fields
+--- come out as they are.
 
 local Csv = require("cosmic.csv")
 local Sqlite = require("cosmic.sqlite")
@@ -46,7 +47,8 @@ end
 --- and the text '1' dump alike, as a blob and the text of the same bytes do.
 ---
 --- The rows are read in one pass, so a query with no ORDER BY that answers in
---- another order on each run still dumps each NULL on its own row.
+--- another order on each run still dumps each NULL on its own row. A query
+--- that fails raises, as a test fixture should, leaving the database open.
 function parses_fixture.dump(path: string, sql: string): string
   local db = assert(Sqlite.open(path))
   local statement = assert(db:prepare(sql))

@@ -118,9 +118,10 @@ local function test_a_null_and_a_null_like_text_in_one_row(tmp: string)
   assert(answer(tmp, "both", "SELECT '\\N', NULL, '', 'a'") == '"\\N"\t\\N\t\ta')
 end
 
---- Guards the one-pass read: a query answering NULL on random rows must dump
---- a NULL on exactly the rows that held one. 200 rows leave a negligible chance
---- that two passes agree on every row.
+--- Guards the one-pass read: a query answering NULL on random rows dumps every
+--- row as `\N` or `x`. Read twice and paired by position, as it once was, some
+--- row pairs a NULL's text with a value's kind, or the reverse, and dumps `""`;
+--- with 200 rows the chance that every row agrees is negligible.
 local function test_nulls_stay_on_their_rows_when_a_query_answers_differently(tmp: string)
   local sql = "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 200) " ..
     "SELECT CASE WHEN random() % 2 = 0 THEN NULL ELSE 'x' END FROM n"
