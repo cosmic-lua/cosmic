@@ -850,7 +850,7 @@ end
 
 --- Whether a wait here goes through [`Poll.run`]: in one of its tasks,
 --- where the task can yield -- not in a finalizer, say, which a handle's
---- `__gc` runs in, and which waits on its own.
+--- [`Finalizer`] runs in, and which waits on its own.
 local function through_run(): boolean
   return Poll.in_task() and coroutine.isyieldable()
 end
@@ -1820,6 +1820,8 @@ local class Handle
     end_streamed(self)
   end
 end
+
+-- TODO: put `__gc` on [`Handle`] itself and drop [`Finalizer`], once the checker takes `__gc` in a class.
 
 --- What ends a child whose handle was dropped unclosed, when the handle is collected. A class declares no `__gc`, so
 --- the handle holds this table, which has one and is collected with it.
