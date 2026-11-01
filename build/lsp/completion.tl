@@ -57,9 +57,9 @@
 -- TODO: name the placeholders of a call inserted for a function after its parameters where its type is the checker's and
 -- not written and its declaration is no local function statement of the document (a global of the standard library, a
 -- member the rows do not hold, a local bound to a function value): they are `arg1`, `arg2`, ... there. Waits on the
--- names of a function's parameters being read from its declaration (a [`Types.Field`] of a declaration's body is not shared
--- by digest as a function type is, so a field can carry them), once the declarations that [`lang.declarations`] lowers
--- and the stubs [`lang.types`] decodes keep them.
+-- names of a function's parameters being read from its declaration: a [`Types.Field`] or [`Types.Method`] of a declaration's
+-- body carries only a name and a type (and is not shared by digest as a function type is, so it can hold more), once a
+-- field or a method carries the names of its parameters, lowered by [`lang.declarations`] and decoded by [`lang.types`].
 
 local Ast = require("lang.ast")
 local Declarations = require("lang.declarations")
