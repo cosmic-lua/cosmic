@@ -1320,43 +1320,6 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
     "rows another analyzer derived were kept")
 end
 
---- A settling tool parses with the tree's code but carries a compiler
---- identity its writer took by that writer's definition, which may not
---- be the one the tool it writes carries. [`importer.settled_analyzer`]
---- names the rows it derived as that tool will name its own, so that
---- tool does not parse every source again; rows another analyzer
---- derived keep their name.
-local function test_a_settled_analyzer_names_its_rows_as_the_written_tool_will()
-  local root = assert(Fs.mkdtemp("cosmic-importer-test-settled-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "lang",
-      "patch/lua", "vendor/lua", "bin" }) do
-    assert(Fs.mkdirs(root .. "/" .. dir))
-  end
-  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
-  assert(Fs.write(root .. "/cosmic/thing.tl",
-    "--- A thing.\nlocal record Thing\nend\nreturn Thing\n"))
-  local function analyzer_of(db: Sqlite.Handle): string
-    local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'analyzer'"))
-    return nth(rows, 1):text(1)
-  end
-  local handle = assert(work.open(root))
-  assert(work.stage(handle, { own = true }))
-  assert(importer.derive(handle))
-  local derived = analyzer_of(handle.db)
-  local compiler = "the compiler identity the written tool carries"
-  local code = assert(importer.tree_code(handle))
-  local written = Pipeline.coded(importer.analyzer_identity({ compiler = compiler,
-    requires = code.requires, source = code.source }))
-  assert(written ~= derived, "the written tool's analyzer is named as the running one's")
-  assert(importer.settled_analyzer(handle, compiler))
-  assert(analyzer_of(handle.db) == written, "the derived rows were not named as the written tool names its own")
-  -- Rows another analyzer derived are not the running tool's to rename.
-  assert(Sqlite.run(handle.db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', 'an older analyzer')"))
-  assert(importer.settled_analyzer(handle, compiler))
-  assert(analyzer_of(handle.db) == "an older analyzer", "rows another analyzer derived were renamed")
-  work.close(handle)
-end
-
 --- Where a source declares its types and members (`places`) is a parse's row like the rest: written for the source's
 --- hash, gone with the hash when the file is edited, and forgotten when the analyzer that derived it is not this one.
 local function test_places_follow_the_source_they_were_read_from()
@@ -1648,13 +1611,22 @@ end
 
 --- An edit to a module a compile or a parse runs to decide what it
 --- stores, to a module one requires, to the names the checker is
---- stripped of, or to a pin or a patch of Teal or Lua, moves both
---- identities: every compile and parse is made again.
+--- stripped of, or to a pin or a patch of Teal or Lua, moves the
+--- compiler's identity: every compile is made again. The analyzer's own
+--- identity ([`importer.analyzer_identity`], before the checker's readers
+--- wrap it) moves only for the analyzer's modules and the pins, so an edit
+--- to a module only a compile runs moves none of it. (In cosmic's tree
+--- the checker's readers reach build.withheld, so an edit to it parses
+--- again there: build/importer_boot_test.tl holds what they reach.)
 local function test_compiler_identity_follows_what_shapes_a_compile()
   local root = identity_fixture("identity-follows")
   local seen: mut {string:string} = {}
   local original = identities_of(root)
   seen[nth(original, 1)] = "the original tree"
+  local parsed: {string:boolean} = {
+    ["build/derivation.tl"] = true, ["build/analysis_schema.tl"] = true, ["build/bind.tl"] = true,
+    ["build/cache_names.tl"] = true, ["vendor/lua/PIN"] = true, ["patch/lua/01.txt"] = true,
+  }
   for _, path in ipairs({ "build/plans.tl", "build/derivation.tl", "build/withheld.tl", "build/withheld_helper.tl",
       "build/tree.tl", "build/analysis_schema.tl", "build/bind.tl", "build/cache_names.tl", "vendor/lua/PIN",
       "patch/lua/01.txt" }) do
@@ -1663,7 +1635,11 @@ local function test_compiler_identity_follows_what_shapes_a_compile()
     local after = identities_of(root)
     assert(seen[nth(after, 1)] == nil, "an edit to " .. path ..
         " did not move the compiler identity from that of " .. tostring(seen[nth(after, 1)]))
-    assert(after[2] ~= before[2], "an edit to " .. path .. " did not move the analyzer identity")
+    if parsed[path] == true then
+      assert(after[2] ~= before[2], "an edit to " .. path .. " did not move the analyzer identity")
+    else
+      assert(after[2] == before[2], "an edit to " .. path .. ", which no parse runs, moved the analyzer identity")
+    end
     seen[nth(after, 1)] = path
   end
 end
@@ -1677,8 +1653,8 @@ end
 --- build.importer is outside the set, but every module it calls is in
 --- the set or named below with the reason it is not; a new require of it
 --- fails here until it is one or the other. Every module of the
---- analyzer's but the standard library's is the compiler's too, since
---- the analyzer's identity starts from the compiler's.
+--- analyzer's but the standard library's is the compiler's too, so a
+--- compile is made again wherever a parse is.
 ---
 --- A `cosmic.*` require is let through whole: it is the standard
 --- library the compile runs on, which the identity leaves out. This
@@ -1722,6 +1698,8 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.work"] = "stages the tree and keeps the records; " ..
       "the schema a parse's rows are shaped by is build.analysis_schema's",
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
+    ["build.grammar_mode"] = "makes the tool string a compile key holds of the compiler's identity " ..
+      "(`importer.own_tool`): what it decides is in every key, and no compile stores it",
     ["build.pipeline"] = "the compile with the new checker (COSMIC_GRAMMAR=new), keyed by the code that reads it " ..
       "(`Pipeline.coded`) and not by the compiler's identity, which a default run keeps",
   }

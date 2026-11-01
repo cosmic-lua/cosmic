@@ -533,8 +533,7 @@ end
 --- The compiler's identity ([`Identities.compiler`]) over what the
 --- working database holds now, recorded nowhere: the source hash of each
 --- of [`identity.compiler_modules`] the tree holds, the declarations the new checker
---- types a program with and Lua's pins and patches. A boot names its analyzer by it before it
---- parses ([`build.importer.tree_code`]).
+--- types a program with and Lua's pins and patches.
 ---
 --- What a module requires is what `requires` holds of its source, which
 --- only a parse fills. So before [`build.importer.derive`] the walk
@@ -665,6 +664,17 @@ local function writer_identity(db: Sqlite.Handle): string?, string
     "coalesce((SELECT value FROM meta WHERE key = 'image_hash'), '')")
 end
 
+--- The runtime basis ([`Identities.runtime_basis`]) over what the working
+--- database holds now, recorded nowhere: the hash of Lua's pin and patches
+--- and the declarations the new checker types a program with.
+function identity.runtime_basis(db: Sqlite.Handle): string?, string
+  local rows, trouble = Sqlite.text_rows(db, "SELECT lower(hex(sha256(" .. pins .. ")))")
+  if rows == nil then
+    return nil, trouble
+  end
+  return assert(rows[1], "a hash query answers one row"):text(1), ""
+end
+
 --- The identities, computed over the tree and written into `meta` for
 --- the projections to carry, and returns them. See [`Identities`] for what
 --- each is over. The compiler's closes over `requires`, so the tree must be parsed
@@ -680,15 +690,13 @@ function identity.record_identities(db: Sqlite.Handle): identity.Identities?, st
   if writer == nil then
     return nil, writer_trouble
   end
-  local bases, basis_trouble = Sqlite.text_rows(db,
-    "SELECT lower(hex(sha256(" .. pins .. ")))")
-  if bases == nil then
+  local basis, basis_trouble = identity.runtime_basis(db)
+  if basis == nil then
     return nil, basis_trouble
   end
-  local basis = assert(bases[1], "a hash query answers one row")
   local identities: identity.Identities = {
     compiler = compiler,
-    runtime_basis = basis:text(1),
+    runtime_basis = basis,
     writer = writer,
   }
   local recorded: {MetaRow} = {

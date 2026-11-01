@@ -63,16 +63,15 @@ Test.policy{
 
 -- What one stage's `docs` may take: the rebuild, the settling rebuild
 -- where the case settles, and the command they re-enter. A compiler
--- case's stage compiles the whole tree cold once, in its settle; the
--- build.plans case's settles parse every source again too. On a four-core
--- x86-64 host with an every-core product the longest stage, that case's
--- edited one, took 137 s beside the file's other tests (a seeded rebuild
--- of 25 s, a settle of 109 s): about 185 s on the slowest leg
--- (orchestration.tl's `fixed_point_test_timeout_ns` scales it), and this
--- keeps 1.6 times that. A sharing case's stage takes far less. The driver
--- bounds each test and the file (orchestration.tl's
--- `fixed_point_test_timeout_ns`).
-local stage_timeout_ns <const> = Clock.seconds(300)
+-- case's stage compiles the whole tree cold once, in its settle, and the
+-- first sharing case's edited stage once, in its rebuild. On a four-core
+-- x86-64 host with an every-core product the longest stage, that sharing
+-- case's (a cold rebuild of 97 s), took 101 s beside the file's other
+-- tests, and a compiler case's edited stage 85 to 91 s: about 130 s on
+-- the slowest leg (orchestration.tl's `fixed_point_test_timeout_ns`
+-- scales it), and this keeps 1.6 times that. The driver bounds each test
+-- and the file (orchestration.tl's `fixed_point_test_timeout_ns`).
+local stage_timeout_ns <const> = Clock.seconds(210)
 
 local function count_occurrences(text: string, needle: string): integer
   local count = 0

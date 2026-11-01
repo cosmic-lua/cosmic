@@ -397,16 +397,6 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   if database == nil then
     return closing(handle, read_trouble), false
   end
-  -- Once its database is written, the tool written here carries the
-  -- tree's compiler identity, which a settling tool's parse is named by
-  -- too when it carries the tree's code.
-  local learned_compiler = learned.compiler
-  if learned.code and learned_compiler ~= nil then
-    local named, named_trouble = importer.settled_analyzer(handle, learned_compiler)
-    if not named then
-      return closing(handle, named_trouble), false
-    end
-  end
   local closed, close_trouble = work.close(handle)
   if not closed then
     return close_trouble, false

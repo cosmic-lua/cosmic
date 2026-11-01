@@ -22,6 +22,7 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local GrammarMode = require("build.grammar_mode")
 local Store = require("cosmic.store")
 local identities = require("build.identity")
 -- The pipeline is required where a build in the new grammar asks for it: `cosmic boot` compiles what the tool requires at load
@@ -47,10 +48,11 @@ local record importer
   --- reads it of the tree): what a module requires among the modules a
   --- build plans, of which a declaration alone is none, sorted; and a
   --- module's source, a declaration's ahead of a module's of the same
-  --- name. `compiler` is the identity of the compiler it runs beside
-  --- ([`build.identity`]'s `Identities`).
+  --- name. `basis` is the runtime basis it runs on: Lua's pin and
+  --- patches and the declarations the new checker types a program with
+  --- ([`build.identity`]'s [`Identities.runtime_basis`]).
   record Code
-    compiler: string
+    basis: string
     requires: function(string): {string}?, string
     source: function(string): string?, string
   end
@@ -174,7 +176,7 @@ importer.prune_references =
 --- [`importer.analyzer_modules`]. "The analyzer" in these names is that
 --- whole set, of which the source analyzer [`build.syntax_analyzer`] is one.
 --- Each is a root of the compiler's identity too ([`build.identity`]'s
---- `compiler_roots`), which the analyzer's starts from. The schema of the
+--- `compiler_roots`), so a parse made again is a compile made again. The schema of the
 --- rows a parse stores ([`build.analysis_schema`]) is among them: what a
 --- source parses to is recorded in its columns.
 local analyzer_roots: {string} = {
@@ -186,8 +188,9 @@ local analyzer_roots: {string} = {
 --- derivation and every module that its extractors, generators and
 --- parser reach through `require`,
 --- as `code` records it: the running binary's own `imports` table by
---- default. What a source parses to is a function of these and of the
---- compiler, and of nothing else in the tool. Cache coordination and
+--- default. What a source parses to is a function of these, of the
+--- checker's readers ([`build.pipeline`]'s `coded`) and of the runtime basis,
+--- and of nothing else in the tool. Cache coordination and
 --- diagnostic presentation belong to the importer, outside this closure.
 function importer.analyzer_modules(code?: importer.Code): {string}?, string
   -- A name at a time ([`Store.requires`]), not a query of a handle on
@@ -227,13 +230,13 @@ local analysis_tables = analysis_schema.tables
 --- [`importer.analyzer_identity`] read of the binary a boot writes, read
 --- before that binary exists. A boot carries no database and runs the
 --- tree's own code, so this is the code deriving in a boot. What a
---- module requires is what the last parse of its source found, and the
---- compiler's identity is taken over those finds too
---- ([`identities.compiler_identity`]): before a parse, a module whose source
---- is new has none, but its source alone already moves the identity.
+--- module requires is what the last parse of its source found: before a
+--- parse, a module whose source is new has none, but its source alone
+--- already moves the identity. The runtime basis is the tree's pins
+--- ([`identities.runtime_basis`]).
 function importer.tree_code(handle: work.Handle): importer.Code?, string
-  local identity, trouble = identities.compiler_identity(handle.db)
-  if identity == nil then
+  local basis, trouble = identities.runtime_basis(handle.db)
+  if basis == nil then
     return nil, trouble
   end
   local db = handle.db
@@ -272,25 +275,25 @@ function importer.tree_code(handle: work.Handle): importer.Code?, string
     end
     return rows[1]:text(1), ""
   end
-  return { compiler = identity, requires = requires, source = source }, ""
+  return { basis = basis, requires = requires, source = source }, ""
 end
 
---- The identity of the analyzer `code` holds: the compiler, and the
---- source of every one of [`importer.analyzer_modules`]. `code` defaults
---- to the running binary's, the code actually deriving; in a stale tool
---- rebuilding itself that is older than the tree's. A boot names the
---- tree's ([`importer.tree_code`]), the code it runs, so the tool it
---- writes finds the rows the boot derived as its own. A binary that
---- carries no source for one of them, or no record of what they import,
---- can only be named whole.
--- TODO: name the analyzer by what a parse runs alone -- the pins
--- (`runtime_basis`), build.derivation and these modules -- rather than
--- the whole compiler's identity, which build.syntax_contracts, build.syntax_receivers and build.tree move though no
--- parse runs them, so an
--- edit to one parses every source again. Waits on a change that moves
--- every parse key at once, one of its own.
+--- The identity of the analyzer `code` holds: the runtime basis it runs
+--- on, and the source of every one of [`importer.analyzer_modules`].
+--- `code` defaults to the running binary's, the code actually deriving;
+--- in a stale tool rebuilding itself that is older than the tree's. A
+--- boot names the tree's ([`importer.tree_code`]), the code it runs, so
+--- the tool it writes finds the rows the boot derived as its own. A
+--- binary that carries no source for one of them, or no record of what
+--- they import, can only be named whole. What a parse runs is these
+--- modules, the checker's readers ([`running_analyzer`] names those by
+--- [`build.pipeline`]'s `coded`) and the Lua and declarations of the basis,
+--- and nothing else of the compiler's identity: an edit to build.plans or
+--- build.tree compiles again and parses nothing again. What the checker's
+--- readers reach (build.withheld, build.syntax_contracts and the rules,
+--- through build.pipeline) still parses again.
 function importer.analyzer_identity(code?: importer.Code): string
-  local parts: mut {string} = { code ~= nil and code.compiler or Store.meta("compiler") or "" }
+  local parts: mut {string} = { code ~= nil and code.basis or Store.meta("runtime_basis") or "" }
   local modules, _ = importer.analyzer_modules(code)
   if modules == nil then
     return "binary " .. (Store.meta("boot_hash") or "")
@@ -361,44 +364,6 @@ local function recorded_analyzer(db: Sqlite.Handle): string?, string
     return nil, trouble
   end
   return #last > 0 and last[1]:text(1) or "", ""
-end
-
---- Names the analysis rows the running tool derived as the tool it is
---- writing will name its own ([`running_analyzer`] in that tool), which
---- carries `compiler` as its compiler's identity. For a settling tool
---- that carries the tree's code (build.reboot's `into`): its parse is the
---- one the tool it writes would make, but it names the analyzer by the
---- `compiler` it carries, which its writer took by that writer's own
---- definition. Across a change to how that identity is defined
---- (build.identity's `compiler_identity`) the two names differ, and the
---- tool written would otherwise parse every source again on its first
---- run, finding the same rows. Rows another analyzer derived are left as
---- they are named.
-function importer.settled_analyzer(handle: work.Handle, compiler: string): boolean, string
-  local db = handle.db
-  local running, running_trouble = running_analyzer(handle)
-  if running == nil then
-    return false, running_trouble
-  end
-  local last, last_trouble = recorded_analyzer(db)
-  if last == nil then
-    return false, last_trouble
-  end
-  if last ~= running then
-    return true, ""
-  end
-  -- What this parse found each module requiring, which the written tool's
-  -- imports are, rather than what this tool's own writer found.
-  local code, code_trouble = importer.tree_code(handle)
-  if code == nil then
-    return false, code_trouble
-  end
-  local written = importer.analyzer_identity({ compiler = compiler, requires = code.requires, source = code.source })
-  if not nameless(written) then
-    local pipeline = require("build.pipeline")
-    written = pipeline.coded(written)
-  end
-  return record_analyzer(db, written)
 end
 
 --- Forgets every derived row: every parse, and every derivation but
@@ -547,10 +512,10 @@ end
 --- and takes those rows back. When the name is X, X's parses are this
 --- tree's:
 ---
---- - X is a digest of the compiler's identity and of each analyzer
----   module's name and source, so naming it again over this tree's
----   sources lists the same modules and sources X did, and the same
----   compiler: X's code is the code this boot runs.
+--- - X is a digest of the runtime basis, of each analyzer module's name
+---   and source and of the checker's readers, so naming it again over
+---   this tree's sources lists the same modules and sources X did, on the
+---   same basis: X's code is the code this boot runs.
 --- - A parse is a function of that code and the source alone, so X's
 ---   parse of each of these sources, `requires` rows included, is the
 ---   parse this boot would make, and the rows that named X are what the
@@ -572,7 +537,7 @@ end
 --- one it holds no parse of (`unguessed`): the roots change less often
 --- than what they reach, so X's of several states of the rest can
 --- gather. Only the trial accepts an X.
--- Nothing but the compiler, the pins and the analyzer's Teal sources is
+-- Nothing but the pins, the analyzer's and the checker's readers' Teal sources is
 -- in X, by design ([`forget_stale_analysis`]): the core's C, which runs
 -- the parse, is not, so a branch whose C parses otherwise shares rows
 -- with main under the same X, as compiles do under their keys, and as
@@ -1574,6 +1539,16 @@ function importer.compile(handle: work.Handle, tool: string, unjudged?: boolean,
       state = state, result = result }
   end
   return result, ""
+end
+
+--- The tool string a compile of this binary's own compiler is keyed by
+--- ([`build.grammar_mode`]'s `tool`, under `grammar`): the compiler's
+--- identity the build that made this binary recorded (its `meta`'s
+--- `compiler`), so a project's rows made by another compiler are compiled
+--- again. A worker's read of it is answered by the running tool
+--- ([`build.key_parts`]' `compiler_readers` names this module for it).
+function importer.own_tool(grammar: GrammarMode.Mode): string
+  return GrammarMode.tool(Store.meta("compiler") or "", grammar)
 end
 
 --- Compiles every module as [`importer.compile`] does, for a file run
