@@ -50,6 +50,27 @@ local function test_a_close_variable_finalizes_a_query_left_early()
   assert(db:close())
 end
 
+--- Leaving the block of a `<close>` query closes it, at the end of the
+--- block and on an error out of it, with rows still unread.
+local function test_a_close_variable_closes_a_query_at_the_end_of_its_block()
+  local db = numbers(10)
+  do
+    local q <close> = assert(Sqlite.query(db, "SELECT n FROM t"))
+    assert(q:read())
+    assert(not db:close(), "the open statement holds the handle")
+  end
+  assert(db:close())
+
+  local other = numbers(10)
+  local ok, _ = pcall(function()
+    local q <close> = assert(Sqlite.query(other, "SELECT n FROM t"))
+    assert(q:read())
+    error("left early")
+  end)
+  assert(not ok)
+  assert(other:close())
+end
+
 --- A read after close fails, and closing again does nothing.
 local function test_a_closed_query_fails_a_read()
   local db = numbers(2)
