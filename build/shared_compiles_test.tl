@@ -36,13 +36,14 @@ local function test_a_kept_compile_comes_back_whole(tmp: string)
   local lua = "return {}\n"
   local bytecode = "\27Lua\0\1\2\255"
   assert(shared_compiles.settle(cache, { kept = {
-    { key = "old", lua = lua, bytecode = bytecode, references = {} },
+    { key = "old", lua = lua, bytecode = bytecode, references = {},
+      fact_wraps = 0, parameter_checks = 0 },
   }, used = {} }, 1))
   assert(shared_compiles.settle(cache, { kept = {
     { key = "new", lua = lua, bytecode = bytecode, references = {
       { module = "c", member = "Box.value", line = 7 },
       { module = "cosmic.fs", member = "Stat.size", line = 12 },
-    } },
+    }, fact_wraps = 0, parameter_checks = 0 },
   }, used = {} }, 31 * day))
   local found = assert(shared_compiles.look(cache, "new"))
   assert(found.lua == lua and found.bytecode == bytecode)
@@ -59,7 +60,8 @@ end
 local function test_past_its_bound_the_least_lately_used_go(tmp: string)
   local cache = assert(shared_compiles.open(tmp .. "/cache/cache.db"))
   local function kept(key: string): shared_compiles.Kept
-    return { key = key, lua = "return {}\n", bytecode = "\27Lua", references = {} }
+    return { key = key, lua = "return {}\n", bytecode = "\27Lua", references = {},
+      fact_wraps = 0, parameter_checks = 0 }
   end
   for at, key in ipairs({ "k1", "k2", "k3" }) do
     assert(shared_compiles.settle(cache, { kept = { kept(key) }, used = {} }, at))
