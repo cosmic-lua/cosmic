@@ -10,12 +10,18 @@ local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Vector = require("cosmic.vector")
 local Test = require("cosmic.test")
+local VectorFixture = require("build.vector_fixture")
 
 local storages: {Vector.Storage} = { "f32", "f16", "int8" }
 local metrics: {Vector.Metric} = { "inner_product", "cosine", "l2" }
 
 local record Seed
   mut state: integer
+end
+
+--- A vector of `dims` numbers drawn from `next_number`, packed.
+local function random_vector(next_number: function(): number, dims: integer): string
+  return Vector.pack(VectorFixture.random_vector(next_number, dims))
 end
 
 -- A deterministic stream of numbers in [-1, 1), so a failure replays.
@@ -27,23 +33,8 @@ local function stream(seed: integer): function(): number
   end
 end
 
-local function random_vector(next_number: function(): number, dims: integer): string
-  local out: mut {number} = {}
-  for _ = 1, dims do
-    out[#out + 1] = next_number()
-  end
-  return Vector.pack(out)
-end
-
--- What a query refuses with.
-local function refusal(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): string
-  local rows, trouble = Sqlite.rows(db, sql, values)
-  assert(rows == nil, sql)
-  return trouble
-end
-
 local function refused(db: Sqlite.Handle, sql: string, words: string, values?: {Sqlite.Value})
-  local why = refusal(db, sql, values)
+  local why = VectorFixture.refusal(db, sql, values)
   assert(why:find(words, 1, true) ~= nil, sql .. " refused with " .. why)
 end
 
@@ -331,7 +322,7 @@ local function test_malformed_blocks_are_refused()
   assert(db:exec("INSERT INTO r VALUES (1, x'0000803f00000040'), (2, x'0000404000008040'), (3, x'0000a0400000c040')"))
   local query = Vector.pack({ 1, 2 })
   local function search(blob: string, k?: integer): string
-    return refusal(db, "SELECT id FROM vector_block_search(?1, ?2, ?3, 'l2')",
+    return VectorFixture.refusal(db, "SELECT id FROM vector_block_search(?1, ?2, ?3, 'l2')",
       { { blob = blob }, { blob = query }, { integer = k or 2 } })
   end
   for _, storage in ipairs(storages) do
@@ -383,7 +374,7 @@ local function test_malformed_blocks_are_refused()
     refused(db, "SELECT id FROM vector_block_search(1, ?1, 1, 'l2')", "is a blob", { { blob = query } })
     -- The arguments besides the block.
     local function ask(args: string): string
-      return refusal(db, "SELECT id FROM vector_block_search(" .. args ..
+      return VectorFixture.refusal(db, "SELECT id FROM vector_block_search(" .. args ..
           ") WHERE ?1 IS NOT NULL AND ?2 IS NOT NULL AND ?3 IS NOT NULL",
         { { blob = good }, { blob = query }, { blob = Vector.pack({ 1, 2, 3 }) } })
     end
@@ -414,7 +405,7 @@ local function test_vector_block_refuses_what_a_corpus_would()
   local function block_of(rows: string): string
     assert(db:exec("DELETE FROM r"))
     assert(db:exec("INSERT INTO r VALUES " .. rows))
-    return refusal(db, "SELECT vector_block(id, v) FROM r")
+    return VectorFixture.refusal(db, "SELECT vector_block(id, v) FROM r")
   end
   assert(block_of("(1, '[1,2]', NULL), (2, '[1,2,3]', NULL)"):find("different dimensions", 1, true) ~= nil)
   assert(block_of("('a', '[1,2]', NULL)"):find("wants an integer id", 1, true) ~= nil)
@@ -439,7 +430,7 @@ local function test_vector_block_refuses_what_a_corpus_would()
   assert(db:exec("INSERT INTO r VALUES (1, '[1,2]', 'f32'), (2, '[1,2]', 'int8')"))
   refused(db, "SELECT vector_block(id, v, s) FROM r", "one storage")
   -- A window is not an aggregate that can be run over one.
-  assert(refusal(db, "SELECT vector_block(id, v) OVER () FROM r"):find("window", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT vector_block(id, v) OVER () FROM r"):find("window", 1, true) ~= nil)
   -- Groups are separate blocks.
   assert(db:exec("DELETE FROM r"))
   assert(db:exec("INSERT INTO r VALUES (1, '[1,2]', 'f32'), (2, '[1,2,3]', 'f32')"))

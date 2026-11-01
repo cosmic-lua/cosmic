@@ -6,6 +6,7 @@
 local Rand = require("cosmic.rand")
 local Sqlite = require("cosmic.sqlite")
 local Vector = require("cosmic.vector")
+local Test = require("cosmic.test")
 
 local DIMS = 64
 local CLUSTERS = 20
@@ -48,12 +49,6 @@ local function corpus_of(points: {string}): Vector.Corpus
     corpus:add(i, p)
   end
   return corpus
-end
-
-local function refusal(f: function()): string
-  local ok, why = pcall(f)
-  assert(not ok, "it should have raised")
-  return tostring(why)
 end
 
 local function test_ivf_recall_against_exact_search()
@@ -161,8 +156,8 @@ local function test_k_bounds()
   corpus:add(3, Vector.pack({ -1, 0 }))
   assert(#assert(Vector.kmeans(corpus, 1)) == 1)
   assert(#assert(Vector.kmeans(corpus, 3)) == 3)
-  assert(refusal(function() Vector.kmeans(corpus, 0) end):find("k is from 1", 1, true))
-  assert(refusal(function() Vector.kmeans(corpus, 4) end):find("k is from 1", 1, true))
+  assert(Test.raises(function() Vector.kmeans(corpus, 0) end):find("k is from 1", 1, true))
+  assert(Test.raises(function() Vector.kmeans(corpus, 4) end):find("k is from 1", 1, true))
 end
 
 local function test_nearest_and_nearest_n()
@@ -174,9 +169,9 @@ local function test_nearest_and_nearest_n()
   local two = Vector.nearest_n(centroids, Vector.pack({ 0.2, 0.9 }), 2)
   assert(#two == 2 and two[1] == 2 and two[2] == 1)
   assert(#Vector.nearest_n(centroids, Vector.pack({ 0.2, 0.9 }), 10) == 3)
-  assert(refusal(function() Vector.nearest_n(centroids, Vector.pack({ 1, 0, 0 }), 1) end)
+  assert(Test.raises(function() Vector.nearest_n(centroids, Vector.pack({ 1, 0, 0 }), 1) end)
       :find("centroid", 1, true))
-  assert(refusal(function() Vector.nearest_n(centroids, Vector.pack({ 1, 0 }), 0) end)
+  assert(Test.raises(function() Vector.nearest_n(centroids, Vector.pack({ 1, 0 }), 0) end)
       :find("at least 1", 1, true))
 end
 
@@ -269,7 +264,7 @@ local function test_zero_vectors_are_no_cluster()
   local only = Vector.corpus(2)
   only:add(1, Vector.pack({ 0, 0 }))
   only:add(2, Vector.pack({ 0, 0 }))
-  assert(refusal(function() Vector.kmeans(only, 1) end):find("direction", 1, true))
+  assert(Test.raises(function() Vector.kmeans(only, 1) end):find("direction", 1, true))
 end
 
 local function test_a_vector_too_short_to_scale_has_no_direction()
@@ -296,26 +291,26 @@ end
 
 local function test_iterations_under_one_raise()
   local corpus = corpus_of(dataset())
-  assert(refusal(function() Vector.kmeans(corpus, 3, { iterations = 0 }) end)
+  assert(Test.raises(function() Vector.kmeans(corpus, 3, { iterations = 0 }) end)
       :find("iterations is at least 1", 1, true))
 end
 
 local function test_nearest_refusals()
   local one = Vector.pack({ 1, 0 })
-  assert(refusal(function() Vector.nearest({}, one) end):find("no centroids", 1, true))
+  assert(Test.raises(function() Vector.nearest({}, one) end):find("no centroids", 1, true))
   -- Tables the type checker would refuse, built by a chunk that is not
   -- checked: a number among the centroids, and a number whose text is
   -- 4 bytes long standing in for a one-dimension centroid.
   local build = assert(load("local nearest, v, w = ...; return nearest({ v, 5 }, v), nearest({ 1234 }, w)"))
-  assert(refusal(function() build(Vector.nearest, one, Vector.pack({ 1 })) end)
+  assert(Test.raises(function() build(Vector.nearest, one, Vector.pack({ 1 })) end)
       :find("centroid", 1, true))
   local alone = assert(load("local nearest, w = ...; return nearest({ 1234 }, w)"))
-  assert(refusal(function() alone(Vector.nearest, Vector.pack({ 1 })) end)
+  assert(Test.raises(function() alone(Vector.nearest, Vector.pack({ 1 })) end)
       :find("centroid", 1, true))
   local infinite = string.pack("<f", math.huge)
-  assert(refusal(function() Vector.nearest({ Vector.pack({ 1 }) }, infinite) end)
+  assert(Test.raises(function() Vector.nearest({ Vector.pack({ 1 }) }, infinite) end)
       :find("finite", 1, true))
-  assert(refusal(function() Vector.nearest({ infinite }, Vector.pack({ 1 })) end)
+  assert(Test.raises(function() Vector.nearest({ infinite }, Vector.pack({ 1 })) end)
       :find("finite", 1, true))
 end
 
