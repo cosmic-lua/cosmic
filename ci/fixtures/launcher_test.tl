@@ -132,18 +132,23 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
     { ctx.artifact }, ctx.work,
     ctx.diagnostics, relative_xdg), "relative XDG fallback")
 
-  -- TODO: give these rows a record, as the case lists of cosmic/hash_test.tl have, once the launcher fixtures can run where this
-  -- was written: they need COSMIC_FIXTURE_TARGET, which ci/run-local sets, and the change could not run them.
-  for _, case in ipairs({
-      { "empty-cache", "", home, "must be an absolute path" },
-      { "relative-cache", "relative", home, "must be an absolute path" },
-  }) do
-    local values = Maps.with(environment(case[2]), { HOME = assert(case[3]) })
-    local answer = Fixture.call_with_environment(assert(case[1]),
+  local record BadCache
+    name: string
+    cache: string
+    home: string
+    says: string
+  end
+  local bad_caches: {BadCache} = {
+    { name = "empty-cache", cache = "", home = home, says = "must be an absolute path" },
+    { name = "relative-cache", cache = "relative", home = home, says = "must be an absolute path" },
+  }
+  for _, case in ipairs(bad_caches) do
+    local values = Maps.with(environment(case.cache), { HOME = case.home })
+    local answer = Fixture.call_with_environment(case.name,
       { ctx.artifact }, ctx.work,
       ctx.diagnostics, values)
-    assert(not answer.result.ok, assert(case[1]) .. " unexpectedly succeeded")
-    Fixture.contains(answer.err, assert(case[4]))
+    assert(not answer.result.ok, case.name .. " unexpectedly succeeded")
+    Fixture.contains(answer.err, case.says)
   end
   for _, name in ipairs({ "relative-home", "unset-home" }) do
     local temp = ctx.work .. "/" .. name .. "-tmp"
