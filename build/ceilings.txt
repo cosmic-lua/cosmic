@@ -3961,7 +3961,7 @@ build/cache_maintenance.tl close_not_closable 8
 
 build/dataset_test.tl close_not_closable 1
 
-build/fetch_tool_test.tl close_not_closable 2
+build/fetch_tool_test.tl close_not_closable 1
 
 build/lsp/session_test.tl close_not_closable 2
 
@@ -3999,7 +3999,7 @@ cosmic/http_example.tl close_not_closable 1
 
 cosmic/http_test.tl close_not_closable 1
 
-cosmic/http_tool_test.tl close_not_closable 4
+cosmic/http_tool_test.tl close_not_closable 2
 
 cosmic/internal/connector.tl close_not_closable 1
 
