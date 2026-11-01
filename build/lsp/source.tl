@@ -78,6 +78,7 @@ local AnalysisSchema = require("build.analysis_schema")
 local Ast = require("lang.ast")
 local Declarations = require("lang.declarations")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Derivation = require("build.syntax_derivation")
 local Driver = require("build.driver")
 local Node = require("build.syntax_node")
@@ -218,6 +219,10 @@ local record source
     --- The stub made here of each text, by its SHA-256: "" for a text
     --- with none.
     mut made: mut {string:string}
+    --- The places read of the binary's own modules ([`source.places`]) by module, each as of its `carried` hash; at most
+    --- `MADE_HELD`, and all go when another would pass it.
+    mut carried_held: mut {string:Placed}
+    mut carried_count: integer
     --- A private in-memory database of the analysis tables ([`AnalysisSchema.statements`] but the `inputs` view),
     --- made at the first text derived here; no `build.db` row is ever written to it or read from it as its own.
     mut scratch: Sqlite.Handle?
@@ -276,6 +281,8 @@ function source.new(root: string, err: function(line: string), carried?: string,
     told_busy = false,
     trouble = "",
     made = {},
+    carried_held = {},
+    carried_count = 0,
     scratch = nil,
     scratched = {},
     tally = tally,
@@ -868,6 +875,13 @@ local function carried_places(src: source.View, name: string): source.Placed?
   local databases = src.store or Store.databases()
   local held = databases[#databases]
   if held == nil then return nil end
+  local named, _ = Sqlite.text_rows(held, "SELECT CAST(source_hash AS TEXT) FROM modules WHERE path = ?1",
+    { { text = name } })
+  if named == nil then return nil end
+  local first_row = named[1]
+  if first_row == nil then return nil end
+  local kept = src.carried_held[name]
+  if kept ~= nil and kept.carried == first_row:text(1) then return kept end
   local module, _ = Sqlite.text_rows(held,
     "SELECT CAST(source_hash AS TEXT), file, CAST(inflate(source) AS TEXT) FROM modules WHERE path = ?1",
     { { text = name } })
@@ -877,7 +891,16 @@ local function carried_places(src: source.View, name: string): source.Placed?
   local rows, _ = Sqlite.text_rows(held,
     "SELECT symbol, line, column, length FROM places WHERE module = ?1 ORDER BY ordinal", { { text = name } })
   if rows == nil or #rows == 0 then return nil end
-  return { file = row:text(2), text = row:text(3), spots = spots_of(rows), carried = row:text(1) }
+  local placed: source.Placed = { file = row:text(2), text = row:text(3), spots = spots_of(rows), carried = row:text(1) }
+  if src.carried_held[name] == nil then
+    if src.carried_count >= MADE_HELD then
+      src.carried_held = {}
+      src.carried_count = 0
+    end
+    src.carried_count = src.carried_count + 1
+  end
+  src.carried_held[name] = placed
+  return placed
 end
 
 --- Where `name` first stands on `line` of `text` as a whole word, as a byte column; 1 where it does not stand there. A word
@@ -978,7 +1001,7 @@ end
 
 --- The path of a file holding the text of the binary's module `placed` ([`source.places`]), in the build
 --- directory's `cosmic_source` ([`build.paths`]) below a directory named for the text's SHA-256, so that a path names
---- one text for good. The file is written read-only when it is not there: an editor that opens it shows the module as
+--- one text for good. The file is written read-only when it is not there or its bytes are not the text (a file changed since is replaced): an editor that opens it shows the module as
 --- the binary has it, and a save is refused. It is written whole or not at all ([`Fs.write`]), so a reader never finds
 --- part of it. nil where the root has no build directory, or the file cannot be made, which is said.
 function source.extracted(src: source.View, placed: source.Placed): string?
@@ -989,8 +1012,8 @@ function source.extracted(src: source.View, placed: source.Placed): string?
   local where = src.where
   if where == nil or where.directory == nil then return nil end
   local path = build_paths.under(where.directory).cosmic_source .. "/" .. hash .. "/" .. file
-  local there, _ = Fs.exists(path)
-  if there == true then return path end
+  local there, _ = Fs.read(path)
+  if there ~= nil and Hash.hex_sha256(there) == hash then return path end
   local made, trouble = Fs.mkdirs(Fs.dirname(path))
   if made then made, trouble = Fs.write(path, placed.text, 0x124) end
   if not made then

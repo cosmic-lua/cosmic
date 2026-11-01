@@ -152,7 +152,8 @@ end
 
 -- TODO: carry the `places` of the modules a test's closure holds in a worker's sealed database ([`build.test_key`]'s
 -- `sealed_schema` and `sealed_fill`, [`build.closure_store`]'s `closed`), once another change moves the harness epoch
--- ([`build.harness_epoch`]): it moves every key, and until then a test of the lsp reads a stand-in for the tool's database.
+-- ([`build.harness_epoch`]): it moves every key, and until then a test of the lsp reads a stand-in for the tool's database, and the default [`Store.databases()`] path
+-- is exercised only by hand.
 
 --- A database as the tool carries one (the schema of [`build.schema`]), holding the standard-library module `path`, its
 --- file `file` and the text `text`, and `places` of it, each a `{ symbol, kind, line, column, length }`: what a session
