@@ -12,13 +12,7 @@ local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
 local work = require("build.work")
 local parses_fixture = require("build.parses_fixture")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 --- Every row `sql` answers of the database at `path`, a line each, and
 --- every row of every parse table of a working database.
@@ -80,7 +74,7 @@ local function boot(root: string, path: string): importer.Parses, string, string
     "SELECT value FROM meta WHERE key = 'analyzer'"))
   local rows = parse_rows(handle.db)
   work.close(handle)
-  return parses, nth(recorded, 1):text(1), rows
+  return parses, support.nth(recorded, 1):text(1), rows
 end
 
 --- A tree like `analyzer_tree` at `root`, with `changed` written over it.
@@ -235,7 +229,7 @@ local function test_a_kept_parse_comes_back_whole(tmp: string)
   assert(shared_compiles.settle(cache, { kept = { kept }, used = {} }, 5))
   local sizes = assert(Sqlite.text_rows(cache.db,
     "SELECT (SELECT size FROM compiled_v2), (SELECT size FROM parsed_v1)"))
-  local parse_size = math.tointeger(tonumber(nth(sizes, 1):text(2))) or 0
+  local parse_size = math.tointeger(tonumber(support.nth(sizes, 1):text(2))) or 0
   assert(parse_size > 0)
   assert(shared_compiles.settle(cache, { kept = {}, used = {},
     parses = { { key = { analyzer = "y", source_hash = "ab", mapped = false }, made = made } },
@@ -243,5 +237,5 @@ local function test_a_kept_parse_comes_back_whole(tmp: string)
   local left = assert(Sqlite.text_rows(cache.db,
     "SELECT (SELECT count(*) FROM compiled_v2), (SELECT count(*) FROM parsed_v1)"))
   shared_compiles.close(cache)
-  assert(nth(left, 1):text(1) == "0" and nth(left, 1):text(2) == "2", nth(left, 1):text(1) .. " " .. nth(left, 1):text(2))
+  assert(support.nth(left, 1):text(1) == "0" and support.nth(left, 1):text(2) == "2", support.nth(left, 1):text(1) .. " " .. support.nth(left, 1):text(2))
 end

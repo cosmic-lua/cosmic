@@ -9,13 +9,7 @@ local dataset = require("build.dataset")
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 --- Keys that need care, drawn more often than chance would.
 local KEYS <const> = { "a", "A", "id", "type", "value", "_json", "_JSON", "_json_2", "", "_", "a b", "a.b",
@@ -62,7 +56,7 @@ local function rows_from(input: string): {dataset.Row}
     else
       local last = rows[#rows]
       if last ~= nil then
-        last[nth(fields, at + 1)] = value_at(math.tointeger(tonumber(fields[at + 2])) or 1)
+        last[support.nth(fields, at + 1)] = value_at(math.tointeger(tonumber(fields[at + 2])) or 1)
       end
     end
   end
@@ -122,8 +116,8 @@ local function test_a_loaded_row_reads_back_through_json(tmp: string)
       if texts == nil then return false, trouble end
       for index, row in ipairs(rows) do
         local expected = assert(Json.encode_any(row))
-        if nth(texts, index):text(1) ~= expected then
-          return false, "row " .. tostring(index) .. " read back as " .. nth(texts, index):text(1) .. ", not " .. expected
+        if support.nth(texts, index):text(1) ~= expected then
+          return false, "row " .. tostring(index) .. " read back as " .. support.nth(texts, index):text(1) .. ", not " .. expected
         end
       end
       return true, ""
@@ -218,7 +212,7 @@ local function test_each_key_reads_back_by_its_column(tmp: string)
       local column_of: mut {string:string} = {}
       -- The last column is the row's own `_json`, no key's.
       for index = 1, #made.columns - 1 do
-        local column = nth(made.columns, index)
+        local column = support.nth(made.columns, index)
         column_of[made.renamed[column] or column] = column
       end
       for key, column in pairs(column_of) do
@@ -229,7 +223,7 @@ local function test_each_key_reads_back_by_its_column(tmp: string)
           if got == nil then return false, column .. ": " .. trouble end
           for index, row in ipairs(rows) do
             local want = expected_cell(row[key])
-            local read = nth(got, index)
+            local read = support.nth(got, index)
             local kind = read:kind(1)
             Fuzz.label("read")
             if kind ~= want.kind or (kind == "integer" and read:integer(1) ~= want.integer) or
@@ -308,7 +302,7 @@ local function test_load_text_makes_the_table_read_and_load_make(tmp: string)
     gen = gen_delimited,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local format, text, how, raw = nth(fields, 1), nth(fields, 2), fields[3], fields[4] == "raw"
+      local format, text, how, raw = support.nth(fields, 1), support.nth(fields, 2), fields[3], fields[4] == "raw"
       local fast_db = assert(Sqlite.memory())
       local slow_db = assert(Sqlite.memory())
       local file: string? = nil

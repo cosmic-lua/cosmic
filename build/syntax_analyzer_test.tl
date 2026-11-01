@@ -4,13 +4,7 @@ local Analyzer = require("build.syntax_analyzer")
 local Node = require("build.syntax_node")
 local SyntaxLinkText = require("build.syntax_link_text")
 local Test = require("cosmic.test")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 Test.policy{}
 
@@ -339,10 +333,10 @@ local function test_a_catalog_message_is_read_as_the_source_means_it()
     "the first line break is the string's own]]",
     "end"))
   assert(#found.catalog == 3, tostring(#found.catalog))
-  assert(nth(found.catalog, 1).message == 'say "stop" here', nth(found.catalog, 1).message)
-  assert(nth(found.catalog, 2).message == "a long message", nth(found.catalog, 2).message)
+  assert(support.nth(found.catalog, 1).message == 'say "stop" here', support.nth(found.catalog, 1).message)
+  assert(support.nth(found.catalog, 2).message == "a long message", support.nth(found.catalog, 2).message)
   -- The line break that opens a long string is the string's own, not part of its value.
-  assert(nth(found.catalog, 3).message == "the first line break is the string's own", nth(found.catalog, 3).message)
+  assert(support.nth(found.catalog, 3).message == "the first line break is the string's own", support.nth(found.catalog, 3).message)
 end
 
 --- The translation writes a metatable's `__close` as a method of the class, which is a metamethod row as the field is.
@@ -391,8 +385,8 @@ local function test_a_comment_after_code_is_no_doc_comment_of_what_follows()
     "--- A doc.",
     "-- A note beside it.",
     "local function g() end"))
-  assert(nth(found.docs, 1).symbol == "f" and nth(found.docs, 1).text == "", nth(found.docs, 1).text)
-  assert(nth(found.docs, 2).symbol == "g" and nth(found.docs, 2).text == "A doc.", nth(found.docs, 2).text)
+  assert(support.nth(found.docs, 1).symbol == "f" and support.nth(found.docs, 1).text == "", support.nth(found.docs, 1).text)
+  assert(support.nth(found.docs, 2).symbol == "g" and support.nth(found.docs, 2).text == "A doc.", support.nth(found.docs, 2).text)
 end
 
 --- The head of a function is read to the token before its body, a comment in it left out.
@@ -408,8 +402,8 @@ local function test_a_signature_is_the_head_on_one_line()
     "  return a + b",
     "end",
     "local function g() end"))
-  assert(nth(found.docs, 2).signature == "function R.f(a: integer, b: integer): integer", nth(found.docs, 2).signature)
-  assert(nth(found.docs, 3).signature == "local function g()", nth(found.docs, 3).signature)
+  assert(support.nth(found.docs, 2).signature == "function R.f(a: integer, b: integer): integer", support.nth(found.docs, 2).signature)
+  assert(support.nth(found.docs, 3).signature == "local function g()", support.nth(found.docs, 3).signature)
 end
 
 --- The comment that opens a file is the module's, unless it ends right above a function, which it documents.

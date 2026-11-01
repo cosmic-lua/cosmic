@@ -8,13 +8,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local ZigFetch = require("build.zig_fetch")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 local function test_a_failed_install_leaves_no_scratch_directory(tmp: string)
   local cache = tmp .. "/cache"
@@ -115,7 +109,7 @@ local function scripted(replies: {string:{Http.DownloadResult}}, calls: mut {str
       served[url] = (served[url] or 0) + 1
       local script = assert(replies[url], "no replies are scripted for " .. url)
       local attempt = assert(served[url], "the attempt was counted")
-      local reply = script[attempt] or nth(script, #script)
+      local reply = script[attempt] or support.nth(script, #script)
       if reply.kind == "downloaded" then
         assert(Fs.write(path, "tarball"))
       end
@@ -210,13 +204,13 @@ local function test_fetch_bounds_mirrors_by_the_budget_and_never_the_fallback(tm
     table.concat(calls, " "))
   -- The first mirror attempt gets the whole 3 minutes; the second, 10
   -- minutes and a 2 s pause in, the 118 s left.
-  assert(nth(seen, 1).timeout_ns == Clock.minutes(3), tostring(nth(seen, 1).timeout_ns))
-  assert(nth(seen, 3).timeout_ns == Clock.seconds(118), tostring(nth(seen, 3).timeout_ns))
-  assert(nth(seen, 1).low_speed_bytes == 64 * 1024)
+  assert(support.nth(seen, 1).timeout_ns == Clock.minutes(3), tostring(support.nth(seen, 1).timeout_ns))
+  assert(support.nth(seen, 3).timeout_ns == Clock.seconds(118), tostring(support.nth(seen, 3).timeout_ns))
+  assert(support.nth(seen, 1).low_speed_bytes == 64 * 1024)
   for _, i in ipairs({ 2, 4, 5 }) do
-    assert(nth(seen, i).timeout_ns == nil,
+    assert(support.nth(seen, i).timeout_ns == nil,
       "the fallback has a ceiling")
-    assert(nth(seen, i).low_speed_bytes == 1024 and nth(seen, i).low_speed_ns == Clock.seconds(60))
+    assert(support.nth(seen, i).low_speed_bytes == 1024 and support.nth(seen, i).low_speed_ns == Clock.seconds(60))
   end
   assert(trouble:find("mirrors out of time; every source failed after 5 attempts", 1, true) ~= nil,
     trouble)
