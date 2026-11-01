@@ -11,8 +11,7 @@
 --- - A name that is declared where it stands (a binding, the name in a `function R.f`): itself.
 ---
 --- Nothing is answered for a place the report does not know: a global the standard library declares, a name the
---- checker left unresolved, a module the working database does not list and the binary carries no places of (a
---- `cosmic.*` module generated from another file, as [`cosmic.sys`] is), a template, a text that does not parse, a document
+--- checker left unresolved, a module the working database does not list and the binary carries no places of, a template, a text that does not parse, a document
 --- that requires a module the build refuses (a cycle of imports, a module the project does not have).
 ---
 --- A type declared inside a function body is named by the lowering as its module, `@` and the id of its node, so that one
@@ -23,18 +22,21 @@
 --- ([`source.places`]), and put in the module's text as it is written: the checker is served the
 --- module as a stub, whose positions are not the file's. Only an open document that differs from the staged file is
 --- parsed. A module generated from another file (the syscall modules, from `core/*.h`) is answered in that file, at the
---- line its `-- line` map gives. A symbol of the binary's own `cosmic.*` modules, which a project's working database does
---- not list, is looked up in the places the tool carries ([`source.places`]), and its location is a file the tool writes
---- below the build directory with the module's text ([`source.extracted`]), the binary having no source tree to point at.
+--- line its `-- line` map gives; in an open document of the file, the lines of the generator run on its text. A symbol of
+--- the binary's own `cosmic.*` modules, which a project's working database does not list, is looked up in the places the
+--- tool carries ([`source.places`]), and its location is a file the tool writes below the build directory with the
+--- module's text, or the header of a module generated from one ([`source.extracted`]), the binary having no source tree to
+--- point at.
 --- A place in the document is found in the text the checker read, which a build rewrites (the `splices` of
 --- [`check.Reading`]), and put back in the document's own text.
 
--- TODO: answer a symbol of the binary's own modules generated from another file ([`cosmic.sys`],
--- [`cosmic.internal.process`]) in a project, once the tool carries the header their `-- line` map names (`core/*.h`) with
--- their places: its `places` hold none ([`source.places`]).
-
--- TODO: answer a field of a type declared in another module's function body, once its places rows carry the id of the node
--- that declares it: the lowering names it `module@id`, and [`source.places`] has no row to tell it by.
+-- TODO: answer a field of a type declared in another module's function body, once its places rows name the node that
+-- declares it by the id the checker's lowering named it by: the lowering names it `module@id` by the id of its node in the
+-- text the checker was served, which for a module served as a stub (bodies left out, [`build.syntax_stub`]) is not the id
+-- of the node in the file the `places` rows are derived of ([`source.places`]), so a row carrying the file's id would name
+-- another node. Needs the places of the served text (stub or source, as [`source.served`] chose), with the declaring node's
+-- id as a column of `places` (written by [`build.syntax_places`] and [`build.syntax_derivation`]; bump `version` of
+-- [`build.work`]), so that the id means the same to both.
 
 local Ast = require("lang.ast")
 local Driver = require("build.driver")

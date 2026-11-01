@@ -260,13 +260,28 @@ local insert_stubs =
   "WHERE p.path GLOB 'cosmic.*' ORDER BY p.path"
 
 --- The `places` ([`build.syntax_places`]) of each planned `cosmic.*` module's source, which `modules` carries as it was
---- parsed. A module generated from another file (`mapped`) has none, as it has none in the working database.
+--- parsed. A module generated from another file (`mapped`) is no planned module: `insert_mapped_places` has its rows.
 local insert_places =
   "INSERT INTO out.places (module, ordinal, symbol, kind, line, column, length, plain) " ..
   "SELECT p.path, l.ordinal, l.symbol, l.kind, l.line, l.column, l.length, l.plain FROM plan p " ..
   "JOIN inputs i ON i.path = p.path AND i.kind = 'module' " ..
   "JOIN main.places l ON l.source_hash = i.source_hash " ..
   "WHERE p.path GLOB 'cosmic.*' ORDER BY p.path, l.ordinal"
+
+--- The places of each `cosmic.*` module generated from a header (`origin` `syscalls`: [`cosmic.sys`] and the raw process
+--- and socket tables), which are no planned module: the lines of the header its `-- line` map gave
+--- ([`build.syntax_derivation`]'s `origin_lines`), beside `insert_origins`'s text of that header.
+local insert_mapped_places =
+  "INSERT INTO out.places (module, ordinal, symbol, kind, line, column, length, plain) " ..
+  "SELECT i.path, l.ordinal, l.symbol, l.kind, l.line, l.column, l.length, l.plain FROM inputs i " ..
+  "JOIN main.places l ON l.source_hash = i.source_hash " ..
+  "WHERE i.path GLOB 'cosmic.*' AND i.origin = 'syscalls' ORDER BY i.path, l.ordinal"
+
+--- The header each module `insert_mapped_places` places is generated from, as the stage read it.
+local insert_origins =
+  "INSERT INTO out.origins (module, file, sha256, source) " ..
+  "SELECT i.path, i.file, f.sha256, deflate(f.data) FROM inputs i JOIN main.files f ON f.path = i.file " ..
+  "WHERE i.path GLOB 'cosmic.*' AND i.origin = 'syscalls' ORDER BY i.path"
 
 --- Each planned `cosmic.*` module `insert_stubs` found no stub of.
 local unstubbed_modules =
@@ -864,6 +879,12 @@ local function project(handle: work.Handle,
     if not placed then
       return false, place_trouble
     end
+    for _, statement in ipairs({ insert_mapped_places, insert_origins }) do
+      local mapped, mapped_trouble = db:exec(statement)
+      if not mapped then
+        return false, mapped_trouble
+      end
+    end
     -- A module the binary carried no stub of would be typed from its
     -- source, slower and with nothing to say so.
     local unstubbed, unstubbed_trouble = Sqlite.text_rows(db, unstubbed_modules)
@@ -1194,6 +1215,7 @@ local carry: {string} = {
   "INSERT INTO main.decls SELECT * FROM whole.decls ORDER BY path",
   "INSERT INTO main.stubs SELECT * FROM whole.stubs ORDER BY path",
   "INSERT INTO main.places SELECT * FROM whole.places ORDER BY module, ordinal",
+  "INSERT INTO main.origins SELECT * FROM whole.origins ORDER BY module",
   "INSERT INTO main.payload SELECT * FROM whole.payload ORDER BY path",
   "INSERT INTO main.zoneinfo (name, data) SELECT name, data FROM whole.zoneinfo " ..
     "ORDER BY name",

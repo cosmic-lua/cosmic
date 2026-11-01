@@ -625,6 +625,23 @@ local function test_definition_of_a_binary_module_s_field_is_the_file_extracted_
   assert(Fs.read(file) == carried and assert(Fs.stat(file)).mode & 0x1ff == 0x124, "the file holds the text, read-only")
 end
 
+--- A symbol of a binary module generated from a header ([`cosmic.sys`]) is in the header the tool carries, written
+--- read-only below the build directory, at the line the module's `-- line` map gave and the column its name stands at.
+local function test_definition_of_a_generated_binary_module_s_function_is_the_header_extracted_from_the_tool()
+  local root = session_fixture.project()
+  local text = 'local sys = require("cosmic.sys")\nlocal _ = sys.getpid\n'
+  local header = "/* The table. */\n\n/*\n * --- The pid.\n */\nCOSMIC_SYSCALL(getpid, 0);\n"
+  local db = session_fixture.carrying_origin("cosmic.sys", "core/syscalls.h", header, { { "sys.getpid", "field", "6", "1", "0", "0" } })
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 1, 16),
+  }, { db })
+  local directory = build_paths.under((assert(build_paths.directory(root)))).cosmic_source
+  local file = directory .. "/" .. Hash.hex_sha256(header) .. "/core/syscalls.h"
+  assert_located_at(defined(ran, 2), file, 5, 15, 21)
+  assert(Fs.read(file) == header and assert(Fs.stat(file)).mode & 0x1ff == 0x124, "the file holds the header, read-only")
+  assert(db:close())
+end
+
 --- A tool whose database lists no places (one from before the table) answers none.
 local function test_definition_of_a_binary_module_s_field_is_null_where_the_tool_carries_no_places()
   local root = session_fixture.project()
