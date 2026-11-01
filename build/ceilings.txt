@@ -733,7 +733,7 @@ build/test_bail_tool_test.tl nil_not_allowed 4
 build/test_isolation_test.tl nil_not_allowed 2
 
 
-build/test_key.tl nil_not_allowed 52
+build/test_key.tl nil_not_allowed 50
 
 build/test_no_assert_tool_test.tl nil_not_allowed 1
 

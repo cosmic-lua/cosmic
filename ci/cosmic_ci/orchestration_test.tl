@@ -1143,7 +1143,7 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
       "[ \"$2 $3\" = '--all core/socket_sigpipe_checked_test.tl' ] || exit 9; fi\n" ..
       "printf '%s\\n' \"$*|${COSMIC_TEST_NO_SHARED-unset}\" >> \"$0.argv\"\n" ..
       "printf '%s\\n' " ..
-      "'test: key parts: host features 01, host 02, system , runtime 04, compiler 05, harness 06' " ..
+      "'test: key parts: host kernel 01, host 02, system , runtime 04, compiler 05, harness 06' " ..
       "'test: 7 tests passed in 2 modules; 3 ran, 4 stood, 55 ms; sandboxed'; exit 0; fi\n" ..
       entry(checked) .. "exit 0\n"
     Fixture.write(fake .. "/o/sanitized/bin/cosmic",
@@ -1297,7 +1297,7 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
     Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
         "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
         "if [ \"$1 $2\" = \"test --census\" ]; then printf '%s\\n' " ..
-        "'test: key parts: host features 01, host 02, system 03, runtime 04, compiler 05, harness 06' " ..
+        "'test: key parts: host kernel 01, host 02, system 03, runtime 04, compiler 05, harness 06' " ..
         "'test: 9 tests passed in 2 modules; 5 ran, 4 stood, 77 ms; sandboxed'; fi\nexit 0\nEOF\n" ..
         "chmod 755 o/bin/cosmic\n", 493)
     local database = runner_temp .. "/cosmic-ci/operations.db"
@@ -2386,7 +2386,7 @@ local function test_only_the_two_linux_legs_ask_for_the_fixture_lanes()
 end
 
 --- A cache of `declared_v1`'s shape holding a row under each of `parts`
---- (build/shared_verdicts.tl stamps them as "host features X, host Y").
+--- (build/shared_verdicts.tl stamps them as "host kernel X, host Y").
 local function stamped_cache(path: string, parts: {string})
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE declared_v1 (key TEXT PRIMARY KEY, test TEXT NOT NULL, " ..
@@ -2403,12 +2403,12 @@ local function test_the_gathering_run_counts_the_rows_it_cannot_stand_on(tmp: st
   local Orchestration = require("cosmic_ci.orchestration")
   local path = tmp .. "/checked.db"
   stamped_cache(path, {
-    "host features aaaa, host h1", "host features aaaa, host h1",
-    "host features bbbb, host h1", "host features aaaaaaaa, host h1", "", "host features bbbb",
+    "host kernel aaaa, host h1", "host kernel aaaa, host h1",
+    "host kernel bbbb, host h1", "host kernel aaaaaaaa, host h1", "", "host kernel bbbb",
     -- Another host's rows that name their identity and rest are looked up
     -- under its key, not run again; one that names only one of them is.
-    "host features bbbb, host h1, host identity 01, host rest 02",
-    "host features bbbb, host h1, host identity 01",
+    "host kernel bbbb, host h1, host identity 01, host rest 02",
+    "host kernel bbbb, host h1, host identity 01",
   })
   -- Only the exact digest and its comma count as this host's: a longer
   -- digest that starts with it, rows of no parts and rows of other

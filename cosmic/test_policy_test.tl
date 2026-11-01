@@ -117,6 +117,9 @@ local SAME: {Same} = {
     policy = 'Test.policy { grants = { { path = "/etc/hosts", letters = "r" }, ' ..
       '{ path = "/parent/a", letters = "r" }, { path = "b", letters = "r" } } }',
   },
+  -- The processor's features are a flag of their own, not `tmp`.
+  { needs = "{ cpu_features = true }", policy = "Test.policy { cpu_features = true }" },
+  { needs = "{ }", policy = "Test.policy { cpu_features = false }" },
   -- A promise with no `needs` field changes no key before the filter runs.
   { needs = "{ }", policy = 'Test.policy { promises = { "fork", "jit", "fattr" }, tmp = true }' },
   {
@@ -244,9 +247,10 @@ local function test_a_policy_with_no_needs_is_refused()
     { call = 'Test.policy { grants = { { path = "/parent/$HOME", letters = "r" } } }', says = "holds a $" },
     { call = 'Test.policy { database = "x.db" }', says = "test.policy: database is refused" },
     { call = 'Test.policy { promises = { "exec" } }', says = "test.policy: promises: no promise exec" },
-    { call = "Test.policy { reeds = {} }", says = "test.policy: has no field reeds; it has connect, database, env" },
+    { call = "Test.policy { reeds = {} }", says = "test.policy: has no field reeds; it has connect, cpu_features, database, env" },
     { call = 'Test.policy { env = "PATH" }', says = "test.policy: env takes a list of string literals, written out" },
     { call = "Test.policy { tmp = 1 }", says = "test.policy: tmp takes true or false" },
+    { call = "Test.policy { cpu_features = 1 }", says = "test.policy: cpu_features takes true or false" },
     { call = 'Test.policy { limits = { cpu = 1 } }', says = "test.policy: limits takes open_files" },
     { call = 'Test.policy { loopback = { "localhost" } }',
       says = 'test.policy: loopback "localhost": loopback takes loopback' },
@@ -306,6 +310,7 @@ local function test_the_policy_record_is_the_sandboxs()
   local theirs: mut {string} = {}
   for name in ("\n" .. record):gmatch("\n    ([%a_]+)%??: ") do theirs[#theirs + 1] = name end
   theirs[#theirs + 1] = "requires"
+  theirs[#theirs + 1] = "cpu_features"
   table.sort(theirs)
   local _, said = Test.needs_of({ nothing = true })
   local listed = assert(said:match("it has (.*)$"), said)

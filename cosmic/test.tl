@@ -179,6 +179,16 @@ local record Test
     --- of the system rather names them in `host`, which keys a file by
     --- its contents.
     system?: boolean
+    --- Whether the outcome of the tests may turn on the processor's
+    --- features. A verdict stands on a host of other features unless the
+    --- module declares it, and a key that holds them stands on that
+    --- processor's alone. A test that runs code the core itself selects by
+    --- a feature ([`cosmic.vector`]'s VNNI int8 dot product) fails without
+    --- it, naming the C function. A module may declare it as well where its
+    --- subject is a vendored routine that dispatches (AES-NI, SHA-NI,
+    --- carry-less multiply), whose output is the same on every path, to
+    --- have a bug of one processor's path caught on that processor.
+    mut cpu_features?: boolean
     --- Host caches the tests, or the processes they start, write, by
     --- name: `"zig"` (the pinned zig, and zig's global and project
     --- caches) or `"bootstrap"` (the bootstrap cosmic, and the cores a
@@ -282,6 +292,9 @@ local record Test
     --- path and a `program:` the profile "system" and the variable PATH in
     --- `env`, so the worker can see what the runner found.
     requires?: {string}
+    --- Whether the tests' outcome may turn on the processor's features:
+    --- `cpu_features` of [`Needs`].
+    mut cpu_features?: boolean
   end
 end
 
@@ -346,12 +359,12 @@ local POLICY_FIELDS <const>: {string:string} = {
   profiles = "list", grants = "grants", isolate = "list", promises = "list",
   connect = "list", loopback = "list", env = "list", set_env = "map",
   set_env_digests = "map", tmp = "flag", limits = "limits", user = "id", group = "id",
-  database = "string", requires = "list",
+  database = "string", requires = "list", cpu_features = "flag",
 }
 
 local POLICY_FIELD_NAMES <const>: {string} = {
-  "connect", "database", "env", "grants", "group", "isolate", "limits", "loopback", "profiles",
-  "promises", "requires", "set_env", "set_env_digests", "tmp", "user",
+  "connect", "cpu_features", "database", "env", "grants", "group", "isolate", "limits", "loopback",
+  "profiles", "promises", "requires", "set_env", "set_env_digests", "tmp", "user",
 }
 
 local LIMIT_FIELDS <const>: {string:boolean} = {
@@ -534,7 +547,13 @@ local function policy_of(given: any): Test.Policy?, string
     end
     local why = ""
     if takes == "flag" then
-      if value is boolean then out.tmp = value else why = key .. " takes true or false" end
+      if not value is boolean then
+        why = key .. " takes true or false"
+      elseif key == "cpu_features" then
+        out.cpu_features = value
+      else
+        out.tmp = value
+      end
     elseif takes == "id" then
       if not value is integer then
         why = key .. " takes a whole number"
@@ -714,6 +733,7 @@ function Test.needs_of(given: any): Test.Needs?, string
   -- Only as written: which names are known and allowed is the build's to say
   -- (build.host_names, which this module cannot require), and the runner's to probe.
   if #(policy.requires or {}) > 0 then out.requires = policy.requires end
+  out.cpu_features = if policy.cpu_features == true then true else nil end
   return out, ""
 end
 

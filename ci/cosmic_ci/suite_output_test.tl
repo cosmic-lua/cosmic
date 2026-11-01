@@ -8,7 +8,7 @@ local function both(text: string, code: integer): SuiteOutput.Figures, string
   return read.figures, read.status
 end
 
-local key_parts <const> = "test: key parts: host features 0123456789abcdef, host aaaaaaaaaaaa, " ..
+local key_parts <const> = "test: key parts: host kernel 0123456789abcdef, host aaaaaaaaaaaa, " ..
   "system , runtime bbbbbbbbbbbb, compiler cccccccccccc, harness dddddddddddd, " ..
   "store eeeeeeeeeeee"
 
@@ -25,7 +25,7 @@ local function test_a_passing_sandboxed_run()
   assert(figures.every == 0 and figures.failed == 0)
   assert(figures.elapsed_ms == 2385 and figures.sandbox == "sandboxed", figures.sandbox)
   local parts = assert(figures.parts)
-  assert(parts["host features"] == "0123456789abcdef" and parts["host"] == "aaaaaaaaaaaa")
+  assert(parts["host kernel"] == "0123456789abcdef" and parts["host"] == "aaaaaaaaaaaa")
   assert(parts["system"] == "" and parts["runtime"] == "bbbbbbbbbbbb")
   assert(parts["compiler"] == "cccccccccccc" and parts["harness"] == "dddddddddddd")
   assert(parts["launcher"] == nil)
@@ -58,7 +58,7 @@ local function test_a_count_of_one_is_read_in_the_singular()
   assert(failed.verdict == "fail" and failed.tests == 1 and failed.errors == 1)
   local unmatched = SuiteOutput.parse(
     "test: shared verdicts: none of 1 test looked up stood, though x holds 1 row, " ..
-      "0 of them of those tests: no other run reached them (host features 0123456789abcdef, " ..
+      "0 of them of those tests: no other run reached them (host kernel 0123456789abcdef, " ..
       "host aaaaaaaaaaaa)\n")
   local unmatched_parts = assert(unmatched.parts)
   assert(unmatched_parts["host"] == "aaaaaaaaaaaa")
@@ -93,7 +93,7 @@ end
 local function test_the_unmatched_line_says_the_parts()
   local figures = SuiteOutput.parse("test: shared verdicts: none of 1994 tests looked up " ..
       "stood, though /c/checked.db holds 2000 rows, 1994 of them of those tests: none under " ..
-      "the keys this run reached (host features 01, host 02, system 03, runtime 04, " ..
+      "the keys this run reached (host kernel 01, host 02, system 03, runtime 04, " ..
       "compiler 05, harness 06, launcher 07)\n" ..
       "test: 1994 tests passed in 193 modules; 1994 ran, 0 stood, 250000 ms; sandboxed\n")
   local parts = assert(figures.parts)
@@ -105,14 +105,14 @@ end
 --- cache held: each set of parts its rows name, and how many.
 local function test_the_census_line_says_what_the_cache_held(tmp: string)
   local figures, status = both(key_parts .. "\n" ..
-      "test: census: 1990 rows under host features 01, runtime bbbbbbbbbbbb, " ..
+      "test: census: 1990 rows under host kernel 01, runtime bbbbbbbbbbbb, " ..
       "harness e8-072f7458-t60000; 1 row under no parts named\n" ..
       "test: 1994 tests passed in 193 modules; 0 ran, 1994 stood, 2385 ms; sandboxed\n", 0)
   assert(status == "pass" and figures.stood == 1994)
   local held = SuiteOutput.held(assert(figures.held))
   assert(#held == 2 and assert(held[1]).rows == 1990 and assert(held[2]).rows == 1)
   assert(assert(held[1]).parts["runtime"] == "bbbbbbbbbbbb" and assert(held[1]).parts["harness"] == "e8-072f7458-t60000")
-  assert(assert(held[1]).parts["host features"] == "01" and next(assert(held[2]).parts) == nil)
+  assert(assert(held[1]).parts["host kernel"] == "01" and next(assert(held[2]).parts) == nil)
   -- An empty cache, said so; a run that said nothing has none.
   local empty = SuiteOutput.parse("test: census: no rows\n")
   local empty_held = empty.held
@@ -134,7 +134,7 @@ local function test_the_census_line_says_what_the_cache_held(tmp: string)
       "run TEXT, attempt TEXT, phase TEXT, suite TEXT, status TEXT, exit_code INTEGER, " ..
       "tests INTEGER, modules INTEGER, ran INTEGER, stood INTEGER, every INTEGER, " ..
       "assumed INTEGER, shared INTEGER, failed INTEGER, elapsed_ms INTEGER, sandbox TEXT, " ..
-      "host_features TEXT, host TEXT, system TEXT, runtime TEXT, compiler TEXT, " ..
+      "host_kernel TEXT, host TEXT, system TEXT, runtime TEXT, compiler TEXT, " ..
       "harness TEXT, launcher TEXT, program TEXT)"))
   assert(handle:exec("INSERT INTO suite_runs (worker, run, attempt, phase, suite, status, " ..
       "runtime) VALUES ('w', '1', '1', 'build', 'local', 'pass', 'r')"))

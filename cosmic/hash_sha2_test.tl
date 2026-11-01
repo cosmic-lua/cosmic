@@ -11,6 +11,9 @@
 
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 --- The bytes of the test messages: byte `i` of a message is `i % 251`,
 --- so a message is not periodic in any block size.

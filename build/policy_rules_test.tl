@@ -116,6 +116,24 @@ local function test_the_analyzer_applies_the_rules_to_each_policy()
   assert(accepted >= 12 and refused >= 40, tostring(accepted) .. " accepted, " .. tostring(refused) .. " refused")
 end
 
+--- `cpu_features` is a flag of its own: it is read into the declaration, `tmp` is not, and a value that is no
+--- boolean is refused.
+local function test_cpu_features_is_read_into_the_declaration()
+  local function read(body: string): PolicyRules.Declared?, string
+    local found, why = Analyzer.analyze('local Test = require("cosmic.test")\n' .. body ..
+        "\nlocal function test_a() end\n", "p_test.tl")
+    if found == nil then return nil, why end
+    return found.inputs, ""
+  end
+  local on = assert(read("Test.policy{ cpu_features = true }"))
+  assert(on.cpu_features == true)
+  assert(assert(read("Test.policy{ cpu_features = false }")).cpu_features == false)
+  assert(assert(read("Test.policy{ tmp = true }")).cpu_features == false)
+  assert(assert(read("Test.policy{}")).cpu_features == false)
+  local _, why = read("Test.policy{ cpu_features = 3 }")
+  assert(why:find("takes true or false", 1, true) ~= nil, why)
+end
+
 local function test_a_policy_is_read_into_the_declaration_it_stands_for()
   local source = 'local Test = require("cosmic.test")\nTest.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" },\n' ..
     '  grants = { { path = "o/bin", letters = "rx" }, { path = "testdata", letters = "r" } }, env = { "HOME" } }\n'

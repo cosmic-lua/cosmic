@@ -1,11 +1,16 @@
---- [`declared_key.host_features`], which a key holds and which names a CI
---- leg's verdict cache, answers the digests CI's `leg-host-id`
---- (ci/cosmic_ci/host_id.tl) computes of the same hosts, and moves with
---- what `host_identity` keys of it: a cache named by it holds verdicts
---- whose keys the host reaches. The two trees cannot require each other,
---- so each reads the recorded hosts in ci/testdata/host_features, whose
---- digests recorded from the original shell implementation.
+--- [`declared_key.host_kernel`], which a key holds and which names a CI
+--- leg's verdict cache, and [`declared_key.host_cpu`], the processor's
+--- features a key holds for a module that declares `cpu_features`,
+--- answer what CI's `leg-host-id` (ci/cosmic_ci/host_id.tl) computes of
+--- the same hosts: the kernel digest it names the cache by, and the
+--- features it logs. The kernel moves with what `host_identity` keys of
+--- it, so a cache named by it holds verdicts whose keys the host reaches;
+--- the processor's features move no identity. The two trees cannot
+--- require each other, so each reads the recorded hosts in
+--- ci/testdata/host_features, whose kernel digests recorded from the
+--- original shell implementation.
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local sys = require("cosmic.sys")
 local declared_key = require("build.declared_key")
@@ -35,12 +40,13 @@ end
 
 --- A host under `tmp` of `machine` whose /proc/cpuinfo holds `cpuinfo`,
 --- which the key is given the features of: `write` replaces one of its
---- files, and `both(what, moved)` checks that the name `host_features`
---- gives it and `host_identity` moved from every one seen before, or
---- neither.
+--- files, and `seen(what, kernel, cpu)` checks that the name `host_kernel`
+--- gives it moved from every one seen before (`kernel`), that the
+--- processor's features `host_cpu` digests did (`cpu`), and that
+--- `host_identity` moved with the kernel and with nothing else.
 local type Write = function(string, string): string
 local function host(tmp: string, machine: string, cpuinfo: string):
-    Write, function(string, boolean)
+    Write, function(string, boolean, boolean)
   local function write(name: string, text: string): string
     assert(Fs.write(tmp .. "/" .. name, text))
     return tmp .. "/" .. name
@@ -55,76 +61,81 @@ local function host(tmp: string, machine: string, cpuinfo: string):
   }
   local names: mut {string:boolean} = {}
   local identities: mut {string:boolean} = {}
-  local function both(what: string, moved: boolean)
+  local cpus: mut {string:boolean} = {}
+  local function seen(what: string, kernel: boolean, cpu: boolean)
     sources.cpu_features = listed((Fs.read(tmp .. "/cpuinfo")) or "")
-    local named = declared_key.host_features(sources)
+    local named = declared_key.host_kernel(sources)
     assert(#named == 16, named)
     local id = declared_key.host_identity(declared_key.digests(tmp), sources)
-    assert((names[named] == nil) == moved, what .. ": the name")
-    assert((identities[id] == nil) == moved, what .. ": the identity")
-    names[named], identities[id] = true, true
+    local features = declared_key.host_cpu(sources)
+    assert((names[named] == nil) == kernel, what .. ": the name")
+    assert((identities[id] == nil) == kernel, what .. ": the identity")
+    assert((cpus[features] == nil) == cpu, what .. ": the processor's features")
+    names[named], identities[id], cpus[features] = true, true, true
   end
-  return write, both
+  return write, seen
 end
 
---- On a machine no audit has read, every feature listed is keyed.
-local function test_a_host_is_named_by_what_it_keys(tmp: string)
-  local write, both = host(tmp, "riscv64", "processor : 0\nflags : sse avx b_2 a\n" ..
+--- On a machine no audit has read, every feature listed is keyed, in the
+--- key of a module that declares `cpu_features` alone.
+local function test_a_host_is_named_by_its_kernel_and_keys_its_features(tmp: string)
+  local write, seen = host(tmp, "riscv64", "processor : 0\nflags : sse avx b_2 a\n" ..
       "vmx flags : ept\nprocessor : 1\nflags\t: a avx sse b_2\n")
-  both("the start", true)
+  seen("the start", true, true)
   write("cpuinfo", "flags : sse a b_2 avx\n")
-  both("the same features in another order", false)
+  seen("the same features in another order", false, false)
   write("cpuinfo", "flags : sse a b_2 avx avx2\n")
-  both("a feature more", true)
+  seen("a feature more", false, true)
   write("osrelease", "6.17.0-1023-azure\n")
-  both("another kernel", true)
+  seen("another kernel", true, false)
   write("version", "#23-Ubuntu SMP\n")
-  both("another build of it", true)
+  seen("another build of it", true, false)
   assert(Fs.remove(tmp .. "/cpuinfo"))
-  both("no features at all", true)
+  seen("no features at all", false, true)
 end
 
 --- On x86_64, only the features a core chooses code by are keyed --
 --- mbedtls's AES-NI, xz's carry-less CRCs and the int8 kernels' VNNI --
 --- so hosted runners that differ in any other split neither the
---- verdicts nor their cache, and a host lacking one of them keys apart.
---- The FMA features are not among them.
+--- verdicts of a module that declares `cpu_features`, and a host lacking
+--- one of them keys apart. The FMA features are not among them, and no
+--- feature moves the host's identity or the cache's name.
 local function test_an_x86_64_host_keys_only_what_a_core_dispatches_on(tmp: string)
   local base = "fpu sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms"
-  local write, both = host(tmp, "x86_64", "processor : 0\nflags : " .. base .. "\n")
-  both("the start", true)
+  local write, seen = host(tmp, "x86_64", "processor : 0\nflags : " .. base .. "\n")
+  seen("the start", true, true)
   write("cpuinfo", "flags : " .. base .. " avx512bw avx512dq\n")
-  both("avx512 more", false)
+  seen("avx512 more", false, false)
   write("cpuinfo", "flags : " .. base .. " avx512f avx512vl avx512_vnni\n")
-  both("avx512 vnni", true)
+  seen("avx512 vnni", false, true)
   write("cpuinfo", "flags : " .. base .. " avx_vnni\n")
-  both("avx vnni", true)
+  seen("avx vnni", false, true)
   write("cpuinfo", "flags : " .. base .. " hypervisor md_clear\n")
-  both("a hypervisor's bits more", false)
+  seen("a hypervisor's bits more", false, false)
   write("cpuinfo", "flags : " .. (base:gsub(" bmi2 erms", "")) .. "\n")
-  both("string features fewer", false)
+  seen("string features fewer", false, false)
   write("cpuinfo", "flags : " .. (base:gsub(" aes", "")) .. "\n")
-  both("no aes", true)
+  seen("no aes", false, true)
   write("cpuinfo", "flags : " .. (base:gsub(" fma avx2", "")) .. "\n")
-  both("no fma or avx2", false)
+  seen("no fma or avx2", false, false)
   write("cpuinfo", "flags : " .. base .. " fma4\n")
-  both("fma4 more", false)
+  seen("fma4 more", false, false)
   write("cpuinfo", "flags : " .. (base:gsub(" pclmulqdq", "")) .. "\n")
-  both("no pclmulqdq", true)
+  seen("no pclmulqdq", false, true)
 end
 
 --- On aarch64, only the features a core chooses code by are keyed --
 --- mbedtls's AES instructions and xz's CRC32 -- as on x86_64.
 local function test_an_aarch64_host_keys_only_what_a_core_dispatches_on(tmp: string)
   local base = "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics"
-  local write, both = host(tmp, "aarch64", "processor : 0\nFeatures : " .. base .. "\n")
-  both("the start", true)
+  local write, seen = host(tmp, "aarch64", "processor : 0\nFeatures : " .. base .. "\n")
+  seen("the start", true, true)
   write("cpuinfo", "Features : " .. base .. " sve sve2\n")
-  both("sve more", false)
+  seen("sve more", false, false)
   write("cpuinfo", "Features : " .. (base:gsub(" crc32", "")) .. "\n")
-  both("no crc32", true)
+  seen("no crc32", false, true)
   write("cpuinfo", "Features : " .. (base:gsub(" pmull", "")) .. "\n")
-  both("no pmull", true)
+  seen("no pmull", false, true)
 end
 
 --- On macOS, where there is no /proc, the key reads the system volume's
@@ -145,7 +156,7 @@ local function test_a_macos_host_is_named_by_its_system_version(tmp: string)
   local names: mut {string:boolean} = {}
   local identities: mut {string:boolean} = {}
   local function both(what: string)
-    local named = declared_key.host_features(sources)
+    local named = declared_key.host_kernel(sources)
     local id = declared_key.host_identity(declared_key.digests(tmp), sources)
     assert(names[named] == nil and identities[id] == nil, what .. " moved nothing")
     names[named], identities[id] = true, true
@@ -164,7 +175,8 @@ local record Vector
   osrelease: string?
   version: string?
   sysctl: {string:string}?
-  digest: string
+  kernel: string
+  kept: string
 end
 
 --- The sysctl names core/syscalls.c's `cpu_features` asks on macOS, by the
@@ -178,8 +190,10 @@ local darwin_features: {string:string} = {
 --- Each recorded host, as ci/testdata/host_features holds it -- x86_64,
 --- aarch64 and a machine no audit has read, every feature a core
 --- chooses code by missing in turn, odd spacing, a missing file, and
---- macOS's sysctl -- is named by the key as its vector says, and as ci/cosmic_ci/host_id.tl
---- does: a verdict cache is renamed by a byte of it.
+--- macOS's sysctl -- is named by the key as its vector says and as
+--- ci/cosmic_ci/host_id.tl does (a verdict cache is renamed by a byte of
+--- it), and its processor's features are the vector's `kept`, which that
+--- module lists, as the key's digest of them is.
 local function test_every_recorded_host_is_named_as_the_ci_names_it(tmp: string)
   local text = assert(Fs.read("ci/testdata/host_features/vectors.json"))
   local recorded = assert(Json.decode_array(text))
@@ -203,33 +217,35 @@ local function test_every_recorded_host_is_named_as_the_ci_names_it(tmp: string)
       system = { "", release, if vector.sysname == "Darwin" then "" else version end },
       cpu_features = features, machine = vector.machine, sysname = vector.sysname,
     }
-    local named = declared_key.host_features(sources)
-    assert(named == vector.digest, vector.name .. ": the key names " .. named .. ", CI " ..
-        vector.digest)
+    local named = declared_key.host_kernel(sources)
+    assert(named == vector.kernel, vector.name .. ": the key names " .. named .. ", CI " ..
+        vector.kernel)
+    assert(declared_key.host_cpu(sources) == Hash.hex_sha256("cpu " .. vector.kept),
+      vector.name .. ": the key holds other features than " .. vector.kept)
   end
 end
 
---- On this host, with nothing given, the key's features -- the processor
---- itself asked, on this host's machine -- name it as the /proc/cpuinfo
---- the key's `listed` reading gives, which the vectors hold CI's reading
---- to. (The tree cannot require ci/'s module, so CI's own reading of
---- this host is not run here.) A worker whose /proc is a sandbox's own
---- has no /proc/cpuinfo, and checks nothing.
-local function test_the_key_names_this_host_as_its_cpuinfo_does(tmp: string)
+--- On this host, with nothing given, the key's kernel -- the processor
+--- itself asked, on this host's machine -- names it as the files
+--- the key reads give, which the vectors hold CI's reading to. (The
+--- tree cannot require ci/'s module, so CI's own reading of this host is
+--- not run here.) A worker whose /proc is a sandbox's own has no
+--- /proc/sys/kernel to read, and checks nothing.
+local function test_the_key_names_this_host_as_its_kernel_files_do(tmp: string)
   local names = assert(sys.uname())
-  if names.sysname ~= "Linux" then Test.skip("only Linux lists its features in /proc/cpuinfo") end
-  local text = Fs.read("/proc/cpuinfo")
+  if names.sysname ~= "Linux" then Test.skip("only Linux lists its kernel in /proc") end
   -- TODO: run this sandboxed too, once a policy can grant a host file
-  -- under /proc (cpuinfo, kernel/osrelease, kernel/version): a sandbox's
-  -- /proc is mounted subset=pid, and a grant of /proc/cpuinfo reaches
+  -- under /proc (kernel/osrelease, kernel/version): a sandbox's /proc is
+  -- mounted subset=pid, and a grant of /proc/sys/kernel/osrelease reaches
   -- none of it, so every sandboxed leg skips here.
-  if text == nil then
-    Test.skip("this worker's /proc has no cpuinfo to read")
+  local released = Fs.read("/proc/sys/kernel/osrelease")
+  if released == nil then
+    Test.skip("this worker's /proc has no kernel files to read")
     return
   end
   local release, version = tmp .. "/osrelease", tmp .. "/version"
-  assert(Fs.write(release, Fs.read("/proc/sys/kernel/osrelease") or ""))
+  assert(Fs.write(release, released))
   assert(Fs.write(version, Fs.read("/proc/sys/kernel/version") or ""))
-  local read = declared_key.host_features({ cpu_features = listed(text), system = { "", release, version } })
-  assert(read == declared_key.host_features(), "this host")
+  local read = declared_key.host_kernel({ system = { "", release, version } })
+  assert(read == declared_key.host_kernel(), "this host")
 end

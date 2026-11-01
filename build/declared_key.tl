@@ -39,11 +39,13 @@
 ---   digest of the binary's data tables and the `sandboxed` mark
 ---   (`runtime`); and, where an artifact runs it (the tree's tool, or a
 ---   portable cosmic), what runs that core ([`launcher_identity`]);
---- - the host it runs on ([`host_identity`]): its kernel and processor,
----   the user and capabilities the tests run with, which /proc a
----   sandbox gets and what the host says of itself; and, only for a
----   module that declares `system`, what the host has installed
----   ([`system_identity`]): its packages and the system it says it is;
+--- - the host it runs on ([`host_identity`]): its kernel, the user and
+---   capabilities the tests run with, which /proc a sandbox gets and
+---   what the host says of itself; only for a module that declares
+---   `cpu_features`, the processor's features a core chooses code by
+---   ([`host_cpu`]); and, only for a module that declares `system`, what
+---   the host has installed ([`system_identity`]): its packages and the
+---   system it says it is;
 --- - the module's graph key ([`build.positions`]' `graph_key`), over its
 ---   import graph's kinds and sources, the standard library's included;
 --- - the compiler's identity ([`build.identity`]'s `Identities`), as the
@@ -247,6 +249,9 @@ local record declared_key
     program?: string
     --- The host's identity ([`host_identity`]), which every key holds.
     host: string
+    --- The processor's features ([`host_cpu`]), which only the key of a
+    --- module that declares `cpu_features` holds; nil for none.
+    mut cpu?: string
     --- What the host has installed ([`system_identity`]), which only the
     --- key of a module that declares `system` holds; nil for none.
     system?: string
@@ -296,7 +301,7 @@ local record declared_key
     tree?: string
   end
 
-  --- A host's identity and the digest of the rest of it but its features
+  --- A host's identity and the digest of the rest of it but its kernel
   --- ([`host_split`]).
   record Split
     identity: string
@@ -317,7 +322,8 @@ local record declared_key
     sysname?: string
     system_id?: string
     status?: string
-    --- The processor's features, as [`sys.cpu_features`] names them.
+    --- The processor's features, as [`sys.cpu_features`] names them,
+    --- which [`host_cpu`] reads.
     cpu_features?: {string}
     --- The machine whose features `cpu_features` keys (`dispatched`).
     machine?: string
@@ -847,7 +853,7 @@ function declared_key.compute(digests: declared_key.Digests,
   -- its tests: digested once, while a snapshot holds.
   -- Per host too: a lookup under another host's key (build/test_key.tl's
   -- `lookup`) asks for the same module's inputs under it.
-  local inputs = once(digests, "m\0" .. spec.group .. "\0" .. spec.host, function(): string
+  local inputs = once(digests, "m\0" .. spec.group .. "\0" .. spec.host .. "\0" .. tostring(spec.cpu), function(): string
     return inputs_of(digests, spec)
   end)
   digests.spent_ns = digests.spent_ns + (monotonic_ns() - started)
@@ -889,6 +895,8 @@ function declared_key.preimage(digests: declared_key.Digests,
     part("host", spec.host, ""),
     part("declaration", spec.declaration, ""),
   }
+  local cpu = spec.cpu
+  if cpu ~= nil then lines[#lines + 1] = part("cpu", cpu, "") end
   local checks = spec.checks
   if checks ~= nil then lines[#lines + 1] = part("checks", checks, "") end
   local answers = spec.requires or {}
@@ -998,11 +1006,30 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
 end
 
 --- The processor's features a core running on `machine` chooses code
---- by, which is all a key holds of what [`sys.cpu_features`] answers:
---- [`host_identity`] says which code reads each, and
---- build/dispatched_features_test.tl holds the vendored sites to this.
---- A machine not named here, whose cores no audit has read, keys its
---- whole list.
+--- by, which is all a key holds of what [`sys.cpu_features`] answers
+--- ([`host_cpu`]). An audit of the vendored C and the disassembled cores
+--- found them, and build/dispatched_features_test.tl holds the sites to
+--- it: mbedtls's aesni.c (`aes`, `pclmulqdq`) and aesce.c (`asimd`, `aes`,
+--- `pmull`), its SHA-256 and SHA-512 (`sha2` and `sha512` on aarch64,
+--- and on x86_64 patch/mbedtls's SHA-NI, `sha_ni` with `sse4_1` and
+--- `ssse3`); xz's crc_x86_clmul.h (`pclmulqdq`, `ssse3`, `sse4_1`) and
+--- crc32_arm64.h (`crc32`), and the core's own int8 dot product in
+--- core/vector.c, which takes VNNI where the CPU has it (`avx512f`,
+--- `avx512vl`, `avx512_vnni`, `avx_vnni`). No Linux core links a libm that
+--- dispatches: every one, the checked core too, is static musl, and
+--- the libm zig and musl carry chooses no code by the processor. (A
+--- glibc host's libm would choose the variants of pow, asin, acos and
+--- atan2 by `fma`, `avx2` and `fma4`; no verdict of such a core could
+--- stand for another, since every key holds the core's digest
+--- (`runtime`).) Nothing else the core carries dispatches, nor does
+--- its build, so the processor's model and microcode, which choose no
+--- code, are not keyed either. The whole list would split GitHub's
+--- hosted runners of one leg on flags nothing reads (the other
+--- avx512* bits, a hypervisor's bits, md_clear). A vendored library that
+--- comes to dispatch on another feature adds it here, to what
+--- [`sys.cpu_features`] answers (core/syscalls.c) and to
+--- ci/cosmic_ci/host_id.tl alike. A machine not named here, whose cores
+--- no audit has read, keys its whole list.
 local dispatched: {string:{string:boolean}} = {
   x86_64 = { aes = true, avx512_vnni = true, avx512f = true, avx512vl = true, avx_vnni = true,
     pclmulqdq = true, sha_ni = true, ssse3 = true, sse4_1 = true },
@@ -1075,7 +1102,7 @@ local default_system: {string} = { "/etc/os-release", "/proc/sys/kernel/osreleas
 local darwin_system: {string} = { "/System/Library/CoreServices/SystemVersion.plist",
   "/System/Library/CoreServices/SystemVersion.plist", "" }
 
---- Where [`host_identity`], [`system_identity`] and [`host_features`] read
+--- Where [`host_identity`], [`system_identity`] and [`host_kernel`] read
 --- the system the host says it is and its kernel's release and version
 --- ([`HostSources`]' `system`) on a host whose kernel `uname` names
 --- `sysname`: `darwin_system` on "Darwin", and /etc/os-release and
@@ -1116,17 +1143,18 @@ local host_variable <const> = "COSMIC_HOST_ID"
 local system_variable <const> = "COSMIC_SYSTEM_ID"
 
 --- [`host_identity`] and, beside it, the digest of every line of it
---- but the features ([`host_features`]: the kernel's release and
---- version, and the processor's features a core dispatches on), in
---- order. Two hosts of one rest differ in those features alone, which
+--- but the kernel's ([`host_kernel`]: its release and version), in
+--- order. Two hosts of one rest differ in their kernel alone, which
 --- is what a CI gathering run asks of the hosts whose verdicts it takes
---- (build/shared_verdicts.tl's `hosts_like`).
+--- (build/shared_verdicts.tl's `hosts_like`). The processor's features
+--- are in neither: a key holds them only where its module declares
+--- `cpu_features` ([`host_cpu`]).
 function declared_key.host_split(digests: declared_key.Digests,
                                  sources?: declared_key.HostSources): declared_key.Split
   local started = monotonic_ns()
   local from: declared_key.HostSources = sources or {}
   local lines: mut {string} = {}
-  -- Whether each line is one of the features ([`host_features`]) alone.
+  -- Whether each line is the kernel's ([`host_kernel`]) alone.
   local featured: mut {integer:boolean} = {}
   local system = system_of(from)
   for i = 2, 3 do
@@ -1140,32 +1168,6 @@ function declared_key.host_split(digests: declared_key.Digests,
   end
   local names, _ = sys.uname()
   if names ~= nil then lines[#lines + 1] = "uname " .. names.sysname .. " " .. names.machine end
-  -- Each distinct feature once, sorted. Only those the code a test
-  -- runs chooses code by (`dispatched`), which an audit of the vendored
-  -- C and the disassembled cores found:
-  -- mbedtls's aesni.c (`aes`, `pclmulqdq`) and aesce.c (`asimd`, `aes`,
-  -- `pmull`), its SHA-256 and SHA-512 (`sha2` and `sha512` on aarch64,
-  -- and on x86_64 patch/mbedtls's SHA-NI, `sha_ni` with `sse4_1` and
-  -- `ssse3`); xz's crc_x86_clmul.h (`pclmulqdq`, `ssse3`, `sse4_1`) and
-  -- crc32_arm64.h (`crc32`), and the core's own int8 dot product in
-  -- core/vector.c, which takes VNNI where the CPU has it (`avx512f`,
-  -- `avx512vl`, `avx512_vnni`, `avx_vnni`). No Linux core links a libm that
-  -- dispatches: every one, the checked core too, is static musl, and
-  -- the libm zig and musl carry chooses no code by the processor. (A
-  -- glibc host's libm would choose the variants of pow, asin, acos and
-  -- atan2 by `fma`, `avx2` and `fma4`; no verdict of such a core could
-  -- stand for another, since every key holds the core's digest
-  -- (`runtime`).) Nothing else the core carries dispatches, nor does
-  -- its build, so the processor's model and microcode, which choose no
-  -- code, are not keyed either. The whole list would split GitHub's
-  -- hosted runners of one leg on flags nothing reads (the other
-  -- avx512* bits, a hypervisor's bits, md_clear), and each split is a verdict not
-  -- shared. A vendored library that comes to dispatch on another
-  -- feature adds it to `dispatched`, to what [`sys.cpu_features`]
-  -- answers (core/syscalls.c) and to ci/cosmic_ci/host_id.tl
-  -- alike.
-  lines[#lines + 1] = "cpu " .. table.concat(features(from.cpu_features, from.machine), " ")
-  featured[#lines] = true
   lines[#lines + 1] = "uid " .. tostring(from.uid or sys.getuid())
   local status, _ = Fs.read(from.status or "/proc/self/status")
   for line in (status or ""):gmatch("[^\n]+") do
@@ -1221,8 +1223,9 @@ end
 ---   what a sandbox is (namespaces, Landlock's ABI, whether a procfs may
 ---   be mounted), are the kernel's;
 --- - its name and machine (`uname`): the core a run selects;
---- - the processor's features a core chooses code by
----   ([`sys.cpu_features`], each once, `dispatched`);
+--- - not the processor's features a core chooses code by
+---   ([`sys.cpu_features`], each once, `dispatched`): [`host_cpu`] keys
+---   them, in the key of a module that declares `cpu_features` alone;
 --- - the user, groups and capabilities this process -- and so every
 ---   worker -- runs with, and whether no_new_privs and a seccomp filter
 ---   hold it (/proc/self/status; on macOS, which has none, the user and
@@ -1242,10 +1245,10 @@ end
 --- the system's paths holds: a worker that is not given them reads
 --- nothing of them. Worked out once a run. `sources` moves where it
 --- looks, for a test; a field it leaves nil is this host's own. Of
---- these, what differs between runners of one CI leg -- the processor's
---- features and the kernel -- names the leg's verdict cache too
---- ([`host_features`], ci/cosmic_ci/host_id.tl): a change to how
---- either is keyed changes both, and the command.
+--- these, what differs between runners of one CI leg -- the kernel --
+--- names the leg's verdict cache too ([`host_kernel`],
+--- ci/cosmic_ci/host_id.tl): a change to how it is keyed changes both,
+--- and the command.
 -- TODO: key the image apart from the seccomp profile and the engine, in
 -- [`system_identity`], once ci.yml names them in variables of their own
 -- (with the verdict caches' naming, which a later change reconsiders):
@@ -1442,22 +1445,20 @@ function declared_key.system_identity(digests: declared_key.Digests,
 end
 
 --- What of [`host_identity`] differs between runners of one CI leg, as
---- the first 16 hex digits of a sha256: the processor's features, a
---- line each (`features`), then the kernel's release and version as
---- their files hold them, a missing one as empty -- on macOS, the
+--- the first 16 hex digits of a sha256: the kernel's release and version
+--- as their files hold them, a missing one as empty -- on macOS, the
 --- system volume's SystemVersion.plist, and nothing (`darwin_system`).
---- It is what ci/cosmic_ci/host_id.tl's `features` answers, which names a
+--- It is what ci/cosmic_ci/host_id.tl's `kernel` answers, which names a
 --- leg's verdict cache, so a run restores one whose keys its host
---- reaches. `sources` stands in for what it reads of this host
---- (`cpu_features`, `machine`, `sysname`, and `system`'s second and
---- third paths), for a test.
-function declared_key.host_features(sources?: declared_key.HostSources): string
+--- reaches. The processor's features are no part of it: runners of
+--- other processors share a cache, and the rows of the modules that
+--- declare `cpu_features` are keyed apart inside it ([`host_cpu`]).
+--- `sources` stands in for what it reads of this host (`sysname`, and
+--- `system`'s second and third paths), for a test.
+function declared_key.host_kernel(sources?: declared_key.HostSources): string
   local from: declared_key.HostSources = sources or {}
   local system = system_of(from)
   local parts: mut {string} = {}
-  for _, flag in ipairs(features(from.cpu_features, from.machine)) do
-    parts[#parts + 1] = flag .. "\n"
-  end
   for i = 2, 3 do
     -- None ("", macOS's version) is read as nothing, as in [`host_identity`].
     local text: string? = nil
@@ -1468,6 +1469,19 @@ function declared_key.host_features(sources?: declared_key.HostSources): string
     parts[#parts + 1] = text or ""
   end
   return hex_sha256(table.concat(parts)):sub(1, 16)
+end
+
+--- The processor's features a key holds for a module that declares
+--- `cpu_features` ([`Spec`]'s `cpu`): the digest of each feature a core
+--- on this machine chooses code by (`dispatched`), once, in byte order,
+--- of `sources`' `cpu_features` (this processor's own, by default,
+--- [`sys.cpu_features`]) on its `machine` (this host's). The features
+--- are the only part of the host that can differ between two runners of
+--- one CI leg and one kernel, so a key that holds them stands on the same
+--- processor alone, and every other key stands across processors.
+function declared_key.host_cpu(sources?: declared_key.HostSources): string
+  local from: declared_key.HostSources = sources or {}
+  return hex_sha256("cpu " .. table.concat(features(from.cpu_features, from.machine), " "))
 end
 
 --- A digest of the modules `names` names, each by its name and what

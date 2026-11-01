@@ -611,6 +611,53 @@ end
   assert(rows[1]:text(1) == "core.allocation_test", "ran under another compiler: " .. rows[1]:text(1))
 end
 
+--- A processor of other features (stood in for by COSMIC_TEST_CPU_SALT) runs only the modules that
+--- declare `cpu_features`: a verdict earned on the first stands, here as it does across CI's runners
+--- of one image, for every test whose key holds no processor, and not for the one whose key does.
+local function test_a_processor_of_other_features_runs_only_the_modules_that_declare_them(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
+  assert(Fs.write(root .. "/suite/plain_test.tl", [[
+local lib = require("suite.lib")
+
+local function test_plain()
+  assert(lib.value == 1)
+end
+]]))
+  assert(Fs.write(root .. "/suite/declared_test.tl", [[
+local lib = require("suite.lib")
+local Test = require("cosmic.test")
+
+Test.policy { cpu_features = true }
+
+local function test_declared()
+  assert(lib.value == 1)
+end
+]]))
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local first = run(root, tmp .. "/first.out", env)
+  skip_if_unsandboxed(first)
+  assert(first:find("2 ran, 0 stood", 1, true), first)
+  local again = run(root, tmp .. "/again.out", env)
+  assert(again:find("0 ran, 2 stood", 1, true), again)
+  local other: mut {string:string} = {}
+  for name, value in pairs(env) do other[name] = value end
+  other["COSMIC_TEST_CPU_SALT"] = "another processor"
+  local elsewhere = run(root, tmp .. "/elsewhere.out", other)
+  assert(elsewhere:find("1 ran, 1 stood", 1, true), "the processor moved the wrong keys: " .. elsewhere)
+  local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
+  local rows = assert(Sqlite.text_rows(db,
+    "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
+      "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
+  assert(db:close())
+  local ran = assert(rows[1]):text(1)
+  assert(ran == "suite.declared_test", "ran on another processor: " .. ran)
+  -- The host it came from still stands on its own verdicts.
+  local back = run(root, tmp .. "/back.out", env)
+  assert(back:find("0 ran, 2 stood", 1, true), back)
+end
+
 --- A checked run (`--check-types`) stands on verdicts of its own and on none of an unchecked
 --- run's, and the reverse, even for a test whose closure compiles to the same bytes in both modes
 --- and reads no compiler (the key holds the mode by name, `checks`): the hooks of a checked worker

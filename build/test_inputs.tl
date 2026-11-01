@@ -69,6 +69,10 @@ local record test_inputs
     --- ([`confine.worker_unveil`]), and its key the host's packages
     --- and system ([`declared_key.system_identity`]).
     system?: boolean
+    --- Whether its key holds the processor's features
+    --- ([`declared_key.host_cpu`]): the outcome of its tests may turn on them
+    --- ([`cosmic.test`]'s `cpu_features`).
+    mut cpu_features?: boolean
     --- The host caches declared, by name ([`build.caches`]), and where
     --- they are on this host, once the runner resolves them: empty until
     --- then.
@@ -264,7 +268,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     files = {}, reads = {}, host = {}, env = {}, network = {},
     tool = false, lua = false, nests = false, noexec = false, noexec_ready = false,
     noexec_trouble = "", store = false,
-    system = false, caches = caches, parent = parent,
+    system = false, cpu_features = false, caches = caches, parent = parent,
     cache_paths = {}, unresolved = "",
   }
   local files, fuzzes = closure(m, by_path, declarations, type_only)
@@ -284,6 +288,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     out.nests = declared.nests == true
     out.noexec = declared.noexec == true
     out.system = declared.system == true
+    out.cpu_features = declared.cpu_features == true
     for _, relative in ipairs(declared.parent or {}) do parent[#parent + 1] = relative end
     -- A cache is declared with the variables that locate it.
     for _, name in ipairs(declared.caches or {}) do
@@ -424,6 +429,7 @@ function test_inputs.canonical(maybe: PolicyRules.Declared?): string
   if declared.noexec then lines[#lines + 1] = "noexec true" end
   if declared.store then lines[#lines + 1] = "store true" end
   if declared.system then lines[#lines + 1] = "system true" end
+  if declared.cpu_features == true then lines[#lines + 1] = "cpu_features true" end
   list("caches", declared.caches or {})
   list("parent", declared.parent or {})
   list("requires", declared.requires or {})
@@ -440,6 +446,7 @@ function test_inputs.as_declared(needs: inputs.Needs?): PolicyRules.Declared?
     nests = needs.nests == true,
     noexec = needs.noexec == true,
     store = needs.store == true, system = needs.system == true,
+    cpu_features = needs.cpu_features == true,
     caches = needs.caches or {}, parent = needs.parent or {}, requires = needs.requires or {} }
 end
 

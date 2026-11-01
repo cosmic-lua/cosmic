@@ -224,11 +224,11 @@ parts; `fail` for any other nonzero exit, a passing summary notwithstanding;
 else `pass`, or `unreported` where it printed no summary), its exit
 status, its tests, `ran`, `stood`, `shared` and
 elapsed ms from `cosmic test`'s summary line, the key parts
-(host features, host, system, runtime, compiler, harness, ...) its
+(host kernel, host, system, runtime, compiler, harness, ...) its
 `--census` key-parts line says, which every suite of the tree is run
 with, and, in `held`, what its `test: census:` line says the verdict
 cache it restored held: each set of key parts the cache's rows were
-kept under, and how many rows (`1994 rows under host features ...,
+kept under, and how many rows (`1994 rows under host kernel ...,
 harness e1t60000; 3 rows under no parts named`, or `no rows`). A
 fixture that builds a checkout does not share its verdicts. Product,
 runtime, launcher and identity fixtures declare the artifacts they read;
@@ -702,7 +702,7 @@ verdicts, which would otherwise ride along whole in each save.
   bound fails the job rather than let it take twenty minutes. Then the
   bounded performance fixture
   (`platform performance-checked`). Its verdicts it keeps under a name of
-  its own, `verdicts-linux-x86_64-checked-<host>-<features>-<digest>`,
+  its own, `verdicts-linux-x86_64-checked-<host>-<kernel>-<digest>`,
   trimmed, saved on `COSMIC_CI_SAVES` and seeded as a leg's are; the
   cache entry holds the checked suite's rows alone, where the same job's
   narrowing run kept a `verdicts.db` of another 8700 rows nothing read.
@@ -715,7 +715,7 @@ verdicts, which would otherwise ride along whole in each save.
   861 s are about 363 to 431 s a share where no verdict stands (a lower
   estimate: each share compiles the tree it tests). A checked run stands on
   verdicts of its own (doc/testing.md), which it keeps in `narrowing.db`
-  under a cache name of its own, `verdicts-linux-x86_64-checked-narrowing-<host>-<features>-<digest>`
+  under a cache name of its own, `verdicts-linux-x86_64-checked-narrowing-<host>-<kernel>-<digest>`
   (`leg-host-id` with `linux-x86_64-checked-narrowing`: the same host as the
   checked job's, and a prefix no hash of its name can reach, `n` being no hex
   digit). Each share restores the entry of the tree's base on main whole,
@@ -850,10 +850,13 @@ a Linux leg its image and how it is started (all of it
 `leg-container.sh`'s and `seccomp-profile.sh`'s, which are hashed), and
 the engine's version; on macOS the runner's image label. Not ci.yml,
 whose every edit would move it. The verdict cache is also named by the
-processor features a core chooses code by and the kernel's release and
-version ([`cosmic_ci/host_id.tl`]), which differ between runners of one leg:
-named by the container alone, a run restored another runner's cache and
-none of its verdicts stood. The step was "name the leg's container", as
+kernel's release and version ([`cosmic_ci/host_id.tl`]), which can differ
+between runners of one leg: named by the container alone, a run restored
+another runner's cache and none of its verdicts stood. The processor's
+features are in neither the name nor a key, but for the key of a module
+that declares `cpu_features` (doc/testing.md, "processor features"), so
+runners of other processors restore one cache; the step logs the kernel
+and the features it read, to show which differs. The step was "name the leg's container", as
 `leg-container.sh` still calls it: an edit to that file moves every
 Linux leg's `COSMIC_HOST_ID`, and so its verdicts, which an edit to
 ci.yml does not, so the stale name waits for its next real change.

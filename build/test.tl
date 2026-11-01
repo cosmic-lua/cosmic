@@ -129,6 +129,7 @@ local clock = require("build.clock")
 local progress = require("build.progress")
 local coverage_report = require("build.coverage")
 local c_functions = require("build.c_functions")
+local dispatch_sites = require("build.dispatch_sites")
 local importer = require("build.importer")
 local exit_status = require("build.exit_status")
 local type Module = importer.Module
@@ -939,6 +940,35 @@ local function running_detail(rec: Recording, running: {Job}): string
   return table.concat(parts, "; ")
 end
 
+--- Why `job`'s test fails for the core's C it entered, or "": it passed,
+--- entered a function that turns on the processor's features
+--- ([`build.dispatch_sites`]), and its module does not declare
+--- `cpu_features`, so its key holds none of them and its verdict would
+--- stand on a host of another processor. The functions are those the
+--- worker's hits name: the lines of the core's C the test ran, and those of
+--- the processes it started. Nothing is checked where the core observes
+--- no C ([`Coverage.native_functions`] is empty), or for a test that reported
+--- nothing, or in a tree that is not cosmic's own, whose C is not there to read.
+-- TODO: hold a project outside cosmic's tree to it too, once the core
+-- reports which of its C functions turn on the processor (the list is
+-- derived from the core's C source and the audit, which only cosmic's own
+-- tree has): today its tests that reach AES-NI, SHA-NI or the like without
+-- `cpu_features` stand on a host of another processor.
+local function dispatch_failure(rec: Recording, job: Job, reported: worker.Report?): string
+  local effective = rec.effective[job.m.path]
+  if not rec.own_tree or reported == nil or effective == nil or effective.cpu_features == true then
+    return ""
+  end
+  local reaches = rec.dispatched
+  if reaches == nil then
+    local functions = Coverage.native_functions()
+    local sources = c_functions.sources(rec.root, functions)
+    reaches = dispatch_sites.reaching(c_functions.spans(functions, sources), sources)
+    rec.dispatched = reaches
+  end
+  return dispatch_sites.failure(reaches, reported.test_hits)
+end
+
 --- Records one finished job: the verdict its worker reported, or a
 --- failure that says why there is no report to go by
 --- ([`test_key.judge`], which also says whether it checked, and
@@ -955,6 +985,13 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
   end
   local judged = test_key.judge(rec, job, result, trouble, refused, unavailable)
   local reported, passed, message = judged.report, judged.passed, judged.message
+  local feature_failure = if passed then dispatch_failure(rec, job, reported) else "" end
+  if feature_failure ~= "" then
+    passed, message = false, feature_failure
+    judged = { report = reported, passed = false, message = feature_failure, skipped = judged.skipped,
+      unchecked = judged.unchecked, deliberate = judged.deliberate, checked = judged.checked,
+      clean = judged.clean }
+  end
   local skipped, unchecked = judged.skipped, judged.unchecked
   if skipped ~= "" then
     rec.tally.skipped = rec.tally.skipped + 1
@@ -1334,7 +1371,7 @@ local record Run
   mut forced?: boolean
   mut consult?: boolean
   --- Whether a verdict is also looked up under the key of another host of
-  --- the same rest (COSMIC_TEST_FOREIGN_FEATURES=1).
+  --- the same rest but for its kernel (COSMIC_TEST_FOREIGN_KERNEL=1).
   mut accept_foreign?: boolean
   mut census?: boolean
   --- Whether the run compiles the tree with run-time checks and reports
@@ -1478,7 +1515,7 @@ local function read_command(ctx: Run): integer?
     Env.read("COSMIC_TEST_NO_SHARED") == "1")
   -- Only the CI gathering run asks this (ci/cosmic_ci/orchestration.tl's
   -- `checked_suite`); it reads verdicts the shares of the same run kept.
-  ctx.accept_foreign = Env.read("COSMIC_TEST_FOREIGN_FEATURES") == "1"
+  ctx.accept_foreign = Env.read("COSMIC_TEST_FOREIGN_KERNEL") == "1"
   ctx.census = parsed.set["--census"] == true
   -- TODO: run a checked run's three tests that compare the bytecode of a
   -- module with the binary's (build/harness_epoch_test.tl,
@@ -1921,7 +1958,7 @@ local function make_recording(ctx: Run)
     parameter_checks = assert(ctx.result).parameter_checks, violation_met = {}, violators = {}, violator_ns = {},
     failures = failures, errors = errors, outputs = {}, reruns = {},
     failed = {}, skips = {}, unchecked = {}, deliberate = {}, stopped = {}, held = ctx.held, nas = {}, unmet = {}, answered = {},
-    hits = hits, by_test = by_test, unowned = unowned, tally = tally, not_run = 0,
+    hits = hits, by_test = by_test, unowned = unowned, own_tree = ctx.own_tree == true, tally = tally, not_run = 0,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
     consult_shared = ctx.consult,
     accept_foreign = ctx.accept_foreign == true and ctx.consult == true and ctx.sandboxed == true,
@@ -2096,14 +2133,13 @@ local function look_up_verdicts(ctx: Run)
   end
   -- The digests the run's keys hold, which each row it keeps in the
   -- shared cache is stamped with ([`shared_verdicts.settle`]): made only
-  -- where there is a cache to stamp or a census to say, since
-  -- `host_features` reads the processor's whole description.
+  -- where there is a cache to stamp or a census to say.
   local census_asked = ctx.census
   local parts: mut {{string}} = {}
   if rec.shared ~= nil or census_asked == true then
     parts = {
       -- As ci/cosmic_ci/host_id.tl names CI's verdict cache.
-      { "host features", declared_key.host_features() },
+      { "host kernel", declared_key.host_kernel() },
       { "host", assert(rec.host):sub(1, 12) },
       { "system", (rec.system or ""):sub(1, 12) },
       { "runtime", hex_sha256(rec.runtime or ""):sub(1, 12) },

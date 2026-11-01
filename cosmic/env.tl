@@ -48,8 +48,10 @@ local record Env
     "COSMIC_TEST_CHECK_TYPES"
     --- For a test of the runner alone: stands in for the compiler's identity.
     "COSMIC_TEST_COMPILER_SALT"
-    --- "1" accepts verdicts from a host with other features.
-    "COSMIC_TEST_FOREIGN_FEATURES"
+    --- For a test of the runner alone: stands in for a processor of other features.
+    "COSMIC_TEST_CPU_SALT"
+    --- "1" accepts verdicts from a host with another kernel.
+    "COSMIC_TEST_FOREIGN_KERNEL"
     --- For a test of the runner alone: stands in for the harness epoch.
     "COSMIC_TEST_HARNESS_EPOCH"
     --- The module a held run was handed.
