@@ -138,7 +138,8 @@ local function copied(tally: source.Tally): source.Tally
     sources = tally.sources, templates = tally.templates,
     whole_splices = tally.whole_splices, stages = tally.stages, reopened = tally.reopened,
     derived = tally.derived, member_rows = tally.member_rows, member_declarations = tally.member_declarations,
-    scratch_stubs = tally.scratch_stubs, scratch_requires = tally.scratch_requires, texts_read = tally.texts_read }
+    scratch_stubs = tally.scratch_stubs, scratch_requires = tally.scratch_requires, texts_read = tally.texts_read,
+    shared_parses = tally.shared_parses }
 end
 
 --- Makes the directory `root` a project to a session, as one a build has
@@ -151,10 +152,14 @@ function session_fixture.made_project(root: string): string
   return root
 end
 
+-- TODO: carry the `places` of the modules a test's closure holds in a worker's sealed database ([`build.test_key`]'s
+-- `sealed_schema` and `sealed_fill`, [`build.closure_store`]'s `closed`), once another change moves the harness epoch
+-- ([`build.harness_epoch`]): it moves every key, and until then a test of the lsp reads a stand-in for the tool's database, and the default [`Store.databases()`] path
+-- is exercised only by hand.
+
 --- A database as the tool carries one (the schema of [`build.schema`]), holding the standard-library module `path`, its
 --- file `file` and the text `text`, and `places` of it, each a `{ symbol, kind, line, column, length, plain }`, the last "1" for a name on an ASCII line: what a session
---- given it as its `store` takes for the binary's own, where a test needs the module's text and places it names (the
---- default [`Store.databases`] carries the real ones).
+--- given it as its `store` takes for the binary's own, as the tests' sealed databases carry no places.
 function session_fixture.carrying(path: string, file: string, text: string, places: {{string}}): Sqlite.Handle
   local db = assert(Sqlite.memory())
   for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end

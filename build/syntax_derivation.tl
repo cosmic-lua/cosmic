@@ -12,6 +12,7 @@ local LinkText = require("build.link_text")
 local Members = require("build.syntax_members")
 local Node = require("build.syntax_node")
 local Places = require("build.syntax_places")
+local Scopes = require("lang.scopes")
 local Sqlite = require("cosmic.sqlite")
 local Stub = require("build.syntax_stub")
 local SyntaxLinkText = require("build.syntax_link_text")
@@ -38,17 +39,25 @@ local record Derivation
     links: {LinkText.Found}
   end
 
+  --- What a caller that analysed `chunk` already holds of it: its scopes and [`build.syntax_analyzer`]'s analysis of it as
+  --- `source` named `file`, which [`rows_of`] otherwise makes again.
+  record Known
+    scoped: Scopes.Scoped
+    analysis: Analyzer.Analysis
+  end
+
   --- The rows of `chunk`, the tree of `source` named `file`; nil and why where the source declares a policy the build
   --- cannot read. `mapped` says the source was derived rather than staged ([`build.derivation`]'s `Fresh`), so that
   --- its symbols stand at the lines of the file it was generated from where the source says them
-  --- (`-- line <symbol> <line>`).
-  rows_of: function(chunk: Ast.Chunk, source: string, file: string, mapped: boolean): Rows?, string
+  --- (`-- line <symbol> <line>`). `known` is what the caller holds of this same `chunk` and `source`, which are then
+  --- not read again.
+  rows_of: function(chunk: Ast.Chunk, source: string, file: string, mapped: boolean, known?: Known): Rows?, string
 
   --- Writes the rows of the source `source_hash`, the tree of which is `chunk`, as [`build.derivation`] writes them.
   --- `file` names the source in a failure. With `stub` a source that returns a value has that stub, and not the one the tree
-  --- gives.
+  --- gives. `known` is as [`rows_of`] takes it.
   insert: function(db: Sqlite.Handle, source_hash: string, file: string, source: string, chunk: Ast.Chunk,
-                   mapped: boolean, stub?: Stub.Made): boolean, string
+                   mapped: boolean, stub?: Stub.Made, known?: Known): boolean, string
 end
 
 local text = bind.text
@@ -73,11 +82,20 @@ local function origin_lines(source: string): {string: integer}?
   return lines
 end
 
-function Derivation.rows_of(chunk: Ast.Chunk, source: string, file: string, mapped: boolean): Derivation.Rows?, string
-  local scoped = Node.scope(chunk, file)
-  local found, why = Analyzer.analysis_of(chunk, scoped, source, file)
-  if found == nil then
-    return nil, why
+function Derivation.rows_of(chunk: Ast.Chunk, source: string, file: string, mapped: boolean,
+                            known?: Derivation.Known): Derivation.Rows?, string
+  local scoped: Scopes.Scoped
+  local found: Analyzer.Analysis
+  if known ~= nil then
+    scoped = known.scoped
+    found = known.analysis
+  else
+    scoped = Node.scope(chunk, file)
+    local analysed, why = Analyzer.analysis_of(chunk, scoped, source, file)
+    if analysed == nil then
+      return nil, why
+    end
+    found = analysed
   end
   local lines: {string: integer}? = nil
   if mapped then
@@ -167,8 +185,8 @@ local function insert_test_inputs(db: Sqlite.Handle, source_hash: string, declar
 end
 
 function Derivation.insert(db: Sqlite.Handle, source_hash: string, file: string, source: string, chunk: Ast.Chunk,
-                           mapped: boolean, given?: Stub.Made): boolean, string
-  local made, trouble = Derivation.rows_of(chunk, source, file, mapped)
+                           mapped: boolean, given?: Stub.Made, known?: Derivation.Known): boolean, string
+  local made, trouble = Derivation.rows_of(chunk, source, file, mapped, known)
   if made == nil then
     return false, file .. ": " .. trouble
   end

@@ -154,6 +154,8 @@ local record source
     --- Times a module's text was read of the database for a request for its places ([`source.places`]): the text of an
     --- open document is already held, and a place on an ASCII line (`plain`) needs none.
     mut texts_read: integer
+    --- Texts derived of a parse and analysis the check made of them ([`source.requires_of`]), which were not made again.
+    mut shared_parses: integer
   end
 
   --- A module's text as its file holds it, not as the checker is served it (a stub, a template's Teal): where a place in
@@ -264,12 +266,16 @@ local record source
     --- `MADE_HELD`, and all go when another would pass it.
     mut carried_held: mut {string:Placed}
     mut carried_count: integer
+    --- Whether the extracted texts of the binary's modules no module of the running tool names are removed
+    --- ([`source.extracted`]), which is done once.
+    mut pruned: boolean
     --- A private in-memory database of the analysis tables ([`AnalysisSchema.statements`] but the `inputs` view),
     --- made at the first text derived here; no `build.db` row is ever written to it or read from it as its own.
     mut scratch: Sqlite.Handle?
-    --- The SHA-256 of the text derived (or tried) into `scratch` for each file below the root: the rows of a hash are
-    --- dropped when no file holds it.
-    mut scratched: mut {string:string}
+    --- The SHA-256 of the texts derived (or tried) into `scratch` for each file below the root, the latest first and at most
+    --- `SCRATCHED` of them: the text a check read and the text the document holds now are both kept, as a request for
+    --- either does not drop the rows of the other. The rows of a hash are dropped when no file holds it.
+    mut scratched: mut {string:{string}}
     --- The SHA-256 of the texts a quiet derive ([`derive`]) left alone, each as `unparsed` or `failed` to write its rows; at
     --- most `MADE_HELD`.
     mut underived: mut {string:string}
@@ -284,6 +290,9 @@ local type Served = source.Served
 local type Written = source.Written
 local type Spot = source.Spot
 local type Tally = source.Tally
+
+--- The most texts of one file the scratch database holds the rows of.
+local SCRATCHED <const> = 2
 
 --- The most stubs kept of texts made here: an open module's every edit makes one.
 local MADE_HELD <const> = 64
@@ -308,7 +317,8 @@ end
 function source.new(root: string, err: function(line: string), carried?: string, store?: {Sqlite.Handle}): source.View
   local tally: Tally = { database_stubs = 0, made_stubs = 0, sources = 0, templates = 0,
     whole_splices = 0, stages = 0, reopened = 0, derived = 0, member_rows = 0,
-    member_declarations = 0, scratch_stubs = 0, scratch_requires = 0, texts_read = 0 }
+    member_declarations = 0, scratch_stubs = 0, scratch_requires = 0, texts_read = 0,
+    shared_parses = 0 }
   return {
     root = root,
     carried = carried,
@@ -328,6 +338,7 @@ function source.new(root: string, err: function(line: string), carried?: string,
     made = {},
     carried_held = {},
     carried_count = 0,
+    pruned = false,
     scratch = nil,
     scratched = {},
     underived = {},
@@ -751,9 +762,36 @@ end
 --- Whether a file other than `except` holds the text whose SHA-256 is `hash` in the scratch database.
 local function held_by_another(src: source.View, hash: string, except: string): boolean
   for file, held in pairs(src.scratched) do
-    if held == hash and file ~= except then return true end
+    if file ~= except then
+      for _, each in ipairs(held) do
+        if each == hash then return true end
+      end
+    end
   end
   return false
+end
+
+--- Whether `held`, the texts of a file in the scratch database, has the text `hash`.
+local function holds(held: {string}, hash: string): boolean
+  for _, each in ipairs(held) do
+    if each == hash then return true end
+  end
+  return false
+end
+
+--- Takes the text `hash` out of those the file `file` holds in the scratch database, without dropping its rows.
+local function unmark(src: source.View, file: string, hash: string)
+  local held = src.scratched[file]
+  if held == nil then return end
+  local kept: mut {string} = {}
+  for _, each in ipairs(held) do
+    if each ~= hash then kept[#kept + 1] = each end
+  end
+  if #kept == 0 then
+    src.scratched[file] = nil
+  else
+    src.scratched[file] = kept
+  end
 end
 
 --- Drops the rows of the text `hash` from every analysis table of the scratch database.
@@ -770,34 +808,47 @@ function source.release(src: source.View, file: string)
   if old == nil then return end
   src.scratched[file] = nil
   local scratch = src.scratch
-  if scratch ~= nil and not held_by_another(src, old, file) then forget_rows(scratch, old) end
+  if scratch == nil then return end
+  for _, each in ipairs(old) do
+    if not held_by_another(src, each, file) then forget_rows(scratch, each) end
+  end
 end
 
 --- Derives the text `text` of the file `file`, whose SHA-256 is `hash`, into the scratch database, once a text: the rows
 --- are [`Derivation.insert`]'s, as the stage writes them, the whole analysis of the text at its first read after an edit.
---- The file's earlier text goes. A text that does not parse writes its places alone, from the parser's recovered tree. A
+--- The file's texts before the latest `SCRATCHED` go. A text that does not parse writes its places alone, from the parser's recovered tree. A
 --- text is not tried again while a file holds it. With `quiet` (a stub or the `requires` are wanted, not the places) a
 --- text that does not parse is not derived, and one whose rows fail to write is not said, its refusal being the check's to
 --- tell: neither is marked as derived, so that a later ask for the places derives it and says so. Such a text is
 --- remembered in `underived`, so that it is not parsed again for every quiet ask.
-local function derive(src: source.View, scratch: Sqlite.Handle, file: string, text: string, hash: string, quiet?: boolean)
-  local old = src.scratched[file]
-  if old == hash then return end
+local function derive(src: source.View, scratch: Sqlite.Handle, file: string, text: string, hash: string, quiet?: boolean,
+                      parsed?: Ast.Chunk, known?: Derivation.Known)
+  local old: {string} = src.scratched[file] or {}
+  if holds(old, hash) then return end
   local tried = held_by_another(src, hash, file)
   if quiet == true and not tried and src.underived[hash] ~= nil then return end
-  -- Not the check's chunk, which is the parse of the text with its splices put in.
-  local chunk: Ast.Chunk? = nil
-  if not tried then
-    local parsed, _ = Node.parse(text, file)
-    chunk = parsed
+  -- Not the check's chunk, which is the parse of the text with its splices put in. `parsed` and `known` are the parse and
+  -- the analysis of this very text that the caller made, which are not made again.
+  local chunk: Ast.Chunk? = parsed
+  if known == nil then chunk = nil end
+  if not tried and chunk == nil then
+    local reparsed, _ = Node.parse(text, file)
+    chunk = reparsed
     if chunk == nil and quiet == true then
       src.underived = bounded(src.underived)
       src.underived[hash] = "unparsed"
       return
     end
   end
-  src.scratched[file] = hash
-  if old ~= nil and not held_by_another(src, old, file) then forget_rows(scratch, old) end
+  local now: mut {string} = { hash }
+  for n, each in ipairs(old) do
+    if n < SCRATCHED then
+      now[#now + 1] = each
+    elseif not held_by_another(src, each, file) then
+      forget_rows(scratch, each)
+    end
+  end
+  src.scratched[file] = now
   if tried then return end
   if chunk == nil then
     -- A text being typed does not parse: the places of what the parser recovered are written, and no other row, as a
@@ -820,11 +871,11 @@ local function derive(src: source.View, scratch: Sqlite.Handle, file: string, te
     src.tally.derived = src.tally.derived + 1
     return
   end
-  local ok, why = Derivation.insert(scratch, hash, file, text, chunk, false)
+  local ok, why = Derivation.insert(scratch, hash, file, text, chunk, false, nil, known)
   if not ok then
     forget_rows(scratch, hash)
     if quiet == true then
-      src.scratched[file] = nil
+      unmark(src, file, hash)
       src.underived = bounded(src.underived)
       src.underived[hash] = "failed"
     else
@@ -833,6 +884,7 @@ local function derive(src: source.View, scratch: Sqlite.Handle, file: string, te
     return
   end
   src.tally.derived = src.tally.derived + 1
+  if known ~= nil then src.tally.shared_parses = src.tally.shared_parses + 1 end
 end
 
 --- The first place of each symbol of `rows`, whose columns are the symbol, the line, the column, the length and `plain`.
@@ -865,10 +917,6 @@ local function read_places(db: Sqlite.Handle, hash: string): {string:Spot}?, boo
   return spots_of(rows), derived
 end
 
--- TODO: derive an edited open document from the check's own parse and analysis, once [`build.lsp.syntax_read`]'s `plan_of`
--- hands them on: the check analyses the same text, and the derivation here ([`derive`]) does it again, about 60 ms more per
--- edit of a 53 KB module (measured in review).
-
 --- Whether `db` holds a parse of the text `hash`: the stage could read it, and so could the derivation here.
 local function parsed_in(db: Sqlite.Handle, hash: string): boolean
   local parsed, _ = Sqlite.text_rows(db, "SELECT 1 FROM parsed WHERE source_hash = ?1", { { text = hash } })
@@ -877,28 +925,31 @@ end
 
 --- The database that holds the analysis rows of the text `text` of the staged module `found`, whose SHA-256 is `hash`, as
 --- an open document's: `build.db` where the text is the staged file's and the rows are the running analyzer's, else the
---- scratch database, the text derived into it once ([`derive`]) without saying of a failure, which the check tells. nil where
---- neither can be read.
-local function rows_for(src: source.View, found: Module, text: string, hash: string): Sqlite.Handle?
+--- scratch database, the text derived into it once ([`derive`]) without saying of a failure, which the check tells, of the
+--- `parsed` tree and `known` analysis of the text where the caller made them. nil where neither can be read.
+local function rows_for(src: source.View, found: Module, text: string, hash: string, parsed?: Ast.Chunk,
+                        known?: Derivation.Known): Sqlite.Handle?
   if hash == found.source_hash and src.stubs then
     local db, _ = database(src)
     if db ~= nil and not staged_by_other(src, db) and parsed_in(db, hash) then return db end
   end
   local scratch = scratch_of(src)
   if scratch == nil then return nil end
-  derive(src, scratch, found.file, text, hash, true)
+  derive(src, scratch, found.file, text, hash, true, parsed, known)
   return scratch
 end
 
 --- What an open document `found` requires, in order, as the rows of its text say ([`rows_for`]); nil where there are none to
 --- read: a text that does not parse, a declaration (nothing requires one), a template (its Teal is another text) and a
---- module generated from another file. The names are those the check reads of the document's syntax tree
+--- module generated from another file. With `parsed` and `known`, the tree and analysis of `text` that the check made
+--- ([`build.lsp.plan`]'s `Planned`), an edit is derived of them, not of a second reading of the text. The names are those the check reads of the document's syntax tree
 --- ([`build.lsp.syntax_read`]'s `plan_of`), which it still reads for the places of a `require`.
-function source.requires_of(src: source.View, found: Module, text: string, hash: string): {string}?
+function source.requires_of(src: source.View, found: Module, text: string, hash: string, parsed?: Ast.Chunk,
+                            known?: Derivation.Known): {string}?
   if found.origin ~= "tree" or found.file:match("%.tmpl$") ~= nil or AnalysisSchema.is_declaration(found.kind) then
     return nil
   end
-  local held = rows_for(src, found, text, hash)
+  local held = rows_for(src, found, text, hash, parsed, known)
   if held == nil or not parsed_in(held, hash) then return nil end
   local rows, _ = Sqlite.text_rows(held, "SELECT name FROM requires WHERE source_hash = ?1 ORDER BY ordinal",
     { { text = hash } })
@@ -1088,14 +1139,11 @@ local function mapped_places(src: source.View, found: Module, written: Written):
   return { file = written.file, text = function(): string? return text end, spots = spots }
 end
 
--- TODO: keep the rows of both the text a check read and the text now in the scratch database of a file, once a file may hold
--- two texts there: a completion on the own module of an edited document that does not parse derives the text last checked,
--- which drops the rows of the text now, and the next request for its places derives that again.
-
--- TODO: serve the stub of a source whose `stubs` rows are not the running analyzer's from its scratch `stubs` row, in place of the
--- one made here ([`made_stub`], [`View`]'s `made`), once the scratch database is derived for every module of the tree rather than
--- for the open documents: a file that is not open is derived only if it is asked for its places, and its stub is wanted in every
--- check that requires it.
+-- TODO: serve the stub of a source whose `stubs` rows are not the running analyzer's from its scratch `stubs` row, in place of
+-- the one made here ([`made_stub`], [`View`]'s `made`, which the next 64 texts push out), once [`Derivation.insert`] can write
+-- the stub of a text alone: deriving a module that is not open on demand writes its whole analysis (docs, links, places,
+-- members) for the stub that [`made_stub`] has of the parse alone, for every module a check requires, so it is not done here.
+-- A module asked for its places is derived whole already ([`source.places`]), and its `stubs` row is then in scratch.
 
 --- A function that reads the text of the module `found` once: an open document's, else the working database's. nil where the
 --- database cannot be read as [`source.served`] cannot. A read of the database is counted ([`source.Tally`]).
@@ -1163,13 +1211,36 @@ function source.places(src: source.View, name: string, open: source.Open): sourc
   return { file = found.file, text = text, spots = spots or {} }
 end
 
--- TODO: remove the directories of `cosmic_source` ([`build.paths`]) that no module of the running tool names, once there
--- is a pass that visits the build directory beside [`build.cache_lifetime`]'s: a tool built again leaves the extracted
--- text of each module it changed, which lives until the whole build directory is pruned.
+--- Removes the directories of `directory` (a build directory's `cosmic_source`) named for a text that no module of the
+--- running tool has: a tool built again leaves the extracted text of each module it changed. Only a directory named by
+--- hex digits, as [`source.extracted`] makes them, is looked at, and a link is removed, never followed
+--- ([`Fs.remove_tree`]). Nothing is removed where the tool's modules cannot be read. A session of another tool that
+--- extracted a text of its own meanwhile makes it again when it next asks ([`source.extracted`]), which says if it
+--- cannot.
+local function prune_extracted(src: source.View, directory: string)
+  local databases = src.store or Store.databases()
+  local held = databases[#databases]
+  if held == nil then return end
+  local rows, _ = Sqlite.text_rows(held, "SELECT CAST(source_hash AS TEXT) FROM modules")
+  if rows == nil then return end
+  local named: mut {string:boolean} = {}
+  for _, row in ipairs(rows) do named[row:text(1)] = true end
+  local entries, _ = Fs.list(directory)
+  if entries == nil then return end
+  for _, entry in ipairs(entries) do
+    if entry:find("^%x+$") ~= nil and named[entry] == nil then
+      local removed, trouble = Fs.remove_tree(directory .. "/" .. entry)
+      if not removed then
+        src.err("cosmic: lsp: removing the source of a binary no longer in use: " .. trouble)
+      end
+    end
+  end
+end
 
 --- The path of a file holding the text of the binary's module `placed` ([`source.places`]), in the build
 --- directory's `cosmic_source` ([`build.paths`]) below a directory named for the text's SHA-256, so that a path names
---- one text for good. The file is written read-only when it is not there or its bytes are not the text (a file changed since is replaced): an editor that opens it shows the module as
+--- one text for good, and the directories of texts no module of the running tool has are removed at the first ask
+--- ([`prune_extracted`]). The file is written read-only when it is not there or its bytes are not the text (a file changed since is replaced): an editor that opens it shows the module as
 --- the binary has it, and a save is refused. It is written whole or not at all ([`Fs.write`]), so a reader never finds
 --- part of it. nil where the root has no build directory, or the file cannot be made, which is said.
 function source.extracted(src: source.View, placed: source.Placed): string?
@@ -1179,7 +1250,12 @@ function source.extracted(src: source.View, placed: source.Placed): string?
   if file:sub(1, 1) == "/" or file:find("..", 1, true) ~= nil then return nil end
   local where = src.where
   if where == nil or where.directory == nil then return nil end
-  local path = build_paths.under(where.directory).cosmic_source .. "/" .. hash .. "/" .. file
+  local root = build_paths.under(where.directory).cosmic_source
+  if not src.pruned then
+    src.pruned = true
+    prune_extracted(src, root)
+  end
+  local path = root .. "/" .. hash .. "/" .. file
   local there, _ = Fs.read(path)
   if there ~= nil and Hash.hex_sha256(there) == hash then return path end
   local made, trouble = Fs.mkdirs(Fs.dirname(path))
@@ -1273,15 +1349,15 @@ end
 --- Lets go of the scratch database in the files whose text is the staged file's now, the rows of `build.db` answering
 --- for it ([`source.places`]): after a stage, a document saved.
 local function settle(src: source.View)
-  for file, hash in pairs(src.scratched) do
+  for file, held in pairs(src.scratched) do
     local staged = src.files[file]
     if staged == nil then
       -- A file the tree no longer lists (deleted, renamed) has no module to answer for.
       source.release(src, file)
-    elseif src.stubs and staged.source_hash == hash then
+    elseif src.stubs and holds(held, staged.source_hash) then
       local db, _ = database(src)
       if db == nil then return end
-      local _, derived = read_places(db, hash)
+      local _, derived = read_places(db, staged.source_hash)
       if derived then source.release(src, file) end
     end
   end

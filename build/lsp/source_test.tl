@@ -917,17 +917,20 @@ local function test_an_edited_buffer_is_derived_into_the_scratch_database_alone(
   assert(rows_of(scratch, "places", hash) > 0 and rows_of(scratch, "parsed", hash) == 1)
   assert(rows_of(assert(src.db), "places", hash) == 0 and rows_of(assert(src.db), "parsed", hash) == 0,
     "build.db holds no row of an unsaved text")
-  -- A new edit drops the rows of the text before it.
+  -- A new edit keeps the rows of the text before it, and the edit after that drops them.
   local again = "-- moved down again\n\n\n" .. POINT
   local placed = assert(source.places(src, "lib.point", open_with("lib/point.tl", again)))
   assert(assert(placed.spots["point.x"]).line == 5 and src.tally.derived == 2, tostring(src.tally.derived))
+  assert(rows_of(scratch, "places", hash) > 0 and rows_of(scratch, "parsed", hash) == 1)
+  assert(rows_of(scratch, "places", Hash.hex_sha256(again)) > 0)
+  assert(source.places(src, "lib.point", open_with("lib/point.tl", "-- a third\n" .. POINT)) ~= nil)
   assert(rows_of(scratch, "places", hash) == 0 and rows_of(scratch, "parsed", hash) == 0)
   assert(rows_of(scratch, "places", Hash.hex_sha256(again)) > 0)
   source.close(src)
 end
 
 --- The members of a staged module are read from `build.db` and derived nowhere; an edited buffer's are derived once into the
---- scratch database with the docs of its text, and the rows of the text before an edit go with it.
+--- scratch database with the docs of its text, and the rows of the text two edits before go with it.
 local function test_the_members_of_a_module_are_read_from_the_database_or_derived_once_and_forgotten_on_an_edit()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
@@ -950,6 +953,8 @@ local function test_the_members_of_a_module_are_read_from_the_database_or_derive
   assert(rows_of(scratch, "members", hash) > 0 and rows_of(assert(src.db), "members", hash) == 0)
   local again = edited .. "\n"
   assert(source.members(src, "lib.point", open_with("lib/point.tl", again)) ~= nil)
+  assert(rows_of(scratch, "members", hash) > 0, "the rows of the text before are kept")
+  assert(source.members(src, "lib.point", open_with("lib/point.tl", again .. "\n")) ~= nil)
   assert(rows_of(scratch, "members", hash) == 0 and rows_of(scratch, "docs", hash) == 0, "the rows of the earlier text go")
   assert(rows_of(scratch, "members", Hash.hex_sha256(again)) > 0)
   -- A text that does not parse has no members, as it has no parse.
@@ -1054,7 +1059,7 @@ local function test_a_file_the_tree_no_longer_lists_lets_go_of_its_scratch_rows(
   source.close(src)
 end
 
---- A buffer broken and then fixed: the places-only rows of the broken text go, and the fixed text is derived whole.
+--- A buffer broken and then fixed: the fixed text is derived whole, and the places-only rows of the broken text stay beside it.
 local function test_a_broken_buffer_that_is_fixed_is_derived_whole()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
@@ -1070,7 +1075,7 @@ local function test_a_broken_buffer_that_is_fixed_is_derived_whole()
   assert(assert(placed.spots["point.x"]).line == 3 and src.tally.derived == 2, tostring(src.tally.derived))
   assert(rows_of(scratch, "parsed", Hash.hex_sha256(fixed)) == 1)
   assert(rows_of(scratch, "places", Hash.hex_sha256(fixed)) > 0)
-  assert(rows_of(scratch, "places", Hash.hex_sha256(broken)) == 0)
+  assert(rows_of(scratch, "places", Hash.hex_sha256(broken)) > 0 and rows_of(scratch, "parsed", Hash.hex_sha256(broken)) == 0)
   source.close(src)
 end
 
@@ -1139,6 +1144,26 @@ local function test_a_binary_module_of_a_project_is_placed_in_a_file_the_build_d
   assert(not rawequal(moved, placed) and moved.carried == "cd", "a module with another hash is read again")
   assert(source.places(src, "cosmic.sys", none_open) == nil)
   assert(source.places(src, "cosmic.bare", none_open) == nil)
+  source.close(src)
+  assert(db:close())
+end
+
+--- The directories of extracted texts that no module of the running tool names are removed at the first ask for a file, and
+--- those it names, and entries that are no text's, stay.
+local function test_the_extracted_texts_of_a_tool_built_again_are_removed()
+  local root = project()
+  local db = carrying()
+  local directory = build_paths.under((assert(build_paths.directory(root)))).cosmic_source
+  local stale = directory .. "/" .. Hash.hex_sha256("an older thing")
+  assert(Fs.mkdirs(stale .. "/cosmic"))
+  assert(Fs.write(stale .. "/cosmic/thing.tl", "old"))
+  assert(Fs.mkdirs(directory .. "/notes"))
+  local src = source.new(root, function(_: string) end, nil, { db })
+  source.refresh(src)
+  local placed = assert(source.places(src, "cosmic.thing", none_open))
+  local path = assert(source.extracted(src, placed))
+  assert(Fs.stat(stale) == nil, "the text no module has goes")
+  assert(Fs.read(path) == THING and Fs.stat(directory .. "/notes") ~= nil, "the current text and another name stay")
   source.close(src)
   assert(db:close())
 end
@@ -1234,8 +1259,61 @@ local function test_a_session_serves_an_edited_open_document_from_its_scratch_ro
   local second = publications(after)
   assert(#assert(second[#second]).diagnostics == 0, "main reads the integer the document exports now")
   local tally = after.tally
-  assert(tally.scratch_stubs >= 2 and tally.scratch_stubs == tally.made_stubs and tally.scratch_requires >= 3,
+  assert(tally.scratch_stubs >= 2 and tally.scratch_stubs == tally.made_stubs and tally.scratch_requires >= 3 and tally.shared_parses >= 1,
     tostring(tally.made_stubs) .. "," .. tostring(tally.scratch_stubs) .. "," .. tostring(tally.scratch_requires))
+end
+
+--- The rows of an edited open document are derived of the check's own parse and analysis ([`build.lsp.plan`]'s `Planned`),
+--- not of a second reading of the text, and are the rows a reading of the text alone gives.
+local function test_an_edited_document_is_derived_of_the_parse_and_analysis_the_check_made()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local found = assert(source.module(src, "lib/shapes.tl"))
+  local alone = 'local a = require("lib.a")\n' .. THREE
+  local shared = 'local b = require("lib.b")\n' .. THREE
+  assert(source.requires_of(src, found, alone, Hash.hex_sha256(alone)))
+  assert(src.tally.derived == 1 and src.tally.shared_parses == 0)
+  local planned = syntax_read.plan_of("lib/shapes.tl", shared, "lib.shapes", "module", false, false)
+  assert(planned.chunk ~= nil and planned.known ~= nil, "a text that parses hands its tree and analysis on")
+  local names = assert(source.requires_of(src, found, shared, Hash.hex_sha256(shared), planned.chunk, planned.known))
+  assert(table.concat(names, ",") == "lib.b" and src.tally.derived == 2 and src.tally.shared_parses == 1)
+  local stubbed = assert(source.served(src, "lib.shapes", open_with("lib/shapes.tl", shared)))
+  assert(src.tally.derived == 2 and stubbed.text:find("sides", 1, true) ~= nil, "the stub is read of the same rows")
+  local broken = syntax_read.plan_of("lib/shapes.tl", "local x =\n", "lib.shapes", "module", false, false)
+  assert(broken.chunk == nil and broken.known == nil)
+  source.close(src)
+end
+
+--- A request for the members of the text a check read and one for the places of the text now in the document, which does not
+--- parse, derive each once: neither drops the rows of the other.
+local function test_the_text_a_check_read_and_the_text_now_are_both_kept_in_the_scratch_database()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local read = THREE .. "-- read by the check\n"
+  local now = read .. "local x =\n"
+  local opened = open_with("lib/shapes.tl", now)
+  for _ = 1, 3 do
+    assert(source.members(src, "lib.shapes", opened, read) ~= nil, "the text the check read")
+    assert(source.places(src, "lib.shapes", opened) ~= nil, "the text now")
+  end
+  assert(src.tally.derived == 2, tostring(src.tally.derived))
+  assert(#assert(src.scratched["lib/shapes.tl"]) == 2)
+  -- A third text pushes out the oldest, and a file let go drops them all.
+  local third = THREE .. "-- third\n"
+  assert(source.places(src, "lib.shapes", open_with("lib/shapes.tl", third)) ~= nil)
+  assert(#assert(src.scratched["lib/shapes.tl"]) == 2 and src.tally.derived == 3)
+  source.release(src, "lib/shapes.tl")
+  assert(src.scratched["lib/shapes.tl"] == nil)
+  local rows = assert(src.scratch)
+  local left = assert(Sqlite.text_rows(rows, "SELECT 1 FROM places"))
+  assert(#left == 0, tostring(#left))
+  source.close(src)
 end
 
 --- A text a quiet ask (a stub, the requires) cannot derive is not marked as derived: a later ask for its places derives it,

@@ -1201,9 +1201,6 @@ local sealed_schema <const>: {string} = {
     "PRIMARY KEY (path, requires)) WITHOUT ROWID",
   "CREATE TABLE decls (path TEXT PRIMARY KEY, source BLOB NOT NULL) WITHOUT ROWID",
   "CREATE TABLE stubs (path TEXT PRIMARY KEY, source BLOB NOT NULL) WITHOUT ROWID",
-  "CREATE TABLE places (module TEXT NOT NULL, ordinal INTEGER NOT NULL, symbol TEXT NOT NULL, " ..
-    "kind TEXT NOT NULL, line INTEGER NOT NULL, column INTEGER NOT NULL, length INTEGER NOT NULL, " ..
-    "plain INTEGER NOT NULL, PRIMARY KEY (module, ordinal)) WITHOUT ROWID",
   "CREATE TABLE zoneinfo (name TEXT PRIMARY KEY, data BLOB NOT NULL)",
   "CREATE TABLE web_assets (name TEXT PRIMARY KEY NOT NULL, data BLOB NOT NULL, " ..
     "sha256 TEXT NOT NULL, sha384 TEXT NOT NULL, version TEXT NOT NULL) WITHOUT ROWID",
@@ -1226,8 +1223,7 @@ local sealed_schema <const>: {string} = {
 --- as it holds the module ([`extras_digest`], or `epoch` for what every
 --- worker loads). A standard-library module's stub (build.stub), which
 --- a checker the worker runs reads in place of its source, comes from
---- where its row does too, as does a module's `places` (what `cosmic lsp`
---- answers a go to definition of a standard-library symbol from). The time zones, CA roots and web assets go only
+--- where its row does too. The time zones, CA roots and web assets go only
 --- where the set holds the module that reads them, as [`Store.seal`] does:
 --- they are most of a small database's bytes.
 -- TODO: carry only the standard library a closure requires, in a project's
@@ -1259,11 +1255,6 @@ local sealed_fill <const>: {string} = {
   "INSERT INTO main.decl_imports SELECT path, requires FROM program.decl_imports " ..
     "WHERE path IN temp.extra AND path NOT IN (SELECT path FROM closure.decl_imports) " ..
     "ORDER BY path, requires",
-  "INSERT INTO main.places SELECT module, ordinal, symbol, kind, line, column, length, plain FROM " ..
-    "closure.places ORDER BY module, ordinal",
-  "INSERT OR IGNORE INTO main.places SELECT module, ordinal, symbol, kind, line, column, length, plain " ..
-    "FROM program.places WHERE module IN temp.extra AND module NOT IN (SELECT path FROM closure.modules) " ..
-    "ORDER BY module, ordinal",
   "INSERT INTO main.zoneinfo SELECT name, data FROM program.zoneinfo WHERE EXISTS " ..
     "(SELECT 1 FROM main.modules WHERE path = 'cosmic.time') ORDER BY name",
   "INSERT INTO main.web_assets SELECT name, data, sha256, sha384, version FROM " ..
@@ -1424,12 +1415,12 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
           "INSERT OR IGNORE INTO temp.extra (path) VALUES (?1)", { { text = name } })
         if not inserted then return false, insert_trouble end
       end
-      -- A program from before `web_assets`, `stubs` or `places` has no such table to
+      -- A program from before `web_assets` or `stubs` has no such table to
       -- carry.
       local held, held_trouble = Sqlite.text_rows(db,
-        "SELECT name FROM program.sqlite_master WHERE name IN ('web_assets', 'stubs', 'places')")
+        "SELECT name FROM program.sqlite_master WHERE name IN ('web_assets', 'stubs')")
       if held == nil then return false, held_trouble end
-      local absent: mut {string:boolean} = { web_assets = true, stubs = true, places = true }
+      local absent: mut {string:boolean} = { web_assets = true, stubs = true }
       for _, row in ipairs(held) do absent[row:text(1)] = nil end
       for _, statement in ipairs(sealed_fill) do
         local reads = statement:match("program%.([%w_]+)")
