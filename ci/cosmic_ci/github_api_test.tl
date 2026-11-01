@@ -2,6 +2,7 @@ local Fs = require("cosmic.fs")
 local GithubApi = require("cosmic_ci.github_api")
 local Http = require("cosmic.http")
 local Shape = require("cosmic.shape")
+local TestSupport = require("cosmic_ci.test_support")
 
 local record Created
   id: integer
@@ -40,11 +41,7 @@ end
 local token <const> = "tok-123"
 
 --- A whole reply: a status line, `head`'s header lines, and `body`.
-local function reply(status: string, head: string, body?: string): string
-  body = body or ""
-  return "HTTP/1.1 " .. status .. "\r\n" .. head ..
-    "Content-Length: " .. tostring(#body) .. "\r\nConnection: close\r\n\r\n" .. body
-end
+local reply <const> = TestSupport.reply
 
 --- The live client over a plain-HTTP API (a script cannot finish a TLS
 --- handshake), its calls answered by `script` in order; `sent` collects
