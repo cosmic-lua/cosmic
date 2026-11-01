@@ -405,6 +405,10 @@ input to the build, never to the runtime. one database holds:
   columns of the source `modules` holds (build/syntax_places.tl). `cosmic
   lsp` answers a go to definition of a `cosmic.*` symbol in a project from
   it, with the module's text written below the build directory.
+- **members**: the tool's alone, what each standard-library module
+  declares its types to have (build/syntax_members.tl), with the doc
+  comment of each member. `cosmic lsp` completes the members of a
+  `cosmic.*` type in a project from it.
 - **docs**: one row per symbol a module declares at its top level --
   the module itself, each function, each record, enum or alias and
   every field and value under it, and each documented value -- with

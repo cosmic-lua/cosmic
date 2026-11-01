@@ -11,6 +11,7 @@ local Prerelease = require("cosmic_ci.prerelease")
 local Proc = require("cosmic.proc")
 local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
+local TestSupport = require("cosmic_ci.test_support")
 
 -- These tests start this program (the pinned driver's own cosmic, or a copy of it
 -- as the bootstrap), which a worker on a sealed database does not have whole;
@@ -81,14 +82,7 @@ end
 
 --- Whether `said` holds the Shape failure at JSON Pointer `at` that wants `expected`
 --- (`string, got integer`): `$.a[0].b: want string, got integer` for the pointer `/a/0/b`.
-local function shape_failure(said: string, at: string, expected: string): boolean
-  local path = "$"
-  for segment in at:gmatch("/([^/]*)") do
-    path = path .. (if segment:find("^%d+$") then "[" .. segment .. "]" else "." .. segment end)
-  end
-  local rest = if expected:find(", got nothing$") then "missing" else "want " .. expected end
-  return said:find(path .. ": " .. rest, 1, true) ~= nil
-end
+local shape_failure <const> = TestSupport.shape_failure
 
 local function test_source_valid()
   local digest = string.rep("ab", 32)

@@ -22,14 +22,13 @@ Test.policy{
 
 local CAT <const> = "/bin/cat"
 
---- Runs `/bin/cat file` under `policy`: its output and status, or nil,
---- having skipped the test, where this host gives no Landlock or seccomp.
+--- Runs `/bin/cat file` under `policy`: its output and status; the test is
+--- skipped where this host gives no Landlock or seccomp.
 local function cat(policy: Sandbox.Policy, file: string): string, integer
   local result, why = Child.run({ CAT, file }, { policy = policy, stdout = "capture", stderr = "stdout" })
   if result == nil then
     if why:find("Landlock", 1, true) or why:find("seccomp", 1, true) or why:find("not implemented", 1, true) then
       Test.skip(why)
-      return nil, -1
     end
     error("the start was refused: " .. why)
   end
@@ -42,7 +41,6 @@ local function test_the_system_profile_lets_a_host_program_read_what_is_granted(
   assert(Fs.write(tmp .. "/ro/a", "alpha\n") and Fs.write(tmp .. "/other/b", "beta\n"))
   local policy: Sandbox.Policy = { profiles = { "system" }, grants = { { path = tmp .. "/ro", letters = "r" } } }
   local said, code = cat(policy, tmp .. "/ro/a")
-  if said == nil then return end
   assert(code == 0 and said == "alpha\n", tostring(code) .. ": " .. said)
   local sibling, status = cat(policy, tmp .. "/other/b")
   assert(status ~= 0 and sibling:find("Permission denied", 1, true), sibling)
@@ -59,7 +57,10 @@ local function test_without_the_profile_the_loader_is_not_granted_and_the_start_
   local real = assert(sys.realpath(CAT))
   local none, why = Child.start({ CAT, tmp }, { policy = { grants = { { path = real, letters = "rx" } } } })
   -- A static program, as on some hosts, needs nothing more and starts.
-  if none ~= nil then return end
+  if none ~= nil then
+    Test.skip("a static program needs no loader, so its start is not refused")
+    return
+  end
   -- Where the host gives no Landlock or seccomp the start is refused for that, past the grants.
   if why:find("Landlock", 1, true) or why:find("seccomp", 1, true) or why:find("not implemented", 1, true) then
     Test.skip(why)

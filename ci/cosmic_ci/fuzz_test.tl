@@ -484,7 +484,10 @@ local function test_fuzz_waits_after_output_eof_and_drains_a_finite_post_exit_ta
   assert(assert(first:wait(Clock.seconds(30))).code == 7)
   assert(read(temp .. "/fuzz.status") == "7\n")
   local setsid = Proc.find("setsid")
-  if setsid == nil then return end
+  if setsid == nil then
+    Test.skip("this host has no setsid")
+    return
+  end
   local tail = tmp .. "/tail"
   assert(Fs.mkdirs(tail))
   local second <close>, tail_temp, log = start_fuzz(tail,

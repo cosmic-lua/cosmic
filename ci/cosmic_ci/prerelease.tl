@@ -15,6 +15,7 @@ local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
 local Plural = require("cosmic_ci.plural")
 local String = require("cosmic.string")
+local StepEnv = require("cosmic_ci.step_env")
 
 local record Prerelease
   --- The platform legs, in the byte order of their products'
@@ -229,11 +230,7 @@ function Prerelease.draft_ids(page: string, tag: string): Prerelease.Drafts
   return { ids = ids, ends = published or #items < 100 }
 end
 
-local function required(env: {string:string}, name: string): string
-  local value = env[name]
-  assert(value and value ~= "", "missing required environment variable: " .. name)
-  return value
-end
+local required <const> = StepEnv.required
 
 --- Runs the tool at `path` with `help`, its portable cores unpacked in a directory of its own, and raises unless it
 --- answers.

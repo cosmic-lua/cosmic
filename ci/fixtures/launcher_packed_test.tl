@@ -81,13 +81,6 @@ local function flipped(bytes: string, at: integer): string
   return bytes:sub(1, at) .. string.char(assert(bytes:byte(at + 1)) ~ 0x55) .. bytes:sub(at + 2)
 end
 
-local function no_private_entries(cache: string, stem: string)
-  for _, name in ipairs((assert(Fs.list(cache)))) do
-    assert(not String.starts_with(name, stem),
-      "cache retained private entry: " .. name)
-  end
-end
-
 --- A launch of `program` that must fail with `pattern` and leave nothing
 --- behind it: no public core, no staged stub or core, no payload run.
 local function refused(ctx: Context, label: string, pattern: string, program?: string): Fixture.Outcome
@@ -101,15 +94,9 @@ local function refused(ctx: Context, label: string, pattern: string, program?: s
   for _, name in ipairs((assert(Fs.list(cache)))) do
     assert(String.starts_with(name, "."), label .. " published " .. name)
   end
-  no_private_entries(cache, ".stub.")
-  no_private_entries(cache, ".core.")
+  LauncherFixture.no_private_entries(cache, ".stub.")
+  LauncherFixture.no_private_entries(cache, ".core.")
   return answer
-end
-
-local function hook_environment(cache: string, hook: string, ready: string,
-                                go: string): {string:string}
-  return environment(cache, { COSMIC_PORTABLE_TEST_HOOK = hook,
-    COSMIC_PORTABLE_TEST_READY = ready, COSMIC_PORTABLE_TEST_GO = go })
 end
 
 local function test_a_compressed_payload_is_decoded_published_and_run(tmp: string)
@@ -223,11 +210,11 @@ local function test_concurrent_cold_starts_and_signals_while_the_stub_is_staged(
     local ready2 = Process.fifo(ctx.work, ctx.diagnostics, "race-ready2")
     local go2 = Process.fifo(ctx.work, ctx.diagnostics, "race-go2")
     local first = Process.start("race1", { ctx.artifact }, ctx.work,
-      hook_environment(race, "after_stub", ready1, go1), ctx.diagnostics)
+      LauncherFixture.hook_environment(race, "after_stub", ready1, go1), ctx.diagnostics)
     Process.adopt(active, first)
     Process.await_ready(ctx.work, ctx.diagnostics, "race1", ready1, first)
     local second = Process.start("race2", { ctx.artifact }, ctx.work,
-      hook_environment(race, "after_stub", ready2, go2), ctx.diagnostics)
+      LauncherFixture.hook_environment(race, "after_stub", ready2, go2), ctx.diagnostics)
     Process.adopt(active, second)
     Process.await_ready(ctx.work, ctx.diagnostics, "race2", ready2, second)
     -- Both have a stub staged, under names of their own, runnable by their owner alone.
@@ -243,21 +230,21 @@ local function test_concurrent_cold_starts_and_signals_while_the_stub_is_staged(
     Process.release(ctx.work, ctx.diagnostics, "race2", go2)
     assert(Process.finish(first).ok and Process.finish(second).ok, "decoding race failed")
     only_core(race)
-    no_private_entries(race, ".stub.")
-    no_private_entries(race, ".core.")
+    LauncherFixture.no_private_entries(race, ".stub.")
+    LauncherFixture.no_private_entries(race, ".core.")
 
     -- A signal while the stub is staged removes it, and the next start is whole.
     local signaled = ctx.work .. "/signal-cache"
     local ready = Process.fifo(ctx.work, ctx.diagnostics, "signal-ready")
     local go = Process.fifo(ctx.work, ctx.diagnostics, "signal-go")
     local victim = Process.start("signaled", { ctx.artifact }, ctx.work,
-      hook_environment(signaled, "after_stub", ready, go), ctx.diagnostics)
+      LauncherFixture.hook_environment(signaled, "after_stub", ready, go), ctx.diagnostics)
     Process.adopt(active, victim)
     Process.await_ready(ctx.work, ctx.diagnostics, "signal", ready, victim)
     assert(victim.handle:stop(sys.SIGTERM))
     assert(not Process.finish(victim).ok, "a terminated launch succeeded")
-    no_private_entries(signaled, ".stub.")
-    no_private_entries(signaled, ".core.")
+    LauncherFixture.no_private_entries(signaled, ".stub.")
+    LauncherFixture.no_private_entries(signaled, ".core.")
     outcome_ok(run(ctx, "after-signal", signaled), "launch after a signal")
     only_core(signaled)
 
@@ -266,7 +253,7 @@ local function test_concurrent_cold_starts_and_signals_while_the_stub_is_staged(
     local kill_ready = Process.fifo(ctx.work, ctx.diagnostics, "kill-ready")
     local kill_go = Process.fifo(ctx.work, ctx.diagnostics, "kill-go")
     local killed = Process.start("killed", { ctx.artifact }, ctx.work,
-      hook_environment(killed_cache, "after_stub", kill_ready, kill_go), ctx.diagnostics)
+      LauncherFixture.hook_environment(killed_cache, "after_stub", kill_ready, kill_go), ctx.diagnostics)
     Process.adopt(active, killed)
     Process.await_ready(ctx.work, ctx.diagnostics, "kill", kill_ready, killed)
     assert(killed.handle:stop(sys.SIGKILL))
@@ -314,8 +301,8 @@ local function test_signals_while_the_stub_is_decoding(tmp: string)
     assert(term.handle:stop(sys.SIGTERM))
     Process.release(ctx.work, ctx.diagnostics, "decode-term", term_go)
     assert(not Process.finish(term).ok, "a terminated launch succeeded")
-    no_private_entries(term_cache, ".stub.")
-    no_private_entries(term_cache, ".core.")
+    LauncherFixture.no_private_entries(term_cache, ".stub.")
+    LauncherFixture.no_private_entries(term_cache, ".core.")
     nothing_published(term_cache)
     outcome_ok(run(whole, "after-term", term_cache), "launch after a signal in the decoder")
     only_core(term_cache)
