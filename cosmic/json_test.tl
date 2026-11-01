@@ -1154,3 +1154,108 @@ local function test_to_object_and_to_array_refuse_a_table_that_holds_itself()
   local _, in_object = Json.to_object(map)
   assert(in_object == 'json: the table at pointer "/me" contains itself', in_object)
 end
+
+--- The text as a [`Json.Value`], nulls kept.
+local function value_of(text: string): Json.Value
+  local value, why = Json.to_value(decoded(text, { null_value = Json.null }))
+  assert(value ~= nil, why)
+  return value
+end
+
+local function paths(differences: {Json.Difference}): string
+  local out: mut {string} = {}
+  for _, difference in ipairs(differences) do out[#out + 1] = difference.path end
+  return table.concat(out, " ")
+end
+
+local function nth(differences: {Json.Difference}, at: integer): Json.Difference
+  local difference = differences[at]
+  assert(difference ~= nil, "no difference " .. tostring(at))
+  return difference
+end
+
+--- The message `run` raises, or "" when it does not raise.
+local function raised(run: function(): {Json.Difference}): string
+  match pcall(run) do
+  | (true, _) then
+    return ""
+  | (false, why) then
+    return tostring(why)
+  end
+end
+
+local function test_diff_of_equal_values_is_empty_whatever_the_member_order()
+  local want = value_of('{"a": 1, "b": [true, null, "x"], "c": {"d": {}}}')
+  local got = value_of('{"c": {"d": {}}, "b": [true, null, "x"], "a": 1}')
+  assert(#Json.diff(want, got) == 0)
+  assert(#Json.diff("x", "x") == 0 and #Json.diff(Json.null, Json.null) == 0)
+end
+
+local function test_diff_names_each_difference_by_json_pointer()
+  local want = value_of('{"users": [{"name": "ada", "role": "admin"}, {"name": "bob"}], "a/b": 1, "m~n": 2}')
+  local got = value_of('{"users": [{"name": "ada", "role": "user"}, {"name": "bo"}, 3], "a/b": 2, "m~n": 2}')
+  local differences = Json.diff(want, got)
+  assert(paths(differences) == "/a~1b /users/0/role /users/1/name /users/2", paths(differences))
+  assert(nth(differences, 1).want == 1 and nth(differences, 1).got == 2)
+  assert(nth(differences, 2).want == "admin" and nth(differences, 2).got == "user")
+  assert(nth(differences, 4).want == nil and nth(differences, 4).got == 3)
+  -- Each path is one Json.from_pointer reads back.
+  local steps = assert(Json.from_pointer(decoded('{"users": [{"role": 1}]}'), nth(differences, 2).path))
+  assert(steps[1] == "users" and steps[2] == 1 and steps[3] == "role")
+end
+
+local function test_diff_tells_a_missing_member_from_a_null()
+  local none: {string: Json.Value} = {}
+  local differences = Json.diff({ a = Json.null }, none)
+  assert(#differences == 1 and nth(differences, 1).path == "/a")
+  assert(nth(differences, 1).want == Json.null and nth(differences, 1).got == nil)
+  differences = Json.diff(none, { a = Json.null })
+  assert(#differences == 1 and nth(differences, 1).want == nil and nth(differences, 1).got == Json.null)
+end
+
+local function test_diff_reports_a_change_of_kind_once_at_its_place()
+  local differences = Json.diff({ a = { b = 1 } }, { a = Json.array({ 1 }) })
+  assert(#differences == 1 and nth(differences, 1).path == "/a", paths(differences))
+  differences = Json.diff({ a = "1" }, { a = 1 })
+  assert(#differences == 1 and nth(differences, 1).want == "1" and nth(differences, 1).got == 1)
+  differences = Json.diff({ a = 0 }, { a = false })
+  assert(#differences == 1)
+  -- An unmarked empty table is an object, as encode writes it.
+  local none: {string: Json.Value} = {}
+  differences = Json.diff({ a = none }, { a = Json.array() })
+  assert(#differences == 1 and nth(differences, 1).path == "/a")
+  assert(#Json.diff({ a = none }, { a = none }) == 0)
+end
+
+local function test_diff_compares_arrays_by_position_and_notes_a_longer_one()
+  local differences = Json.diff(Json.array({ 1, 2, 3 }), Json.array({ 1, 3, 2, 4 }))
+  assert(paths(differences) == "/1 /2 /3", paths(differences))
+  assert(nth(differences, 3).want == nil and nth(differences, 3).got == 4)
+  differences = Json.diff(Json.array({ 1, 2 }), Json.array({ 1 }))
+  assert(#differences == 1 and nth(differences, 1).path == "/1")
+  assert(nth(differences, 1).want == 2 and nth(differences, 1).got == nil)
+end
+
+local function test_diff_compares_numbers_as_canonical_does()
+  assert(#Json.diff({ n = 1 }, { n = 1.0 }) == 0)
+  assert(#Json.diff(value_of("[1, 0.5]"), value_of("[1e0, 5e-1]")) == 0)
+  assert(#Json.diff(0.0, -0.0) == 0)
+  assert(#Json.diff(1, 2) == 1 and #Json.diff(1, 1.5) == 1)
+  -- 2^53 + 1 and 2^53 are the same double, as canonical writes them alike.
+  assert(Json.canonical("[9007199254740993]") == Json.canonical("[9007199254740992]"))
+  assert(#Json.diff(9007199254740993, 9007199254740992) == 0)
+end
+
+local function test_diff_raises_rather_than_loop_on_a_table_that_contains_itself()
+  local loop: mut {string: Json.Value} = {}
+  loop["again"] = loop
+  assert(raised(function(): {Json.Difference} return Json.diff(loop, loop) end):find("json: diff: nesting", 1, true) ~= nil)
+  local deeper: mut {string: Json.Value} = {}
+  local cursor = deeper
+  for _ = 1, Json.depth_limit + 2 do
+    local child: mut {string: Json.Value} = {}
+    cursor["next"] = child
+    cursor = child
+  end
+  assert(raised(function(): {Json.Difference} return Json.diff(deeper, deeper) end) ~= "")
+end
