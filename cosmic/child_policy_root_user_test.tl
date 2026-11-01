@@ -81,7 +81,6 @@ local function test_a_root_caller_runs_its_child_as_a_user_of_a_range_of_its_own
   for _, isolate in ipairs({ { "proc" }, { "file" } }) do
     local ran = ChildPolicy.under(at.probe, { isolate = isolate, grants = { { path = at.probe, letters = "rx" },
       { path = at.work, letters = "r" } } }, at.work, "status-field Uid; status-field Gid")
-    if ran == nil then return end
     assert(ran.code == 0, ran.said)
     local ids = uids(ran.said)
     assert(#ids == 8, ran.said)
@@ -174,7 +173,6 @@ local function test_a_root_caller_s_named_user_and_group_hold_under_isolation(tm
   local ran = ChildPolicy.under(at.probe, { isolate = { "proc" }, user = 4242, group = 4343, grants = {
     { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" } } }, at.work,
     "status-field Uid; status-field Gid")
-  if ran == nil then return end
   assert(ran.code == 0, ran.said)
   local ids = uids(ran.said)
   assert(#ids == 8 and ids[1] == 4242 and ids[4] == 4242 and ids[5] == 4343 and ids[8] == 4343,
@@ -211,7 +209,6 @@ local function test_a_root_caller_s_tmp_is_its_child_s_to_write(tmp: string)
   local ran = ChildPolicy.under(at.probe, { isolate = { "proc" }, tmp = true, grants = {
     { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" } } }, at.work,
     "create $TMPDIR/made x && cat $TMPDIR/made")
-  if ran == nil then return end
   assert(ran.code == 0 and ran.said == "x\n", tostring(ran.code) .. ": " .. ran.said)
 end
 
@@ -222,7 +219,6 @@ local function test_a_root_caller_s_grant_open_to_everyone_is_used_as_it_is(tmp:
   assert(sys.chmod(at.work .. "/data", octal("644")))
   local ran = ChildPolicy.under(at.probe, { isolate = { "proc" }, grants = { { path = at.probe, letters = "rx" },
     { path = at.work, letters = "r" } } }, at.work, "cat data")
-  if ran == nil then return end
   assert(ran.code == 0 and ran.said == "open\n", ran.said)
 end
 
@@ -259,7 +255,6 @@ local function test_a_root_caller_s_named_user_meets_its_own_files_as_the_owner_
     { path = dir, letters = "rw" } } }
   local ran = ChildPolicy.under(at.probe, policy, at.work, "cat " .. dir .. "/inside; append " .. dir ..
       "/open more; cat " .. dir .. "/open; cat " .. dir .. "/third")
-  if ran == nil then return end
   assert(ran.code == 0 and ran.said == "secret\nopen\nmore\nthird\n", tostring(ran.code) .. ": " .. ran.said)
   local open = assert(sys.stat(dir .. "/open"))
   assert(open.uid == 4242 and open.gid == 4242, "open is " .. tostring(open.uid) .. ":" .. tostring(open.gid))
@@ -281,7 +276,6 @@ local function test_a_root_caller_s_closed_grant_is_idmapped_under_isolate_file(
     { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" },
     { path = dir, letters = "rwc" } } }, at.work,
     "cat " .. dir .. "/inside; create " .. dir .. "/made y; cat " .. dir .. "/made")
-  if ran == nil then return end
   assert(ran.code == 0 and ran.said == "secret\ny\n", tostring(ran.code) .. ": " .. ran.said)
   -- What it made is the owner's on the host, not the sandbox's user's.
   local made = assert(sys.stat(dir .. "/made"))
@@ -298,7 +292,6 @@ local function test_a_root_caller_s_closed_read_only_grant_is_idmapped_and_stays
     { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" },
     { path = dir, letters = "r" } } }, at.work,
     "cat " .. dir .. "/inside; create " .. dir .. "/made y")
-  if ran == nil then return end
   assert(ran.code == 1 and ran.said:find("secret", 1, true), tostring(ran.code) .. ": " .. ran.said)
   assert(not Fs.exists(dir .. "/made"))
 end
@@ -346,7 +339,6 @@ local function test_a_root_caller_s_directory_above_a_grant_it_cannot_search_fai
   local ran = ChildPolicy.under(at.probe, { isolate = { "file" }, grants = {
     { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" },
     { path = shut .. "/in", letters = "r" } } }, at.work, "ls " .. shut .. "/in")
-  if ran == nil then return end
   assert(ran.code == 0, ran.said)
 end
 
@@ -363,6 +355,5 @@ local function test_a_root_caller_s_tmp_beneath_a_directory_it_cannot_search_fai
   -- Under isolate file /tmp is the sandbox's own tmpfs, whatever TMPDIR is.
   local ran = ChildPolicy.under(at.probe, { isolate = { "file" }, tmp = true, grants = grants }, at.work,
     "create /tmp/made z")
-  if ran == nil then return end
   assert(ran.code == 0, ran.said)
 end
