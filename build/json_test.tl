@@ -4,13 +4,7 @@
 
 local Fs = require("cosmic.fs")
 local json = require("build.json")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 local DOC <const> = [[
 {"name": "cosmic", "n": 3, "tags": ["lua", "teal"], "nothing": null,
@@ -387,7 +381,7 @@ end
 local function test_flat_over_a_query_flattens_each_match(tmp: string)
   local ran = run({ "--flat", "$.users[*]", file(tmp) })
   assert(ran.code == 0, ran.err)
-  assert(ran.out == table.concat({ nth(FLAT_DOC, 9), nth(FLAT_DOC, 10), nth(FLAT_DOC, 11), nth(FLAT_DOC, 12) }, "\n") .. "\n", ran.out)
+  assert(ran.out == table.concat({ support.nth(FLAT_DOC, 9), support.nth(FLAT_DOC, 10), support.nth(FLAT_DOC, 11), support.nth(FLAT_DOC, 12) }, "\n") .. "\n", ran.out)
   local none = run({ "--flat", "$..zip", file(tmp) })
   assert(none.code == 1 and none.out == "", none.out)
 end

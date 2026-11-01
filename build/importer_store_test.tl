@@ -23,19 +23,12 @@ local schema = require("build.schema")
 -- build.error_render loads by no `require` a parse records: required here, it
 -- is in this test's closure, which the worker lets it load.
 local _ = require("cosmic.removed")
-local build_paths = require("build.paths")
+local support = require("build.test_support_fixture")
 
 --- The projection, asked directly, and whether the tree is cosmic's own.
 Test.policy{
   grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" } },
 }
-
---- `root`'s build directory ([`build.paths`]), made, with `root` made
---- first where it is not there yet.
-local function build_dir(root: string): string
-  assert(Fs.mkdirs(root))
-  return (assert(build_paths.prepare(root)))
-end
 
 --- Writes every entry of `files` (filename -> source) into a fresh
 --- project directory of its own, named after `case`.
@@ -105,8 +98,8 @@ local function test_project_keeps_uses_of_bundled_symbols()
   assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "importer-test"))
   assert(#result.refused == 0, table.concat(result.refused, "\n"))
-  assert(writer.write_result(handle, build_dir(root) .. "/cosmic.db", result))
-  local shipped = assert(Sqlite.open(build_dir(root) .. "/cosmic.db"))
+  assert(writer.write_result(handle, support.build_dir(root) .. "/cosmic.db", result))
+  local shipped = assert(Sqlite.open(support.build_dir(root) .. "/cosmic.db"))
   local rows = assert(Sqlite.text_rows(shipped,
     "SELECT module, symbol, from_module, line FROM uses ORDER BY module, symbol"))
   assert(#rows == 1, tostring(#rows))
@@ -190,8 +183,8 @@ local function test_a_hint_names_what_the_tree_s_own_projection_documents()
   local root = assert(write_fixture("projection-hint", {
     ["thing.tl"] = "return function(): integer\n  return greeter.count()\nend\n",
   }))
-  assert(build_dir(root))
-  local projection = assert(Sqlite.open(build_dir(root) .. "/cosmic.db", { writable = true }))
+  assert(support.build_dir(root))
+  local projection = assert(Sqlite.open(support.build_dir(root) .. "/cosmic.db", { writable = true }))
   for _, statement in ipairs(schema.create("")) do assert(projection:exec(statement)) end
   assert(projection:exec("INSERT INTO docs (module, symbol, source_symbol, exported, " ..
       "kind, signature, text, file, line) VALUES ('greeter', '', 'greeter', 1, " ..

@@ -13,16 +13,10 @@ local Hash = require("cosmic.hash")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local hash = require("build.hash")
+local support = require("build.test_support_fixture")
 local Test = require("cosmic.test")
 
 Test.policy{ cpu_features = true }
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
 
 local record Ran
   mut code: integer
@@ -219,9 +213,9 @@ local function test_json_is_an_array_of_path_algorithm_digest(tmp: string)
   local rows = rows_of(ran.out)
   assert(#rows == 2)
   assert(rows[1].path == a and rows[1].algorithm == "sha1" and rows[1].digest == abc("sha1"))
-  assert(nth(rows, 2).path == "-" and nth(rows, 2).digest == abc("sha1"))
+  assert(support.nth(rows, 2).path == "-" and support.nth(rows, 2).digest == abc("sha1"))
   local hmac = run({ "--json", "--hmac", "k", a })
-  local row = nth(rows_of(hmac.out), 1)
+  local row = support.nth(rows_of(hmac.out), 1)
   assert(row.algorithm == "hmac-sha256", row.algorithm)
   assert(run({ "--json" }, "").out:find('"digest"', 1, true))
 end

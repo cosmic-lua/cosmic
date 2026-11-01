@@ -8,13 +8,7 @@ local SyntaxLinkText = require("build.syntax_link_text")
 local SyntaxLinks = require("build.syntax_links")
 local Test = require("cosmic.test")
 local link_resolve = require("build.link_resolve")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 Test.policy{ grants = { { path = "core", letters = "r" } } }
 
@@ -154,7 +148,7 @@ local function test_a_source_that_does_not_parse_is_left_as_it_is_and_its_commen
 end
 
 local function test_a_facts_value_read_once_answers_check_and_rewrite()
-  local source = nth(SOURCES, 1)
+  local source = support.nth(SOURCES, 1)
   local chunk = assert(Node.parse(source, "/p/a.tl"))
   local facts = SyntaxLinks.facts(chunk, Node.scope(chunk, "/p/a.tl"), source)
   local resolver = link_resolve.resolver(linking_world())
@@ -186,7 +180,7 @@ local function test_the_comments_of_a_source_say_where_their_text_starts()
   assert(comments[1].line == 1 and comments[1].column == 15 and not comments[1].doc and comments[1].lines[1] == " trail")
   assert(comments[2].line == 2 and comments[2].column == 4 and comments[2].doc)
   local starts = comments[2].starts or {}
-  assert(source:sub(nth(starts, 1), nth(starts, 1) + 3) == " [`x")
+  assert(source:sub(support.nth(starts, 1), support.nth(starts, 1) + 3) == " [`x")
   assert(LinkText.line_starts(source)[3] == #"local x = 1 -- trail\n--- [`x`] doc\n" + 1)
 end
 

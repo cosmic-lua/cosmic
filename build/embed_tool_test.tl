@@ -21,14 +21,7 @@ local invoke = require("build.invoke")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
-local build_paths = require("build.paths")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 --- The number `text` reads as, which the case knows is one.
 local function count_of(text: string): number
@@ -46,13 +39,6 @@ Test.policy{
   grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" },
     { path = "testdata/projects", letters = "r" } },
 }
-
---- `root`'s build directory ([`build.paths`]), made, with `root` made
---- first where it is not there yet.
-local function build_dir(root: string): string
-  assert(Fs.mkdirs(root))
-  return (assert(build_paths.prepare(root)))
-end
 
 local main_source = [[
 local Fs = require("cosmic.fs")
@@ -98,7 +84,7 @@ local function test_build_prints_the_path_of_each_program(tmp: string)
   local built = invoke.run({ "build", "--host" }, { cwd = tmp,
     env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = assert(Env.get("COSMIC_BUILD_HOME")) } })
   assert(built.code == 0, built.stdout .. built.stderr)
-  local bin = build_dir(tmp) .. "/bin"
+  local bin = support.build_dir(tmp) .. "/bin"
   local lines: mut {string} = {}
   for line in built.stdout:gmatch("[^\n]+") do
     lines[#lines + 1] = line
@@ -109,7 +95,7 @@ end
 local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   write_project(tmp)
   assert(embed.tree(tmp, true))
-  local database = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
+  local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
   local path = tmp .. "/carried.db"
   assert(Fs.write(path, database))
 
@@ -139,39 +125,39 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   assert(#decls == 1, "the syscall declaration is in")
   local images = rows_of(path,
     "SELECT count(*) FROM sqlite_schema WHERE name = 'images'")
-  assert(nth(images, 1):text(1) == "0", "portable databases have no images table")
+  assert(support.nth(images, 1):text(1) == "0", "portable databases have no images table")
   local guidance = rows_of(path,
     "SELECT count(*) FROM catalog_fts WHERE catalog_fts MATCH 'coverage'")
-  assert(count_of(nth(guidance, 1):text(1)) > 0, "the error catalog is in, and indexed")
+  assert(count_of(support.nth(guidance, 1):text(1)) > 0, "the error catalog is in, and indexed")
   local text = rows_of(path,
     "SELECT text IS NULL, length(file) > 0, line > 0 FROM catalog " ..
       "WHERE symbol = 'Coverage.start'")
-  assert(#text == 1 and nth(text, 1):text(1) == "1" and
-      nth(text, 1):text(2) == "1" and nth(text, 1):text(3) == "1",
+  assert(#text == 1 and support.nth(text, 1):text(1) == "1" and
+      support.nth(text, 1):text(2) == "1" and support.nth(text, 1):text(3) == "1",
     "a row with no text of its own carries none, nor the doc comment: " ..
       "it carries where it is")
   local about_build = rows_of(path,
     "SELECT count(*) FROM catalog WHERE module LIKE 'build.%'")
-  assert(nth(about_build, 1):text(1) == "0", "guidance about the build is not")
+  assert(support.nth(about_build, 1):text(1) == "0", "guidance about the build is not")
   local databases = Store.databases()
   local own = assert(databases[#databases], "this program has a database")
   local carried = assert(Sqlite.text_rows(own, "SELECT count(*) FROM zoneinfo"))
   local zones = rows_of(path, "SELECT count(*), sum(name = 'America/New_York') FROM zoneinfo")
-  assert(nth(zones, 1):text(1) == nth(carried, 1):text(1) and count_of(nth(zones, 1):text(1)) > 500 and nth(zones, 1):text(2) == "1",
+  assert(support.nth(zones, 1):text(1) == support.nth(carried, 1):text(1) and count_of(support.nth(zones, 1):text(1)) > 500 and support.nth(zones, 1):text(2) == "1",
     "every zone the binary carries is in")
   local assets = assert(Sqlite.text_rows(own,
     "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets"))
   local web = rows_of(path,
     "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets")
-  assert(nth(web, 1):text(1) ~= nil and nth(web, 1):text(1) == nth(assets, 1):text(1) and nth(web, 1):text(1):find("htmx.min.js", 1, true) ~= nil,
+  assert(support.nth(web, 1):text(1) ~= nil and support.nth(web, 1):text(1) == support.nth(assets, 1):text(1) and support.nth(web, 1):text(1):find("htmx.min.js", 1, true) ~= nil,
     "every web asset the binary carries is in")
   local materials = rows_of(path,
     "SELECT (SELECT count(*) FROM components WHERE name = 'lua'), " ..
       "(SELECT count(*) FROM notices WHERE component = 'lua' AND text LIKE '%Lua.org%')")
-  assert(nth(materials, 1):text(1) == "1" and nth(materials, 1):text(2) == "1",
+  assert(support.nth(materials, 1):text(1) == "1" and support.nth(materials, 1):text(2) == "1",
     "the program carries the bill of materials its cores ship under")
   local trusted = rows_of(path, "SELECT count(*) FROM ca_roots")
-  assert(count_of(nth(trusted, 1):text(1)) > 100, "the program carries the CA roots its requests trust")
+  assert(count_of(support.nth(trusted, 1):text(1)) > 100, "the program carries the CA roots its requests trust")
 end
 
 --- A project's tests and examples stay with the project: the program
@@ -205,10 +191,10 @@ local function test_the_carried_database_leaves_tests_and_examples_out(tmp: stri
     "",
   }, "\n")))
   assert(embed.tree(tmp, true))
-  local projected = rows_of(build_dir(tmp) .. "/cosmic.db",
+  local projected = rows_of(support.build_dir(tmp) .. "/cosmic.db",
     "SELECT count(*) FROM modules WHERE path IN ('greet_test', 'greet_example')")
-  assert(nth(projected, 1):text(1) == "2", "the project's own projection keeps both")
-  local database = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
+  assert(support.nth(projected, 1):text(1) == "2", "the project's own projection keeps both")
+  local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
   local path = tmp .. "/carried.db"
   assert(Fs.write(path, database))
 
@@ -218,10 +204,10 @@ local function test_the_carried_database_leaves_tests_and_examples_out(tmp: stri
     "the module is in and its test and example are not")
   local imports = rows_of(path,
     "SELECT count(*) FROM imports WHERE path IN ('greet_test', 'greet_example')")
-  assert(nth(imports, 1):text(1) == "0", "no import edge from a test or example")
+  assert(support.nth(imports, 1):text(1) == "0", "no import edge from a test or example")
   local catalog = rows_of(path,
     "SELECT count(*) FROM catalog WHERE module IN ('greet_test', 'greet_example')")
-  assert(nth(catalog, 1):text(1) == "0", "no catalog row about a test or example")
+  assert(support.nth(catalog, 1):text(1) == "0", "no catalog row about a test or example")
 end
 
 --- A test or example file is only a kind by its name: one the program
@@ -256,7 +242,7 @@ local function test_a_test_or_example_the_program_requires_is_carried(tmp: strin
     "",
   }, "\n")))
   assert(embed.tree(tmp, true))
-  local database = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
+  local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
   local path = tmp .. "/carried.db"
   assert(Fs.write(path, database))
 
@@ -268,7 +254,7 @@ local function test_a_test_or_example_the_program_requires_is_carried(tmp: strin
   local imports = rows_of(path,
     "SELECT count(*) FROM imports WHERE path = 'shared_example' " ..
       "AND requires = 'fixture_test'")
-  assert(nth(imports, 1):text(1) == "1", "the edge between them is carried")
+  assert(support.nth(imports, 1):text(1) == "1", "the edge between them is carried")
 end
 
 --- A `pcall(require, "<name>")` is an edge as a `require` is: the module it probes is carried with its edge, so the
@@ -285,7 +271,7 @@ local function test_a_module_a_program_probes_with_pcall_is_carried(tmp: string)
   }, "\n")))
   assert(Fs.write(tmp .. "/probed.tl", "local record probed\nend\nreturn probed\n"))
   assert(embed.tree(tmp, true))
-  local database = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
+  local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
   local path = tmp .. "/carried.db"
   assert(Fs.write(path, database))
   local modules = rows_of(path, "SELECT path FROM modules WHERE path = 'probed'")
@@ -339,7 +325,7 @@ local function test_a_host_program_is_the_core_itself(tmp: string)
   assert(Fs.write(tmp .. "/cmd/who/main.tl", identity_source))
   local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "who", trouble)
-  local out = build_dir(tmp) .. "/bin/who"
+  local out = support.build_dir(tmp) .. "/bin/who"
   local bytes = assert(Fs.read(out))
   local core = assert(artifact.trusted_core())
   assert(String.starts_with(bytes, core.bytes), "the file starts with the running core")
@@ -368,7 +354,7 @@ end
 ]]))
   local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "echo", trouble)
-  local r = assert(Child.run({ build_dir(tmp) .. "/bin/echo", "--artifact=x", "y" }, {
+  local r = assert(Child.run({ support.build_dir(tmp) .. "/bin/echo", "--artifact=x", "y" }, {
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   assert(r.stdout == "--artifact=x|y\n", tostring(r.stdout))
@@ -381,7 +367,7 @@ local function test_a_host_program_names_no_identity_it_cannot_prove(tmp: string
   assert(Fs.mkdirs(tmp .. "/cmd/who"))
   assert(Fs.write(tmp .. "/cmd/who/main.tl", identity_source))
   assert(embed.tree(tmp, true))
-  local out = build_dir(tmp) .. "/bin/who"
+  local out = support.build_dir(tmp) .. "/bin/who"
   local bytes = assert(Fs.read(out))
   local core = assert(artifact.trusted_core())
   -- A raw entry names the digest twice, as stored and as the core's.
@@ -416,7 +402,7 @@ end
 ]]))
   local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "boom", trouble)
-  local r = run_program(build_dir(tmp) .. "/bin/boom")
+  local r = run_program(support.build_dir(tmp) .. "/bin/boom")
   assert(r.code == 1, "exit " .. tostring(r.code))
   assert(r.stdout == "1970-01-01T05:30:00+05:30[Asia/Kolkata]\n",
     "a program reads the zones it carries: " .. tostring(r.stdout))
@@ -439,7 +425,7 @@ end
 ]]))
   local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "boom", trouble)
-  local r = run_program(build_dir(tmp) .. "/bin/boom")
+  local r = run_program(support.build_dir(tmp) .. "/bin/boom")
   assert(r.code == 1, "exit " .. tostring(r.code))
   -- Its report is one line and nothing beneath it.
   local reported: mut {string} = {}
@@ -472,7 +458,7 @@ return lib
 ]]))
   local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "boom", trouble)
-  local r = run_program(build_dir(tmp) .. "/bin/boom")
+  local r = run_program(support.build_dir(tmp) .. "/bin/boom")
   assert(r.code == 1, "exit " .. tostring(r.code))
   local err = assert(r.stderr)
   assert(err:find('cosmic: at lib.tl:4: error("kaboom from lib")', 1, true),
@@ -484,8 +470,8 @@ end
 local function test_the_embedded_database_is_reproducible(tmp: string)
   write_project(tmp)
   assert(embed.tree(tmp, true))
-  local one = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
-  local two = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
+  local one = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
+  local two = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
   assert(one == two, "repeating the embed changed its database")
 end
 
@@ -508,7 +494,7 @@ end
   local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "refuse", trouble)
   assert(Fs.write(tmp .. "/some.db", "a file, which is all the policy's check asks"))
-  local r = assert(Child.run({ build_dir(tmp) .. "/bin/refuse", tmp .. "/some.db" }, {
+  local r = assert(Child.run({ support.build_dir(tmp) .. "/bin/refuse", tmp .. "/some.db" }, {
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local printed = assert(r.stdout)
@@ -557,7 +543,7 @@ local function test_a_program_serves_the_static_files_it_carries(tmp: string)
   local elsewhere = tmp .. "/elsewhere"
   assert(Fs.mkdirs(elsewhere .. "/static/css"))
   assert(Fs.write(elsewhere .. "/static/css/app.css", "DECOY"))
-  local r = assert(Child.run({ build_dir(tmp) .. "/bin/site" }, {
+  local r = assert(Child.run({ support.build_dir(tmp) .. "/bin/site" }, {
     cwd = elsewhere, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local out = assert(r.stdout)
@@ -573,7 +559,7 @@ local function test_a_project_in_the_new_grammar_becomes_an_executable_with_the_
   assert(Fs.copy_tree("testdata/projects/new_grammar", root))
   local names, trouble = embed.tree(root, true, nil, "new")
   assert(names ~= nil and #names == 1 and names[1] == "tally", trouble)
-  local r = assert(Child.run({ build_dir(root) .. "/bin/tally", "b", "a", "c" }, {
+  local r = assert(Child.run({ support.build_dir(root) .. "/bin/tally", "b", "a", "c" }, {
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.code == 3 and r.stdout == "b,a,c\n", tostring(r.code) .. ": " .. tostring(r.stdout) .. tostring(r.stderr))
 end
@@ -649,7 +635,7 @@ local function test_an_executable_trusts_the_minimal_roots_unless_told(tmp: stri
   assert(Fs.mkdirs(tmp .. "/cmd/roots"))
   assert(Fs.write(tmp .. "/cmd/roots/main.tl", roots_source))
   assert(embed.tree(tmp, true))
-  local out = build_dir(tmp) .. "/bin/roots"
+  local out = support.build_dir(tmp) .. "/bin/roots"
   assert(run_with(out, {}) == "minimal\nrefused\n")
   assert(run_with(out, { COSMIC_CA_ROOTS = "mozilla" }) == "mozilla\ntrusted\n")
   local bad = run_with(out, { COSMIC_CA_ROOTS = "everything" })
