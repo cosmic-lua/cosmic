@@ -3228,7 +3228,6 @@ build/link_resolve.tl any_use 1
 
 build/lsp/session.tl any_use 5
 
-build/perf_validation.tl any_use 7
 
 build/rand.tl any_use 1
 
@@ -6107,7 +6106,6 @@ build/flow_test.tl arms_differ 2
 
 build/json_query_test.tl arms_differ 2
 
-build/perf_validation.tl arms_differ 1
 
 build/shared_compiles.tl arms_differ 1
 
