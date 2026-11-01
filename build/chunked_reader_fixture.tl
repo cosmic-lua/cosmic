@@ -26,7 +26,15 @@ local class Chunked is Stream.Reader
   end
 end
 
+--- Skips `n` bytes as an in-memory Reader does: failing on a negative
+--- count and on running past the end, which leaves the Reader at the end.
 local function skip(self: Chunked, n: integer): boolean, string
+  if n < 0 then return false, "stream: skip of a negative count" end
+  -- Compared this way round, so a huge `n` cannot wrap `at + n`.
+  if n > #self.text + 1 - self.at then
+    self.at = #self.text + 1
+    return false, "stream: skip past the end of the data"
+  end
   self.at = self.at + n
   return true, ""
 end

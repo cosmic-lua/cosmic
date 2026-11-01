@@ -20,7 +20,7 @@ local record Seed
 end
 
 --- A vector of `dims` numbers drawn from `next_number`, packed.
-local function random_vector(next_number: function(): number, dims: integer): string
+local function pack_random_vector(next_number: function(): number, dims: integer): string
   return Vector.pack(VectorFixture.random_vector(next_number, dims))
 end
 
@@ -83,7 +83,7 @@ local function dataset(db: Sqlite.Handle, n: integer, dims: integer, size: integ
   assert(db:exec("CREATE TABLE chunks (seq INTEGER PRIMARY KEY, id INTEGER, tenant TEXT, embedding BLOB)"))
   local vectors: mut {string} = {}
   for i = 1, n do
-    local v = random_vector(next_number, dims)
+    local v = pack_random_vector(next_number, dims)
     vectors[#vectors + 1] = v
     assert(Sqlite.run(db, "INSERT INTO chunks VALUES (?1, ?2, ?3, ?4)",
       { { integer = i }, { integer = 4 + 3 * i }, { text = if i % 3 == 0 then "a" else "b" end }, { blob = v } }))
@@ -158,7 +158,7 @@ local function test_a_search_over_blocks_answers_what_a_corpus_does()
       local corpus = corpus_of(vectors, dims, storage)
       local next_number = stream(99)
       for q = 1, 3 do
-        local query = random_vector(next_number, dims)
+        local query = pack_random_vector(next_number, dims)
         for _, metric in ipairs(metrics) do
           for _, k in ipairs({ 1, 5, 40 }) do
             same_as_corpus(packed_hits(db, query, k, metric), corpus, query, k, metric,
@@ -186,7 +186,7 @@ local function test_f32_blocks_answer_what_the_per_row_scan_does()
   }
   for _, metric in ipairs(metrics) do
     for _ = 1, 4 do
-      local query = random_vector(next_number, dims)
+      local query = pack_random_vector(next_number, dims)
       local per_row = hits_of(db, ("SELECT id, %s AS distance FROM chunks ORDER BY distance NULLS LAST, id LIMIT 20")
           :format(assert(functions[metric])), { { blob = query } })
       local packed = packed_hits(db, query, 20, metric)
@@ -231,7 +231,7 @@ local function test_k_may_outrun_a_block_and_the_table()
   local dims = 4
   local vectors = dataset(db, 25, dims, 4, "f32", 8)
   local corpus = corpus_of(vectors, dims, "f32")
-  local query = random_vector(stream(2), dims)
+  local query = pack_random_vector(stream(2), dims)
   for _, k in ipairs({ 3, 4, 5, 25, 26, 1000, math.maxinteger }) do
     local found = packed_hits(db, query, k, "l2")
     assert(#found == math.min(k, 25), k)
@@ -253,7 +253,7 @@ local function test_a_where_on_the_block_table_filters()
     for i, v in ipairs(vectors) do
       if i % 3 == 0 then mine:add(4 + 3 * i, v) end
     end
-    local query = random_vector(stream(5), dims)
+    local query = pack_random_vector(stream(5), dims)
     for _, metric in ipairs(metrics) do
       same_as_corpus(packed_hits(db, query, 10, metric, "WHERE blocks.tenant = 'a'"), mine, query, 10,
         metric, storage .. " " .. metric)
@@ -491,7 +491,7 @@ local function test_load_blocks_makes_the_corpus_load_makes()
     assert(from_blocks:count() == 200)
     local next_number = stream(8)
     for _ = 1, 4 do
-      local query = random_vector(next_number, dims)
+      local query = pack_random_vector(next_number, dims)
       for _, metric in ipairs(metrics) do
         local want = assert(from_rows:search(query, 12, { metric = metric }))
         local got = assert(from_blocks:search(query, 12, { metric = metric }))
@@ -508,7 +508,7 @@ local function test_load_blocks_makes_the_corpus_load_makes()
     local held = assert(read_block(db, extra)):count()
     more:add_block(extra)
     assert(more:count() == 66 + held)
-    assert(#assert(more:search(random_vector(stream(2), dims), 5, { candidates = 20 })).ids == 5)
+    assert(#assert(more:search(pack_random_vector(stream(2), dims), 5, { candidates = 20 })).ids == 5)
     local _, _ = db:close()
   end
 end
@@ -520,7 +520,7 @@ local function test_load_blocks_converts_between_storages()
   local db = assert(Sqlite.memory())
   local vectors = dataset(db, 90, dims, 9, "f32", 6)
   local next_number = stream(1)
-  local query = random_vector(next_number, dims)
+  local query = pack_random_vector(next_number, dims)
   for _, into in ipairs(storages) do
     local through = assert(Vector.load_blocks(db, "SELECT vectors FROM blocks ORDER BY tenant, n", nil, { storage = into }))
     assert(through.storage == into and through:count() == 90)
@@ -602,7 +602,7 @@ end
 local function test_a_caught_signal_interrupts_a_search_over_blocks()
   local db = assert(Sqlite.memory())
   dataset(db, 50, 6, 10, "int8", 2)
-  local query = random_vector(stream(3), 6)
+  local query = pack_random_vector(stream(3), 6)
   local before = packed_hits(db, query, 3, "l2")
   local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
@@ -635,9 +635,9 @@ end
 --- may be searched.
 local function test_widest_vectors_pack()
   local db = assert(Sqlite.memory())
-  local wide = random_vector(stream(4), 16000)
+  local wide = pack_random_vector(stream(4), 16000)
   assert(db:exec("CREATE TABLE r (id INTEGER, v BLOB)"))
-  assert(Sqlite.run(db, "INSERT INTO r VALUES (1, ?1), (2, ?2)", { { blob = wide }, { blob = random_vector(stream(5), 16000) } }))
+  assert(Sqlite.run(db, "INSERT INTO r VALUES (1, ?1), (2, ?2)", { { blob = wide }, { blob = pack_random_vector(stream(5), 16000) } }))
   for _, storage in ipairs(storages) do
     local rows = assert(Sqlite.rows(db, ("SELECT vector_block(id, v, '%s') FROM r"):format(storage)))
     local block = assert(rows[1]):blob(1)
@@ -739,7 +739,7 @@ local function test_a_corpus_from_blocks_takes_a_first_pass()
   end
   local queries: mut {string} = {}
   for _ = 1, 3 do
-    queries[#queries + 1] = random_vector(next_number, dims)
+    queries[#queries + 1] = pack_random_vector(next_number, dims)
   end
   for _, from in ipairs(storages) do
     assert(db:exec("DROP TABLE IF EXISTS blocks"))
@@ -768,7 +768,7 @@ end
 --- block answers.
 local function test_cosine_rows_that_round_past_one_rank_by_id()
   local dims = 8
-  local query = random_vector(stream(6), dims)
+  local query = pack_random_vector(stream(6), dims)
   local base = Vector.unpack(query)
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE r (seq INTEGER PRIMARY KEY, id INTEGER, v BLOB)"))

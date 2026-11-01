@@ -5,7 +5,7 @@
 local Clock = require("cosmic.clock")
 local Json = require("cosmic.json")
 local Stream = require("cosmic.stream")
-local Chunked = require("build.chunked_reader_fixture")
+local ChunkedReader = require("build.chunked_reader_fixture")
 
 --- A JSON text, and what reading it answers: the tokens it reads as, or the refusal it ends in.
 local record Reading
@@ -23,7 +23,7 @@ end
 --- Every token of `text`, read `size` bytes at a time, as `kind=value@path`,
 --- and the failure that ended them, or "".
 local function tokens(text: string, size?: integer, opts?: Json.ReaderOptions): {string}, string
-  local r = Json.reader(Chunked.chunked(text, size or #text + 1), opts)
+  local r = Json.reader(ChunkedReader.chunked(text, size or #text + 1), opts)
   local out: mut {string} = {}
   while true do
     local t, err = r:next()
@@ -128,7 +128,7 @@ end
 local function test_value_reads_one_whole_value()
   local text = '{"rows": [\n  {"id": 1, "tags": ["a"]},\n  {"id": 2, "tags": []},\n  null\n], "after": 3}'
   for _, size in ipairs({ 1, 4, 1000 }) do
-    local r = Json.reader(Chunked.chunked(text, size), { null_value = Json.null })
+    local r = Json.reader(ChunkedReader.chunked(text, size), { null_value = Json.null })
     assert(assert(r:next()).kind == "object" and assert(r:next()).value == "rows")
     assert(assert(r:next()).kind == "array")
     local ids: mut {integer} = {}
@@ -176,7 +176,7 @@ local function test_value_refusals_are_placed_in_the_stream()
 end
 
 local function test_a_failing_stream_fails_the_reader()
-  local r = Json.reader(Chunked.chunked("[1, 2", 2, "disk on fire"))
+  local r = Json.reader(ChunkedReader.chunked("[1, 2", 2, "disk on fire"))
   local got: mut {string} = {}
   local err: string
   while true do
@@ -234,7 +234,7 @@ local function test_the_offset_stays_where_it_failed()
   local text = '[\r\n{"a":\r\n[1,\r\n2]}\r\n, x]'
   local offsets: mut {integer: boolean} = {}
   for size = 1, 8 do
-    local r = Json.reader(Chunked.chunked(text, size))
+    local r = Json.reader(ChunkedReader.chunked(text, size))
     while r:next() ~= nil do end
     offsets[r:offset()] = true
   end
@@ -243,7 +243,7 @@ local function test_the_offset_stays_where_it_failed()
   assert(count == 1, "one offset however it was split")
   for _, cut in ipairs({ '["\\', '["\\u12', '["ab' }) do
     for size = 1, 3 do
-      local r = Json.reader(Chunked.chunked(cut, size))
+      local r = Json.reader(ChunkedReader.chunked(cut, size))
       while r:next() ~= nil do end
       assert(r:offset() == #cut, ("%q in chunks of %d: %d"):format(cut, size, r:offset()))
     end
@@ -269,7 +269,7 @@ local function test_a_long_token_in_small_chunks_reads_in_linear_time()
   local got, err = tokens('["' .. long .. '", ' .. "0." .. string.rep("7", 100000) .. "]", 1)
   assert(err == "" and #got == 4, err)
   assert(#got[2] == #"string=@/0" + #long)
-  local r = Json.reader(Chunked.chunked('[{"a": "' .. long .. '"}]', 3))
+  local r = Json.reader(ChunkedReader.chunked('[{"a": "' .. long .. '"}]', 3))
   assert(assert(r:next()).kind == "array")
   local value = assert(r:value()) as {string: string}
   assert(value.a == long)
@@ -502,7 +502,7 @@ local function test_json5_line_ends_count_as_decode_counts_them()
     assert(hashed:find("at line 2, column 2 ", 1, true), hashed)
   end
   -- A failure after a value read whole counts the lines it held.
-  local r = Json.reader(Chunked.chunked("[/* a\u{2028} */ {'k': 'v\u{2029}'}, // x\u{2028}\n  x]", 2), JSON5)
+  local r = Json.reader(ChunkedReader.chunked("[/* a\u{2028} */ {'k': 'v\u{2029}'}, // x\u{2028}\n  x]", 2), JSON5)
   assert(assert(r:next()).kind == "array" and r:value() ~= nil)
   local _, err = r:next()
   assert(err == "json: expected a value at line 5, column 3 (pointer \"/0\")", err)
@@ -514,7 +514,7 @@ local function test_value_reads_json5_and_comments()
   local text = "{/* ] */ rows: [ // }\n  {id: 1, 'name': 'a}', tags: [0x1F, .5,],}, # ]\n  {id: 2,},\n ], // \"\n n: 3}"
   local want = assert(Json.decode(text, { json5 = true, hash_comments = true, null_value = Json.null }))
   for _, size in ipairs({ 1, 2, 5, 1000 }) do
-    local r = Json.reader(Chunked.chunked(text, size), { json5 = true, hash_comments = true, null_value = Json.null })
+    local r = Json.reader(ChunkedReader.chunked(text, size), { json5 = true, hash_comments = true, null_value = Json.null })
     assert(assert(r:next()).kind == "object" and assert(r:next()).value == "rows")
     assert(r:peek() == "array")
     local rows = assert(r:value()) as {{string: any}}
@@ -632,7 +632,7 @@ end
 
 local function test_a_nested_value_with_many_comments_reads_in_one_byte_chunks()
   local text = "[" .. string.rep("1, /* c */ ", 10000) .. "2]"
-  local r = Json.reader(Chunked.chunked("[" .. text .. "]", 1), JSON5)
+  local r = Json.reader(ChunkedReader.chunked("[" .. text .. "]", 1), JSON5)
   assert(assert(r:next()).kind == "array" and #(assert(r:value()) as {integer}) == 10001)
 end
 
@@ -654,7 +654,7 @@ local function test_extended_whitespace_where_an_object_key_starts_is_refused()
           ("%q in chunks of %d: %s, decode %s"):format(text, size, got, want))
         -- However often a caller peeks before it reads, it is the same.
         for _, peeks in ipairs({ 1, 2 }) do
-          local r = Json.reader(Chunked.chunked(text, size), JSON5)
+          local r = Json.reader(ChunkedReader.chunked(text, size), JSON5)
           local failure = ""
           while true do
             for _ = 1, peeks do r:peek() end
