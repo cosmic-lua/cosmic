@@ -2701,12 +2701,8 @@ function tree_checks.text_loaders(root: string, files?: {string: string}): {stri
 end
 
 --- The trees whose tests may still return early, by path prefix, and why. A prefix that no test under it returns early
---- from any more is told to go.
--- TODO: once cosmic-lua/cosmic#3498 merges and core/'s [`unix_socket.skipped`] callers use `skip_if_refused`, drop this
--- prefix.
-local early_returns: {string: string} = {
-  ["core/"] = "cosmic-lua/cosmic#3498 converts its tests, and its unix_socket.skipped callers follow",
-}
+--- from any more is told to go. None now: every tree is held to the check.
+local early_returns: {string: string} = {}
 
 --- Each early return of a test in a `*_test.tl` file of the tree under `root` ([`TestReturns`]), as `<file>:<line>:
 --- <test> returns early ...`, and then each prefix of `pending` (by default `early_returns`) that nothing under it needs
