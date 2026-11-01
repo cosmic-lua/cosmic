@@ -56,6 +56,7 @@ local record session_fixture
 
   record CompletionOptions
     triggerCharacters: {string}
+    resolveProvider: boolean?
   end
 
   record Capabilities
