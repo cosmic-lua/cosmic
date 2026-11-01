@@ -21,8 +21,7 @@ local record Local
     mut fs_put: function(fd: integer, bytes: string): boolean, string
     mut fs_read: function(path: string): string?, string
     mut proc_user: function(name: string): Proc.User?, string
-    mut signal_close: function(guard: Signal.Guard): boolean, string
-    signal_guard: function(): Signal.Guard?, string
+    mut signal_guard: function(): Signal.Guard?, string
     mut sys_getuid: function(): integer
     mut sys_mkdtemp: function(template: string): string?, string, integer
     mut sys_pread: function(fd: integer, count: integer, offset: integer): string?, string, integer
@@ -31,18 +30,12 @@ local record Local
   calls: function(): Calls
 end
 
---- [`Signal.Guard:close`], as a function of the guard.
-local function close_guard(guard: Signal.Guard): boolean, string
-  return guard:close()
-end
-
 local current: Local.Calls = {
   child_run = Child.run,
   env_all = Env.all,
   fs_put = Fs.put,
   fs_read = Fs.read,
   proc_user = Proc.user,
-  signal_close = close_guard,
   signal_guard = Signal.guard,
   sys_getuid = sys.getuid,
   sys_mkdtemp = sys.mkdtemp,
@@ -498,9 +491,7 @@ end
 --- @param program this script's own path
 function Local.run(argv: {string}, program: string): integer
   -- Keep cancellation caught until private-index/log cleanup completes.
-  -- TODO: hold the guard in a `<close>` local again, once ci/cosmic-driver.pin names a release that declares
-  -- [`Signal.Guard`] as a class: a `<close>` local must be one.
-  local guard = assert(current.signal_guard())
+  local _guard <close> = assert(current.signal_guard())
   local ended: Ended = { status = 0 }
   local ok, answer = pcall(function()
     ended.status = execute(argv, program)
@@ -510,7 +501,6 @@ function Local.run(argv: {string}, program: string): integer
     say(tostring(answer))
     status = 2
   end
-  local _, _ = current.signal_close(guard)
   return status
 end
 
