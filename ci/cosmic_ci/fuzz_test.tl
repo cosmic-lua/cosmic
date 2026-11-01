@@ -540,24 +540,25 @@ local function test_a_failed_drain_preserves_the_status_it_observed(tmp: string)
   local ended: Flag = { value = false }
   local closed: Flag = { value = false }
   seams.child_start = function(_argv: {string}, _opts?: Child.Options): Seams.Started?, string
-    local fake = seams.started(
-      function(_signal?: integer): boolean, string return true, "" end,
-      function(): Child.TryWait?, string
+    local fake = Seams.started({
+      stop = function(_signal?: integer): boolean, string return true, "" end,
+      try_wait = function(): Child.TryWait?, string
         if ended.value then
           return { finished = true, result = { ok = false, code = 17, signal = nil, timed_out = false,
             stdout = nil, stderr = nil, captured = {}, truncated = false } }, ""
         end
         return { finished = false }, ""
       end,
-      function(options: Child.DrainOptions): Child.DrainResult
+      drain = function(options: Child.DrainOptions): Child.DrainResult
         assert(assert(options.stdout):write("saved-once\n"))
         ended.value = true
         return { kind = "failed", bytes = 11, reason = "injected sink failure" }
       end,
-      function(): boolean, string
+      close = function(): boolean, string
         closed.value = true
         return true, ""
-      end)
+      end,
+    })
     return fake, ""
   end
   local log = assert(Fs.open_write(tmp .. "/log"))
