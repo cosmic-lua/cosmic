@@ -6029,25 +6029,45 @@ local function check_closable(ctx: Ctx, b: Ast.Binding, t: Type)
   if closable(t) then
     return
   end
-  --- The word for the kind of `ty`, "interface" or "record", when it is a named type of that kind that declares `__close`
-  --- (as a field or a method), which a library can mean to be closed and has not made a class; nil for any other type.
-  local function declares_close_without_class(ty: Type): string?
+  --- The type that `closable` refused in `ty` (`ty` itself, or the first member of a union that is none) when it is an
+  --- interface or record with a `__close` function, declared or inherited: what a library can mean to be closed and has not
+  --- made a class. Nil for any other type.
+  local function close_without_class(ty: Type): Type?
+    if ty.tag == "union" then
+      for _, m in ipairs(ty.members) do
+        if not closable(m) then
+          return close_without_class(m)
+        end
+      end
+      return nil
+    end
     if ty.tag ~= "named" or ty.value then
       return nil
     end
-    local kind = ty.decl.kind
-    local body = ty.decl.body
-    if body == nil or (kind ~= "interface" and kind ~= "record") then
-      return nil
-    end
-    for _, m in ipairs(body.methods) do
-      if m.name == "__close" then
-        return kind
-      end
-    end
-    for _, f in ipairs(body.fields) do
-      if f.name == "__close" then
-        return kind
+    local to_visit: mut {Type} = { ty }
+    local seen: mut {Decl: boolean} = {}
+    local next_at = 1
+    while next_at <= #to_visit do
+      local at = to_visit[next_at]
+      next_at = next_at + 1
+      if at ~= nil and at.tag == "named" and seen[at.decl] ~= true then
+        seen[at.decl] = true
+        local body = at.decl.body
+        if body ~= nil and (at.decl.kind == "interface" or at.decl.kind == "record") then
+          for _, m in ipairs(body.methods) do
+            if m.name == "__close" and m.type.tag == "fn" then
+              return ty
+            end
+          end
+          for _, f in ipairs(body.fields) do
+            if f.name == "__close" and f.type.tag == "fn" then
+              return ty
+            end
+          end
+          for _, super in ipairs(body.supers) do
+            to_visit[#to_visit + 1] = super
+          end
+        end
       end
     end
     return nil
@@ -6082,18 +6102,24 @@ local function check_closable(ctx: Ctx, b: Ast.Binding, t: Type)
       end
       return what .. tq(ctx, held) .. " declares no `__close` method"
     end
-    local declared = declares_close_without_class(held)
-    if declared ~= nil then
-      return tq(ctx, held) .. " is not a class: it is " .. (if declared == "interface" then "an " else "a " end) .. declared ..
-        " that declares `__close`; only a class's `__close` method is known to be what Lua calls"
+    local without = close_without_class(held)
+    if without ~= nil and without.tag == "named" then
+      return tq(ctx, held) .. " is not a class: it is " .. (if without.decl.kind == "interface" then "an " else "a " end) ..
+        without.decl.kind .. " with a `__close`, and a `<close>` local needs a class or a userdata record"
     end
     return tq(ctx, held) .. " is not a class or a userdata record"
   end
+  local without = close_without_class(t)
   report(ctx, "close_not_closable", b, quoted(b.name) .. " is a `<close>` local of " .. tq(ctx, t) .. ", and " ..
       because(t) .. ": Lua would raise at the declaration, since the value has no `__close` to call at the end of the block",
-    (if declares_close_without_class(t) ~= nil then
-      "the library that declares " .. tq(ctx, t) .. " must declare it as a class with `function __close(self)`; until it does, " ..
-        "release the value by hand (its close method) and make " .. quoted(b.name) .. " an ordinary local"
+    (if without ~= nil and without.tag == "named" then
+      (if without.decl.module:gsub("@.*$", "") == ctx.input.module then
+        "declare " .. tq(ctx, without) .. " as a class with `function __close(self)`, or call its close function by hand and " ..
+          "make " .. quoted(b.name) .. " an ordinary local"
+        else
+        "the library that declares " .. tq(ctx, without) .. " must declare it as a class with `function __close(self)`; until " ..
+          "it does, call its close function by hand and make " .. quoted(b.name) .. " an ordinary local"
+        end)
       else
       "declare `function __close(self)` as a method on the class or userdata record " .. quoted(b.name) .. " holds (or hold " ..
         "nil), or release the value by hand and make " .. quoted(b.name) .. " an ordinary local"
