@@ -4,13 +4,6 @@ local Fixture = require("cosmic_ci.fixture")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 
--- Copies a whole directory tree to `to`, which must not exist yet,
--- matching identity_test.tl's own [`copy_tree`].
-local function copy_tree(label: string, from: string, to: string)
-  local copied, trouble = Fs.copy_tree(from, to)
-  assert(copied, label .. ": " .. trouble)
-end
-
 local function require_file(path: string)
   assert(assert(Fs.stat(path)).kind == "file",
     "portable runtime build: prebuilt input is missing: " .. path)
@@ -136,7 +129,7 @@ function RuntimeSetup.build(root: string, prebuilt: string, writer: string,
   end
 
   Fixture.mkdir(out .. "/hooked-build")
-  copy_tree("copy-hooked-cores", hooked_cores, out .. "/hooked-build/core")
+  Fixture.copy_tree("copy-hooked-cores", hooked_cores, out .. "/hooked-build/core")
   Fixture.copy(targets_path, out .. "/hooked-build/targets.tsv")
   Fixture.mkdir(out .. "/sanitized-build/sanitized")
   Fixture.copy(sanitized_core, out .. "/sanitized-build/sanitized/cosmic-core")

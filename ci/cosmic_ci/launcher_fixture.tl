@@ -5,6 +5,7 @@ local Clock = require("cosmic.clock")
 local Fixture = require("cosmic_ci.fixture")
 local Fs = require("cosmic.fs")
 local Maps = require("cosmic_ci.maps")
+local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
 local child_timeout_ns <const> = Clock.seconds(30)
@@ -82,6 +83,23 @@ end
 function LauncherFixture.outcome_ok(outcome: Fixture.Outcome, label: string)
   assert(outcome.result.ok, label .. " failed; stdout=" .. outcome.out ..
       "; stderr=" .. outcome.err)
+end
+
+--- Raises if `cache` holds an entry whose name begins with `stem`, a
+--- private one the launcher should have removed.
+function LauncherFixture.no_private_entries(cache: string, stem: string)
+  for _, name in ipairs((assert(Fs.list(cache)))) do
+    assert(not String.starts_with(name, stem),
+      "cache retained private entry: " .. name)
+  end
+end
+
+--- The environment of `cache` with the launcher's test hook, and the
+--- FIFOs it signals ready on and waits to go on.
+function LauncherFixture.hook_environment(cache: string, hook: string, ready: string,
+                                          go: string): {string:string}
+  return LauncherFixture.environment(cache, { COSMIC_PORTABLE_TEST_HOOK = hook,
+    COSMIC_PORTABLE_TEST_READY = ready, COSMIC_PORTABLE_TEST_GO = go })
 end
 
 --- Runs the launcher (or `program`) from the case's directory.

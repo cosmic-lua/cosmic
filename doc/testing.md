@@ -299,6 +299,16 @@ Where a fact of the host alone decides, use `requires`, not a skip.
 Where no name stands for it (a native start with nothing to relaunch,
 a test of what only another platform does), skip.
 
+`bin/cosmic fix --check .` fails a test that returns early from its own
+body: an `if <condition> then return end` or a bare `return` standing
+directly in a top-level `local function test_*`, unless the `return`
+follows a `Test.skip(...)` call ([`build.test_returns`]). A `return` in
+a branch of its own, a loop, a callback or a helper is not read, so it is
+no licence: a branch that returns having checked nothing is a skip too.
+A helper that skips for several tests ends the test itself and returns
+nothing for the test to guard (`unix_socket.skip_if_refused(dir)`, a
+local `<thing>_or_skip()`), because after [`Test.skip`] nothing runs.
+
 ## assertions
 
 A test that passes without calling `assert` shows only that it did not
@@ -564,6 +574,7 @@ Other rules:
 [`build.rebuild`]: ../build/rebuild.tl
 [`build.sandboxed_verdicts_test`]: ../build/sandboxed_verdicts_test.tl
 [`build.test_child`]: ../build/test_child.tl
+[`build.test_returns`]: ../build/test_returns.tl
 [`build.test_sandbox_probe`]: ../build/test_sandbox_probe.tl
 [`build.test_sandbox`]: ../build/test_sandbox.tl
 [`build.test_worker`]: ../build/test_worker.tl

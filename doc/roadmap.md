@@ -411,9 +411,6 @@ four-producer provenance join.
   test, documentation, portability, and maintenance evidence promotes a module
   from one to the next, and whether a second-tier module that shipped ahead of
   the core tier (`http`, `tar`, `zip`, `stream`) is held to the same bar.
-- **decision records.** Adopt a small durable format before resolved questions
-  disappear from this file. Record context, the decision, rejected alternatives,
-  and consequences; amend a record when the decision changes.
 
 [`Archive.create`]: ../cosmic/archive.tl
 [`bin/vendor`]: ../bin/vendor
