@@ -77,7 +77,7 @@ end
 --- is made and then refused its connection: a unix connect to a path that is
 --- not there says so only with "unix" promised.
 local function test_a_pledge_without_unix_refuses_a_unix_connect(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local probe = probe_in(tmp)
   local function connected(promises: {string}): string
     local output = create(tmp .. "/connect")
