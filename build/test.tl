@@ -151,7 +151,8 @@ local worker = require("build.test_worker")
 local test_key = require("build.test_key")
 local type State = require("build.test_state")
 
-local log = require("build.logger").log
+local logger = require("build.logger")
+local log = logger.log
 local bind = require("build.bind")
 local verb_spec = require("build.verb_spec")
 
@@ -861,6 +862,31 @@ local function take_violations(rec: Recording, id: string, reported: worker.Repo
   rec.violations_dropped = rec.violations_dropped + (reported.dropped or 0)
 end
 
+--- How long a test runs before its end is said on a line of its own.
+local slow_ns <const> = Clock.minutes(5)
+--- How many of the longest-running tests a progress line names.
+local named <const> = 3
+
+--- What a progress line adds to its count: how many tests have failed
+--- (their reports come at the end of the run), and the longest-running
+--- of `running`, each with how long it has run, so that a run that stops
+--- moving names the tests that hold it.
+local function running_detail(rec: Recording, running: {Job}): string
+  local under_way: mut {progress.Running} = {}
+  for i, job in ipairs(running) do
+    under_way[i] = { name = job.id, started_ns = assert(job.started_ns) }
+  end
+  local parts: mut {string} = {}
+  if #rec.failures > 0 then
+    parts[1] = tostring(#rec.failures) .. " failed so far"
+  end
+  local longest = progress.longest(under_way, Clock.monotonic_ns(), named)
+  if longest ~= "" then
+    parts[#parts + 1] = "longest running: " .. longest
+  end
+  return table.concat(parts, "; ")
+end
+
 --- Records one finished job: the verdict its worker reported, or a
 --- failure that says why there is no report to go by
 --- ([`test_key.judge`], which also says whether it checked, and
@@ -870,6 +896,11 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
   rec.tally.ran = rec.tally.ran + 1
   local id = job.id
   local wall_ns = Clock.monotonic_ns() - assert(job.started_ns)
+  if wall_ns >= slow_ns then
+    -- Said when it ends, so that a run cut short still names the tests
+    -- that took the time it spent.
+    local _, _ = logger.summary("test", "slow: " .. id .. " took " .. progress.elapsed(wall_ns))
+  end
   local judged = test_key.judge(rec, job, result, trouble, refused, unavailable)
   local reported, passed, message = judged.report, judged.passed, judged.message
   local skipped, unchecked = judged.skipped, judged.unchecked
@@ -886,6 +917,15 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
     rec.unchecked[#rec.unchecked + 1] = id
   end
   local deliberate = judged.deliberate
+  local printed = result and result.stdout
+  if passed and printed ~= nil and printed ~= "" then
+    local prefix = test_report.stopped_prefix()
+    for line in printed:gmatch("[^\n]+") do
+      if line:sub(1, #prefix) == prefix then
+        table.insert(rec.stopped, line:sub(#prefix + 1))
+      end
+    end
+  end
   -- A test that said why it did not check keeps its verdict: its pass is a
   -- function of its key, and it is counted apart.
   if passed and deliberate ~= "" then
@@ -1093,7 +1133,9 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
       sweep(rec, running)
     end
     running = still
-    phase.tick(next_job - 1 - #running, #jobs)
+    phase.tick(next_job - 1 - #running, #jobs, function(): string
+      return running_detail(rec, running)
+    end)
   end
   if cancelled == 0 and next_job <= #jobs then rec.not_run = #jobs - next_job + 1 end
   for _, job in ipairs(running) do
@@ -1194,6 +1236,9 @@ local function say_skips(rec: Recording)
   local deliberate: mut {string} = {}
   for i, reason in ipairs(rec.deliberate) do deliberate[i] = reason end
   for _, line in ipairs(test_report.deliberate(deliberate)) do log:say(line) end
+  local stopped: mut {string} = {}
+  for i, entry in ipairs(rec.stopped) do stopped[i] = entry end
+  for _, line in ipairs(test_report.stopped(stopped)) do log:say(line) end
   local nas: mut {string} = {}
   for i, na in ipairs(rec.nas) do nas[i] = na end
   for _, line in ipairs(test_report.nas(nas)) do log:say(line) end
@@ -1809,7 +1854,7 @@ local function make_recording(ctx: Run)
     checks = ctx.checks == true, files = {}, violations = {}, violation_order = {}, violation_tests = {},
     violations_dropped = 0,
     failures = failures, errors = errors, outputs = {}, reruns = {},
-    failed = {}, skips = {}, unchecked = {}, deliberate = {}, held = ctx.held, nas = {}, unmet = {}, answered = {},
+    failed = {}, skips = {}, unchecked = {}, deliberate = {}, stopped = {}, held = ctx.held, nas = {}, unmet = {}, answered = {},
     hits = hits, by_test = by_test, unowned = unowned, tally = tally, not_run = 0,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
     consult_shared = ctx.consult,

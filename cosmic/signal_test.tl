@@ -25,6 +25,19 @@ local function test_guards_nest_and_each_closes_once()
   assert(again:close())
 end
 
+--- The form the module's documentation gives for holding a guard, a `<close>` local of `assert(Signal.guard())`,
+--- is one the checker accepts, and leaving its block closes the guard: the next guard opened is the outermost again.
+local function test_a_guard_held_in_a_close_local_closes_at_the_end_of_its_block()
+  local held: mut {Signal.Guard} = {}
+  do
+    local g <close> = assert(Signal.guard())
+    assert(g:cancelled() == 0)
+    held[#held + 1] = g
+  end
+  assert(assert(held[1]).state.closed, "the guard was left open at the end of its block")
+  assert(assert(held[1]):close())
+end
+
 --- What an inner guard sees and takes, the outer still sees and takes;
 --- the inner's close, with the outer open, delivers nothing; and a
 --- guard opened after the signal sees none of it. The signals are this

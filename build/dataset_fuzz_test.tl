@@ -4,6 +4,7 @@
 --- (dots, quotes, case twins, the empty key, `_json` itself).
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
+local Csv = require("cosmic.csv")
 local dataset = require("build.dataset")
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
@@ -249,15 +250,6 @@ end
 local CELLS <const> = { "1", "-0", "007", "2.5", "-0.0", "1e999", "1e-400", "12345678901234567890", "",
   "x", 'a"b', "a,b", "a\tb", "a\nb", "a\r\nb", " ", "\xff", "\xc3\xa9", "\0", "rowid", "_json", "A", "a" }
 
---- One field as CSV writes it: quoted when it holds the delimiter, a
---- quote or a line break.
-local function written(field: string, delimiter: string): string
-  if field:find(delimiter, 1, true) or field:find('[\r\n"]') then
-    return '"' .. field:gsub('"', '""') .. '"'
-  end
-  return field
-end
-
 --- A csv or tsv of a few rows of those cells, its header among them too;
 --- now and then mutated, so a fault is read as well as a table.
 local function gen_delimited(src: Fuzz.Source): string
@@ -270,7 +262,7 @@ local function gen_delimited(src: Fuzz.Source): string
     local fields: mut {string} = {}
     for column = 1, width do
       local cell = if row == 0 and src:int(0, 2) == 0 then "h" .. tostring(column) else Fuzz.pick(src, CELLS) end
-      fields[column] = written(cell, delimiter)
+      fields[column] = Csv.encode_field(cell, { delimiter = delimiter })
     end
     lines[#lines + 1] = table.concat(fields, delimiter)
   end
