@@ -3460,7 +3460,7 @@ lang/literals_test.tl any_use 5
 
 lang/relation_fuzz_test.tl any_use 2
 
-test/sqlite_parameter_test.tl any_use 8
+test/sqlite_parameter_test.tl any_use 7
 
 test/sqlite_result_test.tl any_use 6
 
@@ -5996,7 +5996,7 @@ lang/literals_test.tl literal_needs_type 1
 
 lang/stdlib_test.tl literal_needs_type 2
 
-test/sqlite_parameter_test.tl literal_needs_type 10
+test/sqlite_parameter_test.tl literal_needs_type 6
 
 test/sqlite_result_test.tl literal_needs_type 4
 
