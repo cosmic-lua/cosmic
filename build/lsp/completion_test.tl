@@ -1,0 +1,389 @@
+--- Completion in `cosmic lsp` ([`build.lsp.completion`]): the names in scope, the members after a `.` or `:`, the modules
+--- inside `require("`, a line that does not parse, and the positions counted in the units the session negotiated.
+
+local Fs = require("cosmic.fs")
+local Shape = require("cosmic.shape")
+local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
+local docs_fixture = require("build.docs_fixture")
+local session_fixture = require("build.lsp.session_fixture")
+
+Test.policy{}
+
+local type Ran = session_fixture.Ran
+local answer, at, change = session_fixture.answer, session_fixture.at, session_fixture.change
+local initialize, initialized = session_fixture.initialize, session_fixture.initialized
+local open, served = session_fixture.open, session_fixture.served
+
+local record Markup
+  value: string
+end
+
+local record Spot
+  line: integer
+  character: integer
+end
+
+local record Edit
+  range: {string: Spot}
+  newText: string
+end
+
+local record Item
+  label: string
+  kind: integer
+  detail: string?
+  documentation: Markup?
+  sortText: string?
+  textEdit: Edit
+end
+
+local record Listed
+  isIncomplete: boolean
+  items: {Item}
+end
+
+local record CompletionSent
+  result: Listed?
+end
+
+local COMPLETION_SENT <const>: Shape.Typed<CompletionSent> = Shape.record_of("CompletionSent")
+
+local METHOD <const>, FUNCTION <const>, FIELD <const>, VARIABLE <const>, MODULE <const> = 2, 3, 5, 6, 9
+
+--- The completion `id` asks, at the line and character of the document `name` below `root`.
+local function ask(id: integer, root: string, name: string, line: integer, character: integer): string
+  return at(id, "textDocument/completion", root, name, line, character)
+end
+
+--- The items `ran` answered the completion request `id` with, by label; the test fails on a `null`.
+local function items(ran: Ran, id: integer): {string: Item}
+  local sent = assert(COMPLETION_SENT:decode_into(answer(ran, id)))
+  local listed = assert(sent.result, "no list: " .. answer(ran, id) .. ran.err)
+  local out: mut {string: Item} = {}
+  for _, item in ipairs(listed.items) do out[item.label] = item end
+  return out
+end
+
+--- The labels of `found` that `labels` lists, in one string, to compare.
+local function has(found: {string: Item}, labels: {string}): string
+  local out: mut {string} = {}
+  for _, label in ipairs(labels) do
+    if found[label] ~= nil then out[#out + 1] = label end
+  end
+  return table.concat(out, ",")
+end
+
+--- The text `found`'s item `label` is ordered by.
+local function sort_of(found: {string: Item}, label: string): string
+  return (assert(assert(found[label], label).sortText, label))
+end
+
+--- The number of items in `found`.
+local function count(found: {string: Item}): integer
+  local n = 0
+  for _ in pairs(found) do n = n + 1 end
+  return n
+end
+
+--- A docs database that documents [`cosmic.fs`] and its `read`.
+local function fs_docs(root: string): Sqlite.Handle
+  return docs_fixture.database(root, {
+    ["cosmic/fs.tl"] = "--- Files.\nlocal Fs = {}\n--- Reads the whole of a file.\n" ..
+      "function Fs.read(path: string): string return path end\nreturn Fs\n",
+  })
+end
+
+local function test_completion_is_advertised_with_its_trigger_characters()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root) })
+  local options = initialized(answer(ran, 1)).capabilities.completionProvider
+  assert(table.concat(options.triggerCharacters, " ") == ". :", table.concat(options.triggerCharacters, " "))
+end
+
+local SCOPE <const> = 'local outer = 1\nlocal function area(width: integer): integer\n  local inner = width\n' ..
+  '  return \nend\nlocal later = 2\nreturn { area, later }\n'
+
+local function test_the_names_in_scope_at_the_cursor_are_offered_and_the_others_are_not()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "main.tl", SCOPE),
+    -- After `return ` in the body, a prefix, a prefix of a global, and a line before the function.
+    ask(2, root, "main.tl", 3, 9),
+    ask(3, root, "main.tl", 3, 9),
+    ask(4, root, "main.tl", 0, 0),
+  })
+  local inside = items(ran, 2)
+  assert(has(inside, { "outer", "area", "width", "inner" }) == "outer,area,width,inner", ran.err)
+  assert(inside["later"] == nil, "a local declared after the cursor")
+  assert(assert(inside["width"]).kind == VARIABLE and assert(inside["area"]).kind == FUNCTION)
+  assert(assert(inside["width"]).detail == "integer", tostring(assert(inside["width"]).detail))
+  -- A global of the standard library comes after the names of the document, and a nearer scope before a farther.
+  assert(sort_of(inside, "inner") < sort_of(inside, "tostring"))
+  assert(sort_of(inside, "width") < sort_of(inside, "outer"))
+  local outside = items(ran, 4)
+  assert(outside["width"] == nil and outside["inner"] == nil, "a name of a function offered outside it")
+  assert(ran.ran["main.tl"] == 1, tostring(ran.ran["main.tl"]))
+end
+
+local function test_a_typed_prefix_narrows_the_names_and_the_edit_replaces_it()
+  local root = session_fixture.project()
+  local text = 'local counter = 1\nlocal cursor = 2\nlocal other = 3\nlocal _ = cou\nreturn { counter, cursor, other }\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text), ask(2, root, "main.tl", 3, 13) })
+  local found = items(ran, 2)
+  assert(found["counter"] ~= nil and found["cursor"] == nil and found["other"] == nil, tostring(count(found)))
+  local edit = assert(found["counter"]).textEdit
+  assert(edit.newText == "counter")
+  local from, to = assert(edit.range["start"]), assert(edit.range["end"])
+  assert(from.line == 3 and from.character == 10 and to.line == 3 and to.character == 13)
+end
+
+local POINT <const> = 'local record Point\n  x: integer\n  y: integer\nend\n\nfunction Point.origin(): Point\n' ..
+  '  return { x = 0, y = 0 }\nend\n\nlocal p: Point = Point.origin()\n'
+
+local function test_the_members_of_a_record_are_offered_while_the_line_does_not_parse()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "main.tl", POINT .. 'local _ = p\n'),
+    -- `p.` is no statement: the text does not parse.
+    change(root, "main.tl", POINT .. 'local _ = p.\n'),
+    ask(2, root, "main.tl", 10, 12),
+    change(root, "main.tl", POINT .. 'local _ = Point.\n'),
+    ask(3, root, "main.tl", 10, 16),
+    change(root, "main.tl", POINT .. 'local _ = p.y\n'),
+    ask(4, root, "main.tl", 10, 13),
+  })
+  local instance = items(ran, 2)
+  assert(has(instance, { "x", "y", "origin" }) == "x,y", has(instance, { "x", "y", "origin" }))
+  assert(assert(instance["x"]).kind == FIELD and assert(instance["x"]).detail == "integer")
+  local edit = assert(instance["x"]).textEdit
+  assert(assert(edit.range["start"]).character == 12 and assert(edit.range["end"]).character == 12)
+  -- The table of a record's functions has the function a statement gave it.
+  local value = items(ran, 3)
+  assert(value["origin"] ~= nil and assert(value["origin"]).kind == FUNCTION, tostring(count(value)))
+  -- A word typed after the `.` narrows what is offered, and its edit starts after the `.`.
+  local narrowed = items(ran, 4)
+  assert(has(narrowed, { "x", "y" }) == "y" and count(narrowed) == 1, tostring(count(narrowed)))
+  -- Typing never checked again for completion: one check a text.
+  assert(ran.ran["main.tl"] == 4, tostring(ran.ran["main.tl"]))
+  assert(ran.tally.derived == 0, tostring(ran.tally.derived))
+end
+
+local function test_a_document_opened_as_it_does_not_parse_offers_nothing_to_complete_from()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "main.tl", 'local _ = p.\n'),
+    ask(2, root, "main.tl", 0, 12),
+  })
+  assert(count(items(ran, 2)) == 0, ran.err)
+end
+
+local COUNTER <const> = 'local class Counter\n  n: integer\n  function bump(self): integer\n    return self.n + 1\n  end\nend\n' ..
+  'local c: Counter = { n = 1 }\n'
+
+local function test_a_colon_offers_the_methods_and_a_dot_the_fields_and_the_methods_of_a_class()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "main.tl", COUNTER .. 'return c\n'),
+    change(root, "main.tl", COUNTER .. 'local _ = c:\nreturn c\n'),
+    ask(2, root, "main.tl", 7, 12),
+    change(root, "main.tl", COUNTER .. 'local _ = c.\nreturn c\n'),
+    ask(3, root, "main.tl", 7, 12),
+  })
+  local methods = items(ran, 2)
+  assert(has(methods, { "bump", "n" }) == "bump" and assert(methods["bump"]).kind == METHOD, has(methods, { "bump", "n" }))
+  local members = items(ran, 3)
+  assert(has(members, { "bump", "n" }) == "bump,n", has(members, { "bump", "n" }))
+end
+
+local function test_the_members_of_an_interface_include_those_of_the_interfaces_it_lists()
+  local root = session_fixture.project()
+  local text = 'local interface Named\n  name: string\nend\nlocal interface Aged is Named\n  age: integer\nend\n' ..
+    'local function f(a: Aged): string\n  return a.name\nend\nreturn f\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    change(root, "main.tl", 'local interface Named\n  name: string\nend\nlocal interface Aged is Named\n  age: integer\nend\n' ..
+        'local function f(a: Aged): string\n  return a.\nend\nreturn f\n'),
+    ask(2, root, "main.tl", 7, 11),
+  })
+  assert(has(items(ran, 2), { "name", "age" }) == "name,age", answer(ran, 2) .. ran.err)
+end
+
+local function test_an_enum_offers_its_values()
+  local root = session_fixture.project()
+  local text = 'local enum Color\n  "red"\n  "green"\nend\nlocal _ = Color\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    change(root, "main.tl", 'local enum Color\n  "red"\n  "green"\nend\nlocal _ = Color.\n'),
+    ask(2, root, "main.tl", 4, 16),
+  })
+  assert(has(items(ran, 2), { "red", "green" }) == "red,green", answer(ran, 2) .. ran.err)
+end
+
+local function test_the_members_of_a_required_module_are_the_modules_exports()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", 'local record point\n  x: integer\nend\n\n' ..
+      'function point.origin(): point\n  return { x = 0 }\nend\n\nfunction point.shifted(by: integer): point\n  return { x = by }\nend\n\n' ..
+      'return point\n'))
+  local text = 'local point = require("lib.point")\nlocal _ = point\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    change(root, "main.tl", 'local point = require("lib.point")\nlocal _ = point.\n'),
+    ask(2, root, "main.tl", 1, 16),
+  })
+  local found = items(ran, 2)
+  assert(has(found, { "origin", "shifted" }) == "origin,shifted", has(found, { "origin", "shifted" }) .. ran.err)
+  assert(assert(found["shifted"]).detail ~= nil)
+end
+
+local function test_a_member_of_a_module_the_docs_know_carries_its_signature_and_text()
+  local root = session_fixture.project()
+  local text = 'local Fs = require("cosmic.fs")\nlocal _ = Fs\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    change(root, "main.tl", 'local Fs = require("cosmic.fs")\nlocal _ = Fs.rea\n'),
+    ask(2, root, "main.tl", 1, 16),
+  }, { fs_docs(root) })
+  local found = items(ran, 2)
+  local read = assert(found["read"], ran.err)
+  local documentation = assert(read.documentation, "no documentation")
+  assert(documentation.value:find("Reads the whole of a file.", 1, true) ~= nil, documentation.value)
+  assert(assert(read.detail):find("read", 1, true) ~= nil, tostring(read.detail))
+end
+
+local function test_the_members_of_a_member_are_read_through_the_chain()
+  local root = session_fixture.project()
+  local text = 'local record Inner\n  depth: integer\nend\nlocal record Outer\n  inner: Inner\nend\n' ..
+    'local o: Outer = { inner = { depth = 1 } }\nlocal _ = o\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    change(root, "main.tl", (text:gsub("local _ = o\n$", "local _ = o.inner.\n"))),
+    ask(2, root, "main.tl", 7, 18),
+  })
+  assert(has(items(ran, 2), { "depth", "inner" }) == "depth", ran.err)
+end
+
+local function test_the_modules_a_require_can_name_come_from_the_working_database_and_the_docs()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", "return {}\n"))
+  assert(Fs.write(root .. "/lib/line.tl", "return {}\n"))
+  local ran = served(root, { initialize(root), open(root, "main.tl", 'local a = require("li\n'),
+    ask(2, root, "main.tl", 0, 21),
+    ask(3, root, "main.tl", 0, 13),
+  }, { fs_docs(root) })
+  local project = items(ran, 2)
+  assert(has(project, { "lib.line", "lib.point", "cosmic.fs" }) == "lib.line,lib.point", ran.err)
+  assert(assert(project["lib.line"]).kind == MODULE)
+  local edit = assert(project["lib.line"]).textEdit
+  assert(edit.newText == "lib.line" and assert(edit.range["start"]).character == 19 and
+      assert(edit.range["end"]).character == 21, tostring(assert(edit.range["start"]).character))
+  -- Before the quote, `require` is no string to complete.
+  assert(items(ran, 3)["lib.line"] == nil)
+  assert(ran.tally.derived == 0, tostring(ran.tally.derived))
+end
+
+local function test_a_module_of_the_docs_is_offered_inside_a_require()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "main.tl", 'local a = require("cosmic.f\n'),
+    ask(2, root, "main.tl", 0, 27),
+  }, { fs_docs(root) })
+  assert(has(items(ran, 2), { "cosmic.fs" }) == "cosmic.fs", ran.err)
+end
+
+local function test_nothing_is_offered_in_a_comment_or_a_string()
+  local root = session_fixture.project()
+  local text = 'local p = { x = 1 }\n-- p.\nlocal s = "p.\nlocal t = p\nreturn { p, s, t }\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    ask(2, root, "main.tl", 1, 5),
+    ask(3, root, "main.tl", 2, 14),
+    ask(4, root, "main.tl", 40, 0),
+    ask(5, root, "other.tl", 0, 0),
+  })
+  assert(count(items(ran, 2)) == 0 and count(items(ran, 3)) == 0)
+  assert(answer(ran, 4):find('"result":null', 1, true) ~= nil, answer(ran, 4))
+  assert(answer(ran, 5):find('"result":null', 1, true) ~= nil, answer(ran, 5))
+end
+
+local function test_a_receiver_that_is_a_call_is_not_taken_for_its_last_name()
+  local root = session_fixture.project()
+  local text = POINT .. 'local _ = p\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    change(root, "main.tl", POINT .. 'local _ = Point.origin().\n'),
+    ask(2, root, "main.tl", 10, 26),
+  })
+  assert(count(items(ran, 2)) == 0, ran.err)
+end
+
+local function test_positions_count_utf16_units_or_bytes_as_negotiated()
+  local root = session_fixture.project()
+  -- "😀" is four bytes and two UTF-16 units.
+  local text = 'local count = 1\nlocal _ = "😀" .. cou\nreturn count\n'
+  local wide = served(root, { initialize(root), open(root, "main.tl", text), ask(2, root, "main.tl", 1, 21) })
+  local edit = assert(items(wide, 2)["count"], wide.err).textEdit
+  assert(assert(edit.range["start"]).character == 18 and assert(edit.range["end"]).character == 21,
+    tostring(assert(edit.range["start"]).character))
+  local narrow = served(root, { initialize(root, '{"general":{"positionEncodings":["utf-8"]}}'),
+    open(root, "main.tl", text), ask(2, root, "main.tl", 1, 23) })
+  local bytes = assert(items(narrow, 2)["count"], narrow.err).textEdit
+  assert(assert(bytes.range["start"]).character == 20 and assert(bytes.range["end"]).character == 23,
+    tostring(assert(bytes.range["start"]).character))
+end
+
+local function test_a_name_is_found_after_a_wide_character_on_a_line_that_does_not_parse()
+  local root = session_fixture.project()
+  local text = POINT .. 'local _ = p\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    change(root, "main.tl", POINT .. 'local s = "😀" .. p.\n'),
+    ask(2, root, "main.tl", 10, 21),
+  })
+  assert(has(items(ran, 2), { "x", "y" }) == "x,y", ran.err)
+end
+
+local function test_completion_reads_the_kept_check_and_checks_a_text_once()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "main.tl", SCOPE),
+    ask(2, root, "main.tl", 3, 9), ask(3, root, "main.tl", 3, 9), ask(4, root, "main.tl", 0, 0),
+  })
+  assert(count(items(ran, 2)) == count(items(ran, 3)))
+  assert(ran.ran["main.tl"] == 1, tostring(ran.ran["main.tl"]))
+  assert(ran.tally.derived == 0 and ran.tally.stages == 1,
+    tostring(ran.tally.derived) .. "," .. tostring(ran.tally.stages))
+end
+
+local function test_the_members_of_a_module_open_and_unsaved_are_the_text_the_person_has()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  local saved = 'local record point\n  x: integer\nend\nfunction point.origin(): integer\n  return 0\nend\nreturn point\n'
+  assert(Fs.write(root .. "/lib/point.tl", saved))
+  local edited = 'local record point\n  x: integer\nend\nfunction point.origin(): integer\n  return 0\nend\n' ..
+    'function point.fresh(): integer\n  return 1\nend\nreturn point\n'
+  local text = 'local point = require("lib.point")\nlocal _ = point\n'
+  local ran = served(root, { initialize(root), open(root, "lib/point.tl", edited), open(root, "main.tl", text),
+    change(root, "main.tl", 'local point = require("lib.point")\nlocal _ = point.\n'),
+    ask(2, root, "main.tl", 1, 16),
+  })
+  assert(has(items(ran, 2), { "origin", "fresh" }) == "origin,fresh", answer(ran, 2) .. ran.err)
+end
+
+--- Checking another document begins another program ([`Driver.Build.replace`]); the types of a document's kept check name
+--- declarations of the program it was made in, whose statics only that program holds.
+local function test_the_functions_of_a_declaration_are_read_from_the_program_the_check_was_made_in()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "main.tl", POINT .. 'local _ = Point\n'),
+    change(root, "main.tl", POINT .. 'local _ = Point.\n'),
+    open(root, "other.tl", 'local record Other\n  v: integer\nend\nreturn Other\n'),
+    ask(2, root, "main.tl", 10, 16),
+  })
+  assert(has(items(ran, 2), { "origin", "x" }) == "origin,x", answer(ran, 2) .. ran.err)
+end
+
+local function test_the_colon_of_an_annotation_offers_types_and_not_the_methods_of_the_name()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "main.tl", COUNTER .. 'return c\n'),
+    -- `local c:` and a parameter `c:` annotate; `c:` as a statement calls a method.
+    change(root, "main.tl", COUNTER .. 'local c:\nreturn c\n'),
+    ask(2, root, "main.tl", 7, 8),
+    change(root, "main.tl", COUNTER .. 'local function f(c:\nend\nreturn f\n'),
+    ask(3, root, "main.tl", 7, 18),
+    change(root, "main.tl", COUNTER .. 'c:\nreturn c\n'),
+    ask(4, root, "main.tl", 7, 2),
+  })
+  local annotated = items(ran, 2)
+  assert(annotated["bump"] == nil and annotated["Counter"] ~= nil, has(annotated, { "bump", "Counter" }))
+  local parameter = items(ran, 3)
+  assert(parameter["bump"] == nil and parameter["Counter"] ~= nil, has(parameter, { "bump", "Counter" }))
+  assert(items(ran, 4)["bump"] ~= nil, "a method call at the start of a line")
+end

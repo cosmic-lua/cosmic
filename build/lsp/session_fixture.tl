@@ -52,11 +52,16 @@ local record session_fixture
     change: integer
   end
 
+  record CompletionOptions
+    triggerCharacters: {string}
+  end
+
   record Capabilities
     positionEncoding: string
     textDocumentSync: Sync
     hoverProvider: boolean
     definitionProvider: boolean
+    completionProvider: CompletionOptions
     documentFormattingProvider?: boolean
   end
 

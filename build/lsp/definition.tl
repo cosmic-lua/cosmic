@@ -274,11 +274,7 @@ function definition.at(checker: check.Checker, document: check.Document, where: 
   local line = split.texts[where.line + 1]
   local start = split.starts[where.line + 1]
   if line == nil or start == nil then return nil end
-  local offset = start + lines.byte_of(line, where.character, encoding) - 1
-  -- What a build put in the text before the checker read it moves the bytes after it.
-  for _, splice in ipairs(reading.splices) do
-    if splice.at < offset then offset = offset + #splice.text end
-  end
+  local offset = check.checker_offset(reading, start + lines.byte_of(line, where.character, encoding) - 1)
   local outcome = reading.outcome
   local request: Request = {
     checker = checker, outcome = outcome, encoding = encoding,
