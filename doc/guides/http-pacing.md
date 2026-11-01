@@ -15,7 +15,8 @@ first request does not wait. Make one pacer per API, before the loop, and
 share it: two pacers know nothing of each other's requests.
 
 A call is one request to the pacer, and so is each attempt `retry` makes.
-The redirects a call follows are not paced, and a request that fails to
+The redirects a call follows are not paced ([every redirect
+hop](#every-redirect-hop) says how to pace them), and a request that fails to
 connect still counts as a start, since it loaded the API.
 
 `retry` is the other half. When a response's status is 429 or 503 and
@@ -81,6 +82,64 @@ local items = assert(crawl({ 1, 2, 3 }, get_canned))
 print(table.concat(items, " "))
 -- Four requests started, and the second item's retry waited out its backoff.
 assert(Clock.monotonic_ns() - began >= backoff_ns + interval_ns)
+```
+
+## every redirect hop
+
+A call that follows redirects follows them inside one open, so the
+pacer sees one request for the whole chain. To pace each hop, pass
+`follow = false` and follow `Location` by hand, each hop through the
+same pacer. [`Url.resolve`] turns a `Location`, which may be relative,
+into the next URL.
+
+This follows only what a GET needs: a 301, 302, 303, 307 or 308 with a
+`Location` sends a GET again, and a GET stays a GET. It does not
+reimplement the rules curl follows for other methods or bodies, and it
+does not drop credentials when a hop leaves the host. So do not use it
+to forward an `Authorization` header: it would send the header to
+whatever host a `Location` names. Leave such a header off, or stop at
+the first hop that changes host.
+
+```teal continue
+local Url = require("cosmic.url")
+
+local function get_paced(url: string, pacer: Http.Pacer, limit: integer,
+    script_for: function(integer): {string}?): Http.Body?, string
+  local here = url
+  for hop = 0, limit do
+    local got, trouble = Http.get(here, {
+      pace = pacer, follow = false, script = script_for(hop),
+    })
+    if got == nil then return nil, trouble end
+    local s = got.status
+    local location = got.headers["location"]
+    if (s ~= 301 and s ~= 302 and s ~= 303 and s ~= 307 and s ~= 308) or location == nil then
+      return got, ""
+    end
+    here = Url.resolve(here, location)
+  end
+  return nil, "too many redirects"
+end
+
+-- The canned replies: a chain of two hops, then the item.
+local chain: {{string}} = {
+  { reply("302 Found", "Location: /moved\r\n", "") },
+  { reply("301 Moved Permanently", "Location: http://api.test/items/7\r\n", "") },
+  { reply("200 OK", "", "seven") },
+}
+local hop_ns = Clock.ms(100)
+local hop_pacer = Http.pacer(hop_ns)
+local chain_began = Clock.monotonic_ns()
+local landed = assert(get_paced("http://api.test/old", hop_pacer, 5,
+  function(hop: integer): {string}? return chain[hop + 1] end))
+local chain_took = Clock.monotonic_ns() - chain_began
+-- Three requests through the pacer: the last started two intervals after
+-- the first. The upper bound is loose, for a slow host.
+assert(chain_took >= 2 * hop_ns)
+assert(chain_took < 2 * hop_ns + Clock.seconds(2))
+assert(not get_paced("http://api.test/old", hop_pacer, 1,
+  function(hop: integer): {string}? return chain[hop + 1] end))
+print(landed.status, landed.body)
 ```
 
 ## what retry waits for
@@ -380,6 +439,7 @@ All the examples are one program, and this is what it prints:
 
 ```output
 one two three
+200	seven
 200	429	503	3600
 1	item 2: HTTP 429, try again after 3600 s
 2000	0	0	30000	0
@@ -393,3 +453,4 @@ true	interrupted
 [`cosmic.signal`]: ../../cosmic/signal.tl
 [`Http.pacer`]: ../../cosmic/http/init.tl
 [`Signal.guard`]: ../../cosmic/signal.tl
+[`Url.resolve`]: ../../cosmic/url.tl
