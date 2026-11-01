@@ -772,14 +772,30 @@ local SYSCALLS_H <const> = table.concat({
 }, "\n") .. "\n"
 
 --- A project that is cosmic's own tree, with the header [`cosmic.sys`] is generated from staged.
-local function own_tree_with_header(): string, string
+local function own_tree_with_header(header?: string): string, string
   local root = project()
   assert(Fs.mkdirs(root .. "/core"))
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
-  assert(Fs.write(root .. "/core/syscalls.h", SYSCALLS_H))
+  assert(Fs.write(root .. "/core/syscalls.h", header or SYSCALLS_H))
   local built = assert(tree.built_from(root))
   return root, built
+end
+
+--- A field named like an annotation tag is found at its name, not at the tag on the same line.
+local function test_a_generated_places_column_skips_the_annotation_tag_of_the_same_name()
+  local header = table.concat({
+    "/*", " * ---@class Constants", " * ---@field field integer a constant", " */", "COSMIC_CONSTANT(field)", "",
+    "/*", " * --- Reads bytes.", " * ---@param fd integer descriptor", " * ---@return string|nil data bytes",
+    " * ---@return string error failure", " * ---@return integer errno number", " */", "COSMIC_SYSCALL(read, 1);", "",
+  }, "\n")
+  local root, built = own_tree_with_header(header)
+  local src = source.new(root, function(_: string) end, built)
+  source.refresh(src)
+  local spot = assert(assert(source.places(src, "cosmic.sys", none_open)).spots["sys.field"])
+  assert(spot.line == 3 and spot.column == 14 and spot.length == 5,
+    tostring(spot.line) .. ":" .. tostring(spot.column) .. ":" .. tostring(spot.length))
+  source.close(src)
 end
 
 --- A module generated from a header has the places its `-- line` map names, at the lines of the header, in the header's

@@ -845,7 +845,8 @@ local function read_places(db: Sqlite.Handle, hash: string): {string:Spot}?, boo
   return held, derived
 end
 
---- Where `name` first stands on `line` of `text` as a whole word, as a byte column; 1 where it does not stand there.
+--- Where `name` first stands on `line` of `text` as a whole word, as a byte column; 1 where it does not stand there. A word
+--- right after an `@` is a tag of the annotation (`---@field`), not the name.
 local function column_in(text: string, line: integer, name: string): integer, integer
   local at = 1
   for _ = 2, line do
@@ -855,10 +856,22 @@ local function column_in(text: string, line: integer, name: string): integer, in
   end
   local stop = text:find("\n", at, true) or #text + 1
   local row = text:sub(at, stop - 1)
-  local from, to = row:find("%f[%w_]" .. name:gsub("%p", "%%%0") .. "%f[^%w_]")
-  if from == nil or to == nil then return 1, 0 end
-  return from, to - from + 1
+  local pattern = "%f[%w_]" .. name:gsub("%p", "%%%0") .. "%f[^%w_]"
+  local search = 1
+  while true do
+    local from, to = row:find(pattern, search)
+    if from == nil or to == nil then return 1, 0 end
+    if from == 1 or row:sub(from - 1, from - 1) ~= "@" then return from, to - from + 1 end
+    search = to + 1
+  end
 end
+
+-- TODO: derive the places of a mapped module from an open buffer of its origin file, once the stage can generate a module from
+-- an unsaved header: until then an open document of the header is ignored, so lines edited above a declaration and not yet
+-- saved shift the file's lines from the staged rows.
+
+-- TODO: answer a mapped module whose origin file is not staged (a header deleted since the stage, or a tree whose stage
+-- failed), once the stage keeps the generated module's rows apart from its origin: it answers none, silently.
 
 --- The places of a module generated from another file ([`build.syntax_derivation`]'s `origin_lines`), in that file's text
 --- `written`: the stage's rows, each at the line of the file, with the column of the symbol's last name where it stands
