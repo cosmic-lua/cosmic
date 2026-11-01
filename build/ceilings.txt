@@ -2733,7 +2733,7 @@ core/connector_filter_test.tl map_field 17
 
 core/database_start_sandbox_test.tl map_field 13
 
-core/database_start_test.tl map_field 66
+core/database_start_test.tl map_field 64
 
 core/declarations_test.tl map_field 21
 
