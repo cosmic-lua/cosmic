@@ -211,12 +211,18 @@ local function test_a_bare_last_segment_of_a_module_is_refused_on_the_requiring_
   assert(Fs.write(root .. "/b/m.tl", "local record M\n  n: integer\nend\nreturn M\n"))
   local bare = 'local m = require("m")\nprint(m)\n'
   local found = only(nth(served(root, { initialize(root), open(root, "main.tl", bare) }), 1))
-  assert(found.message:find("the project has no module `m`", 1, true) == 1 and
-      found.message:find("(require_unknown)", 1, true) ~= nil, found.message)
+  assert(found.message:find("the project has no module `m`; did you mean `b.m` (b/m.tl)? (require_unknown)", 1, true) == 1,
+    found.message)
   assert(edge(found, "start").line == 0, tostring(edge(found, "start").line))
   local whole = 'local M = require("b.m")\nlocal m: M = { n = 1 }\nreturn m\n'
   local good = served(root, { initialize(root), open(root, "main.tl", whole) })
   assert(counts(good) == "0", messages_of(nth(good, 1)))
+  -- A module the document may not require is no hint: `x/y/m.tl` is private to `x/y/`.
+  assert(Fs.mkdirs(root .. "/x/y"))
+  assert(Fs.write(root .. "/x/y/m.tl", "local record M\n  n: integer\nend\nreturn M\n"))
+  local private = 'local m = require("y.m")\nprint(m)\n'
+  local told = only(nth(served(root, { initialize(root), open(root, "main.tl", private) }), 1))
+  assert(told.message:find("the project has no module `y.m` (require_unknown)", 1, true) == 1, told.message)
 end
 
 --- A `.d.tl` beside a `.tl` of its module is refused by the build, and each of the two documents is told so at its first

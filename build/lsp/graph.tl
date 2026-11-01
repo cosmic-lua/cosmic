@@ -162,6 +162,29 @@ function graph.dependents(src: source.View, file: string, opened: {string:{strin
   return out
 end
 
+--- What a `require` of `name` in the document `file` that names no module may have meant, as "`b.m` (b/m.tl)" each: the modules
+--- the stage lists that end in `.name` and that `file` may require, by the rules a build holds a `require` to ([`positions.permits`]).
+function graph.meant(src: source.View, file: string, name: string): {string}
+  local modules = listed(src)
+  local mine = src.files[file]
+  local kind = "module"
+  if mine ~= nil then
+    kind = mine.kind
+  end
+  local standing = source.standing(src)
+  local tail = "." .. name
+  local found: mut {Module} = {}
+  for _, m in ipairs(modules) do
+    if #m.path > #tail and m.path:sub(-#tail) == tail and positions.permits(modules, file, kind, m.path, standing, carried) then
+      found[#found + 1] = m
+    end
+  end
+  table.sort(found, function(a: Module, b: Module): boolean return a.path < b.path end)
+  local out: mut {string} = {}
+  for _, m in ipairs(found) do out[#out + 1] = "`" .. m.path .. "` (" .. m.file .. ")" end
+  return out
+end
+
 --- What a build refuses of the `require`s `requires` of the document
 --- `file`, the module `path` of `kind`: each that reaches where position
 --- closes to it, or else the cycle of imports through it. `opened` is

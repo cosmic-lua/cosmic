@@ -50,3 +50,12 @@ local function test_two_modules_ending_in_the_name_are_refused_and_both_named(tm
   assert(result.code ~= 0 and result.stdout == "", said)
   assert(said:find("did you mean one of `a.m` (a/m.tl), `b.m` (b/m.tl)?", 1, true) ~= nil, said)
 end
+
+local function test_a_name_the_language_declares_is_told_as_a_global_and_not_as_a_module_to_require(tmp: string)
+  local result = run_in(tmp, "global", { ["lib/math.tl"] = MODULE,
+    ["main.tl"] = 'local m = require("math")\nprint(m)\n' }, "main.tl")
+  local said = tostring(result.stdout) .. tostring(result.stderr)
+  assert(result.code ~= 0, said)
+  assert(said:find("`math` is a global the language declares, available without `require`", 1, true) ~= nil, said)
+  assert(said:find("did you mean", 1, true) == nil, said)
+end

@@ -9,6 +9,7 @@ local Driver = require("build.driver")
 local Node = require("build.syntax_node")
 local Types = require("lang.types")
 local Programs = require("lang.check_programs")
+local TreeProgram = require("build.tree_program")
 local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
 local Truthy = require("lang.truthy")
@@ -34,9 +35,7 @@ local function build_of(files: {{string}}): Driver.Build, Driver.Index
     globals = { Driver.declarations("std", "std.d.tl", Programs.library, {}) },
     adjust = nil, external = { "cosmic.sys" },
     types = true,
-    meant = function(name: string): {string}
-      return Driver.ending(index, name)
-    end,
+    meant = TreeProgram.meant(index, true),
   })
   build:provide(Driver.files(index))
   return build, index
@@ -862,4 +861,13 @@ end
 local function test_a_missing_module_with_no_candidate_gets_no_hint()
   local bare = { "use.tl", "local m = require(\"nope\")\nreturn m\n" }
   assert(refusal_of({ { "b/m.tl", "return 2\n" }, bare }, "use") == "the project has no module `nope`")
+end
+
+local function test_a_hint_names_only_what_the_file_may_require()
+  local deep = { "x/y/m.tl", "local record M\n  n: integer\nend\nreturn M\n" }
+  local outside = { "use.tl", "local m = require(\"y.m\")\nreturn m\n" }
+  assert(refusal_of({ deep, outside }, "use") == "the project has no module `y.m`")
+  local inside = { "x/y/use.tl", "local m = require(\"y.m\")\nreturn m\n" }
+  assert(refusal_of({ deep, inside }, "x.y.use") == "the project has no module `y.m`; did you mean `x.y.m` (x/y/m.tl)?",
+    refusal_of({ deep, inside }, "x.y.use"))
 end

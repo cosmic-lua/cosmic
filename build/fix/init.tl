@@ -363,6 +363,18 @@ local function workflow_sources(dir: string, root: string): {string}?, string
   return out, ""
 end
 
+--- The tree of its own inside cosmic's ([`identity.is_foreign_tree`], `ci/`) that the absolute path `real` is, or is below, from
+--- `root`'s: nil for any other path.
+local function foreign_tree_in(root: string, real: string): string?
+  local top, _ = Fs.absolute(root)
+  if top == nil then return nil end
+  local relative, _ = Fs.relative(real, top)
+  if relative == nil then return nil end
+  local first = relative:match("^([^/]+)") or relative
+  if first ~= ".." and identity.is_foreign_tree(first) then return first end
+  return nil
+end
+
 --- The files one invocation covers: whatever paths were named, or the
 --- whole tree when none were.
 ---
@@ -434,6 +446,10 @@ function fix.chosen(root: string, paths: {string}, standing: tree.Standing): fix
     elseif static_root ~= nil and real ~= nil and
         (real == static_root or real:sub(1, #static_root + 1) == static_root .. "/") then
       refused[#refused + 1] = path .. ": under static/, which is carried verbatim, not laid out"
+    elseif own and real ~= nil and foreign_tree_in(root, real) ~= nil then
+      local foreign = assert(foreign_tree_in(root, real))
+      refused[#refused + 1] = path .. ": in " .. foreign .. "/, a project of its own whose modules are named from its own " ..
+        "root, which the tree's run does not check: run `cosmic fix --check` with " .. foreign .. "/ as the working directory"
     elseif what.kind == "dir" then
       local under, trouble = sources(path)
       if under == nil then
@@ -1046,6 +1062,10 @@ local function choose_files(ctx: Fix): integer?
     end
   end
   ctx.picked = picked
+  if picked.whole then
+    log:say("fix: ci/ is a project of its own and is not checked here: run `cosmic fix --check` with ci/ as the working " ..
+        "directory (CI's format phase does)")
+  end
   -- What the checks spanning files cover: a run of `--changed` lays out
   -- only some of it.
   local every = picked.every

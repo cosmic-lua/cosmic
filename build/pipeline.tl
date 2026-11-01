@@ -324,7 +324,8 @@ function Pipeline.over(entries: {{string}}, kinds: {string: string}, options: Pi
   local index = TreeProgram.index(entries, kinds)
   local standard = options.standard or Pipeline.carried()
   return {
-    build = TreeProgram.build(index, options.globals, options.types, nil, standard), ceilings = options.ceilings, index = index,
+    build = TreeProgram.build(index, options.globals, options.types, nil, standard,
+      TreeProgram.meant(index, options.project ~= true)), ceilings = options.ceilings, index = index,
     globals = options.globals, standard = standard, types = options.types, given = stubs or {}, stubs = nil, stubbed = nil,
     project = options.project,
   }
@@ -637,7 +638,8 @@ local function stub_trouble(m: Module, built: Pipeline.Built, result: Driver.Out
       "name whose last top-level declaration spells its type (`local record M ... end`, " ..
       "a local function, or `local m: M = ...`) (build/stub.tl)"
   end
-  local stubbed = built.stubbed or TreeProgram.build(built.index, built.globals, false, stubs_of(built), built.standard)
+  local stubbed = built.stubbed or TreeProgram.build(built.index, built.globals, false, stubs_of(built), built.standard,
+    TreeProgram.meant(built.index, built.project ~= true))
   built.stubbed = stubbed
   stubbed:lower({ m.path })
   local why = stub_verdict(made, built.build, result, stubbed)
