@@ -22,6 +22,8 @@
 ---   is the signature in the docs database where it has one, else the checker's type, and the `documentation` its text.
 --- - In a type position, wherever the grammar has one (after `:`, `is`, `<` and `,` of type arguments, `{`, `|`, a return
 ---   type, `local type T =`, a field of a record, ...): the types in scope and the primitive types.
+---   After `point.` there, the types nested in the declaration `point` is ([`Declarations.Program`]'s `entries`), and no
+---   field or function of it.
 --- - Anywhere else, the names in scope: the locals, parameters, functions and types visible at the cursor
 ---   ([`Scopes.in_scope`]), then the globals of the standard library.
 ---
@@ -30,9 +32,6 @@
 --- as it is, with a placeholder name where the word being typed is: the lexer says whether the cursor is in a comment or a
 --- string, and the parser, which recovers a tree of a text that does not parse, says what node the placeholder is in. A name
 --- declared in the text typed since is not offered. Nothing is offered in a document the checker read nothing of.
-
--- TODO: offer only the types nested in a declaration after `point.` in a type position, once the declarations list a
--- declaration's nested types apart from its fields: every member of the receiver is offered there now.
 
 -- TODO: type a name narrowed at the cursor where the last text that parsed has no read of it at that place (a name just
 -- typed after `if x is T then`), once the checker keeps the flow at a position and not only the reads of narrowed places
@@ -81,6 +80,9 @@ local record completion
     mut start: integer
     --- For "members": whether the separator is `:`.
     mut method: boolean
+    --- For "members": whether the cursor is in a type position (`local p: point.`), where only the types nested in the
+    --- receiver's declaration are offered.
+    mut types: boolean
   end
 
   --- A member of a declaration.
@@ -181,13 +183,14 @@ end
 --- The index of the first token of the receiver that ends at token `last`: a name, or a parenthesised expression, followed by
 --- any number of fields (`.x`), methods (`:x`), calls (with parentheses, a string or a table) and indexes, or a string
 --- literal. nil where the tokens are none.
-local function receiver_start(tokens: Lexer.Tokens, last: integer): integer?
+local function receiver_start(tokens: Lexer.Tokens, last: integer, types: boolean): integer?
   local at = last
   while at >= 1 do
     local kind = Lexer.kind(tokens, at)
     if kind == "identifier" then
       local sep = at - 1
-      if sep > 1 and (Lexer.kind(tokens, sep) == "." or Lexer.kind(tokens, sep) == ":") then
+      -- In a type position a `:` annotates (`local v: shapes.`) and is no method call.
+      if sep > 1 and (Lexer.kind(tokens, sep) == "." or (Lexer.kind(tokens, sep) == ":" and not types)) then
         at = sep - 1
       else
         return at
@@ -263,19 +266,48 @@ local function changed_lines(old: string, new: string): string
   return new:sub(from, stop)
 end
 
+--- Whether `list`, the names a `local`, a `for` or the parameters of a function declare (`a, b: Box<K, V>, c <const>`), names
+--- `name`: an identifier that begins the list or follows a comma outside brackets, not one in a type after a `:`.
+local function lists(list: string, name: string): boolean
+  local depth = 0
+  local expecting = true
+  local at = 1
+  while at <= #list do
+    local c = list:sub(at, at)
+    if c == "(" or c == "<" or c == "{" or c == "[" then
+      depth = depth + 1
+    elseif c == ")" or c == ">" or c == "}" or c == "]" then
+      depth = math.max(depth - 1, 0)
+    elseif c == "," and depth == 0 then
+      expecting = true
+    elseif expecting and c:match("[%a_]") ~= nil then
+      local word = list:match("^[%w_]+", at) or c
+      if word == name then return true end
+      expecting = false
+      at = at + #word - 1
+    elseif c:match("%s") == nil and c ~= "." then
+      expecting = false
+    end
+    at = at + 1
+  end
+  return false
+end
+
 --- Whether a line of `text` declares `name`: a `local` or a `for` that names it before its `=` or `in`, or a function whose
 --- parameters do.
 local function declares(text: string, name: string): boolean
-  local word = "%f[%w_]" .. name .. "%f[^%w_]"
   for row in text:gmatch("[^\n]+") do
     local names: string? = nil
-    if row:match("^%s*local%s") ~= nil or row:match("^%s*for%s") ~= nil then
-      names = row:match("^([^=]*)") or row
-      names = (names:match("^(.-)%sin%s") or names)
+    local keyword = row:match("^%s*local%s+(.*)$") or row:match("^%s*for%s+(.*)$")
+    if keyword ~= nil then
+      names = keyword:match("^([^=]*)") or keyword
+      names = names:match("^(.-)%sin%s") or names
+      -- `local function f` and `local type T` name what follows the keyword.
+      names = names:match("^function%s+(.*)$") or names:match("^type%s+(.*)$") or names:match("^record%s+(.*)$") or names
     end
-    if names ~= nil and names:find(word) ~= nil then return true end
+    if names ~= nil and lists(names, name) then return true end
     local params = row:match("function[^%(]*(%b())")
-    if params ~= nil and params:find(word) ~= nil then return true end
+    if params ~= nil and lists(params:sub(2, -2), name) then return true end
   end
   return false
 end
@@ -693,6 +725,41 @@ local function member_items(request: Request, d: hover.Docs, decl: Types.Decl, v
   end
 end
 
+--- The types nested in `decl` ([`Declarations.Program`]'s `entries`), by name, as items: a declaration or an alias, which a
+--- type position after `decl.` names.
+local function nested_items(request: Request, decl: Types.Decl, context: Context, out: mut {protocol.CompletionItem},
+                            edit: protocol.Range)
+  local found: mut {string: integer} = {}
+  for _, entry in pairs(request.program.entries) do
+    local names = entry.names
+    if entry.module == decl.module and #names == #decl.names + 1 then
+      local inside = true
+      for at, name in ipairs(decl.names) do
+        if names[at] ~= name then inside = false end
+      end
+      local own = names[#names]
+      if inside and own ~= nil and matches(own, context.prefix) then
+        local kind = STRUCT
+        local made = entry.decl
+        if made ~= nil then
+          if made.kind == "class" then kind = CLASS end
+          if made.kind == "interface" then kind = INTERFACE end
+          if made.kind == "enum" then kind = ENUM end
+        end
+        found[own] = kind
+      end
+    end
+  end
+  local sorted: mut {string} = {}
+  for name in pairs(found) do sorted[#sorted + 1] = name end
+  table.sort(sorted)
+  for _, name in ipairs(sorted) do
+    local kind = assert(found[name])
+    out[#out + 1] = { label = name, kind = kind, detail = nil, documentation = nil, sortText = nil,
+      textEdit = { range = edit, newText = name } }
+  end
+end
+
 --- The kind of item the binding `var` is, typed `t`.
 local function var_kind(var: Scopes.Var, t: Types.Type?): integer
   local kind = var.kind
@@ -800,9 +867,9 @@ end
 
 --- The receiver of the separator at token `sep` of `tokens`, which are of `text`, parsed by itself: the node, the tokens it
 --- is of and what to add to a byte of them to find it in `text`. nil where no receiver ends there.
-local function receiver_at(document: check.Document, text: string, tokens: Lexer.Tokens, sep: integer):
+local function receiver_at(document: check.Document, text: string, tokens: Lexer.Tokens, sep: integer, types: boolean):
     Ast.Exp?, Lexer.Tokens?, integer
-  local first = receiver_start(tokens, sep - 1)
+  local first = receiver_start(tokens, sep - 1, types)
   if first == nil then return nil, nil, 0 end
   local from = Lexer.offset(tokens, first)
   local small = HEAD .. text:sub(from, Lexer.offset(tokens, sep) - 1) .. Lexer.text(tokens, sep) .. PLACEHOLDER
@@ -843,7 +910,7 @@ function completion.at(checker: check.Checker, d: hover.Docs, document: check.Do
   local tokens = chunk.tokens
   local state = lexical(tokens, cursor - #prefix + #PLACEHOLDER)
   if state == "comment" or state == "string" then return { isIncomplete = false, items = out } end
-  local context: Context = { what = "names", prefix = prefix, start = byte - #prefix, method = false }
+  local context: Context = { what = "names", prefix = prefix, start = byte - #prefix, method = false, types = false }
   local wanted = required(before)
   if wanted ~= nil and state == "quoted" then
     context.what = "modules"
@@ -879,13 +946,18 @@ function completion.at(checker: check.Checker, d: hover.Docs, document: check.Do
   elseif sep == "." or sep == ":" then
     context.what = "members"
     context.method = sep == ":"
-    local receiver, small, delta = receiver_at(document, spliced, tokens, at - 1)
+    context.types = node.kind == "TypeName"
+    local receiver, small, delta = receiver_at(document, spliced, tokens, at - 1, context.types)
     if receiver ~= nil and small ~= nil then
       local ground: Ground = { request = request, scope = scope, reading = last.reading, old = last.text,
         new = document.text, edited = changed_lines(last.text, document.text), tokens = small, delta = delta }
       local typed = typed_node(ground, receiver)
       if typed ~= nil and typed.decl ~= nil then
-        member_items(request, d, typed.decl, typed.value, context, out, edit)
+        if context.types then
+          nested_items(request, typed.decl, context, out, edit)
+        else
+          member_items(request, d, typed.decl, typed.value, context, out, edit)
+        end
       end
     end
   else

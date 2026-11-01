@@ -808,3 +808,24 @@ local function test_the_colon_of_an_annotation_offers_types_and_not_the_methods_
   assert(parameter["bump"] == nil and parameter["Counter"] ~= nil, has(parameter, { "bump", "Counter" }))
   assert(items(ran, 4)["bump"] ~= nil, "a method call at the start of a line")
 end
+
+local function test_a_type_position_after_a_module_offers_the_types_nested_in_it_and_not_its_members()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", 'local record shapes\n  record Pt\n    x: integer\n  end\n  enum Kind\n    "a"\n  end\n' ..
+      '  size: integer\nend\n\nfunction shapes.make(): shapes.Pt\n  return { x = 0 }\nend\n\nreturn shapes\n'))
+  local head = 'local shapes = require("lib.shapes")\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", head .. 'local _ = shapes\n'),
+    change(root, "main.tl", head .. 'local v: shapes.\n'),
+    ask(2, root, "main.tl", 1, 16),
+    change(root, "main.tl", head .. 'local v: shapes.P\n'),
+    ask(3, root, "main.tl", 1, 17),
+    -- A value position after the same name offers its functions and fields, not only its types.
+    change(root, "main.tl", head .. 'local _ = shapes.\n'),
+    ask(4, root, "main.tl", 1, 17),
+  })
+  local types = items(ran, 2)
+  assert(has(types, { "Pt", "Kind", "size", "make" }) == "Pt,Kind")
+  assert(has(items(ran, 3), { "Pt", "Kind" }) == "Pt")
+  assert(has(items(ran, 4), { "Pt", "size", "make" }) == "size,make", has(items(ran, 4), { "Pt", "size", "make" }))
+end
