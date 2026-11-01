@@ -2460,8 +2460,6 @@ lang/warnings.tl field_fixed 2
 # rewrite), a field of a member of a union read without a test, and a method of the standard library the
 # declarations lack
 
-core/surface_test.tl field_unknown 2
-
 cosmic/errors_test.tl field_unknown 1
 
 cosmic/http/server.tl field_unknown 4
