@@ -1,4 +1,5 @@
 --- Reporting a failure, as the core provides it.
+--- @kind binding
 
 local record errors
   --- The call stack as text, with `message` at the top when one is

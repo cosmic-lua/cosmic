@@ -1,6 +1,7 @@
 -- Strings made safe for HTML, as the core provides them. A safe value is
 -- opaque userdata: only these functions make one, so no table, string or
 -- value of the other type stands in for it.
+--- @kind binding
 
 local record html
   -- Markup that can go in element content as it is.

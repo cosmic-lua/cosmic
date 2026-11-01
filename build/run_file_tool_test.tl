@@ -45,7 +45,7 @@ local function test_a_declaration_beside_its_source_stops_a_file_run(tmp: string
   assert(Fs.write(root .. "/main.tl", 'local Foo = require("foo")\nprint(Foo.answer)\n'))
   local refused = run_in(root, "main.tl")
   assert(refused.code ~= 0 and refused.stdout == "", (refused.stdout or "") .. (refused.stderr or ""))
-  assert((refused.stderr or ""):find("foo.d.tl: foo.tl is also the module foo, and a module has one type source", 1, true) ~=
+  assert((refused.stderr or ""):find("foo.d.tl: foo.tl is already the module foo", 1, true) ~=
       nil, refused.stderr)
   assert(Fs.remove(root .. "/foo.d.tl"))
   local result = run_in(root, "main.tl")

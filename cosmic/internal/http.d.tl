@@ -3,6 +3,7 @@
 -- request and read its response's headers, then a handle that reads
 -- the body in chunks. A fallible function returns `value, ""` on
 -- success and `nil, err` on failure.
+--- @kind binding
 
 local record http
   -- Closed by `close`, by `__close` (a `<close>` variable) or by the

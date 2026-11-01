@@ -691,9 +691,10 @@ identity holds the modules that decide generated code, stored analysis and
 acceptance, plus the checker's source and the Teal compiler's and Lua's
 pins and Lua's patches ([`build.identity.compiler_identity`]). module keys carry it; importer
 coordination, diagnostic presentation and general standard-library plumbing
-stay outside it. the analyzer identity keys stored parses and includes that
-compiler identity plus the analyzer modules' sources
-([`build.importer.analyzer_identity`]). the writer identity holds the code and
+stay outside it. the analyzer identity keys stored parses: the runtime basis,
+the analyzer modules' sources and the code that reads
+([`build.importer.analyzer_identity`]), not the whole compiler identity, so an
+edit only a compile runs (build.plans) parses nothing again. the writer identity holds the code and
 core image that determine a projection's bytes, including its standard-library
 dependencies. the projection records which compiler and writer produced it so a
 self-rebuild can settle on its own code. the runtime basis holds the same pins, patches

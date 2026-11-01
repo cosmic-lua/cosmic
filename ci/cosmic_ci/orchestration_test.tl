@@ -107,6 +107,8 @@ local record ChecksCase
   status: integer
   ok: boolean
   ran?: string
+  --- The compile wrote no check (the summary says 0 fact wraps), though the run is checked.
+  empty?: boolean
   share?: string
 end
 
@@ -1969,6 +1971,8 @@ local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_
       ran = "test --check-types 120 " .. promised .. "\n" },
     { name = "linux-unchecked", target = "x86_64-linux-musl", report = false, status = 0, ok = false,
       ran = "test --check-types 120 " .. promised .. "\n" },
+    { name = "linux-empty", target = "x86_64-linux-musl", report = true, status = 0, ok = false, empty = true,
+      ran = "test --check-types 120 " .. promised .. "\n" },
     { name = "linux-aarch64", target = "aarch64-linux-musl", report = true, status = 0, ok = true,
       ran = nil },
   }
@@ -1980,8 +1984,11 @@ local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     -- bin/zig's boot leaves a cosmic that logs the command line and the
     -- test timeout it was given, and says what a checked run does.
+    local written = if case.empty == true then "0 fact wraps and 0 parameter checks" else
+      "12 fact wraps and 7 parameter checks" end
     local summary = if case.report then
-      "printf '%s\\n' 'test: run-time types: 0 violations, 0 distinct, at 0 places'\n" else "" end
+      "printf '%s\\n' 'test: run-time types: 0 violations, 0 distinct, at 0 places' " ..
+        "'test: run-time types: " .. written .. " written in the compile; 0 tests stood on checked verdicts'\n" else "" end
     Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
         "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
         "if [ \"$1\" = test ]; then printf '%s %s %s\\n' \"$*\" \"$COSMIC_TEST_TIMEOUT\" \"$COSMIC_TEST_PROMISES\" >> \"$0.ran\"; fi\n" ..
@@ -2105,6 +2112,26 @@ local function test_a_fixture_is_given_its_legs_promises(tmp: string)
   }, tmp .. "/tmp", tmp .. "/c.db")
   assert(unknown["COSMIC_TEST_PROMISES"] == "proc, unix_socket ,future_requirement,checked",
     "the fixture changed the promises it was given")
+end
+
+--- A fixture's figures reach the job's log, each line with the fixture's
+--- name, in the order of their files, and a fixture with none says nothing.
+local function test_a_fixtures_figures_are_said_with_its_name(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  local directory = tmp .. "/figures"
+  assert(Fs.mkdirs(directory))
+  assert(Fs.write(directory .. "/b.figure", "second: 2 ms\n"))
+  assert(Fs.write(directory .. "/a.figure", "first: 1 ms\nfirst again: 3 ms\n"))
+  assert(Fs.write(directory .. "/notes.txt", "not a figure\n"))
+  local sink = assert(Fs.open_write(tmp .. "/sink"))
+  local said = Orchestration.say_figures("some-regression", directory, sink)
+  assert(Fs.close(sink))
+  assert(said == 3, "said " .. tostring(said))
+  assert(assert(Fs.read(tmp .. "/sink")) ==
+      "some-regression: first: 1 ms\nsome-regression: first again: 3 ms\nsome-regression: second: 2 ms\n")
+  assert(Orchestration.say_figures("none", tmp .. "/absent") == 0)
+  assert(Fs.mkdirs(tmp .. "/empty"))
+  assert(Orchestration.say_figures("none", tmp .. "/empty") == 0)
 end
 
 --- A fixture project made again at the same path starts with no build

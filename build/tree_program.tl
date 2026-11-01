@@ -44,6 +44,9 @@ local record TreeProgram
   --- one says it is a global ([`Declarations.Program.library`]).
   library_modules: function(globals: Globals): {string: boolean}
 
+  --- Whether the programs of a tree leave out the file `file`: those of a `testdata/` directory, which are fixtures of a test.
+  skipped: function(file: string): boolean
+
   --- The complaints of [`Driver.reserved`] for `entries` less the programs of a `testdata/` directory: "" for none.
   reserved: function(entries: {{string}}, names: {string: boolean}): string
 
@@ -92,9 +95,11 @@ local record TreeProgram
     each: function(module: string)): {string}
 end
 
-local function skipped(file: string): boolean
+function TreeProgram.skipped(file: string): boolean
   return file:find("^testdata/") ~= nil or file:find("/testdata/", 1, true) ~= nil
 end
+
+local skipped = TreeProgram.skipped
 
 function TreeProgram.index(entries: {{string}}, kinds: {string: string}, unaliased?: {string: boolean}): Driver.Index
   return Driver.index(entries, skipped, function(file: string, _text: string): Driver.Extra

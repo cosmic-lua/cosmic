@@ -176,16 +176,16 @@ local function test_a_snapshot_exception_releases_mains_lock(tmp: string)
   assert(Fs.write(root .. "/build/paths.tl", (assert(Fs.read("build/paths.tl")))))
   local fake = tmp .. "/zig"
   assert(Fs.write(fake, "", 0x1ed))
-  local read, snapshot = Env.read, Zig.snapshot
+  local get, snapshot = Env.read, Zig.snapshot
   Env.read = function(name: Env.Name): string?
-    return name == "COSMIC_ZIG" and fake or read(name)
+    return name == "COSMIC_ZIG" and fake or get(name)
   end
   Zig.snapshot = function(): {string:string}?, string
     error("snapshot failed", 0)
   end
   local ok, trouble: boolean, any = pcall(Zig.enter,
     { "build", "boot" }, root .. "/build/zig.tl")
-  Env.read, Zig.snapshot = read, snapshot
+  Env.read, Zig.snapshot = get, snapshot
   assert(not ok and trouble == "snapshot failed", tostring(trouble))
   assert(probe(root) == "held", "main retained its lock after a snapshot exception")
 end

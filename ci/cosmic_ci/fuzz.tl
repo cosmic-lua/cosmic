@@ -419,17 +419,19 @@ function Fuzz.execute(r: Fuzz.Run): integer
   -- Streamed to the log as it runs, and kept for the summary: a run
   -- cancelled at its time limit still shows how far it got. A signal
   -- caught meanwhile is delivered again once the status is kept.
-  local status: integer
+  local kept: Streamed = { trouble = "" }
   do
     local guard <close> = assert(Signal.guard())
     local answered = streamed(guard, argv, r.root, env, out, r.log)
-    local reached = answered.status
+    kept.status, kept.trouble = answered.status, answered.trouble
+    local reached = kept.status
     if reached ~= nil then
       assert(Fs.write(r.temp .. "/fuzz.status", tostring(reached) .. "\n"))
     end
-    assert(answered.trouble == "", answered.trouble)
-    status = assert(reached, "fuzz child ended without a status")
+    assert(kept.trouble == "", kept.trouble)
+    assert(reached ~= nil, "fuzz child ended without a status")
   end
+  local status = assert(kept.status)
   local slow_next, slow_close = chunks(out)
   local scanned: Fuzz.Scanned = { slow = {} }
   local read, raised_scan = pcall(function()

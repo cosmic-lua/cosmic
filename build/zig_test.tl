@@ -427,7 +427,7 @@ end
 local function test_lookup_exit_status_uses_kind_without_another_lookup(tmp: string)
   assert(Fs.mkdirs(tmp .. "/build"))
   assert(Fs.write(tmp .. "/build/zig.tl", "-- stand-in"))
-  local real_find, real_read = Proc.find_result, Env.read
+  local real_find, real_get = Proc.find_result, Env.read
   local calls = { value = 0 }
   local reply: Proc.FindResult = { kind = "not_executable", path = "tool", reason = "tool: not found" }
   Proc.find_result = function(_name: string, _path?: string): Proc.FindResult
@@ -441,7 +441,7 @@ local function test_lookup_exit_status_uses_kind_without_another_lookup(tmp: str
   local denied = Zig.enter({ "version" }, tmp .. "/build/zig.tl")
   reply = { kind = "not_found", reason = "tool: not executable" }
   local missing = Zig.enter({ "version" }, tmp .. "/build/zig.tl")
-  Proc.find_result, Env.read = real_find, real_read
+  Proc.find_result, Env.read = real_find, real_get
   assert(denied == 126 and missing == 127 and calls.value == 2)
 end
 

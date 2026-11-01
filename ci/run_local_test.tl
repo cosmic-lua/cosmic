@@ -462,10 +462,10 @@ local function test_a_run_closes_its_signal_guard(tmp: string)
   local root, env = checkout(tmp)
   local seams = Local.calls()
   local real = seams.signal_guard
-  local opened: mut {Signal.Guard} = {}
+  local guards: mut {Signal.Guard} = {}
   seams.signal_guard = function(): Signal.Guard?, string
     local guard, trouble = real()
-    if guard ~= nil then opened[#opened + 1] = guard end
+    if guard ~= nil then guards[#guards + 1] = guard end
     return guard, trouble
   end
   local ok = trying(root, env, { "build" })
@@ -473,10 +473,8 @@ local function test_a_run_closes_its_signal_guard(tmp: string)
   seams.signal_guard = real
   assert(ok.ok and ok.code == 0, ok.raised)
   assert(failed.ok and failed.code == 23, failed.raised)
-  assert(#opened == 2, "the run opened " .. tostring(#opened) .. " guards in two runs")
-  for _, guard in ipairs(opened) do
-    assert(guard.state.closed, "a run left its signal guard open")
-  end
+  assert(#guards == 2, "two runs opened " .. tostring(#guards) .. " guards")
+  for _, guard in ipairs(guards) do assert(guard.state.closed, "a run left its guard open") end
 end
 
 local record CredentialedTally

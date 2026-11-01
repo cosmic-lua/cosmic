@@ -27,6 +27,9 @@ local builds: Builds = {}
 local record Fixture
   --- The variables of the fixture's own environment that a child it starts has.
   inherited: function(): {string}
+  mut figures_variable: string
+  figure: function(name: string, line: string): boolean
+  figure_lines: function(directory: string): {string}
 
   record Target
     id: integer
@@ -113,6 +116,52 @@ end
 --- children build in ([`builds_beneath`]).
 function Fixture.built(project: string): string
   return beneath(project, (assert(builds.home, "Fixture.built: call Fixture.builds_beneath first")))
+end
+
+--- A figure is a number a fixture measures for the job's log to show, not
+--- for the test to judge. The orchestration makes a directory for a
+--- fixture's figures beside its other diagnostics, names it in the variable
+--- [`Fixture.figures_variable`] (COSMIC_FIXTURE_FIGURES), and after the
+--- fixture ends, passed or failed, says every line of every
+--- `<name>.figure` file in it, each prefixed with the fixture's name
+--- (orchestration.tl's `say_figures`). That directory survives a passing
+--- run, as the test's own temporary directory does not.
+---
+--- A worker that a sandbox holds cannot write there: a policy grants private
+--- scratch writes, not a write to a host path such as this directory. A
+--- fixture that measures does so on a leg that holds no worker in one, as
+--- the macOS leg's.
+Fixture.figures_variable = "COSMIC_FIXTURE_FIGURES"
+
+--- Writes `line` as the figure `name` (letters, digits and `-`), replacing
+--- an earlier one of that name. False, writing nothing, where the fixture
+--- was not run by the orchestration, which has no directory to name.
+function Fixture.figure(name: string, line: string): boolean
+  assert(name:match("^[%w-]+$"), "invalid figure name")
+  assert(not line:find("\n", 1, true), "a figure is one line")
+  local directory = Env.get(Fixture.figures_variable)
+  if directory == nil then return false end
+  assert(Fs.write(directory .. "/" .. name .. ".figure", line .. "\n"))
+  return true
+end
+
+--- The lines of the `.figure` files in `directory`, by file name, in
+--- order; none where it is absent. See [`Fixture.figures_variable`].
+function Fixture.figure_lines(directory: string): {string}
+  local lines: mut {string} = {}
+  local listed, _ = Fs.list(directory)
+  if listed == nil then return lines end
+  local names: mut {string} = {}
+  for _, name in ipairs(listed) do names[#names + 1] = name end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    if name:match("%.figure$") then
+      for line in assert(Fs.read(directory .. "/" .. name)):gmatch("[^\n]+") do
+        lines[#lines + 1] = line
+      end
+    end
+  end
+  return lines
 end
 
 function Fixture.mkdir(path: string)

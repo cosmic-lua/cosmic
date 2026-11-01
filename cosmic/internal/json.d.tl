@@ -1,6 +1,7 @@
 -- JSON at the Lua boundary, as the core (core/json.c, over yyjson)
 -- provides it. cosmic/json.tl documents the contract. A fallible
 -- function answers `value, ""` on success and `nil, error` on failure.
+--- @kind binding
 
 local record json
   -- The type of `null`: JSON `null`'s stand-in, a userdata with nothing to

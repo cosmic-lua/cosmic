@@ -3,6 +3,7 @@
 --- is bound by an explicit call rather than guessed from a Lua value,
 --- and a handle that has been closed fails the same way from every
 --- method.
+--- @kind binding
 
 local record sqlite
   interface Outcome

@@ -75,6 +75,7 @@
 
 local AnalysisSchema = require("build.analysis_schema")
 local Ast = require("lang.ast")
+local Declarations = require("lang.declarations")
 local Fs = require("cosmic.fs")
 local Derivation = require("build.syntax_derivation")
 local Driver = require("build.driver")
@@ -82,6 +83,7 @@ local Node = require("build.syntax_node")
 local Places = require("build.syntax_places")
 local Sqlite = require("cosmic.sqlite")
 local Template = require("cosmic.template")
+local TreeProgram = require("build.tree_program")
 local build_paths = require("build.paths")
 local importer = require("build.importer")
 local rebuild = require("build.rebuild")
@@ -96,6 +98,9 @@ local record source
     file: string
     kind: string
     source_hash: string
+    --- Where the source comes from: `tree` for a staged file, else the kind of generator that made it from `file`
+    --- (`syscalls`, `doctest`, `template`).
+    origin: string
   end
 
   --- What the checker is served for a module: the file name it reads it
@@ -194,6 +199,9 @@ local record source
     --- analyzer this session's last stage recorded, nil before one.
     mut stubs: boolean
     mut analyzer: string?
+    --- Why the last stage staged nothing, "" for a stage that did. A document of a pair it refused is told of it
+    --- ([`source.refusal`]).
+    mut trouble: string
     --- Whether the tree is yet to be staged: before the first check, or
     --- since a stage that found the database busy.
     mut pending: boolean
@@ -258,6 +266,7 @@ function source.new(root: string, err: function(line: string), carried?: string)
     analyzer = nil,
     pending = true,
     told_busy = false,
+    trouble = "",
     made = {},
     scratch = nil,
     scratched = {},
@@ -361,9 +370,6 @@ end
 --- whether its stubs are the running analyzer's ([`trusted`]); none of
 --- them where other code than this session's staged it
 --- ([`staged_by_other`]).
----
--- TODO: report a `.d.tl` beside a `.tl` ([`build.driver.paired`]) as a diagnostic of both files; the build refuses the pair, and
--- the document that requires their module is told that the project has no such module.
 local function listed(src: source.View, staged: boolean)
   local db, _ = database(src)
   if db == nil then return end
@@ -371,7 +377,7 @@ local function listed(src: source.View, staged: boolean)
   local own = 1
   if staged_by_other(src, db) then own = 0 end
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT path, file, kind, source_hash FROM inputs WHERE ?1 = 1 " ..
+    "SELECT path, file, kind, source_hash, origin FROM inputs WHERE ?1 = 1 " ..
       "ORDER BY path, " .. AnalysisSchema.declaration("kind") .. " DESC, file", { { integer = own } })
   if rows == nil then
     src.err("cosmic: lsp: the staged tree: " .. trouble)
@@ -381,7 +387,7 @@ local function listed(src: source.View, staged: boolean)
   local files: mut {string:Module} = {}
   for _, row in ipairs(rows) do
     local found: Module = { path = row:text(1), file = row:text(2), kind = row:text(3),
-      source_hash = row:text(4) }
+      source_hash = row:text(4), origin = row:text(5) }
     if modules[found.path] == nil then modules[found.path] = found end
     files[found.file] = found
   end
@@ -539,11 +545,43 @@ local function refreshed(src: source.View)
   end
   if staged == nil then
     src.err("cosmic: lsp: not staged, answering from the tree as last staged: " .. trouble)
+    src.trouble = trouble
   else
     src.tally.stages = src.tally.stages + 1
+    src.trouble = ""
   end
   src.pending, src.told_busy = false, false
   listed(src, staged ~= nil)
+end
+
+--- Whether the last stage staged nothing.
+function source.refused(src: source.View): boolean
+  return src.trouble ~= ""
+end
+
+--- The complaint about the file `name` (below the root) where the last stage staged nothing and the file is one of a
+--- declaration and a source of one module on disk, or nil: what a document of that file is told, at its first line. The pair
+--- is found as the build finds one, by the files a module may be written in ([`build.driver.candidates`]).
+function source.refusal(src: source.View, name: string): string?
+  -- A fixture of a test is no part of the program, as in a build ([`build.tree_program.skipped`]).
+  if src.trouble == "" or TreeProgram.skipped(name) then return nil end
+  local module = Declarations.module_of(name)
+  local declaration: string? = nil
+  local code: string? = nil
+  for _, file in ipairs(Driver.candidates(module)) do
+    local there, _ = Fs.exists(src.root .. "/" .. file)
+    if there == true then
+      if file:match("%.d%.tl$") ~= nil then
+        declaration = declaration or file
+      else
+        code = code or file
+      end
+    end
+  end
+  if declaration ~= nil and code ~= nil and (name == declaration or name == code) then
+    return Driver.pairing(declaration, code, module)
+  end
+  return nil
 end
 
 --- What to say once, on stderr and to the person, where the session's
@@ -674,9 +712,17 @@ end
 local function written_of(src: source.View, name: string, open: source.Open): Written?
   local found = src.modules[name]
   if found == nil or found.file:match("%.tmpl$") ~= nil then return nil end
+  local db, _ = database(src)
+  if found.origin ~= "tree" then
+    -- A generated module's `file` is the one it was generated from, whose staged text is what its places are lines of;
+    -- an open document of it is not read, for the places are the stage's.
+    if db == nil or staged_by_other(src, db) then return nil end
+    local data = first(db, "SELECT CAST(data AS TEXT) FROM files WHERE path = ?1", found.file)
+    if data == nil then return nil end
+    return { file = found.file, text = data }
+  end
   local opened = open(found.file)
   if opened ~= nil then return { file = found.file, text = opened.text } end
-  local db, _ = database(src)
   if db == nil or staged_by_other(src, db) then return nil end
   local held = first(db, "SELECT source FROM inputs WHERE file = ?1", found.file)
   if held == nil then return nil end
@@ -799,6 +845,53 @@ local function read_places(db: Sqlite.Handle, hash: string): {string:Spot}?, boo
   return held, derived
 end
 
+--- Where `name` first stands on `line` of `text` as a whole word, as a byte column; 1 where it does not stand there. A word
+--- right after an `@` is a tag of the annotation (`---@field`), not the name.
+local function column_in(text: string, line: integer, name: string): integer, integer
+  local at = 1
+  for _ = 2, line do
+    local newline = text:find("\n", at, true)
+    if newline == nil then return 1, 0 end
+    at = newline + 1
+  end
+  local stop = text:find("\n", at, true) or #text + 1
+  local row = text:sub(at, stop - 1)
+  local pattern = "%f[%w_]" .. name:gsub("%p", "%%%0") .. "%f[^%w_]"
+  local search = 1
+  while true do
+    local from, to = row:find(pattern, search)
+    if from == nil or to == nil then return 1, 0 end
+    if from == 1 or row:sub(from - 1, from - 1) ~= "@" then return from, to - from + 1 end
+    search = to + 1
+  end
+end
+
+-- TODO: derive the places of a mapped module from an open buffer of its origin file, once the stage can generate a module from
+-- an unsaved header: until then an open document of the header is ignored, so lines edited above a declaration and not yet
+-- saved shift the file's lines from the staged rows.
+
+-- TODO: answer a mapped module whose origin file is not staged (a header deleted since the stage, or a tree whose stage
+-- failed), once the stage keeps the generated module's rows apart from its origin: it answers none, silently.
+
+--- The places of a module generated from another file ([`build.syntax_derivation`]'s `origin_lines`), in that file's text
+--- `written`: the stage's rows, each at the line of the file, with the column of the symbol's last name where it stands
+--- on that line. The rows are the running analyzer's or none: a generated module is never derived here.
+local function mapped_places(src: source.View, found: Module, written: Written): source.Placed?
+  local spots: mut {string:Spot} = {}
+  if src.stubs then
+    local db, _ = database(src)
+    if db == nil then return nil end
+    local held, _ = read_places(db, found.source_hash)
+    if held == nil then return nil end
+    for symbol, spot in pairs(held) do
+      local last = symbol:match("([^.]+)$") or symbol
+      local column, length = column_in(written.text, spot.line, last)
+      spots[symbol] = { line = spot.line, column = column, length = length }
+    end
+  end
+  return { file = written.file, text = written.text, spots = spots }
+end
+
 -- TODO: serve the stub of an edited open document from its scratch `stubs` row, in place of the one made here ([`made_stub`],
 -- [`View`]'s `made`), once the scratch database is derived for every open document rather than at the first read of its places.
 
@@ -814,12 +907,15 @@ end
 --- analyzer's. Any other text, an open document that was edited or a file whose rows are another analyzer's, is derived
 --- into the scratch database ([`View`]'s `scratch`), once a text, and answered from the rows there; so is a file the
 --- stage could not parse (it has no `parsed` row), which has none if it does not parse here either. A module generated
---- from another file (`mapped`) has rows of none, and none of its symbols is found.
+--- from another file (`mapped`) answers from the rows its `-- line` map gave, in the text of that file ([`mapped_places`]).
 function source.places(src: source.View, name: string, open: source.Open): source.Placed?
   local found = src.modules[name]
   if found == nil then return nil end
   local written = written_of(src, name, open)
   if written == nil then return nil end
+  if found.origin ~= "tree" then
+    return mapped_places(src, found, written)
+  end
   local opened = open(found.file)
   local hash = found.source_hash
   if opened ~= nil then hash = opened.hash end

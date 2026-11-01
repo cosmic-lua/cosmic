@@ -170,7 +170,7 @@ local function walk(seed: integer, steps: integer)
       assert(Fs.write(path_of(index), text))
     elseif edit == 6 then
       what = "a declaration of " .. name
-      -- The module is written again as the other kind: a module has one type source.
+      -- The module is written again as the other kind: a module is a declaration or a source, never both.
       if node.present then
         assert(Fs.remove(path_of(index)))
       end

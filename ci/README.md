@@ -237,6 +237,10 @@ its unsupported operation is omitted on macOS, where ordinary launcher
 coverage remains. `summarize` appends these rows as a second table. The driver's self-check (`cosmic-driver
 test cosmic_ci`) is a step of its own and writes none.
 
+A fixture can leave figures with `Fixture.figure`. The job log shows them,
+each prefixed with the fixture's name, after the fixture runs. They appear
+only when the fixture actually runs, not when its verdict stands.
+
 `compiles-trim SINCE [RESTORED]` and `verdicts-trim SINCE|whole` are ci.yml's, run
 on every leg before its caches are saved. CI selects the cache
 `COSMIC_BUILD_CACHE` names, or every `.db` beside the file
@@ -704,8 +708,9 @@ verdicts, which would otherwise ride along whole in each save.
   narrowing run kept a `verdicts.db` of another 8700 rows nothing read.
 - `checked-narrowing` (`linux-x86_64-checked-narrowing-<part>`), the whole
   suite on a checked run (`--check-types`, `platform checked-narrowing`)
-  on the release tool, which stands on no verdict and reads no checked
-  core: it boots and keeps and saves nothing. Two jobs of one matrix, a
+  on the release tool, which restores and saves no verdict yet (a checked
+  run can stand on its own, doc/testing.md) and reads no checked core: it
+  boots and runs every test of its share. Two jobs of one matrix, a
   share of the tests each (`cosmic test --check-types --shard I/2`,
   `COSMIC_CI_NARROWING_SHARD`), bound to 900 s
   (`checked_narrowing_timeout_ns`): the whole run's 726 to 861 s are

@@ -1,4 +1,5 @@
 local Clock = require("cosmic.clock")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local ArtifactRow = require("cosmic_ci.artifact_row")
 local Fixture = require("cosmic_ci.fixture")
@@ -94,6 +95,28 @@ local function test_a_fixtures_children_run_cosmic_test_unsandboxed()
   assert(Fixture.environment_of(sandboxed, { COSMIC_TEST_SANDBOX = "1" })["COSMIC_TEST_SANDBOX"] ==
       "1", "a fixture cannot choose its child's sandbox")
   assert(Fixture.environment()["COSMIC_TEST_SANDBOX"] == "0")
+end
+
+--- A figure a fixture left is read back as the lines of its `.figure` files,
+--- in file-name order, and a second of the same name replaces the first.
+--- The test cannot set `COSMIC_FIXTURE_FIGURES` in its own process (`Env` has
+--- no setter), so it writes the files [`Fixture.figure`] writes, by its own
+--- layout, and checks that [`Fixture.figure`] with the variable unset (a test
+--- sees only the variables it declares) writes nothing and says so.
+local function test_figure_lines_read_back_what_a_fixture_left(tmp: string)
+  local directory = tmp .. "/figures"
+  Fixture.mkdir(directory)
+  assert(#Fixture.figure_lines(directory) == 0 and #Fixture.figure_lines(tmp .. "/absent") == 0)
+  Fixture.write(directory .. "/b.figure", "second: 2 ms\n")
+  Fixture.write(directory .. "/a.figure", "first: 1 ms\n")
+  Fixture.write(directory .. "/notes.txt", "not a figure\n")
+  local lines = Fixture.figure_lines(directory)
+  assert(#lines == 2 and lines[1] == "first: 1 ms" and lines[2] == "second: 2 ms")
+  Fixture.write(directory .. "/a.figure", "first: 5 ms\n")
+  assert(Fixture.figure_lines(directory)[1] == "first: 5 ms", "a rewritten figure kept its old line")
+  assert(Env.get(Fixture.figures_variable) == nil, "the test is given a figures directory")
+  assert(not Fixture.figure("unset", "no directory: 1 ms"), "a figure was written with no directory")
+  assert(#Fixture.figure_lines(directory) == 2, "a figure without a directory reached another")
 end
 
 --- A fixture that puts a tool in a copy of its tree says which tree the tool is built from, and nothing else of the
