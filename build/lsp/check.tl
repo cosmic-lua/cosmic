@@ -54,6 +54,7 @@ local TreeProgram = require("build.tree_program")
 local analysis_schema = require("build.analysis_schema")
 local graph = require("build.lsp.graph")
 local held = require("build.lsp.held")
+local hover = require("build.lsp.hover")
 local identity = require("build.identity")
 local importer = require("build.importer")
 local lines = require("build.lsp.lines")
@@ -588,15 +589,14 @@ local function listing_of(checker: Checker, document: Document): string
   return table.concat({ own, listed.path, listed.kind, listed.file }, "\0")
 end
 
--- TODO: key a kept result by the contents of the docs databases, once [`hover.sources`] says which version of them a handle
--- reads: a database written in place under the same handle moves no key.
---- The databases a message's hint looks a name up in now ([`importer_hints`]), by identity: a restage that opens them again
---- changes it.
+--- The databases a message's hint looks a name up in now ([`importer_hints`]), by identity and by the version each handle reads
+--- ([`hover.version`]): a restage that opens them again changes the first, a database written in place under the same
+--- handle the second.
 local function hints_key(checker: Checker): string
   local hinted = checker.hints()
   local parts: mut {string} = {}
   for n, handle in ipairs(hinted.databases) do
-    parts[#parts + 1] = tostring(handle) .. (if hinted.public[n] == true then "+" else "-" end)
+    parts[#parts + 1] = tostring(handle) .. (if hinted.public[n] == true then "+" else "-" end) .. hover.version(handle)
   end
   return table.concat(parts, "\0")
 end
