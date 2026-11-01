@@ -6,8 +6,8 @@
 ---
 --- A span is an integer of nanoseconds, which [`ms`], [`seconds`],
 --- [`minutes`] and [`hours`] make from a count (`Clock.seconds(5)`) and
---- [`ceil`] counts back in a coarser unit. [`cosmic.time`] answers each of
---- these under the same name, and names a moment and a span of the calendar.
+--- [`ceil`] counts back in a coarser unit. [`cosmic.time`] names a moment and
+--- a span of the calendar.
 
 local sys = require("cosmic.sys")
 

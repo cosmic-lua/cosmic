@@ -1,6 +1,5 @@
---- The calendar, in UTC and in time zones, and the clocks and spans of
---- [`cosmic.clock`], answered here under the same names. Every reading
---- is in nanoseconds, so nothing above this module carries a unit it has
+--- The calendar, in UTC and in time zones. Every reading is in
+--- nanoseconds, so nothing above this module carries a unit it has
 --- to remember. A moment is an integer of nanoseconds since
 --- 1970-01-01T00:00:00Z without leap seconds, so the calendar spans
 --- what 64 bits hold: 1677-09-21T00:12:43.145224192Z through
