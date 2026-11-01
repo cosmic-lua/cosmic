@@ -127,9 +127,10 @@ end
 --- (orchestration.tl's `say_figures`). That directory survives a passing
 --- run, as the test's own temporary directory does not.
 ---
---- A worker that a sandbox holds cannot write there (a policy takes no
---- grant to write), so a fixture that measures does so on a leg that holds
---- no worker in one, as the macOS leg's.
+--- A worker that a sandbox holds cannot write there: a policy grants private
+--- scratch writes, not a write to a host path such as this directory. A
+--- fixture that measures does so on a leg that holds no worker in one, as
+--- the macOS leg's.
 Fixture.figures_variable = "COSMIC_FIXTURE_FIGURES"
 
 --- Writes `line` as the figure `name` (letters, digits and `-`), replacing

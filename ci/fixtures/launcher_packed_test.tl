@@ -336,7 +336,9 @@ end
 --- written to a new file and run with no arguments, which it refuses with its
 --- usage status, then run again. The first run pays for validating the
 --- signature of a binary no process has run; the second runs the same file.
---- Three new files, the best of each run. The figure is the job log's
+--- Three new files with the same bytes, so one cdhash, and the raw times of
+--- each exec in run order: the later copies may be warm if macOS caches by
+--- cdhash, which the numbers show. The figure is the job log's
 --- ([`Fixture.figure`]), and stderr's where there is no orchestration.
 --- It asserts nothing about the times: it says them, not judges.
 local function test_the_first_exec_of_a_staged_stub_is_timed_on_macos(tmp: string)
@@ -357,19 +359,18 @@ local function test_the_first_exec_of_a_staged_stub_is_timed_on_macos(tmp: strin
       label .. " did not end with the stub's usage status; stderr=" .. answer.err)
     return took
   end
-  local first: integer? = nil
-  local second: integer? = nil
+  local firsts: mut {string} = {}
+  local seconds: mut {string} = {}
   for n = 1, 3 do
     local path = ctx.work .. "/stub-timed-" .. tostring(n)
     Fixture.write(path, stub, 0x1ed)
     local one = exec(path, "stub-first-" .. tostring(n))
     local two = exec(path, "stub-second-" .. tostring(n))
-    if first == nil or one < first then first = one end
-    if second == nil or two < second then second = two end
+    firsts[#firsts + 1] = tostring(one // 1000000)
+    seconds[#seconds + 1] = tostring(two // 1000000)
   end
-  local line = "launcher cold start: first exec of a new stub " .. tostring(assert(first) // 1000000) ..
-    " ms, second exec of it " .. tostring(assert(second) // 1000000) .. " ms, difference " ..
-    tostring((first - assert(second)) // 1000000) .. " ms"
+  local line = "launcher cold start: first exec of a new stub " .. table.concat(firsts, ", ") ..
+    " ms; second exec " .. table.concat(seconds, ", ") .. " ms"
   if not Fixture.figure("launcher-cold-start", line) then
     local _, _ = Fs.put(Fs.stderr, line .. "\n")
   end

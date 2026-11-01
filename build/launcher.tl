@@ -434,8 +434,8 @@ if [ "$cosmic_core_verified" != 1 ]; then
   # TODO: once the macos-aarch64 job log's `launcher cold start:` line (from
   # launcher_packed_test.tl's
   # `test_the_first_exec_of_a_staged_stub_is_timed_on_macos`) shows the first
-  # exec of a freshly written stub costing more than a few milliseconds over
-  # its second, keep the stub in the leaf under a content-named entry instead
+  # copy's first exec costing more than a few milliseconds over a second
+  # exec, keep the stub in the leaf under a content-named entry instead
   # of removing it, which needs the stamp and repair handling the core has.
   # A compressed core is decoded by the stub the arm names. The stub is cut
   # out first, from the shared descriptor, which nothing has read: `dd skip=`

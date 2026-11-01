@@ -1057,6 +1057,11 @@ local function prepare_fixture(c: Context, work: string, spec: FixtureSpec,
   mkdir(diagnostics)
   mkdir(diagnostics .. "/tmp")
   mkdir(diagnostics .. "/figures")
+  -- A work directory a run reuses holds an earlier attempt's figures, which
+  -- would be said again if this attempt wrote none.
+  for _, stale in ipairs((assert(Fs.list(diagnostics .. "/figures")))) do
+    if stale:match("%.figure$") then assert(Fs.remove(diagnostics .. "/figures/" .. stale)) end
+  end
   -- No --census: a fixture's run holds too few tests for its key parts
   -- to say much, and an unsandboxed one's are keyed by nothing.
   local env = environment(spec.extra)
@@ -1069,6 +1074,8 @@ local function prepare_fixture(c: Context, work: string, spec: FixtureSpec,
   return { project = project, command = command,
     out = diagnostics .. "/test.out", err = diagnostics .. "/test.err",
     figures = diagnostics .. "/figures",
+    -- The path is part of the fixture's declared key, so it must be the same
+    -- on every run: `work` is under $RUNNER_TEMP/cosmic-ci/platform.
     env = Maps.with(Orchestration.fixture_run(source, env, diagnostics .. "/tmp",
       work .. "/fixture-compiles.db"), { [Fixture.figures_variable] = diagnostics .. "/figures" }) }
 end
