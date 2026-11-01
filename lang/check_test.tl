@@ -496,6 +496,60 @@ local function test_each_case_has_its_error_with_place_message_and_fix()
   end
 end
 
+--- The first error of `source` with `code`, or a failure that prints what the source reported.
+local function first_error(source: string, code: Codes.Code): Codes.Error
+  local r = Programs.run(source)
+  assert(#r.before == 0, table.concat(r.before, " "))
+  for _, e in ipairs(r.errors) do
+    if e.code == code then
+      return e
+    end
+  end
+  error("no " .. code .. " in " .. Programs.codes(r))
+end
+
+local function test_the_default_of_a_value_a_test_made_non_nil_is_deleted_not_made_a_comparison()
+  -- `~= 0` for the integer left of `or` would only turn the error into `or_mix`.
+  for _, field in ipairs({ "stop_year: integer?", "stop_year?: integer" }) do
+    local e = first_error("local record C\n  " .. field .. "\nend\nlocal function f(c: C, y: integer): boolean\n" ..
+        "  if c.stop_year == nil or y <= (c.stop_year or 9999) then\n    return true\n  end\n  return false\nend\n",
+      "condition_type")
+    assert(has(e.msg, "`c.stop_year` is `integer`"), e.msg)
+    assert(has(e.fix, "never nil here"), e.fix)
+    assert(has(e.fix, "a test before may have narrowed it"), e.fix)
+    assert(has(e.fix, "delete `or ...`"), e.fix)
+    assert(not has(e.fix, "~= 0"), e.fix)
+  end
+  local generic = first_error("local function h<T>(x: T?, d: T): T\n  if x == nil then\n    return d\n  end\n  return x or d\nend\n",
+    "condition_type")
+  assert(has(generic.fix, "a type parameter may be nil or false"), generic.fix)
+  local own = first_error("local function g(y: integer?): integer\n  return (y or 9) or 3\nend\n", "condition_type")
+  assert(has(own.fix, "is never nil, so the default") and not has(own.fix, "narrowed"), own.fix)
+  local bare = first_error("local n = 1\nif n then\nend\n", "condition_type")
+  assert(has(bare.fix, "write the test: `n ~= 0`"), bare.fix)
+  local text = first_error("local s = \"a\"\nlocal t = s or \"b\"\n", "condition_type")
+  assert(has(text.fix, "delete `or ...`") and not has(text.fix, "~="), text.fix)
+end
+
+local TWO <const> = "local function two(): string?, string\n  return nil, \"x\"\nend\n"
+
+local function test_a_call_that_answers_several_values_as_the_last_argument_says_where_they_land()
+  local e = first_error(TWO .. "local function w(p: string, s: string, n: integer?)\nend\nw(\"a\", assert(two()))\n",
+    "not_assignable")
+  assert(has(e.fix, "`assert(two())` is the last argument and answers 2 values"), e.fix)
+  assert(has(e.fix, "value 2 lands in the following parameter"), e.fix)
+  assert(has(e.fix, "`(assert(two()))`"), e.fix)
+  assert(has(e.fix, "bind it to a local"), e.fix)
+  assert(has(e.fix, "`assert(f())` passes every value of `f()` through"), e.fix)
+  local arity = first_error(TWO .. "local function h(s: string)\nend\nh(assert(two()))\n", "arity")
+  assert(has(arity.fix, "`assert(two())` is the last argument and answers 2 values"), arity.fix)
+  assert(has(arity.fix, "are passed as further arguments"), arity.fix)
+  assert(has(arity.fix, "write `(assert(two()))`"), arity.fix)
+  -- A single-valued last argument, and a parenthesized call, have nothing to spill.
+  local plain = first_error("local function w(s: string, n: integer?)\nend\nw(\"a\", \"b\")\n", "not_assignable")
+  assert(not has(plain.fix, "values 2.."), plain.fix)
+end
+
 local function test_every_code_has_a_row_with_a_rule_a_reason_and_a_fix_and_the_catalog_names_each_once()
   local owned: mut {string: boolean} = {}
   for _, row in ipairs(Check.catalog) do

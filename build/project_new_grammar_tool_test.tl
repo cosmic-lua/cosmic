@@ -61,7 +61,7 @@ end
 
 --- That `text` is a refusal that speaks of no pin or ceiling, and holds each of `words`.
 local function refusal(result: Child.Result, text: string, words: {string})
-  assert(not result.ok and result.code == 1, text)
+  assert(not result.ok and result.code == 4, text)
   for _, word in ipairs(words) do
     assert(text:find(word, 1, true) ~= nil, word .. " is not in: " .. text)
   end

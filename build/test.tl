@@ -130,6 +130,7 @@ local progress = require("build.progress")
 local coverage_report = require("build.coverage")
 local c_functions = require("build.c_functions")
 local importer = require("build.importer")
+local exit_status = require("build.exit_status")
 local type Module = importer.Module
 local GrammarMode = require("build.grammar_mode")
 local plural = require("build.plural")
@@ -1698,13 +1699,14 @@ end
 --- The exit code to stop with, or nil to go on.
 local function build_tree(ctx: Run): integer?
   local handle, staged, started = assert(ctx.handle), assert(ctx.staged), assert(ctx.started)
+  local outcome: importer.Outcome = { refused = false }
   local result, compile_trouble = importer.compile(handle,
-    GrammarMode.tool(assert(ctx.tool), assert(ctx.grammar)), false, shared_compiles.for_build(), ctx.checks)
+    GrammarMode.tool(assert(ctx.tool), assert(ctx.grammar)), false, shared_compiles.for_build(), ctx.checks, nil, outcome)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
     log:complain(compile_trouble)
-    return 1
+    return if outcome.refused then exit_status.uncompiled else 1 end
   end
   local written, write_trouble =
     writer.write_result(handle, assert(ctx.database), result)
@@ -2530,7 +2532,17 @@ local function report(ctx: Run): integer
   end
   local _, _ = log:say("test: " .. test_report.failed(#failures, total + #assert(ctx.refusals),
     #errors, clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary), rec.not_run))
-  return 1
+  -- A refused module outranks a failing test: the tests ran on a tree that did not compile.
+  return if #assert(ctx.refusals) > 0 then exit_status.uncompiled else 1 end
+end
+
+--- The exit code of a run that stopped at `code` after the compile: [`exit_status.uncompiled`] in place of a 1 where a
+--- module its selectors name was refused, since a run that names none of the refused is not about them.
+local function stopped_at(ctx: Run, code: integer): integer
+  if code == 1 and #test.refusals_of(assert(ctx.result).refused, assert(ctx.selectors)) > 0 then
+    return exit_status.uncompiled
+  end
+  return code
 end
 
 --- Builds the tree in the working directory and runs every test it
@@ -2556,7 +2568,7 @@ local function run(argv: {string}): integer
   code = build_tree(ctx)
   if code ~= nil then return code end
   code = select_tests(ctx)
-  if code ~= nil then return code end
+  if code ~= nil then return stopped_at(ctx, code) end
   code = open_records(ctx)
   if code ~= nil then return code end
   make_recording(ctx)

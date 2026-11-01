@@ -54,7 +54,7 @@ local function says_how_it_went(tmp: string)
       if fail is {string} then
         local fail_in = case.fail_in
         local dir = if fail_in ~= nil then tmp .. "/" .. fail_in else tree end
-        local _ = verbs_fixture.expect(dir, verb, fail, 1)
+        local _ = verbs_fixture.expect(dir, verb, fail, case.fail_code or 1)
       end
     end
   end
