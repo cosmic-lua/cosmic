@@ -8,6 +8,8 @@
 #ifndef COSMIC_SQLITE_H
 #define COSMIC_SQLITE_H
 
+#include <stdbool.h>
+
 #include "lua.h"
 #include "sqlite3.h"
 
@@ -34,14 +36,15 @@ void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db);
 int cosmic_sqlite_functions (sqlite3 *db);
 
 /* Whether any of an SQL function's arguments is NULL, which the
- * functions here answer with NULL. */
-static inline int cosmic_any_null (int argc, sqlite3_value **argv) {
+ * functions of this module and of [`cosmic_vector_functions`] answer
+ * with NULL. */
+static inline bool cosmic_any_null (int argc, sqlite3_value **argv) {
   for (int i = 0; i < argc; i++) {
     if (sqlite3_value_type(argv[i]) == SQLITE_NULL) {
-      return 1;
+      return true;
     }
   }
-  return 0;
+  return false;
 }
 
 #endif

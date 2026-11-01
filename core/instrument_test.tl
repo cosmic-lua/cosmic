@@ -13,7 +13,7 @@ local checked = testing.configuration == "sanitized"
 --- checked one's instrument: in any other each raises, so no core that
 --- ships has an allocator a program can make fail.
 local function test_only_the_checked_core_instruments()
-  assert(testing.configuration ~= "")
+  assert(type(testing.configuration) == "string" and testing.configuration ~= "")
   local instruments: {string: function()} = {
     fail_allocations = function()
       testing.fail_allocations(1 << 40)

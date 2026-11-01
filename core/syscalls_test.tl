@@ -749,7 +749,7 @@ end
 
 local function test_cpu_count_is_at_least_one()
   local count = sys.cpu_count()
-  assert(count >= 1)
+  assert(math.type(count) == "integer" and count >= 1)
 end
 
 local function test_uname_reports_nonempty_sysname_and_machine()
@@ -758,6 +758,9 @@ local function test_uname_reports_nonempty_sysname_and_machine()
   assert(#names.sysname > 0, "sysname is nonempty")
   assert(#names.machine > 0, "machine is nonempty")
   assert(#names.release > 0, "release is nonempty")
+  -- Stable across a call: this is the running host, not a moving target.
+  local again = assert(sys.uname())
+  assert(again.sysname == names.sysname and again.machine == names.machine and again.release == names.release)
 end
 
 --- On Darwin `getifaddrs` lists the loopback interface's 127.0.0.1/8 and
@@ -848,8 +851,10 @@ local function test_environ_agrees_with_getenv()
   assert(sys.getenv("COSMIC_TEST_A_NAME_NOTHING_SETS") == nil)
 end
 
-local function test_getpid_is_positive()
-  assert(sys.getpid() > 0)
+local function test_getpid_is_stable_and_positive()
+  local pid = sys.getpid()
+  assert(pid > 0)
+  assert(sys.getpid() == pid)
 end
 
 --- A process's group is its own group's by pid as by 0; a pid no
@@ -977,7 +982,8 @@ end
 --- as on one with no sandbox, or once a sandbox's program is reaped.
 local function test_sandbox_inits_lists_the_inits_still_running()
   local before = process.sandbox_inits()
-  for _, pid in ipairs(before) do assert(pid > 0) end
+  assert(type(before) == "table")
+  for _, pid in ipairs(before) do assert(math.type(pid) == "integer" and pid > 0) end
   local names = assert(sys.uname())
   if names.sysname ~= "Linux" then assert(#before == 0) end
 end

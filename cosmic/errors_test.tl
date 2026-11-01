@@ -125,6 +125,7 @@ local function test_trace_of_names_where_a_coroutine_raised()
   assert(text:find("boom", 1, true) ~= nil, text)
   assert(text:find("inner", 1, true) ~= nil, text)
   assert(Errors.trace_of(worker):find("stack traceback:", 1, true) == 1)
+  assert(Errors.trace_of(worker, "it raised"):find("it raised\nstack traceback:", 1, true) == 1)
 end
 
 --- For the running coroutine the first frame is the caller's, as
