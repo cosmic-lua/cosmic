@@ -269,6 +269,9 @@ local record source
     --- Whether the extracted texts of the binary's modules no module of the running tool names are removed
     --- ([`source.extracted`]), which is done once.
     mut pruned: boolean
+    --- The SHA-256 of the texts whose `stubs` row alone is in `scratch` ([`scratch_stub`]), at most `MADE_HELD`: a text
+    --- derived whole later has that row taken out first, and all go when another would pass the most.
+    mut stub_only: mut {string:boolean}
     --- A private in-memory database of the analysis tables ([`AnalysisSchema.statements`] but the `inputs` view),
     --- made at the first text derived here; no `build.db` row is ever written to it or read from it as its own.
     mut scratch: Sqlite.Handle?
@@ -339,6 +342,7 @@ function source.new(root: string, err: function(line: string), carried?: string,
     carried_held = {},
     carried_count = 0,
     pruned = false,
+    stub_only = {},
     scratch = nil,
     scratched = {},
     underived = {},
@@ -871,6 +875,10 @@ local function derive(src: source.View, scratch: Sqlite.Handle, file: string, te
     src.tally.derived = src.tally.derived + 1
     return
   end
+  if src.stub_only[hash] == true then
+    src.stub_only[hash] = nil
+    forget_rows(scratch, hash)
+  end
   local ok, why = Derivation.insert(scratch, hash, file, text, chunk, false, nil, known)
   if not ok then
     forget_rows(scratch, hash)
@@ -960,6 +968,40 @@ function source.requires_of(src: source.View, found: Module, text: string, hash:
   return names
 end
 
+--- The stub of `text`, the file `file` whose SHA-256 is `hash`, of a source whose `stubs` rows in `build.db` are not the running
+--- analyzer's: its `stubs` row in the scratch database, written there from the parse alone ([`Derivation.insert_stub`]) the
+--- first time, in place of one made of the text ([`made_stub`]). A row a whole derivation of the text wrote stands as it is, and
+--- one this wrote is taken out before the text is derived whole ([`derive`]). nil for a text that does not parse or returns
+--- nothing at its top level, which has none; made here where the scratch database cannot be written.
+local function scratch_stub(src: source.View, file: string, text: string, hash: string): string?
+  if src.made[hash] == "" then return nil end
+  local scratch = scratch_of(src)
+  if scratch == nil then return made_stub(src, file, text, hash) end
+  local held = first(scratch, "SELECT text FROM stubs WHERE source_hash = ?1", hash)
+  if held ~= nil then return held end
+  local chunk, _ = Node.parse(text, file)
+  if chunk ~= nil then
+    local ok, _ = Derivation.insert_stub(scratch, hash, file, chunk)
+    if not ok then return made_stub(src, file, text, hash) end
+  end
+  local stub = first(scratch, "SELECT text FROM stubs WHERE source_hash = ?1", hash)
+  if stub == nil then
+    src.made = bounded(src.made)
+    src.made[hash] = ""
+    return nil
+  end
+  local count = 0
+  for _ in pairs(src.stub_only) do count = count + 1 end
+  if count >= MADE_HELD then
+    for each in pairs(src.stub_only) do
+      if not held_by_another(src, each, "") then forget_rows(scratch, each) end
+    end
+    src.stub_only = {}
+  end
+  src.stub_only[hash] = true
+  return stub
+end
+
 --- A stub and how it was found ([`open_stub`]): `kind` is `database` for a row of `build.db`, `scratch` for a row of the
 --- scratch database and `made` for one made of the text.
 local record Stubbed
@@ -1045,8 +1087,8 @@ function source.served(src: source.View, name: string, open: source.Open, uncoun
   local held = first(db, "SELECT source FROM inputs WHERE file = ?1", found.file)
   if held == nil then return nil end
   if not AnalysisSchema.is_declaration(found.kind) and not src.stubs then
-    local stubbed = made_stub(src, found.file, held, found.source_hash)
-    if stubbed ~= nil then return serving_as("made", stubbed, key) end
+    local stubbed = scratch_stub(src, found.file, held, found.source_hash)
+    if stubbed ~= nil then return serving_as("scratch", stubbed, key) end
   end
   return serving_as("source", held, key)
 end
@@ -1138,12 +1180,6 @@ local function mapped_places(src: source.View, found: Module, written: Written):
   local text = written.text
   return { file = written.file, text = function(): string? return text end, spots = spots }
 end
-
--- TODO: serve the stub of a source whose `stubs` rows are not the running analyzer's from its scratch `stubs` row, in place of
--- the one made here ([`made_stub`], [`View`]'s `made`, which the next 64 texts push out), once [`Derivation.insert`] can write
--- the stub of a text alone: deriving a module that is not open on demand writes its whole analysis (docs, links, places,
--- members) for the stub that [`made_stub`] has of the parse alone, for every module a check requires, so it is not done here.
--- A module asked for its places is derived whole already ([`source.places`]), and its `stubs` row is then in scratch.
 
 --- A function that reads the text of the module `found` once: an open document's, else the working database's. nil where the
 --- database cannot be read as [`source.served`] cannot. A read of the database is counted ([`source.Tally`]).
@@ -1384,6 +1420,7 @@ function source.close(src: source.View)
   end
   src.scratched = {}
   src.underived = {}
+  src.stub_only = {}
 end
 
 return source

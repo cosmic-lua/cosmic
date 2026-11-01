@@ -58,6 +58,12 @@ local record Derivation
   --- gives. `known` is as [`rows_of`] takes it.
   insert: function(db: Sqlite.Handle, source_hash: string, file: string, source: string, chunk: Ast.Chunk,
                    mapped: boolean, stub?: Stub.Made, known?: Known): boolean, string
+
+  --- Writes the `stubs` row of the source `source_hash`, the tree of which is `chunk`, and no other row: not the `parsed`
+  --- row either, so the source is not taken for a parse of the rows [`insert`] writes. The source has a stub only when it
+  --- returns a value at its top level; it is written none otherwise. A source that is inserted whole afterwards has this row
+  --- removed first.
+  insert_stub: function(db: Sqlite.Handle, source_hash: string, file: string, chunk: Ast.Chunk): boolean, string
 end
 
 local text = bind.text
@@ -139,6 +145,20 @@ function Derivation.rows_of(chunk: Ast.Chunk, source: string, file: string, mapp
   end
   return { requires = Node.requires(chunk), globals = Globals.found(chunk), places = places,
     members = Members.found(chunk), stub = stub, analysis = analysis, links = links }, ""
+end
+
+function Derivation.insert_stub(db: Sqlite.Handle, source_hash: string, file: string,
+                                chunk: Ast.Chunk): boolean, string
+  for _, stat in ipairs(chunk.body.stats) do
+    if stat.kind == "Return" then
+      local stub = Stub.made(chunk)
+      local ok, why = Sqlite.run(db, "INSERT INTO stubs (source_hash, text, pruned) VALUES (?1, ?2, ?3)",
+        { text(source_hash), text(stub.text), { integer = if stub.pruned then 1 else 0 end } })
+      if not ok then return false, file .. ": " .. why end
+      return true, ""
+    end
+  end
+  return true, ""
 end
 
 --- A row of `test_inputs`: a `field` of the declaration and its `value`.

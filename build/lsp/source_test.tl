@@ -1168,6 +1168,31 @@ local function test_the_extracted_texts_of_a_tool_built_again_are_removed()
   assert(db:close())
 end
 
+--- The stub of a module whose `stubs` rows are not the running analyzer's is its `stubs` row in the scratch database, written
+--- from the parse alone, and not one made of the text; a request for its members or places afterwards still derives the whole.
+local function test_a_stub_of_another_analyzer_is_a_scratch_row_and_a_later_whole_derivation_still_runs()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  src.stubs = false
+  local stub = assert(source.served(src, "lib.shapes", none_open))
+  assert(stub.text:find("sides", 1, true) ~= nil)
+  assert(next(src.made) == nil, "no stub was made of the text")
+  assert(src.tally.scratch_stubs == 1 and src.tally.derived == 0, tostring(src.tally.scratch_stubs))
+  local scratch = assert(src.scratch)
+  local hash = Hash.hex_sha256(THREE)
+  assert(rows_of(scratch, "stubs", hash) == 1 and rows_of(scratch, "parsed", hash) == 0, "a stub row, and no parse")
+  assert(assert(source.served(src, "lib.shapes", none_open)).text == stub.text and rows_of(scratch, "stubs", hash) == 1)
+  local members = assert(source.members(src, "lib.shapes", none_open))
+  assert(members["shapes"] ~= nil and src.tally.derived == 1, "the whole text is derived")
+  assert(rows_of(scratch, "parsed", hash) == 1 and rows_of(scratch, "stubs", hash) == 1)
+  assert(assert(source.served(src, "lib.shapes", none_open)).text == stub.text)
+  assert(next(src.made) == nil)
+  source.close(src)
+end
+
 --- A module whose first line holds non-ASCII before its type's name, and whose later lines are ASCII.
 local WIDE <const> = 'local s = "é😀" local record point\n  x: integer\nend\nreturn point\n'
 
