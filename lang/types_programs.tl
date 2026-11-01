@@ -342,8 +342,6 @@ function Programs.numbers(text: string): {integer}
   return out
 end
 
--- The parser ------------------------------------------------------------------------
-
 function Programs.reversed(list: {Types.Type}): {Types.Type}
   local out: mut {Types.Type} = {}
   for i = #list, 1, -1 do
@@ -352,6 +350,8 @@ function Programs.reversed(list: {Types.Type}): {Types.Type}
   end
   return out
 end
+
+-- The parser ------------------------------------------------------------------------
 
 function Programs.parse(store: Types.Store, fixture: Programs.Fixture, source: string): Types.Type?, string
   local _ = fixture
