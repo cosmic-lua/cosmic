@@ -870,6 +870,57 @@ local function test_zstd_corrupt_checksum_is_refused()
   assert(flipped_trouble == "compress: corrupt zstd data", flipped_trouble)
 end
 
+local function test_zstd_frame_short_of_its_declared_size_is_corrupt_however_split()
+  -- A single-segment frame that declares 72 bytes of content and ends on an
+  -- empty last block. zstd checks the size itself only when it decodes the
+  -- frame whole or ends it on a block holding data, so the answer used to
+  -- depend on how the input was split. Followed by a skippable frame, it
+  -- is the same.
+  local short = "\40\181\47\253\32\72\1\0\0"
+  for _, frame in ipairs({ short, short .. "\80\42\77\24\0\0\0\0" }) do
+    for size = 1, #frame do
+      local out, trouble = drive(assert(Compress.zstd_decoder()), frame, size)
+      assert(trouble == "compress: corrupt zstd data", ("split by %d: %q"):format(size, trouble))
+      assert(out == "", out)
+    end
+  end
+  -- Frames that keep their promise decode however they are split: an
+  -- empty frame that declares none, and a block of data that declares all.
+  local empty = "\40\181\47\253\32\0\1\0\0"
+  local one = "\40\181\47\253\32\1\9\0\0x"
+  for _, frame in ipairs({ empty, one }) do
+    for size = 1, #frame do
+      local out, trouble = drive(assert(Compress.zstd_decoder()), frame, size)
+      assert(trouble == "", ("split by %d: %q"):format(size, trouble))
+      assert(out == (if frame == one then "x" else "" end), out)
+    end
+  end
+  -- What is held of one frame is not carried into the next: a skippable
+  -- frame with a payload (whose length zstd reports as its content size),
+  -- and a frame that declares no size, each after one that declared 1.
+  local record Case
+    frames: string
+    want: string
+  end
+  local cases: {Case} = {
+    { frames = one .. "\80\42\77\24\4\0\0\0abcd", want = "x" },
+    { frames = one .. "\40\181\47\253\0\0\9\0\0y", want = "xy" },
+  }
+  for _, case in ipairs(cases) do
+    for size = 1, #case.frames do
+      local out, trouble = drive(assert(Compress.zstd_decoder()), case.frames, size)
+      assert(trouble == "", ("split by %d: %q"):format(size, trouble))
+      assert(out == case.want, ("split by %d: %q"):format(size, out))
+    end
+  end
+  -- A second frame short of its declared size is corrupt as the first is.
+  local twice = one .. short
+  for size = 1, #twice do
+    local _, trouble = drive(assert(Compress.zstd_decoder()), twice, size)
+    assert(trouble == "compress: corrupt zstd data", ("split by %d: %q"):format(size, trouble))
+  end
+end
+
 local function test_zstd_malformed_frame_header_is_corrupt()
   -- The frame header descriptor's bit 3 is reserved and must be zero:
   -- ZSTD_getFrameHeader refuses the header before any window is judged.

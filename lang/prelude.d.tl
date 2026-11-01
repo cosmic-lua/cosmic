@@ -1,3 +1,4 @@
+--- @kind language
 -- The definitions that are core to the language, valid before the standard library loads, as the new checker reads them.
 --
 -- `any`, `thread` and `userdata` are no declarations: the first two are primitive types, and a `userdata` record is

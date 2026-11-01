@@ -62,7 +62,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     ["build/derivation.tl"] = module_of("derivation", { "ast", "thing" }),
     ["build/ast.tl"] = module_of("ast", { "raw" }),
     ["build/thing.tl"] = module_of("thing", {}),
-    ["build/raw.d.tl"] = "local record raw\n  n: integer\nend\nreturn raw\n",
+    ["build/raw.d.tl"] = "--- @kind binding\nlocal record raw\n  n: integer\nend\nreturn raw\n",
     ["build/other.tl"] = module_of("other", {}),
     -- The checker of the tree, which the tool a boot writes carries and the binary running the boot does not.
     ["build/pipeline.tl"] = module_of("pipeline", { "helper" }),

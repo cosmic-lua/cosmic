@@ -736,7 +736,7 @@ local function test_a_close_variable_closes_the_response()
     kept = response
   end
   local chunk, trouble = kept:read()
-  assert(chunk == nil and trouble:find("closed", 1, true) ~= nil, trouble)
+  assert(chunk == nil and trouble == "http: the response is closed", trouble)
   local again, again_trouble = kept:close() -- closing again is harmless
   assert(again and again_trouble == "")
 end
@@ -1209,6 +1209,22 @@ local function test_decompress_asks_for_and_decodes_each_coding()
     assert(response.headers["content-length"] == tostring(#body))
     assert(response.status == 200 and response.url == url)
   end
+end
+
+local function test_a_close_variable_closes_a_decoded_response()
+  local kept: Http.Response
+  do
+    local response <close> = assert(Http.open(url, { decompress = true,
+      script = { reply("200 OK", "Content-Encoding: gzip\r\n", encoded("gzip", "x")) } }))
+    kept = response
+    assert(response:read() == "x")
+  end
+  local chunk, trouble = kept:read()
+  assert(chunk == nil and trouble == "http: the response is closed", trouble)
+  local again, again_trouble = kept:close() -- closing again is harmless
+  assert(again and again_trouble == "")
+  local ok, err = pcall(function() kept:sent() end)
+  assert(not ok and tostring(err):find("http: the response is closed", 1, true) ~= nil, tostring(err))
 end
 
 local function test_decompress_decodes_stacked_codings_last_first()

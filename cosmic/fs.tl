@@ -8,7 +8,7 @@
 ---
 --- A descriptor from [`Fs.open_read`] or [`Fs.open_write`] is a plain
 --- integer, closed with [`Fs.close`], so a `<close>` variable cannot hold
---- it. One holds a value whose type has a `__close` metamethod, written
+--- it. One holds a value whose type has a [`__close`] metamethod, written
 --- `local h <close> = assert(Child.start(argv))`: `assert` narrows the
 --- `T | nil` an opener answers, which `<close>` refuses, to `T`.
 ---
@@ -23,6 +23,26 @@
 
 local Env = require("cosmic.env")
 local sys = require("cosmic.sys")
+
+--- A private directory made by [`Fs.scratch`], removed with everything
+--- in it when a `<close>` variable holding it ends its scope.
+local class Scratch
+  --- The directory, a child of the one [`Fs.scratch`] was given.
+  path: string
+  --- A descriptor of the `owner` file inside `path`, which is on the
+  --- directory's own filesystem and locked for as long as the
+  --- scratch directory is open. Leave the file alone, and neither
+  --- read nor close the descriptor.
+  mut owner: integer
+
+  function __close(self)
+    -- A second close would close whatever descriptor reused `owner`.
+    if self.owner < 0 then return end
+    local _, _ = sys.remove_tree(self.path)
+    local _, _ = sys.close(self.owner)
+    self.owner = -1
+  end
+end
 
 local record Fs
   --- What a path is and what it holds.
@@ -66,18 +86,7 @@ local record Fs
     make?: boolean
   end
 
-  --- A private directory made by [`Fs.scratch`], removed with everything
-  --- in it when a `<close>` variable holding it ends its scope.
-  record Scratch
-    --- The directory, a child of the one [`Fs.scratch`] was given.
-    path: string
-    --- A descriptor of the `owner` file inside `path`, which is on the
-    --- directory's own filesystem and locked for as long as the
-    --- scratch directory is open. Leave the file alone, and neither
-    --- read nor close the descriptor.
-    owner: integer
-    __close: function(Scratch)
-  end
+  type Scratch = Scratch
 
   --- The descriptor of standard input, 0: what [`Fs.take`] reads from.
   stdin: integer
@@ -634,16 +643,6 @@ local descriptor_mt: metatable<Descriptor> = {
   __close = function(self: Descriptor) local _, _ = sys.close(self.fd) end,
 }
 
-local scratch_mt: metatable<Fs.Scratch> = {
-  __close = function(self: Fs.Scratch)
-    -- A second close would close whatever descriptor reused `owner`.
-    if self.owner < 0 then return end
-    local _, _ = Fs.remove_tree(self.path)
-    local _, _ = sys.close(self.owner)
-    self.owner = -1
-  end,
-}
-
 --- A fresh, empty, private directory under `parent`, which must exist,
 --- and a `.scratch-gate` file there. The directory is removed, with its
 --- contents, when the result's `<close>` variable ends its scope. A
@@ -696,8 +695,7 @@ function Fs.scratch(parent: string): Fs.Scratch?, string
     local _, _ = Fs.remove_tree(path)
     return nil, path .. "/owner: " .. owner_trouble
   end
-  local owned: Fs.Scratch = { path = path, owner = owner }
-  local holding = setmetatable(owned, scratch_mt)
+  local holding: Fs.Scratch = { path = path, owner = owner }
   local held, hold_trouble = sys.flock(owner, "exclusive", 0)
   if not held then
     local _cleanup <close> = holding
@@ -748,7 +746,7 @@ end
 --- [`Fs.read`]; use Fs.take and Fs.close when a file must be read in pieces.
 function Fs.open_read(path: string): integer?, string
   -- TODO: a descriptor a `<close>` variable can hold (a record with
-  -- `__close` over the fd), here and in open_write, so a file read or
+  -- [`__close`] over the fd), here and in open_write, so a file read or
   -- written in pieces is closed on every way out of its block: callers
   -- write `local f <close> = assert(Fs.open_read(path))` and meet an
   -- integer, which `<close>` refuses.

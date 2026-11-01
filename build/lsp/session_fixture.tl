@@ -180,6 +180,17 @@ function session_fixture.carrying(path: string, file: string, text: string, plac
   return db
 end
 
+--- A database as the tool carries one for a module generated from a header: the module `path` has no `modules` row, its
+--- `places` hold the lines of the header `file` (text `header`) and `origins` holds the header.
+function session_fixture.carrying_origin(path: string, file: string, header: string, places: {{string}}): Sqlite.Handle
+  local db = session_fixture.carrying("cosmic.unused", "cosmic/unused.tl", "", places)
+  assert(db:exec("DELETE FROM modules"))
+  assert(db:exec("UPDATE places SET module = '" .. path .. "'"))
+  assert(Sqlite.run(db, "INSERT INTO origins (module, file, sha256, source) VALUES (?1, ?2, ?3, deflate(?4))",
+    { { text = path }, { text = file }, { text = Hash.hex_sha256(header) }, { text = header } }))
+  return db
+end
+
 --- A new directory that is a project to a session ([`made_project`]).
 function session_fixture.project(): string
   return session_fixture.made_project((assert(Fs.mkdtemp("cosmic-lsp-"))))

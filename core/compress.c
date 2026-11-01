@@ -190,6 +190,9 @@ struct stream {
   int zhdr_ok;       /* zstd: the current frame's header has been checked */
   int zdrain;        /* zstd: the last step stopped at the output limit, so
                         zstd may hold output it can give with no input */
+  unsigned long long zsize; /* zstd: the content size the current frame declares,
+                               or ZSTD_CONTENTSIZE_UNKNOWN */
+  unsigned long long zmade; /* zstd: the bytes the current frame has decoded to */
 
   /* Encoder state. */
   tdefl_compressor *tdefl;
@@ -659,6 +662,8 @@ static int zstd_step (struct stream *s, const unsigned char *p, size_t n,
       *err = "zstd window larger than the limit";
       return STEP_ERROR;
     }
+    s->zsize = h.frameType == ZSTD_frame ? h.frameContentSize : ZSTD_CONTENTSIZE_UNKNOWN;
+    s->zmade = 0;
     s->zhdr_ok = 1;
   }
   s->zdrain = 0;
@@ -674,11 +679,20 @@ static int zstd_step (struct stream *s, const unsigned char *p, size_t n,
     size_t rc = ZSTD_decompressStream(s->zd, &o, &in);
     i += in.pos;
     sink_add(out, s->slice, o.pos);
+    s->zmade += o.pos;
     if (ZSTD_isError(rc)) {
       *err = zstd_why(rc);
       return STEP_ERROR;
     }
     if (rc == 0) {
+      /* RFC 8878 makes a declared content size the frame's size. zstd
+       * checks it itself only when it decodes the frame whole or ends it
+       * on a block that holds data, so a frame that ends on an empty last
+       * block would pass or fail by how its input was split. */
+      if (s->zsize != ZSTD_CONTENTSIZE_UNKNOWN && s->zmade != s->zsize) {
+        *err = "corrupt zstd data";
+        return STEP_ERROR;
+      }
       *used = i;
       return STEP_END;
     }

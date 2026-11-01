@@ -128,6 +128,17 @@ local tables: {Definition} = {
                   doc TEXT NOT NULL,
                   PRIMARY KEY (module, ordinal)) WITHOUT ROWID]] },
 
+  -- The file a standard-library module generated from another file (the
+  -- syscall modules, from `core/*.h`) is generated from, raw-deflated like a
+  -- source, beside the module's `places`, which hold the lines of that file
+  -- ([`build.syntax_derivation`]'s `origin_lines`). `cosmic lsp` writes the
+  -- file below the build directory and answers there. `sha256` is the
+  -- file's, as hex. Only cosmic's own projection and the tool fill it.
+  { name = "origins", body = [[(module TEXT PRIMARY KEY,
+                  file TEXT NOT NULL,
+                  sha256 TEXT NOT NULL,
+                  source BLOB NOT NULL) WITHOUT ROWID]] },
+
   -- A project's static assets ([`Layout.static`]), one row per
   -- file under `static/`: `path` relative to it ("css/app.css"), the
   -- bytes, their lowercase hex SHA-256, the Content-Type

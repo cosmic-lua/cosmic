@@ -94,7 +94,7 @@ local function example_source(spec: Spec): string
 end
 
 local function declaration_source(spec: Spec): string
-  return "--- Declared " .. spec.name .. " " .. tostring(spec.declared) .. ".\nlocal record M\n" ..
+  return "--- @kind binding\n--- Declared " .. spec.name .. " " .. tostring(spec.declared) .. ".\nlocal record M\n" ..
     "  value: function(): integer\nend\nreturn M\n"
 end
 

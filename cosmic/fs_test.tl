@@ -414,9 +414,8 @@ end
 
 local function test_a_second_close_of_a_scratch_leaves_a_reused_descriptor(tmp: string)
   local scratch = assert(Fs.scratch(tmp))
-  local close = (getmetatable(scratch) as metatable<Fs.Scratch>).__close as function(Fs.Scratch)
   local owner = scratch.owner
-  close(scratch)
+  scratch:__close()
   local opened: mut {integer} = {}
   local reused: integer?
   for i = 1, 64 do
@@ -428,7 +427,7 @@ local function test_a_second_close_of_a_scratch_leaves_a_reused_descriptor(tmp: 
     end
   end
   assert(reused ~= nil, "open hands the freed descriptor out again")
-  close(scratch)
+  scratch:__close()
   assert(sys.fstat(reused) ~= nil, "a second close must not close the descriptor open reused")
   for _, fd in ipairs(opened) do local _, _ = sys.close(fd) end
 end

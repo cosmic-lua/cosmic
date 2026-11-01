@@ -169,3 +169,22 @@ local function test_a_function_is_called_with_its_parameters_wherever_it_came_fr
       "local bag: Bag = { insert = function(_l: {string}, _v: string) end }\nbag.insert({}, 1)\n", "not_assignable")
   refused("local function f(a: integer)\nend\nf(\"x\")\nf(1, 2)\nf()\n", "not_assignable arity arity")
 end
+
+--- A type declared in a function's body is named by the lowering as its module, `@` and its node's id, which only the
+--- body can name: no value of it reaches another module. A function declares what it returns, outside the body; a
+--- field, a parameter or an outer record's field cannot name it; `any` takes no typed value; and a type of the same name
+--- as one outside is another type. ([`build.lsp.definition`] therefore looks up a type of another module named so only
+--- among its top-level declarations of a repeated name.)
+local function test_a_value_of_a_type_declared_in_a_body_reaches_nothing_outside_it()
+  local body = "  local record R\n    x: integer\n  end\n  local r: R = { x = 1 }\n"
+  refused("local function make()\n" .. body .. "  return r\nend\nlocal _ = make()\n", "return_unexpected value_count")
+  refused("local record Outer\n  inner: any\nend\nlocal function make(): Outer\n" .. body ..
+      "  return { inner = r }\nend\nlocal _ = make()\n", "any_use")
+  -- A body's type of the name of one outside is a shadowing, which the scopes refuse before the checker is asked.
+  local shadowing = Programs.run("local record Box\n  a: integer\nend\nlocal function make(): Box\n" ..
+      "  local record Box\n    b: integer\n  end\n  local x: Box = { b = 1 }\n  return x\nend\nlocal _ = make()\n")
+  assert(#shadowing.before == 1 and shadowing.before[1]:find("shadows", 1, true) ~= nil,
+    table.concat(shadowing.before, " "))
+  refused("local record Holder\n  last: integer\nend\nlocal h: Holder = { last = 1 }\nlocal function make()\n" .. body ..
+      "  h.last = r\nend\nmake()\n", "field_fixed not_assignable")
+end

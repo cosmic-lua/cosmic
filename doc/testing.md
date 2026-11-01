@@ -411,8 +411,9 @@ wrongly is a failing test and a row of `type_violations` of a real run ([`build/
 
 CI runs the whole suite so in the `checked-narrowing` jobs of a full run,
 two shares of it (`cosmic-driver cosmic_ci/driver.tl platform
-checked-narrowing`, `--check-types --shard I/2`), and
-`bin/cosmic test --check-types` runs it anywhere.
+checked-narrowing`, `--check-types --shard I/2`), standing on the checked
+verdicts of earlier runs as the legs' suites stand on theirs (ci/README.md's
+`checked-narrowing`), and `bin/cosmic test --check-types` runs it anywhere.
 
 ## fuzz tests
 

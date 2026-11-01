@@ -39,7 +39,7 @@ function Globals.found(chunk: Ast.Chunk): {Globals.Place}
   Node.walk(chunk, function(node: Ast.Node)
     local declared = Node.declared(node)
     local scope: Ast.Scope? = nil
-    if (node.kind == "Local") then
+    if node.kind == "Local" then
       scope = node.scope
     elseif declared ~= nil then
       scope = declared.scope

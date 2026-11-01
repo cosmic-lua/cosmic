@@ -398,25 +398,20 @@ local function scope_names(index: Index, bound: {integer: string}): {integer: st
   return out
 end
 
---- The line of the token with index `token`.
-local function line_at(subject: Subject, token: integer): integer
-  return Lexer.y(subject.chunk.tokens, token)
-end
-
 --- The line the fork gives a node: the open parenthesis of a call, the operator of a binary or cast operation, the
 --- first token of anything else.
 local function line_of(subject: Subject, n: Ast.Node): integer
   local base = Node.base(n)
   if (n.kind == "Call") then
-    return line_at(subject, Node.base(n.callee).last + 1)
+    return Report.line(subject, Node.base(n.callee).last + 1)
   elseif (n.kind == "MethodCall") then
-    return line_at(subject, Node.base(n.object).last + 3)
+    return Report.line(subject, Node.base(n.object).last + 3)
   elseif (n.kind == "Binary") then
-    return line_at(subject, Node.base(n.left).last + 1)
+    return Report.line(subject, Node.base(n.left).last + 1)
   elseif (n.kind == "Cast") then
-    return line_at(subject, Node.base(n.value).last + 1)
+    return Report.line(subject, Node.base(n.value).last + 1)
   end
-  return line_at(subject, base.first)
+  return Report.line(subject, base.first)
 end
 
 local function is_empty_string(n: Ast.Node): boolean
@@ -594,7 +589,7 @@ local function check_function(run: Run, fn: Ast.Node, parts: Parts, stand_in: bo
     local handed_on = stand_in and e1 ~= nil and e2 ~= nil and e3 ~= nil and #exps == 3 and
       (e1.kind == "Name") and (e2.kind == "Name") and (e3.kind == "Name")
     if e1 ~= nil and e2 ~= nil and not handed_on and not is_empty_string(e2) and not is_failure(e1, effect) then
-      report(run, line_at(run.subject, Node.base(r).first), string.format(
+      report(run, Report.line(run.subject, Node.base(r).first), string.format(
         "%s: a failure answers %s beside its reason, never a value; a success's reason is \"\"", name,
         if effect then "false" else "nil" end))
     end
@@ -1163,7 +1158,7 @@ local function exported_functions(run: Run): {Exported}
         end
       end
       for _, member in ipairs(members_of(n)) do
-        local at = line_at(subject, Node.base(member).first)
+        local at = Report.line(subject, Node.base(member).first)
         if (member.kind == "FieldDecl") then
           -- A field of a function type is a function the module exports, written as the type or as a name that stands for
           -- it (`local type F = function(...)`, then `spread: F`): the type the checker gave the field is the one judged.
@@ -1464,7 +1459,7 @@ local function check_stutter(run: Run)
         judged(run, "types")
         local rest = repeated(module_name, field)
         if rest ~= nil then
-          report(run, line_at(run.subject, Node.base(member).first), string.format(
+          report(run, Report.line(run.subject, Node.base(member).first), string.format(
             "%s.%s: a type repeats its module's name, which every use already says; call it %s", path, field,
             if rest ~= "" then path .. "." .. rest else "by what it is" end))
         end
@@ -1511,7 +1506,7 @@ local function string_fields(run: Run): {Types.Decl: {string: Declared}}
       if (member.kind == "FieldDecl") then
         if decl ~= nil and stringish(subject.types[Node.base(member.type).id]) and path:match("Options$") ~= nil then
           local own = out[decl] or {}
-          own[member.name.name] = { path = path .. "." .. member.name.name, y = line_at(subject, Node.base(member.type).first) }
+          own[member.name.name] = { path = path .. "." .. member.name.name, y = Report.line(subject, Node.base(member.type).first) }
           out[decl] = own
         end
       elseif (member.kind == "Record") or (member.kind == "Interface") or (member.kind == "Class") then
@@ -1760,7 +1755,7 @@ function SyntaxContracts.check(subject: Subject, given?: Rules.Exemptions, decla
       for _, part in ipairs(n.path) do
         names[#names + 1] = part.text
       end
-      run.static_lines[table.concat(names, ".")] = line_at(subject, Node.base(n).first)
+      run.static_lines[table.concat(names, ".")] = Report.line(subject, Node.base(n).first)
     end
   end
   for _, rule in ipairs(SyntaxContracts.rules) do

@@ -39,10 +39,10 @@ local analyzer_tree: {string:string} = {
   ["build/ast.tl"] = "local raw = require(\"build.raw\")\n" ..
     "local record ast\n  n: integer\nend\nast.n = raw.n\nreturn ast\n",
   ["build/thing.tl"] = "local record thing\n  n: integer\nend\nthing.n = 2\nreturn thing\n",
-  ["build/raw.d.tl"] = "local record raw\n  n: integer\nend\nreturn raw\n",
+  ["build/raw.d.tl"] = "--- @kind binding\nlocal record raw\n  n: integer\nend\nreturn raw\n",
   -- Declares a global, whose row a taken parse must carry as it does the rest.
   ["build/other.tl"] = "--- Other.\nlocal record other\n  n: integer\nend\nother.n = 3\nreturn other\n",
-  ["build/counter.d.tl"] = "global count: integer\n",
+  ["build/counter.d.tl"] = "--- @kind binding\nglobal count: integer\n",
 }
 
 --- The source `analyzer_tree` holds for `name`, which the case knows is there.
