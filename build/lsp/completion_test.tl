@@ -354,8 +354,44 @@ local function test_a_receiver_that_is_a_method_call_is_taken_for_the_type_the_m
   assert(offered(base, head .. 'local _ = c:me():me().|\n', { "n" }) == "n")
 end
 
+local function test_a_receiver_is_found_after_two_separate_edits_since_the_last_parse()
+  local base = POINT .. 'local _ = p\n'
+  -- A line added at the top and another statement after the one typed, which does not parse either, so the text is not
+  -- checked as typed: the texts share nothing at their starts, and a line at their ends is all they share.
+  assert(offered(base, '-- a comment\n' .. POINT .. 'local _ = p.|\nlocal z = )\n', { "x", "y" }) == "x,y")
+  -- A change of line endings.
+  assert(offered(base, (POINT .. 'local _ = p.|\nlocal z = )\n'):gsub("\n", "\r\n"), { "x", "y" }) == "x,y")
+end
+
+local NARROW <const> = 'local record Cat\n  meow: integer\nend\nlocal record Dog\n  bark: integer\nend\n' ..
+  'local function a(x: Cat | Dog)\n  if x is Cat then\n    local _ = 1\n  end\nend\nreturn a\n'
+
+local function test_a_name_just_typed_where_it_is_narrowed_has_the_type_it_was_narrowed_to()
+  -- The last text that parsed reads `x` nowhere in the `if`; the text with the read is checked to type it.
+  assert(offered(NARROW, (NARROW:gsub("local _ = 1", "local _ = x.|", 1)), { "meow", "bark" }) == "meow")
+  local dog = NARROW:gsub("x is Cat", "x is Dog", 1)
+  assert(offered(NARROW, (dog:gsub("local _ = 1", "local _ = x.|", 1)), { "meow", "bark" }) == "bark")
+end
+
+local function test_a_call_typed_since_the_last_parse_is_typed_with_the_type_arguments_it_is_given()
+  local base = POINT .. 'local function first<T>(list: {T}): T\n  return list[1]\nend\nlocal many: {Point} = { p }\nlocal _ = 1\n'
+  -- The result of a generic function is its type parameter until the call is checked.
+  assert(offered(base, base:sub(1, -13) .. 'local _ = first(many).|\n', { "x", "y", "origin" }) == "x,y")
+end
+
+local function test_a_name_declared_since_the_last_parse_is_offered_and_typed()
+  local base = POINT .. 'local _ = 1\n'
+  assert(offered(base, POINT .. 'local q: Point = Point.origin()\nlocal _ = q.|\n', { "x", "y" }) == "x,y")
+  assert(offered(base, POINT .. 'local fresh = 2\nlocal _ = fre|\n', { "fresh", "p" }) == "fresh")
+end
+
 local function test_a_name_declared_again_since_the_last_parse_is_not_typed_by_the_old_binding()
   local base = POINT .. 'local _ = p\n'
+  -- Another statement that does not parse: the text is not checked as typed, and the lines edited say what was declared.
+  assert(offered(base, POINT .. 'local p = { z = 1 }\nlocal _ = p.|\nlocal z = )\n', { "x", "y" }) == "")
+  assert(offered(base, POINT .. 'local q = { z = 1 }\nlocal _ = p.|\nlocal z = )\n', { "x", "y" }) == "x,y")
+  assert(offered(base, POINT .. 'local function f(p) return p end\nlocal _ = p.|\nlocal z = )\n', { "x", "y" }) == "x,y")
+  assert(offered(base, POINT .. 'for p in pairs({}) do\nlocal _ = p.|\nend\nlocal z = )\n', { "x", "y" }) == "")
   assert(offered(base, POINT .. 'local p = { z = 1 }\nlocal _ = p.|\n', { "x", "y" }) == "")
   -- A name the typed text leaves alone keeps its type.
   assert(offered(base, POINT .. 'local q = { z = 1 }\nlocal _ = p.|\n', { "x", "y" }) == "x,y")

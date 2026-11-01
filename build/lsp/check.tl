@@ -802,6 +802,27 @@ function check.last(checker: Checker, document: Document): check.Last?
     text = parsed.basis.text }
 end
 
+--- What completion reads of `document` when its text does not parse (it is being typed): the reading of `text`, the text of the
+--- document with what is needed to parse it (a name where the word is being typed, a statement made of a receiver), checked
+--- as it would be if the person had typed it. nil where that is no text a build reads or its check read nothing. The check is
+--- made by a document of its own that nothing opens, so that what the document last published and what it kept stand; it
+--- counts as no check of the document, and the program reads the document's text again at the next real check
+--- ([`held.document`]).
+function check.probe(checker: Checker, document: Document, text: string): check.Reading?
+  local probe = check.document(document.uri, document.name, text, document.outside)
+  probe.requires = document.requires
+  local checks, ran = checker.checks[document.name], checker.ran[document.name]
+  local reading = check.read(checker, probe)
+  if checks == nil then
+    checker.checks[document.name] = nil
+  else
+    checker.checks[document.name] = checks
+  end
+  if ran == nil then checker.ran[document.name] = nil else checker.ran[document.name] = ran end
+  forget(checker, probe, true)
+  return reading
+end
+
 --- The byte `offset` (from 1) of the text the reading was of, as the checker's text has it: a build put text in the one
 --- the person has before the checker read it, which moves the bytes after it ([`Reading`]'s `splices`).
 function check.checker_offset(reading: check.Reading, offset: integer): integer
