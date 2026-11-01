@@ -136,6 +136,7 @@ local function test_an_unjudged_build_keeps_a_module_whose_stub_it_refuses(tmp: 
     local handle, tool = own_tree(tmp)
     local result, trouble = importer.compile(handle, tool, true)
     assert(result ~= nil, trouble)
+    assert(#result.refused == 0, table.concat(result.refused, "\n"))
     assert(work.close(handle))
   end)
 end

@@ -77,13 +77,6 @@ local function loaded(file: string, code: string): standalone.Main?, string
   return chunk, ""
 end
 
---- `file`'s Teal, checked and compiled to Lua by the new checker ([`build.pipeline`]): nil and every complaint it has when
---- the file is not clean. The standard library's declarations are the new checker's, the ones the tool carries
---- ([`build.checker_declarations`]).
-local function generate_new(file: string, source: string, options: Pipeline.Options): string?, string
-  return Pipeline.lone(file, source, options)
-end
-
 --- `file`'s Teal, checked and compiled to Lua -- from the cache when this
 --- binary compiled these exact bytes cleanly before, and kept there when
 --- not. The cache is found through `variables` when given (as
@@ -119,7 +112,7 @@ function standalone.code(file: string, source: string, variables?: {string:strin
       options = { globals = options.globals, ceilings = options.ceilings, types = options.types,
         standard = Pipeline.carried_own(), project = options.project }
     end
-    local generated, generate_trouble = generate_new(file, source, options)
+    local generated, generate_trouble = Pipeline.lone(file, source, options)
     if generated == nil then
       return nil, generate_trouble
     end
