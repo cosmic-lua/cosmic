@@ -35,9 +35,6 @@
 -- TODO: answer the value of an enum that a string literal stands for, once the type report keeps the enum a literal was read
 -- as: the report types the literal `"w"` as the string, and the enum's values are found only by a member access.
 
--- TODO: read the result of the last check in place of checking the document again, once the session's program keeps a
--- module's result across the check of another document ([`build.lsp.held`]): each request costs a check of the document.
-
 local Ast = require("lang.ast")
 local Driver = require("build.driver")
 local Lexer = require("lang.lexer")

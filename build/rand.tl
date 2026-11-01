@@ -1,17 +1,33 @@
---- `cosmic rand`: a UUID, a token, a number or a shuffled list, for the
---- ten-second question ("give me an id", "pick one of these") that a
---- script costs more than.
+--- `cosmic rand`: a UUID, a token, a number, a shuffled list or a draw
+--- from a normal or gamma distribution, for the ten-second question
+--- ("give me an id", "pick one of these") that a script costs more than.
 ---
 --- WHERE THE BYTES COME FROM. Everything secret-grade -- `uuid`, `token`,
---- and `int`, `pick` and `shuffle` without `--seed` -- is drawn from the
---- operating system's entropy source, [`Rand.entropy`], and from nothing
---- else: `fetch` below is the one read of it, through `secret`, and no
---- seeded generator is ever reached from those paths. `--seed <n>` is
---- the other road and the only one to [`Rand.new`], a replayable
---- xoshiro256** that is not secret: it exists so a test or a script can
---- name its chance, and its output must never be used as a key, token or
---- nonce. `--seed` is refused with `uuid` and `token`, which have no use
---- for it.
+--- and `int`, `pick`, `shuffle`, `normal` and `gamma` without `--seed` --
+--- is drawn from the operating system's entropy source,
+--- [`Rand.entropy`], and from nothing else: `fetch` below is the one
+--- read of it, through `secret`, and no seeded generator is ever reached
+--- from those paths. `normal` and `gamma` take their 64-bit words from
+--- `secret` and hand them to the samplers a seeded [`Rand.Source`] uses
+--- ([`Rand.normal`], [`Rand.gamma`]); they never go through an
+--- entropy-seeded source. `--seed <n>` is the other road and the only
+--- one to [`Rand.new`], a replayable xoshiro256** that is not secret: it
+--- exists so a test or a script can name its chance, and its output must
+--- never be used as a key, token or nonce. `--seed` is refused with
+--- `uuid` and `token`, which have no use for it.
+---
+--- Floats. `normal [--mean M] [--stddev SD]` draws from the normal
+--- distribution (mean 0 and standard deviation 1 by default; SD may be
+--- 0), `gamma --shape K [--scale T]` from the gamma distribution (scale
+--- 1 by default; mean K * T). A parameter is a decimal number such as
+--- `-5`, `0.5` or `1e-3`, and must be finite: `inf`, `nan`, hexadecimal
+--- and a value too large for a double are refused, as are a negative SD
+--- and a shape or scale that is not above 0. Each value prints on a line
+--- as `%.17g`, which reads back as the same double; a draw that
+--- overflows prints as `inf` or `-inf`, and a gamma draw of a tiny shape
+--- can underflow to `0`. With `--seed` the values replay as
+--- `Rand.new(seed):normal(...)` and `:gamma(...)` do, and agree across
+--- targets only as far as their `log` and `pow` do.
 ---
 --- Like `cosmic json` it prints no summary: its standard output is
 --- data for a pipe. Exit 0 is ok, 2 a command line, a file or a request
@@ -78,18 +94,36 @@ verb.MAX_COUNT = 10000000
 local spec = Cli.verbs.rand.spec or {}
 
 local usage = "cosmic rand uuid [--v4|--v7] [-n N] | token [--bytes N] [--hex|--base64url] | " ..
-  "int [-n N] [--seed S] [--] <lo> <hi> | pick [-n N] [--seed S] [file|-] | shuffle [--seed S] [file|-]"
+  "int [-n N] [--seed S] [--] <lo> <hi> | pick [-n N] [--seed S] [file|-] | shuffle [--seed S] [file|-] | " ..
+  "normal [-n N] [--seed S] [--mean M] [--stddev SD] | gamma [-n N] [--seed S] --shape K [--scale T]"
 
 --- What a run wants of one draw of numbers: `int(lo, hi)` uniform over
---- the inclusive range.
+--- the inclusive range, `normal(mean, stddev)` and `gamma(shape, scale)`
+--- as [`Rand.normal`] and [`Rand.gamma`] give them.
 local record Source
   int: function(lo: integer, hi: integer): integer
+  normal: function(mean: number, stddev: number): number
+  gamma: function(shape: number, scale: number): number
 end
 
 --- Parses `word` as a whole decimal integer, or nil.
 local function integer_of(word: string): integer?
   if not word:match("^[+-]?%d+$") then return nil end
   return math.tointeger(tonumber(word))
+end
+
+--- Parses `word` as a finite decimal number (an optional sign, digits
+--- with an optional point, an optional exponent) as a float, or nil. It
+--- is not `tonumber`: hexadecimal, `inf` and `nan` are not numbers here,
+--- and a value too large for a double is nil too.
+local function number_of(word: string): number?
+  local body = (word:gsub("[eE][+-]?%d+$", ""))
+  if not (body:match("^[+-]?%d+%.?%d*$") or body:match("^[+-]?%.%d+$")) then return nil end
+  local value = tonumber(word)
+  if value == nil then return nil end
+  value = value + 0.0
+  if value - value ~= 0.0 then return nil end
+  return value
 end
 
 --- What `argv` asks for, checked against the subcommand.
@@ -100,6 +134,10 @@ local record Request
   mut bytes: integer
   mut encoding: string
   mut seed?: integer
+  mut mean: number
+  mut stddev: number
+  mut shape?: number
+  mut scale: number
   words: mut {string}
 end
 
@@ -136,6 +174,8 @@ local allowed: {string:{string:boolean}} = {
   int = { ["-n"] = true, ["--seed"] = true },
   pick = { ["-n"] = true, ["--seed"] = true },
   shuffle = { ["--seed"] = true },
+  normal = { ["-n"] = true, ["--seed"] = true, ["--mean"] = true, ["--stddev"] = true },
+  gamma = { ["-n"] = true, ["--seed"] = true, ["--shape"] = true, ["--scale"] = true },
 }
 
 --- What `argv` asks for, or nil and why it is refused.
@@ -158,7 +198,7 @@ local function arguments(argv: {string}): Request?, string
       return nil, command .. " takes no " .. name
     end
   end
-  local request: Request = { command = command, version = 4, bytes = 32, encoding = "base64url", words = {} }
+  local request: Request = { command = command, version = 4, bytes = 32, encoding = "base64url", mean = 0.0, stddev = 1.0, scale = 1.0, words = {} }
   for _, word in ipairs(parsed.words) do
     if command == "int" and String.starts_with(word, NEGATIVE) then
       word = word:sub(#NEGATIVE + 1)
@@ -196,6 +236,27 @@ local function arguments(argv: {string}): Request?, string
       return nil, "--seed needs a whole number, not " .. given
     end
     request.seed = seed
+  end
+  for _, name in ipairs({ "--mean", "--stddev", "--shape", "--scale" }) do
+    given = parsed.values[name]
+    if given ~= nil then
+      local value = number_of(given)
+      if value == nil then
+        return nil, name .. " needs a finite number, not " .. given
+      end
+      if name == "--mean" then
+        request.mean = value
+      elseif name == "--stddev" then
+        if value < 0.0 then return nil, "--stddev must not be negative, not " .. given end
+        request.stddev = value
+      else
+        if value <= 0.0 then return nil, name .. " must be above 0, not " .. given end
+        if name == "--shape" then request.shape = value else request.scale = value end
+      end
+    end
+  end
+  if command == "gamma" and request.shape == nil then
+    return nil, "gamma needs --shape"
   end
   local words = request.words
   if command == "int" then
@@ -294,18 +355,26 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return bytes
   end
 
+  --- 64 bits of entropy as an integer: what [`Rand.uniform`],
+  --- [`Rand.normal`] and [`Rand.gamma`] draw from.
+  local function secret_bits(): integer
+    return (string.unpack("<i8", secret(8)))
+  end
+
   --- Uniform over lo..hi from entropy, by [`Rand.uniform`]'s rejection.
   local function secret_int(lo: integer, hi: integer): integer
     if lo == hi then return lo end
-    return Rand.uniform(function(): integer
-      return (string.unpack("<i8", secret(8)))
-    end, lo, hi)
+    return Rand.uniform(secret_bits, lo, hi)
   end
 
   --- The replayable, NOT secret, source `--seed` names.
   local function seeded(seed: integer): Source
     local source = Rand.new(seed)
-    return { int = function(lo: integer, hi: integer): integer return source:int(lo, hi) end }
+    return {
+      int = function(lo: integer, hi: integer): integer return source:int(lo, hi) end,
+      normal = function(mean: number, stddev: number): number return source:normal(mean, stddev) end,
+      gamma = function(shape: number, scale: number): number return source:gamma(shape, scale) end,
+    }
   end
 
   local source: Source
@@ -313,7 +382,15 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if request_seed ~= nil then
     source = seeded(request_seed)
   else
-    source = { int = secret_int }
+    source = {
+      int = secret_int,
+      normal = function(mean: number, stddev: number): number
+        return Rand.normal(secret_bits, mean, stddev)
+      end,
+      gamma = function(shape: number, scale: number): number
+        return Rand.gamma(secret_bits, shape, scale)
+      end,
+    }
   end
 
   -- Output goes out in pieces, so a large -n is never held whole.
@@ -397,6 +474,19 @@ function verb.run(argv: {string}, io?: verb.Io): integer
           return 2
         end
       end
+    elseif command == "normal" then
+      for _ = 1, request.count or 1 do
+        if not emit(("%.17g"):format(source.normal(request.mean, request.stddev))) then
+          return 2
+        end
+      end
+    elseif command == "gamma" then
+      local shape = assert(request.shape, "gamma needs a shape, which the argument check holds it to")
+      for _ = 1, request.count or 1 do
+        if not emit(("%.17g"):format(source.gamma(shape, request.scale))) then
+          return 2
+        end
+      end
     else
       local file = request.words[1]
       local text: string?
@@ -410,20 +500,24 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         complain(why)
         return 2
       end
-      local items = lines_of(text)
+      local lines = lines_of(text)
+      local count = #lines
+      -- The lines by slot, a map: a swap of two slots is then no write that could leave a hole.
+      local items: mut {integer: string} = {}
+      for slot, line in ipairs(lines) do items[slot] = line end
       -- Fisher-Yates: each step swaps slot i with a uniform slot from i
       -- to the end, so every order is equally likely. `pick` stops after
       -- the slots it prints, `shuffle` runs to the end.
-      local wanted = #items
+      local wanted = count
       if command == "pick" then
         wanted = request.count or 1
-        if wanted > #items then
-          complain(("cannot pick %d of %s"):format(wanted, plural.count(#items, "line")))
+        if wanted > count then
+          complain(("cannot pick %d of %s"):format(wanted, plural.count(count, "line")))
           return 2
         end
       end
       for slot = 1, wanted do
-        local other = source.int(slot, #items)
+        local other = source.int(slot, count)
         local at_slot = assert(items[slot], "a slot up to the count is a line")
         local at_other = assert(items[other], "a slot drawn up to the end is a line")
         items[slot], items[other] = at_other, at_slot

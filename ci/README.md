@@ -1038,7 +1038,36 @@ a re-run of either job more than seven days later cannot download them.
 last week; a run whose artifacts expired it reports from its step times
 alone.
 
+A download that fails its job (ci.yml's `checked` shares, `ci` join
+products and portable share's attestation, `seed` artifacts, and
+prerelease.yml's products) is tried
+twice, because the artifact service fails a request now and then and a
+failure ejects a queue entry. The first try tolerates failure. Where it
+failed, a step removes the target directory and sleeps 30 seconds, and the
+second try runs without that tolerance, so a failure of both fails the
+job. The action retries its own requests and extractions a few seconds
+apart; the pause is for an outage longer than that.
+
+The removal matters because a pattern that matches one artifact extracts
+into `path` itself, not a subdirectory, so the listing of one try can lay
+out `path` differently from the other's. `seed` extracts into
+`$RUNNER_TEMP`, which cannot be cleared whole: its step removes the paths
+`queue-stage` writes, and the test holds that list to
+[`cosmic_ci/queue_stage.tl`].
+
+A name that is absent fails the download. A pattern that matches nothing
+succeeds (v8 logs "Total of 0 artifact(s)"), so there the second try
+changes nothing and the consumer fails: `verdicts-merge` on the shares,
+`provenance` ("no product to compare") and `prerelease-stage` on the
+products. A download that tolerates failure and has no second try is left
+as it is.
+
+`build/workflows_test.tl` holds every workflow to this: a download that
+fails its job is the second try of an earlier one with the same inputs,
+the first tried once, with the clearing and sleeping step between them.
+
 [`cosmic_ci/cache_trim.tl`]: cosmic_ci/cache_trim.tl
+[`cosmic_ci/queue_stage.tl`]: cosmic_ci/queue_stage.tl
 [`cosmic_ci/prerelease_test.tl`]: cosmic_ci/prerelease_test.tl
 [`cosmic_ci/github_api.tl`]: cosmic_ci/github_api.tl
 [`cosmic_ci/github_api_test.tl`]: cosmic_ci/github_api_test.tl

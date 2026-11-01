@@ -4,6 +4,7 @@
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Rand = require("cosmic.rand")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
@@ -60,4 +61,25 @@ local function test_help_names_the_verb_and_its_options(tmp: string)
   local ran = cosmic(tmp, { "rand", "--help" })
   assert(ran.code == 0, ran.err)
   assert(ran.out:find("cosmic rand", 1, true) and ran.out:find("--seed", 1, true), ran.out)
+  for _, name in ipairs({ "uuid", "token", "int", "pick", "shuffle", "normal", "gamma" }) do
+    assert(ran.out:find("`" .. name .. " ", 1, true) or ran.out:find("|" .. name, 1, true),
+      "the help does not name " .. name)
+  end
+  for _, flag in ipairs({ "--mean", "--stddev", "--shape", "--scale" }) do
+    assert(ran.out:find(flag, 1, true), "the help does not name " .. flag)
+  end
+end
+
+local function test_normal_and_gamma_print_one_float_a_line(tmp: string)
+  local seeded = cosmic(tmp, { "rand", "normal", "-n", "2", "--seed", "4", "--mean", "-5" })
+  assert(seeded.code == 0 and seeded.err == "", seeded.err)
+  local source = Rand.new(4)
+  assert(seeded.out == ("%.17g\n%.17g\n"):format(source:normal(-5.0, 1.0), source:normal(-5.0, 1.0)), seeded.out)
+  local gamma = cosmic(tmp, { "rand", "gamma", "--shape", "2", "--scale", "3", "--seed", "4" })
+  assert(gamma.code == 0 and gamma.out == ("%.17g\n"):format(Rand.new(4):gamma(2.0, 3.0)), gamma.out .. gamma.err)
+  local entropy = cosmic(tmp, { "rand", "normal", "-n", "3" })
+  assert(entropy.code == 0 and #entropy.out > 6 and entropy.err == "", entropy.out)
+  local refused = cosmic(tmp, { "rand", "gamma" })
+  assert(refused.code == 2 and refused.out == "", refused.out)
+  assert(refused.err:find("cosmic: rand: gamma needs --shape", 1, true), refused.err)
 end

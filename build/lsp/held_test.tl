@@ -71,7 +71,7 @@ local function test_the_session_holds_one_program_for_all_its_checks()
   local seen = programs_of(s, { initialize(root), open(root, "main.tl", MAIN), change(root, "main.tl", MAIN .. "-- one\n"),
     change(root, "main.tl", MAIN .. "-- two\n"), open(root, "helper.tl", HELPER) })
   local program = assert(seen[1], "no program after the first check")
-  assert((s.checker.checks["main.tl"] or 0) >= 2, tostring(s.checker.checks["main.tl"]))
+  assert((s.checker.ran["main.tl"] or 0) >= 2, tostring(s.checker.ran["main.tl"]))
   for n, held_then in ipairs(seen) do
     assert(held_then == program, "the program was made again for the message " .. tostring(n))
   end

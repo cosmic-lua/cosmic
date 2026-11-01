@@ -211,7 +211,10 @@ local function remembered(whole: string, token: string): closure_store.Basis?
       out.modules[path] = next_string()
       out.kinds[path] = next_string()
     end
-    for i = 1, next_count() do out.pairable[i] = next_string() end
+    for _ = 1, next_count() do
+      local name = next_string()
+      out.pairable[#out.pairable + 1] = name
+    end
     for _ = 1, next_count() do
       local path = next_string()
       out.decls[path] = next_string()
@@ -338,7 +341,10 @@ local function read_basis(whole: string): closure_store.Basis?, string
       assert(kind ~= nil, "the second column of a module's row holds its kind")
       basis.kinds[row:text(1)] = kind
     end
-    for i, row in ipairs(names) do basis.pairable[i] = row:text(1) end
+    for _, row in ipairs(names) do
+      local name = row:text(1)
+      basis.pairable[#basis.pairable + 1] = name
+    end
     for _, row in ipairs(decl_rows) do
       basis.decls[row:text(1)] = "decl " .. row:text(1) .. " " .. row:text(2) .. " " .. (declared[row:text(1)] or "") ..
         " " .. (linked[row:text(1)] or "") .. " " .. (bound[row:text(1)] or "") .. " " ..

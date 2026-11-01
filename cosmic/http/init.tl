@@ -205,8 +205,9 @@ local record Http
     --- False by default, so a body comes as the server sent it.
     decompress?: boolean
     --- Tests only: canned replies, one per connection, in place of the
-    --- network. Every entry must be a string. With `retry`, attempt N
-    --- reads from entry N on.
+    --- network. Every entry must be a string. With `retry`, an attempt
+    --- reads on from the entry after the last connection the one before
+    --- it opened, a followed redirect's included.
     script?: {string}
     --- The retry policy: see above. None by default, so a response of
     --- any status is returned at once.
@@ -1131,6 +1132,10 @@ local function opened(url: string, opts: Http.Options?, method: string?): Http.R
   local policy = retry_of(opts or {}, CALLER - 1)
   local cancelled = opts and opts.cancelled
   local attempt = 1
+  -- The entry of `opts.script` the attempt starts at: every open starts
+  -- its script over, so each is handed the entries after the last
+  -- connection of the one before.
+  local first = 1
   while true do
     local handle, trouble, code = http.open(url, raw)
     if handle == nil then
@@ -1143,6 +1148,7 @@ local function opened(url: string, opts: Http.Options?, method: string?): Http.R
     if policy ~= nil and attempt < policy.attempts and policy.statuses[handle:status()] == true then
       local wait = retry_wait(handle:headers(), attempt, policy)
       if wait <= policy.max_wait_ns then
+        first = first + handle:connections()
         handle:close()
         if (wait > 0 or cancelled ~= nil) and not pause(wait, cancelled) then
           return nil, "interrupted"
@@ -1155,13 +1161,8 @@ local function opened(url: string, opts: Http.Options?, method: string?): Http.R
       return respond(handle), ""
     end
     attempt = attempt + 1
-    -- Every open starts its script over, so the next attempt is handed
-    -- the entries from its own number on.
-    -- TODO: count the connections an attempt used once cosmic.internal.http's
-    -- handle reports them, so a scripted attempt that followed a redirect
-    -- leaves the next one the entries after its last connection.
     if opts ~= nil and opts.script ~= nil then
-      raw, unmade = raw_options(opts, method, true, attempt)
+      raw, unmade = raw_options(opts, method, true, first)
       if raw == nil then return nil, unmade end
     end
   end

@@ -105,14 +105,18 @@ local function test_into_answers_the_records_type()
 end
 
 local function test_a_value_that_breaks_the_record_is_refused_by_path()
-  local cases: {{string}} = {
-    { [[{"name": 1}]], "Profile: $.address: missing" },
-    { [[{"address": {"street": "s", "floor": "two"}}]], "Profile: $.address.floor: want integer, got string" },
+  local record Broken
+    json: string
+    error: string
+  end
+  local cases: {Broken} = {
+    { json = [[{"name": 1}]], error = "Profile: $.address: missing" },
+    { json = [[{"address": {"street": "s", "floor": "two"}}]], error = "Profile: $.address.floor: want integer, got string" },
   }
   for _, case in ipairs(cases) do
-    local profile, err = PROFILE:decode_into(case[1])
-    assert(profile == nil, "accepted " .. case[1])
-    assert(err == case[2], ("wanted %q, got %q"):format(case[2], err))
+    local profile, err = PROFILE:decode_into(case.json)
+    assert(profile == nil, "accepted " .. case.json)
+    assert(err == case.error, ("wanted %q, got %q"):format(case.error, err))
   end
   local value = Json.decode(GOOD, { null_value = Json.null })
   local loud = (GOOD:gsub('"level": "info"', '"level": "loud"'))

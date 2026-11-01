@@ -87,9 +87,11 @@ value in Lua, or look a path up with [`Json.get`] and [`Json.select`].
 
 `cosmic rand uuid` prints a UUID (`--v7` for a time-ordered one, by RFC 9562's
 method 3 clock precision, `-n 5` for five, at most ten million); `cosmic rand token` a 32-byte base64url token; `cosmic rand int
-1 6` a die roll; `cosmic rand pick file` or `shuffle file` draws lines. All
-of it comes from the operating system's entropy, unless you name `--seed`
-to replay `int`, `pick` or `shuffle`, which is not secret. `cosmic help
+1 6` a die roll; `cosmic rand pick file` or `shuffle file` draws lines;
+`cosmic rand normal --mean 100 --stddev 15` and `cosmic rand gamma --shape 2
+--scale 3` draw floats. All of it comes from the operating system's entropy,
+unless you name `--seed` to replay `int`, `pick`, `shuffle`, `normal` or
+`gamma`, which is not secret. `cosmic help
 rand` has the rest.
 
 ## questions about a data file

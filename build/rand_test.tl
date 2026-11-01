@@ -398,3 +398,207 @@ local function test_crlf_input_reads_as_lf()
   local blank = run({ "shuffle" }, { stdin = "\r\n" })
   assert(blank.out == "\n", blank.out)
 end
+
+--- The entropy stand-in that hands out `Rand.new(seed)`'s words in
+--- order, so a source made from the same seed draws what a run does.
+local function entropy_of(seed: integer, reads?: mut {integer}): function(count: integer): string?, string
+  local source = Rand.new(seed)
+  return function(count: integer): string?, string
+    if reads ~= nil then reads[#reads + 1] = count end
+    return source:bytes(count), ""
+  end
+end
+
+local function g17(value: number): string
+  return ("%.17g"):format(value)
+end
+
+local function test_normal_seeded_replays_the_source_draw_for_draw()
+  local ran = run({ "normal", "-n", "40", "--seed", "4" })
+  assert(ran.code == 0 and ran.err == "", ran.err)
+  local source = Rand.new(4)
+  local got = lines(ran.out)
+  assert(#got == 40)
+  for index, line in ipairs(got) do
+    local want = source:normal(0.0, 1.0)
+    assert(line == g17(want), line .. " vs " .. g17(want) .. " at " .. tostring(index))
+    assert(tonumber(line) == want, "does not read back: " .. line)
+  end
+  assert(run({ "normal", "-n", "40", "--seed", "4" }).out == ran.out)
+  assert(run({ "normal", "-n", "40", "--seed", "5" }).out ~= ran.out)
+  local shifted = run({ "normal", "-n", "10", "--seed", "4", "--mean", "-5", "--stddev", "2.5" })
+  source = Rand.new(4)
+  for _, line in ipairs(lines(shifted.out)) do
+    assert(line == g17(source:normal(-5.0, 2.5)), line)
+  end
+  local exact = run({ "normal", "--stddev", "0", "--mean", "1e-3", "--seed", "1" })
+  assert(exact.out == g17(0.001) .. "\n", exact.out)
+  local single = run({ "normal", "--seed", "4" })
+  assert(single.out == g17(Rand.new(4):normal()) .. "\n", single.out)
+end
+
+local function test_gamma_seeded_replays_the_source_draw_for_draw()
+  for _, case in ipairs({ { "0.5", "1" }, { "3", "2.5" }, { "1", "1e2" } }) do
+    local shape, scale = nth(case, 1), nth(case, 2)
+    local ran = run({ "gamma", "-n", "30", "--seed", "9", "--shape", shape, "--scale", scale })
+    assert(ran.code == 0 and ran.err == "", ran.err)
+    local source = Rand.new(9)
+    for _, line in ipairs(lines(ran.out)) do
+      local want = source:gamma(assert(tonumber(shape)), assert(tonumber(scale)))
+      assert(line == g17(want), line .. " vs " .. g17(want))
+      assert(tonumber(line) == want, "does not read back: " .. line)
+    end
+  end
+  local default_scale = run({ "gamma", "--shape", "2", "--seed", "3" })
+  assert(default_scale.out == g17(Rand.new(3):gamma(2.0, 1.0)) .. "\n", default_scale.out)
+end
+
+local function test_normal_and_gamma_from_entropy_use_its_words_as_they_come()
+  do
+    local reads: mut {integer} = {}
+    local ran = run({ "normal", "-n", "25", "--mean", "-5", "--stddev", "2" },
+      { entropy = entropy_of(11, reads) })
+    assert(ran.code == 0 and ran.err == "", ran.err)
+    -- Entropy is read once, in a block, and its words go to the samplers
+    -- in order: a generator seeded from entropy would draw other values.
+    assert(#reads == 1 and nth(reads, 1) == 8192, table.concat(reads, ","))
+    local twin = Rand.new(11)
+    for _, line in ipairs(lines(ran.out)) do
+      assert(line == g17(twin:normal(-5.0, 2.0)), line)
+    end
+    local gamma = run({ "gamma", "-n", "25", "--shape", "0.7", "--scale", "3" },
+      { entropy = entropy_of(12) })
+    assert(gamma.code == 0 and gamma.err == "", gamma.err)
+    twin = Rand.new(12)
+    for _, line in ipairs(lines(gamma.out)) do
+      assert(line == g17(twin:gamma(0.7, 3.0)), line)
+    end
+    assert(run({ "normal" }, { entropy = entropy_of(13) }).out ~=
+        run({ "normal" }, { entropy = entropy_of(14) }).out)
+    -- The real entropy gives different values each time.
+    assert(run({ "normal", "-n", "3" }).out ~= run({ "normal", "-n", "3" }).out)
+    assert(run({ "gamma", "-n", "3", "--shape", "2" }).out ~= run({ "gamma", "-n", "3", "--shape", "2" }).out)
+  end
+  -- Seeded runs never ask the entropy source.
+  local function forbidden(_count: integer): string?, string
+    error("a seeded draw read the entropy source")
+  end
+  assert(run({ "normal", "--seed", "3" }, { entropy = forbidden }).code == 0)
+  assert(run({ "gamma", "--shape", "2", "--seed", "3" }, { entropy = forbidden }).code == 0)
+end
+
+local function test_normal_and_gamma_are_distributed_as_asked()
+  -- A fixed entropy stream, so these cannot flake.
+  local n = 4000
+  local ran = run({ "normal", "-n", tostring(n), "--mean", "10", "--stddev", "3" },
+    { entropy = entropy_of(21) })
+  local sum, sq = 0.0, 0.0
+  for _, line in ipairs(lines(ran.out)) do
+    local x = assert(tonumber(line))
+    sum, sq = sum + x, sq + x * x
+  end
+  local mean = sum / n
+  local sd = math.sqrt(sq / n - mean * mean)
+  assert(math.abs(mean - 10) < 0.3 and math.abs(sd - 3) < 0.25, tostring(mean) .. " " .. tostring(sd))
+  local gamma = run({ "gamma", "-n", tostring(n), "--shape", "2", "--scale", "3" },
+    { entropy = entropy_of(22) })
+  sum = 0.0
+  for _, line in ipairs(lines(gamma.out)) do
+    local x = assert(tonumber(line))
+    assert(x > 0)
+    sum = sum + x
+  end
+  assert(math.abs(sum / n - 6) < 0.4, sum / n)
+end
+
+local function test_normal_and_gamma_refuse_bad_parameters()
+  local cases: {{string}} = {
+    { "normal", "--mean", "x" }, { "normal", "--mean", "inf" }, { "normal", "--mean", "nan" },
+    { "normal", "--mean", "-inf" }, { "normal", "--mean", "1e999" }, { "normal", "--mean", "0x10" },
+    { "normal", "--mean", "" }, { "normal", "--mean", "1.2.3" }, { "normal", "--mean" },
+    { "normal", "--stddev", "-1" }, { "normal", "--stddev", "-0.5" }, { "normal", "--stddev", "inf" },
+    { "normal", "--shape", "2" }, { "normal", "--scale", "2" }, { "normal", "5" },
+    { "gamma" }, { "gamma", "--scale", "2" }, { "gamma", "--shape", "0" },
+    { "gamma", "--shape", "-1" }, { "gamma", "--shape", "inf" }, { "gamma", "--shape", "nan" },
+    { "gamma", "--shape", "1", "--scale", "0" }, { "gamma", "--shape", "1", "--scale", "-2" },
+    { "gamma", "--shape", "1", "--scale", "1e999" }, { "gamma", "--shape", "1", "--mean", "1" },
+    { "gamma", "--shape", "1", "--stddev", "1" }, { "gamma", "--shape", "1", "x" },
+    { "gamma", "--shape", "1", "--hex" },
+  }
+  for _, words in ipairs(cases) do
+    local ran = run(words, { entropy = function(_count: integer): string?, string
+      error("a refused command line read the entropy source")
+    end })
+    assert(ran.code == 2 and ran.out == "", table.concat(words, " "))
+    assert(ran.err:find("cosmic: rand: ", 1, true) == 1, ran.err)
+  end
+  local ran = run({ "normal", "--stddev", "-1" })
+  assert(ran.err:find("--stddev must not be negative, not -1", 1, true), ran.err)
+  ran = run({ "gamma" })
+  assert(ran.err:find("gamma needs --shape", 1, true), ran.err)
+  ran = run({ "gamma", "--shape", "nan" })
+  assert(ran.err:find("--shape needs a finite number, not nan", 1, true), ran.err)
+  -- Every refusal names the subcommands.
+  assert(ran.err:find("normal [-n N]", 1, true) and ran.err:find("gamma [-n N]", 1, true), ran.err)
+end
+
+local function test_normal_and_gamma_take_negative_and_decimal_numbers_as_values()
+  local cases: {{string}} = {
+    { "normal", "--mean", "-5" }, { "normal", "--mean", "-5.5e1", "--stddev", "+.5" },
+    { "normal", "--mean", "5.", "--stddev", "1E2" }, { "gamma", "--shape", ".5", "--scale", "2e-3" },
+  }
+  for _, words in ipairs(cases) do
+    local ran = run(words, { entropy = entropy_of(2) })
+    assert(ran.code == 0 and ran.err == "" and #lines(ran.out) == 1, table.concat(words, " ") .. ran.err)
+  end
+  local ran = run({ "normal", "--mean", "-5", "--stddev", "0" })
+  assert(ran.out == "-5\n", ran.out)
+end
+
+local function test_normal_and_gamma_count_is_bounded_like_int()
+  for _, command in ipairs({ "normal", "gamma" }) do
+    local base: {string} = if command == "gamma" then { "gamma", "--shape", "2" } else { "normal" } end
+    local function with(count: string): {string}
+      local words: mut {string} = {}
+      for _, word in ipairs(base) do words[#words + 1] = word end
+      words[#words + 1] = "-n"
+      words[#words + 1] = count
+      return words
+    end
+    local three = run(with("3"), { entropy = entropy_of(1) })
+    assert(three.code == 0 and #lines(three.out) == 3, three.out)
+    for _, bad in ipairs({ "0", "-1", "x", "1.5", tostring(rand.MAX_COUNT + 1) }) do
+      local ran = run(with(bad))
+      assert(ran.code == 2 and ran.out == "", command .. " -n " .. bad)
+      assert(ran.err:find("-n needs a whole number from 1 to", 1, true), ran.err)
+    end
+  end
+  -- The most is allowed to parse; a failed write ends the run early.
+  local stopped = run({ "normal", "-n", tostring(rand.MAX_COUNT) }, { entropy = entropy_of(1),
+    out = function(_text: string): boolean, string return false, "closed" end })
+  assert(stopped.code == 2, stopped.err)
+  assert(stopped.err:find("standard output: closed", 1, true), stopped.err)
+end
+
+local function test_normal_and_gamma_report_an_entropy_failure_and_a_failed_write()
+  local broken = function(_count: integer): string?, string
+    return nil, "rand: entropy: no source"
+  end
+  local commands: {{string}} = { { "normal" }, { "gamma", "--shape", "3" } }
+  for _, words in ipairs(commands) do
+    local ran = run(words, { entropy = broken })
+    assert(ran.code == 1 and ran.out == "", table.concat(words, " "))
+    assert(ran.err:find("entropy source failed: rand: entropy: no source", 1, true), ran.err)
+    local refused = run(words, { out = function(_text: string): boolean, string
+      return false, "No space left on device"
+    end })
+    assert(refused.code == 2, table.concat(words, " "))
+    assert(refused.err == "cosmic: rand: standard output: No space left on device\n", refused.err)
+  end
+end
+
+local function test_a_seed_is_still_a_whole_number_for_normal_and_gamma()
+  assert(run({ "normal", "--seed", "1.5" }).code == 2)
+  assert(run({ "gamma", "--shape", "1", "--seed", "x" }).code == 2)
+  assert(run({ "normal", "--seed", "-3" }).code == 0)
+end
