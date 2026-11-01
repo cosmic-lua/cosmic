@@ -36,30 +36,35 @@ end
 --- Every row `sql` answers of the database at `path`, a line each: fields
 --- joined by a tab, lines by a line feed, the last without its end.
 ---
---- No two result sets dump alike. A field is written as
+--- NULL, an empty text and no rows dump apart. A field is written as
 --- [`Csv.encode_field`] writes it with a tab delimiter, except that NULL is
 --- the bare `\N` (as `cosmic sql` writes it), and a text that is exactly `\N`
 --- is quoted, `"\N"`. An empty text is quoted, `""`, when it is the only field
 --- of a row, so a row of one empty text is not no rows, and a row of one NULL
---- is neither. Non-text cells are written as [`Sqlite.text_rows`] answers them.
+--- is neither. Every other cell is written as its text, as
+--- [`Sqlite.text_rows`] answers it, with no mark of its type: the integer 1
+--- and the text '1' dump alike, as a blob and the text of the same bytes do.
+---
+--- The rows are read in one pass, so a query with no ORDER BY that answers in
+--- another order on each run still dumps each NULL on its own row.
 function parses_fixture.dump(path: string, sql: string): string
   local db = assert(Sqlite.open(path))
-  local texts = assert(Sqlite.text_rows(db, sql))
-  local kinds = assert(Sqlite.rows(db, sql))
-  assert(db:close())
-  assert(#texts == #kinds, "the query answered a different number of rows twice")
+  local statement = assert(db:prepare(sql))
+  local width = statement:columns()
   local lines: mut {string} = {}
-  for i, row in ipairs(texts) do
-    local typed = assert(kinds[i])
-    local cells = row:texts()
+  while true do
+    local state = assert(statement:step())
+    if state == "done" then break end
     local record: mut {string} = {}
-    for j, cell in ipairs(cells) do
+    for i = 0, width - 1 do
       local field: string? = nil
-      if not typed:is_null(j) then field = cell end
-      record[j] = dumped_field(field, #cells == 1)
+      if statement:kind(i) ~= "null" then field = statement:bytes(i) end
+      record[#record + 1] = dumped_field(field, width == 1)
     end
-    lines[i] = table.concat(record, "\t")
+    lines[#lines + 1] = table.concat(record, "\t")
   end
+  statement:finalize()
+  assert(db:close())
   return table.concat(lines, "\n")
 end
 
