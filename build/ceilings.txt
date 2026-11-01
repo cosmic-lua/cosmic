@@ -5561,7 +5561,6 @@ cosmic/internal/relay_config.tl compare_disjoint 1
 
 
 
-cosmic/internal/relay_server_test.tl compare_disjoint 1
 
 cosmic/json.tl compare_disjoint 5
 
@@ -5607,7 +5606,6 @@ cosmic/url.tl compare_disjoint 1
 cosmic/web/app.tl compare_disjoint 1
 
 
-cosmic/web/request_test.tl compare_disjoint 1
 
 cosmic/web/session/init.tl compare_disjoint 3
 
