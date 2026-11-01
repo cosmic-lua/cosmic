@@ -129,8 +129,9 @@ to it; a boolean is `t="b"` and 0 or 1; a
 date is its serial with style 1.
 
 A sheet can be large, so it is written with [`Xml.writer`], a row at a
-time, to a [`Stream.Writer`]: a collector here, a file for a sheet too
-large to hold.
+time, straight into its entry in the zip: [`Zip.Writer`]'s `file_writer`
+answers a [`Stream.Writer`] that compresses the body as it comes, so the
+sheet is never held whole. Closing the XML writer closes the entry.
 
 ```teal continue
 local function column(n: integer): string
@@ -179,8 +180,7 @@ local function cell(ref: string, value: Value): {Xml.Event}
   }
 end
 
-local body = Stream.collect()
-local sheet = Xml.writer(body)
+local sheet = Xml.writer((assert(zip:file_writer("xl/worksheets/sheet1.xml"))))
 assert(sheet:write({
   { kind = "start", name = "worksheet", attributes = { xmlns = main } },
   { kind = "start", name = "sheetData" },
@@ -195,7 +195,6 @@ for r, row in ipairs(rows) do
 end
 assert(sheet:write({ { kind = "end", name = "sheetData" }, { kind = "end", name = "worksheet" } }))
 assert(sheet:close())
-assert(zip:add_file("xl/worksheets/sheet1.xml", body:result()))
 assert(zip:close())
 ```
 
@@ -228,9 +227,9 @@ South,980,0,45702 (style 1)
 
 ## going further
 
-- A sheet too large to hold is written with [`Xml.writer`] to a file
-  ([`Stream.create`]), and the file is added to the zip as a
-  [`Stream.Reader`], which [`Zip.Writer`]'s `add_file` reads in chunks.
+- The zip itself goes to a file rather than a collector with
+  [`Zip.writer`] over [`Stream.create`], so a workbook of any size is
+  written without being held.
 - Text repeated across many cells is smaller in a shared strings part,
   each cell holding its string's index, as [reading a
   spreadsheet](xlsx.md) reads them.
@@ -243,7 +242,6 @@ South,980,0,45702 (style 1)
 [`cosmic.xml`]: ../../cosmic/xml.tl
 [`cosmic.zip`]: ../../cosmic/zip.tl
 [`Stream.create`]: ../../cosmic/stream.tl
-[`Stream.Reader`]: ../../cosmic/stream.tl
 [`Stream.Writer`]: ../../cosmic/stream.tl
 [`Xml.write`]: ../../cosmic/xml.tl
 [`Xml.writer`]: ../../cosmic/xml.tl
