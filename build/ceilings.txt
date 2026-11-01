@@ -166,8 +166,6 @@ build/bom.tl 1
 
 build/c/rules.tl 2
 
-build/c_functions.tl 1
-
 build/cache_maintenance.tl 1
 
 build/check_memo.tl 1
@@ -186,8 +184,6 @@ build/flow.tl 3
 
 build/hash.tl 8
 
-build/host_names.tl 1
-
 build/importer.tl 3
 
 build/link_files.tl 1
@@ -199,8 +195,6 @@ build/link_text.tl 3
 build/links.tl 2
 
 build/policy_rules.tl 4
-
-build/progress.tl 1
 
 build/rand.tl 2
 
@@ -330,8 +324,6 @@ build/compile_grammar_test.tl setmetatable_call 1
 
 build/fact_hook_test.tl setmetatable_call 4
 
-build/c/inputs.tl view_written 1
-
 build/json_query_test.tl setmetatable_call 1
 
 
@@ -359,8 +351,6 @@ build/test_worker.tl setmetatable_call 1
 build/udp_fixture.tl setmetatable_call 1
 
 build/key_parts.tl nil_not_allowed 1
-
-build/progress.tl overload_none 1
 
 core/declarations_test.tl setmetatable_call 4
 
@@ -780,8 +770,6 @@ build/verbs_fixture.tl nil_not_allowed 2
 
 build/verbs_store_test.tl nil_not_allowed 2
 
-
-build/work_test.tl nil_not_allowed 1
 
 build/work_tool_test.tl nil_not_allowed 1
 
@@ -1704,21 +1692,13 @@ build/archive.tl view_written 1
 
 build/boot_test.tl view_written 1
 
-build/c/init.tl view_written 3
+build/c/init.tl view_written 1
 
-build/c/rules.tl view_written 1
-
-build/c_functions.tl view_written 1
-
-build/closure_store.tl view_written 4
-
-build/plans.tl view_written 9
+build/plans.tl view_written 7
 
 build/confine.tl view_written 1
 
 build/coverage/init.tl view_written 1
-
-build/databases.tl view_written 1
 
 build/dataset.tl view_written 4
 
@@ -1726,92 +1706,50 @@ build/dataset_fuzz_test.tl view_written 1
 
 build/dataset_test.tl view_written 1
 
-build/declared_key.tl view_written 1
-
-build/declared_key_fuzz_test.tl view_written 2
-
-build/declared_key_test.tl view_written 2
-
 
 build/dispatch.tl view_written 1
 
-build/dispatched_features_test.tl view_written 1
+build/docs.tl view_written 3
 
-build/docs.tl view_written 5
-
-build/driver.tl view_written 3
+build/driver.tl view_written 2
 
 build/fetch_test.tl view_written 1
 
 build/fix/init.tl view_written 6
 
-build/fix/near.tl view_written 2
-
-build/flow.tl view_written 4
-
-build/flow_test.tl view_written 1
+build/flow.tl view_written 1
 
 build/fuzz/init.tl view_written 1
 
 
-build/host_names.tl view_written 1
-
-build/identity.tl view_written 1
-
-build/importer.tl view_written 3
+build/importer.tl view_written 2
 
 
-
-build/link_index.tl view_written 3
 
 build/lsp/check.tl view_written 2
-
-build/lsp/graph.tl view_written 1
-
-build/lsp/source.tl view_written 1
 
 build/lsp/syntax_read.tl view_written 1
 
 build/pipeline.tl view_written 2
 
-build/pipeline_check.tl view_written 1
-
 build/policy_rules.tl view_written 2
 
 build/reboot.tl view_written 1
-
-build/roots.tl view_written 4
-
-build/shared_compiles.tl view_written 1
 
 build/symbol_index.tl view_written 1
 
 build/syntax_analyzer.tl view_written 1
 
-build/test.tl view_written 36
-
-build/test_inputs.tl view_written 5
+build/test.tl view_written 8
 
 build/test_inputs_test.tl view_written 1
 
-build/test_key.tl view_written 9
-
 build/test_sandbox_probe.tl view_written 1
 
-build/test_sandbox_tool_test.tl view_written 1
+build/test_worker.tl view_written 5
 
-build/test_test.tl view_written 1
+build/tree_checks.tl view_written 5
 
-build/test_worker.tl view_written 8
-
-build/tree_checks.tl view_written 8
-
-
-build/verb_cases.tl view_written 1
-
-build/work.tl view_written 3
-
-build/work_test.tl view_written 2
 
 build/workflows_test.tl view_written 1
 
@@ -1941,10 +1879,6 @@ test/coverage_cache_test.tl view_written 2
 
 build/c/init.tl view_as_mut 1
 
-build/c/rules.tl view_as_mut 1
-
-build/check_draws.tl view_as_mut 2
-
 build/declared_key_fuzz_test.tl view_as_mut 1
 
 build/fix/fix_test.tl view_as_mut 5
@@ -1953,19 +1887,15 @@ build/fix/init.tl view_as_mut 2
 
 build/gen_syscalls.tl view_as_mut 3
 
-build/progress.tl view_as_mut 1
-
 build/symbol_index.tl view_as_mut 10
 
 build/syntax_analyzer.tl view_as_mut 1
-
-build/test_worker.tl view_as_mut 2
 
 build/tree_checks.tl view_as_mut 3
 
 build/tree_program.tl view_as_mut 1
 
-build/work.tl view_as_mut 2
+build/work.tl view_as_mut 1
 
 core/declarations_test.tl view_as_mut 1
 
@@ -2014,82 +1944,33 @@ lang/warnings.tl view_as_mut 1
 
 # a field assigned after its record is made, not declared `mut`: `mut` is written on the fields its
 # rows show assigned and not on those that cannot be attributed (a field of a module record assigned through its name)
-build/analysis_schema.tl field_fixed 2
-
-build/archive.tl field_fixed 2
 
 build/archive_test.tl field_fixed 10
 
 
-build/assertions.tl field_fixed 3
-
-build/bare.tl field_fixed 4
-
-build/bom.tl field_fixed 7
-
 build/boot_test.tl field_fixed 2
 
-build/c/init.tl field_fixed 7
-
-build/c/rules.tl field_fixed 5
 
 
 
-build/cache.tl field_fixed 1
-
-build/cache_formats.tl field_fixed 10
-
-
-
-build/cache_names.tl field_fixed 1
 
 build/cache_test.tl field_fixed 14
 
-build/ceilings.tl field_fixed 1
-
-build/check_draws.tl field_fixed 4
-
-build/child_lua_fixture.tl field_fixed 2
-
-build/codec.tl field_fixed 1
-
 build/codec_test.tl field_fixed 6
 
-build/plans.tl field_fixed 9
-
-build/compile.tl field_fixed 1
-
-build/compile_grammar.tl field_fixed 1
-
-build/confine.tl field_fixed 14
+build/confine.tl field_fixed 10
 
 build/confine_tool_test.tl field_fixed 2
 
-build/databases.tl field_fixed 1
+
+
+build/declared_key_test.tl field_fixed 37
 
 
 
-build/declared_key.tl field_fixed 10
+build/driver.tl field_fixed 1
 
-build/declared_key_test.tl field_fixed 66
-
-build/docs.tl field_fixed 2
-
-build/docs_checks_test.tl field_fixed 4
-
-
-
-build/driver.tl field_fixed 26
-
-build/driver_test.tl field_fixed 1
-
-build/embed.tl field_fixed 1
-
-build/error_render.tl field_fixed 1
-
-build/fact_hook_test.tl field_fixed 2
-
-build/fetch.tl field_fixed 5
+build/fetch.tl field_fixed 4
 
 build/fetch_test.tl field_fixed 2
 
@@ -2098,143 +1979,61 @@ build/fix/init.tl field_fixed 1
 
 
 
-build/gen_syscalls.tl field_fixed 1
-
-build/harness_epoch.tl field_fixed 4
-
-build/hash.tl field_fixed 1
-
 build/hash_test.tl field_fixed 2
-
-build/host_features_test.tl field_fixed 1
-
-build/host_names.tl field_fixed 1
-
-build/importer.tl field_fixed 6
 
 build/importer_boot_test.tl field_fixed 2
 
-build/importer_store_test.tl field_fixed 4
+build/importer_store_test.tl field_fixed 2
 
 build/invoke.tl field_fixed 10
-
-build/json.tl field_fixed 8
-
-build/key_parts.tl field_fixed 3
-
-build/link_files.tl field_fixed 3
-
-build/link_index.tl field_fixed 1
 
 build/link_index_test.tl field_fixed 2
 
 
-build/link_text.tl field_fixed 1
-
-
-build/logger.tl field_fixed 1
 
 
 
 
 build/lsp/init.tl field_fixed 1
 
-build/lsp/protocol.tl field_fixed 6
 
-
-build/lsp/session_fixture.tl field_fixed 2
-
-
-build/memprobe.tl field_fixed 2
-
-build/memprobe_test.tl field_fixed 8
 
 build/patch_test.tl field_fixed 5
 
 
 
-build/pipeline.tl field_fixed 6
 
-build/policy_rules.tl field_fixed 9
-
-build/rand.tl field_fixed 3
-
-build/rand_test.tl field_fixed 1
-
-
-
-build/refresh.tl field_fixed 4
-
-build/release.tl field_fixed 1
 
 build/sandbox.tl field_fixed 2
 
-build/sandbox_connect_test.tl field_fixed 2
-
-
-build/schema.tl field_fixed 1
 
 build/shared_parses_test.tl field_fixed 2
 
 
-build/sql.tl field_fixed 8
 
+build/term_relay.tl field_fixed 2
 
-build/stub_tree_test.tl field_fixed 2
-
-build/symbols.tl field_fixed 2
-
-build/syntax_contracts.tl field_fixed 1
-
-build/syntax_typed_fixture.tl field_fixed 2
-
-build/term_relay.tl field_fixed 3
-
-build/test.tl field_fixed 22
-
-build/test_inputs.tl field_fixed 12
-
-build/test_key.tl field_fixed 46
+build/test_key.tl field_fixed 1
 
 build/test_policy.tl field_fixed 3
 
-build/test_policy_plan_tool_test.tl field_fixed 19
+build/test_policy_plan_tool_test.tl field_fixed 8
 
-build/test_policy_test.tl field_fixed 5
+build/test_policy_test.tl field_fixed 1
 
-build/test_sandbox.tl field_fixed 5
+build/test_sandbox_probe.tl field_fixed 2
 
-build/test_sandbox_probe.tl field_fixed 7
+build/test_sandbox_test.tl field_fixed 3
 
-build/test_sandbox_test.tl field_fixed 6
+build/test_sandbox_tool_test.tl field_fixed 8
 
-build/test_sandbox_tool_test.tl field_fixed 23
+build/test_worker.tl field_fixed 1
 
-build/test_worker.tl field_fixed 41
-
-build/test_worker_test.tl field_fixed 16
-
-build/this_program.tl field_fixed 1
+build/test_worker_test.tl field_fixed 6
 
 build/this_program_test.tl field_fixed 2
 
 build/time.tl field_fixed 1
-
-build/todos.tl field_fixed 8
-
-build/todos_git_test.tl field_fixed 6
-
-build/todos_test.tl field_fixed 3
-
-build/tree_checks.tl field_fixed 1
-
-build/udp_fixture.tl field_fixed 1
-
-build/verb_cases.tl field_fixed 2
-
-build/verb_list.tl field_fixed 1
-
-build/work.tl field_fixed 7
 
 build/work_test.tl field_fixed 14
 
@@ -2352,8 +2151,6 @@ cosmic/template/dialect/init.tl field_fixed 1
 cosmic/template_html5lib_tree_test.tl field_fixed 1
 
 cosmic/test.tl field_fixed 35
-
-cosmic/test_policy_test.tl field_fixed 2
 
 cosmic/time.tl field_fixed 9
 
@@ -2997,14 +2794,12 @@ cosmic/child_drain_test.tl interface_method_value 4
 # or passes on more than the overloads take
 build/assertions_test.tl overload_none 4
 
-build/c_functions.tl overload_none 1
-
 build/confine.tl overload_none 1
 
 build/dataset_fuzz_test.tl overload_none 2
 
 
-build/declared_key_test.tl overload_none 3
+build/declared_key_test.tl overload_none 2
 
 build/docs.tl overload_none 1
 
@@ -3015,8 +2810,6 @@ build/flow.tl overload_none 2
 build/flow_fuzz_test.tl overload_none 2
 
 build/flow_test.tl overload_none 1
-
-build/host_names.tl overload_none 1
 
 build/link_files.tl overload_none 1
 
@@ -5502,7 +5295,7 @@ build/c/tree.tl compare_disjoint 2
 build/confine.tl compare_disjoint 1
 
 
-build/declared_key.tl compare_disjoint 3
+build/declared_key.tl compare_disjoint 2
 
 build/declared_key_test.tl compare_disjoint 1
 
@@ -6729,8 +6522,6 @@ lang/recursive_alias_test.tl alternatives_as_value 3
 
 
 
-build/declared_key.tl view_as_mut 1
-
 
 
 
@@ -6740,14 +6531,10 @@ build/docs.tl view_as_mut 3
 
 
 
-build/host_features_test.tl view_as_mut 1
-
 
 build/json_query.tl view_as_mut 1
 
 
-
-build/link_files.tl view_as_mut 1
 
 
 

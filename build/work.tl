@@ -56,7 +56,7 @@ local record work
     --- This run's number: one more than the last run over this file.
     run: integer
     --- Whether the run's transaction is open.
-    inside: boolean
+    mut inside: boolean
     --- What `root` is to the running tool, as [`work.stage`] was told: what
     --- the compile and the writer after it hold the tree to. Nil before the stage.
     mut standing: tree.Standing?
@@ -76,8 +76,8 @@ local record work
 
   --- What one staging pass found and what it had to read.
   record Staged
-    files: integer
-    read: integer
+    mut files: integer
+    mut read: integer
     --- One line for each file under `static/` newly staged whose name
     --- says it was meant as a module (`.tl`, `.tmpl`): it is carried as an
     --- asset. Also complained of as it is found.
@@ -87,7 +87,7 @@ local record work
   --- The statements that create the database, in order. `IF NOT
   --- EXISTS` because this file is opened again and again across runs
   --- rather than built fresh every time.
-  schema: {string}
+  mut schema: mut {string}
 end
 
 --- The shape of the schema. A file of another shape holds nothing the
@@ -1466,7 +1466,7 @@ local find_links: function(handle: work.Handle, texts: {string:string}): boolean
 --- What the links a walk meets teach it: the ancestors of the root, found
 --- when the first link asks, and the first link that leads above the root.
 local record Walking
-  mut ancestors: {string:boolean}?
+  mut ancestors: mut {string:boolean}?
   mut above: string
 end
 

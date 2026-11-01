@@ -43,19 +43,19 @@ local verb_spec = require("build.verb_spec")
 
 local record todos
   --- The verb's registration: see build/verb_spec.tl.
-  spec: verb_spec.Spec
+  mut spec: verb_spec.Spec
   run: function(argv: {string}, at?: string, seen?: reboot.Seen): integer
   --- What blame says about one line.
   record Blame
     --- The commit's full hash; all zeros for a line not committed yet.
     commit: string
     --- When the commit was authored, in seconds since the epoch.
-    author_time: integer
+    mut author_time: integer
     --- The commit's subject line.
-    summary: string
+    mut summary: string
     --- Whether the commit is the edge of a shallow history, so the line
     --- may be older than it says.
-    boundary: boolean
+    mut boundary: boolean
   end
 
   --- One row of the index.
@@ -69,10 +69,10 @@ local record todos
     text: string
     --- "" when the line was not blamed: no git, a file git does not
     --- track, or a line not committed yet.
-    commit: string
-    author_time: integer
-    summary: string
-    boundary: boolean
+    mut commit: string
+    mut author_time: integer
+    mut summary: string
+    mut boundary: boolean
   end
 
   --- What `list` found: every TODO, and how many files it had to blame.

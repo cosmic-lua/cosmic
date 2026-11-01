@@ -15,8 +15,8 @@ local record link_text
   record Link
     --- The line its `[` is on, counted from 1, and the byte of that
     --- line it is.
-    line: integer
-    column: integer
+    mut line: integer
+    mut column: integer
     --- "shortcut", "inline", "reference" or "definition".
     form: string
     --- What is between its first brackets.
@@ -69,7 +69,7 @@ local record link_text
     --- every comment of the file sees (`__index`).
     names: mut {string: boolean}
     --- Each local bound to `require` of a module, and that module.
-    aliases: {string: string}
+    aliases: mut {string: string}
   end
 
   --- One comment's lines with its markers taken off, the line of the
@@ -82,7 +82,7 @@ local record link_text
     lines: {string}
     doc: boolean
     column?: integer
-    starts?: {integer}
+    mut starts?: {integer}
   end
 
   --- A link a Teal source's comments hold, as the build records it:

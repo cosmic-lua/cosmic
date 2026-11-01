@@ -1086,13 +1086,10 @@ function tree_checks.requirements(build: Sqlite.Handle): {string:{string}}?, str
     "SELECT i.path, t.value FROM test_inputs t JOIN inputs i ON i.source_hash = t.source_hash " ..
       "WHERE t.field = 'requires' ORDER BY i.path, t.ordinal")
   if rows == nil then return nil, "reading the declared requirements: " .. trouble end
-  local out: mut {string:{string}} = {}
+  local out: mut {string:mut {string}} = {}
   for _, row in ipairs(rows) do
-    local names = out[row:text(1)]
-    if names == nil then
-      names = {}
-      out[row:text(1)] = names
-    end
+    local names = out[row:text(1)] or {}
+    out[row:text(1)] = names
     local second = row:text(2)
     names[#names + 1] = second
   end
@@ -1509,7 +1506,7 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string?): {string}
     expected[entry_module] = expected[entry_module] or {}
     table.insert(expected[entry_module], field)
   end
-  local found_fields: mut {string:{string:boolean}} = {}
+  local found_fields: mut {string:mut {string:boolean}} = {}
 
   for _, row in ipairs(modules) do
     if row:text(2) ~= "test" then
@@ -2211,7 +2208,7 @@ local record DeclareFile
   module: string
   dialect: Ast.Dialect
   imports: {string}
-  key: string
+  mut key: string
 end
 
 --- The modules a source requires by a literal name, as `require("m")` or `pcall(require, "m")`: the parser's own
@@ -2365,12 +2362,12 @@ end
 --- the calls of [`Shape.record_of`] of each module are resolved before it is lowered, as the pipeline resolves them.
 local function streamed(build: Driver.Build, tree: Tree, rows: {DeclareFile}, bodies: boolean, spliced: boolean,
                         seen: function(row: DeclareFile, result: Driver.Outcome?))
-  local rows_of: mut {string: {DeclareFile}} = {}
+  local rows_of: mut {string: mut {DeclareFile}} = {}
   local names: mut {string} = {}
   for _, row in ipairs(rows) do
-    local list = rows_of[row.module]
-    if list == nil then
-      list = {}
+    local held = rows_of[row.module]
+    local list = held or {}
+    if held == nil then
       rows_of[row.module] = list
       names[#names + 1] = row.module
     end

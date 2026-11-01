@@ -17,8 +17,8 @@ local record verb_cases
     fail_in?: string
   end
 
-  passthrough: {string:string}
-  surplus: {string:{string} | string}
+  mut passthrough: mut {string:string}
+  mut surplus: {string:{string} | string}
 end
 
 --- The verbs held to no pass, fail and refusal cases, each with its reason:

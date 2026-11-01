@@ -53,7 +53,7 @@ local WAIT <const> = Clock.seconds(4)
 local record Streams
   --- What the program has sent and not yet been read, and whether it ended.
   mut waiting: string
-  ended: boolean
+  mut ended: boolean
   --- What the client wrote to its standard output, and whether it closed it.
   mut out: string
   mut closed: boolean

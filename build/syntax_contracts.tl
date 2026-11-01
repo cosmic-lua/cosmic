@@ -85,7 +85,7 @@ local record SyntaxContracts
   applies: function(file: string): boolean
 
   --- The names of [`Result.sites`].
-  rules: {string}
+  mut rules: {string}
 end
 
 SyntaxContracts.rules = { "calls", "functions", "exports", "wrappers", "readings", "casts", "types", "modes" }

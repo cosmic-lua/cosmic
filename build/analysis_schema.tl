@@ -21,11 +21,11 @@
 local record analysis_schema
   --- The statements that create `derived` and `inputs`, then each of
   --- `tables`, in order.
-  statements: {string}
+  mut statements: {string}
   --- The tables a parse or a generator fills, keyed by the source they
   --- came from: rows in them are only ever as right as the code that
   --- derived them.
-  tables: {string}
+  mut tables: {string}
 end
 
 --- Where a build reads no module from, as `GLOB` patterns of a path

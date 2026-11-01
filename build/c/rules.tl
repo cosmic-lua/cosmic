@@ -94,7 +94,7 @@ local record rules
     message: string
     --- The names of the variants ([`build.c`]'s `variants`) whose syntax
     --- tree it was found in; nil from `check`, which sees one tree.
-    variants?: {string}
+    mut variants?: mut {string}
   end
 
   --- Where a declaration is: the file it is written in and its line (0 where the dump gives none), so that a unit
@@ -475,9 +475,9 @@ end
 local record Pointer
   name: string
   line: integer
-  above: integer
+  mut above: integer
   --- The line the string was popped on, or 0 while it is on the stack.
-  gone: integer
+  mut gone: integer
 end
 
 local record State
@@ -984,7 +984,7 @@ end
 
 --- Which of its parameters each function releases, directly.
 local function releasing(fns: {Function}): {string: {integer: boolean}}
-  local out: mut {string: {integer: boolean}} = {}
+  local out: mut {string: mut {integer: boolean}} = {}
   for _, fn in ipairs(fns) do
     local positions: mut {string: integer} = {}
     for i, param in ipairs(fn.params) do
@@ -1485,9 +1485,9 @@ end
 --- core/syscalls.h and core/process.h declare each binding returns, by
 --- the binding's name.
 function rules.check(decls: {Node}, file: string,
-                     declared: {string: rules.Declared}): {rules.Finding}
+                     declared: {string: rules.Declared}): mut {rules.Finding}
   local fns = functions(decls)
-  local findings: {rules.Finding} = {}
+  local findings: mut {rules.Finding} = {}
   local ctx: Context = { file = file, within = "", findings = findings,
     releasing = releasing(fns), truthful = truthful(fns),
     shapes = failure_shapes(fns) }

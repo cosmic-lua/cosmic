@@ -192,12 +192,12 @@ local record protocol
   end
 
   -- JSON-RPC's and the protocol's error codes.
-  INVALID_REQUEST: integer
-  METHOD_NOT_FOUND: integer
-  INVALID_PARAMS: integer
-  INTERNAL_ERROR: integer
-  NOT_INITIALIZED: integer
-  REQUEST_FAILED: integer
+  mut INVALID_REQUEST: integer
+  mut METHOD_NOT_FOUND: integer
+  mut INVALID_PARAMS: integer
+  mut INTERNAL_ERROR: integer
+  mut NOT_INITIALIZED: integer
+  mut REQUEST_FAILED: integer
 end
 
 protocol.INVALID_REQUEST = -32600

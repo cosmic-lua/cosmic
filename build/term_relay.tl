@@ -331,7 +331,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   -- output (`fatal`: a failing terminal ends the run) and the notes.
   local record Queued
     fd: integer
-    data: string
+    mut data: string
     fatal: boolean
   end
   local record Relaying

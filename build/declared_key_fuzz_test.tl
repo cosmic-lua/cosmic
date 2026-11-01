@@ -35,7 +35,7 @@ local function is_map(name: string): boolean return name == "environment" or nam
 --- optional one, absent (nil); each list of strings.
 local record Drawn
   scalars: mut {string:string}
-  lists: mut {string:{string}}
+  lists: mut {string:mut {string}}
 end
 
 --- Bytes a framing would single out: separators a preimage or a value
@@ -55,7 +55,7 @@ local function nth<T>(list: {T}, index: integer): T
 end
 
 --- The list `d` holds under `name`: a drawn spec holds every one of [`LISTS`].
-local function list_of(d: Drawn, name: string): {string}
+local function list_of(d: Drawn, name: string): mut {string}
   local list = d.lists[name]
   assert(list, name .. " is a list a drawn spec holds")
   return list

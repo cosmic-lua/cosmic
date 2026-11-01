@@ -152,7 +152,7 @@ end
 --- Every `//` comment of Zig source `source`, with its line: past a
 --- string or character literal, and never in a multiline string's
 --- line (what follows `\`).
-local function zig_comments(source: string): {link_text.Comment}
+local function zig_comments(source: string): mut {link_text.Comment}
   local out: mut {link_text.Comment} = {}
   local number = 0
   local line_start = 1
