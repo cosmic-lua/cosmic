@@ -3,11 +3,13 @@
 --- read of the messages it sends back.
 
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local build_paths = require("build.paths")
+local schema = require("build.schema")
 local protocol = require("build.lsp.protocol")
 local session = require("build.lsp.session")
 local source = require("build.lsp.source")
@@ -146,6 +148,29 @@ function session_fixture.made_project(root: string): string
   local directory = assert(build_paths.prepare(root))
   assert(Fs.write(build_paths.under(directory).projection, ""))
   return root
+end
+
+-- TODO: carry the `places` of the modules a test's closure holds in a worker's sealed database ([`build.test_key`]'s
+-- `sealed_schema` and `sealed_fill`, [`build.closure_store`]'s `closed`), once another change moves the harness epoch
+-- ([`build.harness_epoch`]): it moves every key, and until then a test of the lsp reads a stand-in for the tool's database, and the default [`Store.databases()`] path
+-- is exercised only by hand.
+
+--- A database as the tool carries one (the schema of [`build.schema`]), holding the standard-library module `path`, its
+--- file `file` and the text `text`, and `places` of it, each a `{ symbol, kind, line, column, length }`: what a session
+--- given it as its `store` takes for the binary's own, as the tests' sealed databases carry no places.
+function session_fixture.carrying(path: string, file: string, text: string, places: {{string}}): Sqlite.Handle
+  local db = assert(Sqlite.memory())
+  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  assert(Sqlite.run(db, "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
+      "VALUES (?1, ?2, 'module', CAST(?3 AS BLOB), x'00', x'00', '', deflate(?4))",
+    { { text = path }, { text = file }, { text = Hash.hex_sha256(text) }, { text = text } }))
+  for ordinal, place in ipairs(places) do
+    assert(Sqlite.run(db, "INSERT INTO places (module, ordinal, symbol, kind, line, column, length) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+      { { text = path }, { text = tostring(ordinal) }, { text = place[1] or "" }, { text = place[2] or "" },
+        { text = place[3] or "0" }, { text = place[4] or "0" }, { text = place[5] or "0" } }))
+  end
+  return db
 end
 
 --- A new directory that is a project to a session ([`made_project`]).

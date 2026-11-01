@@ -91,6 +91,32 @@ local function test_the_tool_carries_each_standard_module_s_stub(tmp: string)
   assert(rows[1]:text(2) == stub.made(parsed.chunk).text, rows[1]:text(2))
 end
 
+--- The places ([`build.syntax_places`]) of the standard library's modules are in the projection and in the tool, for
+--- `cosmic lsp`'s go to definition in a project; the tree's other modules, which the working database holds places of
+--- too, have none there.
+local function test_the_tool_carries_the_places_of_each_standard_module_alone(tmp: string)
+  local handle, tool = own_tree(tmp)
+  local held = assert(Sqlite.text_rows(handle.db,
+    "SELECT count(*) FROM places p JOIN inputs i ON i.source_hash = p.source_hash WHERE i.path = 'build.importer'"))
+  assert(assert(held[1]):text(1) ~= "0", "the working database places the tree's other module")
+  local result = assert(importer.compile(handle, tool))
+  local dir = assert(build_paths.prepare(handle.root))
+  assert(writer.write_result(handle, dir .. "/cosmic.db", result))
+  assert(work.close(handle))
+  assert(writer.carried(dir .. "/cosmic.db", tmp .. "/carried.db"))
+  for _, path in ipairs({ dir .. "/cosmic.db", tmp .. "/carried.db" }) do
+    local db = assert(Sqlite.open(path))
+    local modules = assert(Sqlite.text_rows(db, "SELECT DISTINCT module FROM places"))
+    assert(#modules == 1 and assert(modules[1]):text(1) == "cosmic.thing", path)
+    local rows = assert(Sqlite.text_rows(db,
+      "SELECT line, column, length FROM places WHERE module = 'cosmic.thing' AND symbol = 'thing.Box.n'"))
+    local row = assert(rows[1], path .. ": no place of thing.Box.n")
+    assert(row:text(1) == "4" and row:text(2) == "5" and row:text(3) == "1",
+      row:text(1) .. ":" .. row:text(2) .. "+" .. row:text(3))
+    assert(db:close())
+  end
+end
+
 local function test_a_stub_that_types_its_module_otherwise_fails_the_build(tmp: string)
   with_a_wrong_stub(function()
     local handle, tool = own_tree(tmp)

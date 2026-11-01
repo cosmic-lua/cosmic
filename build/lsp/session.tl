@@ -103,7 +103,7 @@ end
 --- A session's checker and docs at `root`.
 local function checked_at(s: Session, root: string)
   s.root = root
-  s.checker = check.new(root, s.err, hints_of({ s }), s.carried)
+  s.checker = check.new(root, s.err, hints_of({ s }), s.carried, s.store)
   s.docs = hover.new(root, s.checker.source, s.store, s.err)
 end
 
@@ -112,7 +112,7 @@ function session.new(root: string, options?: session.Options): Session
   local given: session.Options = options or {}
   local err = given.err or bare.err
   local held: mut {Session} = {}
-  local checker = check.new(root, err, hints_of(held), given.carried)
+  local checker = check.new(root, err, hints_of(held), given.carried, given.store)
   local made: Session = {
     root = root,
     encoding = "utf-16",

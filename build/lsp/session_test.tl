@@ -5,6 +5,7 @@
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Shape = require("cosmic.shape")
@@ -159,14 +160,19 @@ local function defined(ran: Ran, id: integer): Located?
   return assert(DEFINITION_SENT:decode_into(answer(ran, id))).result
 end
 
---- Asserts that `found` is in the file `name` below `root`, on `line` from character `from` up to `to`.
-local function assert_located(found: Located?, root: string, name: string, line: integer, from: integer, to: integer)
+--- Asserts that `found` is in the file at `path`, on `line` from character `from` up to `to`.
+local function assert_located_at(found: Located?, path: string, line: integer, from: integer, to: integer)
   local where = assert(found, "no definition")
-  assert(where.uri == "file://" .. root .. "/" .. name, where.uri)
+  assert(where.uri == "file://" .. path, where.uri)
   local start, finish = assert(where.range["start"]), assert(where.range["end"])
   local got = tostring(start.line) .. ":" .. tostring(start.character) .. "-" .. tostring(finish.line) .. ":" ..
     tostring(finish.character)
   assert(got == tostring(line) .. ":" .. tostring(from) .. "-" .. tostring(line) .. ":" .. tostring(to), got)
+end
+
+--- Asserts that `found` is in the file `name` below `root`, on `line` from character `from` up to `to`.
+local function assert_located(found: Located?, root: string, name: string, line: integer, from: integer, to: integer)
+  assert_located_at(found, root .. "/" .. name, line, from, to)
 end
 
 local function test_definition_is_advertised()
@@ -490,6 +496,41 @@ local function test_definition_counts_utf16_units_or_bytes_as_negotiated()
     open(root, "main.tl", text), at(2, "textDocument/definition", root, "main.tl", 1, 22),
   })
   assert_located(defined(narrow, 2), root, "main.tl", 0, 6, 11)
+end
+
+--- A symbol of the binary's own `cosmic.*` modules, which the project's database does not list, is where the tool's
+--- places say, in a read-only file below the build directory that holds the module's text. The tests' sealed databases
+--- carry no places, so the tool's are given as the session's `store`.
+local function test_definition_of_a_binary_module_s_field_is_the_file_extracted_from_the_tool()
+  local root = session_fixture.project()
+  local text = 'local Fs = require("cosmic.fs")\nlocal _ = Fs.read\nlocal t: Fs.Staged? = nil\n'
+  local carried = "--- Files.\nlocal Fs = {}\nfunction Fs.read() end\nlocal record Fs.Staged\nend\nreturn Fs\n"
+  local db = session_fixture.carrying("cosmic.fs", "cosmic/fs.tl", carried,
+    { { "Fs.read", "field", "3", "13", "4" }, { "Fs.Staged", "type", "4", "17", "6" } })
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 1, 15),
+    at(3, "textDocument/definition", root, "main.tl", 2, 12),
+    -- `Fs` of [`Fs.read`], a binding of the project.
+    at(4, "textDocument/definition", root, "main.tl", 1, 11),
+  }, { db })
+  local directory = build_paths.under((assert(build_paths.directory(root)))).cosmic_source
+  local file = directory .. "/" .. Hash.hex_sha256(carried) .. "/cosmic/fs.tl"
+  assert_located_at(defined(ran, 2), file, 2, 12, 16)
+  assert_located_at(defined(ran, 3), file, 3, 16, 22)
+  assert_located(defined(ran, 4), root, "main.tl", 0, 6, 8)
+  assert(Fs.read(file) == carried and assert(Fs.stat(file)).mode & 0x1ff == 0x124, "the file holds the text, read-only")
+  assert(db:close())
+end
+
+--- A tool whose database lists no places (one from before the table) answers none.
+local function test_definition_of_a_binary_module_s_field_is_null_where_the_tool_carries_no_places()
+  local root = session_fixture.project()
+  local text = 'local Fs = require("cosmic.fs")\nlocal _ = Fs.read\n'
+  local bare = assert(Sqlite.memory())
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 1, 15),
+  }, { bare })
+  assert(defined(ran, 2) == nil)
 end
 
 local function test_definition_of_nothing_the_report_knows_is_null()

@@ -213,8 +213,8 @@ end
 
 --- A checker of the tree at `root`, made ready on its first check.
 function check.new(root: string, err: function(line: string), hints: function(): check.Hinted,
-                   carried?: string): Checker
-  local view = source.new(root, err, carried)
+                   carried?: string, store?: {Sqlite.Handle}): Checker
+  local view = source.new(root, err, carried, store)
   return {
     root = root,
     source = view,
