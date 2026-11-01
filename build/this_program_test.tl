@@ -130,7 +130,13 @@ if cmdline ~= nil then print(cmdline:match("^[^%z]*")) else print("") end
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
   local relaunch = Proc.relaunch()
-  if relaunch == nil or Fs.exists("/proc/self/cmdline") ~= true then return end
+  if relaunch == nil then
+    Test.skip("a native start has no relaunch to compare")
+    return
+  end
+  if Fs.exists("/proc/self/cmdline") ~= true then
+    Test.skip("this host has no /proc/self/cmdline")
+  end
   assert(r.stdout == relaunch.argv[1] .. "\n", tostring(r.stdout) .. " is no relaunch of " ..
       relaunch.argv[1])
 end

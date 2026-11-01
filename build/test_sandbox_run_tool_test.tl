@@ -54,12 +54,10 @@ local function skip_unsandboxed(text: string)
   Test.skip(confine.unsandboxed_reason(text))
 end
 
---- Whether the run that printed `text` sandboxed none of its workers, the
---- running test being skipped first where this platform could have.
-local function unsandboxed(text: string): boolean
-  if not none_sandboxed(text) then return false end
-  skip_unsandboxed(text)
-  return true
+--- Ends the running test as skipped ([`Test.skip`]) where the run that
+--- printed `text` sandboxed none of its workers.
+local function skip_if_unsandboxed(text: string)
+  if none_sandboxed(text) then skip_unsandboxed(text) end
 end
 
 --- Runs `cosmic test` on `root`, with no `--all`, answering what it
@@ -99,7 +97,7 @@ local function test_a_sandboxed_run_holds_each_worker_to_its_inputs(tmp: string)
   env.COSMIC_TEST_SANDBOX = nil
   text, ok = run(root, tmp .. "/sandboxed", env)
   assert(not ok, text)
-  if unsandboxed(text) then return end
+  skip_if_unsandboxed(text)
   assert(text:find("; sandboxed", 1, true), text)
   local seen = text:match("seen|([^\n]*)|end")
   assert(seen ~= nil, text)
@@ -155,7 +153,7 @@ end
   env.COSMIC_TEST_SANDBOX = nil
   local text, ok = run(root, tmp .. "/out", env)
   assert(not ok, text)
-  if unsandboxed(text) then return end
+  skip_if_unsandboxed(text)
   assert(text:find("wrote|true|false|end", 1, true), text)
   assert(Fs.read(xdg .. "/cosmic/zig-global/entry") == "cached")
   assert(Fs.exists(xdg .. "/cosmic/bootstrap") ~= true)
@@ -179,7 +177,7 @@ local function test_a_host_path_is_given_where_it_is_declared(tmp: string)
   env.COSMIC_TEST_SANDBOX = nil
   local text, ok = run(root, tmp .. "/given", env)
   assert(not ok, text)
-  if unsandboxed(text) then return end
+  skip_if_unsandboxed(text)
   assert(text:find("; sandboxed", 1, true), text)
   assert(text:find("read|given|nil|end", 1, true), text)
 end
@@ -241,7 +239,7 @@ end
     return text
   end
   local first = said("2 ran, 0 stood")
-  if unsandboxed(first) then return root, said end
+  skip_if_unsandboxed(first)
   assert(first:find("; sandboxed", 1, true), first)
   return root, said
 end

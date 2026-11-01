@@ -683,6 +683,123 @@ local function test_the_members_of_classes_interfaces_and_enums_of_a_module_are_
   assert(ran.tally.member_declarations == 0, tostring(ran.tally.member_declarations) .. ran.err)
 end
 
+--- The members of a type of the standard library's `cosmic.*` modules, which the project's database does not list, are the
+--- rows the tool carries, with their docs: a member the rows hold and the checker's declaration does not is offered, and no
+--- declaration is read.
+local function test_the_members_of_a_binary_module_are_read_from_the_rows_the_tool_carries()
+  local root = session_fixture.project()
+  local text = 'local Fs = require("cosmic.fs")\nlocal s: Fs.Staged = nil\nlocal _ = s\n'
+  local db = session_fixture.carrying("cosmic.fs", "cosmic/fs.tl", "return {}\n", {}, {
+    { "Fs.Staged", "", "interface", "both", "" },
+    { "Fs.Staged", "rowonly", "field", "instance", "string", "Only a row has this." },
+    { "Fs.Staged", "write", "field", "instance", "function(Staged, string): boolean, string", "" },
+  })
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    change(root, "main.tl", 'local Fs = require("cosmic.fs")\nlocal s: Fs.Staged = nil\nlocal _ = s.\n'),
+    ask(2, root, "main.tl", 2, 12),
+  }, { db })
+  local found = items(ran, 2)
+  assert(has(found, { "rowonly", "write", "close", "sync" }) == "rowonly,write", ran.err)
+  assert(assert(found["rowonly"]).detail == "string" and assert(assert(found["rowonly"]).documentation).value == "Only a row has this.")
+  assert(assert(found["write"]).kind == FUNCTION)
+  assert(ran.tally.member_rows == 1 and ran.tally.member_declarations == 0,
+    tostring(ran.tally.member_rows) .. "," .. tostring(ran.tally.member_declarations))
+  -- A tool whose database lists no members (one from before the table) leaves it to the checker's declarations.
+  local bare = session_fixture.carrying("cosmic.fs", "cosmic/fs.tl", "return {}\n", {})
+  local before = served(root, { initialize(root), open(root, "main.tl", text),
+    change(root, "main.tl", 'local Fs = require("cosmic.fs")\nlocal s: Fs.Staged = nil\nlocal _ = s.\n'),
+    ask(2, root, "main.tl", 2, 12),
+  }, { bare })
+  assert(has(items(before, 2), { "rowonly", "write", "close" }) == "write,close", before.err)
+  assert(before.tally.member_rows == 0 and before.tally.member_declarations == 1)
+  assert(db:close() and bare:close())
+end
+
+--- An interface that lists one another module declares, or one with type arguments, is completed from the rows of each.
+local function test_an_interface_listing_one_of_another_module_or_with_type_arguments_is_read_from_rows()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/base.tl", table.concat({
+    "local type Handler = function(n: integer): integer",
+    "local record base",
+    "  interface Hooked",
+    "    on: Handler",
+    "  end",
+    "  interface Named",
+    "    name: string",
+    "  end",
+    "  interface Holder<T>",
+    "    held: T",
+    "  end",
+    "end",
+    "return base",
+    "",
+  }, "\n")))
+  assert(Fs.write(root .. "/lib/derived.tl", table.concat({
+    "local base = require(\"lib.base\")",
+    "local record derived",
+    "  interface Aged is base.Named",
+    "    age: integer",
+    "  end",
+    "  interface Counted is base.Holder<integer>, base.Named",
+    "    count: integer",
+    "  end",
+    "  interface Called is base.Holder<function(): integer>",
+    "  end",
+    "  interface Mixed is base.Hooked, base.Holder<integer>",
+    "  end",
+    "end",
+    "return derived",
+    "",
+  }, "\n")))
+  local head = 'local derived = require("lib.derived")\nlocal a: derived.Aged = nil\nlocal c: derived.Counted = nil\nlocal f: derived.Called = nil\nlocal m: derived.Mixed = nil\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", head .. "local _ = a\n"),
+    change(root, "main.tl", head .. "local _ = a.\n"),
+    ask(2, root, "main.tl", 5, 12),
+    change(root, "main.tl", head .. "local _ = c.\n"),
+    ask(3, root, "main.tl", 5, 12),
+    change(root, "main.tl", head .. "local _ = f.\n"),
+    ask(4, root, "main.tl", 5, 12),
+    change(root, "main.tl", head .. "local _ = m.\n"),
+    ask(5, root, "main.tl", 5, 12),
+  })
+  assert(has(items(ran, 2), { "name", "age", "held" }) == "name,age", ran.err)
+  assert(has(items(ran, 3), { "name", "count", "held", "age" }) == "name,count,held", ran.err)
+  -- The argument is put in the member's detail and kind.
+  assert(assert(items(ran, 3)["held"]).detail == "integer" and assert(items(ran, 3)["held"]).kind == FIELD, ran.err)
+  local called = assert(items(ran, 4)["held"], answer(ran, 4) .. ran.err)
+  assert(called.kind == FUNCTION and called.detail == "function(): integer", tostring(called.detail) .. ran.err)
+  -- Only the fields of the interface with arguments are put in: a plain one keeps its type as written.
+  local mixed = items(ran, 5)
+  assert(assert(mixed["on"]).detail == "Handler" and assert(mixed["on"]).kind == FUNCTION, ran.err)
+  assert(assert(mixed["held"]).detail == "integer", ran.err)
+  assert(ran.tally.member_declarations == 0, tostring(ran.tally.member_declarations) .. ran.err)
+end
+
+--- A field whose type is a name for a function type is a function, though its row has the name as written.
+local function test_a_field_whose_type_is_an_alias_of_a_function_is_offered_as_a_function()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/hooks.tl", table.concat({
+    "local type Handler = function(n: integer): integer",
+    "local record hooks",
+    "  on: Handler",
+    "  count: integer",
+    "end",
+    "return hooks",
+    "",
+  }, "\n")))
+  local head = 'local hooks = require("lib.hooks")\nlocal h: hooks = nil\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", head .. "local _ = h\n"),
+    change(root, "main.tl", head .. "local _ = h.\n"),
+    ask(2, root, "main.tl", 2, 12),
+  })
+  local found = items(ran, 2)
+  assert(assert(found["on"]).kind == FUNCTION and assert(found["on"]).detail == "Handler", ran.err)
+  assert(assert(found["count"]).kind == FIELD)
+  assert(ran.tally.member_declarations == 0 and ran.tally.member_rows == 1, ran.err)
+end
+
 --- The docs of the document's own module are the rows of the text the last check was of, so a member still has its docs
 --- while the line being typed does not parse.
 local function test_the_members_of_the_own_module_have_their_docs_while_the_line_does_not_parse()

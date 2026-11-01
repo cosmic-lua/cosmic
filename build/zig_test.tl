@@ -406,8 +406,8 @@ end
 
 --- A lock file this process cannot write would lock nothing (SQLite
 --- opens it read-only), so a boot refuses it, saying why, rather than
---- build unheld. Run as root, which writes it anyway, there is nothing
---- to see.
+--- build unheld. Run as root, which writes it anyway, the test is
+--- skipped.
 local function test_a_boot_refuses_a_lock_file_it_cannot_write(tmp: string)
   local root = tmp .. "/tree"
   assert(build_dir(root))
@@ -415,6 +415,7 @@ local function test_a_boot_refuses_a_lock_file_it_cannot_write(tmp: string)
   local fd, _ = sys.open(build_dir(root) .. "/rebuild.lock", sys.O_RDWR, 0)
   if fd ~= nil then
     assert(sys.close(fd))
+    Test.skip("this process is root, which writes whatever the mode says, so a mode holds no root back")
     return
   end
   local status = Zig.with_lock(build_paths.required(root), {}, function(): integer

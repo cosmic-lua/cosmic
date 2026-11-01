@@ -3,6 +3,7 @@ local Sqlite = require("cosmic.sqlite")
 local Poll = require("cosmic.poll")
 local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
 local rebuild_lock = require("build.rebuild_lock")
 local build_paths = require("build.paths")
 local Test = require("cosmic.test")
@@ -169,13 +170,14 @@ end
 
 --- A lock file this process cannot write would lock nothing, so it is
 --- refused, saying why, rather than taken or waited for. Run as root,
---- which writes it anyway, there is nothing to see.
+--- which writes it anyway, the test is skipped.
 local function test_a_lock_file_that_cannot_be_written_is_refused(tmp: string)
   local root, path = tree(tmp)
   assert(Fs.write(path, "", 0x124))
   local fd, _ = sys.open(path, sys.O_RDWR, 0)
   if fd ~= nil then
     assert(sys.close(fd))
+    Test.skip("this process is root, which writes whatever the mode says, so a mode holds no root back")
     return
   end
   local taken, trouble = rebuild_lock.take(root, 0, "test")

@@ -88,11 +88,14 @@ end
 --- Runs the child `worker` in a worker of this very program, sandboxed to
 --- [`confine.worker_unveil`]'s paths as a worker whose module declares
 --- nothing of the system's is, with `tmp` its scratch, where the
---- stand-in the chunk starts is built. Answers the lines it said, or nil
---- where there is no portable artifact to start again or no sandbox to
---- be had.
-local function sandboxed_worker(tmp: string): {string}?
-  if Proc.relaunch() == nil then return nil end -- no portable artifact to start again
+--- stand-in the chunk starts is built. Answers the lines it said; skips the
+--- test where there is no portable artifact to start again or no sandbox
+--- to be had.
+local function sandboxed_worker(tmp: string): {string}
+  if Proc.relaunch() == nil then
+    Test.skip("this program is no portable artifact to start again")
+    return {}
+  end
   local probe = probe_in(tmp)
   local given, hidden = tmp .. "/given", tmp .. "/hidden"
   for _, dir in ipairs({ given, hidden }) do assert(Fs.mkdirs(dir)) end
@@ -119,7 +122,8 @@ local function sandboxed_worker(tmp: string): {string}?
     -- the set left out.
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
         errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
-    return nil
+    Test.skip("no sandbox for the worker: " .. tostring(trouble))
+    return {}
   end
   local status = assert(process.waitpid(pid, false))
   local said = assert(sys.pread(output, 65536, 0))
@@ -146,7 +150,6 @@ end
 --- `map_ids`).
 local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_own(tmp: string)
   local lines = sandboxed_worker(tmp)
-  if lines == nil then return end
   local said = table.concat(lines, "\n")
   -- Whether the cache holds a stamp for the core, which the worker
   -- then has to find.

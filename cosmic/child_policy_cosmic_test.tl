@@ -39,7 +39,8 @@ local function ran(args: {string}, policy: Sandbox.Policy, cwd: string): Child.R
     assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
     Test.skip(why)
   end
-  return result
+  local held = assert(result, "Test.skip ends the test where the start is refused")
+  return held
 end
 
 --- A directory every user may write, with a script in it.
@@ -73,7 +74,10 @@ local function test_a_descriptor_the_relaunch_hands_on_is_refused(tmp: string)
   local relaunch = assert(Proc.relaunch())
   local taken: integer?
   for number in pairs(relaunch.fds) do taken = number end
-  if taken == nil then return end
+  if taken == nil then
+    Test.skip("this relaunch hands on no descriptor")
+    return
+  end
   local result, why = Child.run({ assert(Proc.executable()), work .. "/run.tl" },
     { policy = { profiles = { "cosmic" }, grants = { { path = work, letters = "rwc" } } },
       cwd = work, fds = { [taken] = 0 } })

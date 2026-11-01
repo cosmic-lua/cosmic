@@ -12,7 +12,6 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
 local test_inputs = require("build.test_inputs")
@@ -22,19 +21,16 @@ local Clock = require("cosmic.clock")
 
 Test.policy{ cpu_features = true, profiles = { "cosmic" } }
 
---- Whether this worker is sandboxed, which is what narrows what its children
---- run: the runner marks every worker it holds with the module's name in
---- the variable build.confine's `held_variable` names (set for a `lua`
---- module's worker too). On Linux a worker without the mark was given no
---- sandbox, so the test is skipped, saying so; off Linux there is none to
---- give, and it returns unchecked.
-local function sandboxed(): boolean
-  if Env.get(confine.held_variable) ~= nil then return true end
-  if assert(sys.uname()).sysname == "Linux" then
-    Test.skip("this worker is not sandboxed, so no sealed database of its closure narrows what " ..
-        "its children run")
-  end
-  return false
+--- Ends the running test as skipped ([`Test.skip`]) where this worker is
+--- not sandboxed, which is what narrows what its children run: the runner
+--- marks every worker it holds with the module's name in the variable
+--- build.confine's `held_variable` names (set for a `lua` module's worker
+--- too). On Linux a worker without the mark was given no sandbox; off
+--- Linux there is none to give.
+local function skip_unless_sandboxed()
+  if Env.get(confine.held_variable) ~= nil then return end
+  Test.skip("this worker is not sandboxed, so no sealed database of its closure narrows what " ..
+      "its children run")
 end
 
 --- Runs `words` after this program, past its launcher, and answers
@@ -61,7 +57,7 @@ local function test_a_standalone_file_runs_on_what_it_loads(tmp: string)
   assert(ok and out == "true\tword\n", out .. err)
   local bad = tmp .. "/bad.tl"
   assert(Fs.write(bad, "local Zip = require(\"cosmic.zip\")\nprint(Zip ~= nil)\n"))
-  if not sandboxed() then return end
+  skip_unless_sandboxed()
   ok, out, err = run({ "--standalone", bad })
   assert(not ok and err:find("the project has no module `cosmic.zip`", 1, true) ~= nil, out .. err)
 end

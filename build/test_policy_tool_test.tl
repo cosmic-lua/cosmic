@@ -31,29 +31,26 @@ Test.policy{
   requires = { "nest" },
 }
 
---- Whether the run that printed `text` held none of its workers, or could
---- not start them under a policy for what this host refuses of one -- a
---- Landlock ruleset, a seccomp filter, a namespace, a /proc of its own, a
---- root it cannot build; if so, the running test is skipped
---- ([`Test.skip`]), since a case of a sandboxed run then has nothing to check.
+--- Ends the running test as skipped ([`Test.skip`]) where the run that
+--- printed `text` held none of its workers, or could not start them under
+--- a policy for what this host refuses of one -- a Landlock ruleset, a
+--- seccomp filter, a namespace, a /proc of its own, a root it cannot
+--- build: a case of a sandboxed run then has nothing to check.
 --- The workers nest in this test's own sandbox, which a host may refuse:
 --- the kernel lets root nest one only two deep (core/syscalls.c's
 --- `map_ids`). CI's unprivileged runners nest them.
-local function unsandboxed(text: string): boolean
+local function skip_if_unsandboxed(text: string)
   if text:find("no worker can be sandboxed here", 1, true) then
     Test.skip(confine.unsandboxed_reason(text))
-    return true
   end
   local why = text:match("could not be supervised: (child: start: [^\n]*)")
-  if why == nil then return false end
+  if why == nil then return end
   for _, word in ipairs({ "Landlock", "seccomp", "namespace", "own /proc", "root could not be built",
       "not implemented" }) do
     if why:find(word, 1, true) then
       Test.skip("a policy's start in this test's own sandbox: " .. why)
-      return true
     end
   end
-  return false
 end
 
 --- Runs `cosmic test` with `words` on `root` with `env`, answering what it
@@ -153,7 +150,7 @@ local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_
   local env = environment()
   local text, ok = run(root, tmp .. "/policy", env,
     { "--all", "suite/held_test.tl" })
-  if unsandboxed(text) then return end
+  skip_if_unsandboxed(text)
   assert(not ok, text)
   assert(names_policy_path(text), text)
   assert(text:find("1 of 2 tests failed", 1, true), text)
@@ -192,7 +189,7 @@ end
 ]]))
   local env = environment()
   local text, ok = run(root, tmp .. "/forbid", env, { "--all", "suite/forbid_test.tl" })
-  if unsandboxed(text) then return end
+  skip_if_unsandboxed(text)
   assert(ok, text)
 end
 
@@ -242,7 +239,7 @@ end
 ]]))
   local env = environment()
   local text, ok = run(root, tmp .. "/own", env, { "--all", "suite/own_test.tl" })
-  if unsandboxed(text) then return end
+  skip_if_unsandboxed(text)
   assert(not ok, text)
   assert(names_policy_path(text), text)
   assert(text:find("1 of 2 tests failed", 1, true), text)
@@ -272,7 +269,7 @@ end
 ]]))
   local env = environment()
   local text, ok = run(root, tmp .. "/nest", env, { "--all", "suite/nest_test.tl" })
-  if unsandboxed(text) then return end
+  skip_if_unsandboxed(text)
   assert(ok, text)
   assert(not text:find("SKIP", 1, true), text)
   assert(not text:find("retains of its own", 1, true), text)
@@ -294,7 +291,7 @@ local function test_the_verdicts_of_a_sandboxed_and_an_unsandboxed_run_stand_apa
     return text
   end
   local first = said(true, "1 ran, 0 stood")
-  if unsandboxed(first) then return end
+  skip_if_unsandboxed(first)
   said(true, "0 ran, 1 stood")
   said(false, "1 ran, 0 stood")
   said(false, "0 ran, 1 stood")
@@ -325,7 +322,7 @@ end
     'local Test = require("cosmic.test")\n\nTest.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }\n')))
   local env = environment()
   local text, ok = run(root, tmp .. "/exec", env, { "--all" })
-  if unsandboxed(text) then return end
+  skip_if_unsandboxed(text)
   assert(not ok and text:find("1 of 2 tests failed", 1, true) ~= nil, text)
   assert(text:find("FAIL  suite.plain_exec_test test_runs_the_core", 1, true), text)
   assert(text:find("Permission denied", 1, true), text)

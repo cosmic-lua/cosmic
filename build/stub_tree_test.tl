@@ -119,6 +119,33 @@ local function test_the_tool_carries_the_places_of_each_standard_module_alone(tm
   end
 end
 
+--- The members ([`build.syntax_members`]) of the standard library's modules, with the docs of their symbols, are in the
+--- projection and in the tool, for `cosmic lsp`'s completion in a project; the tree's other modules have none there.
+local function test_the_tool_carries_the_members_of_each_standard_module_alone(tmp: string)
+  local handle, tool = own_tree(tmp)
+  local held = assert(Sqlite.text_rows(handle.db,
+    "SELECT count(*) FROM members m JOIN inputs i ON i.source_hash = m.source_hash WHERE i.path = 'build.importer'"))
+  assert(assert(held[1]):text(1) ~= "0", "the working database holds the tree's other module's members")
+  local result = assert(importer.compile(handle, tool))
+  local dir = assert(build_paths.prepare(handle.root))
+  assert(writer.write_result(handle, dir .. "/cosmic.db", result))
+  assert(work.close(handle))
+  assert(writer.carried(dir .. "/cosmic.db", tmp .. "/carried.db"))
+  for _, path in ipairs({ dir .. "/cosmic.db", tmp .. "/carried.db" }) do
+    local db = assert(Sqlite.open(path))
+    local modules = assert(Sqlite.text_rows(db, "SELECT DISTINCT module FROM members"))
+    assert(#modules == 1 and assert(modules[1]):text(1) == "cosmic.thing", path)
+    local rows = assert(Sqlite.text_rows(db,
+      "SELECT kind, scope, type FROM members WHERE module = 'cosmic.thing' AND owner = 'thing.Box' AND name = 'n'"))
+    local row = assert(rows[1], path .. ": no member n of thing.Box")
+    assert(row:text(1) == "field" and row:text(3) == "integer", row:text(1) .. ":" .. row:text(3))
+    local made = assert(Sqlite.text_rows(db,
+      "SELECT kind, type FROM members WHERE module = 'cosmic.thing' AND owner = 'thing' AND name = 'box'"))
+    assert(assert(made[1], path .. ": no function box"):text(2) == "function(n: integer): thing.Box")
+    assert(db:close())
+  end
+end
+
 local syscalls_header <const> = table.concat({
   "/* The table. */",
   "",

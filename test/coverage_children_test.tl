@@ -154,17 +154,14 @@ end
   local said = assert(r.stdout)
   -- A /proc the host's container keeps read-only, or a kernel that
   -- confines nothing (no user namespaces for this user, or no Linux:
-  -- ENOSYS), as the sandbox's other tests take it: skipped where the
-  -- platform could confine (Test.skip).
+  -- ENOSYS), as the sandbox's other tests take it: skipped (Test.skip).
   local own_proc, trouble = said:match("^refused (%a+) (.-)\n$")
   local unconfinable = false
   for _, errno in ipairs({ sys.ENOSYS, sys.EPERM, sys.EACCES, sys.EINVAL, sys.ENOSPC }) do
     if trouble == "child: start: " .. sys.errno_message(errno) then unconfinable = true end
   end
   if own_proc ~= nil and (own_proc == "host" or unconfinable) then
-    if assert(sys.uname()).sysname == "Linux" then
-      Test.skip("the parent could not confine its child: " .. said)
-    end
+    Test.skip("the parent could not confine its child: " .. said)
     return
   end
   assert(said == "exited 0\n", said)

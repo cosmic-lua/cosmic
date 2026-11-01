@@ -13,7 +13,6 @@
 
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
-local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local stand_in = require("build.stand_in")
 local test_child = require("build.test_child")
@@ -34,19 +33,16 @@ local function run(words: {string}): boolean, string, string
   return result.ok, result.stdout or "", result.stderr or ""
 end
 
---- Whether this worker is sandboxed, which is what narrows what its children
---- run: the runner marks every worker it holds with the module's name in
---- the variable build.confine's `held_variable` names (set for a `lua`
---- module's worker too). On Linux a worker without the mark was given no
---- sandbox, so the test is skipped, saying so; off Linux there is none to
---- give, and it returns unchecked.
-local function sandboxed(): boolean
-  if Env.get(confine.held_variable) ~= nil then return true end
-  if assert(sys.uname()).sysname == "Linux" then
-    Test.skip("this worker is not sandboxed, so no sealed database of its closure narrows what " ..
-        "its children run")
-  end
-  return false
+--- Ends the running test as skipped ([`Test.skip`]) where this worker is
+--- not sandboxed, which is what narrows what its children run: the runner
+--- marks every worker it holds with the module's name in the variable
+--- build.confine's `held_variable` names (set for a `lua` module's worker
+--- too). On Linux a worker without the mark was given no sandbox; off
+--- Linux there is none to give.
+local function skip_unless_sandboxed()
+  if Env.get(confine.held_variable) ~= nil then return end
+  Test.skip("this worker is not sandboxed, so no sealed database of its closure narrows what " ..
+      "its children run")
 end
 
 --- The child of the test below: the names of the modules loaded when `-e` runs a chunk. A chunk of a project cannot
@@ -85,14 +81,14 @@ local function test_a_module_outside_the_closure_is_not_found()
   local ok, _, err = run({ "-e", "local Child = require('cosmic.child') local This = require('build.this_program') " ..
       "print(type(Child), type(This))" })
   assert(ok, err)
-  if not sandboxed() then return end
+  skip_unless_sandboxed()
   ok, _, err = run({ "-e", "local Zip = require('cosmic.zip') print(Zip)" })
   assert(not ok and err:find("no module `cosmic.zip`", 1, true), err)
 end
 
 --- A verb runs no module the key does not hold: it fails to find them.
 local function test_a_verb_is_not_found()
-  if not sandboxed() then return end
+  skip_unless_sandboxed()
   local ok, _, err = run({ "test", "--help" })
   assert(not ok and err:find("no module", 1, true), err)
   ok, _, err = run({ "help" })
@@ -102,7 +98,7 @@ end
 --- What a child starts in turn runs the same artifact, given an
 --- environment of its own or not.
 local function test_a_grandchild_runs_the_same_artifact()
-  if not sandboxed() then return end
+  skip_unless_sandboxed()
   local chunk = [[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -126,7 +122,7 @@ end
 --- `lua` adds (build.test_inputs' `compiler_sought`); a row every key
 --- holds still reads.
 local function test_the_compilers_identity_is_not_in_what_a_child_runs()
-  if not sandboxed() then return end
+  skip_unless_sandboxed()
   for _, row in ipairs({ "compiler", "compiled_by" }) do
     local ok, out, err = run({ "-e", "print(require('cosmic.store').meta('" .. row .. "'))" })
     assert(ok and out == "nil\n", row .. ": " .. out .. err)
