@@ -13,6 +13,7 @@ local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local fixture = require("build.child_policy_database_fixture")
+local SeatbeltFixture = require("build.seatbelt_fixture")
 
 --- [`Store.seal`] reads the rows of every module it carries through
 --- [`Store.databases()`], which a worker without the store is not given
@@ -24,13 +25,6 @@ Test.policy{
   grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
   env = { "TMPDIR" },
 }
-
---- Ends the test where Seatbelt does not hold a child.
-local function macos_only()
-  if assert(sys.uname()).sysname ~= "Darwin" then
-    Test.skip("Seatbelt holds a child on macOS alone")
-  end
-end
 
 --- What Seatbelt denied lately, as the system's log names it, which says
 --- what a profile lacks. Empty where the log cannot be read.
@@ -65,7 +59,7 @@ end
 --- names, finds the modules sealed in it (the main itself, and what it
 --- requires), none outside the set, and cannot read this program's own file.
 local function test_a_sealed_database_runs_its_main_and_requires_its_modules(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
   local out = fixture.fields(assert(ran_sealed(path).stdout))
@@ -81,7 +75,7 @@ end
 --- The database is granted to read, and no more: the core opens it read-only
 --- and immutable, so it needs no `-wal`, `-shm` or lock, and no file beside it.
 local function test_the_child_may_read_the_database_and_write_nothing_beside_it(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
   local before = assert(Fs.list(tmp))
@@ -95,7 +89,7 @@ end
 
 --- A database that is not there fails the start, naming it.
 local function test_a_database_that_is_not_there_fails_the_start(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local executable = assert(Proc.executable())
   local result, why = Child.run({ executable, executable }, { policy = { profiles = { "system" },
     database = { path = tmp .. "/absent.db" } }, stdout = "capture", stderr = "capture" })
@@ -106,7 +100,7 @@ end
 --- the grant is `r` alone, so a write of it, of a file beside it and a new
 --- file there are each refused, EPERM.
 local function test_the_child_cannot_write_the_database_or_a_file_beside_it(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
   local beside = tmp .. "/beside"

@@ -18,6 +18,7 @@ local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local fixture = require("build.child_policy_database_fixture")
 local searchable = require("build.searchable")
+local ChildPolicy = require("build.child_policy_fixture")
 
 --- [`Store.seal`] reads the rows of every module it carries through
 --- [`Store.databases()`], which a worker without the store is not given
@@ -37,14 +38,6 @@ Test.policy{
   },
   requires = { "sandbox" },
 }
-
---- Whether `why`, a start's failure, is the host giving no sandbox.
-local function unsandboxable(why: string): boolean
-  for _, word in ipairs({ "Landlock", "seccomp", "not implemented", "namespace", "own /proc" }) do
-    if why:find(word, 1, true) then return true end
-  end
-  return false
-end
 
 --- Ends the test where a host that gives the sandbox refuses a namespace of
 --- its own, or the write of its ids (AppArmor's restriction): `errno` is
@@ -72,7 +65,7 @@ local function test_a_policy_runs_a_sealed_database_under_a_sandbox(tmp: string)
   local result, why = Child.run({ executable, executable }, { policy = { database = { path = path } },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   if result == nil then
-    assert(unsandboxable(why), "the start was refused: " .. why)
+    assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
     Test.skip(why)
     return
   end
@@ -110,7 +103,7 @@ local function test_a_database_policy_refuses_another_program_and_this_ones_own_
     { policy = { database = { path = path }, profiles = { "cosmic" } }, stdout = "capture",
       stderr = "capture", timeout_ns = Clock.seconds(30) })
   if profiled == nil then
-    assert(unsandboxable(profile_why), tostring(profile_why))
+    assert(ChildPolicy.unsandboxable(profile_why), tostring(profile_why))
   else
     assert(profiled.ok, tostring(profiled.stderr))
   end
@@ -160,7 +153,7 @@ local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {s
     { policy = policy, cwd = tmp, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(60) })
   if result == nil then
-    assert(unsandboxable(why), "the start was refused: " .. why)
+    assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
     Test.skip(why)
     return nil
   end

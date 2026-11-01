@@ -96,6 +96,8 @@ local allowed: mut {string: string} = {}
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
+allowed["build.searchable.share"] = "opens one file or directory to every user for the tests of a policy's child; build/child_policy_fixture.tl imports the module for `open`, so the tests' own uses no longer earn `share`"
+
 allowed["build.shared_verdicts.rows_kept"] = "the bound a file of a checked run's verdicts keeps, which the file's name decides; the settle of the same module applies it, and a test holds the names to it"
 allowed["build.test_key.met_nothing"] = "whether a checked run's report holds a violation, which `judge` asks and a test holds to the report's two clauses (a row, and rows that went unrecorded)"
 allowed["build.memprobe.enabled"] = "the switch `COSMIC_MEMPROBE` sets for a run, which a test turns on to read the line a mark writes"
