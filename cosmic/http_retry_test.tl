@@ -356,3 +356,33 @@ local function test_a_policy_of_the_wrong_lua_type_raises_naming_the_option(tmp:
   end
   assert(Fs.stat(tmp .. "/never") == nil)
 end
+
+--- A `retry` that is no table (a string, a number) raises naming the option,
+--- from each entry point.
+local function test_a_retry_that_is_no_table_raises_naming_the_option(tmp: string)
+  for _, literal in ipairs({ '"x"', "3", "true" }) do
+    local entries: {string:function(Http.Retry)} = {
+      open = function(policy: Http.Retry)
+        local _ = Http.open(url, { retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+      get = function(policy: Http.Retry)
+        local _ = Http.get(url, { retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+      request = function(policy: Http.Retry)
+        local _ = Http.request("PUT", url, { retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+      download = function(policy: Http.Retry)
+        local _ = Http.download(url, tmp .. "/never", { retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+      download_result = function(policy: Http.Retry)
+        local _ = Http.download_result(url, tmp .. "/never", { retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+    }
+    for name, entry in pairs(entries) do
+      local err = raised_with(literal, entry)
+      assert(err:find("http: opts.retry must be a table", 1, true) ~= nil, name .. " " .. literal .. ": " .. err)
+      assert(err:find("http_retry_test:", 1, true) ~= nil, name .. " " .. literal .. ": " .. err)
+    end
+  end
+  assert(Fs.stat(tmp .. "/never") == nil)
+end
