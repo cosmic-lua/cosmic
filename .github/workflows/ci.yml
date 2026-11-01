@@ -2164,8 +2164,9 @@
         # waiting a minute at most for each, and not at all for a share
         # ahead that will not have kept them by then (READY_SECONDS: it
         # keeps them some eleven minutes after it starts, a boot and its
-        # tests where none stood; TODO: set this from CI's own runs of a
-        # share standing on verdicts, which keep them sooner).
+        # tests where none stood).
+        # TODO: set READY_SECONDS from CI's own runs of a share standing on
+        # verdicts, which keep them sooner than eleven minutes.
         {
           name: "find the run ahead in the queue: part 1",
           id: "ahead-1",
