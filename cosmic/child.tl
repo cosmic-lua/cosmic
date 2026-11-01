@@ -1844,8 +1844,10 @@ local function make_handle(pid: integer, process_group: boolean, limit: integer,
     _streams = nil, _input_fd = nil, _input = nil, _input_at = nil, _tmp = nil, _relay = nil, _reaper = nil,
     _handover = nil, _seatbelt = nil,
   }
-  -- `reaper` was made before the child was, so that nothing here but the handle's own table and
-  -- the `owned` entry allocates after the spawn; attaching it sets fields that already exist.
+  -- `reaper` was made before the child was, and `armed` is set last, so its finalizer runs
+  -- only for a whole handle. Setting `handle`, a key its table does not hold yet, and the
+  -- handle's own table may still allocate after the spawn: running out of memory there
+  -- leaves the child unowned and without a finalizer, as it could before the reaper.
   reaper.handle = h
   reaper.armed = true
   h._reaper = reaper
