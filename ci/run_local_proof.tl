@@ -29,7 +29,6 @@ local function good(result: Child.Result)
       "proof child status " .. tostring(result.code))
 end
 
---- What [`prove`] answered, kept where the function that runs it under `pcall` can read it.
 local function prove(argv: {string}): integer
   local source, driver = assert(argv[1]), assert(argv[2])
   local relaunch = assert(Proc.relaunch())
