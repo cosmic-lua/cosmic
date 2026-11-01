@@ -973,8 +973,9 @@ end
 --- pass `follow = false` and follow `Location` by hand
 --- ([guide](../../doc/guides/http-pacing.md#every-redirect-hop)). A
 --- request that fails to connect still counts as a start, since the
---- attempt loads the API. The first request through a pacer does not wait. Raises, naming
---- `interval_ns`, for one that is not an integer of at least 0.
+--- attempt loads the API. The first request through a pacer does not
+--- wait. Raises, naming `interval_ns`, for one that is not an integer of
+--- at least 0.
 function Http.pacer(interval_ns: integer): Http.Pacer
   if math.type(interval_ns) ~= "integer" or interval_ns < 0 then
     error("http: pacer interval_ns must be an integer of at least 0", 2)

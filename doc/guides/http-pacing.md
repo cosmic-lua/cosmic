@@ -95,10 +95,12 @@ into the next URL.
 This follows only what a GET needs: a 301, 302, 303, 307 or 308 with a
 `Location` sends a GET again, and a GET stays a GET. It does not
 reimplement the rules curl follows for other methods or bodies, and it
-does not drop credentials when a hop leaves the host. So do not use it
-to forward an `Authorization` header: it would send the header to
-whatever host a `Location` names. Leave such a header off, or stop at
-the first hop that changes host.
+does not drop credentials when a hop leaves the host. So any credential
+header (`Authorization`, `Cookie`, an API-key header) must be left off a
+request whose redirects may cross hosts: the loop would send it to
+whatever host a `Location` names. `follow = false` also skips
+`redirect_protocols`, so the example refuses a change of scheme from
+https to http itself.
 
 ```teal continue
 local Url = require("cosmic.url")
@@ -113,10 +115,15 @@ local function get_paced(url: string, pacer: Http.Pacer, limit: integer,
     if got == nil then return nil, trouble end
     local s = got.status
     local location = got.headers["location"]
-    if (s ~= 301 and s ~= 302 and s ~= 303 and s ~= 307 and s ~= 308) or location == nil then
+    if (s ~= 301 and s ~= 302 and s ~= 303 and s ~= 307 and s ~= 308)
+        or location == nil or location == "" then
       return got, ""
     end
-    here = Url.resolve(here, location)
+    local next_url = Url.resolve(here, location)
+    if here:find("^https:") and next_url:find("^http:") then
+      return nil, "redirect from https to http refused"
+    end
+    here = next_url
   end
   return nil, "too many redirects"
 end
