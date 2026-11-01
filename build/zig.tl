@@ -687,12 +687,6 @@ local record Signals
   mut pending: integer
 end
 
---- What the watch of a child answered, kept where the function that runs it under `pcall` can read it.
-local record Supervised
-  mut result: Child.Result?
-  mut trouble: string
-end
-
 --- Runs `argv` (`argv[1]` an exact path) to its end in this process
 --- group, with the standard streams shared, and answers its status.
 ---
@@ -720,9 +714,7 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
   end
   -- Released below; closed, delivering what it holds, only if an error
   -- leaves `supervise` first.
-  -- TODO: hold the guard in a `<close>` local again and drop the `pcall`, once ci/cosmic-driver.pin names a release that
-  -- declares [`Signal.Guard`] as a class: a `<close>` local must be one.
-  local g = opened
+  local g <close> = opened
   local signals: Signals = { pending = 0 }
   local function supervise(): Child.Result?, string
     local h, trouble = Child.start(argv, { process_group = false, env = env })
@@ -766,16 +758,7 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
       local _, _ = sys.nanosleep(POLL_NS)
     end
   end
-  local supervised: Supervised = { result = nil, trouble = "" }
-  local ran, raised = pcall(function()
-    supervised.result, supervised.trouble = supervise()
-  end)
-  if not ran then
-    local _, _ = g:close()
-    -- The message keeps its position; the traceback of the first raise is not kept.
-    error(raised, 0)
-  end
-  local result, trouble = supervised.result, supervised.trouble
+  local result, trouble = supervise()
   local caught, release_trouble = g:release()
   -- Taken after the release, so a signal landing between the last
   -- round and the release is kept.

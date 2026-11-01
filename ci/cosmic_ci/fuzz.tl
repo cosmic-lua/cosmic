@@ -419,23 +419,17 @@ function Fuzz.execute(r: Fuzz.Run): integer
   -- Streamed to the log as it runs, and kept for the summary: a run
   -- cancelled at its time limit still shows how far it got. A signal
   -- caught meanwhile is delivered again once the status is kept.
-  -- TODO: hold the guard in a `<close>` local again, once ci/cosmic-driver.pin names a release that declares
-  -- [`Signal.Guard`] as a class: a `<close>` local must be one.
-  local guard = assert(Signal.guard())
-  local kept: Streamed = { trouble = "" }
-  local ran, raised = pcall(function()
-    local answered = streamed(guard, argv, r.root, env, out, r.log)
-    kept.status, kept.trouble = answered.status, answered.trouble
-    local reached = kept.status
-    if reached ~= nil then
-      assert(Fs.write(r.temp .. "/fuzz.status", tostring(reached) .. "\n"))
+  local answered: Streamed
+  do
+    local guard <close> = assert(Signal.guard())
+    answered = streamed(guard, argv, r.root, env, out, r.log)
+    if answered.status ~= nil then
+      assert(Fs.write(r.temp .. "/fuzz.status", tostring(answered.status) .. "\n"))
     end
-    assert(kept.trouble == "", kept.trouble)
-    assert(reached ~= nil, "fuzz child ended without a status")
-  end)
-  local _, _ = guard:close()
-  if not ran then error(raised, 0) end
-  local status = assert(kept.status)
+    assert(answered.trouble == "", answered.trouble)
+    assert(answered.status ~= nil, "fuzz child ended without a status")
+  end
+  local status = assert(answered.status)
   local slow_next, slow_close = chunks(out)
   local scanned: Fuzz.Scanned = { slow = {} }
   local read, raised_scan = pcall(function()

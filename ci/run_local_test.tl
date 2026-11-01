@@ -5,6 +5,7 @@ local Fs = require("cosmic.fs")
 local Local = require("run_local")
 local Maps = require("cosmic_ci.maps")
 local Hash = require("cosmic.hash")
+local Poll = require("cosmic.poll")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Proc = require("cosmic.proc")
 local Signal = require("cosmic.signal")
@@ -40,7 +41,7 @@ local function checkout(tmp: string): string, {string:string}
   assert(Fs.mkdirs(root .. "/o/bin") and Fs.mkdirs(root .. "/ci/cosmic_ci"))
   assert(Fs.write(root .. "/ci/cosmic_ci/driver.tl", "fixture driver\n"))
   assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
+  assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
   assert(Fs.write(root .. "/tracked", "old\n"))
   assert(Fs.write(root .. "/ci/run_local.tl", "fixture entry\n"))
   assert(Fs.write(root .. "/.gitignore", "o/\nignored\n"))
@@ -457,22 +458,30 @@ local function test_a_successful_run_closes_the_descriptors_it_held(tmp: string)
   assert(descriptors() == before, "a successful run left a descriptor open")
 end
 
---- The run holds a signal guard for its whole length and closes it once, on success and on a failed phase.
-local function test_a_run_closes_its_signal_guard_once(tmp: string)
+--- The run holds a signal guard for its whole length and leaves it closed, on success and on a failed phase. A closed
+--- guard answers a wait with why it ended; an open one waits out the timeout.
+local function test_a_run_leaves_its_signal_guard_closed(tmp: string)
   local root, env = checkout(tmp)
   local seams = Local.calls()
-  local real = seams.signal_close
-  local closed: Count = { value = 0 }
-  seams.signal_close = function(guard: Signal.Guard): boolean, string
-    closed.value = closed.value + 1
-    return real(guard)
+  local real = seams.signal_guard
+  local opened: mut {Signal.Guard} = {}
+  seams.signal_guard = function(): Signal.Guard?, string
+    local guard, trouble = real()
+    if guard ~= nil then opened[#opened + 1] = guard end
+    return guard, trouble
   end
   local ok = trying(root, env, { "build" })
   local failed = trying(root, env, { "fail" })
-  seams.signal_close = real
+  seams.signal_guard = real
   assert(ok.ok and ok.code == 0, ok.raised)
   assert(failed.ok and failed.code == 23, failed.raised)
-  assert(closed.value == 2, "the guard was closed " .. tostring(closed.value) .. " times in two runs")
+  assert(#opened == 2, "the run opened " .. tostring(#opened) .. " guards in two runs")
+  Poll.run(function()
+    for _, guard in ipairs(opened) do
+      local signal, why = guard:wait(0)
+      assert(signal == 0 and why == "signal: the guard is closed", "a run left its guard open: " .. why)
+    end
+  end)
 end
 
 local record CredentialedTally
