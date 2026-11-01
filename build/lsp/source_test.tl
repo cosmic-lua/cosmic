@@ -417,12 +417,16 @@ local function test_a_field_added_to_a_required_record_is_no_field_a_dependent_r
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/base.tl", "local record base\n  one: function(): integer\nend\n" ..
       "function base.one(): integer return 1 end\nreturn base\n"))
-  assert(Fs.write(root .. "/lib/ext.tl", 'local base = require("lib.base")\nfunction base.extra(): integer\n  return 2\nend\n' ..
-      "local record ext\n  x: integer\nend\nlocal e: ext = { x = 1 }\nreturn e\n"))
+  local ext = 'local base = require("lib.base")\nfunction base.extra(): integer\n  return 2\nend\n' ..
+    "local record ext\n  x: integer\nend\nlocal e: ext = { x = 1 }\nreturn e\n"
+  assert(Fs.write(root .. "/lib/ext.tl", ext))
   local main = 'local base = require("lib.base")\nlocal ext = require("lib.ext")\nlocal n: integer = base.extra() + ext.x\nreturn n\n'
-  local ran = served(root, { initialize(root), open(root, "main.tl", main) })
+  local ran = served(root, { initialize(root), open(root, "main.tl", main), open(root, "lib/ext.tl", ext) })
   local text = messages_of(nth(ran, 1))
   assert(text:find("field_unknown", 1, true) ~= nil, text)
+  -- The build's refusal the dependent's stub agrees with: the module's own check says it.
+  local own = messages_of(nth(ran, 2))
+  assert(own:find("field_unknown", 1, true) ~= nil, own)
 end
 
 --- Where the database's stubs are another analyzer's, each is made here

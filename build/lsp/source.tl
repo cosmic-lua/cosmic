@@ -41,8 +41,8 @@
 --- cosmic serves its standard library: the checker reads a fraction of
 --- it, and the stub types a `require` of it as its source does: a body cannot
 --- declare past its module, since a build refuses a function or field added to
---- a record the module does not declare (`field_unknown`), so a dependent is
---- told of no field a build would give it. The stub of a
+--- a record the module does not declare (`field_unknown`), so a dependent
+--- never lacks a field the build would give it. The stub of a
 --- file is the one the stage derived of its source (the `stubs` row of its
 --- `source_hash`), while the database's rows are the running analyzer's:
 --- the one this session's own stage recorded deriving them (the `meta`
