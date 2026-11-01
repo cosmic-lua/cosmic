@@ -1152,6 +1152,20 @@ local function ends_in_expression(s: Ast.Stat): boolean
   elseif (s.kind == "Function") then
     -- `R.goto = function() end` ends in an expression.
     return RESERVED_FIELDS[assert(s.path[#s.path]).text] == true
+  elseif s.kind == "Repeat" then
+    -- `until <cond>`: the condition is the last thing written.
+    return true
+  elseif s.kind == "Import" then
+    -- `local T = require("m")` ends in a call.
+    return true
+  elseif s.kind == "Class" then
+    -- Without a method the last thing written is `C.__index = C`; a method ends in `end`.
+    for _, m in ipairs(s.members) do
+      if m.kind == "Method" then
+        return false
+      end
+    end
+    return true
   end
   return false
 end
@@ -1164,13 +1178,20 @@ block = function(b: Ast.Block): Output
     children[i] = stat(stats[i])
   end
   local space: string? = nil
+  -- The last statement that wrote anything: one that writes nothing (a type) leaves the one before it as the end of the
+  -- line that a `(` would continue.
+  local written: Ast.Stat? = nil
   for i = 1, #stats do
     add_child(out, children[i], space, G.indent)
     -- A statement ends with a `;` where the next begins a line with `(`, which would continue it.
     local s = stats[i]
+    if #children[i].parts > 0 then
+      written = s
+    end
     local following = stats[i + 1]
-    local ends = following ~= nil and ends_in_expression(s) and G.tokens.text[base_of(following).first] == "(" and
-      line_of(base_of(following).first) > Lexer.yend(G.tokens, base_of(s).last)
+    local ends = following ~= nil and written ~= nil and ends_in_expression(written) and
+      G.tokens.text[base_of(following).first] == "(" and
+      line_of(base_of(following).first) > Lexer.yend(G.tokens, base_of(written).last)
     if ends then
       put(out, ";")
       space = " "
