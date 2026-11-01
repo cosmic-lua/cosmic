@@ -1,8 +1,10 @@
 local Clock = require("cosmic.clock")
+local Compress = require("cosmic.compress")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Fixture = require("cosmic_ci.fixture")
 
+local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 
 --- Run unsandboxed and sharing nothing (cosmic_ci/orchestration.tl's
@@ -148,7 +150,7 @@ local function test_portable_format_contract(tmp: string)
     local stored = artifact:sub(entry.offset + 1, entry.offset + entry.stored_length)
     assert(Hash.hex_sha256(stored) == entry.stored_digest and #stored < #core,
       "format stored range differs: " .. target.name)
-    local extracted = Fixture.zstd_decode(tmp, "extract-" .. target.name, stored, entry.length)
+    local extracted = assert(Stream.run(assert(Compress.zstd_decoder(1 << 23)), stored, entry.length))
     assert(extracted == core and Hash.hex_sha256(extracted) == entry.digest,
       "format core range differs: " .. target.name)
   end
