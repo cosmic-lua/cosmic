@@ -1250,12 +1250,35 @@ local function test_diff_raises_rather_than_loop_on_a_table_that_contains_itself
   local loop: mut {string: Json.Value} = {}
   loop["again"] = loop
   assert(raised(function(): {Json.Difference} return Json.diff(loop, loop) end):find("json: diff: nesting", 1, true) ~= nil)
-  local deeper: mut {string: Json.Value} = {}
-  local cursor = deeper
-  for _ = 1, Json.depth_limit + 2 do
-    local child: mut {string: Json.Value} = {}
-    cursor["next"] = child
-    cursor = child
-  end
-  assert(raised(function(): {Json.Difference} return Json.diff(deeper, deeper) end) ~= "")
+end
+
+--- `levels` arrays inside one another around a 1.
+local function nested(levels: integer, leaf: Json.Value): Json.Value
+  local value = leaf
+  for _ = 1, levels do value = Json.array({ value }) end
+  return value
+end
+
+local function test_diff_accepts_the_nesting_decode_accepts_and_no_more()
+  assert(#Json.diff(nested(Json.depth_limit, 1), nested(Json.depth_limit, 1)) == 0)
+  assert(#Json.diff(nested(Json.depth_limit, 1), nested(Json.depth_limit, 2)) == 1)
+  local over = nested(Json.depth_limit + 1, 1)
+  assert(raised(function(): {Json.Difference} return Json.diff(over, over) end):find("json: diff: nesting", 1, true) ~= nil)
+  -- A difference of another kind at the limit is copied without raising either.
+  assert(#Json.diff(nested(Json.depth_limit, 1), nested(Json.depth_limit, "x")) == 1)
+end
+
+local function test_diff_compares_nan_and_infinities_without_failing()
+  local nan = 0 / 0
+  local inf = math.huge
+  assert(#Json.diff({ a = { b = nan } }, { a = { b = nan } }) == 0)
+  assert(#Json.diff(Json.array({ inf, -inf }), Json.array({ inf, -inf })) == 0)
+  local differences = Json.diff({ a = { b = nan } }, { a = { b = 1 } })
+  assert(paths(differences) == "/a/b", paths(differences))
+  assert(nth(differences, 1).want ~= nth(differences, 1).want and nth(differences, 1).got == 1)
+  assert(paths(Json.diff({ a = inf }, { a = -inf })) == "/a")
+  assert(paths(Json.diff({ a = inf }, { a = nan })) == "/a")
+  -- A subtree with a NaN in it is reported whole, at its own place.
+  differences = Json.diff({ a = { b = nan } }, { a = "x" })
+  assert(paths(differences) == "/a" and nth(differences, 1).got == "x")
 end

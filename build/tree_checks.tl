@@ -96,7 +96,7 @@ local allowed: mut {string: string} = {}
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
-allowed["cosmic.hash.file"] = "the raw digest of a file, which hex_file spells; a caller that signs or compares bytes wants it unspelled, and a test holds it to Hash.digest"
+allowed["cosmic.hash.file"] = "the raw-digest form of hex_file, which is its only caller outside tests"
 
 allowed["build.searchable.share"] = "opens one file or directory to every user for the tests of a policy's child; build/child_policy_fixture.tl imports the module for `open`, so the tests' own uses no longer earn `share`"
 

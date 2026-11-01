@@ -109,8 +109,10 @@ local chunk_size = 1 << 20
 ---     assert(Hash.file("sha256", dir .. "/a.txt") == Hash.sha256("cosmic"))
 ---     assert(Fs.remove_tree(dir))
 function Hash.file(algorithm: Hash.Algorithm, path: string): string?, string
-  local hasher, trouble = raw.hasher(algorithm)
-  if hasher == nil then return nil, trouble end
+  local made, trouble = raw.hasher(algorithm)
+  if made == nil then return nil, trouble end
+  -- Abandoned on every way out that does not finish it.
+  local hasher <close> = made
   local fd, open_trouble = Fs.open_read(path)
   if fd == nil then return nil, open_trouble end
   while true do
