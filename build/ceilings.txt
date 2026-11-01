@@ -127,10 +127,6 @@ cosmic/internal/compress.d.tl interface_disagrees 1
 
 cosmic/internal/sqlite.d.tl interface_disagrees 1
 
-cosmic/json_reader_fuzz_test.tl interface_disagrees 1
-
-cosmic/json_reader_test.tl interface_disagrees 1
-
 cosmic/net.tl interface_disagrees 2
 
 cosmic/stream.tl interface_disagrees 5
@@ -2733,7 +2729,7 @@ core/connector_filter_test.tl map_field 17
 
 core/database_start_sandbox_test.tl map_field 13
 
-core/database_start_test.tl map_field 66
+core/database_start_test.tl map_field 64
 
 core/declarations_test.tl map_field 21
 
@@ -3227,7 +3223,6 @@ build/link_resolve.tl any_use 1
 
 build/lsp/session.tl any_use 5
 
-build/perf_validation.tl any_use 7
 
 build/rand.tl any_use 1
 
@@ -3958,9 +3953,7 @@ cosmic/http/server.tl is_disjoint 1
 # the method
 build/cache_lifetime.tl close_not_closable 1
 
-build/cache_maintenance.tl close_not_closable 8
-
-build/dataset_test.tl close_not_closable 1
+build/cache_maintenance.tl close_not_closable 5
 
 build/fetch_tool_test.tl close_not_closable 2
 
@@ -4022,7 +4015,6 @@ cosmic/net_tool_test.tl close_not_closable 1
 
 cosmic/seatbelt_network_probe_test.tl close_not_closable 4
 
-cosmic/sqlite_example.tl close_not_closable 1
 
 cosmic/time.tl close_not_closable 3
 
@@ -4039,9 +4031,7 @@ cosmic/web/testing.tl close_not_closable 1
 cosmic/web/testing_test.tl close_not_closable 1
 
 
-test/sqlite_query_test.tl close_not_closable 1
 
-test/sqlite_row_test.tl close_not_closable 1
 
 # a condition that is a string, a number, a table or a `boolean?`: the rewrite writes the test (`s ~= ""`, `x ==
 # true`)
@@ -5686,7 +5676,7 @@ cosmic/zip.tl literal_missing 1
 
 lang/check.tl literal_missing 8
 
-lang/declarations.tl literal_missing 6
+lang/declarations.tl literal_missing 5
 
 lang/relation.tl literal_missing 1
 
@@ -6105,7 +6095,6 @@ build/flow_test.tl arms_differ 2
 
 build/json_query_test.tl arms_differ 2
 
-build/perf_validation.tl arms_differ 1
 
 build/shared_compiles.tl arms_differ 1
 
@@ -6827,7 +6816,6 @@ cosmic/removed_example.tl literal_missing 1
 
 cosmic/removed_example.tl setmetatable_call 1
 
-cosmic/sqlite_example.tl close_not_closable 1
 
 # TODO: write the JSON documents these examples encode and send as literals, once the new checker takes a literal of mixed
 # values where a JSON value is wanted: a recursive alias (`string | number | boolean | {Value} | {string: Value}`) is

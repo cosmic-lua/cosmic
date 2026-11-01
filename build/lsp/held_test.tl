@@ -438,6 +438,28 @@ local function test_a_docs_database_written_during_a_check_checks_the_document_a
   assert(writer:close())
 end
 
+--- Guards against a module written while a check reads it being recorded as already read: the next ask checks again.
+local function test_a_module_written_during_a_check_checks_the_document_again()
+  local root = helped()
+  local asked = 0
+  local helper = document_of(root, "helper.tl", HELPER)
+  local checker = check.new(root, function(_line: string) end, function(): check.Hinted
+    asked = asked + 1
+    -- The first ask is the key read before the check, the second the check's own lookup of a hint.
+    if asked == 2 then check.set_text(helper, RETYPED) end
+    return { databases = {}, public = {} }
+  end)
+  local main = document_of(root, "main.tl", 'local helper = require("helper")\nprint(read, helper)\nlocal n: integer = 1\nreturn n\n')
+  check.opened(checker, helper)
+  check.opened(checker, main)
+  local told = check.diagnose(checker, main, "utf-16")
+  assert(#told == 1, table.concat(told, "\n"))
+  assert(asked >= 2, "the check looked up a hint")
+  assert(checker.ran["main.tl"] == 1, tostring(checker.ran["main.tl"]))
+  check.diagnose(checker, main, "utf-16")
+  assert(checker.ran["main.tl"] == 2, tostring(checker.ran["main.tl"]))
+end
+
 --- Guards against a session holding the whole program of every document it has open: the documents asked of least recently
 --- drop their results, are checked again when asked of, and publish what they published while nothing they read moved.
 local function test_only_the_documents_asked_of_last_keep_their_results()

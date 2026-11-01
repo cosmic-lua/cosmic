@@ -12,15 +12,34 @@ local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 
-local record Seams
-  --- A started child, as far as the fuzz run supervises it: the calls of a
-  --- [`Child.Handle`] it makes, as functions a test can fake.
-  record Started
-    stop: function(signal?: integer): boolean, string
-    try_wait: function(): Child.TryWait?, string
-    drain: function(options: Child.DrainOptions): Child.DrainResult
-    close: function(): boolean, string
+--- A started child, as far as the fuzz run supervises it: the calls of a [`Child.Handle`] it makes, as functions a
+--- test can fake. A `<close>` variable holding it calls `close` and reports no trouble, as one holding the handle does.
+local class Started
+  stop: function(signal?: integer): boolean, string
+  try_wait: function(): Child.TryWait?, string
+  drain: function(options: Child.DrainOptions): Child.DrainResult
+  close: function(): boolean, string
+
+  function __close(self)
+    local _, _ = self.close()
   end
+end
+
+--- The calls a [`Started`] is made of, named, so a test cannot give one in another's place.
+local record Parts
+  stop: function(signal?: integer): boolean, string
+  try_wait: function(): Child.TryWait?, string
+  drain: function(options: Child.DrainOptions): Child.DrainResult
+  close: function(): boolean, string
+end
+
+local function new_started(parts: Parts): Started
+  return { stop = parts.stop, try_wait = parts.try_wait, drain = parts.drain, close = parts.close }
+end
+
+local record Seams
+  type Started = Started
+  type Parts = Parts
   --- Each call, named for the library function it starts as.
   record Calls
     mut child_run: function(argv: {string}, options?: Child.Options): Child.Result?, string
@@ -49,14 +68,14 @@ end
 local function start(argv: {string}, options?: Child.Options): Seams.Started?, string
   local handle, why = Child.start(argv, options)
   if handle == nil then return nil, why end
-  return {
+  return new_started({
     stop = function(signal?: integer): boolean, string return handle:stop(signal) end,
     try_wait = function(): Child.TryWait?, string return handle:try_wait() end,
     drain = function(drained: Child.DrainOptions): Child.DrainResult
       return handle:drain(drained)
     end,
     close = function(): boolean, string return handle:close() end,
-  }, ""
+  }), ""
 end
 
 local current: Seams.Calls = {
@@ -77,6 +96,11 @@ local current: Seams.Calls = {
   sys_mkdtemp = sys.mkdtemp,
   sys_pread = sys.pread,
 }
+
+--- A started child made of `parts`, for a test to stand in for [`Child.start`]'s.
+function Seams.started(parts: Seams.Parts): Seams.Started
+  return new_started(parts)
+end
 
 function Seams.calls(): Seams.Calls
   return current

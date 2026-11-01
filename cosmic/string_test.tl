@@ -1,13 +1,6 @@
 local String = require("cosmic.string")
 local Test = require("cosmic.test")
-
-local function same(got: {string}, want: {string}): boolean
-  if #got ~= #want then return false end
-  for i = 1, #want do
-    if got[i] ~= want[i] then return false end
-  end
-  return true
-end
+local StringList = require("build.string_list_fixture")
 
 local function collected(text: string): {string}
   local out: mut {string} = {}
@@ -16,17 +9,17 @@ local function collected(text: string): {string}
 end
 
 local function test_split_keeps_every_piece()
-  assert(same(String.split("a,b,c", ","), { "a", "b", "c" }))
-  assert(same(String.split("a,", ","), { "a", "" }))
-  assert(same(String.split(",a", ","), { "", "a" }))
-  assert(same(String.split("", ","), { "" }))
-  assert(same(String.split("a,,b", ","), { "a", "", "b" }))
+  assert(StringList.same(String.split("a,b,c", ","), { "a", "b", "c" }))
+  assert(StringList.same(String.split("a,", ","), { "a", "" }))
+  assert(StringList.same(String.split(",a", ","), { "", "a" }))
+  assert(StringList.same(String.split("", ","), { "" }))
+  assert(StringList.same(String.split("a,,b", ","), { "a", "", "b" }))
 end
 
 local function test_split_separator_is_plain_text()
-  assert(same(String.split("a.b.c", "."), { "a", "b", "c" }))
-  assert(same(String.split("1%%2", "%%"), { "1", "2" }))
-  assert(same(String.split("a::b:c", "::"), { "a", "b:c" }))
+  assert(StringList.same(String.split("a.b.c", "."), { "a", "b", "c" }))
+  assert(StringList.same(String.split("1%%2", "%%"), { "1", "2" }))
+  assert(StringList.same(String.split("a::b:c", "::"), { "a", "b:c" }))
 end
 
 local function test_split_refuses_an_empty_separator()
@@ -35,9 +28,9 @@ end
 
 local function test_lines_match_split_on_newline()
   for _, text in ipairs({ "", "a", "a\n", "a\n\nb", "\n", "a\r\nb" }) do
-    assert(same(collected(text), String.split(text, "\n")), ("%q"):format(text))
+    assert(StringList.same(collected(text), String.split(text, "\n")), ("%q"):format(text))
   end
-  assert(same(collected("a\r\nb"), { "a\r", "b" }))
+  assert(StringList.same(collected("a\r\nb"), { "a\r", "b" }))
 end
 
 local function test_byte_at_reads_each_byte_from_1()
