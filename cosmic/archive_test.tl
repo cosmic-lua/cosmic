@@ -13,8 +13,6 @@ local Zip = require("cosmic.zip")
 local Archive = require("cosmic.archive")
 local Test = require("cosmic.test")
 
-Test.policy{ cpu_features = true }
-
 --- `tar -cf a.tar src` (a directory holding src/short.txt and the
 --- symlink src/adir/alink -> short.txt), then gzip/xz/bzip2/zstd -c.
 local TAR_GZ_B64 <const> =

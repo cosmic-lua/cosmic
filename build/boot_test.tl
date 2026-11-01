@@ -9,10 +9,6 @@ local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local artifact = require("build.artifact")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
-
 -- [`build.boot`] loads the compiler's module at the top; a test has no
 -- bridge to have put it there, and a stage never gets as far as using it.
 package.loaded["build.compiler"] = {}

@@ -18,7 +18,6 @@ local type raw_process = require("cosmic.internal.process")
 --- have roots of their own; and `tool`, since a process confined is
 --- given the program (the TODO above build.confine's `forbid_running`).
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },

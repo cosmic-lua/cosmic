@@ -7,7 +7,7 @@ local invoke = require("build.invoke")
 
 --- `store`: `help version`, run in this process, reads every module's
 --- docs through [`Store.databases()`].
-Test.policy{ cpu_features = true, grants = { { path = "o/cosmic.db", letters = "r" } } }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 local function test_help_describes_version_by_either_spelling(tmp: string)
   for _, word in ipairs({ "version", "--version" }) do

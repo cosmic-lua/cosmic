@@ -21,7 +21,6 @@ local SeatbeltFixture = require("build.seatbelt_fixture")
 --- grant of o/bin). The system's own paths are what the child's core and
 --- loader are read and run from.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic", "system" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
   env = { "TMPDIR" },

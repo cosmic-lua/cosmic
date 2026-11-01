@@ -5,7 +5,7 @@ local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
-Test.policy{ cpu_features = true, profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" } }
 
 local function appender(tmp: string, name: string): Child.Handle
   local script = string.format("local name = %q\n", name) .. [[

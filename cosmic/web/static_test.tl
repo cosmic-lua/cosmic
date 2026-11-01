@@ -8,7 +8,7 @@ local Test = require("cosmic.test")
 local Time = require("cosmic.time")
 local Web = require("cosmic.web")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 local CSS <const> = ("a { color: red }\n"):rep(200)
 local SVG <const> = "<svg xmlns='http://www.w3.org/2000/svg'/>"

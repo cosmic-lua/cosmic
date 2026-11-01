@@ -5,7 +5,7 @@
 local Snippet = require("build.snippet_fixture")
 local Test = require("cosmic.test")
 
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 -- A fixture reads the `cosmic.*` modules it requires out of the store,
 -- which holds a test to its import closure: these are the ones the

@@ -8,9 +8,6 @@ local Clock = require("cosmic.clock")
 local Compress = require("cosmic.compress")
 local Http = require("cosmic.http")
 local Stream = require("cosmic.stream")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 local Example = {}
 

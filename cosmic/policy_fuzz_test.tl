@@ -9,9 +9,6 @@ local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
 local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 --- Values a field of a policy has to get right, valid and not.
 local LETTERS <const> = { "r", "rw", "rwxcu", "x", "xr", "rr", "", "z", "RX", "cu", "wc" }

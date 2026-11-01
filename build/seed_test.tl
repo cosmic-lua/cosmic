@@ -13,7 +13,7 @@ local Parser = require("lang.parser")
 local Seed = require("build.seed")
 local Test = require("cosmic.test")
 
-Test.policy{ cpu_features = true, grants = {
+Test.policy{ grants = {
   { path = "build/", letters = "r" },
   { path = "lang/", letters = "r" },
   { path = "cosmic/", letters = "r" },

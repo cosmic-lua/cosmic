@@ -5,9 +5,6 @@
 local Sqlite = require("cosmic.sqlite")
 local fixture = require("build.docs_fixture")
 local tree_checks = require("build.tree_checks")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 --- What [`tree_checks.exports`] finds in `db` against `excused`: the
 --- exports it refuses, as `<file>:<line>: <module>.<member>`, and the

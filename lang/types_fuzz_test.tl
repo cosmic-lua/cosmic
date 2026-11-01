@@ -11,7 +11,7 @@ local Programs = require("lang.types_programs")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 local function gen_draws(src: Fuzz.Source): string
   local out: mut {string} = {}

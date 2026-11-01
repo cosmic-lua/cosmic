@@ -6,7 +6,7 @@ local Test = require("cosmic.test")
 local importer = require("build.importer")
 local work = require("build.work")
 
-Test.policy{ cpu_features = true, grants = { { path = "core", letters = "r" } } }
+Test.policy{ grants = { { path = "core", letters = "r" } } }
 
 --- What the build says of a global a declaration file of the project declares.
 local REFUSED <const> = ": a global is not allowed in a cosmic build: it reaches other modules by no " ..

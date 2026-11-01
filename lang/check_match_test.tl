@@ -5,7 +5,7 @@
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 local HEAD <const> = [[
 local type Reply = function(): (true, integer) | (false, string)

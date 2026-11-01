@@ -1479,13 +1479,6 @@ end
 --- are the only part of the host that can differ between two runners of
 --- one CI leg and one kernel, so a key that holds them stands on the same
 --- processor alone, and every other key stands across processors.
--- TODO: key the features a module reaches, not every one that is
--- dispatched, once CI's logs of the new host facts (ci/cosmic_ci/host_id.tl's
--- `describe`) show which features differ between runners of one image: a
--- module that hashes (core/hash.c) is keyed by the VNNI features only
--- core/vector.c reads, and a runner that differs in those alone splits its
--- verdicts. `cpu_features` would then name the libraries it reaches
--- ([`dispatch_sites.api`]).
 function declared_key.host_cpu(sources?: declared_key.HostSources): string
   local from: declared_key.HostSources = sources or {}
   return hex_sha256("cpu " .. table.concat(features(from.cpu_features, from.machine), " "))

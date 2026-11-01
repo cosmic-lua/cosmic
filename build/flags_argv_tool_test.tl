@@ -11,7 +11,7 @@ local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
 --- The program itself, which its tests start.
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function test_the_usage_names_the_program_it_is_told_and_not_the_path_of_the_script(tmp: string)
   local script = tmp .. "/flags_fixture.tl"

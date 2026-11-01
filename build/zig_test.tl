@@ -22,7 +22,7 @@ local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- The program itself (`tool`), which runs the child below, started past its launcher so that no host program is read.
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.

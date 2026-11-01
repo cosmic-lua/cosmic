@@ -21,7 +21,7 @@ local this_program = require("build.this_program")
 
 --- The program itself, which holds the lock against this process,
 --- started only to run a chunk (`lua`).
-Test.policy{ cpu_features = true, profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" } }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.

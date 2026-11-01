@@ -11,7 +11,7 @@ local session_fixture = require("build.lsp.session_fixture")
 local source = require("build.lsp.source")
 local syntax_read = require("build.lsp.syntax_read")
 
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local change, counts, edge = session_fixture.change, session_fixture.counts, session_fixture.edge
 local initialize, messages_of = session_fixture.initialize, session_fixture.messages_of

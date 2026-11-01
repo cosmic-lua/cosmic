@@ -19,7 +19,7 @@ local function nth<T>(list: {T}, index: integer): T
   return found
 end
 
-Test.policy{ cpu_features = true, grants = { { path = "testdata/todos_git", letters = "r" } } }
+Test.policy{ grants = { { path = "testdata/todos_git", letters = "r" } } }
 
 local DATA <const> = "testdata/todos_git"
 

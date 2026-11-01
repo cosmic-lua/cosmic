@@ -11,7 +11,7 @@ local Speed = require("lang.speed")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 --- A store and `n` named types of distinct declarations.
 local function populate(store: Types.Store, n: integer): {Types.Type}

@@ -6,9 +6,6 @@
 
 local fixture = require("build.docs_fixture")
 local tree_checks = require("build.tree_checks")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 --- A module of one line, `line`, after its require.
 local function module_of(line: string): string

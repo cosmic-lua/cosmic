@@ -23,7 +23,6 @@ local this_program = require("build.this_program")
 --- launcher so that no host program is read; and `nests`, for a child
 --- sandboxed in a root of its own.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },

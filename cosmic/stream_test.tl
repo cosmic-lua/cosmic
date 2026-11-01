@@ -7,8 +7,6 @@ local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 
-Test.policy{ cpu_features = true }
-
 --- A plain-table stand-in for a [`cosmic.compress`] codec.
 local record Fake is Stream.Transform
   pending: function(Fake): boolean

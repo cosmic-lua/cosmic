@@ -5,21 +5,25 @@
 --- `cpu_features` in its [`Test.policy`] ([`build.test`] fails it
 --- otherwise, naming the function).
 ---
---- What counts is derived from the audit, not listed by hand. In a core
---- file that is itself a site reading a feature (core/vector.c), it is a
+--- Only code cosmic itself selects by a feature is enforced: in a core
+--- file that is itself a site reading a feature (core/vector.c), a
 --- function that takes a feature's code (one compiled for it, with a
 --- `target` attribute) and the lines that call through a pointer the file
---- assigns such a function to: the function that picks the code at start
+--- assigns such a function to. The function that picks the code at start
 --- is not, since it runs whenever the file is loaded and the code it picks
---- is run by the callers. A core that compiles no such function (core/vector.c
---- on aarch64, whose VNNI code is x86's) has nothing there that turns on
---- the processor. Elsewhere in the core it is each line that calls the API of a library
---- that has a site reading a feature (`api`: psa_ and mbedtls_ for
---- mbedtls, lzma_ for xz). The C of a library is not among the core's
---- functions, so a test reaches it only through a core line that calls
---- it, and the call is how this finds it. A line is what counts, not its
---- function: a function that serves several codecs (core/compress.c's
---- `stream_update`) calls xz on lines only an xz stream runs.
+--- is run by the callers. A core that compiles no such function
+--- (core/vector.c on aarch64, whose VNNI code is x86's) has nothing there.
+---
+--- Entering a vendored library's dispatched code is not enforced
+--- (mbedtls's AES-NI, SHA-NI and Arm instructions, xz's carry-less CRCs):
+--- those paths compute the same output as the portable ones, so a test that
+--- hashes or compresses incidentally does not depend on the processor,
+--- and enforcing them put half the suite under a processor key. A module
+--- whose subject is such a routine (the hash, compress and zip tests)
+--- may still declare `cpu_features`, to have a bug of one processor's path
+--- caught on that processor. The vendored sites stay in `sites`: the
+--- audit holds the processor's features keyed ([`declared_key.dispatched`])
+--- to them.
 
 local c_functions = require("build.c_functions")
 
@@ -43,12 +47,6 @@ local record dispatch_sites
   --- Every file of the core, the vendored libraries and the patches that
   --- asks what the processor can do, by path of the tree.
   mut sites: {string:Site}
-  --- The prefixes of the names each library with a site that reads a
-  --- feature exports, by library: the name of its directory under vendor/
-  --- and patch/.
-  mut api: {string:{string}}
-  --- The libraries with a site that reads a feature, sorted.
-  libraries: function(): {string}
   --- The lines of `spans`, the core's functions, that turn on the
   --- processor, with `sources`, each file's lines.
   reaching: function(spans: {c_functions.Span}, sources: {string:{string}}): {Reach}
@@ -56,12 +54,6 @@ local record dispatch_sites
   --- running the `reaches` that `hits`, the lines of the core's C it ran,
   --- name: the functions and the fix. "" where it ran none.
   failure: function(reaches: {Reach}, hits: {string:{integer:boolean}}): string
-end
-
---- A name a library's API begins with.
-local record Prefix
-  library: string
-  prefix: string
 end
 
 local AESNI <const> = "vendor/mbedtls/tf-psa-crypto/drivers/builtin/src/aesni.c"
@@ -126,31 +118,6 @@ local sites: {string:dispatch_sites.Site} = {
 }
 
 dispatch_sites.sites = sites
-
-dispatch_sites.api = {
-  mbedtls = { "psa_", "mbedtls_" },
-  xz = { "lzma_" },
-}
-
---- The library a vendored file or a patch of one belongs to ("mbedtls"
---- for vendor/mbedtls/... and patch/mbedtls/...), or nil for any other
---- path.
-local function library_of(path: string): string?
-  return path:match("^vendor/([^/]+)/") or path:match("^patch/([^/]+)/")
-end
-
---- The libraries with a site that reads a feature, sorted.
-function dispatch_sites.libraries(): {string}
-  local seen: mut {string:boolean} = {}
-  for path, site in pairs(sites) do
-    local library = library_of(path)
-    if library ~= nil and next(site.reads) ~= nil then seen[library] = true end
-  end
-  local out: mut {string} = {}
-  for library in pairs(seen) do out[#out + 1] = library end
-  table.sort(out)
-  return out
-end
 
 --- The files of the core that are sites reading a feature, sorted.
 local function site_files(): {string}
@@ -221,10 +188,8 @@ end
 
 function dispatch_sites.reaching(spans: {c_functions.Span},
                                  sources: {string:{string}}): {dispatch_sites.Reach}
-  local sited: mut {string:boolean} = {}
   local out: mut {dispatch_sites.Reach} = {}
   for _, path in ipairs(site_files()) do
-    sited[path] = true
     local lines = sources[path]
     if lines ~= nil then
       local those: mut {c_functions.Span} = {}
@@ -232,24 +197,6 @@ function dispatch_sites.reaching(spans: {c_functions.Span},
         if span.path == path then those[#those + 1] = span end
       end
       for _, each in ipairs(in_site(those, lines)) do out[#out + 1] = each end
-    end
-  end
-  local prefixes: mut {Prefix} = {}
-  for _, library in ipairs(dispatch_sites.libraries()) do
-    for _, prefix in ipairs(dispatch_sites.api[library] or {}) do
-      prefixes[#prefixes + 1] = { library = library, prefix = prefix }
-    end
-  end
-  for _, span in ipairs(spans) do
-    local lines = sources[span.path]
-    if sited[span.path] ~= true and lines ~= nil then
-      for _, each in ipairs(prefixes) do
-        local at = matching(span, lines, "%f[%w_]" .. each.prefix)
-        if #at > 0 then
-          out[#out + 1] = { key = span.key, path = span.path, lines = at,
-            why = "it calls " .. each.library .. ", which chooses code by the processor" }
-        end
-      end
     end
   end
   return out

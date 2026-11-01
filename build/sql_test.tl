@@ -3,9 +3,6 @@ local String = require("cosmic.string")
 local Sqlite = require("cosmic.sqlite")
 local sql = require("build.sql")
 local build_paths = require("build.paths")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 --- The element of `list` at `index`, which the case knows is there.
 local function nth<T>(list: {T}, index: integer): T

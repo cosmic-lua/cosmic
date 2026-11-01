@@ -24,7 +24,6 @@ local build_paths = require("build.paths")
 --- the sandboxed workers of the runs they start (`nests`), and the
 --- variables [`skip_unless_shared`] reads, which hold a run to sandboxing.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },

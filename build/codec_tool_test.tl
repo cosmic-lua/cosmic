@@ -10,7 +10,7 @@ local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start.
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local record Ran
   code: integer

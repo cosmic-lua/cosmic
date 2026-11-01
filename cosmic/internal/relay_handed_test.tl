@@ -21,7 +21,7 @@ local this_program = require("build.this_program")
 
 --- The program itself, which runs a relay; a loopback alone answers; the
 --- connectors are processes this one and the program fork.
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, loopback = { "127.0.0.1" }, promises = { "fork" } }
+Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, promises = { "fork" } }
 
 --- Skips where the native connector does not run (it is Linux only).
 local function require_native_connector()

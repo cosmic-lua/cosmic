@@ -16,7 +16,7 @@ local work = require("build.work")
 local writer = require("build.writer")
 local build_paths = require("build.paths")
 
-Test.policy{ cpu_features = true, grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" },
+Test.policy{ grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" },
   { path = "lang/prelude.d.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" },
   { path = "build/pipeline.tl", letters = "r" } } }
 

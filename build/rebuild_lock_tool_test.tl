@@ -28,7 +28,7 @@ local todos = require("build.todos")
 
 --- The program itself, whose runs of a verb or a file hold the lock
 --- against this process.
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" },
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" },
   { path = "lang/prelude.d.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" } } }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made

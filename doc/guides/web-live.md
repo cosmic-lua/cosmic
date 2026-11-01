@@ -1,6 +1,6 @@
 # web live updates
 
-<!-- policy: cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
+<!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 A page that shows what other people just did needs the server to speak
 first. [`cosmic.web.sse`] streams server-sent events: a `Hub` fans events

@@ -9,9 +9,6 @@ local test = require("build.test")
 local test_key = require("build.test_key")
 local work = require("build.work")
 local worker = require("build.test_worker")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 --- The element of `list` at `index`, which the case knows is there.
 local function nth<T>(list: {T}, index: integer): T

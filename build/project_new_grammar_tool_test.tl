@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
 --- The program itself, which this test starts, and the project it builds.
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" }, { path = "testdata/projects", letters = "r" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" }, { path = "testdata/projects", letters = "r" } } }
 
 --- A copy of the fixture under `tmp`, a tree of its own for the run `name`.
 local function copy_of(tmp: string, name: string): string

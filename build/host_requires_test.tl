@@ -6,8 +6,6 @@ local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 local confine = require("build.confine")
 local host_names = require("build.host_names")
 local host_requires = require("build.host_requires")

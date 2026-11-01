@@ -6,7 +6,7 @@ local Test = require("cosmic.test")
 local test_child = require("build.test_child")
 local this_program = require("build.this_program")
 
-Test.policy{ cpu_features = true, profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" } }
 
 --- A child that says its arguments, one a line, and exits with their count.
 test_child.register("echo", function(args: {string}): integer

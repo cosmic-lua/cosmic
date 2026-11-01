@@ -7,7 +7,7 @@ local Hash = require("cosmic.hash")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 --- The rows of `source` as `<owner>.<parameter>=<kinds>`, in order.
 local function listed(source: string): string

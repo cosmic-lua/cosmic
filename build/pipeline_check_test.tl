@@ -1,9 +1,6 @@
 --- The key a module's answer of the pipeline check is kept under ([`build.pipeline_check`]): it holds the ceilings of the
 --- module's own file and no other's, so a stale answer is never served for a pin that moved, and a pin elsewhere costs nothing.
 local PipelineCheck = require("build.pipeline_check")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 local digests: {string: string} = { ["a.tl"] = "da", ["b.tl"] = "db" }
 

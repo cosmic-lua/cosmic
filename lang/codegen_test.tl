@@ -11,9 +11,6 @@ local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local Scopes = require("lang.scopes")
 local Truthy = require("lang.truthy")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 --- The generator's result for `text`, which is in the new grammar. `truthy` is what it takes as neither false nor nil.
 local function generated(text: string, truthy?: function(e: Ast.Exp): boolean): Codegen.Generated

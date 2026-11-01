@@ -3,9 +3,6 @@
 --- used.
 local Sqlite = require("cosmic.sqlite")
 local check_memo = require("build.check_memo")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 local function test_rows_with_tabs_breaks_and_backslashes_come_back_as_written()
   local rows: {{string}} = {

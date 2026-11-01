@@ -6,7 +6,7 @@ local Test = require("cosmic.test")
 local CheckerDeclarations = require("build.checker_declarations")
 local work = require("build.work")
 
-Test.policy{ cpu_features = true, grants = { { path = "lang/prelude.d.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" } } }
+Test.policy{ grants = { { path = "lang/prelude.d.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" } } }
 
 local PRELUDE <const> = "--- @kind language\ndo\n   global record Seen\n   end\nend\n"
 local STDLIB <const> = "--- @kind language\ndo\n   global print: function(...: any)\nend\n"

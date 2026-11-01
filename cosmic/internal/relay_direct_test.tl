@@ -21,7 +21,7 @@ local test_child = require("build.test_child")
 
 --- The program itself, which runs the relay; its servers and its listener
 --- are on the loopback.
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
+Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
 
 local TOKEN <const> = string.rep("5a", 32)
 

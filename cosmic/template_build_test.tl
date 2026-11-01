@@ -15,7 +15,7 @@ local work = require("build.work")
 local profile_page = require("test.profile_page")
 local sample = require("test.profile_page_sample")
 
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local DATA <const> = [[
 local html = require("cosmic.html")

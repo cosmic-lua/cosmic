@@ -14,7 +14,7 @@ local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- The program itself, which the fixture runs.
-Test.policy{ cpu_features = true, requires = { "checked" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ requires = { "checked" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- The multi handle is made by the first request of a process, so its
 --- failure is walked in a fresh one: a failed curl_multi_init answers

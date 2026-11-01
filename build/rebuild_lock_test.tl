@@ -6,9 +6,6 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local rebuild_lock = require("build.rebuild_lock")
 local build_paths = require("build.paths")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.

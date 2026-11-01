@@ -10,7 +10,6 @@ local this_program = require("build.this_program")
 --- Only the default search's first candidate is needed; it is inspected,
 --- not run. The child itself is this program running a chunk.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "/bin/sh", letters = "r" } },
 }

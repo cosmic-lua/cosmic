@@ -17,7 +17,7 @@ local confine = require("build.confine")
 -- A worker that nests is held by a root of its own, which only Linux builds
 -- and a host may refuse: the module is not applicable off Linux and skipped
 -- where the host gives no nest.
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, promises = { "nest" }, requires = { "nest" } }
+Test.policy{ profiles = { "cosmic" }, promises = { "nest" }, requires = { "nest" } }
 
 --- This worker's relaunch, the test skipped where it runs on no sealed
 --- database (`skip_unless_sealed` of build/sealed_worker_test.tl, for a

@@ -17,7 +17,7 @@ local DOCUMENT <const> = Shape.record_of("Document")
 
 --- The verb reads the program's own database through a handle
 --- ([`Store.databases()`]), which reads every module's rows too.
-Test.policy{ cpu_features = true, grants = { { path = "o/cosmic.db", letters = "r" } } }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 --- `cosmic bom` answers from the running binary's own rows: each
 --- component a line, `--json` a document naming the same components,

@@ -34,7 +34,6 @@ local ChildPolicy = require("build.child_policy_fixture")
 --- a Landlock ruleset cannot. The two addresses are the servers' and the one
 --- a program is told to leave direct.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic" },
   promises = { "nest" },
   loopback = { "127.0.0.1", "127.0.0.2" },

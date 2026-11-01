@@ -1,6 +1,6 @@
 # web forms and uploads
 
-<!-- policy: cpu_features = true, loopback = { "127.0.0.1" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
+<!-- policy: loopback = { "127.0.0.1" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 A form is text that a person typed, and the binder in [`cosmic.web`] turns
 it into a record your handler can trust: a route names the shape of its

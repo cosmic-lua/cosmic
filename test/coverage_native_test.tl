@@ -8,9 +8,6 @@
 local Coverage = require("cosmic.coverage")
 local Hits = require("build.coverage_hits")
 local Hash = require("cosmic.hash")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 local function is_core_c(path: string): boolean
   return path:match("^core/[%w_]+%.[ch]$") ~= nil

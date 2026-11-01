@@ -1,9 +1,6 @@
 --- What of a source the checks of the files that require it read ([`build.shape_key`]): an edit to a comment or to the blank
 --- lines between statements leaves the digest alone, and any other change to what the lexer reads moves it.
 local ShapeKey = require("build.shape_key")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 local base = "local record R\n  n: integer\nend\n\nlocal function f(x: R): integer\n  return x.n\nend\n\nreturn f\n"
 

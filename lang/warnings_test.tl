@@ -6,7 +6,7 @@ local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 local Warnings = require("lang.warnings")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 --- The warnings of `source` as `code line:column name`, one string each, in source order.
 local function found(source: string, modules?: {string: string}): {string}

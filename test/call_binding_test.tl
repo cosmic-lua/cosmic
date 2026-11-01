@@ -8,7 +8,7 @@
 local Snippet = require("build.snippet_fixture")
 local Test = require("cosmic.test")
 
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- Checks `source` as the one module of a fresh fixture: true, or false and what the new checker refused. `tmp` and `case`
 --- are kept for the callers' sake: a snippet needs no directory.

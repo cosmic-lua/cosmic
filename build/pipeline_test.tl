@@ -21,7 +21,7 @@ local schema = require("build.schema")
 local standard_text = require("build.standard_text")
 local work = require("build.work")
 
-Test.policy{ cpu_features = true, grants = {
+Test.policy{ grants = {
   { path = "core", letters = "r" }, { path = "lang/ast.tl", letters = "r" }, { path = "lang/types.tl", letters = "r" },
   { path = "cosmic/removed_example.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" },
   { path = "lang/prelude.d.tl", letters = "r" }, { path = "build/ceilings.txt", letters = "r" },

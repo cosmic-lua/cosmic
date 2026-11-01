@@ -18,7 +18,7 @@ local release = require("build.release")
 
 --- `store`: a root the binary carries is read through
 --- [`Store.databases()`].
-Test.policy{ cpu_features = true, loopback = { "127.0.0.1" }, grants = { { path = "o/cosmic.db", letters = "r" } } }
+Test.policy{ loopback = { "127.0.0.1" }, grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 local record Ran
   code: integer

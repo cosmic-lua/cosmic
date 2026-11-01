@@ -7,9 +7,6 @@ local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 local Example = {}
 

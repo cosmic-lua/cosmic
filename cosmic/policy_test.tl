@@ -6,8 +6,6 @@ local PolicyJson = require("cosmic.policy")
 local Test = require("cosmic.test")
 local PolicyMerge = require("build.policy_merge_fixture")
 
-Test.policy{ cpu_features = true }
-
 --- Why `json` is refused, asserting that it is, and names `field`, a path
 --- like `$.grants[0].letters`.
 local function refused(json: string, field: string): string

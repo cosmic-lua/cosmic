@@ -11,7 +11,7 @@ local Net = require("cosmic.net")
 local Test = require("cosmic.test")
 local Web = require("cosmic.web")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 local TAG <const> = '<script src="/_web/dev.js" defer></script>'
 

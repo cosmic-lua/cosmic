@@ -15,7 +15,7 @@ local build_paths = require("build.paths")
 local this_program = require("build.this_program")
 
 --- The program itself, which this test starts; it carries the declarations of the standard library.
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = {
+Test.policy{ profiles = { "cosmic" }, grants = {
   { path = "o/bin", letters = "rx" },
 } }
 

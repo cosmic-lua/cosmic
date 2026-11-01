@@ -9,10 +9,6 @@
 local docs = require("build.docs")
 local fixture = require("build.docs_fixture")
 local Pipeline = require("build.pipeline")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
-
 -- The modules the test compiles a use of: required at the top level, so its closure carries them.
 local _net = require("cosmic.net")
 local _http = require("cosmic.http")

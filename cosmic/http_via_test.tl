@@ -6,7 +6,7 @@ local Net = require("cosmic.net")
 local Test = require("cosmic.test")
 local raw_http = require("cosmic.internal.http")
 
-Test.policy{ cpu_features = true, loopback = { "127.0.0.1" } }
+Test.policy{ loopback = { "127.0.0.1" } }
 
 local url = "http://cosmic.test/"
 

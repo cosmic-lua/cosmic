@@ -33,7 +33,7 @@ end
 --- edit to the tree runs this again, an edit to the harness among
 --- them, and so does a compiler that makes other bytecode of it; it
 --- is this module alone that pays that.
-Test.policy{ cpu_features = true, grants = { { path = "o/cosmic.db", letters = "r" } } }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 local projection = build_paths.resolve(".").projection
 

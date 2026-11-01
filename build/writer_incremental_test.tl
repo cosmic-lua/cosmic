@@ -12,7 +12,7 @@ local work = require("build.work")
 local writer = require("build.writer")
 local Test = require("cosmic.test")
 
-Test.policy{ cpu_features = true, grants = { { path = "core", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
+Test.policy{ grants = { { path = "core", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
   { path = "lang/stdlib.d.tl", letters = "r" } } }
 
 --- One module of the tree: the variants of each part that an edit moves, so

@@ -152,39 +152,41 @@ its temporary directory and sets them.
 A verdict stands across hosts of other processors. A key holds the
 host's kernel (its release and version) and not the processor's
 features, so CI's runners of one image, which land on processors that
-differ, share their verdicts and their cache.
+differ, share their verdicts and their cache. (Measured on them: the
+kernel is the same, and only the VNNI features differ, which only
+[`cosmic.vector`]'s kernel reads.)
 
 A module whose tests can turn on the processor says so with
 `cpu_features = true` in its [`Test.policy`]
 (`Test.policy { cpu_features = true }`, [`Test.policy`]). Its tests' keys
 then hold the features a core chooses code by
-([`declared_key.host_cpu`]: AES-NI and the Arm crypto instructions,
-SHA-NI, carry-less multiply, the int8 VNNI dot product, listed in
-[`declared_key.dispatched`]), and a verdict of a host that lacks one
-does not stand for a host that has it, nor the other way. Policy is
-static, so the key is worked out before the test runs.
+([`declared_key.host_cpu`], listed in [`declared_key.dispatched`]), and a
+verdict of a host that lacks one does not stand for a host that has it,
+nor the other way. Policy is static, so the key is worked out before the
+test runs.
 
-The harness holds a module to declaring it. A run of cosmic's own tree
-reads which of the core's C functions each test entered (the lines its
-worker and the processes it started ran, [`Coverage.native_functions`]),
-and a test that passes having entered one that turns on the processor,
-in a module that does not declare `cpu_features`, fails, naming the
-function and the fix. Those functions are derived from the audit of
-[`build/dispatched_features_test.tl`], not listed: every function of a
-core file that is itself a site that reads a feature (core/vector.c), and
-every function of any core file whose body calls the API of a vendored
-library with such a site (`psa_` and `mbedtls_` for mbedtls, `lzma_` for
-xz; [`build/dispatch_sites.tl`]). A function that only calls one that does
-is not among them: the test enters that one too. A pass that stands
-without running is not checked again, since its key held the module's
-declaration when it was earned. A core that observes no C of its own
-([`Coverage.native_functions`] empty), and a project outside cosmic's tree,
+The harness holds a module to declaring it where the core itself selects
+the code by a feature. A run of cosmic's own tree reads which lines of the
+core's C each test ran (its worker and the processes it started,
+[`Coverage.native_functions`]), and a test that passes having run a line of
+code that core/vector.c selects by a feature (the kernel compiled for
+VNNI, and the lines that call the one chosen), in a module that does not
+declare `cpu_features`, fails, naming the function and the fix
+([`build/dispatch_sites.tl`], derived from the audit of
+[`build/dispatched_features_test.tl`]). A pass that stands without
+running is not checked again, since its key held the module's declaration
+when it was earned. A core that observes no C of its own, a core that
+compiles no such code (aarch64), and a project outside cosmic's tree,
 whose C is not there to read, are not checked.
 
-A verdict that fails the check is kept as a failure is, so it runs
-again. The tests that need the field today are the modules that reach
-crypto and hashing, compression with xz, [`cosmic.vector`] and the TLS
-client; `git grep -l cpu_features -- '*_test.tl'` lists them.
+Entering a vendored library's dispatched code (mbedtls's AES-NI, SHA-NI
+and Arm instructions, xz's carry-less CRCs) is not checked: those paths
+compute the same output as the portable ones, so a test that hashes or
+compresses incidentally does not depend on the processor, and holding
+them to it put half the suite under a processor key. A module whose
+subject is such a routine (the hash, compress and zip tests) declares the
+field anyway, so that a bug in one processor's path is caught on that
+processor.
 
 ### the import closure
 

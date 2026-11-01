@@ -241,10 +241,6 @@ allowed["build.declared_key.preimage"] = "what build/declared_key_fuzz_test.tl "
   "holds to distinct specs spelling apart, before a key hashes it"
 allowed["build.dispatch_sites.sites"] = "what build/dispatched_features_test.tl " ..
   "holds the tree's CPU dispatch sites to"
-allowed["build.dispatch_sites.api"] = "what build/dispatched_features_test.tl " ..
-  "holds to the vendored libraries' headers: the prefixes the core's calls into a dispatching library are found by"
-allowed["build.dispatch_sites.libraries"] = "what build/dispatched_features_test.tl " ..
-  "holds to naming the API of each library with a site that reads a feature"
 allowed["build.declared_key.dispatched"] = "what build/dispatched_features_test.tl " ..
   "holds the tree's CPU dispatch sites to: the features a key holds are the ones they read"
 allowed["build.declared_key.system_sources"] = "what build/host_features_test.tl " ..

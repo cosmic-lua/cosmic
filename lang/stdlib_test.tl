@@ -7,7 +7,6 @@ local Test = require("cosmic.test")
 local Types = require("lang.types")
 
 Test.policy{
-  cpu_features = true,
   grants = { { path = "lang/stdlib.d.tl", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
     { path = "testdata/stdlib/globals.txt", letters = "r" } },
 }

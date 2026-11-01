@@ -1,9 +1,6 @@
 local Compress = require("cosmic.compress")
 local Mime = require("cosmic.mime")
 local Stream = require("cosmic.stream")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 local function test_of_names_a_type_by_extension_in_any_case()
   assert(Mime.of("css/app.css") == "text/css; charset=utf-8")

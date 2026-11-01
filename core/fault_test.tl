@@ -16,7 +16,7 @@ local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
 
-Test.policy{ cpu_features = true, requires = { "checked" } }
+Test.policy{ requires = { "checked" } }
 
 local url = "http://cosmic.test/"
 

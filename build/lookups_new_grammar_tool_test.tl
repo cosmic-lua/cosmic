@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
 --- The program itself, which this test starts, and the project of testdata/projects it reads.
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" }, { path = "testdata/projects", letters = "r" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" }, { path = "testdata/projects", letters = "r" } } }
 
 --- A module of the fixture's project that declares what only the new grammar spells: `mut width` and `label?: string`, and a
 --- method, `grow`, that a value of the nested record `Shapes.Box` is called through (a call through a value is found by its

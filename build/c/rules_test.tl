@@ -12,7 +12,6 @@ local tree = require("build.c.tree")
 --- `sh` runs; the bootstrap cosmic and zig, and the caches zig builds
 --- in, which it writes.
 Test.policy{
-  cpu_features = true,
   profiles = { "system" },
   grants = {
     { path = "bin/cosmic-bootstrap", letters = "r" },

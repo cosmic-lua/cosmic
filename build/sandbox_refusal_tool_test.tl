@@ -12,7 +12,7 @@ local searchable = require("build.searchable")
 local fixture = require("build.sandbox_tool_fixture")
 
 --- The program itself, and the host programs it names.
-Test.policy{ cpu_features = true, profiles = { "system", "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "system", "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- Runs `cosmic <words>` in `dir`.
 local function cosmic(dir: string, words: {string}): fixture.Ran

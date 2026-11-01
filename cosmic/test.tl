@@ -181,11 +181,13 @@ local record Test
     system?: boolean
     --- Whether the outcome of the tests may turn on the processor's
     --- features. A verdict stands on a host of other features unless the
-    --- module declares it: a test that reaches code a core chooses by
-    --- the processor (AES-NI and the Arm crypto instructions, SHA-NI,
-    --- carry-less multiply, the VNNI dot product) fails without it,
-    --- naming the C function it entered, and its key holds the
-    --- features it is declared for.
+    --- module declares it, and a key that holds them stands on that
+    --- processor's alone. A test that runs code the core itself selects by
+    --- a feature ([`cosmic.vector`]'s VNNI int8 dot product) fails without
+    --- it, naming the C function. A module may declare it as well where its
+    --- subject is a vendored routine that dispatches (AES-NI, SHA-NI,
+    --- carry-less multiply), whose output is the same on every path, to
+    --- have a bug of one processor's path caught on that processor.
     mut cpu_features?: boolean
     --- Host caches the tests, or the processes they start, write, by
     --- name: `"zig"` (the pinned zig, and zig's global and project

@@ -6,7 +6,7 @@ local Node = require("build.syntax_node")
 local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 --- What `source` is told, as the lines of the check, with no declared globals: a use of one is a global all the same.
 local function told(source: string): {string}

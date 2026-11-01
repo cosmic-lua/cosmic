@@ -9,7 +9,7 @@ local Http = require("cosmic.http")
 local Test = require("cosmic.test")
 local TypeWatch = require("build.type_watch")
 
-Test.policy{ cpu_features = true, loopback = { "127.0.0.1" } }
+Test.policy{ loopback = { "127.0.0.1" } }
 
 local url = "http://cosmic.test/"
 

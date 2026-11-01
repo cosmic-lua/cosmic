@@ -20,7 +20,6 @@ local Test = require("cosmic.test")
 --- command to as well; and where a macOS host's system version is read,
 --- which no other host has.
 Test.policy{
-  cpu_features = true,
   grants = {
     { path = "ci/testdata/host_features/vectors.json", letters = "r" },
     { path = "/System/Library/CoreServices/SystemVersion.plist", letters = "r" },

@@ -15,9 +15,6 @@
 local Fs = require("cosmic.fs")
 local importer = require("build.importer")
 local work = require("build.work")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 local entry_source = "local record entry\nend\nreturn entry\n"
 local sibling_source = "local record sibling\nend\nreturn sibling\n"

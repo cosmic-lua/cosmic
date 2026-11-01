@@ -6,9 +6,6 @@
 local near = require("build.fix.near")
 local Sqlite = require("cosmic.sqlite")
 local fixture = require("build.docs_fixture")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 --- Lines as one source file's text.
 local function joined(...: string): string

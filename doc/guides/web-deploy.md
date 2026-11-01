@@ -1,6 +1,6 @@
 # deploying a web app
 
-<!-- policy: cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
+<!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 A [`cosmic.web`] app ships as one program: `cosmic build` makes an
 executable with `static/` and htmx inside it, and the program is

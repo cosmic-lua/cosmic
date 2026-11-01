@@ -11,7 +11,7 @@ local pipeline = require("build.pipeline")
 local shared_compiles = require("build.shared_compiles")
 local work = require("build.work")
 
-Test.policy{ cpu_features = true, grants = { { path = "core", letters = "r" } } }
+Test.policy{ grants = { { path = "core", letters = "r" } } }
 
 local library = table.concat({
   "local record Lib",

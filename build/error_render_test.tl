@@ -9,7 +9,7 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local schema = require("build.schema")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 local function nothing(_file: string): boolean
   return false

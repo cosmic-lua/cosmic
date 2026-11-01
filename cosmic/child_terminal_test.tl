@@ -3,7 +3,7 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
-Test.policy{ cpu_features = true, profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" } }
 
 --- A pty's streams are named by number, each once and at least one, and
 --- one the pty takes names no descriptor of the caller's.

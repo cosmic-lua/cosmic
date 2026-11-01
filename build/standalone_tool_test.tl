@@ -13,7 +13,7 @@ local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start to run a file `--standalone`
 --- ([`build.standalone`]).
-Test.policy{ cpu_features = true, profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" } }
 
 --- End to end, from a directory holding no tree: the file gets its own
 --- path at argv[0] and what follows it, its exit code is the process's,

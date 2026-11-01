@@ -21,7 +21,7 @@ end
 --- ([`test_a_tree_in_no_repository_starts_no_git`]). The tests that
 --- blame a repository's lines, against recorded answers of git, are
 --- build/todos_git_test.tl's.
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 --- Lines joined into one file's text, so no line of this file opens
 --- with a comment marker and is listed itself.

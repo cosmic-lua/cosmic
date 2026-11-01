@@ -15,7 +15,7 @@ local function nth<T>(list: {T}, index: integer): T
   return found
 end
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 local function parsed(source: string, name: string): Ast.Chunk
   local chunk, why = Node.parse(source, name)

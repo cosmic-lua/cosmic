@@ -7,7 +7,7 @@ local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 local _ = require("build.shared_sqlite") -- the child loads it
 
-Test.policy{ cpu_features = true, profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" } }
 
 -- TODO: test that the retry follows SQLite's captured codes and not the words of its reasons, as a child once did by
 -- replacing [`Sqlite.text_rows_result`] with one that answered a busy or a locked code in other words (and an unrelated

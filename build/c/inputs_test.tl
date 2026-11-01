@@ -4,7 +4,7 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local inputs = require("build.c.inputs")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 --- Writes `files` (by name) under `dir`.
 local function write(dir: string, files: {string: string})

@@ -17,7 +17,7 @@ local stub = require("build.syntax_stub")
 local work = require("build.work")
 local writer = require("build.writer")
 
-Test.policy{ cpu_features = true, grants = { { path = "lang/prelude.d.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" } } }
+Test.policy{ grants = { { path = "lang/prelude.d.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" } } }
 
 local thing <const> = table.concat({
   "--- A thing.",

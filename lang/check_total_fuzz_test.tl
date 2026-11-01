@@ -13,7 +13,7 @@ local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 local drawn = require("build.check_draws")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 --- The library, lowered once, and how many programs it has checked, which name their modules.
 local record Counter

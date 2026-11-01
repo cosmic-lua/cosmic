@@ -6,7 +6,7 @@ local Fuzz = require("build.fuzz")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 --- A variable in scope, or a function that can be called.
 local record Var

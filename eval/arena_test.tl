@@ -8,7 +8,7 @@ local link_resolve = require("build.link_resolve")
 local SyntaxLinks = require("build.syntax_links")
 
 --- The tasks and the journal every arena's TASK.md is made of.
-Test.policy{ cpu_features = true, grants = { { path = "eval/task/", letters = "r" }, { path = "eval/journal.md", letters = "r" } } }
+Test.policy{ grants = { { path = "eval/task/", letters = "r" }, { path = "eval/journal.md", letters = "r" } } }
 
 --- A repository at `root` whose eval/ has one task, `t`, and a
 --- journal; and an executable beside it.

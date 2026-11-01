@@ -31,7 +31,6 @@ local build_paths = require("build.paths")
 --- program it runs, roots of their own for its workers (`nests`), and
 --- the variables [`skip_if_unsandboxed`] reads, which hold a run to sandboxing.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" } },
   promises = { "nest" },
@@ -645,7 +644,7 @@ end
 ]]))
   local env = environment(tmp .. "/cache/verdicts.db")
   local first = run(root, tmp .. "/first.out", env)
-  if unsandboxed(first) then return end
+  skip_if_unsandboxed(first)
   assert(first:find("2 ran, 0 stood", 1, true), first)
   local again = run(root, tmp .. "/again.out", env)
   assert(again:find("0 ran, 2 stood", 1, true), again)

@@ -23,7 +23,6 @@ local this_program = require("build.this_program")
 --- their own for the workers it starts (`nests`), and the variables the
 --- runs read, which hold them to sandboxing and to a path.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic", "system", "proc" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" } },
   promises = { "nest" },

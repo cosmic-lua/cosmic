@@ -10,9 +10,6 @@ local Fs = require("cosmic.fs")
 local check = require("build.lsp.check")
 local tree = require("build.tree")
 local session_fixture = require("build.lsp.session_fixture")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 local change, close, counts = session_fixture.change, session_fixture.close, session_fixture.counts
 local edge = session_fixture.edge

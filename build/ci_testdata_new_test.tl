@@ -5,7 +5,7 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local tree_checks = require("build.tree_checks")
 
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- The complaints of `ci_testdata` over a tree of `files` (by their path below `ci/testdata`).
 local function told(dir: string, files: {string: string}): string

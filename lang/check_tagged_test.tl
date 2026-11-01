@@ -6,7 +6,7 @@ local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 local HEAD <const> = [[
 local enum Circle_kind "circle" end

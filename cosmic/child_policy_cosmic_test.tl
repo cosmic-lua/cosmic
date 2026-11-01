@@ -21,7 +21,6 @@ local ChildPolicy = require("build.child_policy_fixture")
 --- cannot: the module is not applicable off Linux and skipped where Linux
 --- refuses it.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
   env = { "TMPDIR" },

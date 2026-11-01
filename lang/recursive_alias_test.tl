@@ -8,7 +8,7 @@ local Relation = require("lang.relation")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 -- the store and the relation -------------------------------------------------------------------------
 

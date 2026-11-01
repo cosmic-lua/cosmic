@@ -11,7 +11,7 @@ local build_paths = require("build.paths")
 
 --- The program's own database is read through a handle
 --- ([`Store.databases()`]), which reads every module's rows too.
-Test.policy{ cpu_features = true, grants = { { path = "o/cosmic.db", letters = "r" } } }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.

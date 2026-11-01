@@ -16,9 +16,6 @@ local schema = require("build.schema")
 local work = require("build.work")
 local writer = require("build.writer")
 local fixture = require("build.docs_fixture")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 --- The element of `list` at `index`, which the case knows is there.
 local function nth<T>(list: {T}, index: integer): T

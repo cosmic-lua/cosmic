@@ -49,7 +49,7 @@ local Vector = require("cosmic.vector")
 local Xml = require("cosmic.xml")
 
 --- The socket cases listen on the worker's own loopback.
-Test.policy{ cpu_features = true, requires = { "checked" }, loopback = { "127.0.0.1" } }
+Test.policy{ requires = { "checked" }, loopback = { "127.0.0.1" } }
 
 local process = require("cosmic.internal.process")
 

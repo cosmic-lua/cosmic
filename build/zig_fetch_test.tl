@@ -8,9 +8,6 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local ZigFetch = require("build.zig_fetch")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 --- The element of `list` at `index`, which the case knows is there.
 local function nth<T>(list: {T}, index: integer): T

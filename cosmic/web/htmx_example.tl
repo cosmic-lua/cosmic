@@ -4,9 +4,6 @@
 local Html = require("cosmic.html")
 local Htmx = require("cosmic.web.htmx")
 local Web = require("cosmic.web")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 local Example = {}
 

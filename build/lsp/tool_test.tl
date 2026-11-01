@@ -22,7 +22,6 @@ local unix_socket = require("build.unix_socket")
 --- The program itself, which its tests start, and a loopback its
 --- listener listens on.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
   loopback = { "127.0.0.1" },

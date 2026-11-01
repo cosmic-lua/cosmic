@@ -26,7 +26,6 @@ local build_paths = require("build.paths")
 
 --- The program itself, which the case that starts it runs.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic", "system" },
   grants = { { path = "o/bin", letters = "rx" } },
 }

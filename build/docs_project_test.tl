@@ -14,7 +14,6 @@ local build_paths = require("build.paths")
 local invoke = require("build.invoke")
 
 Test.policy{
-  cpu_features = true,
   grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" } },
   env = { "COSMIC_TREE" },
 }

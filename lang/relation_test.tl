@@ -7,7 +7,7 @@ local Relation = require("lang.relation")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 --- A union of two members, `first` and `second`, and the `target` it is refused against.
 local record Union

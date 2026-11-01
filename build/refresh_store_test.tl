@@ -36,7 +36,6 @@ end
 --- `store`: [`embed.database`] reads every `cosmic.*` module's rows, and
 --- `docs` searches them.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic" },
   grants = {
     { path = "o/bin", letters = "rx" },

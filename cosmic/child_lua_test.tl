@@ -22,7 +22,6 @@ local fixture = require("build.child_lua_fixture")
 --- and the program itself, started past its launcher so that no host
 --- program is read, only to run Lua (`lua`).
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic", "proc" },
 }
 

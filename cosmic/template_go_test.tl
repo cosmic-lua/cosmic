@@ -71,9 +71,6 @@
 local CompileGrammar = require("build.compile_grammar")
 local Html = require("cosmic.html")
 local Template = require("cosmic.template")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 local HEAD <const> = "{{type T from m.t}}\n"
 

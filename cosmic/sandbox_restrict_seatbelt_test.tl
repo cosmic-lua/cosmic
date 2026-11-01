@@ -25,7 +25,6 @@ local SeatbeltFixture = require("build.seatbelt_fixture")
 --- The program is this one, which a test starts only with `tool`; its
 --- temporary directory is the test's own.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic", "system" },
   grants = { { path = "o/bin", letters = "rx" } },
   env = { "HOME", "TMPDIR" },

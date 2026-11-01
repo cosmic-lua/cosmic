@@ -3,9 +3,6 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Fuzz = require("build.fuzz")
 local shrink = require("build.fuzz.shrink")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 --- The report [`Fuzz.run`] raises for `p`, which must fail.
 local function report(p: Fuzz.Property): string

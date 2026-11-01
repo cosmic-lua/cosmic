@@ -18,7 +18,6 @@ local this_program = require("build.this_program")
 -- The `core_path() == nil` returns wait on a `relaunch` name: see the TODO in
 -- cosmic/child_policy_database_sandboxed_test.tl.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic" },
   grants = {
     { path = "o/bin", letters = "rx" },

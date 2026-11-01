@@ -31,7 +31,6 @@ end
 --- link leads out of the tree to. The package databases are a copy of
 --- build/declared_key.tl's `package_databases`.
 Test.policy{
-  cpu_features = true,
   grants = {
     { path = "/etc/os-release", letters = "r" },
     { path = "/etc/passwd", letters = "r" },

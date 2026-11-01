@@ -13,7 +13,7 @@ local Poll = require("cosmic.poll")
 local Relay = require("cosmic.internal.relay_server")
 local Test = require("cosmic.test")
 
-Test.policy{ cpu_features = true, loopback = { "127.0.0.1" } }
+Test.policy{ loopback = { "127.0.0.1" } }
 
 local TOKEN <const> = "fuzz-token-0123456789abcdef"
 

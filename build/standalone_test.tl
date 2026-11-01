@@ -7,7 +7,7 @@ local Test = require("cosmic.test")
 local standalone = require("build.standalone")
 -- The new checker types a file against the declarations the tool carries, which only a worker that holds the tool's database
 -- ("cosmic") has.
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 -- A fixture below requires [`cosmic.zip`], [`cosmic.tar`] or
 -- [`cosmic.archive`], which a standalone compile types from the store:

@@ -3,9 +3,6 @@
 local Fs = require("cosmic.fs")
 local paths = require("build.paths")
 local tree = require("build.tree")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 --- A directory made at `root`, with `core/`.
 local function checkout(root: string)

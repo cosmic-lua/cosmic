@@ -17,7 +17,7 @@ local Clock = require("cosmic.clock")
 local build_paths = require("build.paths")
 
 --- The program itself, which its tests start.
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.

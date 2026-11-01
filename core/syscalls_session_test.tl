@@ -16,7 +16,6 @@ local test_child = require("build.test_child")
 --- starts again, and the host's setsid program, beneath the system's
 --- own paths.
 Test.policy{
-  cpu_features = true,
   profiles = { "system", "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" } },
 }

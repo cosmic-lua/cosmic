@@ -7,7 +7,7 @@ local roots = require("build.roots")
 local schema = require("build.schema")
 
 --- The tree's CA bundle.
-Test.policy{ cpu_features = true, grants = { { path = "vendor/cacert/certdata.txt", letters = "r" } } }
+Test.policy{ grants = { { path = "vendor/cacert/certdata.txt", letters = "r" } } }
 
 --- An empty database of the shipped shape.
 local function database(): Sqlite.Handle

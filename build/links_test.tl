@@ -11,7 +11,7 @@ local SyntaxLinkText = require("build.syntax_link_text")
 local String = require("cosmic.string")
 
 --- The docs fixture builds its database with the tree's own code.
-Test.policy{ cpu_features = true, grants = { { path = "core", letters = "r" } } }
+Test.policy{ grants = { { path = "core", letters = "r" } } }
 
 --- Lines as one text.
 local function lines(...: string): string

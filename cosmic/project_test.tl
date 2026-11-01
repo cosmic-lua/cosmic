@@ -1,9 +1,6 @@
 local Fs = require("cosmic.fs")
 local Project = require("cosmic.project")
 local sys = require("cosmic.sys")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 --- The build directory [`Project.directory`] names for `root` under
 --- `environment`, which there must be.

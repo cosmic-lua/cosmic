@@ -23,7 +23,6 @@ local searchable = require("build.searchable")
 local this_program = require("build.this_program")
 
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
   requires = { "sandbox" },

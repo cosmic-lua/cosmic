@@ -12,7 +12,7 @@ local build_paths = require("build.paths")
 local this_program = require("build.this_program")
 
 --- The program itself, which its tests start.
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- A project of one module, whose tests run in the order of their names
 --- and each mark `marks/<name>`. A name that starts `a_` fails; one

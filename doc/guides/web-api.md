@@ -1,6 +1,6 @@
 # a web JSON API
 
-<!-- policy: cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
+<!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 [`cosmic.web`] answers JSON as readily as markup. This guide builds `notes`,
 a small API under `/api`: JSON in and out, errors as problem documents, a

@@ -12,7 +12,6 @@ local _ = require("build.must_confine_children_test")
 --- What these tests start is this very program, which runs the tool's own modules besides the closure's, in a root of its
 --- own (`nests`).
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },

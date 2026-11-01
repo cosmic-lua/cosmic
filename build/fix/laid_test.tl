@@ -6,7 +6,7 @@ local Test = require("cosmic.test")
 local check_memo = require("build.check_memo")
 local laid = require("build.fix.laid")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 --- Whether `kept` holds that `source`, of `dialect`, is laid out as it stands.
 local function held(kept: laid.Kept, dialect: string, source: string): boolean

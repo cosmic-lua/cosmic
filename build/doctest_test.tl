@@ -18,7 +18,7 @@ local type Module = importer.Module
 -- The new checker, where the suite asks for it (`COSMIC_GRAMMAR=new`, which a sandboxed worker sees only if its policy
 -- passes it through), types a project against the declarations the tool carries, which only a worker that holds the tool's
 -- database ("cosmic") has.
-Test.policy{ cpu_features = true, env = { "COSMIC_GRAMMAR" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ env = { "COSMIC_GRAMMAR" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function doc(parts: {string}): string
   return table.concat(parts, "\n") .. "\n"

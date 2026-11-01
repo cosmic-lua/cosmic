@@ -23,7 +23,7 @@ local adapt = require("lang.check_drawn")
 local drawn = require("build.check_draws")
 local worker = require("build.test_worker")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 --- A construct a program may hold: its name, and a Lua pattern that finds it in the source.
 local record Construct

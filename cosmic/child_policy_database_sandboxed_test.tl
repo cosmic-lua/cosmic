@@ -30,7 +30,6 @@ local ChildPolicy = require("build.child_policy_fixture")
 -- host program, which has no core to start bare, is not told apart from a
 -- failure to reopen the program until Proc.relaunch can say which.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic" },
   promises = { "nest" },
   grants = {

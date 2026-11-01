@@ -3,9 +3,6 @@
 
 local Sqlite = require("cosmic.sqlite")
 local schema = require("build.schema")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 local function database(): Sqlite.Handle
   local db = assert(Sqlite.memory())

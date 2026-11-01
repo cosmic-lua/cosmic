@@ -15,9 +15,6 @@ local String = require("cosmic.string")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 local sys = require("cosmic.sys")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 --- `@OUT@` stands for the directory beside the destination that nothing
 --- may reach, spelled absolutely: the generator runs before the check

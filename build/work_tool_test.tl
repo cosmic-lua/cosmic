@@ -15,7 +15,6 @@ local Test = require("cosmic.test")
 
 --- The program itself, which its test starts.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
 }

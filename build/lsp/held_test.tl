@@ -13,7 +13,7 @@ local held = require("build.lsp.held")
 local schema = require("build.schema")
 local session_fixture = require("build.lsp.session_fixture")
 
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local change, changed_on_disk, counts = session_fixture.change, session_fixture.changed_on_disk, session_fixture.counts
 local initialize, messages_of = session_fixture.initialize, session_fixture.messages_of

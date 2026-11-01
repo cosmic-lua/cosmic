@@ -4,7 +4,7 @@ local GrammarMode = require("build.grammar_mode")
 local Test = require("cosmic.test")
 local importer = require("build.importer")
 
-Test.policy{ cpu_features = true, env = { "COSMIC_GRAMMAR" } }
+Test.policy{ env = { "COSMIC_GRAMMAR" } }
 
 local function test_an_unset_or_empty_variable_is_the_new_grammar()
   assert(GrammarMode.of(nil) == "new" and GrammarMode.of("") == "new" and GrammarMode.of("new") == "new")

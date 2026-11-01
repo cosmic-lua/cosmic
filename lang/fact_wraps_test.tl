@@ -5,7 +5,7 @@ local FactWraps = require("lang.fact_wraps")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 local SOURCE <const> = table.concat({
   "local enum Color",

@@ -26,7 +26,6 @@ local String = require("cosmic.string")
 --- libraries' and the patches it applies to them, and build.zig itself,
 --- which names them and passes the compiler's definitions.
 Test.policy{
-  cpu_features = true,
   grants = {
     { path = "build.zig", letters = "r" },
     { path = "core/", letters = "r" },
@@ -311,38 +310,6 @@ local function test_zstd_dispatch_is_compiled_out()
   assert(macros:find("#ifndef DYNAMIC_BMI2", 1, true) ~= nil, "zstd no longer takes DYNAMIC_BMI2 from outside")
 end
 
---- Every library with a site that reads a feature names the prefixes of
---- the functions it exports (`api`), and its public headers declare one
---- under each: the core's calls into it, which are how a test's entry
---- into the library is found, are found by them.
-local function test_every_dispatching_library_names_its_api()
-  local libraries = DispatchSites.libraries()
-  assert(#libraries >= 2, "the libraries with a site: " .. table.concat(libraries, ", "))
-  for _, library in ipairs(libraries) do
-    local prefixes = DispatchSites.api[library]
-    assert(prefixes ~= nil and #prefixes > 0, library .. " has a site that reads a processor " ..
-        "feature: name the prefixes of its API in build/dispatch_sites.tl's `api`")
-    for _, prefix in ipairs(prefixes) do
-      local found = false
-      for _, relative in ipairs((assert(Fs.walk("vendor/" .. library)))) do
-        if relative:match("%.h$") ~= nil then
-          local text = assert(Fs.read("vendor/" .. library .. "/" .. relative))
-          if text:find("%f[%w_]" .. prefix) ~= nil then
-            found = true
-            break
-          end
-        end
-      end
-      assert(found, "no header of vendor/" .. library .. " has a name that begins " .. prefix)
-    end
-  end
-  for library in pairs(DispatchSites.api) do
-    local listed = false
-    for _, name in ipairs(libraries) do listed = listed or name == library end
-    assert(listed, library .. " is named in `api` but no site of it reads a feature")
-  end
-end
-
 --- The lines of the core's C that turn on the processor, by function key.
 local function reached(found: {DispatchSites.Reach}): {string:DispatchSites.Reach}
   local out: mut {string:DispatchSites.Reach} = {}
@@ -350,9 +317,10 @@ local function reached(found: {DispatchSites.Reach}): {string:DispatchSites.Reac
   return out
 end
 
---- The lines that turn on the processor are the calls into a dispatching
---- library, and, in a file that is a site, the code compiled for a feature
---- and the calls through the pointer it is assigned to.
+--- The lines that turn on the processor are, in a core file that is a site,
+--- the code compiled for a feature and the calls through the pointer it is
+--- assigned to. A call into a vendored library (psa_, lzma_) is not: its
+--- paths compute the same output.
 local function test_the_core_lines_that_turn_on_the_processor_are_found()
   local functions: {Coverage.Function} = {
     { path = "core/vector.c", name = "kernel_generic", line = 1 },
@@ -360,7 +328,6 @@ local function test_the_core_lines_that_turn_on_the_processor_are_found()
     { path = "core/vector.c", name = "pick", line = 7 },
     { path = "core/vector.c", name = "use", line = 10 },
     { path = "core/hash.c", name = "digest", line = 1 },
-    { path = "core/hash.c", name = "plain", line = 5 },
     { path = "core/compress.c", name = "stream", line = 1 },
   }
   local sources: {string:{string}} = {
@@ -372,19 +339,14 @@ local function test_the_core_lines_that_turn_on_the_processor_are_found()
       "static void pick (void) {", "  kernel = kernel_avx;", "}",
       "static void use (void) {", "  kernel();", "}",
     },
-    ["core/hash.c"] = {
-      "static int digest (void) {", "  return psa_hash_setup(0, 0);", "}", "",
-      "static int plain (void) {", "  return helper_psa_hash(0) + my_mbedtls_x;", "}",
-    },
+    ["core/hash.c"] = { "static int digest (void) {", "  return psa_hash_setup(0, 0);", "}" },
     ["core/compress.c"] = {
       "static int stream (int op) {", "  if (op == 1) return 0;", "  return lzma_code(op);", "}",
     },
   }
   local found = reached(DispatchSites.reaching(c_functions.spans(functions, sources), sources))
-  assert(found["core/hash.c:digest"] ~= nil, "a call to psa_ is a call into mbedtls")
-  assert(found["core/hash.c:plain"] == nil, "a name that merely contains a prefix is no call")
-  local xz = assert(found["core/compress.c:stream"], "a call to lzma_ is a call into xz")
-  assert(#xz.lines == 1 and xz.lines[1] == 3, "the line of the call, not the function's")
+  assert(found["core/hash.c:digest"] == nil, "a call into mbedtls computes the same output")
+  assert(found["core/compress.c:stream"] == nil, "a call into xz computes the same output")
   assert(found["core/vector.c:kernel_avx"] ~= nil, "a function compiled for a feature")
   local used = assert(found["core/vector.c:use"], "a call through the pointer it is assigned to")
   assert(#used.lines == 1 and used.lines[1] == 11)

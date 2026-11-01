@@ -7,7 +7,7 @@ local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 local HEAD <const> = "local record R\n  n: integer\nend\n"
 local SIZE <const> = "function R.size(self: R): integer\n  return self.n\nend\n"

@@ -14,7 +14,7 @@ local this_program = require("build.this_program")
 
 --- The program itself, started to run a script `--standalone`
 --- ([`build.standalone`]), and a socket file in the test's directory.
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, loopback = { "127.0.0.1" }, requires = { "unix_socket" } }
+Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, requires = { "unix_socket" } }
 
 --- What the client's run came to, once it has.
 local record Ran

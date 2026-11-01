@@ -7,9 +7,6 @@
 
 local Cli = require("cosmic.cli")
 local verb_list = require("build.verb_list")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 --- The verbs that run code -- a file, a chunk, `--version` -- which no
 --- module of the list holds, and `help`, which build/dispatch.tl holds

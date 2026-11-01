@@ -16,7 +16,7 @@ local function nth<T>(list: {T}, index: integer): T
   return found
 end
 
-Test.policy{ cpu_features = true, grants = {
+Test.policy{ grants = {
   { path = "lang/stdlib.d.tl", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
   { path = "core/syscalls.h", letters = "r" }, { path = "core/process.h", letters = "r" },
   { path = "core/socket.h", letters = "r" }, { path = "core", letters = "r" },

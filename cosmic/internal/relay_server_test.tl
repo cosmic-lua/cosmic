@@ -8,7 +8,7 @@ local Relay = require("cosmic.internal.relay_server")
 local Test = require("cosmic.test")
 local Udp = require("build.udp_fixture")
 
-Test.policy{ cpu_features = true, loopback = { "127.0.0.1" } }
+Test.policy{ loopback = { "127.0.0.1" } }
 
 -- The relay is exercised against servers of the test's own on 127.0.0.1,
 -- through a connector that stands in for the native one (which

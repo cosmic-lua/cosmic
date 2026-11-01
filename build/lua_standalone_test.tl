@@ -19,7 +19,7 @@ local confine = require("build.confine")
 local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 
-Test.policy{ cpu_features = true, profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" } }
 
 --- Ends the running test as skipped ([`Test.skip`]) where this worker is
 --- not sandboxed, which is what narrows what its children run: the runner

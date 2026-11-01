@@ -7,7 +7,6 @@ local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic", "proc" },
 }
 

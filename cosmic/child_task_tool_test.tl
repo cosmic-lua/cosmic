@@ -16,7 +16,6 @@ local this_program = require("build.this_program")
 --- started only to run a chunk (`lua`), and /proc, for the signal
 --- dispositions a run restores.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic", "proc" },
 }
 

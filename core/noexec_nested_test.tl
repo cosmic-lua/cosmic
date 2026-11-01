@@ -18,7 +18,6 @@ local this_program = require("build.this_program")
 --- The declared scratch; this program, which the child runs; and
 --- permission to make the mount namespace the child binds in.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "/noexec", letters = "rwc" } },
   promises = { "nest" },

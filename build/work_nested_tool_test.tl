@@ -15,7 +15,6 @@ local Test = require("cosmic.test")
 --- The program itself, which its test starts, and roots of their own for
 --- the sandboxed workers of the run it starts (`nests`).
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },

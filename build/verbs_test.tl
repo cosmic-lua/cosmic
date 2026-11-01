@@ -9,9 +9,6 @@ local Cli = require("cosmic.cli")
 local Fs = require("cosmic.fs")
 local invoke = require("build.invoke")
 local verb_cases = require("build.verb_cases")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 local passthrough = verb_cases.passthrough
 local surplus = verb_cases.surplus

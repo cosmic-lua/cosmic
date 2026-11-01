@@ -11,7 +11,7 @@ local function nth<T>(list: {T}, index: integer): T
   return found
 end
 
-Test.policy{ cpu_features = true }
+Test.policy{}
 
 local function source(...: string): string
   return table.concat({ ... }, "\n") .. "\n"

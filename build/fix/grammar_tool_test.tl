@@ -9,7 +9,7 @@ local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- The program itself, which its test starts.
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- `cosmic fix`, with `--check` where `check`, in `root`, compiling with the checker `grammar` names, and what it said.
 local function fix_in(root: string, grammar: string, check: boolean): Child.Result, string

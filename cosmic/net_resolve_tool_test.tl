@@ -15,7 +15,7 @@ local Udp = require("build.udp_fixture")
 local _ = require("build.standalone")
 
 --- The program itself, which runs the lookup; a loopback alone answers.
-Test.policy{ cpu_features = true, profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
+Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
 
 local TYPE_A <const> = 1
 local TYPE_AAAA <const> = 28

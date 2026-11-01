@@ -3,9 +3,6 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local build_paths = require("build.paths")
 local cache_lifetime = require("build.cache_lifetime")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 local DAY <const> = 24 * 3600
 

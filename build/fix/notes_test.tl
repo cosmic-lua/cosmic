@@ -10,9 +10,6 @@ local links = require("build.links")
 local near = require("build.fix.near")
 local SyntaxNode = require("build.syntax_node")
 local tree_checks = require("build.tree_checks")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 --- The standard library's one function, [`Proc.find`], in a database of its own under `tmp`.
 local function library_of(tmp: string): Sqlite.Handle

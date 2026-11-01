@@ -12,7 +12,6 @@ local Test = require("cosmic.test")
 --- What a run of `cosmic test` needs of the host, the program it runs, and
 --- `nests`, which lets it start a sandboxed run.
 Test.policy{
-  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },
