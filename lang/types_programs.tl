@@ -1,10 +1,6 @@
 --- Types for the tests of [`lang.types`]: a fixture of declarations that recurse, nest, take
 --- arguments and implement an interface, a generator of random types over them, and a parse of
 --- a type's display by the parser and the lowering ([`lang.declarations`]).
-local Ast = require("lang.ast")
--- The new grammar tests a record of the tree by its tag, which leaves this import unused once translated: it names the node a
--- test below asks for.
-local _alias_node: Ast.TypeAlias? = nil
 local Declarations = require("lang.declarations")
 local DeclPrograms = require("lang.declarations_programs")
 local Generics = require("lang.generics")
@@ -32,6 +28,9 @@ local record Programs
 
   --- The integers of `text`, separated by spaces.
   numbers: function(text: string): {integer}
+
+  --- `list` back to front.
+  reversed: function(list: {Types.Type}): {Types.Type}
 
   --- The type that the source `source` of a type, written as the alias `local type X = ...` in the module that
   --- declares the fixture (in the grammar), lowers to, as a type of `store`; or nil and why: a parse error, or the
@@ -339,6 +338,15 @@ function Programs.numbers(text: string): {integer}
   local out: mut {integer} = {}
   for word in text:gmatch("%d+") do
     out[#out + 1] = math.tointeger(tonumber(word)) or 0
+  end
+  return out
+end
+
+function Programs.reversed(list: {Types.Type}): {Types.Type}
+  local out: mut {Types.Type} = {}
+  for i = #list, 1, -1 do
+    local item = assert(list[i], "`i` is within the list")
+    out[#out + 1] = item
   end
   return out
 end

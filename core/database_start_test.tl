@@ -133,23 +133,6 @@ local function test_require_and_the_store_see_only_that_database(tmp: string)
   assert(out.main_after == "probe.main", tostring(out.main_after))
 end
 
---- Started again, the process is on the same database, with nothing to
---- hand on, and so is a child it starts that way.
-local function test_a_relaunch_and_its_child_stay_on_the_database(tmp: string)
-  local core = core_or_skip()
-  local path = info_database(tmp)
-  local r = run({ core, "--database", path, "spawn" })
-  assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
-  local out = fields(assert(r.stdout))
-  local real = assert(sys.realpath(path))
-  assert(out.relaunch == core .. "|--database|" .. real, tostring(out.relaunch))
-  assert(out.relaunch_env == "true" and out.relaunch_fds == "true")
-  assert(out.child_code == "0", tostring(out.child_code) .. ": " .. tostring(out.child_stderr))
-  assert(out.child_databases == "1", tostring(out.child_databases))
-  assert(out.child_main == "probe.main", tostring(out.child_main))
-  assert(out.child_args == "child|x y", tostring(out.child_args))
-end
-
 --- A core run from a cache entry -- a name that holds its target, its
 --- configuration, its length and its digest -- is hashed once: the stamp
 --- the first start leaves beside it (core/startup.c's `stamp_write`) says
@@ -199,19 +182,27 @@ local function test_a_core_a_stamp_vouches_for_is_not_hashed_again_until_it_is_w
     "exit " .. tostring(third.code) .. ": " .. tostring(third.stderr))
 end
 
---- A relative path is named absolutely (and with its links followed), so
---- a child started elsewhere reaches the same file.
-local function test_a_relaunch_names_the_database_absolutely(tmp: string)
+--- Named by a relative path that is a link, the database is reached by the
+--- file the link names and by an absolute path, so a process started again,
+--- and a child it starts that way, elsewhere reach the same file. One start
+--- shows the combined effect of both steps; each assertion says which it is.
+local function test_a_relaunch_and_its_child_stay_on_the_database_a_relative_link_names(tmp: string)
   local core = core_or_skip()
   local path = info_database(tmp)
-  local env = environment()
-  local r = assert(Child.run({ core, "--database", "program.db" }, { env = env, cwd = tmp,
+  assert(Fs.symlink(path, tmp .. "/link.db"))
+  local r = assert(Child.run({ core, "--database", "link.db", "spawn" }, { env = environment(), cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local out = fields(assert(r.stdout))
   local real = assert(sys.realpath(path))
-  assert(out.relaunch == core .. "|--database|" .. real, tostring(out.relaunch))
-  assert(out.artifact == real, tostring(out.artifact))
+  assert(out.relaunch == core .. "|--database|" .. real, "relaunch: " .. tostring(out.relaunch))
+  assert(out.relaunch_env == "true" and out.relaunch_fds == "true",
+    "relaunch env/fds: " .. tostring(out.relaunch_env) .. " " .. tostring(out.relaunch_fds))
+  assert(out.artifact == real, "artifact: " .. tostring(out.artifact))
+  assert(out.child_code == "0", "child code: " .. tostring(out.child_code) .. ": " .. tostring(out.child_stderr))
+  assert(out.child_databases == "1", "child databases: " .. tostring(out.child_databases))
+  assert(out.child_main == "probe.main", "child main: " .. tostring(out.child_main))
+  assert(out.child_args == "child|x y", "child args: " .. tostring(out.child_args))
 end
 
 --- What a start that says nothing of a launcher is told of none: the
@@ -307,18 +298,6 @@ local function test_a_fifo_is_refused(tmp: string)
   local path = tmp .. "/fifo"
   assert(sys.mkfifo(path, 0x1a4))
   refused(core, path, "it is not a regular file")
-end
-
---- A path that is a link opens the file it names, which the relaunch and
---- the artifact then name without the link.
-local function test_a_symlinked_database_path_opens_its_target(tmp: string)
-  local core = core_or_skip()
-  local path = info_database(tmp)
-  assert(Fs.symlink(path, tmp .. "/link.db"))
-  local r = run({ core, "--database", tmp .. "/link.db" })
-  assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
-  local out = fields(assert(r.stdout))
-  assert(out.artifact == assert(sys.realpath(path)), tostring(out.artifact))
 end
 
 local function test_a_file_that_is_not_sqlite_is_refused(tmp: string)

@@ -137,9 +137,7 @@ local record Cli
   --- any checkout compiled or parsed the same, through
   --- $XDG_CACHE_HOME/cosmic/build (~/.cache/cosmic/build):
   --- COSMIC_BUILD_CACHE names another file, and COSMIC_BUILD_CACHE=0
-  --- turns it off. What is left to parse and compile is done by worker
-  --- processes when there is much of it, one fewer than the processors:
-  --- COSMIC_BUILD_JOBS names another count, and 1 turns them off.
+  --- turns it off.
   ---
   --- The tree is the working directory, unless no build of it has
   --- written its projection (cosmic.db in its build directory, as `run`

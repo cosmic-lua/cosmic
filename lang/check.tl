@@ -7395,14 +7395,6 @@ local function declaration_bodies(ctx: Ctx, node: Ast.Node, decl: Decl?)
   end
 end
 
-local function names_of_params(list: {Ast.TypeParam}): {string}
-  local out: mut {string} = {}
-  for i, p in ipairs(list) do
-    out[i] = p.name.name
-  end
-  return out
-end
-
 --- `function R.m(...)`: the function implements the field `m` of `R`.
 local function function_statement(ctx: Ctx, s: Ast.Function)
   local head = s.path[1]
@@ -7444,7 +7436,7 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
   if (owner.tag == "named") and #s.path == 2 then
     LoadOrder.define(ctx.load, owner.decl, s.path[2].text, s.fn.id)
   end
-  function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil, s.fn.id, text)
+  function_body(ctx, s.fn.params, s.fn.body, ft, Declarations.parameter_names(s.typeparams), s, s.fn.rets ~= nil, s.fn.id, text)
 end
 
 --- `if`: each arm is walked under the state where its condition holds and those before it do not, and what follows is
@@ -7686,7 +7678,7 @@ local function stat(ctx: Ctx, s: Ast.Stat)
     if ctx.load.waiting > 0 then
       LoadOrder.hold(ctx.load, s.name.id, s.fn.id)
     end
-    function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil, s.fn.id,
+    function_body(ctx, s.fn.params, s.fn.body, ft, Declarations.parameter_names(s.typeparams), s, s.fn.rets ~= nil, s.fn.id,
       s.name.name)
   elseif (s.kind == "Function") then
     function_statement(ctx, s)
