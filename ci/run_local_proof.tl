@@ -30,10 +30,6 @@ local function good(result: Child.Result)
 end
 
 --- What [`prove`] answered, kept where the function that runs it under `pcall` can read it.
-local record Ended
-  mut status: integer
-end
-
 local function prove(argv: {string}): integer
   local source, driver = assert(argv[1]), assert(argv[2])
   local relaunch = assert(Proc.relaunch())
@@ -211,16 +207,8 @@ end
 
 function Proof.main(argv: {string}): integer
   assert(sys.getuid() == 0, "run-local proof requires root")
-  -- TODO: hold the guard in a `<close>` local again and drop the `pcall`, once ci/cosmic-driver.pin names a release
-  -- that declares [`Signal.Guard`] as a class: a `<close>` local must be one.
-  local guard = assert(Signal.guard())
-  local ended: Ended = { status = 0 }
-  local ran, raised = pcall(function()
-    ended.status = prove(argv)
-  end)
-  local _, _ = guard:close()
-  if not ran then error(raised, 0) end
-  return ended.status
+  local _guard <close> = assert(Signal.guard())
+  return prove(argv)
 end
 
 return Proof
