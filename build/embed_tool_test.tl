@@ -670,6 +670,11 @@ local function test_build_of_a_tree_that_does_not_compile_exits_4(tmp: string)
   local built = invoke.run({ "build", "--host" }, { cwd = tmp, env = env })
   assert(built.code == 4 and built.stdout == "" and built.stderr:find("bad.tl", 1, true) ~= nil,
     tostring(built.code) .. built.stdout .. built.stderr)
+  assert(Fs.remove(tmp .. "/bad.tl"))
+  assert(Fs.write(tmp .. "/ping.tl", 'local pong = require("pong")\nreturn pong\n'))
+  assert(Fs.write(tmp .. "/pong.tl", 'local ping = require("ping")\nreturn ping\n'))
+  local cycle = invoke.run({ "build", "--host" }, { cwd = tmp, env = env })
+  assert(cycle.code == 4 and cycle.stdout == "", tostring(cycle.code) .. cycle.stdout .. cycle.stderr)
 end
 
 --- `cosmic build --roots` takes minimal or mozilla, and refuses anything

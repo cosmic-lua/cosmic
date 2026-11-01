@@ -461,6 +461,7 @@ local function test_a_tree_that_does_not_compile_exits_4_and_a_failing_test_exit
     bad?: boolean
     failing?: boolean
     lone?: boolean
+    cycle?: boolean
   end
   local cases: {Case} = {
     { name = "passing", words = {}, code = 0 },
@@ -471,11 +472,16 @@ local function test_a_tree_that_does_not_compile_exits_4_and_a_failing_test_exit
     { name = "named-cascade-and-failing", words = { "tally_test.tl", "fine_test.tl" }, code = 4, bad = true, failing = true },
     { name = "named-unaffected-by-a-refusal-elsewhere", words = { "fine_test.tl" }, code = 1, lone = true, failing = true },
     { name = "named-passing-beside-a-refusal", words = { "fine_test.tl" }, code = 0, lone = true },
+    { name = "cycle", words = {}, code = 4, cycle = true },
     { name = "named-absent", words = { "nothing_test.tl" }, code = 1 },
   }
   for _, case in ipairs(cases) do
     local root = tmp .. "/" .. case.name
     status_project(root, case.bad == true, case.failing == true, case.lone == true)
+    if case.cycle == true then
+      assert(Fs.write(root .. "/ping.tl", 'local pong = require("pong")\nreturn pong\n'))
+      assert(Fs.write(root .. "/pong.tl", 'local ping = require("ping")\nreturn ping\n'))
+    end
     local output = tmp .. "/" .. case.name .. ".out"
     local result = invoke_words(root, output, case.words)
     assert(result.code == case.code, case.name .. ": exit " .. tostring(result.code) .. ": " .. assert(Fs.read(output)))

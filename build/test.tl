@@ -1654,15 +1654,14 @@ end
 --- The exit code to stop with, or nil to go on.
 local function build_tree(ctx: Run): integer?
   local handle, staged, started = assert(ctx.handle), assert(ctx.staged), assert(ctx.started)
+  local outcome: importer.Outcome = { refused = false }
   local result, compile_trouble = importer.compile(handle,
-    GrammarMode.tool(assert(ctx.tool), assert(ctx.grammar)), false, shared_compiles.for_build(), ctx.checks)
+    GrammarMode.tool(assert(ctx.tool), assert(ctx.grammar)), false, shared_compiles.for_build(), ctx.checks, nil, outcome)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
     log:complain(compile_trouble)
-    -- TODO: exit 4 ([`exit_status.uncompiled`]) here for what stops the compile on the source -- an import cycle, a
-    -- global, a misplaced [`Test.policy`] -- once [`importer.compile`] tells those from a trouble of the host.
-    return 1
+    return if outcome.refused then exit_status.uncompiled else 1 end
   end
   local written, write_trouble =
     writer.write_result(handle, assert(ctx.database), result)

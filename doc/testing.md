@@ -8,10 +8,11 @@ gives the rules an author acts on.
 
 `cosmic test` exits 0 when every test passed and 1 when a test failed. It
 exits 4 when the tree, or a module a named run needs, did not compile: the
-checker refused a module, or a file does not parse. That holds when tests
+checker refused a module, a file does not parse, or the modules require each other in a cycle. That holds when tests
 failed too, so a script that tries a changed tree (a mutation run) tells a
 change the checker refused from one a test caught. A refusal in a module a
-named run does not need leaves the run at 0 or 1. `cosmic help exit` lists
+named run does not need leaves the run at 0 or 1, as does a failure to read, stage or write. `cosmic build`, a file run, `-e` and
+`--standalone` exit 4 for the same reason; a program that returns 4 itself looks the same. `cosmic help exit` lists
 every status.
 
 ## where tests live

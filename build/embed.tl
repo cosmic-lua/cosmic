@@ -445,7 +445,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
   local project = build_paths.resolve(root).projection
   -- The new checker reads the project in this process; its compile is keyed by the mode.
   local tool = GrammarMode.tool(Store.meta("compiler") or "", mode)
-  local result, compile_trouble = importer.compile(handle, tool, false, shared_compiles.for_build())
+  local result, compile_trouble = importer.compile(handle, tool, false, shared_compiles.for_build(), nil, nil, outcome)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)

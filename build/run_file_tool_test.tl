@@ -234,6 +234,6 @@ local function test_a_lua_file_run_standalone_is_checked_as_teal(tmp: string)
   local started = this_program.program({ "--standalone", file }, { env = this_program.environment(),
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
-  assert(result.code == 1 and result.stdout == "" and (result.stderr or ""):find("param_untyped", 1, true) ~= nil,
+  assert(result.code == 4 and result.stdout == "" and (result.stderr or ""):find("param_untyped", 1, true) ~= nil,
     tostring(result.stdout) .. tostring(result.stderr))
 end
