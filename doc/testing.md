@@ -4,6 +4,16 @@ How to write a test for cosmic and how `cosmic test` decides to run it.
 The authoritative detail lives in the modules this doc links. This doc
 gives the rules an author acts on.
 
+## exit status
+
+`cosmic test` exits 0 when every test passed and 1 when a test failed. It
+exits 4 when the tree, or a module a named run needs, did not compile: the
+checker refused a module, or a file does not parse. That holds when tests
+failed too, so a script that tries a changed tree (a mutation run) tells a
+change the checker refused from one a test caught. A refusal in a module a
+named run does not need leaves the run at 0 or 1. `cosmic help exit` lists
+every status.
+
 ## where tests live
 
 A test is a top-level `local function test_*` in a `*_test.tl` file

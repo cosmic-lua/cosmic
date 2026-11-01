@@ -93,10 +93,10 @@ end
 
 --- What follows the list of bare verbs in the paragraph that names them,
 --- before the sentence each bare verb's spec gives for its exit codes.
-local help_exit = "exits 0 when it passed; 1 when it failed; 2 when its command line was refused -- an option, an argument or a verb it does not know; 3 when the tool is older than the tree and did not rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). Its stdout is its result alone. Its stderr says what went wrong, and a run that passed ends there in a summary of how it went, `fix: 3 Teal files, 0 fixed, 12 ms`. `test`'s summary is its result instead, last on stdout once its tests ran, whether they passed or not: `test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...`."
+local help_exit = "exits 0 when it passed; 1 when it failed; 2 when its command line was refused -- an option, an argument or a verb it does not know; 3 when the tool is older than the tree and did not rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed); 4 when `test` or `build` found that the tree, or a module a named run needs, did not compile -- the checker refused it, or it does not parse -- even when tests failed too, since they ran on a tree that is not whole; a failing test alone is 1. Its stdout is its result alone. Its stderr says what went wrong, and a run that passed ends there in a summary of how it went, `fix: 3 Teal files, 0 fixed, 12 ms`. `test`'s summary is its result instead, last on stdout once its tests ran, whether they passed or not: `test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...`."
 
 --- What `cosmic help exit` says of what is not a verb.
-local help_programs = "A file run, `--standalone` and `-e` are not verbs of that kind: each prints only what its program prints and exits with what it returns. `--version` is not one either: it prints its one line."
+local help_programs = "A file run, `--standalone` and `-e` are not verbs of that kind: each prints only what its program prints and exits with what it returns, or 4 when the file, or a module it requires, did not compile. `--version` is not one either: it prints its one line."
 
 --- `a`, `b` and `c`: the words in backticks, the last after "and".
 local function listed(names: {string}): string
@@ -440,12 +440,13 @@ local function run(file: string, argv: {string}): integer
 
   local database = build_paths.under(handle.dir).projection
 
-  local result, compile_trouble = importer.compile_for(handle, tool, name, shared_compiles.for_build())
+  local outcome: importer.Outcome = { refused = false }
+  local result, compile_trouble = importer.compile_for(handle, tool, name, shared_compiles.for_build(), outcome)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
     log:complain(compile_trouble)
-    return 1
+    return if outcome.refused then exit_status.uncompiled else 1 end
   end
   local written, write_trouble =
     writer.write_recorded(handle, database, result, started, staged)

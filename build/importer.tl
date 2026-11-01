@@ -106,6 +106,13 @@ local record importer
   --- as the public standard library's (importer.said).
   type Hints = function(): {Sqlite.Handle}, {boolean}
 
+  --- Whether a compile that answered nothing stopped on a refusal of the source -- a file the run needs that does not parse
+  --- or that the checker refuses -- and not on a trouble of the host (a database, a missing tool). A caller that takes one
+  --- hands it to [`importer.compile_for`], which sets `refused`.
+  record Outcome
+    mut refused: boolean
+  end
+
   --- The compiles and parses every checkout shares
   --- ([`build.shared_compiles`]), as the caller that opened them hands
   --- them to `derive` and `compile`: looked in when a source or a
@@ -1068,7 +1075,7 @@ local function compile_derived(handle: work.Handle, tool: string,
                                parses: importer.Parses,
                                unjudged: boolean?, shared: importer.Shared?,
                                checks: boolean, target: string?,
-                               broken: {derivation.Broken}?): importer.Result?, string
+                               broken: {derivation.Broken}?, outcome: importer.Outcome?): importer.Result?, string
   local standing = work.standing(handle)
   local modules, trouble = plans.collect(handle.db)
   if modules == nil then
@@ -1116,6 +1123,7 @@ local function compile_derived(handle: work.Handle, tool: string,
       end
       for _, row in ipairs(holders) do
         if reached[row:text(1)] == true then
+          if outcome ~= nil then outcome.refused = true end
           return nil, one.message
         end
       end
@@ -1298,6 +1306,7 @@ local function compile_derived(handle: work.Handle, tool: string,
               failed[m.path] = true
             elseif needed == nil or needed[m.path] == true then
               progress.failure = generate_trouble
+              if outcome ~= nil then outcome.refused = true end
               break
             end
             table.insert(result.left_out, left_out(m.file, m.file, generate_trouble))
@@ -1383,7 +1392,8 @@ local type Choose = function(identities.Identities): string?, string
 local function prepare_compile(handle: work.Handle, tool: string,
                                unjudged: boolean?, shared: importer.Shared?,
                                choose: Choose?,
-                               checks: boolean, target: string?): importer.Result?, string
+                               checks: boolean, target: string?,
+                               outcome: importer.Outcome?): importer.Result?, string
   local broken: {derivation.Broken} = {}
   local parses, derive_trouble = importer.derive(handle, shared, broken)
   if parses == nil then return nil, derive_trouble end
@@ -1404,7 +1414,7 @@ local function prepare_compile(handle: work.Handle, tool: string,
       tool = pipeline.coded(tool)
     end
   end
-  return compile_derived(handle, tool, parses, unjudged, shared, checks, target, broken)
+  return compile_derived(handle, tool, parses, unjudged, shared, checks, target, broken, outcome)
 end
 
 --- The cache belongs to the whole derive/identity/compile operation,
@@ -1412,8 +1422,9 @@ end
 local function consuming_compile(handle: work.Handle, tool: string,
                                  unjudged: boolean?, shared: importer.Shared?,
                                  choose?: function(identities.Identities): string?, string,
-                                 checks?: boolean, target?: string): importer.Result?, string
-  local result, trouble = prepare_compile(handle, tool, unjudged, shared, choose, checks == true, target)
+                                 checks?: boolean, target?: string,
+                                 outcome?: importer.Outcome): importer.Result?, string
+  local result, trouble = prepare_compile(handle, tool, unjudged, shared, choose, checks == true, target, outcome)
   if shared ~= nil then shared.finish() end
   if result == nil then return nil, trouble end
   return result, ""
@@ -1558,16 +1569,17 @@ end
 --- with a line in the result's `left_out`, and so is each module that
 --- requires it, so a broken file beside the one run does not stop it.
 --- Where `target` reaches one, it fails as [`importer.compile`] does, with
---- the same message. Consumes `shared` as that does.
+--- the same message, and sets `outcome`'s `refused`. Consumes `shared` as that does.
 --
 -- TODO: leave out a module outside `target`'s reach that a tree-wide check
 -- refuses too -- a misplaced [`Test.policy`], a cycle of imports, a global, an
 -- unknown `cosmic.*` require -- once those checks name the modules they
 -- refuse rather than answering one message for the tree: today any of them
--- stops a file run whatever the file reaches.
+-- stops a file run whatever the file reaches, and none of them sets `outcome`'s
+-- `refused`, which a file run exits 4 for ([`exit_status.uncompiled`]).
 function importer.compile_for(handle: work.Handle, tool: string, target: string,
-                              shared?: importer.Shared): importer.Result?, string
-  return consuming_compile(handle, require("build.pipeline").coded(tool), false, shared, nil, false, target)
+                              shared?: importer.Shared, outcome?: importer.Outcome): importer.Result?, string
+  return consuming_compile(handle, require("build.pipeline").coded(tool), false, shared, nil, false, target, outcome)
 end
 
 --- Compiles a self-build after deriving its sources and recording its

@@ -661,6 +661,17 @@ local function test_an_executable_trusts_the_minimal_roots_unless_told(tmp: stri
   assert(run_with(out, { COSMIC_CA_ROOTS = "minimal" }) == "minimal\nrefused\n")
 end
 
+--- A tree the checker refuses builds no program and exits 4, the status of a tree that did not compile, where a failure to
+--- write one exits 1.
+local function test_build_of_a_tree_that_does_not_compile_exits_4(tmp: string)
+  write_project(tmp)
+  local env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = assert(Env.get("COSMIC_BUILD_HOME")) }
+  assert(Fs.write(tmp .. "/bad.tl", 'local n: integer = "x"\nreturn n\n'))
+  local built = invoke.run({ "build", "--host" }, { cwd = tmp, env = env })
+  assert(built.code == 4 and built.stdout == "" and built.stderr:find("bad.tl", 1, true) ~= nil,
+    tostring(built.code) .. built.stdout .. built.stderr)
+end
+
 --- `cosmic build --roots` takes minimal or mozilla, and refuses anything
 --- else before it builds.
 local function test_build_refuses_roots_it_does_not_know(tmp: string)
