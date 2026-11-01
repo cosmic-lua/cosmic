@@ -2,6 +2,7 @@
 -- provides them. cosmic/compress.tl documents the contract. Every
 -- fallible function answers `value, ""` on success and `nil, error` on
 -- failure.
+--- @kind binding
 
 local record compress
   -- The incremental transform [`cosmic.stream`] names Stream.Transform,
