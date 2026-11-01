@@ -15,6 +15,8 @@ local record verb_cases
     pass: {string}
     fail: {string} | string
     fail_in?: string
+    --- The exit code of the failure, 1 where not given.
+    fail_code?: integer
   end
 
   passthrough: {string:string}
@@ -66,7 +68,7 @@ function verb_cases.cases(bundle: string): {string:verb_cases.Case}
   return {
     test = { pass = { "test", "good" }, fail = { "test", "bad" } },
     fix = { pass = { "fix", "--check", "good" }, fail = { "fix", "--check", "messy.tl" } },
-    build = { pass = { "build" }, fail = { "build" }, fail_in = "broken" },
+    build = { pass = { "build" }, fail = { "build" }, fail_in = "broken", fail_code = 4 },
     db = { pass = { "db" }, fail = { "db" }, fail_in = "empty" },
     docs = { pass = { "docs", "Fs.read" }, fail = { "docs", "zzqqx_nothing_named" } },
     uses = { pass = { "uses", "Fs.read" }, fail = { "uses", "zzqqx_nothing_named" } },

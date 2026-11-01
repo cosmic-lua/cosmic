@@ -512,3 +512,53 @@ end
     assert(text:find("--shard must be I/N", 1, true), text)
   end
 end
+
+--- A project of a module `tally.tl` the checker refuses (`bad`) or accepts, its test `tally_test.tl`, a test `fine_test.tl`
+--- that passes or fails (`failing`) and a module `lone.tl` nothing requires that the checker refuses (`lone_bad`).
+local function status_project(root: string, bad: boolean, failing: boolean, lone_bad: boolean)
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/tally.tl", "local record tally\n  count: function(n: integer): integer\nend\n" ..
+      "function tally.count(n: integer): integer\n  return " .. (if bad then '"x"' else "n" end) .. "\nend\nreturn tally\n"))
+  assert(Fs.write(root .. "/tally_test.tl",
+    'local tally = require("tally")\nlocal function test_count()\n  assert(tally.count(1) == 1)\nend\n'))
+  assert(Fs.write(root .. "/fine_test.tl",
+    "local function test_fine()\n  assert(" .. (if failing then "false" else "true" end) .. ")\nend\n"))
+  assert(Fs.write(root .. "/lone.tl", "local n: integer = " .. (if lone_bad then '"x"' else "1" end) .. "\nreturn n\n"))
+end
+
+--- A mutation-testing script tells a mutant the checker refused from one a test killed by the exit status: 4 when the tree, or
+--- a module a named run needs, did not compile, whatever else failed with it, and 1 for a test that fails.
+local function test_a_tree_that_does_not_compile_exits_4_and_a_failing_test_exits_1(tmp: string)
+  local record Case
+    name: string
+    words: {string}
+    code: integer
+    bad?: boolean
+    failing?: boolean
+    lone?: boolean
+    cycle?: boolean
+  end
+  local cases: {Case} = {
+    { name = "passing", words = {}, code = 0 },
+    { name = "failing", words = {}, code = 1, failing = true },
+    { name = "refused", words = {}, code = 4, bad = true },
+    { name = "refused-and-failing", words = {}, code = 4, bad = true, failing = true },
+    { name = "named-refused", words = { "tally_test.tl" }, code = 4, bad = true },
+    { name = "named-cascade-and-failing", words = { "tally_test.tl", "fine_test.tl" }, code = 4, bad = true, failing = true },
+    { name = "named-unaffected-by-a-refusal-elsewhere", words = { "fine_test.tl" }, code = 1, lone = true, failing = true },
+    { name = "named-passing-beside-a-refusal", words = { "fine_test.tl" }, code = 0, lone = true },
+    { name = "cycle", words = {}, code = 4, cycle = true },
+    { name = "named-absent", words = { "nothing_test.tl" }, code = 1 },
+  }
+  for _, case in ipairs(cases) do
+    local root = tmp .. "/" .. case.name
+    status_project(root, case.bad == true, case.failing == true, case.lone == true)
+    if case.cycle == true then
+      assert(Fs.write(root .. "/ping.tl", 'local pong = require("pong")\nreturn pong\n'))
+      assert(Fs.write(root .. "/pong.tl", 'local ping = require("ping")\nreturn ping\n'))
+    end
+    local output = tmp .. "/" .. case.name .. ".out"
+    local result = invoke_words(root, output, case.words)
+    assert(result.code == case.code, case.name .. ": exit " .. tostring(result.code) .. ": " .. assert(Fs.read(output)))
+  end
+end
