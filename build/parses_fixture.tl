@@ -27,7 +27,7 @@ end
 --- Every row `sql` answers of the database at `path`, a line each.
 ---
 --- TODO: write NULL and '' apart once [`cosmic.csv`] can write an empty field
---- quoted, which `Csv.encode_field`'s `quote_empty` (cosmic-lua/cosmic#3431)
+--- quoted, which [`Csv.encode_field`]'s `quote_empty` (cosmic-lua/cosmic#3431)
 --- adds: read each cell's kind ([`Sqlite.rows`], not `text_rows`, which answers
 --- NULL as "") and quote an empty text, leaving NULL a bare empty field. Every
 --- column of the parse tables is NOT NULL, so [`rows`] is unaffected.
