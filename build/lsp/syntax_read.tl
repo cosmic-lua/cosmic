@@ -119,7 +119,7 @@ function syntax_read.plan_of(name: string, text: string, path: string, kind: str
   local chunk, why = Node.parse(text, name)
   if chunk == nil then
     refusals[1] = plan.refusal_of(why)
-    return { plan = nil, refusals = refusals, halted = true, requires = {} }
+    return { plan = nil, refusals = refusals, halted = true, parsed = false, requires = {} }
   end
   local requires: mut {Site} = {}
   for _, site in ipairs(Node.require_sites(chunk)) do
@@ -132,12 +132,12 @@ function syntax_read.plan_of(name: string, text: string, path: string, kind: str
   local analysis, trouble = SyntaxAnalyzer.analysis_of(chunk, Node.scope(chunk, name), text, name)
   if analysis == nil then
     table.insert(refusals, plan.refusal_of(trouble))
-    return { plan = nil, refusals = refusals, halted = true, requires = requires }
+    return { plan = nil, refusals = refusals, halted = true, parsed = true, requires = requires }
   end
   local misplaced = plans.policy_refusal(name, kind, analysis.inputs)
   if misplaced ~= nil then
     table.insert(refusals, plan.refusal_of(misplaced))
-    return { plan = nil, refusals = refusals, halted = true, requires = requires }
+    return { plan = nil, refusals = refusals, halted = true, parsed = true, requires = requires }
   end
   local tests: mut {string} = {}
   if kind == "test" then
@@ -169,9 +169,9 @@ function syntax_read.plan_of(name: string, text: string, path: string, kind: str
   if refused ~= nil then
     local at = plan.refusal_of(refused)
     table.insert(refusals, { line = math.max(return_line(chunk), 1), column = at.column, message = at.message })
-    return { plan = made_plan, refusals = refusals, halted = true, requires = requires }
+    return { plan = made_plan, refusals = refusals, halted = true, parsed = true, requires = requires }
   end
-  return { plan = made_plan, refusals = refusals, halted = false, requires = requires }
+  return { plan = made_plan, refusals = refusals, halted = false, parsed = true, requires = requires }
 end
 
 --- Whether `line` counts the errors of a code ([`build.ceilings.over`]: `file: 2 errors of arity in its bodies; follow the fix

@@ -262,8 +262,8 @@ local insert_stubs =
 --- The `places` ([`build.syntax_places`]) of each planned `cosmic.*` module's source, which `modules` carries as it was
 --- parsed. A module generated from another file (`mapped`) has none, as it has none in the working database.
 local insert_places =
-  "INSERT INTO out.places (module, ordinal, symbol, kind, line, column, length) " ..
-  "SELECT p.path, l.ordinal, l.symbol, l.kind, l.line, l.column, l.length FROM plan p " ..
+  "INSERT INTO out.places (module, ordinal, symbol, kind, line, column, length, plain) " ..
+  "SELECT p.path, l.ordinal, l.symbol, l.kind, l.line, l.column, l.length, l.plain FROM plan p " ..
   "JOIN inputs i ON i.path = p.path AND i.kind = 'module' " ..
   "JOIN main.places l ON l.source_hash = i.source_hash " ..
   "WHERE p.path GLOB 'cosmic.*' ORDER BY p.path, l.ordinal"

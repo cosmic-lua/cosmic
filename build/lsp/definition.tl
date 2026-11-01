@@ -65,6 +65,9 @@ local record definition
     place: Place
     offset: integer
     length: integer
+    --- The range, where it is known without the text of `place`: a `plain` place ([`build.syntax_places`]), whose character
+    --- is its column less one in either encoding.
+    range?: protocol.Range
   end
 
   --- What one request reads.
@@ -137,9 +140,6 @@ local function place_of(request: Request, module: string, symbol: string): Site?
   if placed == nil then return nil end
   local spot = placed.spots[symbol]
   if spot == nil then return nil end
-  local starts = lines.checker_starts(placed.text)
-  local start = starts[spot.line]
-  if start == nil then return nil end
   local uri: string
   if placed.carried ~= nil then
     local extracted = source.extracted(checker.source, placed)
@@ -150,7 +150,18 @@ local function place_of(request: Request, module: string, symbol: string): Site?
     local opened = checker.open[placed.file]
     if opened ~= nil then uri = opened.uri end
   end
-  return { place = { module = module, original = placed.text, splices = {}, uri = uri },
+  if spot.plain then
+    local character = spot.column - 1
+    local range = protocol.range({ line = spot.line - 1, character = character },
+      { line = spot.line - 1, character = character + spot.length })
+    return { place = { module = module, original = "", splices = {}, uri = uri }, offset = 0, length = spot.length,
+      range = range }
+  end
+  local text = placed.text()
+  if text == nil then return nil end
+  local start = lines.checker_starts(text)[spot.line]
+  if start == nil then return nil end
+  return { place = { module = module, original = text, splices = {}, uri = uri },
     offset = start + spot.column - 1, length = spot.length }
 end
 
@@ -291,6 +302,7 @@ end
 
 --- The range of `site`, in the units of the session's encoding, in the text the person has.
 local function range_of(request: Request, site: Site): protocol.Range
+  if site.range ~= nil then return site.range end
   local place = site.place
   local first = site.offset
   local last = first + math.max(site.length, 1) - 1

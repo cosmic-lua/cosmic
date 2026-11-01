@@ -303,6 +303,7 @@ analysis_schema.statements = {
                                        line INTEGER NOT NULL,
                                        column INTEGER NOT NULL,
                                        length INTEGER NOT NULL,
+                                       plain INTEGER NOT NULL,
                                        PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS members (source_hash TEXT NOT NULL,
                                         ordinal INTEGER NOT NULL,

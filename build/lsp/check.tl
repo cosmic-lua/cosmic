@@ -417,19 +417,30 @@ local function opened_requires(checker: Checker, document: Document): {string:{s
   return out
 end
 
---- Keeps what `document` requires now (`sites`), and says the graph moved
+--- Keeps what `document` requires now, and says the graph moved
 --- where that is not what it required before: at its last check, or, at
---- its first, as staged.
-local function remember(checker: Checker, document: Document, sites: {plan.Site})
-  local names: mut {string} = {}
-  for _, site in ipairs(sites) do names[#names + 1] = site.name end
+--- its first, as staged. What it requires is read of the rows of its text ([`source.requires_of`]) where it `derivable`
+--- (its text parses and is no template's Teal), else is the names of the `sites` the check read.
+local function remember(checker: Checker, document: Document, sites: {plan.Site}, derivable: boolean)
+  local names: {string} = {}
+  local listed = source.module(checker.source, document.name)
+  local rows: {string}? = nil
+  if listed ~= nil and derivable then
+    rows = source.requires_of(checker.source, listed, document.text, hash_of(document))
+  end
+  if rows ~= nil then
+    names = rows
+  else
+    local read: mut {string} = {}
+    for _, site in ipairs(sites) do read[#read + 1] = site.name end
+    names = read
+  end
   local before: {string} = {}
   local had = document.requires
   if had ~= nil then
     before = had
-  else
-    local listed = source.module(checker.source, document.name)
-    if listed ~= nil then before = checker.source.requires[listed.source_hash] or before end
+  elseif listed ~= nil then
+    before = checker.source.requires[listed.source_hash] or before
   end
   if table.concat(before, "\0") ~= table.concat(names, "\0") then
     checker.graph_moved = true
@@ -527,7 +538,7 @@ local function checked_of(checker: Checker, document: Document): Checked
   if listed ~= nil then path, kind = listed.path, listed.kind end
   local own_tree = source.standing(checker.source).own
   local planned = syntax_read.plan_of(document.name, text, path, kind, own_tree, generated)
-  remember(checker, document, planned.requires)
+  remember(checker, document, planned.requires, planned.parsed and not generated)
   local refusals = planned.refusals
   local subject = planned.plan
   if planned.halted and subject == nil then return checked(refusals, text, none) end

@@ -1343,7 +1343,7 @@ local function test_places_follow_the_source_they_were_read_from()
     if plant == true then
       -- Under the real source's hash, so only the analyzer sweep can remove it.
       assert(Sqlite.run(handle.db, "INSERT OR REPLACE INTO places (source_hash, ordinal, symbol, kind, line, column, " ..
-          "length) SELECT source_hash, 99, 'Planted', 'type', 1, 1, 1 FROM inputs WHERE path = 'cosmic.thing'"))
+          "length, plain) SELECT source_hash, 99, 'Planted', 'type', 1, 1, 1, 0 FROM inputs WHERE path = 'cosmic.thing'"))
     end
     assert(importer.derive(handle))
     local rows = assert(Sqlite.text_rows(handle.db, "SELECT symbol || ' ' || line || ':' || column FROM places " ..

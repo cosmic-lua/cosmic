@@ -175,3 +175,27 @@ local function test_a_type_in_a_function_body_is_found_by_its_node_apart_from_on
   assert(table.concat(within(source, 2), ",") == "P type 2,P.y field 2,P.K type 2,P.K.v value 2",
     table.concat(within(source, 2), ","))
 end
+
+--- The `plain` flags of the places of `source`, as `symbol flag`, in order; with `blind` the text is not given.
+local function flags(source: string, blind?: boolean): string
+  local chunk, why = Node.parse(source, "m.tl")
+  local out: mut {string} = {}
+  local given: string? = source
+  if blind == true then given = nil end
+  for _, place in ipairs(Places.found((assert(chunk, why)), given)) do
+    out[#out + 1] = place.symbol .. " " .. tostring(place.plain)
+  end
+  return table.concat(out, ";")
+end
+
+local function test_a_place_is_plain_where_its_line_holds_only_ascii_and_the_protocol_numbers_it_as_the_lexer_does()
+  assert(flags('local s = "é" local record R\n  n: integer\nend\nreturn R, s\n') == "R false;R.n true")
+  assert(flags("local record R\n  n: integer\nend\nreturn R\n") == "R true;R.n true")
+  -- The lexer counts "\n\r" as one break and the protocol as two: the lines after it are numbered another way.
+  assert(flags("-- a\n\rlocal record R\n  n: integer\nend\nreturn R\n") == "R false;R.n false")
+  assert(flags("local record R\n  n: integer\nend\n-- a\n\rlocal x = 1\nreturn R\n") == "R true;R.n true")
+  assert(flags("local record R\r\n  n: integer\r\nend\r\nreturn R\r\n") == "R true;R.n true")
+  assert(flags("local record R\n  n: integer\nend\nreturn R\n", true) == "R false;R.n false", "no text, no flag")
+  -- An enum's values are places too.
+  assert(flags('local enum K\n  "v"\nend\nlocal s = "é" local enum L "w" end\nreturn K, L, s\n') == "K true;K.v true;L false;L.w false")
+end
