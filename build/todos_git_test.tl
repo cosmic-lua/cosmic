@@ -27,10 +27,10 @@ end
 --- whether `.git-blame-ignore-revs` is there for blame to name.
 local record Replay
   scenario: string
-  step: string
-  ignored: boolean
+  mut step: string
+  mut ignored: boolean
   -- The line ranges blame is asked for, as `first,last` words.
-  ranges: string
+  mut ranges: string
 end
 
 --- A recorded file of the replay's step.

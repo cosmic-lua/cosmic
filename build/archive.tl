@@ -29,7 +29,7 @@ local String = require("cosmic.string")
 --- The `cosmic archive` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
-  spec: verb_spec.Spec
+  mut spec: verb_spec.Spec
   --- Where `run` reads and writes: what a test stands in for.
   record Io
     --- Writes to standard output, as given: the caller adds newlines.
@@ -338,7 +338,7 @@ local record Step
   keep: boolean
   mtime: integer
   before: integer
-  backup: string
+  mut backup: string
 end
 
 --- The names in the directory `path`, sorted, and nil and why when it

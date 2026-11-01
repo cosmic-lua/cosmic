@@ -21,8 +21,8 @@ local record Row
   symbol: string
   source_symbol: string
   kind: string
-  signature: string
-  text: string
+  mut signature: string
+  mut text: string
   exported: boolean
 end
 

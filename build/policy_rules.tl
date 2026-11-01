@@ -15,25 +15,28 @@ local record policy_rules
   --- data, as the [`Test.Needs`] it stands for -- see `inputs_of` of the analyzers. A flag
   --- it does not make reads as one never declared.
   record Declared
+    -- TODO: declare the lists below `mut {string}`, which [`build.plans`] appends to, once [`Test.Needs`] in cosmic/test.tl holds
+    -- its lists `mut {string}`: [`build.test_inputs`] builds a [`Declared`] from them.
+
     --- The line the declaration starts on.
-    line: integer
+    mut line: integer
     reads: {string}
     host: {string}
-    env: {string}
-    network: {string}
-    tool: boolean
-    lua: boolean
-    nests: boolean
-    noexec: boolean
-    store: boolean
-    system: boolean
+    mut env: {string}
+    mut network: {string}
+    mut tool: boolean
+    mut lua: boolean
+    mut nests: boolean
+    mut noexec: boolean
+    mut store: boolean
+    mut system: boolean
     caches: {string}
     --- The files of the project root's parent directory a policy
     --- grants (`/parent/<file>`), relative to it.
-    parent?: {string}
+    mut parent?: {string}
     --- The host requirements a policy declares ([`Test.policy`]'s
     --- `requires`), as written.
-    requires: {string}
+    mut requires: {string}
   end
 
   --- What a `policy` declaration ([`cosmic.test`]'s `Policy`) holds, as the
