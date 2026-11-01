@@ -658,7 +658,8 @@ local function rows_of(request: Request, decl: Types.Decl, value: boolean, depth
       for _, member in ipairs(inherited) do
         if seen[member.name] ~= true then
           seen[member.name] = true
-          local substituted = put[member.name]
+          local substituted: Types.Type? = nil
+          if #listed.args > 0 then substituted = put[member.name] end
           local row = member.row
           if substituted ~= nil and row ~= nil and row.kind == "field" then
             local copy: source.MemberRow = { name = row.name, kind = row.kind, scope = row.scope,

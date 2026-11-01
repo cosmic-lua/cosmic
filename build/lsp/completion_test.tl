@@ -662,7 +662,11 @@ local function test_an_interface_listing_one_of_another_module_or_with_type_argu
   local root = session_fixture.project()
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/base.tl", table.concat({
+    "local type Handler = function(n: integer): integer",
     "local record base",
+    "  interface Hooked",
+    "    on: Handler",
+    "  end",
     "  interface Named",
     "    name: string",
     "  end",
@@ -684,23 +688,33 @@ local function test_an_interface_listing_one_of_another_module_or_with_type_argu
     "  end",
     "  interface Called is base.Holder<function(): integer>",
     "  end",
+    "  interface Mixed is base.Hooked, base.Holder<integer>",
+    "  end",
     "end",
     "return derived",
     "",
   }, "\n")))
-  local head = 'local derived = require("lib.derived")\nlocal a: derived.Aged = nil\nlocal c: derived.Counted = nil\n'
+  local head = 'local derived = require("lib.derived")\nlocal a: derived.Aged = nil\nlocal c: derived.Counted = nil\nlocal f: derived.Called = nil\nlocal m: derived.Mixed = nil\n'
   local ran = served(root, { initialize(root), open(root, "main.tl", head .. "local _ = a\n"),
     change(root, "main.tl", head .. "local _ = a.\n"),
-    ask(2, root, "main.tl", 3, 12),
+    ask(2, root, "main.tl", 5, 12),
     change(root, "main.tl", head .. "local _ = c.\n"),
-    ask(3, root, "main.tl", 3, 12),
-    change(root, "main.tl", head .. "local f: derived.Called = nil\nlocal _ = f.\n"),
-    ask(4, root, "main.tl", 4, 12),
+    ask(3, root, "main.tl", 5, 12),
+    change(root, "main.tl", head .. "local _ = f.\n"),
+    ask(4, root, "main.tl", 5, 12),
+    change(root, "main.tl", head .. "local _ = m.\n"),
+    ask(5, root, "main.tl", 5, 12),
   })
   assert(has(items(ran, 2), { "name", "age", "held" }) == "name,age", ran.err)
   assert(has(items(ran, 3), { "name", "count", "held", "age" }) == "name,count,held", ran.err)
   -- The argument is put in the member's detail and kind.
   assert(assert(items(ran, 3)["held"]).detail == "integer" and assert(items(ran, 3)["held"]).kind == FIELD, ran.err)
+  local called = assert(items(ran, 4)["held"], answer(ran, 4) .. ran.err)
+  assert(called.kind == FUNCTION and called.detail == "function(): integer", tostring(called.detail) .. ran.err)
+  -- Only the fields of the interface with arguments are put in: a plain one keeps its type as written.
+  local mixed = items(ran, 5)
+  assert(assert(mixed["on"]).detail == "Handler" and assert(mixed["on"]).kind == FUNCTION, ran.err)
+  assert(assert(mixed["held"]).detail == "integer", ran.err)
   assert(ran.tally.member_declarations == 0, tostring(ran.tally.member_declarations) .. ran.err)
 end
 
