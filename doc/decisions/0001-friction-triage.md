@@ -4,41 +4,52 @@ status: accepted
 
 ## context
 
-users and agents send friction logs, such as the notes of an app built on
+users and agents send friction reports, such as the notes of an app built on
 cosmic. the promise of efficiency (promise 2) measures a builder's friction,
-so a note is evidence, but a note may also be wrong, stale, or ask for
-something a promise forbids.
+so a report is evidence. it may also be wrong, stale, or ask for something a
+promise or principle forbids.
 
 ## decision
 
-verify each note against the current tree, reproducing it where possible.
-classify it as one of: bug, misleading message, doc gap, misunderstanding the
-docs invited, design choice, or feature request.
+verify each note against the current tree, reproducing it where possible. a
+note that does not reproduce is reported as fixed or stale, with the evidence,
+and changes nothing.
 
-answer in this order, following principle 8 ("an error-site hint beats a
-gotcha doc beats guide prose"):
+classify the note and answer it:
 
-1. fix a bug.
-2. make the error site say the fix.
-3. write a doc.
-4. add a feature, only when the first three do not meet it, judged against
-   principle 5 ("the least tree that keeps its promises") and the promises.
+- bug: fix it (promise 1, no silent bugs).
+- misleading message: correct the error site so it says the fix.
+- doc gap: write the doc.
+- misunderstanding the docs invited: add the hint or doc that would have
+  prevented it.
+- design choice: add a hint at the error site that explains it.
+- feature request: add a feature only when none of the answers above meets
+  the need, and judge it against principle 5 ("the least tree that keeps its
+  promises") and the promises.
 
-friction is valid when it slows a builder, unless meeting it breaks a promise
-or principle. that friction is answered with a hint at the error site saying
-why, not with a change. a design choice that stands gets such a hint.
+a hint is preferred to a doc because principle 8 says "an error-site hint
+beats a gotcha doc beats guide prose". principle 8 orders only those two.
+fixing a bug first follows from promise 1, and a feature last from principle 5.
 
-general rules the answers apply:
+friction is valid when it slows a builder. friction that cannot be met without
+breaking a promise or principle is still answered, with a hint at the error
+site saying why, and not with a change.
+
+the rules below are corollaries of the promises and principles cited, not new
+principles:
 
 - a narrowing is sound or absent (promise 1, no silent bugs): it is not kept
   where the checker cannot show the variable unchanged, and the hint names the
   rebind that is sound.
-- a guide suffices until several apps vendor its code (principle 5); then a
-  module is considered.
 - no helper drops a failure (principle 3, honest returns): a convenience
   returns its failure or raises, and a hint shows the sanctioned form.
 - grammar grows only where it removes boilerplate without opening an escape
-  hatch (principle 4): the new form is fully checked, never a cast or a tuple.
+  hatch (principle 4, no escape hatch in the type layer): the new form is fully
+  checked, never a cast, and a function never returns a bare tuple (principle
+  3).
+- a guide suffices until the same code is copied into several apps; then a
+  module is considered under principle 5. this threshold is this record's own
+  rule.
 
 ## rejected alternatives
 
@@ -49,5 +60,5 @@ general rules the answers apply:
 
 ## consequences
 
-a rejected request still leaves the builder a hint at the point of friction.
-a reviewer of a friction fix checks the answer's rank in the order above.
+a declined request still leaves the builder a hint at the point of friction.
+a reviewer of a friction fix checks the answer against the list above.

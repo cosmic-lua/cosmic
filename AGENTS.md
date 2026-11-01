@@ -2,9 +2,9 @@
 
 The operating guide every agent session loads. Detail lives in
 [`doc/testing.md`] (tests), [`doc/writing.md`] (prose, comments, TODOs),
-[`doc/c.md`] (the core's C) and [`doc/contributing.md`] (the pull request).
-Decisions live in [`doc/decisions/`]; friction notes are triaged as
-[`doc/decisions/0001-friction-triage.md`] says.
+[`doc/c.md`] (the core's C), [`doc/contributing.md`] (the pull request) and
+[`doc/decisions/`] (decisions, including how friction reports are triaged:
+[`doc/decisions/0001-friction-triage.md`]).
 
 ## ground rules
 
