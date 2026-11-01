@@ -120,15 +120,6 @@ local function line_at(split: Split, at: integer): integer
   return found
 end
 
---- The lines of the later text that were added or edited, by number.
-function lines.edited(alignment: lines.Alignment): {integer}
-  local out: mut {integer} = {}
-  for n = 1, #alignment.new.texts do
-    if alignment.same_as[n] == 0 then out[#out + 1] = n end
-  end
-  return out
-end
-
 --- Where the cursor, `count` bytes into the later text, is in the earlier text, counted in bytes the same way: in the same
 --- place of the same line where the line is one the texts share; in an edited line, in the same place where the edit leaves
 --- what is before the cursor or what is after it, else at the start of what the line and the line it replaced do not

@@ -2,6 +2,7 @@
 --- inside `require("`, a line that does not parse, and the positions counted in the units the session negotiated.
 
 local Fs = require("cosmic.fs")
+local Json = require("cosmic.json")
 local build_paths = require("build.paths")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
@@ -30,6 +31,12 @@ local record Edit
   newText: string
 end
 
+local record Data
+  uri: string
+  line: integer
+  character: integer
+end
+
 local record Item
   label: string
   kind: integer
@@ -37,6 +44,8 @@ local record Item
   documentation: Markup?
   sortText: string?
   textEdit: Edit
+  insertTextFormat: integer?
+  data: Data?
 end
 
 local record Listed
@@ -47,6 +56,18 @@ end
 local record CompletionSent
   result: Listed?
 end
+
+local record Resolved
+  label: string
+  detail: string?
+  documentation: Markup?
+end
+
+local record ResolveSent
+  result: Resolved?
+end
+
+local RESOLVE_SENT <const>: Shape.Typed<ResolveSent> = Shape.record_of("ResolveSent")
 
 local COMPLETION_SENT <const>: Shape.Typed<CompletionSent> = Shape.record_of("CompletionSent")
 
@@ -864,4 +885,126 @@ local function test_a_type_position_after_a_module_offers_the_types_nested_in_it
   assert(has(types, { "Pt", "Kind", "size", "make" }) == "Pt,Kind")
   assert(has(items(ran, 3), { "Pt", "Kind" }) == "Pt")
   assert(has(items(ran, 4), { "Pt", "size", "make" }) == "size,make", has(items(ran, 4), { "Pt", "size", "make" }))
+end
+
+local SNIPPETS <const> = '{"textDocument":{"completion":{"completionItem":{"snippetSupport":true}}}}'
+local LAZY <const> = '{"textDocument":{"completion":{"completionItem":{"resolveSupport":{"properties":["documentation"]}}}}}'
+
+--- The request `id` of `completionItem/resolve` for `item`, as an editor sends it back.
+local function resolve(id: integer, item: Item): string
+  local data = assert(item.data, "no data")
+  return '{"jsonrpc":"2.0","id":' .. tostring(id) .. ',"method":"completionItem/resolve","params":{"label":' ..
+    Json.quote(item.label) .. ',"data":{"uri":' .. Json.quote(data.uri) .. ',"line":' .. tostring(data.line) ..
+    ',"character":' .. tostring(data.character) .. "}}}"
+end
+
+local function test_resolving_an_item_is_advertised()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root) })
+  assert(initialized(answer(ran, 1)).capabilities.completionProvider.resolveProvider == true)
+end
+
+local function test_the_names_and_members_the_text_uses_come_before_those_it_does_not()
+  local text = 'local record Rec\n  alpha: integer\n  omega: integer\nend\nlocal r: Rec = { alpha = 1, omega = 2 }\n' ..
+    'local aaa = 1\nlocal zzz = 2\nlocal _ = zzz + zzz + r.omega\nlocal _ = \n'
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    ask(2, root, "main.tl", 8, 10),
+    change(root, "main.tl", (text:gsub("local _ = \n$", "local _ = r.\n"))),
+    ask(3, root, "main.tl", 8, 12),
+  })
+  local names = items(ran, 2)
+  -- By name `aaa` comes first; the text uses `zzz` and not `aaa`.
+  assert(sort_of(names, "zzz") < sort_of(names, "aaa"), sort_of(names, "zzz") .. " " .. sort_of(names, "aaa"))
+  local members = items(ran, 3)
+  assert(sort_of(members, "omega") < sort_of(members, "alpha"), sort_of(members, "omega") .. " " .. sort_of(members, "alpha"))
+end
+
+local function test_a_required_module_comes_before_the_others_in_a_require()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/aaa.tl", "return {}\n"))
+  assert(Fs.write(root .. "/lib/zzz.tl", "return {}\n"))
+  local text = 'local z = require("lib.zzz")\nlocal _ = require("")\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text), ask(2, root, "main.tl", 1, 19) })
+  local found = items(ran, 2)
+  assert(sort_of(found, "lib.zzz") < sort_of(found, "lib.aaa"), sort_of(found, "lib.zzz") .. " " .. sort_of(found, "lib.aaa"))
+end
+
+local function test_documentation_is_left_to_resolve_where_the_editor_asks_for_it_lazily()
+  local root = session_fixture.project()
+  local text = 'local Fs = require("cosmic.fs")\nlocal _ = Fs\n'
+  local typed = 'local Fs = require("cosmic.fs")\nlocal _ = Fs.rea\n'
+  local ran = served(root, { initialize(root, LAZY), open(root, "main.tl", text), change(root, "main.tl", typed),
+    ask(2, root, "main.tl", 1, 16),
+  }, { fs_docs(root) })
+  local read = assert(items(ran, 2)["read"], ran.err)
+  assert(read.documentation == nil and read.data ~= nil, "documentation was not left out")
+  local again = served(root, { initialize(root, LAZY), open(root, "main.tl", text), change(root, "main.tl", typed),
+    ask(2, root, "main.tl", 1, 16), resolve(3, read) }, { fs_docs(root) })
+  local sent = assert(RESOLVE_SENT:decode_into(answer(again, 3)))
+  local resolved = assert(sent.result, answer(again, 3))
+  assert(resolved.label == "read")
+  assert(assert(resolved.documentation).value:find("Reads the whole of a file.", 1, true) ~= nil)
+  assert(assert(resolved.detail):find("read", 1, true) ~= nil)
+  -- An editor that does not ask gets the documentation in the list, and nothing to resolve.
+  local eager = served(root, { initialize(root), open(root, "main.tl", text), change(root, "main.tl", typed),
+    ask(2, root, "main.tl", 1, 16),
+  }, { fs_docs(root) })
+  local whole = assert(items(eager, 2)["read"])
+  assert(whole.documentation ~= nil and whole.data == nil)
+end
+
+local function test_an_item_resolved_after_its_document_closed_or_changed_answers_what_it_can()
+  local root = session_fixture.project()
+  local item: Item = { label = "gone", kind = 3, detail = nil, documentation = nil, sortText = nil,
+    textEdit = { range = {}, newText = "gone" }, insertTextFormat = nil,
+    data = { uri = "file://" .. root .. "/main.tl", line = 0, character = 0 } }
+  local ran = served(root, { initialize(root), resolve(2, item) })
+  local resolved = assert(assert(RESOLVE_SENT:decode_into(answer(ran, 2))).result)
+  assert(resolved.label == "gone" and resolved.documentation == nil and resolved.detail == nil)
+end
+
+local function test_a_function_is_inserted_as_a_call_where_the_editor_takes_snippets()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", 'local record point\n  x: integer\nend\n\n' ..
+      'function point.origin(): point\n  return { x = 0 }\nend\n\n' ..
+      'function point.shifted(by: integer, more: string): point\n  return { x = by }\nend\n\nreturn point\n'))
+  local head = 'local point = require("lib.point")\n'
+  local text = head .. 'local function area(width: integer, height: integer): integer\n  return width\nend\nlocal _ = point\n'
+  local ran = served(root, { initialize(root, SNIPPETS), open(root, "main.tl", text),
+    change(root, "main.tl", (text:gsub("local _ = point\n$", "local _ = point.\n"))),
+    ask(2, root, "main.tl", 4, 16),
+    -- A name followed by a call is not given another.
+    change(root, "main.tl", (text:gsub("local _ = point\n$", "local _ = point.shifted()\n"))),
+    ask(3, root, "main.tl", 4, 22),
+    change(root, "main.tl", (text:gsub("local _ = point\n$", "local _ = ar\n"))),
+    ask(4, root, "main.tl", 4, 12),
+  })
+  local members = items(ran, 2)
+  local shifted = assert(members["shifted"], ran.err)
+  assert(shifted.insertTextFormat == 2 and shifted.textEdit.newText == "shifted(${1:by}, ${2:more})", shifted.textEdit.newText)
+  assert(assert(members["origin"]).textEdit.newText == "origin($0)")
+  -- A field is no call.
+  assert(assert(members["x"]).insertTextFormat == nil and assert(members["x"]).textEdit.newText == "x")
+  local called = assert(items(ran, 3)["shifted"])
+  assert(called.insertTextFormat == nil and called.textEdit.newText == "shifted")
+  local area = assert(items(ran, 4)["area"])
+  assert(area.insertTextFormat == 2 and area.textEdit.newText == "area(${1:arg1}, ${2:arg2})", area.textEdit.newText)
+  -- Without the editor's word, the name alone.
+  local plain = served(root, { initialize(root), open(root, "main.tl", text),
+    change(root, "main.tl", (text:gsub("local _ = point\n$", "local _ = ar\n"))), ask(2, root, "main.tl", 4, 12) })
+  assert(assert(items(plain, 2)["area"]).textEdit.newText == "area")
+end
+
+local function test_a_method_is_inserted_as_a_call_without_its_self()
+  local root = session_fixture.project()
+  local text = COUNTER .. 'local _ = c\n'
+  local ran = served(root, { initialize(root, SNIPPETS), open(root, "main.tl", text),
+    change(root, "main.tl", (text:gsub("local _ = c\n$", "local _ = c:\n"))),
+    ask(2, root, "main.tl", 7, 12),
+  })
+  local bump = assert(items(ran, 2)["bump"], ran.err)
+  assert(bump.insertTextFormat == 2 and bump.textEdit.newText == "bump($0)", bump.textEdit.newText)
 end

@@ -27,6 +27,12 @@
 --- - Anywhere else, the names in scope: the locals, parameters, functions and types visible at the cursor
 ---   ([`Scopes.in_scope`]), then the globals of the standard library.
 ---
+--- The items are ordered (`sortText`) by how near the scope of a name is, then by how often the text uses it; the members of
+--- a type and the modules of a `require` by how often the text uses them. An editor that asks for the documentation of an
+--- item when it is chosen (`resolveSupport`) is given a list without the docs database's text of a member, and the place to
+--- ask again ([`completion.resolve`]); one that takes snippets is given a function as a call with a placeholder for each
+--- parameter, unless a `(` follows the cursor.
+---
 --- A text being typed (`p.`) does not parse, so what the checker knows of it is found in one of two ways. The text is made to
 --- parse where it can: the word being typed is replaced by a placeholder name, and a receiver on a line of its own (`p.`) is
 --- made the value of a statement, and it is checked as if the person had typed it ([`check.probe`]); the types are then the
@@ -53,9 +59,9 @@
 -- TODO: resolve an interface a declaration lists from another module, or with type arguments, in the rows, once the rows
 -- name a listed interface by the module that declares it: the members are then the checker's declarations.
 
--- TODO: rank the items by how near they are and what was used (`sortText`), fill in `documentation` and `detail` at
--- `completionItem/resolve`, and offer snippets for a call's parameters, once a request needs them: names are ordered by
--- the depth of their scope and then by name, and every item carries its text.
+-- TODO: name the placeholders of a call inserted for a function after its parameters where its type is the checker's and
+-- not written (a local function, a global of the standard library, a member the rows do not hold), once a function type
+-- carries the names of its parameters ([`Types.Param`]): they are `arg1`, `arg2`, ... there.
 
 local Ast = require("lang.ast")
 local Declarations = require("lang.declarations")
@@ -72,6 +78,16 @@ local lines = require("build.lsp.lines")
 local protocol = require("build.lsp.protocol")
 
 local record completion
+  --- What the editor takes of a completion, and the document it is of.
+  record Options
+    uri: string
+    --- Whether a function is inserted with a placeholder for each of its parameters.
+    snippets: boolean
+    --- Whether the documentation of an item is left out of the list, to be asked for when the item is chosen
+    --- ([`completion.resolve`]).
+    lazy: boolean
+  end
+
   --- What is typed at the cursor.
   record Context
     --- "modules", "members", "types" or "names".
@@ -270,8 +286,46 @@ local function token_near(tokens: Lexer.Tokens, at: integer): integer
   return math.min(found + 1, count)
 end
 
+--- How often a text uses a name, a member (a name after `.` or `:`) and a module (the string of a `require`), by name.
+local record Uses
+  names: {string: integer}
+  members: {string: integer}
+  modules: {string: integer}
+end
+
+--- The uses ([`Uses`]) in the text `tokens` are of.
+local function uses_of(tokens: Lexer.Tokens): Uses
+  local names: mut {string: integer} = {}
+  local members: mut {string: integer} = {}
+  local modules: mut {string: integer} = {}
+  for at = 1, Lexer.count(tokens) do
+    local kind = Lexer.kind(tokens, at)
+    if kind == "identifier" then
+      local text = Lexer.text(tokens, at)
+      local before: Lexer.Kind = "$EOF$"
+      if at > 1 then before = Lexer.kind(tokens, at - 1) end
+      if before == "." or before == ":" then
+        members[text] = (members[text] or 0) + 1
+      else
+        names[text] = (names[text] or 0) + 1
+      end
+    elseif kind == "string" and at > 2 and Lexer.text(tokens, at - 2) == "require" then
+      local quoted = Lexer.text(tokens, at):match("^[\"'](.*)[\"']$")
+      if quoted ~= nil then modules[quoted] = (modules[quoted] or 0) + 1 end
+    end
+  end
+  return { names = names, members = members, modules = modules }
+end
+
 --- What one request reads.
 local record Request
+  options: completion.Options
+  uses: Uses
+  --- The place completion was asked at, which an item that is left incomplete holds to be completed there.
+  data: protocol.ResolveData
+  --- Whether a function is inserted as a call with a placeholder for each parameter: the editor takes snippets and no `(`
+  --- follows the cursor.
+  call: boolean
   program: Declarations.Program
   outcome: Driver.Outcome
   checker: check.Checker
@@ -607,6 +661,58 @@ local function rows_of(request: Request, decl: Types.Decl, value: boolean): {Mem
   return row_members(rows, decl.name, value)
 end
 
+--- The names of the parameters in `written`, a function type as written (`function(self: P, a: T, b?: U): R`), without the
+--- first when it is `self` and the item is a call by `:`; nil where `written` is no function type.
+local function written_params(written: string, colon: boolean): {string}?
+  local list = written:match("^function[^%(]*(%b())")
+  if list == nil then return nil end
+  local names: mut {string} = {}
+  local depth = 0
+  local start = 2
+  local function add(to: integer)
+    local name = list:sub(start, to):match("^%s*([%a_][%w_]*)%s*%??%s*:") or list:sub(start, to):match("^%s*([%a_][%w_]*)%s*$")
+    if name ~= nil then names[#names + 1] = name end
+  end
+  for at = 2, #list - 1 do
+    local c = list:sub(at, at)
+    if c == "(" or c == "<" or c == "{" or c == "[" then
+      depth = depth + 1
+    elseif c == ")" or c == ">" or c == "}" or c == "]" then
+      depth = depth - 1
+    elseif c == "," and depth == 0 then
+      add(at - 1)
+      start = at + 1
+    end
+  end
+  add(#list - 1)
+  if colon and names[1] == "self" then table.remove(names, 1) end
+  return names
+end
+
+--- The text inserted for a call of `name` with a placeholder for each of `params`, as a snippet.
+local function call_snippet(name: string, params: {string}): string
+  if #params == 0 then return name .. "($0)" end
+  local parts: mut {string} = {}
+  for at, param in ipairs(params) do
+    parts[#parts + 1] = "${" .. tostring(at) .. ":" .. param .. "}"
+  end
+  return name .. "(" .. table.concat(parts, ", ") .. ")"
+end
+
+--- The names to put in a call of a function of type `t` that is not written: one for each parameter.
+local function typed_params(t: Types.Type?, drop: boolean): {string}?
+  local fn = stripped(t)
+  if fn == nil or fn.tag ~= "fn" then return nil end
+  local names: mut {string} = {}
+  local first = 1
+  if drop then first = 2 end
+  for n = first, #fn.params do
+    local name = "arg" .. tostring(n - first + 1)
+    names[#names + 1] = name
+  end
+  return names
+end
+
 --- The members offered after a separator.
 local function member_items(request: Request, d: hover.Docs, decl: Types.Decl, value: boolean, context: Context,
                             out: mut {protocol.CompletionItem}, edit: protocol.Range)
@@ -627,8 +733,10 @@ local function member_items(request: Request, d: hover.Docs, decl: Types.Decl, v
     end
   end
   -- The docs of the rows are the text's own: the docs database, the last build's, is no source for a member they hold.
+  -- A list that leaves the documentation to `completionItem/resolve` does not ask the docs database for it.
+  local lazy = request.options.lazy and not from_rows
   local entries: {string: docs.Entry} = {}
-  if not from_rows then entries = documented(request, d, decl, wanted) end
+  if not from_rows and not lazy then entries = documented(request, d, decl, wanted) end
   for _, member in ipairs(wanted) do
     local entry = entries[member.name]
     local t = member.type
@@ -643,8 +751,26 @@ local function member_items(request: Request, d: hover.Docs, decl: Types.Decl, v
     elseif t ~= nil then
       detail = Types.display(t)
     end
-    local item: protocol.CompletionItem = { label = member.name, kind = member_kind(member), detail = detail,
-      documentation = documentation, sortText = nil, textEdit = { range = edit, newText = member.name } }
+    local kind = member_kind(member)
+    local uses = math.min(request.uses.members[member.name] or 0, 99)
+    local item: protocol.CompletionItem = { label = member.name, kind = kind, detail = detail,
+      documentation = documentation, sortText = string.format("%02d%s", 99 - uses, member.name),
+      textEdit = { range = edit, newText = member.name }, insertTextFormat = nil, data = nil }
+    if lazy then item.data = request.data end
+    -- A function by `.` is called with all its parameters, a method by `:` without its `self`.
+    if request.call and ((kind == FUNCTION and not context.method) or (kind == METHOD and context.method)) then
+      local params: {string}? = nil
+      if row ~= nil then
+        params = written_params(row.type, context.method)
+      elseif entry ~= nil and entry.signature ~= "" then
+        params = written_params(entry.signature:gsub("^function%s+[%w_.:]*", "function"), context.method)
+      end
+      if params == nil then params = typed_params(t, context.method and member.method) end
+      if params ~= nil then
+        item.textEdit = { range = edit, newText = call_snippet(member.name, params) }
+        item.insertTextFormat = 2
+      end
+    end
     out[#out + 1] = item
   end
 end
@@ -680,7 +806,7 @@ local function nested_items(request: Request, decl: Types.Decl, context: Context
   for _, name in ipairs(sorted) do
     local kind = assert(found[name])
     out[#out + 1] = { label = name, kind = kind, detail = nil, documentation = nil, sortText = nil,
-      textEdit = { range = edit, newText = name } }
+      textEdit = { range = edit, newText = name }, insertTextFormat = nil, data = nil }
   end
 end
 
@@ -720,9 +846,19 @@ local function name_items(request: Request, scope: {string: Scopes.Var}, types: 
       local detail: string = var.kind
       if t ~= nil then detail = Types.display(t) end
       -- The nearer the scope, the earlier.
-      local item: protocol.CompletionItem = { label = name, kind = var_kind(var, t), detail = detail,
-        documentation = nil, sortText = string.format("0%02d", 99 - math.min(var.depth, 99)) .. name,
-        textEdit = { range = edit, newText = name } }
+      -- Ordered by how near the scope is, then by how often the text uses it (its declaration is no use), then by name.
+      local used = math.min(math.max((request.uses.names[name] or 0) - 1, 0), 99)
+      local kind = var_kind(var, t)
+      local item: protocol.CompletionItem = { label = name, kind = kind, detail = detail, documentation = nil,
+        sortText = string.format("0%02d%02d%s", 99 - math.min(var.depth, 99), 99 - used, name),
+        textEdit = { range = edit, newText = name }, insertTextFormat = nil, data = nil }
+      if request.call and kind == FUNCTION and not types then
+        local params = typed_params(t, false)
+        if params ~= nil then
+          item.textEdit = { range = edit, newText = call_snippet(name, params) }
+          item.insertTextFormat = 2
+        end
+      end
       out[#out + 1] = item
     end
   end
@@ -753,15 +889,25 @@ local function name_items(request: Request, scope: {string: Scopes.Var}, types: 
       elseif overloads ~= nil and overloads[1] ~= nil and assert(overloads[1]).tag == "fn" then
         kind = FUNCTION
       end
-      out[#out + 1] = { label = name, kind = kind, detail = nil, documentation = nil, sortText = "1" .. name,
-        textEdit = { range = edit, newText = name } }
+      local used = math.min(request.uses.names[name] or 0, 99)
+      local item: protocol.CompletionItem = { label = name, kind = kind, detail = nil, documentation = nil,
+        sortText = string.format("1%02d%s", 99 - used, name), textEdit = { range = edit, newText = name },
+        insertTextFormat = nil, data = nil }
+      if request.call and kind == FUNCTION and overloads ~= nil then
+        local params = typed_params(overloads[1], false)
+        if params ~= nil then
+          item.textEdit = { range = edit, newText = call_snippet(name, params) }
+          item.insertTextFormat = 2
+        end
+      end
+      out[#out + 1] = item
     end
   end
 end
 
 --- The modules a `require` can name, whose names start with the prefix typed: the working database's and the docs'.
-local function module_items(checker: check.Checker, d: hover.Docs, context: Context, out: mut {protocol.CompletionItem},
-                            edit: protocol.Range)
+local function module_items(checker: check.Checker, d: hover.Docs, uses: Uses, context: Context,
+                            out: mut {protocol.CompletionItem}, edit: protocol.Range)
   local names: mut {string: boolean} = {}
   for name, listed in pairs(checker.source.modules) do
     if listed.kind ~= "test" and listed.kind ~= "example" then names[name] = true end
@@ -776,9 +922,12 @@ local function module_items(checker: check.Checker, d: hover.Docs, context: Cont
     if matches(name, context.prefix) then sorted[#sorted + 1] = name end
   end
   table.sort(sorted)
+  -- The modules the text requires already come first.
   for _, name in ipairs(sorted) do
-    out[#out + 1] = { label = name, kind = MODULE, detail = nil, documentation = nil, sortText = nil,
-      textEdit = { range = edit, newText = name } }
+    local used = math.min(uses.modules[name] or 0, 99)
+    local order = string.format("%02d%s", 99 - used, name)
+    out[#out + 1] = { label = name, kind = MODULE, detail = nil, documentation = nil, sortText = order,
+      textEdit = { range = edit, newText = name }, insertTextFormat = nil, data = nil }
   end
 end
 
@@ -831,10 +980,29 @@ local function probe_text(document: check.Document, spliced: string, parsed: Dri
   return text, #HEAD
 end
 
+--- What was left out of the completion item `label` that [`completion.at`] gave at the place `data` names of `document`, which
+--- the editor now asks for: its detail and documentation as the docs database has them. Nothing where the place has no such
+--- item any more.
+function completion.resolve(checker: check.Checker, d: hover.Docs, document: check.Document, label: string,
+                            data: protocol.ResolveData, encoding: string, given: completion.Options):
+    protocol.ResolvedItem
+  local options: completion.Options = { uri = given.uri, snippets = false, lazy = false }
+  local listed = completion.at(checker, d, document, { line = data.line, character = data.character }, encoding, options)
+  if listed ~= nil then
+    for _, item in ipairs(listed.items) do
+      if item.label == label then
+        return { label = label, detail = item.detail, documentation = item.documentation }
+      end
+    end
+  end
+  return { label = label, detail = nil, documentation = nil }
+end
+
 --- The completions at `where` of `document`, whose characters count in `encoding`'s units: nil where nothing is open there.
 --- An empty list is a place where nothing can be typed, or nothing is known.
 function completion.at(checker: check.Checker, d: hover.Docs, document: check.Document, where: protocol.Position,
-                       encoding: string): protocol.CompletionList?
+                       encoding: string, given?: completion.Options): protocol.CompletionList?
+  local options: completion.Options = given or { uri = document.uri, snippets = false, lazy = false }
   local split = lines.lines_of(document.text)
   local line = split.texts[where.line + 1]
   local start = split.starts[where.line + 1]
@@ -865,10 +1033,12 @@ function completion.at(checker: check.Checker, d: hover.Docs, document: check.Do
   elseif state == "quoted" then
     return { isIncomplete = false, items = out }
   end
+  -- A call is not written where the name is followed by one.
+  local continues = line:sub(byte + #rest):match("^%s*%(") ~= nil
   local edit = protocol.range(lines.position(split, start + context.start - 1, encoding),
     lines.position(split, start + byte - 1, encoding))
   if context.what == "modules" then
-    module_items(checker, d, context, out, edit)
+    module_items(checker, d, uses_of(tokens), context, out, edit)
     return { isIncomplete = false, items = out }
   end
   local at = token_near(tokens, cursor - #prefix)
@@ -903,7 +1073,9 @@ function completion.at(checker: check.Checker, d: hover.Docs, document: check.Do
   -- The probe text has the placeholder where the word is, so the cursor is at its start.
   if probed then earlier = cursor - #prefix + shift end
   local token = token_near(outcome.chunk.tokens, check.checker_offset(last.reading, math.max(earlier, 1)))
-  local request: Request = { program = last.reading.program, outcome = outcome, checker = checker, text = last.text }
+  local request: Request = { options = options, uses = uses_of(tokens), call = options.snippets and not continues,
+    data = { uri = document.uri, line = where.line, character = where.character }, program = last.reading.program,
+    outcome = outcome, checker = checker, text = last.text }
   local scope = Scopes.in_scope(outcome.scoped, token)
   if not placed then
     name_items(request, scope, false, context, out, edit)

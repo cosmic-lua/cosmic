@@ -30,7 +30,7 @@ local function test_a_place_is_found_in_the_earlier_text_after_two_separate_edit
   -- After the edit in a line: the same place where what is before the cursor is the same, else the start of the change.
   assert(lines.earlier(aligned, 3) == 3, tostring(lines.earlier(aligned, 3)))
   assert(lines.earlier(aligned, 12) == 9, tostring(lines.earlier(aligned, 12)))
-  assert(table.concat(lines.edited(aligned), ",") == "2,5")
+  assert(aligned.same_as[1] == 1 and aligned.same_as[2] == 0 and aligned.same_as[3] == 3 and aligned.same_as[5] == 0)
   -- A line added between two lines is at the start of the line after it.
   local added = lines.align("a\nb\n", "a\nx\nb\n")
   assert(lines.earlier(added, 3) == 2, tostring(lines.earlier(added, 3)))
@@ -38,7 +38,7 @@ end
 
 local function test_a_change_of_line_endings_edits_no_line()
   local aligned = lines.align("a\nbc\nd\n", "a\r\nbc\r\nd\r\n")
-  assert(#lines.edited(aligned) == 0)
+  assert(aligned.same_as[1] == 1 and aligned.same_as[2] == 2 and aligned.same_as[3] == 3)
   -- After the `c` of the second line, at its end, and after the `d` of the third.
   assert(lines.earlier(aligned, 5) == 4, tostring(lines.earlier(aligned, 5)))
   assert(lines.earlier(aligned, 7) == 5, tostring(lines.earlier(aligned, 7)))
@@ -47,6 +47,6 @@ end
 
 local function test_lines_that_moved_are_found_by_their_text()
   local aligned = lines.align("a\nb\nc\nd\n", "b\nc\nx\nd\n")
-  assert(table.concat(lines.edited(aligned), ",") == "3", table.concat(lines.edited(aligned), ","))
-  assert(assert(aligned.same_as[1]) == 2 and assert(aligned.same_as[4]) == 4)
+  assert(aligned.same_as[3] == 0)
+  assert(aligned.same_as[1] == 2 and aligned.same_as[2] == 3 and aligned.same_as[4] == 4)
 end
