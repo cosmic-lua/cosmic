@@ -124,7 +124,7 @@ end
 
 allow({
   "build.syntax_analyzer.analyze",
-  "build.syntax_derivation.rows_of", "build.syntax_match.matches", "build.syntax_match.text",
+  "build.syntax_match.matches", "build.syntax_match.text",
 }, "a reader of the syntax tree (build/syntax_*.tl) that the build reaches through its callers (`analysis_of`, " ..
     "`docs`, the pipeline's derive) and that its tests call directly, to say what one read of a source gives")
 
