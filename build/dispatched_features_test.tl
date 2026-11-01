@@ -390,6 +390,10 @@ local function test_the_core_lines_that_turn_on_the_processor_are_found()
   assert(#used.lines == 1 and used.lines[1] == 11)
   assert(found["core/vector.c:pick"] == nil, "the choice runs whenever the file loads")
   assert(found["core/vector.c:kernel_generic"] == nil, "the code any processor runs")
+  -- A core that compiles no code for a feature has nothing in the file that turns on the processor.
+  local bare: {string:{string}} = { ["core/vector.c"] = { "static void use (void) {", "}" } }
+  local bare_functions: {Coverage.Function} = { { path = "core/vector.c", name = "use", line = 1 } }
+  assert(#DispatchSites.reaching(c_functions.spans(bare_functions, bare), bare) == 0)
   -- The tree's own C: the kernels, and the scan that calls the one chosen, but not the function
   -- that registers the module and picks (which every open of a database enters).
   local text = assert(Fs.read("core/vector.c"))

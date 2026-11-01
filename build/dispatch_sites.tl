@@ -11,8 +11,9 @@
 --- `target` attribute) and the lines that call through a pointer the file
 --- assigns such a function to: the function that picks the code at start
 --- is not, since it runs whenever the file is loaded and the code it picks
---- is run by the callers. A site file with no such function counts whole.
---- Elsewhere in the core it is each line that calls the API of a library
+--- is run by the callers. A core that compiles no such function (core/vector.c
+--- on aarch64, whose VNNI code is x86's) has nothing there that turns on
+--- the processor. Elsewhere in the core it is each line that calls the API of a library
 --- that has a site reading a feature (`api`: psa_ and mbedtls_ for
 --- mbedtls, lzma_ for xz). The C of a library is not among the core's
 --- functions, so a test reaches it only through a core line that calls
@@ -201,13 +202,7 @@ local function in_site(spans: {c_functions.Span}, lines: {string}): {dispatch_si
         why = "it is compiled for a processor feature" }
     end
   end
-  if next(kernels) == nil then
-    for _, span in ipairs(spans) do
-      out[#out + 1] = { key = span.key, path = span.path, lines = whole(span, lines),
-        why = "its file reads the processor's features" }
-    end
-    return out
-  end
+  if next(kernels) == nil then return out end
   local pointers: mut {string:boolean} = {}
   for name, value in table.concat(lines, "\n"):gmatch("([%a_][%w_]*)%s*=%s*([%a_][%w_]*)%s*;") do
     if kernels[value] == true then pointers[name] = true end

@@ -22,6 +22,7 @@ local build_paths = require("build.paths")
 --- (`store`: [`embed.database`] reads every `cosmic.*` module's rows), the
 --- vendored bundle a refresh reads, and the tool itself.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" },
     { path = "vendor/cacert/", letters = "r" } },

@@ -15,6 +15,7 @@ local Test = require("cosmic.test")
 --- root of its own; and `tool`: a process confined is given the program,
 --- and the case starts it.
 Test.policy{
+  cpu_features = true,
   profiles = { "system", "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" },
     { path = "/usr/bin/env", letters = "r" } },
