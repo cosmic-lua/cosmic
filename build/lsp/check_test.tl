@@ -7,6 +7,7 @@
 --- ([`build.lsp.publish`]).
 
 local Fs = require("cosmic.fs")
+local check = require("build.lsp.check")
 local tree = require("build.tree")
 local session_fixture = require("build.lsp.session_fixture")
 
@@ -390,4 +391,23 @@ local function test_a_document_that_is_no_file_below_the_root_publishes_nothing(
   assert(counts(ran) == "0,0,0,1,1", counts(ran))
   local new = assert(publications(ran)[4])
   assert(new.uri:sub(-14) == "/sub/../new.tl", new.uri)
+end
+
+local function test_the_probe_made_for_a_document_goes_when_the_document_is_closed()
+  local root = project()
+  local checker = check.new(root, function(_: string) end, function(): check.Hinted
+    return { databases = {}, public = {} }
+  end)
+  local document = check.document("file://" .. root .. "/main.tl", "main.tl", "local a = 1\nreturn a\n")
+  check.opened(checker, document)
+  assert(check.probe(checker, document, "local a = 2\nreturn a\n") ~= nil)
+  assert(checker.probed ~= nil)
+  -- The probe of another document stays.
+  local other = check.document("file://" .. root .. "/other.tl", "other.tl", "return 1\n")
+  check.opened(checker, other)
+  check.closed(checker, other)
+  assert(checker.probed ~= nil)
+  check.closed(checker, document)
+  assert(checker.probed == nil)
+  check.close(checker)
 end

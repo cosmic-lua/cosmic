@@ -26,9 +26,9 @@ local record lines
     old_length: integer
     new_length: integer
     same_as: {integer: integer}
-    --- Whether every line that is not paired is one the texts do not share, and not one this could not tell: a part too large
-    --- to pair and with no line that stands once in each text is left unpaired, and a place in it is unknown.
-    complete: boolean
+    --- The lines of the later text that are not paired because this could not tell: a part too large to pair and with no
+    --- line that stands once in each text is left unpaired, and a place in it is unknown.
+    unknown: {integer: boolean}
   end
 end
 
@@ -60,13 +60,13 @@ local MOST_CELLS <const> = 250000
 --- How the lines of `new` correspond to those of `old`: those the two share at their starts and at their ends, then the
 --- longest run of lines the rest share in order. Where the rest is too large for that, it is divided at the lines that
 --- stand once in each text and are in the same order (anchors), and each part is aligned in turn; a part with no anchor
---- is left unpaired and the alignment is not `complete`.
+--- is left unpaired and its lines are `unknown`.
 function lines.align(old: string, new: string): lines.Alignment
   local before, after = lines.lines_of(old), lines.lines_of(new)
   local old_texts, new_texts = before.texts, after.texts
   local same_as: mut {integer: integer} = {}
   for n = 1, #new_texts do same_as[n] = 0 end
-  local complete = true
+  local unknown: mut {integer: boolean} = {}
   local function solve(o1: integer, o2: integer, n1: integer, n2: integer)
     while o1 <= o2 and n1 <= n2 and old_texts[o1] == new_texts[n1] do
       same_as[n1] = o1
@@ -131,7 +131,7 @@ function lines.align(old: string, new: string): lines.Alignment
       end
     end
     if #anchor_new == 0 then
-      complete = false
+      for n = n1, n2 do unknown[n] = true end
       return
     end
     -- The longest run of anchors whose old lines rise too: tails[k] is the anchor that ends the best run of length k.
@@ -170,7 +170,7 @@ function lines.align(old: string, new: string): lines.Alignment
     solve(from_old, o2, from_new, n2)
   end
   solve(1, #old_texts, 1, #new_texts)
-  return { old = before, new = after, old_length = #old, new_length = #new, same_as = same_as, complete = complete }
+  return { old = before, new = after, old_length = #old, new_length = #new, same_as = same_as, unknown = unknown }
 end
 
 --- The line of `alignment`'s later text that holds byte `at` (from 1), the last whose start is not after it.
@@ -212,7 +212,7 @@ function lines.earlier(alignment: lines.Alignment, count: integer): integer?
     return before_line(matched) + column
   end
   -- A place in a part that could not be told apart is unknown.
-  if not alignment.complete then return nil end
+  if alignment.unknown[n] == true then return nil end
   -- The earlier lines that stand between the lines before this one and the lines after it that the texts share.
   local previous, following = 0, 0
   local skipped = 0

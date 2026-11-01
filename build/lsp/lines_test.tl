@@ -63,7 +63,7 @@ local function test_a_place_is_found_by_lines_that_stand_once_where_the_texts_ar
   local old = numbered(1000, {})
   local new = numbered(1000, { [10] = "edited ten", [900] = "line 900 and" })
   local aligned = lines.align(old, new)
-  assert(aligned.complete)
+  assert(next(aligned.unknown) == nil)
   assert(aligned.same_as[500] == 500 and aligned.same_as[11] == 11 and aligned.same_as[901] == 901)
   assert(aligned.same_as[10] == 0 and aligned.same_as[900] == 0)
   -- The cursor after the edit in line 900 is in line 900 of the earlier text, not in a line near it.
@@ -82,7 +82,7 @@ local function test_a_place_in_lines_that_cannot_be_told_apart_is_unknown()
   local old = table.concat(old_lines, "\n") .. "\nend\n"
   local new = table.concat(new_lines, "\n") .. "\nz\n"
   local aligned = lines.align(old, new)
-  assert(not aligned.complete)
+  assert(aligned.unknown[100] == true)
   assert(lines.earlier(aligned, 1500) == nil)
 end
 
@@ -90,4 +90,27 @@ local function test_the_places_of_a_line_replaced_by_more_lines_rise_with_the_te
   local aligned = lines.align("a\nb\nz\n", "a\nb1\nb2\nb3\nz\n")
   local first, last = assert(lines.earlier(aligned, 4)), assert(lines.earlier(aligned, 11))
   assert(first <= last and last <= 5, tostring(first) .. " " .. tostring(last))
+end
+
+local function test_only_a_place_in_a_part_that_cannot_be_told_apart_is_unknown()
+  -- Lines 1 to 1500 are the same line and are changed in the middle; the unique lines after them are told apart.
+  local old_lines: mut {string} = {}
+  local new_lines: mut {string} = {}
+  for n = 1, 1500 do
+    old_lines[#old_lines + 1] = "x"
+    new_lines[#new_lines + 1] = if n == 100 or n == 1400 then "y" else "x" end
+  end
+  for n = 1, 20 do
+    old_lines[#old_lines + 1] = "tail " .. tostring(n)
+    new_lines[#new_lines + 1] = if n == 10 then "tail ten" else "tail " .. tostring(n) end
+  end
+  local old = table.concat(old_lines, "\n") .. "\n"
+  local new = table.concat(new_lines, "\n") .. "\n"
+  local aligned = lines.align(old, new)
+  assert(aligned.unknown[100] == true)
+  -- A place among the unique lines is found, though the part before them is not.
+  local count = #table.concat(new_lines, "\n", 1, 1515) + 1 + #"tail"
+  local expected = #table.concat(old_lines, "\n", 1, 1515) + 1 + #"tail"
+  assert(lines.earlier(aligned, count) == expected, tostring(lines.earlier(aligned, count)))
+  assert(lines.earlier(aligned, 200) == nil)
 end

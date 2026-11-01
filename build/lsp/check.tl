@@ -332,6 +332,9 @@ end
 --- again ([`check.moved`]).
 function check.closed(checker: Checker, document: Document)
   forget(checker, document, true)
+  -- The probe made for the document goes with it.
+  local probed = checker.probed
+  if probed ~= nil and probed.name == document.name then checker.probed = nil end
   if checker.open[document.name] ~= document then return end
   local regraphs = check.regraphs(checker, document)
   checker.open[document.name] = nil
