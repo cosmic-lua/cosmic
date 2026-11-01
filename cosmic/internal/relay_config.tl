@@ -41,7 +41,7 @@ local record relay_config
     authorization?: string
     --- The `no_proxy` entries: hosts, domains (leading dot or not, which
     --- match their subdomains too), `host:port`, addresses, or "*".
-    no_proxy: {string}
+    no_proxy: mut {string}
     --- The numeric addresses `host` was resolved to, once, by the caller
     --- (the sandbox's relay is told them by its starter, which put them in
     --- its connector's table): connected to in their order, as a name's
@@ -58,29 +58,29 @@ local record relay_config
     --- ([`cosmic.internal.relay_server`]'s `upstream`), parsed once by the starter
     --- ([`relay_config.upstream`]) with its `addresses` resolved; nil for
     --- none. [`decode`] refuses a record without them.
-    upstream?: Upstream
+    mut upstream?: Upstream
     --- The host's own addresses, which the relay never connects to
     --- ([`cosmic.relay.address`]'s `own_addresses`).
     own_addresses: {string}
     --- Where the relay's decision lines go: "stderr" or "null".
-    log: string
+    mut log: string
     --- The table of the connector whose control stream is at
     --- [`relay_config.connector_fd`], which holds the addresses `grants`
     --- names literally and the upstream's. Nil where it has none.
-    table?: {Endpoint}
+    mut table?: {Endpoint}
     --- Whether that connector is public, reaching any address its deny
     --- list allows beside its table, for the names `grants` opens and the
     --- relay reaches directly. With neither a `table` nor `public`, no
     --- connector is handed.
-    public?: boolean
+    mut public?: boolean
     --- The name servers of the connector whose stream is at
     --- [`relay_config.name_server_fd`], its whole table; nil where none is handed.
-    name_servers?: {Endpoint}
+    mut name_servers?: {Endpoint}
     --- That connector's wait for each server's connection, in nanoseconds.
-    name_server_wait_ns?: integer
+    mut name_server_wait_ns?: integer
     --- Why no name is resolved, or nil: the relay then reaches only what
     --- a grant names literally, and the upstream.
-    unresolved?: string
+    mut unresolved?: string
     --- Whether the relay serves on the host's loopback, as macOS's start
     --- has it ([`Child.start`]): it is handed `listeners` listening sockets
     --- from descriptor 3, at one port of 127.0.0.1 and ::1, each for both
@@ -91,11 +91,11 @@ local record relay_config
     direct?: boolean
     --- With `direct`, how many listening sockets it is handed, from
     --- descriptor 3: 1 or 2.
-    listeners?: integer
+    mut listeners?: integer
     --- The per-sandbox token every connection must present
     --- ([`cosmic.internal.relay_server`]'s `token`), or nil for none: a `direct`
     --- relay's listener is one every user of the host can reach.
-    token?: string
+    mut token?: string
   end
 
   --- What the relay's starter, [`Child.start`], makes for it before the
@@ -110,7 +110,7 @@ local record relay_config
     fds: mut {integer: integer}
     --- Ends the connectors and reaps them, once the relay has ended or
     --- will not start. Safe to call more than once.
-    close: function()
+    mut close: function()
   end
 
   --- The port the program reaches the relay's HTTP CONNECT listener at,
@@ -442,7 +442,7 @@ function relay_config.encode(config: relay_config.Config): string
 end
 
 --- The strings of `value`, a list, or nil and why.
-local function strings(value: Json.Value?, name: string): {string}?, string
+local function strings(value: Json.Value?, name: string): mut {string}?, string
   local list, _ = Json.to_array(value)
   if list == nil then return nil, name .. " is not a list" end
   local out: mut {string} = {}

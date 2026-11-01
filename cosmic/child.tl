@@ -223,6 +223,9 @@ local record Credentials
   group?: integer
 end
 
+-- TODO: the child tests that set a field of an [`Options`] or [`rules.Policy`] after making it are `field_fixed` (pinned in
+-- build/ceilings.txt for cosmic/child_*_test.tl), once they build each record whole, which needs no `mut` on a public
+-- record.
 local record Options
   --- The child's whole environment, by name: it replaces this process's
   --- rather than adding to it. Nil inherits this process's.
@@ -595,8 +598,8 @@ local record Pipe
   mut head: integer
   mut tail: integer
   --- The Reader ended this pipe, explicitly or after an escaped writer.
-  reader_closed: boolean
-  consuming: boolean
+  mut reader_closed: boolean
+  mut consuming: boolean
 end
 
 --- Bounds and borrowed destinations for [`Handle.drain`].
@@ -649,9 +652,9 @@ local record Handle
   --- it left, and a write fails. A read or raw poll failure follows the
   --- bytes already queued, then remains the reader's failure on later
   --- reads.
-  stdout_stream: Stream.Reader?
+  mut stdout_stream: Stream.Reader?
   --- See `stdout_stream`.
-  stderr_stream: Stream.Reader?
+  mut stderr_stream: Stream.Reader?
   --- A Writer to stdin, when it was "stream": [`Stream.to_fd`] over the
   --- pipe, so a write goes out whole and a failure is sticky; its `close`
   --- (or `abort`) closes the child's stdin, so the child reads end of
@@ -661,7 +664,7 @@ local record Handle
   --- reading until its streamed stdout is read, which sits unread at
   --- `capture_limit`, waits forever -- read the outputs as the input
   --- goes in, or bound the child with a timeout.
-  stdin_stream: Stream.Writer?
+  mut stdin_stream: Stream.Writer?
   mut _feed_fd: integer?
   --- A descriptor readable once the child has exited (`exit_watch`),
   --- until its status is claimed; -1 where there is none, so that
@@ -673,14 +676,14 @@ local record Handle
   mut _closed: boolean
   mut _explicit_close: boolean
   mut _drain_next: integer
-  _streams?: {Pipe}
+  mut _streams?: {Pipe}
   mut _input_fd: integer?
-  _input?: string
-  _input_at?: integer
+  mut _input?: string
+  mut _input_at?: integer
   _limit: integer
   --- When the child's own `timeout_ns` passes, on the monotonic clock;
   --- nil for none ([`Options.timeout_ns`]).
-  _deadline: integer?
+  mut _deadline: integer?
   --- The temporary directory a policy's `tmp` made for the child, removed
   --- once the child is settled; nil for none.
   mut _tmp: string?
@@ -696,7 +699,7 @@ local record Handle
   mut _handover?: RelayConfig.Handover
   --- The Seatbelt profile and parameters the child was started under, on
   --- macOS; nil for a child no profile holds.
-  _seatbelt?: raw_process.Seatbelt
+  mut _seatbelt?: raw_process.Seatbelt
   --- Waits for the child to exit and answers its Result. With
   --- `timeout_ns`, or once the child's own [`Options.timeout_ns`]
   --- passes, whichever is first, a child still running is ended --
@@ -710,7 +713,7 @@ local record Handle
   --- [`Poll.run`] that is cancelled, it answers nil and
   --- [`Poll.CANCELLED`], and leaves the child running. A `timeout_ns`
   --- below 0 or past [`Poll.MOST_NS`] raises.
-  wait: function(Handle, timeout_ns?: integer): Result?, string
+  mut wait: function(Handle, timeout_ns?: integer): Result?, string
   --- Fairly copies streamed outputs to borrowed Writers within both required
   --- bounds. EOF requires closed pipes, including escaped writers. A previous
   --- guard cancellation may be bypassed only after its signal was taken; a
@@ -721,7 +724,7 @@ local record Handle
   --- it ends the selected read ends, and the caller still owns child cleanup.
   --- The deadline bounds pipe waits, not arbitrary code in a Writer. A zero
   --- timeout pumps once without waiting and writes at most one chunk per pipe.
-  drain: function(Handle, DrainOptions): DrainResult
+  mut drain: function(Handle, DrainOptions): DrainResult
   --- Whether the child has exited, without waiting: `finished` is false
   --- while it runs, and true with its `result` once it has exited and its
   --- group is cleared, as `wait` would answer. It services the child's
@@ -730,17 +733,17 @@ local record Handle
   --- ended as an expired `wait` ends it, which waits for it to go, and
   --- `finished` is true, its Result `timed_out`. Nil and why when
   --- settling the child fails.
-  try_wait: function(Handle): TryWait?, string
+  mut try_wait: function(Handle): TryWait?, string
   --- Sends `signal` (SIGTERM by default) to the child, or to its whole
   --- group when `process_group` is true. It does not wait. False and why when the child
   --- has been reaped already or the signal cannot be sent.
-  stop: function(Handle, signal?: integer): boolean, string
+  mut stop: function(Handle, signal?: integer): boolean, string
   --- Ends the child if it is still running, as an expired `wait` does,
   --- reaps it and closes its stdin stream, and ends its streamed outputs so
   --- their readers read what is queued and stop. Closing a settled
   --- handle only ends the streamed outputs. False and why when the
   --- child or its group cannot be ended.
-  close: function(Handle): boolean, string
+  mut close: function(Handle): boolean, string
 end
 
 --- How often a wait looks for what no descriptor tells it of: the exit
@@ -1070,7 +1073,7 @@ local services: {Kind:Service} = {
 --- a streamed one holding `_limit` unread bytes, its pending input, and
 --- its exit while it is not reaped. With `feeding`, room in that
 --- handle's stdin stream too.
-local function watching(handles: {Handle}, feeding?: Handle): {Entry}
+local function watching(handles: {Handle}, feeding?: Handle): mut {Entry}
   local entries: mut {Entry} = {}
   if feeding ~= nil then
     entries[1] = { fd = feeding._feed_fd, events = sys.POLLOUT, owner = feeding, kind = "feed" }
@@ -1388,8 +1391,8 @@ end
 --- One read or drain owns its queues even while a sink or pipe wait yields.
 local record Consumption
   pipes: {Pipe}
-  discard: boolean
-  reason?: string
+  mut discard: boolean
+  mut reason?: string
   __close: function(Consumption)
 end
 

@@ -603,7 +603,7 @@ function Vendor.run(argv: {string}, program: string): integer
     return 2
   end
 
-  local names = words
+  local names: {string} = words
   if #names == 0 then
     local found, trouble = Vendor.all_names(root)
     if found == nil then

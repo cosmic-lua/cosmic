@@ -198,7 +198,7 @@ local function reescaped(path: string, salt: integer): string
 end
 
 local function test_a_path_and_its_reescaped_spelling_reach_the_same_outcome(tmp: string)
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   local function recording(inner: Web.Handler): Web.Handler
     return function(req: Web.Request): Web.Response
       local params: mut {string} = {}

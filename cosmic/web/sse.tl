@@ -576,9 +576,9 @@ function Sub.dropped(self: Sub): integer return self.queue:dropped() end
 local record Topic
   subs: mut {Sub: boolean}
   ring: mut {integer: Entry}
-  first: integer
-  last: integer
-  evicted: integer
+  mut first: integer
+  mut last: integer
+  mut evicted: integer
 end
 
 local record State is Sse.Hub
@@ -677,7 +677,7 @@ end
 
 --- The events of the rings of `names` after the one with id `after`:
 --- nil where no ring holds it.
-local function replayed(self: State, names: {string}, after: string): {Sse.Event}?
+local function replayed(self: State, names: {string}, after: string): mut {Sse.Event}?
   local found: integer? = nil
   for _, name in ipairs(names) do
     local topic = self.topics[name]

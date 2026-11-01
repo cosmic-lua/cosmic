@@ -209,7 +209,7 @@ end
 
 local function test_an_unsafe_request_from_another_origin_is_refused_even_with_the_token()
   local client, token = session_with_token(make_app())
-  local function post(origin: string?, extra?: {string:string}): integer
+  local function post(origin: string?, extra?: mut {string:string}): integer
     local headers = extra or {}
     if origin ~= nil then headers["Origin"] = origin end
     headers["X-CSRF-Token"] = token

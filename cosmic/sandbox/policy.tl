@@ -65,17 +65,17 @@ local record rules
   --- nothing else.
   record Limits
     --- The most descriptors a process may hold open (at least 1).
-    open_files?: integer
+    mut open_files?: integer
     --- The most bytes a process may write to one file.
-    file_bytes?: integer
+    mut file_bytes?: integer
     --- The CPU seconds a process may spend (at least 1). Soft and hard
     --- limit are the same, so a process past it is ended by SIGKILL, with
     --- no SIGXCPU to catch first.
-    cpu_seconds?: integer
+    mut cpu_seconds?: integer
     --- The most processes and threads of the whole sandbox, counted by
     --- the user namespace it runs in (at least 1): a child's, with
     --- `isolate` "proc" or "file", on a Linux kernel from 5.17.
-    processes?: integer
+    mut processes?: integer
   end
 
   --- What a program is held to; every field is optional, and what a policy

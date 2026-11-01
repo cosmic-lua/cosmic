@@ -28,6 +28,9 @@ local sys = require("cosmic.sys")
 -- Stream must say `is Transform` where it is declared.
 local type raw_compress = require("cosmic.internal.compress")
 
+-- TODO: the tests that replace `read` or `close` of a Reader or `write`, `close` or `abort` of a Writer assign through
+-- these interfaces (`field_fixed`, pinned in build/ceilings.txt for stream_test, tar_test, zip_test and others), once
+-- they make a test double that implements the interface instead of patching a real one.
 local record Stream
   interface Reader
     --- The next chunk of at most `max_bytes` bytes, or nil and `""` at the

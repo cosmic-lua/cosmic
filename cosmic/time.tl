@@ -2041,6 +2041,9 @@ function Time.format_duration(d: Time.Duration): string
   return (if negative then "-" else "" end) .. table.concat(parts)
 end
 
+-- TODO: these assignments after the [`Time`] record is made are `field_fixed`, pinned in build/ceilings.txt like the
+-- other modules' (channel, json, poll, sqlite, web/*), once the module records are built whole, each with its
+-- members, where `mut` on them would let an importer swap them.
 Time.now_ns = Clock.now_ns
 Time.monotonic_ns = Clock.monotonic_ns
 Time.sleep_ns = Clock.sleep_ns

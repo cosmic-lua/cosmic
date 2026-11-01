@@ -43,7 +43,7 @@ local record Router
     --- What a route's name is prefixed with: "api:".
     name_prefix: string
     --- The names of the whole tree.
-    names: {string: Types.ReverseEntry}
+    names: mut {string: Types.ReverseEntry}
     --- The methods of the whole tree.
     verbs: mut {string:boolean}
   end

@@ -377,7 +377,7 @@ local function test_many_producers_and_consumers_lose_and_repeat_nothing()
 end
 
 local function test_one_consumer_sees_each_producers_items_in_order()
-  local got: {integer} = {}
+  local got: mut {integer} = {}
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new({ capacity = 2 })
     local last: mut {string} = {}

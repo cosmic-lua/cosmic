@@ -73,7 +73,7 @@ end
 
 --- A listener whose queue is full, so that a connect to it hangs: its
 --- port, and what holds it full. Skips where this kernel answers anyway.
-local function hung_port(): integer, {raw_socket.Socket}
+local function hung_port(): integer, mut {raw_socket.Socket}
   local listener = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
   local port = ConnectorEnds.bound_port(listener)
   local held: mut {raw_socket.Socket} = { listener }

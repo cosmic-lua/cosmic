@@ -66,11 +66,11 @@ local record Session
   --- What a session holds, as a store keeps it.
   record Data
     --- The values, by key.
-    values: {string:any}
+    mut values: mut {string:any}
     --- When the session began, in seconds since the epoch.
-    created: integer
+    mut created: integer
     --- When it ends, in seconds since the epoch.
-    expires: integer
+    mut expires: integer
     --- Set by a store that read the session under a key it is retiring: the
     --- middleware saves it again, signed by the newest.
     stale?: boolean
@@ -80,17 +80,17 @@ local record Session
   --- replacing.
   record Changes
     --- The keys written, with their values.
-    set: {string:any}
+    set: mut {string:any}
     --- The keys deleted.
     removed: mut {string}
     --- Whether everything was removed first (what `set` and `removed` hold
     --- came after).
     cleared?: boolean
     --- Whether the session is to take a new id, keeping its data.
-    regenerated?: boolean
+    mut regenerated?: boolean
     --- The user the session is bound to, for a store that can find
     --- sessions by it; nil when not bound.
-    subject?: string
+    mut subject?: string
   end
 
   --- Where a session is kept. `cookie` is the name of the session cookie

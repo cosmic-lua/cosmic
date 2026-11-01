@@ -80,11 +80,8 @@ local function test_binding_never_raises_and_answers_a_value_or_every_error(tmp:
         local name = assert(fields[i], "the loop stays inside the fields")
         local value = assert(fields[i + 1], "the loop stays inside the fields")
         q.pairs[#q.pairs + 1] = { name = name, value = value }
-        local list = q.by_name[name]
-        if list == nil then
-          list = {}
-          q.by_name[name] = list
-        end
+        if q.by_name[name] == nil then q.by_name[name] = {} end
+        local list = assert(q.by_name[name])
         list[#list + 1] = value
       end
       local ok, r = pcall(function(): Types.Parsed<{string:any}>

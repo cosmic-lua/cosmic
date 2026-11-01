@@ -61,7 +61,7 @@ local record Url
     --- Every pair, in the order sent.
     pairs: mut {Pair}
     --- Each name's values in the order sent; every name in `pairs` is a key.
-    by_name: mut {string:{string}}
+    by_name: mut {string: mut {string}}
   end
 
   --- What [`Url.decode_query`] is told; each field is optional.
@@ -230,7 +230,7 @@ function Url.decode_query(text: string, opts?: Url.QueryOptions): Url.Query?, st
     return refuse(("the query is longer than max_bytes (%d)"):format(max_bytes))
   end
   local pairs_: mut {Url.Pair} = {}
-  local by_name: mut {string:{string}} = {}
+  local by_name: mut {string: mut {string}} = {}
   local at = 1
   while at <= #text + 1 do
     local amp = text:find("&", at, true) or #text + 1

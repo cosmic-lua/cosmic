@@ -262,7 +262,7 @@ end
 --- time: the stream stays in step, so the same connector serves again.
 local function test_a_server_that_never_answers_its_connect_fails_over_to_the_next(tmp: string)
   require_native_connector()
-  local held: {function()} = {}
+  local held: mut {function()} = {}
   local seen = served(tmp, "next.example.test", 500, function(): {integer}
     return stuck_server(held)
   end)
@@ -282,7 +282,7 @@ end
 --- through the same connector is served.
 local function test_a_lookup_out_of_time_still_takes_the_connectors_reply(tmp: string)
   require_native_connector()
-  local held: {function()} = {}
+  local held: mut {function()} = {}
   local seen = served(tmp, "late.example.test", 500, function(): {integer}
     return stuck_server(held)
   end, 100)
@@ -612,7 +612,7 @@ end
 --- a first that never takes the connection leaves the second time to answer.
 local function test_the_relays_wait_leaves_the_second_server_time_to_answer(tmp: string)
   require_native_connector()
-  local held: {function()} = {}
+  local held: mut {function()} = {}
   local seen = served(tmp, "ratio.example.test", "relay", function(): {integer}
     return stuck_server(held)
   end)

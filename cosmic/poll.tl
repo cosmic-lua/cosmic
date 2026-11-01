@@ -163,7 +163,7 @@ local record Wait
   --- The notifier a wait for a notice is in the waiters of, until it ends.
   mut gate?: NotifierState
   --- Set once a poll, or a descriptor closing, has answered it.
-  hit?: boolean
+  mut hit?: boolean
   --- What the wait answers once `at` is reached: a delay's success, or
   --- a `ready`'s, which answers no descriptor ready; any other wait's
   --- TIMEOUT.
@@ -179,13 +179,13 @@ local record Watch
   --- Its place among the wait's `fds`, 0 for a wait on one descriptor.
   place: integer
   --- Its place in its descriptor's `watches`.
-  index: integer
+  mut index: integer
 end
 
 --- A descriptor the run polls, and every wait on it.
 local record Watched
   --- Its place in the run's `fds` and `events`.
-  slot: integer
+  mut slot: integer
   --- Its waits, from 1 to `count`: a wait that ends is replaced by the
   --- last, so a map keeps no hole in an array.
   watches: mut {integer: Watch}
@@ -486,7 +486,7 @@ local class State is Poll.Task
   mut cancelled: boolean
   --- How many [`Poll.shielded`] calls the task is in: while any, a
   --- cancel answers none of its waits.
-  shields: integer
+  mut shields: integer
   mut parked?: Wait
   joiners: mut {Wait}
 
@@ -568,7 +568,7 @@ end
 --- A run's state while [`Poll.run`] runs; nil otherwise.
 local record Loop
   tasks: mut {thread: State}
-  live: integer
+  mut live: integer
   mut ready: mut {Wake}
   --- What [`sys.poll`] is handed, kept as waits begin and end: each
   --- descriptor waited on, and the union of the events its waits ask,
@@ -585,10 +585,10 @@ local record Loop
   mut timer_count: integer
   --- How many of `timers` are done: each leaves only on reaching the
   --- top, or when the heap is rebuilt without them.
-  stale: integer
-  seq: integer
+  mut stale: integer
+  mut seq: integer
   --- Set while the run closes its tasks, when nothing may start or wait.
-  closing?: boolean
+  mut closing?: boolean
 end
 
 --- Takes the nearest wait from the run's timers.

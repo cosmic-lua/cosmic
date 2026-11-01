@@ -489,7 +489,7 @@ end
 
 -- Each kind of stream, freshly made, and a first chunk for it.
 local record Kind
-  stream: Compress.Stream
+  mut stream: Compress.Stream
   chunk: string
 end
 

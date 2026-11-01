@@ -292,7 +292,7 @@ local function test_replies_out_of_order_reach_the_requests_their_tags_name()
         assert(sys.write(pair.connector, string.pack(">I4I4", assert(tags[i]), assert(errnos[i]))) == 8)
       end
     end)
-    local answers: {integer: string} = {}
+    local answers: mut {integer: string} = {}
     local tasks: mut {Poll.Task} = {}
     for i = 1, 3 do
       tasks[i] = Poll.spawn(function()

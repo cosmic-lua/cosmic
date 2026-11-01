@@ -1031,7 +1031,7 @@ end
 ---     local steps = assert(Json.from_pointer(doc, "/users/0/name"))
 ---     assert(steps[1] == "users" and steps[2] == 1 and Json.get(doc, steps) == "ada")
 function Json.from_pointer(value: any, text: string): Json.Steps?, string
-  local steps: Json.Steps = {}
+  local steps: mut {string | integer} = {}
   if text == "" then return steps, "" end
   if text:sub(1, 1) ~= "/" then
     return refuse(at_pointer(text) .. ": a JSON Pointer is empty or starts with `/`")
@@ -1411,7 +1411,7 @@ end
 
 --- `steps` and one step more, a new list.
 local function extended(steps: Json.Steps, step: string | integer): Json.Steps
-  local out: Json.Steps = table.move(steps, 1, #steps, 1, {})
+  local out: mut {string | integer} = table.move(steps, 1, #steps, 1, {})
   out[#out + 1] = step
   return out
 end
@@ -2133,7 +2133,7 @@ local class TokenReader is Json.Reader
   frames: mut {Frame}
 
   function steps(self): Json.Steps
-    local steps: Json.Steps = {}
+    local steps: mut {string | integer} = {}
     for _, f in ipairs(self.frames) do
       if f.object then
         local key = f.key

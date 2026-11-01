@@ -1179,7 +1179,7 @@ local function spawn_waiters(notifier: Poll.Notifier, n: integer, order: mut {in
 end
 
 local function test_notify_one_wakes_the_longest_waiter_only()
-  local order: {integer} = {}
+  local order: mut {integer} = {}
   Poll.run(function()
     local notifier = Poll.notifier()
     local tasks = spawn_waiters(notifier, 3, order)
@@ -1197,7 +1197,7 @@ local function test_notify_one_wakes_the_longest_waiter_only()
 end
 
 local function test_notify_all_wakes_every_waiter_in_order_and_not_later_ones()
-  local order: {integer} = {}
+  local order: mut {integer} = {}
   Poll.run(function()
     local notifier = Poll.notifier()
     local tasks = spawn_waiters(notifier, 50, order)
@@ -1251,7 +1251,7 @@ local function test_a_notice_with_no_waiter_is_not_remembered()
 end
 
 local function test_a_killed_waiter_is_removed_and_the_next_one_is_woken()
-  local order: {integer} = {}
+  local order: mut {integer} = {}
   Poll.run(function()
     local notifier = Poll.notifier()
     local tasks = spawn_waiters(notifier, 3, order)
