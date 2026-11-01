@@ -5,6 +5,8 @@
 local Clock = require("cosmic.clock")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local type PolicyRules = require("build.policy_rules")
+local type plans = require("build.plans")
 local test = require("build.test")
 local test_key = require("build.test_key")
 local work = require("build.work")
@@ -388,4 +390,24 @@ local function test_coverage_is_kept_for_the_newest_ten_runs_only()
   local runs = assert(assert(Sqlite.text_rows(db, "SELECT count(*), min(ran_at_ns) FROM test_runs"))[1]):texts()
   assert(runs[1] == "10" and runs[2] == "4", "test_runs kept: " .. table.concat(runs, " "))
   assert(db:close())
+end
+
+--- A module that declares loopback addresses requires `loopback` without
+--- writing it, once where it writes it too; one that declares none, or
+--- no policy at all, requires only what it writes.
+local function test_declared_loopback_addresses_require_loopback()
+  local function requirements(network: {string}, requires: {string}, declares: boolean): string
+    local declared: PolicyRules.Declared = { line = 1, reads = {}, host = {}, env = {},
+      network = network, tool = false, lua = false, nests = false, noexec = false,
+      store = false, system = false, caches = {}, requires = requires }
+    local m: plans.Module = { path = "net_test", file = "net_test.tl", kind = "test", source = "",
+      source_hash = "", requires = {}, tests = { "test_listens" },
+      inputs = if declares then declared else nil end }
+    return table.concat(test_key.requirements(m), ",")
+  end
+  assert(requirements({ "127.0.0.1" }, {}, true) == "loopback")
+  assert(requirements({ "127.0.0.1" }, { "loopback" }, true) == "loopback")
+  assert(requirements({ "127.0.0.1" }, { "root" }, true) == "loopback,root")
+  assert(requirements({}, { "root" }, true) == "root")
+  assert(requirements({ "127.0.0.1" }, {}, false) == "")
 end

@@ -29,6 +29,9 @@
 --- - The checked leg's core is the checked build, whose instruments the
 ---   tests that require `checked` use: a held run fails them if they
 ---   skip.
+--- - Every leg's tests reach loopback sockets (`loopback`): a Linux
+---   leg's sandboxed workers each have a loopback of their own, and the
+---   macOS runner's tests have always bound 127.0.0.1.
 --- - No macOS run is held (it has no sandbox), so a name it lacks is
 ---   skipped there rather than failed: the names its list holds say what
 ---   it gives.
@@ -37,6 +40,10 @@
 -- list of its own: it runs `cosmic test` on a portable artifact, which
 -- the native suite on the same leg is not, so a leg's one list cannot
 -- promise it (cosmic_ci.orchestration's `suite_run` takes `extra`).
+-- TODO: fail the macOS leg for skipping what it promises, `loopback`
+-- above all, once its runs are held or its summary is checked against
+-- its promises: as it is, a probe there that turns absent skips every
+-- loopback test and the leg stays green.
 -- TODO: promise `landlock:N` for the N the runners' kernels give (ubuntu-24.04's
 -- and its arm image's), once a run's summary says the ABI they hold:
 -- only the bare `landlock` (version 1 or later) is known to hold.

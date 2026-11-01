@@ -484,6 +484,10 @@ local table_of: {string:Entry} = {
     end },
   loopback = { platform_has = function(_: host_requires.Host): boolean return true end,
     probe = function(_: string, host: host_requires.Host): Found
+      -- TODO: answer from a loopback bind in the sandbox probe's child
+      -- (build/test_sandbox_probe.tl): a filter of the host (seccomp, an
+      -- LSM) follows a worker into its own namespace, so `worker` can be
+      -- present where its tests are refused.
       if host.context.sandboxed_workers == true then return present("worker") end
       local ok, why = (host.context.loopback or loopback_available)()
       if ok then return present("tcp+udp") end

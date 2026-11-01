@@ -1710,9 +1710,8 @@ local UNMET_RANK <const>: {string:integer} = { refused = 3, na = 2, skipped = 1 
 --- ([`host_names.check`]), sorted. A module that declares loopback
 --- addresses also requires `loopback`: the addresses already say its
 --- tests reach loopback, so the name is derived here rather than written
---- beside them in every module. Where a module writes `loopback` itself
---- it is not added twice.
-local function requirements_of(m: Module): {string}
+--- beside them in every module.
+function test_key.requirements(m: Module): {string}
   local names: mut {string} = {}
   local declared = m.inputs
   if declared == nil then return names end
@@ -1750,7 +1749,7 @@ function test_key.ask_host(rec: Recording, modules: {Module},
                            sandboxed_workers: boolean): host_requires.Host?
   local host: host_requires.Host? = nil
   for _, m in ipairs(modules) do
-    local names = requirements_of(m)
+    local names = test_key.requirements(m)
     if #names > 0 then
       if host == nil then
         -- COSMIC_TEST_PLATFORM=other, for a test of this runner alone, stands in
