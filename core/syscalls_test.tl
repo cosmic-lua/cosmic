@@ -460,7 +460,10 @@ local function test_a_failed_execve_keeps_sigpipe_ignored(tmp: string)
   assert(process.ignore_sigpipe())
   failed_with(sys.ENOENT, sys.execve(tmp .. "/missing", { "missing" }, {}))
   local fd = sys.open("/proc/self/status", sys.O_RDONLY)
-  if fd == nil then return end -- no /proc to ask
+  if fd == nil then
+    Test.skip("this host has no /proc/self/status to ask")
+    return
+  end
   local status = assert(sys.read(fd, 1 << 16))
   sys.close(fd)
   local ignored = assert(status:match("SigIgn:%s*(%x+)"), status)
@@ -490,7 +493,10 @@ local function test_a_read_of_a_huge_count_answers_what_there_is(tmp: string)
   sys.close(ends.writer)
 
   local proc = sys.open("/proc/self/status", sys.O_RDONLY)
-  if proc == nil then return end -- no /proc to read
+  if proc == nil then
+    Test.skip("this host has no /proc/self/status to read")
+    return
+  end
   local st = assert(sys.fstat(proc))
   local text = assert(sys.read(proc, 1 << 50))
   sys.close(proc)
@@ -679,7 +685,10 @@ end
 local function test_a_child_starts_with_this_process_s_signal_mask(tmp: string)
   local probe = probe_in(tmp)
   local status = sys.open("/proc/self/status", sys.O_RDONLY)
-  if status == nil then return end -- no /proc to ask
+  if status == nil then
+    Test.skip("this host has no /proc/self/status to ask")
+    return
+  end
   local own = assert(sys.read(status, 65536))
   sys.close(status)
   local output = create(tmp .. "/status")
@@ -722,7 +731,7 @@ local function test_cpu_features_are_named_as_proc_cpuinfo_names_them()
     assert(i == 1 or (before ~= nil and before < name), "not in byte order, or twice: " .. name)
   end
   local cpuinfo = read_file("/proc/cpuinfo")
-  if cpuinfo == "" then return end
+  if cpuinfo == "" then Test.skip("this host has no /proc/cpuinfo to list flags from") end
   local listed: mut {string:boolean} = {}
   for line in cpuinfo:gmatch("[^\n]+") do
     local flags = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
@@ -877,7 +886,7 @@ local function test_getgid_and_getgroups_answer_the_groups_the_process_runs_with
     assert(math.type(group) == "integer" and group >= 0, tostring(group))
   end
   local status = read_file("/proc/self/status")
-  if status == "" then return end
+  if status == "" then Test.skip("this host has no /proc/self/status to list groups from") end
   assert(status:match("\nGid:%s+(%d+)") == tostring(gid), status)
   local listed: mut {string} = {}
   for group in (status:match("\nGroups:([^\n]*)") or ""):gmatch("%d+") do
@@ -1393,6 +1402,7 @@ local function test_a_tree_digest_of_what_it_is_refused_is_not_special(tmp: stri
   if opened ~= nil then
     sys.close(opened)
     assert(sys.chmod(tree .. "/closed", 0x1ed))
+    Test.skip("a mode 0 file opens here: the runner can read what it has no permission for")
     return
   end
   local refused = assert(sys.tree_digest(tree, true))
@@ -1647,6 +1657,7 @@ end
 local function test_the_errnos_only_macos_has_are_named_there()
   local uname = assert(sys.uname())
   if uname.sysname ~= "Darwin" then
+    Test.skip("only macOS has these errnos")
     return
   end
   local names: mut {string:string} = {}

@@ -31,6 +31,15 @@ local function program_of(relaunch: Proc.Relaunch): string
 end
 
 --- The descriptor a relaunch hands its child in `slot`.
+--- This start's relaunch, skipping the test where it has none (a host
+--- program, which no start of the core relaunches).
+local function relaunch_or_skip(): Proc.Relaunch
+  local relaunch, _ = Proc.relaunch()
+  if relaunch == nil then Test.skip("this program has no relaunch to try") end
+  local found = assert(relaunch, "Test.skip ends the test where there is no relaunch")
+  return found
+end
+
 local function fd_of(relaunch: Proc.Relaunch, slot: integer): integer
   local fd = assert(relaunch.fds[slot], "a relaunch hands a descriptor in slot " .. tostring(slot))
   return fd
@@ -56,8 +65,7 @@ end
 --- is refused (core/syscalls_fs.c's `artifact_through_descriptor`,
 --- whose walk refusing descriptor links finds it by its own name).
 local function test_a_tool_opens_the_program_by_its_own_name()
-  local relaunch, _ = Proc.relaunch()
-  if relaunch == nil then return end
+  relaunch_or_skip()
   local program = assert(Proc.executable())
   local fd, trouble = sys.open(program, sys.O_RDONLY)
   assert(fd ~= nil, "a tool could not open " .. program .. ": " .. tostring(trouble))
@@ -72,8 +80,8 @@ end
 --- so does a relaunch, which starts it again there
 --- (build/test_sandbox.tl's `program_name`).
 local function test_a_tool_has_the_tree_s_own_program_in_the_tree()
-  local relaunch, _ = Proc.relaunch()
-  if relaunch == nil or sys.getcwd() ~= "/tree" then return end
+  local relaunch = relaunch_or_skip()
+  if sys.getcwd() ~= "/tree" then Test.skip("this worker's root is not the sandbox's /tree") end
   local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer
   local artifact = sys.stat("/proc/self/fd/" .. tostring(fd_of(relaunch, slot)))
   local own = sys.stat("/tree/o/bin/cosmic")
@@ -125,8 +133,7 @@ said("utimensat", touched, touch_errno)
 --- the link's own, which a change leaves the file's alone; on macOS,
 --- whose /dev/fd/<n> is no link, it is refused.
 local function test_a_change_through_the_artifact_descriptor_changes_nothing(tmp: string)
-  local relaunch, _ = Proc.relaunch()
-  if relaunch == nil then return end
+  local relaunch = relaunch_or_skip()
   local copy = tmp .. "/artifact"
   assert(Fs.write(copy, (assert(Fs.read((assert(Proc.executable())))))))
   assert(sys.chmod(copy, 493))
@@ -160,8 +167,7 @@ end
 --- The walk (core/syscalls_fs.c's `walk_without_descriptor_links`)
 --- follows each.
 local function test_the_artifact_reached_by_names_is_not_refused(tmp: string)
-  local relaunch, _ = Proc.relaunch()
-  if relaunch == nil then return end
+  local relaunch = relaunch_or_skip()
   local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer
   local core_slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_CORE_FD"])) as integer
   local copy = tmp .. "/artifact"
@@ -280,11 +286,12 @@ end
 --- child calls through it; both ends are met, and the artifact -- a copy
 --- the test made -- keeps its bytes and mode.
 local function swapped_link_changes_nothing(tmp: string, policy?: Sandbox.Policy)
-  local relaunch, _ = Proc.relaunch()
-  if relaunch == nil then return end
+  local relaunch = relaunch_or_skip()
   local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer
   local through = "/proc/self/fd/" .. slot
-  if sys.stat(through) == nil then return end -- the race is Linux's
+  if sys.stat(through) == nil then
+    Test.skip("the race is Linux's: this host has no /proc/self/fd")
+  end
   local core_slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_CORE_FD"])) as integer
   local copy = tmp .. "/artifact"
   assert(Fs.write(copy, (assert(Fs.read((assert(Proc.executable())))))))
@@ -339,8 +346,7 @@ end
 --- makes part by part (`walk_without_descriptor_links`) rather than a
 --- name resolved again after the call. "fattr" lets the chmod through.
 local function test_a_link_swapped_after_the_check_changes_nothing_under_promises(tmp: string)
-  local relaunch, _ = Proc.relaunch()
-  if relaunch == nil then return end
+  local relaunch = relaunch_or_skip()
   -- A root runner's policy child is a user of its own, which owns none of
   -- these: the test's directory is opened to it. The core, in a cache
   -- of the host's, is not this test's to chmod.

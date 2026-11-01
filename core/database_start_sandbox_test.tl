@@ -16,7 +16,7 @@ Test.policy{
   requires = { "sandbox" },
 }
 
-local core_path = database_start_fixture.core_path
+local core_or_skip = database_start_fixture.core_or_skip
 local run = database_start_fixture.run
 local fields = database_start_fixture.fields
 local info_database = database_start_fixture.info_database
@@ -25,8 +25,7 @@ local info_database = database_start_fixture.info_database
 --- grants the core of: it runs on the same database, which the start
 --- grants it to read.
 local function test_a_sandboxed_child_stays_on_the_database(tmp: string)
-  local core = core_path()
-  if core == nil then return end
+  local core = core_or_skip()
   local path = info_database(tmp)
   local r = run({ core, "--database", path, "sandboxed" })
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
