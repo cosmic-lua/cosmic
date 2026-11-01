@@ -609,8 +609,10 @@ end
 --- the checker's: the declaration the `is` names, in this module or another and with type arguments or without, whose
 --- rows are read in turn. A member's `type` is the checker's where the declaration holds a field of its name, which
 --- tells a field whose type is an alias of a function from one that is not; its row's type stays as written, for the
---- `detail`. A member inherited through a generic interface has the types the interface wrote, its type parameters not
---- yet replaced by the arguments.
+--- `detail`. A member inherited through an interface listed with type arguments takes the checker's type with the
+--- arguments put in ([`Declarations.inherited`]), for its kind and its `detail`, as the rows have the type parameter.
+--- Every kind read from the checker's fields is as of the last check that parsed, which can lag the rows by one text for
+--- a module open and unsaved.
 local function rows_of(request: Request, decl: Types.Decl, value: boolean, depth?: integer): {Member}?
   if (depth or 0) > 16 then return nil end
   local checker = request.checker
@@ -637,6 +639,18 @@ local function rows_of(request: Request, decl: Types.Decl, value: boolean, depth
   if owner.kind == "interface" and not value then
     -- The rows list the interfaces as written and the declaration as resolved: they are the same when they are as many.
     if #owner.supers ~= #body.supers then return nil end
+    local generic = false
+    for _, listed in ipairs(body.supers) do
+      if listed.tag ~= "named" then return nil end
+      if #listed.args > 0 then generic = true end
+    end
+    local put: mut {string: Types.Type} = {}
+    if generic then
+      local program = request.program
+      for _, field in ipairs(Declarations.inherited(program.store, program.judge, decl)) do
+        put[field.name] = field.type
+      end
+    end
     for _, listed in ipairs(body.supers) do
       if listed.tag ~= "named" then return nil end
       local inherited = rows_of(request, listed.decl, false, (depth or 0) + 1)
@@ -644,6 +658,13 @@ local function rows_of(request: Request, decl: Types.Decl, value: boolean, depth
       for _, member in ipairs(inherited) do
         if seen[member.name] ~= true then
           seen[member.name] = true
+          local substituted = put[member.name]
+          local row = member.row
+          if substituted ~= nil and row ~= nil and row.kind == "field" then
+            local copy: source.MemberRow = { name = row.name, kind = row.kind, scope = row.scope,
+              type = Types.display(substituted), doc = row.doc }
+            member = { name = member.name, type = substituted, method = false, row = copy }
+          end
           out[#out + 1] = member
         end
       end

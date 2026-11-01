@@ -682,6 +682,8 @@ local function test_an_interface_listing_one_of_another_module_or_with_type_argu
     "  interface Counted is base.Holder<integer>, base.Named",
     "    count: integer",
     "  end",
+    "  interface Called is base.Holder<function(): integer>",
+    "  end",
     "end",
     "return derived",
     "",
@@ -692,9 +694,13 @@ local function test_an_interface_listing_one_of_another_module_or_with_type_argu
     ask(2, root, "main.tl", 3, 12),
     change(root, "main.tl", head .. "local _ = c.\n"),
     ask(3, root, "main.tl", 3, 12),
+    change(root, "main.tl", head .. "local f: derived.Called = nil\nlocal _ = f.\n"),
+    ask(4, root, "main.tl", 4, 12),
   })
   assert(has(items(ran, 2), { "name", "age", "held" }) == "name,age", ran.err)
   assert(has(items(ran, 3), { "name", "count", "held", "age" }) == "name,count,held", ran.err)
+  -- The argument is put in the member's detail and kind.
+  assert(assert(items(ran, 3)["held"]).detail == "integer" and assert(items(ran, 3)["held"]).kind == FIELD, ran.err)
   assert(ran.tally.member_declarations == 0, tostring(ran.tally.member_declarations) .. ran.err)
 end
 
