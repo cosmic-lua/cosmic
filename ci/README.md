@@ -25,9 +25,9 @@ place, with cwd `ci`: `cosmic-driver cosmic_ci/driver.tl ...`.
 bin/zig; it is refused alongside `COSMIC_BOOTSTRAP_VERIFY`, which asks for the
 pin's own.
 
-`bin/cosmic-bootstrap` runs the pinned release with `COSMIC_GRAMMAR=new`, and
+The pinned release reads the new grammar by default, and
 the CI driver is put on the job's PATH by a two-line wrapper that runs the entry
-point (below), which sets it, so the release reads `ci/`, the scripts `bin/cosmic-bootstrap` runs and the
+point (below), so the release reads `ci/`, the scripts `bin/cosmic-bootstrap` runs and the
 ones `build/zig.tl` runs on that release's binary (`build/patch.tl`,
 `build/zig_fetch.tl`) in the new checker's grammar, held to every rule and to
 no ceiling. `islands.txt` lists nothing: the pinned release reads a file it

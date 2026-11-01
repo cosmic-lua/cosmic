@@ -251,8 +251,8 @@ local function run(argv: {string}): integer
     return bare.refused
   end
   -- A checker that is none is refused, as `docs` and `uses` refuse it.
-  local chosen, mode_trouble = GrammarMode.mode()
-  if chosen == nil then
+  local mode_trouble = GrammarMode.refusal()
+  if mode_trouble ~= nil then
     complain(mode_trouble)
     return bare.failed
   end

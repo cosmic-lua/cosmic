@@ -1,5 +1,5 @@
 --- `cosmic test --check-types` end to end for the facts of the new checker: a project's source is read, checked and written
---- by the new checker (`COSMIC_GRAMMAR=new`), each read of a place a test narrowed is wrapped in a call of `__fact`
+--- by the new checker, each read of a place a test narrowed is wrapped in a call of `__fact`
 --- ([`lang.fact_wraps`]), and the tool's worker runs the tests with the hook that checks them. A narrowing that is false at
 --- run time is reported at its read in the summary and in the working database's `type_violations`, as kind "fact"; a
 --- correct program reports nothing. The narrowing is made false by a chunk of Lua text the program `load`s and passes a
@@ -105,7 +105,6 @@ local function invoke(root: string, tmp: string, words: {string}): Child.Result,
   local env = this_program.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["TMPDIR"] = tmp
-  env["COSMIC_GRAMMAR"] = "new"
   local started = this_program.program(words, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ns = Clock.seconds(120),

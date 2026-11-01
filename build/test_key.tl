@@ -160,12 +160,10 @@ local record test_key
     root: string
     own_tree: boolean
     --- The binary's runtime identity, and the compiler's, which the tree is
-    --- compiled with and by ([`test_key.compiler_identity`]), under the
-    --- checker the run uses (`grammar`), with run-time checks or without.
+    --- compiled with and by ([`test_key.compiler_identity`]), with run-time checks or without.
     identity: string
     tool: string
     compiled_by: string
-    grammar: GrammarMode.Mode
     checks: boolean
   end
 
@@ -1879,9 +1877,9 @@ function test_key.gather(rec: Recording, from: Gather): string?
   sweep_stores(rec)
   -- The compiler a checked run's modules were compiled by
   -- ([`importer.compile`]'s `checks`).
-  local compiled_with = GrammarMode.tool(from.tool, from.grammar)
+  local compiled_with = GrammarMode.tool(from.tool)
   if from.checks then
-    compiled_with = importer.checked_tool(compiled_with, from.grammar == "new")
+    compiled_with = importer.checked_tool(compiled_with, true)
   end
   rec.compiler = compiled_with .. " " .. from.compiled_by
   local split = declared_key.host_split(digests_of(rec))

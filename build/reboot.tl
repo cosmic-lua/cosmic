@@ -97,7 +97,7 @@ local function unsettled(seen?: reboot.Seen): boolean
   local carried = meta_of("compiler", seen)
   return written_by == nil or written_by ~= meta_of("writer", seen) or
     compiled_by == nil or carried == nil or
-    compiled_by ~= require("build.pipeline").coded(GrammarMode.tool(carried, "new"))
+    compiled_by ~= require("build.pipeline").coded(GrammarMode.tool(carried))
 end
 
 --- The command that renews a tool that carries every core, or, with
@@ -339,8 +339,8 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   -- when it re-enters the command.
   -- The tool carries Lua the new checker wrote, in this process ([`importer.compile_tree`]), and says so in the tool
   -- string it records.
-  local grammar, grammar_trouble = GrammarMode.mode()
-  if grammar == nil then
+  local grammar_trouble = GrammarMode.refusal()
+  if grammar_trouble ~= nil then
     return closing(handle, grammar_trouble), false
   end
   local result, compile_trouble = importer.compile_tree(handle,
@@ -353,7 +353,7 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
           reboot.carries_tree_code(handle)
         if learned.code then tool = recorded.compiler end
       end
-      return GrammarMode.tool(tool, grammar), ""
+      return GrammarMode.tool(tool), ""
     end, true, shared_compiles.for_build())
   if result == nil then
     -- The compiler of a tool settling is the tree's: it cannot have moved.

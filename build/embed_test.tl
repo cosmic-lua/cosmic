@@ -39,7 +39,7 @@ local function test_cosmic_s_own_tree_is_refused(tmp: string)
   assert(Fs.mkdirs(tmp .. "/core"))
   assert(Fs.mkdirs(tmp .. "/build"))
   assert(Fs.write(tmp .. "/build/importer.tl", "return {}\n"))
-  local names, trouble = embed.tree(tmp, nil, nil, nil, nil, (assert(tree.built_from(tmp))))
+  local names, trouble = embed.tree(tmp, nil, nil, nil, (assert(tree.built_from(tmp))))
   assert(names == nil)
   assert(trouble:find("bin/zig build boot", 1, true) ~= nil, trouble)
 end

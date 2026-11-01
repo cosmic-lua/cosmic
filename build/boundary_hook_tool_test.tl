@@ -1,5 +1,5 @@
 --- `cosmic test --check-types` end to end for the declared parameters of a function: a project's source is read, checked
---- and written by the new checker (`COSMIC_GRAMMAR=new`), each function with typed parameters begins with a check of them
+--- and written by the new checker, each function with typed parameters begins with a check of them
 --- ([`lang.boundary_checks`]), and the tool's worker runs the tests with the hook that records a value of another kind
 --- ([`build.test_worker`]'s `install_checks`). A violation is reported at the line of the caller in the summary and in the working
 --- database's `type_violations`, as kind "parameter", and fails nothing, since the project declares it outside cosmic/ (a parameter declared there
@@ -83,7 +83,6 @@ local function invoke(root: string, tmp: string, words: {string}): Child.Result,
   local env = this_program.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["TMPDIR"] = tmp
-  env["COSMIC_GRAMMAR"] = "new"
   local started = this_program.program(words, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ns = Clock.seconds(120),

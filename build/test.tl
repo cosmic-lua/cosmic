@@ -1346,9 +1346,6 @@ local record Run
   -- The binary's identities ([`read_identities`]).
   mut tool?: string
   mut compiled_by?: string
-  --- The checker the run compiles with (COSMIC_GRAMMAR), which is part of every compile's key
-  --- ([`GrammarMode.tool`]) and so of every verdict's.
-  mut grammar?: GrammarMode.Mode
   mut identity?: string
   mut runtime?: string
   mut harness?: test_key.Harness
@@ -1561,13 +1558,12 @@ local function read_identities(ctx: Run): integer?
   -- projection carries the ones of whichever binary wrote it.
   local names = test_key.compiler_identity(ctx.own_tree == true)
   ctx.tool, ctx.compiled_by = names.tool, names.compiled_by
-  local grammar, grammar_trouble = GrammarMode.mode()
-  if grammar == nil then
+  local grammar_trouble = GrammarMode.refusal()
+  if grammar_trouble ~= nil then
     local _, _ = work.close(handle)
     log:complain(grammar_trouble)
     return 1
   end
-  ctx.grammar = grammar
   local runtime, runtime_trouble = test_key.runtime_of()
   if runtime == nil then
     local _, _ = work.close(handle)
@@ -1695,7 +1691,7 @@ local function build_tree(ctx: Run): integer?
   local handle, staged, started = assert(ctx.handle), assert(ctx.staged), assert(ctx.started)
   local outcome: importer.Outcome = { refused = false }
   local result, compile_trouble = importer.compile(handle,
-    GrammarMode.tool(assert(ctx.tool), assert(ctx.grammar)), false, shared_compiles.for_build(), ctx.checks, nil, outcome)
+    GrammarMode.tool(assert(ctx.tool)), false, shared_compiles.for_build(), ctx.checks, nil, outcome)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
@@ -1965,7 +1961,7 @@ local function gather_key_inputs(ctx: Run): integer?
     modules = assert(ctx.result).modules, selected = assert(ctx.selected_modules),
     database = assert(ctx.database), root = assert(ctx.root), own_tree = ctx.own_tree == true,
     identity = assert(ctx.identity), tool = assert(ctx.tool),
-    compiled_by = assert(ctx.compiled_by), grammar = assert(ctx.grammar),
+    compiled_by = assert(ctx.compiled_by),
     checks = ctx.checks == true,
   })
   if trouble ~= nil then
