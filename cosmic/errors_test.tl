@@ -154,6 +154,7 @@ local function test_trace_starts_at_its_caller()
     tostring(second))
   local skipped = here(2):match("stack traceback:\n\t([^\n]*)")
   assert(skipped ~= nil and skipped:find("'here'", 1, true) == nil, tostring(skipped))
+  assert(Errors.trace("where it went wrong"):find("where it went wrong\nstack traceback:", 1, true) == 1)
 end
 
 --- A message Lua wrote shares ordinary words with a row about something
