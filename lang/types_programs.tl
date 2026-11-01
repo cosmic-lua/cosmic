@@ -253,9 +253,11 @@ a_function = function(c: Cursor, depth: integer): Types.Type
       local alt: Types.Alt = { items = {} }
       if alts > 1 then
         -- Lists that several are told apart by a position that is `true` in one and `false` in the other.
-        alt.items[1] = store:atom(if k % 2 == 1 then "true" else "false" end)
+        local first = store:atom(if k % 2 == 1 then "true" else "false" end)
+        alt.items[1] = first
         if alts == 3 then
-          alt.items[2] = store:atom(if k == 3 then "false" else "true" end)
+          local second = store:atom(if k == 3 then "false" else "true" end)
+          alt.items[#alt.items + 1] = second
         end
       end
       if alts == 1 and #params > 0 and pick(c, 5) == 0 then
@@ -266,9 +268,12 @@ a_function = function(c: Cursor, depth: integer): Types.Type
           if depth + 1 < MAX_DEPTH and pick(c, 6) == 0 then
             -- A union of function types, which the grammar writes with parentheses around each.
             local first = a_function(c, depth + 1)
-            alt.items[#alt.items + 1] = store:union({ first, a_function(c, depth + 1) })
+            local second = a_function(c, depth + 1)
+            local both = store:union({ first, second })
+            alt.items[#alt.items + 1] = both
           else
-            alt.items[#alt.items + 1] = build(c, depth + 1)
+            local item = build(c, depth + 1)
+            alt.items[#alt.items + 1] = item
           end
         end
         if alts == 1 and pick(c, 2) == 0 then
