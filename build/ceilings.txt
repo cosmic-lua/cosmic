@@ -109,7 +109,7 @@ build/lsp/session_fixture.tl interface_disagrees 1
 
 cosmic/child.tl interface_disagrees 1
 
-cosmic/http/init.tl interface_disagrees 5
+cosmic/http/init.tl interface_disagrees 3
 
 cosmic/http/multipart.tl interface_disagrees 1
 
@@ -3999,10 +3999,6 @@ cosmic/http/server_test.tl close_not_closable 38
 
 cosmic/http/server_tool_test.tl close_not_closable 1
 
-cosmic/http_example.tl close_not_closable 1
-
-cosmic/http_test.tl close_not_closable 1
-
 cosmic/http_timeout_test.tl close_not_closable 3
 
 cosmic/http_tool_test.tl close_not_closable 4
@@ -5701,8 +5697,6 @@ lang/scopes.tl literal_missing 1
 lang/types.tl literal_missing 2
 
 # a field a literal names that its record lacks: the fields an interface gives
-cosmic/http/init.tl literal_unknown 3
-
 cosmic/http/wire.tl literal_unknown 3
 
 cosmic/net.tl literal_unknown 1
@@ -6821,8 +6815,6 @@ cosmic/removed_example.tl setmetatable_call 1
 # classes (a change of its own, library by library): the new checker refuses `<close>` on a record and a call of
 # `setmetatable`.
 cosmic/http/server_example.tl close_not_closable 1
-
-cosmic/http_example.tl close_not_closable 1
 
 cosmic/net_example.tl close_not_closable 10
 
