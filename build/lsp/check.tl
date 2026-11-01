@@ -44,6 +44,7 @@ local Pipeline = require("build.pipeline")
 local ShapeSpecs = require("build.syntax_shape_specs")
 local Sqlite = require("cosmic.sqlite")
 local Template = require("cosmic.template")
+local TreeProgram = require("build.tree_program")
 local analysis_schema = require("build.analysis_schema")
 local graph = require("build.lsp.graph")
 local held = require("build.lsp.held")
@@ -347,9 +348,11 @@ end
 local function serve_of(checker: Checker): function(module: string): Driver.Source?
   local open = check.open_files(checker)
   local carried = Pipeline.carried()
+  -- A project file named for a module of the language is never what a `require` of it reads, as in a build ([`Driver.reserved`]).
+  local library = TreeProgram.library_modules(options_of(checker).globals)
   return function(module: string): Driver.Source?
     local listed = checker.source.modules[module]
-    if listed == nil then
+    if listed == nil or library[module] == true then
       local standard = carried(module)
       if standard == nil then checker.served[module] = "" end
       return standard

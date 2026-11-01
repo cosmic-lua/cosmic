@@ -7,8 +7,7 @@
 -- `math.abs`, `math.max`) is declared by overloads. `pcall`, `xpcall` and the `coroutine` library are typed over
 -- `Coroutine<Y, R, S>`, which the language has no other form for.
 --
--- TODO: declare [`Fs.Scratch`], [`Signal.Guard`] and [`Child.Handle`] as classes in cosmic/fs.tl, cosmic/signal.tl and
--- cosmic/child.tl (each declares `__close` as a record field and builds its metatable by hand today), which `<close>` refuses
+-- TODO: declare [`Fs.Scratch`] and [`Child.Handle`] as classes in cosmic/fs.tl and cosmic/child.tl (each declares `__close` as a record field and builds its metatable by hand today), which `<close>` refuses
 -- (it takes a class or userdata record that declares `__close` as a method), so that a `<close>` local can hold one, and the TODOs in build/patch.tl, build/zig.tl, build/zig_fetch.tl and ci/ that wait on
 -- ci/cosmic-driver.pin naming a release that declares them cannot be undone until a release does.
 do
@@ -37,8 +36,8 @@ do
     "a" "l" "L" "*a" "*l" "*L" "n" "*n"
   end
 
-  -- TODO: provide the typed `coroutine` library in the runtime, once the runtime cut keeps only the globals a `.d.tl`
-  -- declares (doc/plans/strict-teal.md, "the runtime cut"): these declarations describe a body that is given a handle
+  -- TODO: provide the typed `coroutine` library in the runtime, once the runtime keeps only the globals a `.d.tl`
+  -- declares: these declarations describe a body that is given a handle
   -- and a `Coroutine` that is not a thread, and the runtime has Lua's own `coroutine`, which [`cosmic.poll`] calls.
   global record coroutine
     close: function<Y, R, S>(Coroutine<Y, R, S>): (true) | (false, any)
@@ -483,7 +482,7 @@ do
     -- the string Lua answers when the handler itself raises.
     --
     -- TODO: accept a function that answers `T...` as an argument of `pcall` and `xpcall`, once the grammar spells a list
-    -- with a tail among alternatives (`plist` in doc/plans/new-checker-grammar.md, "types"): `(true, R...) | (false, any)`
+    -- with a tail among alternatives (`plist`): `(true, R...) | (false, any)`
     -- cannot be written until then, and a call that passes one is `overload_none`.
     pcall: function((function())): (true) | (false, any)
     pcall: function<R1>((function(): R1)): (true, R1) | (false, any)

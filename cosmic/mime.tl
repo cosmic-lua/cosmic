@@ -73,28 +73,73 @@ function Mime.scripted(content_type: string): boolean
     kind == "application/xhtml+xml"
 end
 
---- The most bytes of a file that are not worth gzipping.
-local GZIP_MIN <const> = 1024
+--- The most bytes of a file that are not worth compressing.
+local MIN_BYTES <const> = 1024
+
+--- The level the zstd of a file is written at. The projection writer keeps
+--- each file's compressed pair by its bytes and the rules
+--- (`compressed` in [`build.work`]), so a file is compressed once per content
+--- and a warm write pays nothing for it: on 10.6 MB of text in 693 files
+--- (loaded machine) a write took 22.3 s cold and 0.5 s warm at level 12, and
+--- 51.4 s cold and 0.6 s warm at level 19. Level 19 costs 2.3 times level 12
+--- once, for the 10 points of size the earlier measurement on 5.9 MB of
+--- source gave it (24% under gzip against 14%). Changing the level moves the
+--- rules' digest and so compresses every file once more.
+local ZSTD_LEVEL <const> = 19
+
+--- Whether a file called `path` with contents `data` is worth sending
+--- compressed: the type is text or another format not compressed already,
+--- and `data` is over 1 KiB.
+local function compressible(path: string, data: string): boolean
+  local ext = extension(path)
+  if ext == nil or #data <= MIN_BYTES then return false end
+  local kind = TYPES[ext]
+  return kind ~= nil and (kind:sub(1, 5) == "text/" or COMPRESSIBLE[ext] == true)
+end
+
+--- `packed` when it is at least 10% smaller than `data`, else nil.
+local function worth(packed: string?, data: string): string?
+  if packed == nil or #packed * 10 > #data * 9 then return nil end
+  return packed
+end
 
 --- The gzip of `data`, the contents of a file called `path`, when that is
 --- worth sending in its place: the type is text or another format not
 --- compressed already, `data` is over 1 KiB and the gzip is at least 10%
 --- smaller. Level 9 and a header with no time make the bytes a function of
 --- `data` alone, so a reproducible build stays so. Nil where gzip is not
---- worth it.
+--- worth it, and nil with the encoder's trouble where it failed, which a
+--- caller that keeps the answer must not keep.
 --- @param path string A file name or path
 --- @param data string The file's bytes
 --- @return string | nil The gzip, or nil
-function Mime.gzip(path: string, data: string): string?
-  local ext = extension(path)
-  if ext == nil or #data <= GZIP_MIN then return nil end
-  local kind = TYPES[ext]
-  if kind == nil or not (kind:sub(1, 5) == "text/" or COMPRESSIBLE[ext] == true) then
-    return nil
-  end
-  local packed, _ = Compress.deflate("gzip", data, 9)
-  if packed == nil or #packed * 10 > #data * 9 then return nil end
-  return packed
+--- @return string The encoder's failure, empty where none
+function Mime.gzip(path: string, data: string): string?, string
+  if not compressible(path, data) then return nil, "" end
+  local packed, trouble = Compress.deflate("gzip", data, 9)
+  if packed == nil then return nil, trouble end
+  return worth(packed, data), ""
+end
+
+--- The zstd of `data`, the contents of a file called `path`, when that is
+--- worth sending in its place: the same rule as [`Mime.gzip`] (a type not
+--- compressed already, over 1 KiB, at least 10% smaller). One frame at a
+--- fixed level and no dictionary, so for the same zstd build the bytes are
+--- those of `data` alone and a reproducible build stays so. Nil where zstd
+--- is not worth it, and nil with the encoder's trouble where it failed.
+--- @param path string A file name or path
+--- @param data string The file's bytes
+--- @return string | nil The zstd frame, or nil
+--- @return string The encoder's failure, empty where none
+function Mime.zstd(path: string, data: string): string?, string
+  if not compressible(path, data) then return nil, "" end
+  local encoder, trouble = Compress.zstd_encoder(ZSTD_LEVEL)
+  if encoder == nil then return nil, trouble end
+  local head, head_trouble = encoder:update(data)
+  if head == nil then return nil, head_trouble end
+  local tail, tail_trouble = encoder:finish()
+  if tail == nil then return nil, tail_trouble end
+  return worth(head .. tail, data), ""
 end
 
 return Mime

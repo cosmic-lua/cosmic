@@ -205,8 +205,8 @@ local function test_a_path_and_its_reescaped_spelling_reach_the_same_outcome(tmp
       for name, value in pairs(req.params) do params[#params + 1] = name .. "=" .. value end
       table.sort(params)
       local route = req.route
-      seen[#seen + 1] = ("%s|%s|%s"):format(req.path, route and route.pattern or "-",
-        table.concat(params, "&"))
+      local line = ("%s|%s|%s"):format(req.path, route and route.pattern or "-", table.concat(params, "&"))
+      seen[#seen + 1] = line
       return inner(req)
     end
   end

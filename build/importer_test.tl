@@ -393,6 +393,79 @@ local function test_implementation_edit_invalidates_a_declared_dependent()
     "the implementation edit left its declared dependent cached")
 end
 
+--- A project file named for a module of the language (`math`, `string`, `table`, ...) is refused, as a `.tl` and as a `.d.tl`,
+--- or as a package: the binary answers `require("math")` with its own module, so the checker would type the call against
+--- the project and the run would use another. A name that only contains one, a type of the library (`FILE`) and a file
+--- below a directory (`lib/math.tl`, whose tail `math` stands for no module) are names like any other.
+local function test_a_project_file_named_for_a_module_of_the_language_is_refused()
+  local refused: {{string}} = {
+    { "math.d.tl", "math" }, { "math.tl", "math" }, { "string.tl", "string" }, { "table.d.tl", "table" },
+    { "utf8.tl", "utf8" }, { "coroutine.tl", "coroutine" }, { "table/init.tl", "table" }, { "debug.tl", "debug" },
+    { "os.d.tl", "os" }, { "package.tl", "package" }, { "io.d.tl", "io" }, { "_G.tl", "_G" }, { "_G.d.tl", "_G" },
+  }
+  for _, pair in ipairs(refused) do
+    local file, name = assert(pair[1]), assert(pair[2])
+    local root, write_trouble = write_fixture("language-module", {
+      [file] = "local record M\n  abs: function(integer): string\nend\nreturn M\n",
+      ["main.tl"] = "local n: integer = 1\nreturn n\n",
+    })
+    assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+    local result, trouble = compile_fixture(root)
+    local want = file .. ": its module is named for `" .. name .. "`, which the binary answers at run time with " ..
+      "the language's own module, so a project file of that name would be checked as one thing and run as another: " ..
+      "rename it (for example to `" .. name .. "_lib`)"
+    assert(result == nil and trouble == want, file .. ": " .. tostring(trouble))
+  end
+  -- `metatable` is a type the prelude declares, no module the binary answers; `math_test` is a test of `math`.
+  local allowed = {
+    "FILE.tl", "mathlib.tl", "lib/maths.tl", "string_lib.tl", "print_x.tl", "lib/math.tl", "util/string.d.tl", "metatable.tl",
+    "metatable.d.tl", "math_test.tl",
+  }
+  for _, file in ipairs(allowed) do
+    local text = "local n: integer = 1\nreturn n\n"
+    if file:find("%.d%.tl$") ~= nil then
+      text = "local record R\n  n: integer\nend\nreturn R\n"
+    elseif file:find("_test%.tl$") ~= nil then
+      text = "local function test_one()\n  assert(true)\nend\n"
+    end
+    local root, write_trouble = write_fixture("language-module-near", { [file] = text })
+    assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+    local result, trouble = compile_fixture(root)
+    assert(result ~= nil, file .. " was refused: " .. tostring(trouble))
+  end
+  -- The tail of such a file's name does not stand for the language's module: the call is none of the project's.
+  local root, write_trouble = write_fixture("language-module-tail", {
+    ["lib/math.d.tl"] = "local record M\n  abs: function(integer): string\nend\nreturn M\n",
+    ["main.tl"] = 'local s: string = require("math").abs(-1)\nreturn s\n',
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil and trouble:find("the project has no module `math`", 1, true) ~= nil, tostring(trouble))
+  -- A language module is a global, which the refusal says.
+  assert(trouble:find("`math` is a global the language declares, available without `require`", 1, true) ~= nil,
+    tostring(trouble))
+  -- `_G` is a module of the language too, and a type of the prelude or the library (`metatable`, `FILE`) is none: it keeps the
+  -- generic fix.
+  local globals: {string: boolean} = { _G = true, metatable = false, FILE = false, Yielder = false }
+  for name, hinted in pairs(globals) do
+    local named, named_trouble = write_fixture("language-module-hint", {
+      ["main.tl"] = 'local s = require("' .. name .. '")\nreturn s\n',
+    })
+    assert(named ~= nil, "could not write fixture: " .. tostring(named_trouble))
+    local _, said = compile_fixture(named)
+    local global_hint = "`" .. name .. "` is a global the language declares, available without `require`"
+    assert((said:find(global_hint, 1, true) ~= nil) == hinted, name .. ": " .. tostring(said))
+    assert((said:find("require a module of the project: `bin/cosmic docs` lists them", 1, true) ~= nil) == not hinted,
+      name .. ": " .. tostring(said))
+  end
+  local other, other_trouble = write_fixture("language-module-unknown", {
+    ["main.tl"] = 'local s = require("nothing_here")\nreturn s\n',
+  })
+  assert(other ~= nil, "could not write fixture: " .. tostring(other_trouble))
+  local _, unknown = compile_fixture(other)
+  assert(unknown:find("require a module of the project: `bin/cosmic docs` lists them", 1, true) ~= nil, tostring(unknown))
+end
+
 --- A module's own compile is keyed by its file as well as its import
 --- path: `x.tl` moved to `x/init.tl`, the same module of the same source,
 --- is compiled again (build.syntax_contracts' exemptions are by file), while a
@@ -1253,6 +1326,90 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
   -- with its own, older code, and its rows are not this binary's.
   assert(derived_with("tool-two", true, "an older analyzer") == 0,
     "rows another analyzer derived were kept")
+end
+
+--- A settling tool parses with the tree's code but carries a compiler
+--- identity its writer took by that writer's definition, which may not
+--- be the one the tool it writes carries. [`importer.settled_analyzer`]
+--- names the rows it derived as that tool will name its own, so that
+--- tool does not parse every source again; rows another analyzer
+--- derived keep their name.
+local function test_a_settled_analyzer_names_its_rows_as_the_written_tool_will()
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-settled-"))
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "lang",
+      "patch/lua", "vendor/lua", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
+  assert(Fs.write(root .. "/cosmic/thing.tl",
+    "--- A thing.\nlocal record Thing\nend\nreturn Thing\n"))
+  local function analyzer_of(db: Sqlite.Handle): string
+    local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'analyzer'"))
+    return nth(rows, 1):text(1)
+  end
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, { own = true }))
+  assert(importer.derive(handle))
+  local derived = analyzer_of(handle.db)
+  local compiler = "the compiler identity the written tool carries"
+  local code = assert(importer.tree_code(handle))
+  local written = Pipeline.coded(importer.analyzer_identity({ compiler = compiler,
+    requires = code.requires, source = code.source }))
+  assert(written ~= derived, "the written tool's analyzer is named as the running one's")
+  assert(importer.settled_analyzer(handle, compiler))
+  assert(analyzer_of(handle.db) == written, "the derived rows were not named as the written tool names its own")
+  -- Rows another analyzer derived are not the running tool's to rename.
+  assert(Sqlite.run(handle.db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', 'an older analyzer')"))
+  assert(importer.settled_analyzer(handle, compiler))
+  assert(analyzer_of(handle.db) == "an older analyzer", "rows another analyzer derived were renamed")
+  work.close(handle)
+end
+
+--- Where a source declares its types and members (`places`) is a parse's row like the rest: written for the source's
+--- hash, gone with the hash when the file is edited, and forgotten when the analyzer that derived it is not this one.
+local function test_places_follow_the_source_they_were_read_from()
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-places-"))
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "lang",
+      "patch/lua", "vendor/lua", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
+  assert(Fs.write(root .. "/cosmic/thing.tl", "local record Thing\n  n: integer\nend\nreturn Thing\n"))
+  --- The places of `cosmic.thing` after a derive of the staged tree, as `symbol line:column`, one a line, by the analyzer
+  --- the database is told derived its rows.
+  local function derived(analyzer?: string, plant?: boolean): string
+    local handle = assert(work.open(root))
+    assert(work.stage(handle, { own = true }))
+    assert(Sqlite.run(handle.db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('boot_hash', 'tool-one')"))
+    if analyzer ~= nil then
+      assert(Sqlite.run(handle.db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', ?1)",
+        { { text = analyzer } }))
+    end
+    if plant == true then
+      -- Under the real source's hash, so only the analyzer sweep can remove it.
+      assert(Sqlite.run(handle.db, "INSERT OR REPLACE INTO places (source_hash, ordinal, symbol, kind, line, column, " ..
+          "length) SELECT source_hash, 99, 'Planted', 'type', 1, 1, 1 FROM inputs WHERE path = 'cosmic.thing'"))
+    end
+    assert(importer.derive(handle))
+    local rows = assert(Sqlite.text_rows(handle.db, "SELECT symbol || ' ' || line || ':' || column FROM places " ..
+        "WHERE source_hash IN (SELECT source_hash FROM inputs WHERE path = 'cosmic.thing') ORDER BY ordinal"))
+    local every = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM places"))
+    local out: mut {string} = {}
+    for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
+    work.close(handle)
+    return table.concat(out, ";") .. "|" .. nth(every, 1):text(1)
+  end
+  assert(derived() == "Thing 1:14;Thing.n 2:3|2", derived())
+  -- Edited: the rows of the text before it are pruned, the rows of the text now are written.
+  assert(Fs.write(root .. "/cosmic/thing.tl", "\nlocal record Thing\n  n: integer\n  m: integer\nend\nreturn Thing\n"))
+  local edited = derived()
+  assert(edited == "Thing 2:14;Thing.n 3:3;Thing.m 4:3|3", edited)
+  -- The same analyzer keeps a row planted under the source's hash; another analyzer's rows are forgotten, and the source
+  -- is read again.
+  local planted = derived(nil, true)
+  assert(planted == "Thing 2:14;Thing.n 3:3;Thing.m 4:3;Planted 1:1|4", planted)
+  local again = derived("an older analyzer", true)
+  assert(again == edited, again)
 end
 
 --- `ci/` is the pinned CI driver's own project, walked and built by

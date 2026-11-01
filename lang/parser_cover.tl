@@ -1,6 +1,5 @@
 --- Whether a parse is well formed, whatever the source and the errors found
---- in it: the check that the syntax tree is a tree over the tokens
---- ([`doc/plans/new-checker-grammar.md`], "the syntax tree"), as
+--- in it: the check that the syntax tree is a tree over the tokens, as
 --- [`lang.lexer_cover`] checks the tokens tile the source.
 ---
 --- Each node names tokens that exist: `first` to `last`, or an empty range

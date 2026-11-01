@@ -174,7 +174,7 @@ local function test_every_table_a_source_fills_gets_its_rows(tmp: string)
     -- Each table the source fills is held, so that no table is empty where the source has rows for it.
     local filled: {string} = { "parsed", "tests", "test_inputs" }
     if case[3] == "m" then
-      filled = { "parsed", "requires", "catalog", "docs", "refs", "bound", "examples", "links", "stubs" }
+      filled = { "parsed", "requires", "catalog", "docs", "refs", "bound", "examples", "links", "stubs", "places" }
     end
     for _, name in ipairs(filled) do
       local held = assert(new[name], file .. ": no table " .. name)
@@ -207,4 +207,20 @@ local function test_a_derived_source_keeps_its_symbols_at_the_lines_of_the_file_
   local staged = assert(Derivation.rows_of(parsed(source, "gen.tl"), source, "gen.tl", false))
   assert(#staged.links == 1 and staged.links[1].link.target == "open")
   assert(nth(staged.analysis.docs, 1).line == 3)
+end
+
+local function test_the_types_and_members_a_source_declares_have_their_places_and_a_derived_source_has_none(tmp: string)
+  local source = "local record Things\n  size: integer\nend\nfunction Things.open(): Things return { size = 0 } end\nreturn Things\n"
+  local handle = assert(work.open(tmp))
+  local ok, why = Derivation.insert(handle.db, "h1", "m.tl", source, parsed(source, "m.tl"), false)
+  assert(ok, why)
+  assert(table.concat(rows(handle.db,
+    "SELECT ordinal || '|' || symbol || '|' || kind || '|' || line || '|' || column || '|' || length FROM places " ..
+      "ORDER BY ordinal"), " ") == "1|Things|type|1|14|6 2|Things.size|field|2|3|4 3|Things.open|function|4|17|4")
+  -- A source generated from another file is at that file's lines, which the places do not know.
+  ok, why = Derivation.insert(handle.db, "h2", "gen.tl", source, parsed(source, "gen.tl"), true)
+  assert(ok, why)
+  assert(#rows(handle.db, "SELECT * FROM places WHERE source_hash = 'h2'") == 0)
+  assert(#rows(handle.db, "SELECT * FROM parsed WHERE source_hash = 'h2'") == 1)
+  assert(work.close(handle))
 end

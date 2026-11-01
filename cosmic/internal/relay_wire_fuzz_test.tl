@@ -540,7 +540,10 @@ local function test_a_refusal_reply_is_one_status_line_of_visible_text(tmp: stri
         return false, ("%q gave the status line of %q"):format(reason, reply)
       end
       local rest = reply:sub(#phrase + #tostring(status) + 13)
-      if rest ~= (if status == 405 then "Allow: CONNECT\r\n" else "" end) .. "Connection: close\r\nContent-Length: 0\r\n\r\n" then
+      -- The headers a status adds (`connect_refusal`): the method a 405 allows, and the credentials a 407 asks for.
+      local added = if status == 405 then "Allow: CONNECT\r\n"
+        elseif status == 407 then "Proxy-Authenticate: Basic realm=\"cosmic sandbox\"\r\n" else "" end
+      if rest ~= added .. "Connection: close\r\nContent-Length: 0\r\n\r\n" then
         return false, ("%q gave more than a status line: %q"):format(reason, reply)
       end
       Fuzz.label(if reason:find("[^\32-\126]") ~= nil then "controls" else "visible" end)

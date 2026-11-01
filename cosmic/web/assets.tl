@@ -46,6 +46,9 @@ local record Assets
     --- The gzip of `data` when the source holds one, else nil. Its entity
     --- tag is `etag` with "-gzip" before the closing quote.
     gzip?: string
+    --- The zstd of `data` when the source holds one, else nil. Its entity
+    --- tag is `etag` with "-zstd" before the closing quote.
+    zstd?: string
     --- The file's modification time in seconds, for Last-Modified: 0 for
     --- an asset that has none (an embedded one: a reproducible build
     --- carries no time).
@@ -66,6 +69,14 @@ local record Assets
     --- edited): a caller then trusts nothing it computed from an earlier
     --- answer.
     dynamic: function(self: Source): boolean
+  end
+
+  --- What [`Assets.memory`] takes.
+  record MemoryOptions
+    --- Hold a file worth it gzipped too ([`Mime.gzip`]).
+    gzip?: boolean
+    --- Hold a file worth it zstd-compressed too ([`Mime.zstd`]).
+    zstd?: boolean
   end
 
   --- What [`Assets.default`] takes.
@@ -116,11 +127,12 @@ local record Known
   sha256?: string
   type?: string
   gzip?: string
+  zstd?: string
   mtime?: integer
 end
 
 --- An asset of `data` at `path`, its hash and entity tag computed unless
---- `known` holds the hash, with its type, gzip and mtime as `known` has
+--- `known` holds the hash, with its type, gzip, zstd and mtime as `known` has
 --- them (the type by `path` otherwise).
 local function make(path: string, data: string, known: Known): Assets.Asset
   local sha256 = known.sha256 or Hash.hex_sha256(data)
@@ -128,7 +140,8 @@ local function make(path: string, data: string, known: Known): Assets.Asset
   return {
     path = path, data = data, size = #data, sha256 = sha256,
     etag = '"' .. sha256:sub(1, 32) .. '"',
-    type = known.type or Mime.of(path), gzip = known.gzip, mtime = known.mtime or 0,
+    type = known.type or Mime.of(path), gzip = known.gzip,
+    zstd = known.zstd, mtime = known.mtime or 0,
     integrity = function(_self: Assets.Asset, algorithm?: Assets.Algorithm): string
       local which: Assets.Algorithm = algorithm or "sha384"
       local value = kept[which]
@@ -147,20 +160,32 @@ local function miss(path: any, why: string): nil, string
 end
 
 --- A source of the given files, `path` to bytes: for tests and for files
---- a program generates. A path that is no valid relative path raises. With
---- `opts.gzip`, a file worth it is held gzipped too ([`Mime.gzip`]).
+--- a program generates. A path that is no valid relative path raises, as does a
+--- compression that fails. With `opts.gzip`, a file worth it is held gzipped
+--- too ([`Mime.gzip`]), and with `opts.zstd` zstd-compressed too
+--- ([`Mime.zstd`]).
 --- @param files {string:string} The files by path
---- @param opts {string:boolean} | nil `gzip` stores a gzip variant
+--- @param opts MemoryOptions | nil `gzip` and `zstd` store those variants
 --- @return Assets.Source The source
-function Assets.memory(files: {string:string}, opts?: {string:boolean}): Assets.Source
+function Assets.memory(files: {string:string}, opts?: Assets.MemoryOptions): Assets.Source
   local held: mut {string:Assets.Asset} = {}
   local names: mut {string} = {}
   for path, data in pairs(files) do
     local why = path_refusal(path)
     if why ~= nil then error(("web: assets: memory: %q: %s"):format(tostring(path), why), 2) end
     local gzip: string? = nil
-    if opts ~= nil and opts.gzip then gzip = Mime.gzip(path, data) end
-    held[path] = make(path, data, { gzip = gzip })
+    if opts ~= nil and opts.gzip == true then
+      local packed, trouble = Mime.gzip(path, data)
+      if trouble ~= "" then error(("web: assets: memory: %q: %s"):format(path, trouble), 2) end
+      gzip = packed
+    end
+    local zstd: string? = nil
+    if opts ~= nil and opts.zstd == true then
+      local packed, trouble = Mime.zstd(path, data)
+      if trouble ~= "" then error(("web: assets: memory: %q: %s"):format(path, trouble), 2) end
+      zstd = packed
+    end
+    held[path] = make(path, data, { gzip = gzip, zstd = zstd })
     names[#names + 1] = path
   end
   table.sort(names)
@@ -190,7 +215,7 @@ local record Seen
 end
 
 -- TODO: serve a file past 1 MiB as a Reader with `length` set and a
--- modification-time tag, as doc/plans/web/assets.md section 3.3 has it, once
+-- modification-time tag, once
 -- [`Source.get`] can answer a file without its bytes in memory; every file is
 -- read whole today, so development holds the largest asset in memory.
 --- A source reading the files under `root` from disk, hidden files (a
@@ -272,14 +297,18 @@ function Assets.embedded(): Assets.Source
       local asset = held[path]
       if asset ~= nil then return asset, "" end
       local rows = payload_query(
-        "SELECT data, sha256, type, gzip, gzip IS NOT NULL FROM payload WHERE path = ?",
+        "SELECT data, sha256, type, gzip, gzip IS NOT NULL, zstd, zstd IS NOT NULL " ..
+          "FROM payload WHERE path = ?",
         { { text = path } })
       if rows == nil then return miss(path, "not held") end
       local row = rows[1]
       if row == nil then return miss(path, "not held") end
       local packed: string? = nil
       if row:text(5) == "1" then packed = row:text(4) end
-      asset = make(path, row:text(1), { sha256 = row:text(2), type = row:text(3), gzip = packed })
+      local squeezed: string? = nil
+      if row:text(7) == "1" then squeezed = row:text(6) end
+      asset = make(path, row:text(1),
+        { sha256 = row:text(2), type = row:text(3), gzip = packed, zstd = squeezed })
       held[path] = asset
       return asset, ""
     end,

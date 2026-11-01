@@ -1,5 +1,4 @@
---- The lexer of the new checker's grammar ([`doc/plans/new-checker-grammar.md`],
---- "the lexical grammar"): Lua 5.5's tokens with the grammar's changes.
+--- The lexer of the new checker's grammar: Lua 5.5's tokens with the grammar's changes.
 ---
 --- `lex` reads a whole source and answers its tokens and its errors. It
 --- never raises and does not stop at a problem: an unterminated string or
@@ -724,9 +723,10 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
       else
         local ce = (find(source, "[\r\n]", pos + 2) or len + 1) - 1
         local comments = pending or {}
-        comments[#comments + 1] = {
+        local comment: Lexer.Comment = {
           text = sub(source, pos, ce), offset = pos, length = ce - pos + 1, y = line, x = x,
         }
+        comments[#comments + 1] = comment
         pending = comments
         pos = ce + 1
       end

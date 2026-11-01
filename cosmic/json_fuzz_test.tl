@@ -895,8 +895,12 @@ local function recipe_value(r: Recipe, depth: integer, parent?: {any: any}): any
   end
   if op == 9 then return Json.null end
   if op == 10 then
-    local t = Json.array()
-    for i = 1, next_byte(r) % 4 do t[i] = recipe_value(r, depth + 1, t) end
+    local t: mut {Json.Value} = {}
+    Json.array(t)
+    for _ = 1, next_byte(r) % 4 do
+      local element = recipe_value(r, depth + 1, t)
+      t[#t + 1] = element
+    end
     return t
   end
   if op == 11 then

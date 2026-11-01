@@ -25,6 +25,7 @@
 local build_paths = require("build.paths")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
@@ -142,7 +143,7 @@ function reboot.auto_boot(environment?: {string:string}): boolean
   if environment ~= nil then
     value = environment["COSMIC_AUTO_BOOT"]
   else
-    value = sys.getenv("COSMIC_AUTO_BOOT")
+    value = Env.read("COSMIC_AUTO_BOOT")
   end
   return value ~= "0"
 end
@@ -395,6 +396,16 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   local database, read_trouble = Fs.read(carried_path)
   if database == nil then
     return closing(handle, read_trouble), false
+  end
+  -- Once its database is written, the tool written here carries the
+  -- tree's compiler identity, which a settling tool's parse is named by
+  -- too when it carries the tree's code.
+  local learned_compiler = learned.compiler
+  if learned.code and learned_compiler ~= nil then
+    local named, named_trouble = importer.settled_analyzer(handle, learned_compiler)
+    if not named then
+      return closing(handle, named_trouble), false
+    end
   end
   local closed, close_trouble = work.close(handle)
   if not closed then

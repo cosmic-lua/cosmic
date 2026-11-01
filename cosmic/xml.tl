@@ -25,8 +25,9 @@
 --- UTF-8, whatever encoding the document declares (UTF-8, UTF-16,
 --- ISO-8859-1 or US-ASCII). A name is answered as written: `p:x` stays
 --- `p:x` unless the parser was asked for namespaces, when an element's
---- or attribute's name in one is `{uri}local`, Clark's notation, and a
---- prefix with no declaration is refused.
+--- or attribute's name in one is `{uri}local`, Clark's notation, or for
+--- local names, when it is `x`; either way a prefix with no declaration
+--- is refused.
 ---
 --- What is refused, naming `line N, column M` (both from 1; a column
 --- counts characters): text that is not well-formed XML, a run of text
@@ -50,6 +51,8 @@
 local type raw_xml = require("cosmic.internal.xml")
 
 local raw = require("cosmic.internal.xml")
+
+local Stream = require("cosmic.stream")
 
 local record Xml
   --- What an event is:
@@ -85,6 +88,56 @@ local record Xml
     --- The longest run of text a parser holds, in bytes: 64 MiB when
     --- absent. A longer one is refused. Under 1 raises.
     max_text?: integer
+    --- Answer a name in a namespace by its local part alone: `x:id` and
+    --- `{urn:x}id` are both `id`. Namespaces are read as with
+    --- `namespaces`, so an undeclared prefix is still refused. Where two
+    --- attributes of an element share a local name, the later stands.
+    local_names?: boolean
+  end
+
+  --- An element read whole: its name and attributes as a `start` event
+  --- answers them, and what it holds, in document order: each run of
+  --- text as a string, each child element as an Element. Comments and
+  --- instructions are left out.
+  record Element
+    --- The element's name.
+    name: string
+    --- Each attribute's value by its name.
+    attributes: {string: string}
+    --- The text runs (strings) and child elements, in document order.
+    content: mut {string | Element}
+  end
+
+  --- What writes a document a batch of events at a time to a
+  --- [`Stream.Writer`], as [`Xml.write`] writes it whole: what a document
+  --- too large to hold whole is written through. A start tag is held until
+  --- the event after it says whether it closes at once (`<name/>`), so it
+  --- may wait for the next batch.
+  interface DocumentWriter
+    --- Writes `events`, the next of the document's in order, and hands
+    --- what they complete to the target. false and why, naming the event,
+    --- when they cannot belong to a document, or the target refuses; the
+    --- writer is finished then, and answers the same afterward.
+    write: function(DocumentWriter, events: {Event}): boolean, string
+    --- The document is done: writes what is held and closes the target.
+    --- false and why when it is not a whole document (an element left
+    --- open, or no root), or a write failed: the target is aborted then.
+    --- Safe to call more than once: once the document is closed, `close`
+    --- answers true and `abort` leaves it as it is.
+    close: function(DocumentWriter): boolean, string
+    --- Abandons the document and aborts the target.
+    abort: function(DocumentWriter): boolean, string
+  end
+
+  --- The elements at one path of a document, each read whole as its
+  --- `end` comes, from events fed a chunk at a time: what a document too
+  --- large to hold whole is read through, an element at a time. One reads
+  --- one document: it keeps the elements still open between calls, so
+  --- after a parser fails part way, a new document takes a new one.
+  interface Subtrees
+    --- The elements at the path that `events` closes, in document order,
+    --- possibly none. Events must come in document order, every one.
+    take: function(Subtrees, events: {Event}): {Element}
   end
 end
 
@@ -92,7 +145,123 @@ end
 --- out. Raises where [`Xml.Options`] says.
 function Xml.parser(opts?: Xml.Options): Xml.Parser?, string
   if opts == nil then return raw.parser() end
-  return raw.parser(opts.namespaces, opts.eager, opts.max_text)
+  return raw.parser(opts.namespaces, opts.eager, opts.max_text, opts.local_names)
+end
+
+--- Whether the open elements `names` stand at `path`'s segments, `*`
+--- standing for any one name.
+local function at_path(names: {string}, path: {string}): boolean
+  if #names ~= #path then return false end
+  for i, segment in ipairs(path) do
+    if segment ~= "*" and segment ~= names[i] then return false end
+  end
+  return true
+end
+
+local class PathSubtrees is Xml.Subtrees
+  path: {string}
+  --- The names of the open elements, outermost first.
+  names: mut {string}
+  --- The elements being built, outermost first: empty outside one at
+  --- the path.
+  building: mut {Xml.Element}
+
+  function take(self, events: {Xml.Event}): {Xml.Element}
+    local out: mut {Xml.Element} = {}
+    for _, e in ipairs(events) do
+      local building = self.building
+      if e.kind == "start" then
+        local name = e.name or ""
+        self.names[#self.names + 1] = name
+        if #building > 0 or at_path(self.names, self.path) then
+          local element: Xml.Element = { name = name, attributes = e.attributes or {}, content = {} }
+          local parent = building[#building]
+          if parent ~= nil then
+            parent.content[#parent.content + 1] = element
+          end
+          building[#building + 1] = element
+        end
+      elseif e.kind == "end" then
+        local element = building[#building]
+        if element ~= nil then
+          building[#building] = nil
+          if #building == 0 then out[#out + 1] = element end
+        end
+        self.names[#self.names] = nil
+      elseif e.kind == "text" then
+        local parent = building[#building]
+        if parent ~= nil then
+          parent.content[#parent.content + 1] = e.text or ""
+        end
+      end
+    end
+    return out
+  end
+end
+
+--- What reads the elements at `path`, a `/`-separated list of names
+--- from the root's (`feed/entry`), `*` standing for any one; each root
+--- element when `path` is nil or "". An element is read whole once its
+--- `end` comes, and the ones inside it with it, never answered apart.
+function Xml.subtrees(path?: string): Xml.Subtrees
+  local segments: mut {string} = {}
+  for segment in (path or ""):gmatch("[^/]+") do segments[#segments + 1] = segment end
+  if #segments == 0 then segments[1] = "*" end
+  local made: PathSubtrees = { path = segments, names = {}, building = {} }
+  return made
+end
+
+--- The root element of `text`, read whole; nil and why when it does not
+--- read.
+function Xml.tree(text: string, opts?: Xml.Options): Xml.Element?, string
+  local events, trouble = Xml.events(text, opts)
+  if events == nil then return nil, trouble end
+  local root = Xml.subtrees():take(events)[1]
+  if root == nil then return nil, "xml: no root element" end
+  return root, ""
+end
+
+--- The child elements of `element` named `name`, or every one when
+--- `name` is nil, in document order.
+function Xml.children(element: Xml.Element, name?: string): {Xml.Element}
+  local out: mut {Xml.Element} = {}
+  for _, item in ipairs(element.content) do
+    if item is string then
+      -- text, not an element
+    elseif name == nil or item.name == name then
+      out[#out + 1] = item
+    end
+  end
+  return out
+end
+
+--- The first child element of `element` named `name`; nil when it has
+--- none.
+function Xml.child(element: Xml.Element, name: string): Xml.Element?
+  for _, item in ipairs(element.content) do
+    if item is string then
+      -- text, not an element
+    elseif item.name == name then
+      return item
+    end
+  end
+  return nil
+end
+
+--- The text `element` holds, its children's included, in document order.
+function Xml.text(element: Xml.Element): string
+  local out: mut {string} = {}
+  local function walk(e: Xml.Element)
+    for _, item in ipairs(e.content) do
+      if item is string then
+        out[#out + 1] = item
+      else
+        walk(item)
+      end
+    end
+  end
+  walk(element)
+  return table.concat(out)
 end
 
 --- Every event in `text`, read whole, as one parser's `feed` and `finish`
@@ -138,89 +307,289 @@ local function escape_attribute(s: string): string
     ["\t"] = "&#9;", ["\n"] = "&#10;", ["\r"] = "&#13;" }))
 end
 
+--- The namespace the `xml` prefix is bound to, which no document declares.
+local XML_NAMESPACE <const> = "http://www.w3.org/XML/1998/namespace"
+
+--- The namespace of the `xmlns` attributes themselves, which no name may be in.
+local XMLNS_NAMESPACE <const> = "http://www.w3.org/2000/xmlns/"
+
+--- The prefixes a writer has bound: one map from namespace to prefix for each open
+--- element, outermost first, and the prefixes the events declare for themselves.
+local record Scopes
+  bound: mut {mut {string: string}}
+  declared: mut {string: boolean}
+  mut next: integer
+end
+
+--- The prefix `uri` is bound to where `scopes` stand, binding a new one in the
+--- innermost scope when none is, which `declare` is told of; nil and why when
+--- `uri` may not be one.
+local function prefix_for(scopes: Scopes, uri: string, declare: function(prefix: string, uri: string)):
+    string?, string
+  if uri == XML_NAMESPACE then return "xml", "" end
+  if uri == "" or uri == XMLNS_NAMESPACE or not carried(uri) then
+    return nil, "no namespace a name may be in: " .. string.format("%q", uri)
+  end
+  for i = #scopes.bound, 1, -1 do
+    local found = assert(scopes.bound[i])[uri]
+    if found ~= nil then return found, "" end
+  end
+  local prefix: string
+  repeat
+    scopes.next = scopes.next + 1
+    prefix = "ns" .. tostring(scopes.next)
+  until scopes.declared[prefix] == nil
+  assert(scopes.bound[#scopes.bound])[uri] = prefix
+  declare(prefix, uri)
+  return prefix, ""
+end
+
+--- `name` as it is written where `scopes` stand: as it is, or, in Clark's
+--- notation, its local part under the prefix of its namespace. Nil and why when it
+--- is no name.
+local function written_name(scopes: Scopes, name: string, declare: function(prefix: string, uri: string)):
+    string?, string
+  local uri, local_part = name:match("^{([^}]*)}(.*)$")
+  if uri == nil or local_part == nil then
+    if not is_name(name) then return nil, "not an XML name: " .. string.format("%q", name) end
+    return name, ""
+  end
+  if not is_name(local_part) or local_part:find(":", 1, true) ~= nil then
+    return nil, "not an XML name: " .. string.format("%q", name)
+  end
+  local prefix, why = prefix_for(scopes, uri, declare)
+  if prefix == nil then return nil, why end
+  return prefix .. ":" .. local_part, ""
+end
+
+local class EventWriter is Xml.DocumentWriter
+  target: Stream.Writer
+  --- What the events so far have written, not yet handed to `target`.
+  mut out: mut {string}
+  --- The open elements' names as the events give them, and as they are written.
+  open: mut {string}
+  written: mut {string}
+  scopes: Scopes
+  --- The prefixes this writer has bound, which no later event may name.
+  generated: mut {string: boolean}
+  mut roots: integer
+  --- How many events came before the batch being written.
+  mut count: integer
+  --- The start tag written but for its end, and its element's name as the
+  --- events give it: `>` or `/>` waits on the event after it.
+  mut pending?: string
+  mut pending_name?: string
+  --- Why the writer is finished; "" while it is not.
+  mut failed: string
+  --- The document was written whole and the target closed.
+  mut closed: boolean
+
+  function write(self, events: {Xml.Event}): boolean, string
+    if self.failed ~= "" then return false, self.failed end
+    local why = self:take(events)
+    if why == "" then
+      local text = table.concat(self.out)
+      self.out = {}
+      if text == "" then return true, "" end
+      local ok, trouble = self.target:write(text)
+      if ok then return true, "" end
+      why = "xml: " .. trouble
+    end
+    self.failed = why
+    return false, why
+  end
+
+  --- Writes `events` into `out`: "" when they all belong, else why.
+  function take(self, events: {Xml.Event}): string
+    local scopes = self.scopes
+    -- A prefix the events name themselves, declared or in a plain name, is never
+    -- bound, and one this writer has bound where the events stand is never
+    -- named, so no name changes namespace.
+    for index, e in ipairs(events) do
+      local names: mut {string} = {}
+      if e.kind == "start" then names[1] = e.name or "" end
+      for attribute in pairs(e.attributes or {}) do names[#names + 1] = attribute end
+      for _, name in ipairs(names) do
+        local used = name:match("^([^{:][^:]*):")
+        local declared = name:match("^xmlns:(.+)$")
+        for _, prefix in ipairs({ used or "", declared or "" }) do
+          if prefix ~= "" then
+            if self:in_scope(prefix) then
+              return "xml: event " .. tostring(self.count + index) .. ": the prefix " .. prefix ..
+                " is bound by the writer already"
+            end
+            scopes.declared[prefix] = true
+          end
+        end
+      end
+    end
+    for index, e in ipairs(events) do
+      local function refuse(why: string): string
+        return "xml: event " .. tostring(self.count + index) .. ": " .. why
+      end
+      local name = e.name or ""
+      local text = e.text or ""
+      local pending = self.pending
+      if pending ~= nil then
+        self.pending = nil
+        if e.kind == "end" and name == self.pending_name then
+          self.out[#self.out + 1] = pending .. "/>"
+        else
+          self.out[#self.out + 1] = pending .. ">"
+          pending = nil
+        end
+      end
+      if e.kind == "start" then
+        if #self.open == 0 then
+          self.roots = self.roots + 1
+          if self.roots > 1 then return refuse("a second root element") end
+        end
+        scopes.bound[#scopes.bound + 1] = {}
+        local values: mut {string: string} = {}
+        local function declare(prefix: string, uri: string)
+          values["xmlns:" .. prefix] = uri
+          self.generated[prefix] = true
+        end
+        local element, why = written_name(scopes, name, declare)
+        if element == nil then return refuse(why) end
+        local attributes = e.attributes or {}
+        local names: mut {string} = {}
+        for attribute in pairs(attributes) do names[#names + 1] = attribute end
+        table.sort(names)
+        for _, attribute in ipairs(names) do
+          local value = assert(attributes[attribute])
+          local as_written, awhy = written_name(scopes, attribute, declare)
+          if as_written == nil then return refuse(awhy) end
+          if not carried(value) then
+            return refuse("the value of " .. attribute .. " holds what XML cannot")
+          end
+          if values[as_written] ~= nil then
+            return refuse("two attributes written as " .. as_written)
+          end
+          values[as_written] = value
+        end
+        local piece: mut {string} = { "<", element }
+        local order: mut {string} = {}
+        for attribute in pairs(values) do order[#order + 1] = attribute end
+        table.sort(order)
+        for _, attribute in ipairs(order) do
+          piece[#piece + 1] = " " .. attribute .. '="' .. escape_attribute(assert(values[attribute])) .. '"'
+        end
+        self.pending = table.concat(piece)
+        self.pending_name = name
+        self.open[#self.open + 1] = name
+        self.written[#self.written + 1] = element
+      elseif e.kind == "end" then
+        local innermost = self.open[#self.open]
+        if innermost == nil then return refuse("an end with no element open") end
+        if innermost ~= name then
+          return refuse("</" .. name .. "> closes <" .. innermost .. ">")
+        end
+        local element = assert(self.written[#self.written])
+        self.open[#self.open] = nil
+        self.written[#self.written] = nil
+        scopes.bound[#scopes.bound] = nil
+        -- An element closed at once was written whole, `<name/>`, above.
+        if pending == nil then self.out[#self.out + 1] = "</" .. element .. ">" end
+      elseif e.kind == "text" then
+        if #self.open == 0 then return refuse("text outside the root element") end
+        if not carried(text) then return refuse("text holds what XML cannot") end
+        local escaped = escape_text(text)
+        self.out[#self.out + 1] = escaped
+      elseif e.kind == "comment" then
+        if not carried(text) or text:find("--", 1, true) ~= nil or text:sub(-1) == "-" then
+          return refuse("a comment cannot hold this text")
+        end
+        self.out[#self.out + 1] = "<!--" .. text .. "-->"
+      else
+        if not is_name(name) or name:lower() == "xml" then
+          return refuse("not an instruction's target: " .. string.format("%q", name))
+        end
+        if not carried(text) or text:find("?>", 1, true) ~= nil then
+          return refuse("an instruction cannot hold this text")
+        end
+        self.out[#self.out + 1] = "<?" .. name .. (if text == "" then "" else " " .. text end) .. "?>"
+      end
+    end
+    self.count = self.count + #events
+    return ""
+  end
+
+  --- Whether this writer bound `prefix` in a scope still open.
+  function in_scope(self, prefix: string): boolean
+    if self.generated[prefix] ~= true then return false end
+    for _, bound in ipairs(self.scopes.bound) do
+      for _, p in pairs(bound) do
+        if p == prefix then return true end
+      end
+    end
+    return false
+  end
+
+  function close(self): boolean, string
+    if self.closed then return true, "" end
+    if self.failed == "" then
+      local unclosed = self.open[#self.open]
+      if unclosed ~= nil then
+        self.failed = "xml: <" .. unclosed .. "> is not closed"
+      elseif self.roots == 0 then
+        self.failed = "xml: no root element"
+      else
+        self.failed = "xml: the writer is closed"
+        self.closed = true
+        return self.target:close()
+      end
+    end
+    -- The document is refused already: an abort that fails adds nothing to say.
+    local _, _ = self.target:abort()
+    return false, self.failed
+  end
+
+  function abort(self): boolean, string
+    -- What was closed is written: there is nothing left to abandon.
+    if self.closed then return true, "" end
+    if self.failed == "" then self.failed = "xml: the writer is abandoned" end
+    return self.target:abort()
+  end
+end
+
+--- A writer of one document to `target`, a batch of events at a time, as
+--- [`Xml.DocumentWriter`] describes it and [`Xml.write`] writes a document whole.
+function Xml.writer(target: Stream.Writer): Xml.DocumentWriter
+  local made: EventWriter = {
+    target = target, out = {}, open = {}, written = {},
+    scopes = { bound = {}, declared = {}, next = 0 }, generated = {}, roots = 0, count = 0,
+    pending = nil, pending_name = nil, failed = "", closed = false,
+  }
+  return made
+end
+
 --- `events`, such as a parser answers, written as an XML document in
 --- UTF-8, which a parser reads back to the same events: an element with
---- nothing in it as `<name/>`, its attributes sorted by name. nil and
---- why, naming the event, when they are no document: an element that is
---- not closed, or closed by another name; no root element, or a second;
---- text outside the root; a name that is no XML name, or one in Clark's
---- notation (write a prefix and its `xmlns` attribute); a comment holding
---- `--` or ending in `-`; an instruction whose target is `xml` in any
---- case or whose text holds `?>`; or a string that is not UTF-8 or holds
---- a character XML cannot carry, even as a reference.
+--- nothing in it as `<name/>`, its attributes sorted by name. A name in
+--- Clark's notation, `{uri}local`, as a parser asked for namespaces
+--- answers it, is written under a prefix bound to its namespace: the
+--- `xml` prefix for XML's own, and otherwise `ns1`, `ns2` and on, each
+--- declared with an `xmlns:` attribute on the first element that needs it
+--- and used by the elements inside it. A prefix the events declare or
+--- name for themselves is never chosen; written a batch at a time
+--- ([`Xml.writer`]), one the writer has bound in an element still open may
+--- not be named inside it.
+--- nil and why, naming the event, when they are no document: an element
+--- that is not closed, or closed by another name; no root element, or a
+--- second; text outside the root; a name that is no XML name, or one in a
+--- namespace no name may be in (none, or `xmlns`'s own); two attributes
+--- written with one name; a comment holding `--` or ending in `-`; an
+--- instruction whose target is `xml` in any case or whose text holds
+--- `?>`; or a string that is not UTF-8 or holds a character XML cannot
+--- carry, even as a reference.
 function Xml.write(events: {Xml.Event}): string?, string
-  local out: mut {string} = {}
-  local open: mut {string} = {}
-  local roots = 0
-  for index, e in ipairs(events) do
-    local function refuse(why: string): nil, string
-      return nil, "xml: event " .. tostring(index) .. ": " .. why
-    end
-    local name = e.name or ""
-    local text = e.text or ""
-    if e.kind == "start" then
-      if not is_name(name) then return refuse("not an XML name: " .. string.format("%q", name)) end
-      if #open == 0 then
-        roots = roots + 1
-        if roots > 1 then return refuse("a second root element") end
-      end
-      local piece: mut {string} = { "<", name }
-      local attributes = e.attributes or {}
-      local names: mut {string} = {}
-      for attribute in pairs(attributes) do names[#names + 1] = attribute end
-      table.sort(names)
-      for _, attribute in ipairs(names) do
-        local value = assert(attributes[attribute])
-        if not is_name(attribute) then
-          return refuse("not an XML name: " .. string.format("%q", attribute))
-        end
-        if not carried(value) then
-          return refuse("the value of " .. attribute .. " holds what XML cannot")
-        end
-        piece[#piece + 1] = " " .. attribute .. '="' .. escape_attribute(value) .. '"'
-      end
-      local following = events[index + 1]
-      if following ~= nil and following.kind == "end" and following.name == name then
-        piece[#piece + 1] = "/>"
-      else
-        piece[#piece + 1] = ">"
-      end
-      out[#out + 1] = table.concat(piece)
-      open[#open + 1] = name
-    elseif e.kind == "end" then
-      local innermost = open[#open]
-      if innermost == nil then return refuse("an end with no element open") end
-      if innermost ~= name then
-        return refuse("</" .. name .. "> closes <" .. innermost .. ">")
-      end
-      open[#open] = nil
-      local before = events[index - 1]
-      if before == nil or before.kind ~= "start" or before.name ~= name then
-        out[#out + 1] = "</" .. name .. ">"
-      end
-    elseif e.kind == "text" then
-      if #open == 0 then return refuse("text outside the root element") end
-      if not carried(text) then return refuse("text holds what XML cannot") end
-      out[#out + 1] = escape_text(text)
-    elseif e.kind == "comment" then
-      if not carried(text) or text:find("--", 1, true) ~= nil or text:sub(-1) == "-" then
-        return refuse("a comment cannot hold this text")
-      end
-      out[#out + 1] = "<!--" .. text .. "-->"
-    else
-      if not is_name(name) or name:lower() == "xml" then
-        return refuse("not an instruction's target: " .. string.format("%q", name))
-      end
-      if not carried(text) or text:find("?>", 1, true) ~= nil then
-        return refuse("an instruction cannot hold this text")
-      end
-      out[#out + 1] = "<?" .. name .. (if text == "" then "" else " " .. text end) .. "?>"
-    end
-  end
-  local unclosed = open[#open]
-  if unclosed ~= nil then return nil, "xml: <" .. unclosed .. "> is not closed" end
-  if roots == 0 then return nil, "xml: no root element" end
-  return table.concat(out), ""
+  local collected = Stream.collect()
+  local w = Xml.writer(collected)
+  local ok, why = w:write(events)
+  if ok then ok, why = w:close() end
+  if not ok then return nil, why end
+  return collected:result(), ""
 end
 
 return Xml

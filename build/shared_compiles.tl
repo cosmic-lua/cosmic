@@ -102,7 +102,7 @@ local record shared_compiles
 end
 
 --- The variable that moves the cache, or turns it off with `0`.
-local variable <const> = "COSMIC_BUILD_CACHE"
+local variable <const>: Env.Name = "COSMIC_BUILD_CACHE"
 
 --- How many bytes of compiles the cache keeps: some twenty whole
 --- states of cosmic's own tree.
@@ -136,7 +136,7 @@ local function location(environment?: {string:string}): string?, string
   if environment ~= nil then
     value = environment[variable] or ""
   else
-    value = Env.get_or(variable, "")
+    value = Env.read(variable) or ""
   end
   if value == "0" then return nil, "" end
   if value ~= "" then
@@ -455,7 +455,8 @@ local function evict(db: Sqlite.Handle, now_ns: integer, bound_bytes: integer): 
   local ids: {string:mut {string}} = { c = {}, p = {} }
   for _, row in ipairs(over) do
     local list = ids[row:text(1)]
-    list[#list + 1] = row:text(2)
+    local second = row:text(2)
+    list[#list + 1] = second
   end
   for tab, name in pairs({ c = compiled, p = parsed }) do
     if #ids[tab] > 0 then

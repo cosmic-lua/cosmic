@@ -354,6 +354,44 @@ local function recorded_analyzer(db: Sqlite.Handle): string?, string
   return #last > 0 and last[1]:text(1) or "", ""
 end
 
+--- Names the analysis rows the running tool derived as the tool it is
+--- writing will name its own ([`running_analyzer`] in that tool), which
+--- carries `compiler` as its compiler's identity. For a settling tool
+--- that carries the tree's code (build.reboot's `into`): its parse is the
+--- one the tool it writes would make, but it names the analyzer by the
+--- `compiler` it carries, which its writer took by that writer's own
+--- definition. Across a change to how that identity is defined
+--- (build.identity's `compiler_identity`) the two names differ, and the
+--- tool written would otherwise parse every source again on its first
+--- run, finding the same rows. Rows another analyzer derived are left as
+--- they are named.
+function importer.settled_analyzer(handle: work.Handle, compiler: string): boolean, string
+  local db = handle.db
+  local running, running_trouble = running_analyzer(handle)
+  if running == nil then
+    return false, running_trouble
+  end
+  local last, last_trouble = recorded_analyzer(db)
+  if last == nil then
+    return false, last_trouble
+  end
+  if last ~= running then
+    return true, ""
+  end
+  -- What this parse found each module requiring, which the written tool's
+  -- imports are, rather than what this tool's own writer found.
+  local code, code_trouble = importer.tree_code(handle)
+  if code == nil then
+    return false, code_trouble
+  end
+  local written = importer.analyzer_identity({ compiler = compiler, requires = code.requires, source = code.source })
+  if not nameless(written) then
+    local pipeline = require("build.pipeline")
+    written = pipeline.coded(written)
+  end
+  return record_analyzer(db, written)
+end
+
 --- Forgets every derived row: every parse, and every derivation but
 --- the compiler's.
 local function forget_analysis(db: Sqlite.Handle): boolean, string
@@ -578,7 +616,10 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
             "SELECT name FROM requires WHERE source_hash = ?1 ORDER BY ordinal", { text(hash) })
           if rows == nil then return nil, rows_trouble end
           names = {}
-          for _, row in ipairs(rows) do names[#names + 1] = row:text(1) end
+          for _, row in ipairs(rows) do
+            local first = row:text(1)
+            names[#names + 1] = first
+          end
         end
         for _, next_name in ipairs(names) do stack[#stack + 1] = next_name end
       end
@@ -994,7 +1035,8 @@ local function reach(db: Sqlite.Handle, target: string): {string:boolean}?, stri
       list = {}
       requires[row:text(1)] = list
     end
-    list[#list + 1] = row:text(2)
+    local second = row:text(2)
+    list[#list + 1] = second
   end
   local reached: mut {string:boolean} = { [target] = true }
   local pending: mut {string} = { target }

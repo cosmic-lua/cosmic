@@ -300,3 +300,77 @@ local function test_column_names_follow_the_header_and_avoid_what_is_reserved()
   assert(names({ "_json" }, { "_json" }) == "_json_2")
   assert(names({ "rowid" }) == "rowid", "nothing is reserved by default")
 end
+
+local function test_encode_quotes_only_what_must_be_quoted()
+  assert(Csv.encode({ { "a", "b" }, { "1", "" } }) == "a,b\n1,\n")
+  assert(Csv.encode({ { "a,b", 'say "hi"', "x\ny", "x\ry", "plain" } }) ==
+      '"a,b","say ""hi""","x\ny","x\ry",plain\n')
+  assert(Csv.encode({}) == "")
+  assert(Csv.encode({ { "a", "b" } }, { line_end = "\r\n" }) == "a,b\r\n")
+end
+
+local function test_encode_uses_the_delimiter_it_is_given()
+  assert(Csv.encode({ { "a,b", "c\td" } }, { delimiter = "\t" }) == 'a,b\t"c\td"\n')
+  assert(Csv.encode({ { "a;b", "c" } }, { delimiter = ";" }) == '"a;b";c\n')
+  assert(Csv.encode({ { "a.b", "c%d" } }, { delimiter = "." }) == '"a.b".c%d\n')
+end
+
+--- A field `parse` would read otherwise: an empty only field would be a
+--- blank line, a leading byte order mark would be dropped, and a CR
+--- before the line end would go with it.
+local function test_encode_quotes_what_parse_would_otherwise_misread()
+  assert(Csv.encode({ { "h" }, { "" }, { "x" } }) == 'h\n""\nx\n')
+  assert(Csv.encode({ { "\xEF\xBB\xBFid", "b" } }) == '"\xEF\xBB\xBFid",b\n')
+  assert(Csv.encode({ { "a\r" } }) == '"a\r"\n')
+  local records = { { "\xEF\xBB\xBFid", "" }, { "" }, { "a\r", '"', "\r\n" } }
+  local ends: {Csv.LineEnd} = { "\n", "\r\n" }
+  for _, line_end in ipairs(ends) do
+    local back = assert(Csv.parse(Csv.encode(records, { line_end = line_end })))
+    assert(show(back) == show(records), show(back))
+    assert(#back == 3 and #back[2] == 1)
+  end
+end
+
+local function test_encode_raises_for_what_text_cannot_hold()
+  local ok, why = pcall(Csv.encode, { { "a" }, {} })
+  assert(not ok and tostring(why):find("record 2 has no fields", 1, true) ~= nil, tostring(why))
+  ok, why = pcall(Csv.encode, { { "a" } }, { delimiter = '"' })
+  assert(not ok and tostring(why):find("cannot be a quote", 1, true) ~= nil, tostring(why))
+end
+
+local function test_encode_field_leaves_a_plain_field_alone()
+  assert(Csv.encode_field("plain") == "plain")
+  assert(Csv.encode_field("a b\tc;d") == "a b\tc;d")
+  assert(Csv.encode_field("x\xEF\xBB\xBF") == "x\xEF\xBB\xBF", "a BOM past the start is data")
+  assert(Csv.encode_field("") == "")
+end
+
+local function test_encode_field_quotes_each_reason_and_doubles_quotes()
+  assert(Csv.encode_field("a,b") == '"a,b"')
+  assert(Csv.encode_field('say "hi"') == '"say ""hi"""')
+  assert(Csv.encode_field('"') == '""""')
+  assert(Csv.encode_field("x\ny") == '"x\ny"')
+  assert(Csv.encode_field("x\ry") == '"x\ry"')
+  assert(Csv.encode_field("\xEF\xBB\xBF") == '"\xEF\xBB\xBF"')
+  assert(Csv.encode_field("\xEF\xBB\xBFid") == '"\xEF\xBB\xBFid"')
+end
+
+local function test_encode_field_quotes_by_the_delimiter_it_is_given()
+  assert(Csv.encode_field("a,b", { delimiter = "\t" }) == "a,b")
+  assert(Csv.encode_field("a\tb", { delimiter = "\t" }) == '"a\tb"')
+  assert(Csv.encode_field("a;b", { delimiter = ";" }) == '"a;b"')
+  assert(Csv.encode_field("a.b", { delimiter = "." }) == '"a.b"')
+  assert(Csv.encode_field("a%b", { delimiter = "%" }) == '"a%b"')
+  local ok, why = pcall(Csv.encode_field, "a", { delimiter = "ab" })
+  assert(not ok and tostring(why):find("the delimiter is one byte", 1, true) ~= nil, tostring(why))
+  ok, why = pcall(Csv.encode_field, "a", { delimiter = '"' })
+  assert(not ok and tostring(why):find("cannot be a quote", 1, true) ~= nil, tostring(why))
+end
+
+local function test_encode_field_quotes_the_empty_field_only_when_asked()
+  assert(Csv.encode_field("") == "")
+  assert(Csv.encode_field("", {}) == "")
+  assert(Csv.encode_field("", { quote_empty = false }) == "")
+  assert(Csv.encode_field("", { quote_empty = true }) == '""')
+  assert(Csv.encode_field("a", { quote_empty = true }) == "a", "only the empty field is affected")
+end

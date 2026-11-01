@@ -107,7 +107,7 @@ end
 local function walk(seed: integer, steps: integer)
   local root = assert(Fs.mkdtemp("cosmic-dependency-keys-"))
   local chooser: Chooser = { state = seed }
-  local nodes: {Node} = {}
+  local nodes: mut {integer: Node} = {}
   local function node_at(index: integer): Node
     return assert(nodes[index])
   end

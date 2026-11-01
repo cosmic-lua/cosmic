@@ -2,6 +2,7 @@ local Clock = require("cosmic.clock")
 local Assets = require("cosmic.web.assets")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
+local Stream = require("cosmic.stream")
 local StaticFiles = require("cosmic.web.static")
 local Test = require("cosmic.test")
 local Time = require("cosmic.time")
@@ -18,7 +19,7 @@ local function files(): Assets.Source
     ["css/app.css"] = CSS, ["logo.svg"] = SVG, ["data.bin"] = "0123456789",
     ["LICENSE"] = "MIT", ["app.3f9a1c8e2b.js"] = "literal", ["docs/index.html"] = "<p>docs</p>",
     ["index.html"] = "<p>root</p>",
-  }, { gzip = true })
+  }, { gzip = true, zstd = true })
 end
 
 local function app_of(opts?: StaticFiles.Options): Web.App
@@ -140,12 +141,129 @@ local function test_gzip_is_refused_by_q_zero_and_taken_from_a_star()
   local function encoding(value: string): string?
     return client:get("/static/css/app.css", { headers = { ["Accept-Encoding"] = value } }).headers["content-encoding"]
   end
-  assert(encoding("gzip;q=0") == nil and encoding("gzip; q=0.0, *") == nil)
-  assert(encoding("*") == "gzip" and encoding("identity, GZIP") == "gzip")
-  assert(encoding("*;q=0") == nil and encoding("deflate") == nil)
-  assert(encoding("*, gzip;q=0") == nil)
+  assert(encoding("gzip;q=0") == nil and encoding("deflate") == nil)
+  assert(encoding("*") == "zstd" and encoding("identity, GZIP") == "gzip")
+  assert(encoding("*;q=0") == nil and encoding("gzip; q=0.0, *") == "zstd")
+  assert(encoding("*, gzip;q=0, zstd;q=0") == nil and encoding("*, gzip;q=0") == "zstd")
   assert(client_of({ gzip = false }):get("/static/css/app.css",
     { headers = { ["Accept-Encoding"] = "gzip" } }).headers["content-encoding"] == nil)
+end
+
+--- `body` expanded from zstd, as a client would.
+local function unzstd(body: string): string
+  local out = assert(Stream.run(assert(Compress.zstd_decoder()), body))
+  return out
+end
+
+local function get_with(client: Web.TestClient, accept: string?, extra?: {string:string}): Web.TestResponse
+  local headers: mut {string:string} = {}
+  for name, value in pairs(extra or {}) do headers[name] = value end
+  if accept ~= nil then headers["Accept-Encoding"] = accept end
+  return client:get("/static/css/app.css", { headers = headers })
+end
+
+local function test_zstd_is_sent_to_a_client_that_takes_it_with_its_own_tag()
+  local client = client_of()
+  local plain = get_with(client, nil)
+  local zipped = get_with(client, "zstd, gzip")
+  assert(zipped.status == 200 and zipped.headers["content-encoding"] == "zstd")
+  assert(unzstd(zipped.body) == CSS and #zipped.body < #CSS)
+  assert(zipped.headers["content-length"] == tostring(#zipped.body))
+  assert(zipped.headers["vary"] == "Accept-Encoding")
+  local plain_tag = assert(plain.headers["etag"])
+  local gzip_tag = assert(get_with(client, "gzip").headers["etag"])
+  local zstd_tag = assert(zipped.headers["etag"])
+  assert(zstd_tag == plain_tag:sub(1, -2) .. '-zstd"' and zstd_tag ~= gzip_tag)
+  assert(zipped.headers["content-type"] == "text/css; charset=utf-8")
+  local again = get_with(client, "zstd", { ["If-None-Match"] = zstd_tag })
+  assert(again.status == 304 and again.headers["vary"] == "Accept-Encoding" and again.body == "")
+  assert(again.headers["etag"] == zstd_tag)
+  local wrong = get_with(client, "zstd", { ["If-None-Match"] = gzip_tag })
+  assert(wrong.status == 200, "the gzip tag does not name the zstd bytes")
+end
+
+local function test_the_coding_follows_the_accept_encoding_q_values()
+  local client = client_of()
+  local function coding(accept: string?): string?
+    local res = get_with(client, accept)
+    assert(res.status == 200 and res.headers["vary"] == "Accept-Encoding", tostring(accept))
+    local name = res.headers["content-encoding"]
+    if name == "zstd" then
+      assert(unzstd(res.body) == CSS)
+    elseif name == "gzip" then
+      assert(Compress.inflate("gzip", res.body) == CSS)
+    else
+      assert(res.body == CSS)
+    end
+    return name
+  end
+  assert(coding("zstd") == "zstd" and coding("gzip, zstd") == "zstd" and coding("*") == "zstd")
+  assert(coding("gzip") == "gzip" and coding("x-gzip, deflate") == "gzip")
+  assert(coding("gzip;q=0.8, zstd;q=0.2") == "gzip" and coding("zstd;q=0, gzip") == "gzip")
+  assert(coding("zstd;q=0.9, gzip;q=0.1") == "zstd" and coding("*;q=0.1, gzip") == "gzip")
+  assert(coding(nil) == nil and coding("br, deflate") == nil and coding("identity") == nil)
+  assert(coding("zstd;q=0, gzip;q=0") == nil and coding("identity, zstd;q=0.5") == nil and
+      coding("identity;q=0.4, zstd;q=0.5") == "zstd")
+end
+
+local function test_the_options_and_the_source_limit_the_codings_offered()
+  local both = "zstd, gzip"
+  assert(get_with(client_of({ zstd = false }), both).headers["content-encoding"] == "gzip")
+  assert(get_with(client_of({ gzip = false }), both).headers["content-encoding"] == "zstd")
+  local none = get_with(client_of({ gzip = false, zstd = false }), both)
+  assert(none.headers["content-encoding"] == nil and none.body == CSS and none.headers["vary"] == nil)
+  local gzip_only = client_of({ source = Assets.memory({ ["css/app.css"] = CSS }, { gzip = true }) })
+  assert(get_with(gzip_only, both).headers["content-encoding"] == "gzip")
+  local zstd_only = client_of({ source = Assets.memory({ ["css/app.css"] = CSS }, { zstd = true }) })
+  local taken = get_with(zstd_only, both)
+  assert(taken.headers["content-encoding"] == "zstd" and taken.headers["vary"] == "Accept-Encoding")
+  local refused = get_with(zstd_only, "gzip")
+  assert(refused.headers["content-encoding"] == nil and refused.body == CSS)
+  assert(refused.headers["vary"] == "Accept-Encoding", "the choice still depends on the header")
+end
+
+local function test_head_and_range_treat_zstd_as_they_treat_gzip()
+  local client = client_of()
+  local get = get_with(client, "zstd")
+  local head = client:head("/static/css/app.css", { headers = { ["Accept-Encoding"] = "zstd" } })
+  assert(head.status == 200 and head.body == "")
+  assert(head.headers["content-encoding"] == "zstd" and head.headers["vary"] == "Accept-Encoding")
+  assert(head.headers["content-length"] == get.headers["content-length"])
+  assert(head.headers["etag"] == get.headers["etag"])
+  local ranged = get_with(client, "zstd, gzip", { Range = "bytes=0-4" })
+  assert(ranged.status == 206 and ranged.body == CSS:sub(1, 5))
+  assert(ranged.headers["content-encoding"] == nil and ranged.headers["vary"] == "Accept-Encoding")
+  assert(ranged.headers["etag"] == assert(files():get("css/app.css")).etag)
+end
+
+local function test_if_range_holds_for_the_plain_tag_and_not_for_a_coded_one()
+  local client = client_of()
+  local plain_tag = assert(files():get("css/app.css")).etag
+  local zstd_tag = assert(get_with(client, "zstd").headers["etag"])
+  assert(zstd_tag ~= plain_tag)
+  local held = get_with(client, "zstd", { Range = "bytes=0-4", ["If-Range"] = plain_tag })
+  assert(held.status == 206 and held.body == CSS:sub(1, 5) and held.headers["content-encoding"] == nil)
+  local coded = get_with(client, "zstd", { Range = "bytes=0-4", ["If-Range"] = zstd_tag })
+  assert(coded.status == 200 and coded.body == CSS and coded.headers["content-encoding"] == nil,
+    "a coded tag names bytes a range does not address")
+  assert(coded.headers["etag"] == plain_tag)
+end
+
+local function test_a_weak_if_none_match_of_the_zstd_tag_matches_the_zstd_representation()
+  local client = client_of()
+  local zstd_tag = assert(get_with(client, "zstd").headers["etag"])
+  local weak = get_with(client, "zstd", { ["If-None-Match"] = "W/" .. zstd_tag })
+  assert(weak.status == 304 and weak.body == "" and weak.headers["etag"] == zstd_tag)
+  assert(weak.headers["vary"] == "Accept-Encoding")
+  local other = get_with(client, "gzip", { ["If-None-Match"] = "W/" .. zstd_tag })
+  assert(other.status == 200 and other.headers["content-encoding"] == "gzip",
+    "the zstd tag does not name the gzip bytes")
+end
+
+local function test_a_failed_if_range_sends_the_whole_plain_file_to_a_client_taking_zstd()
+  local res = get_with(client_of(), "zstd, gzip", { Range = "bytes=0-4", ["If-Range"] = '"old"' })
+  assert(res.status == 200 and res.body == CSS and res.headers["content-encoding"] == nil)
+  assert(res.headers["vary"] == "Accept-Encoding" and res.headers["content-range"] == nil)
 end
 
 local function test_a_range_is_served_from_the_plain_bytes_whatever_the_client_accepts()

@@ -136,12 +136,12 @@ local function attach(tmp: string)
   end
   local chunk = assert(load(MAIN, "=fixture.main"))
   assert(Sqlite.run(db, "INSERT INTO modules VALUES ('fixture.main', 'fixture.main.tl', 'main', " ..
-      "X'00', X'', ?1, '', X'')", { { blob = string.dump(chunk, true) } }))
+      "X'00', X'', deflate(?1), '', X'')", { { blob = string.dump(chunk, true) } }))
   for _, name in ipairs({ "cosmic.fs", "cosmic.proc", "cosmic.store", "cosmic.child" }) do
     assert(Sqlite.run(db, "INSERT INTO imports VALUES ('fixture.main', ?1)", { text(name) }))
   end
   assert(db:close())
-  assert(Store.attach(path))
+  assert(Store.attach(path, { unchecked_bytecode = true }))
   attached = true
 end
 

@@ -383,7 +383,10 @@ function relay_config.upstream(env: {string:string}): relay_config.Upstream?, st
   end
   for entry in ((env.no_proxy or env["NO_PROXY"] or "") .. ","):gmatch("([^,]*),") do
     local trimmed = String.trim(entry)
-    if trimmed ~= "" then upstream.no_proxy[#upstream.no_proxy + 1] = lower(trimmed) end
+    if trimmed ~= "" then
+      local lowered = lower(trimmed)
+      upstream.no_proxy[#upstream.no_proxy + 1] = lowered
+    end
   end
   return upstream, ""
 end

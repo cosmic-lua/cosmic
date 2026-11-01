@@ -1,6 +1,7 @@
 --- Worked examples for [`cosmic.xml`], shown by `cosmic docs` and run by
 --- `cosmic test`.
 
+local Stream = require("cosmic.stream")
 local Xml = require("cosmic.xml")
 
 local record Example end
@@ -58,6 +59,59 @@ function Example.write()
   local none, why = Xml.write({ { kind = "start", name = "a" } })
   assert(none == nil)
   print(why) -- xml: <a> is not closed
+end
+
+--- `tree` reads a small document whole; `child`, `children` and `text`
+--- find what it holds. With `local_names`, a name loses its namespace,
+--- so `r:id` reads as `id`.
+function Example.tree()
+  local root = assert(Xml.tree([[
+<sheets xmlns="urn:main" xmlns:r="urn:rel">
+  <sheet name="Sales" r:id="rId1"/>
+  <sheet name="Costs" r:id="rId2"/>
+  <note>Kept <b>whole</b></note>
+</sheets>]], { local_names = true }))
+  for _, sheet in ipairs(Xml.children(root, "sheet")) do
+    print(sheet.attributes["name"], sheet.attributes["id"]) -- Sales  rId1, then Costs  rId2
+  end
+  local note = assert(Xml.child(root, "note"))
+  assert(Xml.text(note) == "Kept whole")
+end
+
+--- `subtrees` reads one element at a time from a document fed in
+--- chunks, here each `row`, so a document of any size is held a row at
+--- a time.
+function Example.subtrees()
+  local p <close> = assert(Xml.parser())
+  local rows = Xml.subtrees("table/row")
+  local total = 0
+  for _, chunk in ipairs({ "<table><row><n>2</n></ro", "w><row><n>3</n></row></table>" }) do
+    for _, row in ipairs(rows:take((assert(p:feed(chunk))))) do
+      total = total + assert(math.tointeger(Xml.text(assert(Xml.child(row, "n")))))
+    end
+  end
+  for _, row in ipairs(rows:take((assert(p:finish())))) do
+    total = total + assert(math.tointeger(Xml.text(assert(Xml.child(row, "n")))))
+  end
+  assert(total == 5, tostring(total))
+end
+
+--- `writer` writes a document a batch of events at a time to a stream, so
+--- a document too large to hold is never held: here a row at a time, to a
+--- collector standing in for a file.
+function Example.writer()
+  local out = Stream.collect()
+  local w = Xml.writer(out)
+  assert(w:write({ { kind = "start", name = "rows" } }))
+  for i = 1, 3 do
+    assert(w:write({
+      { kind = "start", name = "row", attributes = { n = tostring(i) } },
+      { kind = "end", name = "row" },
+    }))
+  end
+  assert(w:write({ { kind = "end", name = "rows" } }))
+  assert(w:close())
+  print(out:result()) -- <rows><row n="1"/><row n="2"/><row n="3"/></rows>
 end
 
 return Example

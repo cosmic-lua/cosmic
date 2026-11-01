@@ -63,4 +63,12 @@ function Example.query()
   print(why) -- url: '%' at byte 6 is not followed by two hex digits
 end
 
+--- `resolve` follows a reference from a base, as a link is followed from
+--- the page that holds it; a base that is a path alone resolves paths.
+function Example.resolve()
+  print(Url.resolve("https://example.com/docs/guide/intro.html", "../api/index.html"))
+  -- https://example.com/docs/api/index.html
+  assert(Url.resolve("/xl/worksheets/sheet1.xml", "../sharedStrings.xml") == "/xl/sharedStrings.xml")
+end
+
 return Example

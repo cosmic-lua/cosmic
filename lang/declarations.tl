@@ -1,5 +1,4 @@
---- The lowering of the new checker's declarations and annotations
---- ([`doc/plans/new-checker-types.md`], "declarations" and "the order the pieces land in"):
+--- The lowering of the new checker's declarations and annotations:
 --- every type declaration of a module (record, class, interface, enum, userdata and alias) and every
 --- type written in it (`local x: T`, a parameter, a return, an `is` test, a field) becomes a type of a
 --- [`lang.types`] store, once [`lang.scopes`] has resolved the names.
@@ -162,7 +161,7 @@ local record Declarations
   --- The rule behind a code, which `cosmic docs <code>` and the error read alike.
   record Row
     code: Code
-    --- The rule, named as the plan names it.
+    --- The rule, named as the language names it.
     rule: string
     --- Why the language holds it.
     why: string
@@ -294,6 +293,9 @@ local record Declarations
     -- TODO: declare the generated bindings ([`cosmic.sys`], [`cosmic.internal.process`],
     -- [`cosmic.internal.socket`]) as files of the tree, once the checker reads them from declaration files, and drop this.
     external: {string: boolean}
+    --- The names of the language's own modules, which the binary answers a `require` of with its own module and no module of
+    --- the program can stand for: a `require` of one the program lacks is a global to use directly.
+    library: {string: boolean}
     --- Asked for a module that a type name imports and the program lacks.
     provider: Provider?
     requires: mut {Decl: Requires}
@@ -326,8 +328,8 @@ local record Declarations
     scope_globals: function(Program): {string: Scopes.Global}
   end
 
-  --- A program for a new store, or for `store`.
-  new: function(store?: Store): Program
+  --- A program for a new store, or for `store`, that knows the language's own modules `library` names.
+  new: function(store?: Store, library?: {string: boolean}): Program
 
   --- The module a file is: its path without `.tl`, `.d.tl` or a trailing `/init`, with dots for slashes.
   module_of: function(path: string): string
@@ -497,7 +499,7 @@ Declarations.catalog = {
   {
     code = "optional_generic", rule = "an optional field is a plain value",
     why = "the fork refused a field that may be nil and holds a generic function, and the owner's decision keeps it " ..
-      "refused (doc/plans/strict-teal.md, \"an optional field is a plain value\"): the checker narrows and calls a " ..
+      "refused: the checker narrows and calls a " ..
       "local or a parameter of such a type, so this is a choice and no hole, and it holds for a type parameter that an " ..
       "instance fills with a generic function as well",
     fix = "make <field> a field the literal always gives, or write the function type with its type arguments fixed",
@@ -665,7 +667,7 @@ local record Ctx
   mut alias_depth: integer
   --- How many arrays and maps the type being lowered is inside.
   mut collections: integer
-  mut kids: {Ast.Node}
+  mut kids: mut {integer: Ast.Node}
   lowering: boolean
   --- The checks that wait for every declaration of the module to be defined.
   checks: mut {function(): boolean}
@@ -1256,7 +1258,8 @@ local function lower_rets(ctx: Ctx, rets: Ast.Rets, positions: {string: integer}
       elseif rets.variadic and i == #list then
         alt.tail = lower_type(ctx, item)
       else
-        alt.items[#alt.items + 1] = lower_type(ctx, item)
+        local lowered = lower_type(ctx, item)
+        alt.items[#alt.items + 1] = lowered
       end
     end
     alts[#alts + 1] = alt
@@ -1623,7 +1626,8 @@ local function declare_all(ctx: Ctx)
       held = 0
       Ast.children(node, collect)
       for i = held, 1, -1 do
-        nodes[#nodes + 1], places[#places + 1] = kids[i], below
+        local kid = assert(kids[i])
+        nodes[#nodes + 1], places[#places + 1] = kid, below
       end
     end
   end
@@ -1842,7 +1846,7 @@ end
 
 --- The method `m` of a class: its function type, the class its first parameter.
 --
--- TODO: refuse `any` outside a parameter in an annotation ("what `any` may do" in doc/plans/new-checker-types.md),
+-- TODO: refuse `any` outside a parameter in an annotation,
 -- once the checker for expressions lands: it is checked with the types the bodies are checked with.
 local function lower_method(ctx: Ctx, build: Build, m: Ast.Method)
   local store = ctx.store
@@ -1912,9 +1916,10 @@ local function lower_field(ctx: Ctx, build: Build, m: Ast.FieldDecl)
   local ft = lower_type(ctx, m.type)
   -- A field that may be nil is a plain value of one type: `name?: T`, or a type that has `nil` in it.
   --
-  -- TODO: take an optional generic function field, if the owner lifts the decision (doc/plans/strict-teal.md, "an
-  -- optional field is a plain value"): the checker narrows and calls a generic function held in a local or a
-  -- parameter, so the rule exists and the refusal is a choice.
+  -- TODO: take an optional generic function field, once the owner lifts the
+  -- rule that an optional field is a plain value: the checker narrows and
+  -- calls a generic function held in a local or a parameter, so the
+  -- refusal is a choice.
   if m.omittable or nilable(ft) then
     -- A class refuses every such name already (`class_metamethod`), and one mistake is one error.
     if build.decl.kind ~= "class" and metamethod_name(m.name.name) then
@@ -2934,7 +2939,8 @@ local function walk(ctx: Ctx)
         held = 0
         Ast.children(node, collect)
         for i = held, 1, -1 do
-          nodes[#nodes + 1], leaves[#leaves + 1] = kids[i], false
+          local kid = assert(kids[i])
+          nodes[#nodes + 1], leaves[#leaves + 1] = kid, false
         end
       end
     end
@@ -2946,10 +2952,10 @@ end
 
 local program_mt: metatable<Program> = { __index = Declarations.Program }
 
-function Declarations.new(store?: Store): Program
+function Declarations.new(store?: Store, library?: {string: boolean}): Program
   local s = store or Types.new()
   local program: Program = setmetatable({
-    store = s, judge = Relation.new(s), modules = {}, entries = {}, globals = {}, waiting = {}, requires = {}, external = {}, values = {}, statics = {}, absent = {},
+    store = s, judge = Relation.new(s), modules = {}, entries = {}, globals = {}, waiting = {}, requires = {}, external = {}, library = library or {}, values = {}, statics = {}, absent = {},
   }, program_mt)
   return program
 end
@@ -3061,7 +3067,7 @@ function Declarations.close_is_callable(made: Type): boolean
 end
 
 --- The fields `decl`, an interface, has from the interfaces it lists and the ones they list, those it leaves out
---- (doc/plans/new-checker-types.md, "interface agreement"): each from the first interface of its closure that declares
+--- (interface agreement): each from the first interface of its closure that declares
 --- it, with that interface's arguments put in and the receiver of a function field replaced by `decl`. Where those
 --- interfaces declare a field differently `interface_disagrees` says so at the declaration, and the first is the one
 --- given. Nothing for another kind: a record or class must declare every field it lists.

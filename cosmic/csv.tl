@@ -1,4 +1,5 @@
---- CSV and TSV text as records and rows: an RFC 4180 reader.
+--- CSV and TSV text as records and rows: an RFC 4180 reader, and a
+--- writer of what it reads.
 ---
 ---     local records = assert(Csv.parse('id,name\n1,"Smith, Ann"\n2,"say ""hi"""\n'))
 ---     -- { {"id", "name"}, {"1", "Smith, Ann"}, {"2", 'say "hi"'} }
@@ -6,6 +7,10 @@
 ---     -- made.columns is { "id", "name" }, made.rows is { { id = "1", name = "Ann" } }
 ---     local found = assert(Csv.records('a,b\n\n"x\ny"\n'))
 ---     -- { {fields = {"a", "b"}, line = 1}, {fields = {"x\ny"}, line = 3} }
+---     local text = Csv.encode({ { "id", "name" }, { "1", "Smith, Ann" } })
+---     -- 'id,name\n1,"Smith, Ann"\n'
+---     local field = Csv.encode_field("Smith, Ann")
+---     -- '"Smith, Ann"'
 ---
 --- What is read:
 ---
@@ -59,6 +64,10 @@
 --- A line counts as the refusals above count it: a quoted line break
 --- starts a line, so a record that spans two pushes every later one down,
 --- and a skipped blank line is still a line.
+---
+--- `encode` writes records so that `parse`, with the same delimiter,
+--- reads them back as they were: a field is quoted only where it must be.
+--- [`encode_field`] writes one field by the same rule.
 
 --- What `read` found: the records, and the line each began on.
 local record Scan
@@ -67,11 +76,34 @@ local record Scan
 end
 
 local record Csv
-  --- What a reader may be told.
+  --- What [`Csv.encode`] ends a record with: LF or CRLF.
+  enum LineEnd
+    "\n"
+    "\r\n"
+  end
+
+  --- What a reader or [`Csv.encode`] may be told.
   record Options
     --- The one byte between fields (default `,`). It may not be `"`, CR
-    --- or LF: the readers raise for one that is.
+    --- or LF: the readers and `encode` raise for one that is.
     delimiter?: string
+    --- What `encode` ends each record with: `"\n"` (the default) or
+    --- `"\r\n"`, which RFC 4180 names. The readers take either and
+    --- ignore this.
+    line_end?: Csv.LineEnd
+  end
+
+  --- What [`Csv.encode_field`] may be told.
+  record FieldOptions
+    --- The one byte between fields (default `,`), as [`Csv.Options`] says:
+    --- the field is quoted when it holds it, and [`Csv.encode_field`] raises
+    --- for one that is not one byte or is a quote or a line break.
+    delimiter?: string
+    --- Quote the empty field (default false). An empty only field of a
+    --- record would be a blank line, which is no record, so [`Csv.encode`]
+    --- sets it there. A caller can also set it to tell an empty field from
+    --- an absent one, as `cosmic sql --to csv` does for '' against NULL.
+    quote_empty?: boolean
   end
 
   --- A record `records` read: its fields and the line it began on.
@@ -142,19 +174,21 @@ local function refuse(why: string): nil, string
   return nil, "csv: " .. why
 end
 
---- The delimiter an option names. Raises, naming the caller of the
---- reader that calls this, when it is not one byte or is a quote or a
+--- The delimiter an option names, `,` for nil. Raises, naming the caller of
+--- the function that calls this, when it is not one byte or is a quote or a
 --- line break.
-local function delimiter_of(opts: Csv.Options?): string
-  local delimiter: any = opts ~= nil and opts.delimiter or ","
-  if not (delimiter is string) or #delimiter ~= 1 then
-    error("csv: the delimiter is one byte, not " ..
-        (if delimiter is string then "a string of length " .. tostring(#delimiter) else "a " .. type(delimiter) end), 3)
+local function delimiter_of(named: any): string
+  if named == nil then
+    return ","
   end
-  if delimiter == '"' or delimiter == "\r" or delimiter == "\n" then
+  if not (named is string) or #named ~= 1 then
+    error("csv: the delimiter is one byte, not " ..
+        (if named is string then "a string of length " .. tostring(#named) else "a " .. type(named) end), 3)
+  end
+  if named == '"' or named == "\r" or named == "\n" then
     error("csv: the delimiter cannot be a quote or a line break", 3)
   end
-  return delimiter
+  return named
 end
 
 --- Where: "line N, column M".
@@ -288,7 +322,7 @@ end
 --- line, which counts the lines inside quoted fields, use [`Csv.records`].
 --- Text with no records is `{}`.
 function Csv.parse(text: string, opts?: Csv.Options): {{string}}?, string
-  local found, trouble = located(text, delimiter_of(opts))
+  local found, trouble = located(text, delimiter_of(opts and opts.delimiter))
   if found == nil then
     return nil, trouble
   end
@@ -309,7 +343,86 @@ end
 ---     local found = assert(Csv.records('id,name\n1\n2,Bob\n'))
 ---     assert(#found[2].fields == 1 and found[3].line == 3)
 function Csv.records(text: string, opts?: Csv.Options): {Csv.Record}?, string
-  return located(text, delimiter_of(opts))
+  return located(text, delimiter_of(opts and opts.delimiter))
+end
+
+--- `field` in quotes, each quote doubled, when it needs them (see
+--- [`Csv.encode_field`]), else as it is. `delimiter` is already checked.
+local function quoted(field: string, delimiter: string, quote_empty: boolean): string
+  if field:find(delimiter, 1, true) ~= nil or field:find('["\r\n]') ~= nil or field:sub(1, 3) == BOM or
+      (quote_empty and field == "") then
+    return '"' .. field:gsub('"', '""') .. '"'
+  end
+  return field
+end
+
+--- `field` as [`Csv.encode`] writes it, in quotes with each quote doubled
+--- when a reader would otherwise misread it, and as it is otherwise. It is
+--- quoted when it:
+---
+--- - holds the delimiter, which would split it in two;
+--- - holds a quote, which would end or open a quoted field;
+--- - holds CR or LF, which would end the record (and a reader drops a CR
+---   before the line end from an unquoted field);
+--- - begins with the UTF-8 byte order mark, which a reader drops from the
+---   start of the text unless a quote comes first;
+--- - is empty and `opts.quote_empty` is true. `encode` sets it for the
+---   only field of a record, which unquoted would be a blank line, no
+---   record. A caller may set it to tell an empty field from an absent
+---   one.
+---
+--- Raises when `opts.delimiter` is not one byte or is a quote or a line
+--- break, or `field` is not a string.
+---
+---     assert(Csv.encode_field("plain") == "plain")
+---     assert(Csv.encode_field('say "hi"') == '"say ""hi"""')
+---     assert(Csv.encode_field("a;b", { delimiter = ";" }) == '"a;b"')
+---     assert(Csv.encode_field("", { quote_empty = true }) == '""')
+function Csv.encode_field(field: string, opts?: Csv.FieldOptions): string
+  local delimiter = delimiter_of(opts and opts.delimiter)
+  if type(field) ~= "string" then
+    error("csv: a field is a string, not a " .. type(field), 2)
+  end
+  return quoted(field, delimiter, opts ~= nil and opts.quote_empty == true)
+end
+
+--- `records` as CSV text that [`Csv.parse`], with the same
+--- `opts.delimiter`, reads back as they were: each record's fields joined
+--- by the delimiter, each record ended by `opts.line_end`, the last one
+--- too. A field is quoted only where it must be: when it holds the
+--- delimiter, a quote or a line break, begins with the UTF-8 byte order
+--- mark, or is the empty only field of its record. No records is `""`.
+--- Raises for a record with no fields, which text cannot hold (a blank
+--- line is no record), a field that is not a string, a delimiter `parse`
+--- raises for, and a `line_end` that is not LF or CRLF.
+---
+---     local text = Csv.encode({ { "id", "note" }, { "1", 'say "hi", twice' } })
+---     assert(text == 'id,note\n1,"say ""hi"", twice"\n')
+function Csv.encode(records: {{string}}, opts?: Csv.Options): string
+  local delimiter = delimiter_of(opts and opts.delimiter)
+  local line_end: Csv.LineEnd = "\n"
+  if opts ~= nil and opts.line_end ~= nil then
+    line_end = opts.line_end
+  end
+  if line_end ~= "\n" and line_end ~= "\r\n" then
+    error("csv: encode ends a record with LF or CRLF, not " .. string.format("%q", tostring(line_end)), 2)
+  end
+  local lines: mut {string} = {}
+  for number, record in ipairs(records) do
+    if #record == 0 then
+      error("csv: record " .. tostring(number) .. " has no fields, which CSV cannot hold", 2)
+    end
+    local parts: mut {string} = {}
+    for index, field in ipairs(record) do
+      if type(field) ~= "string" then
+        error("csv: record " .. tostring(number) .. ", field " .. tostring(index) .. " is a " .. type(field) ..
+            ", not a string", 2)
+      end
+      parts[index] = quoted(field, delimiter, #record == 1)
+    end
+    lines[#lines + 1] = table.concat(parts, delimiter) .. line_end
+  end
+  return table.concat(lines)
 end
 
 --- The column names for `header`'s fields, one to a field and in its
@@ -350,7 +463,7 @@ end
 --- delimiter `parse` does. Text with no records has no columns, and a
 --- header alone has columns and no rows.
 function Csv.table(text: string, opts?: Csv.Options): Csv.Table?, string
-  local delimiter = delimiter_of(opts)
+  local delimiter = delimiter_of(opts and opts.delimiter)
   local scan, trouble = read(text, delimiter)
   if scan == nil then
     return nil, trouble
@@ -448,7 +561,7 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   if (source.path == nil) == (source.text == nil) then
     error("csv: load reads a path or a text, one of them", 2)
   end
-  local delimiter = delimiter_of({ delimiter = source.delimiter })
+  local delimiter = delimiter_of(source.delimiter)
   if delimiter == "\0" then
     error("csv: load's delimiter cannot be NUL, which SQL text cannot hold", 2)
   end

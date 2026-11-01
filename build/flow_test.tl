@@ -84,9 +84,12 @@ local function test_an_edited_tree_keeps_what_it_did_not_touch()
   local text = "# head\n{\n  a: \"x\", # keep\n  b: [1, 2],\n}\n"
   local doc = assert(flow.parse(text))
   local members = assert(doc.root.items)
-  members[1].value = flow.scalar("y")
-  local list = assert(members[2].value.items)
-  list[3] = { value = flow.scalar(3), before = {} }
+  assert(members[1]).value = flow.scalar("y")
+  local grown: mut {flow.Item} = {}
+  local second = assert(members[2])
+  for _, item in ipairs(assert(second.value.items)) do grown[#grown + 1] = item end
+  grown[#grown + 1] = { value = flow.scalar(3), before = {} }
+  second.value.items = grown
   assert(flow.render(doc) == "# head\n{\n  a: \"y\", # keep\n  b: [1, 2, 3],\n}\n", flow.render(doc))
 end
 

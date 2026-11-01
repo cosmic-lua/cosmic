@@ -40,7 +40,7 @@ function GrammarMode.of(word: string?): GrammarMode.Mode?, string
 end
 
 function GrammarMode.mode(): GrammarMode.Mode?, string
-  return GrammarMode.of(Env.get("COSMIC_GRAMMAR"))
+  return GrammarMode.of(Env.read("COSMIC_GRAMMAR"))
 end
 
 function GrammarMode.tool(tool: string, _mode: GrammarMode.Mode, wraps?: boolean): string

@@ -46,6 +46,15 @@ local record Store
     --- the database's `main` (so `main` is left out): a script compiled
     --- this run. Its name is none of the sealed names.
     extra?: Store.Extra
+    --- Required, and `true`, with `extra`: the bytecode of `extra` is
+    --- loaded as given, which nothing checks. See [`Store.attach`].
+    unchecked_bytecode?: boolean
+  end
+
+  --- What [`Store.attach`] is told beyond the path.
+  record AttachOptions
+    --- Required, and `true`: the database's bytecode is loaded as given.
+    unchecked_bytecode: boolean
   end
 
   --- A file the binary carries for [`cosmic.web`] to serve, from [`Store.web_asset`].
@@ -67,6 +76,7 @@ local record Store
     name: string
     --- The chunk `string.dump` writes, which the core loads for the
     --- name, and which returns the module's value, a function for a main.
+    --- [`Store.seal`] stores it deflated.
     bytecode: string
     --- The text the chunk was compiled from, which an error's line is
     --- read from.
@@ -78,7 +88,20 @@ local record Store
 end
 
 --- Opens a projected module database and searches it ahead of every other.
-function Store.attach(path: string): boolean, string
+---
+--- The database's modules are loaded as the bytecode it holds, which nothing
+--- checks: Lua has no bytecode verifier, so bytecode that lies about its
+--- own types runs as the program the user chose to run. `opts.unchecked_bytecode`
+--- must be `true`, or this raises naming it, so each caller says it takes
+--- that. A project build refuses an attach without that literal option, and
+--- refuses [`Store.attach`] used as a value: that is a gate on checked code,
+--- not a boundary against code that is not checked, which can call this
+--- itself.
+function Store.attach(path: string, opts?: Store.AttachOptions): boolean, string
+  if opts == nil or opts.unchecked_bytecode ~= true then
+    error("store: attach: the database's bytecode is loaded unchecked; " ..
+        "pass unchecked_bytecode = true in the options to say so", 2)
+  end
   local ok, trouble = store.attach(path)
   if not ok then
     return false, path .. ": " .. trouble
@@ -86,8 +109,10 @@ function Store.attach(path: string): boolean, string
   return true, ""
 end
 
---- One module's compiled bytes, for a caller that must load the chunk in
---- an environment of its own; nil and why for none.
+--- One module's compiled bytes, as `string.dump` wrote them, for a caller
+--- that must load the chunk in an environment of its own; nil and why for
+--- none. The database stores them deflated, and this answers them
+--- inflated.
 function Store.bytecode(name: string): string?, string
   return store.bytecode(name)
 end
@@ -243,7 +268,7 @@ local function requires_of(db: Handle, name: string, types: boolean): {string}
     "SELECT i.requires FROM imports i WHERE i.path = ?1 AND (?2 = 1 OR " ..
       "NOT EXISTS (SELECT 1 FROM modules m WHERE m.path = i.path AND " ..
       "m.kind IN ('module', 'main') AND " ..
-      "instr(m.bytecode, CAST(i.requires AS BLOB)) = 0)) ORDER BY i.requires",
+      "instr(inflate(m.bytecode), CAST(i.requires AS BLOB)) = 0)) ORDER BY i.requires",
     { text(name), { integer = if types then 1 else 0 end } })
   if rows == nil then
     error("store: " .. name .. ": " .. trouble, 3)
@@ -447,7 +472,7 @@ local function write_database(names: {string}, file: string, main: string?,
         -- Last, so the rows' order is the same whatever the script is.
         local added, why = Sqlite.run(db,
           "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
-            "VALUES (?1, ?2, 'main', ?3, X'', ?4, '', ?5)",
+            "VALUES (?1, ?2, 'main', ?3, X'', deflate(?4), '', ?5)",
           { text(script.name), text(script.name), { blob = Hash.sha256(script.source) },
             { blob = script.bytecode }, { blob = script.source } })
         if not added then
@@ -559,6 +584,10 @@ end
 --- of the sealed names, nor a module any searched database holds, nor under
 --- `cosmic.`: it raises rather than shadow one.
 ---
+--- `opts.extra` is bytecode the caller made, which nothing checks as
+--- [`Store.attach`] explains: it also needs `opts.unchecked_bytecode = true`,
+--- or this raises naming it. A project build refuses `extra`.
+---
 --- The modules of a sealed database are the program's own, and run with
 --- the trust any program the user can read runs with, raw bindings
 --- included: seal only what the user chose to run. Raises when `names`
@@ -587,6 +616,10 @@ function Store.seal(names: {string}, path?: string,
   table.sort(sorted)
   local main = opts ~= nil and opts.main or nil
   if script ~= nil then
+    if opts ~= nil and opts.unchecked_bytecode ~= true then
+      error("store: seal: extra is bytecode loaded unchecked; " ..
+          "pass unchecked_bytecode = true in the options to say so", 2)
+    end
     if main ~= nil then
       error("store: seal: main and extra are both given: the extra module is the main", 2)
     end

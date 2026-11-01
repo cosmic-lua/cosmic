@@ -1,5 +1,4 @@
---- Inference of the type parameters of a generic function ([`doc/plans/new-checker-types.md`], "calls and
---- overloads" and "generic inference is local to the call"): what each type parameter of a function type is at one
+--- Inference of the type parameters of a generic function: what each type parameter of a function type is at one
 --- call, solved from the types its arguments have and, for a parameter no argument fixes, the type the call is
 --- expected to answer. Nothing outlives the call: a [`Generics.Solver`] belongs to one.
 ---
@@ -70,8 +69,10 @@ local record Generics
     --- The variables of a pattern whose shape the type found lacked.
     tainted: mut {integer: boolean}
     mut conflicts: mut {Conflict}
-    --- Set when a type found was `invalid`: the mistake is reported already, so nothing it leaves unsolved is.
-    mut invalid: boolean
+    --- The variables a type found for was `invalid`: the mistake is reported already (an `invalid` type is made only where
+    --- one is, in this module or in one it imports), so nothing they leave unsolved is. A variable the invalid type
+    --- did not touch is reported if nothing solves it.
+    invalid_at: mut {integer: boolean}
     --- What the type expected tells, kept apart: it fills a variable nothing else fixed, and a variable only
     --- arguments below it gave takes the type it requires exactly (`hint`).
     fallback: mut {integer: Type}
@@ -173,7 +174,7 @@ end
 function Generics.new(store: Store, fn: Fn, hooks: Generics.Hooks): Generics.Solver
   return {
     store = store, fn = fn, hooks = hooks, lower = {}, upper = {}, exact = {}, lower_at = {}, upper_at = {}, exact_at = {},
-    tainted = {}, conflicts = {}, invalid = false, fallback = {}, hint = {},
+    tainted = {}, conflicts = {}, invalid_at = {}, fallback = {}, hint = {},
   }
 end
 
@@ -218,7 +219,7 @@ end
 local function bind(s: Generics.Solver, index: integer, actual: Type, dir: Generics.Direction, at: integer)
   local tag = actual.tag
   if tag == "invalid" then
-    s.invalid = true
+    s.invalid_at[index] = true
     return
   end
   if dir == "into" then
@@ -272,6 +273,22 @@ end
 local function taint(s: Generics.Solver, pattern: Type)
   walk(pattern, 0, function(index: integer)
     s.tainted[index] = true
+  end)
+end
+
+--- Whether `t` is `invalid` or holds an `invalid` part.
+local function mentions_invalid(t: Type): boolean
+  if t.tag == "invalid" then return true end
+  for _, part in ipairs(Types.parts(t)) do
+    if mentions_invalid(part) then return true end
+  end
+  return false
+end
+
+--- The variables of `pattern`, whose type found was `invalid`.
+local function mark_invalid(s: Generics.Solver, pattern: Type)
+  walk(pattern, 0, function(index: integer)
+    s.invalid_at[index] = true
   end)
 end
 
@@ -348,9 +365,12 @@ visit = function(s: Generics.Solver, pattern: Type, actual: Type, dir: Generics.
     return
   end
   if actual.tag == "invalid" then
-    s.invalid = true
+    mark_invalid(s, pattern)
     taint(s, pattern)
     return
+  elseif actual.tag == "union" and mentions_invalid(actual) then
+    -- A union with an `invalid` member stands for the mistake in it too.
+    mark_invalid(s, pattern)
   end
   if (actual.tag == "union") and not ((pattern.tag == "var")) and not ((pattern.tag == "union")) then
     -- A union of shapes (`{integer} | {string}` for `{T}`) is each member in turn: the members give `T` the type they
@@ -472,7 +492,7 @@ function Generics.expect(s: Generics.Solver, pattern: Type, expected: Type)
     return
   elseif expected.tag == "invalid" then
     -- The place was reported when it was made, and a variable only it could fix is not reported again.
-    s.invalid = true
+    mark_invalid(s, pattern)
     taint(s, pattern)
     return
   elseif expected.tag == "any" then
@@ -486,6 +506,7 @@ function Generics.expect(s: Generics.Solver, pattern: Type, expected: Type)
     target = s.store:non_nil(target)
   end
   visit(aside, pattern, target, "from", 0)
+  for index in pairs(aside.invalid_at) do s.invalid_at[index] = true end
   if #aside.conflicts > 0 then
     return
   end

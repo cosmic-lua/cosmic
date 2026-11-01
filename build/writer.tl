@@ -91,6 +91,28 @@ local prune_deflated <const> =
   "DELETE FROM deflated WHERE core <> " .. deflating_core ..
   " OR source_hash NOT IN (SELECT source_hash FROM inputs)"
 
+--- Fills `deflated_bytecode` with the compressed chunk of each compile the
+--- plan names that it does not yet hold, and drops what no plan key names
+--- or another core compressed: the compile key names the bytecode, so a
+--- row is never stale, and a first write after a change that moved no
+--- compile compresses none of cosmic's own tree's 12 MB. `skipping` leaves
+--- out the modules a base supplies ([`insert_modules_reusing`]).
+local function fill_deflated_bytecode(skipping: boolean): string
+  local unreused = ""
+  if skipping then
+    unreused = " WHERE p.path NOT IN (SELECT path FROM temp.reused)"
+  end
+  return "INSERT OR IGNORE INTO deflated_bytecode (key, core, data) " ..
+    "SELECT c.key, " .. deflating_core .. ", deflate(c.bytecode) FROM compiled c " ..
+    "WHERE c.key IN (SELECT p.key FROM plan p" .. unreused .. ") " ..
+    "AND NOT EXISTS (SELECT 1 FROM deflated_bytecode b WHERE b.key = c.key AND b.core = " ..
+    deflating_core .. ")"
+end
+
+local prune_deflated_bytecode <const> =
+  "DELETE FROM deflated_bytecode WHERE core <> " .. deflating_core ..
+  " OR key NOT IN (SELECT key FROM plan)"
+
 --- The shipped modules: this run's plan joined to the inputs it named
 --- of non-declaration kind and the compiles it found or made, with
 --- a test or example module's own names alongside.
@@ -98,7 +120,7 @@ local insert_modules =
   "INSERT INTO out.modules (path, file, kind, source_hash, key, source, " ..
   "bytecode, tests) " ..
   "SELECT i.path, i.file, i.kind, CAST(i.source_hash AS BLOB), " ..
-  "CAST(p.key AS BLOB), d.data, c.bytecode, " ..
+  "CAST(p.key AS BLOB), d.data, b.data, " ..
   "CASE WHEN i.kind = 'test' THEN coalesce((SELECT group_concat(name, " ..
   "char(10) ORDER BY ordinal) FROM tests t " ..
   "WHERE t.source_hash = i.source_hash), '') " ..
@@ -107,7 +129,8 @@ local insert_modules =
   "WHERE e.source_hash = i.source_hash), '') ELSE '' END " ..
   "FROM plan p JOIN inputs i ON i.path = p.path AND " .. AnalysisSchema.not_declaration("i.kind") .. " " ..
   "JOIN deflated d ON d.source_hash = i.source_hash AND d.core = " .. deflating_core .. " " ..
-  "JOIN compiled c ON c.key = p.key ORDER BY p.path"
+  "JOIN deflated_bytecode b ON b.key = p.key AND b.core = " .. deflating_core .. " " ..
+  "ORDER BY p.path"
 
 --- The import edges among shipped modules: what each planned module
 --- requires, kept only where the name is itself a planned module.
@@ -302,7 +325,8 @@ local insert_modules_reusing <const> =
   "SELECT i.path, i.file, i.kind, CAST(i.source_hash AS BLOB), CAST(p.key AS BLOB), " ..
   "coalesce(r.source, (SELECT d.data FROM deflated d WHERE d.source_hash = i.source_hash " ..
   "AND d.core = " .. deflating_core .. ")), " ..
-  "coalesce(r.bytecode, (SELECT c.bytecode FROM compiled c WHERE c.key = p.key)), " ..
+  "coalesce(r.bytecode, (SELECT b.data FROM deflated_bytecode b WHERE b.key = p.key " ..
+  "AND b.core = " .. deflating_core .. ")), " ..
   "CASE WHEN r.path IS NOT NULL THEN r.tests " ..
   "WHEN i.kind = 'test' THEN coalesce((SELECT group_concat(name, " ..
   "char(10) ORDER BY ordinal) FROM tests t " ..
@@ -315,7 +339,8 @@ local insert_modules_reusing <const> =
   "LEFT JOIN prev.modules r ON r.path = u.path " ..
   "WHERE u.path IS NOT NULL OR (EXISTS (SELECT 1 FROM deflated d " ..
   "WHERE d.source_hash = i.source_hash AND d.core = " .. deflating_core ..
-  ") AND EXISTS (SELECT 1 FROM compiled c WHERE c.key = p.key)) " ..
+  ") AND EXISTS (SELECT 1 FROM deflated_bytecode b WHERE b.key = p.key AND b.core = " ..
+  deflating_core .. ")) " ..
   "ORDER BY p.path"
 
 local insert_docs_reusing <const> =
@@ -411,9 +436,9 @@ end
 -- fails in a checked run for it. It waits on the change to every signature,
 -- which writes every projection again once.
 
---- The digest of the [`cosmic.mime`] this writer runs, which the `type` and
---- `gzip` of a `payload` row come from: the signature holds it, so an edit
---- to that module writes the rows again.
+--- The digest of the [`cosmic.mime`] this writer runs, which the `type`,
+--- `gzip` and `zstd` of a `payload` row come from: the signature holds it,
+--- so an edit to that module writes the rows again.
 local function mime_digest(): string
   local bytecode, _ = Store.bytecode("cosmic.mime")
   return Hash.hex_sha256(bytecode or "")
@@ -467,27 +492,75 @@ function writer.signature(handle: work.Handle, result: importer.Result,
   return signed(handle, result, pending, binary)
 end
 
+--- Drops the rows of `compressed` that this write cannot use: another
+--- core's, another [`mime_digest`]'s, and those of a file the tree no
+--- longer holds as it was (the path and the SHA-256 name a row).
+local prune_compressed <const> =
+  "DELETE FROM compressed WHERE core <> " .. deflating_core ..
+  " OR rules <> ?1 OR NOT EXISTS (SELECT 1 FROM files f WHERE f.path = 'static/' || compressed.path " ..
+  "AND f.sha256 = compressed.sha256)"
+
 --- Writes the files under `static/` as the `payload` rows a program reads
 --- them from: the path below `static/`, the bytes, their SHA-256 as staged,
---- the type [`Mime.of`] gives, and the gzip [`Mime.gzip`] finds worth
---- keeping. Both are functions of the path and bytes alone, so the
---- projection stays a function of the tree.
--- TODO: keep the gzip of a file in the working database by its hash and
--- [`mime_digest`], so an edit elsewhere in the tree does not compress every
--- asset again; the cache needs a table in [`build/schema.tl`].
+--- the type [`Mime.of`] gives, and the gzip [`Mime.gzip`] and zstd
+--- [`Mime.zstd`] find worth keeping. All are functions of the path and bytes
+--- alone, so the projection stays a function of the tree.
+---
+--- The pair is kept in `compressed` by path, SHA-256, the rules
+--- ([`mime_digest`]) and the core that compressed it, as `deflated` keeps a
+--- source's, so a write compresses only a file whose bytes are new; a cached
+--- row is what [`Mime.gzip`] and [`Mime.zstd`] would give, so the projection
+--- is the same bytes with or without it.
 local function fill_payload(db: Sqlite.Handle): boolean, string
+  local rules = mime_digest()
+  local pruned, prune_trouble = Sqlite.run(db, prune_compressed, { text(rules) })
+  if not pruned then
+    return false, prune_trouble
+  end
   local files, trouble = Sqlite.text_rows(db,
-    "SELECT substr(path, 8), data, sha256 FROM files WHERE path GLOB 'static/*' ORDER BY path")
+    "SELECT substr(f.path, 8), f.data, f.sha256, c.path IS NOT NULL, c.gzip, c.zstd " ..
+      "FROM files f LEFT JOIN compressed c ON c.path = substr(f.path, 8) AND c.sha256 = f.sha256 " ..
+      "AND c.rules = ?1 AND c.core = " .. deflating_core ..
+      " WHERE f.path GLOB 'static/*' ORDER BY f.path", { text(rules) })
   if files == nil then
     return false, trouble
   end
   for _, row in ipairs(files) do
     local path, data, sha256 = row:text(1), row:text(2), row:text(3)
-    local packed = Mime.gzip(path, data)
+    local null: Sqlite.Value = {}
+    local packed: string? = nil
+    local zstd: string? = nil
+    if row:text(4) == "1" then
+      packed = if row:is_null(5) then nil else row:text(5) end
+      zstd = if row:is_null(6) then nil else row:text(6) end
+    else
+      local gzip_trouble = ""
+      local zstd_trouble = ""
+      packed, gzip_trouble = Mime.gzip(path, data)
+      zstd, zstd_trouble = Mime.zstd(path, data)
+      -- A failed encoder ships the file as it is, as a file not worth
+      -- compressing does, but leaves no row: nil would be kept for good.
+      -- The rows are written inside the working transaction, so an
+      -- interrupted cold write keeps none of them; committing per file
+      -- would split the transaction the projection is built in.
+      if gzip_trouble == "" and zstd_trouble == "" then
+        local kept, kept_trouble = Sqlite.run(db,
+          "INSERT OR REPLACE INTO compressed (path, sha256, rules, core, gzip, zstd) " ..
+            "VALUES (?1, ?2, ?3, " .. deflating_core .. ", ?4, ?5)",
+          { text(path), text(sha256), text(rules),
+            if packed ~= nil then blob(packed) else null end,
+            if zstd ~= nil then blob(zstd) else null end })
+        if not kept then
+          return false, "static/" .. path .. ": " .. kept_trouble
+        end
+      end
+    end
     local ok, failure = Sqlite.run(db,
-      "INSERT INTO out.payload (path, data, sha256, type, gzip) VALUES (?1, ?2, ?3, ?4, ?5)",
+      "INSERT INTO out.payload (path, data, sha256, type, gzip, zstd) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
       { text(path), blob(data), text(sha256), text(Mime.of(path)),
-        packed ~= nil and blob(packed) or {} })
+        if packed ~= nil then blob(packed) else null end,
+        if zstd ~= nil then blob(zstd) else null end })
     if not ok then
       return false, "static/" .. path .. ": " .. failure
     end
@@ -665,6 +738,8 @@ local function project(handle: work.Handle,
   local statements: mut {string} = {}
   statements[#statements + 1] = prune_deflated
   statements[#statements + 1] = fill_deflated
+  statements[#statements + 1] = prune_deflated_bytecode
+  statements[#statements + 1] = fill_deflated_bytecode(reusing)
   statements[#statements + 1] = choose(reusing, insert_modules_reusing, insert_modules)
   statements[#statements + 1] = insert_imports
   statements[#statements + 1] = insert_decl_imports

@@ -1023,3 +1023,51 @@ local function test_a_second_zstd_frame_in_an_entry_counts_against_its_size()
   local data, trouble = read_f(zstd_zip_by_hand(frame .. zstd_frame("more"), crc32_reference(text), #text))
   assert(data == nil and trouble:find("larger than its recorded size", 1, true) ~= nil, trouble)
 end
+
+--- `entry` finds an entry by its path, the first where two share it,
+--- and names a path the archive does not hold.
+local function test_entry_finds_an_entry_by_path()
+  local out = Stream.collect()
+  local w = Zip.writer(out)
+  assert(w:add_file("a.txt", "one"))
+  assert(w:add_file("dir/b.txt", "two"))
+  assert(w:add_file("a.txt", "again"))
+  assert(w:close())
+  local r = assert(Zip.open_string(out:result()))
+  local b = assert(r:entry("dir/b.txt"))
+  assert(assert(Stream.read_all((assert(b:open())))) == "two")
+  local a = assert(r:entry("a.txt"))
+  assert(assert(Stream.read_all((assert(a:open())))) == "one")
+  local none, why = r:entry("c.txt")
+  assert(none == nil and why == 'zip: no entry "c.txt"', why)
+  assert(r:close())
+end
+
+--- With `ignore_case`, a path matches whatever the case of its ASCII
+--- letters, the first of the entries that match standing; without it,
+--- only the exact path does.
+local function test_entry_ignores_case_when_asked()
+  local out = Stream.collect()
+  local w = Zip.writer(out)
+  assert(w:add_file("XL/Workbook.xml", "one"))
+  assert(w:add_file("xl/workbook.XML", "two"))
+  assert(w:close())
+  local r = assert(Zip.open_string(out:result()))
+  local found = assert(r:entry("xl/workbook.xml", { ignore_case = true }))
+  assert(found.path == "XL/Workbook.xml", found.path)
+  local none, why = r:entry("xl/workbook.xml")
+  assert(none == nil and why == 'zip: no entry "xl/workbook.xml"', why)
+  assert(assert(r:entry("xl/workbook.XML")).path == "xl/workbook.XML")
+  local missing, any_case = r:entry("xl/other.xml", { ignore_case = true })
+  assert(missing == nil and any_case == 'zip: no entry "xl/other.xml" in any case', any_case)
+  assert(r:close())
+  -- Only ASCII letters fold: É and é are other letters, as part names hold them.
+  local accented = Stream.collect()
+  local aw = Zip.writer(accented)
+  assert(aw:add_file("\u{C9}t\u{E9}.txt", "summer"))
+  assert(aw:close())
+  local ar = assert(Zip.open_string(accented:result()))
+  assert(ar:entry("\u{C9}T\u{E9}.TXT", { ignore_case = true }) ~= nil)
+  assert(ar:entry("\u{E9}t\u{E9}.txt", { ignore_case = true }) == nil)
+  assert(ar:close())
+end

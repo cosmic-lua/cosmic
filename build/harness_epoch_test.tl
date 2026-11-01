@@ -211,11 +211,18 @@ end
 --- `copy` with the `column` of `name`'s row edited, its source
 --- (`source_hash`) or its bytecode, and the row put back.
 local function edited_digests(copy: Sqlite.Handle, name: string, column: string): test_key.Harness
-  assert(Sqlite.run(copy, "UPDATE modules SET " .. column .. " = " .. column ..
-      " || X'00' WHERE path = ?1", { { text = name } }))
+  -- The bytecode is stored deflated, so a byte is added to what it
+  -- inflates to, and taken from it again.
+  local plain = if column == "bytecode" then "inflate(bytecode)" else column end
+  local function stored(value: string): string
+    return if column == "bytecode" then "deflate(" .. value .. ")" else value end
+  end
+  assert(Sqlite.run(copy, "UPDATE modules SET " .. column .. " = " .. stored(plain .. " || X'00'") ..
+      " WHERE path = ?1", { { text = name } }))
   local found, trouble = test_key.harness(copy)
-  assert(Sqlite.run(copy, "UPDATE modules SET " .. column .. " = substr(" .. column ..
-      ", 1, length(" .. column .. ") - 1) WHERE path = ?1", { { text = name } }))
+  assert(Sqlite.run(copy, "UPDATE modules SET " .. column .. " = " ..
+      stored("substr(" .. plain .. ", 1, length(" .. plain .. ") - 1)") ..
+      " WHERE path = ?1", { { text = name } }))
   assert(found ~= nil, trouble)
   return found
 end
@@ -264,7 +271,7 @@ end
 
 --- A `retired` of the bare counts "1" to `n`, as build/harness_epoch.tl's
 --- begins with the counts of the epochs that had no token.
-local function counted(n: integer): {string}
+local function counted(n: integer): mut {string}
   local retired: mut {string} = {}
   for i = 1, n do retired[i] = tostring(i) end
   return retired
@@ -330,11 +337,11 @@ local function test_the_guard_holds_the_epoch_to_its_retired_tokens()
   local skipped = assert(epoch_trouble("9-072f7458", retired))
   assert(skipped:find("count is 9, not 8", 1, true), skipped)
   local more = counted(7)
-  more[8] = "072f7458"
+  more[#more + 1] = "072f7458"
   local kept = assert(epoch_trouble("9-072f7458", more))
   assert(kept:find("072f7458 is retired", 1, true), kept)
   local twice = counted(7)
-  twice[8] = "7"
+  twice[#twice + 1] = "7"
   local doubled = assert(epoch_trouble("9-aaaaaaaa", twice))
   assert(doubled:find('holds "7" twice', 1, true), doubled)
   -- Two branches bump from one value.
@@ -528,7 +535,7 @@ local function test_value_imports_follows_every_spelling_of_a_require()
     '  "cosmic.env")',
     'return a, b',
   }, "\n"))), true)
-  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.x', 'module', ?1)",
+  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.x', 'module', deflate(?1))",
     { { blob = compiled } }))
   for _, wanted in ipairs({ "cosmic.fs", "cosmic.env", "cosmic.child" }) do
     assert(Sqlite.run(db, "INSERT INTO imports VALUES ('build.x', ?1)", { { text = wanted } }))
@@ -551,9 +558,9 @@ local function test_type_only_imports_is_what_value_imports_drops()
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, bytecode BLOB); " ..
       "CREATE TABLE imports (path TEXT, requires TEXT)"))
   local compiled = string.dump(assert(load('local a = require"cosmic.fs" return a')), true)
-  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.x', 'module', ?1)",
+  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.x', 'module', deflate(?1))",
     { { blob = compiled } }))
-  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.t_test', 'test', ?1)",
+  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.t_test', 'test', deflate(?1))",
     { { blob = compiled } }))
   for _, row in ipairs({ { "build.x", "cosmic.fs" }, { "build.x", "cosmic.child" },
       { "build.y", "cosmic.time" }, { "build.t_test", "cosmic.child" } }) do

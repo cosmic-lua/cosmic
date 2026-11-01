@@ -1,14 +1,16 @@
 --- The rows of one parse that the syntax tree gives, written where [`build.derivation`] writes a parse's rows: what the
 --- source requires, whether it returns a value and under what name, the tests it defines and the policy it declares,
 --- the failure messages it catalogs, the symbols it documents, the members of other modules it refers to, the names it
---- binds to a module, its worked examples, the links of its comments, where it declares a global, and its stub. It is
---- the port of [`build.derivation`]'s `parse_fresh` for a source already parsed ([`build.syntax_analyzer`] and
---- [`build.syntax_link_text`] read it), which [`build.pipeline`]'s `derive` calls in the mode `COSMIC_GRAMMAR=new` chooses.
+--- binds to a module, its worked examples, the links of its comments, where it declares a global, where it declares a
+--- type or a member of one, and its stub. It is the port of [`build.derivation`]'s `parse_fresh` for a source already
+--- parsed ([`build.syntax_analyzer`] and [`build.syntax_link_text`] read it), which [`build.pipeline`]'s `derive` calls
+--- in the mode `COSMIC_GRAMMAR=new` chooses.
 local Analyzer = require("build.syntax_analyzer")
 local Ast = require("lang.ast")
 local Globals = require("build.syntax_globals")
 local LinkText = require("build.link_text")
 local Node = require("build.syntax_node")
+local Places = require("build.syntax_places")
 local Sqlite = require("cosmic.sqlite")
 local Stub = require("build.syntax_stub")
 local SyntaxLinkText = require("build.syntax_link_text")
@@ -19,6 +21,9 @@ local record Derivation
   record Rows
     requires: {string}
     globals: {Globals.Place}
+    --- Where it declares the types and members that other modules name. A source that is generated from another
+    --- (`mapped`) keeps none: its lines are not the file's.
+    places: {Places.Found}
     --- The stub of a source that returns a value, nil for one that returns nothing (a test, as a rule): it is no module
     --- a checker reads in place of anything.
     stub: Stub.Made?
@@ -93,8 +98,12 @@ function Derivation.rows_of(chunk: Ast.Chunk, source: string, file: string, mapp
   if not mapped then
     links = SyntaxLinkText.found(chunk, scoped, source)
   end
-  return { requires = Node.requires(chunk), globals = Globals.found(chunk), stub = stub, analysis = analysis,
-    links = links }, ""
+  local places: {Places.Found} = {}
+  if not mapped then
+    places = Places.found(chunk)
+  end
+  return { requires = Node.requires(chunk), globals = Globals.found(chunk), places = places, stub = stub,
+    analysis = analysis, links = links }, ""
 end
 
 --- A row of `test_inputs`: a `field` of the declaration and its `value`.
@@ -237,6 +246,15 @@ function Derivation.insert(db: Sqlite.Handle, source_hash: string, file: string,
   for ordinal, place in ipairs(rows.globals) do
     ok, why = put("INSERT INTO globals (source_hash, ordinal, line, column) VALUES (?1, ?2, ?3, ?4)",
       { hash, { integer = ordinal }, { integer = place.line }, { integer = place.column } })
+    if not ok then
+      return false, why
+    end
+  end
+  for ordinal, place in ipairs(rows.places) do
+    ok, why = put("INSERT INTO places (source_hash, ordinal, symbol, kind, line, column, length) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+      { hash, { integer = ordinal }, text(place.symbol), text(place.kind), { integer = place.line },
+        { integer = place.column }, { integer = place.length } })
     if not ok then
       return false, why
     end

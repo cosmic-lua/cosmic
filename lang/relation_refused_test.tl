@@ -1,4 +1,4 @@
---- The programs the fork accepts and the plan refuses, as relation questions. The comment of each
+--- The programs the fork accepts and the new checker refuses, as relation questions. The comment of each
 --- test names the test of build/teal_test.tl that pins the hole, and the test states the types
 --- of the program (the declarations, the annotations and the types of the values it passes) and
 --- the verdict of [`lang.relation`]. A test holds what is relation: a type that stands where another is

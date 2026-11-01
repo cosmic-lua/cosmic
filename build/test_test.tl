@@ -227,7 +227,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   end
   local function set(name: string, source: string, bytecode: string)
     assert(Sqlite.run(db, "DELETE FROM modules WHERE path = ?", { { text = name } }))
-    assert(Sqlite.run(db, "INSERT INTO modules VALUES (?, ?, ?, ?)", { { text = name },
+    assert(Sqlite.run(db, "INSERT INTO modules VALUES (?, ?, ?, deflate(?))", { { text = name },
       { text = if name == "cmd.cosmic.main" then "main" else "module" end },
       { blob = Hash.hex_sha256(source) }, { blob = bytecode .. (named_in[name] or "") } }))
   end
@@ -342,7 +342,7 @@ local function test_the_harness_walks_the_key_code_by_value()
   }
   local function add(name: string)
     local source = sources[name] or "return 1\n"
-    assert(Sqlite.run(db, "INSERT INTO modules VALUES (?, ?, ?, ?)", { { text = name },
+    assert(Sqlite.run(db, "INSERT INTO modules VALUES (?, ?, ?, deflate(?))", { { text = name },
       { text = if name == "cmd.cosmic.main" then "main" else "module" end },
       { blob = Hash.hex_sha256(source) },
       { blob = string.dump(assert(load(source)), true) } }))
