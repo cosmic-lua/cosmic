@@ -9,6 +9,7 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local formats = require("build.cache_formats")
+local quoted = require("build.sql_name").quoted
 
 local record maintenance
   enum Family
@@ -76,10 +77,6 @@ local function close(database: Database): boolean, string
   if not ok then return false, why end
   database.db = nil
   return true, ""
-end
-
-local function quoted(name: string): string
-  return '"' .. name:gsub('"', '""') .. '"'
 end
 
 local function count(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): integer?, string
