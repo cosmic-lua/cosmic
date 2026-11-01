@@ -80,20 +80,21 @@ local function test_a_request_without_pace_does_not_wait_on_a_pacer()
   assert(Clock.monotonic_ns() - began < Clock.seconds(5), "an unpaced request waited")
 end
 
---- The retry's wait (300 ms from the first request's start) is longer than
---- the interval (200 ms), so the pacer adds nothing to it; with the sum the
---- retry would take 500 ms.
+--- The retry's wait (600 ms from the first request's start) is longer than
+--- the interval (400 ms), so the pacer adds nothing to it; with the sum the
+--- retry would take 1000 ms. The bound between leaves a slow host's
+--- scheduling room on either side.
 local function test_a_retry_waits_the_longer_of_its_wait_and_the_interval()
-  local pacer = Http.pacer(Clock.ms(200))
+  local pacer = Http.pacer(Clock.ms(400))
   local began = Clock.monotonic_ns()
   local got = assert(Http.get(url, {
-    pace = pacer, retry = { attempts = 2, backoff_ns = Clock.ms(300) },
+    pace = pacer, retry = { attempts = 2, backoff_ns = Clock.ms(600) },
     script = { reply(1, "503 Service Unavailable", ""), reply(2, "200 OK", "") },
   }))
   local took = Clock.monotonic_ns() - began
   assert(got.status == 200 and got.headers["x-n"] == "2", tostring(got.status))
-  assert(took >= Clock.ms(280), "the retry did not wait out its backoff: " .. tostring(took))
-  assert(took < Clock.ms(450), "the pacer's wait was added to the retry's: " .. tostring(took))
+  assert(took >= Clock.ms(580), "the retry did not wait out its backoff: " .. tostring(took))
+  assert(took < Clock.ms(850), "the pacer's wait was added to the retry's: " .. tostring(took))
 end
 
 --- The other way round: the interval (200 ms) outlasts the retry's wait
@@ -140,21 +141,22 @@ local function test_cancelled_during_a_pacer_wait_stops_waiting()
 end
 
 --- A request cut short while it waited did not start, so it leaves the
---- pacer's last start where it was. Cut short 200 ms in, a stamp would put
---- the next request at 600 ms; left alone, it is due at 400.
+--- pacer's last start where it was. Cut short 500 ms in, a stamp would put
+--- the next request at 1500 ms at least; left alone, it is due at 1000. The
+--- bound between leaves a slow host's scheduling room on either side.
 local function test_an_interrupted_wait_does_not_mark_a_start()
-  local pacer = Http.pacer(Clock.ms(400))
+  local pacer = Http.pacer(Clock.seconds(1))
   local began = Clock.monotonic_ns()
   assert(Http.get(url, { pace = pacer, script = ok_script() }))
   local _, why = Http.get(url, {
     pace = pacer, script = ok_script(),
-    cancelled = function(): boolean return Clock.monotonic_ns() - began > Clock.ms(200) end,
+    cancelled = function(): boolean return Clock.monotonic_ns() - began > Clock.ms(500) end,
   })
   assert(why == "interrupted", tostring(why))
   assert(Http.get(url, { pace = pacer, script = ok_script() }))
   local took = Clock.monotonic_ns() - began
-  assert(took >= Clock.ms(380), "the third request did not wait: " .. tostring(took))
-  assert(took < Clock.ms(520), "the interrupted wait marked a start: " .. tostring(took))
+  assert(took >= Clock.ms(980), "the third request did not wait: " .. tostring(took))
+  assert(took < Clock.ms(1400), "the interrupted wait marked a start: " .. tostring(took))
 end
 
 --- A request that fails to connect still counts as a start: the attempt
