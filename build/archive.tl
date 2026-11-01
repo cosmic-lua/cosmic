@@ -920,8 +920,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     local members: mut {string} = {}
     for slot = 3, #words do
-      local word = words[slot]
-      if word ~= nil then members[#members + 1] = word end
+      members[#members + 1] = words[slot]
     end
     outcome = extract(archive_file, flags.values["-C"] or ".", flags.set["--force"] or false,
       members, to)
@@ -933,8 +932,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     local paths: mut {string} = {}
     for slot = 3, #words do
-      local word = words[slot]
-      if word ~= nil then paths[#paths + 1] = word end
+      paths[#paths + 1] = words[slot]
     end
     outcome = create(output, paths, flags.set["--reproducible"] or false, to)
   end

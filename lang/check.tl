@@ -248,6 +248,8 @@ local record Fill
   var: integer
   --- The local `t`, as the loop writes it.
   object: Ast.Exp
+  --- Whether the loop steps by 1 (no step, or a literal 1), so that it reaches each key from its start to `#t`.
+  unit: boolean
 end
 
 --- What a loop whose index counts 1, 2, 3 and so on, and writes `a[i]` in every pass before any `continue`, knows of the
@@ -912,8 +914,12 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
       local xs = e.object
       report(ctx, "index_may_be_nil", node, s .. " is " .. quoted(g) .. " (an index read may be nil), where " ..
           quoted(w) .. " is wanted" .. where,
-        "read it into a local and test it (`local v = " .. text_of(ctx, e) .. " if v ~= nil then ... end`), or iterate " ..
-          "with `for _, v in ipairs(" .. text_of(ctx, xs) .. ")`", shown)
+        "iterate with `for _, v in ipairs(" .. text_of(ctx, xs) .. ")`, count the keys with `for i = 1, #" ..
+          text_of(ctx, xs) .. " do` (a body that leaves " .. quoted(text_of(ctx, xs)) .. " alone reads " ..
+          quoted(text_of(ctx, e)) .. " as a value), read it with `Array.at(" .. text_of(ctx, xs) .. ", " ..
+          text_of(ctx, e.key) .. ")` (`cosmic.array`: raises when missing) or `assert(" .. text_of(ctx, e) ..
+          ")`, or test it (`local v = " .. text_of(ctx, e) .. " if v ~= nil then ... end`); `or <default>` turns an " ..
+          "out-of-range read into a wrong value", shown)
     else
       report(ctx, "nil_not_allowed", node, s .. " is " .. quoted(g) .. ", so it may be nil, where " .. quoted(w) ..
           " is wanted" .. where, nil_fix(ctx, node), shown)
@@ -3288,6 +3294,10 @@ local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
     local maybe = store:optional(element)
     if Tests.length_proves(ctx, node.object, node.key) then
       -- Checked at run time like a narrowed local: a length fact has no other check.
+      note_narrowed(ctx, node, maybe, element)
+      return element
+    end
+    if Writes.counted_read(ctx, node) then
       note_narrowed(ctx, node, maybe, element)
       return element
     end
@@ -6239,6 +6249,10 @@ function Writes.keeps_length(body: Ast.Node, array: integer, var: integer): bool
         end
       end
     elseif (node.kind == "Assign") then
+      -- A target with no value of its own is given nil.
+      if #node.values < #node.targets then
+        marks[#marks + 1] = true
+      end
       for i, target in ipairs(node.targets) do
         local value = node.values[i]
         if (target.kind == "Name") then
@@ -6293,7 +6307,35 @@ function Writes.fill_of(s: Ast.ForNum): Fill?
   if held == nil or not Writes.keeps_length(s.body, held, s.var.id) then
     return nil
   end
-  return { var = s.var.id, object = object }
+  local unit = true
+  if step ~= nil then
+    local given = peel(step)
+    unit = given.kind == "Integer" and given.value == 1
+  end
+  return { var = s.var.id, object = object, unit = unit }
+end
+
+--- Whether `node`, a read of an array, reads it at the index of a loop that counts its keys ([`Writes.fill_of`]) from a
+--- literal of 1 or more by 1 to `#t`, with `t` the local the read names. The loop has run `i - 1` passes and `t` has kept
+--- every key it had at the start (`#t` of them) through each, so `t[i]` is a key it has: the read is the element type,
+--- not an optional. A function made in the body begins with no loop around it ([`function_body`]), so a read there, which
+--- may run when `t` is shorter, stays optional. The proof holds for a program the checker accepts: a write of a value that
+--- may be nil into `t` is an error of its own statement, and a checked run (`cosmic test --check-types`) tests the read.
+---
+--- TODO: read the index of a loop whose body calls a function, once the checker can show that no code the call runs names
+--- the array (`Writes.unreachable` shows it only for a local made `{}`): a body with a call keeps the read `T?` now.
+function Writes.counted_read(ctx: Ctx, node: Ast.Index): boolean
+  local key = peel(node.key)
+  if key.kind ~= "Name" or key.binding == nil then
+    return false
+  end
+  for _, loop in ipairs(ctx.loops) do
+    local fill = loop.fill
+    if fill ~= nil and fill.unit and key.binding == fill.var and Writes.same_place(fill.object, node.object) then
+      return true
+    end
+  end
+  return false
 end
 
 --- Whether `child`, a name read in `parent`, only indexes the table it names, takes its length, returns it or hands it to a

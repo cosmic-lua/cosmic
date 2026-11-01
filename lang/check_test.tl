@@ -1435,6 +1435,75 @@ local function test_no_metamethod_runs_in_the_body_of_a_fill_loop_while_three_re
       "  saved = function() u[i] = 1 end\nend\n") == "array_hole")
 end
 
+local LOOPED <const> = "local record Holder\n  items: {integer}\nend\n" ..
+  "local function other(v: {integer}): integer\n  return #v\nend\n" ..
+  "local xs: mut {integer} = { 1, 2, 3 }\nlocal ys: mut {integer} = { 4 }\nlocal h: Holder = { items = xs }\n" ..
+  "local fns: mut {function(): integer} = {}\nlocal total = 0\n"
+
+local function counted(loop: string): string
+  return codes_of(LOOPED .. loop)
+end
+
+local function test_the_hint_of_an_index_read_names_the_loop_and_the_checked_read_and_steers_from_a_default()
+  local r = Programs.run("local xs: {integer} = {}\nlocal n: integer = xs[2]\n")
+  local e = r.errors[1]
+  assert(e ~= nil and e.code == "index_may_be_nil")
+  for _, part in ipairs({ "for i = 1, #xs do", "Array.at(xs, 2)", "assert(xs[2])", "ipairs(xs)", "or <default>",
+      "a wrong value" }) do
+    assert(has(e.fix, part), part .. " is not in " .. e.fix)
+  end
+end
+
+local function test_a_read_at_the_index_of_a_loop_over_the_length_of_the_array_is_not_optional()
+  assert(counted("for i = 1, #xs do\n  total = total + xs[i]\nend\n") == "")
+  assert(counted("for i = 2, #xs do\n  total = total + xs[i]\nend\n") == "")
+  assert(counted("for i = 1, #xs, 1 do\n  total = total + xs[i]\nend\n") == "")
+  -- an element is overwritten in place, and a nested loop keeps the outer index
+  assert(counted("for i = 1, #xs do\n  xs[i] = xs[i] * 2\nend\n") == "")
+  assert(counted("for i = 1, #xs do\n  for j = 1, #xs do\n    total = total + xs[i] * xs[j]\n  end\nend\n") == "")
+  assert(counted("for i = 1, #xs do\n  for j = 1, #ys do\n    total = total + xs[i]\n  end\nend\n") == "")
+  -- a view parameter, whose elements are views, and a record element
+  assert(codes_of("local function sum(v: {integer}): integer\n  local s = 0\n  for i = 1, #v do\n    s = s + v[i]\n  end\n" ..
+      "  return s\nend\n") == "")
+  assert(codes_of("local record R\n  name: string\nend\nlocal function size(v: {R}): integer\n  local n = 0\n" ..
+      "  for i = 1, #v do\n    n = n + #v[i].name\n  end\n  return n\nend\n") == "")
+  -- an upvalue is a local the loop's function reads
+  assert(counted("local function sum(): integer\n  local s = 0\n  for i = 1, #xs do\n    s = s + xs[i]\n  end\n  return s\nend\n" ..
+      "total = sum()\n") == "")
+end
+
+local function test_a_read_at_the_index_of_a_counted_loop_stays_optional_where_the_loop_is_not_the_proof()
+  -- `also` is the other code the program has, which does not change the verdict on the read
+  local function stays(loop: string, also?: string)
+    local got = counted(loop)
+    local want = if also == nil then "index_may_be_nil" else also .. " index_may_be_nil" end
+    assert(got == want, got .. " in\n" .. loop)
+  end
+  -- the loop does not count the keys of the array read
+  stays("for i = 1, #xs, 2 do\n  total = xs[i]\nend\n")
+  stays("for i = 0, #xs do\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs - 1 do\n  total = xs[i]\nend\n")
+  stays("for i = 1, #ys do\n  total = xs[i]\nend\n")
+  stays("for i = 1, 3 do\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  total = xs[i + 1]\nend\n")
+  stays("for i = 1, #xs do\n  total = xs[#xs]\nend\n")
+  stays("for i = 1, #xs do\n  for j = 1, #ys do\n    total = xs[j]\n  end\nend\n")
+  stays("for i = 1, #h.items do\n  total = h.items[i]\nend\n")
+  -- the body may shorten the array, or lose it
+  stays("for i = 1, #xs do\n  table.remove(xs)\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  table.insert(xs, 1)\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  local n = other(xs)\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  print(i)\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  local u = (\"a\"):upper()\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  xs = {}\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  xs[#xs] = nil\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  xs[i + 1] = 1\n  total = xs[i]\nend\n", "array_hole")
+  stays("for i = 1, #xs do\n  ys[#ys] = nil\n  total = xs[i]\nend\n")
+  -- (an assignment to `i` is refused before the check, as `const_assigned`)
+  -- a function made in the loop may run when the array is shorter
+  stays("for i = 1, #xs do\n  fns[#fns + 1] = function(): integer\n    return xs[i]\n  end\nend\n")
+end
+
 local function test_a_removal_of_the_last_element_is_held_to_a_mut_array_and_a_write_there_is_not_one()
   -- a view cannot be written
   assert(has(codes_of("local function f(xs: {integer})\n  xs[#xs] = nil\nend\n"), "view_written"))
