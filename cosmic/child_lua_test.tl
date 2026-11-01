@@ -615,6 +615,18 @@ local function test_a_wait_refuses_a_timeout_out_of_range()
   assert(r.code == 4)
 end
 
+--- A handle is a class, so a `<close>` local holds it: leaving the block ends
+--- a child still running and reaps it, and a handle closed that way is settled.
+local function test_a_handle_held_in_a_close_local_is_closed_at_the_end_of_the_block()
+  local pid: integer = 0
+  do
+    local h <close> = assert(Child.start(lua(sleep(30000))))
+    pid = h.pid
+    assert(path_exists("/proc/" .. tostring(pid)), "the child runs inside the block")
+  end
+  assert(not path_exists("/proc/" .. tostring(pid)), "the block's end ended and reaped the child")
+end
+
 local function test_wait_any_refuses_a_timeout_out_of_range()
   local slow <close> = assert(Child.start(lua(sleep(5000))))
   for _, bad in ipairs({ -1, math.mininteger, Poll.MOST_NS + 1 }) do
