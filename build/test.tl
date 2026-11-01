@@ -274,6 +274,12 @@ function test.selects(selector: string, path: string, file: string, name: string
   return test.matches(selector, path, file) and (named == nil or named == name)
 end
 
+--- The module name a refused file would have: its path without `.tl`, the slashes dots. A refusal line carries only the
+--- file, so a selector that names the module is matched against this.
+local function module_of_file(file: string): string
+  return (file:gsub("%.tl$", ""):gsub("/", "."))
+end
+
 --- Of the compile's refusals `lines` ([`importer.Result`]'s `refused`, each beginning with its file), those a run fails
 --- for: all of them for a run that names no test, and for one that does the refusals of the files its selectors choose. A test
 --- module that requires a refused module is refused itself, which a selector that names it says, so a refusal elsewhere in the
@@ -284,7 +290,7 @@ function test.refusals_of(lines: {string}, selectors: {string}): {string}
     local file = line:match("^([^:\n]+)") or line
     local named = #selectors == 0
     for _, selector in ipairs(selectors) do
-      if test.matches(selector, "", file) then
+      if test.matches(selector, module_of_file(file), file) then
         named = true
       end
     end
@@ -296,10 +302,10 @@ function test.refusals_of(lines: {string}, selectors: {string}): {string}
 end
 
 --- What a run that names files shows of the compile's refusals `lines` ([`importer.Result`]'s `refused`) for the
---- `selectors` that match a refused file: the refusals that hold those files out, `roots` ([`importer.Result`]'s
---- `refusal_roots`) giving their positions in `lines`, ahead of the lines of the files themselves, each once. Of a file that
---- requires a refused module that is one line, so a dependent never buries the diagnostic it rests on. Also the selectors
---- that matched such a file.
+--- `selectors` that match a refused file, by path or by module name. First the refusals that hold those files out
+--- (`roots`, [`importer.Result`]'s `refusal_roots`, gives their positions in `lines`), then the lines of the files
+--- themselves, each line once. A file that requires a refused module has one line, so a dependent never buries the
+--- diagnostic it rests on. Also the selectors that matched such a file.
 function test.explained(lines: {string}, roots: {string:{integer}}, selectors: {string}): test.Explained
   local explained: mut {string:boolean} = {}
   local named: mut {integer:boolean} = {}
@@ -307,7 +313,7 @@ function test.explained(lines: {string}, roots: {string:{integer}}, selectors: {
   for position, line in ipairs(lines) do
     local file = line:match("^([^:\n]+)") or line
     for _, selector in ipairs(selectors) do
-      if test.matches(selector, "", file) then
+      if test.matches(selector, module_of_file(file), file) then
         explained[selector] = true
         named[position] = true
       end

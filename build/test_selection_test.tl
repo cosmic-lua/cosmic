@@ -317,6 +317,54 @@ local function test_a_named_file_whose_module_was_refused_is_shown_the_refusal_n
   assert(missing_text:find("no test module matches: nothing_test.tl", 1, true) ~= nil, missing_text)
 end
 
+--- What a refused module's file shows for a named run, however the module is named or reached.
+local function test_a_named_run_shows_the_refusals_whichever_way_the_file_is_named_or_reached(tmp: string)
+  local bad = 'local n: integer = "x"\nreturn n\n'
+  local passing = "local function test_it()\n  assert(true)\nend\n"
+  local record Case
+    name: string
+    files: {string:string}
+    selector: string
+    shown: {string}
+    absent?: {string}
+  end
+  local cases: {Case} = {
+    { name = "module", files = { ["pkg/x.tl"] = bad,
+      ["pkg/x_test.tl"] = 'local x = require("pkg.x")\n' .. passing }, selector = "pkg.x_test",
+      shown = { "pkg/x.tl:1:", "pkg/x_test.tl: not compiled" } },
+    { name = "chain", files = { ["c.tl"] = bad, ["b.tl"] = 'local c = require("c")\nreturn c\n',
+      ["a_test.tl"] = 'local b = require("b")\n' .. passing }, selector = "a_test.tl",
+      shown = { "c.tl:1:", "a_test.tl: not compiled" }, absent = { "b.tl: not compiled" } },
+    { name = "itself", files = { ["a_test.tl"] = "local n: integer = \"x\"\n" .. passing }, selector = "a_test.tl",
+      shown = { "a_test.tl:1:", "a_test.tl did not compile" } },
+    { name = "parse", files = { ["a_test.tl"] = "local function test_it(\n" }, selector = "a_test.tl",
+      shown = { "a_test.tl", "a_test.tl did not compile" } },
+  }
+  for _, case in ipairs(cases) do
+    local root = tmp .. "/" .. case.name
+    for file, source in pairs(case.files) do
+      assert(Fs.mkdirs(Fs.dirname(root .. "/" .. file)))
+      assert(Fs.write(root .. "/" .. file, source))
+    end
+    local output = tmp .. "/" .. case.name .. ".out"
+    local result = invoke(root, output, case.selector)
+    local text = assert(Fs.read(output))
+    assert(not result.ok, text)
+    assert(not text:find("no test module matches", 1, true), case.name .. ": " .. text)
+    local at = 0
+    for _, word in ipairs(case.shown) do
+      local found = text:find(word, 1, true)
+      assert(found ~= nil and found > at, case.name .. ": " .. word .. " in order in: " .. text)
+      at = found
+    end
+    local absent = case.absent
+    if absent == nil then absent = {} end
+    for _, word in ipairs(absent) do
+      assert(not text:find(word, 1, true), case.name .. ": " .. text)
+    end
+  end
+end
+
 --- `runs.elapsed_ns` is how long the test function took, not merely a
 --- value: a test that sleeps 50 ms is recorded as taking at least that,
 --- and well under 5 s.
