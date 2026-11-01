@@ -305,6 +305,34 @@ local function test_a_database_of_another_schema_is_let_go_of()
   source.close(src)
 end
 
+--- A stage that refused a pair is told of it by the files of the pair, whichever of the two is asked, and by no other file;
+--- a pair under `testdata/` is a fixture of a test, no part of the program, and is told nothing. The stage that staged
+--- clears it.
+local function test_a_refused_pair_is_told_to_its_files_and_to_no_testdata()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.mkdirs(root .. "/testdata"))
+  local text = "local record M\n  n: integer\nend\nreturn M\n"
+  for _, dir in ipairs({ "lib", "testdata" }) do
+    assert(Fs.write(root .. "/" .. dir .. "/m.d.tl", text))
+    assert(Fs.write(root .. "/" .. dir .. "/m.tl", text))
+  end
+  assert(Fs.write(root .. "/lib/other.tl", "local n: integer = 1\nreturn n\n"))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  assert(source.refused(src), "the stage staged a pair")
+  local told = source.refusal(src, "lib/m.tl")
+  assert(told ~= nil and told:find("lib/m.d.tl: lib/m.tl is already the module lib.m.", 1, true) == 1, tostring(told))
+  assert(source.refusal(src, "lib/m.d.tl") == told)
+  assert(source.refusal(src, "lib/other.tl") == nil)
+  assert(source.refusal(src, "testdata/m.tl") == nil and source.refusal(src, "testdata/m.d.tl") == nil)
+  assert(Fs.remove(root .. "/lib/m.d.tl"))
+  source.stale(src)
+  source.refresh(src)
+  assert(not source.refused(src) and source.refusal(src, "lib/m.tl") == nil)
+  source.close(src)
+end
+
 --- A session that reads the database finds, at its next check, the
 --- file made again under it as another schema's, another tool's: it
 --- reads none of the new file, which lists the same modules, and says

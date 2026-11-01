@@ -74,6 +74,7 @@ local Fs = require("cosmic.fs")
 local Places = require("build.syntax_places")
 local Sqlite = require("cosmic.sqlite")
 local Template = require("cosmic.template")
+local TreeProgram = require("build.tree_program")
 local build_paths = require("build.paths")
 local importer = require("build.importer")
 local rebuild = require("build.rebuild")
@@ -545,7 +546,8 @@ end
 --- declaration and a source of one module on disk, or nil: what a document of that file is told, at its first line. The pair
 --- is found as the build finds one, by the files a module may be written in ([`build.driver.candidates`]).
 function source.refusal(src: source.View, name: string): string?
-  if src.trouble == "" then return nil end
+  -- A fixture of a test is no part of the program, as in a build ([`build.tree_program.skipped`]).
+  if src.trouble == "" or TreeProgram.skipped(name) then return nil end
   local module = Declarations.module_of(name)
   local declaration: string? = nil
   local code: string? = nil

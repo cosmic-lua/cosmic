@@ -375,8 +375,8 @@ local function test_a_declaration_beside_its_source_is_refused()
   local result, trouble = compile_fixture(root)
   assert(result == nil, "a declaration beside its source was built")
   local want = "lib/dep.d.tl: lib/dep.tl is already the module lib.dep. A .d.tl is only for a module implemented in C, " ..
-    "and the .tl is what is checked, so one module cannot have both. If the .tl is the module, delete lib/dep.d.tl; " ..
-    "if they are different modules, rename one of them."
+    "and the .tl is what is checked, so one module cannot have both. If the .tl is the module, delete lib/dep.d.tl. " ..
+    "To keep both, rename one of them so that they are different modules."
   assert(trouble == want, tostring(trouble))
   assert(Fs.remove(root .. "/lib/dep.d.tl"))
   local built, built_trouble = compile_fixture(root)

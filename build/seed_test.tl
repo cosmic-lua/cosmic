@@ -128,6 +128,11 @@ local function seeded(tmp: string): Seed.Program
   assert(Fs.write(tmp .. "/both.d.tl", "local record R\nend\nreturn R\n"))
   assert(Fs.write(tmp .. "/both.tl", "local record R\nend\nreturn {} as R\n"))
   assert(Fs.write(tmp .. "/alone.d.tl", "local record R\nend\nreturn R\n"))
+  -- A declaration, a source and a package's entry: the complaint names the first source, as a build does.
+  assert(Fs.mkdirs(tmp .. "/three"))
+  assert(Fs.write(tmp .. "/three.d.tl", "local record R\nend\nreturn R\n"))
+  assert(Fs.write(tmp .. "/three.tl", "local record R\nend\nreturn {} as R\n"))
+  assert(Fs.write(tmp .. "/three/init.tl", "local record R\nend\nreturn {} as R\n"))
   assert(Fs.write(tmp .. "/code.tl", "local n: integer = 1\nreturn n\n"))
   return Seed.program(tmp, {})
 end
@@ -139,7 +144,9 @@ local function test_the_seed_refuses_a_declaration_beside_a_source(tmp: string)
   local module, why = program.module("both")
   assert(module == nil and why == "both.d.tl: both.tl is already the module both. A .d.tl is only for a module " ..
       "implemented in C, and the .tl is what is checked, so one module cannot have both. If the .tl is the module, " ..
-      "delete both.d.tl; if they are different modules, rename one of them.", tostring(why))
+      "delete both.d.tl. To keep both, rename one of them so that they are different modules.", tostring(why))
+  local three, three_why = program.module("three")
+  assert(three == nil and three_why:find("three.d.tl: three.tl is already the module three.", 1, true) == 1, tostring(three_why))
   local declared, declared_why = program.module("alone")
   assert(declared == nil and declared_why == "", tostring(declared_why))
   local code, code_why = program.module("code")

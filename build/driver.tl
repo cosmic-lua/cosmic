@@ -248,7 +248,7 @@ local record Driver
 
   --- Why a declaration file and a source of one module may not both be given: the complaint of `declaration` (a `.d.tl`)
   --- standing beside `source` (a `.tl`), both the module `module`. It offers both ways out: delete the declaration, or
-  --- rename one of the two.
+  --- rename one of the two so that they are different modules.
   pairing: function(declaration: string, source: string, module: string): string
 
   --- The complaints [`Driver.pairing`] makes of `entries` (as [`Driver.index`] takes them, less the `skip`ped paths), one to a
@@ -410,7 +410,7 @@ end
 function Driver.pairing(declaration: string, source: string, module: string): string
   return declaration .. ": " .. source .. " is already the module " .. module .. ". A .d.tl is only for a module " ..
     "implemented in C, and the .tl is what is checked, so one module cannot have both. If the .tl is the module, " ..
-    "delete " .. declaration .. "; if they are different modules, rename one of them."
+    "delete " .. declaration .. ". To keep both, rename one of them so that they are different modules."
 end
 
 function Driver.paired(entries: {{string}}, skip: function(path: string): boolean): string

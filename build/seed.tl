@@ -114,9 +114,14 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
       return nil
     end
     -- The declaration comes first among the candidates, so a pair is a declaration first and a source after it.
-    local last = others[#others]
-    if first:match("%.d%.tl$") ~= nil and last ~= nil and last:match("%.d%.tl$") == nil then
-      paired[name] = Driver.pairing(first, last, name)
+    local code: string? = nil
+    for _, file in ipairs(others) do
+      if code == nil and file:match("%.d%.tl$") == nil then
+        code = file
+      end
+    end
+    if first:match("%.d%.tl$") ~= nil and code ~= nil then
+      paired[name] = Driver.pairing(first, code, name)
     end
     local made = Driver.source(name, first, first_text, if first:match("%.d%.tl$") ~= nil then "decl" else "tl" end)
     sources[name] = made

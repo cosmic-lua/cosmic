@@ -402,8 +402,8 @@ local SOURCE <const> = "local n: integer = 1\nreturn n\n"
 local function test_pairing_names_both_files_and_offers_to_delete_or_rename()
   assert(Driver.pairing("lib/m.d.tl", "lib/m.tl", "lib.m") ==
       "lib/m.d.tl: lib/m.tl is already the module lib.m. A .d.tl is only for a module implemented in C, and the .tl is " ..
-      "what is checked, so one module cannot have both. If the .tl is the module, delete lib/m.d.tl; if they are " ..
-      "different modules, rename one of them.")
+      "what is checked, so one module cannot have both. If the .tl is the module, delete lib/m.d.tl. To keep both, " ..
+      "rename one of them so that they are different modules.")
 end
 
 --- A pair is found whichever way each of its files is written, in either order of the entries.
