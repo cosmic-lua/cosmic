@@ -232,7 +232,7 @@ local function test_dispatch_runs_the_command_with_its_own_options()
     assert(refused == nil and trouble == case.why, trouble)
   end
   local refused, trouble = Flags.dispatch({ "clean", "--jobs=2" }, 1, commands, "prog")
-  assert(refused == nil and trouble == "clean: no such option: --jobs", trouble)
+  assert(refused == nil and trouble == "clean: no such option: --jobs; usage: prog clean", trouble)
   assert(#ran == 2)
   assert(not pcall(Flags.dispatch, { "x" }, 1, {}, "prog"))
 end
@@ -386,4 +386,65 @@ local function test_options_lists_them_as_help_does()
   assert(Flags.options(described) == "  --out <path>  where to write\n  -q            say less",
     Flags.options(described))
   assert(Flags.options({}) == "")
+end
+
+local required_spec: {string:boolean | Flags.Option} = {
+  ["--out"] = { value = "path", about = "where to write", required = true },
+  ["--jobs"] = { value = "n" },
+  ["--force"] = { required = true },
+}
+
+local function test_parse_refuses_a_missing_required_option_by_name()
+  local got, why = Flags.parse({ "x", "--force" }, 2, required_spec)
+  assert(got == nil and why == "--out is required", why)
+  got, why = Flags.parse({ "x", "--out", "a" }, 2, required_spec)
+  assert(got == nil and why == "--force is required", why)
+  got, why = Flags.parse({ "x", "--out=a", "--force", "w" }, 2, required_spec)
+  assert(got ~= nil and got.values["--out"] == "a" and got.set["--force"] == true, why)
+  -- Another refusal comes first: a bad line is not reported as a missing option.
+  got, why = Flags.parse({ "x", "--nope" }, 2, required_spec)
+  assert(got == nil and why == "no such option: --nope", why)
+end
+
+local function test_a_required_option_given_in_a_cluster_is_given()
+  local clustered: {string:boolean | Flags.Option} = {
+    ["-v"] = { required = true },
+    ["-n"] = { value = "n", required = true },
+  }
+  local got, why = Flags.parse({ "-vn3" }, 1, clustered)
+  assert(got ~= nil and got.values["-n"] == "3" and got.set["-v"] == true, why)
+end
+
+local function test_dispatch_refuses_a_missing_required_option_with_usage()
+  local ran = false
+  local commands: {string:Flags.Command} = {
+    put = {
+      usage = "[options] <file>",
+      spec = required_spec,
+      run = function(_: Flags.Parsed): integer
+        ran = true
+        return 0
+      end,
+    },
+  }
+  local refused, why = Flags.dispatch({ "put", "--force", "a" }, 1, commands, "prog")
+  assert(refused == nil and why == "put: --out is required; usage: prog put [options] <file>", why)
+  assert(not ran)
+  -- Help is answered before the line is parsed, so it needs no required option.
+  local helped = assert(Flags.dispatch({ "put", "--help" }, 1, commands, "prog"))
+  assert(helped.code == 0 and helped.help ~= "" and not ran)
+  local done = assert(Flags.dispatch({ "put", "--out", "o", "--force" }, 1, commands, "prog"))
+  assert(done.code == 0 and ran)
+end
+
+local function test_help_marks_a_required_option()
+  local help = Flags.help({ spec = required_spec }, "prog put")
+  assert(help == table.concat({
+    "usage: prog put [options]",
+    "",
+    "options:",
+    "  --force       (required)",
+    "  --jobs <n>",
+    "  --out <path>  where to write (required)",
+  }, "\n"), help)
 end

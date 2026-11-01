@@ -181,6 +181,8 @@ return function(argv: {string}): integer
   if ran == nil then
     local first = argv[1]
     local usage = ""
+    -- TODO: once ci/cosmic-driver.pin names a release whose Flags.dispatch ends a
+    -- refused command line with the usage line, drop this suffix.
     if first ~= nil then
       local named = commands[first]
       if named ~= nil then usage = "; usage: driver.tl " .. first .. " " .. named.usage end
