@@ -660,3 +660,17 @@ local function test_in_a_run_a_connect_to_a_full_backlog_fails_at_once(tmp: stri
   assert(Clock.monotonic_ns() - began < Clock.seconds(10), "the connection waited for room")
   assert(conn == nil and why == busy(path), why)
 end
+
+--- A listener is held in a `<close>` local, which closes it at the end of
+--- its block.
+local function test_a_close_local_holds_a_listener()
+  local listener: Net.Listener? = nil
+  do
+    local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
+    listener = server
+    local client = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
+    assert(client:close())
+  end
+  local conn, why = assert(listener):accept()
+  assert(conn == nil and why == "net: the listener is closed", why)
+end

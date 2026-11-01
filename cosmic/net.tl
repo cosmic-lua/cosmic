@@ -55,6 +55,206 @@ local type raw_socket = require("cosmic.internal.socket")
 
 local raw = require("cosmic.internal.socket")
 
+local DEFAULT_READ <const> = 64 * 1024
+
+local waited = Leaf.waited
+
+-- How a connection or a listener is made. Each is a record of its own
+-- ([`SocketConn`], [`SocketListener`]) implementing the public interface it
+-- answers, so one costs one table and no closure: its methods are defined
+-- once, on the record, which an object reaches through `__index`, and its
+-- state is in fields. The note on how an object is made in
+-- cosmic/stream.tl says why Teal makes the public types interfaces. One
+-- dropped unclosed needs no __gc: its socket, which only the object
+-- holds, is closed by the collector.
+
+local class SocketConn is Connection.Conn
+  socket: raw_socket.Socket
+  fd: integer
+  mut open: boolean
+  -- Set by [`set_timeout`], and read by each wait, so a change reaches a
+  -- wait the next read or write starts. Nil for no limit.
+  mut limit?: integer
+  -- Each direction's sticky failure, "" until one: once a read or a
+  -- write fails for good, every later one of it says so.
+  mut read_failure: string
+  mut write_failure: string
+
+  function set_timeout(self, wait_ns: integer?)
+    Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
+    self.limit = wait_ns
+  end
+
+  -- TODO: make a Conn's `read` and `write` the Reader and Writer
+  -- Stream.from_fd and Stream.to_fd answer over the socket
+  -- ({ nonblocking = true, timeout_ns }), collapsing the write loop here into
+  -- theirs, once the TODO in `waited` (cosmic/internal/connector.tl) is done: a wait outside a task here
+  -- ends at a signal a Signal.guard caught ("interrupted", which net_test's
+  -- cases hold), which Poll.wait cannot see. Their `wait` option could
+  -- carry `waited`, but `write` also sends through raw.send, which never
+  -- raises SIGPIPE where sys.write may, and reads the timeout [`set_timeout`]
+  -- changes on every call, which an option fixes when the object is made.
+  function read(self, max_bytes?: integer): string?, string
+    if max_bytes ~= nil and max_bytes <= 0 then
+      error("net: read's max_bytes must be positive", 2)
+    end
+    if not self.open then return nil, "net: the connection is closed" end
+    if self.read_failure ~= "" then return nil, self.read_failure end
+    local fd = self.fd
+    while true do
+      local data, why, errno = sys.read(fd, max_bytes or DEFAULT_READ)
+      if data == "" then return nil, "" end
+      if data ~= nil then return data, "" end
+      if errno ~= raw.EAGAIN then
+        self.read_failure = why
+        return nil, why
+      end
+      -- Nothing was taken: a deadline or a signal leaves the next
+      -- read to try again.
+      local ready, waiting = waited(fd, false, self.limit)
+      if not ready then return nil, waiting end
+      -- Another task may have closed the connection while this one
+      -- waited in a run, and its descriptor gone to another socket.
+      if not self.open then return nil, "net: the connection is closed" end
+    end
+  end
+
+  function write(self, data: string): boolean, string
+    if not self.open then return false, "net: the connection is closed" end
+    if self.write_failure ~= "" then return false, self.write_failure end
+    local fd = self.fd
+    local from = 1
+    while from <= #data do
+      local sent, why, errno = raw.send(fd, data, from)
+      if sent ~= nil then
+        from = from + sent
+      elseif errno ~= raw.EAGAIN then
+        self.write_failure = why
+        return false, why
+      else
+        local ready, waiting = waited(fd, true, self.limit)
+        if not ready then
+          self.write_failure = waiting
+          return false, waiting
+        end
+        if not self.open then return false, "net: the connection is closed" end
+      end
+    end
+    return true, ""
+  end
+
+  function peer(self): raw_socket.Address?, string
+    if not self.open then return nil, "net: the connection is closed" end
+    local address, why = raw.peer(self.fd)
+    if address == nil then return nil, why end
+    return address, ""
+  end
+
+  function shutdown(self, how: Connection.Shutdown): boolean, string
+    -- The type refuses a wrong `how` in checked code; this is for a caller
+    -- the checker does not read.
+    if how ~= "read" and how ~= "write" and how ~= "both" then
+      error("net: how must be \"read\", \"write\" or \"both\"", 2)
+    end
+    if not self.open then return false, "net: the connection is closed" end
+    local ok, why = raw.shutdown(self.fd, how)
+    if not ok then return false, why end
+    return true, ""
+  end
+
+  function close(self): boolean, string
+    if not self.open then return true, "" end
+    self.open = false
+    Poll.closing(self.fd)
+    local ok, why = self.socket:close()
+    if not ok then return false, why end
+    return true, ""
+  end
+
+  function abort(self): boolean, string
+    return self:close()
+  end
+
+  function __close(self)
+    local _, _ = self:close()
+  end
+end
+
+--- The connection over `socket`.
+local function new_conn(socket: raw_socket.Socket, timeout_ns: integer?): SocketConn
+  local conn: SocketConn = {
+    socket = socket, fd = socket:fd(), open = true, limit = timeout_ns,
+    read_failure = "", write_failure = "" }
+  return conn
+end
+
+--- What `address` is called in a failure: its path, or its host and
+--- port, an IPv6 host in brackets.
+local function named(address: raw_socket.Address): string
+  if address.kind ~= "tcp" then return address.path end
+  local host = assert(address.host)
+  if host:find(":", 1, true) then host = "[" .. host .. "]" end
+  return host .. ":" .. tostring(address.port)
+end
+
+--- A socket listening at an address, answered by [`Net.listen`].
+local class SocketListener
+  --- Where it listens.
+  address: raw_socket.Address
+  --- Internal: the socket, its descriptor and whether it is open. No caller reads or writes them.
+  socket: raw_socket.Socket
+  --- Internal: see `socket`.
+  fd: integer
+  --- Internal: see `socket`.
+  mut open: boolean
+  -- Set by [`set_timeout`], and given to each connection accepted after.
+  -- Nil for no limit.
+  mut limit?: integer
+
+  --- Sets how long `accept` waits by default, in nanoseconds, from 0;
+  --- nil for no limit. A value no wait can last raises, naming
+  --- `timeout_ns`, at the caller. The connections accepted after start
+  --- with the same.
+  function set_timeout(self, wait_ns: integer?)
+    Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
+    self.limit = wait_ns
+  end
+
+  --- The next connection, waiting for one as long as `timeout_ns`
+  --- (this call's, or the listener's); nil and [`Poll.TIMEOUT`],
+  --- "interrupted", "cancelled" (in a task of [`Poll.run`]), or why not.
+  function accept(self, wait_ns?: integer): Connection.Conn?, string
+    Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
+    if not self.open then return nil, "net: the listener is closed" end
+    wait_ns = wait_ns or self.limit
+    local fd = self.fd
+    while true do
+      local connection, why, errno = raw.accept(fd)
+      if connection ~= nil then return new_conn(connection, self.limit), "" end
+      if errno ~= raw.EAGAIN then return nil, why end
+      local ready, waiting = waited(fd, false, wait_ns)
+      if not ready then return nil, waiting end
+      if not self.open then return nil, "net: the listener is closed" end
+    end
+  end
+
+  --- Stops listening. A unix listener removes its socket file too,
+  --- unless another file has taken the name since. Safe to call more
+  --- than once.
+  function close(self): boolean, string
+    if not self.open then return true, "" end
+    self.open = false
+    Poll.closing(self.fd)
+    local ok, why = self.socket:close()
+    if not ok then return false, named(self.address) .. ": " .. why end
+    return true, ""
+  end
+
+  function __close(self)
+    local _, _ = self:close()
+  end
+end
+
 local record Net
   --- Where a socket is, as [`Net.unix`] and [`Net.tcp`] build one: a
   --- `kind` of "unix", with the socket file's `path`, or "tcp", with a
@@ -88,25 +288,9 @@ local record Net
     backlog?: integer
   end
 
-  --- A socket listening at an address, answered by [`Net.listen`].
-  interface Listener
-    --- Where it listens.
-    address: Address
-    --- Sets how long `accept` waits by default, in nanoseconds, from 0;
-    --- nil for no limit. A value no wait can last raises, naming
-    --- `timeout_ns`, at the caller. The connections accepted after start
-    --- with the same.
-    set_timeout: function(Listener, timeout_ns: integer?)
-    --- The next connection, waiting for one as long as `timeout_ns`
-    --- (this call's, or the listener's); nil and [`Poll.TIMEOUT`],
-    --- "interrupted", "cancelled" (in a task of [`Poll.run`]), or why not.
-    accept: function(Listener, timeout_ns?: integer): Conn?, string
-    --- Stops listening. A unix listener removes its socket file too,
-    --- unless another file has taken the name since. Safe to call more
-    --- than once.
-    close: function(Listener): boolean, string
-    __close: function(Listener)
-  end
+  --- A socket listening at an address, answered by [`Net.listen`]. A class,
+  --- so a `<close>` local holds one.
+  type Listener = SocketListener
 
   --- One numeric endpoint, a DNS server of [`ResolveOptions.servers`] or
   --- one a native connector may reach: a canonical
@@ -248,7 +432,6 @@ local record Net
   end
 end
 
-local DEFAULT_READ <const> = 64 * 1024
 local DEFAULT_BACKLOG <const> = 64
 
 --- The address of the socket file at `path`.
@@ -281,193 +464,11 @@ local function said(trouble: string, errno: integer, address?: Net.Address): str
   return trouble
 end
 
-local waited = Leaf.waited
-
--- How a connection or a listener is made. Each is a record of its own
--- ([`SocketConn`], [`SocketListener`]) implementing the public interface it
--- answers, so one costs one table and no closure: its methods are defined
--- once, on the record, which an object reaches through `__index`, and its
--- state is in fields. The note on how an object is made in
--- cosmic/stream.tl says why Teal makes the public types interfaces. One
--- dropped unclosed needs no __gc: its socket, which only the object
--- holds, is closed by the collector.
-
-local class SocketConn is Net.Conn
-  socket: raw_socket.Socket
-  fd: integer
-  mut open: boolean
-  -- Set by [`set_timeout`], and read by each wait, so a change reaches a
-  -- wait the next read or write starts. Nil for no limit.
-  mut limit?: integer
-  -- Each direction's sticky failure, "" until one: once a read or a
-  -- write fails for good, every later one of it says so.
-  mut read_failure: string
-  mut write_failure: string
-
-  function set_timeout(self, wait_ns: integer?)
-    Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
-    self.limit = wait_ns
-  end
-
-  -- TODO: make a Conn's `read` and `write` the Reader and Writer
-  -- Stream.from_fd and Stream.to_fd answer over the socket
-  -- ({ nonblocking = true, timeout_ns }), collapsing the write loop here into
-  -- theirs, once the TODO in `waited` (cosmic/internal/connector.tl) is done: a wait outside a task here
-  -- ends at a signal a Signal.guard caught ("interrupted", which net_test's
-  -- cases hold), which Poll.wait cannot see. Their `wait` option could
-  -- carry `waited`, but `write` also sends through raw.send, which never
-  -- raises SIGPIPE where sys.write may, and reads the timeout [`set_timeout`]
-  -- changes on every call, which an option fixes when the object is made.
-  function read(self, max_bytes?: integer): string?, string
-    if max_bytes ~= nil and max_bytes <= 0 then
-      error("net: read's max_bytes must be positive", 2)
-    end
-    if not self.open then return nil, "net: the connection is closed" end
-    if self.read_failure ~= "" then return nil, self.read_failure end
-    local fd = self.fd
-    while true do
-      local data, why, errno = sys.read(fd, max_bytes or DEFAULT_READ)
-      if data == "" then return nil, "" end
-      if data ~= nil then return data, "" end
-      if errno ~= raw.EAGAIN then
-        self.read_failure = why
-        return nil, why
-      end
-      -- Nothing was taken: a deadline or a signal leaves the next
-      -- read to try again.
-      local ready, waiting = waited(fd, false, self.limit)
-      if not ready then return nil, waiting end
-      -- Another task may have closed the connection while this one
-      -- waited in a run, and its descriptor gone to another socket.
-      if not self.open then return nil, "net: the connection is closed" end
-    end
-  end
-
-  function write(self, data: string): boolean, string
-    if not self.open then return false, "net: the connection is closed" end
-    if self.write_failure ~= "" then return false, self.write_failure end
-    local fd = self.fd
-    local from = 1
-    while from <= #data do
-      local sent, why, errno = raw.send(fd, data, from)
-      if sent ~= nil then
-        from = from + sent
-      elseif errno ~= raw.EAGAIN then
-        self.write_failure = why
-        return false, why
-      else
-        local ready, waiting = waited(fd, true, self.limit)
-        if not ready then
-          self.write_failure = waiting
-          return false, waiting
-        end
-        if not self.open then return false, "net: the connection is closed" end
-      end
-    end
-    return true, ""
-  end
-
-  function peer(self): Net.Address?, string
-    if not self.open then return nil, "net: the connection is closed" end
-    local address, why = raw.peer(self.fd)
-    if address == nil then return nil, why end
-    return address, ""
-  end
-
-  function shutdown(self, how: Net.Shutdown): boolean, string
-    -- The type refuses a wrong `how` in checked code; this is for a caller
-    -- the checker does not read.
-    if how ~= "read" and how ~= "write" and how ~= "both" then
-      error("net: how must be \"read\", \"write\" or \"both\"", 2)
-    end
-    if not self.open then return false, "net: the connection is closed" end
-    local ok, why = raw.shutdown(self.fd, how)
-    if not ok then return false, why end
-    return true, ""
-  end
-
-  function close(self): boolean, string
-    if not self.open then return true, "" end
-    self.open = false
-    Poll.closing(self.fd)
-    local ok, why = self.socket:close()
-    if not ok then return false, why end
-    return true, ""
-  end
-
-  function abort(self): boolean, string
-    return self:close()
-  end
-
-  function __close(self)
-    local _, _ = self:close()
-  end
-end
-
---- The connection over `socket`.
-local function new_conn(socket: raw_socket.Socket, timeout_ns: integer?): SocketConn
-  local conn: SocketConn = {
-    socket = socket, fd = socket:fd(), open = true, limit = timeout_ns,
-    read_failure = "", write_failure = "" }
-  return conn
-end
-
---- What `address` is called in a failure: its path, or its host and
---- port, an IPv6 host in brackets.
-local function named(address: Net.Address): string
-  if address.kind ~= "tcp" then return address.path end
-  local host = assert(address.host)
-  if host:find(":", 1, true) then host = "[" .. host .. "]" end
-  return host .. ":" .. tostring(address.port)
-end
-
 --- A listener and its descriptor, which [`Net.serve`] waits on itself
 --- so as to take a connection only while under its limit.
 local record Opened
   listener: Net.Listener
   fd: integer
-end
-
-local class SocketListener is Net.Listener
-  socket: raw_socket.Socket
-  fd: integer
-  mut open: boolean
-  -- Set by [`set_timeout`], and given to each connection accepted after.
-  -- Nil for no limit.
-  mut limit?: integer
-
-  function set_timeout(self, wait_ns: integer?)
-    Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
-    self.limit = wait_ns
-  end
-
-  function accept(self, wait_ns?: integer): Net.Conn?, string
-    Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
-    if not self.open then return nil, "net: the listener is closed" end
-    wait_ns = wait_ns or self.limit
-    local fd = self.fd
-    while true do
-      local connection, why, errno = raw.accept(fd)
-      if connection ~= nil then return new_conn(connection, self.limit), "" end
-      if errno ~= raw.EAGAIN then return nil, why end
-      local ready, waiting = waited(fd, false, wait_ns)
-      if not ready then return nil, waiting end
-      if not self.open then return nil, "net: the listener is closed" end
-    end
-  end
-
-  function close(self): boolean, string
-    if not self.open then return true, "" end
-    self.open = false
-    Poll.closing(self.fd)
-    local ok, why = self.socket:close()
-    if not ok then return false, named(self.address) .. ": " .. why end
-    return true, ""
-  end
-
-  function __close(self)
-    local _, _ = self:close()
-  end
 end
 
 --- The listener over `socket`, at `address`.
