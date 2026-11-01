@@ -9,6 +9,8 @@
 ---   open documents that may change with it ([`build.lsp.publish`]).
 --- - Hover: the docs of the symbol under the cursor ([`build.lsp.hover`]).
 --- - Definition: where the name under the cursor is declared ([`build.lsp.definition`]).
+--- - Completion: the names in scope at the cursor, the members after a `.` or `:`, and the modules inside `require("`
+---   ([`build.lsp.completion`]), and what `completionItem/resolve` fills in of an item.
 --- - Formatting: a document laid out as `cosmic fix` lays out a Teal file ([`build.fix`]'s `format_text`), as one edit of the whole
 ---   text, or none where it is laid out already or the formatter refuses it, which the person is shown.
 ---
@@ -32,6 +34,7 @@ local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local bare = require("build.bare")
 local check = require("build.lsp.check")
+local completion = require("build.lsp.completion")
 local definition = require("build.lsp.definition")
 local dependents = require("build.lsp.dependents")
 local hover = require("build.lsp.hover")
@@ -68,6 +71,10 @@ local record session
     mut checker: check.Checker
     --- Whether the editor takes a registration of the files to watch.
     mut watch: boolean
+    --- What the editor does with a completion item: whether it takes a snippet, and whether it asks for the documentation
+    --- of an item when it is chosen ([`completion.Options`]).
+    mut snippets: boolean
+    mut lazy: boolean
     store: {Sqlite.Handle}?
     --- The `built_from` the tool carries, as [`session.Options`] has it.
     carried: string?
@@ -100,7 +107,7 @@ end
 --- A session's checker and docs at `root`.
 local function checked_at(s: Session, root: string)
   s.root = root
-  s.checker = check.new(root, s.err, hints_of({ s }), s.carried)
+  s.checker = check.new(root, s.err, hints_of({ s }), s.carried, s.store)
   s.docs = hover.new(root, s.checker.source, s.store, s.err)
 end
 
@@ -109,7 +116,7 @@ function session.new(root: string, options?: session.Options): Session
   local given: session.Options = options or {}
   local err = given.err or bare.err
   local held: mut {Session} = {}
-  local checker = check.new(root, err, hints_of(held), given.carried)
+  local checker = check.new(root, err, hints_of(held), given.carried, given.store)
   local made: Session = {
     root = root,
     encoding = "utf-16",
@@ -120,6 +127,8 @@ function session.new(root: string, options?: session.Options): Session
     err = err,
     checker = checker,
     watch = false,
+    snippets = false,
+    lazy = false,
     store = given.store,
     carried = given.carried,
     docs = hover.new(root, checker.source, given.store, err),
@@ -161,6 +170,28 @@ local function defined(s: Session, params: protocol.DocumentParams): protocol.Lo
   local where = params.position
   if document == nil or where == nil then return nil end
   return definition.at(s.checker, document, where, s.encoding)
+end
+
+--- What the editor takes of a completion in the document `uri`.
+local function options_of(s: Session, uri: string): completion.Options
+  return { uri = uri, snippets = s.snippets, lazy = s.lazy, only = nil }
+end
+
+--- The completions for `params`, or nil where no such document is open.
+local function completed(s: Session, params: protocol.DocumentParams): protocol.CompletionList?
+  local document = document_of(s, params)
+  local where = params.position
+  if document == nil or where == nil then return nil end
+  return completion.at(s.checker, s.docs, document, where, s.encoding, options_of(s, params.textDocument.uri))
+end
+
+--- What was left out of the item `params` names: nothing where the document is no longer open or the place has no such item.
+local function resolved(s: Session, params: protocol.ResolveParams): protocol.ResolvedItem
+  local data = params.data
+  if data == nil then return { label = params.label, detail = nil, documentation = nil } end
+  local document = s.documents[data.uri]
+  if document == nil then return { label = params.label, detail = nil, documentation = nil } end
+  return completion.resolve(s.checker, s.docs, document, params.label, data, s.encoding, options_of(s, data.uri))
 end
 
 --- What formatting a document gave: its `edits`, encoded, and what to show the person in `shown`; or no `edits` and
@@ -234,6 +265,21 @@ local function initialize(s: Session, params: protocol.InitializeParams): protoc
   local watched: protocol.DynamicRegistration? = nil
   if workspace ~= nil then watched = workspace.didChangeWatchedFiles end
   s.watch = watched ~= nil and watched.dynamicRegistration == true
+  local item: protocol.CompletionItemCapabilities? = nil
+  local text: protocol.TextDocumentCapabilities? = nil
+  if capabilities ~= nil then text = capabilities.textDocument end
+  local completing: protocol.CompletionCapabilities? = nil
+  if text ~= nil then completing = text.completion end
+  if completing ~= nil then item = completing.completionItem end
+  s.snippets = item ~= nil and item.snippetSupport == true
+  s.lazy = false
+  local resolvable: protocol.ResolveSupport? = nil
+  if item ~= nil then resolvable = item.resolveSupport end
+  if resolvable ~= nil then
+    for _, property in ipairs(resolvable.properties or {}) do
+      if property == "documentation" then s.lazy = true end
+    end
+  end
   s.initialized = true
   return {
     capabilities = {
@@ -241,6 +287,7 @@ local function initialize(s: Session, params: protocol.InitializeParams): protoc
       textDocumentSync = { openClose = true, change = 1, save = { includeText = false } },
       hoverProvider = true,
       definitionProvider = true,
+      completionProvider = { triggerCharacters = { ".", ":" }, resolveProvider = true },
       documentFormattingProvider = true,
     },
     serverInfo = { name = "cosmic" },
@@ -314,6 +361,15 @@ local function handle(s: Session, message: protocol.Message): {string}
   if method == "workspace/didChangeWatchedFiles" then
     return publish.restaged(open_of(s))
   end
+  if method == "completionItem/resolve" then
+    local params, trouble = protocol.resolve_params(message.params)
+    if params == nil then
+      out[#out + 1] = protocol.failure(id, protocol.INVALID_PARAMS, method .. ": " .. trouble)
+    else
+      out[#out + 1] = protocol.response(id, (assert(Json.encode_any(resolved(s, params)))))
+    end
+    return out
+  end
   if method:sub(1, #"textDocument/") ~= "textDocument/" then
     if is_request then
       out[#out + 1] = protocol.failure(id, protocol.METHOD_NOT_FOUND, "no method " .. method)
@@ -369,6 +425,18 @@ local function handle(s: Session, message: protocol.Message): {string}
     local found = defined(s, params)
     local result = "null"
     if found ~= nil then result = assert(Json.encode_any(found)) end
+    out[#out + 1] = protocol.response(id, result)
+  elseif method == "textDocument/completion" then
+    local found = completed(s, params)
+    local result = "null"
+    if found ~= nil then
+      -- An empty table encodes as an object, which is no list of items.
+      if #found.items == 0 then
+        result = '{"isIncomplete":false,"items":[]}'
+      else
+        result = assert(Json.encode_any(found))
+      end
+    end
     out[#out + 1] = protocol.response(id, result)
   elseif method == "textDocument/formatting" then
     local formatted = formatting(s, params)

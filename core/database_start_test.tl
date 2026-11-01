@@ -21,7 +21,7 @@ Test.policy{
 
 local write_database = database_start_fixture.write_database
 local core_digest = database_start_fixture.core_digest
-local core_path = database_start_fixture.core_path
+local core_or_skip = database_start_fixture.core_or_skip
 local environment = database_start_fixture.environment
 local run = database_start_fixture.run
 local fields = database_start_fixture.fields
@@ -31,8 +31,7 @@ local info_database = database_start_fixture.info_database
 --- With no option, a bare core is what it has been: no database, no tree
 --- to boot from.
 local function test_a_bare_core_without_the_option_has_no_program()
-  local core = core_path()
-  if core == nil then return end
+  local core = core_or_skip()
   local r = run({ core })
   assert(r.code == 2, "exit " .. tostring(r.code))
   assert((assert(r.stderr)):find("cosmic: no database attached, and no tree to boot from", 1, true),
@@ -42,8 +41,7 @@ end
 --- The first argument is what the option is: `--database` anywhere later
 --- is the program's own.
 local function test_the_option_is_taken_only_as_the_first_argument()
-  local core = core_path()
-  if core == nil then return end
+  local core = core_or_skip()
   local r = run({ core, "--other", "--database", "x" })
   assert(r.code == 2, "exit " .. tostring(r.code))
   assert((assert(r.stderr)):find("no database attached", 1, true), tostring(r.stderr))
@@ -53,8 +51,7 @@ end
 --- its arguments and the path itself as its own name, and holds exactly
 --- one database: its own.
 local function test_the_database_runs_as_the_program(tmp: string)
-  local core = core_path()
-  if core == nil then return end
+  local core = core_or_skip()
   local path = info_database(tmp)
   local r = run({ core, "--database", path, "a", "b c" })
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
@@ -70,8 +67,7 @@ end
 --- of it and the database's basis. The program's file is the core, and
 --- its artifact is the database.
 local function test_the_runtime_identity_is_the_database_and_the_core(tmp: string)
-  local core = core_path()
-  if core == nil then return end
+  local core = core_or_skip()
   local path = info_database(tmp)
   local r = run({ core, "--database", path })
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
@@ -106,8 +102,7 @@ end
 ]==]
 
 local function test_require_and_the_store_see_only_that_database(tmp: string)
-  local core = core_path()
-  if core == nil then return end
+  local core = core_or_skip()
   local path = tmp .. "/program.db"
   write_database(path, {
     { name = "probe.main", kind = "main", source = PROBE_MODULES, requires = { "cosmic.store" } },
@@ -138,24 +133,6 @@ local function test_require_and_the_store_see_only_that_database(tmp: string)
   assert(out.main_after == "probe.main", tostring(out.main_after))
 end
 
---- Started again, the process is on the same database, with nothing to
---- hand on, and so is a child it starts that way.
-local function test_a_relaunch_and_its_child_stay_on_the_database(tmp: string)
-  local core = core_path()
-  if core == nil then return end
-  local path = info_database(tmp)
-  local r = run({ core, "--database", path, "spawn" })
-  assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
-  local out = fields(assert(r.stdout))
-  local real = assert(sys.realpath(path))
-  assert(out.relaunch == core .. "|--database|" .. real, tostring(out.relaunch))
-  assert(out.relaunch_env == "true" and out.relaunch_fds == "true")
-  assert(out.child_code == "0", tostring(out.child_code) .. ": " .. tostring(out.child_stderr))
-  assert(out.child_databases == "1", tostring(out.child_databases))
-  assert(out.child_main == "probe.main", tostring(out.child_main))
-  assert(out.child_args == "child|x y", tostring(out.child_args))
-end
-
 --- A core run from a cache entry -- a name that holds its target, its
 --- configuration, its length and its digest -- is hashed once: the stamp
 --- the first start leaves beside it (core/startup.c's `stamp_write`) says
@@ -164,13 +141,16 @@ end
 --- and moves its times, makes the stamp stale, so the next start hashes it
 --- and finds the database was not written for these bytes.
 local function test_a_core_a_stamp_vouches_for_is_not_hashed_again_until_it_is_written(tmp: string)
-  local core = core_path()
+  local core = core_or_skip()
   -- TODO: run this off Linux too, or say why it cannot, once someone
   -- decides whether a stamp means anything for a macOS core: the guard came
   -- with no reason.
-  if core == nil or assert(sys.uname()).sysname ~= "Linux" then return end
+  if assert(sys.uname()).sysname ~= "Linux" then Test.skip("the stamp is checked on Linux only") end
   local prefix = Fs.basename(core):match("^(core%-%d+%-%d+%-)%d+%-%x+$")
-  if prefix == nil then return end
+  if prefix == nil then
+    Test.skip("the core " .. core .. " is not named as a cached core is")
+    return
+  end
   local bytes = assert(Fs.read(core))
   local digest = core_digest()
   local directory = tmp .. "/cores"
@@ -202,20 +182,27 @@ local function test_a_core_a_stamp_vouches_for_is_not_hashed_again_until_it_is_w
     "exit " .. tostring(third.code) .. ": " .. tostring(third.stderr))
 end
 
---- A relative path is named absolutely (and with its links followed), so
---- a child started elsewhere reaches the same file.
-local function test_a_relaunch_names_the_database_absolutely(tmp: string)
-  local core = core_path()
-  if core == nil then return end
+--- Named by a relative path that is a link, the database is reached by the
+--- file the link names and by an absolute path, so a process started again,
+--- and a child it starts that way, elsewhere reach the same file. One start
+--- shows the combined effect of both steps; each assertion says which it is.
+local function test_a_relaunch_and_its_child_stay_on_the_database_a_relative_link_names(tmp: string)
+  local core = core_or_skip()
   local path = info_database(tmp)
-  local env = environment()
-  local r = assert(Child.run({ core, "--database", "program.db" }, { env = env, cwd = tmp,
+  assert(Fs.symlink(path, tmp .. "/link.db"))
+  local r = assert(Child.run({ core, "--database", "link.db", "spawn" }, { env = environment(), cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local out = fields(assert(r.stdout))
   local real = assert(sys.realpath(path))
-  assert(out.relaunch == core .. "|--database|" .. real, tostring(out.relaunch))
-  assert(out.artifact == real, tostring(out.artifact))
+  assert(out.relaunch == core .. "|--database|" .. real, "relaunch: " .. tostring(out.relaunch))
+  assert(out.relaunch_env == "true" and out.relaunch_fds == "true",
+    "relaunch env/fds: " .. tostring(out.relaunch_env) .. " " .. tostring(out.relaunch_fds))
+  assert(out.artifact == real, "artifact: " .. tostring(out.artifact))
+  assert(out.child_code == "0", "child code: " .. tostring(out.child_code) .. ": " .. tostring(out.child_stderr))
+  assert(out.child_databases == "1", "child databases: " .. tostring(out.child_databases))
+  assert(out.child_main == "probe.main", "child main: " .. tostring(out.child_main))
+  assert(out.child_args == "child|x y", "child args: " .. tostring(out.child_args))
 end
 
 --- What a start that says nothing of a launcher is told of none: the
@@ -248,10 +235,10 @@ end
 ]==]
 
 local function test_no_artifact_or_launcher_is_opened_and_the_core_is_held_back(tmp: string)
-  local core = core_path()
+  local core = core_or_skip()
   -- The probe reads the descriptors it holds through /proc, which only
   -- Linux has.
-  if core == nil or not Fs.is_dir("/proc/self/fd") then return end
+  if not Fs.is_dir("/proc/self/fd") then Test.skip("this host has no /proc/self/fd to probe") end
   local path = tmp .. "/program.db"
   write_database(path, {
     { name = "probe.main", kind = "main", source = DESCRIPTORS, requires = { "cosmic.sys", "cosmic.fs" } },
@@ -283,77 +270,59 @@ local function refused(core: string, path: string, reason: string, argv?: {strin
 end
 
 local function test_a_missing_database_is_refused(tmp: string)
-  local core = core_path()
-  if core == nil then return end
+  local core = core_or_skip()
   refused(core, tmp .. "/absent.db", "No such file or directory")
 end
 
 local function test_an_unreadable_database_is_refused(tmp: string)
-  local core = core_path()
-  if core == nil then return end
+  local core = core_or_skip()
   local path = info_database(tmp, "locked.db")
   assert(sys.chmod(path, 0))
   -- A process that may read it whatever its mode finds a good database.
-  if sys.access(path, sys.R_OK) then return end
+  if sys.access(path, sys.R_OK) then
+    Test.skip("this process reads a mode 0 file, so it finds a good database")
+    return
+  end
   refused(core, path, "Permission denied")
 end
 
 local function test_a_directory_is_refused(tmp: string)
-  local core = core_path()
-  if core == nil then return end
+  local core = core_or_skip()
   refused(core, tmp, "it is not a regular file")
 end
 
 --- A FIFO has no content to read and opening one for reading waits for a
 --- writer: it is refused like any file that is not regular, not waited on.
 local function test_a_fifo_is_refused(tmp: string)
-  local core = core_path()
-  if core == nil then return end
+  local core = core_or_skip()
   local path = tmp .. "/fifo"
   assert(sys.mkfifo(path, 0x1a4))
   refused(core, path, "it is not a regular file")
 end
 
---- A path that is a link opens the file it names, which the relaunch and
---- the artifact then name without the link.
-local function test_a_symlinked_database_path_opens_its_target(tmp: string)
-  local core = core_path()
-  if core == nil then return end
-  local path = info_database(tmp)
-  assert(Fs.symlink(path, tmp .. "/link.db"))
-  local r = run({ core, "--database", tmp .. "/link.db" })
-  assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
-  local out = fields(assert(r.stdout))
-  assert(out.artifact == assert(sys.realpath(path)), tostring(out.artifact))
-end
-
 local function test_a_file_that_is_not_sqlite_is_refused(tmp: string)
-  local core = core_path()
-  if core == nil then return end
+  local core = core_or_skip()
   local path = tmp .. "/text.db"
   assert(Fs.write(path, string.rep("this is not a database\n", 200)))
   refused(core, path, "not a cosmic database: file is not a database")
 end
 
 local function test_an_empty_file_is_refused(tmp: string)
-  local core = core_path()
-  if core == nil then return end
+  local core = core_or_skip()
   local path = tmp .. "/empty.db"
   assert(Fs.write(path, ""))
   refused(core, path, "not a cosmic database")
 end
 
 local function test_a_database_with_no_main_is_refused(tmp: string)
-  local core = core_path()
-  if core == nil then return end
+  local core = core_or_skip()
   local path = tmp .. "/nomain.db"
   write_database(path, { info_module() }, { core = core_digest(), library = true })
   refused(core, path, "it has no main meta row")
 end
 
 local function test_a_database_for_another_core_is_refused(tmp: string)
-  local core = core_path()
-  if core == nil then return end
+  local core = core_or_skip()
   -- Each is refused before a module is read, so none carries the library: writing it three times is most of the test.
   local other = tmp .. "/other.db"
   write_database(other, { info_module() },
@@ -368,8 +337,7 @@ local function test_a_database_for_another_core_is_refused(tmp: string)
 end
 
 local function test_the_option_without_a_path_is_refused()
-  local core = core_path()
-  if core == nil then return end
+  local core = core_or_skip()
   local r = run({ core, "--database" })
   assert(r.code == 2, "exit " .. tostring(r.code))
   assert((assert(r.stderr)):find("cosmic: --database names no database", 1, true), tostring(r.stderr))
@@ -378,8 +346,7 @@ end
 --- A path with the characters a URI reads as syntax opens as itself:
 --- nothing in it picks another VFS or turns a mode off.
 local function test_a_path_with_uri_syntax_opens_as_itself(tmp: string)
-  local core = core_path()
-  if core == nil then return end
+  local core = core_or_skip()
   assert(Fs.mkdirs(tmp .. "/odd?vfs=cosmic&mode=rw#%41"))
   local path = info_database(tmp .. "/odd?vfs=cosmic&mode=rw#%41", "a b.db")
   local r = run({ core, "--database", path })

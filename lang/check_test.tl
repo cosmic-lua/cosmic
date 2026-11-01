@@ -927,6 +927,22 @@ local function test_the_arms_of_an_if_expression_are_held_to_the_type_the_positi
   assert(codes_of("local function f(a: any)\nend\nlocal b: boolean = true\nf(if b then 1 else \"a\" end)\n") == "arms_differ")
 end
 
+local function test_an_or_or_and_whose_left_operand_is_never_adds_no_type_and_no_refusal()
+  -- Found by the check-of-a-typed-program fuzz: `sn0` is nil here, so the branch that holds it non-nil is unreachable.
+  local source = "local sn0: string? = nil\nlocal m: mut {string: integer} = {}\n" ..
+    "if not (sn0 == nil) then\n  m[sn0 or \"a\"] = nil\nend\n"
+  assert(codes_of(source) == "", codes_of(source))
+  local typed = "local sn0: string? = nil\nif sn0 ~= nil then\n  local s: string = sn0 or \"a\"\n  print(s)\nend\n"
+  assert(codes_of(typed) == "", codes_of(typed))
+  local conj = "local sn0: string? = nil\nif sn0 ~= nil then\n  local a = sn0 and 1\n  local b = sn0 and 1 or 2\n  print(a, b)\nend\n"
+  assert(codes_of(conj) == "", codes_of(conj))
+  -- a never left does not excuse a right operand that is wrong for its position
+  local wrong = "local sn0: string? = nil\nif sn0 ~= nil then\n  local n: integer = sn0 or \"a\"\n  print(n)\nend\n"
+  assert(codes_of(wrong) == "not_assignable", codes_of(wrong))
+  local wrong_and = "local sn0: string? = nil\nif sn0 ~= nil then\n  local n: string = sn0 and 1\n  print(n)\nend\n"
+  assert(codes_of(wrong_and) == "not_assignable", codes_of(wrong_and))
+end
+
 local function test_a_write_through_a_union_or_onto_a_string_is_refused()
   local source = "local enum AK \"a\" end\nlocal enum BK \"b\" end\n" ..
     "local record A\n  kind: AK\n  mut x: string\nend\nlocal record B\n  kind: BK\n  mut x: string\nend\n" ..
@@ -1472,6 +1488,20 @@ local function test_the_array_part_of_a_record_is_a_view_and_a_write_to_it_says_
   assert(codes_of(head .. "local k: string = \"name\"\nl[k] = \"b\"\n") == "record_index")
 end
 
+local function test_a_write_to_a_view_that_may_leave_a_hole_reports_array_hole_beside_view_written()
+  local head = "local buf: {integer} = {}\n"
+  assert(codes_of(head .. "buf[3] = 1\n") == "view_written array_hole")
+  assert(codes_of(head .. "buf[#buf + 1] = 1\n") == "view_written")
+  assert(codes_of(head .. "buf[1] = 1\n") == "view_written")
+  -- a call that cannot reach a local view cannot shorten it
+  local call = "local function f(): integer\n  return 1\nend\n" .. head
+  assert(codes_of(call .. "buf[#buf + 1] = f()\n") == "view_written")
+  -- a call may shorten a view the statement can reach, as it may a `mut` array, so the append lands past the end
+  local param = "local function f(): integer\n  return 1\nend\nlocal function put(buf: {integer})\n"
+  assert(codes_of(param .. "  buf[#buf + 1] = f()\nend\n") == "view_written array_hole")
+  assert(codes_of(param .. "  buf[#buf + 1] = 1\nend\n") == "view_written")
+end
+
 local function test_a_parenthesised_literal_and_an_if_expression_of_functions_pick_the_overload_they_fit()
   local head = "local b: boolean = true\nlocal function up(c: string): string\n  return c\nend\n"
   assert(codes_of(head .. "local r = (\"x\"):gsub(\"a\", (function(c: string): string return c end))\n") == "")
@@ -1887,7 +1917,9 @@ local function test_a_table_literal_for_an_interface_with_library_advice_is_told
 end
 
 local function test_a_write_to_a_view_that_may_leave_a_hole_names_the_map_that_runs_clean()
-  local fix = fix_of("local buf: {number} = {}\nbuf[3] = 1\nlocal _ = buf\n")
+  local r = Programs.run("local buf: {number} = {}\nbuf[3] = 1\nlocal _ = buf\n")
+  assert(#r.errors == 2 and assert(r.errors[1]).code == "view_written", Programs.codes(r))
+  local fix = assert(r.errors[1]).fix
   assert(has(fix, "`mut {integer: number}`") and has(fix, "may leave a hole"), fix)
   -- a write that cannot leave a hole, or an append, keeps the array
   assert(has(fix_of("local buf: {number} = {}\nbuf[1] = 1\nlocal _ = buf\n"), "`mut {number}`"))

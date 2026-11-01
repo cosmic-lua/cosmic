@@ -175,8 +175,7 @@ local function test_a_line_outside_every_comment_block_is_refused()
   local _, breaks = block.text:gsub("\n", "")
   assert(facts.known.at(block.line + breaks).names["Box"] == true)
   Test.raises(function() facts.known.at(5) end, "line 5 is outside every comment block")
-  local before, _ = pcall(facts.known.at, 1)
-  assert(not before)
+  Test.raises(function() facts.known.at(1) end, "line 1 is outside every comment block")
 end
 
 --- The comments of a source are read from the tokens, where each starts in the file.

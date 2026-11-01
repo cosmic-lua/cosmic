@@ -21,9 +21,13 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Address = require("cosmic.relay.address")
 local Grant = require("cosmic.relay.grant")
+local Wire = require("cosmic.internal.relay_wire")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local type raw_process = require("cosmic.internal.process")
+
+local lower <const> = Wire.lower
+local number_of <const> = Wire.number_of
 
 local record relay_config
   --- One numeric endpoint of a connector's table: a numeric `host` and a
@@ -311,19 +315,6 @@ function relay_config.host_addresses(): {string}?, string
     inet6 = text
   end
   return relay_config.parse_addresses(trie, inet6), ""
-end
-
---- `text` in lower case.
-local function lower(text: string): string
-  return (text:gsub("%u", string.lower))
-end
-
---- A decimal port from 1 to 65535 with no leading zero, or nil.
-local function number_of(text: string): integer?
-  if not text:find("^[1-9]%d*$") or #text > 5 then return nil end
-  local port = math.tointeger(tonumber(text))
-  if port == nil or port < 1 or port > 65535 then return nil end
-  return port
 end
 
 local function percent_decoded(text: string): string

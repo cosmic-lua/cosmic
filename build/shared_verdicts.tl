@@ -107,6 +107,11 @@ local variable <const>: Env.Name = "COSMIC_VERDICT_CACHE"
 --- at a few kilobytes a row.
 local kept_rows <const> = 8192
 
+--- How many rows a file of a checked run's verdicts keeps ([`shared_verdicts.rows_kept`]): twice
+--- the suite, since the suite has some 7900 tests and a key that moves leaves its old row until
+--- the trim.
+local kept_checked_rows <const> = 16384
+
 --- How long a row no run relies on is kept: thirty days.
 local kept_ns <const> = 30 * 24 * 3600 * 1000000000
 
@@ -127,10 +132,12 @@ local stores <const> = cache_formats.stores
 local text = bind.text
 
 --- Where the cache is: `COSMIC_VERDICT_CACHE` when it names a path,
---- else `verdicts.db` in `Fs.cache_dir("verdicts")`, made if missing.
+--- else `verdicts.db` in `Fs.cache_dir("verdicts")`, made if missing, or
+--- `verdicts-checked.db` beside it for a `checked` run (`cosmic test
+--- --check-types`), so that the rows of the two modes share no bound.
 --- Nil and "" when the variable is `0`, or nil and why when there is
 --- nowhere to keep it.
-function shared_verdicts.location(environment?: {string:string}): string?, string
+function shared_verdicts.location(environment?: {string:string}, checked?: boolean): string?, string
   local value: string
   if environment ~= nil then
     value = environment[variable] or ""
@@ -146,7 +153,20 @@ function shared_verdicts.location(environment?: {string:string}): string?, strin
   end
   local dir, trouble = Fs.cache_dir("verdicts", { environment = environment })
   if dir == nil then return nil, trouble end
-  return dir .. "/verdicts.db", ""
+  return dir .. (if checked == true then "/verdicts-checked.db" else "/verdicts.db" end), ""
+end
+
+--- How many rows the file at `path` keeps: more for the file of a checked run's verdicts, which
+--- is named `*-checked.db` or `narrowing.db`. The bound is kept where tests run (`settle`); CI's
+--- `verdicts-merge` and `verdicts-trim`, which the pinned driver runs, apply none (the merge unites the
+--- shares' rows, each trimmed to what its run used, and the trim cuts rows by age alone), so the
+--- narrowing file a passing run saves is those rows, at most one per test; a failed run's holds
+--- all a share restored, which the next run's `settle` brings back to the bound.
+function shared_verdicts.rows_kept(path: string): integer
+  if path:match("%-checked%.db$") ~= nil or path:match("/narrowing%.db$") ~= nil then
+    return kept_checked_rows
+  end
+  return kept_rows
 end
 
 --- Whether `COSMIC_VERDICT_CACHE` names a file, in `environment` or
@@ -471,7 +491,7 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
       if not aged then return false, age_trouble end
       local bounded, bound_trouble = Sqlite.run(db, "DELETE FROM " .. name ..
           " WHERE " .. key .. " IN (SELECT " .. key .. " FROM " .. name .. " " ..
-          "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. tostring(kept_rows) .. ")")
+          "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. tostring(shared_verdicts.rows_kept(cache.path)) .. ")")
       if not bounded then return false, bound_trouble end
     end
     return true, ""

@@ -3,11 +3,13 @@
 --- read of the messages it sends back.
 
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local build_paths = require("build.paths")
+local schema = require("build.schema")
 local protocol = require("build.lsp.protocol")
 local session = require("build.lsp.session")
 local source = require("build.lsp.source")
@@ -52,11 +54,17 @@ local record session_fixture
     change: integer
   end
 
+  record CompletionOptions
+    triggerCharacters: {string}
+    resolveProvider: boolean?
+  end
+
   record Capabilities
     positionEncoding: string
     textDocumentSync: Sync
     hoverProvider: boolean
     definitionProvider: boolean
+    completionProvider: CompletionOptions
     documentFormattingProvider?: boolean
   end
 
@@ -130,7 +138,9 @@ local function copied(tally: source.Tally): source.Tally
   return { database_stubs = tally.database_stubs, made_stubs = tally.made_stubs,
     sources = tally.sources, templates = tally.templates,
     whole_splices = tally.whole_splices, stages = tally.stages, reopened = tally.reopened,
-    parses = tally.parses }
+    derived = tally.derived, member_rows = tally.member_rows, member_declarations = tally.member_declarations,
+    scratch_stubs = tally.scratch_stubs, scratch_requires = tally.scratch_requires, texts_read = tally.texts_read,
+    shared_parses = tally.shared_parses }
 end
 
 --- Makes the directory `root` a project to a session, as one a build has
@@ -141,6 +151,37 @@ function session_fixture.made_project(root: string): string
   local directory = assert(build_paths.prepare(root))
   assert(Fs.write(build_paths.under(directory).projection, ""))
   return root
+end
+
+--- A database as the tool carries one (the schema of [`build.schema`]), holding the standard-library module `path`, its
+--- file `file` and the text `text`, and `places` of it, each a `{ symbol, kind, line, column, length, plain }`, the last "1" for a name on an ASCII line: what a session
+--- given it as its `store` takes for the binary's own, where a test needs the module's text and places it names (the
+--- default [`Store.databases`] carries the real ones).
+function session_fixture.carrying(path: string, file: string, text: string, places: {{string}}): Sqlite.Handle
+  local db = assert(Sqlite.memory())
+  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  assert(Sqlite.run(db, "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
+      "VALUES (?1, ?2, 'module', CAST(?3 AS BLOB), x'00', x'00', '', deflate(?4))",
+    { { text = path }, { text = file }, { text = Hash.hex_sha256(text) }, { text = text } }))
+  for ordinal, place in ipairs(places) do
+    assert(Sqlite.run(db, "INSERT INTO places (module, ordinal, symbol, kind, line, column, length, plain) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+      { { text = path }, { text = tostring(ordinal) }, { text = place[1] or "" }, { text = place[2] or "" },
+        { text = place[3] or "0" }, { text = place[4] or "0" }, { text = place[5] or "0" },
+        { text = place[6] or "0" } }))
+  end
+  return db
+end
+
+--- A database as the tool carries one for a module generated from a header: the module `path` has no `modules` row, its
+--- `places` hold the lines of the header `file` (text `header`) and `origins` holds the header.
+function session_fixture.carrying_origin(path: string, file: string, header: string, places: {{string}}): Sqlite.Handle
+  local db = session_fixture.carrying("cosmic.unused", "cosmic/unused.tl", "", places)
+  assert(db:exec("DELETE FROM modules"))
+  assert(db:exec("UPDATE places SET module = '" .. path .. "'"))
+  assert(Sqlite.run(db, "INSERT INTO origins (module, file, sha256, source) VALUES (?1, ?2, ?3, deflate(?4))",
+    { { text = path }, { text = file }, { text = Hash.hex_sha256(header) }, { text = header } }))
+  return db
 end
 
 --- A new directory that is a project to a session ([`made_project`]).
@@ -189,6 +230,49 @@ local class Batches is Stream.Reader
   end
 end
 
+--- A session being served, with what it sent and complained of so far.
+local record Serving
+  session: session.State
+  wrote: mut {string}
+  complaints: mut {string}
+end
+
+--- A session at `root` that nothing has been served yet, reading docs
+--- from `store` when given, with `carried` as the `built_from` the tool carries.
+local function begin(root: string, store?: {Sqlite.Handle}, carried?: string): Serving
+  local complaints: mut {string} = {}
+  return {
+    session = session.new(root, {
+      err = function(line: string) complaints[#complaints + 1] = line end,
+      store = store,
+      carried = carried,
+    }),
+    wrote = {},
+    complaints = complaints,
+  }
+end
+
+--- What `serving` has sent after [`session.serve`] returned `code`;
+--- `checked` tells how many dependents were checked as each message went.
+local function ran_of(serving: Serving, code: integer, checked: {integer}): Ran
+  local s = serving.session
+  return { code = code, sent = session_fixture.bodies(table.concat(serving.wrote)),
+    err = table.concat(serving.complaints, "\n"), tally = copied(s.checker.source.tally),
+    dependents = s.queue.checked, checked = checked, checks = s.checker.checks, ran = s.checker.ran }
+end
+
+--- Serves `reader` to `serving`'s session, `arrived` given when the
+--- session polls for a message that has arrived since, and `after` called
+--- with each message it sends.
+local function serve(serving: Serving, reader: Stream.Reader, arrived?: protocol.Poll,
+                     after?: function()): integer
+  return session.serve(serving.session, reader, function(text: string): boolean, string
+    serving.wrote[#serving.wrote + 1] = text
+    if after ~= nil then after() end
+    return true, ""
+  end, arrived)
+end
+
 --- What one session at `root`, served `batches` of messages in one
 --- stream, answers, `between` called after each batch but the last,
 --- reading docs from `store` when given.
@@ -197,39 +281,15 @@ function session_fixture.served_between(root: string, batches: {{string}},
   local framed: mut {string} = {}
   for _, messages in ipairs(batches) do framed[#framed + 1] = session_fixture.framed(messages) end
   local reader: Batches = { batches = framed, following = 1, rest = "", between = between }
-  local wrote: mut {string} = {}
-  local complaints: mut {string} = {}
-  local s = session.new(root, {
-    err = function(line: string) complaints[#complaints + 1] = line end,
-    store = store,
-  })
-  local code = session.serve(s, reader, function(text: string): boolean, string
-    wrote[#wrote + 1] = text
-    return true, ""
-  end)
-  return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
-    err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally),
-    dependents = s.queue.checked, checked = {}, checks = s.checker.checks, ran = s.checker.ran }
+  local serving = begin(root, store)
+  return ran_of(serving, serve(serving, reader), {})
 end
 
 --- What a session at `root` answers `messages` with, reading docs from
 --- `store` when given.
 function session_fixture.served(root: string, messages: {string}, store?: {Sqlite.Handle}, carried?: string): Ran
-  local wrote: mut {string} = {}
-  local complaints: mut {string} = {}
-  local s = session.new(root, {
-    err = function(line: string) complaints[#complaints + 1] = line end,
-    store = store,
-    carried = carried,
-  })
-  local code = session.serve(s, Stream.from_string(session_fixture.framed(messages)),
-    function(text: string): boolean, string
-      wrote[#wrote + 1] = text
-      return true, ""
-    end)
-  return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
-    err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally),
-    dependents = s.queue.checked, checked = {}, checks = s.checker.checks, ran = s.checker.ran }
+  local serving = begin(root, store, carried)
+  return ran_of(serving, serve(serving, Stream.from_string(session_fixture.framed(messages))), {})
 end
 
 --- What a session at `root` answers `messages` with, where `arrived`
@@ -239,47 +299,25 @@ end
 --- dependents were checked as each message was sent.
 function session_fixture.served_arriving(root: string, messages: {string},
                                          arrived: function(checked: integer): string?): Ran
-  local wrote: mut {string} = {}
+  local serving = begin(root)
   local checked: mut {integer} = {}
-  local complaints: mut {string} = {}
-  local s = session.new(root, {
-    err = function(line: string) complaints[#complaints + 1] = line end,
-    store = nil,
-  })
-  local code = session.serve(s, Stream.from_string(session_fixture.framed(messages)),
-    function(text: string): boolean, string
-      wrote[#wrote + 1] = text
-      checked[#checked + 1] = s.queue.checked
-      return true, ""
-    end,
+  local code = serve(serving, Stream.from_string(session_fixture.framed(messages)),
     function(): string?, string
-      local message = arrived(s.queue.checked)
+      local message = arrived(serving.session.queue.checked)
       if message == nil then return nil, "" end
       return protocol.frame(message), ""
-    end)
-  return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
-    err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally),
-    dependents = s.queue.checked, checked = checked, checks = s.checker.checks, ran = s.checker.ran }
+    end,
+    function() checked[#checked + 1] = serving.session.queue.checked end)
+  return ran_of(serving, code, checked)
 end
 
 --- A session at `root` served one batch of messages after another, as an
 --- editor sends them with time between: what it sent, all told.
 function session_fixture.serving(root: string): function(messages: {string}): Ran
-  local wrote: mut {string} = {}
-  local complaints: mut {string} = {}
-  local s = session.new(root, {
-    err = function(line: string) complaints[#complaints + 1] = line end,
-    store = nil,
-  })
+  local serving = begin(root)
   return function(messages: {string}): Ran
-    local code = session.serve(s, Stream.from_string(session_fixture.framed(messages)),
-      function(text: string): boolean, string
-        wrote[#wrote + 1] = text
-        return true, ""
-      end)
-    return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
-      err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally),
-      dependents = s.queue.checked, checked = {}, checks = s.checker.checks, ran = s.checker.ran }
+    local code = serve(serving, Stream.from_string(session_fixture.framed(messages)))
+    return ran_of(serving, code, {})
   end
 end
 

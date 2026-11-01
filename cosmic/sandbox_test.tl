@@ -3,13 +3,7 @@ local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
 local stand_in = require("build.stand_in")
-
---- The merged policy of `p`, which must merge.
-local function merged(...: Sandbox.Policy): Sandbox.Policy
-  local out, why = Sandbox.merge(...)
-  assert(out ~= nil, why)
-  return out
-end
+local PolicyMerge = require("build.policy_merge_fixture")
 
 local function test_check_holds_letters_to_the_canonical_order_only_when_exact()
   local grant: Sandbox.Policy = { grants = { { path = "a", letters = "xr" } } }
@@ -54,7 +48,7 @@ local function test_check_takes_an_ipv6_connect_host_in_brackets_only()
 end
 
 local function test_merge_joins_the_letters_of_a_path_in_order()
-  local out = merged(
+  local out = PolicyMerge.merged(
     { grants = { { path = "/a", letters = "x" }, { path = "/b", letters = "c" } } },
     { grants = { { path = "/a", letters = "wr" }, { path = "/b", letters = "ur" } } })
   assert(#assert(out.grants) == 2)
@@ -63,7 +57,7 @@ local function test_merge_joins_the_letters_of_a_path_in_order()
 end
 
 local function test_merge_keeps_a_path_with_another_host_path_apart()
-  local out = merged({ grants = {
+  local out = PolicyMerge.merged({ grants = {
     { path = "/a", letters = "r", from = "/x" }, { path = "/a", letters = "w" },
     { path = "/a", letters = "x", from = "/x" },
   } })
@@ -73,7 +67,7 @@ local function test_merge_keeps_a_path_with_another_host_path_apart()
 end
 
 local function test_merge_unions_lists_sorted_without_repeats()
-  local out = merged(
+  local out = PolicyMerge.merged(
     { promises = { "jit", "fork" }, env = { "B", "A" }, connect = { "b:1", "a:1" },
       isolate = { "proc" }, loopback = { "127.0.0.2" } },
     { promises = { "fork", "fattr" }, env = { "A", "C" }, connect = { "a:1" },
@@ -86,16 +80,16 @@ local function test_merge_unions_lists_sorted_without_repeats()
 end
 
 local function test_merge_answers_every_field_even_for_nothing()
-  local out = merged()
+  local out = PolicyMerge.merged()
   assert(out.profiles == nil and out.tmp == false)
   assert(#assert(out.grants) == 0 and #assert(out.isolate) == 0 and #assert(out.promises) == 0 and #assert(out.connect) == 0)
   assert(#assert(out.loopback) == 0 and #assert(out.env) == 0 and next(assert(out.set_env)) == nil)
   assert(next(assert(out.set_env_digests)) == nil and assert(out.limits).open_files == nil)
-  assert(merged({}, { tmp = false }).tmp == false and merged({ tmp = false }, { tmp = true }).tmp)
+  assert(PolicyMerge.merged({}, { tmp = false }).tmp == false and PolicyMerge.merged({ tmp = false }, { tmp = true }).tmp)
 end
 
 local function test_merge_agrees_on_one_limit_and_refuses_two()
-  local out = merged({ limits = { open_files = 8, cpu_seconds = 3 } },
+  local out = PolicyMerge.merged({ limits = { open_files = 8, cpu_seconds = 3 } },
     { limits = { open_files = 8, file_bytes = 100, processes = 2 } })
   assert(assert(out.limits).open_files == 8 and assert(out.limits).cpu_seconds == 3)
   assert(assert(out.limits).file_bytes == 100 and assert(out.limits).processes == 2)
@@ -112,11 +106,11 @@ local function test_merge_agrees_on_one_limit_and_refuses_two()
 end
 
 local function test_merge_takes_one_user_and_group_and_refuses_two()
-  local out = merged({ user = 1000 }, {})
+  local out = PolicyMerge.merged({ user = 1000 }, {})
   assert(out.user == 1000 and out.group == nil, "a group left out is the start's to choose")
-  out = merged({ user = 1000 }, { user = 1000, group = 100 })
+  out = PolicyMerge.merged({ user = 1000 }, { user = 1000, group = 100 })
   assert(out.user == 1000 and out.group == 100)
-  assert(merged().user == nil and merged().group == nil)
+  assert(PolicyMerge.merged().user == nil and PolicyMerge.merged().group == nil)
   local none, why = Sandbox.merge({ user = 1 }, { user = 2 })
   assert(none == nil and why:find("$.user: given two values", 1, true), why)
   none, why = Sandbox.merge({ user = 1, group = 1 }, { user = 1, group = 2 })
@@ -154,7 +148,7 @@ local function test_maps_id_is_whether_a_map_holds_the_id()
 end
 
 local function test_merge_refuses_two_values_for_one_variable_without_saying_them()
-  local out = merged({ set_env = { A = "1", B = "2" } }, { set_env = { A = "1", C = "3" } })
+  local out = PolicyMerge.merged({ set_env = { A = "1", B = "2" } }, { set_env = { A = "1", C = "3" } })
   assert(assert(out.set_env).A == "1" and assert(out.set_env).B == "2" and assert(out.set_env).C == "3")
   local none, why = Sandbox.merge({ set_env = { TOKEN = "hunter2" } }, { set_env = { TOKEN = "hunter3" } })
   assert(none == nil and why:find("$.set_env.TOKEN: given two values", 1, true), why)
@@ -206,16 +200,16 @@ local function test_a_loopback_address_a_connect_target_names_is_refused()
   assert(none == nil and why:find("$.loopback[0]", 1, true) and why:find("127.0.0.2", 1, true), tostring(why))
   local ok, checked = Sandbox.check({ loopback = { "127.0.0.2" }, connect = { "127.0.0.1:80" } })
   assert(ok, checked)
-  assert(merged({ loopback = { "127.0.0.2" }, connect = { "127.0.0.3:80", "[::1]:80", "example.com:80" } }))
+  assert(PolicyMerge.merged({ loopback = { "127.0.0.2" }, connect = { "127.0.0.3:80", "[::1]:80", "example.com:80" } }))
 end
 
 local function test_merge_takes_letters_in_any_order_where_decode_does_not()
-  assert(assert(merged({ grants = { { path = "a", letters = "xr" } } }).grants)[1].letters == "rx")
-  assert(assert(merged({ grants = { { path = "a", letters = "rrw" } } }).grants)[1].letters == "rw")
+  assert(assert(PolicyMerge.merged({ grants = { { path = "a", letters = "xr" } } }).grants)[1].letters == "rx")
+  assert(assert(PolicyMerge.merged({ grants = { { path = "a", letters = "rrw" } } }).grants)[1].letters == "rw")
 end
 
 local function test_merge_resolves_profiles_away()
-  local out = merged({ profiles = { "cosmic" }, grants = { { path = "/data", letters = "r" } } })
+  local out = PolicyMerge.merged({ profiles = { "cosmic" }, grants = { { path = "/data", letters = "r" } } })
   assert(out.profiles == nil)
   local executable = assert(Proc.executable())
   local found, data = false, false
@@ -230,7 +224,7 @@ end
 
 local function test_a_profile_joins_with_the_policys_own_grant_of_the_same_path()
   local executable = assert(Proc.executable())
-  local out = merged({ profiles = { "cosmic" }, grants = { { path = executable, letters = "w" } } })
+  local out = PolicyMerge.merged({ profiles = { "cosmic" }, grants = { { path = executable, letters = "w" } } })
   local count = 0
   for _, grant in ipairs(assert(out.grants)) do
     if grant.path == executable then
@@ -391,7 +385,7 @@ local function test_loaders_does_not_raise_on_an_interpreter_name_cut_short(tmp:
 end
 
 local function test_merge_writes_a_path_once_and_joins_its_spellings()
-  local out = merged({ grants = {
+  local out = PolicyMerge.merged({ grants = {
     { path = "/a//b/./", letters = "r" }, { path = "/a/b", letters = "x" },
     { path = "rel/./x/", letters = "r" }, { path = "./", letters = "w" }, { path = "/", letters = "x" },
     { path = "//", letters = "r" },
@@ -410,7 +404,7 @@ local function test_a_dot_dot_in_a_grant_path_is_refused_naming_the_field()
     assert(none == nil and trouble:find("$.grants[1].path", 1, true) and trouble:find("..", 1, true), trouble)
   end
   -- A name that only contains dots is a name.
-  assert(assert(merged({ grants = { { path = "/a/..b/c..", letters = "r" } } }).grants)[1].path == "/a/..b/c..")
+  assert(assert(PolicyMerge.merged({ grants = { { path = "/a/..b/c..", letters = "r" } } }).grants)[1].path == "/a/..b/c..")
 end
 
 local FULL <const> = "         0          0 4294967295\n"
@@ -540,11 +534,11 @@ end
 local function test_merge_carries_a_database_and_refuses_two(tmp: string)
   local path = database_file(tmp)
   local other = database_file(tmp, "other.db")
-  assert(assert(merged({ database = { path = path } }).database).path == path)
-  assert(assert(merged({ database = { path = path } }, { database = { path = tmp .. "//./program.db" } }, {}).database).path == path)
+  assert(assert(PolicyMerge.merged({ database = { path = path } }).database).path == path)
+  assert(assert(PolicyMerge.merged({ database = { path = path } }, { database = { path = tmp .. "//./program.db" } }, {}).database).path == path)
   local none, why = Sandbox.merge({ database = { path = path } }, { database = { path = other } })
   assert(none == nil and why:find("$.database.path: given two values", 1, true), tostring(why))
-  assert(merged({}).database == nil)
+  assert(PolicyMerge.merged({}).database == nil)
 end
 
 --- The "cosmic" profile grants this program's own file, which a program
@@ -552,16 +546,16 @@ end
 local function test_a_database_beside_the_cosmic_profile_leaves_the_programs_file_out(tmp: string)
   local path = database_file(tmp)
   local executable = assert(Proc.executable())
-  local plain = merged({ profiles = { "cosmic" } })
+  local plain = PolicyMerge.merged({ profiles = { "cosmic" } })
   local found = false
   for _, grant in ipairs(assert(plain.grants)) do
     if grant.path == executable then found = true end
   end
   assert(found, "the profile no longer grants the program")
-  local out = merged({ profiles = { "cosmic" }, database = { path = path } })
+  local out = PolicyMerge.merged({ profiles = { "cosmic" }, database = { path = path } })
   assert(#assert(out.grants) == 0 and assert(out.database).path == path)
   -- In either order of the two.
-  out = merged({ database = { path = path } }, { profiles = { "cosmic", "system" } })
+  out = PolicyMerge.merged({ database = { path = path } }, { profiles = { "cosmic", "system" } })
   for _, grant in ipairs(assert(out.grants)) do
     assert(grant.path ~= executable, "the profile's grant stayed")
   end

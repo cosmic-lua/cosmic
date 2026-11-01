@@ -63,7 +63,8 @@ local function compile(root: string): {string: string}?, string
   end
   local lua: mut {string: string} = {}
   for _, m in ipairs(result.modules) do
-    lua[m.path] = m.lua
+    local code = m.lua
+    if code ~= nil then lua[m.path] = code end
   end
   return lua, ""
 end
@@ -79,18 +80,18 @@ end
 --- The module `path` of `lua`, run against the real [`cosmic.html`].
 --- Each module it loads is set in `loaded`, when given.
 local function load_module(lua: {string: string}, path: string, loaded?: mut {string: any}): any
-  loaded = loaded or {}
+  local held: mut {string: any} = loaded or {}
   local function req(name: string): any
     if name == "cosmic.html" then
       return Html
     end
-    if loaded[name] == nil then
+    if held[name] == nil then
       local env: {string: any} = setmetatable({}, { __index = _G })
       env.require = req
       local chunk = assert(load(assert(lua[name], "no module " .. name), "=" .. name, "t", env))
-      loaded[name] = chunk()
+      held[name] = chunk()
     end
-    return loaded[name]
+    return held[name]
   end
   return req(path)
 end
@@ -207,9 +208,9 @@ local function test_a_template_of_the_tree_is_a_module_the_tree_requires()
   assert(not out:find("javascript", 1, true), out)
 end
 
-local function test_a_template_whose_data_is_a_declaration_builds_and_renders(tmp: string)
+local function test_a_template_whose_data_is_a_type_module_builds_and_renders(tmp: string)
   local lua, trouble = project(tmp, "declared", {
-    ["types.d.tl"] = "local record types\n  record Page\n    title: string\n  end\nend\nreturn types\n",
+    ["types.tl"] = "local record types\n  record Page\n    title: string\n  end\nend\nreturn types\n",
     ["page.tmpl"] = "{{type Page from types}}{{mode text}}{{.title}}" })
   assert(lua ~= nil, trouble)
   local mod = load_module(lua, "page")

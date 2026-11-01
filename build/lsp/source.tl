@@ -1,7 +1,14 @@
 --- Where `cosmic lsp` ([`build.lsp`]) reads a project's modules from: the
 --- working database of the workspace's root, `build.db` in its build
 --- directory ([`build.paths`]), as a build reads them, and the documents
---- the editor holds open, whose text comes over the protocol.
+--- the editor holds open, whose text comes over the protocol. What the
+--- build derived of a text it does not hold (an open document that was
+--- edited, a file whose rows are another analyzer's) is derived here into a
+--- private in-memory database that only this process reads
+--- ([`source.places`]); `build.db` is never written, so nothing a `cosmic
+--- test` holds it for waits on the session, and no build sees an unsaved
+--- text: no unsaved text or scratch row is written to `build.db` (its
+--- staging of the files on disk below is the build's own).
 ---
 --- The database is brought up to the files on disk by the build's own
 --- staging ([`rebuild.stage`]: [`work.stage`], then [`importer.derive`]),
@@ -14,8 +21,9 @@
 --- template's Teal), and an open document stands in for the file it
 --- is; a name the database does not list is not found, whatever is
 --- open. The binary's own `cosmic.*` modules are the checker's
---- ([`build.lsp.check`]). A root that is no project ([`rebuild.stage`])
---- is never staged, as a lookup never starts a tree of its own: a build
+--- ([`build.lsp.check`]), and the tool's database that carries them also carries where each declares its types and
+--- members ([`source.places`]), which a project's database does not list. A root that is no project
+--- ([`rebuild.stage`]) is never staged, as a lookup never starts a tree of its own: a build
 --- would find its modules, and this finds none, so nothing is checked
 --- there ([`source.outside`]). Each refresh asks again whether a build was
 --- started there, looking at the build directory's own files alone
@@ -39,7 +47,8 @@
 --- the one this session's own stage recorded deriving them (the `meta`
 --- row `analyzer`), or before one, the binary's
 --- ([`importer.analyzer_identity`]); otherwise, and for an open document,
---- it is made here from the text, once a text. Another run may derive
+--- it is the `stubs` row of the text derived here ([`source.places`]'s scratch database), once a text, or made of it where
+--- that is none. Another run may derive
 --- the rows again with another analyzer at any time, so the row is read
 --- again at every refresh, and a module served is named by which of the
 --- two it was served as ([`source.key`]).
@@ -68,11 +77,18 @@
 
 local AnalysisSchema = require("build.analysis_schema")
 local Ast = require("lang.ast")
-local Driver = require("build.driver")
+local Declarations = require("lang.declarations")
 local Fs = require("cosmic.fs")
+local GenSyscalls = require("build.gen_syscalls")
+local Hash = require("cosmic.hash")
+local Derivation = require("build.syntax_derivation")
+local Driver = require("build.driver")
+local Node = require("build.syntax_node")
 local Places = require("build.syntax_places")
 local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 local Template = require("cosmic.template")
+local TreeProgram = require("build.tree_program")
 local build_paths = require("build.paths")
 local importer = require("build.importer")
 local rebuild = require("build.rebuild")
@@ -87,6 +103,9 @@ local record source
     file: string
     kind: string
     source_hash: string
+    --- Where the source comes from: `tree` for a staged file, else the kind of generator that made it from `file`
+    --- (`syscalls`, `doctest`, `template`).
+    origin: string
   end
 
   --- What the checker is served for a module: the file name it reads it
@@ -118,11 +137,26 @@ local record source
     --- opened anew.
     mut stages: integer
     mut reopened: integer
-    --- Texts parsed here to find where they declare their types
-    --- ([`source.places`]): an open document that differs from the staged
-    --- file, or a file whose `places` rows are not the running
-    --- analyzer's.
-    mut parses: integer
+    --- Texts derived into the scratch database ([`source.places`]): an
+    --- open document that differs from the staged file, or a file whose
+    --- rows are not the running analyzer's. A text that does not parse
+    --- is counted for the places of its recovered tree; one whose rows fail to
+    --- write is not.
+    mut derived: integer
+    --- Completions of a module's members read from the `members` rows ([`source.members`]), and from the checker's
+    --- declarations of its stub, where there are no rows.
+    mut member_rows: integer
+    mut member_declarations: integer
+    --- Of the stubs served as made here (`made_stubs`), those read of the scratch database's `stubs` row of an open
+    --- document's text; and the times the `requires` of an open document were read of its `requires` rows there
+    --- ([`source.requires_of`]), in place of being made of its text.
+    mut scratch_stubs: integer
+    mut scratch_requires: integer
+    --- Times a module's text was read of the database for a request for its places ([`source.places`]): the text of an
+    --- open document is already held, and a place on an ASCII line (`plain`) needs none.
+    mut texts_read: integer
+    --- Texts derived of a parse and analysis the check made of them ([`source.requires_of`]), which were not made again.
+    mut shared_parses: integer
   end
 
   --- A module's text as its file holds it, not as the checker is served it (a stub, a template's Teal): where a place in
@@ -139,6 +173,9 @@ local record source
     line: integer
     column: integer
     length: integer
+    --- Whether the protocol's character is the column less one ([`build.syntax_places`]'s `plain`): the text of the
+    --- module is not needed to put the place in the protocol's units.
+    plain: boolean
   end
 
   --- Where a module declares its types and their members, by dotted symbol ([`build.syntax_places`]), and the text and the
@@ -146,10 +183,38 @@ local record source
   record Placed
     --- The module's file, below the root.
     file: string
-    text: string
+    --- The text the places are in, read when asked for and once: nil where it cannot be read.
+    text: function(): string?
     --- The first place of each symbol.
     spots: {string:Spot}
+    --- The SHA-256 of the text, as hex, where the module is the binary's own ([`source.places`]) and `file` is
+    --- below no root ([`source.extracted`]); nil for a module of the root.
+    carried?: string
   end
+
+  --- One member of a declared type, as the `members` rows hold it ([`build.syntax_members`]), with the documentation of the
+  --- same symbol in the `docs` rows of the text.
+  record MemberRow
+    name: string
+    --- "field", "method", "function" or "value".
+    kind: string
+    --- "instance", "value" or "both".
+    scope: string
+    --- The type as written, "" for an enum's value.
+    type: string
+    doc: string
+  end
+
+  --- A type the `members` rows hold: "record", "class", "interface" or "enum", the interfaces it lists as written, and its
+  --- members in the order the rows are in.
+  record MemberOwner
+    kind: string
+    supers: {string}
+    members: {MemberRow}
+  end
+
+  --- The types a text declares, by dotted symbol ([`build.syntax_places`]).
+  type Members = {string:MemberOwner}
 
   --- An open document's text, and its SHA-256.
   record Text
@@ -166,6 +231,8 @@ local record source
     root: string
     --- The `built_from` the tool carries, by default the binary's ([`tree.standing`]).
     carried: string?
+    --- The databases the binary's own modules are read from, the last the tool's own: [`Store.databases`] when nil.
+    store: {Sqlite.Handle}?
     --- A read handle on `build.db`, nil until there is one to read, and
     --- the device and inode of the file it reads.
     mut db: Sqlite.Handle?
@@ -184,6 +251,9 @@ local record source
     --- analyzer this session's last stage recorded, nil before one.
     mut stubs: boolean
     mut analyzer: string?
+    --- Why the last stage staged nothing, "" for a stage that did. A document of a pair it refused is told of it
+    --- ([`source.refusal`]).
+    mut trouble: string
     --- Whether the tree is yet to be staged: before the first check, or
     --- since a stage that found the database busy.
     mut pending: boolean
@@ -193,8 +263,26 @@ local record source
     --- The stub made here of each text, by its SHA-256: "" for a text
     --- with none.
     mut made: mut {string:string}
-    --- Where each text, by its SHA-256, declares its types and members: read from the `places` rows or parsed here.
-    mut placed: mut {string:{string:Spot}}
+    --- The places read of the binary's own modules ([`source.places`]) by module, each as of its `carried` hash; at most
+    --- `MADE_HELD`, and all go when another would pass it.
+    mut carried_held: mut {string:Placed}
+    mut carried_count: integer
+    --- Whether the extracted texts of the binary's modules no module of the running tool names are removed
+    --- ([`source.extracted`]), which is done once.
+    mut pruned: boolean
+    --- The SHA-256 of the texts whose `stubs` row alone is in `scratch` ([`scratch_stub`]), at most `MADE_HELD`: a text
+    --- derived whole later has that row taken out first, and all go when another would pass the most.
+    mut stub_only: mut {string:boolean}
+    --- A private in-memory database of the analysis tables ([`AnalysisSchema.statements`] but the `inputs` view),
+    --- made at the first text derived here; no `build.db` row is ever written to it or read from it as its own.
+    mut scratch: Sqlite.Handle?
+    --- The SHA-256 of the texts derived (or tried) into `scratch` for each file below the root, the latest first and at most
+    --- `SCRATCHED` of them: the text a check read and the text the document holds now are both kept, as a request for
+    --- either does not drop the rows of the other. The rows of a hash are dropped when no file holds it.
+    mut scratched: mut {string:{string}}
+    --- The SHA-256 of the texts a quiet derive ([`derive`]) left alone, each as `unparsed` or `failed` to write its rows; at
+    --- most `MADE_HELD`.
+    mut underived: mut {string:string}
     tally: Tally
     --- Where complaints go, without their newline.
     err: function(line: string)
@@ -207,8 +295,10 @@ local type Written = source.Written
 local type Spot = source.Spot
 local type Tally = source.Tally
 
---- The most stubs kept of texts made here, and the most texts whose places are kept: an open module's every edit
---- makes one.
+--- The most texts of one file the scratch database holds the rows of.
+local SCRATCHED <const> = 2
+
+--- The most stubs kept of texts made here: an open module's every edit makes one.
 local MADE_HELD <const> = 64
 
 --- The running analyzer's name, found once.
@@ -228,12 +318,15 @@ local function analyzer_identity(): string
 end
 
 --- A source for the tree at `root`, staged at its first [`source.refresh`].
-function source.new(root: string, err: function(line: string), carried?: string): source.View
+function source.new(root: string, err: function(line: string), carried?: string, store?: {Sqlite.Handle}): source.View
   local tally: Tally = { database_stubs = 0, made_stubs = 0, sources = 0, templates = 0,
-    whole_splices = 0, stages = 0, reopened = 0, parses = 0 }
+    whole_splices = 0, stages = 0, reopened = 0, derived = 0, member_rows = 0,
+    member_declarations = 0, scratch_stubs = 0, scratch_requires = 0, texts_read = 0,
+    shared_parses = 0 }
   return {
     root = root,
     carried = carried,
+    store = store,
     db = nil,
     identity = "",
     working = nil,
@@ -245,8 +338,15 @@ function source.new(root: string, err: function(line: string), carried?: string)
     analyzer = nil,
     pending = true,
     told_busy = false,
+    trouble = "",
     made = {},
-    placed = {},
+    carried_held = {},
+    carried_count = 0,
+    pruned = false,
+    stub_only = {},
+    scratch = nil,
+    scratched = {},
+    underived = {},
     tally = tally,
     err = err,
   }
@@ -347,9 +447,6 @@ end
 --- whether its stubs are the running analyzer's ([`trusted`]); none of
 --- them where other code than this session's staged it
 --- ([`staged_by_other`]).
----
--- TODO: report a `.d.tl` beside a `.tl` ([`build.driver.paired`]) as a diagnostic of both files; the build refuses the pair, and
--- the document that requires their module is told that the project has no such module.
 local function listed(src: source.View, staged: boolean)
   local db, _ = database(src)
   if db == nil then return end
@@ -357,7 +454,7 @@ local function listed(src: source.View, staged: boolean)
   local own = 1
   if staged_by_other(src, db) then own = 0 end
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT path, file, kind, source_hash FROM inputs WHERE ?1 = 1 " ..
+    "SELECT path, file, kind, source_hash, origin FROM inputs WHERE ?1 = 1 " ..
       "ORDER BY path, " .. AnalysisSchema.declaration("kind") .. " DESC, file", { { integer = own } })
   if rows == nil then
     src.err("cosmic: lsp: the staged tree: " .. trouble)
@@ -367,7 +464,7 @@ local function listed(src: source.View, staged: boolean)
   local files: mut {string:Module} = {}
   for _, row in ipairs(rows) do
     local found: Module = { path = row:text(1), file = row:text(2), kind = row:text(3),
-      source_hash = row:text(4) }
+      source_hash = row:text(4), origin = row:text(5) }
     if modules[found.path] == nil then modules[found.path] = found end
     files[found.file] = found
   end
@@ -453,7 +550,7 @@ local unchecked_line <const> = "this tool was not checked against the tree when 
 --- then reads what the database lists; otherwise reads it again where a
 --- run made the database again, and whether its stubs are the running
 --- analyzer's in any case.
-function source.refresh(src: source.View)
+local function refreshed(src: source.View)
   local where = src.where
   if where ~= nil and not where.project then
     local directory = where.directory
@@ -525,11 +622,52 @@ function source.refresh(src: source.View)
   end
   if staged == nil then
     src.err("cosmic: lsp: not staged, answering from the tree as last staged: " .. trouble)
+    src.trouble = trouble
   else
     src.tally.stages = src.tally.stages + 1
+    src.trouble = ""
   end
   src.pending, src.told_busy = false, false
   listed(src, staged ~= nil)
+end
+
+--- Whether the last stage staged nothing.
+function source.refused(src: source.View): boolean
+  return src.trouble ~= ""
+end
+
+--- The complaint about the file `name` (below the root) where the last stage staged nothing and the file is one of a
+--- declaration and a source of one module on disk, or one of two declarations of it, or nil: what a document of that file is told, at its first line. The pair
+--- is found as the build finds one, by the files a module may be written in ([`build.driver.candidates`]). A declaration
+--- file whose `text` (the document's, as it is open) names no kind is told so as well ([`build.driver.naming`]).
+function source.refusal(src: source.View, name: string, text?: string): string?
+  -- A fixture of a test is no part of the program, as in a build ([`build.tree_program.skipped`]).
+  if TreeProgram.skipped(name) then return nil end
+  local module = Declarations.module_of(name)
+  local declaration: string? = nil
+  local second: string? = nil
+  local code: string? = nil
+  for _, file in ipairs(Driver.candidates(module)) do
+    local there, _ = Fs.exists(src.root .. "/" .. file)
+    if there == true then
+      if file:match("%.d%.tl$") ~= nil then
+        if declaration == nil then declaration = file elseif second == nil then second = file end
+      else
+        code = code or file
+      end
+    end
+  end
+  if src.trouble ~= "" and declaration ~= nil and code ~= nil and (name == declaration or name == code) then
+    return Driver.pairing(declaration, code, module)
+  end
+  if src.trouble ~= "" and declaration ~= nil and second ~= nil and (name == declaration or name == second) then
+    return Driver.doubling(declaration, second, module)
+  end
+  if text ~= nil and name:match("%.d%.tl$") ~= nil then
+    local unnamed = Driver.naming(name, text, source.standing(src).own)
+    if unnamed ~= "" then return unnamed end
+  end
+  return nil
 end
 
 --- What to say once, on stderr and to the person, where the session's
@@ -590,6 +728,325 @@ local function first(db: Sqlite.Handle, sql: string, value: string): string?
   return row:text(1)
 end
 
+--- The staged text of the file a generated module `name` was generated from ([`Module`]'s `origin`), which its places are
+--- lines of; an open document of it is not read, for the places are the stage's. nil where the database lists no such
+--- module and where it cannot be read as [`source.served`] cannot.
+local function written_of(src: source.View, found: Module): Written?
+  local db, _ = database(src)
+  if db == nil or staged_by_other(src, db) then return nil end
+  local data = first(db, "SELECT CAST(data AS TEXT) FROM files WHERE path = ?1", found.file)
+  if data == nil then return nil end
+  return { file = found.file, text = data }
+end
+
+--- The scratch database, made at the first need: the analysis tables of [`build.analysis_schema`] without the `inputs`
+--- view, which reads the `files` table that only a working database has. It is a handle of its own, so
+--- [`Derivation.insert`] writes it as it writes a working database, by the unqualified names of the tables. nil, and said,
+--- where it cannot be made.
+local function scratch_of(src: source.View): Sqlite.Handle?
+  local held = src.scratch
+  if held ~= nil then return held end
+  local made, trouble = Sqlite.memory()
+  if made == nil then
+    src.err("cosmic: lsp: the scratch database: " .. trouble)
+    return nil
+  end
+  for _, statement in ipairs(AnalysisSchema.statements) do
+    if statement:find("^%s*CREATE VIEW") == nil then
+      local ok, why = made:exec(statement)
+      if not ok then
+        src.err("cosmic: lsp: the scratch database: " .. why)
+        local _, _ = made:close()
+        return nil
+      end
+    end
+  end
+  src.scratch = made
+  return made
+end
+
+--- `held`, or an empty table where it has `MADE_HELD` entries.
+local function bounded(held: mut {string:string}): mut {string:string}
+  local count = 0
+  for _ in pairs(held) do count = count + 1 end
+  if count >= MADE_HELD then return {} end
+  return held
+end
+
+--- Whether a file other than `except` holds the text whose SHA-256 is `hash` in the scratch database.
+local function held_by_another(src: source.View, hash: string, except: string): boolean
+  for file, held in pairs(src.scratched) do
+    if file ~= except then
+      for _, each in ipairs(held) do
+        if each == hash then return true end
+      end
+    end
+  end
+  return false
+end
+
+--- Whether `held`, the texts of a file in the scratch database, has the text `hash`.
+local function holds(held: {string}, hash: string): boolean
+  for _, each in ipairs(held) do
+    if each == hash then return true end
+  end
+  return false
+end
+
+--- Takes the text `hash` out of those the file `file` holds in the scratch database, without dropping its rows.
+local function unmark(src: source.View, file: string, hash: string)
+  local held = src.scratched[file]
+  if held == nil then return end
+  local kept: mut {string} = {}
+  for _, each in ipairs(held) do
+    if each ~= hash then kept[#kept + 1] = each end
+  end
+  if #kept == 0 then
+    src.scratched[file] = nil
+  else
+    src.scratched[file] = kept
+  end
+end
+
+--- Drops the rows of the text `hash` from every analysis table of the scratch database.
+local function forget_rows(scratch: Sqlite.Handle, hash: string)
+  for _, name in ipairs(AnalysisSchema.tables) do
+    local _, _ = Sqlite.run(scratch, "DELETE FROM " .. name .. " WHERE source_hash = ?1", { { text = hash } })
+  end
+end
+
+--- Lets go of what the scratch database holds for the file `file`: a document closed, or one whose text is the staged
+--- file's now, which `build.db` answers. The rows of its text stay while another file holds the same text.
+function source.release(src: source.View, file: string)
+  local old = src.scratched[file]
+  if old == nil then return end
+  src.scratched[file] = nil
+  local scratch = src.scratch
+  if scratch == nil then return end
+  for _, each in ipairs(old) do
+    if not held_by_another(src, each, file) then forget_rows(scratch, each) end
+  end
+end
+
+--- Derives the text `text` of the file `file`, whose SHA-256 is `hash`, into the scratch database, once a text: the rows
+--- are [`Derivation.insert`]'s, as the stage writes them, the whole analysis of the text at its first read after an edit.
+--- The file's texts before the latest `SCRATCHED` go. A text that does not parse writes its places alone, from the parser's recovered tree. A
+--- text is not tried again while a file holds it. With `quiet` (a stub or the `requires` are wanted, not the places) a
+--- text that does not parse is not derived, and one whose rows fail to write is not said, its refusal being the check's to
+--- tell: neither is marked as derived, so that a later ask for the places derives it and says so. Such a text is
+--- remembered in `underived`, so that it is not parsed again for every quiet ask.
+local function derive(src: source.View, scratch: Sqlite.Handle, file: string, text: string, hash: string, quiet?: boolean,
+                      parsed?: Ast.Chunk, known?: Derivation.Known)
+  local old: {string} = src.scratched[file] or {}
+  if holds(old, hash) then
+    -- Used again: the latest, so that the text another request left untouched is the one pushed out.
+    if old[1] ~= hash then
+      local reordered: mut {string} = { hash }
+      for _, each in ipairs(old) do
+        if each ~= hash then reordered[#reordered + 1] = each end
+      end
+      src.scratched[file] = reordered
+    end
+    return
+  end
+  local tried = held_by_another(src, hash, file)
+  if quiet == true and not tried and src.underived[hash] ~= nil then return end
+  -- Not the check's chunk, which is the parse of the text with its splices put in. `parsed` and `known` are the parse and
+  -- the analysis of this very text that the caller made, which are not made again.
+  local chunk: Ast.Chunk? = parsed
+  if known == nil then chunk = nil end
+  if not tried and chunk == nil then
+    local reparsed, _ = Node.parse(text, file)
+    chunk = reparsed
+    if chunk == nil and quiet == true then
+      src.underived = bounded(src.underived)
+      src.underived[hash] = "unparsed"
+      return
+    end
+  end
+  local now: mut {string} = { hash }
+  for n, each in ipairs(old) do
+    if n < SCRATCHED then
+      now[#now + 1] = each
+    elseif not held_by_another(src, each, file) then
+      forget_rows(scratch, each)
+    end
+  end
+  src.scratched[file] = now
+  if tried then return end
+  if chunk == nil then
+    -- A text being typed does not parse: the places of what the parser recovered are written, and no other row, as a
+    -- partial tree says nothing safe of the rest of the analysis. It has no `parsed` row, so it is not a parse.
+    local dialect: Ast.Dialect = "tl"
+    if file:match("%.d%.tl$") ~= nil then dialect = "decl" end
+    local recovered = Driver.parse(Driver.source(file, file, text, dialect)).chunk
+    for ordinal, place in ipairs(Places.found(recovered, text)) do
+      local ok, _ = Sqlite.run(scratch,
+        "INSERT INTO places (source_hash, ordinal, symbol, kind, line, column, length, plain) " ..
+          "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        { { text = hash }, { integer = ordinal }, { text = place.symbol }, { text = place.kind },
+          { integer = place.line }, { integer = place.column }, { integer = place.length },
+          { integer = if place.plain then 1 else 0 end } })
+      if not ok then
+        forget_rows(scratch, hash)
+        return
+      end
+    end
+    src.tally.derived = src.tally.derived + 1
+    return
+  end
+  if src.stub_only[hash] == true then
+    src.stub_only[hash] = nil
+    forget_rows(scratch, hash)
+  end
+  local ok, why = Derivation.insert(scratch, hash, file, text, chunk, false, nil, known)
+  if not ok then
+    forget_rows(scratch, hash)
+    if quiet == true then
+      unmark(src, file, hash)
+      src.underived = bounded(src.underived)
+      src.underived[hash] = "failed"
+    else
+      src.err("cosmic: lsp: deriving " .. file .. ": " .. why)
+    end
+    return
+  end
+  src.tally.derived = src.tally.derived + 1
+  if known ~= nil then src.tally.shared_parses = src.tally.shared_parses + 1 end
+end
+
+--- The first place of each symbol of `rows`, whose columns are the symbol, the line, the column, the length and `plain`.
+local function spots_of(rows: Sqlite.Rows): {string:Spot}
+  local held: mut {string:Spot} = {}
+  for _, row in ipairs(rows) do
+    local symbol = row:text(1)
+    if held[symbol] == nil then
+      held[symbol] = { line = math.tointeger(tonumber(row:text(2))) or 1,
+        column = math.tointeger(tonumber(row:text(3))) or 1, length = math.tointeger(tonumber(row:text(4))) or 1,
+        plain = row:text(5) == "1" }
+    end
+  end
+  return held
+end
+
+--- The places `db` holds of the text `hash`, by symbol (the first of each), and whether it holds a parse of it: its
+--- `places` or `parsed` rows. nil where the read fails.
+local function read_places(db: Sqlite.Handle, hash: string): {string:Spot}?, boolean
+  local rows, _ = Sqlite.text_rows(db,
+    "SELECT symbol, line, column, length, plain FROM places WHERE source_hash = ?1 ORDER BY ordinal",
+    { { text = hash } })
+  if rows == nil then return nil, false end
+  local derived = #rows > 0
+  if not derived then
+    local parsed, _ = Sqlite.text_rows(db, "SELECT 1 FROM parsed WHERE source_hash = ?1", { { text = hash } })
+    if parsed == nil then return nil, false end
+    derived = #parsed > 0
+  end
+  return spots_of(rows), derived
+end
+
+--- Whether `db` holds a parse of the text `hash`: the stage could read it, and so could the derivation here.
+local function parsed_in(db: Sqlite.Handle, hash: string): boolean
+  local parsed, _ = Sqlite.text_rows(db, "SELECT 1 FROM parsed WHERE source_hash = ?1", { { text = hash } })
+  return parsed ~= nil and #parsed > 0
+end
+
+--- The database that holds the analysis rows of the text `text` of the staged module `found`, whose SHA-256 is `hash`, as
+--- an open document's: `build.db` where the text is the staged file's and the rows are the running analyzer's, else the
+--- scratch database, the text derived into it once ([`derive`]) without saying of a failure, which the check tells, of the
+--- `parsed` tree and `known` analysis of the text where the caller made them. nil where neither can be read.
+local function rows_for(src: source.View, found: Module, text: string, hash: string, parsed?: Ast.Chunk,
+                        known?: Derivation.Known): Sqlite.Handle?
+  if hash == found.source_hash and src.stubs then
+    local db, _ = database(src)
+    if db ~= nil and not staged_by_other(src, db) and parsed_in(db, hash) then return db end
+  end
+  local scratch = scratch_of(src)
+  if scratch == nil then return nil end
+  derive(src, scratch, found.file, text, hash, true, parsed, known)
+  return scratch
+end
+
+--- What an open document `found` requires, in order, as the rows of its text say ([`rows_for`]); nil where there are none to
+--- read: a text that does not parse, a declaration (nothing requires one), a template (its Teal is another text) and a
+--- module generated from another file. With `parsed` and `known`, the tree and analysis of `text` that the check made
+--- ([`build.lsp.plan`]'s `Planned`), an edit is derived of them, not of a second reading of the text. The names are those the check reads of the document's syntax tree
+--- ([`build.lsp.syntax_read`]'s `plan_of`), which it still reads for the places of a `require`.
+function source.requires_of(src: source.View, found: Module, text: string, hash: string, parsed?: Ast.Chunk,
+                            known?: Derivation.Known): {string}?
+  if found.origin ~= "tree" or found.file:match("%.tmpl$") ~= nil or AnalysisSchema.is_declaration(found.kind) then
+    return nil
+  end
+  local held = rows_for(src, found, text, hash, parsed, known)
+  if held == nil or not parsed_in(held, hash) then return nil end
+  local rows, _ = Sqlite.text_rows(held, "SELECT name FROM requires WHERE source_hash = ?1 ORDER BY ordinal",
+    { { text = hash } })
+  if rows == nil then return nil end
+  if held == src.scratch then src.tally.scratch_requires = src.tally.scratch_requires + 1 end
+  local names: mut {string} = {}
+  for _, row in ipairs(rows) do names[#names + 1] = row:text(1) end
+  return names
+end
+
+--- The stub of `text`, the file `file` whose SHA-256 is `hash`, of a source whose `stubs` rows in `build.db` are not the running
+--- analyzer's: its `stubs` row in the scratch database, written there from the parse alone ([`Derivation.insert_stub`]) the
+--- first time, in place of one made of the text ([`made_stub`]). A row a whole derivation of the text wrote stands as it is, and
+--- one this wrote is taken out before the text is derived whole ([`derive`]). nil for a text that does not parse or returns
+--- nothing at its top level, which has none; made here where the scratch database cannot be written.
+local function scratch_stub(src: source.View, file: string, text: string, hash: string): string?
+  if src.made[hash] == "" then return nil end
+  local scratch = scratch_of(src)
+  if scratch == nil then return made_stub(src, file, text, hash) end
+  local held = first(scratch, "SELECT text FROM stubs WHERE source_hash = ?1", hash)
+  if held ~= nil then return held end
+  local chunk, _ = Node.parse(text, file)
+  if chunk ~= nil then
+    local ok, _ = Derivation.insert_stub(scratch, hash, file, chunk)
+    if not ok then return made_stub(src, file, text, hash) end
+  end
+  local stub = first(scratch, "SELECT text FROM stubs WHERE source_hash = ?1", hash)
+  if stub == nil then
+    src.made = bounded(src.made)
+    src.made[hash] = ""
+    return nil
+  end
+  local count = 0
+  for _ in pairs(src.stub_only) do count = count + 1 end
+  if count >= MADE_HELD then
+    for each in pairs(src.stub_only) do
+      if not held_by_another(src, each, "") then forget_rows(scratch, each) end
+    end
+    src.stub_only = {}
+  end
+  src.stub_only[hash] = true
+  return stub
+end
+
+--- A stub and how it was found ([`open_stub`]): `kind` is `database` for a row of `build.db`, `scratch` for a row of the
+--- scratch database and `made` for one made of the text.
+local record Stubbed
+  text: string
+  kind: string
+end
+
+--- The stub of the open document `found`, its text `text` whose SHA-256 is `hash`: a row of `build.db`, or of the scratch
+--- database, or one made of the text where neither holds a parse of it. nil where it has no stub.
+local function open_stub(src: source.View, found: Module, text: string, hash: string): Stubbed?
+  if found.origin == "tree" then
+    local held = rows_for(src, found, text, hash)
+    if src.underived[hash] == "unparsed" then return nil end
+    if held ~= nil and parsed_in(held, hash) then
+      local stubbed = first(held, "SELECT text FROM stubs WHERE source_hash = ?1", hash)
+      if stubbed == nil then return nil end
+      if held == src.scratch then return { text = stubbed, kind = "scratch" } end
+      return { text = stubbed, kind = "database" }
+    end
+  end
+  local made = made_stub(src, found.file, text, hash)
+  if made == nil then return nil end
+  return { text = made, kind = "made" }
+end
+
 --- What the checker reads for the module `name`, or nil when the
 --- database lists none, or it is a template that does not compile.
 --- It is counted in the tally
@@ -615,8 +1072,9 @@ function source.served(src: source.View, name: string, open: source.Open, uncoun
       tally.templates = tally.templates + 1
     elseif kind == "database" then
       tally.database_stubs = tally.database_stubs + 1
-    elseif kind == "made" then
+    elseif kind == "made" or kind == "scratch" then
       tally.made_stubs = tally.made_stubs + 1
+      if kind == "scratch" then tally.scratch_stubs = tally.scratch_stubs + 1 end
     else
       tally.sources = tally.sources + 1
     end
@@ -632,8 +1090,8 @@ function source.served(src: source.View, name: string, open: source.Open, uncoun
       return serving_as("source", compiled, key)
     end
     if not AnalysisSchema.is_declaration(found.kind) then
-      local stubbed = made_stub(src, found.file, text, hash)
-      if stubbed ~= nil then return serving_as("made", stubbed, key) end
+      local stubbed = open_stub(src, found, text, hash)
+      if stubbed ~= nil then return serving_as(stubbed.kind, stubbed.text, key) end
     end
     return serving_as("source", text, key)
   end
@@ -649,107 +1107,417 @@ function source.served(src: source.View, name: string, open: source.Open, uncoun
   local held = first(db, "SELECT source FROM inputs WHERE file = ?1", found.file)
   if held == nil then return nil end
   if not AnalysisSchema.is_declaration(found.kind) and not src.stubs then
-    local stubbed = made_stub(src, found.file, held, found.source_hash)
-    if stubbed ~= nil then return serving_as("made", stubbed, key) end
+    local stubbed = scratch_stub(src, found.file, held, found.source_hash)
+    if stubbed ~= nil then return serving_as("scratch", stubbed, key) end
   end
   return serving_as("source", held, key)
 end
 
---- The text of the module `name` as written: an open document's, else the working database's. nil where the database lists
---- none, for a template, whose file is not Teal, and where the database cannot be read as [`source.served`] cannot.
-local function written_of(src: source.View, name: string, open: source.Open): Written?
-  local found = src.modules[name]
-  if found == nil or found.file:match("%.tmpl$") ~= nil then return nil end
-  local opened = open(found.file)
-  if opened ~= nil then return { file = found.file, text = opened.text } end
-  local db, _ = database(src)
-  if db == nil or staged_by_other(src, db) then return nil end
-  local held = first(db, "SELECT source FROM inputs WHERE file = ?1", found.file)
-  if held == nil then return nil end
-  return { file = found.file, text = held }
+--- Where `name` first stands on `line` of `text` as a whole word, as a byte column; 1 where it does not stand there. A word
+--- right after an `@` is a tag of the annotation (`---@field`), not the name.
+local function column_in(text: string, line: integer, name: string): integer, integer
+  local at = 1
+  for _ = 2, line do
+    local newline = text:find("\n", at, true)
+    if newline == nil then return 1, 0 end
+    at = newline + 1
+  end
+  local stop = text:find("\n", at, true) or #text + 1
+  local row = text:sub(at, stop - 1)
+  local pattern = "%f[%w_]" .. name:gsub("%p", "%%%0") .. "%f[^%w_]"
+  local search = 1
+  while true do
+    local from, to = row:find(pattern, search)
+    if from == nil or to == nil then return 1, 0 end
+    if from == 1 or row:sub(from - 1, from - 1) ~= "@" then return from, to - from + 1 end
+    search = to + 1
+  end
 end
 
---- Parses `text`, the file `file`, for where it declares its types and members, once a text.
-local function parsed_spots(src: source.View, file: string, text: string): {string:Spot}
+--- Keeps the places `placed` of the binary's module `name`, as many as [`MADE_HELD`] modules.
+local function keep_carried(src: source.View, name: string, placed: source.Placed)
+  if src.carried_held[name] == nil then
+    if src.carried_count >= MADE_HELD then
+      src.carried_held = {}
+      src.carried_count = 0
+    end
+    src.carried_count = src.carried_count + 1
+  end
+  src.carried_held[name] = placed
+end
+
+--- Where the binary's own module `name`, generated from a header (`origins`), declares its types and their members: the
+--- lines of the header the tool's `places` hold ([`build.syntax_derivation`]'s `origin_lines`), each with the column of
+--- the symbol's last name where it stands on that line, in the header's text as the tool carries it. nil where the tool
+--- carries no header of the module or no places.
+local function carried_origin(src: source.View, held: Sqlite.Handle, name: string): source.Placed?
+  local named, _ = Sqlite.text_rows(held, "SELECT sha256 FROM origins WHERE module = ?1", { { text = name } })
+  if named == nil then return nil end
+  local first_row = named[1]
+  if first_row == nil then return nil end
+  local kept = src.carried_held[name]
+  if kept ~= nil and kept.carried == first_row:text(1) then return kept end
+  local origin, _ = Sqlite.text_rows(held,
+    "SELECT sha256, file, CAST(inflate(source) AS TEXT) FROM origins WHERE module = ?1", { { text = name } })
+  if origin == nil then return nil end
+  local row = origin[1]
+  if row == nil then return nil end
+  local rows, _ = Sqlite.text_rows(held,
+    "SELECT symbol, line, column, length, plain FROM places WHERE module = ?1 ORDER BY ordinal", { { text = name } })
+  if rows == nil or #rows == 0 then return nil end
+  local inflated = row:text(3)
   local spots: mut {string:Spot} = {}
-  local dialect: Ast.Dialect = "tl"
-  if file:match("%.d%.tl$") ~= nil then dialect = "decl" end
-  src.tally.parses = src.tally.parses + 1
-  local read = Driver.parse(Driver.source(file, file, text, dialect))
-  for _, found in ipairs(Places.found(read.chunk)) do
-    if spots[found.symbol] == nil then
-      spots[found.symbol] = { line = found.line, column = found.column, length = found.length }
+  for symbol, spot in pairs(spots_of(rows)) do
+    local last = symbol:match("([^.]+)$") or symbol
+    local column, length = column_in(inflated, spot.line, last)
+    spots[symbol] = { line = spot.line, column = column, length = length, plain = false }
+  end
+  local placed: source.Placed = { file = row:text(2), text = function(): string? return inflated end, spots = spots,
+    carried = row:text(1) }
+  keep_carried(src, name, placed)
+  return placed
+end
+
+--- Where the binary's own module `name` declares its types and their members, in the text the tool carries of it: the
+--- `places` of the tool's database ([`build.writer`]'s `insert_places`) and the module's `source`, in the units of the
+--- file it was parsed from. nil for a name that is no `cosmic.*` module, for a module the tool carries no places of (one
+--- generated from another file has none, and a module with no declaration), and where the database cannot be read: a
+--- tool made before the table. The database is the last of the view's `store`, which a tool's own is.
+local function carried_places(src: source.View, name: string): source.Placed?
+  if name:sub(1, 7) ~= "cosmic." then return nil end
+  local databases = src.store or Store.databases()
+  local held = databases[#databases]
+  if held == nil then return nil end
+  local named, _ = Sqlite.text_rows(held, "SELECT CAST(source_hash AS TEXT) FROM modules WHERE path = ?1",
+    { { text = name } })
+  if named == nil then return nil end
+  local first_row = named[1]
+  if first_row == nil then return carried_origin(src, held, name) end
+  local kept = src.carried_held[name]
+  if kept ~= nil and kept.carried == first_row:text(1) then return kept end
+  local module, _ = Sqlite.text_rows(held,
+    "SELECT CAST(source_hash AS TEXT), file, CAST(inflate(source) AS TEXT) FROM modules WHERE path = ?1",
+    { { text = name } })
+  if module == nil then return nil end
+  local row = module[1]
+  if row == nil then return nil end
+  local rows, _ = Sqlite.text_rows(held,
+    "SELECT symbol, line, column, length, plain FROM places WHERE module = ?1 ORDER BY ordinal", { { text = name } })
+  if rows == nil or #rows == 0 then return nil end
+  local inflated = row:text(3)
+  local placed: source.Placed = { file = row:text(2), text = function(): string? return inflated end,
+    spots = spots_of(rows), carried = row:text(1) }
+  keep_carried(src, name, placed)
+  return placed
+end
+
+--- The places of the module generated from the header `file` as the text `header` has it, an open document's: the
+--- generator ([`build.gen_syscalls`]) is run on `header` and the places of what it generates are those the stage derives
+--- of a generated module ([`build.syntax_derivation`]'s `rows_of`), each with the column of the symbol's last name where
+--- it stands on its line of `header`. Nothing is written to the scratch database: the rows are a function of the text
+--- alone and are made again by each request. nil where `file` is no header a module is generated from, or `header` is not
+--- one the generator reads (a header being typed), which has no places until it is.
+local function buffer_places(file: string, header: string): {string:Spot}?
+  for _, target in ipairs(GenSyscalls.targets) do
+    if target.target.header == file then
+      local generated, _ = GenSyscalls.declaration(header, target.target)
+      if generated == nil then return nil end
+      local name = target.path:gsub("%.", "/") .. ".d.tl"
+      local chunk, _ = Node.parse(generated, name)
+      if chunk == nil then return nil end
+      local rows, _ = Derivation.rows_of(chunk, generated, name, true)
+      if rows == nil then return nil end
+      local spots: mut {string:Spot} = {}
+      for _, place in ipairs(rows.places) do
+        if spots[place.symbol] == nil then
+          local last = place.symbol:match("([^.]+)$") or place.symbol
+          local column, length = column_in(header, place.line, last)
+          spots[place.symbol] = { line = place.line, column = column, length = length, plain = false }
+        end
+      end
+      return spots
     end
   end
-  return spots
+  return nil
 end
 
--- TODO: answer an open document that differs from the staged file from the working database, once the editor's unsaved
--- buffers are derived into it: until then the buffer is parsed here, once a text.
+--- The places of a module generated from another file ([`build.syntax_derivation`]'s `origin_lines`), in that file's text
+--- `written`: the stage's rows, each at the line of the file, with the column of the symbol's last name where it stands
+--- on that line. The rows are the running analyzer's or none: a generated module is never derived here.
+local function mapped_places(src: source.View, found: Module, written: Written): source.Placed?
+  local spots: mut {string:Spot} = {}
+  if src.stubs then
+    local db, _ = database(src)
+    if db == nil then return nil end
+    local held, _ = read_places(db, found.source_hash)
+    if held == nil then return nil end
+    for symbol, spot in pairs(held) do
+      local last = symbol:match("([^.]+)$") or symbol
+      local column, length = column_in(written.text, spot.line, last)
+      spots[symbol] = { line = spot.line, column = column, length = length, plain = false }
+    end
+  end
+  local text = written.text
+  return { file = written.file, text = function(): string? return text end, spots = spots }
+end
 
--- TODO: answer from the rows of a database another analyzer derived, once the session can restage with its own analyzer
--- without waiting for another run to release the write lock: until then the staged text is parsed here.
-
--- TODO: answer without reading the module's text, once `places` rows carry whether their line is ASCII-only: the text is read
--- for every request only to count the line's characters in the protocol's units ([`build.lsp.lines`]).
+--- A function that reads the text of the module `found` once: an open document's, else the working database's. nil where the
+--- database cannot be read as [`source.served`] cannot. A read of the database is counted ([`source.Tally`]).
+local function reader_of(src: source.View, found: Module, opened: source.Text?): function(): string?
+  local held: string? = nil
+  local read = false
+  return function(): string?
+    if read then return held end
+    read = true
+    if opened ~= nil then
+      held = opened.text
+      return held
+    end
+    local db, _ = database(src)
+    if db == nil or staged_by_other(src, db) then return nil end
+    src.tally.texts_read = src.tally.texts_read + 1
+    held = first(db, "SELECT source FROM inputs WHERE file = ?1", found.file)
+    return held
+  end
+end
 
 --- Where the module `name` declares its types and their members ([`build.syntax_places`]), in its text as written
 --- (an open document's, else the working database's), nil where that is none. The rows the stage derived of the file
---- (`places`) answer it, unparsed, while the text is the staged file's: not open, or open and the same. Another text, an
---- open document that was edited, is parsed here, once; so is a file whose rows are not the running analyzer's, and one
---- the stage could not parse (it has no `parsed` row). A module generated from another file (`mapped`) has rows of none,
---- and none of its symbols is found.
+--- (`places`) answer it while the text is the staged file's (not open, or open and the same) and they are the running
+--- analyzer's. Any other text, an open document that was edited or a file whose rows are another analyzer's, is derived
+--- into the scratch database ([`View`]'s `scratch`), once a text, and answered from the rows there; so is a file the
+--- stage could not parse (it has no `parsed` row), which has none if it does not parse here either. The text itself is
+--- read when it is asked for (`text` of [`source.Placed`]), and a place on an ASCII line (`plain`) needs none. A module
+--- generated from another file (`mapped`) answers from the rows its `-- line` map gave, in the text of that file
+--- ([`mapped_places`]); in an open document of that file that differs from the staged one, from the rows the generator
+--- makes of its text ([`buffer_places`]); where the file is not staged, as a name the database lists no module of: among
+--- the binary's own modules, whose generated ones the tool carries the header of ([`carried_origin`]).
 function source.places(src: source.View, name: string, open: source.Open): source.Placed?
   local found = src.modules[name]
-  if found == nil then return nil end
-  local written = written_of(src, name, open)
-  if written == nil then return nil end
+  if found == nil then return carried_places(src, name) end
+  if found.file:match("%.tmpl$") ~= nil then return nil end
+  if found.origin ~= "tree" then
+    local opened = open(found.file)
+    local written = written_of(src, found)
+    if opened ~= nil and (written == nil or written.text ~= opened.text) then
+      -- A header edited and not saved: its lines are not the stage's.
+      local spots = buffer_places(found.file, opened.text)
+      -- The staged lines are not this text's: a header the generator does not read has no places here.
+      if spots == nil then return nil end
+      local text = opened.text
+      return { file = found.file, text = function(): string? return text end, spots = spots }
+    end
+    if written == nil then return carried_places(src, name) end
+    return mapped_places(src, found, written)
+  end
   local opened = open(found.file)
   local hash = found.source_hash
-  local staged = opened == nil or opened.hash == hash
-  if not staged and opened ~= nil then hash = opened.hash end
-  local spots = src.placed[hash]
-  if spots == nil then
+  if opened ~= nil then hash = opened.hash end
+  local text = reader_of(src, found, opened)
+  if opened == nil then
+    local db, _ = database(src)
+    if db == nil or staged_by_other(src, db) then return nil end
+  end
+  if hash == found.source_hash and src.stubs then
     local db, _ = database(src)
     if db == nil then return nil end
-    if staged and src.stubs then
-      local rows, _ = Sqlite.text_rows(db,
-        "SELECT symbol, line, column, length FROM places WHERE source_hash = ?1 ORDER BY ordinal",
-        { { text = hash } })
-      if rows == nil then return nil end
-      local derived = #rows > 0
-      if not derived then
-        local parsed, _ = Sqlite.text_rows(db, "SELECT 1 FROM parsed WHERE source_hash = ?1", { { text = hash } })
-        derived = parsed ~= nil and #parsed > 0
-      end
-      local held: mut {string:Spot} = {}
-      for _, row in ipairs(rows) do
-        local symbol = row:text(1)
-        if held[symbol] == nil then
-          held[symbol] = { line = math.tointeger(tonumber(row:text(2))) or 1,
-            column = math.tointeger(tonumber(row:text(3))) or 1, length = math.tointeger(tonumber(row:text(4))) or 1 }
-        end
-      end
-      spots = held
-      if not derived then spots = parsed_spots(src, found.file, written.text) end
-    else
-      spots = parsed_spots(src, found.file, written.text)
+    local spots, derived = read_places(db, hash)
+    if spots == nil then return nil end
+    if derived then
+      source.release(src, found.file)
+      return { file = found.file, text = text, spots = spots }
     end
-    local count = 0
-    for _ in pairs(src.placed) do count = count + 1 end
-    if count >= MADE_HELD then src.placed = {} end
-    src.placed[hash] = spots
   end
-  return { file = written.file, text = written.text, spots = spots }
+  local scratch = scratch_of(src)
+  if scratch == nil then return nil end
+  local written = text()
+  if written == nil then return nil end
+  derive(src, scratch, found.file, written, hash)
+  local spots, _ = read_places(scratch, hash)
+  return { file = found.file, text = text, spots = spots or {} }
 end
 
---- Lets go of the database, which is opened again when next read.
+--- Removes the directories of `directory` (a build directory's `cosmic_source`) named for a text that no module of the
+--- running tool has: a tool built again leaves the extracted text of each module it changed. Only a directory named by
+--- 64 lowercase hex digits, as [`source.extracted`] makes them, is looked at, and a link is removed, never followed
+--- ([`Fs.remove_tree`]). Nothing is removed where the tool's modules cannot be read. A session of another tool that
+--- extracted a text of its own meanwhile makes it again when it next asks ([`source.extracted`]), which says if it
+--- cannot.
+local function prune_extracted(src: source.View, directory: string)
+  local databases = src.store or Store.databases()
+  local held = databases[#databases]
+  if held == nil then return end
+  local rows, _ = Sqlite.text_rows(held, "SELECT CAST(source_hash AS TEXT) FROM modules")
+  if rows == nil then return end
+  local named: mut {string:boolean} = {}
+  for _, row in ipairs(rows) do named[row:text(1)] = true end
+  local entries, _ = Fs.list(directory)
+  if entries == nil then return end
+  for _, entry in ipairs(entries) do
+    if #entry == 64 and entry:find("^[0-9a-f]+$") ~= nil and named[entry] == nil then
+      local removed, trouble = Fs.remove_tree(directory .. "/" .. entry)
+      if not removed then
+        src.err("cosmic: lsp: removing the source of a binary no longer in use: " .. trouble)
+      end
+    end
+  end
+end
+
+--- The path of a file holding the text of the binary's module `placed` ([`source.places`]), in the build
+--- directory's `cosmic_source` ([`build.paths`]) below a directory named for the text's SHA-256, so that a path names
+--- one text for good, and the directories of texts no module of the running tool has are removed at the first ask
+--- ([`prune_extracted`]). The file is written read-only when it is not there or its bytes are not the text (a file changed since is replaced): an editor that opens it shows the module as
+--- the binary has it, and a save is refused. It is written whole or not at all ([`Fs.write`]), so a reader never finds
+--- part of it. nil where the root has no build directory, or the file cannot be made, which is said.
+function source.extracted(src: source.View, placed: source.Placed): string?
+  local hash = placed.carried
+  if hash == nil or hash:find("^%x+$") == nil then return nil end
+  local file = placed.file
+  if file:sub(1, 1) == "/" or file:find("..", 1, true) ~= nil then return nil end
+  local where = src.where
+  if where == nil or where.directory == nil then return nil end
+  local root = build_paths.under(where.directory).cosmic_source
+  if not src.pruned then
+    src.pruned = true
+    prune_extracted(src, root)
+  end
+  local path = root .. "/" .. hash .. "/" .. file
+  local there, _ = Fs.read(path)
+  if there ~= nil and Hash.hex_sha256(there) == hash then return path end
+  local made, trouble = Fs.mkdirs(Fs.dirname(path))
+  local text = placed.text()
+  if text == nil then return nil end
+  if made then made, trouble = Fs.write(path, text, 0x124) end
+  if not made then
+    src.err("cosmic: lsp: the source of " .. file .. " of the binary: " .. trouble)
+    return nil
+  end
+  return path
+end
+
+--- The `members` rows of a text, by owner, with the docs of the same symbols, in `db`, which holds the parse of the text
+--- `hash`; nil where it holds none or cannot be read.
+local function read_members(db: Sqlite.Handle, hash: string): source.Members?
+  local parsed, _ = Sqlite.text_rows(db, "SELECT 1 FROM parsed WHERE source_hash = ?1", { { text = hash } })
+  if parsed == nil or #parsed == 0 then return nil end
+  local rows, _ = Sqlite.text_rows(db,
+    "SELECT owner, name, kind, scope, type, coalesce((SELECT text FROM docs WHERE docs.source_hash = members.source_hash " ..
+      "AND docs.source_symbol IN (members.owner || '.' || members.name, members.owner || ':' || members.name) " ..
+      "ORDER BY length(text) DESC LIMIT 1), '') FROM members WHERE source_hash = ?1 ORDER BY ordinal",
+    { { text = hash } })
+  if rows == nil then return nil end
+  local kinds: mut {string:string} = {}
+  local supers: mut {string:mut {string}} = {}
+  local members: mut {string:mut {source.MemberRow}} = {}
+  for _, row in ipairs(rows) do
+    local owner = row:text(1)
+    local name = row:text(2)
+    local interfaces = supers[owner] or {}
+    supers[owner] = interfaces
+    local held = members[owner] or {}
+    members[owner] = held
+    if name == "" then
+      kinds[owner] = row:text(3)
+      for each in row:text(5):gmatch("[^,]+") do
+        local trimmed = each:gsub("^%s+", ""):gsub("%s+$", "")
+        interfaces[#interfaces + 1] = trimmed
+      end
+    else
+      local made: source.MemberRow = { name = name, kind = row:text(3), scope = row:text(4), type = row:text(5),
+        doc = row:text(6) }
+      held[#held + 1] = made
+    end
+  end
+  local out: mut {string:source.MemberOwner} = {}
+  for owner, list in pairs(members) do
+    out[owner] = { kind = kinds[owner] or "", supers = supers[owner] or {}, members = list }
+  end
+  return out
+end
+
+--- The types the module `name` declares and their members, from the rows derived of its text: the open document's, else
+--- the working database's, or `given` where that is the text the caller means (the text a check read, which is no text
+--- being typed). The staged file's own rows answer while the text is the staged file's and they are the running analyzer's;
+--- any other text is derived into the scratch database, once a text, as [`source.places`] does. nil where the module is
+--- not listed, or the text does not parse, and a module generated from another file (`mapped`) is as the rows of its text
+--- say.
+function source.members(src: source.View, name: string, open: source.Open, given?: string): source.Members?
+  local found = src.modules[name]
+  if found == nil then return nil end
+  if found.file:match("%.tmpl$") ~= nil then return nil end
+  local opened = open(found.file)
+  local text: string? = nil
+  if found.origin ~= "tree" then
+    local written = written_of(src, found)
+    if written ~= nil then text = written.text end
+  else
+    text = reader_of(src, found, opened)()
+  end
+  if text == nil then return nil end
+  local hash = found.source_hash
+  if opened ~= nil then hash = opened.hash end
+  if given ~= nil and given ~= text then
+    text = given
+    hash = Hash.hex_sha256(given)
+  end
+  if hash == found.source_hash and src.stubs then
+    local db, _ = database(src)
+    if db == nil then return nil end
+    local held = read_members(db, hash)
+    if held ~= nil then return held end
+  end
+  local scratch = scratch_of(src)
+  if scratch == nil then return nil end
+  derive(src, scratch, found.file, text, hash)
+  return read_members(scratch, hash)
+end
+
+--- Lets go of the scratch database in the files whose text is the staged file's now, the rows of `build.db` answering
+--- for it ([`source.places`]): after a stage, a document saved.
+local function settle(src: source.View)
+  for file, held in pairs(src.scratched) do
+    local staged = src.files[file]
+    if staged == nil then
+      -- A file the tree no longer lists (deleted, renamed) has no module to answer for.
+      source.release(src, file)
+    elseif src.stubs and holds(held, staged.source_hash) then
+      local db, _ = database(src)
+      if db == nil then return end
+      local _, derived = read_places(db, staged.source_hash)
+      if derived then
+        -- Only the staged text: the edit beside it keeps its rows.
+        unmark(src, file, staged.source_hash)
+        local scratch = src.scratch
+        if scratch ~= nil and not held_by_another(src, staged.source_hash, file) then
+          forget_rows(scratch, staged.source_hash)
+        end
+      end
+    end
+  end
+end
+
+--- Brings the session's view of the database up to date as [`refreshed`] says, then lets go of what the scratch database
+--- holds for a text the staged tree has now ([`settle`]).
+function source.refresh(src: source.View)
+  refreshed(src)
+  settle(src)
+end
+
+--- Lets go of the databases: the working one is opened again when next read, the scratch one made again.
 function source.close(src: source.View)
   local db = src.db
   if db ~= nil then
     local _, _ = db:close()
     src.db = nil
   end
+  local scratch = src.scratch
+  if scratch ~= nil then
+    local _, _ = scratch:close()
+    src.scratch = nil
+  end
+  src.scratched = {}
+  src.underived = {}
+  src.stub_only = {}
 end
 
 return source

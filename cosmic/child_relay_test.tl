@@ -24,6 +24,7 @@ local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
+local ChildPolicy = require("build.child_policy_fixture")
 
 --- [`Store.seal`] reads the rows of every module it carries through
 --- [`Store.databases()`], which a worker without the store is not given (the
@@ -150,16 +151,6 @@ return function(args)
 end
 ]==]
 
---- Whether `why`, a start's failure, is the platform or the host giving no
---- Landlock, seccomp or user namespace.
-local function unsandboxable(why: string): boolean
-  for _, word in ipairs({ "Landlock", "seccomp", "not implemented", "namespace", "own /proc",
-      "root could not be built" }) do
-    if why:find(word, 1, true) then return true end
-  end
-  return false
-end
-
 --- The program's database, sealed in `tmp`, and its SHA-256 in hex:
 --- this program's core runs it.
 local function sealed_client(tmp: string): string, string
@@ -217,7 +208,7 @@ local function waiting(tmp: string, port: integer): Child.Handle?, string
   options.stdout, options.stderr = "null", "null"
   local handle, why = Child.start({ assert(Proc.executable()), "wait" }, options)
   if handle == nil then
-    assert(unsandboxable(why), "the start was refused: " .. why)
+    assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
     return nil, why
   end
   return handle, ""
@@ -267,7 +258,7 @@ local function flows(tmp: string): {string:string}, integer
     local result, why = Child.run({ assert(Proc.executable()), "flows", tostring(granted),
       tostring(ungranted) }, granting(database, granted))
     if result == nil then
-      assert(unsandboxable(why), "the start was refused: " .. why)
+      assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
       refusal = why
       return
     end
@@ -467,7 +458,7 @@ local function test_the_relays_log_goes_where_the_start_says(tmp: string)
         tostring(ungranted), log }, { env = this_program.environment(), stdout = "capture",
           stderr = "capture", timeout_ns = Clock.seconds(60) })
       local result = assert(Child.run(started.argv, started.options))
-      if not result.ok and unsandboxable(result.stderr or "") then
+      if not result.ok and ChildPolicy.unsandboxable(result.stderr or "") then
         refusal = result.stderr
         return
       end
@@ -502,7 +493,7 @@ local function test_the_relays_log_goes_to_a_descriptor_the_caller_gives(tmp: st
     local result, why = Child.run({ assert(Proc.executable()), "flows", tostring(granted), tostring(ungranted) },
       options)
     if result == nil then
-      assert(unsandboxable(why), "the start was refused: " .. why)
+      assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
       refusal = why
       return
     end
@@ -534,7 +525,7 @@ local function test_a_relay_whose_connector_has_ended_ends_with_its_program(tmp:
     options.stdin, options.stdout, options.stderr, options.relay_log = "stream", "null", "null", writer
     local handle, why = Child.start({ assert(Proc.executable()), "later", tostring(granted) }, options)
     if handle == nil then
-      assert(unsandboxable(why), "the start was refused: " .. why)
+      assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
       refusal = why
       return
     end
@@ -581,7 +572,7 @@ local function test_a_terminal_or_a_kept_descriptor_is_no_place_for_the_relays_l
     assert(started:stop())
     assert(false, "a start with a terminal as the relay's log went on")
   end
-  if unsandboxable(why) then Test.skip(why) end
+  if ChildPolicy.unsandboxable(why) then Test.skip(why) end
   assert(why:find("relay_log " .. tostring(pty.slave) .. " is a terminal", 1, true), why)
   assert(#relay_directories() == 0, "the relay's database was left")
 end
@@ -626,7 +617,7 @@ local function test_no_connect_means_no_relay_and_no_extra_descriptors(tmp: stri
   local plain, why = Child.run({ assert(Proc.executable()), "env" }, { policy = { database = { path = database } },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   if plain == nil then
-    assert(unsandboxable(why), "the start was refused: " .. why)
+    assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
     Test.skip(why)
   end
   assert(plain ~= nil and plain.ok, tostring(plain ~= nil and plain.stderr))
@@ -674,7 +665,7 @@ local function test_the_relays_policy_gives_it_no_network_of_its_own(tmp: string
       { policy = RelayStart.policy(database, digest), stdout = "capture", stderr = "capture",
         timeout_ns = Clock.seconds(60) })
     if result == nil then
-      assert(unsandboxable(why), "the start was refused: " .. why)
+      assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
       refusal = why
       return
     end
@@ -700,7 +691,7 @@ local function test_more_literal_targets_than_a_connector_holds_fail_the_start(t
     assert(started:stop())
     assert(false, "a start with 129 literal targets went on")
   end
-  if unsandboxable(why) then Test.skip(why) end
+  if ChildPolicy.unsandboxable(why) then Test.skip(why) end
   assert(why:find("relay: connect names 129 endpoints, more than the " ..
       "128 a connector holds; grant fewer addresses, or names", 1, true), why)
   assert(#relay_directories() == 0, "the relay's database was left")
@@ -747,7 +738,7 @@ local function test_the_upstream_proxy_is_reached_through_the_table(tmp: string)
     local result = assert(Child.run(started.argv, started.options))
     proxy:cancel()
     assert(listener:close())
-    if not result.ok and unsandboxable(result.stderr or "") then
+    if not result.ok and ChildPolicy.unsandboxable(result.stderr or "") then
       refusal = result.stderr
       return
     end

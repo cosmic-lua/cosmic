@@ -66,8 +66,6 @@
 --- it is found but cannot be run, 1 for anything else that stops it from
 --- starting.
 
--- TODO: read the variables below through Env.read (`located` taking an Env.Name) once ci/cosmic-driver.pin names a release
--- whose cosmic.env declares them (COSMIC_ZIG, COSMIC_ZIG_CACHE and COSMIC_ZIG_GLOBAL_CACHE join Env.Name then); bin/zig runs this file on the pinned release, which has no Env.read.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
@@ -459,7 +457,7 @@ end
 --- `COSMIC_ZIG` when set, with no install, otherwise the pinned release
 --- for this host, fetched if need be. Nil and why when it cannot be had.
 local function locate(root: string): Located?, string
-  local env_zig = Env.get("COSMIC_ZIG")
+  local env_zig = Env.read("COSMIC_ZIG")
   if env_zig ~= nil and env_zig ~= "" then
     return { zig = env_zig }, ""
   end
@@ -485,13 +483,13 @@ end
 --- build/zig_caches.tl spells the same rule, with nothing made, for
 --- the test harness, which cannot load this file
 --- (build/zig_caches_test.tl holds the two together).
-local function located(variable: string, tool: string, fallback: string,
+local function located(variable: Env.Name, tool: string, fallback: string,
                        environment: {string:string}?): string
   local given = ""
   if environment ~= nil then
     given = environment[variable] or ""
   else
-    given = Env.get_or(variable, "")
+    given = Env.read(variable) or ""
   end
   if given ~= "" then
     return given
@@ -687,12 +685,6 @@ local record Signals
   mut pending: integer
 end
 
---- What the watch of a child answered, kept where the function that runs it under `pcall` can read it.
-local record Supervised
-  mut result: Child.Result?
-  mut trouble: string
-end
-
 --- Runs `argv` (`argv[1]` an exact path) to its end in this process
 --- group, with the standard streams shared, and answers its status.
 ---
@@ -718,11 +710,9 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
     log:complain("signal guard: " .. guard_trouble)
     return 1
   end
-  -- Released below; closed, delivering what it holds, only if an error
-  -- leaves `supervise` first.
-  -- TODO: hold the guard in a `<close>` local again and drop the `pcall`, once ci/cosmic-driver.pin names a release that
-  -- declares [`Signal.Guard`] as a class: a `<close>` local must be one.
-  local g = opened
+  -- Released below; an error that leaves `supervise` first closes it
+  -- instead, delivering what it holds.
+  local g <close> = opened
   local signals: Signals = { pending = 0 }
   local function supervise(): Child.Result?, string
     local h, trouble = Child.start(argv, { process_group = false, env = env })
@@ -766,16 +756,7 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
       local _, _ = sys.nanosleep(POLL_NS)
     end
   end
-  local supervised: Supervised = { result = nil, trouble = "" }
-  local ran, raised = pcall(function()
-    supervised.result, supervised.trouble = supervise()
-  end)
-  if not ran then
-    local _, _ = g:close()
-    -- The message keeps its position; the traceback of the first raise is not kept.
-    error(raised, 0)
-  end
-  local result, trouble = supervised.result, supervised.trouble
+  local result, trouble = supervise()
   local caught, release_trouble = g:release()
   -- Taken after the release, so a signal landing between the last
   -- round and the release is kept.

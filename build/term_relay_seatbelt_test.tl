@@ -10,15 +10,10 @@ local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 local TermRelay = require("build.term_relay")
 local sys = require("cosmic.sys")
+local SeatbeltFixture = require("build.seatbelt_fixture")
 
 --- The system's own paths, which the child's shell is run and loaded from.
 Test.policy{ env = { "TMPDIR" }, profiles = { "system" } }
-
-local function macos_only()
-  if assert(sys.uname()).sysname ~= "Darwin" then
-    Test.skip("the relay holds a policy's child by Seatbelt on macOS alone")
-  end
-end
 
 --- Everything the caller's terminal has to read, without waiting for more.
 local function shown(master: integer): string
@@ -34,7 +29,7 @@ local function shown(master: integer): string
 end
 
 local function test_the_last_output_of_a_policy_child_reaches_the_terminal_whatever_its_exit()
-  macos_only()
+  SeatbeltFixture.macos_only()
   local caller = assert(sys.openpty())
   for run = 1, 5 do
     local marker = "TAIL-MARKER-" .. tostring(run)

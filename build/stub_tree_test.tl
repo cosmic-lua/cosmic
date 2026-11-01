@@ -5,6 +5,7 @@
 --- cosmic's own.
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Hash = require("cosmic.hash")
 local Test = require("cosmic.test")
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
@@ -35,13 +36,14 @@ local thing <const> = table.concat({
 --- A tree [`build.tree`] takes for cosmic's own, at a new directory, with
 --- one standard-library module, staged and parsed: its working handle
 --- and the compiler identity a build of it keys on.
-local function own_tree(tmp: string, source?: string, underived?: boolean): work.Handle, string
+local function own_tree(tmp: string, source?: string, underived?: boolean, header?: string): work.Handle, string
   local root = tmp .. "/tree"
   for _, dir in ipairs({ "core", "build", "cosmic" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
   assert(Fs.write(root .. "/build/importer.tl", "local record importer\nend\nreturn importer\n"))
   assert(Fs.write(root .. "/cosmic/thing.tl", source or thing))
+  if header ~= nil then assert(Fs.write(root .. "/core/syscalls.h", header)) end
   assert(Fs.mkdirs(root .. "/lang"))
   assert(Fs.write(root .. "/build/ceilings.txt", "[checked]\n"))
   assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
@@ -91,6 +93,67 @@ local function test_the_tool_carries_each_standard_module_s_stub(tmp: string)
   assert(rows[1]:text(2) == stub.made(parsed.chunk).text, rows[1]:text(2))
 end
 
+--- The places ([`build.syntax_places`]) of the standard library's modules are in the projection and in the tool, for
+--- `cosmic lsp`'s go to definition in a project; the tree's other modules, which the working database holds places of
+--- too, have none there.
+local function test_the_tool_carries_the_places_of_each_standard_module_alone(tmp: string)
+  local handle, tool = own_tree(tmp)
+  local held = assert(Sqlite.text_rows(handle.db,
+    "SELECT count(*) FROM places p JOIN inputs i ON i.source_hash = p.source_hash WHERE i.path = 'build.importer'"))
+  assert(assert(held[1]):text(1) ~= "0", "the working database places the tree's other module")
+  local result = assert(importer.compile(handle, tool))
+  local dir = assert(build_paths.prepare(handle.root))
+  assert(writer.write_result(handle, dir .. "/cosmic.db", result))
+  assert(work.close(handle))
+  assert(writer.carried(dir .. "/cosmic.db", tmp .. "/carried.db"))
+  for _, path in ipairs({ dir .. "/cosmic.db", tmp .. "/carried.db" }) do
+    local db = assert(Sqlite.open(path))
+    local modules = assert(Sqlite.text_rows(db, "SELECT DISTINCT module FROM places"))
+    assert(#modules == 1 and assert(modules[1]):text(1) == "cosmic.thing", path)
+    local rows = assert(Sqlite.text_rows(db,
+      "SELECT line, column, length FROM places WHERE module = 'cosmic.thing' AND symbol = 'thing.Box.n'"))
+    local row = assert(rows[1], path .. ": no place of thing.Box.n")
+    assert(row:text(1) == "4" and row:text(2) == "5" and row:text(3) == "1",
+      row:text(1) .. ":" .. row:text(2) .. "+" .. row:text(3))
+    assert(db:close())
+  end
+end
+
+local syscalls_header <const> = table.concat({
+  "/* The table. */",
+  "",
+  "/*",
+  " * --- Returns the process's own identifier.",
+  " * ---@return integer pid the process identifier",
+  " */",
+  "COSMIC_SYSCALL(getpid, 0);",
+  "",
+}, "\n")
+
+--- A module generated from a header ([`cosmic.sys`]) has no source file of its own in the tool: the projection and the tool
+--- carry the header's text (`origins`) and the lines of it the module's declarations stand at (`places`), for go to
+--- definition to answer in the header.
+local function test_the_tool_carries_the_header_a_generated_module_is_placed_in(tmp: string)
+  local handle, tool = own_tree(tmp, nil, nil, syscalls_header)
+  local result = assert(importer.compile(handle, tool))
+  local dir = assert(build_paths.prepare(handle.root))
+  assert(writer.write_result(handle, dir .. "/cosmic.db", result))
+  assert(work.close(handle))
+  assert(writer.carried(dir .. "/cosmic.db", tmp .. "/carried.db"))
+  for _, path in ipairs({ dir .. "/cosmic.db", tmp .. "/carried.db" }) do
+    local db = assert(Sqlite.open(path))
+    local origins = assert(Sqlite.text_rows(db,
+      "SELECT module, file, sha256, CAST(inflate(source) AS TEXT) FROM origins"))
+    local origin = assert(origins[1], path .. ": no origin")
+    assert(#origins == 1 and origin:text(1) == "cosmic.sys" and origin:text(2) == "core/syscalls.h", path)
+    assert(origin:text(4) == syscalls_header and origin:text(3) == Hash.hex_sha256(syscalls_header), path)
+    local rows = assert(Sqlite.text_rows(db, "SELECT line FROM places WHERE module = 'cosmic.sys' AND symbol = 'sys.getpid'"))
+    local row = assert(rows[1], path .. ": no place of sys.getpid")
+    assert(row:text(1) == "7", row:text(1))
+    assert(db:close())
+  end
+end
+
 local function test_a_stub_that_types_its_module_otherwise_fails_the_build(tmp: string)
   with_a_wrong_stub(function()
     local handle, tool = own_tree(tmp)
@@ -110,6 +173,7 @@ local function test_an_unjudged_build_keeps_a_module_whose_stub_it_refuses(tmp: 
     local handle, tool = own_tree(tmp)
     local result, trouble = importer.compile(handle, tool, true)
     assert(result ~= nil, trouble)
+    assert(#result.refused == 0, table.concat(result.refused, "\n"))
     assert(work.close(handle))
   end)
 end

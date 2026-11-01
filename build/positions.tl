@@ -17,10 +17,9 @@ local Fs = require("cosmic.fs")
 local AnalysisSchema = require("build.analysis_schema")
 local type module = require("build.module")
 local type tree = require("build.tree")
-local type Module = module.Plan
 
 local record positions
-  Module: Module
+  type Module = module.Plan
 end
 
 --- The file's own name, with no directory in front of it.

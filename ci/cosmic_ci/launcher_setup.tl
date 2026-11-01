@@ -30,6 +30,12 @@ function LauncherSetup.build(root: string, output: string,
     Fixture.copy(BuildPaths.directory(root) .. "/portable-fixture/launcher/payload-" ..
         target.name, output .. "/payloads/payload-" .. target.name)
   end
+  -- The decoder stub of each target, which the packed fixtures store
+  -- beside their compressed payloads (the build's own, from `cores`).
+  for _, target in ipairs(targets) do
+    Fixture.copy(BuildPaths.directory(root) .. "/core/" .. target.name .. "/cosmic-unzstd",
+      output .. "/payloads/unzstd-" .. target.name)
+  end
   Fixture.run("socket-" .. worker_target,
     { root .. "/bin/zig", "build",
       "portable-launcher-socket-" .. worker_target },
@@ -41,7 +47,8 @@ function LauncherSetup.build(root: string, output: string,
     BuildPaths.directory(root) .. "/targets.tsv", output .. "/payloads",
     output .. "/launcher" }, root, diagnostics)
 
-  for _, kind in ipairs({ "release", "test" }) do
+  for _, kind in ipairs({ "release", "test", "packed-release", "packed-test", "stub-fails",
+      "stub-short", "stub-zero", "stub-slow" }) do
     local path = output .. "/launcher." .. kind
     local bytes = Fixture.read(path)
     Fixture.write(path, bytes, 0x1ed)
@@ -53,11 +60,16 @@ function LauncherSetup.build(root: string, output: string,
   assert(not Fixture.read(output .. "/launcher.release"):find(
     "COSMIC_PORTABLE_TEST_", 1, true),
     "release launcher contains fixture hook names")
+  assert(not Fixture.read(output .. "/launcher.packed-release"):find(
+    "COSMIC_PORTABLE_TEST_", 1, true),
+    "packed release launcher contains fixture hook names")
   assert(Fixture.read(output .. "/launcher.test"):find(
     "COSMIC_PORTABLE_TEST_", 1, true),
     "test launcher omits fixture hook names")
-  Fixture.assert_executable(output .. "/launcher.release")
-  Fixture.assert_executable(output .. "/launcher.test")
+  for _, kind in ipairs({ "release", "test", "packed-release", "packed-test", "stub-fails",
+      "stub-short", "stub-zero", "stub-slow" }) do
+    Fixture.assert_executable(output .. "/launcher." .. kind)
+  end
   return output
 end
 

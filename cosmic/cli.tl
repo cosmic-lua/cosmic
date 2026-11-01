@@ -137,9 +137,7 @@ local record Cli
   --- any checkout compiled or parsed the same, through
   --- $XDG_CACHE_HOME/cosmic/build (~/.cache/cosmic/build):
   --- COSMIC_BUILD_CACHE names another file, and COSMIC_BUILD_CACHE=0
-  --- turns it off. What is left to parse and compile is done by worker
-  --- processes when there is much of it, one fewer than the processors:
-  --- COSMIC_BUILD_JOBS names another count, and 1 turns them off.
+  --- turns it off.
   ---
   --- The tree is the working directory, unless no build of it has
   --- written its projection (cosmic.db in its build directory, as `run`
@@ -467,8 +465,9 @@ local record Cli
   --- for a command line, an archive it cannot read or one it refuses
   --- to unpack. See also `cosmic json`
   archive: string
-  --- `cosmic rand <uuid|token|int|pick|shuffle> [options]`: an id, a
-  --- token, a number or a shuffled list, with no script to write.
+  --- `cosmic rand <uuid|token|int|pick|shuffle|normal|gamma> [options]`: an
+  --- id, a token, a number, a shuffled list or a normal or gamma draw,
+  --- with no script to write.
   --- `uuid [--v4|--v7] [-n N]` prints N UUIDs (default one, version 4);
   --- version 7 (RFC 9562) leads with the millisecond clock, then a
   --- 12-bit counter (the RFC's method 3, section 6.2: the clock's
@@ -488,11 +487,23 @@ local record Cli
   --- ends at a newline, a carriage return before it is dropped (CRLF
   --- input reads as LF), and an empty input has none. Asking `pick` for
   --- more lines than there are is refused, exit 2, with nothing
-  --- printed. Everything secret-grade -- uuid, token, and the rest
+  --- printed. `normal [-n N] [--mean M] [--stddev SD]` prints N draws
+  --- (default one) from the normal distribution, mean 0 and standard
+  --- deviation 1 unless given (SD may be 0, not negative); `gamma
+  --- [-n N] --shape K [--scale T]` prints N draws from the gamma
+  --- distribution of shape K, required, and scale T (default 1; the
+  --- mean is K * T), both above 0. A parameter is a finite decimal
+  --- number (`-5`, `.5`, `1e-3`); `inf`, `nan`, hexadecimal and a value
+  --- too large for a double are refused, exit 2. Each value prints on a
+  --- line as `%.17g`, which reads back as the same double; a gamma draw
+  --- can print 0 for a tiny shape, and a draw can print inf where it
+  --- overflows. Everything secret-grade -- uuid, token, and the rest
   --- without `--seed` -- comes from the operating system's entropy
   --- source ([`Rand.entropy`]), never from a seeded generator. `--seed
-  --- N` (int, pick, shuffle only) draws from `Rand.new(N)` instead, so
-  --- a test or a script can replay it: that output is NOT secret, and
+  --- N` (int, pick, shuffle, normal, gamma) draws from `Rand.new(N)`
+  --- instead, so a test or a script can replay it (a float draw agrees
+  --- across targets only as far as their `log` and `pow` do): that
+  --- output is NOT secret, and
   --- `--seed` is refused with uuid and token. Its standard output is
   --- data, and it prints no summary. Exits 0 when it printed,
   --- 1 when the entropy source failed, 2 for a command line, a file or a
@@ -1035,16 +1046,20 @@ local module: Module = {
       },
     },
     rand = {
-      about = "uuids, tokens, integers, picks",
+      about = "uuids, tokens, integers, picks, normal and gamma draws",
       usage = "<command> ...",
       spec = {
         ["--v4"] = { about = "uuid: version 4, random (the default)" },
         ["--v7"] = { about = "uuid: version 7, time-ordered within a run" },
-        ["-n"] = { value = "n", about = "uuid, int, pick: how many to draw (default 1)" },
+        ["-n"] = { value = "n", about = "uuid, int, pick, normal, gamma: how many to draw (default 1)" },
         ["--bytes"] = { value = "n", about = "token: bytes of entropy, 1 to 1048576 (default 32)" },
         ["--hex"] = { about = "token: lowercase hex" },
         ["--base64url"] = { about = "token: unpadded base64url (the default)" },
-        ["--seed"] = { value = "n", about = "int, pick, shuffle: replayable, NOT secret; refused for uuid and token" },
+        ["--seed"] = { value = "n", about = "int, pick, shuffle, normal, gamma: replayable, NOT secret; refused for uuid and token" },
+        ["--mean"] = { value = "m", about = "normal: the mean (default 0)" },
+        ["--stddev"] = { value = "sd", about = "normal: the standard deviation, not negative (default 1)" },
+        ["--shape"] = { value = "k", about = "gamma: the shape, above 0 (required)" },
+        ["--scale"] = { value = "t", about = "gamma: the scale, above 0 (default 1)" },
       },
     },
     docs = {

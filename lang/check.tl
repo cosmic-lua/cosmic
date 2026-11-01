@@ -2287,7 +2287,7 @@ local function key_names(key: Ast.Exp, kt: Type): {string}?
   return nil
 end
 
---- The rules by which an index write to a `mut` array is no hole ([`Writes.leaves_no_hole`]).
+--- The rules by which an index write to an array, `mut` or a view, is no hole ([`Writes.leaves_no_hole`]).
 local record Writes
 end
 
@@ -3584,6 +3584,10 @@ local function disjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Typ
   end
   if left_kind == "bool" then
     local right = expr(ctx, node.right, expected)
+    -- A `never` left cannot occur: the answer is the right operand's, as in the `T?` path below, where `join` drops `never`.
+    if left.tag == "never" then
+      return right
+    end
     if is_bool(right) or right.tag == "never" or right.tag == "invalid" then
       return store.boolean
     end
@@ -3623,11 +3627,13 @@ local function conjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Typ
     local _ = expr(ctx, node.right, nil)
     return ctx.invalid
   end
-  local right = expr(ctx, node.right, left_kind == "bool" and expected or nil)
+  -- A `never` left cannot occur, so it is no boolean: the answer is the right operand or nil, as for a `T?` left.
+  local boolean = left_kind == "bool" and left.tag ~= "never"
+  local right = expr(ctx, node.right, boolean and expected or nil)
   if right.tag == "invalid" then
     return right
   end
-  if left_kind == "bool" then
+  if boolean then
     if is_bool(right) or right.tag == "never" then
       return store.boolean
     end
@@ -6642,10 +6648,7 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
               " cannot be assigned",
             "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received", { show(ctx, base) })
         else
-          -- TODO: report `array_hole` beside `view_written` for a write to a view, so one run reports both, once
-          -- build/ceilings.txt holds no `view_written` row: it adds `array_hole` errors to the many files that pin
-          -- `view_written`, which a pin may not take.
-          -- The values say whether the write may leave a hole, which changes the fix: see below.
+          -- The values say whether the write may leave a hole, which is an `array_hole` beside this error: see below.
           pending[#pending + 1] = { target = target, at = at, owner = owner, base = base, view = true }
         end
       elseif removes and Writes.is_length_of(target.key, target.object) then
@@ -6771,6 +6774,21 @@ function Writes.runs_code(s: Ast.Assign): boolean
   return #calls > 0
 end
 
+--- The `array_hole` error of a write at an index that may leave a hole in an array, whether the array is `mut` or a view
+--- (a view's write is also a `view_written`, so one run names both).
+function Writes.report_hole(ctx: Ctx, p: Pending)
+  local target = p.target
+  if Writes.is_append(target) then
+    report(ctx, "array_hole", target, subject(ctx, target) .. " is written by a statement that calls a function, which " ..
+        "may shorten the array " .. p.owner .. " after the key is computed and leave a hole",
+      "call first and write after: `local v = f()`, then `" .. text_of(ctx, target) .. " = v`", { show(ctx, p.base) })
+  else
+    report(ctx, "array_hole", target, subject(ctx, target) .. " may leave a hole in the array " .. p.owner,
+      "append with `" .. text_of(ctx, target.object) .. "[#" .. text_of(ctx, target.object) .. " + 1] = v` or " ..
+        "`table.insert`, remove with `table.remove`, or key a map `{integer: T}` for sparse data", { show(ctx, p.base) })
+  end
+end
+
 local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
   local named: mut {integer: boolean} = {}
   for _, target in ipairs(s.targets) do
@@ -6817,17 +6835,9 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
       end
       report(ctx, "view_written", p.target, owner .. " is a view " .. tq(ctx, base) .. ", so " .. subject(ctx, p.target) ..
           " cannot be assigned", "declare " .. owner .. " " .. destination .. " where it is made or received", { show(ctx, base) })
-    elseif not Writes.leaves_no_hole(ctx, vals, p) then
-      local target = p.target
-      if Writes.is_append(target) then
-        report(ctx, "array_hole", target, subject(ctx, target) .. " is written by a statement that calls a function, which " ..
-            "may shorten the array " .. p.owner .. " after the key is computed and leave a hole",
-          "call first and write after: `local v = f()`, then `" .. text_of(ctx, target) .. " = v`", { show(ctx, p.base) })
-      else
-        report(ctx, "array_hole", target, subject(ctx, target) .. " may leave a hole in the array " .. p.owner,
-          "append with `" .. text_of(ctx, target.object) .. "[#" .. text_of(ctx, target.object) .. " + 1] = v` or " ..
-            "`table.insert`, remove with `table.remove`, or key a map `{integer: T}` for sparse data", { show(ctx, p.base) })
-      end
+    end
+    if not Writes.leaves_no_hole(ctx, vals, p) then
+      Writes.report_hole(ctx, p)
     end
   end
   local counted = check_counts(ctx, s, #s.targets, vals, #s.values, "target")
@@ -7374,14 +7384,6 @@ local function declaration_bodies(ctx: Ctx, node: Ast.Node, decl: Decl?)
   end
 end
 
-local function names_of_params(list: {Ast.TypeParam}): {string}
-  local out: mut {string} = {}
-  for i, p in ipairs(list) do
-    out[i] = p.name.name
-  end
-  return out
-end
-
 --- `function R.m(...)`: the function implements the field `m` of `R`.
 local function function_statement(ctx: Ctx, s: Ast.Function)
   local head = s.path[1]
@@ -7423,7 +7425,7 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
   if (owner.tag == "named") and #s.path == 2 then
     LoadOrder.define(ctx.load, owner.decl, s.path[2].text, s.fn.id)
   end
-  function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil, s.fn.id, text)
+  function_body(ctx, s.fn.params, s.fn.body, ft, Declarations.parameter_names(s.typeparams), s, s.fn.rets ~= nil, s.fn.id, text)
 end
 
 --- `if`: each arm is walked under the state where its condition holds and those before it do not, and what follows is
@@ -7665,7 +7667,7 @@ local function stat(ctx: Ctx, s: Ast.Stat)
     if ctx.load.waiting > 0 then
       LoadOrder.hold(ctx.load, s.name.id, s.fn.id)
     end
-    function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil, s.fn.id,
+    function_body(ctx, s.fn.params, s.fn.body, ft, Declarations.parameter_names(s.typeparams), s, s.fn.rets ~= nil, s.fn.id,
       s.name.name)
   elseif (s.kind == "Function") then
     function_statement(ctx, s)

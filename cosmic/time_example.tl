@@ -3,6 +3,7 @@
 --- test -- see doc/design.md's `examples` table.
 
 local Store = require("cosmic.store")
+local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")
 local Test = require("cosmic.test")
 
@@ -21,9 +22,9 @@ function Example.parse_duration()
   local d = assert(Time.parse_duration("1y2mo3d4h5m6.5s"))
   print(d.years, d.months, d.days, d.ns)
   assert(d.years == 1 and d.months == 2 and d.days == 3)
-  assert(d.ns == Time.hours(4) + Time.minutes(5) + Time.seconds(6.5))
+  assert(d.ns == Clock.hours(4) + Clock.minutes(5) + Clock.seconds(6.5))
   local back = Time.parse_duration("-90m")
-  assert(back ~= nil and back.ns == -Time.minutes(90))
+  assert(back ~= nil and back.ns == -Clock.minutes(90))
   local none, why = Time.parse_duration("5 minutes")
   assert(none == nil)
   print(why)
@@ -82,7 +83,7 @@ end
 function Example.add_calendar()
   local jan31 = assert(Time.parse_rfc3339("2024-01-31T09:00:00Z"))
   print(Time.add_calendar(jan31, { months = 1 }))
-  local feb = assert(Time.add_calendar(jan31, { months = 1, ns = Time.minutes(90) }, nil,
+  local feb = assert(Time.add_calendar(jan31, { months = 1, ns = Clock.minutes(90) }, nil,
     { overflow = "clamp" }))
   print(Time.format_rfc3339(feb))
   assert(Time.format_rfc3339(feb) == "2024-02-29T10:30:00Z")
@@ -97,7 +98,7 @@ function Example.between()
   local to = assert(Time.parse_rfc3339("2026-03-15T10:30:00Z"))
   local span = assert(Time.between(from, to))
   print(Time.format_duration(span))
-  assert(span.years == 2 and span.months == 1 and span.days == 15 and span.ns == Time.minutes(90))
+  assert(span.years == 2 and span.months == 1 and span.days == 15 and span.ns == Clock.minutes(90))
   assert(Time.add_calendar(from, span, nil, { overflow = "clamp" }) == to)
   local leap = assert(Time.parse_rfc3339("2024-02-29T09:00:00Z"))
   assert(assert(Time.between(from, leap)).months == 0)
@@ -152,7 +153,7 @@ end
 function Example.local_zone()
   local here, why = Time.local_zone()
   assert(here ~= nil, why)
-  print(here.name, Time.format_rfc3339(Time.now_ns(), here, { digits = 0 }))
+  print(here.name, Time.format_rfc3339(Clock.now_ns(), here, { digits = 0 }))
   -- A TZ string with its own rules, Sydney's: daylight saving time from
   -- the first Sunday of October to the first of April, across the new year.
   local sydney = assert(Time.local_zone({ tz = "AEST-10AEDT,M10.1.0,M4.1.0/3" }))

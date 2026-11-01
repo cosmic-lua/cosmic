@@ -41,7 +41,7 @@ end
 --- module of its own and one only a declaration file answers for, and a
 --- module nothing requires. The helper runs fuzz properties when
 --- `fuzzes` says so.
-local function tree(inputs?: PolicyRules.Declared, fuzzes?: boolean): Module, {string:Module}
+local function tree(inputs?: PolicyRules.Declared, fuzzes?: boolean): Module, mut {string:Module}
   local helper_requires = { "lib.deep", "lib.declared" }
   if fuzzes then helper_requires[#helper_requires + 1] = "build.fuzz" end
   local helper = module("lib.helper", "lib/helper.tl", helper_requires)
@@ -154,7 +154,7 @@ local function test_a_host_path_that_cannot_be_given_is_named()
     local m, by_path = tree(declaring({ host = host }))
     local effective = test_inputs.effective(m, by_path, staged)
     test_inputs.resolve(effective, { "/fixture/tree", "/real/tree" })
-    return effective.unresolved
+    return assert(effective.unresolved)
   end
   local said = "Test.policy grant of the host path "
   local wants: {{string}} = {
@@ -166,7 +166,7 @@ local function test_a_host_path_that_cannot_be_given_is_named()
   }
   for _, want in ipairs(wants) do
     local why = trouble({ "/fixture/written", want[1] })
-    assert(why:find(want[2], 1, true), want[1] .. ": " .. why)
+    assert(why:find(want[2], 1, true), assert(want[1]) .. ": " .. why)
   end
   assert(trouble({ "/fixture/written", "/fixture/product/f", "/proc" }) == "")
 end
@@ -184,7 +184,7 @@ local function test_a_host_directory_is_refused_but_proc(tmp: string)
     local m, by_path = tree(declaring({ host = host }))
     local effective = test_inputs.effective(m, by_path, staged)
     test_inputs.resolve(effective, { "/fixture/tree" })
-    return effective.unresolved
+    return assert(effective.unresolved)
   end
   local said = trouble({ dir .. "/f", dir })
   assert(said == string.format("Test.policy grant of the host path %q: %s is a directory; " ..
@@ -270,7 +270,7 @@ local function test_a_lua_closure_holds_what_the_checker_loads()
     for _, name in ipairs(test_inputs.standalone_loads) do
       if name ~= "build.standalone" then needed[#needed + 1] = name end
     end
-    by_path["build.standalone"].requires = needed
+    assert(by_path["build.standalone"]).requires = needed
     if standalone then m.requires[#m.requires + 1] = "build.standalone" end
     local held: mut {string:boolean} = {}
     for _, name in ipairs(test_inputs.modules(m, by_path, staged)) do held[name] = true end
@@ -295,20 +295,19 @@ local function test_a_lua_closure_holds_what_the_checker_loads()
 end
 
 --- What `lua` adds to a closure is no reader of the compiler's identity
---- (`compiler_sought`): build.dispatch, which reads it past requiring
---- build.importer, does not key a module that declares `lua` by the
---- compiler's identity, so an edit to the compiler runs it no more; a
---- reader of its own closure, build.importer, still does, and a module
---- that does not declare `lua` is sought whole.
+--- (`compiler_sought`): build.dispatch reaches it only through
+--- build.importer ([`importer.own_tool`]), so an edit to the compiler
+--- runs a module that declares `lua` no more; a reader of its own
+--- closure, build.importer, still keys it, whether it declares `lua` or not.
 local function test_what_lua_adds_reads_no_compiler()
   local closure = { "lib.thing_test" }
   for _, name in ipairs(test_inputs.lua_loads) do closure[#closure + 1] = name end
   for _, name in ipairs(test_inputs.standalone_loads) do closure[#closure + 1] = name end
-  assert(key_parts.reads_compiler(closure), "build.dispatch reads it")
   assert(not key_parts.reads_compiler(test_inputs.compiler_sought(closure, true)))
-  assert(key_parts.reads_compiler(test_inputs.compiler_sought(closure, false)))
+  assert(not key_parts.reads_compiler(test_inputs.compiler_sought(closure, false)))
   closure[#closure + 1] = "build.importer"
   assert(key_parts.reads_compiler(test_inputs.compiler_sought(closure, true)))
+  assert(key_parts.reads_compiler(test_inputs.compiler_sought(closure, false)))
 end
 
 local function test_noexec_is_requested_but_not_granted_by_a_declaration()

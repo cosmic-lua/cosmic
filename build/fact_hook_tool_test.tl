@@ -5,7 +5,7 @@
 --- correct program reports nothing. The narrowing is made false by a chunk of Lua text the program `load`s and passes a
 --- record: it clears a field the checker took to be fixed, which no program of the checker's grammar can do by a cast.
 ---
---- The project is compiled by the tool the test starts, in the new mode whatever the mode of the suite that runs this test.
+--- The project is compiled by the tool the test starts, in the new mode.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -151,6 +151,20 @@ local function test_a_checked_run_reports_the_fact_that_is_false(tmp: string)
   -- the module the run was made of carries the wrap of the read `assert` narrowed too
   assert(carries(assert(build_paths.directory(root)) .. "/cosmic.checked.db", "__fact"),
     "the checked projection carries no wrap")
+end
+
+--- The test that meets the false fact keeps no verdict, so the second run reports it again and the clean one stands:
+--- a standing verdict must not hide a violation a `pcall` swallowed.
+local function test_a_swallowed_violation_is_reported_by_every_run(tmp: string)
+  local root = project(tmp)
+  local first, first_text = invoke(root, tmp, { "test", "--check-types" })
+  assert(first.ok and first_text:find("2 ran, 0 stood", 1, true) ~= nil, first_text)
+  local second, second_text = invoke(root, tmp, { "test", "--check-types" })
+  assert(second.ok, second_text)
+  assert(second_text:find("1 ran, 1 stood", 1, true) ~= nil, second_text)
+  assert(second_text:find("run-time types: 1 violation, 1 distinct, at 1 place", 1, true) ~= nil,
+    "a standing verdict hid the false fact: " .. second_text)
+  assert(#violations(root) == 1, tostring(#violations(root)) .. " rows")
 end
 
 --- What a drawn program leaves unused of its header, read, so that the tool, which refuses a warning, takes it, and the

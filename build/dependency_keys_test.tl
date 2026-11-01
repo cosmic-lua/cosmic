@@ -33,7 +33,7 @@ end
 --- itself), of the standard library's where the last bit is, and a comment
 --- `salt` names, which an edit that moves no edge changes. A `declared` module is a declaration.
 local function source_of(index: integer, edges: integer, salt: integer, declared: boolean): string
-  local text = ""
+  local text = if declared then "--- @kind binding\n" else "" end
   for other = 1, library - 1 do
     if (edges >> (other - 1)) & 1 == 1 then
       text = text .. "local r" .. tostring(other) .. " = require(\"m" .. tostring(other) .. "\")\n"
@@ -170,7 +170,7 @@ local function walk(seed: integer, steps: integer)
       assert(Fs.write(path_of(index), text))
     elseif edit == 6 then
       what = "a declaration of " .. name
-      -- The module is written again as the other kind: a module has one type source.
+      -- The module is written again as the other kind: a module is a declaration or a source, never both.
       if node.present then
         assert(Fs.remove(path_of(index)))
       end

@@ -68,6 +68,16 @@ static uint64_t be64 (const unsigned char *p) {
   return value;
 }
 
+/* A reader of this version names the one it finds: the older format is
+ * the one a program built by an earlier release has. */
+_Static_assert(COSMIC_PORTABLE_VERSION == 2, "version_error names version 2");
+static const char *version_error (uint32_t version) {
+  return version == 1
+             ? "artifact format version 1; this release reads version 2"
+             : "artifact format version is unsupported; this release reads "
+               "version 2";
+}
+
 static bool range_ends_at_or_before (uint64_t offset, uint64_t length,
                                      uint64_t limit) {
   return offset <= limit && length <= limit - offset;
@@ -134,7 +144,7 @@ static bool decode_blocks (int fd, const char *trailer_magic, uint64_t first_cor
   if (memcmp(trailer, trailer_magic, COSMIC_PORTABLE_MAGIC_LENGTH) != 0)
     return reject(out, error, "trailer magic differs");
   if (be32(trailer + 8) != COSMIC_PORTABLE_VERSION)
-    return reject(out, error, "trailer version is unsupported");
+    return reject(out, error, version_error(be32(trailer + 8)));
   if (be32(trailer + 12) != COSMIC_PORTABLE_TRAILER_LENGTH)
     return reject(out, error, "trailer length differs");
   decoded->manifest_offset = be64(trailer + 16);
@@ -161,7 +171,7 @@ static bool decode_blocks (int fd, const char *trailer_magic, uint64_t first_cor
              COSMIC_PORTABLE_MAGIC_LENGTH) != 0)
     return reject(out, error, "manifest magic differs");
   if (be32(manifest + 8) != COSMIC_PORTABLE_VERSION)
-    return reject(out, error, "manifest version is unsupported");
+    return reject(out, error, version_error(be32(manifest + 8)));
   if (be32(manifest + 12) != COSMIC_PORTABLE_MANIFEST_LENGTH)
     return reject(out, error, "manifest encoded length differs");
   decoded->prefix_length = be64(manifest + 16);
@@ -189,15 +199,33 @@ static bool decode_blocks (int fd, const char *trailer_magic, uint64_t first_cor
     struct cosmic_portable_entry *entry = &decoded->entries[i];
     entry->target_id = be32(raw);
     entry->configuration_id = be32(raw + 4);
-    entry->offset = be64(raw + 8);
-    entry->length = be64(raw + 16);
-    memcpy(entry->sha256, raw + 24, COSMIC_PORTABLE_SHA256_LENGTH);
+    entry->kind = be32(raw + 8);
+    entry->codec = be32(raw + 12);
+    entry->offset = be64(raw + 16);
+    entry->stored_length = be64(raw + 24);
+    memcpy(entry->stored_sha256, raw + 32, COSMIC_PORTABLE_SHA256_LENGTH);
+    entry->length = be64(raw + 64);
+    memcpy(entry->sha256, raw + 72, COSMIC_PORTABLE_SHA256_LENGTH);
     if (entry->target_id == 0 || entry->configuration_id == 0)
       return reject(out, error, "manifest entry identity is zero");
+    if (entry->kind != COSMIC_PORTABLE_KIND_CORE &&
+        entry->kind != COSMIC_PORTABLE_KIND_STUB)
+      return reject(out, error, "manifest entry kind is unknown");
+    if (entry->codec != COSMIC_PORTABLE_CODEC_RAW &&
+        entry->codec != COSMIC_PORTABLE_CODEC_ZSTD)
+      return reject(out, error, "manifest entry codec is unknown");
+    if (entry->kind == COSMIC_PORTABLE_KIND_STUB &&
+        entry->codec != COSMIC_PORTABLE_CODEC_RAW)
+      return reject(out, error, "a decoder stub is stored raw");
+    if (entry->codec == COSMIC_PORTABLE_CODEC_RAW &&
+        (entry->stored_length != entry->length ||
+         memcmp(entry->stored_sha256, entry->sha256,
+                COSMIC_PORTABLE_SHA256_LENGTH) != 0))
+      return reject(out, error, "a raw entry's stored bytes differ from its core");
     if (entry->offset < first_core ||
         entry->offset % COSMIC_PORTABLE_CORE_ALIGNMENT != 0 ||
-        entry->length == 0 ||
-        !range_ends_at_or_before(entry->offset, entry->length,
+        entry->stored_length == 0 || entry->length == 0 ||
+        !range_ends_at_or_before(entry->offset, entry->stored_length,
                                  decoded->manifest_offset))
       return reject(out, error, "core range is outside the aligned prefix");
   }
@@ -218,6 +246,9 @@ static bool decode_host (int fd, struct cosmic_portable *out,
     return reject(out, error, "a host program carries exactly one core");
   const struct cosmic_portable_entry *entry = &decoded.entries[0];
   uint64_t expected;
+  if (entry->kind != COSMIC_PORTABLE_KIND_CORE ||
+      entry->codec != COSMIC_PORTABLE_CODEC_RAW)
+    return reject(out, error, "a host program carries one raw core");
   if (entry->offset != 0 || !align_core(entry->length, &expected) ||
       decoded.manifest_offset != expected)
     return reject(out, error, "host program core does not start the file");
@@ -244,11 +275,24 @@ static bool decode_portable (int fd, struct cosmic_portable *out,
     for (uint32_t j = 0; j < i; j++) {
       const struct cosmic_portable_entry *other = &decoded.entries[j];
       if (entry->target_id == other->target_id &&
-          entry->configuration_id == other->configuration_id)
+          entry->configuration_id == other->configuration_id &&
+          entry->kind == other->kind)
         return reject(out, error, "manifest has a duplicate core identity");
-      if (entry->offset < other->offset + other->length &&
-          other->offset < entry->offset + entry->length)
+      if (entry->offset < other->offset + other->stored_length &&
+          other->offset < entry->offset + entry->stored_length)
         return reject(out, error, "manifest core ranges overlap");
+    }
+    if (entry->kind == COSMIC_PORTABLE_KIND_CORE &&
+        entry->codec != COSMIC_PORTABLE_CODEC_RAW) {
+      bool stubbed = false;
+      for (uint32_t j = 0; j < decoded.entry_count; j++) {
+        const struct cosmic_portable_entry *other = &decoded.entries[j];
+        stubbed |= other->kind == COSMIC_PORTABLE_KIND_STUB &&
+                   other->target_id == entry->target_id &&
+                   other->configuration_id == entry->configuration_id;
+      }
+      if (!stubbed)
+        return reject(out, error, "a compressed core has no decoder stub");
     }
   }
 
@@ -271,7 +315,7 @@ static bool decode_portable (int fd, struct cosmic_portable *out,
       return reject(out, error, "core range does not use minimal alignment");
     if (!zero_range(fd, after, expected - after))
       return reject(out, error, "core alignment padding is not zero");
-    after = entry->offset + entry->length;
+    after = entry->offset + entry->stored_length;
   }
   uint64_t expected_manifest;
   if (!align_core(after, &expected_manifest) ||
@@ -321,6 +365,7 @@ bool cosmic_portable_decode (int fd, uint32_t target_id,
   int selected = -1;
   for (uint32_t i = 0; i < out->entry_count; i++) {
     const struct cosmic_portable_entry *entry = &out->entries[i];
+    if (entry->kind != COSMIC_PORTABLE_KIND_CORE) continue;
     if (entry->configuration_id ==
             COSMIC_PORTABLE_RELEASE_CONFIGURATION_ID &&
         entry->target_id < 64 &&

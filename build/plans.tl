@@ -15,7 +15,7 @@ local type module = require("build.module")
 local type Module = module.Plan
 
 local record plans
-  Module: Module
+  type Module = module.Plan
   --- What compiling one module makes.
   record Generated
     lua: string
@@ -24,6 +24,10 @@ local record plans
     references: {SyntaxReceivers.Reference}
     --- A refusal, its contracts' or its stub's, kept for this unjudged run alone.
     refused: boolean
+    --- How many reads of a narrowed place and how many typed parameters its Lua checks ([`build.compile_grammar.emit`]):
+    --- what a checked compile wrote, 0 for an unchecked one.
+    fact_wraps: integer
+    parameter_checks: integer
   end
   --- A module's key and the graph digest less its own file and compiler.
   record Keys
@@ -184,9 +188,11 @@ local function dependency_graph(db: Sqlite.Handle, modules: {Module}): Graph?, s
       }
     end
   end
-  -- A module's own compile is keyed from its implementation. Imports of
-  -- that same path still resolve through `dependencies`, and therefore
-  -- through its declaration when it has one.
+  -- A module's own compile is keyed from the slot "\0" .. its path, which holds the module itself.
+  --
+  -- TODO: drop this slot and the `loads` edge of [`compute_keys`], which only a module that has both a declaration and a
+  -- source could take (the build refuses one, [`build.driver.declared`]), at the next bump of `version` in build/declared_key.tl:
+  -- the slot's name is part of every graph key, so removing it moves them all, as that bump does.
   for _, m in ipairs(modules) do
     dependencies["\0" .. m.path] = {
       kind = m.kind, source_hash = m.source_hash, requires = m.requires,
@@ -229,9 +235,7 @@ end
 --- Hash the reachable graph as a sorted set rather than recursively
 --- hashing one node into another. Declarations can legally refer to each
 --- other, and a set closes over those cycles without making traversal
---- order part of the key. When a declaration shadows an implementation,
---- both matter: the checker reads the declaration, while the generated
---- `require` loads the implementation at runtime.
+--- order part of the key.
 --- A module's own compile is keyed by its file as well as its import
 --- path (`file` below): `x.tl` and `x/init.tl` are both `x`, and
 --- build.syntax_contracts names its exemptions by file, so a module moved
@@ -289,8 +293,7 @@ local function identify_in(known: Graph, name: string, file: string,
 end
 
 --- The identity of every source the checker can load from this tree.
---- A declaration wins over a source of the same name, just as
---- the checker's module search does. An embedded standard-library
+--- An embedded standard-library
 --- module is content-addressed by what the checker reads of it when a
 --- project imports it ([`standard_text`]). Each module's
 --- [`Keys`], by path.

@@ -5,6 +5,8 @@
 --- one is read back into where it is ([`plan.refusal_of`]).
 
 local analysis_schema = require("build.analysis_schema")
+local type Ast = require("lang.ast")
+local type Derivation = require("build.syntax_derivation")
 local type build_module = require("build.module")
 
 local record plan
@@ -27,8 +29,14 @@ local record plan
     plan: build_module.Plan?
     refusals: {Refusal}
     halted: boolean
+    --- Whether the text parses.
+    parsed: boolean
     --- What it requires and where, in order: none for a text that does not parse.
     requires: {Site}
+    --- The syntax tree of the text, where it parses, and what the analysis read of it where it took it
+    --- ([`Derivation.Known`]): the rows of the same text are derived of them ([`build.lsp.source`]'s `requires_of`).
+    chunk: Ast.Chunk?
+    known: Derivation.Known?
   end
 
   --- A `require` of a document: the module it names, and where.

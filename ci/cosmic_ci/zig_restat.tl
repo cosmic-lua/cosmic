@@ -30,8 +30,6 @@
 -- cache-same-contents-hit of cosmic-lua/zig, not yet sent upstream).
 
 local Child = require("cosmic.child")
--- TODO: read these through Env.read once ci/cosmic-driver.pin names a release whose cosmic.env declares them; COSMIC_ZIG_CACHE_SEED and
--- COSMIC_ZIG_GLOBAL_CACHE join Env.Name then.
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Plural = require("cosmic_ci.plural")
@@ -223,8 +221,8 @@ end
 --- COSMIC_ZIG_CACHE_SEED and the global cache COSMIC_ZIG_GLOBAL_CACHE
 --- names, as `driver.tl zig-prune` takes them.
 function ZigRestat.restat_command(_argv: {string}): integer
-  local seed = Env.get("COSMIC_ZIG_CACHE_SEED") or ""
-  local shared = Env.get("COSMIC_ZIG_GLOBAL_CACHE")
+  local seed = Env.read("COSMIC_ZIG_CACHE_SEED") or ""
+  local shared = Env.read("COSMIC_ZIG_GLOBAL_CACHE")
   local kept: string? = nil
   if shared ~= nil and shared ~= "" then kept = shared end
   local command = ZigRestat.run(assert(Fs.absolute(".")), seed .. "/zig-cache", kept)

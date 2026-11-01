@@ -96,6 +96,10 @@ local allowed: mut {string: string} = {}
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
+allowed["build.searchable.share"] = "opens one file or directory to every user for the tests of a policy's child; build/child_policy_fixture.tl imports the module for `open`, so the tests' own uses no longer earn `share`"
+
+allowed["build.shared_verdicts.rows_kept"] = "the bound a file of a checked run's verdicts keeps, which the file's name decides; the settle of the same module applies it, and a test holds the names to it"
+allowed["build.test_key.met_nothing"] = "whether a checked run's report holds a violation, which `judge` asks and a test holds to the report's two clauses (a row, and rows that went unrecorded)"
 allowed["build.memprobe.enabled"] = "the switch `COSMIC_MEMPROBE` sets for a run, which a test turns on to read the line a mark writes"
 
 allowed["build.type_watch.skip_reason"] = "the reason `during` skips with, which a test reads for a checked and a plain run " ..
@@ -122,7 +126,7 @@ end
 
 allow({
   "build.syntax_analyzer.analyze",
-  "build.syntax_derivation.rows_of", "build.syntax_match.matches", "build.syntax_match.text",
+  "build.syntax_match.matches", "build.syntax_match.text",
 }, "a reader of the syntax tree (build/syntax_*.tl) that the build reaches through its callers (`analysis_of`, " ..
     "`docs`, the pipeline's derive) and that its tests call directly, to say what one read of a source gives")
 
@@ -174,7 +178,7 @@ for _, name in ipairs({ "plan", "name_servers", "upstream_addresses", "resolved_
   allowed["cosmic.internal.relay_start." .. name] = "tested directly: a step of `handover` and " ..
     "`direct_handover`, which are composed from it, each tested over fixtures of its own"
 end
-for _, name in ipairs({ "install_checks", "dropped_violations", "most_kept", "fact", "cross" }) do
+for _, name in ipairs({ "dropped_violations", "most_kept", "fact", "cross" }) do
   allowed["build.test_worker." .. name] = "the seam that lets a test run the hook a checked run's Lua calls " ..
     "in its own process, over Lua it compiled with the checks, and read what the hook met; " ..
     "`run` calls them for a worker"
@@ -199,10 +203,6 @@ allowed["build.assertions.lua_assert"] = "tested directly: Lua's own `assert`, k
 allowed["build.c.layout.same"] = "tested directly: whether two layouts are one " ..
   "token stream is the rule `cosmic fix` holds a C rewrite to, and the test " ..
   "states it on sources too small to be a file"
-for _, name in ipairs({ "sleep_ns", "ceil" }) do
-  allowed["cosmic.time." .. name] = "the old name of cosmic.clock's " .. name .. ", kept " ..
-    "for programs outside the tree that call it; in the tree only its own tests do"
-end
 for _, name in ipairs({ "names", "class" }) do
   allowed["build.host_names." .. name] = "tested directly: the table's own reading, which " ..
     "`parse` and `check`, the only calls outside the module, are made of"
@@ -1015,7 +1015,7 @@ local requirers: {string: Restriction} = {
   ["cosmic.internal.globals"] = {
     files = { "build.fuzz", "build.load_module",
       "build.sandbox", "build.sealed_worker_test", "build.standalone",
-      "build.test_closure_diagnostic_test", "build.test_closure_test", "build.type_watch", "core.load_env_test", "core.surface_test",
+      "build.test_closure_diagnostic_test", "build.test_closure_test", "build.test_worker_test", "build.type_watch", "core.load_env_test", "core.surface_test",
       "cosmic.coverage_test", "cosmic.flags_test", "test.coverage_cache_test" },
     why = "only the modules that run a program or a hook as a chunk of Lua text take the globals whole, as its " ..
       "environment: it holds `require`, which a chunk loads modules the build does not see by; any other module " ..
@@ -2265,7 +2265,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
     files[#files + 1] = entry
     derived[nth(entry, 1)] = true
   end
-  -- No [`TreeProgram.paired`] here: a `.d.tl` beside a `.tl` is refused when the tree is built ([`Pipeline.build`]), which the
+  -- No [`TreeProgram.declared`] here: a `.d.tl` beside a `.tl`, or one that names no kind, is refused when the tree is built ([`Pipeline.build`]), which the
   -- checks that read this index follow, and the files given are a tree that built.
   local index = TreeProgram.index(files, {})
   local tree: Tree = { rows = {}, by_module = {}, index = index }
@@ -2291,7 +2291,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
       }
       rows[#rows + 1] = row
       row_of[source] = row
-      -- A module given as a declaration and a source is read from the declaration; the key holds both texts.
+      -- A module given as two files (`x.tl` and `x/init.tl`) is read from the first; the key holds both texts.
       local exact = Hash.hex_sha256(source.text)
       hashes[row.module] = (hashes[row.module] or "") .. exact
       -- A source the build mends or writes from another file is read as its text says, comments and all.

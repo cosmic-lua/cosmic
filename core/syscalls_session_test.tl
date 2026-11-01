@@ -125,7 +125,10 @@ local function test_a_confined_child_s_autogroup_is_not_its_parent_s(tmp: string
     if sys.stat(path) ~= nil then reads[#reads + 1] = path end
   end
   local said = in_own_session(tmp, "autogroup", { table.concat(reads, ":") })
-  if said == nil or said:find("^refused ") ~= nil then return end
+  if said == nil then Test.skip("this host has no setsid program") end
+  if assert(said):find("^refused ") ~= nil then
+    Test.skip("the child could not start: " .. assert(said))
+  end
   -- It set its own, where its /proc is its own and so writable, and, as
   -- root, its init's.
   assert(said:find("kept\n$") ~= nil, said)

@@ -87,9 +87,11 @@ value in Lua, or look a path up with [`Json.get`] and [`Json.select`].
 
 `cosmic rand uuid` prints a UUID (`--v7` for a time-ordered one, by RFC 9562's
 method 3 clock precision, `-n 5` for five, at most ten million); `cosmic rand token` a 32-byte base64url token; `cosmic rand int
-1 6` a die roll; `cosmic rand pick file` or `shuffle file` draws lines. All
-of it comes from the operating system's entropy, unless you name `--seed`
-to replay `int`, `pick` or `shuffle`, which is not secret. `cosmic help
+1 6` a die roll; `cosmic rand pick file` or `shuffle file` draws lines;
+`cosmic rand normal --mean 100 --stddev 15` and `cosmic rand gamma --shape 2
+--scale 3` draw floats. All of it comes from the operating system's entropy,
+unless you name `--seed` to replay `int`, `pick`, `shuffle`, `normal` or
+`gamma`, which is not secret. `cosmic help
 rand` has the rest.
 
 ## questions about a data file
@@ -372,12 +374,10 @@ The same line holds a [`Signal.guard`], a [`cosmic.net`] socket or an
 integer, which `<close>` cannot hold: [`Fs.close`] closes it, and
 [`Fs.read`] reads a whole file without one.
 
-A record of your own is closable too: its body declares `metamethod
-__close: function(Handle)`, and each value is made with a metatable that
-holds a `__close` (`local mt: metatable<Handle> = { __close = function(self:
-Handle) ... end }`, then `setmetatable(value, mt)`); [`Fs.Scratch.__close`]
-is one. Without it the compiler refuses `<close>` with `to-be-closed
-variable h has a non-closable type Handle`.
+A type of your own is closable too: declare it a class whose body has
+`function __close(self)`, and make each value as a table literal.
+[`Fs.Scratch`] is one. Without the method the compiler refuses `<close>`
+with `to-be-closed variable h has a non-closable type Handle`.
 
 ## ending early
 
@@ -419,7 +419,7 @@ A function declared `: number` may still
 [`Fs.mkdtemp`]: ../../cosmic/fs.tl
 [`Fs.open_read`]: ../../cosmic/fs.tl
 [`Fs.read`]: ../../cosmic/fs.tl
-[`Fs.Scratch.__close`]: ../../cosmic/fs.tl
+[`Fs.Scratch`]: ../../cosmic/fs.tl
 [`Fs.write`]: ../../cosmic/fs.tl
 [`Hash.hex_sha256`]: ../../cosmic/hash.tl
 [`Http.open`]: ../../cosmic/http/init.tl

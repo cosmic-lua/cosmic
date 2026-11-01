@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "assertions.h"
 #include "check.h"
@@ -18,6 +19,7 @@
 #include "compress.h"
 #include "coverage.h"
 #include "crypto.h"
+#include "executable.h"
 #include "hash.h"
 #include "html.h"
 #include "process.h"
@@ -967,17 +969,19 @@ static int store_trusted_prefix (lua_State *L) {
     return 2;
   }
   /* Startup binds the executing cached core to its manifest identity. Prefix
-   * reuse has a stronger requirement: every raw core will be copied into a
-   * future artifact, so verify every exact retained range before exposing any
-   * prefix bytes. This stays lazy so an otherwise valid warm cached core can
-   * run commands that do not reuse a corrupt artifact prefix. */
+   * reuse has a stronger requirement: every stored range (core or decoder
+   * stub, raw or compressed) will be copied into a future artifact, so verify
+   * each against its stored digest before exposing any prefix bytes. This
+   * stays lazy so an otherwise valid warm cached core can run commands that
+   * do not reuse a corrupt artifact prefix. */
   for (uint32_t i = 0; i < artifact->portable.entry_count; i++) {
     const struct cosmic_portable_entry *entry = &artifact->portable.entries[i];
     if (!cosmic_sha256_range_matches(artifact->fd, entry->offset,
-                                     entry->length, entry->sha256)) {
+                                     entry->stored_length,
+                                     entry->stored_sha256)) {
       lua_pushnil(L);
       lua_pushfstring(L,
-                      "retained portable core range %d digest differs from manifest",
+                      "retained portable range %d digest differs from manifest",
                       (int)i + 1);
       return 2;
     }
@@ -995,9 +999,30 @@ static int store_trusted_prefix (lua_State *L) {
   return cosmic_succeeded(L);
 }
 
+/* Reads the raw core a portable start is running into `into`, which holds
+ * `entry->length` bytes: startup has already put it on disk and checked it,
+ * and the artifact holds only its compressed range, which this does not
+ * decode. The file is the running executable, reopened as
+ * [`Proc.relaunch`] does, and must be a regular file of the manifest's
+ * length. False when it cannot be read whole. */
+static bool read_running_core (const struct cosmic_portable_entry *entry,
+                               char *into) {
+  int fd = cosmic_executable_fd();
+  if (fd < 0) return false;
+  struct stat st;
+  bool read = fstat(fd, &st) == 0 && S_ISREG(st.st_mode) &&
+              st.st_size >= 0 && (uint64_t)st.st_size == entry->length &&
+              cosmic_read_at(fd, into, (size_t)entry->length, 0);
+  close(fd);
+  return read;
+}
+
 /* Private capability handed only to the trusted build.artifact chunk: the
  * running core's exact bytes, checked against its manifest digest, and the
- * identity a host program made from them declares. */
+ * identity a host program made from them declares. A raw entry's bytes are
+ * its range of the artifact; a compressed one is read from the cached core
+ * the start is running, and hashed again, since the file may have changed
+ * since startup hashed it. */
 static int store_trusted_core (lua_State *L) {
   const struct cosmic_artifact *artifact =
       lua_touserdata(L, lua_upvalueindex(1));
@@ -1017,16 +1042,32 @@ static int store_trusted_core (lua_State *L) {
     lua_pushliteral(L, "running core's digest differs from its manifest");
     return 2;
   }
+  bool stored_raw = entry->codec == COSMIC_PORTABLE_CODEC_RAW;
   lua_createtable(L, 0, 4);
   luaL_Buffer buffer;
   char *bytes = luaL_buffinitsize(L, &buffer, (size_t)entry->length);
-  if (!cosmic_artifact_read(artifact, bytes, (size_t)entry->length,
-                            entry->offset)) {
+  if (stored_raw ? !cosmic_artifact_read(artifact, bytes, (size_t)entry->length,
+                                         entry->offset)
+                 : !read_running_core(entry, bytes)) {
     luaL_pushresultsize(&buffer, 0);
     lua_pop(L, 2);
     lua_pushnil(L);
     lua_pushliteral(L, "running core cannot be read");
     return 2;
+  }
+  if (!stored_raw) {
+    unsigned char digest[COSMIC_DIGEST_MAX];
+    size_t digest_length = 0;
+    if (cosmic_digest("sha256", bytes, (size_t)entry->length, digest,
+                      &digest_length) != 0 ||
+        digest_length != COSMIC_PORTABLE_SHA256_LENGTH ||
+        memcmp(digest, entry->sha256, COSMIC_PORTABLE_SHA256_LENGTH) != 0) {
+      luaL_pushresultsize(&buffer, 0);
+      lua_pop(L, 2);
+      lua_pushnil(L);
+      lua_pushliteral(L, "running core's digest differs from its manifest");
+      return 2;
+    }
   }
   luaL_pushresultsize(&buffer, (size_t)entry->length);
   lua_setfield(L, -2, "bytes");

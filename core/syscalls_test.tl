@@ -460,7 +460,10 @@ local function test_a_failed_execve_keeps_sigpipe_ignored(tmp: string)
   assert(process.ignore_sigpipe())
   failed_with(sys.ENOENT, sys.execve(tmp .. "/missing", { "missing" }, {}))
   local fd = sys.open("/proc/self/status", sys.O_RDONLY)
-  if fd == nil then return end -- no /proc to ask
+  if fd == nil then
+    Test.skip("this host has no /proc/self/status to ask")
+    return
+  end
   local status = assert(sys.read(fd, 1 << 16))
   sys.close(fd)
   local ignored = assert(status:match("SigIgn:%s*(%x+)"), status)
@@ -490,7 +493,10 @@ local function test_a_read_of_a_huge_count_answers_what_there_is(tmp: string)
   sys.close(ends.writer)
 
   local proc = sys.open("/proc/self/status", sys.O_RDONLY)
-  if proc == nil then return end -- no /proc to read
+  if proc == nil then
+    Test.skip("this host has no /proc/self/status to read")
+    return
+  end
   local st = assert(sys.fstat(proc))
   local text = assert(sys.read(proc, 1 << 50))
   sys.close(proc)
@@ -679,7 +685,10 @@ end
 local function test_a_child_starts_with_this_process_s_signal_mask(tmp: string)
   local probe = probe_in(tmp)
   local status = sys.open("/proc/self/status", sys.O_RDONLY)
-  if status == nil then return end -- no /proc to ask
+  if status == nil then
+    Test.skip("this host has no /proc/self/status to ask")
+    return
+  end
   local own = assert(sys.read(status, 65536))
   sys.close(status)
   local output = create(tmp .. "/status")
@@ -722,7 +731,7 @@ local function test_cpu_features_are_named_as_proc_cpuinfo_names_them()
     assert(i == 1 or (before ~= nil and before < name), "not in byte order, or twice: " .. name)
   end
   local cpuinfo = read_file("/proc/cpuinfo")
-  if cpuinfo == "" then return end
+  if cpuinfo == "" then Test.skip("this host has no /proc/cpuinfo to list flags from") end
   local listed: mut {string:boolean} = {}
   for line in cpuinfo:gmatch("[^\n]+") do
     local flags = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
@@ -877,7 +886,7 @@ local function test_getgid_and_getgroups_answer_the_groups_the_process_runs_with
     assert(math.type(group) == "integer" and group >= 0, tostring(group))
   end
   local status = read_file("/proc/self/status")
-  if status == "" then return end
+  if status == "" then Test.skip("this host has no /proc/self/status to list groups from") end
   assert(status:match("\nGid:%s+(%d+)") == tostring(gid), status)
   local listed: mut {string} = {}
   for group in (status:match("\nGroups:([^\n]*)") or ""):gmatch("%d+") do
@@ -1393,6 +1402,7 @@ local function test_a_tree_digest_of_what_it_is_refused_is_not_special(tmp: stri
   if opened ~= nil then
     sys.close(opened)
     assert(sys.chmod(tree .. "/closed", 0x1ed))
+    Test.skip("a mode 0 file opens here: the runner can read what it has no permission for")
     return
   end
   local refused = assert(sys.tree_digest(tree, true))
@@ -1441,6 +1451,38 @@ local function test_entropy_and_ftruncate_answer_their_contracts(tmp: string)
   assert(assert(sys.stat(tmp .. "/f")).size == 7)
   local ok, why, errno = sys.ftruncate(fd, 0)
   assert(not ok and why ~= "" and errno == sys.EBADF, why)
+end
+
+--- `rand_draw` refuses what the Teal wrapper never passes it, and a
+--- refusal leaves the generator's state words as they were.
+local function test_rand_draw_checks_its_arguments_and_keeps_the_state_on_refusal()
+  local st: mut {integer} = { 1, 2, 3, 4 }
+  local values = sys.rand_draw(st, 0, 3, 0.0, 0.0)
+  assert(#values == 3 and st[1] ~= 1 and #st == 4)
+  local cases: {{integer}} = { { -1, 1 }, { 3, 1 }, { 0, -1 }, { 0, (1 << 20) + 1 } }
+  for _, case in ipairs(cases) do
+    local kind, count = case[1], case[2]
+    assert(kind ~= nil and count ~= nil)
+    local fresh: mut {integer} = { 1, 2, 3, 4 }
+    Test.raises(function() sys.rand_draw(fresh, kind, count, 0.0, 0.0) end, "rand_draw")
+    assert(fresh[1] == 1 and fresh[2] == 2 and fresh[3] == 3 and fresh[4] == 4)
+  end
+  Test.raises(function() sys.rand_draw({ 1, 2, 3 }, 0, 1, 0.0, 0.0) end, "four integers")
+  local nan, inf = 0 / 0, math.huge
+  local ninf = -math.huge
+  local refused: {{integer | number}} = {
+    { 1, 0, -1 }, { 1, inf, 1 }, { 1, 0, nan }, { 1, nan, 1 }, { 1, 0, inf }, { 1, ninf, 1 },
+    { 2, 0, 1 }, { 2, -1, 1 }, { 2, nan, 1 }, { 2, inf, 1 }, { 2, 1, 0 }, { 2, 1, -1 },
+    { 2, 1, nan }, { 2, 1, inf },
+  }
+  for _, case in ipairs(refused) do
+    local kind, first, second = case[1], case[2], case[3]
+    assert(kind ~= nil and first ~= nil and second ~= nil)
+    local fresh: mut {integer} = { 1, 2, 3, 4 }
+    Test.raises(function() sys.rand_draw(fresh, math.tointeger(kind) or 0, 1, first, second) end, "must be finite")
+    assert(fresh[1] == 1 and fresh[2] == 2 and fresh[3] == 3 and fresh[4] == 4)
+  end
+  assert(#sys.rand_draw({ 1, 2, 3, 4 }, 1, 0, 0.0, 1.0) == 0)
 end
 
 --- A lock belongs to the open file: a second open of the same file is
@@ -1614,9 +1656,6 @@ end
 --- architecture fails with EBADARCH, not "No error information".
 local function test_the_errnos_only_macos_has_are_named_there()
   local uname = assert(sys.uname())
-  if uname.sysname ~= "Darwin" then
-    return
-  end
   local names: mut {string:string} = {}
   for number = 1, 4095 do
     local name = sys.errno_name(number)
@@ -1626,7 +1665,11 @@ local function test_the_errnos_only_macos_has_are_named_there()
   end
   for _, name in ipairs({ "EBADARCH", "EBADEXEC", "EBADMACHO", "ESHLIBVERS", "EAUTH",
       "ENEEDAUTH", "EDEVERR", "EPWROFF", "ENOATTR", "EFTYPE", "EQFULL" }) do
-    assert(names[name] ~= nil and names[name] ~= "No error information", name .. " is unnamed")
+    if uname.sysname == "Darwin" then
+      assert(names[name] ~= nil and names[name] ~= "No error information", name .. " is unnamed")
+    else
+      assert(names[name] == nil, name .. " is a macOS errno, named on " .. uname.sysname)
+    end
   end
 end
 

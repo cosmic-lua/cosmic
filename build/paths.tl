@@ -21,7 +21,6 @@
 --- release ([`ci/cosmic-driver.pin`]) lacks. build/zig.tl spells the
 --- lock's names itself, which build/paths_test.tl holds to [`Layout`].
 
--- TODO: read COSMIC_BUILD_HOME through Env.read once ci/cosmic-driver.pin names a release whose cosmic.env declares it (it is in Env.Name already).
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -73,6 +72,11 @@ local record paths
     --- Where the lock's holder sets the tool's database aside to read
     --- it ([`build.reboot`]).
     probe: string
+    --- Where `cosmic lsp` puts the source of a module of the binary's own
+    --- standard library that it answers a go to definition with, a
+    --- directory for each module's source hash
+    --- ([`build.lsp.source`]'s `extracted`).
+    cosmic_source: string
     --- The record of the directory's last use: a file whose
     --- modification time [`prepare`] sets, which [`build.cache_lifetime`]
     --- prunes the directory by.
@@ -104,6 +108,7 @@ function paths.under(directory: string): paths.Layout
     lock = directory .. "/rebuild.lock",
     holder = directory .. "/rebuild.lock.pid",
     probe = directory .. "/rebuild.lock.probe",
+    cosmic_source = directory .. "/cosmic-src",
     used = directory .. "/used",
     zig_global = directory .. "/zig-global",
     zig_cache = directory .. "/zig-cache",
@@ -114,6 +119,12 @@ local under = paths.under
 --- The raw core of `target` a boot of `layout` reads.
 function paths.core(layout: paths.Layout, target: string): string
   return layout.cores .. "/" .. target .. "/cosmic-core"
+end
+
+--- The decoder stub of `target` a boot of `layout` reads
+--- ([`core/unzstd.c`]), built beside its core.
+function paths.stub(layout: paths.Layout, target: string): string
+  return layout.cores .. "/" .. target .. "/cosmic-unzstd"
 end
 
 --- The build directory of the project whose canonical root is `root`,
@@ -163,7 +174,7 @@ local function location(root: string, environment?: {string:string}): Location?,
   if environment ~= nil then
     given = environment["COSMIC_BUILD_HOME"] or ""
   else
-    given = Env.get_or("COSMIC_BUILD_HOME", "")
+    given = Env.read("COSMIC_BUILD_HOME") or ""
   end
   return { home = dirname(output), output = output, cache = given == "", none = "" }, ""
 end

@@ -505,6 +505,7 @@ const core_sources = [_][]const u8{
     "main.c",
     "portable.c",
     "promises.c",
+    "rand.c",
     "startup.c",
 };
 
@@ -936,7 +937,20 @@ pub fn build(b: *std.Build) void {
     });
     const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .sqlite_ext = sqlite_ext, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .zstd = zstd, .cares = cares, .curl = curl, .yyjson = yyjson, .expat = expat, .config = config };
 
+    const host_name = hostName(b);
     for (targets) |t| {
+        // The zstd decode stub of this target ([`unzstdStub`]), built
+        // apart from the core and installed beside it. Only the host's is
+        // a step of `boot`, which the loop of a checkout needs and the
+        // stub's test reads; `cores` builds every target's.
+        const stub = unzstdStub(b, own, t, zstd);
+        const stub_out = b.addInstallFile(
+            stub.getEmittedBin(),
+            b.fmt("core/{s}/cosmic-unzstd", .{t.name}),
+        );
+        cores.dependOn(&stub_out.step);
+        if (std.mem.eql(u8, t.name, host_name)) boot.dependOn(&stub_out.step);
+
         const resolved = b.resolveTargetQuery(t.query);
         const vendor = vendorLibraries(b, t, release_configuration, resolved, sources);
         const exe = observedCore(b, mapper, cores, t, release_configuration, resolved, sources, vendor);
@@ -953,7 +967,7 @@ pub fn build(b: *std.Build) void {
         );
         portable_hook_cores.dependOn(&hooked_out.step);
 
-        if (std.mem.eql(u8, t.name, hostName(b))) {
+        if (std.mem.eql(u8, t.name, host_name)) {
             // The boot's Teal half reads no core but this one, which is
             // what runs it: staging, parsing and compiling wait on the
             // vendored trees only. The other cores matter to the assembly
@@ -1070,6 +1084,71 @@ pub fn build(b: *std.Build) void {
     portable_hook_cores.dependOn(cores);
 
     b.getInstallStep().dependOn(cores);
+}
+
+/// The zstd decode stub of `target_record` ([`core/unzstd.c`]): the
+/// vendored decoder alone and a `main` of the tree's own, static against
+/// musl on Linux and against libSystem on macOS, as small as the
+/// linker's garbage collection makes it. It is built at the architecture's
+/// baseline CPU, below the core's, so a host that runs the core runs it,
+/// and it is not an input of any artifact yet.
+/// Its macOS build carries the ad-hoc signature zig's linker writes to every
+/// executable it makes, as the core's does: the kernel kills an unsigned
+/// arm64 binary.
+fn unzstdStub(
+    b: *std.Build,
+    own: *Own,
+    target_record: Target,
+    zstd: std.Build.LazyPath,
+) *std.Build.Step.Compile {
+    const query = target_record.query;
+    const target = b.resolveTargetQuery(.{
+        .cpu_arch = query.cpu_arch,
+        .os_tag = query.os_tag,
+        .abi = query.abi,
+    });
+    const mod = b.createModule(.{
+        .target = target,
+        .optimize = .small,
+        .link_libc = true,
+        .strip = true,
+        .single_threaded = true,
+        .unwind_tables = .none,
+    });
+    mod.addIncludePath(zstd.path(b, "lib"));
+    own.add(mod, &.{"core/unzstd.c"}, &own_c);
+    // The decoder as the core's zstd is built ([`vendorLibraries`]), with
+    // the Huffman decoder of one symbol at a time alone: the other is
+    // faster and larger, and a core decodes in tens of milliseconds
+    // either way.
+    mod.addCSourceFiles(.{
+        .root = zstd.path(b, "lib"),
+        .files = &.{
+            "common/entropy_common.c",
+            "common/error_private.c",
+            "common/fse_decompress.c",
+            "common/xxhash.c",
+            "common/zstd_common.c",
+            "decompress/huf_decompress.c",
+            "decompress/zstd_ddict.c",
+            "decompress/zstd_decompress.c",
+            "decompress/zstd_decompress_block.c",
+        },
+        .flags = &.{
+            "-std=c11",                 debug_dir,
+            "-DZSTD_DISABLE_ASM",       "-DDYNAMIC_BMI2=0",
+            "-DZSTD_LEGACY_SUPPORT=0",  "-DZSTD_TRACE=0",
+            "-DXXH_NAMESPACE=ZSTD_",    "-DHUF_FORCE_DECOMPRESS_X1",
+        },
+    });
+    const exe = b.addExecutable(.{
+        .name = "cosmic-unzstd",
+        .root_module = mod,
+    });
+    exe.link_function_sections = true;
+    exe.link_data_sections = true;
+    exe.link_gc_sections = true;
+    return exe;
 }
 
 /// What the seed step says when the pinned release refuses the seed's
@@ -1294,7 +1373,7 @@ fn analyze(
     sources: Sources,
 ) void {
     const extra = [_][]const u8{
-        "entry.c", "startup_hook.c", "testing.c", "testing_checked.c",
+        "entry.c", "startup_hook.c", "testing.c", "testing_checked.c", "unzstd.c",
     };
     for (core_sources ++ extra) |file| {
         // -S, not -c: `zig cc` would take the analyzer's report for an
@@ -1341,7 +1420,7 @@ const closure_checked = [_][]const u8{
     "core/coverage_map_empty.c",          "core/strnlen_test.c",
     "core/environment_test.c",            "test/portable/format_test.c",
     "test/portable/startup_hook.c",       "test/portable/launcher_payload.c",
-    "test/portable/launcher_socket_fd.c",
+    "test/portable/launcher_socket_fd.c", "core/unzstd.c",
 };
 
 /// What a copy of a C file holds ([`Own`]) against what the compiler

@@ -22,6 +22,7 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local GrammarMode = require("build.grammar_mode")
 local Store = require("cosmic.store")
 local identities = require("build.identity")
 -- The pipeline is required where a build in the new grammar asks for it: `cosmic boot` compiles what the tool requires at load
@@ -40,17 +41,18 @@ local type Module = plans.Module
 local type Source = derivation.Source
 
 local record importer
-  Module: Module
+  type Module = plans.Module
 
   --- Where the code that analyzes is read from, as [`Store.requires`]
   --- and [`Store.source`] read it of the binary ([`importer.tree_code`]
   --- reads it of the tree): what a module requires among the modules a
   --- build plans, of which a declaration alone is none, sorted; and a
   --- module's source, a declaration's ahead of a module's of the same
-  --- name. `compiler` is the identity of the compiler it runs beside
-  --- ([`build.identity`]'s `Identities`).
+  --- name. `basis` is the runtime basis it runs on: Lua's pin and
+  --- patches and the declarations the new checker types a program with
+  --- ([`build.identity`]'s [`Identities.runtime_basis`]).
   record Code
-    compiler: string
+    basis: string
     requires: function(string): {string}?, string
     source: function(string): string?, string
   end
@@ -76,6 +78,11 @@ local record importer
     -- from `compiled` under a key that stood.
     compiled: integer
     cached: integer
+    --- How many reads of a narrowed place and how many typed parameters the Lua of the modules checks, summed over
+    --- the modules compiled and those a cache answered (the counts are kept with a compile): what a checked compile
+    --- wrote, 0 for an unchecked one.
+    mut fact_wraps: integer
+    mut parameter_checks: integer
     --- How many of those `cached` came from the compiles every
     --- checkout shares ([`Shared`]) rather than this one's own.
     shared: integer
@@ -93,7 +100,7 @@ local record importer
 
   --- What a derive parsed ([`importer.derive`]): how many sources it
   --- parsed, and how many more another checkout's parse stood in for.
-  Parses: derivation.Parses
+  type Parses = derivation.Parses
 
   --- The databases a hint looks a name up in, and whether each is read
   --- as the public standard library's (importer.said).
@@ -111,6 +118,10 @@ local record importer
       bytecode: string
       --- The record-field uses its checker found (`typed_refs`).
       references: {SyntaxReceivers.Reference}
+      --- How many reads of a narrowed place and how many typed parameters the Lua checks: 0 and 0 for an
+      --- unchecked compile.
+      fact_wraps: integer
+      parameter_checks: integer
     end
     --- One parse: what a parse writes of a source in every table
     --- `analysis_tables` names.
@@ -165,7 +176,7 @@ importer.prune_references =
 --- [`importer.analyzer_modules`]. "The analyzer" in these names is that
 --- whole set, of which the source analyzer [`build.syntax_analyzer`] is one.
 --- Each is a root of the compiler's identity too ([`build.identity`]'s
---- `compiler_roots`), which the analyzer's starts from. The schema of the
+--- `compiler_roots`), so a parse made again is a compile made again. The schema of the
 --- rows a parse stores ([`build.analysis_schema`]) is among them: what a
 --- source parses to is recorded in its columns.
 local analyzer_roots: {string} = {
@@ -177,8 +188,9 @@ local analyzer_roots: {string} = {
 --- derivation and every module that its extractors, generators and
 --- parser reach through `require`,
 --- as `code` records it: the running binary's own `imports` table by
---- default. What a source parses to is a function of these and of the
---- compiler, and of nothing else in the tool. Cache coordination and
+--- default. What a source parses to is a function of these, of the
+--- checker's readers ([`build.pipeline`]'s `coded`) and of the runtime basis,
+--- and of nothing else in the tool. Cache coordination and
 --- diagnostic presentation belong to the importer, outside this closure.
 function importer.analyzer_modules(code?: importer.Code): {string}?, string
   -- A name at a time ([`Store.requires`]), not a query of a handle on
@@ -218,13 +230,13 @@ local analysis_tables = analysis_schema.tables
 --- [`importer.analyzer_identity`] read of the binary a boot writes, read
 --- before that binary exists. A boot carries no database and runs the
 --- tree's own code, so this is the code deriving in a boot. What a
---- module requires is what the last parse of its source found, and the
---- compiler's identity is taken over those finds too
---- ([`identities.compiler_identity`]): before a parse, a module whose source
---- is new has none, but its source alone already moves the identity.
+--- module requires is what the last parse of its source found: before a
+--- parse, a module whose source is new has none, but its source alone
+--- already moves the identity. The runtime basis is the tree's pins
+--- ([`identities.runtime_basis`]).
 function importer.tree_code(handle: work.Handle): importer.Code?, string
-  local identity, trouble = identities.compiler_identity(handle.db)
-  if identity == nil then
+  local basis, trouble = identities.runtime_basis(handle.db)
+  if basis == nil then
     return nil, trouble
   end
   local db = handle.db
@@ -263,25 +275,25 @@ function importer.tree_code(handle: work.Handle): importer.Code?, string
     end
     return rows[1]:text(1), ""
   end
-  return { compiler = identity, requires = requires, source = source }, ""
+  return { basis = basis, requires = requires, source = source }, ""
 end
 
---- The identity of the analyzer `code` holds: the compiler, and the
---- source of every one of [`importer.analyzer_modules`]. `code` defaults
---- to the running binary's, the code actually deriving; in a stale tool
---- rebuilding itself that is older than the tree's. A boot names the
---- tree's ([`importer.tree_code`]), the code it runs, so the tool it
---- writes finds the rows the boot derived as its own. A binary that
---- carries no source for one of them, or no record of what they import,
---- can only be named whole.
--- TODO: name the analyzer by what a parse runs alone -- the pins
--- (`runtime_basis`), build.derivation and these modules -- rather than
--- the whole compiler's identity, which build.syntax_contracts, build.syntax_receivers and build.tree move though no
--- parse runs them, so an
--- edit to one parses every source again. Waits on a change that moves
--- every parse key at once, one of its own.
+--- The identity of the analyzer `code` holds: the runtime basis it runs
+--- on, and the source of every one of [`importer.analyzer_modules`].
+--- `code` defaults to the running binary's, the code actually deriving;
+--- in a stale tool rebuilding itself that is older than the tree's. A
+--- boot names the tree's ([`importer.tree_code`]), the code it runs, so
+--- the tool it writes finds the rows the boot derived as its own. A
+--- binary that carries no source for one of them, or no record of what
+--- they import, can only be named whole. What a parse runs is these
+--- modules, the checker's readers ([`running_analyzer`] names those by
+--- [`build.pipeline`]'s `coded`) and the Lua and declarations of the basis,
+--- and nothing else of the compiler's identity: an edit to build.plans or
+--- build.tree compiles again and parses nothing again. What the checker's
+--- readers reach (build.withheld, build.syntax_contracts and the rules,
+--- through build.pipeline) still parses again.
 function importer.analyzer_identity(code?: importer.Code): string
-  local parts: mut {string} = { code ~= nil and code.compiler or Store.meta("compiler") or "" }
+  local parts: mut {string} = { code ~= nil and code.basis or Store.meta("runtime_basis") or "" }
   local modules, _ = importer.analyzer_modules(code)
   if modules == nil then
     return "binary " .. (Store.meta("boot_hash") or "")
@@ -352,44 +364,6 @@ local function recorded_analyzer(db: Sqlite.Handle): string?, string
     return nil, trouble
   end
   return #last > 0 and last[1]:text(1) or "", ""
-end
-
---- Names the analysis rows the running tool derived as the tool it is
---- writing will name its own ([`running_analyzer`] in that tool), which
---- carries `compiler` as its compiler's identity. For a settling tool
---- that carries the tree's code (build.reboot's `into`): its parse is the
---- one the tool it writes would make, but it names the analyzer by the
---- `compiler` it carries, which its writer took by that writer's own
---- definition. Across a change to how that identity is defined
---- (build.identity's `compiler_identity`) the two names differ, and the
---- tool written would otherwise parse every source again on its first
---- run, finding the same rows. Rows another analyzer derived are left as
---- they are named.
-function importer.settled_analyzer(handle: work.Handle, compiler: string): boolean, string
-  local db = handle.db
-  local running, running_trouble = running_analyzer(handle)
-  if running == nil then
-    return false, running_trouble
-  end
-  local last, last_trouble = recorded_analyzer(db)
-  if last == nil then
-    return false, last_trouble
-  end
-  if last ~= running then
-    return true, ""
-  end
-  -- What this parse found each module requiring, which the written tool's
-  -- imports are, rather than what this tool's own writer found.
-  local code, code_trouble = importer.tree_code(handle)
-  if code == nil then
-    return false, code_trouble
-  end
-  local written = importer.analyzer_identity({ compiler = compiler, requires = code.requires, source = code.source })
-  if not nameless(written) then
-    local pipeline = require("build.pipeline")
-    written = pipeline.coded(written)
-  end
-  return record_analyzer(db, written)
 end
 
 --- Forgets every derived row: every parse, and every derivation but
@@ -538,10 +512,10 @@ end
 --- and takes those rows back. When the name is X, X's parses are this
 --- tree's:
 ---
---- - X is a digest of the compiler's identity and of each analyzer
----   module's name and source, so naming it again over this tree's
----   sources lists the same modules and sources X did, and the same
----   compiler: X's code is the code this boot runs.
+--- - X is a digest of the runtime basis, of each analyzer module's name
+---   and source and of the checker's readers, so naming it again over
+---   this tree's sources lists the same modules and sources X did, on the
+---   same basis: X's code is the code this boot runs.
 --- - A parse is a function of that code and the source alone, so X's
 ---   parse of each of these sources, `requires` rows included, is the
 ---   parse this boot would make, and the rows that named X are what the
@@ -563,7 +537,7 @@ end
 --- one it holds no parse of (`unguessed`): the roots change less often
 --- than what they reach, so X's of several states of the rest can
 --- gather. Only the trial accepts an X.
--- Nothing but the compiler, the pins and the analyzer's Teal sources is
+-- Nothing but the pins, the analyzer's and the checker's readers' Teal sources is
 -- in X, by design ([`forget_stale_analysis`]): the core's C, which runs
 -- the parse, is not, so a branch whose C parses otherwise shares rows
 -- with main under the same X, as compiles do under their keys, and as
@@ -686,7 +660,7 @@ local function parse_new(handle: work.Handle, tally: importer.Parses, made: {Sou
   if fresh == nil then
     return false, trouble
   end
-  return require("build.pipeline").derive(db, fresh, tally, made, broken)
+  return require("build.pipeline").derive(db, work.standing(handle).own, fresh, tally, made, broken)
 end
 
 --- Derives and parses what the staged tree holds that the tables do
@@ -858,6 +832,9 @@ local record Cache
   touch: Sqlite.Statement
   put: Sqlite.Statement
   plan: Sqlite.Statement
+  --- The counts of the checks the compile that [`cached_stands`] found last wrote (0 and 0 for none).
+  mut wraps: integer
+  mut checks: integer
 end
 
 local function prepare_cache(handle: work.Handle, tool: string): Cache?, string
@@ -867,12 +844,13 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache?, string
   -- judges the module again. Changing which verdict may stand is a
   -- semantic change: invalidate the stored keys or the cache schema,
   -- rather than treating it as a transport-only edit.
-  -- By the index that holds `seen` beside the key (`compiled_by_seen`,
-  -- [`build.work`]): a row holds the module's Lua and bytecode before its
-  -- `seen`, and SQLite reaches a column by reading through every page
-  -- of the ones before it, 27 MB a run for a tree's modules.
+  -- By the index that holds `seen` and the counts of the checks beside the key
+  -- (`compiled_by_checks`, [`build.work`]): a row holds the module's Lua and
+  -- bytecode before them, and SQLite reaches a column by reading through every
+  -- page of the ones before it, 27 MB a run for a tree's modules.
   local look, look_trouble = db:prepare(
-    "SELECT seen FROM compiled INDEXED BY compiled_by_seen WHERE key = ?1 AND seen >= 0")
+    "SELECT seen, fact_wraps, parameter_checks FROM compiled INDEXED BY compiled_by_checks " ..
+      "WHERE key = ?1 AND seen >= 0")
   if look == nil then
     return nil, look_trouble
   end
@@ -883,8 +861,8 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache?, string
     return nil, touch_trouble
   end
   local put, put_trouble = db:prepare(
-    "INSERT OR REPLACE INTO compiled (key, tool, lua, bytecode, seen) " ..
-      "VALUES (?1, ?2, ?3, ?4, ?5)")
+    "INSERT OR REPLACE INTO compiled (key, tool, lua, bytecode, seen, fact_wraps, parameter_checks) " ..
+      "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
   if put == nil then
     look:finalize()
     touch:finalize()
@@ -899,7 +877,7 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache?, string
     return nil, plan_trouble
   end
   return { run = handle.run, tool = tool, look = look, touch = touch,
-    put = put, plan = plan }, ""
+    put = put, plan = plan, wraps = 0, checks = 0 }, ""
 end
 
 local function finish_cache(cache: Cache)
@@ -938,9 +916,11 @@ local function cached_stands(cache: Cache, key: string): boolean, string
   end
   local stands = false
   local stale = false
+  cache.wraps, cache.checks = 0, 0
   if state == "row" then
     stands = true
     stale = look:integer(0) < cache.run - refresh_after
+    cache.wraps, cache.checks = look:integer(1), look:integer(2)
   end
   local reset, reset_trouble = look:reset()
   if not reset then
@@ -965,7 +945,7 @@ end
 --- this run's plan. A `refused` compile is kept for this run alone.
 local function remember(cache: Cache, path: string, key: string, ordinal: integer,
                         lua: string?, bytecode: string?,
-                        refused: boolean): boolean, string
+                        refused: boolean, fact_wraps: integer, parameter_checks: integer): boolean, string
   if lua ~= nil and bytecode ~= nil then
     local put = cache.put
     local bound, bind_trouble = put:bind_text(1, key)
@@ -975,6 +955,8 @@ local function remember(cache: Cache, path: string, key: string, ordinal: intege
     if bound then
       bound, bind_trouble = put:bind_integer(5, if refused then -1 else cache.run end)
     end
+    if bound then bound, bind_trouble = put:bind_integer(6, fact_wraps) end
+    if bound then bound, bind_trouble = put:bind_integer(7, parameter_checks) end
     if not bound then
       return false, bind_trouble
     end
@@ -1017,10 +999,9 @@ local record Hinting
 end
 
 --- Every module path `target` reaches through what each source at a
---- path requires, itself included: a declaration's requires as well as
---- its implementation's, since a caller is checked against the one and
---- runs the other. A name no source of the tree is (a standard-library
---- module), or one whose only source does not parse, reaches no further.
+--- path requires, itself included. A name no source of the tree is (a
+--- standard-library module), or one whose only source does not parse,
+--- reaches no further.
 local function reach(db: Sqlite.Handle, target: string): {string:boolean}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.path, r.name FROM inputs i JOIN requires r ON r.source_hash = i.source_hash " ..
@@ -1187,7 +1168,7 @@ local function compile_derived(handle: work.Handle, tool: string,
   end
   local result: importer.Result = {
     modules = {}, tool = tool, main = nil, refused = refusals, own_refused = own_refused,
-    left_out = left, compiled = 0, cached = 0, shared = 0, parses = parses,
+    left_out = left, compiled = 0, cached = 0, shared = 0, parses = parses, fact_wraps = 0, parameter_checks = 0,
     catalog = pipeline.catalog,
   }
   local db = handle.db
@@ -1276,6 +1257,8 @@ local function compile_derived(handle: work.Handle, tool: string,
         local lua: string? = nil
         local bytecode: string? = nil
         local refused = false
+        -- What the Lua of the module checks: the counts of the compile that stands or was copied, or made here.
+        local fact_wraps, parameter_checks = cache.wraps, cache.checks
         -- Another checkout's compile stands for one made here: its key
         -- and what else decides it are the same ([`build.shared_compiles`]),
         -- and it lands as a compile does, uses and all.
@@ -1288,6 +1271,7 @@ local function compile_derived(handle: work.Handle, tool: string,
         elseif elsewhere ~= nil then
           lua = elsewhere.lua
           bytecode = elsewhere.bytecode
+          fact_wraps, parameter_checks = elsewhere.fact_wraps, elsewhere.parameter_checks
           result.cached = result.cached + 1
           result.shared = result.shared + 1
           local kept_refs, refs_trouble = plans.keep_references(db, key, elsewhere.references)
@@ -1324,6 +1308,7 @@ local function compile_derived(handle: work.Handle, tool: string,
             lua = generated.lua
             bytecode = generated.bytecode
             refused = generated.refused
+            fact_wraps, parameter_checks = generated.fact_wraps, generated.parameter_checks
             result.compiled = result.compiled + 1
             local kept_refs, refs_trouble = plans.keep_references(db, key,
               generated.references)
@@ -1335,7 +1320,8 @@ local function compile_derived(handle: work.Handle, tool: string,
             -- never another checkout's.
             if shared ~= nil and not refused then
               shared.keep(m, standing.own, { lua = generated.lua, bytecode = generated.bytecode,
-                references = generated.references })
+                references = generated.references, fact_wraps = generated.fact_wraps,
+                parameter_checks = generated.parameter_checks })
             end
           end
         end
@@ -1343,8 +1329,10 @@ local function compile_derived(handle: work.Handle, tool: string,
         -- above, of which nothing is kept.
         if stands or lua ~= nil then
           m.lua = lua
+          result.fact_wraps = result.fact_wraps + fact_wraps
+          result.parameter_checks = result.parameter_checks + parameter_checks
           local kept, keep_trouble = remember(cache, m.path, key, ordinal, lua,
-            bytecode, refused)
+            bytecode, refused, fact_wraps, parameter_checks)
           if not kept then
             finish_cache(cache)
             return false, m.file .. ": " .. keep_trouble
@@ -1447,7 +1435,7 @@ end
 --- compile cached with the one is never the answer to a request for the other,
 --- nor for none.
 function importer.checked_tool(tool: string, wraps?: boolean): string
-  return Hash.hex_sha256(tool .. (if wraps == true then "\0fact-wraps\0parameter-checks" else "\0run-time-checks" end))
+  return Hash.hex_sha256(tool .. (if wraps == true then "\0fact-wraps\0parameter-checks\0counted" else "\0run-time-checks" end))
 end
 
 --- What a compile that asked to be reused stood on, and what it made.
@@ -1538,6 +1526,7 @@ function importer.compile(handle: work.Handle, tool: string, unjudged?: boolean,
       modules = was.modules, tool = was.tool, main = was.main, refused = was.refused, own_refused = was.own_refused,
       left_out = was.left_out,
       compiled = 0, cached = #was.modules, shared = 0, parses = was.parses, catalog = was.catalog,
+      fact_wraps = was.fact_wraps, parameter_checks = was.parameter_checks,
     }
     return again_result, ""
   end
@@ -1550,6 +1539,16 @@ function importer.compile(handle: work.Handle, tool: string, unjudged?: boolean,
       state = state, result = result }
   end
   return result, ""
+end
+
+--- The tool string a compile of this binary's own compiler is keyed by
+--- ([`build.grammar_mode`]'s `tool`, under `grammar`): the compiler's
+--- identity the build that made this binary recorded (its `meta`'s
+--- `compiler`), so a project's rows made by another compiler are compiled
+--- again. A worker's read of it is answered by the running tool
+--- ([`build.key_parts`]' `compiler_readers` names this module for it).
+function importer.own_tool(grammar: GrammarMode.Mode): string
+  return GrammarMode.tool(Store.meta("compiler") or "", grammar)
 end
 
 --- Compiles every module as [`importer.compile`] does, for a file run

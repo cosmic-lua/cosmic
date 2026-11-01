@@ -97,43 +97,7 @@ cosmic/web/types.tl key_type 3
 # inside the record, where the grammar declares a nested type
 build/c/init.tl member_missing 1
 
-build/closure_store_test.tl member_missing 1
-
-build/coverage/init.tl member_missing 1
-
-build/declared_key_test.tl member_missing 5
-
-build/doctest_test.tl member_missing 1
-
 build/gen_syscalls_test.tl member_missing 1
-
-build/importer.tl member_missing 7
-
-build/importer_test.tl member_missing 4
-
-build/pipeline.tl member_missing 1
-
-build/pipeline_test.tl member_missing 1
-
-build/positions.tl member_missing 4
-
-build/positions_test.tl member_missing 2
-
-build/runtime_checks_keys_test.tl member_missing 2
-
-build/shared_compiles.tl member_missing 2
-
-build/shared_parses_test.tl member_missing 1
-
-build/test.tl member_missing 1
-
-build/test_inputs.tl member_missing 1
-
-build/test_inputs_test.tl member_missing 1
-
-build/test_key.tl member_missing 1
-
-build/test_state.tl member_missing 1
 
 core/declarations_test.tl member_missing 1
 
@@ -145,7 +109,7 @@ build/lsp/session_fixture.tl interface_disagrees 1
 
 cosmic/child.tl interface_disagrees 1
 
-cosmic/http/init.tl interface_disagrees 5
+cosmic/http/init.tl interface_disagrees 3
 
 cosmic/http/multipart.tl interface_disagrees 1
 
@@ -162,10 +126,6 @@ cosmic/http/wire_test.tl interface_disagrees 1
 cosmic/internal/compress.d.tl interface_disagrees 1
 
 cosmic/internal/sqlite.d.tl interface_disagrees 1
-
-cosmic/json_reader_fuzz_test.tl interface_disagrees 1
-
-cosmic/json_reader_test.tl interface_disagrees 1
 
 cosmic/net.tl interface_disagrees 2
 
@@ -234,11 +194,7 @@ build/link_text.tl 3
 
 build/links.tl 2
 
-build/pipeline.tl 1
-
 build/policy_rules.tl 4
-
-build/positions.tl 1
 
 build/progress.tl 1
 
@@ -280,7 +236,7 @@ build/work.tl 1
 
 cosmic/child.tl 11
 
-cosmic/fs.tl 4
+cosmic/fs.tl 3
 
 cosmic/http/init.tl 1
 
@@ -378,7 +334,7 @@ build/json_query_test.tl setmetatable_call 1
 build/pipeline.tl view_as_mut 1
 
 
-build/pipeline_test.tl arms_differ 7
+build/pipeline_test.tl arms_differ 1
 
 
 
@@ -416,7 +372,7 @@ cosmic/child.tl setmetatable_call 4
 
 cosmic/compress_test.tl setmetatable_call 1
 
-cosmic/fs.tl setmetatable_call 4
+cosmic/fs.tl setmetatable_call 3
 
 cosmic/hash_test.tl setmetatable_call 2
 
@@ -516,7 +472,6 @@ cosmic/template_go_test.tl unchecked_binding 1
 
 build/archive_tool_test.tl nil_not_allowed 1
 
-build/artifact.tl nil_not_allowed 4
 
 build/artifact_fuzz_test.tl nil_not_allowed 1
 
@@ -647,8 +602,6 @@ build/host_requires.tl nil_not_allowed 5
 
 build/importer_boot_test.tl nil_not_allowed 4
 
-build/importer_store_test.tl nil_not_allowed 1
-
 
 
 
@@ -777,12 +730,10 @@ build/test.tl nil_not_allowed 31
 
 build/test_bail_tool_test.tl nil_not_allowed 4
 
-build/test_inputs_test.tl nil_not_allowed 3
-
 build/test_isolation_test.tl nil_not_allowed 2
 
 
-build/test_key.tl nil_not_allowed 54
+build/test_key.tl nil_not_allowed 52
 
 build/test_no_assert_tool_test.tl nil_not_allowed 1
 
@@ -881,17 +832,16 @@ cosmic/child_policy_cosmic_test.tl nil_not_allowed 1
 
 cosmic/child_policy_database_sandboxed_test.tl nil_not_allowed 1
 
-cosmic/child_policy_isolate_test.tl nil_not_allowed 6
+cosmic/child_policy_isolate_test.tl nil_not_allowed 5
 
 cosmic/child_policy_nest_test.tl nil_not_allowed 1
 
-cosmic/child_policy_root_user_test.tl nil_not_allowed 1
 
 cosmic/child_policy_system_test.tl nil_not_allowed 2
 
 cosmic/child_policy_test.tl nil_not_allowed 1
 
-cosmic/child_policy_user_test.tl nil_not_allowed 2
+cosmic/child_policy_user_test.tl nil_not_allowed 1
 
 cosmic/child_relay_seatbelt_test.tl nil_not_allowed 6
 
@@ -1045,7 +995,7 @@ cosmic/shape.tl nil_not_allowed 1
 
 cosmic/shape_fuzz_test.tl nil_not_allowed 3
 
-cosmic/shape_record_test.tl nil_not_allowed 3
+cosmic/shape_record_test.tl nil_not_allowed 2
 
 
 cosmic/sqlite.tl nil_not_allowed 6
@@ -1079,8 +1029,6 @@ cosmic/tar_test.tl nil_not_allowed 5
 
 
 
-
-cosmic/template_build_test.tl nil_not_allowed 3
 
 
 cosmic/template_fuzz_test.tl nil_not_allowed 38
@@ -1208,7 +1156,7 @@ lang/check_generics_test.tl nil_not_allowed 24
 
 lang/check_test.tl nil_not_allowed 26
 
-lang/codegen.tl nil_not_allowed 20
+lang/codegen.tl nil_not_allowed 19
 
 lang/codegen_fuzz_test.tl nil_not_allowed 12
 
@@ -1365,11 +1313,10 @@ core/syscalls_tool_test.tl missing_return 1
 
 
 
-build/artifact.tl index_may_be_nil 3
+build/artifact.tl index_may_be_nil 1
 
 build/artifact_fuzz_test.tl index_may_be_nil 2
 
-build/artifact_test.tl index_may_be_nil 1
 
 
 
@@ -1640,7 +1587,6 @@ cosmic/seatbelt_network_probe_test.tl index_may_be_nil 3
 
 cosmic/shape_fuzz_test.tl index_may_be_nil 2
 
-cosmic/shape_record_test.tl index_may_be_nil 1
 
 cosmic/store.tl index_may_be_nil 3
 
@@ -1841,7 +1787,7 @@ build/test.tl view_written 36
 
 build/test_inputs.tl view_written 5
 
-build/test_inputs_test.tl view_written 6
+build/test_inputs_test.tl view_written 1
 
 build/test_key.tl view_written 9
 
@@ -2314,7 +2260,7 @@ cosmic/archive_test.tl field_fixed 4
 
 cosmic/channel.tl field_fixed 2
 
-cosmic/child.tl field_fixed 29
+cosmic/child.tl field_fixed 24
 
 cosmic/child_drain_test.tl field_fixed 15
 
@@ -2343,7 +2289,7 @@ cosmic/child_task_tool_test.tl field_fixed 2
 cosmic/compress_test.tl field_fixed 1
 
 
-cosmic/fs.tl field_fixed 4
+cosmic/fs.tl field_fixed 3
 
 cosmic/fs_append_test.tl field_fixed 18
 
@@ -2404,7 +2350,7 @@ cosmic/test.tl field_fixed 35
 
 cosmic/test_policy_test.tl field_fixed 2
 
-cosmic/time.tl field_fixed 9
+cosmic/time.tl field_fixed 1
 
 
 
@@ -2783,7 +2729,7 @@ core/connector_filter_test.tl map_field 17
 
 core/database_start_sandbox_test.tl map_field 13
 
-core/database_start_test.tl map_field 66
+core/database_start_test.tl map_field 64
 
 core/declarations_test.tl map_field 21
 
@@ -3277,7 +3223,6 @@ build/link_resolve.tl any_use 1
 
 build/lsp/session.tl any_use 5
 
-build/perf_validation.tl any_use 7
 
 build/rand.tl any_use 1
 
@@ -3333,7 +3278,7 @@ core/syscalls_test.tl any_use 29
 
 cosmic/channel_test.tl any_use 1
 
-cosmic/child.tl any_use 12
+cosmic/child.tl any_use 11
 
 
 cosmic/child_terminal_test.tl any_use 8
@@ -3527,7 +3472,6 @@ build/archive_test.tl cast_refused 11
 
 build/artifact.tl cast_refused 1
 
-build/artifact_test.tl cast_refused 1
 
 build/assertions.tl cast_refused 2
 
@@ -3726,8 +3670,6 @@ cosmic/declared_types_test.tl cast_refused 1
 
 cosmic/fs_append_test.tl cast_refused 1
 
-cosmic/fs_test.tl cast_refused 2
-
 cosmic/hash_test.tl cast_refused 8
 
 cosmic/html_test.tl cast_refused 7
@@ -3848,7 +3790,7 @@ cosmic/time_duration_fuzz_test.tl cast_refused 1
 
 cosmic/time_fuzz_test.tl cast_refused 1
 
-cosmic/time_test.tl cast_refused 8
+cosmic/time_test.tl cast_refused 6
 
 cosmic/time_zone_test.tl cast_refused 7
 
@@ -3858,7 +3800,6 @@ cosmic/web/app_test.tl cast_refused 4
 
 cosmic/web/cookies_test.tl cast_refused 1
 
-cosmic/web/cors_test.tl cast_refused 4
 
 cosmic/web/csrf_test.tl cast_refused 1
 
@@ -4012,37 +3953,23 @@ cosmic/http/server.tl is_disjoint 1
 # the method
 build/cache_lifetime.tl close_not_closable 1
 
-build/cache_maintenance.tl close_not_closable 8
+build/cache_maintenance.tl close_not_closable 5
 
-build/cache_tool_test.tl close_not_closable 2
-
-build/dataset_test.tl close_not_closable 1
-
-build/fetch_tool_test.tl close_not_closable 3
+build/fetch_tool_test.tl close_not_closable 2
 
 build/lsp/session_test.tl close_not_closable 3
 
-build/lsp/tool_test.tl close_not_closable 4
+build/lsp/tool_test.tl close_not_closable 3
 
 build/rebuild_lock.tl close_not_closable 1
 
 build/rebuild_lock_test.tl close_not_closable 1
 
-build/sqlite_wait_lua_test.tl close_not_closable 5
-
-build/term_relay.tl close_not_closable 3
+build/term_relay.tl close_not_closable 2
 
 build/test.tl close_not_closable 1
 
-build/test_cancelled_verdicts_tool_test.tl close_not_closable 1
-
-build/test_isolation_tool_test.tl close_not_closable 2
-
-build/test_sandbox_run_tool_test.tl close_not_closable 1
-
 build/udp_fixture_test.tl close_not_closable 4
-
-build/zig_lock_test.tl close_not_closable 2
 
 core/allocation_test.tl close_not_closable 12
 
@@ -4050,31 +3977,11 @@ core/grants_child_test.tl close_not_closable 1
 
 core/lookup_test.tl close_not_closable 2
 
-core/sqlite_lua_test.tl close_not_closable 2
-
-core/sqlite_wait_lua_test.tl close_not_closable 8
-
-cosmic/child.tl close_not_closable 4
-
-cosmic/child_drain_test.tl close_not_closable 28
-
-cosmic/child_example.tl close_not_closable 2
-
-cosmic/child_lua_test.tl close_not_closable 19
-
-cosmic/child_stream_failure_test.tl close_not_closable 6
-
-cosmic/child_task_tool_test.tl close_not_closable 13
+cosmic/child.tl close_not_closable 3
 
 cosmic/declared_types_test.tl close_not_closable 1
 
 cosmic/fs.tl close_not_closable 1
-
-cosmic/fs_append_tool_test.tl close_not_closable 2
-
-cosmic/fs_example.tl close_not_closable 1
-
-cosmic/fs_test.tl close_not_closable 4
 
 cosmic/http/init.tl close_not_closable 1
 
@@ -4082,29 +3989,21 @@ cosmic/http/server_example.tl close_not_closable 1
 
 cosmic/http/server_test.tl close_not_closable 38
 
-cosmic/http/server_tool_test.tl close_not_closable 2
-
-cosmic/http_example.tl close_not_closable 1
-
-cosmic/http_test.tl close_not_closable 1
+cosmic/http/server_tool_test.tl close_not_closable 1
 
 cosmic/http_timeout_test.tl close_not_closable 3
 
-cosmic/http_tool_test.tl close_not_closable 6
+cosmic/http_tool_test.tl close_not_closable 4
 
 cosmic/internal/connector.tl close_not_closable 1
-
-cosmic/internal/relay_direct_test.tl close_not_closable 2
-
-cosmic/internal/relay_handed_test.tl close_not_closable 1
 
 cosmic/net.tl close_not_closable 1
 
 cosmic/net_example.tl close_not_closable 10
 
-cosmic/net_resolve_through_test.tl close_not_closable 14
+cosmic/net_resolve_through_test.tl close_not_closable 13
 
-cosmic/net_resolve_tool_test.tl close_not_closable 2
+cosmic/net_resolve_tool_test.tl close_not_closable 1
 
 cosmic/net_serve_test.tl close_not_closable 16
 
@@ -4116,7 +4015,6 @@ cosmic/net_tool_test.tl close_not_closable 1
 
 cosmic/seatbelt_network_probe_test.tl close_not_closable 4
 
-cosmic/sqlite_example.tl close_not_closable 1
 
 cosmic/time.tl close_not_closable 3
 
@@ -4132,12 +4030,8 @@ cosmic/web/testing.tl close_not_closable 1
 
 cosmic/web/testing_test.tl close_not_closable 1
 
-doc/guides/quickstart.md close_not_closable 1
 
 
-test/sqlite_query_test.tl close_not_closable 1
-
-test/sqlite_row_test.tl close_not_closable 1
 
 # a condition that is a string, a number, a table or a `boolean?`: the rewrite writes the test (`s ~= ""`, `x ==
 # true`)
@@ -4723,13 +4617,12 @@ cosmic/child_policy_isolate_test.tl or_mix 21
 
 cosmic/child_policy_nest_test.tl or_mix 8
 
-cosmic/child_policy_root_user_test.tl or_mix 5
+cosmic/child_policy_root_user_test.tl or_mix 4
 
 cosmic/child_policy_system_test.tl or_mix 1
 
 cosmic/child_policy_test.tl or_mix 5
 
-cosmic/child_policy_user_test.tl or_mix 1
 
 cosmic/child_relay_curl_test.tl or_mix 1
 
@@ -5060,7 +4953,7 @@ build/sandbox.tl and_ternary 3
 
 build/sandbox_connect.tl and_ternary 3
 
-build/shared_compiles.tl and_ternary 4
+build/shared_compiles.tl and_ternary 3
 
 build/shared_sqlite.tl and_ternary 1
 
@@ -5095,7 +4988,7 @@ build/test.tl and_ternary 6
 
 build/test_inputs.tl and_ternary 2
 
-build/test_key.tl and_ternary 14
+build/test_key.tl and_ternary 13
 
 build/test_policy.tl and_ternary 2
 
@@ -5588,8 +5481,6 @@ build/shared_verdicts_tool_test.tl compare_disjoint 6
 
 build/standalone_test.tl compare_disjoint 2
 
-build/test_inputs.tl compare_disjoint 2
-
 build/test_key.tl compare_disjoint 4
 
 build/test_policy_plan_tool_test.tl compare_disjoint 2
@@ -5654,7 +5545,6 @@ cosmic/internal/relay_config.tl compare_disjoint 1
 
 
 
-cosmic/internal/relay_server_test.tl compare_disjoint 1
 
 cosmic/json.tl compare_disjoint 5
 
@@ -5700,7 +5590,6 @@ cosmic/url.tl compare_disjoint 1
 cosmic/web/app.tl compare_disjoint 1
 
 
-cosmic/web/request_test.tl compare_disjoint 1
 
 cosmic/web/session/init.tl compare_disjoint 3
 
@@ -5737,7 +5626,7 @@ cosmic/channel_test.tl literal_missing 1
 
 cosmic/child.tl literal_missing 3
 
-cosmic/fs.tl literal_missing 6
+cosmic/fs.tl literal_missing 4
 
 cosmic/http/init.tl literal_missing 1
 
@@ -5787,7 +5676,7 @@ cosmic/zip.tl literal_missing 1
 
 lang/check.tl literal_missing 8
 
-lang/declarations.tl literal_missing 6
+lang/declarations.tl literal_missing 5
 
 lang/relation.tl literal_missing 1
 
@@ -5796,8 +5685,6 @@ lang/scopes.tl literal_missing 1
 lang/types.tl literal_missing 2
 
 # a field a literal names that its record lacks: the fields an interface gives
-cosmic/http/init.tl literal_unknown 3
-
 cosmic/http/wire.tl literal_unknown 3
 
 cosmic/net.tl literal_unknown 1
@@ -5876,7 +5763,7 @@ build/test.tl literal_needs_type 1
 
 build/test_inputs.tl literal_needs_type 4
 
-build/test_key.tl literal_needs_type 5
+build/test_key.tl literal_needs_type 2
 
 build/test_requires_tool_test.tl literal_needs_type 4
 
@@ -6208,7 +6095,6 @@ build/flow_test.tl arms_differ 2
 
 build/json_query_test.tl arms_differ 2
 
-build/perf_validation.tl arms_differ 1
 
 build/shared_compiles.tl arms_differ 1
 
@@ -6248,7 +6134,7 @@ core/syscalls_tool_test.tl arms_differ 1
 
 core/syscalls_tool_unsandboxed_test.tl arms_differ 1
 
-cosmic/child.tl arms_differ 3
+cosmic/child.tl arms_differ 2
 
 cosmic/child_drain_test.tl arms_differ 4
 
@@ -6304,7 +6190,6 @@ cosmic/template_check_test.tl arms_differ 16
 
 cosmic/web/app.tl arms_differ 2
 
-cosmic/web/cors_test.tl arms_differ 3
 
 cosmic/web/htmx.tl arms_differ 5
 
@@ -6346,7 +6231,7 @@ test/sqlite_parameter_test.tl arms_differ 1
 build/links_test.tl array_of_optional 1
 
 
-core/artifact_fd_test.tl array_of_optional 4
+core/artifact_fd_test.tl array_of_optional 3
 
 
 cosmic/child.tl array_of_optional 2
@@ -6912,17 +6797,11 @@ cosmic/removed_example.tl setmetatable_call 1
 # [`build.example_checks`] holds in the new mode: `<file> <code> <count>`, the count over all of the file's examples. They
 # are the examples that need a type the new checker or the library does not yet have to be written cleanly. A pin only falls.
 
-# TODO: declare the handles these examples close with `<close>` (a child, a connection, a listener, a query, a scratch
-# directory, a response) as classes, and write the metatable of the two examples that build one by hand
-# as a class, once the library's handles are classes (a change of its own, library by library): the new checker refuses
-# `<close>` on a record and a call of `setmetatable`.
-cosmic/child_example.tl close_not_closable 2
-
-cosmic/fs_example.tl close_not_closable 1
-
+# TODO: declare the handles these examples close with `<close>` (a connection, a listener, a query, a response) as
+# classes, and write the metatable of the two examples that build one by hand as a class, once the library's handles are
+# classes (a change of its own, library by library): the new checker refuses `<close>` on a record and a call of
+# `setmetatable`.
 cosmic/http/server_example.tl close_not_closable 1
-
-cosmic/http_example.tl close_not_closable 1
 
 cosmic/net_example.tl close_not_closable 10
 
@@ -6937,9 +6816,6 @@ cosmic/removed_example.tl literal_missing 1
 
 cosmic/removed_example.tl setmetatable_call 1
 
-cosmic/sqlite_example.tl close_not_closable 1
-
-doc/guides/quickstart.md close_not_closable 1
 
 # TODO: write the JSON documents these examples encode and send as literals, once the new checker takes a literal of mixed
 # values where a JSON value is wanted: a recursive alias (`string | number | boolean | {Value} | {string: Value}`) is

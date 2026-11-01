@@ -1,5 +1,6 @@
 --- The module store, as the core provides it. `require` reads a database
 --- and nothing else; these are the ways in that `require` does not cover.
+--- @kind binding
 
 local type sqlite = require("cosmic.internal.sqlite")
 

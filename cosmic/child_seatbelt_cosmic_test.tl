@@ -13,6 +13,7 @@ local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
+local SeatbeltFixture = require("build.seatbelt_fixture")
 
 --- The temporary directory, this program (which the child runs) and the
 --- system's own paths, which its core and loader are read and run from.
@@ -21,13 +22,6 @@ Test.policy{
   grants = { { path = "o/bin", letters = "rx" } },
   env = { "HOME", "TMPDIR" },
 }
-
---- Ends the test where Seatbelt does not hold a child.
-local function macos_only()
-  if assert(sys.uname()).sysname ~= "Darwin" then
-    Test.skip("Seatbelt holds a child on macOS alone")
-  end
-end
 
 --- What Seatbelt denied lately, as the system's log names it, which says
 --- what a profile lacks. Empty where the log cannot be read.
@@ -66,13 +60,13 @@ end
 local FS <const> = 'local Fs = require("cosmic.fs") '
 
 local function test_this_program_runs_a_chunk_under_a_policy()
-  macos_only()
+  SeatbeltFixture.macos_only()
   local result = ran('print(6 * 7)', { profiles = { "cosmic", "system" } })
   expect(result.ok and result.stdout == "42\n", result)
 end
 
 local function test_it_reads_a_granted_file_and_no_other(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local granted, other = tmp .. "/granted", tmp .. "/other"
   assert(Fs.write(granted, "granted-bytes"))
   assert(Fs.write(other, "other-bytes"))
@@ -84,7 +78,7 @@ local function test_it_reads_a_granted_file_and_no_other(tmp: string)
 end
 
 local function test_nothing_outside_its_grants_is_readable()
-  macos_only()
+  SeatbeltFixture.macos_only()
   local home = assert(sys.getenv("HOME"), "HOME is not set")
   local result = ran(FS .. 'local home, hosts = ... ' ..
       'print(Fs.list(assert(home)) == nil, Fs.read(assert(hosts)) == nil)',
@@ -93,7 +87,7 @@ local function test_nothing_outside_its_grants_is_readable()
 end
 
 local function test_tmp_is_a_directory_it_may_write()
-  macos_only()
+  SeatbeltFixture.macos_only()
   local result = ran(FS .. 'local dir = assert(require("cosmic.sys").getenv("TMPDIR")) local path = dir .. "/made" ' ..
       'print(dir, (Fs.write(path, "x")), (Fs.read(path)))', { profiles = { "cosmic", "system" }, tmp = true })
   expect(result.ok, result)
@@ -106,7 +100,7 @@ end
 --- `tmp` is the one directory the child may write: not the one it is made in,
 --- and not a file the policy grants to read.
 local function test_tmp_leaves_its_parent_and_a_read_granted_file_unwritable(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local granted = tmp .. "/granted"
   assert(Fs.write(granted, "granted-bytes"))
   local result = ran(FS .. 'local sys = require("cosmic.sys") local granted = assert((...)) ' ..
@@ -123,7 +117,7 @@ end
 --- relaunch. A worker that runs on a sealed database has no artifact to
 --- hand on, which its relaunch says, so the test skips there.
 local function test_a_portable_artifacts_relaunch_runs_under_a_policy()
-  macos_only()
+  SeatbeltFixture.macos_only()
   local launched = assert(Proc.relaunch())
   if launched.argv[2] ~= "--artifact" then
     Test.skip("this worker's program is not a portable artifact (it relaunches as " ..

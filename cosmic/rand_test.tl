@@ -257,3 +257,222 @@ local function test_gamma_has_the_shape_of_a_gamma()
   local skew = third / var ^ 1.5
   assert(math.abs(skew - 2.0 / math.sqrt(k)) < 0.1, "skewness " .. tostring(skew))
 end
+
+--- A draw function that reads `source`'s generator one word at a time,
+--- so a twin source built from the same seed lines up with it.
+local function words_of(source: Rand.Source): function(): integer
+  return function(): integer
+    return (string.unpack("<i8", source:bytes(8)))
+  end
+end
+
+local function test_exported_normal_equals_the_method_draw_for_draw()
+  local method = Rand.new(31)
+  local draw = words_of(Rand.new(31))
+  for _ = 1, 200 do
+    assert(Rand.normal(draw) == method:normal())
+  end
+  for _ = 1, 50 do
+    assert(Rand.normal(draw, -5.5, 2.25) == method:normal(-5.5, 2.25))
+  end
+  -- A zero stddev still consumes the same words as the method does.
+  assert(Rand.normal(draw, 3, 0) == 3.0 and method:normal(3, 0) == 3.0)
+  assert(Rand.normal(draw) == method:normal())
+end
+
+local function test_exported_gamma_equals_the_method_draw_for_draw()
+  local method = Rand.new(32)
+  local draw = words_of(Rand.new(32))
+  for _, shape in ipairs({ 0.3, 1.0, 4.5, 30.0 }) do
+    for _ = 1, 100 do
+      assert(Rand.gamma(draw, shape) == method:gamma(shape), shape)
+      assert(Rand.gamma(draw, shape, 2.5) == method:gamma(shape, 2.5), shape)
+    end
+  end
+end
+
+local function test_exported_samplers_validate_like_the_methods()
+  local function draw(): integer return 1 end
+  Test.raises(function() Rand.normal(draw, 0, -1) end, "stddev not negative")
+  Test.raises(function() Rand.normal(draw, math.huge) end, "finite")
+  Test.raises(function() Rand.normal(draw, 0, 0 / 0) end, "finite")
+  Test.raises(function() Rand.gamma(draw, 0) end, "finite and positive")
+  Test.raises(function() Rand.gamma(draw, 1, -2) end, "finite and positive")
+  Test.raises(function() Rand.gamma(draw, math.huge) end, "finite and positive")
+  Test.raises(function() Rand.gamma(draw, 1, 0 / 0) end, "finite and positive")
+  -- A refusal draws nothing.
+  local drawn = 0
+  local function counting(): integer
+    drawn = drawn + 1
+    return 0
+  end
+  Test.raises(function() Rand.gamma(counting, -1) end, "finite and positive")
+  Test.raises(function() Rand.normal(counting, 0, -1) end, "stddev not negative")
+  assert(drawn == 0)
+end
+
+local seeds <const> = { 0, 1, -1, 42, 2026, 1 << 40 }
+
+--- A float of the same bits as `x`, compared exactly: `==` would call a
+--- NaN different from itself and 0.0 equal to -0.0.
+local function same(a: number, b: number): boolean
+  return string.pack("<d", a) == string.pack("<d", b)
+end
+
+--- Whether `bulk` is `values` bit for bit.
+local function same_all(bulk: {number}, values: {number}): boolean
+  if #bulk ~= #values then return false end
+  for i, want in ipairs(values) do
+    local got = bulk[i]
+    if got == nil or not same(got, want) then return false end
+  end
+  return true
+end
+
+--- Draws `count` values with `single` from `twin`, to set against a bulk.
+local function singles(count: integer, single: function(): number): {number}
+  local values: mut {number} = {}
+  for i = 1, count do values[i] = single() end
+  return values
+end
+
+--- Whether `a` and `b` are in one state: their next words and floats agree.
+local function in_step(a: Rand.Source, b: Rand.Source): boolean
+  return a:bytes(24) == b:bytes(24) and same(a:float(), b:float())
+end
+
+local function test_floats_equal_the_same_number_of_single_draws()
+  for _, seed in ipairs(seeds) do
+    local bulk, twin = Rand.new(seed), Rand.new(seed)
+    local values = bulk:floats(300)
+    assert(same_all(values, singles(300, function(): number return twin:float() end)), seed)
+    assert(in_step(bulk, twin), seed)
+  end
+end
+
+local function test_normals_equal_the_same_number_of_single_draws()
+  for _, seed in ipairs(seeds) do
+    local bulk, twin = Rand.new(seed), Rand.new(seed)
+    assert(same_all(bulk:normals(300), singles(300, function(): number return twin:normal() end)), seed)
+    assert(in_step(bulk, twin), seed)
+    assert(same_all(bulk:normals(120, -7.5, 3.25),
+      singles(120, function(): number return twin:normal(-7.5, 3.25) end)), seed)
+    assert(in_step(bulk, twin), seed)
+    -- A stddev of 0 still consumes the words a draw does.
+    assert(same_all(bulk:normals(10, 4, 0), singles(10, function(): number
+      return twin:normal(4, 0)
+    end)), seed)
+    assert(in_step(bulk, twin), seed)
+  end
+end
+
+local function test_gammas_equal_the_same_number_of_single_draws()
+  -- 0.5 is the shape whose boost exponent is 2, which Lua squares rather
+  -- than passing to pow.
+  for _, shape in ipairs({ 0.05, 0.5, 0.9, 1.0, 1.5, 4.5, 30.0, 1000.0 }) do
+    for _, seed in ipairs(seeds) do
+      local bulk, twin = Rand.new(seed), Rand.new(seed)
+      assert(same_all(bulk:gammas(150, shape), singles(150, function(): number
+        return twin:gamma(shape)
+      end)),
+        tostring(shape) .. " seed " .. tostring(seed))
+      assert(in_step(bulk, twin), shape)
+      assert(same_all(bulk:gammas(40, shape, 2.5),
+        singles(40, function(): number return twin:gamma(shape, 2.5) end)), shape)
+      assert(in_step(bulk, twin), shape)
+    end
+  end
+end
+
+local function test_bulk_and_single_draws_interleave()
+  local mixed, twin = Rand.new(77), Rand.new(77)
+  local got: mut {number} = {}
+  local want: mut {number} = {}
+  local function take(values: {number})
+    for _, v in ipairs(values) do got[#got + 1] = v end
+  end
+  local function expect(single: function(): number, count: integer)
+    for _ = 1, count do
+      local value = single()
+      want[#want + 1] = value
+    end
+  end
+  take({ mixed:float() })
+  expect(function(): number return twin:float() end, 1)
+  take(mixed:normals(7))
+  expect(function(): number return twin:normal() end, 7)
+  take({ mixed:gamma(0.7, 2) })
+  expect(function(): number return twin:gamma(0.7, 2) end, 1)
+  take(mixed:gammas(5, 3.5))
+  expect(function(): number return twin:gamma(3.5) end, 5)
+  take(mixed:floats(4))
+  expect(function(): number return twin:float() end, 4)
+  assert(mixed:int(1, 1000) == twin:int(1, 1000))
+  take(mixed:normals(3, 10, 2))
+  expect(function(): number return twin:normal(10, 2) end, 3)
+  take({ mixed:normal() })
+  expect(function(): number return twin:normal() end, 1)
+  assert(same_all(got, want))
+  assert(in_step(mixed, twin))
+end
+
+local function test_a_bulk_of_none_returns_an_empty_table_and_draws_nothing()
+  local bulk, twin = Rand.new(5), Rand.new(5)
+  assert(#bulk:floats(0) == 0 and #bulk:normals(0) == 0 and #bulk:gammas(0, 2) == 0)
+  assert(in_step(bulk, twin))
+end
+
+local function test_a_bulk_draws_up_to_its_bound_and_refuses_past_it()
+  local source = Rand.new(9)
+  assert(#source:floats(1 << 20) == 1 << 20)
+  local twin = Rand.new(10)
+  local other = Rand.new(10)
+  Test.raises(function() twin:floats(-1) end, "count is negative or past 1048576")
+  Test.raises(function() twin:floats((1 << 20) + 1) end, "count is negative or past 1048576")
+  Test.raises(function() twin:normals(-1) end, "count is negative or past 1048576")
+  Test.raises(function() twin:normals(math.maxinteger) end, "count is negative or past 1048576")
+  Test.raises(function() twin:gammas(math.mininteger, 1) end, "count is negative or past 1048576")
+  Test.raises(function() twin:gammas((1 << 20) + 1, 1) end, "count is negative or past 1048576")
+  assert(in_step(twin, other))
+end
+
+local function test_bulk_draws_validate_like_the_single_ones_and_draw_nothing()
+  local bulk, twin = Rand.new(11), Rand.new(11)
+  Test.raises(function() bulk:normals(5, 0, -1) end, "stddev not negative")
+  Test.raises(function() bulk:normals(5, math.huge) end, "finite")
+  Test.raises(function() bulk:normals(5, 0, 0 / 0) end, "finite")
+  Test.raises(function() bulk:gammas(5, 0) end, "finite and positive")
+  Test.raises(function() bulk:gammas(5, 1, -2) end, "finite and positive")
+  Test.raises(function() bulk:gammas(5, math.huge) end, "finite and positive")
+  Test.raises(function() bulk:gammas(5, 1, 0 / 0) end, "finite and positive")
+  assert(in_step(bulk, twin))
+end
+
+local function test_a_bulk_error_names_the_caller()
+  local ok, message = pcall(function() Rand.new(1):floats(-1) end)
+  assert(not ok)
+  assert(tostring(message):find("cosmic.rand_test:", 1, true) == 1, tostring(message))
+end
+
+--- Long runs, so that a last-bit difference in a rare fraction of draws
+--- shows: the boost u^2 of shape 0.5 differs between a product and pow for
+--- about 0.1% of u, which a few hundred draws would miss.
+local function test_long_bulks_equal_single_draws_bit_for_bit()
+  local bulk, twin = Rand.new(2027), Rand.new(2027)
+  assert(same_all(bulk:gammas(100000, 0.5), singles(100000, function(): number
+    return twin:gamma(0.5)
+  end)))
+  assert(in_step(bulk, twin))
+  assert(same_all(bulk:normals(60000, 1.5, 0.25), singles(60000, function(): number
+    return twin:normal(1.5, 0.25)
+  end)))
+  assert(in_step(bulk, twin))
+  assert(same_all(bulk:floats(60000), singles(60000, function(): number return twin:float() end)))
+  assert(in_step(bulk, twin))
+  for _, shape in ipairs({ 0.3, 1.0, 2.5, 40.0 }) do
+    assert(same_all(bulk:gammas(30000, shape, 0.75), singles(30000, function(): number
+      return twin:gamma(shape, 0.75)
+    end)), shape)
+    assert(in_step(bulk, twin), shape)
+  end
+end

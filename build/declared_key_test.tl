@@ -182,14 +182,14 @@ local function test_a_chunk_module_is_keyed_with_what_dash_e_loads(tmp: string)
       assert(Fs.mkdirs(tmp .. "/" .. assert(file:match("^(.*)/"), file .. " is in a directory")))
       assert(Fs.write(tmp .. "/" .. file, "return {} -- " .. name .. "\n"))
       by_path[name] = { path = name, file = file, kind = "lib", source = "", source_hash = "",
-        requires = {}, tests = {} }
+        requires = {}, tests = {}, inputs = nil }
     end
   end
   local needed: mut {string} = {}
   for _, name in ipairs(test_inputs.standalone_loads) do
     if name ~= "build.standalone" then needed[#needed + 1] = name end
   end
-  by_path["build.standalone"].requires = needed
+  assert(by_path["build.standalone"]).requires = needed
   local function key_declaring(standalone: boolean): string
     local declared: PolicyRules.Declared = { line = 1, reads = {}, host = {}, env = {},
       network = {}, tool = false, lua = true, nests = false, noexec = false,
@@ -200,7 +200,7 @@ local function test_a_chunk_module_is_keyed_with_what_dash_e_loads(tmp: string)
       tests = { "test_t" }, inputs = declared }
     by_path[m.path] = m
     by_path["suite.lib"] = { path = "suite.lib", file = "suite/lib.tl", kind = "lib",
-      source = "", source_hash = "", requires = {}, tests = {} }
+      source = "", source_hash = "", requires = {}, tests = {}, inputs = nil }
     local s = spec()
     s.effective = test_inputs.effective(m, by_path, {})
     s.declaration = test_inputs.canonical(declared)
@@ -226,16 +226,16 @@ local function test_a_type_only_module_is_no_part_of_the_key(tmp: string)
   end
   local function key_with(type_only: {string:{string:boolean}}): string
     local lib: positions.Module = { path = "suite.lib", file = "suite/lib.tl", kind = "module",
-      source = "", source_hash = "", requires = { "suite.typed", "suite.valued" }, tests = {} }
+      source = "", source_hash = "", requires = { "suite.typed", "suite.valued" }, tests = {}, inputs = nil }
     local by_path: mut {string:positions.Module} = { ["suite.lib"] = lib }
     for _, name in ipairs({ "typed", "valued", "named" }) do
       local path = "suite." .. name
       by_path[path] = { path = path, file = "suite/" .. name .. ".tl", kind = "module",
-        source = "", source_hash = "", requires = {}, tests = {} }
+        source = "", source_hash = "", requires = {}, tests = {}, inputs = nil }
     end
     local m: positions.Module = { path = "suite.t_test", file = "suite/t_test.tl",
       kind = "test", source = "", source_hash = "", requires = { "suite.lib", "suite.named" },
-      tests = { "test_t" } }
+      tests = { "test_t" }, inputs = nil }
     by_path[m.path] = m
     local s = spec()
     s.effective = test_inputs.effective(m, by_path, {}, type_only)
@@ -433,6 +433,7 @@ local function full_spec(hostdir: string): declared_key.Spec
     requires = { proc = "mounted", ["program:jq"] = "sha256:jq" },
     environment = { DECLARED = "d", TMPDIR = "/tmp" },
     runs_tool = true, closure_store = "address", tree = "/checkout",
+    checks = "checks format\0harness digest", projection_file = "cosmic.checked.db",
   }
 end
 
@@ -445,6 +446,10 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
   local root, hostdir = tmp .. "/tree", tmp .. "/hostdir"
   tree(root)
   local function key(s: declared_key.Spec): string return key_of(root, s) end
+  -- The projection a checked worker is given, and one a changed `projection_file` names.
+  assert(build_dir(root))
+  assert(Fs.write(build_dir(root) .. "/cosmic.checked.db", "checked one"))
+  assert(Fs.write(build_dir(root) .. "/cosmic.checked.dbx", "checked another"))
   local function append(field: string): Change<declared_key.Spec>
     return { change = function(s: declared_key.Spec)
       local t = s as {string:any}
@@ -477,6 +482,11 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
     runs_tool = { from = function(s: declared_key.Spec) s.effective.tool = false end,
       change = function(s: declared_key.Spec) s.runs_tool = false end },
     environment = { change = function(s: declared_key.Spec) s.environment.DECLARED = "e" end },
+    -- Keyed only for a checked run, which sets it; an ordinary run's key holds no such part.
+    checks = append("checks"),
+    -- Keyed only where the module declares `store`, as the file under o/cosmic.db that its worker is given
+    -- (held by test_a_store_modules_checked_key_holds_the_checked_projection).
+    projection_file = append("projection_file"),
     -- Each of its own fields is held below.
     effective = { change = function(s: declared_key.Spec)
       s.effective.files["suite/data/a.txt"] = true
@@ -1278,6 +1288,55 @@ local function test_the_store_given_is_keyed_as_it_is_given(tmp: string)
   assert(Fs.write(build_dir(tmp) .. "/cosmic.db", "two"))
   assert(key_of(tmp, closed) == closed_before, "the projection moved a closure store's key")
   assert(key_of(tmp, whole) ~= whole_before, "the projection left a declared store's key")
+end
+
+--- The spec of `suite/t_test.tl`'s `test_t`, as `spec` makes it, of a module that declares `store`, with the
+--- `checks` and `projection_file` of a checked run where they are given.
+local function stored(checks: string?, projection_file: string?): declared_key.Spec
+  local effective: test_inputs.Effective = {
+    files = { ["suite/t_test.tl"] = true, ["suite/lib.tl"] = true },
+    reads = { "suite/data/" }, host = {}, env = { DECLARED = true }, network = {},
+    tool = false, store = true, caches = {}, cache_paths = {},
+  }
+  return {
+    id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
+    runtime = "runtime sandboxed", compiler = "compiler", host = "host",
+    epoch = "1-00000000", timeout_ns = Clock.seconds(30),
+    declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
+    environment = { DECLARED = "d", TMPDIR = "/tmp" },
+    checks = checks, projection_file = projection_file,
+  }
+end
+
+--- A checked run's key holds the file its worker is given at o/cosmic.db, where its module declares `store`:
+--- a checked worker is given `cosmic.checked.db`, so a key that digested `cosmic.db` would describe bytes it
+--- never reads.
+local function test_a_store_modules_checked_key_holds_the_checked_projection(tmp: string)
+  tree(tmp)
+  assert(build_dir(tmp))
+  assert(Fs.write(build_dir(tmp) .. "/cosmic.db", "ordinary one"))
+  assert(Fs.write(build_dir(tmp) .. "/cosmic.checked.db", "checked one"))
+  local ordinary = stored(nil, nil)
+  local checked = stored("format", "cosmic.checked.db")
+  local ordinary_before, checked_before = key_of(tmp, ordinary), key_of(tmp, checked)
+  assert(ordinary_before ~= checked_before, "a checked key was an ordinary one")
+  assert(Fs.write(build_dir(tmp) .. "/cosmic.db", "ordinary two"))
+  assert(key_of(tmp, checked) == checked_before, "the ordinary projection moved a checked key")
+  assert(key_of(tmp, ordinary) ~= ordinary_before, "the ordinary projection left an ordinary key")
+  assert(Fs.write(build_dir(tmp) .. "/cosmic.checked.db", "checked two"))
+  assert(key_of(tmp, checked) ~= checked_before, "the checked projection left a checked key")
+end
+
+--- The fields a checked run adds leave an ordinary run's key as it was, and a spec that names the tree's own
+--- projection, `cosmic.db`, makes the same key: a moved ordinary key would run every ordinary suite again.
+local function test_an_ordinary_key_is_unchanged_by_the_checked_fields(tmp: string)
+  tree(tmp)
+  assert(build_dir(tmp))
+  assert(Fs.write(build_dir(tmp) .. "/cosmic.db", "projection"))
+  local plain = key_of(tmp, stored(nil, nil))
+  assert(plain == key_of(tmp, stored(nil, "cosmic.db")), "naming the tree's own projection moved the key")
+  assert(plain ~= key_of(tmp, stored("format", nil)), "the checks part moved nothing")
+  assert(plain == "f1b31545745bb36dd6a9717cecd4d09d3b43e1fd8870e7609f7a321698a73e1a", "the ordinary key moved: " .. plain)
 end
 
 --- `key_part` hex-encodes both the path and the answer; these literals

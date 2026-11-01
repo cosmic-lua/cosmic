@@ -3,12 +3,14 @@
 --- `require`, and a file the list carries that nothing reaches is compiled by every boot for nothing.
 
 --- It sees what the parser records: a literal `require("x")` anywhere in a file. A `require(name)` of a computed name, or one
---- under `pcall`, is not seen, and a module given as both `x.d.tl` and `x.tl` is taken as the `.tl` where `Seed.program`
---- reads the declaration first; none is in the closure today.
+--- under `pcall`, is not seen, and a module given as both `x.d.tl` and `x.tl` is refused where [`Seed.program`] reads it, as a build
+--- refuses one; none is in the closure.
 
+local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
+local Seed = require("build.seed")
 local Test = require("cosmic.test")
 
 Test.policy{ grants = {
@@ -107,12 +109,70 @@ local function test_no_two_files_of_the_seed_share_a_basename()
   end
 end
 
---- The seed holds no part of the fork's checker, which the tree no longer has.
-local function test_the_seed_holds_nothing_of_the_fork()
-  for _, file in ipairs(listed()) do
-    assert(file:find("^checker/") == nil, file .. " is the fork's")
-    for _, module in ipairs(requires_of(file)) do
-      assert(module:find("^build%.teal") == nil and module:find("^checker%.") == nil, file .. " requires the fork's " .. module)
-    end
+--- A tree of its own with the declarations of the standard library and a module given as both `.d.tl` and `.tl`, a module
+--- given as a declaration alone and one as a source alone.
+local function seeded(tmp: string): Seed.Program
+  assert(Fs.mkdirs(tmp .. "/lang"))
+  for _, file in ipairs({ "lang/prelude.d.tl", "lang/stdlib.d.tl" }) do
+    assert(Fs.write(tmp .. "/" .. file, (assert(Fs.read(file)))))
   end
+  assert(Fs.write(tmp .. "/both.d.tl", "local record R\nend\nreturn R\n"))
+  assert(Fs.write(tmp .. "/both.tl", "local record R\nend\nreturn {} as R\n"))
+  assert(Fs.write(tmp .. "/alone.d.tl", "--- @kind binding\nlocal record R\nend\nreturn R\n"))
+  -- A declaration, a source and a package's entry: the complaint names the first source, as a build does.
+  assert(Fs.mkdirs(tmp .. "/three"))
+  assert(Fs.write(tmp .. "/three.d.tl", "local record R\nend\nreturn R\n"))
+  assert(Fs.write(tmp .. "/three.tl", "local record R\nend\nreturn {} as R\n"))
+  assert(Fs.write(tmp .. "/three/init.tl", "local record R\nend\nreturn {} as R\n"))
+  assert(Fs.mkdirs(tmp .. "/twin"))
+  assert(Fs.write(tmp .. "/twin.d.tl", "--- @kind binding\nlocal record R\nend\nreturn R\n"))
+  assert(Fs.write(tmp .. "/twin/init.d.tl", "--- @kind binding\nlocal record R\nend\nreturn R\n"))
+  assert(Fs.write(tmp .. "/code.tl", "local n: integer = 1\nreturn n\n"))
+  return Seed.program(tmp, {})
+end
+
+--- The seed refuses a module with a declaration and a source, with the words a build uses, where it would have taken the
+--- declaration and gone on; a declaration alone has no Lua and a source alone has.
+local function test_the_seed_refuses_a_declaration_beside_a_source(tmp: string)
+  local program = seeded(tmp)
+  local module, why = program.module("both")
+  assert(module == nil and why == "both.d.tl: both.tl is already the module both. A .d.tl is only for a module " ..
+      "implemented in C, and the .tl is what is checked, so one module cannot have both. If the .tl is the module, " ..
+      "delete both.d.tl. To keep both, rename one of them so that they are different modules.", tostring(why))
+  local three, three_why = program.module("three")
+  assert(three == nil and three_why:find("three.d.tl: three.tl is already the module three.", 1, true) == 1, tostring(three_why))
+  local twin, twin_why = program.module("twin")
+  assert(twin == nil and twin_why == Driver.doubling("twin.d.tl", "twin/init.d.tl", "twin"), tostring(twin_why))
+  local declared, declared_why = program.module("alone")
+  assert(declared == nil and declared_why == "", tostring(declared_why))
+  local code, code_why = program.module("code")
+  assert(code ~= nil and code_why == "" and code.file == "code.tl")
+end
+
+--- The seed holds the two files of the globals to the line that says they are the language's, and a declaration it is asked
+--- for to one that names a kind, as a build does.
+local function test_the_seed_refuses_declarations_that_name_no_kind(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/lang"))
+  local stdlib = assert(Fs.read("lang/stdlib.d.tl"))
+  local bare_stdlib = stdlib:gsub("^%-%-%- @kind language\n", "")
+  assert(bare_stdlib ~= stdlib, "the real library names its kind")
+  assert(Fs.write(tmp .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
+  assert(Fs.write(tmp .. "/lang/stdlib.d.tl", bare_stdlib))
+  assert(Fs.write(tmp .. "/code.tl", "local n: integer = 1\nreturn n\n"))
+  local module, why = Seed.program(tmp, {}).module("code")
+  assert(module == nil and why == "lang/stdlib.d.tl: the language's own declarations must say so: add the line " ..
+      "`--- @kind language` to its leading comment", tostring(why))
+  -- The globals whole, a declaration the seed is asked for that names nothing is refused.
+  assert(Fs.write(tmp .. "/lang/stdlib.d.tl", stdlib))
+  assert(Fs.write(tmp .. "/bare.d.tl", "local record R\nend\nreturn R\n"))
+  assert(Fs.write(tmp .. "/named.d.tl", "--- @kind binding\nlocal record R\nend\nreturn R\n"))
+  local program = Seed.program(tmp, {})
+  local refused, refused_why = program.module("bare")
+  assert(refused == nil and refused_why == "bare.d.tl: a .d.tl must name what it is, and this one names nothing. If it " ..
+      "declares a module implemented in C, add the line `--- @kind binding` to its leading comment; otherwise write it as " ..
+      "a .tl (types and code in a .tl are checked and real at run time).", tostring(refused_why))
+  local named, named_why = program.module("named")
+  assert(named == nil and named_why == "", tostring(named_why))
+  local code, code_why = program.module("code")
+  assert(code ~= nil and code_why == "")
 end

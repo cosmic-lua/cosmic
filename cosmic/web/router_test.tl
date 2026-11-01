@@ -182,21 +182,30 @@ local function test_a_mount_of_a_handler_takes_every_method_and_path_below()
 end
 
 local function test_a_pattern_that_is_not_valid_raises_naming_it()
-  -- TODO: give these positional rows a record, as the case lists of cosmic/hash_test.tl have, once #3348 (Shape) merges:
-  -- it moves cosmic/web, which this change leaves alone.
-  local cases: {{string}} = {
-    { "items", "must start with '/'" }, { "/a//b", "empty segment" }, { "/a/id-:id", "mixes text" },
-    { "/a/:id-x", "not a parameter name" }, { "/*rest/more", "last segment" }, { "/a/:x/:x", "named twice" },
-    { "/a/:1x", "not a parameter name" }, { "/a/:", "not a parameter name" }, { "/a/./b", "canonical" },
-    { "/a/../b", "canonical" }, { "/a/\1", "control byte" }, { "", "must start with '/'" },
-    { "/_web/x", "reserved" }, { "/_web", "reserved" },
+  local record BadPattern
+    pattern: string
+    says: string
+  end
+  local cases: {BadPattern} = {
+    { pattern = "items", says = "must start with '/'" },
+    { pattern = "/a//b", says = "empty segment" },
+    { pattern = "/a/id-:id", says = "mixes text" },
+    { pattern = "/a/:id-x", says = "not a parameter name" },
+    { pattern = "/*rest/more", says = "last segment" },
+    { pattern = "/a/:x/:x", says = "named twice" },
+    { pattern = "/a/:1x", says = "not a parameter name" },
+    { pattern = "/a/:", says = "not a parameter name" },
+    { pattern = "/a/./b", says = "canonical" },
+    { pattern = "/a/../b", says = "canonical" },
+    { pattern = "/a/\1", says = "control byte" },
+    { pattern = "", says = "must start with '/'" },
+    { pattern = "/_web/x", says = "reserved" },
+    { pattern = "/_web", says = "reserved" },
   }
   for _, case in ipairs(cases) do
-    local case_1 = assert(case[1], "expected case[1]")
-    local message = Test.raises(function() Web.router({ Web.get(case_1, ok) }) end)
-    local case_2 = assert(case[2], "expected case[2]")
-    assert(message:find(case_2, 1, true), case_1 .. ": " .. message)
-    assert(message:find(("%q"):format(case[1]), 1, true), "names the pattern: " .. message)
+    local message = Test.raises(function() Web.router({ Web.get(case.pattern, ok) }) end)
+    assert(message:find(case.says, 1, true), case.pattern .. ": " .. message)
+    assert(message:find(("%q"):format(case.pattern), 1, true), "names the pattern: " .. message)
   end
 end
 

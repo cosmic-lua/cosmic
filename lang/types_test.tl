@@ -27,19 +27,7 @@ local function named(w: World, name: string, args?: {Types.Type}): Types.Type
   return w.store:named(declared(w, name), args)
 end
 
---- `list` back to front.
-local function reversed_copy(list: {Types.Type}): {Types.Type}
-  local out: mut {Types.Type} = {}
-  for i = #list, 1, -1 do
-    local item = assert(list[i], "`i` is within the list")
-    out[#out + 1] = item
-  end
-  return out
-end
-
-local function shown(t: Types.Type): string
-  return Types.display(t)
-end
+local shown = Types.display
 
 local function a_union(t: Types.Type): Types.Union
   if (t.tag == "union") then
@@ -126,7 +114,7 @@ local function test_a_union_displays_in_the_order_that_reads_best_whatever_the_o
   local s = w.store
   local members = { named(w, "Node"), s.string, s:array(s.integer), s.integer, s:atom("true") }
   same(shown(s:union(members)), "integer | string | true | Node | {integer}")
-  local reversed = reversed_copy(members)
+  local reversed = Programs.reversed(members)
   same(shown(s:union(reversed)), "integer | string | true | Node | {integer}")
 end
 
@@ -416,7 +404,7 @@ local function test_a_union_is_the_same_whatever_the_order_it_is_made_in_and_the
       s:atom("nil"), s:map(s.string, s.number), named(w, "Color") }
   end
   local first = Types.encode(a.store:union(members(a)))
-  local flipped = reversed_copy(members(b))
+  local flipped = Programs.reversed(members(b))
   same(Types.encode(b.store:union(flipped)), first)
 end
 

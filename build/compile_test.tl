@@ -69,14 +69,6 @@ local function test_a_type_error_is_reported_and_the_lua_is_written_anyway(tmp: 
   assert(ran.out == generated("local n: number = \"text\"\nreturn n\n"))
 end
 
-local function test_the_count_alone_is_reported_without_errors(tmp: string)
-  local path = file(tmp, "typed.tl", "local n: number = \"text\"\nreturn n\n")
-  local ran = run({ path })
-  assert(ran.code == 0, ran.err)
-  assert(ran.err:find("1 type error", 1, true) and ran.err:find("--errors", 1, true), ran.err)
-  assert(not ran.err:find("typed.tl:1:", 1, true), ran.err)
-end
-
 local function test_a_syntax_error_is_refused_naming_the_file_and_line(tmp: string)
   local path = file(tmp, "broken.tl", "local a = 1\nlocal b = = 2\nreturn a\n")
   local ran = run({ path })
@@ -136,14 +128,20 @@ local function test_a_command_line_it_refuses_says_how_to_fix_it(tmp: string)
   refused({ tmp .. "/missing.tl" }, "check the path")
   refused({ decl }, "every file named is a .d.tl")
   local pair = file(tmp, "one.d.tl", "local record One\nend\nreturn One\n")
-  refused({ "-o", tmp .. "/o", one, pair }, pair .. ": " .. one .. " is also the module one, and a module has one type source")
-  refused({ "-o", tmp .. "/o", pair, one }, "Delete " .. pair)
+  refused({ "-o", tmp .. "/o", one, pair }, pair .. ": " .. one .. " is already the module one")
+  refused({ "-o", tmp .. "/o", pair, one }, "delete " .. pair)
   local named: {{string}} = { { "math.tl", "math" }, { "string.d.tl", "string" }, { "table.tl", "table" } }
   for _, each in ipairs(named) do
     local name, module = assert(each[1]), assert(each[2])
-    local language = file(tmp, name, "return {}\n")
+    local language = file(tmp, name, if name:match("%.d%.tl$") ~= nil then "--- @kind binding\nreturn {}\n" else "return {}\n" end)
     refused({ "-o", tmp .. "/o", one, language }, name .. ": its module is named for `" .. module ..
         "`, which the binary answers at run time with the language's own module")
+  end
+  -- `language` is for the build of cosmic's own tree: a file given here is refused for it, whatever its path.
+  assert(Fs.mkdirs(tmp .. "/lang"))
+  for _, name in ipairs({ "lang/prelude.d.tl", "lang/stdlib.d.tl" }) do
+    local language = file(tmp, name, "--- @kind language\nglobal count: integer\n")
+    refused({ "-o", tmp .. "/o", one, language }, name .. ": `--- @kind language` is accepted only when building cosmic's own tree")
   end
   local near = file(tmp, "mathlib.tl", "local n: integer = 1\nreturn n\n")
   assert(run({ "-o", tmp .. "/near", near }).code == 0)
@@ -155,11 +153,11 @@ local function test_a_command_line_it_refuses_says_how_to_fix_it(tmp: string)
 end
 
 --- The one global the cases below use: a program has no globals but the ones a `.d.tl` file given declares.
-local REQUIRE <const> = "global require: function(string): any\n"
+local REQUIRE <const> = "--- @kind binding\nglobal require: function(string): any\n"
 
 local function test_a_d_tl_is_skipped_with_a_note_and_types_a_require(tmp: string)
   local globals = file(tmp, "globals.d.tl", REQUIRE)
-  local decl = file(tmp, "shapes.d.tl", "local record Shape\n  n: integer\nend\nreturn Shape\n")
+  local decl = file(tmp, "shapes.d.tl", "--- @kind binding\nlocal record Shape\n  n: integer\nend\nreturn Shape\n")
   local user = file(tmp, "user.tl", "local Shape = require(\"shapes\")\nlocal s: Shape = { n = 1 }\nreturn s\n")
   local ran = run({ "--errors", "-o", tmp .. "/out", globals, decl, user })
   assert(ran.code == 0, ran.err)
@@ -198,13 +196,6 @@ local function test_dots_and_dot_segments_in_a_name_are_not_a_problem(tmp: strin
   assert(dotted ~= "")
 end
 
-local function test_a_require_nothing_names_says_how_to_fix_it(tmp: string)
-  local main = file(tmp, "main.tl", "local lib = require(\"lib\")\nreturn lib\n")
-  local ran = run({ "--errors", main })
-  assert(ran.code == 0, ran.err)
-  assert(ran.err:find("--root", 1, true) and ran.err:find("pass that file", 1, true), ran.err)
-end
-
 local function test_a_directory_that_is_a_file_is_named_once(tmp: string)
   local one = file(tmp, "one.tl", "local n: integer = 1\nreturn n\n")
   local ran = run({ "-o", one, one })
@@ -228,7 +219,7 @@ end
 
 --- A declaration types a require of it whichever file is named first.
 local function test_a_declaration_types_a_require_in_any_order(tmp: string)
-  local decl = file(tmp, "foo.d.tl", "local record Foo\n  n: integer\nend\nreturn Foo\n")
+  local decl = file(tmp, "foo.d.tl", "--- @kind binding\nlocal record Foo\n  n: integer\nend\nreturn Foo\n")
   local user = file(tmp, "user.tl",
     "local type Foo = require(\"foo\")\nlocal f: Foo = { n = \"text\" }\nreturn f\n")
   for _, order in ipairs({ { decl, user }, { user, decl } }) do

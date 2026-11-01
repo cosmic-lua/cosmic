@@ -1,8 +1,10 @@
 local Clock = require("cosmic.clock")
+local Compress = require("cosmic.compress")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Fixture = require("cosmic_ci.fixture")
 
+local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 
 --- Run unsandboxed and sharing nothing (cosmic_ci/orchestration.tl's
@@ -60,7 +62,7 @@ local native_build_timeout_ns <const> = Clock.seconds(120)
 local function test_decoder_inspection_records_are_exact(tmp: string)
   local digest = string.rep("a", 64)
   local prefix = "prefix 100 manifest 20 4096 database 100 10 entries 1\n"
-  local entry = "entry 1 1 10 10 " .. digest .. "\n"
+  local entry = "entry 1 1 1 0 16384 10 " .. digest .. " 10 " .. digest .. "\n"
   local valid = tmp .. "/valid"
   Fixture.write(valid, prefix .. entry)
   local parsed = Fixture.inspection(valid)
@@ -108,11 +110,19 @@ local function test_portable_format_contract(tmp: string)
   local decoded = Fixture.inspection(inspection.out)
   local artifact = Fixture.read(program .. ".a")
   local targets = Fixture.targets(build .. "/targets.tsv")
-  assert(decoded.entry_count == #targets, "format entry count differs")
+  -- The fixture is a release: every core stored compressed beside its stub.
+  assert(decoded.entry_count == 2 * #targets, "format entry count differs")
   for _, target in ipairs(targets) do
     assert(target.kind == "release", "format target is not release")
     local entry = assert(Fixture.entry(decoded, target.id, target.configuration),
       "missing format entry for " .. target.name)
+    local stub = assert(Fixture.entry(decoded, target.id, target.configuration, 2),
+      "missing decoder stub entry for " .. target.name)
+    local built_stub = Fixture.read(build .. "/core/" .. target.name .. "/cosmic-unzstd")
+    assert(entry.codec == 1 and stub.codec == 0 and stub.length == #built_stub and
+        artifact:sub(stub.offset + 1, stub.offset + stub.stored_length) == built_stub and
+        stub.stored_digest == Hash.hex_sha256(built_stub),
+      "format decoder stub range differs: " .. target.name)
     local core = Fixture.read(build .. "/core/" .. target.name .. "/cosmic-core")
     local host_path = program .. ".host-" .. target.name
     local host_inspection = Fixture.run("host-inspection-" .. target.name,
@@ -137,8 +147,10 @@ local function test_portable_format_contract(tmp: string)
         subset_entry.digest == Hash.hex_sha256(core),
       "subset inspection does not describe its core: " .. target.name)
     assert(#core == entry.length, "format core length differs: " .. target.name)
-    local extracted = artifact:sub(entry.offset + 1,
-      entry.offset + entry.length)
+    local stored = artifact:sub(entry.offset + 1, entry.offset + entry.stored_length)
+    assert(Hash.hex_sha256(stored) == entry.stored_digest and #stored < #core,
+      "format stored range differs: " .. target.name)
+    local extracted = assert(Stream.run(assert(Compress.zstd_decoder(1 << 23)), stored, entry.length))
     assert(extracted == core and Hash.hex_sha256(extracted) == entry.digest,
       "format core range differs: " .. target.name)
   end
@@ -146,6 +158,29 @@ local function test_portable_format_contract(tmp: string)
   assert(#prefix == decoded.prefix_length, "format prefix length differs")
   assert(artifact:sub(1, decoded.prefix_length) == prefix,
     "written program prefix differs")
+  -- The release writer is a function of the core: this process compresses the
+  -- native target's core again at the release level, apart from the boot that
+  -- wrote the tool, and gets the frame the tool stores (the bytes the platform
+  -- legs produce independently must agree, which the provenance join checks).
+  -- One core, not the prefix: each level-19 core takes seconds.
+  local tool_inspection = Fixture.run("tool-inspection", { decoder, "--inspect",
+    build .. "/bin/cosmic" }, root, diagnostics)
+  local tool_decoded = Fixture.inspection(tool_inspection.out)
+  local native = assert(Fixture.targets(build .. "/targets.tsv")[1])
+  for _, target in ipairs(Fixture.targets(build .. "/targets.tsv")) do
+    if target.name == publish_target then native = target end
+  end
+  local boot_entry = assert(Fixture.entry(tool_decoded, native.id, native.configuration),
+    "the tool has no entry for " .. native.name)
+  assert(boot_entry.codec == 1, "the tool stores " .. native.name .. " raw")
+  local again = tmp .. "/again.zst"
+  Fixture.run("compress-core", { cosmic, root .. "/test/portable/tool.tl",
+    "compress-core", build .. "/core/" .. native.name .. "/cosmic-core", again }, root,
+    diagnostics, candidate)
+  local tool_bytes = Fixture.read(build .. "/bin/cosmic")
+  assert(Fixture.read(again) == tool_bytes:sub(boot_entry.offset + 1,
+    boot_entry.offset + boot_entry.stored_length),
+    "the release frame of " .. native.name .. " differs from the one the boot wrote")
   local other = Fixture.read(program .. ".b")
   assert(other:sub(1, decoded.prefix_length) == prefix,
     "fixture program prefixes differ")

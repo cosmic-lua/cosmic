@@ -11,6 +11,8 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local artifact = require("build.artifact")
@@ -18,7 +20,7 @@ local embed = require("build.embed")
 local invoke = require("build.invoke")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local build_paths = require("build.paths")
 
 --- The element of `list` at `index`, which the case knows is there.
@@ -326,7 +328,7 @@ end
 
 local function run_program(path: string): Child.Result
   return (assert(Child.run({ path }, {
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
 end
 
 --- `--host` writes this core itself with the program inside: the kernel
@@ -367,7 +369,7 @@ end
   local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "echo", trouble)
   local r = assert(Child.run({ build_dir(tmp) .. "/bin/echo", "--artifact=x", "y" }, {
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   assert(r.stdout == "--artifact=x|y\n", tostring(r.stdout))
 end
@@ -382,9 +384,13 @@ local function test_a_host_program_names_no_identity_it_cannot_prove(tmp: string
   local out = build_dir(tmp) .. "/bin/who"
   local bytes = assert(Fs.read(out))
   local core = assert(artifact.trusted_core())
+  -- A raw entry names the digest twice, as stored and as the core's.
   local at = bytes:find(core.digest, #core.bytes + 1, true)
   assert(at ~= nil, "the manifest names the core's digest")
-  local lied = bytes:sub(1, at - 1) .. string.rep("\0", 32) .. bytes:sub(at + 32)
+  local again = bytes:find(core.digest, at + 32, true)
+  assert(again ~= nil, "and again as the core's own")
+  local lied = bytes:sub(1, at - 1) .. string.rep("\0", 32) .. bytes:sub(at + 32, again - 1) ..
+    string.rep("\0", 32) .. bytes:sub(again + 32)
   assert(Fs.write(out, lied, 0x1ed))
   local r = run_program(out)
   assert(r.ok, tostring(r.stderr))
@@ -503,7 +509,7 @@ end
   assert(names ~= nil and names[1] == "refuse", trouble)
   assert(Fs.write(tmp .. "/some.db", "a file, which is all the policy's check asks"))
   local r = assert(Child.run({ build_dir(tmp) .. "/bin/refuse", tmp .. "/some.db" }, {
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local printed = assert(r.stdout)
   -- Linux refuses a host program; macOS's policy refuses a database it has no
@@ -552,7 +558,7 @@ local function test_a_program_serves_the_static_files_it_carries(tmp: string)
   assert(Fs.mkdirs(elsewhere .. "/static/css"))
   assert(Fs.write(elsewhere .. "/static/css/app.css", "DECOY"))
   local r = assert(Child.run({ build_dir(tmp) .. "/bin/site" }, {
-    cwd = elsewhere, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+    cwd = elsewhere, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local out = assert(r.stdout)
   assert(out:find("payload\tcss/app.css\ttext/css; charset=utf-8\t" .. tostring(#css) .. "\t1\t1\n" ..
@@ -568,7 +574,7 @@ local function test_a_project_in_the_new_grammar_becomes_an_executable_with_the_
   local names, trouble = embed.tree(root, true, nil, "new")
   assert(names ~= nil and #names == 1 and names[1] == "tally", trouble)
   local r = assert(Child.run({ build_dir(root) .. "/bin/tally", "b", "a", "c" }, {
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.code == 3 and r.stdout == "b,a,c\n", tostring(r.code) .. ": " .. tostring(r.stdout) .. tostring(r.stderr))
 end
 
@@ -630,7 +636,7 @@ end
 --- What the program at `path` printed, run with `env`.
 local function run_with(path: string, env: {string:string}): string
   local r = assert(Child.run({ path }, { env = env,
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, tostring(r.stderr))
   return trust_of(assert(r.stdout))
 end
@@ -663,4 +669,18 @@ local function test_build_refuses_roots_it_does_not_know(tmp: string)
     env = { COSMIC_BUILD_CACHE = "0" } })
   assert(built.code == 2 and built.stderr:find("--roots takes minimal or mozilla", 1, true) ~= nil,
     built.stdout .. built.stderr)
+end
+
+--- The running core's bytes for a host program, from a portable start whose
+--- artifact holds only its compressed frame: the cached raw core the start
+--- runs from, checked against the manifest's digest.
+local function test_trusted_core_is_the_cached_raw_core_of_a_compressed_start()
+  local relaunch = Proc.relaunch()
+  if relaunch == nil then
+    Test.skip("a native start has no cached core to read")
+    return
+  end
+  local core = assert(artifact.trusted_core())
+  assert(Hash.sha256(core.bytes) == core.digest, "the bytes are the ones the digest names")
+  assert(core.bytes == assert(Fs.read(assert(relaunch.argv[1]))), "and the core this start runs")
 end

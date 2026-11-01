@@ -9,6 +9,7 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local Test = require("cosmic.test")
 local schema = require("build.schema")
 local this_program = require("build.this_program")
 
@@ -115,10 +116,19 @@ end
 
 --- The core to start bare, or nil where this process has none to relaunch
 --- (a host program, which a bare core is not).
-function database_start_fixture.core_path(): string?
+local function core_path(): string?
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return nil end
   return relaunch.argv[1]
+end
+
+--- The core to start bare, skipping the test where this process has none
+--- to relaunch.
+function database_start_fixture.core_or_skip(): string
+  local core = core_path()
+  if core == nil then Test.skip("this program has no core to start bare: it is a host program") end
+  local found = assert(core, "Test.skip ends the test where there is no core")
+  return found
 end
 
 --- The environment a bare core is started with: this program's own, less

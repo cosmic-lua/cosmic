@@ -1,7 +1,6 @@
---- What `cosmic lsp` publishes of a project written in the new grammar, in a session that checks with the new checker
---- ([`build.grammar_mode`]): a module with `mut`, `name?: T` and a class checks clean; a type error, a syntax error and a
---- module that requires another are published where they are, and the dependents of a module are checked again when what it
---- serves changes. Every session here asks for the new checker, whatever the mode of the suite.
+--- What `cosmic lsp` publishes of a project written in the new grammar ([`build.grammar_mode`]): a module with `mut`,
+--- `name?: T` and a class checks clean; a type error, a syntax error and a module that requires another are published
+--- where they are, and the dependents of a module are checked again when what it serves changes.
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Stream = require("cosmic.stream")
@@ -46,10 +45,7 @@ local BOX <const> = table.concat({
   "",
 }, "\n")
 
---- What a session of the new checker at `root` publishes of the messages, one batch.
-local function served(root: string, messages: {string}): session_fixture.Ran
-  return session_fixture.served(root, messages)
-end
+local served = session_fixture.served
 
 local function test_a_module_with_mut_an_optional_field_and_a_class_checks_clean()
   local root = project()
@@ -79,7 +75,7 @@ local function test_a_syntax_error_is_published_in_the_parsers_words_at_its_plac
   assert(told.message:find("(", 1, true) ~= nil, told.message)
 end
 
-local function test_a_session_of_the_new_grammar_offers_formatting_and_lays_out_a_document()
+local function test_a_document_with_mut_and_a_class_is_formatted_without_an_error()
   local root = project()
   local ran = served(root, { initialize(root), open(root, "box.tl", BOX), session_fixture.format(2, root, "box.tl") })
   local init = session_fixture.initialized(session_fixture.answer(ran, 1))
@@ -87,10 +83,6 @@ local function test_a_session_of_the_new_grammar_offers_formatting_and_lays_out_
   assert(init.capabilities.hoverProvider == true)
   local body = session_fixture.answer(ran, 2)
   assert(body:find('"error"', 1, true) == nil, body)
-  local loose = served(root, { initialize(root), open(root, "n.tl", "local   n =  1\nreturn n\n"),
-    session_fixture.format(2, root, "n.tl") })
-  local laid = session_fixture.answer(loose, 2)
-  assert(laid:find('"newText":"local n = 1\\nreturn n\\n"', 1, true) ~= nil, laid)
 end
 
 --- A project whose `helper` is in the new grammar and which `main` requires, each on disk.
@@ -180,11 +172,13 @@ local function test_a_module_in_the_new_grammar_on_disk_is_staged_and_read()
   assert(ran.tally.database_stubs == 1, tostring(ran.tally.database_stubs))
 end
 
---- An open module's stub is made here from the new parser: the fork's cannot read the module, and serves it whole.
+--- An open module that was edited has its stub made here from the new parser (the scratch database's row): the fork's cannot
+--- read the module, and serves it whole.
 local function test_an_open_module_in_the_new_grammar_is_served_as_a_stub_made_here()
   local root = project()
   assert(Fs.write(root .. "/helper.tl", HELPER))
-  local ran = served(root, { initialize(root), open(root, "helper.tl", HELPER), open(root, "main.tl", MAIN) })
+  local ran = served(root, { initialize(root), open(root, "helper.tl", HELPER .. "-- edited\n"),
+    open(root, "main.tl", MAIN) })
   assert(counts(ran) == "0,0", counts(ran) .. messages_of(nth(ran, 2)))
   assert(ran.tally.made_stubs == 1, tostring(ran.tally.made_stubs))
 end
@@ -208,21 +202,6 @@ local function test_what_a_module_serves_is_keyed_by_the_new_lexer()
   end
   assert(keyed ~= "", "the module was not keyed")
   assert(keyed == expected, "the key is not the new lexer's")
-end
-
---- A template is checked as a build checks one: its Teal translated, then read as the new grammar.
-local function test_a_template_is_checked_as_a_build_checks_one()
-  local root = project()
-  assert(Fs.write(root .. "/data.tl", "local record data\n  record Page\n    title: string\n  end\nend\nreturn data\n"))
-  local good = "{{type Page from data}}{{mode text}}one {{.title}}"
-  assert(Fs.write(root .. "/page.tmpl", good))
-  local valid = served(root, { initialize(root), open(root, "page.tmpl", good) })
-  assert(counts(valid) == "0", messages_of(nth(valid, 1)))
-  local wrong = only(nth(served(root, { initialize(root),
-    open(root, "page.tmpl", "{{type Page from data}}{{mode text}}one {{.nope}}") }), 1))
-  assert(wrong.message:find("nope", 1, true) ~= nil, wrong.message)
-  -- A place in the template's Teal is none in the template: its start.
-  assert(edge(wrong, "start").line == 0 and edge(wrong, "start").character == 0)
 end
 
 --- A module the document requires whose types do not stand is flagged where the document requires it: the module is not

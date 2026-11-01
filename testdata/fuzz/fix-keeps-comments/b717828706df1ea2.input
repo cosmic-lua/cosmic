@@ -1,4 +1,0 @@
-while {f = --[[ c
-]] a} do -- d
-return a
-end

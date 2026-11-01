@@ -20,6 +20,7 @@
 --- refused (the code of the tool is held to its ceilings by the checks of the tree, not by a boot); a syntax error is,
 --- and so is a construct the generator does not write.
 
+local AnalysisSchema = require("build.analysis_schema")
 local CompileGrammar = require("build.compile_grammar")
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
@@ -48,19 +49,13 @@ local record Seed
 end
 
 --- The files of the tree that declare the standard library's globals.
-local PRELUDE <const> = "lang/prelude.d.tl"
-local STDLIB <const> = "lang/stdlib.d.tl"
+local PRELUDE <const> = AnalysisSchema.prelude_file()
+local STDLIB <const> = AnalysisSchema.stdlib_file()
 
 --- The declaration file `file` of the tree at `root`, a source of globals.
 local function declaration(root: string, file: string): Driver.Source
   local text = assert(Fs.read(root .. "/" .. file))
   return Driver.declarations(CompileGrammar.module_of(file), file, text, {})
-end
-
---- The files a `require` of `name` may name, in the order they are tried: a declaration before the source it stands for.
-local function candidates(name: string): {string}
-  local stem = name:gsub("%.", "/")
-  return { stem .. ".d.tl", stem .. "/init.d.tl", stem .. ".tl", stem .. "/init.tl" }
 end
 
 --- One line for an error of the syntax, as the checker's complaints are written.
@@ -76,12 +71,27 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
   -- TODO: give the build the globals adjustment of [`build.tree_program`]'s `globals` (the names the runtime withholds taken
   -- away, `_G` added) once build/withheld.tl, which it reads, is in the seed list (build/seed.txt): the build here declares every name of
   -- the standard library's declarations, so a use of a withheld one is not reported. The Lua is the same either way.
+  local prelude, stdlib = declaration(root, PRELUDE), declaration(root, STDLIB)
+  -- The two files of the globals must say they are the language's, as a tree's build holds them to ([`Driver.naming`]); every
+  -- module the seed is asked for is then refused, as a seed that cannot trust its globals types nothing. The seed reads the
+  -- other declarations of the tree as it is asked for them (below), and does not list the tree: it has no walk of it, and the
+  -- build that follows the seed's stage lists every file and holds each declaration to the same helper.
+  local globals_refused = ""
+  for _, each in ipairs({ prelude, stdlib }) do
+    local complaint = Driver.naming(each.filename, each.text, true)
+    if complaint ~= "" and globals_refused == "" then
+      globals_refused = complaint
+    end
+  end
   local build = Driver.new({
-    globals = { declaration(root, PRELUDE), declaration(root, STDLIB) }, adjust = nil, external = {}, types = false,
+    globals = { prelude, stdlib }, adjust = nil, external = {}, types = false,
   })
   --- The source of each module asked for, and the names the tree has none of, so that a file is read once.
   local sources: mut {string: Driver.Source} = {}
   local absent: mut {string: boolean} = {}
+  --- Why the tree has no one module for a name: a declaration file and a source of it (the complaint of [`Driver.pairing`]),
+  --- or a declaration file that names no kind ([`Driver.naming`]).
+  local paired: mut {string: string} = {}
   build:provide(function(name: string): Driver.Source?
     local held = sources[name]
     if held ~= nil then
@@ -95,22 +105,64 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
       sources[name] = made
       return made
     end
-    for _, file in ipairs(candidates(name)) do
-      local read, _ = Fs.read(root .. "/" .. file)
-      if read ~= nil then
-        local made = Driver.source(name, file, read, if file:match("%.d%.tl$") ~= nil then "decl" else "tl" end)
-        sources[name] = made
-        return made
+    local first: string? = nil
+    local first_text = ""
+    local others: mut {string} = {}
+    -- A module is a declaration or a source, never both: one that has both is refused when it is asked for, as a build
+    -- refuses it ([`build.driver.declared`]); so is a declaration that says nothing of what it is ([`build.driver.naming`]).
+    for _, file in ipairs(Driver.candidates(name)) do
+      if first == nil then
+        local read, _ = Fs.read(root .. "/" .. file)
+        if read ~= nil then
+          first, first_text = file, read
+        end
+      else
+        local there, _ = Fs.exists(root .. "/" .. file)
+        if there == true then
+          others[#others + 1] = file
+        end
       end
     end
-    absent[name] = true
-    return nil
+    if first == nil then
+      absent[name] = true
+      return nil
+    end
+    -- The declaration comes first among the candidates, so a pair is a declaration first and a source after it.
+    local code: string? = nil
+    for _, file in ipairs(others) do
+      if code == nil and file:match("%.d%.tl$") == nil then
+        code = file
+      end
+    end
+    if first:match("%.d%.tl$") ~= nil and code ~= nil then
+      paired[name] = Driver.pairing(first, code, name)
+    end
+    local twin = others[1]
+    if first:match("%.d%.tl$") ~= nil and paired[name] == nil and twin ~= nil and twin:match("%.d%.tl$") ~= nil then
+      paired[name] = Driver.doubling(first, twin, name)
+    end
+    if first:match("%.d%.tl$") ~= nil and paired[name] == nil then
+      local unnamed = Driver.naming(first, first_text, true)
+      if unnamed ~= "" then
+        paired[name] = unnamed
+      end
+    end
+    local made = Driver.source(name, first, first_text, if first:match("%.d%.tl$") ~= nil then "decl" else "tl" end)
+    sources[name] = made
+    return made
   end)
   --- The Lua of `name`, its file; nil and why.
   local function module(name: string): Seed.Module?, string
+    if globals_refused ~= "" then
+      return nil, globals_refused
+    end
     local found = build:parsed(name)
     if found == nil then
       return nil, ""
+    end
+    local refused = paired[name]
+    if refused ~= nil then
+      return nil, refused
     end
     local file = found.source.filename
     -- A declaration file that does not parse is reported too: it has no Lua, but the modules that require it are typed by it.

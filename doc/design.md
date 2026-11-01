@@ -117,10 +117,12 @@ aarch64 macOS core stays at Apple M1, the oldest Apple silicon Mac.
 The host tools the build runs stay at each architecture's baseline, since
 their bytes key the build's caches across runners.
 
-every cosmic binary carries the raw core for all three targets, so any
-host builds any target offline with nothing fetched. the POSIX launcher selects
-one by `uname`, verifies its exact range and digest, retains the artifact
-descriptor, and executes a cached copy. a program `cosmic build` writes has the
+every cosmic binary carries the core for all three targets, so any
+host builds any target offline with nothing fetched. each is stored as one zstd
+frame beside a small decoder stub for its target, about 40% of the raw size. the
+POSIX launcher selects one by `uname`, extracts and verifies it (decoding the
+frame with the stub on a cold start), retains the artifact descriptor, and
+executes a cached copy of the raw core. a program `cosmic build` writes has the
 same portable prefix and its own database suffix. `cosmic build --host` writes
 the running core itself with the program's database appended instead: it
 starts with no launcher, and runs only where that core does.
@@ -398,6 +400,11 @@ input to the build, never to the runtime. one database holds:
   which types it the same in a fraction of the time and loads fewer
   modules; cosmic's own build refuses a stub whose type differs from
   its source's.
+- **places**: the tool's alone, where each standard-library module
+  declares its types and their members, by dotted symbol, as lines and
+  columns of the source `modules` holds (build/syntax_places.tl). `cosmic
+  lsp` answers a go to definition of a `cosmic.*` symbol in a project from
+  it, with the module's text written below the build directory.
 - **docs**: one row per symbol a module declares at its top level --
   the module itself, each function, each record, enum or alias and
   every field and value under it, and each documented value -- with
@@ -499,7 +506,9 @@ input to the build, never to the runtime. one database holds:
   straight out of `modules`.
 
 A module has one type source. A `foo.d.tl` is the declaration of a
-module whose code is C, and it has no `foo.tl`; a `foo.tl` is its own
+module whose code is C, says so with the line `--- @kind binding` in its leading comment, and has no `foo.tl`; a build
+refuses a `.d.tl` that names no kind. ([`lang/prelude.d.tl`] and [`lang/stdlib.d.tl`], the globals, say `--- @kind language`,
+which no other file may.) A `foo.tl` is its own
 declaration, its written record. A build refuses a `foo.d.tl` beside a
 `foo.tl`, naming both files. The declaration remains in `decls`.
 
@@ -533,17 +542,37 @@ information so a runtime error names its line; the bytecode header check is
 the safety net. target-specific bytes live only in manifest ranges, outside
 the database.
 
-the binary is a versioned portable artifact: a POSIX shell launcher, aligned
-raw core ranges, a fixed manifest, one SQLite database, and a fixed trailer.
+the binary is a versioned portable artifact (version 2): a POSIX shell launcher,
+aligned stored ranges (each release core compressed, with the decoder stub of its
+target), a fixed manifest, one SQLite database, and a fixed trailer.
 [The portable runtime implementation guide](guides/portable-runtime.md) follows
 those bytes through startup, project embedding, self-rebuild, and CI.
 the manifest is the sole authority for target/configuration, byte range, and
-sha256. the launcher retains an open descriptor before executing the selected
-core; startup validates the complete manifest and trailer against that same
-descriptor. the runtime's VFS reads only the validated database range from the
+sha256. each 104-byte entry has a kind (a core, or the decoder stub of a
+core), a codec (raw or zstd), the stored range (offset, length, sha256) and
+the core it decodes to (length, sha256). the core's length and digest are its
+identity: the cache entry is named for them, and the stamp, the runtime
+identity, a verdict's key and the launcher's environment hold them. a raw entry's
+two are equal. a reader of version 2 refuses version 1 by name. the launcher
+retains an open descriptor before executing the selected core; startup
+validates the complete manifest and trailer against that same descriptor. the runtime's VFS reads only the validated database range from the
 retained descriptor. it never reopens the logical pathname, so rename, unlink,
 and atomic replacement after adoption cannot mix files. the last partial range
 is hashed over its real length, never zero-padded.
+
+a cold launch of a compressed core cuts the stub out of the descriptor first
+(it is the only reader that relies on the descriptor's offset, which is 0 until
+then), checks its length and digest, and runs it as `stub <descriptor> <offset>
+<stored length> <length>`. the stub reads its range with `pread`, accepts
+exactly one frame that names its content size and a checksum, with a window of
+at most 8 MiB, and writes no more than the length it is given. the launcher
+reads its exit status, removes it, and checks the output's length and digest as
+it does a raw core's. the stub is private, mode 0500, in the validated leaf, and
+a `noexec` cache fails there with a diagnostic that names it. a program
+`cosmic build` writes shares the prefix and so the compressed cores. the
+runtime's own readers never decode: `trusted_prefix` hashes each stored range
+against its stored digest, and `trusted_core` (for `cosmic build --host`) reads
+the running cached core and hashes it again.
 
 the database is read-only, and the runtime never writes it. it is opened with `immutable=1`
 so SQLite skips locks and staleness checks on a file no one else can
@@ -571,11 +600,14 @@ name under the prefix except `COSMIC_PORTABLE_CACHE` before Teal runs, for both
 portable and native startup. `COSMIC_PORTABLE_CACHE` alone is public
 configuration.
 
-ordinary artifacts have exactly three release entries and select configuration
-1. the checked artifact retains those required release entries and adds one
-configuration-2 entry for the real build host; its private launcher selects
-only that entry. target/configuration pairs are unique across the manifest and
-system identities are unique in the selected configuration. the production
+ordinary artifacts have exactly three release cores (and their three stubs) and
+select configuration 1. the checked artifact retains those required release
+entries and adds one raw configuration-2 core for the real build host, 38 to 50
+MB with its debug information, which compression would only slow; its private
+launcher selects only that entry. a host-only boot stores the host's core and a
+placeholder per other target raw. target/configuration/kind triples are unique
+across the manifest and system identities are unique in the selected
+configuration. the production
 decoder's required-release mask is unchanged.
 
 a project's projected module database, `cosmic.db` in its build
@@ -666,9 +698,10 @@ identity holds the modules that decide generated code, stored analysis and
 acceptance, plus the checker's source and the Teal compiler's and Lua's
 pins and Lua's patches ([`build.identity.compiler_identity`]). module keys carry it; importer
 coordination, diagnostic presentation and general standard-library plumbing
-stay outside it. the analyzer identity keys stored parses and includes that
-compiler identity plus the analyzer modules' sources
-([`build.importer.analyzer_identity`]). the writer identity holds the code and
+stay outside it. the analyzer identity keys stored parses: the runtime basis,
+the analyzer modules' sources and the code that reads
+([`build.importer.analyzer_identity`]), not the whole compiler identity, so an
+edit only a compile runs (build.plans) parses nothing again. the writer identity holds the code and
 core image that determine a projection's bytes, including its standard-library
 dependencies. the projection records which compiler and writer produced it so a
 self-rebuild can settle on its own code. the runtime basis holds the same pins, patches
@@ -776,21 +809,8 @@ that does run runs in a worker process of its own:
   module it loads up to [`build.boot`], keyed by the digest of every `.tl`
   and `.h` under the root and of the compiler and the bridge, since no
   import graph exists yet to key them by. a boot of a tree none of whose
-  `.tl` or `.h` has changed, and each worker it starts, compile nothing
-  in the bridge; an edit to any one of them compiles it all again.
-- *parallel*: a build with much to parse or compile, a cold boot or an
-  edit that reaches most of the tree, does it in worker processes: one
-  fewer than the processors, `COSMIC_BUILD_JOBS` naming another count
-  and `1` none (`build/workers.tl`). sources are dealt to them by
-  size. modules are dealt by what they import (build/shards.tl),
-  since the checker's types cannot leave a process and a worker checks
-  every import of what it compiles. the build process alone writes the
-  rows, in the order a build without workers writes them, and compiles
-  itself what no worker did, a refusal included, so its error is the one
-  a build alone gives and the database and the tool come out byte for
-  byte the same (`build/worker.tl`). a boot loads the build's code from
-  source in each worker, which takes seconds, so it starts them only for
-  a few megabytes of new source.
+  `.tl` or `.h` has changed compiles nothing in the bridge; an edit to
+  any one of them compiles it all again.
 - *fast*: compile and check run in one process, one transaction,
   against declarations already in the database. each test runs in a worker
   -- the same core relaunched directly, never through the launcher --
@@ -943,6 +963,16 @@ hand-written one under `core/` (`curl_config.h`, `ares_config.h`,
 `xz_config/config.h`, `mbedtls_cosmic_config.h`, `expat_config.h`), never one generated
 by the library's own configure step.
 
+zstd's decoder is also built apart from the core, as `cosmic-unzstd`, a
+small static program ([`core/unzstd.c`]) for each target, installed in the
+build directory beside that target's core (`core/<target>/cosmic-unzstd`).
+It decodes one zstd frame read from a range of an inherited descriptor
+and takes the frame's decoded length, so it can never write more than the
+length it is told. It is built at the architecture's baseline CPU, and
+the macOS one carries the ad-hoc signature zig's linker writes, which CI
+verifies as it does the core's. Every release artifact carries it, stored raw,
+beside the compressed core it restores.
+
 each tree keeps its upstream license file (`vendor/<name>/COPYING`,
 `LICENSE`, `LICENSE.md`). a few vendored files carry a license of their
 own: c-ares' `src/lib/thirdparty/apple/dnsinfo.h`, Apple's declarations
@@ -1069,8 +1099,7 @@ the spirit is consistent, strong, explicit typing, the same shape the languages 
 inert until narrowed, no casts, the escape hatch in one greppable region, boundaries decoded through declared shapes. a
 runtime-checked cast is closed to Teal because Lua erases record types, so shapes construct their records rather than
 asserting them. there is no planned `cosmic check` verb: compilation performs checking, while `cosmic fix` reads and checks
-the files it is given and rewrites what the tree's structural rules (`build/fix/rule.tl`, still empty) ask for; it has no
-layout for the new grammar yet.
+the files it is given and writes each Teal file in the layout of [`build.fix.format`].
 
 ### the runtime
 
@@ -1309,6 +1338,7 @@ in [roadmap.md](roadmap.md).
 [`build.positions`]: ../build/positions.tl
 [`build.reboot.own_tool`]: ../build/reboot.tl
 [`build.test_worker`]: ../build/test_worker.tl
+[`build.fix.format`]: ../build/fix/format.tl
 [`build.work`]: ../build/work.tl
 [`build.writer`]: ../build/writer.tl
 [`build/bom.tl`]: ../build/bom.tl
@@ -1345,6 +1375,7 @@ in [roadmap.md](roadmap.md).
 [`ci/cosmic_ci/place_tree.tl`]: ../ci/cosmic_ci/place_tree.tl
 [`core/bridge.lua`]: ../core/bridge.lua
 [`core/http.c`]: ../core/http.c
+[`core/unzstd.c`]: ../core/unzstd.c
 [`core/mbedtls_cosmic_config.h`]: ../core/mbedtls_cosmic_config.h
 [`core/process.h`]: ../core/process.h
 [`core/syscalls.c`]: ../core/syscalls.c

@@ -14,7 +14,7 @@ local bind = require("build.bind")
 local record derivation
   record Parses
     mut parsed: integer
-    shared: integer
+    mut shared: integer
   end
   record Source
     source_hash: string
@@ -159,18 +159,21 @@ local function derive_syscalls(db: Sqlite.Handle): boolean, string
 end
 
 --- Two files that would answer to one import path. The build refuses
---- rather than letting one shadow the other.
+--- rather than letting one shadow the other. Two declaration files of
+--- one path (`x.d.tl` and `x/init.d.tl`) are refused as two sources are;
+--- a declaration beside a source is a pair, which the build refuses in
+--- its own words ([`build.driver`]'s `pairing`).
 local function duplicate_import_paths(db: Sqlite.Handle): boolean, string
   local doubled, trouble = Sqlite.text_rows(db,
-    "SELECT path, group_concat(file, ' and ') FROM inputs " ..
-      "WHERE " .. analysis_schema.not_declaration("kind") .. " GROUP BY path HAVING count(*) > 1 ORDER BY path")
+    "SELECT path, group_concat(file, ' and ') FROM (SELECT path, file, kind FROM inputs ORDER BY file) " ..
+      "GROUP BY path, " .. analysis_schema.not_declaration("kind") .. " HAVING count(*) > 1 ORDER BY path")
   if doubled == nil then
     return false, trouble
   end
   local first = doubled[1]
   if first ~= nil then
-    return false, first:text(2) .. " both compile to import path '" ..
-      first:text(1) .. "'; rename one"
+    return false, first:text(2) .. " both answer to import path '" ..
+      first:text(1) .. "'; delete or rename one"
   end
   return true, ""
 end

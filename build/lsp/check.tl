@@ -34,14 +34,19 @@
 --- A session checks every document in one program kept between checks ([`build.lsp.held`]): the document's text is put in it,
 --- and each module served is put in it again where what it is served as changes, so that a check lowers the standard library
 --- once and the stubs the document reaches, and not the project. A document whose text has not changed since its last check,
---- with no module served dropped since, publishes what it published then, and answers the questions asked of its types from the
---- result of that check ([`check.read`]), kept in memory: it depends on the editor's unsaved text, which the working
---- database does not hold.
+--- with none of the modules it reads, its own listing or the hints moved since ([`Basis`]), publishes what it published then,
+--- and answers the questions asked of its types from the result of that check ([`check.read`]), kept in memory for the few
+--- documents asked of last ([`KEPT_AT_MOST`]): it depends on the editor's unsaved text, which the working database does
+--- not hold. A text being typed does not parse: completion reads the last text of the document that did
+--- ([`check.last`]).
 
 local Ast = require("lang.ast")
+local Declarations = require("lang.declarations")
 local Driver = require("build.driver")
+local type Derivation = require("build.syntax_derivation")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
+local Node = require("build.syntax_node")
 local Pipeline = require("build.pipeline")
 local ShapeSpecs = require("build.syntax_shape_specs")
 local Sqlite = require("cosmic.sqlite")
@@ -50,6 +55,7 @@ local TreeProgram = require("build.tree_program")
 local analysis_schema = require("build.analysis_schema")
 local graph = require("build.lsp.graph")
 local held = require("build.lsp.held")
+local hover = require("build.lsp.hover")
 local identity = require("build.identity")
 local importer = require("build.importer")
 local lines = require("build.lsp.lines")
@@ -70,23 +76,49 @@ local record check
     outside: boolean
     --- The SHA-256 of `text`, once asked for.
     mut hash: string?
-    --- What it last published, each diagnostic encoded, and the text and
-    --- the checker's [`Checker`] `epoch` it was of.
+    --- What it last published, each diagnostic encoded, and what that was of ([`Basis`]): it is published again, and not
+    --- checked again, while the basis stands, whether or not the result of the check is still kept.
     mut published: {string}?
-    mut published_text: string
-    mut published_epoch: integer
+    mut published_basis: Basis?
     --- What its text required at its last check, nil before one.
     mut requires: {string}?
-    --- The result of its last check, for the questions asked of its types ([`check.read`]): a function of its text and
-    --- of the program, which the checker's `epoch` stands for. It is the session's and not the working database's, since
-    --- the text is the editor's and not a staged file's.
+    --- What its text requires now, read of the text itself for the modules a check of another document reads
+    --- ([`reads_of`]), and the hash of the text it was read of.
+    mut scanned: {string}?
+    mut scanned_hash: string?
+    --- The result of its last check, for the questions asked of its types ([`check.read`]), while its [`Basis`] stands.
+    --- It is the session's and not the working database's, since the text is the editor's and not a staged file's. Only
+    --- the documents most recently asked of keep one ([`KEPT_AT_MOST`]).
     mut kept: Kept?
+    --- The last check of it whose text parsed, kept as `kept` is: a text being typed often does not parse, and completion
+    --- reads what the text was before ([`check.last`]).
+    mut parsed: Kept?
+    --- Whether it is a probe ([`check.probe`]): a check made of it is counted toward no document's kept result.
+    mut probe?: boolean
+  end
+
+  --- What a check of a document was of: the result stands while every part of it is as it was. It holds no more than the
+  --- names of the modules read and a digest of their keys, so that a document keeps one for what it published whether or
+  --- not its result is kept.
+  record Basis
+    text: string
+    --- The checker's `epoch` ([`Checker`]), which stands for what the modules served do not: the imports of the open
+    --- documents, and the program made again.
+    epoch: integer
+    --- What the stage lists the document as, and whether the tree is cosmic's own ([`listing_of`]).
+    listing: string
+    --- The databases a message's hint looks a name up in ([`hints_key`]).
+    hints: string
+    --- The names of the modules the document reads, sorted: the modules it requires and those they require, in turn
+    --- ([`reads_of`]).
+    reads: {string}
+    --- The SHA-256 of the key ([`source.key`]) of each of `reads`, in order ([`digest_of`]).
+    digest: string
   end
 
   --- What a document's check found, and what it was of.
   record Kept
-    text: string
-    epoch: integer
+    basis: Basis
     checked: Checked
   end
 
@@ -102,9 +134,13 @@ local record check
     generated: boolean
     --- The program's result for the module, with the types of its nodes: nil where nothing was checked.
     outcome: Driver.Outcome?
+    --- The program the outcome is of: a later check in the session begins another ([`Driver.Build.replace`]), and the
+    --- declarations the outcome's types name (a type's statics, its store) are in the one it was made in. Nil with `outcome`.
+    program: Declarations.Program?
   end
 
-  --- What one check of a document read, for the questions asked of the types of its nodes ([`build.lsp.definition`]).
+  --- What one check of a document read, for the questions asked of the types of its nodes ([`build.lsp.definition`],
+  --- [`build.lsp.completion`]).
   record Reading
     --- The program's result for the document's module: its tree, scopes and the type of each node. It is the document's
     --- ([`Document`]'s `kept`), and outlives the check of another document.
@@ -112,6 +148,14 @@ local record check
     --- What a build put in the document's text before the checker read it (the `text` of the outcome), the last first
     --- ([`ShapeSpecs.Splice`]).
     splices: {ShapeSpecs.Splice}
+    --- The program the outcome is of ([`Checked`]'s `program`).
+    program: Declarations.Program
+  end
+
+  --- The reading [`check.last`] answers, and the text of the document it was of.
+  record Last
+    reading: Reading
+    text: string
   end
 
   --- The databases a message's hint looks a name up in, and whether each is read as the public standard library's.
@@ -131,10 +175,20 @@ local record check
     --- What each project module the checker was served was served from
     --- ([`source.key`]), by name: "" for one not found.
     mut served: mut {string:string}
-    --- How many times the modules served were dropped.
+    --- How many times what the modules served cannot say moved: an open document's imports (a cycle of imports through
+    --- another open document may have closed or opened), the stage found a project, the program made again. A kept
+    --- result is also keyed by the modules it reads ([`Basis`]'s `reads`), so that a module it does not read moves
+    --- nothing of it.
     mut epoch: integer
+    --- Whether the stage last staged nothing ([`source.refused`]), which moves `epoch` when it changes, so that a publish kept
+    --- for a document of a refused pair is made again.
+    mut refused: boolean
+    --- The documents with a kept result, the least recently asked first ([`KEPT_AT_MOST`]).
+    recent: mut {Document}
     --- The open documents, by name.
     open: mut {string:Document}
+    --- The document the last probe was made by, kept so that a probe of the same text is answered from its kept result.
+    mut probed: Document?
     --- The databases a message's hint looks a name up in.
     hints: function(): Hinted
     --- Whether a check found a document requiring other modules than
@@ -153,6 +207,7 @@ end
 local type Checker = check.Checker
 local type Document = check.Document
 local type Checked = check.Checked
+local type Basis = check.Basis
 
 --- The hints of `checker` as the importer asks for them.
 local function importer_hints(checker: Checker): importer.Hints
@@ -164,8 +219,8 @@ end
 
 --- A checker of the tree at `root`, made ready on its first check.
 function check.new(root: string, err: function(line: string), hints: function(): check.Hinted,
-                   carried?: string): Checker
-  local view = source.new(root, err, carried)
+                   carried?: string, store?: {Sqlite.Handle}): Checker
+  local view = source.new(root, err, carried, store)
   return {
     root = root,
     source = view,
@@ -173,6 +228,9 @@ function check.new(root: string, err: function(line: string), hints: function():
     program = nil,
     served = {},
     epoch = 0,
+    refused = false,
+    recent = {},
+    probed = nil,
     open = {},
     hints = hints,
     graph_moved = false,
@@ -185,7 +243,7 @@ end
 --- the root where `outside`.
 function check.document(uri: string, name: string, text: string, outside?: boolean): Document
   return { uri = uri, text = text, name = name, outside = outside == true, hash = nil, published = nil,
-    published_text = "", published_epoch = 0, requires = nil, kept = nil }
+    published_basis = nil, requires = nil, scanned = nil, scanned_hash = nil, kept = nil, parsed = nil }
 end
 
 --- Whether `document` is no module a build at the root reads
@@ -227,6 +285,45 @@ function check.regraphs(checker: Checker, document: Document): boolean
   return table.concat(document.requires or staged, "\0") ~= table.concat(staged, "\0")
 end
 
+--- The most documents that keep the result of their check at once: the documents asked of least recently drop theirs ([`bounded`]).
+--- Each holds the whole [`Declarations.Program`] of its check, two where the text last asked of does not parse. A larger cap
+--- holds more programs for every session; a smaller one checks again the documents a person returns to, which a sweep of more
+--- open documents than the cap does for all of them. A document dropped publishes what it published where nothing it read
+--- moved ([`Document`]'s `published_basis`), so only a question about its types checks it again. A document whose current text
+--- has no result (it does not parse, or a build refuses it before it checks it) keeps its `parsed` (completion reads it,
+--- [`check.last`]), so the bound is the cap and the open documents with no result.
+local KEPT_AT_MOST <const> = 8
+
+--- Lets go of the result kept for `document`, and of its place among the most recently asked. Where `closing` it lets go of
+--- the last that parsed too, which otherwise stays while the current text does not parse.
+local function forget(checker: Checker, document: Document, closing: boolean)
+  local kept = document.kept
+  local typing = kept ~= nil and kept.checked.outcome == nil
+  document.kept = nil
+  if closing or not typing then document.parsed = nil end
+  for n, other in ipairs(checker.recent) do
+    if other == document then
+      table.remove(checker.recent, n)
+      return
+    end
+  end
+end
+
+--- Makes `document` the document most recently asked of, and drops the results kept for the one asked of least recently
+--- while more than [`KEPT_AT_MOST`] documents keep one.
+local function bounded(checker: Checker, document: Document)
+  -- A probe takes no place from the documents the person has open.
+  if document.probe == true then return end
+  for n, other in ipairs(checker.recent) do
+    if other == document then
+      table.remove(checker.recent, n)
+      break
+    end
+  end
+  table.insert(checker.recent, document)
+  while #checker.recent > KEPT_AT_MOST do forget(checker, assert(checker.recent[1]), false) end
+end
+
 --- Makes `document` one a `require` no longer reads. Where it stood for
 --- its file with another text than the stage's, the modules served are
 --- dropped at the next check ([`source.refresh`]); its dependents are checked
@@ -235,9 +332,14 @@ end
 --- have closed or opened: every other open document is to be checked
 --- again ([`check.moved`]).
 function check.closed(checker: Checker, document: Document)
+  forget(checker, document, true)
+  -- The probe made for the document goes with it.
+  local probed = checker.probed
+  if probed ~= nil and probed.name == document.name then checker.probed = nil end
   if checker.open[document.name] ~= document then return end
   local regraphs = check.regraphs(checker, document)
   checker.open[document.name] = nil
+  source.release(checker.source, document.name)
   local listed = source.module(checker.source, document.name)
   if regraphs then
     checker.graph_moved = true
@@ -264,6 +366,7 @@ end
 --- Lets go of what the checker holds open.
 function check.close(checker: Checker)
   checker.program = nil
+  checker.probed = nil
   source.close(checker.source)
 end
 
@@ -282,7 +385,7 @@ local PUT_AT_MOST <const> = 12
 
 --- Makes the session's program agree with what is served now ([`source.key`]): each module served otherwise than it was is
 --- put in it again ([`held.put`]), and a program that cannot (`dead` of [`held.Program`]) is made again at the next check. The
---- documents already checked are checked again where one moved ([`Checker`]'s `epoch`).
+--- documents already checked are checked again where a module they read moved ([`Basis`]'s `reads`).
 local function refresh_program(checker: Checker)
   local open = check.open_files(checker)
   local moved = 0
@@ -290,7 +393,6 @@ local function refresh_program(checker: Checker)
     if source.key(checker.source, name, open) ~= key then moved = moved + 1 end
   end
   if moved == 0 then return end
-  checker.epoch = checker.epoch + 1
   local program = checker.program
   if program == nil then
     checker.served = {}
@@ -328,19 +430,31 @@ local function opened_requires(checker: Checker, document: Document): {string:{s
   return out
 end
 
---- Keeps what `document` requires now (`sites`), and says the graph moved
+--- Keeps what `document` requires now, and says the graph moved
 --- where that is not what it required before: at its last check, or, at
---- its first, as staged.
-local function remember(checker: Checker, document: Document, sites: {plan.Site})
-  local names: mut {string} = {}
-  for _, site in ipairs(sites) do names[#names + 1] = site.name end
+--- its first, as staged. What it requires is read of the rows of its text ([`source.requires_of`]) where it `derivable`
+--- (its text parses and is no template's Teal), else is the names of the `sites` the check read.
+local function remember(checker: Checker, document: Document, sites: {plan.Site}, derivable: boolean,
+                        parsed?: Ast.Chunk, known?: Derivation.Known)
+  local names: {string} = {}
+  local listed = source.module(checker.source, document.name)
+  local rows: {string}? = nil
+  if listed ~= nil and derivable then
+    rows = source.requires_of(checker.source, listed, document.text, hash_of(document), parsed, known)
+  end
+  if rows ~= nil then
+    names = rows
+  else
+    local read: mut {string} = {}
+    for _, site in ipairs(sites) do read[#read + 1] = site.name end
+    names = read
+  end
   local before: {string} = {}
   local had = document.requires
   if had ~= nil then
     before = had
-  else
-    local listed = source.module(checker.source, document.name)
-    if listed ~= nil then before = checker.source.requires[listed.source_hash] or before end
+  elseif listed ~= nil then
+    before = checker.source.requires[listed.source_hash] or before
   end
   if table.concat(before, "\0") ~= table.concat(names, "\0") then
     checker.graph_moved = true
@@ -419,22 +533,26 @@ local function checked_of(checker: Checker, document: Document): Checked
     local compiled, trouble = Template.compile(document.text, document.name, { dialects = nil })
     if compiled == nil then
       return { refusals = { plan.refusal_of(trouble) }, text = text, splices = none, generated = false,
-        outcome = nil }
+        outcome = nil, program = nil }
     end
     text = compiled
   end
   --- What was found, its places in `spliced` as spliced by `splices`.
   local function checked(refusals: {plan.Refusal}, spliced: string, splices: {ShapeSpecs.Splice},
-                         outcome?: Driver.Outcome): Checked
-    return { refusals = refusals, text = spliced, splices = splices, generated = generated, outcome = outcome }
+                         outcome?: Driver.Outcome, declarations?: Declarations.Program): Checked
+    return { refusals = refusals, text = spliced, splices = splices, generated = generated, outcome = outcome,
+      program = declarations }
   end
+  -- A file of a pair the stage refused, or a declaration that names no kind, is told so at its first line, whatever else it holds.
+  local told = source.refusal(checker.source, document.name, text)
+  if told ~= nil then return checked({ plan.refusal_of(told) }, text, none) end
   local named = plan.named(document.name)
   local path, kind = named.path, named.kind
   local listed = source.module(checker.source, document.name)
   if listed ~= nil then path, kind = listed.path, listed.kind end
   local own_tree = source.standing(checker.source).own
   local planned = syntax_read.plan_of(document.name, text, path, kind, own_tree, generated)
-  remember(checker, document, planned.requires)
+  remember(checker, document, planned.requires, planned.parsed and not generated, planned.chunk, planned.known)
   local refusals = planned.refusals
   local subject = planned.plan
   if planned.halted and subject == nil then return checked(refusals, text, none) end
@@ -472,35 +590,124 @@ local function checked_of(checker: Checker, document: Document): Checked
   local compiled = syntax_read.generated(assert(subject), reading, importer_hints(checker), planned.requires,
     function(name: string): boolean return checker.source.modules[name] ~= nil end)
   for _, refusal in ipairs(compiled.refusals) do refusals[#refusals + 1] = refusal end
-  return checked(refusals, spliced, splices, program.build:result(path, true))
+  return checked(refusals, spliced, splices, program.build:result(path, true), program.build.program)
 end
 
--- TODO: bound the results kept to the documents most recently asked of (the least recently used dropped), once a session is seen
--- to hold enough open documents for them to matter: every open document keeps its tree, scopes and types until it is closed.
+--- What the stage lists `document` as, and whether the tree is cosmic's own: what a check reads of the document's own file
+--- besides its text. "" for a file the stage lists none of.
+local function listing_of(checker: Checker, document: Document): string
+  local listed = source.module(checker.source, document.name)
+  local own = if source.standing(checker.source).own then "own" else "other" end
+  if listed == nil then return own end
+  return table.concat({ own, listed.path, listed.kind, listed.file }, "\0")
+end
 
--- TODO: invalidate a kept result by the keys of the modules its document reads ([`source.key`]) in place of the checker's
--- `epoch`, once a check records which modules it was served: any module served otherwise than it was checks every open
--- document again, one it does not read among them.
+--- The databases a message's hint looks a name up in now ([`importer_hints`]), by identity and by the version each handle reads
+--- ([`hover.version`]): a restage that opens them again changes the first, a database written in place under the same
+--- handle the second.
+local function hints_key(checker: Checker): string
+  local hinted = checker.hints()
+  local parts: mut {string} = {}
+  for n, handle in ipairs(hinted.databases) do
+    parts[#parts + 1] = tostring(handle) .. (if hinted.public[n] == true then "+" else "-" end) .. hover.version(handle)
+  end
+  return table.concat(parts, "\0")
+end
 
--- TODO: key a kept result by what the document's own listing and the importer's hints were ([`importer_hints`]), once a check
--- records them: a restage that changes the listing of the document's own file (its kind) without moving a module served, or a
--- change of the docs databases, bumps no epoch, so the result kept (and what [`check.diagnose`] publishes) stands until the
--- text or the epoch moves.
+--- The modules the open document `other` requires now, of its text: not those of its last check, which a text edited since
+--- has not moved. A template is read as the Teal it compiles to. A text that does not parse requires none, and its key
+--- moves when it does.
+local function requires_of_open(other: Document): {string}
+  local hash = hash_of(other)
+  local scanned = other.scanned
+  if scanned ~= nil and other.scanned_hash == hash then return scanned end
+  local text = other.text
+  if other.name:match("%.tmpl$") ~= nil then
+    local compiled, _ = Template.compile(text, other.name, { dialects = nil })
+    text = compiled or ""
+  end
+  local names: mut {string} = {}
+  local chunk, _ = Node.parse(text, other.name)
+  if chunk ~= nil then
+    for _, site in ipairs(Node.require_sites(chunk)) do names[#names + 1] = site.name end
+  end
+  other.scanned, other.scanned_hash = names, hash
+  return names
+end
 
--- TODO: let completion read the last result of a document whose text parsed, once completion exists: a text being typed
--- does not parse, and its kept result is then nothing found.
+--- The names of the modules `document` reads, sorted: the modules it requires now and those they require, as an open document's
+--- text or the stage has them ([`requires_of_open`]). A module the program already held is not served again, so the modules
+--- served in a check are no account of what the check read. `direct` are the names `document` requires.
+local function reads_of(checker: Checker, direct: {string}): {string}
+  local reads: mut {string:boolean} = {}
+  local pending: mut {string} = {}
+  for _, name in ipairs(direct) do pending[#pending + 1] = name end
+  while #pending > 0 do
+    local name = assert(table.remove(pending))
+    if reads[name] == nil then
+      reads[name] = true
+      local listed = checker.source.modules[name]
+      if listed ~= nil then
+        local opened = checker.open[listed.file]
+        local requires: {string}? = nil
+        if opened ~= nil then requires = requires_of_open(opened) end
+        for _, further in ipairs(requires or checker.source.requires[listed.source_hash] or {}) do
+          pending[#pending + 1] = further
+        end
+      end
+    end
+  end
+  local names: mut {string} = {}
+  for name in pairs(reads) do names[#names + 1] = name end
+  table.sort(names)
+  return names
+end
 
---- The check of `document` as it stands: the one kept from the last, where the text and the checker's `epoch` are those it
---- was of, else a check made now and kept. A text that does not parse is kept as well, its outcome nil.
+--- The digest of the key ([`source.key`]) of each of `names` now, "" for a name no module is found for.
+local function digest_of(checker: Checker, names: {string}): string
+  local open = check.open_files(checker)
+  local keys: mut {string} = {}
+  for _, name in ipairs(names) do keys[#keys + 1] = source.key(checker.source, name, open) end
+  return Hash.hex_sha256(table.concat(keys, "\1"))
+end
+
+--- What the check of `document` just made was of. `hints` is the hints key ([`hints_key`]), and `reads` and `digest` the
+--- modules it reads and their digest ([`reads_of`], [`digest_of`]), all read before the check: a docs database or a module
+--- written during the check is then seen as moved by the next ask, not recorded as already read. The epoch and the listing
+--- are read after, as the check may move them.
+local function basis_of(checker: Checker, document: Document, hints: string, reads: {string}, digest: string): Basis
+  return { text = document.text, epoch = checker.epoch, listing = listing_of(checker, document),
+    hints = hints, reads = reads, digest = digest }
+end
+
+--- Whether a check of `document` that was of `basis` would find what it found: nothing it was of moved.
+local function stands(checker: Checker, document: Document, basis: Basis): boolean
+  if basis.text ~= document.text or basis.epoch ~= checker.epoch then return false end
+  if basis.listing ~= listing_of(checker, document) or basis.hints ~= hints_key(checker) then
+    return false
+  end
+  return basis.digest == digest_of(checker, basis.reads)
+end
+
+--- The check of `document` as it stands: the one kept from the last, where what it was of stands ([`stands`]), else a check
+--- made now and kept. A text that does not parse is kept as well, its outcome nil. The document becomes the one most
+--- recently asked of ([`bounded`]).
 local function checked_now(checker: Checker, document: Document): Checked
   local kept = document.kept
-  if kept ~= nil and kept.text == document.text and kept.epoch == checker.epoch then
+  if kept ~= nil and stands(checker, document, kept.basis) then
+    bounded(checker, document)
     return kept.checked
   end
   checker.ran[document.name] = (checker.ran[document.name] or 0) + 1
+  local hints = hints_key(checker)
+  -- What the text requires is what the check will find ([`requires_of_open`]).
+  local reads = reads_of(checker, requires_of_open(document))
+  local digest = digest_of(checker, reads)
   local checked = checked_of(checker, document)
-  -- The epoch after the check, which may move it (`remember`, [`program_of`]): the next ask is of the same program.
-  document.kept = { text = document.text, epoch = checker.epoch, checked = checked }
+  -- The basis after the check, which may move the epoch (`remember`, [`program_of`]): the next ask is of the same program.
+  document.kept = { basis = basis_of(checker, document, hints, reads, digest), checked = checked }
+  if checked.outcome ~= nil and not checked.generated then document.parsed = document.kept end
+  bounded(checker, document)
   return checked
 end
 
@@ -516,6 +723,11 @@ end
 local function staged(checker: Checker, document: Document): boolean
   local outside = source.outside(checker.source)
   source.refresh(checker.source)
+  local refused = source.refused(checker.source)
+  if refused ~= checker.refused then
+    checker.refused = refused
+    checker.epoch = checker.epoch + 1
+  end
   if source.outside(checker.source) or apart(checker, document.name) then return false end
   if outside then
     checker.graph_moved = true
@@ -539,8 +751,8 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
   refresh_program(checker)
   checker.checks[document.name] = (checker.checks[document.name] or 0) + 1
   local published = document.published
-  if published ~= nil and document.published_text == document.text and
-      document.published_epoch == checker.epoch then
+  local basis = document.published_basis
+  if published ~= nil and basis ~= nil and stands(checker, document, basis) then
     return published
   end
   local checked = checked_now(checker, document)
@@ -570,8 +782,7 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
     add(refusal.line, refusal.column, refusal.message, refusal.code)
   end
   document.published = out
-  document.published_text = document.text
-  document.published_epoch = checker.epoch
+  document.published_basis = assert(document.kept).basis
   return out
 end
 
@@ -586,8 +797,66 @@ function check.read(checker: Checker, document: Document): check.Reading?
   refresh_program(checker)
   local checked = checked_now(checker, document)
   local found = checked.outcome
-  if found == nil or checked.generated then return nil end
-  return { outcome = found, splices = checked.splices }
+  local declarations = checked.program
+  if found == nil or declarations == nil or checked.generated then return nil end
+  return { outcome = found, splices = checked.splices, program = declarations }
+end
+
+--- What completion reads of `document`: the reading of its text ([`check.read`]), else, where the text does not parse (it
+--- is being typed), the reading of the last text that did, with that text so that a place in the one is found in the other.
+--- That reading may be of a program older than the present one: its types are what the person last saw. nil where there is
+--- none.
+function check.last(checker: Checker, document: Document): check.Last?
+  local current = check.read(checker, document)
+  if current ~= nil then return { reading = current, text = document.text } end
+  local parsed = document.parsed
+  if parsed == nil then return nil end
+  local outcome, declarations = parsed.checked.outcome, parsed.checked.program
+  if outcome == nil or declarations == nil then return nil end
+  return { reading = { outcome = outcome, splices = parsed.checked.splices, program = declarations },
+    text = parsed.basis.text }
+end
+
+--- What completion reads of `document` when its text does not parse (it is being typed): the reading of `text`, the text of the
+--- document with what is needed to parse it (a name where the word is being typed, a statement made of a receiver), checked
+--- as it would be if the person had typed it. nil where that is no text a build reads or its check read nothing. The check is
+--- made by a document of its own that nothing opens, so that what the document last published and what it kept stand, and that
+--- takes no place of a document's kept result ([`bounded`]); the last is kept, so that a probe of the same text, as an
+--- editor asks again for each key typed or for an item's documentation, is answered from its result. It counts as no check
+--- of the document, and the program reads the document's text again at the next real check
+--- ([`held.document`]).
+function check.probe(checker: Checker, document: Document, text: string): check.Reading?
+  local probe = checker.probed
+  if probe == nil or probe.name ~= document.name or probe.text ~= text then
+    probe = check.document(document.uri, document.name, text, document.outside)
+    probe.probe = true
+    checker.probed = probe
+  end
+  probe.requires = document.requires
+  local checks, ran = checker.checks[document.name], checker.ran[document.name]
+  local reading = check.read(checker, probe)
+  if checks == nil then
+    checker.checks[document.name] = nil
+  else
+    checker.checks[document.name] = checks
+  end
+  if ran == nil then checker.ran[document.name] = nil else checker.ran[document.name] = ran end
+  return reading
+end
+
+--- The SHA-256 of the text of `document`.
+function check.hash(document: Document): string
+  return hash_of(document)
+end
+
+--- The byte `offset` (from 1) of the text the reading was of, as the checker's text has it: a build put text in the one
+--- the person has before the checker read it, which moves the bytes after it ([`Reading`]'s `splices`).
+function check.checker_offset(reading: check.Reading, offset: integer): integer
+  local moved = offset
+  for _, splice in ipairs(reading.splices) do
+    if splice.at < offset then moved = moved + #splice.text end
+  end
+  return moved
 end
 
 return check

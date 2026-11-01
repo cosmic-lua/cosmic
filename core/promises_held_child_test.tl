@@ -346,7 +346,9 @@ local function test_a_path_swapped_for_a_directory_after_the_check_fails_the_sta
     Test.skip("no Landlock here: " .. tostring(trouble))
     return
   end
-  if abi >= 9 then return end
+  if abi >= 9 then
+    Test.skip("this test is about a kernel below Landlock ABI 9, and this one gives " .. tostring(abi))
+  end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(Fs.write(tmp .. "/swap-a", "x") and Fs.mkdirs(tmp .. "/swap-b"))
   local null = assert(sys.open("/dev/null", sys.O_RDWR))

@@ -5,7 +5,7 @@
 `tool.tl` provides subcommands for writing fixture artifacts, extracting
 manifest entries, corrupting core ranges, and related operations. Run it as
 `cosmic test/portable/tool.tl SUBCOMMAND ARGS...`. `init.tl` ([`test.portable`]) is
-the reusable v1 artifact reader and writer-input helper used by `tool.tl` and
+the reusable v2 artifact reader and writer-input helper used by `tool.tl` and
 the [`build/artifact.tl`] fixtures.
 
 Product assembly, transport validation, the cross-language format contract,
@@ -24,7 +24,10 @@ mutations is tried against it.
 
 The driver's `launcher_setup.tl` compiles one native contract payload per generated
 target and writes one launcher fixture containing both a release prefix and
-a test prefix with synchronization hooks compiled in. `launcher_test.tl`
+a test prefix with synchronization hooks compiled in, each stored raw and
+stored compressed beside the target's decoder stub (`launcher.packed-*`), and
+test prefixes whose stub is a script that fails or writes the wrong bytes
+(`launcher.stub-*`). `launcher_test.tl`
 is the focused integration coverage for the production portable shell
 launcher: cache leaf policy (mode, ownership, symlinks), repair of a
 corrupted or malformed cached core, concurrent-publisher and
@@ -38,18 +41,23 @@ a warm launch stats the cached core and hashes it unless startup's verified
 stamp still holds for it. `COSMIC_PORTABLE_CACHE` is the public cache setting; the
 remaining `COSMIC_PORTABLE_*` fields are a reserved launcher-to-core
 contract that startup requires complete, adopts, and clears before Lua
-runs.
+runs. `launcher_packed_test.tl` covers the second stage that decodes a
+compressed core with the stub: a damaged stub, frame or stored range, a stub
+that fails or writes the wrong bytes, a read-only cache, races, a signal and a
+kill during decoding, and the CPU check coming first. The launcher also
+needs no utility for it beyond those above.
 
 The driver's `product_setup.tl` makes the per-host provenance bundle
 from a booted tree: it copies portable Cosmic, extracts its exact prefix and
 manifest (`tool.tl product-extract`), and uses those same local portable bytes
 to build the `hello` and `second` standalone fixtures. The bundle also carries
-every generated release target's raw core; extraction checks that each core
-occurs exactly once, at its manifest range, in Cosmic and both applications.
-`product_test.tl` verifies every recorded transported hash, exact prefix
-reuse, the selected manifest range's length, digest, and raw core bytes, and
-both applications; on the macOS host it also sends that extracted range to
-strict `codesign` verification. Normal CI runs these checks in independent x86
+every generated release target's raw core and decoder stub; extraction checks
+that each stored core occurs exactly once, at its manifest range, in Cosmic and
+both applications, and decodes to its raw core, and that each stub is the one
+built. `product_test.tl` verifies every recorded transported hash, exact prefix
+reuse, the selected manifest range's stored digest, the raw core it decodes to,
+and both applications; on the macOS host it also sends the raw core and the
+stub to strict `codesign` verification (a compressed range is no Mach-O). Normal CI runs these checks in independent x86
 Linux, ARM Linux, ARM macOS, and Alpine x86 Linux producers. The provenance
 join, in ci.yml's `ci` job, compares the exact `cosmic` bytes all four attest
 they ran.

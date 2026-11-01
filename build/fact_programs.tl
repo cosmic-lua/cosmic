@@ -25,6 +25,7 @@ local record Programs
 end
 
 local DECLARATIONS <const> = [[
+--- @kind binding
 do
   local record Lib
     assert: function<A>(v: A?): A

@@ -11,7 +11,7 @@ local record launcher
 end
 
 local template = [=[#!/bin/sh
-# Cosmic portable artifact format v1.
+# Cosmic portable artifact format v2.
 #
 # The directory containing the managed cache leaf is the trust boundary: it
 # must be controlled by this user, or be a sticky temp directory. The launcher
@@ -259,11 +259,16 @@ portable_sha256() {
   portable_actual=${portable_sum%% *}
 }
 
+# The core's staging file and the decoder stub's are two variables: the first
+# is also the repair lock's owner file, which sets and clears it, so a stub
+# staged in it would be lost to the cleanup or removed by the lock's release.
 cosmic_stage=
+cosmic_stub_stage=
 cosmic_owns_repair_lock=0
 
 portable_cleanup() {
   if [ -n "$cosmic_stage" ]; then rm -f "$cosmic_stage"; fi
+  if [ -n "$cosmic_stub_stage" ]; then rm -f "$cosmic_stub_stage"; fi
   if [ "$cosmic_owns_repair_lock" = 1 ]; then rm -f "$cosmic_repair_lock"; fi
 }
 trap 'portable_cleanup' EXIT
@@ -426,15 +431,60 @@ fi
 if [ "$cosmic_core_verified" != 1 ]; then
   [ "$cosmic_cache_writable" = 1 ] ||
     portable_die 'selected core is absent and cache is read-only'
+  # The stub is written fresh and removed on each cold start, not kept in
+  # the leaf: on macOS its first exec, signature validation included, cost
+  # 5 ms more than a second exec of the same file (17 against 12 ms;
+  # launcher_packed_test.tl's
+  # `test_the_first_exec_of_a_staged_stub_is_timed_on_macos`, CI run
+  # 41277377525), too little on a cold start to pay for the stamp and repair
+  # handling a kept stub would need.
+  # A compressed core is decoded by the stub the arm names. The stub is cut
+  # out first, from the shared descriptor, which nothing has read: `dd skip=`
+  # is relative to its offset, and that is 0 only until a first reader. The
+  # stub reads its range with pread, and ignores the offset `dd | head` leaves.
+  if [ -n "$cosmic_stub_length" ]; then
+    cosmic_stub_stage=$(mktemp "$cosmic_cache/.stub.XXXXXXXX") ||
+      portable_die 'cannot create decoder staging entry'
+    cosmic_blocks=$(( (cosmic_stub_length + 16383) / 16384 ))
+    dd bs=16384 skip="$cosmic_stub_block" count="$cosmic_blocks" \
+      <&"$cosmic_artifact_fd" 2>/dev/null |
+      head -c "$cosmic_stub_length" > "$cosmic_stub_stage"
+    portable_bytes=$(wc -c < "$cosmic_stub_stage") || portable_die 'cannot size extracted decoder'
+    [ "$portable_bytes" -eq "$cosmic_stub_length" ] || portable_die 'extracted decoder is truncated'
+    portable_sha256 "$cosmic_stub_stage"
+    [ "$portable_actual" = "$cosmic_stub_sha256" ] ||
+      portable_die 'extracted decoder digest differs'
+    chmod 500 "$cosmic_stub_stage" || portable_die 'cannot finish extracted decoder mode'
+@STUB_HOOK@
+  fi
   cosmic_stage=$(mktemp "$cosmic_cache/.core.XXXXXXXX") ||
     portable_die 'cannot create core staging entry'
-  cosmic_blocks=$(( (cosmic_length + 16383) / 16384 ))
-  # `head` trims the final aligned block. POSIX sh has no pipefail, so pipeline
-  # success cannot prove dd supplied the requested input: the exact size check
-  # detects truncation, while SHA-256 separately detects equal-length corruption.
-  dd bs=16384 skip="$cosmic_block" count="$cosmic_blocks" \
-    <&"$cosmic_artifact_fd" 2>/dev/null |
-    head -c "$cosmic_length" > "$cosmic_stage"
+  if [ -n "$cosmic_stub_length" ]; then
+    # The stub is hashed by path and run by path, inside the private leaf the
+    # core is. No pipeline here, so $? is the stub's own: a failed decode
+    # stops the launch before anything is checked or published. 126 is the
+    # shell's for a stub found and refused, such as on a noexec cache.
+    [ -x "$cosmic_stub_stage" ] ||
+      portable_die 'decoder stub cannot execute on the cache filesystem'
+    cosmic_decoded=0
+    "$cosmic_stub_stage" "$cosmic_artifact_fd" "$cosmic_offset" "$cosmic_stored" \
+      "$cosmic_length" > "$cosmic_stage" || cosmic_decoded=$?
+    rm -f "$cosmic_stub_stage"
+    cosmic_stub_stage=
+    case $cosmic_decoded in
+      0) ;;
+      126) portable_die 'decoder stub was refused execution; Permission denied here usually means a noexec cache filesystem' ;;
+      *) portable_die "decoder stub failed with status $cosmic_decoded" ;;
+    esac
+  else
+    cosmic_blocks=$(( (cosmic_length + 16383) / 16384 ))
+    # `head` trims the final aligned block. POSIX sh has no pipefail, so pipeline
+    # success cannot prove dd supplied the requested input: the exact size check
+    # detects truncation, while SHA-256 separately detects equal-length corruption.
+    dd bs=16384 skip="$cosmic_block" count="$cosmic_blocks" \
+      <&"$cosmic_artifact_fd" 2>/dev/null |
+      head -c "$cosmic_length" > "$cosmic_stage"
+  fi
   portable_bytes=$(wc -c < "$cosmic_stage") || portable_die 'cannot size extracted core'
   [ "$portable_bytes" -eq "$cosmic_length" ] || portable_die 'extracted core is truncated'
   portable_sha256 "$cosmic_stage"
@@ -543,6 +593,8 @@ function launcher.render(arms: string, test_hooks: boolean): string
       "  portable_test_hook before_recheck")
     rendered = substitute(rendered, "@PUBLISH_HOOK@",
       "  portable_test_hook before_publish")
+    rendered = substitute(rendered, "@STUB_HOOK@",
+      "    portable_test_hook after_stub")
     rendered = rendered:gsub("portable_die%(%) %{", test_hook_function .. "\nportable_die() {")
   else
     rendered = substitute(rendered, "@CPUINFO@", "/proc/cpuinfo")
@@ -551,6 +603,7 @@ function launcher.render(arms: string, test_hooks: boolean): string
     rendered = substitute(rendered, "@REPAIR_HOOK@", "")
     rendered = substitute(rendered, "@RECHECK_HOOK@", "")
     rendered = substitute(rendered, "@PUBLISH_HOOK@", "")
+    rendered = substitute(rendered, "@STUB_HOOK@", "")
   end
   return rendered
 end

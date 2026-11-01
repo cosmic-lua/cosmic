@@ -1,7 +1,8 @@
 --- End to end: a sandboxed run keys each verdict by its test's
 --- declared inputs (build/declared_key.tl). A verdict stands while
---- nothing declared changes -- whatever else of the tree does -- and in
---- another checkout of the same content, through the shared cache; a
+--- nothing declared changes -- whatever else of the tree does (standing
+--- in another checkout, through the shared cache, is
+--- build/shared_verdicts_tool_test.tl's); a
 --- test runs again when what it declares changes, and every test runs
 --- under `--all`. Where this host cannot sandbox a worker -- one
 --- nested in this test's own confinement, three deep, which the kernel
@@ -243,39 +244,6 @@ end
   local offline = probed:match("loopback in (%S+) |")
   local own = assert(Fs.readlink("/proc/self/ns/net"))
   assert(offline ~= nil and offline:find("^net:") ~= nil and offline ~= own, probed .. own)
-end
-
---- A checkout of the same content stands on the verdicts another
---- reached, by their keys alone, and one whose declared input differs
---- runs that test.
-local function test_a_sandboxed_verdict_stands_in_another_checkout(tmp: string)
-  local env = environment(tmp .. "/cache/verdicts.db")
-  checkout(tmp .. "/first")
-  local first = run(tmp .. "/first", tmp .. "/first.out", env)
-  if unsandboxed(first) then return end
-  assert(first:find("3 ran, 0 stood", 1, true), first)
-  checkout(tmp .. "/second")
-  local second = run(tmp .. "/second", tmp .. "/second.out", env)
-  assert(second:find("0 ran, 3 stood", 1, true) and
-      second:find("3 of them on another checkout's verdict", 1, true), second)
-  checkout(tmp .. "/third")
-  assert(Fs.write(tmp .. "/third/suite/data/f", "three\n"))
-  local third = run(tmp .. "/third", tmp .. "/third.out", env)
-  assert(third:find("1 ran, 2 stood", 1, true) and
-      third:find("2 of them on another checkout's verdict", 1, true), third)
-end
-
---- Told to stand on no other checkout's verdicts, a checkout runs
---- everything.
-local function test_a_sandboxed_checkout_told_to_share_nothing_runs_everything(tmp: string)
-  local env = environment(tmp .. "/cache/verdicts.db")
-  checkout(tmp .. "/first")
-  local first = run(tmp .. "/first", tmp .. "/first.out", env)
-  if unsandboxed(first) then return end
-  assert(first:find("3 ran, 0 stood", 1, true), first)
-  checkout(tmp .. "/unshared")
-  local unshared = run(tmp .. "/unshared", tmp .. "/unshared.out", env, { "--no-shared" })
-  assert(unshared:find("3 ran, 0 stood", 1, true), unshared)
 end
 
 --- A checkout whose tests run this program: one that declares `tool`,
@@ -655,12 +623,11 @@ end
   assert(rows[1]:text(1) == "core.allocation_test", "ran under another compiler: " .. rows[1]:text(1))
 end
 
---- A checked run (`--check-types`) compiles the tree with run-time checks
---- under a compiler of its own ([`importer.checked_tool`]), which moves
---- the key of a test whose closure reads the compiler's identity as
---- another compiler does: a verdict it earned never stands for the same
---- test of an unchecked run. A test of the same bytes that reads no
---- compiler stands across the two.
+--- A checked run (`--check-types`) stands on verdicts of its own and on none of an unchecked
+--- run's, and the reverse, even for a test whose closure compiles to the same bytes in both modes
+--- and reads no compiler (the key holds the mode by name, `checks`): the hooks of a checked worker
+--- can change an outcome without changing a byte of the closure (the fuzz budget). Each mode stands
+--- on its own earlier run.
 local function test_a_checked_runs_verdicts_never_stand_for_an_unchecked_run(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
@@ -693,8 +660,85 @@ end
     return rows[1]:text(1)
   end
   local plain = run(root, tmp .. "/plain.out", env)
-  assert(plain:find("1 ran, 1 stood", 1, true), plain)
-  assert(ran_last() == "core.allocation_test", "ran: " .. ran_last())
+  assert(plain:find("2 ran, 0 stood", 1, true), "a checked pass stood for an unchecked run: " .. plain)
+  assert(ran_last() == "core.allocation_test suite.plain_test",
+    "ran: " .. ran_last())
+  local again = run(root, tmp .. "/checked-again.out", env, { "--check-types" })
+  assert(again:find("0 ran, 2 stood", 1, true), "a checked run did not stand on its own pass: " .. again)
+  local plain_again = run(root, tmp .. "/plain-again.out", env)
+  assert(plain_again:find("0 ran, 2 stood", 1, true), "an unchecked run did not stand on its own pass: " .. plain_again)
+end
+
+--- An edit to the hooks of a checked run moves the keys of a checked run and no others: the checks part holds the
+--- harness digest of build.test_worker, which COSMIC_TEST_HOOKS_SALT stands in for in a project. A checked
+--- verdict does not stand across it, and an unchecked run's does.
+local function test_an_edit_to_the_hooks_moves_a_checked_key_and_no_other(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
+  assert(Fs.write(root .. "/suite/plain_test.tl", [[
+local lib = require("suite.lib")
+
+local function test_plain()
+  assert(lib.value == 1)
+end
+]]))
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local first = run(root, tmp .. "/first.out", env, { "--check-types" })
+  if unsandboxed(first) then Test.skip("no worker could be sandboxed here") end
+  assert(first:find("1 ran, 0 stood", 1, true), first)
+  local plain = run(root, tmp .. "/plain.out", env)
+  assert(plain:find("1 ran, 0 stood", 1, true), plain)
+  local edited: mut {string:string} = {}
+  for name, value in pairs(env) do edited[name] = value end
+  edited["COSMIC_TEST_HOOKS_SALT"] = "an edit to build/test_worker.tl"
+  local checked = run(root, tmp .. "/checked.out", edited, { "--check-types" })
+  assert(checked:find("1 ran, 0 stood", 1, true), "an edit to the hooks left a checked verdict standing: " .. checked)
+  local unchecked = run(root, tmp .. "/unchecked.out", edited)
+  assert(unchecked:find("0 ran, 1 stood", 1, true), "an edit to the hooks moved an unchecked key: " .. unchecked)
+  local back = run(root, tmp .. "/back.out", env, { "--check-types" })
+  assert(back:find("0 ran, 1 stood", 1, true), "the checked verdict of the unedited hooks was lost: " .. back)
+end
+
+--- A module that declares `store` is given the whole projection at o/cosmic.db, and a checked run gives it the one the
+--- run was compiled into, `cosmic.checked.db`. Its checked verdict is keyed by that file and not the tree's: a
+--- second checked run stands on it, an unchecked run does not, and an edit to the module runs it again.
+local function test_a_store_module_stands_on_its_checked_projection(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  local lib = "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"
+  assert(Fs.write(root .. "/suite/lib.tl", lib))
+  local text = [[
+local Test = require("cosmic.test")
+local lib = require("suite.lib")
+
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
+
+local function test_store()
+  assert(lib.value == 1)
+end
+]]
+  assert(Fs.write(root .. "/suite/store_test.tl", text))
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local first = run(root, tmp .. "/first.out", env, { "--check-types" })
+  if unsandboxed(first) then Test.skip("no worker could be sandboxed here") end
+  assert(first:find("1 ran, 0 stood", 1, true), first)
+  local again = run(root, tmp .. "/again.out", env, { "--check-types" })
+  assert(again:find("0 ran, 1 stood", 1, true), "a store module's checked verdict did not stand: " .. again)
+  local plain = run(root, tmp .. "/plain.out", env)
+  assert(plain:find("1 ran, 0 stood", 1, true), "a checked verdict stood for an unchecked run: " .. plain)
+  -- The tree's own projection is as the unchecked run left it; a module outside the closure, which moves the
+  -- graph key of nothing, rewrites only the checked projection the next checked run is given. The store module's
+  -- worker reads that file, so its key must follow it and not the tree's.
+  local stood = run(root, tmp .. "/stood.out", env, { "--check-types" })
+  assert(stood:find("0 ran, 1 stood", 1, true), "an unchecked run in between moved a checked key: " .. stood)
+  assert(Fs.write(root .. "/suite/elsewhere.tl", "local record Elsewhere\n  value: integer\nend\nlocal e: Elsewhere = { value = 2 }\nreturn e\n"))
+  local moved = run(root, tmp .. "/moved.out", env, { "--check-types" })
+  assert(moved:find("1 ran, 0 stood", 1, true),
+    "only the checked projection moved, and the store module's checked verdict stood: " .. moved)
+  assert(Fs.write(root .. "/suite/lib.tl", lib .. "-- edited\n"))
+  local edited = run(root, tmp .. "/edited.out", env, { "--check-types" })
+  assert(edited:find("1 ran, 0 stood", 1, true), "an edit to the closure left the checked verdict standing: " .. edited)
 end
 
 --- A test whose module does not declare `store` is given the store of

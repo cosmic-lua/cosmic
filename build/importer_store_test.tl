@@ -311,7 +311,8 @@ local function test_stored_edges_equal_the_parsed_ones()
     local source = assert(Store.source(name))
     local dialect: Ast.Dialect = if row:text(2) == "decl" then "decl" else "tl" end
     local parsed = Parser.parse(Lexer.lex(source, name .. ".tl"), name .. ".tl", dialect)
-    assert(#parsed.errors == 0, name .. ": " .. (if parsed.errors[1] ~= nil then parsed.errors[1].msg else "" end))
+    local first_error = parsed.errors[1]
+    assert(#parsed.errors == 0, name .. ": " .. (if first_error ~= nil then first_error.msg else "" end))
     local found = SyntaxNode.requires(parsed.chunk)
     local set: mut {string:boolean} = {}
     for _, required in ipairs(found) do set[required] = true end
@@ -374,7 +375,7 @@ local function test_an_edit_to_an_embedded_source_moves_the_key_of_what_reaches_
     standard_text.of = of
     assert(result ~= nil, tostring(trouble))
     for _, m in ipairs(result.modules) do
-      if m.path == "main" then return m.key end
+      if m.path == "main" then return assert(m.key) end
     end
     error("main is not among the compiled modules")
   end

@@ -7,6 +7,7 @@
 --- ([`build.lsp.publish`]).
 
 local Fs = require("cosmic.fs")
+local check = require("build.lsp.check")
 local tree = require("build.tree")
 local session_fixture = require("build.lsp.session_fixture")
 
@@ -183,7 +184,7 @@ end
 local function test_a_declaration_is_read_under_its_own_name()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/decl.d.tl", "local record Decl\n  list: {integer}\nend\nreturn Decl\n"))
+  assert(Fs.write(root .. "/lib/decl.d.tl", "--- @kind binding\nlocal record Decl\n  list: {integer}\nend\nreturn Decl\n"))
   local text = 'local d = require("lib.decl")\nlocal s: string = d.list\nreturn s\n'
   local found = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
   assert(found.message == "`d.list` is `{integer}`, where `string` is wanted as the value of `s` " ..
@@ -194,12 +195,135 @@ end
 --- binary's own, which is a global.
 local function test_a_file_named_for_a_module_of_the_language_is_not_what_its_require_reads()
   local root = project()
-  assert(Fs.write(root .. "/math.d.tl", "local record M\n  abs: function(integer): string\nend\nreturn M\n"))
+  assert(Fs.write(root .. "/math.d.tl", "--- @kind binding\nlocal record M\n  abs: function(integer): string\nend\nreturn M\n"))
   local text = 'local s: string = require("math").abs(-1)\nreturn s\n'
   local found = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
   assert(found.message:find("the project has no module `math` (require_unknown)", 1, true) ~= nil, found.message)
   assert(found.message:find("`math` is a global the language declares, available without `require`", 1, true) ~= nil,
     found.message)
+end
+
+--- A `.d.tl` beside a `.tl` of its module is refused by the build, and each of the two documents is told so at its first
+--- line, in the words the build uses ([`build.driver.pairing`]); deleting the declaration clears it, though the pair was cached.
+local function test_a_declaration_beside_its_source_is_refused_in_each_document_of_the_pair()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  local declaration = "local record M\n  n: integer\nend\nreturn M\n"
+  local source = "local record M\n  n: integer\nend\nlocal m: M = { n = 1 }\nreturn m\n"
+  assert(Fs.write(root .. "/lib/m.d.tl", declaration))
+  assert(Fs.write(root .. "/lib/m.tl", source))
+  local send = serving(root)
+  local first = send({ initialize(root), open(root, "lib/m.tl", source), open(root, "lib/m.d.tl", declaration) })
+  local words = "lib/m.tl is already the module lib.m. A .d.tl is only for a module implemented in C, and the .tl is what " ..
+    "is checked, so one module cannot have both. If the .tl is the module, delete lib/m.d.tl. To keep both, rename " ..
+    "one of them so that they are different modules."
+  local in_source, in_declaration = only(nth(first, 1)), only(nth(first, 2))
+  assert(in_source.message == words, in_source.message)
+  assert(in_declaration.message == words, in_declaration.message)
+  assert(edge(in_source, "start").line == 0 and edge(in_source, "start").character == 0)
+  -- The declaration is deleted and its document closed: the pair is gone, and the source is published clear.
+  assert(Fs.remove(root .. "/lib/m.d.tl"))
+  local after = send({ close(root, "lib/m.d.tl"), session_fixture.changed_on_disk(root, "lib/m.d.tl"),
+    change(root, "lib/m.tl", source .. "\n") })
+  local last = publications(after)
+  local final = assert(last[#last])
+  assert(final.uri:sub(-9) == "/lib/m.tl" and #final.diagnostics == 0, final.uri .. " " .. tostring(#final.diagnostics))
+end
+
+--- A `.d.tl` that names no kind is refused by the build, and its document is told so at its first line, in the words the build
+--- uses ([`build.driver.naming`]); tagged a binding it is published clear, and tagged `language` outside the two files of
+--- the globals it is refused again.
+local function test_a_declaration_that_names_nothing_is_refused_in_its_document()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  local record_text = "local record M\n  n: integer\nend\nreturn M\n"
+  assert(Fs.write(root .. "/lib/m.d.tl", record_text))
+  local send = serving(root)
+  local first = send({ initialize(root), open(root, "lib/m.d.tl", record_text) })
+  local told = only(nth(first, 1))
+  assert(told.message == "a .d.tl must name what it is, and this one names nothing. If it declares a module " ..
+      "implemented in C, add the line `--- @kind binding` to its leading comment; otherwise write it as a .tl (types and " ..
+      "code in a .tl are checked and real at run time).", told.message)
+  assert(edge(told, "start").line == 0 and edge(told, "start").character == 0)
+  -- Tagged a binding, the document is published clear.
+  local tagged = "--- @kind binding\n" .. record_text
+  assert(Fs.write(root .. "/lib/m.d.tl", tagged))
+  local after = send({ session_fixture.changed_on_disk(root, "lib/m.d.tl"), change(root, "lib/m.d.tl", tagged) })
+  local last = assert(publications(after)[#publications(after)])
+  assert(last.uri:sub(-11) == "/lib/m.d.tl" and #last.diagnostics == 0, last.uri .. " " .. tostring(#last.diagnostics))
+  -- Tagged for the language, outside the two files of the globals, it is refused.
+  local language = "--- @kind language\n" .. record_text
+  assert(Fs.write(root .. "/lib/m.d.tl", language))
+  local again = send({ session_fixture.changed_on_disk(root, "lib/m.d.tl"), change(root, "lib/m.d.tl", language) })
+  local refused = assert(publications(again)[#publications(again)])
+  local message = assert(refused.diagnostics[1]).message
+  assert(#refused.diagnostics == 1 and message:find("`--- @kind language` is accepted only when building cosmic's own tree", 1, true) == 1, message)
+end
+
+--- The two files of the language's globals are accepted when they are opened in cosmic's own tree, and a project's file at the
+--- same path is refused for the kind.
+local function test_the_language_files_are_accepted_in_the_own_tree_and_refused_in_a_project()
+  local text = "--- @kind language\ndo\nend\n"
+  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/lang"))
+  assert(Fs.write(root .. "/build/importer.tl", EMPTY))
+  assert(Fs.write(root .. "/lang/stdlib.d.tl", text))
+  local built = assert(tree.built_from(root))
+  local own = served(root, { initialize(root), open(root, "lang/stdlib.d.tl", text) }, nil, built)
+  assert(counts(own) == "0", messages_of(nth(own, 1)))
+  for _, file in ipairs({ "lang/stdlib.d.tl", "lang/prelude.d.tl" }) do
+    local project_root = project()
+    assert(Fs.mkdirs(project_root .. "/lang"))
+    assert(Fs.write(project_root .. "/" .. file, text))
+    local told = only(nth(served(project_root, { initialize(project_root), open(project_root, file, text) }), 1))
+    assert(told.message:find("`--- @kind language` is accepted only when building cosmic's own tree", 1, true) == 1, told.message)
+  end
+end
+
+--- A pair that appears after a good stage, and one that is gone, are told with no change to the text of the open document:
+--- the stage moves what the check was of, so the publish kept is made again.
+local function test_a_pair_that_comes_and_goes_on_disk_moves_a_document_that_did_not_change()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  local declaration = "local record M\n  n: integer\nend\nreturn M\n"
+  local source = "local record M\n  n: integer\nend\nlocal m: M = { n = 1 }\nreturn m\n"
+  assert(Fs.write(root .. "/lib/m.tl", source))
+  local send = serving(root)
+  local good = send({ initialize(root), open(root, "lib/m.tl", source) })
+  assert(counts(good) == "0", messages_of(nth(good, 1)))
+  -- The declaration appears on disk beside the source; the document is the same text.
+  assert(Fs.write(root .. "/lib/m.d.tl", declaration))
+  local refused = publications(send({ session_fixture.changed_on_disk(root, "lib/m.d.tl"),
+    change(root, "lib/m.tl", source) }))
+  local told = assert(refused[#refused])
+  assert(told.uri:sub(-9) == "/lib/m.tl" and #told.diagnostics == 1, told.uri .. " " .. tostring(#told.diagnostics))
+  -- It is deleted again; the document is still the same text.
+  assert(Fs.remove(root .. "/lib/m.d.tl"))
+  local cleared = publications(send({ session_fixture.changed_on_disk(root, "lib/m.d.tl"),
+    change(root, "lib/m.tl", source) }))
+  local clear = assert(cleared[#cleared])
+  assert(clear.uri:sub(-9) == "/lib/m.tl" and #clear.diagnostics == 0, clear.uri .. " " .. tostring(#clear.diagnostics))
+end
+
+--- A pair under `testdata/` is a fixture of a test, left out of the program, and its documents are told nothing, though
+--- another pair of the tree is refused.
+local function test_a_pair_under_testdata_is_told_nothing_though_another_pair_is_refused()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.mkdirs(root .. "/testdata"))
+  local declaration = "local record M\n  n: integer\nend\nreturn M\n"
+  local source = "local record M\n  n: integer\nend\nlocal m: M = { n = 1 }\nreturn m\n"
+  for _, dir in ipairs({ "lib", "testdata" }) do
+    assert(Fs.write(root .. "/" .. dir .. "/m.d.tl", declaration))
+    assert(Fs.write(root .. "/" .. dir .. "/m.tl", source))
+  end
+  local ran = served(root, { initialize(root), open(root, "lib/m.tl", source), open(root, "testdata/m.tl", source),
+    open(root, "testdata/m.d.tl", declaration) })
+  assert(#nth(ran, 1) == 1, messages_of(nth(ran, 1)))
+  assert(#nth(ran, 2) == 0, messages_of(nth(ran, 2)))
+  assert(#nth(ran, 3) == 0, messages_of(nth(ran, 3)))
 end
 
 --- Closing a document that stood for its file with another text checks
@@ -319,4 +443,23 @@ local function test_a_document_that_is_no_file_below_the_root_publishes_nothing(
   assert(counts(ran) == "0,0,0,1,1", counts(ran))
   local new = assert(publications(ran)[4])
   assert(new.uri:sub(-14) == "/sub/../new.tl", new.uri)
+end
+
+local function test_the_probe_made_for_a_document_goes_when_the_document_is_closed()
+  local root = project()
+  local checker = check.new(root, function(_: string) end, function(): check.Hinted
+    return { databases = {}, public = {} }
+  end)
+  local document = check.document("file://" .. root .. "/main.tl", "main.tl", "local a = 1\nreturn a\n")
+  check.opened(checker, document)
+  assert(check.probe(checker, document, "local a = 2\nreturn a\n") ~= nil)
+  assert(checker.probed ~= nil)
+  -- The probe of another document stays.
+  local other = check.document("file://" .. root .. "/other.tl", "other.tl", "return 1\n")
+  check.opened(checker, other)
+  check.closed(checker, other)
+  assert(checker.probed ~= nil)
+  check.closed(checker, document)
+  assert(checker.probed == nil)
+  check.close(checker)
 end

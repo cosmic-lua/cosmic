@@ -118,7 +118,7 @@ local function test_typed_keys_carry_a_value_per_request()
 end
 
 local function test_url_for_resolves_a_name_from_the_request()
-  local app, seen = recording()
+  local _, seen = recording()
   local named = Web.app{ routes = { Web.get("/items/:id", function(r: Web.Request): Web.Response
     seen[#seen + 1] = r
     return Web.text("ok")
@@ -126,7 +126,6 @@ local function test_url_for_resolves_a_name_from_the_request()
   Web.test_client(named):get("/items/1")
   local seen_1 = assert(seen[1], "expected seen[1]")
   assert(seen_1:url_for("item", { id = 42 }, { v = "2" }) == "/items/42?v=2")
-  assert(app ~= nil)
 end
 
 local function test_client_info_ignores_forwarded_headers_unless_the_proxy_is_trusted()
@@ -263,19 +262,28 @@ end
 local function test_a_forwarded_client_is_an_address_or_the_peer()
   local app, seen = recording({ trusted_proxy = true })
   local client = Web.test_client(app)
-  -- TODO: give these positional rows a record, as the case lists of cosmic/hash_test.tl have, once #3348 (Shape) merges:
-  -- it moves cosmic/web, which this change leaves alone.
-  local cases: {{string}} = {
-    { "203.0.113.9", "203.0.113.9" }, { "2001:db8::1", "2001:db8::1" }, { "::1", "::1" },
-    { "999.1.1.1", "127.0.0.1" }, { "1.2.3.4.5", "127.0.0.1" }, { "1.2.3", "127.0.0.1" },
-    { "abc", "127.0.0.1" }, { "1.2.3.4:80", "127.0.0.1" }, { "dead:beef", "127.0.0.1" },
-    { ":::", "127.0.0.1" }, { "...", "127.0.0.1" }, { "1:2:3:4:5:6:7:8:9", "127.0.0.1" },
+  local record Forwarded
+    header: string
+    host: string
+  end
+  local cases: {Forwarded} = {
+    { header = "203.0.113.9", host = "203.0.113.9" },
+    { header = "2001:db8::1", host = "2001:db8::1" },
+    { header = "::1", host = "::1" },
+    { header = "999.1.1.1", host = "127.0.0.1" },
+    { header = "1.2.3.4.5", host = "127.0.0.1" },
+    { header = "1.2.3", host = "127.0.0.1" },
+    { header = "abc", host = "127.0.0.1" },
+    { header = "1.2.3.4:80", host = "127.0.0.1" },
+    { header = "dead:beef", host = "127.0.0.1" },
+    { header = ":::", host = "127.0.0.1" },
+    { header = "...", host = "127.0.0.1" },
+    { header = "1:2:3:4:5:6:7:8:9", host = "127.0.0.1" },
   }
   for i, case in ipairs(cases) do
-    local case_1 = assert(case[1], "expected case[1]")
-    client:get("/items/1", { headers = { ["x-forwarded-for"] = case_1 } })
+    client:get("/items/1", { headers = { ["x-forwarded-for"] = case.header } })
     local seen_i = assert(seen[i], "expected seen[i]")
-    assert(assert(seen_i.client).host == case[2], ("%q gave %s"):format(case[1], assert(seen_i.client).host))
+    assert(assert(seen_i.client).host == case.host, ("%q gave %s"):format(case.header, assert(seen_i.client).host))
   end
 end
 

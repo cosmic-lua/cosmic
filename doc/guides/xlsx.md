@@ -4,7 +4,7 @@ An `.xlsx` file is a zip of XML parts: the workbook names its sheets, a
 relationships part says where each one is, a shared strings part holds
 the text of the cells, and each sheet holds its rows. This guide reads one
 with [`cosmic.zip`], [`cosmic.xml`], [`cosmic.url`] and [`cosmic.time`],
-in about 120 lines, dates included, and shows where a fuller
+in about 130 lines, dates included, and shows where a fuller
 reader would go on from there.
 
 ## a workbook to read
@@ -25,13 +25,16 @@ local Zip = require("cosmic.zip")
 local main = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
 local rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 local parts: {{string}} = {
-  { "xl/workbook.xml", "<workbook " .. main .. ' xmlns:r="' .. rel .. '"><sheets>' ..
+  { "_rels/.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' ..
+    '<Relationship Id="rId1" Type="' .. rel .. '/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
+  { "xl/Workbook.xml", "<workbook " .. main .. ' xmlns:r="' .. rel .. '"><sheets>' ..
     '<sheet name="Sales" sheetId="1" r:id="rId1"/></sheets></workbook>' },
   { "xl/_rels/workbook.xml.rels",
     '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' ..
     '<Relationship Id="rId1" Type="' .. rel .. '/worksheet" Target="worksheets/sheet1.xml"/>' ..
     '<Relationship Id="rId2" Type="' .. rel .. '/sharedStrings" Target="sharedStrings.xml"/>' ..
     '<Relationship Id="rId3" Type="' .. rel .. '/styles" Target="styles.xml"/>' ..
+    '<Relationship Id="rId4" Type="' .. rel .. '/hyperlink" Target="https://example.com/" TargetMode="External"/>' ..
     "</Relationships>" },
   { "xl/sharedStrings.xml", "<sst " .. main .. "><si><t>Region</t></si><si><t>Total</t></si>" ..
     "<si><r><t>North</t></r><r><t> East</t></r>" ..
@@ -43,11 +46,11 @@ local parts: {{string}} = {
   { "xl/worksheets/sheet1.xml", "<worksheet " .. main .. "><sheetData>" ..
     '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>' ..
     '<row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2"><v>1250.5</v></c><c r="D2" t="b"><v>1</v></c><c><v>7</v></c></row>' ..
-    '<row r="3"><c r="A3" s="1"><v>45658</v></c><c r="B3" s="2"><v>45658.5</v></c>' ..
-    '<c r="C3" s="1" t="e"><v>#N/A</v></c><c r="D3" s="3"><v>1.5</v></c>' ..
-    '<c r="E3" s="1"><v>1</v></c><c r="F3" s="1"><v>60</v></c><c r="G3" s="2"><v>60.5</v></c>' ..
-    '<c r="H3" s="1"><v>0.5</v></c><c r="I3" s="1"><v>-1</v></c></row>' ..
-    '<row r="4"><c r="A4" t="s"><v>3</v></c><c r="B4"><v>3</v></c></row><row r="5"/>' ..
+    '<row r="4"><c r="A4" s="1"><v>45658</v></c><c r="B4" s="2"><v>45658.5</v></c>' ..
+    '<c r="C4" s="1" t="e"><v>#N/A</v></c><c r="D4" s="3"><v>1.5</v></c>' ..
+    '<c r="E4" s="1"><v>1</v></c><c r="F4" s="1"><v>60</v></c><c r="G4" s="2"><v>60.5</v></c>' ..
+    '<c r="H4" s="1"><v>0.5</v></c><c r="I4" s="1"><v>-1</v></c></row>' ..
+    '<row r="5"><c r="A5" t="s"><v>3</v></c><c r="B5"><v>3</v></c></row><row r="6"/>' ..
     "</sheetData></worksheet>" },
 }
 local out = Stream.collect()
@@ -60,34 +63,47 @@ local book = assert(Zip.open_string(out:result()))
 ## parts and relationships
 
 A part is named by its path from the package's root, `/xl/workbook.xml`,
-and [`Zip.Reader`]'s `entry` opens it by that path less its first `/`.
-Small parts are read whole with [`Xml.tree`].
+and [`Zip.Reader`]'s `entry` opens it by that path less its first `/`,
+whatever its case, as part names match: here the workbook is stored as
+`xl/Workbook.xml`. Small parts are read whole with [`Xml.tree`].
 
 A part's relationships sit beside it, in `_rels/<name>.rels`. Each
 names a target relative to the part, which [`Url.resolve`] resolves as a
-link is followed from a page. They are kept here by id, which a sheet
-names, and by the last word of their type, which is how the shared
-strings part is found.
+link is followed from a page. They are kept here in two maps: by id,
+which a sheet names, and by the last word of their type, which is how
+the workbook and the shared strings part are found. One that says
+`TargetMode="External"` names a URL outside the package, such as a
+hyperlink's, and is left out. The package's own relationships, at
+`/_rels/.rels`, say where the workbook is.
 
 ```teal continue
 local function part(name: string): Xml.Element
-  local entry = assert(book:entry(name:sub(2)))
+  local entry = assert(book:entry(name:sub(2), { ignore_case = true }))
   local text = assert(Stream.read_all((assert(entry:open()))))
   return (assert(Xml.tree(text, { local_names = true })))
 end
 
-local function relationships(name: string): {string: string}
-  local dir, file = name:match("^(.*/)([^/]*)$")
-  local found: mut {string: string} = {}
-  for _, r in ipairs(Xml.children(part(assert(dir) .. "_rels/" .. assert(file) .. ".rels"), "Relationship")) do
-    local target = Url.resolve(name, assert(r.attributes["Target"]))
-    found[assert(r.attributes["Id"])] = target
-    found[assert(assert(r.attributes["Type"]):match("[^/]*$"))] = target
-  end
-  return found
+local record Relationships
+  by_id: {string: string}
+  by_type: {string: string}
 end
 
-local rels = relationships("/xl/workbook.xml")
+local function relationships(name: string): Relationships
+  local dir, file = name:match("^(.*/)([^/]*)$")
+  local by_id: mut {string: string} = {}
+  local by_type: mut {string: string} = {}
+  for _, r in ipairs(Xml.children(part(assert(dir) .. "_rels/" .. assert(file) .. ".rels"), "Relationship")) do
+    if r.attributes["TargetMode"] ~= "External" then
+      local target = Url.resolve(name, assert(r.attributes["Target"]))
+      by_id[assert(r.attributes["Id"])] = target
+      by_type[assert(assert(r.attributes["Type"]):match("[^/]*$"))] = target
+    end
+  end
+  return { by_id = by_id, by_type = by_type }
+end
+
+local workbook_path = assert(relationships("/").by_type["officeDocument"])
+local rels = relationships(workbook_path)
 ```
 
 ## shared strings
@@ -113,7 +129,7 @@ local function string_of(si: Xml.Element): string
 end
 
 local strings: mut {string} = {}
-local shared = rels["sharedStrings"]
+local shared = rels.by_type["sharedStrings"]
 if shared ~= nil then
   for _, si in ipairs(Xml.children(part(shared), "si")) do
     local text = string_of(si)
@@ -148,7 +164,7 @@ Excel shows neither as a date.
 
 ```teal continue
 local date_styles: mut {integer: boolean} = {}
-local styles = rels["styles"]
+local styles = rels.by_type["styles"]
 if styles ~= nil then
   local sheet = part(styles)
   local custom: mut {string: boolean} = {}
@@ -164,7 +180,7 @@ if styles ~= nil then
   end
 end
 
-local workbook = part("/xl/workbook.xml")
+local workbook = part(workbook_path)
 local pr = Xml.child(workbook, "workbookPr")
 local flag = if pr ~= nil then pr.attributes["date1904"] else nil end
 local date1904 = flag == "1" or flag == "true"
@@ -231,19 +247,26 @@ end, from the sheet's body read in chunks. Each row is written as CSV with
 [`Csv.encode`], which quotes a cell that holds a comma, a quote or a line
 break (Alt-Enter puts one in a cell), so the columns stay where they were.
 It ends the record with a line break, which `print` would double, so that
-is taken off. A row with no cells has no line in CSV, and [`Csv.encode`]
-raises for one, so it is left out: the lines printed do not count the
-sheet's rows, which a row's `r` numbers.
+is taken off. An empty row is left out as an empty cell is, so each
+record starts with the row's number, its `r`, and the rows left out
+between, or holding no cells, are records of their number alone. A row
+without an `r` is the one after the row before it, and one numbered at
+or before the row before it is refused, since a sheet's rows ascend.
 
 ```teal continue
 for _, sheet in ipairs(Xml.children(assert(Xml.child(workbook, "sheets")), "sheet")) do
   print(sheet.attributes["name"])
-  local path = assert(rels[assert(sheet.attributes["id"])])
-  local body = assert(assert(book:entry(path:sub(2))):open())
+  local path = assert(rels.by_id[assert(sheet.attributes["id"])])
+  local body = assert(assert(book:entry(path:sub(2), { ignore_case = true })):open())
+  local last = 0
   local p <close> = assert(Xml.parser({ local_names = true }))
   local rows = Xml.subtrees("worksheet/sheetData/row")
   local function show(events: {Xml.Event})
     for _, row in ipairs(rows:take(events)) do
+      local number = math.tointeger(row.attributes["r"] or "") or last + 1
+      assert(number > last, "row " .. tostring(number) .. " follows row " .. tostring(last))
+      for skipped = last + 1, number - 1 do print(tostring(skipped)) end
+      last = number
       local cells: mut {string} = {}
       for _, c in ipairs(Xml.children(row, "c")) do
         local ref = c.attributes["r"]
@@ -252,7 +275,9 @@ for _, sheet in ipairs(Xml.children(assert(Xml.child(workbook, "sheets")), "shee
         local text = value(c)
         cells[#cells + 1] = text
       end
-      if #cells > 0 then print((Csv.encode({ cells }):gsub("\n$", ""))) end
+      local record: mut {string} = { tostring(number) }
+      for _, text in ipairs(cells) do record[#record + 1] = text end
+      print((Csv.encode({ record }):gsub("\n$", "")))
     end
   end
   while true do
@@ -270,11 +295,13 @@ assert(book:close())
 
 ```output
 Sales
-Region,Total
-North East,1250.5,,TRUE,7
-2025-01-01,2025-01-01T12:00:00,#N/A,1.5,1900-01-01,1900-02-29,1900-02-29T12:00:00,12:00:00,-1
-"Fish, ""fresh""
+1,Region,Total
+2,North East,1250.5,,TRUE,7
+3
+4,2025-01-01,2025-01-01T12:00:00,#N/A,1.5,1900-01-01,1900-02-29,1900-02-29T12:00:00,12:00:00,-1
+5,"Fish, ""fresh""
 daily",3
+6
 ```
 
 ## going further
@@ -286,18 +313,6 @@ What this leaves out is the spreadsheet's own business, not the file's:
 - A formula's cell holds an `f` beside the `v` it last computed.
 - A sheet's `mergeCells` and `hyperlinks`, and the workbook's defined
   names, are each a few lines more of the same.
-
-And some of what a reader of any file meets:
-
-- An empty row is left out like an empty cell: a row's `r` is its
-  number, and lines that must match row numbers are filled the same way.
-- The workbook's path is read here as `/xl/workbook.xml`, where most
-  writers put it. The package says where it is: `_rels/.rels` names it,
-  as the relationship whose type ends in `officeDocument`.
-- A part's name matches whatever its case, where an entry's path in a
-  zip does not.
-- A relationship with `TargetMode="External"` names a URL outside the
-  package, such as a hyperlink's, and is never opened as a part.
 
 [`cosmic.time`]: ../../cosmic/time.tl
 [`cosmic.url`]: ../../cosmic/url.tl

@@ -76,9 +76,29 @@ local record protocol
     didChangeWatchedFiles: DynamicRegistration?
   end
 
+  --- What the client does with a completion item: whether it takes a snippet as the text to insert, and which properties of
+  --- an item it asks `completionItem/resolve` for.
+  record ResolveSupport
+    properties: {string}?
+  end
+
+  record CompletionItemCapabilities
+    snippetSupport: boolean?
+    resolveSupport: ResolveSupport?
+  end
+
+  record CompletionCapabilities
+    completionItem: CompletionItemCapabilities?
+  end
+
+  record TextDocumentCapabilities
+    completion: CompletionCapabilities?
+  end
+
   record ClientCapabilities
     general: General?
     workspace: WorkspaceCapabilities?
+    textDocument: TextDocumentCapabilities?
   end
 
   record InitializeParams
@@ -100,11 +120,17 @@ local record protocol
     save: SaveOptions
   end
 
+  record CompletionOptions
+    triggerCharacters: {string}
+    resolveProvider: boolean
+  end
+
   record ServerCapabilities
     positionEncoding: string
     textDocumentSync: SyncOptions
     hoverProvider: boolean
     definitionProvider: boolean
+    completionProvider: CompletionOptions
     documentFormattingProvider?: boolean
   end
 
@@ -146,6 +172,47 @@ local record protocol
   record TextEdit
     range: Range
     newText: string
+  end
+
+  --- What `completionItem/resolve` needs to complete an item again: the document and the place the completion was asked at.
+  record ResolveData
+    uri: string
+    line: integer
+    character: integer
+    --- The SHA-256 of the document's text, which an item is completed again only for.
+    hash: string
+  end
+
+  --- One completion: `kind` is the protocol's CompletionItemKind, and `textEdit` replaces the text typed of the name, as a
+  --- snippet where `insertTextFormat` is 2. `data` is given back at `completionItem/resolve`, which fills in what was left out.
+  record CompletionItem
+    label: string
+    kind: integer
+    detail: string?
+    documentation: MarkupContent?
+    sortText: string?
+    mut textEdit: TextEdit
+    mut insertTextFormat: integer?
+    mut data: ResolveData?
+  end
+
+  --- What `completionItem/resolve` answers: the label of the item and what was left out of it, which the client puts in the
+  --- item it holds. Nothing is left out where the item cannot be completed again.
+  record ResolvedItem
+    label: string
+    detail: string?
+    documentation: MarkupContent?
+  end
+
+  --- The params of `completionItem/resolve`: the item the client holds, of which the label and `data` are read.
+  record ResolveParams
+    label: string
+    data: ResolveData?
+  end
+
+  record CompletionList
+    isIncomplete: boolean
+    items: {CompletionItem}
   end
 
   record ResponseError
@@ -201,6 +268,8 @@ local MAX_BODY <const> = 64 * 1024 * 1024
 local MESSAGE <const>: Shape.Typed<protocol.Message> = Shape.record_of("protocol.Message")
 
 local DOCUMENT_PARAMS <const>: Shape.Typed<protocol.DocumentParams> = Shape.record_of("protocol.DocumentParams")
+
+local RESOLVE_PARAMS <const>: Shape.Typed<protocol.ResolveParams> = Shape.record_of("protocol.ResolveParams")
 
 local INITIALIZE_PARAMS <const>: Shape.Typed<protocol.InitializeParams> = Shape.record_of("protocol.InitializeParams")
 
@@ -440,6 +509,11 @@ end
 --- The params of a `textDocument/` method, or nil and why they do not fit.
 function protocol.document_params(params: any): protocol.DocumentParams?, string
   return DOCUMENT_PARAMS:into(params)
+end
+
+--- The params of `completionItem/resolve`, or nil and why they do not fit.
+function protocol.resolve_params(params: any): protocol.ResolveParams?, string
+  return RESOLVE_PARAMS:into(params)
 end
 
 --- The params of `initialize`, or nil and why they do not fit.

@@ -200,7 +200,7 @@ local record Pipeline
   --- Reads the sources `fresh` ([`build.derivation`]'s `fresh`) as written, and writes the rows of each ([`build.syntax_derivation`])
   --- into `db` beside the others. A source that does not parse is listed in `broken` when given and stops the derive
   --- otherwise, told in the words of the new checker ([`build.error_render`]).
-  derive: function(db: Sqlite.Handle, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
+  derive: function(db: Sqlite.Handle, own: boolean, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
                    made: {Derivation.Source}, broken?: {Derivation.Broken}): boolean, string
 
   --- Writes a row for every code the new checker emits to the `catalog` table of `db` (of the schema `schema`, "" for the
@@ -334,7 +334,7 @@ end
 
 --- What `inputs` of `db` stages for the new checker: the files and their text (the tree's own, and what is written from it),
 --- and the kind of each ([`Pipeline.over`]).
-local function entries_of(db: Sqlite.Handle): {{string}}?, {string: string}, string
+local function entries_of(db: Sqlite.Handle, own: boolean): {{string}}?, {string: string}, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT file, path, kind, origin, source FROM inputs WHERE kind <> 'vendor' ORDER BY file")
   if rows == nil then
@@ -357,15 +357,15 @@ local function entries_of(db: Sqlite.Handle): {{string}}?, {string: string}, str
       kinds[file] = kind
     end
   end
-  local paired = TreeProgram.paired(entries)
-  if paired ~= "" then
-    return nil, {}, paired
+  local refused = TreeProgram.declared(entries, own)
+  if refused ~= "" then
+    return nil, {}, refused
   end
   return entries, kinds, ""
 end
 
 function Pipeline.build(db: Sqlite.Handle, options: Pipeline.Options): Pipeline.Built?, string
-  local entries, kinds, trouble = entries_of(db)
+  local entries, kinds, trouble = entries_of(db, options.project ~= true)
   if entries == nil then
     return nil, trouble
   end
@@ -384,6 +384,17 @@ local record Reader
   requires: function(name: string): {string}
 end
 
+--- What this module requires for a type alone (`local type`), which `requires` records though none of it runs here, and
+--- why the identity of the code that reads ([`Pipeline.coded`]) leaves it out. Only this module's own require is left
+--- out: one that another module of the walk requires is in it. Every key `coded` names but a parse's holds each of these
+--- through the compiler's identity ([`build.identity`]'s `compiler_roots`), and a parse's holds the analyzer's modules
+--- by source ([`build.importer`]'s `analyzer_identity`).
+local type_only <const>: {string:string} = {
+  ["build.plans"] = "the `Module` and `Generated` types of what a compile plans and keeps; build.importer runs the plan",
+  ["build.derivation"] = "the types of what a parse is handed and tallies (`Fresh`, `Parses`, `Source`); it runs the " ..
+    "parse, and is a root of the analyzer's identity",
+}
+
 --- The identity of the code that reads and checks in the new mode ([`Pipeline.coded`]), over the modules `reader` answers for.
 local function identity(reader: Reader): string
   local parts: mut {string} = {}
@@ -398,7 +409,9 @@ local function identity(reader: Reader): string
         parts[#parts + 1] = name .. "\n" .. source
       end
       for _, next_name in ipairs(reader.requires(name)) do
-        stack[#stack + 1] = next_name
+        if name ~= "build.pipeline" or type_only[next_name] == nil then
+          stack[#stack + 1] = next_name
+        end
       end
     end
   end
@@ -517,9 +530,9 @@ local function restore_collector(previous: string)
   end
 end
 
-function Pipeline.derive(db: Sqlite.Handle, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
+function Pipeline.derive(db: Sqlite.Handle, own: boolean, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
                          made: mut {Derivation.Source}, broken?: mut {Derivation.Broken}): boolean, string
-  local entries, kinds, trouble = entries_of(db)
+  local entries, kinds, trouble = entries_of(db, own)
   if entries == nil then
     return false, trouble
   end
@@ -639,22 +652,12 @@ local function stub_trouble(m: Module, built: Pipeline.Built, result: Driver.Out
   return ""
 end
 
---- The name the build holds the module `m` under: its own, or where a declaration file is written for the module too, the one
---- its implementation is held under ([`Driver.implementation`]).
-local function built_name(m: Module, built: Pipeline.Built): string
-  local implementation = Driver.implementation(m.path)
-  if built.index.by_module[implementation] ~= nil then
-    return implementation
-  end
-  return m.path
-end
-
 --- [`Pipeline.generate`]'s work. With `kept` the build is one the caller keeps across modules ([`Pipeline.review`]): the
 --- calls of [`Shape.record_of`] are resolved already, and the module is checked and not written as bytecode.
 local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, judged?: boolean, hints?: ErrorRender.Hints,
                             kept?: boolean): Plans.Generated?, string
   local build = built.build
-  local named = built_name(m, built)
+  local named = m.path
   if kept ~= true then
     if build:retired(named) then
       return nil, m.file .. ": this build has written the module already: a build writes each module once"
@@ -759,7 +762,8 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
   result.types = {}
   result.callees = {}
   if kept == true then
-    return { lua = code, bytecode = "", references = references, refused = refused }, ""
+    return { lua = code, bytecode = "", references = references, refused = refused,
+      fact_wraps = emitted.fact_wraps or 0, parameter_checks = emitted.parameter_checks or 0 }, ""
   end
   if m.kind == "test" then
     code = LuaTail.with_test_tail(code, m.tests)
@@ -768,7 +772,8 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
   if bytecode == nil then
     return nil, dump_trouble
   end
-  return { lua = code, bytecode = bytecode, references = references, refused = refused }, ""
+  return { lua = code, bytecode = bytecode, references = references, refused = refused,
+    fact_wraps = emitted.fact_wraps or 0, parameter_checks = emitted.parameter_checks or 0 }, ""
 end
 
 --- How many modules [`Pipeline.generate`] has written, for the probe's marks ([`Memprobe.mark`]).
@@ -788,7 +793,7 @@ function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, ju
     collectgarbage("generational")
   end
   local made, why = generated_of(m, built, facts, judged, hints)
-  built.build:retire(built_name(m, built))
+  built.build:retire(m.path)
   written.modules = written.modules + 1
   if written.modules % 100 == 0 then
     Memprobe.mark(("pipeline: wrote %d"):format(written.modules))

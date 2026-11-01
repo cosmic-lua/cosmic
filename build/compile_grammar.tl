@@ -104,6 +104,10 @@ local record compile_grammar
     --- Why the generator wrote no Lua for a module that was checked: its refusals, one to a line, the first
     --- 20 and how many more there are. "" where it wrote some.
     trouble: string
+    --- How many reads of a narrowed place and how many typed parameters the Lua checks: what `facts` asked the
+    --- generator to write. 0 without `facts`, and unset where there is no Lua.
+    fact_wraps?: integer
+    parameter_checks?: integer
   end
 
   --- The module the file `relative` (its path below the root) is.
@@ -222,9 +226,12 @@ function compile_grammar.emit(build: Driver.Build, result: Driver.Outcome, facts
   local kinds, refusals = type_facts(build.program, result, lowered, counted)
   local wraps: {integer: string}? = nil
   local boundary_checks: {integer: string}? = nil
+  local wrap_count, check_count = 0, 0
   if facts == true then
     wraps = FactWraps.of(checked.narrowed, result.text, result.source.filename, result.chunk)
     boundary_checks = BoundaryChecks.of(checked.boundaries, result.text, result.source.filename)
+    for _ in pairs(wraps) do wrap_count = wrap_count + 1 end
+    for _ in pairs(boundary_checks) do check_count = check_count + 1 end
   end
   local generated = Codegen.generate(result.chunk, result.scoped, result.never_false, classes, Check.enums(lowered), wraps, kinds,
     served == true, boundary_checks)
@@ -236,7 +243,7 @@ function compile_grammar.emit(build: Driver.Build, result: Driver.Outcome, facts
     lines[#lines + 1] = line
   end
   if #lines == 0 then
-    return { code = generated.text, trouble = "" }
+    return { code = generated.text, trouble = "", fact_wraps = wrap_count, parameter_checks = check_count }
   elseif #lines > REPORTED then
     local more = #lines - REPORTED
     return { code = nil, trouble = table.concat(lines, "\n", 1, REPORTED) .. "\n... and " .. tostring(more) .. " more" }
@@ -277,12 +284,14 @@ function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: bool
   local names: mut {string} = {}
   local by_module: mut {string: Driver.Source} = {}
   local provided: mut {string: boolean} = {}
-  -- The modules a declaration is given for: a source of the same name is their implementation, as in a build
-  -- ([`Driver.implementation`]), and a require reads the declaration.
-  local declared: mut {string: boolean} = {}
+  -- A declaration beside a source of its module is refused by the caller that reads the command line ([`build.compile`]); one
+  -- given here is a mistake of the caller, which would otherwise have the later file silently answer for both.
+  local entries: mut {{string}} = {}
   for _, source in ipairs(sources) do
-    if source.declaration then declared[Declarations.module_of(source.relative)] = true end
+    entries[#entries + 1] = { source.relative, source.text }
   end
+  local paired = Driver.declared(entries, function(_path: string): boolean return false end, true)
+  assert(paired == "", paired)
   for index, source in ipairs(sources) do
     local module = Declarations.module_of(source.relative)
     provided[module] = true
@@ -291,7 +300,6 @@ function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: bool
       made = Driver.declarations(module, source.relative, source.text, {})
       globals[#globals + 1] = made
     else
-      if declared[module] == true then module = Driver.implementation(module) end
       made = Driver.source(module, source.relative, source.text, "tl")
     end
     given[index] = made

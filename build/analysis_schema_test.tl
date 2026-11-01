@@ -72,6 +72,14 @@ local function test_a_declaration_is_a_binding_only_given_the_line_on_a_line_of_
     { path = "b/crlf_after.d.tl", text = "--- @kind binding \r\nlocal record R end\r\n", kind = "decl" },
     -- Only a declaration claims it, and a declaration that is a test's still does.
     { path = "b/helper_test.d.tl", text = "--- @kind binding\nlocal record R end\n", kind = "binding" },
+    -- The language's own declarations say so as a binding does: a line of the opening doc block, of its own.
+    { path = "b/language.d.tl", text = "--- @kind language\ndo\nend\n", kind = "language" },
+    { path = "b/language_after_note.d.tl", text = "-- The prelude.\n--- @kind language\ndo\nend\n", kind = "language" },
+    { path = "b/language_crlf.d.tl", text = "--- @kind language\r\ndo\r\nend\r\n", kind = "language" },
+    { path = "b/language_late.d.tl", text = "do\nend\n--- @kind language\n", kind = "decl" },
+    { path = "b/language_trailing.d.tl", text = "--- @kind language \ndo\nend\n", kind = "decl" },
+    { path = "b/language_module.tl", text = "--- @kind language\nreturn 1\n", kind = "module" },
+    { path = "b/unknown_kind.d.tl", text = "--- @kind module\nlocal record R end\n", kind = "decl" },
   }
   local db = assert(Sqlite.memory())
   assert(Sqlite.run(db, "CREATE TABLE files (path TEXT PRIMARY KEY, sha256 TEXT, data BLOB) WITHOUT ROWID"))
@@ -87,8 +95,19 @@ local function test_a_declaration_is_a_binding_only_given_the_line_on_a_line_of_
     local path, text, wanted = case.path, case.text, case.kind
     assert(said[path] == wanted, path .. ": the view says " .. tostring(said[path]) .. ", wanted " .. wanted)
     assert(analysis_schema.kind_of(path, text) == wanted, path .. ": Teal says " .. analysis_schema.kind_of(path, text))
-    assert(analysis_schema.is_declaration(wanted) == (wanted == "decl" or wanted == "binding"))
+    assert(analysis_schema.is_declaration(wanted) == (wanted == "decl" or wanted == "binding" or wanted == "language"))
   end
+end
+
+--- The kinds a declaration may name itself by are listed once: the tags the docs leave out, the files the language's kind is
+--- allowed for, and the lines a generator and a file are written with.
+local function test_the_kinds_a_declaration_may_name_are_one_list(_: string)
+  assert(analysis_schema.binding_tag() == "--- @kind binding" and analysis_schema.language_tag() == "--- @kind language")
+  assert(table.concat(analysis_schema.kind_tags(), "|") == "--- @kind binding|--- @kind language")
+  assert(analysis_schema.declares_language("--- @kind language\n") and not analysis_schema.declares_language("--- @kind binding\n"))
+  assert(analysis_schema.declares_binding("--- @kind binding\n") and not analysis_schema.declares_binding("--- @kind language\n"))
+  assert(analysis_schema.is_language_file("lang/prelude.d.tl") and analysis_schema.is_language_file("lang/stdlib.d.tl"))
+  assert(not analysis_schema.is_language_file("lang/other.d.tl") and not analysis_schema.is_language_file("x/lang/stdlib.d.tl"))
 end
 
 --- Only a main of `cmd/<name>/` is a main: not one a directory deeper, nor `cmd/main.tl`.
@@ -108,7 +127,7 @@ local function test_the_declaration_predicate_selects_what_the_comparisons_did(_
   local db = assert(Sqlite.memory())
   assert(Sqlite.run(db, "CREATE TABLE files (path TEXT PRIMARY KEY, sha256 TEXT, data BLOB) WITHOUT ROWID"))
   for _, statement in ipairs(analysis_schema.statements) do assert(Sqlite.run(db, statement)) end
-  local kinds = { "decl", "module", "main", "test", "example", "vendor", "binding", "" }
+  local kinds = { "decl", "module", "main", "test", "example", "vendor", "binding", "language", "" }
   for index, kind in ipairs(kinds) do
     assert(Sqlite.run(db, "INSERT INTO derived (file, path, kind, origin, from_hash, source, source_hash) " ..
         "VALUES (?1, ?2, ?3, 'fixture', 'h', '', 'h')", { { text = "f" .. tostring(index) }, { text = "m" .. tostring(index) },
@@ -121,12 +140,12 @@ local function test_the_declaration_predicate_selects_what_the_comparisons_did(_
     return table.concat(out, " ")
   end
   -- A binding is a declaration; nothing else is added to what `kind = 'decl'` selected.
-  assert(selected(analysis_schema.declaration("kind")) == selected("kind IN ('decl', 'binding')"))
-  assert(selected(analysis_schema.not_declaration("kind")) == selected("kind NOT IN ('decl', 'binding')"))
+  assert(selected(analysis_schema.declaration("kind")) == selected("kind IN ('decl', 'binding', 'language')"))
+  assert(selected(analysis_schema.not_declaration("kind")) == selected("kind NOT IN ('decl', 'binding', 'language')"))
   assert(selected(analysis_schema.not_declaration("kind") .. " AND kind <> 'vendor'") ==
-      selected("kind NOT IN ('decl', 'binding', 'vendor')"))
+      selected("kind NOT IN ('decl', 'binding', 'language', 'vendor')"))
   for _, kind in ipairs(kinds) do
-    assert(analysis_schema.is_declaration(kind) == (kind == "decl" or kind == "binding"), kind)
+    assert(analysis_schema.is_declaration(kind) == (kind == "decl" or kind == "binding" or kind == "language"), kind)
   end
 end
 
