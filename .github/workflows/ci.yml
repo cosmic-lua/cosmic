@@ -2092,7 +2092,12 @@
         # The leg's host, under a name of its own: what a test is keyed by
         # holds the same COSMIC_HOST_ID as linux-x86_64's, and its verdict
         # cache is named apart from that leg's and the checked suite's
-        # (the hash is followed by 16 hex digits, which `n` is not).
+        # (the name is followed by 16 hex digits, which `n` is not).
+        # The cache's name holds the runner's CPU features too, and the
+        # merging job names the entry it saves with its own runner's.
+        # TODO: name the narrowing cache without the runner's features, or
+        # look rows up under other runners' features, once the census of the
+        # first runs (`--census`) shows how often the pool's runners differ.
         {
           name: "name the leg's host",
           id: "host-id",
@@ -2421,7 +2426,9 @@
           },
         },
         # The verdicts the shares kept, one artifact each, each in a
-        # directory of its own, merged into an empty cache.
+        # directory of its own, merged into an empty cache. A download
+        # that matches one artifact alone extracts into `path` itself, so
+        # that directory is merged too.
         {
           name: "download the verdicts the shares kept",
           id: "shares-download",
@@ -2450,7 +2457,7 @@
         {
           name: "take the verdicts the shares kept",
           id: "verdicts-shares",
-          run: "for share in \"${{ runner.temp }}\"/verdicts-shares/*/; do cosmic-driver cosmic_ci/driver.tl verdicts-merge \"$share\" || exit 1; done",
+          run: "for share in \"${{ runner.temp }}\"/verdicts-shares/*/ \"${{ runner.temp }}\"/verdicts-shares; do cosmic-driver cosmic_ci/driver.tl verdicts-merge \"$share\" || exit 1; done",
         },
         # Where a share failed (this job runs then only where it saves,
         # the nightly and main's push) the run is red: the cache is the

@@ -2495,7 +2495,8 @@ local function test_the_narrowing_merge_saves_the_verdicts_the_shares_kept()
       download["continue-on-error"] == true,
     "the narrowing merge downloads the shares' verdicts otherwise")
   local merge = step_at(steps, at, "verdicts-shares")
-  assert(merge.run == "for share in \"${{ runner.temp }}\"/verdicts-shares/*/; do " ..
+  -- Also the directory itself: a download of one artifact extracts into it.
+  assert(merge.run == "for share in \"${{ runner.temp }}\"/verdicts-shares/*/ \"${{ runner.temp }}\"/verdicts-shares; do " ..
       "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"$share\" || exit 1; done" and
       merge["continue-on-error"] == nil, "the narrowing merge merges the shares otherwise: " .. tostring(merge.run))
   local failing, failing_at = step_named(steps, "fail where a share failed")
