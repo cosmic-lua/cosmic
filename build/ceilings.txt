@@ -4084,9 +4084,7 @@ cosmic/web/testing_test.tl close_not_closable 1
 doc/guides/quickstart.md close_not_closable 1
 
 
-test/sqlite_query_test.tl close_not_closable 1
 
-test/sqlite_row_test.tl close_not_closable 1
 
 # a condition that is a string, a number, a table or a `boolean?`: the rewrite writes the test (`s ~= ""`, `x ==
 # true`)
