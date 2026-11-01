@@ -1621,7 +1621,9 @@ end
 --- What a handle holds so that dropping it unsettled still ends its child: the
 --- handle is a class, which has no finalizer of its own.
 local record Reaper
-  handle: Handle
+  mut handle?: Handle
+  --- Whether a handle holds it; one made before the child that is not yet has nothing to end.
+  mut armed: boolean
 end
 
 local class Handle
@@ -1825,6 +1827,7 @@ end
 local reaper_mt: metatable<Reaper> = {
   __gc = function(self: Reaper)
     local h = self.handle
+    if h == nil or not self.armed then return end
     closing_outputs(h)
     if not h._closed then local _, _ = end_or_kill(h) end
     end_streamed(h)
@@ -1833,7 +1836,7 @@ local reaper_mt: metatable<Reaper> = {
 
 --- A handle for `pid`, owning it until it settles.
 local function make_handle(pid: integer, process_group: boolean, limit: integer,
-                           deadline: integer?): Handle
+                           deadline: integer?, reaper: Reaper): Handle
   local h: Handle = {
     pid = pid, process_group = process_group, _closed = false, _exit_fd = -1, _limit = limit,
     _explicit_close = false, _drain_next = 1, _deadline = deadline, _relay_gone = false,
@@ -1841,9 +1844,13 @@ local function make_handle(pid: integer, process_group: boolean, limit: integer,
     _streams = nil, _input_fd = nil, _input = nil, _input_at = nil, _tmp = nil, _relay = nil, _reaper = nil,
     _handover = nil, _seatbelt = nil,
   }
-  h._reaper = setmetatable({ handle = h }, reaper_mt)
+  -- `reaper` was made before the child was, so that nothing here but the handle's own table and
+  -- the `owned` entry allocates after the spawn; attaching it sets fields that already exist.
+  reaper.handle = h
+  reaper.armed = true
+  h._reaper = reaper
   -- Owned only once the reaper is attached, so the finalizer covers the child from then; a
-  -- failure between the two leaves an unowned child with a finalizer, which waitpid still reaps.
+  -- failure before that leaves an unowned child, which waitpid still reaps.
   owned[pid] = true
   return h
 end
@@ -3939,6 +3946,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
   -- The pty's path is the terminal where stdin is on it.
   local terminal: boolean | string = false
   if pty ~= nil and pty.streams[0] == true then terminal = pty.name or true end
+  local reaper: Reaper = setmetatable({ armed = false }, reaper_mt)
   local called, pid, trouble, errno = pcall(raw.spawn, path, run_argv, env, cwd,
     slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials, terminal)
   if not called then
@@ -3985,7 +3993,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
   local deadline: integer?
   local timeout = opts.timeout_ns
   if timeout ~= nil then deadline = now() + timeout end
-  local h = make_handle(pid, grouped, opts.capture_limit or DEFAULT_CAPTURE_LIMIT, deadline)
+  local h = make_handle(pid, grouped, opts.capture_limit or DEFAULT_CAPTURE_LIMIT, deadline, reaper)
   if held ~= nil and held.tmp ~= "" then h._tmp = held.tmp end
   if held ~= nil and held.seatbelt == true then h._seatbelt = held.sandbox.seatbelt end
   if #wiring.streams > 0 then h._streams = wiring.streams end

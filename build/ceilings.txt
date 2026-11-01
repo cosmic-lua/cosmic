@@ -3963,7 +3963,6 @@ build/cache_lifetime.tl close_not_closable 1
 
 build/cache_maintenance.tl close_not_closable 8
 
-
 build/dataset_test.tl close_not_closable 1
 
 build/fetch_tool_test.tl close_not_closable 2
@@ -3976,16 +3975,11 @@ build/rebuild_lock.tl close_not_closable 1
 
 build/rebuild_lock_test.tl close_not_closable 1
 
-
 build/term_relay.tl close_not_closable 2
 
 build/test.tl close_not_closable 1
 
-
-
-
 build/udp_fixture_test.tl close_not_closable 4
-
 
 core/allocation_test.tl close_not_closable 12
 
@@ -3993,19 +3987,11 @@ core/grants_child_test.tl close_not_closable 1
 
 core/lookup_test.tl close_not_closable 2
 
-
-
 cosmic/child.tl close_not_closable 3
-
-
-
-
-
 
 cosmic/declared_types_test.tl close_not_closable 1
 
 cosmic/fs.tl close_not_closable 1
-
 
 cosmic/fs_example.tl close_not_closable 1
 
@@ -4028,8 +4014,6 @@ cosmic/http_timeout_test.tl close_not_closable 3
 cosmic/http_tool_test.tl close_not_closable 4
 
 cosmic/internal/connector.tl close_not_closable 1
-
-
 
 cosmic/net.tl close_not_closable 1
 
@@ -4064,7 +4048,6 @@ cosmic/web/sse.tl close_not_closable 1
 cosmic/web/testing.tl close_not_closable 1
 
 cosmic/web/testing_test.tl close_not_closable 1
-
 
 
 test/sqlite_query_test.tl close_not_closable 1
@@ -6845,7 +6828,6 @@ cosmic/removed_example.tl setmetatable_call 1
 # directory, a response) as classes, and write the metatable of the two examples that build one by hand
 # as a class, once the library's handles are classes (a change of its own, library by library): the new checker refuses
 # `<close>` on a record and a call of `setmetatable`.
-
 cosmic/fs_example.tl close_not_closable 1
 
 cosmic/http/server_example.tl close_not_closable 1
@@ -6866,7 +6848,6 @@ cosmic/removed_example.tl literal_missing 1
 cosmic/removed_example.tl setmetatable_call 1
 
 cosmic/sqlite_example.tl close_not_closable 1
-
 
 # TODO: write the JSON documents these examples encode and send as literals, once the new checker takes a literal of mixed
 # values where a JSON value is wanted: a recursive alias (`string | number | boolean | {Value} | {string: Value}`) is
