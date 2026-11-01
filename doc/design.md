@@ -400,6 +400,11 @@ input to the build, never to the runtime. one database holds:
   which types it the same in a fraction of the time and loads fewer
   modules; cosmic's own build refuses a stub whose type differs from
   its source's.
+- **places**: the tool's alone, where each standard-library module
+  declares its types and their members, by dotted symbol, as lines and
+  columns of the source `modules` holds (build/syntax_places.tl). `cosmic
+  lsp` answers a go to definition of a `cosmic.*` symbol in a project from
+  it, with the module's text written below the build directory.
 - **docs**: one row per symbol a module declares at its top level --
   the module itself, each function, each record, enum or alias and
   every field and value under it, and each documented value -- with

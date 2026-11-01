@@ -89,6 +89,24 @@ local tables: {Definition} = {
   { name = "stubs", body = [[(path TEXT PRIMARY KEY,
                 source BLOB NOT NULL) WITHOUT ROWID]] },
 
+  -- Where each standard-library module declares its types and their
+  -- members ([`build.syntax_places`]), in the module's source as `modules`
+  -- holds it: the working database's `places` of that source, by module.
+  -- What `cosmic lsp` answers a go to definition of a symbol of the
+  -- binary's own `cosmic.*` modules from, in a project, where the working
+  -- database holds no such module ([`build.lsp.source`]'s
+  -- `places`). `line` and `column` count from 1, `length` in
+  -- bytes. Only cosmic's own projection and the tool fill it; a program
+  -- has no editor to answer.
+  { name = "places", body = [[(module TEXT NOT NULL,
+                  ordinal INTEGER NOT NULL,
+                  symbol TEXT NOT NULL,
+                  kind TEXT NOT NULL,
+                  line INTEGER NOT NULL,
+                  column INTEGER NOT NULL,
+                  length INTEGER NOT NULL,
+                  PRIMARY KEY (module, ordinal)) WITHOUT ROWID]] },
+
   -- A project's static assets ([`Layout.static`]), one row per
   -- file under `static/`: `path` relative to it ("css/app.css"), the
   -- bytes, their lowercase hex SHA-256, the Content-Type

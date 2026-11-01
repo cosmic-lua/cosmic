@@ -11,24 +11,28 @@
 --- - A name that is declared where it stands (a binding, the name in a `function R.f`): itself.
 ---
 --- Nothing is answered for a place the report does not know: a global the standard library declares, a name the
---- checker left unresolved, a module the working database does not list (the binary's own `cosmic.*` modules in a
---- project), a template, a text that does not parse, a document that requires a module the build refuses (a cycle of
---- imports, a module the project does not have), and a type declared inside a function.
+--- checker left unresolved, a module the working database does not list and the binary carries no places of (a
+--- `cosmic.*` module generated from another file, as [`cosmic.sys`] is), a template, a text that does not parse, a document
+--- that requires a module the build refuses (a cycle of imports, a module the project does not have), and a type declared
+--- inside a function.
 ---
 --- A place in another module is looked up by its symbol in the `places` the stage derived of the module's file
 --- ([`source.places`]), and put in the module's text as it is written: the checker is served the
 --- module as a stub, whose positions are not the file's. Only an open document that differs from the staged file is
 --- parsed. A module generated from another file (the syscall modules, from `core/*.h`) is answered in that file, at the
---- line its `-- line` map gives. A place in the document is found in the text the checker read, which a build rewrites (the `splices` of
+--- line its `-- line` map gives. A symbol of the binary's own `cosmic.*` modules, which a project's working database does
+--- not list, is looked up in the places the tool carries ([`source.places`]), and its location is a file the tool writes
+--- below the build directory with the module's text ([`source.extracted`]), the binary having no source tree to point at.
+--- A place in the document is found in the text the checker read, which a build rewrites (the `splices` of
 --- [`check.Reading`]), and put back in the document's own text.
-
--- TODO: answer a symbol of the binary's own `cosmic.*` modules, once the checker is served the positions of their sources: it
--- reads their declarations alone, so in a project the working database has no text or `places` for them
--- ([`source.places`]) and the answer is none.
 
 -- TODO: answer a field of a type declared inside a function body, once the lowering names such a type by something that tells
 -- it from another of the same name in the module: the declarations are found by their names at the top of the module and in
 -- its `do` blocks, where the name is the type's alone ([`build.syntax_places`]).
+
+-- TODO: answer a symbol of the binary's own modules generated from another file ([`cosmic.sys`],
+-- [`cosmic.internal.process`]) in a project, once the tool carries the header their `-- line` map names (`core/*.h`) with
+-- their places: its `places` hold none ([`source.places`]).
 
 -- TODO: answer the value of an enum that a string literal stands for, once the type report keeps the enum a literal was read
 -- as: the report types the literal `"w"` as the string, and the enum's values are found only by a member access.
@@ -114,9 +118,16 @@ local function place_of(request: Request, module: string, symbol: string): Site?
   local starts = lines.checker_starts(placed.text)
   local start = starts[spot.line]
   if start == nil then return nil end
-  local uri = protocol.uri_of(checker.root .. "/" .. placed.file)
-  local opened = checker.open[placed.file]
-  if opened ~= nil then uri = opened.uri end
+  local uri: string
+  if placed.carried ~= nil then
+    local extracted = source.extracted(checker.source, placed)
+    if extracted == nil then return nil end
+    uri = protocol.uri_of(extracted)
+  else
+    uri = protocol.uri_of(checker.root .. "/" .. placed.file)
+    local opened = checker.open[placed.file]
+    if opened ~= nil then uri = opened.uri end
+  end
   return { place = { module = module, original = placed.text, splices = {}, uri = uri },
     offset = start + spot.column - 1, length = spot.length }
 end

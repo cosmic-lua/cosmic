@@ -1041,3 +1041,62 @@ local function test_a_broken_buffer_that_is_fixed_is_derived_whole()
   assert(rows_of(scratch, "places", Hash.hex_sha256(broken)) == 0)
   source.close(src)
 end
+
+local THING <const> = "--- A thing.\nlocal record thing\n  size: integer\nend\nfunction thing.make()\nend\nreturn thing\n"
+
+--- A database as the tool carries one, holding the module `cosmic.thing` and its places, a module with none, and the
+--- module [`cosmic.sys`] of a tool whose generated module has none.
+local function carrying(): Sqlite.Handle
+  local db = session_fixture.carrying("cosmic.thing", "cosmic/thing.tl", THING, {
+    { "thing", "type", "2", "14", "5" }, { "thing.size", "field", "3", "3", "4" }, { "thing.make", "field", "5", "16", "4" },
+  })
+  assert(db:exec("INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
+      "VALUES ('cosmic.bare', 'cosmic/bare.tl', 'module', CAST('ab' AS BLOB), x'00', x'00', '', deflate('return 1'))"))
+  return db
+end
+
+--- The places of a module of the binary are read from the `places` and the `modules` of the database the tool carries, in
+--- the text it carries; a name that is no module of the standard library, a module with no places, and a database that
+--- lacks the table (a tool from before it) have none.
+local function test_the_places_of_a_binary_module_are_read_from_the_database_the_tool_carries()
+  local db = carrying()
+  local src = source.new(project(), function(_: string) end, nil, { db })
+  local placed = assert(source.places(src, "cosmic.thing", none_open))
+  assert(placed.file == "cosmic/thing.tl" and placed.text == THING, placed.text)
+  assert(placed.carried == Hash.hex_sha256(THING), tostring(placed.carried))
+  local size = assert(placed.spots["thing.size"])
+  assert(size.line == 3 and size.column == 3 and size.length == 4)
+  assert(assert(placed.spots["thing"]).column == 14 and placed.spots["thing.none"] == nil)
+  assert(source.places(src, "cosmic.missing", none_open) == nil, "a module the database lacks")
+  assert(source.places(src, "cosmic.bare", none_open) == nil, "a module with no places")
+  assert(source.places(src, "lib.thing", none_open) == nil, "a name outside the standard library")
+  assert(db:exec("DROP TABLE places"))
+  assert(source.places(src, "cosmic.thing", none_open) == nil, "a tool with no places table")
+  assert(db:exec("DROP TABLE modules"))
+  assert(source.places(src, "cosmic.thing", none_open) == nil, "a database with no modules table")
+  assert(source.places(source.new(project(), function(_: string) end, nil, {}), "cosmic.thing", none_open) == nil,
+    "no database")
+  assert(db:close())
+end
+
+--- In a project, which the working database lists no `cosmic.*` module of, the places of a module of the binary are the
+--- tool's own and are put in a read-only file below the build directory, once for a text and named for it. A module the
+--- tool carries no places of has none.
+local function test_a_binary_module_of_a_project_is_placed_in_a_file_the_build_directory_owns()
+  local root = project()
+  local db = carrying()
+  local src = source.new(root, function(_: string) end, nil, { db })
+  source.refresh(src)
+  local placed = assert(source.places(src, "cosmic.thing", none_open))
+  assert(assert(placed.spots["thing.make"]).line == 5 and placed.file == "cosmic/thing.tl")
+  local directory = build_paths.under((assert(build_paths.directory(root)))).cosmic_source
+  local path = assert(source.extracted(src, placed))
+  assert(path == directory .. "/" .. Hash.hex_sha256(THING) .. "/cosmic/thing.tl", path)
+  assert(Fs.read(path) == THING)
+  assert(assert(Fs.stat(path)).mode & 0x1ff == 0x124, "the file is read-only")
+  assert(source.extracted(src, placed) == path, "a second ask names the same file")
+  assert(source.places(src, "cosmic.sys", none_open) == nil)
+  assert(source.places(src, "cosmic.bare", none_open) == nil)
+  source.close(src)
+  assert(db:close())
+end
