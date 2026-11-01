@@ -187,6 +187,37 @@ function Fixture.copy(from: string, to: string, mode?: integer)
   Fixture.write(to, Fixture.read(from), mode)
 end
 
+--- Copies a whole directory tree to `to`, which must not exist yet, or
+--- raises naming `label`.
+function Fixture.copy_tree(label: string, from: string, to: string)
+  local copied, trouble = Fs.copy_tree(from, to)
+  assert(copied, label .. ": " .. trouble)
+end
+
+--- The prefix length the runtime fixture in `fixture_dir` recorded. It
+--- rejects the whole value if it is anything but digits (and trailing
+--- newlines): a loose `%d+` search would silently accept and truncate a
+--- malformed value, such as one with extra trailing text.
+function Fixture.read_prefix_length(fixture_dir: string): integer
+  local text = Fixture.read(fixture_dir .. "/runtime.old.prefix-length")
+  local digits = text:match("^(%d+)\n*$")
+  return (assert(digits and math.tointeger(tonumber(digits)),
+    "invalid prefix length: " .. text))
+end
+
+--- How many times `needle` occurs in `text`, without overlapping.
+function Fixture.count_occurrences(text: string, needle: string): integer
+  local count = 0
+  local at = 1
+  while true do
+    local from = text:find(needle, at, true)
+    if from == nil then break end
+    count = count + 1
+    at = from + #needle
+  end
+  return count
+end
+
 --- Unpacks the tar at `tar` into `destination`, which must not exist
 --- yet, and answers it: a copy the fixture may write in, of files the
 --- runtime setup packed (cosmic_ci/runtime_setup.tl's `pack`).

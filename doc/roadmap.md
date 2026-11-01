@@ -41,8 +41,6 @@ defines the target; once something ships, it leaves this file.
   in the declarations that say so ([`lang/stdlib.d.tl`]), and let a declaration of the
   program's own say it too, so a call of one given arguments that cannot
   dispatch keeps the narrowing as `tostring` and `table.concat` do.
-- add earned lint rules and their fixes to `build/fix/rule.tl`'s rule list.
-  the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT
   [--min-file PCT]` fails a whole run whose overall or any one file's line
   coverage falls below it, naming each file under the per-file floor with its
@@ -413,9 +411,6 @@ four-producer provenance join.
   test, documentation, portability, and maintenance evidence promotes a module
   from one to the next, and whether a second-tier module that shipped ahead of
   the core tier (`http`, `tar`, `zip`, `stream`) is held to the same bar.
-- **decision records.** Adopt a small durable format before resolved questions
-  disappear from this file. Record context, the decision, rejected alternatives,
-  and consequences; amend a record when the decision changes.
 
 [`Archive.create`]: ../cosmic/archive.tl
 [`bin/vendor`]: ../bin/vendor

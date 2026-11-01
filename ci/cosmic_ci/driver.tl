@@ -23,10 +23,6 @@ local Verdicts = require("cosmic_ci.verdicts")
 local ZigPrune = require("cosmic_ci.zig_prune")
 local ZigRestat = require("cosmic_ci.zig_restat")
 
-local function open_database(path: string): Sqlite.Handle
-  return State.open(path)
-end
-
 local function run(argv: {string}): integer
   local phase, timeout_text, executable = argv[1], argv[2], argv[3]
   assert(phase and timeout_text and executable,
@@ -59,7 +55,7 @@ local function summarize(_argv: {string}): integer
     lines[#lines + 1] =
       "Operation database unavailable: no operation ran (the self-check failed first).\n"
   else
-    local db = open_database(db_path)
+    local db = State.open(db_path)
     local rows = assert(Sqlite.text_rows(db, [[
       SELECT s.worker, s.run, s.attempt, s.phase,
              COALESCE(c.status, 'incomplete'),

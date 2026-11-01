@@ -139,7 +139,8 @@ local function copied(tally: source.Tally): source.Tally
     sources = tally.sources, templates = tally.templates,
     whole_splices = tally.whole_splices, stages = tally.stages, reopened = tally.reopened,
     derived = tally.derived, member_rows = tally.member_rows, member_declarations = tally.member_declarations,
-    scratch_stubs = tally.scratch_stubs, scratch_requires = tally.scratch_requires, texts_read = tally.texts_read }
+    scratch_stubs = tally.scratch_stubs, scratch_requires = tally.scratch_requires, texts_read = tally.texts_read,
+    shared_parses = tally.shared_parses }
 end
 
 --- Makes the directory `root` a project to a session, as one a build has

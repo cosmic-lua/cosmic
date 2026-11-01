@@ -9,6 +9,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Test = require("cosmic.test")
+local TypeWatch = require("build.type_watch")
 local Time = require("cosmic.time")
 
 Test.policy{ loopback = { "127.0.0.1" } }
@@ -21,13 +22,6 @@ local function reply(n: integer, status: string, head: string, body?: string): s
   body = body or ""
   return "HTTP/1.1 " .. status .. "\r\nX-N: " .. tostring(n) .. "\r\n" .. head ..
     "Content-Length: " .. tostring(#body) .. "\r\nConnection: close\r\n\r\n" .. body
-end
-
---- The message of the raise `fn` ends in.
-local function raised(fn: function()): string
-  local ok, err = pcall(fn)
-  assert(not ok, "expected a raise")
-  return tostring(err)
 end
 
 local function test_a_429_with_retry_after_zero_is_sent_again()
@@ -259,10 +253,6 @@ end
 
 --- A policy of the wrong shape raises naming the option, with a first
 --- reply of 200 that would never ask for a retry, from each entry point.
--- TODO: test a policy of the wrong Lua type (attempts "3", a fractional
--- span, statuses 429) once a test may hold a mistyped value without a
--- cast, which build/ceilings.txt forbids adding: only values of the right
--- type are built here.
 local function test_a_policy_of_the_wrong_shape_raises_naming_the_option(tmp: string)
   local record Case
     option: string
@@ -291,10 +281,106 @@ local function test_a_policy_of_the_wrong_shape_raises_naming_the_option(tmp: st
       download_result = function() local _ = Http.download_result(url, tmp .. "/never", opts()) end,
     }
     for name, entry in pairs(entries) do
-      local err = raised(entry)
+      local err = Test.raises(entry)
       assert(err:find("http: " .. option .. " must be", 1, true) ~= nil, name .. ": " .. err)
       -- Blamed on this file, the caller, not on a line of cosmic.http.
       assert(err:find("http_retry_test:", 1, true) ~= nil, name .. ": " .. err)
+    end
+  end
+  assert(Fs.stat(tmp .. "/never") == nil)
+end
+
+--- The message of the raise that calling `entry` with `literal`, Lua source,
+--- ends in. `load` reads the source as plain Lua, which the checker does not
+--- type, so `entry` is handed a value of a Lua type its parameter does not
+--- declare, with no cast. `entry` is a function of this file, so the raise
+--- is blamed on it, the caller.
+local function raised_with(literal: string, entry: any): string
+  -- A checked run (`cosmic test --check-types`) checks a typed parameter on entry, so the
+  -- mistyped value is refused there before the option's own check can see it.
+  if TypeWatch.checked() then
+    Test.skip("a checked run refuses the mistyped value at the typed parameter it is handed to, first")
+  end
+  local chunk = assert(load("local entry = ...\nlocal ok, err = pcall(entry, " .. literal ..
+      ")\nif ok then return \"no raise\" end\nreturn tostring(err)", "=mistyped"))
+  local said = chunk(entry)
+  assert(said is string, "the chunk answered no string")
+  return said
+end
+
+--- A policy of the wrong Lua type (attempts "3", a fractional span, statuses
+--- 429) raises naming the option, from each entry point, with a first reply
+--- of 200 that would never ask for a retry.
+local function test_a_policy_of_the_wrong_lua_type_raises_naming_the_option(tmp: string)
+  local record Case
+    option: string
+    literal: string
+  end
+  local cases: {Case} = {
+    { option = "attempts", literal = '{ attempts = "3" }' },
+    { option = "attempts", literal = "{ attempts = 2.5 }" },
+    { option = "attempts", literal = "{}" },
+    { option = "statuses", literal = "{ attempts = 2, statuses = 429 }" },
+    { option = "statuses", literal = '{ attempts = 2, statuses = { "429" } }' },
+    { option = "statuses", literal = "{ attempts = 2, statuses = { 429.5 } }" },
+    { option = "backoff_ns", literal = "{ attempts = 2, backoff_ns = 1.5 }" },
+    { option = "backoff_ns", literal = '{ attempts = 2, backoff_ns = "1" }' },
+    { option = "max_wait_ns", literal = "{ attempts = 2, max_wait_ns = 1.5 }" },
+    { option = "max_wait_ns", literal = '{ attempts = 2, max_wait_ns = "1" }' },
+  }
+  for _, case in ipairs(cases) do
+    local option = "opts.retry." .. case.option
+    local entries: {string:function(Http.Retry)} = {
+      open = function(policy: Http.Retry)
+        local _ = Http.open(url, { retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+      get = function(policy: Http.Retry)
+        local _ = Http.get(url, { retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+      request = function(policy: Http.Retry)
+        local _ = Http.request("PUT", url, { retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+      download = function(policy: Http.Retry)
+        local _ = Http.download(url, tmp .. "/never", { retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+      download_result = function(policy: Http.Retry)
+        local _ = Http.download_result(url, tmp .. "/never", { retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+    }
+    for name, entry in pairs(entries) do
+      local err = raised_with(case.literal, entry)
+      assert(err:find("http: " .. option .. " must be", 1, true) ~= nil, name .. " " .. case.literal .. ": " .. err)
+      assert(err:find("http_retry_test:", 1, true) ~= nil, name .. " " .. case.literal .. ": " .. err)
+    end
+  end
+  assert(Fs.stat(tmp .. "/never") == nil)
+end
+
+--- A `retry` that is no table (a string, a number) raises naming the option,
+--- from each entry point.
+local function test_a_retry_that_is_no_table_raises_naming_the_option(tmp: string)
+  for _, literal in ipairs({ '"x"', "3", "true" }) do
+    local entries: {string:function(Http.Retry)} = {
+      open = function(policy: Http.Retry)
+        local _ = Http.open(url, { retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+      get = function(policy: Http.Retry)
+        local _ = Http.get(url, { retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+      request = function(policy: Http.Retry)
+        local _ = Http.request("PUT", url, { retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+      download = function(policy: Http.Retry)
+        local _ = Http.download(url, tmp .. "/never", { retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+      download_result = function(policy: Http.Retry)
+        local _ = Http.download_result(url, tmp .. "/never", { retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+    }
+    for name, entry in pairs(entries) do
+      local err = raised_with(literal, entry)
+      assert(err:find("http: opts.retry must be a table", 1, true) ~= nil, name .. " " .. literal .. ": " .. err)
+      assert(err:find("http_retry_test:", 1, true) ~= nil, name .. " " .. literal .. ": " .. err)
     end
   end
   assert(Fs.stat(tmp .. "/never") == nil)

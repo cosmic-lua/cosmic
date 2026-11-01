@@ -255,22 +255,6 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
   return false, why .. tostring(tally.attempts) .. " attempts:" .. table.concat(lines)
 end
 
--- TODO: hold the scratch directory in a `<close>` local again and delete this, once ci/cosmic-driver.pin names a
--- release whose [`Fs.Scratch`] is a class: the new checker refuses a `<close>` local of a record.
-
---- Runs `body` on `scratch`, then removes the directory and lets go of its owner descriptor, as the `<close>` of
---- an [`Fs.Scratch`] does, whether `body` answers or raises. Answers the trouble `body` answers, "" for none; a
---- failure always has a message. This copy and the one in the other island are separate because an island
---- requires no module of the tree.
-local function within(scratch: Fs.Scratch, body: function(Fs.Scratch): string): string
-  local ok, outcome = pcall(body, scratch)
-  local _, _ = Fs.remove_tree(scratch.path)
-  local _, _ = sys.close(scratch.owner)
-  if not ok then error(outcome, 0) end
-  assert(type(outcome) == "string", "a scratch body answers its trouble as a string, \"\" for none")
-  return outcome
-end
-
 --- Downloads, verifies and extracts zig `version`'s release for `host`,
 --- whose tarball's sha256 is `sha256`, into `work`, returning the
 --- extracted directory.
@@ -314,33 +298,30 @@ function ZigFetch.install(cache: string, install: string, version: string, host:
   end
   local owned, own_trouble = Fs.scratch(cache)
   if owned == nil then return nil, own_trouble end
-  local failed = within(owned, function(holding: Fs.Scratch): string
-    local work = holding.path .. "/payload"
-    local extracted, trouble: string?, string
-    if sha256 == nil or sha256 == "" then
-      extracted, trouble = nil, "bin/zig.pin names no sha256 for " .. host
-    else
-      extracted, trouble = unpack(work, version, host, sha256)
-    end
-    if extracted ~= nil then
-      -- A concurrent install may have won; its copy is the same bytes,
-      -- so a failed rename is fine as long as a zig ends up in place.
-      local _, _ = Fs.rename(extracted, install)
-    end
-    if extracted == nil then
-      if trouble == "" then return "no zig was extracted for " .. host end
-      return trouble
-    end
-    local installed, look_trouble = Fs.exists(zig)
-    if installed == nil then
-      return look_trouble
-    end
-    if not installed then
-      return "could not install zig into " .. install
-    end
-    return ""
-  end)
-  if failed ~= "" then return nil, failed end
+  local holding <close> = owned
+  local work = holding.path .. "/payload"
+  local extracted, trouble: string?, string
+  if sha256 == nil or sha256 == "" then
+    extracted, trouble = nil, "bin/zig.pin names no sha256 for " .. host
+  else
+    extracted, trouble = unpack(work, version, host, sha256)
+  end
+  if extracted ~= nil then
+    -- A concurrent install may have won; its copy is the same bytes,
+    -- so a failed rename is fine as long as a zig ends up in place.
+    local _, _ = Fs.rename(extracted, install)
+  end
+  if extracted == nil then
+    if trouble == "" then return nil, "no zig was extracted for " .. host end
+    return nil, trouble
+  end
+  local installed, look_trouble = Fs.exists(zig)
+  if installed == nil then
+    return nil, look_trouble
+  end
+  if not installed then
+    return nil, "could not install zig into " .. install
+  end
   return zig, ""
 end
 

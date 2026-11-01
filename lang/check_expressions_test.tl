@@ -11,12 +11,7 @@ local function has(text: string, part: string): boolean
   return text:find(part, 1, true) ~= nil
 end
 
---- The codes of checking `source`, which has no error of the parser, the scopes or the lowering.
-local function codes_of(source: string): string
-  local r = Programs.run(source)
-  assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. source)
-  return Programs.codes(r)
-end
+local codes_of = Programs.codes_of
 
 --- Checks that `source` has exactly the errors `codes` (space separated), and that the first says `msg`.
 local function refused(source: string, codes: string, msg?: string, fix?: string)

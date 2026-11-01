@@ -1,5 +1,6 @@
 local Url = require("cosmic.url")
 local Test = require("cosmic.test")
+local StringList = require("build.string_list_fixture")
 
 local function test_escape_keeps_only_the_unreserved_bytes()
   for byte = 0, 255 do
@@ -31,14 +32,6 @@ local function test_unescape_refuses_a_percent_without_two_hex_digits_naming_its
   end
 end
 
-local function same(got: {string}, want: {string}): boolean
-  if #got ~= #want then return false end
-  for i, v in ipairs(want) do
-    if got[i] ~= v then return false end
-  end
-  return true
-end
-
 local function test_segments_split_before_unescaping_and_drop_empty_and_dot()
   local cases: {string: {string}} = {
     ["/"] = {},
@@ -54,7 +47,7 @@ local function test_segments_split_before_unescaping_and_drop_empty_and_dot()
     local got, why = Url.segments(path)
     assert(got ~= nil, path .. ": " .. why)
     assert(why == "")
-    assert(same(got, want), path .. " gave " .. table.concat(got, "|"))
+    assert(StringList.same(got, want), path .. " gave " .. table.concat(got, "|"))
   end
 end
 
