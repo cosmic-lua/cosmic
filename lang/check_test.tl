@@ -1499,13 +1499,26 @@ local function counted(loop: string): string
 end
 
 local function test_the_hint_of_an_index_read_names_the_loop_and_the_checked_read_and_steers_from_a_default()
-  local r = Programs.run("local xs: {integer} = {}\nlocal n: integer = xs[2]\n")
-  local e = r.errors[1]
-  assert(e ~= nil and e.code == "index_may_be_nil")
-  for _, part in ipairs({ "for i = 1, #xs do", "Array.at(xs, 2)", "assert(xs[2])", "ipairs(xs)", "or <default>",
-      "a wrong value" }) do
-    assert(has(e.fix, part), part .. " is not in " .. e.fix)
+  local function fix_of(source: string, code: string): string
+    local r = Programs.run(source)
+    local e = r.errors[1]
+    assert(e ~= nil and e.code == code, source)
+    return e.fix
   end
+  local named = fix_of("local xs: {integer} = {}\nlocal i: integer = 2\nlocal n: integer = xs[i]\n", "index_may_be_nil")
+  for _, part in ipairs({ "for i = 1, #xs do", "Array.at(xs, i)", "assert(xs[i])", "ipairs(xs)", "or <default>",
+      "a wrong value" }) do
+    assert(has(named, part), part .. " is not in " .. named)
+  end
+  -- the loop is offered only for a local array read at a name
+  local literal = fix_of("local xs: {integer} = {}\nlocal n: integer = xs[2]\n", "index_may_be_nil")
+  assert(has(literal, "Array.at(xs, 2)") and has(literal, "assert(xs[2])") and not has(literal, "for 2 = 1"), literal)
+  local path = fix_of("local record R\n  items: {integer}\nend\nlocal r: R = { items = {} }\nlocal i: integer = 1\n" ..
+      "local n: integer = r.items[i]\n", "index_may_be_nil")
+  assert(has(path, "Array.at(r.items, i)") and not has(path, "count the keys"), path)
+  -- an operand gets the same pointer
+  local operand = fix_of("local xs: {integer} = {}\nlocal i: integer = 2\nlocal n = xs[i] + 1\n", "nil_not_allowed")
+  assert(has(operand, "Array.at(xs, i)") and has(operand, "or <default>"), operand)
 end
 
 local function test_a_read_at_the_index_of_a_loop_over_the_length_of_the_array_is_not_optional()

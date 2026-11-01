@@ -103,7 +103,7 @@ nothing reports. Three ways to read that name the case instead (`index_may_be_ni
 
 A loop `for i = 1, #xs do` counts the keys of `xs`, and in its body `xs[i]` is a `T`. It holds when the loop starts at a
 literal of 1 or more, steps by 1 or not at all, and runs to `#xs` of a local `xs`, and the body cannot change `xs`: it
-calls no function but `math` over plain numbers (so `table.remove`, `table.insert`, `table.move`, a call that is given `xs`
+calls no function but one of `math` whose every argument is the loop variable, a literal, or an expression of operators other than `and` and `or`, with any call inside it held to the same rule (so `table.remove`, `table.insert`, `table.move`, a call that is given `xs`
 and a method call all end it), assigns neither `xs` nor `i`, and writes `xs` only at `xs[i]`. A function made in the body
 may run later, when `xs` is shorter, so a read inside one is still `T?`. `xs` is a name, not a field: `r.items` is not
 counted, so copy it to a local. `ipairs` gives a `T` as well.

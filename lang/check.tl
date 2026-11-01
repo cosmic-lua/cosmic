@@ -845,6 +845,22 @@ local KIND_WORDS <const>: {Types.DeclKind: string} = {
 
 -- Refusals -----------------------------------------------------------------------------------
 
+--- The fix for a read `e` of an index that may be nil. The counted loop is offered only where it could apply: an array that
+--- is a local name, read at a name. [`Array.at`] and `assert` take any array and key; `or <default>` is steered from.
+local function index_fix(ctx: Ctx, e: Ast.Index): string
+  local xs, key = text_of(ctx, e.object), text_of(ctx, e.key)
+  local read = text_of(ctx, e)
+  local object, at = peel(e.object), peel(e.key)
+  local parts = "iterate with `for _, v in ipairs(" .. xs .. ")`, "
+  if object.kind == "Name" and at.kind == "Name" then
+    parts = parts .. "count the keys with `for " .. key .. " = 1, #" .. xs .. " do` (a body that leaves " .. quoted(xs) ..
+      " alone reads " .. quoted(read) .. " as a value), "
+  end
+  return parts .. "read it with `Array.at(" .. xs .. ", " .. key .. ")` (`cosmic.array`: raises when missing) or `assert(" ..
+    read .. ")`, or test it (`local v = " .. read .. " if v ~= nil then ... end`); `or <default>` turns an out-of-range " ..
+    "read into a wrong value"
+end
+
 --- The fix for a value that may be nil.
 local function nil_fix(ctx: Ctx, node: Ast.Node): string
   local e = peel(node)
@@ -852,6 +868,9 @@ local function nil_fix(ctx: Ctx, node: Ast.Node): string
     local call = subject(ctx, e)
     return "take the value with `local v = assert(" .. text_of(ctx, e) .. ")`, or test it first (`if v == nil then " ..
       "return nil, why end`); " .. call .. " answers nil when it fails"
+  end
+  if e.kind == "Index" then
+    return index_fix(ctx, e)
   end
   local s = text_of(ctx, e)
   if (e.kind == "Field") then
@@ -917,15 +936,9 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
       report(ctx, "nil_not_allowed", node, "nil is given" .. where .. ", where " .. quoted(w) .. " is wanted",
         "give a value, or declare what takes it `" .. w .. "?` (a parameter or field `name?: T`)", shown)
     elseif (e.kind == "Index") then
-      local xs = e.object
       report(ctx, "index_may_be_nil", node, s .. " is " .. quoted(g) .. " (an index read may be nil), where " ..
           quoted(w) .. " is wanted" .. where,
-        "iterate with `for _, v in ipairs(" .. text_of(ctx, xs) .. ")`, count the keys with `for i = 1, #" ..
-          text_of(ctx, xs) .. " do` (a body that leaves " .. quoted(text_of(ctx, xs)) .. " alone reads " ..
-          quoted(text_of(ctx, e)) .. " as a value), read it with `Array.at(" .. text_of(ctx, xs) .. ", " ..
-          text_of(ctx, e.key) .. ")` (`cosmic.array`: raises when missing) or `assert(" .. text_of(ctx, e) ..
-          ")`, or test it (`local v = " .. text_of(ctx, e) .. " if v ~= nil then ... end`); `or <default>` turns an " ..
-          "out-of-range read into a wrong value", shown)
+        index_fix(ctx, e), shown)
     else
       report(ctx, "nil_not_allowed", node, s .. " is " .. quoted(g) .. ", so it may be nil, where " .. quoted(w) ..
           " is wanted" .. where, nil_fix(ctx, node), shown)

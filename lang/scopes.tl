@@ -1418,7 +1418,7 @@ local function settle(v: Scopes.Var)
       local loop = S.entry_of[c.fn]
       while loop ~= 0 and level[loop] > floor and not c.after do
         c.after = holding[loop] == true
-        loop = parent[loop]
+        loop = assert(parent[loop])
       end
     end
   end
