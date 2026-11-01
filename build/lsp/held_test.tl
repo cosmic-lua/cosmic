@@ -4,6 +4,7 @@
 --- short one. Every session here asks for the new checker, whatever the mode of the suite.
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local check = require("build.lsp.check")
@@ -273,4 +274,274 @@ local function test_a_long_session_of_edits_holds_no_more_than_a_short_one()
   print(("lsp held: %d checks in %.0f ms, heap grown %.0f KiB"):format(20, took / 1e6, grown))
   assert(checker.program == program, "the program was made again")
   assert(grown < GROWTH_AT_MOST, ("the heap grew %.0f KiB over 8 edits and 4 switches"):format(grown))
+end
+
+--- The checker's kept results ([`build.lsp.check`]) are keyed by what each document reads, so that a change of a module it
+--- does not read leaves its result as it is, and one it reads checks it again.
+local OTHER <const> = "local record Other\n  n: integer\nend\nlocal other: Other = { n = 1 }\nreturn other\n"
+local SIDE <const> = 'local other = require("other")\nlocal n: integer = other.n\nreturn n\n'
+
+--- A project of `main.tl` (requiring `helper.tl`) and `side.tl` (requiring `other.tl`), the checker of it, and the documents
+--- `main` and `side` of it, both checked once.
+local function sided(): string, check.Checker, check.Document, check.Document
+  local root = helped()
+  assert(Fs.write(root .. "/other.tl", OTHER))
+  assert(Fs.write(root .. "/side.tl", SIDE))
+  local checker = checker_at(root)
+  local main = document_of(root, "main.tl", MAIN)
+  local side = document_of(root, "side.tl", SIDE)
+  check.opened(checker, main)
+  check.opened(checker, side)
+  assert(#check.diagnose(checker, main, "utf-16") == 0)
+  assert(#check.diagnose(checker, side, "utf-16") == 0)
+  return root, checker, main, side
+end
+
+--- Guards against a module changed that a document does not read checking it again, as the checker's `epoch` did for every
+--- module served otherwise than it was.
+local function test_a_module_a_document_does_not_read_changing_leaves_its_result_kept()
+  local root, checker, main, side = sided()
+  assert(Fs.write(root .. "/other.tl", OTHER .. "-- changed\n"))
+  check.stale(checker)
+  assert(#check.diagnose(checker, side, "utf-16") == 0)
+  assert(#check.diagnose(checker, main, "utf-16") == 0)
+  assert(check.read(checker, main) ~= nil)
+  assert(checker.ran["side.tl"] == 2, tostring(checker.ran["side.tl"]))
+  assert(checker.ran["main.tl"] == 1, tostring(checker.ran["main.tl"]))
+end
+
+local function test_a_module_a_document_reads_changing_checks_it_again()
+  local root, checker, main, _ = sided()
+  assert(Fs.write(root .. "/helper.tl", RETYPED))
+  check.stale(checker)
+  local told = check.diagnose(checker, main, "utf-16")
+  assert(#told == 1, table.concat(told, "\n"))
+  assert(checker.ran["main.tl"] == 2, tostring(checker.ran["main.tl"]))
+end
+
+--- A module the document reads only through another it requires is read as well: it is the type of the one required.
+local function test_a_module_read_through_another_checks_the_document_again()
+  local root = project()
+  local inner = "local record inner\n  n: integer\nend\nreturn inner\n"
+  local middle = 'local inner = require("inner")\nlocal record middle\n  value: inner\nend\nreturn middle\n'
+  local top = 'local middle = require("middle")\nlocal m: middle = { value = { n = 1 } }\nreturn m\n'
+  assert(Fs.write(root .. "/inner.tl", inner))
+  assert(Fs.write(root .. "/middle.tl", middle))
+  assert(Fs.write(root .. "/top.tl", top))
+  local checker = checker_at(root)
+  local document = document_of(root, "top.tl", top)
+  check.opened(checker, document)
+  local first = check.diagnose(checker, document, "utf-16")
+  assert(#first == 0, table.concat(first, "\n"))
+  assert(Fs.write(root .. "/inner.tl", (inner:gsub("integer", "string"))))
+  check.stale(checker)
+  local told = check.diagnose(checker, document, "utf-16")
+  assert(#told == 1, table.concat(told, "\n"))
+  assert(checker.ran["top.tl"] == 2, tostring(checker.ran["top.tl"]))
+end
+
+--- Guards against a restage that lists the document's file, which it was checked without, keeping the result of the check
+--- made before: nothing it requires was served otherwise, so no module key moved.
+local function test_a_restage_that_lists_the_documents_file_checks_it_again()
+  local root = project()
+  local text = "local n: integer = 1\nreturn n\n"
+  local checker = checker_at(root)
+  local document = document_of(root, "late.tl", text)
+  assert(#check.diagnose(checker, document, "utf-16") == 0)
+  assert(#check.diagnose(checker, document, "utf-16") == 0)
+  assert(checker.ran["late.tl"] == 1, tostring(checker.ran["late.tl"]))
+  assert(Fs.write(root .. "/late.tl", text))
+  check.stale(checker)
+  assert(#check.diagnose(checker, document, "utf-16") == 0)
+  assert(checker.ran["late.tl"] == 2, tostring(checker.ran["late.tl"]))
+end
+
+--- Guards against a change of the docs databases a hint looks a name up in leaving a result that may have worded it otherwise.
+local function test_a_change_of_the_hint_databases_checks_the_document_again()
+  local root = helped()
+  local databases: mut {Sqlite.Handle} = {}
+  local checker = check.new(root, function(_line: string) end, function(): check.Hinted
+    return { databases = databases, public = {} }
+  end)
+  local main = document_of(root, "main.tl", MAIN)
+  check.opened(checker, main)
+  assert(#check.diagnose(checker, main, "utf-16") == 0)
+  assert(#check.diagnose(checker, main, "utf-16") == 0)
+  assert(checker.ran["main.tl"] == 1, tostring(checker.ran["main.tl"]))
+  databases = { (assert(Sqlite.open(":memory:"))) }
+  assert(#check.diagnose(checker, main, "utf-16") == 0)
+  assert(checker.ran["main.tl"] == 2, tostring(checker.ran["main.tl"]))
+end
+
+--- Guards against a session holding the whole program of every document it has open: the documents asked of least recently
+--- drop their results, are checked again when asked of, and publish what they published while nothing they read moved.
+local function test_only_the_documents_asked_of_last_keep_their_results()
+  local root = helped()
+  local checker = checker_at(root)
+  local documents: mut {check.Document} = {}
+  for n = 1, 10 do
+    local name = "d" .. tostring(n) .. ".tl"
+    local text = "local n: integer = " .. tostring(n) .. "\nreturn n\n"
+    assert(Fs.write(root .. "/" .. name, text))
+    local document = document_of(root, name, text)
+    check.opened(checker, document)
+    documents[#documents + 1] = document
+  end
+  for _, document in ipairs(documents) do
+    assert(#check.diagnose(checker, document, "utf-16") == 0)
+    assert(check.read(checker, document) ~= nil)
+  end
+  local first, second, last = assert(documents[1]), assert(documents[2]), assert(documents[10])
+  assert(first.kept == nil and first.parsed == nil and second.kept == nil, "the least recently asked kept its result")
+  assert(last.kept ~= nil and last.parsed ~= nil, "the most recently asked lost its result")
+  assert(#checker.recent == 8, tostring(#checker.recent))
+  -- Its diagnostics stand while nothing it read moved, so publishing them checks nothing.
+  assert(#check.diagnose(checker, first, "utf-16") == 0)
+  assert(checker.ran["d1.tl"] == 1, tostring(checker.ran["d1.tl"]))
+  -- The questions asked of its types check it again.
+  assert(check.read(checker, first) ~= nil)
+  assert(checker.ran["d1.tl"] == 2, tostring(checker.ran["d1.tl"]))
+  assert(checker.ran["d10.tl"] == 1, tostring(checker.ran["d10.tl"]))
+  assert(first.kept ~= nil and second.kept == nil and #checker.recent == 8)
+end
+
+--- A document closed drops its result, and its place among the most recently asked.
+local function test_a_closed_document_keeps_no_result()
+  local _, checker, main, _ = sided()
+  assert(check.read(checker, main) ~= nil)
+  assert(#checker.recent == 2, tostring(#checker.recent))
+  check.closed(checker, main)
+  assert(main.kept == nil and #checker.recent == 1, tostring(#checker.recent))
+end
+
+--- The most the heap may grow, in KiB, over asking of 40 documents after the 8 that keep a result: what the program holds of
+--- each module it is put (about 100 KiB), not a result (about 750 KiB each, so 30 MiB, were every result kept).
+local DOCUMENTS_GROWTH_AT_MOST <const> = 8192
+
+--- The heap grown by asking of many more documents than keep a result, after the ones that do.
+local function test_many_documents_asked_of_hold_no_more_than_the_few_that_keep_a_result()
+  local root = helped()
+  local checker = checker_at(root)
+  local documents: mut {check.Document} = {}
+  for n = 1, 48 do
+    local name = "w" .. tostring(n) .. ".tl"
+    local text = big_main(12, "integer", n)
+    assert(Fs.write(root .. "/" .. name, text))
+    local document = document_of(root, name, text)
+    check.opened(checker, document)
+    documents[#documents + 1] = document
+  end
+  local function ask(from: integer, to: integer)
+    for n = from, to do
+      local document = assert(documents[n])
+      assert(check.read(checker, document) ~= nil, document.name)
+    end
+  end
+  ask(1, 8)
+  local base = heap()
+  ask(9, 48)
+  local grown = heap() - base
+  print(("lsp held: 40 more documents asked of, heap grown %.0f KiB"):format(grown))
+  assert(grown < DOCUMENTS_GROWTH_AT_MOST, ("the heap grew %.0f KiB over 40 documents"):format(grown))
+end
+
+--- Guards against a dependency edited to require another module, and not checked since, hiding that module from the
+--- documents that require it: the modules a document reads are those of the open text, not of its last check.
+local function test_an_open_dependency_edited_to_require_another_is_read_through_its_text()
+  local root = project()
+  local inner = "local record inner\n  n: integer\nend\nreturn inner\n"
+  local before = "local record middle\n  record Plain\n    n: integer\n  end\n  value: Plain\nend\nreturn middle\n"
+  local after = 'local inner = require("inner")\nlocal record middle\n  value: inner\nend\nreturn middle\n'
+  local top = 'local middle = require("middle")\nlocal n: integer = middle.value.n\nreturn n\n'
+  assert(Fs.write(root .. "/inner.tl", inner))
+  assert(Fs.write(root .. "/middle.tl", before))
+  assert(Fs.write(root .. "/top.tl", top))
+  local checker = checker_at(root)
+  local middle = document_of(root, "middle.tl", before)
+  local document = document_of(root, "top.tl", top)
+  check.opened(checker, middle)
+  check.opened(checker, document)
+  assert(#check.diagnose(checker, middle, "utf-16") == 0)
+  local first = check.diagnose(checker, document, "utf-16")
+  assert(#first == 0, table.concat(first, "\n"))
+  check.set_text(middle, after)
+  local second = check.diagnose(checker, document, "utf-16")
+  assert(#second == 0, table.concat(second, "\n"))
+  assert(Fs.write(root .. "/inner.tl", (inner:gsub("integer", "string"))))
+  check.stale(checker)
+  local told = check.diagnose(checker, document, "utf-16")
+  assert(#told == 1, table.concat(told, "\n"))
+end
+
+--- Guards against completion in a document being typed in finding nothing once other documents were asked of: the last text
+--- that parsed stays while the current one does not.
+local function test_a_document_being_typed_in_keeps_the_last_text_that_parsed_when_evicted()
+  local root = helped()
+  local checker = checker_at(root)
+  local typed = document_of(root, "main.tl", MAIN)
+  check.opened(checker, typed)
+  assert(check.read(checker, typed) ~= nil)
+  check.set_text(typed, MAIN .. "local m: integer = helper.\n")
+  local last = check.last(checker, typed)
+  assert(last ~= nil and last.text == MAIN, "no last text that parsed")
+  for n = 1, 9 do
+    local name = "e" .. tostring(n) .. ".tl"
+    local text = "local n: integer = " .. tostring(n) .. "\nreturn n\n"
+    assert(Fs.write(root .. "/" .. name, text))
+    local other = document_of(root, name, text)
+    check.opened(checker, other)
+    assert(check.read(checker, other) ~= nil)
+  end
+  assert(typed.kept == nil, "the document being typed in kept its result")
+  local after = check.last(checker, typed)
+  assert(after ~= nil and after.text == MAIN, "the last text that parsed was dropped")
+  check.closed(checker, typed)
+  assert(typed.parsed == nil)
+end
+
+--- A template an open document requires is read as the Teal it compiles to: the module its `type ... from` names is one the
+--- document reads, so that module's change checks the document again.
+local function test_a_module_read_through_an_open_template_checks_the_document_again()
+  local root = project()
+  local tmpl = "{{type Page from data}}{{mode text}}one {{.title}}"
+  local top = 'local page = require("page")\nlocal s: string = page.render({ title = "t" })\nreturn s\n'
+  assert(Fs.write(root .. "/data.tl", DATA))
+  assert(Fs.write(root .. "/page.tmpl", tmpl))
+  assert(Fs.write(root .. "/top.tl", top))
+  local checker = checker_at(root)
+  local page = document_of(root, "page.tmpl", tmpl)
+  local document = document_of(root, "top.tl", top)
+  check.opened(checker, page)
+  check.opened(checker, document)
+  local first = check.diagnose(checker, document, "utf-16")
+  assert(#first == 0, table.concat(first, "\n"))
+  assert(Fs.write(root .. "/data.tl", (DATA:gsub("title: string", "title: integer"))))
+  check.stale(checker)
+  local told = check.diagnose(checker, document, "utf-16")
+  assert(#told >= 1, "the change of a module the template reads was not noticed")
+end
+
+--- A dependency whose open text does not parse requires none, and is read again once it parses: its key moved with the text.
+local function test_an_open_dependency_that_does_not_parse_is_read_again_once_it_does()
+  local root = project()
+  local inner = "local record inner\n  n: integer\nend\nreturn inner\n"
+  local broken = 'local inner = require(\n'
+  local fixed = 'local inner = require("inner")\nlocal record middle\n  value: inner\nend\nreturn middle\n'
+  local top = 'local middle = require("middle")\nlocal n: integer = middle.value.n\nreturn n\n'
+  assert(Fs.write(root .. "/inner.tl", inner))
+  assert(Fs.write(root .. "/middle.tl", fixed))
+  assert(Fs.write(root .. "/top.tl", top))
+  local checker = checker_at(root)
+  local middle = document_of(root, "middle.tl", broken)
+  local document = document_of(root, "top.tl", top)
+  check.opened(checker, middle)
+  check.opened(checker, document)
+  local _ = check.diagnose(checker, document, "utf-16")
+  check.set_text(middle, fixed)
+  local second = check.diagnose(checker, document, "utf-16")
+  assert(#second == 0, table.concat(second, "\n"))
+  assert(Fs.write(root .. "/inner.tl", (inner:gsub("integer", "string"))))
+  check.stale(checker)
+  local told = check.diagnose(checker, document, "utf-16")
+  assert(#told == 1, table.concat(told, "\n"))
 end
