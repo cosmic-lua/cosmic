@@ -142,9 +142,8 @@ local insert_imports =
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
 --- Every edge of the source the checker reads for a planned module or a
---- declaration ([`build.schema`]'s `decl_imports`): the declaration's
---- where there is one, as in [`insert_bound`], so the edges include those
---- to names the plan does not hold. Each path also has the row with the
+--- declaration ([`build.schema`]'s `decl_imports`), so the edges include
+--- those to names the plan does not hold. Each path also has the row with the
 --- empty name, so that a path with no edge is told from one the table
 --- knows nothing of.
 local insert_decl_imports =
@@ -155,15 +154,9 @@ local insert_decl_imports =
   "SELECT m.path, r.name FROM (SELECT path FROM plan UNION SELECT path " ..
   "FROM inputs WHERE " .. AnalysisSchema.declaration("kind") .. ") m " ..
   "JOIN inputs i ON i.path = m.path " ..
-  "AND (" .. AnalysisSchema.declaration("i.kind") .. " OR NOT EXISTS (SELECT 1 FROM inputs d " ..
-  "WHERE d.path = i.path AND " .. AnalysisSchema.declaration("d.kind") .. ")) " ..
   "JOIN requires r ON r.source_hash = i.source_hash " ..
   "ORDER BY 1, 2"
 
---- A paired declaration supplies the documented interface and its aliases,
---- just as it supplies the types a caller checks against. The implementation
---- alone supplies executable rows, import edges, uses and errors.
----
 --- The names each planned module and each declaration binds to a
 --- module ([`build.syntax_analyzer`]'s `Bound`), kept whatever the module they
 --- name: a project's binds the standard library's.
@@ -173,8 +166,6 @@ local insert_bound =
   "FROM (SELECT path FROM plan UNION SELECT path FROM inputs " ..
   "WHERE " .. AnalysisSchema.declaration("kind") .. ") m " ..
   "JOIN inputs i ON i.path = m.path " ..
-  "AND (" .. AnalysisSchema.declaration("i.kind") .. " OR NOT EXISTS (SELECT 1 FROM inputs d " ..
-  "WHERE d.path = i.path AND " .. AnalysisSchema.declaration("d.kind") .. ")) " ..
   "JOIN bound b ON b.source_hash = i.source_hash ORDER BY m.path, b.name"
 
 --- The documented symbols ([`build.syntax_analyzer`]'s `DocEntry`) found while parsing
@@ -182,7 +173,6 @@ local insert_bound =
 --- is the C header it is generated from), in module order and then
 --- source order. Which of them a reader sees is [`build.docs`]'s to
 --- decide: it answers a project only for the public standard library.
---- A declaration wins over a paired implementation, as the checker does.
 --- `id` is left for SQLite to assign in that order, so it is the same on
 --- every build of the same tree.
 local insert_docs =
@@ -193,8 +183,6 @@ local insert_docs =
   "FROM (SELECT path FROM plan UNION SELECT path FROM inputs " ..
   "WHERE " .. AnalysisSchema.declaration("kind") .. ") m " ..
   "JOIN inputs i ON i.path = m.path " ..
-  "AND (" .. AnalysisSchema.declaration("i.kind") .. " OR NOT EXISTS (SELECT 1 FROM inputs d " ..
-  "WHERE d.path = i.path AND " .. AnalysisSchema.declaration("d.kind") .. ")) " ..
   "JOIN docs d ON d.source_hash = i.source_hash ORDER BY m.path, d.ordinal"
 
 --- The uses ([`build.syntax_analyzer`]'s `Reference`) found: each
@@ -295,8 +283,7 @@ local insert_catalog_extracted =
 --- takes a module's rows from it where the module stands as it was, and
 --- fills the rest from the working database as a write of nothing does.
 --- `reused` is the temporary table of the modules that stand: those whose
---- file, kind, source and key are the base's, and that no declaration
---- stands in for. A row it carries is the row the full statement would
+--- file, kind, source and key are the base's. A row it carries is the row the full statement would
 --- write, since each is a function of what the table's test holds equal and
 --- of the identities [`usable_base`] holds equal. Each statement below is
 --- the full one beside it, with the base's rows for those modules in
@@ -310,8 +297,7 @@ local make_reused <const> = {
   "INSERT INTO temp.reused (path) SELECT p.path FROM plan p " ..
     "JOIN inputs i ON i.path = p.path AND " .. AnalysisSchema.not_declaration("i.kind") .. " " ..
     "JOIN prev.modules r ON r.path = p.path AND r.file = i.file AND r.kind = i.kind " ..
-    "AND r.source_hash = CAST(i.source_hash AS BLOB) AND r.key = CAST(p.key AS BLOB) " ..
-    "WHERE NOT EXISTS (SELECT 1 FROM inputs d WHERE d.path = p.path AND " .. AnalysisSchema.declaration("d.kind") .. ")",
+    "AND r.source_hash = CAST(i.source_hash AS BLOB) AND r.key = CAST(p.key AS BLOB)",
 }
 
 --- The modules of a write that starts from a base. The rows a module that
@@ -357,8 +343,6 @@ local insert_docs_reusing <const> =
   "FROM (SELECT path FROM plan WHERE path NOT IN " .. reused_modules .. " " ..
   "UNION SELECT path FROM inputs WHERE " .. AnalysisSchema.declaration("kind") .. ") m " ..
   "JOIN inputs i ON i.path = m.path " ..
-  "AND (" .. AnalysisSchema.declaration("i.kind") .. " OR NOT EXISTS (SELECT 1 FROM inputs d " ..
-  "WHERE d.path = i.path AND " .. AnalysisSchema.declaration("d.kind") .. ")) " ..
   "JOIN docs d ON d.source_hash = i.source_hash) ORDER BY module, ordinal"
 
 local insert_uses_reusing <const> =
