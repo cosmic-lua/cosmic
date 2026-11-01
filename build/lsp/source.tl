@@ -644,7 +644,7 @@ function source.refusal(src: source.View, name: string, text?: string): string?
     return Driver.pairing(declaration, code, module)
   end
   if text ~= nil and name:match("%.d%.tl$") ~= nil then
-    local unnamed = Driver.naming(name, text)
+    local unnamed = Driver.naming(name, text, source.standing(src).own)
     if unnamed ~= "" then return unnamed end
   end
   return nil

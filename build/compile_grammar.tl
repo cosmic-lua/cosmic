@@ -290,7 +290,7 @@ function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: bool
   for _, source in ipairs(sources) do
     entries[#entries + 1] = { source.relative, source.text }
   end
-  local paired = Driver.declared(entries, function(_path: string): boolean return false end)
+  local paired = Driver.declared(entries, function(_path: string): boolean return false end, true)
   assert(paired == "", paired)
   for index, source in ipairs(sources) do
     local module = Declarations.module_of(source.relative)

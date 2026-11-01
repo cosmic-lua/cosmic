@@ -71,8 +71,20 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
   -- TODO: give the build the globals adjustment of [`build.tree_program`]'s `globals` (the names the runtime withholds taken
   -- away, `_G` added) once build/withheld.tl, which it reads, is in the seed list (build/seed.txt): the build here declares every name of
   -- the standard library's declarations, so a use of a withheld one is not reported. The Lua is the same either way.
+  local prelude, stdlib = declaration(root, PRELUDE), declaration(root, STDLIB)
+  -- The two files of the globals must say they are the language's, as a tree's build holds them to ([`Driver.naming`]); every
+  -- module the seed is asked for is then refused, as a seed that cannot trust its globals types nothing. The seed reads the
+  -- other declarations of the tree as it is asked for them (below), and does not list the tree: it has no walk of it, and the
+  -- build that follows the seed's stage lists every file and holds each declaration to the same helper.
+  local globals_refused = ""
+  for _, each in ipairs({ prelude, stdlib }) do
+    local complaint = Driver.naming(each.filename, each.text, true)
+    if complaint ~= "" and globals_refused == "" then
+      globals_refused = complaint
+    end
+  end
   local build = Driver.new({
-    globals = { declaration(root, PRELUDE), declaration(root, STDLIB) }, adjust = nil, external = {}, types = false,
+    globals = { prelude, stdlib }, adjust = nil, external = {}, types = false,
   })
   --- The source of each module asked for, and the names the tree has none of, so that a file is read once.
   local sources: mut {string: Driver.Source} = {}
@@ -126,7 +138,7 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
       paired[name] = Driver.pairing(first, code, name)
     end
     if first:match("%.d%.tl$") ~= nil and paired[name] == nil then
-      local unnamed = Driver.naming(first, first_text)
+      local unnamed = Driver.naming(first, first_text, true)
       if unnamed ~= "" then
         paired[name] = unnamed
       end
@@ -137,6 +149,9 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
   end)
   --- The Lua of `name`, its file; nil and why.
   local function module(name: string): Seed.Module?, string
+    if globals_refused ~= "" then
+      return nil, globals_refused
+    end
     local found = build:parsed(name)
     if found == nil then
       return nil, ""

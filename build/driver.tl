@@ -253,21 +253,19 @@ local record Driver
   pairing: function(declaration: string, source: string, module: string): string
 
   --- Why the declaration file `file` (below the root) with `text` may not be a build's: "" where its leading comment names
-  --- what it is, `--- @kind binding` (a module implemented in C) or `--- @kind language` (the language's own declarations,
-  --- allowed only for the two files that are the build's globals, [`build.analysis_schema`]'s `is_language_file`). Else the
-  --- complaint, which offers both ways out: tag it a binding, or write it as a `.tl`, whose types and code are checked and
-  --- real at run time. A file that is no `.d.tl` is none of this helper's.
-  naming: function(file: string, text: string): string
-
-  --- The complaints [`Driver.naming`] makes of the declaration files of `entries` (as [`Driver.index`] takes them, less the
-  --- `skip`ped paths), one to a line and in the order of the files: "" for none. [`Driver.declared`] adds the pairs.
-  unnamed: function(entries: {{string}}, skip: function(path: string): boolean): string
+  --- exactly one kind, `--- @kind binding` (a module implemented in C) or `--- @kind language` (the language's own
+  --- declarations, allowed only for the two files that are the build's globals, [`build.analysis_schema`]'s
+  --- `is_language_file`, and only where `own` says the build is cosmic's own tree: a project has no such declarations,
+  --- whatever it names its files). Else the complaint, which offers both ways out: tag it a binding, or write it as a `.tl`,
+  --- whose types and code are checked and real at run time; the language's two files that name nothing are told to say
+  --- `language`, and a file that names two kinds, to name one. A file that is no `.d.tl` is none of this helper's.
+  naming: function(file: string, text: string, own: boolean): string
 
   --- Every complaint about the declaration files of `entries` (as [`Driver.index`] takes them, less the `skip`ped paths):
   --- those of [`Driver.pairing`] for a `.d.tl` beside a source of its module, and those of [`Driver.naming`] for a `.d.tl`
   --- that is in no pair, one to a line and in the order of the declarations: "" for none. What a build refuses a tree or
   --- project for before an index is made.
-  declared: function(entries: {{string}}, skip: function(path: string): boolean): string
+  declared: function(entries: {{string}}, skip: function(path: string): boolean, own: boolean): string
 
   --- The provider of `index`.
   files: function(index: Index): Provider
@@ -464,25 +462,33 @@ local function lines_of(found: {string: string}): string
   return table.concat(out, "\n")
 end
 
-function Driver.naming(file: string, text: string): string
+function Driver.naming(file: string, text: string, own: boolean): string
+  local named = AnalysisSchema.kinds_named(text)
+  if #named > 1 then
+    return file .. ": a .d.tl must name exactly one kind, and this one names " .. table.concat(named, " and ") ..
+      ": keep the one line that says what it is (`" .. AnalysisSchema.binding_tag() .. "` for a module implemented in C)"
+  end
   local kind = AnalysisSchema.kind_of(file, text)
   local how = "If it declares a module implemented in C, add the line `" .. AnalysisSchema.binding_tag() ..
     "` to its leading comment; otherwise write it as a .tl (types and code in a .tl are checked and real at run time)."
-  if kind == "decl" then
+  if kind == "decl" and own and AnalysisSchema.is_language_file(file) then
+    return file .. ": the language's own declarations must say so: add the line `" .. AnalysisSchema.language_tag() ..
+      "` to its leading comment"
+  elseif kind == "decl" then
     return file .. ": a .d.tl must name what it is, and this one names nothing. " .. how
-  elseif kind == "language" and not AnalysisSchema.is_language_file(file) then
+  elseif kind == "language" and not (own and AnalysisSchema.is_language_file(file)) then
     return file .. ": `" .. AnalysisSchema.language_tag() .. "` is only for the language's own declarations, " ..
       AnalysisSchema.prelude_file() .. " and " .. AnalysisSchema.stdlib_file() .. ", which are the build's globals. " .. how
   end
   return ""
 end
 
-local function unnamed_of(entries: {{string}}, skip: function(path: string): boolean): mut {string: string}
+local function unnamed_of(entries: {{string}}, skip: function(path: string): boolean, own: boolean): mut {string: string}
   local found: mut {string: string} = {}
   for _, entry in ipairs(entries) do
     local file, text = entry[1], entry[2]
     if file ~= nil and text ~= nil and not skip(file) and file:match("%.d%.tl$") ~= nil then
-      local complaint = Driver.naming(file, text)
+      local complaint = Driver.naming(file, text, own)
       if complaint ~= "" then
         found[file] = complaint
       end
@@ -491,13 +497,9 @@ local function unnamed_of(entries: {{string}}, skip: function(path: string): boo
   return found
 end
 
-function Driver.unnamed(entries: {{string}}, skip: function(path: string): boolean): string
-  return lines_of(unnamed_of(entries, skip))
-end
-
-function Driver.declared(entries: {{string}}, skip: function(path: string): boolean): string
+function Driver.declared(entries: {{string}}, skip: function(path: string): boolean, own: boolean): string
   local found = pairs_of(entries, skip)
-  for file, complaint in pairs(unnamed_of(entries, skip)) do
+  for file, complaint in pairs(unnamed_of(entries, skip, own)) do
     if found[file] == nil then
       found[file] = complaint
     end

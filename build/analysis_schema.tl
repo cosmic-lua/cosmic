@@ -153,6 +153,16 @@ function analysis_schema.declares_binding(text: string): boolean
   return holds_line(text, tag_of("binding"))
 end
 
+--- The kinds of [`named_kinds`] whose line the doc block that opens `text` holds, in that order: more than one is a
+--- declaration that does not say what it is, which a build refuses ([`build.driver`]'s `naming`).
+function analysis_schema.kinds_named(text: string): {string}
+  local out: mut {string} = {}
+  for _, kind in ipairs(named_kinds) do
+    if holds_line(text, tag_of(kind)) then out[#out + 1] = kind end
+  end
+  return out
+end
+
 --- Whether the text of a declaration file holds [`analysis_schema.language_tag`] as a line of its own.
 function analysis_schema.declares_language(text: string): boolean
   return holds_line(text, tag_of("language"))

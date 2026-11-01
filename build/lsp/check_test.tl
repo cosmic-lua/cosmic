@@ -260,6 +260,28 @@ local function test_a_declaration_that_names_nothing_is_refused_in_its_document(
       "declarations, lang/prelude.d.tl and lang/stdlib.d.tl", 1, true) == 1, message)
 end
 
+--- The two files of the language's globals are accepted when they are opened in cosmic's own tree, and a project's file at the
+--- same path is refused for the kind.
+local function test_the_language_files_are_accepted_in_the_own_tree_and_refused_in_a_project()
+  local text = "--- @kind language\ndo\nend\n"
+  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/lang"))
+  assert(Fs.write(root .. "/build/importer.tl", EMPTY))
+  assert(Fs.write(root .. "/lang/stdlib.d.tl", text))
+  local built = assert(tree.built_from(root))
+  local own = served(root, { initialize(root), open(root, "lang/stdlib.d.tl", text) }, nil, built)
+  assert(counts(own) == "0", messages_of(nth(own, 1)))
+  for _, file in ipairs({ "lang/stdlib.d.tl", "lang/prelude.d.tl" }) do
+    local project_root = project()
+    assert(Fs.mkdirs(project_root .. "/lang"))
+    assert(Fs.write(project_root .. "/" .. file, text))
+    local told = only(nth(served(project_root, { initialize(project_root), open(project_root, file, text) }), 1))
+    assert(told.message:find("`--- @kind language` is only for the language's own declarations", 1, true) == 1, told.message)
+  end
+end
+
 --- A pair that appears after a good stage, and one that is gone, are told with no change to the text of the open document:
 --- the stage moves what the check was of, so the publish kept is made again.
 local function test_a_pair_that_comes_and_goes_on_disk_moves_a_document_that_did_not_change()

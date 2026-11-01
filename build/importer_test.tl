@@ -482,6 +482,32 @@ local function test_a_declaration_of_the_language_outside_its_files_is_refused_i
   end
 end
 
+--- A project has no declarations of the language, whatever it names its files: one at exactly [`lang/stdlib.d.tl`] or
+--- [`lang/prelude.d.tl`] that says `language` is refused, as one anywhere else is.
+local function test_a_project_file_at_the_path_of_the_language_s_own_is_refused_for_the_language_kind()
+  for _, file in ipairs({ "lang/stdlib.d.tl", "lang/prelude.d.tl" }) do
+    local root, write_trouble = write_fixture("language-at-path", {
+      [file] = "--- @kind language\ndo\n  global record Seen\n  end\nend\n",
+      ["main.tl"] = "local n: integer = 1\nreturn n\n",
+    })
+    assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+    local result, trouble = compile_fixture(root)
+    assert(result == nil and trouble:find(file .. ": `--- @kind language` is only for the language's own declarations", 1, true) == 1,
+      file .. ": " .. tostring(trouble))
+  end
+end
+
+--- A declaration that names two kinds is refused in a project, naming the file.
+local function test_a_declaration_that_names_two_kinds_is_refused_in_a_project()
+  local root, write_trouble = write_fixture("two-kinds", {
+    ["lib/m.d.tl"] = "--- @kind binding\n--- @kind language\nlocal record M\n  n: integer\nend\nreturn M\n",
+    ["main.tl"] = "local n: integer = 1\nreturn n\n",
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil and trouble:find("lib/m.d.tl: a .d.tl must name exactly one kind", 1, true) == 1, tostring(trouble))
+end
+
 --- The same holds of cosmic's own tree: a `.d.tl` that names nothing is refused, one that names a binding is not, and a
 --- tree's `language` kind outside the two files is.
 local function test_a_declaration_that_names_nothing_is_refused_in_the_tree(tmp: string)

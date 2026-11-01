@@ -421,15 +421,15 @@ local function test_paired_finds_a_declaration_beside_a_source_of_its_module_in_
     local want = Driver.pairing(declaration, source, module)
     local together: {{string}} = { { source, SOURCE }, { declaration, DECLARATION } }
     local backwards: {{string}} = { { declaration, DECLARATION }, { source, SOURCE } }
-    assert(Driver.declared(together, nothing) == want, source .. " + " .. declaration)
-    assert(Driver.declared(backwards, nothing) == want, declaration .. " + " .. source)
+    assert(Driver.declared(together, nothing, false) == want, source .. " + " .. declaration)
+    assert(Driver.declared(backwards, nothing, false) == want, declaration .. " + " .. source)
   end
   -- Not a pair: different modules, a test or an example beside a declaration, and a declaration alone.
   local apart: {{string}} = {
     { "x.tl", SOURCE }, { "y.d.tl", DECLARATION }, { "x_test.tl", SOURCE }, { "z.d.tl", DECLARATION },
     { "z_example.tl", SOURCE }, { "w/init.d.tl", DECLARATION },
   }
-  assert(Driver.declared(apart, nothing) == "")
+  assert(Driver.declared(apart, nothing, false) == "")
 end
 
 --- A pair under `testdata/` is a fixture of a test, left out of the programs, and so not refused; nor is a path the
@@ -439,8 +439,8 @@ local function test_paired_leaves_out_what_is_skipped()
     { "testdata/m.tl", SOURCE }, { "testdata/m.d.tl", DECLARATION },
     { "lib/testdata/n.tl", SOURCE }, { "lib/testdata/n.d.tl", DECLARATION },
   }
-  assert(Driver.declared(fixture, testdata) == "")
-  assert(Driver.declared(fixture, nothing) ~= "")
+  assert(Driver.declared(fixture, testdata, false) == "")
+  assert(Driver.declared(fixture, nothing, false) ~= "")
 end
 
 --- Several pairs are all told, one to a line and in the order of their declarations' paths, whatever the order of the entries.
@@ -454,10 +454,10 @@ local function test_paired_tells_every_pair_in_the_order_of_the_declarations()
     Driver.pairing("b/c.d.tl", "b/c.tl", "b.c"),
     Driver.pairing("z.d.tl", "z.tl", "z"),
   }, "\n")
-  assert(Driver.declared(entries, nothing) == want, Driver.declared(entries, nothing))
+  assert(Driver.declared(entries, nothing, false) == want, Driver.declared(entries, nothing, false))
   local reversed: mut {{string}} = {}
   for i = #entries, 1, -1 do reversed[#reversed + 1] = assert(entries[i]) end
-  assert(Driver.declared(reversed, nothing) == want)
+  assert(Driver.declared(reversed, nothing, false) == want)
 end
 
 --- The words a declaration that names no kind is refused in: the file, and both ways out.
@@ -470,32 +470,54 @@ end
 --- A `.d.tl` names what it is or is refused: a module implemented in C (`binding`) is accepted, and one that says nothing,
 --- whether it holds types, globals or a module, is refused naming the file and both ways out.
 local function test_naming_refuses_a_declaration_that_says_nothing_and_accepts_a_binding()
-  assert(Driver.naming("lib/m.d.tl", UNTAGGED) == unnamed_words("lib/m.d.tl"))
-  assert(Driver.naming("types.d.tl", "local record types\n  record Page\n  end\nend\nreturn types\n") == unnamed_words("types.d.tl"))
-  assert(Driver.naming("g.d.tl", "global count: integer\n") == unnamed_words("g.d.tl"))
-  assert(Driver.naming("g.d.tl", "global record Foo\nend\n") == unnamed_words("g.d.tl"))
-  assert(Driver.naming("lib/m.d.tl", DECLARATION) == "")
-  assert(Driver.naming("g.d.tl", "--- A C global.\n--- @kind binding\nglobal count: integer\n") == "")
-  assert(Driver.naming("g.d.tl", "--- @kind binding\r\nglobal count: integer\r\n") == "")
+  assert(Driver.naming("lib/m.d.tl", UNTAGGED, false) == unnamed_words("lib/m.d.tl"))
+  assert(Driver.naming("types.d.tl", "local record types\n  record Page\n  end\nend\nreturn types\n", false) == unnamed_words("types.d.tl"))
+  assert(Driver.naming("g.d.tl", "global count: integer\n", false) == unnamed_words("g.d.tl"))
+  assert(Driver.naming("g.d.tl", "global record Foo\nend\n", false) == unnamed_words("g.d.tl"))
+  assert(Driver.naming("lib/m.d.tl", DECLARATION, false) == "")
+  assert(Driver.naming("g.d.tl", "--- A C global.\n--- @kind binding\nglobal count: integer\n", false) == "")
+  assert(Driver.naming("g.d.tl", "--- @kind binding\r\nglobal count: integer\r\n", false) == "")
   -- The line counts only in the opening doc block, on a line of its own.
-  assert(Driver.naming("m.d.tl", UNTAGGED .. "--- @kind binding\n") == unnamed_words("m.d.tl"))
-  assert(Driver.naming("m.d.tl", "--- @kind binding and more\n" .. UNTAGGED) == unnamed_words("m.d.tl"))
-  assert(Driver.naming("m.d.tl", "--- @kind module\n" .. UNTAGGED) == unnamed_words("m.d.tl"))
+  assert(Driver.naming("m.d.tl", UNTAGGED .. "--- @kind binding\n", false) == unnamed_words("m.d.tl"))
+  assert(Driver.naming("m.d.tl", "--- @kind binding and more\n" .. UNTAGGED, false) == unnamed_words("m.d.tl"))
+  assert(Driver.naming("m.d.tl", "--- @kind module\n" .. UNTAGGED, false) == unnamed_words("m.d.tl"))
 end
 
---- The language's own kind is for the two files that are the build's globals and no other, whatever the directory.
-local function test_naming_accepts_the_language_kind_only_for_the_files_of_the_globals()
+--- The language's own kind is for the two files that are the build's globals and no other, and only in cosmic's own tree: a
+--- project's file at the same path is refused for it.
+local function test_naming_accepts_the_language_kind_only_for_the_files_of_the_globals_of_the_own_tree()
   local text = "--- @kind language\ndo\nend\n"
-  assert(Driver.naming("lang/prelude.d.tl", text) == "")
-  assert(Driver.naming("lang/stdlib.d.tl", text) == "")
+  assert(Driver.naming("lang/prelude.d.tl", text, true) == "")
+  assert(Driver.naming("lang/stdlib.d.tl", text, true) == "")
   local words = " is only for the language's own declarations, lang/prelude.d.tl and lang/stdlib.d.tl, which are the " ..
     "build's globals. If it declares a module implemented in C, add the line `--- @kind binding` to its leading comment; " ..
     "otherwise write it as a .tl (types and code in a .tl are checked and real at run time)."
   for _, file in ipairs({ "lang/other.d.tl", "lib/lang/stdlib.d.tl", "stdlib.d.tl", "cosmic/internal/x.d.tl", "lang/stdlib/init.d.tl" }) do
-    assert(Driver.naming(file, text) == file .. ": `--- @kind language`" .. words, Driver.naming(file, text))
+    for _, own in ipairs({ true, false }) do
+      assert(Driver.naming(file, text, own) == file .. ": `--- @kind language`" .. words, Driver.naming(file, text, own))
+    end
   end
-  -- Untagged, the two files are refused like any other declaration.
-  assert(Driver.naming("lang/stdlib.d.tl", "do\nend\n") == unnamed_words("lang/stdlib.d.tl"))
+  -- A project's file at exactly the path of either is refused, with the same words.
+  for _, file in ipairs({ "lang/prelude.d.tl", "lang/stdlib.d.tl" }) do
+    assert(Driver.naming(file, text, false) == file .. ": `--- @kind language`" .. words, Driver.naming(file, text, false))
+  end
+  -- Untagged, the two files of the own tree are told to say `language`; a project's file of that name is told as any other.
+  assert(Driver.naming("lang/stdlib.d.tl", "do\nend\n", true) == "lang/stdlib.d.tl: the language's own declarations must " ..
+      "say so: add the line `--- @kind language` to its leading comment")
+  assert(Driver.naming("lang/stdlib.d.tl", "do\nend\n", false) == unnamed_words("lang/stdlib.d.tl"))
+end
+
+--- A declaration names exactly one kind: two lines of kinds are refused, whichever the two and wherever the file.
+local function test_naming_refuses_a_declaration_that_names_two_kinds()
+  local both = "--- @kind binding\n--- @kind language\nlocal record R\nend\nreturn R\n"
+  local words = ": a .d.tl must name exactly one kind, and this one names binding and language: keep the one line that says " ..
+    "what it is (`--- @kind binding` for a module implemented in C)"
+  for _, file in ipairs({ "lib/m.d.tl", "lang/stdlib.d.tl" }) do
+    for _, own in ipairs({ true, false }) do
+      assert(Driver.naming(file, both, own) == file .. words, Driver.naming(file, both, own))
+    end
+  end
+  assert(Driver.naming("m.d.tl", "--- @kind language\n--- @kind binding\n", false) == "m.d.tl" .. words)
 end
 
 --- Every declaration of the entries that names nothing is told, one to a line in the order of the files, whatever the order
@@ -506,12 +528,12 @@ local function test_unnamed_tells_every_declaration_that_says_nothing()
     { "a.d.tl", UNTAGGED }, { "testdata/t.d.tl", UNTAGGED }, { "c/init.d.tl", "global n: integer\n" },
   }
   local want = table.concat({ unnamed_words("a.d.tl"), unnamed_words("c/init.d.tl"), unnamed_words("z.d.tl") }, "\n")
-  assert(Driver.unnamed(entries, testdata) == want, Driver.unnamed(entries, testdata))
+  assert(Driver.declared(entries, testdata, false) == want, Driver.declared(entries, testdata, false))
   local reversed: mut {{string}} = {}
   for i = #entries, 1, -1 do reversed[#reversed + 1] = assert(entries[i]) end
-  assert(Driver.unnamed(reversed, testdata) == want)
-  assert(Driver.unnamed(entries, nothing):find(unnamed_words("testdata/t.d.tl"), 1, true) ~= nil)
-  assert(Driver.unnamed({ { "ok.d.tl", DECLARATION }, { "m.tl", SOURCE } }, nothing) == "")
+  assert(Driver.declared(reversed, testdata, false) == want)
+  assert(Driver.declared(entries, nothing, false):find(unnamed_words("testdata/t.d.tl"), 1, true) ~= nil)
+  assert(Driver.declared({ { "ok.d.tl", DECLARATION }, { "m.tl", SOURCE } }, nothing, false) == "")
 end
 
 --- `declared` is the pair complaints and then those of a declaration that names nothing, one complaint to a file: a
@@ -526,8 +548,8 @@ local function test_declared_tells_a_pair_and_a_declaration_that_says_nothing_on
     Driver.pairing("q.d.tl", "q.tl", "q"),
     unnamed_words("u.d.tl"),
   }, "\n")
-  assert(Driver.declared(entries, nothing) == want, Driver.declared(entries, nothing))
-  assert(Driver.declared({ { "ok.d.tl", DECLARATION }, { "m.tl", SOURCE } }, nothing) == "")
+  assert(Driver.declared(entries, nothing, false) == want, Driver.declared(entries, nothing, false))
+  assert(Driver.declared({ { "ok.d.tl", DECLARATION }, { "m.tl", SOURCE } }, nothing, false) == "")
 end
 
 local function test_a_test_module_is_a_file_that_ends_in_test_and_its_functions_are_not_unused()

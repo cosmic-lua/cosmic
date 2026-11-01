@@ -200,7 +200,7 @@ local record Pipeline
   --- Reads the sources `fresh` ([`build.derivation`]'s `fresh`) as written, and writes the rows of each ([`build.syntax_derivation`])
   --- into `db` beside the others. A source that does not parse is listed in `broken` when given and stops the derive
   --- otherwise, told in the words of the new checker ([`build.error_render`]).
-  derive: function(db: Sqlite.Handle, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
+  derive: function(db: Sqlite.Handle, own: boolean, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
                    made: {Derivation.Source}, broken?: {Derivation.Broken}): boolean, string
 
   --- Writes a row for every code the new checker emits to the `catalog` table of `db` (of the schema `schema`, "" for the
@@ -334,7 +334,7 @@ end
 
 --- What `inputs` of `db` stages for the new checker: the files and their text (the tree's own, and what is written from it),
 --- and the kind of each ([`Pipeline.over`]).
-local function entries_of(db: Sqlite.Handle): {{string}}?, {string: string}, string
+local function entries_of(db: Sqlite.Handle, own: boolean): {{string}}?, {string: string}, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT file, path, kind, origin, source FROM inputs WHERE kind <> 'vendor' ORDER BY file")
   if rows == nil then
@@ -357,7 +357,7 @@ local function entries_of(db: Sqlite.Handle): {{string}}?, {string: string}, str
       kinds[file] = kind
     end
   end
-  local refused = TreeProgram.declared(entries)
+  local refused = TreeProgram.declared(entries, own)
   if refused ~= "" then
     return nil, {}, refused
   end
@@ -365,7 +365,7 @@ local function entries_of(db: Sqlite.Handle): {{string}}?, {string: string}, str
 end
 
 function Pipeline.build(db: Sqlite.Handle, options: Pipeline.Options): Pipeline.Built?, string
-  local entries, kinds, trouble = entries_of(db)
+  local entries, kinds, trouble = entries_of(db, options.project ~= true)
   if entries == nil then
     return nil, trouble
   end
@@ -530,9 +530,9 @@ local function restore_collector(previous: string)
   end
 end
 
-function Pipeline.derive(db: Sqlite.Handle, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
+function Pipeline.derive(db: Sqlite.Handle, own: boolean, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
                          made: mut {Derivation.Source}, broken?: mut {Derivation.Broken}): boolean, string
-  local entries, kinds, trouble = entries_of(db)
+  local entries, kinds, trouble = entries_of(db, own)
   if entries == nil then
     return false, trouble
   end
