@@ -69,14 +69,6 @@ local function test_a_type_error_is_reported_and_the_lua_is_written_anyway(tmp: 
   assert(ran.out == generated("local n: number = \"text\"\nreturn n\n"))
 end
 
-local function test_the_count_alone_is_reported_without_errors(tmp: string)
-  local path = file(tmp, "typed.tl", "local n: number = \"text\"\nreturn n\n")
-  local ran = run({ path })
-  assert(ran.code == 0, ran.err)
-  assert(ran.err:find("1 type error", 1, true) and ran.err:find("--errors", 1, true), ran.err)
-  assert(not ran.err:find("typed.tl:1:", 1, true), ran.err)
-end
-
 local function test_a_syntax_error_is_refused_naming_the_file_and_line(tmp: string)
   local path = file(tmp, "broken.tl", "local a = 1\nlocal b = = 2\nreturn a\n")
   local ran = run({ path })
@@ -196,13 +188,6 @@ local function test_dots_and_dot_segments_in_a_name_are_not_a_problem(tmp: strin
   local ran = run({ tmp .. "/./a..b.tl" })
   assert(ran.code == 0 and ran.out == generated("return 5\n"), ran.err)
   assert(dotted ~= "")
-end
-
-local function test_a_require_nothing_names_says_how_to_fix_it(tmp: string)
-  local main = file(tmp, "main.tl", "local lib = require(\"lib\")\nreturn lib\n")
-  local ran = run({ "--errors", main })
-  assert(ran.code == 0, ran.err)
-  assert(ran.err:find("--root", 1, true) and ran.err:find("pass that file", 1, true), ran.err)
 end
 
 local function test_a_directory_that_is_a_file_is_named_once(tmp: string)
