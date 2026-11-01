@@ -2,6 +2,7 @@
 --- `debug` library is never opened. A shipped runtime exposes this module
 --- through the store searcher's trusted-module gate; boot preloads it for
 --- the trusted source-tree bridge.
+--- @kind binding
 
 local record native
   --- Every source line hit while collecting was on, by the module's

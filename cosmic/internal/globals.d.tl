@@ -1,4 +1,5 @@
 --- The program's globals, for the one thing that needs them whole: the environment of a chunk built by `load`.
+--- @kind binding
 
 local record globals
   --- The table of the globals: `require` and `package` among them. A chunk that `load` builds with no environment gets
