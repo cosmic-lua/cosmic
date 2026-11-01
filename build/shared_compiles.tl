@@ -73,8 +73,8 @@ local record shared_compiles
     lua: string
     bytecode: string
     references: {SyntaxReceivers.Reference}
-    fact_wraps?: integer
-    parameter_checks?: integer
+    fact_wraps: integer
+    parameter_checks: integer
   end
 
   --- What a parse is shared under: the analyzer that made it, the
@@ -510,10 +510,7 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
   if not begun then return false, begin_trouble end
   local function steps(): boolean, string
     for _, kept in ipairs(owed.kept) do
-      -- TODO: once ci/cosmic-driver.pin names a release whose importer passes the counts of the checks a
-      -- compile wrote, make `fact_wraps` and `parameter_checks` of a [`Kept`] required: the pinned importer, which
-      -- a boot runs this module under, offers a compile without them.
-      local refs = packed(kept.references, kept.fact_wraps or 0, kept.parameter_checks or 0)
+      local refs = packed(kept.references, kept.fact_wraps, kept.parameter_checks)
       local ok, trouble = Sqlite.run(db,
         "INSERT OR IGNORE INTO " .. compiled .. " (key, lua, bytecode, refs, digest, size, " ..
           "used_ns) VALUES (?1, deflate(?2), deflate(?3), deflate(?4), ?5, 0, ?6)",
