@@ -444,3 +444,57 @@ local function test_many_documents_asked_of_hold_no_more_than_the_few_that_keep_
   print(("lsp held: 40 more documents asked of, heap grown %.0f KiB"):format(grown))
   assert(grown < DOCUMENTS_GROWTH_AT_MOST, ("the heap grew %.0f KiB over 40 documents"):format(grown))
 end
+
+--- Guards against a dependency edited to require another module, and not checked since, hiding that module from the
+--- documents that require it: the modules a document reads are those of the open text, not of its last check.
+local function test_an_open_dependency_edited_to_require_another_is_read_through_its_text()
+  local root = project()
+  local inner = "local record inner\n  n: integer\nend\nreturn inner\n"
+  local before = "local record middle\n  record Plain\n    n: integer\n  end\n  value: Plain\nend\nreturn middle\n"
+  local after = 'local inner = require("inner")\nlocal record middle\n  value: inner\nend\nreturn middle\n'
+  local top = 'local middle = require("middle")\nlocal n: integer = middle.value.n\nreturn n\n'
+  assert(Fs.write(root .. "/inner.tl", inner))
+  assert(Fs.write(root .. "/middle.tl", before))
+  assert(Fs.write(root .. "/top.tl", top))
+  local checker = checker_at(root)
+  local middle = document_of(root, "middle.tl", before)
+  local document = document_of(root, "top.tl", top)
+  check.opened(checker, middle)
+  check.opened(checker, document)
+  assert(#check.diagnose(checker, middle, "utf-16") == 0)
+  local first = check.diagnose(checker, document, "utf-16")
+  assert(#first == 0, table.concat(first, "\n"))
+  check.set_text(middle, after)
+  local second = check.diagnose(checker, document, "utf-16")
+  assert(#second == 0, table.concat(second, "\n"))
+  assert(Fs.write(root .. "/inner.tl", (inner:gsub("integer", "string"))))
+  check.stale(checker)
+  local told = check.diagnose(checker, document, "utf-16")
+  assert(#told == 1, table.concat(told, "\n"))
+end
+
+--- Guards against completion in a document being typed in finding nothing once other documents were asked of: the last text
+--- that parsed stays while the current one does not.
+local function test_a_document_being_typed_in_keeps_the_last_text_that_parsed_when_evicted()
+  local root = helped()
+  local checker = checker_at(root)
+  local typed = document_of(root, "main.tl", MAIN)
+  check.opened(checker, typed)
+  assert(check.read(checker, typed) ~= nil)
+  check.set_text(typed, MAIN .. "local m: integer = helper.\n")
+  local last = check.last(checker, typed)
+  assert(last ~= nil and last.text == MAIN, "no last text that parsed")
+  for n = 1, 9 do
+    local name = "e" .. tostring(n) .. ".tl"
+    local text = "local n: integer = " .. tostring(n) .. "\nreturn n\n"
+    assert(Fs.write(root .. "/" .. name, text))
+    local other = document_of(root, name, text)
+    check.opened(checker, other)
+    assert(check.read(checker, other) ~= nil)
+  end
+  assert(typed.kept == nil, "the document being typed in kept its result")
+  local after = check.last(checker, typed)
+  assert(after ~= nil and after.text == MAIN, "the last text that parsed was dropped")
+  check.closed(checker, typed)
+  assert(typed.parsed == nil)
+end
