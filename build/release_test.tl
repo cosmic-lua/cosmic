@@ -209,7 +209,7 @@ local function test_a_prefix_passes_over_tags_without_a_release()
   failed(run({ "--commit", "abcdef0" }, { refs() }), "no release matches, among the tags of commits starting abcdef0")
   failed(run({ "--commit", "abcdef0", "--until", "2026-01-01" }, { refs(earlier), ok(entry(earlier, "2026-10-17T10:00:00Z")) }),
     "published by --until 2026-01-01")
-  failed(run({ "--commit", "abcdef0" }, { reply("404 Not Found", "{}") }), "matching-refs/tags/: HTTP 404")
+  failed(run({ "--commit", "abcdef0" }, { reply("404 Not Found", "{}") }), "matching-refs/tags: HTTP 404")
 end
 
 local function test_a_prefix_two_releases_share_is_refused_naming_both()

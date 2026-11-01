@@ -657,6 +657,12 @@ end
 --- the staged ones. Raises on any failure; the line to print on success,
 --- or on a skip ([`ensure_tag`]), a warning annotation.
 function Prerelease.publish(p: Prerelease.Publish): string
+  -- A commit published before the dated tags has its `next-` release:
+  -- that is its prerelease, and a second one would duplicate it.
+  local earlier = "next-" .. p.commit
+  if api_probe(p, "repos/" .. p.repository .. "/releases/tags/" .. earlier) then
+    return "prerelease already published: " .. earlier
+  end
   if p.date == nil then p.date = committed_day(p) end
   local tag = tag_of(p)
   local digest = Hash.hex_sha256(read(p.release .. "/cosmic"))

@@ -296,7 +296,7 @@ local record Asset
 end
 local record Release
   id: integer
-  tag: string
+  mut tag: string
   mut draft: boolean
   mut prerelease: boolean
   assets: mut {Asset}
@@ -651,6 +651,19 @@ local function test_publish_tags_the_commit_by_its_committer_date(tmp: string)
   assert(#r.releases == 1)
 end
 
+--- A commit that has a published `next-<sha>` release is published: no
+--- dated duplicate is made, and nothing is created.
+local function test_publish_takes_an_earlier_next_release_as_published(tmp: string)
+  local r = repo(tmp)
+  local old = seed(r, false, staged(r))
+  old.tag = "next-" .. commit
+  assert(publish(r) == "prerelease already published: next-" .. commit)
+  assert(#r.releases == 1 and count(r, "POST") == 0, logged(r))
+  -- Only a published one counts: a draft of it is not a release.
+  old.draft = true
+  assert(publish(r) ~= "prerelease already published: next-" .. commit)
+end
+
 local function test_publish_refuses_a_commit_the_api_gives_no_date(tmp: string)
   local r = repo(tmp)
   r.fail["commit"] = "1"
@@ -786,7 +799,7 @@ local function test_publish_refuses_api_failures_other_than_404(tmp: string)
   -- read as no published release.
   local expected: {string:string} = { ref = "HTTP status 500",
     ["ref-transport"] = "connection reset", transport = "connection refused",
-    ["by-tag"] = "releases/tags/" .. tag .. " failed (HTTP status 500)" }
+    ["by-tag"] = "releases/tags/next-" .. commit .. " failed (HTTP status 500)" }
   for _, failure in ipairs({ "ref", "ref-transport", "transport", "by-tag" }) do
     local r = repo(tmp .. "/" .. failure)
     r.fail[failure] = ""
@@ -888,7 +901,7 @@ local function test_publish_refuses_two_releases_for_the_tag(tmp: string)
   refused("2 releases are tagged " .. tag, function() publish(r) end)
   -- The commit's date, the published one by its tag, the draft from the
   -- list's first page, and nothing else was asked.
-  assert(#r.log == 3, logged(r))
+  assert(#r.log == 4, logged(r))
 end
 
 --- A name the draft holds already is no upload: GitHub's 422 fails the

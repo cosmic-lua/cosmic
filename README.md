@@ -23,7 +23,9 @@ program that runs on every target.
 
 ## install
 
-cosmic publishes a prerelease of each commit on main that passes CI.
+cosmic publishes a prerelease for most commits on main once CI has
+passed on them (a commit whose run was cancelled, or that GitHub would
+not let the job tag, has none).
 There are no version numbers and no `latest`: a release is promoted by
 hand, so pick one yourself from the
 [releases page](https://github.com/cosmic-lua/cosmic/releases) or with

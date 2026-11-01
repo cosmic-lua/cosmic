@@ -414,7 +414,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     --- Every tag of the repository that names a release's commit, by
     --- commit, in the order the API lists them; nil and why on failure.
     local function tagged_commits(): {string:{string}}?, {string}, string
-      local refs_url = repo_url .. "/git/matching-refs/tags/"
+      local refs_url = repo_url .. "/git/matching-refs/tags"
       local refs_text, refs_why = call(refs_url)
       if refs_text == nil then
         if refs_why == "" then refs_why = refs_url .. ": HTTP 404" end
