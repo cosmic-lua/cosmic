@@ -6,6 +6,7 @@
 --- under `pcall`, is not seen, and a module given as both `x.d.tl` and `x.tl` is refused where [`Seed.program`] reads it, as a build
 --- refuses one; none is in the closure.
 
+local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
@@ -123,6 +124,9 @@ local function seeded(tmp: string): Seed.Program
   assert(Fs.write(tmp .. "/three.d.tl", "local record R\nend\nreturn R\n"))
   assert(Fs.write(tmp .. "/three.tl", "local record R\nend\nreturn {} as R\n"))
   assert(Fs.write(tmp .. "/three/init.tl", "local record R\nend\nreturn {} as R\n"))
+  assert(Fs.mkdirs(tmp .. "/twin"))
+  assert(Fs.write(tmp .. "/twin.d.tl", "--- @kind binding\nlocal record R\nend\nreturn R\n"))
+  assert(Fs.write(tmp .. "/twin/init.d.tl", "--- @kind binding\nlocal record R\nend\nreturn R\n"))
   assert(Fs.write(tmp .. "/code.tl", "local n: integer = 1\nreturn n\n"))
   return Seed.program(tmp, {})
 end
@@ -137,6 +141,8 @@ local function test_the_seed_refuses_a_declaration_beside_a_source(tmp: string)
       "delete both.d.tl. To keep both, rename one of them so that they are different modules.", tostring(why))
   local three, three_why = program.module("three")
   assert(three == nil and three_why:find("three.d.tl: three.tl is already the module three.", 1, true) == 1, tostring(three_why))
+  local twin, twin_why = program.module("twin")
+  assert(twin == nil and twin_why == Driver.doubling("twin.d.tl", "twin/init.d.tl", "twin"), tostring(twin_why))
   local declared, declared_why = program.module("alone")
   assert(declared == nil and declared_why == "", tostring(declared_why))
   local code, code_why = program.module("code")
