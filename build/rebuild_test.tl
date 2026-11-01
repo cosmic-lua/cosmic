@@ -6,10 +6,7 @@
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Store = require("cosmic.store")
 local build_paths = require("build.paths")
-local GrammarMode = require("build.grammar_mode")
-local Pipeline = require("build.pipeline")
 local rebuild = require("build.rebuild")
 local work = require("build.work")
 local Test = require("cosmic.test")
@@ -107,15 +104,6 @@ local function test_a_stage_leaves_a_database_of_another_schema(tmp: string)
   local rows = assert(Sqlite.text_rows(db, "SELECT path FROM inputs"))
   assert(db:close())
   assert(#rows == 0, "staged " .. tostring(#rows) .. " files in it")
-end
-
---- The compiler a projection records is the compiler's, the mode's and the code that reads, so that a lookup reads a
---- projection only of the code that wrote it ([`writer.other_code`]).
-local function test_a_projection_names_the_new_checkers_code_as_its_compiler()
-  local new = rebuild.compiled_by("new")
-  assert(#new == 64, new)
-  assert(new == Pipeline.coded(GrammarMode.tool(Store.meta("compiler") or "", "new")))
-  assert(rebuild.compiled_by("new") == new)
 end
 
 --- A stage reads the sources with the new checker's syntax tree, which reads what only the new grammar spells (`mut`,

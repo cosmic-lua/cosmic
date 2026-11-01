@@ -5,6 +5,7 @@
 
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local VectorFixture = require("build.vector_fixture")
 local Test = require("cosmic.test")
 
 Test.policy{ cpu_features = true }
@@ -22,13 +23,6 @@ end
 local function text_of(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): string
   local rows = assert(Sqlite.rows(db, sql, values))
   return assert(rows[1]):text(1)
-end
-
--- What a query refuses with.
-local function refusal(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): string
-  local rows, trouble = Sqlite.rows(db, sql, values)
-  assert(rows == nil, sql)
-  return trouble
 end
 
 -- A vector as the blob an embedding API's base64 float32 decodes to.
@@ -70,8 +64,8 @@ local function test_text_and_blob_forms_agree()
   assert(text_of(db, "SELECT vector_text(?1)", { { blob = packed } }) == "[1,2.5,-3]")
   assert(text_of(db, "SELECT vector_text(vector(' [ 0.1 ] '))") == "[0.100000001]")
   assert(number_of(db, "SELECT vector_dims(?1)", { { blob = packed } }) == 3)
-  assert(refusal(db, "SELECT vector_dims('[]')"):find("at least 1 dimension", 1, true) ~= nil)
-  assert(refusal(db, "SELECT vector(x'')"):find("at least 1 dimension", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT vector_dims('[]')"):find("at least 1 dimension", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT vector(x'')"):find("at least 1 dimension", 1, true) ~= nil)
   assert(close_to(number_of(db, "SELECT l2_distance(?1, '[1, 2.5, -3]')",
     { { blob = packed } }), 0))
   db:close()
@@ -92,9 +86,9 @@ local function test_normalize_and_subvector()
   assert(text_of(db, "SELECT vector_text(subvector('[1,2,3]', -5, 100))") == "[1,2,3]")
   assert(text_of(db, "SELECT vector_text(subvector('[1,2,3]', 2, 9223372036854775807))") == "[2,3]")
   -- Only a range with no dimension left is refused.
-  assert(refusal(db, "SELECT subvector('[1,2,3]', 4, 2)"):find("at least 1 dimension", 1, true) ~= nil)
-  assert(refusal(db, "SELECT subvector('[1,2,3]', 0, 1)"):find("at least 1 dimension", 1, true) ~= nil)
-  assert(refusal(db, "SELECT subvector('[1,2,3]', 1, 0)"):find("at least 1 dimension", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT subvector('[1,2,3]', 4, 2)"):find("at least 1 dimension", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT subvector('[1,2,3]', 0, 1)"):find("at least 1 dimension", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT subvector('[1,2,3]', 1, 0)"):find("at least 1 dimension", 1, true) ~= nil)
   db:close()
 end
 
@@ -122,30 +116,30 @@ local function test_binary_quantize_and_bit_distances()
   assert(number_of(db, "SELECT hamming_distance(zeroblob(9), x'ffffffffffffffffff')") == 72)
   -- Bit vectors compare by byte length alone: 9 bits and 16 are the same.
   assert(number_of(db, "SELECT hamming_distance(binary_quantize('[1,1,1,1,1,1,1,1,1]'), x'ffff')") == 7)
-  assert(refusal(db, "SELECT hamming_distance(x'00', x'0000')"):find("different lengths", 1, true) ~= nil)
-  assert(refusal(db, "SELECT hamming_distance('a', 'b')"):find("is a blob", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT hamming_distance(x'00', x'0000')"):find("different lengths", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT hamming_distance('a', 'b')"):find("is a blob", 1, true) ~= nil)
   db:close()
 end
 
 local function test_refuses_what_is_not_a_vector()
   local db = assert(Sqlite.memory())
-  assert(refusal(db, "SELECT l2_distance('[1,2]', '[1,2,3]')"):find("different dimensions", 1, true) ~= nil)
-  assert(refusal(db, "SELECT vector('1,2')"):find("starts with [", 1, true) ~= nil)
-  assert(refusal(db, "SELECT vector('[1,,2]')"):find("finite numbers", 1, true) ~= nil)
-  assert(refusal(db, "SELECT vector('[1 2]')"):find("separated by commas", 1, true) ~= nil)
-  assert(refusal(db, "SELECT vector('[1] x')"):find("nothing may follow", 1, true) ~= nil)
-  assert(refusal(db, "SELECT vector(x'000000')"):find("4-byte floats", 1, true) ~= nil)
-  assert(refusal(db, "SELECT vector(42)"):find("blob of floats or a text", 1, true) ~= nil)
-  assert(refusal(db, "SELECT vector(zeroblob(64004))"):find("16000 dimensions", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT l2_distance('[1,2]', '[1,2,3]')"):find("different dimensions", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT vector('1,2')"):find("starts with [", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT vector('[1,,2]')"):find("finite numbers", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT vector('[1 2]')"):find("separated by commas", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT vector('[1] x')"):find("nothing may follow", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT vector(x'000000')"):find("4-byte floats", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT vector(42)"):find("blob of floats or a text", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT vector(zeroblob(64004))"):find("16000 dimensions", 1, true) ~= nil)
   -- A number a float cannot hold is refused, not stored as infinity.
-  assert(refusal(db, "SELECT vector('[1e39]')"):find("finite numbers", 1, true) ~= nil)
-  assert(refusal(db, "SELECT vector('[1, nan]')"):find("finite numbers", 1, true) ~= nil)
-  assert(refusal(db, "SELECT vector('[]')"):find("at least 1 dimension", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT vector('[1e39]')"):find("finite numbers", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT vector('[1, nan]')"):find("finite numbers", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT vector('[]')"):find("at least 1 dimension", 1, true) ~= nil)
   -- vector() also refuses a blob that holds a NaN or an infinity.
   local inf = string.pack("<f", math.huge)
   local nan = string.pack("<f", 0 / 0)
-  assert(refusal(db, "SELECT vector(?1)", { { blob = blob_of({ 1 }) .. inf } }):find("finite numbers", 1, true) ~= nil)
-  assert(refusal(db, "SELECT vector(?1)", { { blob = nan } }):find("finite numbers", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT vector(?1)", { { blob = blob_of({ 1 }) .. inf } }):find("finite numbers", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT vector(?1)", { { blob = nan } }):find("finite numbers", 1, true) ~= nil)
   -- A zeroblob is a vector of zeros, read without being held in memory.
   assert(number_of(db, "SELECT vector_dims(zeroblob(12))") == 3)
   local rows = assert(Sqlite.rows(db,
@@ -334,8 +328,8 @@ local function test_a_text_with_a_nul_is_no_vector()
   local db = assert(Sqlite.memory())
   -- The parser reads to the first NUL, which must not make `[1]` of this.
   local text: Sqlite.Value = { text = "[1]\0junk" }
-  assert(refusal(db, "SELECT vector(?1)", { text }):find("NUL", 1, true) ~= nil)
-  assert(refusal(db, "SELECT vector_dims(?1)", { text }):find("NUL", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT vector(?1)", { text }):find("NUL", 1, true) ~= nil)
+  assert(VectorFixture.refusal(db, "SELECT vector_dims(?1)", { text }):find("NUL", 1, true) ~= nil)
   db:close()
 end
 

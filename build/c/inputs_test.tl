@@ -46,6 +46,7 @@ end
 local function test_a_file_nothing_includes_does_not_change_the_key(tmp: string)
   write(tmp, { ["main.c"] = '#include "a.h"\n', ["a.h"] = "int a;\n", ["other.h"] = "int other;\n" })
   local before = key_of(tmp)
+  assert(before ~= nil)
   write(tmp, { ["other.h"] = "int other2;\n" })
   assert(key_of(tmp) == before)
 end
@@ -70,6 +71,7 @@ end
 local function test_a_header_beside_the_includer_shadows_a_searched_one(tmp: string)
   write(tmp, { ["main.c"] = '#include "sub/a.h"\n', ["sub/a.h"] = '#include "h.h"\n', ["inc/h.h"] = "int far;\n" })
   local before = key_of(tmp)
+  assert(before ~= nil)
   write(tmp, { ["sub/h.h"] = "int near;\n" })
   assert(key_of(tmp) ~= before, "a header beside the includer did not change the key")
 end
@@ -143,6 +145,7 @@ end
 local function test_a_backslash_continued_directive_is_one_line(tmp: string)
   write(tmp, { ["main.c"] = '#  \\\ninclude "a.h"\n', ["a.h"] = "int a;\n" })
   local before = key_of(tmp)
+  assert(before ~= nil)
   write(tmp, { ["a.h"] = "int b;\n" })
   assert(key_of(tmp) ~= before)
 end

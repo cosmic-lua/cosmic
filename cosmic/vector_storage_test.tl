@@ -10,6 +10,7 @@ local Signal = require("cosmic.signal")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Vector = require("cosmic.vector")
+local VectorFixture = require("build.vector_fixture")
 local Test = require("cosmic.test")
 
 Test.policy{ cpu_features = true }
@@ -32,22 +33,8 @@ local function stream(seed: integer): function(): number
   end
 end
 
-local function random_vector(next_number: function(): number, dims: integer): mut {number}
-  local out: mut {number} = {}
-  for _ = 1, dims do
-    out[#out + 1] = next_number()
-  end
-  return out
-end
-
 local function unit(next_number: function(): number, dims: integer): string
-  return Vector.normalize(Vector.pack(random_vector(next_number, dims)))
-end
-
-local function refusal(f: function()): string
-  local ok, why = pcall(f)
-  assert(not ok, "it should have raised")
-  return tostring(why)
+  return Vector.normalize(Vector.pack(VectorFixture.random_vector(next_number, dims)))
 end
 
 local function overlap(a: {integer}, b: {integer}): integer
@@ -96,9 +83,9 @@ local function test_f16_refuses_numbers_it_cannot_hold_and_rounds_to_even()
   corpus:add(1, Vector.pack({ 65519.5, 1 }))
   assert(assert(corpus:search(x, 1)).scores[1] == 65504)
   for _, big in ipairs({ 65520, -65520, 1e10, 3e38, -3e38 }) do
-    local why = refusal(function() corpus:add(2, Vector.pack({ 1, big })) end)
+    local why = Test.raises(function() corpus:add(2, Vector.pack({ 1, big })) end)
     assert(why:find("half", 1, true) ~= nil, why)
-    assert(refusal(function() corpus:add(2, Vector.pack({ big, 1 })) end):find("half", 1, true) ~= nil)
+    assert(Test.raises(function() corpus:add(2, Vector.pack({ big, 1 })) end):find("half", 1, true) ~= nil)
   end
   assert(corpus:count() == 1)
   -- 2049 and 2051 are ties between neighbors of a step of 2.
@@ -212,7 +199,7 @@ local function test_int8_rounds_to_even_and_scales_each_vector_by_itself()
 
   -- A vector and its multiples have the same codes: only the scale differs.
   local next_number = stream(8)
-  local base = random_vector(next_number, 48)
+  local base = VectorFixture.random_vector(next_number, 48)
   local corpus = Vector.corpus(48, { storage = "int8" })
   local function scaled(factor: number): string
     local out: mut {number} = {}
@@ -224,7 +211,7 @@ local function test_int8_rounds_to_even_and_scales_each_vector_by_itself()
   corpus:add(1, scaled(1))
   corpus:add(2, scaled(1000))
   corpus:add(3, scaled(0.001))
-  corpus:add(4, Vector.pack(random_vector(next_number, 48)))
+  corpus:add(4, Vector.pack(VectorFixture.random_vector(next_number, 48)))
   local cosine = assert(corpus:search(scaled(1), 3, { metric = "cosine" }))
   for i = 1, 3 do
     assert(math.abs(assert(cosine.scores[i]) - 1) < 1e-6, tostring(cosine.scores[i]))
@@ -521,7 +508,7 @@ local function test_k_means_clusters_every_storage()
   end
   local nothing = Vector.corpus(2, { storage = "int8" })
   nothing:add(1, Vector.pack({ 1e-37, 1e-37 }))
-  assert(refusal(function() Vector.kmeans(nothing, 1) end):find("direction", 1, true) ~= nil)
+  assert(Test.raises(function() Vector.kmeans(nothing, 1) end):find("direction", 1, true) ~= nil)
 end
 
 --- A guard of cosmic.signal that has caught a signal ends a search or a
@@ -559,7 +546,7 @@ end
 --- bit, over dimension counts that leave each kernel's tail.
 local function test_every_int8_kernel_answers_alike()
   local original = testing.vector_kernel()
-  assert(refusal(function() testing.vector_kernel("avx1024") end):find("kernel", 1, true) ~= nil)
+  assert(Test.raises(function() testing.vector_kernel("avx1024") end):find("kernel", 1, true) ~= nil)
   assert(testing.vector_kernel() == original)
   local ran = 0
   local vectorized: {string} = { "avx512_vnni", "avx_vnni" }
@@ -567,7 +554,7 @@ local function test_every_int8_kernel_answers_alike()
     local next_number = stream(dims)
     local corpus = Vector.corpus(dims, { storage = "int8" })
     for id = 1, 40 do
-      corpus:add(id, Vector.pack(random_vector(next_number, dims)))
+      corpus:add(id, Vector.pack(VectorFixture.random_vector(next_number, dims)))
     end
     -- Rows at the extremes of the codes: every product 127 * 127 or its negative.
     local high: mut {number} = {}
@@ -578,7 +565,7 @@ local function test_every_int8_kernel_answers_alike()
     end
     corpus:add(41, Vector.pack(high))
     corpus:add(42, Vector.pack(low))
-    local random_query = Vector.pack(random_vector(next_number, dims))
+    local random_query = Vector.pack(VectorFixture.random_vector(next_number, dims))
     local queries: {string} = { random_query, Vector.pack(high), Vector.pack(low) }
     for _, q in ipairs(queries) do
       for _, metric in ipairs(metrics) do
@@ -635,7 +622,7 @@ local function test_a_smaller_storage_holds_fewer_bytes()
     local next_number = stream(41)
     local corpus = Vector.corpus(dims, { storage = storage })
     for i = 1, rows do
-      corpus:add(i, Vector.pack(random_vector(next_number, dims)))
+      corpus:add(i, Vector.pack(VectorFixture.random_vector(next_number, dims)))
     end
     assert(corpus:count() == rows)
     collectgarbage("collect")

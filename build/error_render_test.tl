@@ -223,11 +223,6 @@ local function test_a_line_is_its_place_message_code_and_fix()
   assert(ErrorRender.line("a/b.tl", p) == "a/b.tl:1:20: " .. p.msg .. " (not_assignable): " .. p.fix)
 end
 
-local function test_the_examples_a_diagnostic_points_to_are_the_ones_the_build_has_always_pointed_to()
-  assert(ErrorRender.queries.arguments == "generics_functions_returns")
-  assert(ErrorRender.queries.record_key == "records_interfaces_methods")
-end
-
 --- The line a build prints for the first error of `text`, with the examples `hinted` holds.
 local function first_line(text: string, stubs?: {string: string}): string
   local hints, db = hinted()

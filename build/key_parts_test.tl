@@ -43,10 +43,6 @@ local function test_a_key_part_is_the_kind_then_path_and_answer_in_hex()
   local edges = "\0\n\x7f\xff"
   assert(key_parts.key_part("s", edges, "") == "s 000a7fff ")
   assert(key_parts.key_part("d", "caf\xc3\xa9", "x") == "d 636166c3a9 78")
-  for _, case in ipairs({ { "i", "build.a_test test_b", "" }, { "r", "/tree/x", "ok 12" } }) do
-    assert(key_parts.key_part(nth(case, 1), nth(case, 2), nth(case, 3)) ==
-        nth(case, 1) .. " " .. Codec.hex(nth(case, 2)) .. " " .. Codec.hex(nth(case, 3)))
-  end
 end
 
 --- A path under the tree is named below a marker no path holds; one

@@ -4,7 +4,6 @@
 --- would fail at run time if a rule had a hole is held refused beside the one that stands.
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
-local Types = require("lang.types")
 
 Test.policy{ cpu_features = true }
 
@@ -44,40 +43,24 @@ local function animal(): Animal
 end
 ]]
 
---- The codes of checking `body` after the head.
+--- [`Programs.codes_of`] of `body` after the head.
 local function codes_of(body: string): string
-  local r = Programs.run(HEAD .. body)
-  assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. body)
-  return Programs.codes(r)
+  return Programs.codes_of(HEAD .. body)
 end
 
---- Checks that `body` is taken, runs, and prints `want` (joined by commas).
+--- [`Programs.stands`] of `body` after the head.
 local function stands(body: string, want: string)
-  local x = Programs.execute(HEAD .. body, true)
-  assert(#x.run.before == 0, table.concat(x.run.before, " ") .. " in\n" .. body)
-  assert(x.ran, Programs.codes(x.run) .. " in\n" .. body)
-  assert(x.fault == nil, tostring(x.fault) .. " in\n" .. x.lua)
-  assert(table.concat(x.printed, ",") == want, table.concat(x.printed, ",") .. ", wanted " .. want .. " in\n" .. body)
+  Programs.stands(HEAD .. body, want)
 end
 
---- Checks that `body` is refused with exactly `codes`.
+--- [`Programs.refused`] of `body` after the head.
 local function refused(body: string, codes: string)
-  local got = codes_of(body)
-  assert(got == codes, "wanted " .. codes .. ", got " .. got .. " in\n" .. body)
+  Programs.refused(HEAD .. body, codes)
 end
 
---- The type of the last variable called `name` after checking `body`.
+--- [`Programs.type_of`] of `body` after the head.
 local function type_of(body: string, name: string): string
-  local r = Programs.run(HEAD .. body)
-  assert(#r.before == 0 and Programs.codes(r) == "", table.concat(r.before, " ") .. Programs.codes(r) .. " in\n" .. body)
-  local found: Types.Type? = nil
-  for _, v in ipairs(r.scoped.list) do
-    if v.name == name then
-      found = r.result.vars[v.id] or found
-    end
-  end
-  assert(found ~= nil, "no variable " .. name)
-  return Types.display(found)
+  return Programs.type_of(HEAD .. body, name)
 end
 
 -- the type parameters are solved from the arguments ----------------------------------------------------------------

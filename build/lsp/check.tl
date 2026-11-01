@@ -43,6 +43,7 @@
 local Ast = require("lang.ast")
 local Declarations = require("lang.declarations")
 local Driver = require("build.driver")
+local type Derivation = require("build.syntax_derivation")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Node = require("build.syntax_node")
@@ -433,12 +434,13 @@ end
 --- where that is not what it required before: at its last check, or, at
 --- its first, as staged. What it requires is read of the rows of its text ([`source.requires_of`]) where it `derivable`
 --- (its text parses and is no template's Teal), else is the names of the `sites` the check read.
-local function remember(checker: Checker, document: Document, sites: {plan.Site}, derivable: boolean)
+local function remember(checker: Checker, document: Document, sites: {plan.Site}, derivable: boolean,
+                        parsed?: Ast.Chunk, known?: Derivation.Known)
   local names: {string} = {}
   local listed = source.module(checker.source, document.name)
   local rows: {string}? = nil
   if listed ~= nil and derivable then
-    rows = source.requires_of(checker.source, listed, document.text, hash_of(document))
+    rows = source.requires_of(checker.source, listed, document.text, hash_of(document), parsed, known)
   end
   if rows ~= nil then
     names = rows
@@ -550,7 +552,7 @@ local function checked_of(checker: Checker, document: Document): Checked
   if listed ~= nil then path, kind = listed.path, listed.kind end
   local own_tree = source.standing(checker.source).own
   local planned = syntax_read.plan_of(document.name, text, path, kind, own_tree, generated)
-  remember(checker, document, planned.requires, planned.parsed and not generated)
+  remember(checker, document, planned.requires, planned.parsed and not generated, planned.chunk, planned.known)
   local refusals = planned.refusals
   local subject = planned.plan
   if planned.halted and subject == nil then return checked(refusals, text, none) end
@@ -635,11 +637,11 @@ end
 
 --- The names of the modules `document` reads, sorted: the modules it requires now and those they require, as an open document's
 --- text or the stage has them ([`requires_of_open`]). A module the program already held is not served again, so the modules
---- served in a check are no account of what the check read.
-local function reads_of(checker: Checker, document: Document): {string}
+--- served in a check are no account of what the check read. `direct` are the names `document` requires.
+local function reads_of(checker: Checker, direct: {string}): {string}
   local reads: mut {string:boolean} = {}
   local pending: mut {string} = {}
-  for _, name in ipairs(document.requires or {}) do pending[#pending + 1] = name end
+  for _, name in ipairs(direct) do pending[#pending + 1] = name end
   while #pending > 0 do
     local name = assert(table.remove(pending))
     if reads[name] == nil then
@@ -669,14 +671,13 @@ local function digest_of(checker: Checker, names: {string}): string
   return Hash.hex_sha256(table.concat(keys, "\1"))
 end
 
---- What the check of `document` just made was of. `hints` is the hints key ([`hints_key`]) read before the check: a docs
---- database committed to during the check is then seen as moved by the next ask, not recorded as already read.
---- TODO: read `reads` and `digest` before the check as well, once the requires a check finds can be known before it runs:
---- a module's file written between the check's read and this call is recorded as already seen.
-local function basis_of(checker: Checker, document: Document, hints: string): Basis
-  local reads = reads_of(checker, document)
+--- What the check of `document` just made was of. `hints` is the hints key ([`hints_key`]), and `reads` and `digest` the
+--- modules it reads and their digest ([`reads_of`], [`digest_of`]), all read before the check: a docs database or a module
+--- written during the check is then seen as moved by the next ask, not recorded as already read. The epoch and the listing
+--- are read after, as the check may move them.
+local function basis_of(checker: Checker, document: Document, hints: string, reads: {string}, digest: string): Basis
   return { text = document.text, epoch = checker.epoch, listing = listing_of(checker, document),
-    hints = hints, reads = reads, digest = digest_of(checker, reads) }
+    hints = hints, reads = reads, digest = digest }
 end
 
 --- Whether a check of `document` that was of `basis` would find what it found: nothing it was of moved.
@@ -699,9 +700,12 @@ local function checked_now(checker: Checker, document: Document): Checked
   end
   checker.ran[document.name] = (checker.ran[document.name] or 0) + 1
   local hints = hints_key(checker)
+  -- What the text requires is what the check will find ([`requires_of_open`]).
+  local reads = reads_of(checker, requires_of_open(document))
+  local digest = digest_of(checker, reads)
   local checked = checked_of(checker, document)
   -- The basis after the check, which may move the epoch (`remember`, [`program_of`]): the next ask is of the same program.
-  document.kept = { basis = basis_of(checker, document, hints), checked = checked }
+  document.kept = { basis = basis_of(checker, document, hints, reads, digest), checked = checked }
   if checked.outcome ~= nil and not checked.generated then document.parsed = document.kept end
   bounded(checker, document)
   return checked

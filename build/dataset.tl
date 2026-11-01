@@ -82,6 +82,7 @@ local sys = require("cosmic.sys")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local plural = require("build.plural")
+local quoted = require("build.sql_name").quoted
 
 --- What a failure of this module answers, nil and `why` under the
 --- module's name.
@@ -357,11 +358,6 @@ function dataset.read(name: string, text: string, opts?: dataset.ReadOptions): d
     return refuse("no format " .. name .. " (known: " .. table.concat(dataset.names(), ", ") .. ")")
   end
   return format.read(text, opts or {})
-end
-
---- `name` as an SQL identifier, quoted.
-local function quoted(name: string): string
-  return '"' .. name:gsub('"', '""') .. '"'
 end
 
 --- One value as a bound parameter, or nil and why.

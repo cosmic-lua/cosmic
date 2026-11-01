@@ -127,10 +127,6 @@ cosmic/internal/compress.d.tl interface_disagrees 1
 
 cosmic/internal/sqlite.d.tl interface_disagrees 1
 
-cosmic/json_reader_fuzz_test.tl interface_disagrees 1
-
-cosmic/json_reader_test.tl interface_disagrees 1
-
 cosmic/net.tl interface_disagrees 2
 
 cosmic/stream.tl interface_disagrees 5
@@ -3227,7 +3223,6 @@ build/link_resolve.tl any_use 1
 
 build/lsp/session.tl any_use 5
 
-build/perf_validation.tl any_use 7
 
 build/rand.tl any_use 1
 
@@ -5686,7 +5681,7 @@ cosmic/zip.tl literal_missing 1
 
 lang/check.tl literal_missing 8
 
-lang/declarations.tl literal_missing 6
+lang/declarations.tl literal_missing 5
 
 lang/relation.tl literal_missing 1
 
@@ -6105,7 +6100,6 @@ build/flow_test.tl arms_differ 2
 
 build/json_query_test.tl arms_differ 2
 
-build/perf_validation.tl arms_differ 1
 
 build/shared_compiles.tl arms_differ 1
 

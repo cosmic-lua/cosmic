@@ -1,7 +1,7 @@
 --- What the program a session of `cosmic lsp` holds under the new checker ([`build.lsp.held`]) does between checks: an edit shows
 --- an error and its fix clears it, the program is the session's and not each check's, a module served otherwise than it was
 --- is put in it, a module the stage did not list is found once it does, and a long session of edits holds no more than a
---- short one. Every session here asks for the new checker, whatever the mode of the suite.
+--- short one.
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -34,7 +34,7 @@ local function helped(): string
   return root
 end
 
---- A checker of the new grammar at `root`, and the document `name` of it with `text`.
+--- A checker at `root`, and the document `name` of it with `text`.
 local function checker_at(root: string): check.Checker
   return check.new(root, function(_line: string) end, function(): check.Hinted
     return { databases = {}, public = {} }
@@ -436,6 +436,28 @@ local function test_a_docs_database_written_during_a_check_checks_the_document_a
   assert(assert(found[1]):find("Json.read", 1, true) ~= nil, assert(found[1]))
   assert(reader:close())
   assert(writer:close())
+end
+
+--- Guards against a module written while a check reads it being recorded as already read: the next ask checks again.
+local function test_a_module_written_during_a_check_checks_the_document_again()
+  local root = helped()
+  local asked = 0
+  local helper = document_of(root, "helper.tl", HELPER)
+  local checker = check.new(root, function(_line: string) end, function(): check.Hinted
+    asked = asked + 1
+    -- The first ask is the key read before the check, the second the check's own lookup of a hint.
+    if asked == 2 then check.set_text(helper, RETYPED) end
+    return { databases = {}, public = {} }
+  end)
+  local main = document_of(root, "main.tl", 'local helper = require("helper")\nprint(read, helper)\nlocal n: integer = 1\nreturn n\n')
+  check.opened(checker, helper)
+  check.opened(checker, main)
+  local told = check.diagnose(checker, main, "utf-16")
+  assert(#told == 1, table.concat(told, "\n"))
+  assert(asked >= 2, "the check looked up a hint")
+  assert(checker.ran["main.tl"] == 1, tostring(checker.ran["main.tl"]))
+  check.diagnose(checker, main, "utf-16")
+  assert(checker.ran["main.tl"] == 2, tostring(checker.ran["main.tl"]))
 end
 
 --- Guards against a session holding the whole program of every document it has open: the documents asked of least recently

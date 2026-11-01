@@ -7,6 +7,8 @@ local Signal = require("cosmic.signal")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Vector = require("cosmic.vector")
+local VectorFixture = require("build.vector_fixture")
+local Test = require("cosmic.test")
 
 local function close_to(a: number, b: number): boolean
   return math.abs(a - b) < 1e-4
@@ -23,20 +25,6 @@ local function stream(seed: integer): function(): number
     held.state = (held.state * 6364136223846793005 + 1442695040888963407)
     return ((held.state >> 11) % 2000001) / 1000000 - 1
   end
-end
-
-local function random_vector(next_number: function(): number, dims: integer): {number}
-  local out: mut {number} = {}
-  for _ = 1, dims do
-    out[#out + 1] = next_number()
-  end
-  return out
-end
-
-local function refusal(f: function()): string
-  local ok, why = pcall(f)
-  assert(not ok, "it should have raised")
-  return tostring(why)
 end
 
 local function test_pack_unpack_and_json_round_trip()
@@ -78,12 +66,12 @@ local function test_search_agrees_with_the_sql_functions()
   assert(db:exec("CREATE TABLE chunks (id INTEGER PRIMARY KEY, embedding BLOB)"))
   local corpus = Vector.corpus(dims)
   for id = 1, 300 do
-    local v = Vector.pack(random_vector(next_number, dims))
+    local v = Vector.pack(VectorFixture.random_vector(next_number, dims))
     corpus:add(id, v)
     assert(Sqlite.run(db, "INSERT INTO chunks VALUES (?1, ?2)", { { integer = id }, { blob = v } }))
   end
   assert(corpus:count() == 300)
-  local q = Vector.pack(random_vector(next_number, dims))
+  local q = Vector.pack(VectorFixture.random_vector(next_number, dims))
   agree(db, corpus, q, "inner_product", "-inner_product(embedding, ?1)", function(x: number): number
     return -x
   end)
@@ -329,16 +317,16 @@ local function test_shape_errors_raise()
   local corpus = Vector.corpus(3)
   corpus:add(1, Vector.pack({ 1, 2, 3 }))
   local short = Vector.pack({ 1, 2 })
-  assert(refusal(function() corpus:add(2, short) end):find("dimensions", 1, true) ~= nil)
-  assert(refusal(function() corpus:search(short, 1) end):find("dimensions", 1, true) ~= nil)
+  assert(Test.raises(function() corpus:add(2, short) end):find("dimensions", 1, true) ~= nil)
+  assert(Test.raises(function() corpus:search(short, 1) end):find("dimensions", 1, true) ~= nil)
   local q = Vector.pack({ 1, 2, 3 })
-  assert(refusal(function() corpus:search(q, 0) end):find("k is at least 1", 1, true) ~= nil)
-  assert(refusal(function() corpus:search(q, 1, { candidates = 0 }) end):find("candidates", 1, true) ~= nil)
-  assert(refusal(function() Vector.corpus(0) end):find("dimensions", 1, true) ~= nil)
-  assert(refusal(function() Vector.pack({ 1 / 0 }) end):find("finite", 1, true) ~= nil)
-  assert(refusal(function() Vector.pack({ 1e39 }) end):find("finite", 1, true) ~= nil)
-  assert(refusal(function() Vector.pack({}) end):find("at least 1 dimension", 1, true) ~= nil)
-  assert(refusal(function() Vector.unpack("abc") end):find("floats", 1, true) ~= nil)
+  assert(Test.raises(function() corpus:search(q, 0) end):find("k is at least 1", 1, true) ~= nil)
+  assert(Test.raises(function() corpus:search(q, 1, { candidates = 0 }) end):find("candidates", 1, true) ~= nil)
+  assert(Test.raises(function() Vector.corpus(0) end):find("dimensions", 1, true) ~= nil)
+  assert(Test.raises(function() Vector.pack({ 1 / 0 }) end):find("finite", 1, true) ~= nil)
+  assert(Test.raises(function() Vector.pack({ 1e39 }) end):find("finite", 1, true) ~= nil)
+  assert(Test.raises(function() Vector.pack({}) end):find("at least 1 dimension", 1, true) ~= nil)
+  assert(Test.raises(function() Vector.unpack("abc") end):find("floats", 1, true) ~= nil)
   assert(corpus:count() == 1)
 end
 
@@ -351,9 +339,9 @@ local function test_the_collector_counts_the_corpus_buffers()
     local corpus = Vector.corpus(dims)
     local next_number = stream(9)
     for i = 1, rows do
-      corpus:add(i, Vector.pack(random_vector(next_number, dims)))
+      corpus:add(i, Vector.pack(VectorFixture.random_vector(next_number, dims)))
     end
-    assert(corpus:search(Vector.pack(random_vector(next_number, dims)), 1, { candidates = 10 }))
+    assert(corpus:search(Vector.pack(VectorFixture.random_vector(next_number, dims)), 1, { candidates = 10 }))
     assert(corpus:count() == rows)
     collectgarbage("collect")
     return collectgarbage("count")
@@ -375,9 +363,9 @@ local function test_a_caught_signal_interrupts_long_calls_and_leaves_the_corpus(
   local next_number = stream(21)
   local corpus = Vector.corpus(8)
   for i = 1, 600 do
-    corpus:add(i, Vector.normalize(Vector.pack(random_vector(next_number, 8))))
+    corpus:add(i, Vector.normalize(Vector.pack(VectorFixture.random_vector(next_number, 8))))
   end
-  local query = Vector.normalize(Vector.pack(random_vector(next_number, 8)))
+  local query = Vector.normalize(Vector.pack(VectorFixture.random_vector(next_number, 8)))
   local exact = assert(corpus:search(query, 5))
   local approximate = assert(corpus:search(query, 5, { candidates = 50 }))
   local centroids = assert(Vector.kmeans(corpus, 3, { seed = 4, iterations = 5 }))

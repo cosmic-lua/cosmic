@@ -409,6 +409,45 @@ local function test_a_declaration_beside_its_source_is_refused()
   assert(built ~= nil, "the project did not build once the declaration was deleted: " .. tostring(built_trouble))
 end
 
+--- The refusal does not depend on what an earlier run left: a pair of a tagged `.d.tl` and a `.tl` is refused on a cold run
+--- and on every warm one after it, with the same words each time, whichever of the two the importer's arity would have fit.
+local function test_a_declaration_beside_its_source_is_refused_cold_and_warm()
+  local root, write_trouble = write_fixture("declared-implementation-warm", {
+    ["m.tl"] = "local M = {}\nfunction M.f(a: integer, b: integer): integer return a + b end\nreturn M\n",
+    ["m.d.tl"] = "--- @kind binding\nlocal record M\n  f: function(a: integer): integer\nend\nreturn M\n",
+    ["main.tl"] = 'local m = require("m")\nlocal n: integer = m.f(1)\nreturn n\n',
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local first: string? = nil
+  for run = 1, 3 do
+    local result, trouble = compile_fixture(root)
+    assert(result == nil, "run " .. tostring(run) .. " built a declaration beside its source")
+    assert(trouble:find("m.d.tl: m.tl is already the module m.", 1, true) == 1, "run " .. tostring(run) .. ": " .. trouble)
+    first = first or trouble
+    assert(trouble == first, "run " .. tostring(run) .. " said another thing: " .. trouble)
+  end
+end
+
+--- Two declaration files of one module (`x.d.tl` and `x/init.d.tl`) are refused, as two sources are, rather than the first
+--- by name answering for the importer; on a cold run and on a warm one.
+local function test_two_declarations_of_one_module_are_refused_cold_and_warm()
+  local root, write_trouble = write_fixture("two-declarations", {
+    ["x.d.tl"] = "--- @kind binding\nlocal record X\n  f: function(a: integer): integer\nend\nreturn X\n",
+    ["x/init.d.tl"] = "--- @kind binding\nlocal record X\n  f: function(a: integer, b: integer): integer\nend\nreturn X\n",
+    ["main.tl"] = 'local x = require("x")\nlocal n: integer = x.f(1)\nreturn n\n',
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  for run = 1, 3 do
+    local result, trouble = compile_fixture(root)
+    assert(result == nil, "run " .. tostring(run) .. " built two declarations of one module")
+    assert(trouble == "x.d.tl and x/init.d.tl both answer to import path 'x'; delete or rename one",
+      "run " .. tostring(run) .. ": " .. trouble)
+  end
+  assert(Fs.remove(root .. "/x/init.d.tl"))
+  local built, built_trouble = compile_fixture(root)
+  assert(built ~= nil, "the project did not build once one was deleted: " .. tostring(built_trouble))
+end
+
 --- The words a `.d.tl` that names no kind is refused in.
 local function unnamed_words(file: string): string
   return file .. ": a .d.tl must name what it is, and this one names nothing. If it declares a module implemented in C, " ..

@@ -5,7 +5,7 @@
 --- database's `type_violations`, as kind "parameter", and fails nothing, since the project declares it outside cosmic/ (a parameter declared there
 --- fails the test, [`build.boundary_hook_test`]); a correct call reports nothing.
 ---
---- The project is compiled by the tool the test starts, in the new mode whatever the mode of the suite that runs this test.
+--- The project is compiled by the tool the test starts, in the new mode.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")

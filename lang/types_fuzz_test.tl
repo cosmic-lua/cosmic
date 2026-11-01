@@ -343,15 +343,6 @@ local function several(w: World, draws: {integer}): {Types.Type}
   return out
 end
 
-local function reversed(list: {Types.Type}): {Types.Type}
-  local out: mut {Types.Type} = {}
-  for i = #list, 1, -1 do
-    local item = assert(list[i], "`i` is within the list")
-    out[#out + 1] = item
-  end
-  return out
-end
-
 --- The list rotated by `by`, and then every other member first.
 local function shuffled(list: {Types.Type}, by: integer): {Types.Type}
   local out: mut {Types.Type} = {}
@@ -395,7 +386,7 @@ local function test_a_union_does_not_depend_on_the_order_grouping_or_store_of_it
         end
         return true, ""
       end
-      local ok, reason = expect(w.store:union(reversed(members)), "reversed")
+      local ok, reason = expect(w.store:union(Programs.reversed(members)), "reversed")
       if not ok then
         return false, reason
       end
@@ -430,7 +421,7 @@ local function test_a_union_does_not_depend_on_the_order_grouping_or_store_of_it
       for _, m in ipairs(members) do
         doubled[#doubled + 1] = m
       end
-      for _, m in ipairs(reversed(members)) do
+      for _, m in ipairs(Programs.reversed(members)) do
         doubled[#doubled + 1] = m
       end
       ok, reason = expect(w.store:union(doubled), "repeated")
@@ -440,7 +431,7 @@ local function test_a_union_does_not_depend_on_the_order_grouping_or_store_of_it
       -- Another store makes the members in another order after other types, and has the same text.
       local other = crowded(w.store, draws)
       local there: mut {Types.Type} = {}
-      for i, m in ipairs(reversed(members)) do
+      for i, m in ipairs(Programs.reversed(members)) do
         local t, why_not = other:decode(Types.encode(m))
         if t == nil then
           return false, "decoding " .. Types.encode(m) .. ": " .. why_not

@@ -1,7 +1,6 @@
 --- `cosmic compile --grammar new` (build/compile.tl, build/compile_grammar.tl): files in the new checker's
 --- grammar are lexed, parsed, scoped, lowered, checked and written as Lua, and the Lua is written despite type
---- errors, as for Teal. The grammar is named, never guessed. build/compile_lang_test.tl compiles the checker's
---- own source with it.
+--- errors, as for Teal. The grammar is named, never guessed.
 
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")

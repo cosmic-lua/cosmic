@@ -159,7 +159,7 @@ local function test_an_output_matching_example_actually_passes()
 end
 
 --- The test the generator writes for an example with output (its capture of `print` among it) is code the new checker takes
---- with no ceiling to hold it, whatever the mode of the suite. (The run of what it writes is the test above, in the suite's.)
+--- with no ceiling to hold it. (The run of what it writes is the test above, in the suite's.)
 local function test_an_output_matching_example_builds_with_the_new_checker_and_passes()
   local root, write_trouble = write_fixture("match-new", matching_doc)
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
