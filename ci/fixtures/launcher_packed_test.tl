@@ -29,7 +29,7 @@ Test.policy{
     { path = "o/fixtures/launcher/payloads/socket-aarch64-linux-musl", letters = "r" },
     { path = "o/fixtures/launcher/payloads/socket-aarch64-macos", letters = "r" },
   },
-  env = { "COSMIC_FIXTURE_TARGET" },
+  env = { "COSMIC_FIXTURE_TARGET", "COSMIC_FIXTURE_FIGURES" },
   profiles = { "system" },
 }
 
@@ -332,35 +332,47 @@ local function test_signals_while_the_stub_is_decoding(tmp: string)
 end
 
 --- The cost of a signed stub's first exec on macOS, which the launcher's
---- TODO (build/launcher.tl) waits on: the best of three cold starts of the
---- packed launcher against the best of three of the raw one, in fresh caches.
---- The difference is the stub's cut, its first exec and its decode; it is
---- written to stderr and to `cold-start-timing` in the case's diagnostics.
---- It asserts nothing about the figure: it says it is read, not judged.
+--- TODO (build/launcher.tl) waits on: the stub the launcher would cut out is
+--- written to a new file and run with no arguments, which it refuses with its
+--- usage status, then run again. The first run pays for validating the
+--- signature of a binary no process has run; the second runs the same file.
+--- Three new files, the best of each run. The figure is the job log's
+--- ([`Fixture.figure`]), and stderr's where there is no orchestration.
+--- It asserts nothing about the times: it says them, not judges.
 local function test_the_first_exec_of_a_staged_stub_is_timed_on_macos(tmp: string)
   local ctx = packed(tmp)
   if ctx.target ~= "aarch64-macos" then
     Test.skip("the figure is for macOS, whose first exec of a new binary validates its signature")
     return
   end
-  Fixture.mkdir(tmp .. "/raw")
-  local plain = setup(tmp .. "/raw", "test")
-  local function best(c: Context, name: string): integer
-    local least: integer? = nil
-    for n = 1, 3 do
-      local started = Clock.monotonic_ns()
-      outcome_ok(run(c, name .. tostring(n), c.work .. "/" .. name .. tostring(n) .. "-cache"), name)
-      local took = Clock.monotonic_ns() - started
-      if least == nil or took < least then least = took end
-    end
-    return assert(least)
+  local arm = arm_of(ctx)
+  local stub = Fixture.read(ctx.artifact):sub(arm.stub_offset + 1, arm.stub_offset + arm.stub_length)
+  assert(#stub == arm.stub_length, "the artifact is shorter than its stub")
+  local function exec(path: string, label: string): integer
+    local started = Clock.monotonic_ns()
+    local answer = Fixture.call(label, { path }, ctx.work, ctx.diagnostics, nil, Clock.seconds(30))
+    local took = Clock.monotonic_ns() - started
+    local result = answer.result
+    assert(not result.timed_out and result.signal == nil and result.code == 2,
+      label .. " did not end with the stub's usage status; stderr=" .. answer.err)
+    return took
   end
-  local packed_ns, raw_ns = best(ctx, "packed-cold"), best(plain, "raw-cold")
-  local line = "launcher cold start: packed " .. tostring(packed_ns // 1000000) .. " ms, raw " ..
-    tostring(raw_ns // 1000000) .. " ms, stub and decode " ..
-    tostring((packed_ns - raw_ns) // 1000000) .. " ms\n"
-  Fixture.write(ctx.diagnostics .. "/cold-start-timing", line)
-  local _, _ = Fs.put(Fs.stderr, line)
+  local first: integer? = nil
+  local second: integer? = nil
+  for n = 1, 3 do
+    local path = ctx.work .. "/stub-timed-" .. tostring(n)
+    Fixture.write(path, stub, 0x1ed)
+    local one = exec(path, "stub-first-" .. tostring(n))
+    local two = exec(path, "stub-second-" .. tostring(n))
+    if first == nil or one < first then first = one end
+    if second == nil or two < second then second = two end
+  end
+  local line = "launcher cold start: first exec of a new stub " .. tostring(assert(first) // 1000000) ..
+    " ms, second exec of it " .. tostring(assert(second) // 1000000) .. " ms, difference " ..
+    tostring((first - assert(second)) // 1000000) .. " ms"
+  if not Fixture.figure("launcher-cold-start", line) then
+    local _, _ = Fs.put(Fs.stderr, line .. "\n")
+  end
 end
 
 -- The CPU check is the launcher's first act, ahead of the cache and any stub.
