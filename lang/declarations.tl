@@ -334,6 +334,9 @@ local record Declarations
   --- The module a file is: its path without `.tl`, `.d.tl` or a trailing `/init`, with dots for slashes.
   module_of: function(path: string): string
 
+  --- The names of the type parameters of `list`.
+  parameter_names: function(list: {Ast.TypeParam}): {string}
+
   --- The fields `decl`, an interface, has from the interfaces it lists ([`Declarations.inherited`]).
   inherited: function(store: Store, judge: Relation.Judge, decl: Types.Decl): {Types.Field}
 
@@ -580,8 +583,7 @@ function Declarations.module_of(path: string): string
   return (stem:gsub("/+", "."))
 end
 
---- The names of the type parameters of `list`.
-local function parameter_names(list: {Ast.TypeParam}): {string}
+function Declarations.parameter_names(list: {Ast.TypeParam}): {string}
   local out: mut {string} = {}
   for i, p in ipairs(list) do
     out[i] = p.name.name
@@ -655,8 +657,6 @@ local record Ctx
   --- The entry of each declaration node, and of each binding that names one.
   entry_of: mut {integer: Entry}
   by_binding: mut {integer: Entry}
-  --- The ids of the type names that name a declared global.
-  global_uses: {integer: boolean}?
   types: mut {integer: Type}
   decls: mut {integer: Decl}
   aliases: mut {integer: Type}
@@ -729,7 +729,7 @@ local function push_frame(ctx: Ctx, barrier: boolean, params: {Ast.TypeParam})
   for i, p in ipairs(params) do
     ids[p.name.id] = i - 1
   end
-  table.insert(ctx.frames, { barrier = barrier, count = #params, ids = ids, names = parameter_names(params) })
+  table.insert(ctx.frames, { barrier = barrier, count = #params, ids = ids, names = Declarations.parameter_names(params) })
 end
 
 local function pop_frame(ctx: Ctx)
@@ -1797,7 +1797,7 @@ local METAMETHODS <const>: {string: boolean} = {
 --- Whether `made`, the type of a method named `__close`, is what Lua calls at the end of a `<close>` block and drops the
 --- answer of: it takes the value and, if it likes, the error object Lua passes as a second argument (declared `any`), and
 --- it answers nothing. A class's declaration and a userdata record's are held to this one rule.
-local function close_is_callable(made: Type): boolean
+function Declarations.close_is_callable(made: Type): boolean
   if made.tag ~= "fn" then
     return false
   end
@@ -1825,7 +1825,7 @@ local function check_metamethod(ctx: Ctx, build: Build, m: Ast.Method, made: Typ
     return
   end
   if name == "__close" then
-    if not close_is_callable(made) then
+    if not Declarations.close_is_callable(made) then
       report_at(ctx, "metamethod_signature", m.name, "the method `__close` of " .. class .. " takes more than the value " ..
           "and the error object (`err: any`) Lua passes it, or answers a value, which Lua drops",
         "write `function __close(self)` or `function __close(self, err: any)`, and answer nothing")
@@ -3060,10 +3060,6 @@ Declarations.Program.lower = function(self: Program, input: Declarations.Input):
     module = ctx.module, errors = in_order(ctx.errors), decls = ctx.decls, types = ctx.types, aliases = ctx.aliases,
     export = ctx.info.export, entries = ctx.by_binding,
   }
-end
-
-function Declarations.close_is_callable(made: Type): boolean
-  return close_is_callable(made)
 end
 
 --- The fields `decl`, an interface, has from the interfaces it lists and the ones they list, those it leaves out
