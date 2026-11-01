@@ -1,7 +1,7 @@
 --- What the program a session of `cosmic lsp` holds under the new checker ([`build.lsp.held`]) does between checks: an edit shows
 --- an error and its fix clears it, the program is the session's and not each check's, a module served otherwise than it was
 --- is put in it, a module the stage did not list is found once it does, and a long session of edits holds no more than a
---- short one. Every session here asks for the new checker, whatever the mode of the suite.
+--- short one.
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -34,7 +34,7 @@ local function helped(): string
   return root
 end
 
---- A checker of the new grammar at `root`, and the document `name` of it with `text`.
+--- A checker at `root`, and the document `name` of it with `text`.
 local function checker_at(root: string): check.Checker
   return check.new(root, function(_line: string) end, function(): check.Hinted
     return { databases = {}, public = {} }
