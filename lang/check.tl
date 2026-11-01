@@ -3584,6 +3584,10 @@ local function disjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Typ
   end
   if left_kind == "bool" then
     local right = expr(ctx, node.right, expected)
+    -- A `never` left is a value that cannot occur: it adds nothing to the answer, as the `T?` default below.
+    if left.tag == "never" then
+      return right
+    end
     if is_bool(right) or right.tag == "never" or right.tag == "invalid" then
       return store.boolean
     end
