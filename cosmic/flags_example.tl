@@ -17,6 +17,22 @@ function Example.parse()
   assert(why == "no such option: --chek")
 end
 
+--- An option the line must give: `required` in its [`Flags.Option`]. A line
+--- without it is refused by name, and [`Flags.dispatch`] adds the command's
+--- usage line, so a program that prints the refusal shows how to type it.
+function Example.required()
+  local out: Flags.Option = { value = "path", about = "where to write", required = true }
+  local _, why = Flags.parse({ "put", "a.txt" }, 2, { ["--out"] = out })
+  print(why)
+  assert(why == "--out is required")
+  local put: Flags.Command = { usage = "[options] <file>", spec = { ["--out"] = out } }
+  local commands: {string:Flags.Command} = { put = put }
+  local ran, refusal = Flags.dispatch({ "put", "a.txt" }, 1, commands, "prog")
+  print(refusal)
+  assert(ran == nil and refusal == "put: --out is required; usage: prog put [options] <file>")
+  print(Flags.help(put, "prog put"))
+end
+
 --- A program with commands: each parses the rest of the line with its
 --- own spec, and one-letter options cluster ("-vj2" is "-v -j 2").
 function Example.dispatch()
@@ -97,7 +113,7 @@ function Example.subcommands()
     "add may.csv 12",
     "report needs one file",
     "no such command: rport",
-    "report: no such option: --mnth",
+    "report: no such option: --mnth; usage: ledger report [options] <file>",
     "needs a command: add, report",
   }, "\n"))
   assert(main({ "--help" }) == 0)
