@@ -1332,9 +1332,14 @@ local function first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
   if #alts == 0 then
     return ctx.store.never
   elseif #alts > 1 then
+    local call = text_of(ctx, node)
+    local raises = ""
+    if ctx.filename:find("_test.tl", 1, true) ~= nil and (call:find("^pcall%(") ~= nil or call:find("^xpcall%(") ~= nil) then
+      raises = "; to check that a call raises, `Test.raises(fn, says?)` runs it and answers the message it raised"
+    end
     report(ctx, "alternatives_as_value", node, subject(ctx, node) .. " answers one of " .. tostring(#alts) ..
         " lists of values, which is no value",
-      "match the call: `match " .. text_of(ctx, node) .. " do | (true, v) then ... end`")
+      "match the call: `match " .. call .. " do | (true, v) then ... end`" .. raises)
     return ctx.invalid
   end
   local alt = alts[1]
@@ -1723,9 +1728,13 @@ local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
     end
   end
   local missing: mut {string} = {}
+  local optional_field: string? = nil
   for _, f in ipairs(body.fields) do
     if (is_class or f.omittable ~= true) and given[f.name] ~= true then
       missing[#missing + 1] = quoted(f.name)
+      if optional_field == nil and nilable(f.type) then
+        optional_field = f.name
+      end
     end
   end
   if #missing > 0 and shaped then
@@ -1733,7 +1742,9 @@ local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
       if is_class then "add " .. listed(missing, "and") .. " to the literal: a class literal names every field, a field " ..
           "not yet known as its empty value (`fd = -1`) and a `?` field as `name = nil`" else
         "add " .. listed(missing, "and") .. " to the literal (`name = nil` for a value that may be nil), or declare " ..
-          (if #missing == 1 then "the field" else "them" end) .. " `name?: T`" end)
+          (if #missing == 1 then "the field" else "them" end) .. " `name?: T`" ..
+          (if optional_field ~= nil then ": `" .. optional_field .. ": T?` is a field that must be written, though it may " ..
+              "hold nil; `" .. optional_field .. "?: T` is a field that may be left out" else "" end) end)
   end
   return n
 end

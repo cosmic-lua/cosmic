@@ -1192,6 +1192,12 @@ local function parse_table(): Ast.Exp
       local value = parse_expression()
       items[#items + 1] = { kind = "Named", id = 0, first = first, last = S.pos - 1, name = name, value = value }
     else
+      if S.text == "..." and peek_kind(1) == "identifier" then
+        local spread = peek_text(1)
+        report("unexpected_token", S.pos, "a table constructor has no spread yet: `..." .. spread .. "` is not a field",
+          "write each field of `" .. spread .. "` in the constructor: `{ a = " .. spread .. ".a, b = " .. spread .. ".b, c = 2 }`")
+        advance()
+      end
       local value = parse_expression()
       items[#items + 1] = { kind = "Positional", id = 0, first = first, last = S.pos - 1, value = value }
     end
@@ -1652,8 +1658,12 @@ local function parse_field(first: integer, seen: {string: boolean}): Ast.Member
     name = { kind = "Binding", id = 0, first = nfirst, last = nfirst, name = S.text }
     advance()
   else
-    report("expected_name", S.pos, "expected a field name, found " .. shown(S.pos),
-      "write `name: Type` for a field, `function name(self) ... end` for a method of a class, or `end` to close the body")
+    local fix = "write `name: Type` for a field, `function name(self) ... end` for a method of a class, or `end` to close the body"
+    if S.kind == "keyword" and (peek_text(1) == ":" or peek_text(1) == "?") then
+      fix = "a field named by a keyword is declared and indexed as `[\"" .. S.text .. "\"]`: write `[\"" .. S.text ..
+        "\"]: T` in the declaration and `t[\"" .. S.text .. "\"]` to read it"
+    end
+    report("expected_name", S.pos, "expected a field name, found " .. shown(S.pos), fix)
     name = { kind = "Binding", id = 0, first = nfirst, last = nfirst - 1, name = "" }
   end
   local omittable = false
@@ -2547,7 +2557,12 @@ parse_statement = function(): Ast.Stat
   elseif (LITERAL_KIND[S.kind] == true or LITERAL_TEXT[S.text] == true) and SUFFIX[peek_text(1)] == true then
     stat = parse_expression_statement()
   else
-    report("unexpected_token", first, "unexpected " .. shown(S.pos) .. " where a statement begins", unexpected_fix(S.text))
+    local fix = unexpected_fix(S.text)
+    if S.text == ":" and S.texts[S.pos - 1] == "end" then
+      fix = "if `end` was meant as a field of a record, a field named by a keyword is declared and indexed as " ..
+        "`[\"end\"]`: write `[\"end\"]: T` in the declaration and `t[\"end\"]` to read it"
+    end
+    report("unexpected_token", first, "unexpected " .. shown(S.pos) .. " where a statement begins", fix)
     return skip_junk(first, true)
   end
   if S.decl then
