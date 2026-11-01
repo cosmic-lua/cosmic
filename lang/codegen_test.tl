@@ -190,6 +190,52 @@ local g = f;
 (g or f)(1)]])
 end
 
+local function test_a_repeat_until_condition_ends_in_an_expression_that_a_parenthesis_would_continue()
+  emits(program(
+    "local a: any = {}",
+    "repeat",
+    "until a",
+    "(a).x = a"), [[
+local a = {}
+repeat
+until a;
+(a).x = a]])
+end
+
+local function test_a_required_module_ends_in_an_expression_that_a_parenthesis_would_continue()
+  emits(program(
+    "local a: any = {}",
+    "local type M = require(\"m\")",
+    "(a).x = M"), [[
+local a = {}
+local M = require("m");
+(a).x = M]])
+end
+
+local function test_a_class_without_methods_ends_in_an_expression_that_a_parenthesis_would_continue()
+  emits(program(
+    "local a: any = {}",
+    "local class C",
+    "end",
+    "(a).x = C"), [[
+local a = {}
+local C = {}; C.__index = C;
+
+(a).x = C]])
+end
+
+local function test_a_statement_that_is_erased_does_not_hide_the_expression_the_one_before_it_ends_in()
+  emits(program(
+    "local a: any = {}",
+    "a.y = a",
+    "local type T = integer",
+    "(a).x = a"), [[
+local a = {}
+a.y = a;
+
+(a).x = a]])
+end
+
 local function test_blank_lines_and_comments_keep_every_statement_on_its_line()
   emits(program(
     "-- a comment",
