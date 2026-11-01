@@ -257,3 +257,56 @@ local function test_gamma_has_the_shape_of_a_gamma()
   local skew = third / var ^ 1.5
   assert(math.abs(skew - 2.0 / math.sqrt(k)) < 0.1, "skewness " .. tostring(skew))
 end
+
+--- A draw function that reads `source`'s generator one word at a time,
+--- so a twin source built from the same seed lines up with it.
+local function words_of(source: Rand.Source): function(): integer
+  return function(): integer
+    return (string.unpack("<i8", source:bytes(8)))
+  end
+end
+
+local function test_exported_normal_equals_the_method_draw_for_draw()
+  local method = Rand.new(31)
+  local draw = words_of(Rand.new(31))
+  for _ = 1, 200 do
+    assert(Rand.normal(draw) == method:normal())
+  end
+  for _ = 1, 50 do
+    assert(Rand.normal(draw, -5.5, 2.25) == method:normal(-5.5, 2.25))
+  end
+  -- A zero stddev still consumes the same words as the method does.
+  assert(Rand.normal(draw, 3, 0) == 3.0 and method:normal(3, 0) == 3.0)
+  assert(Rand.normal(draw) == method:normal())
+end
+
+local function test_exported_gamma_equals_the_method_draw_for_draw()
+  local method = Rand.new(32)
+  local draw = words_of(Rand.new(32))
+  for _, shape in ipairs({ 0.3, 1.0, 4.5, 30.0 }) do
+    for _ = 1, 100 do
+      assert(Rand.gamma(draw, shape) == method:gamma(shape), shape)
+      assert(Rand.gamma(draw, shape, 2.5) == method:gamma(shape, 2.5), shape)
+    end
+  end
+end
+
+local function test_exported_samplers_validate_like_the_methods()
+  local function draw(): integer return 1 end
+  Test.raises(function() Rand.normal(draw, 0, -1) end, "stddev not negative")
+  Test.raises(function() Rand.normal(draw, math.huge) end, "finite")
+  Test.raises(function() Rand.normal(draw, 0, 0 / 0) end, "finite")
+  Test.raises(function() Rand.gamma(draw, 0) end, "finite and positive")
+  Test.raises(function() Rand.gamma(draw, 1, -2) end, "finite and positive")
+  Test.raises(function() Rand.gamma(draw, math.huge) end, "finite and positive")
+  Test.raises(function() Rand.gamma(draw, 1, 0 / 0) end, "finite and positive")
+  -- A refusal draws nothing.
+  local drawn = 0
+  local function counting(): integer
+    drawn = drawn + 1
+    return 0
+  end
+  Test.raises(function() Rand.gamma(counting, -1) end, "finite and positive")
+  Test.raises(function() Rand.normal(counting, 0, -1) end, "stddev not negative")
+  assert(drawn == 0)
+end
