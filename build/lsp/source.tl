@@ -270,6 +270,9 @@ local record source
     --- The SHA-256 of the text derived (or tried) into `scratch` for each file below the root: the rows of a hash are
     --- dropped when no file holds it.
     mut scratched: mut {string:string}
+    --- The SHA-256 of the texts a quiet derive ([`derive`]) left alone, each as `unparsed` or `failed` to write its rows; at
+    --- most `MADE_HELD`.
+    mut underived: mut {string:string}
     tally: Tally
     --- Where complaints go, without their newline.
     err: function(line: string)
@@ -327,6 +330,7 @@ function source.new(root: string, err: function(line: string), carried?: string,
     carried_count = 0,
     scratch = nil,
     scratched = {},
+    underived = {},
     tally = tally,
     err = err,
   }
@@ -736,6 +740,14 @@ local function scratch_of(src: source.View): Sqlite.Handle?
   return made
 end
 
+--- `held`, or an empty table where it has `MADE_HELD` entries.
+local function bounded(held: mut {string:string}): mut {string:string}
+  local count = 0
+  for _ in pairs(held) do count = count + 1 end
+  if count >= MADE_HELD then return {} end
+  return held
+end
+
 --- Whether a file other than `except` holds the text whose SHA-256 is `hash` in the scratch database.
 local function held_by_another(src: source.View, hash: string, except: string): boolean
   for file, held in pairs(src.scratched) do
@@ -764,17 +776,29 @@ end
 --- Derives the text `text` of the file `file`, whose SHA-256 is `hash`, into the scratch database, once a text: the rows
 --- are [`Derivation.insert`]'s, as the stage writes them, the whole analysis of the text at its first read after an edit.
 --- The file's earlier text goes. A text that does not parse writes its places alone, from the parser's recovered tree. A
---- text is not tried again while a file holds it. With `quiet` a text whose rows fail to write is not said, its refusal
---- being the check's to tell.
+--- text is not tried again while a file holds it. With `quiet` (a stub or the `requires` are wanted, not the places) a
+--- text that does not parse is not derived, and one whose rows fail to write is not said, its refusal being the check's to
+--- tell: neither is marked as derived, so that a later ask for the places derives it and says so. Such a text is
+--- remembered in `underived`, so that it is not parsed again for every quiet ask.
 local function derive(src: source.View, scratch: Sqlite.Handle, file: string, text: string, hash: string, quiet?: boolean)
   local old = src.scratched[file]
   if old == hash then return end
   local tried = held_by_another(src, hash, file)
+  if quiet == true and not tried and src.underived[hash] ~= nil then return end
+  -- Not the check's chunk, which is the parse of the text with its splices put in.
+  local chunk: Ast.Chunk? = nil
+  if not tried then
+    local parsed, _ = Node.parse(text, file)
+    chunk = parsed
+    if chunk == nil and quiet == true then
+      src.underived = bounded(src.underived)
+      src.underived[hash] = "unparsed"
+      return
+    end
+  end
   src.scratched[file] = hash
   if old ~= nil and not held_by_another(src, old, file) then forget_rows(scratch, old) end
   if tried then return end
-  -- Not the check's chunk, which is the parse of the text with its splices put in.
-  local chunk, _ = Node.parse(text, file)
   if chunk == nil then
     -- A text being typed does not parse: the places of what the parser recovered are written, and no other row, as a
     -- partial tree says nothing safe of the rest of the analysis. It has no `parsed` row, so it is not a parse.
@@ -799,7 +823,13 @@ local function derive(src: source.View, scratch: Sqlite.Handle, file: string, te
   local ok, why = Derivation.insert(scratch, hash, file, text, chunk, false)
   if not ok then
     forget_rows(scratch, hash)
-    if quiet ~= true then src.err("cosmic: lsp: deriving " .. file .. ": " .. why) end
+    if quiet == true then
+      src.scratched[file] = nil
+      src.underived = bounded(src.underived)
+      src.underived[hash] = "failed"
+    else
+      src.err("cosmic: lsp: deriving " .. file .. ": " .. why)
+    end
     return
   end
   src.tally.derived = src.tally.derived + 1
@@ -834,6 +864,10 @@ local function read_places(db: Sqlite.Handle, hash: string): {string:Spot}?, boo
   end
   return spots_of(rows), derived
 end
+
+-- TODO: derive an edited open document from the check's own parse and analysis, once [`build.lsp.syntax_read`]'s `plan_of`
+-- hands them on: the check analyses the same text, and the derivation here ([`derive`]) does it again, about 60 ms more per
+-- edit of a 53 KB module (measured in review).
 
 --- Whether `db` holds a parse of the text `hash`: the stage could read it, and so could the derivation here.
 local function parsed_in(db: Sqlite.Handle, hash: string): boolean
@@ -887,6 +921,7 @@ end
 local function open_stub(src: source.View, found: Module, text: string, hash: string): Stubbed?
   if found.origin == "tree" then
     local held = rows_for(src, found, text, hash)
+    if src.underived[hash] == "unparsed" then return nil end
     if held ~= nil and parsed_in(held, hash) then
       local stubbed = first(held, "SELECT text FROM stubs WHERE source_hash = ?1", hash)
       if stubbed == nil then return nil end
@@ -1272,6 +1307,7 @@ function source.close(src: source.View)
     src.scratch = nil
   end
   src.scratched = {}
+  src.underived = {}
 end
 
 return source

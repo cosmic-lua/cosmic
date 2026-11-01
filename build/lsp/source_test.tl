@@ -16,6 +16,7 @@ local reboot = require("build.reboot")
 local tree = require("build.tree")
 local session_fixture = require("build.lsp.session_fixture")
 local source = require("build.lsp.source")
+local syntax_read = require("build.lsp.syntax_read")
 local work = require("build.work")
 
 local change, changed_on_disk, close = session_fixture.change, session_fixture.changed_on_disk,
@@ -1189,7 +1190,7 @@ local function test_the_stub_of_an_edited_open_document_is_read_from_the_scratch
   assert(rows_of(assert(src.scratch), "stubs", Hash.hex_sha256(STRINGS)) == 1)
   -- A text that does not parse has no row to read, and no stub: the source is served.
   local broken = assert(source.served(src, "lib.shapes", open_with("lib/shapes.tl", "local record shapes\n")))
-  assert(broken.text == "local record shapes\n" and next(src.made) ~= nil)
+  assert(broken.text == "local record shapes\n" and next(src.made) == nil, "parsed once, and not again for a stub")
   source.close(src)
 end
 
@@ -1235,4 +1236,55 @@ local function test_a_session_serves_an_edited_open_document_from_its_scratch_ro
   local tally = after.tally
   assert(tally.scratch_stubs >= 2 and tally.scratch_stubs == tally.made_stubs and tally.scratch_requires >= 3,
     tostring(tally.made_stubs) .. "," .. tostring(tally.scratch_stubs) .. "," .. tostring(tally.scratch_requires))
+end
+
+--- A text a quiet ask (a stub, the requires) cannot derive is not marked as derived: a later ask for its places derives it,
+--- and says why where its rows fail to write, which a quiet ask did not.
+local function test_a_text_a_quiet_ask_could_not_derive_is_derived_for_the_places_that_ask_later()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
+  local said: mut {string} = {}
+  local src = source.new(root, function(line: string) said[#said + 1] = line end)
+  source.refresh(src)
+  local found = assert(source.module(src, "lib/shapes.tl"))
+  local broken = "local record shapes\n  sides: integer\n"
+  local refused = 'local Test = require("cosmic.test")\nlocal function f() Test.policy{} end\nreturn {}\n'
+  for _, text in ipairs({ broken, refused }) do
+    local opened = open_with("lib/shapes.tl", text)
+    for _ = 1, 2 do
+      assert(source.served(src, "lib.shapes", opened) ~= nil)
+      assert(source.requires_of(src, found, text, Hash.hex_sha256(text)) == nil or text == refused)
+    end
+    assert(src.scratched["lib/shapes.tl"] == nil and #said == 0, "a quiet ask marks and says nothing")
+  end
+  assert(src.tally.derived == 0, tostring(src.tally.derived))
+  -- The places of the text that does not parse are those the parser recovered.
+  local placed = assert(source.places(src, "lib.shapes", open_with("lib/shapes.tl", broken)))
+  assert(assert(placed.spots["shapes.sides"]).line == 2 and src.tally.derived == 1 and #said == 0)
+  -- The one the analysis refuses is said at the first ask for its places, and answers none.
+  local none = assert(source.places(src, "lib.shapes", open_with("lib/shapes.tl", refused)))
+  assert(next(none.spots) == nil and #said == 1 and said[1]:find("deriving lib/shapes.tl", 1, true) ~= nil, table.concat(said, "\n"))
+  source.close(src)
+end
+
+--- The names the rows of a text give as its requires are the names the check reads of its syntax tree, for the forms of a
+--- `require` the tree knows: both are [`build.syntax_node.require_sites`] of one parse of the text, so they cannot differ.
+local function test_the_requires_rows_of_a_text_are_the_names_the_check_reads_of_its_tree()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  local found = assert(source.module(src, "lib/shapes.tl"))
+  local text = table.concat({
+    'local b = require("lib.b")', 'local a = require("lib.a")', 'local again = require("lib.b")',
+    'local ok, c = pcall(require, "lib.c")', 'local type T = require("lib.d")', "return {}", "",
+  }, "\n")
+  local planned = syntax_read.plan_of("lib/shapes.tl", text, "lib.shapes", "module", false, false)
+  local read: mut {string} = {}
+  for _, site in ipairs(planned.requires) do read[#read + 1] = site.name end
+  local rows = assert(source.requires_of(src, found, text, Hash.hex_sha256(text)))
+  assert(#read == 4 and table.concat(rows, ",") == table.concat(read, ","), table.concat(rows, ",") .. " / " .. table.concat(read, ","))
+  source.close(src)
 end
