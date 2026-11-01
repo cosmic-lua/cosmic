@@ -55,8 +55,11 @@
 -- members of `string` can be read as those of a value.
 
 -- TODO: name the placeholders of a call inserted for a function after its parameters where its type is the checker's and
--- not written (a local function, a global of the standard library, a member the rows do not hold), once a function type
--- carries the names of its parameters ([`Types.Param`]): they are `arg1`, `arg2`, ... there.
+-- not written and its declaration is no local function statement of the document (a global of the standard library, a
+-- member the rows do not hold, a local bound to a function value): they are `arg1`, `arg2`, ... there. Waits on the
+-- names of a function's parameters being read from its declaration (a [`Types.Field`] of a declaration's body is not shared
+-- by digest as a function type is, so a field can carry them), once the declarations that [`lang.declarations`] lowers
+-- and the stubs [`lang.types`] decodes keep them.
 
 local Ast = require("lang.ast")
 local Declarations = require("lang.declarations")
@@ -741,15 +744,49 @@ local function call_snippet(name: string, params: {string}): string
   end
   return escaped(name) .. "(" .. table.concat(parts, ", ") .. ")"
 end
---- The names to put in a call of a function of type `t` that is not written: one for each parameter.
-local function typed_params(t: Types.Type?, drop: boolean): {string}?
+--- The names of the parameters a local function statement (`local function f(a: A, b: B)`) writes, in order, which the binding
+--- `var` is the name of, or nil where `var` is no such function. A function type does not carry them: types are shared by
+--- their digest, so the names of the first function of a signature would stand for every other of it.
+local function written_names(chunk: Ast.Chunk, var: Scopes.Var): {string}?
+  local node: Ast.Node = chunk
+  local found: Ast.LocalFunction? = nil
+  local descending = true
+  while descending do
+    if node.kind == "LocalFunction" then found = node end
+    local inside: mut {Ast.Node} = {}
+    Ast.children(node, function(child: Ast.Node)
+      if child.first <= var.declared and var.declared <= child.last then inside[1] = child end
+    end)
+    local child = inside[1]
+    if child == nil then
+      descending = false
+    else
+      node = child
+    end
+  end
+  if found == nil or found.name.id ~= var.id then return nil end
+  local names: mut {string} = {}
+  for _, p in ipairs(found.fn.params) do
+    local binding = p.name
+    if not p.variadic then
+      if binding ~= nil then names[#names + 1] = binding.name else names[#names + 1] = "" end
+    end
+  end
+  return names
+end
+
+--- The names to put in a call of a function of type `t` that is not written: one for each parameter, `written` (the names
+--- the function's own declaration gives, from the first) where it has one, else `arg1`, `arg2`, ...
+local function typed_params(t: Types.Type?, drop: boolean, written?: {string}): {string}?
   local fn = stripped(t)
   if fn == nil or fn.tag ~= "fn" then return nil end
   local names: mut {string} = {}
   local first = 1
   if drop then first = 2 end
   for n = first, #fn.params do
-    local name = "arg" .. tostring(n - first + 1)
+    local name = ""
+    if written ~= nil then name = written[n] or "" end
+    if name == "" then name = "arg" .. tostring(n - first + 1) end
     names[#names + 1] = name
   end
   return names
@@ -896,7 +933,7 @@ local function name_items(request: Request, scope: {string: Scopes.Var}, types: 
         sortText = string.format("0%02d%02d%s", 99 - math.min(var.depth, 99), 99 - used, name),
         textEdit = { range = edit, newText = name }, insertTextFormat = nil, data = nil }
       if request.call and kind == FUNCTION and not types then
-        local params = typed_params(t, false)
+        local params = typed_params(t, false, written_names(request.outcome.chunk, var))
         if params ~= nil then
           item.textEdit = { range = edit, newText = call_snippet(name, params) }
           item.insertTextFormat = 2
