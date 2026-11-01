@@ -70,6 +70,7 @@ local record Orchestration
     verdicts?: string): {string:string}
   fixture_run: function(source: string, env: {string:string}, tmpdir: string,
     compiles: string): {string:string}
+  say_figures: function(name: string, directory: string, to?: integer): integer
   fixture_project: function(driver: string, work: string, group?: string): string
   forget_run: function(env: {string:string}): {string:string}
   suite_run: function(extra?: {string:string}): SuiteRun
@@ -534,6 +535,19 @@ function Orchestration.replay(out: string, err: string, to_out?: integer,
 end
 
 local replay = Orchestration.replay
+
+--- Says the figures a fixture called `name` left in `directory`
+--- ([`Fixture.figures_variable`]), one line each, `name: line`, to `to`
+--- (stderr by default), and how many. A figure that cannot be said fails
+--- nothing: the log is for reading.
+function Orchestration.say_figures(name: string, directory: string, to?: integer): integer
+  local said = 0
+  for _, line in ipairs(Fixture.figure_lines(directory)) do
+    local _, _ = Fs.put(to or Fs.stderr, name .. ": " .. line .. "\n")
+    said = said + 1
+  end
+  return said
+end
 
 local function logged(c: Context, phase: string, command: {string}, out: string,
                       err: string, timeout: integer, cwd?: string, env?: {string:string}): integer
@@ -1017,6 +1031,8 @@ local record Prepared
   env: {string:string}
   out: string
   err: string
+  --- Where the fixture leaves its figures ([`Fixture.figures_variable`]).
+  figures: string
 end
 
 --- What a fixture group has prepared, once it has started.
@@ -1040,6 +1056,12 @@ local function prepare_fixture(c: Context, work: string, spec: FixtureSpec,
   local diagnostics = work .. "/fixture-test-diagnostics/" .. name
   mkdir(diagnostics)
   mkdir(diagnostics .. "/tmp")
+  mkdir(diagnostics .. "/figures")
+  -- A work directory a run reuses holds an earlier attempt's figures, which
+  -- would be said again if this attempt wrote none.
+  for _, stale in ipairs((assert(Fs.list(diagnostics .. "/figures")))) do
+    if stale:match("%.figure$") then assert(Fs.remove(diagnostics .. "/figures/" .. stale)) end
+  end
   -- No --census: a fixture's run holds too few tests for its key parts
   -- to say much, and an unsandboxed one's are keyed by nothing.
   local env = environment(spec.extra)
@@ -1051,14 +1073,18 @@ local function prepare_fixture(c: Context, work: string, spec: FixtureSpec,
   command[#command + 1] = "fixtures/" .. source .. "_test.tl"
   return { project = project, command = command,
     out = diagnostics .. "/test.out", err = diagnostics .. "/test.err",
-    env = Orchestration.fixture_run(source, env, diagnostics .. "/tmp",
-      work .. "/fixture-compiles.db") }
+    figures = diagnostics .. "/figures",
+    -- The path is part of the fixture's declared key, so it must be the same
+    -- on every run: `work` is under $RUNNER_TEMP/cosmic-ci/platform.
+    env = Maps.with(Orchestration.fixture_run(source, env, diagnostics .. "/tmp",
+      work .. "/fixture-compiles.db"), { [Fixture.figures_variable] = diagnostics .. "/figures" }) }
 end
 
 local function fixture_run_spec(c: Context, work: string, spec: FixtureSpec): integer
   local prepared = prepare_fixture(c, work, spec)
   local status = logged(c, "fixture: " .. spec.name, prepared.command,
     prepared.out, prepared.err, spec.timeout_ns, prepared.project, prepared.env)
+  Orchestration.say_figures(spec.name, prepared.figures)
   record_suite(c, "fixture " .. spec.name, status, prepared.out)
   return status
 end
@@ -1095,12 +1121,16 @@ local function fixture_group(c: Context, work: string, spec: FixtureSpec,
       if outcome.code == 0 then
         assert(replay_ok, "could not replay retained output")
       end
+      Orchestration.say_figures(spec.name, made.figures)
       record_suite(c, "fixture " .. spec.name, outcome.code, made.out)
       return outcome.code
     end,
     abandon = function(_: Runner.Outcome)
       local begun = held.prepared
-      if begun ~= nil then replay(begun.out, begun.err) end
+      if begun ~= nil then
+        replay(begun.out, begun.err)
+        Orchestration.say_figures(spec.name, begun.figures)
+      end
     end,
   }
 end
