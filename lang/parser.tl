@@ -1192,6 +1192,7 @@ local function parse_table(): Ast.Exp
       local value = parse_expression()
       items[#items + 1] = { kind = "Named", id = 0, first = first, last = S.pos - 1, name = name, value = value }
     else
+      -- TODO: once the table spread `{ ...c, a = 2 }` is in the grammar, parse it here and drop this diagnostic.
       if S.text == "..." and peek_kind(1) == "identifier" then
         local spread = peek_text(1)
         report("unexpected_token", S.pos, "a table constructor has no spread yet: `..." .. spread .. "` is not a field",
