@@ -4,8 +4,8 @@
 --- document that differs from the staged file ([`build.lsp.definition`]).
 ---
 --- A symbol is the dotted path from the top of the module: a type `R`, one nested in it `R.Inner`, a field or method `R.f`, an
---- enum's value [`Color.red`], and a `function R.f` statement, which adds to the type `R` outside its declaration. A type declared in a `do` block of
---- the module has the path from that block. Declared members come before the `function` statements, so that the first of
+--- enum's value [`Color.red`], and a `function R.f` statement, which adds to the type `R` outside its declaration. A type
+--- declared in a `do` block of the module has the path from that block. Declared members come before the `function` statements, so that the first of
 --- a symbol's places is the one a declaration gives and not an addition to it.
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
@@ -129,15 +129,30 @@ function Places.found(chunk: Ast.Chunk): {Places.Found}
 end
 
 function Places.within(chunk: Ast.Chunk, id: integer): {Places.Found}
-  local out, _, add_type = collector(chunk)
+  local out, add, add_type = collector(chunk)
   local pending: mut {Ast.Node} = { chunk }
   while #pending > 0 do
     local node = assert(pending[#pending])
     pending[#pending] = nil
-    local held = declared(node)
-    if held ~= nil and node.id == id then
-      add_type(held, held.name.name)
-      return out
+    if node.kind == "Block" then
+      for _, stat in ipairs(node.stats) do
+        local held = declared(stat)
+        if held ~= nil and stat.id == id then
+          add_type(held, held.name.name)
+          -- The `function R.f` statements of the block the type is declared in add to it, as at the top of a module.
+          for _, other in ipairs(node.stats) do
+            if other.kind == "Function" and #other.path >= 2 then
+              local names: mut {string} = {}
+              for _, part in ipairs(other.path) do names[#names + 1] = part.text end
+              local last = other.path[#other.path]
+              if names[1] == held.name.name and last ~= nil then
+                add(table.concat(names, "."), "function", last.first)
+              end
+            end
+          end
+          return out
+        end
+      end
     end
     Ast.children(node, function(child: Ast.Node) pending[#pending + 1] = child end)
   end

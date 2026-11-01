@@ -33,6 +33,13 @@
 -- [`cosmic.internal.process`]) in a project, once the tool carries the header their `-- line` map names (`core/*.h`) with
 -- their places: its `places` hold none ([`source.places`]).
 
+-- TODO: answer a field of a type declared in another module's function body, once its places rows carry the id of the node
+-- that declares it: the lowering names it `module@id`, and [`source.places`] has no row to tell it by.
+
+-- TODO: answer a field of a value that a function returns of a type declared in its own body (`local q = make()` then
+-- `q.x`), once the report is traced for why it answers none: a probe of it did, and whether the report's type or its
+-- declaration's module is what differs is not yet known.
+
 local Ast = require("lang.ast")
 local Driver = require("build.driver")
 local Lexer = require("lang.lexer")

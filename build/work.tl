@@ -168,8 +168,8 @@ local version <const> = "31"
 --- reading a source again. A guide's example is at the line of the
 --- module extracted from the guide.
 --- `places` is where each type a source declares, and each field, method
---- `function R.f` of one, and each value of an enum, has its name ([`build.syntax_places`]): a
---- row each by dotted symbol from the top of the module (`R`, `R.Inner`,
+--- and `function R.f` of one, and each value of an enum, has its name
+--- ([`build.syntax_places`]): a row each by dotted symbol from the top of the module (`R`, `R.Inner`,
 --- `R.f`), its kind, and the line, byte column and byte length of the
 --- name. `cosmic lsp` finds a declaration in another module by it
 --- ([`build.lsp.source`]) without parsing the module. A source derived

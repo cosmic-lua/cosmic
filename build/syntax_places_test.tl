@@ -166,12 +166,12 @@ end
 
 local function test_a_type_in_a_function_body_is_found_by_its_node_apart_from_one_of_its_name()
   local source = table.concat({
-    "local function a() local record P x: integer end return 1 end",
+    "local function a() local record P x: integer end function P.f() end return 1 end",
     "local function b() local record P y: integer enum K \"v\" end end return 2 end",
     "return a, b",
     "",
   }, "\n")
-  assert(table.concat(within(source, 1), ",") == "P type 1,P.x field 1", table.concat(within(source, 1), ","))
+  assert(table.concat(within(source, 1), ",") == "P type 1,P.x field 1,P.f function 1", table.concat(within(source, 1), ","))
   assert(table.concat(within(source, 2), ",") == "P type 2,P.y field 2,P.K type 2,P.K.v value 2",
     table.concat(within(source, 2), ","))
 end

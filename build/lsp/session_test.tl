@@ -372,6 +372,18 @@ local function test_definition_of_a_field_of_a_type_declared_in_a_function_body_
   assert_located(defined(ran, 7), root, "main.tl", 8, 15, 16)
 end
 
+--- A method a `function P.f` statement adds to a type of a function body, and a value of such a type a function returns.
+local function test_definition_of_a_method_added_to_a_type_declared_in_a_function_body()
+  local root = session_fixture.project()
+  local text = 'local function make(): integer\n  local record P\n    x: integer\n  end\n' ..
+    '  function P.f(self: P): integer\n    return self.x\n  end\n  local p: P = { x = 1 }\n' ..
+    '  return p:f()\nend\nreturn make\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 8, 12),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 4, 13, 14)
+end
+
 --- A string where an enum is expected stands for one of its values, which a person can go to.
 local function test_definition_of_a_string_literal_is_the_enum_value_it_stands_for()
   local root = session_fixture.project()
