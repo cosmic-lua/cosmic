@@ -17,14 +17,7 @@ local test_inputs = require("build.test_inputs")
 local Test = require("cosmic.test")
 local type positions = require("build.positions")
 local Clock = require("cosmic.clock")
-local build_paths = require("build.paths")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 --- What the host's identity reads ([`declared_key.host_identity`]), on
 --- whichever system this is, what the host says of itself, and a file a
@@ -44,13 +37,6 @@ Test.policy{
   },
   env = { "COSMIC_HOST_ID", "COSMIC_SYSTEM_ID" },
 }
-
---- `root`'s build directory ([`build.paths`]), made, with `root` made
---- first where it is not there yet.
-local function build_dir(root: string): string
-  assert(Fs.mkdirs(root))
-  return (assert(build_paths.prepare(root)))
-end
 
 --- A tree at `root` holding a module, the module it requires, a
 --- declared data directory, and a file nothing declares.
@@ -99,8 +85,8 @@ local function test_a_key_is_the_same_while_nothing_declared_changes(tmp: string
   assert(key_of(one, spec({ DECLARED = one .. "/suite", TMPDIR = "/tmp" })) ==
       key_of(two, spec({ DECLARED = two .. "/suite", TMPDIR = "/tmp" })))
   -- Every part of a PATH-like value, not only its first.
-  assert(key_of(one, spec({ DECLARED = "/usr/bin:" .. build_dir(one) .. "/bin:" .. one .. "/bin",
-    TMPDIR = "/tmp" })) == key_of(two, spec({ DECLARED = "/usr/bin:" .. build_dir(two) .. "/bin:" ..
+  assert(key_of(one, spec({ DECLARED = "/usr/bin:" .. support.build_dir(one) .. "/bin:" .. one .. "/bin",
+    TMPDIR = "/tmp" })) == key_of(two, spec({ DECLARED = "/usr/bin:" .. support.build_dir(two) .. "/bin:" ..
         two .. "/bin", TMPDIR = "/tmp" })))
 end
 
@@ -147,8 +133,8 @@ end
 --- `lua_loads`, moves it.
 local function test_a_lua_module_is_keyed_by_its_closure_not_the_program(tmp: string)
   tree(tmp)
-  assert(Fs.mkdirs(build_dir(tmp) .. "/bin"))
-  assert(Fs.write(build_dir(tmp) .. "/bin/cosmic", "one program"))
+  assert(Fs.mkdirs(support.build_dir(tmp) .. "/bin"))
+  assert(Fs.write(support.build_dir(tmp) .. "/bin/cosmic", "one program"))
   local function lua_spec(program: string, store: string): declared_key.Spec
     local s = spec()
     s.effective.lua = true
@@ -158,7 +144,7 @@ local function test_a_lua_module_is_keyed_by_its_closure_not_the_program(tmp: st
     return s
   end
   local before = key_of(tmp, lua_spec("one program", "one store"))
-  assert(Fs.write(build_dir(tmp) .. "/bin/cosmic", "another program"))
+  assert(Fs.write(support.build_dir(tmp) .. "/bin/cosmic", "another program"))
   assert(key_of(tmp, lua_spec("another program", "one store")) == before)
   assert(key_of(tmp, lua_spec("one program", "another store")) ~= before)
   -- A module that declares `tool` is keyed by the program, as ever.
@@ -447,9 +433,9 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
   tree(root)
   local function key(s: declared_key.Spec): string return key_of(root, s) end
   -- The projection a checked worker is given, and one a changed `projection_file` names.
-  assert(build_dir(root))
-  assert(Fs.write(build_dir(root) .. "/cosmic.checked.db", "checked one"))
-  assert(Fs.write(build_dir(root) .. "/cosmic.checked.dbx", "checked another"))
+  assert(support.build_dir(root))
+  assert(Fs.write(support.build_dir(root) .. "/cosmic.checked.db", "checked one"))
+  assert(Fs.write(support.build_dir(root) .. "/cosmic.checked.dbx", "checked another"))
   local function append(field: string): Change<declared_key.Spec>
     return { change = function(s: declared_key.Spec)
       local t = s as {string:any}
@@ -702,8 +688,8 @@ local function test_a_host_path_is_keyed_by_what_it_holds(tmp: string)
   local base = assert(Fs.absolute(tmp))
   local function product(where: string, contents: string): string
     local dir = base .. "/" .. where
-    assert(Fs.mkdirs(build_dir(dir) .. "/bin"))
-    assert(Fs.write(build_dir(dir) .. "/bin/cosmic", contents))
+    assert(Fs.mkdirs(support.build_dir(dir) .. "/bin"))
+    assert(Fs.write(support.build_dir(dir) .. "/bin/cosmic", contents))
     return dir
   end
   local function resolved(declared: string): declared_key.Spec
@@ -719,19 +705,19 @@ local function test_a_host_path_is_keyed_by_what_it_holds(tmp: string)
     return key_of(root, s)
   end
   local one, two = product("one", "cosmic\n"), product("two", "cosmic\n")
-  local file = build_dir(one) .. "/bin/cosmic"
+  local file = support.build_dir(one) .. "/bin/cosmic"
   local before = key_at(file)
   assert(key_at(file) == before)
   assert(Fs.write(file, "another cosmic\n"))
   assert(key_at(file) ~= before, "the file's contents")
   -- A link declared is held by what it leads to, wherever that is.
-  assert(Fs.symlink(build_dir(two) .. "/bin/cosmic", build_dir(one) .. "/linked"))
-  local linked = key_at(build_dir(one) .. "/linked")
-  assert(Fs.write(build_dir(two) .. "/bin/cosmic", "a third cosmic\n"))
-  assert(key_at(build_dir(one) .. "/linked") ~= linked, "what the link leads to")
+  assert(Fs.symlink(support.build_dir(two) .. "/bin/cosmic", support.build_dir(one) .. "/linked"))
+  local linked = key_at(support.build_dir(one) .. "/linked")
+  assert(Fs.write(support.build_dir(two) .. "/bin/cosmic", "a third cosmic\n"))
+  assert(key_at(support.build_dir(one) .. "/linked") ~= linked, "what the link leads to")
   -- A directory is refused; /proc, which no key could hold by what it
   -- holds, and what is beneath it, are given.
-  for _, declared in ipairs({ one, build_dir(one) }) do
+  for _, declared in ipairs({ one, support.build_dir(one) }) do
     local refused = assert(resolved(declared).effective.unresolved)
     assert(refused:find(string.format("Test.policy grant of the host path %q: ", declared), 1, true) and
         refused:find(" is a directory; a grant of the host names files, or /proc", 1, true), refused)
@@ -814,7 +800,7 @@ end
 --- none, under compilers of two identities that made the same bytecode
 --- -- the same store, the same harness -- share a key.
 local function test_only_a_closure_that_reads_the_compiler_is_keyed_by_it(tmp: string)
-  local reader = nth(declared_key.compiler_readers, 1)
+  local reader = support.nth(declared_key.compiler_readers, 1)
   assert(declared_key.reads_compiler({ "suite.lib", reader, "suite.t_test" }))
   assert(not declared_key.reads_compiler({ "suite.lib", "suite.t_test" }))
   assert(not declared_key.reads_compiler({}))
@@ -1136,9 +1122,9 @@ end
 --- o/bin, while a carried module or the core moves it.
 local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   tree(tmp)
-  assert(Fs.mkdirs(build_dir(tmp) .. "/bin"))
+  assert(Fs.mkdirs(support.build_dir(tmp) .. "/bin"))
   local root = assert(Fs.absolute(tmp))
-  local tool = build_dir(root) .. "/bin/cosmic"
+  local tool = support.build_dir(root) .. "/bin/cosmic"
   local s = spec()
   s.effective.tool = true
   local function keys(): string, string
@@ -1186,10 +1172,10 @@ local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   -- A file in o/bin that is no artifact is keyed by its contents.
   program_at(tool, "core one", meta, "bytecode one")
   assert(select(2, keys()) == key)
-  assert(Fs.write(build_dir(root) .. "/bin/other", "one"))
+  assert(Fs.write(support.build_dir(root) .. "/bin/other", "one"))
   local other = select(2, keys()) as string
   assert(other ~= key, "a file added to o/bin left the key")
-  assert(Fs.write(build_dir(root) .. "/bin/other", "two"))
+  assert(Fs.write(support.build_dir(root) .. "/bin/other", "two"))
   assert(select(2, keys()) ~= other, "a file of o/bin's contents left the key")
 end
 
@@ -1277,15 +1263,15 @@ end
 --- an edit outside the closure moves only the first.
 local function test_the_store_given_is_keyed_as_it_is_given(tmp: string)
   tree(tmp)
-  assert(build_dir(tmp))
-  assert(Fs.write(build_dir(tmp) .. "/cosmic.db", "one"))
+  assert(support.build_dir(tmp))
+  assert(Fs.write(support.build_dir(tmp) .. "/cosmic.db", "one"))
   local closed = spec()
   closed.closure_store = "address"
   local whole = spec()
   whole.effective.store = true
   whole.closure_store = "address"
   local closed_before, whole_before = key_of(tmp, closed), key_of(tmp, whole)
-  assert(Fs.write(build_dir(tmp) .. "/cosmic.db", "two"))
+  assert(Fs.write(support.build_dir(tmp) .. "/cosmic.db", "two"))
   assert(key_of(tmp, closed) == closed_before, "the projection moved a closure store's key")
   assert(key_of(tmp, whole) ~= whole_before, "the projection left a declared store's key")
 end
@@ -1313,17 +1299,17 @@ end
 --- never reads.
 local function test_a_store_modules_checked_key_holds_the_checked_projection(tmp: string)
   tree(tmp)
-  assert(build_dir(tmp))
-  assert(Fs.write(build_dir(tmp) .. "/cosmic.db", "ordinary one"))
-  assert(Fs.write(build_dir(tmp) .. "/cosmic.checked.db", "checked one"))
+  assert(support.build_dir(tmp))
+  assert(Fs.write(support.build_dir(tmp) .. "/cosmic.db", "ordinary one"))
+  assert(Fs.write(support.build_dir(tmp) .. "/cosmic.checked.db", "checked one"))
   local ordinary = stored(nil, nil)
   local checked = stored("format", "cosmic.checked.db")
   local ordinary_before, checked_before = key_of(tmp, ordinary), key_of(tmp, checked)
   assert(ordinary_before ~= checked_before, "a checked key was an ordinary one")
-  assert(Fs.write(build_dir(tmp) .. "/cosmic.db", "ordinary two"))
+  assert(Fs.write(support.build_dir(tmp) .. "/cosmic.db", "ordinary two"))
   assert(key_of(tmp, checked) == checked_before, "the ordinary projection moved a checked key")
   assert(key_of(tmp, ordinary) ~= ordinary_before, "the ordinary projection left an ordinary key")
-  assert(Fs.write(build_dir(tmp) .. "/cosmic.checked.db", "checked two"))
+  assert(Fs.write(support.build_dir(tmp) .. "/cosmic.checked.db", "checked two"))
   assert(key_of(tmp, checked) ~= checked_before, "the checked projection left a checked key")
 end
 
@@ -1331,8 +1317,8 @@ end
 --- projection, `cosmic.db`, makes the same key: a moved ordinary key would run every ordinary suite again.
 local function test_an_ordinary_key_is_unchanged_by_the_checked_fields(tmp: string)
   tree(tmp)
-  assert(build_dir(tmp))
-  assert(Fs.write(build_dir(tmp) .. "/cosmic.db", "projection"))
+  assert(support.build_dir(tmp))
+  assert(Fs.write(support.build_dir(tmp) .. "/cosmic.db", "projection"))
   local plain = key_of(tmp, stored(nil, nil))
   assert(plain == key_of(tmp, stored(nil, "cosmic.db")), "naming the tree's own projection moved the key")
   assert(plain ~= key_of(tmp, stored("format", nil)), "the checks part moved nothing")

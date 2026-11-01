@@ -743,6 +743,55 @@ local MODULES <const>: {string: string} = {
   m = "local record M\n  count: integer\nend\nfunction M.f(a: integer): integer\n  return a\nend\nreturn M\n",
 }
 
+--- The first error of `source` with `code`; fails, printing what `source` reported, when it has none.
+local function error_of(source: string, code: Codes.Code): Codes.Error
+  local r = Programs.run(source)
+  assert(#r.before == 0, table.concat(r.before, " "))
+  for _, e in ipairs(r.errors) do
+    if e.code == code then
+      return e
+    end
+  end
+  error("no " .. code .. " in " .. Programs.codes(r))
+end
+
+local function test_a_literal_that_leaves_out_an_optional_field_tells_it_from_a_field_that_may_be_left_out()
+  local source = "local record R\n  name: string\n  note: string?\nend\nlocal r: R = { name = \"a\" }\n"
+  local e = error_of(source, "literal_missing")
+  assert(has(e.msg, "leaves out `note`"), e.msg)
+  assert(has(e.fix, "`note: T?` is a field that must be written, though it may hold nil"), e.fix)
+  assert(has(e.fix, "`note?: T` is a field that may be left out"), e.fix)
+  -- No field that may hold nil, nothing to tell apart.
+  local plain = error_of("local record R\n  name: string\nend\nlocal r: R = {}\n", "literal_missing")
+  assert(not has(plain.fix, "must be written"), plain.fix)
+end
+
+local function test_a_pcall_taken_as_a_value_in_a_test_file_names_test_raises()
+  local source = "local function f()\nend\nlocal ok = pcall(f)\n"
+  local in_test = Programs.runner()(source, "t_test")
+  local named: string? = nil
+  for _, e in ipairs(in_test.errors) do
+    if e.code == "alternatives_as_value" then
+      named = e.fix
+    end
+  end
+  assert(named ~= nil and has(named, "match pcall(f) do"), tostring(named))
+  assert(has(named, "`Test.raises(fn, says?)`"), named)
+  assert(not has(error_of(source, "alternatives_as_value").fix, "Test.raises"))
+  -- A name that only ends in `_test.tl` is no test file.
+  local other = Programs.runner()(source, "t_test.tlx")
+  for _, e in ipairs(other.errors) do
+    assert(not has(e.fix, "Test.raises"), e.fix)
+  end
+  local handled = Programs.runner()("local function f()\nend\nlocal function h(m: string): string\n  return m\nend\n" ..
+      "local ok = xpcall(f, h)\n", "t_test")
+  for _, e in ipairs(handled.errors) do
+    if e.code == "alternatives_as_value" then
+      assert(has(e.fix, "`Test.raises(fn, says?)`"), e.fix)
+    end
+  end
+end
+
 local function test_programs_that_follow_the_rules_check_clean()
   local names: mut {string} = {}
   for name in pairs(STANDING) do
