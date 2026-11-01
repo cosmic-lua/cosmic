@@ -20,13 +20,6 @@ local function reply(n: integer, status: string, head: string, body?: string): s
     "Content-Length: " .. tostring(#body) .. "\r\nConnection: close\r\n\r\n" .. body
 end
 
---- The message of the raise `fn` ends in.
-local function raised(fn: function()): string
-  local ok, err = pcall(fn)
-  assert(not ok, "expected a raise")
-  return tostring(err)
-end
-
 local function ok_script(): {string}
   return { reply(1, "200 OK", "") }
 end
@@ -182,7 +175,7 @@ local function test_an_interval_of_zero_never_waits()
 end
 
 local function test_pacer_refuses_a_negative_interval()
-  local err = raised(function() local _ = Http.pacer(-1) end)
+  local err = Test.raises(function() local _ = Http.pacer(-1) end)
   assert(err:find("http: pacer interval_ns must be an integer of at least 0", 1, true) ~= nil, err)
   -- Blamed on this file, the caller, not on a line of cosmic.http.
   assert(err:find("http_pace_test:", 1, true) ~= nil, err)
@@ -211,7 +204,7 @@ local function test_a_pace_that_is_no_pacer_raises_naming_the_option(tmp: string
     download_result = function() local _ = Http.download_result(url, tmp .. "/never", opts()) end,
   }
   for name, entry in pairs(entries) do
-    local err = raised(entry)
+    local err = Test.raises(entry)
     assert(err:find("http: opts.pace must be made by Http.pacer", 1, true) ~= nil, name .. ": " .. err)
     assert(err:find("http_pace_test:", 1, true) ~= nil, name .. ": " .. err)
   end

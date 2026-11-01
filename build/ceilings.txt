@@ -127,10 +127,6 @@ cosmic/internal/compress.d.tl interface_disagrees 1
 
 cosmic/internal/sqlite.d.tl interface_disagrees 1
 
-cosmic/json_reader_fuzz_test.tl interface_disagrees 1
-
-cosmic/json_reader_test.tl interface_disagrees 1
-
 cosmic/net.tl interface_disagrees 2
 
 cosmic/stream.tl interface_disagrees 5

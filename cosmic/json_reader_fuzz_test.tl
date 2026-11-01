@@ -9,30 +9,7 @@
 
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
-local Stream = require("cosmic.stream")
-
---- A Reader that answers `text` in chunks of `size` bytes.
-local class Chunked is Stream.Reader
-  text: string
-  mut at: integer
-  size: integer
-
-  function read(self, _max_bytes?: integer): string?, string
-    if self.at > #self.text then return nil, "" end
-    local chunk = self.text:sub(self.at, self.at + self.size - 1)
-    self.at = self.at + self.size
-    return chunk, ""
-  end
-
-  function close(self): boolean, string
-    return true, ""
-  end
-end
-
-local function chunked(text: string, size: integer): Stream.Reader
-  local r: Chunked = { text = text, at = 1, size = size }
-  return r
-end
+local ChunkedReader = require("build.chunked_reader_fixture")
 
 --- Texts to mutate: every token and nesting the reader walks.
 local SAMPLES <const> = {
@@ -130,7 +107,7 @@ end
 local function token_lines(text: string, size: integer, opts: Json.ReaderOptions,
                            peeks?: integer): string?, string
   local ok, result, err = pcall(function(): string, string
-    local r = Json.reader(chunked(text, size), opts)
+    local r = Json.reader(ChunkedReader.chunked(text, size), opts)
     local out: mut {string} = {}
     while true do
       -- A caller that peeks before it reads gets the same tokens.
@@ -147,7 +124,7 @@ end
 --- The values the tokens of `text` build, each with the null stand-in;
 --- nil and the failure that ended them.
 local function token_values(text: string, size: integer, opts: Json.ReaderOptions): {any}?, string
-  local r = Json.reader(chunked(text, size), opts)
+  local r = Json.reader(ChunkedReader.chunked(text, size), opts)
   local values: mut {any} = {}
   local stack: mut {{any: any}} = {}
   local keys: mut {integer: string} = {}
@@ -234,14 +211,14 @@ local function placed_after(text: string, size: integer, opts: Json.ReaderOption
   local stray = text .. "\n@"
   local line, column = line_and_column(stray, #stray, opts.json5 == true)
   local want = ("json: a byte no JSON token starts with at line %d, column %d (pointer \"\")"):format(line, column)
-  local r = Json.reader(chunked(stray, size), opts)
+  local r = Json.reader(ChunkedReader.chunked(stray, size), opts)
   local why: string
   repeat
     local t, err = r:next()
     why = err
   until t == nil
   if why ~= want then return false, "by tokens: " .. why .. ", not " .. want end
-  local v = Json.reader(chunked(stray, size), opts)
+  local v = Json.reader(ChunkedReader.chunked(stray, size), opts)
   local _, verr = v:value()
   if verr ~= "" then return false, "value: " .. verr end
   local _, after = v:next()
@@ -280,7 +257,7 @@ local function holds(input: string): boolean, string
     if #values ~= 1 or not same(values[1], decoded) then
       return false, "the tokens built another value"
     end
-    local r = Json.reader(chunked(text, size), opts)
+    local r = Json.reader(ChunkedReader.chunked(text, size), opts)
     local value, verr = r:value()
     if verr ~= "" then return false, "value refused what decode read: " .. verr end
     if not same(value, decoded) then return false, "value read another value" end
