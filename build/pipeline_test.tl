@@ -59,7 +59,7 @@ local EXPORT <const> = "[checked]\nm.tl export_not_declared 1\n"
 local function module_of(path: string, file: string, kind: string, source: string, tests: {string}): plans.Module
   return {
     path = path, file = file, kind = kind, source = source, source_hash = "", requires = {}, tests = tests,
-    has_top_level_return = true, generated = false, key = "", graph_key = "", lua = "",
+    has_top_level_return = true, generated = false, key = "", graph_key = "", lua = "", inputs = nil,
   }
 end
 

@@ -734,8 +734,8 @@ local function experiment(argv: {string}, count: integer, probes: integer, progr
     script_sha256 = Hash.hex_sha256((assert(Fs.read(script)))),
     workload = argv[5] or "all",
     timer_overhead_ns = distribution_json(Perf.distribution(timer)),
-    -- TODO: read these through Env.read once ci/cosmic-driver.pin names a release whose cosmic.env declares them
-    -- (bin/cosmic-bootstrap runs this file on the pinned release); they join Env.Name then.
+    -- TODO: read these through Env.read once ci/cosmic-driver.pin names a release whose Env.Name declares them
+    -- (they are in Env.Name already; bin/cosmic-bootstrap runs this file on the pinned release, whose Env.Name lacks them).
     baseline_commit = Env.get("COSMIC_PERF_BASELINE_COMMIT"),
     candidate_commit = Env.get("COSMIC_PERF_CANDIDATE_COMMIT"),
     fixtures = manifest,

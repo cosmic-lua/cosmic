@@ -16,6 +16,18 @@ local record Env
     "COSMIC_GRAMMAR"
     --- Set to anything, writes a line of memory use at each mark of a run.
     "COSMIC_MEMPROBE"
+    --- Names the zig to run, over the pinned one.
+    "COSMIC_ZIG"
+    --- Where zig keeps its project cache.
+    "COSMIC_ZIG_CACHE"
+    --- The directory CI restored the project cache under.
+    "COSMIC_ZIG_CACHE_SEED"
+    --- Where zig keeps its global cache.
+    "COSMIC_ZIG_GLOBAL_CACHE"
+    --- The commit a perf run measures against.
+    "COSMIC_PERF_BASELINE_COMMIT"
+    --- The commit a perf run measures.
+    "COSMIC_PERF_CANDIDATE_COMMIT"
     --- The tree root, outright.
     "COSMIC_TREE"
     --- The count of boots.

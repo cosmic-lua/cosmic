@@ -97,43 +97,7 @@ cosmic/web/types.tl key_type 3
 # inside the record, where the grammar declares a nested type
 build/c/init.tl member_missing 1
 
-build/closure_store_test.tl member_missing 1
-
-build/coverage/init.tl member_missing 1
-
-build/declared_key_test.tl member_missing 5
-
-build/doctest_test.tl member_missing 1
-
 build/gen_syscalls_test.tl member_missing 1
-
-build/importer.tl member_missing 7
-
-build/importer_test.tl member_missing 4
-
-build/pipeline.tl member_missing 1
-
-build/pipeline_test.tl member_missing 1
-
-build/positions.tl member_missing 4
-
-build/positions_test.tl member_missing 2
-
-build/runtime_checks_keys_test.tl member_missing 2
-
-build/shared_compiles.tl member_missing 2
-
-build/shared_parses_test.tl member_missing 1
-
-build/test.tl member_missing 1
-
-build/test_inputs.tl member_missing 1
-
-build/test_inputs_test.tl member_missing 1
-
-build/test_key.tl member_missing 1
-
-build/test_state.tl member_missing 1
 
 core/declarations_test.tl member_missing 1
 
@@ -234,11 +198,7 @@ build/link_text.tl 3
 
 build/links.tl 2
 
-build/pipeline.tl 1
-
 build/policy_rules.tl 4
-
-build/positions.tl 1
 
 build/progress.tl 1
 
@@ -378,7 +338,7 @@ build/json_query_test.tl setmetatable_call 1
 build/pipeline.tl view_as_mut 1
 
 
-build/pipeline_test.tl arms_differ 7
+build/pipeline_test.tl arms_differ 1
 
 
 
@@ -647,8 +607,6 @@ build/host_requires.tl nil_not_allowed 5
 
 build/importer_boot_test.tl nil_not_allowed 4
 
-build/importer_store_test.tl nil_not_allowed 1
-
 
 
 
@@ -777,12 +735,10 @@ build/test.tl nil_not_allowed 31
 
 build/test_bail_tool_test.tl nil_not_allowed 4
 
-build/test_inputs_test.tl nil_not_allowed 3
-
 build/test_isolation_test.tl nil_not_allowed 2
 
 
-build/test_key.tl nil_not_allowed 54
+build/test_key.tl nil_not_allowed 52
 
 build/test_no_assert_tool_test.tl nil_not_allowed 1
 
@@ -1079,8 +1035,6 @@ cosmic/tar_test.tl nil_not_allowed 5
 
 
 
-
-cosmic/template_build_test.tl nil_not_allowed 3
 
 
 cosmic/template_fuzz_test.tl nil_not_allowed 38
@@ -1840,7 +1794,7 @@ build/test.tl view_written 36
 
 build/test_inputs.tl view_written 5
 
-build/test_inputs_test.tl view_written 6
+build/test_inputs_test.tl view_written 1
 
 build/test_key.tl view_written 9
 
@@ -5093,7 +5047,7 @@ build/test.tl and_ternary 6
 
 build/test_inputs.tl and_ternary 2
 
-build/test_key.tl and_ternary 14
+build/test_key.tl and_ternary 13
 
 build/test_policy.tl and_ternary 2
 
@@ -5586,8 +5540,6 @@ build/shared_verdicts_tool_test.tl compare_disjoint 6
 
 build/standalone_test.tl compare_disjoint 2
 
-build/test_inputs.tl compare_disjoint 2
-
 build/test_key.tl compare_disjoint 4
 
 build/test_policy_plan_tool_test.tl compare_disjoint 2
@@ -5874,7 +5826,7 @@ build/test.tl literal_needs_type 1
 
 build/test_inputs.tl literal_needs_type 4
 
-build/test_key.tl literal_needs_type 5
+build/test_key.tl literal_needs_type 2
 
 build/test_requires_tool_test.tl literal_needs_type 4
 
