@@ -128,9 +128,12 @@ end
 --- type's own name): the node is the one the lowering named by that id in the text the checker was served of `home`, whose
 --- tokens stand where the file's do (a stub keeps them), so the declaration is looked up in a parse of that text
 --- ([`source.served`]) and put in the file as [`source.places`] has it. nil where `home` is not served, is a template
---- (whose Teal has other positions), or declares no such type there.
+--- (whose Teal has other positions), is generated from another file, or declares no such type there.
 local function elsewhere(request: Request, home: string, id: integer, symbol: string): Site?
   local checker = request.checker
+  -- A generated module is served as its generated text, whose positions are not its file's.
+  local listed = checker.source.modules[home]
+  if listed == nil or listed.origin ~= "tree" then return nil end
   local open = check.open_files(checker)
   local served = source.served(checker.source, home, open, true)
   if served == nil or served.file:match("%.tmpl$") ~= nil then return nil end

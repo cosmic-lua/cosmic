@@ -1104,7 +1104,7 @@ end
 --- of a generated module ([`build.syntax_derivation`]'s `rows_of`), each with the column of the symbol's last name where
 --- it stands on its line of `header`. Nothing is written to the scratch database: the rows are a function of the text
 --- alone and are made again by each request. nil where `file` is no header a module is generated from, or `header` is not
---- one the generator reads (a header being typed).
+--- one the generator reads (a header being typed), which has no places until it is.
 local function buffer_places(file: string, header: string): {string:Spot}?
   for _, target in ipairs(GenSyscalls.targets) do
     if target.target.header == file then
@@ -1199,10 +1199,10 @@ function source.places(src: source.View, name: string, open: source.Open): sourc
     if opened ~= nil and (written == nil or written.text ~= opened.text) then
       -- A header edited and not saved: its lines are not the stage's.
       local spots = buffer_places(found.file, opened.text)
-      if spots ~= nil then
-        local text = opened.text
-        return { file = found.file, text = function(): string? return text end, spots = spots }
-      end
+      -- The staged lines are not this text's: a header the generator does not read has no places here.
+      if spots == nil then return nil end
+      local text = opened.text
+      return { file = found.file, text = function(): string? return text end, spots = spots }
     end
     if written == nil then return carried_places(src, name) end
     return mapped_places(src, found, written)

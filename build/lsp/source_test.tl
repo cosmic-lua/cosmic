@@ -822,9 +822,10 @@ local function test_the_places_of_a_generated_module_are_the_headers_and_at_its_
   assert(edited.text() == edited_text and moved.line == 9 and moved.column == 16 and moved.length == 4,
     tostring(moved.line) .. ":" .. tostring(moved.column))
   assert(src.tally.derived == 0, "nothing is derived into the scratch database")
-  -- A header being typed that the generator does not read leaves the staged lines.
-  local broken = assert(source.places(src, "cosmic.sys", open_with("core/syscalls.h", SYSCALLS_H .. "COSMIC_SYSCALL(")))
-  assert(assert(broken.spots["sys.read"]).line == 8)
+  -- A header being typed that the generator does not read has none.
+  local shifted = "/* edited */\n" .. SYSCALLS_H .. "/*\n * --- X.\n */\nCOSMIC_SYSCALL(half, 2);\n"
+  assert(source.places(src, "cosmic.sys", open_with("core/syscalls.h", shifted)) == nil,
+    "lines inserted above and a half-typed call below: the staged lines are no answer")
   source.close(src)
 end
 
