@@ -35,9 +35,8 @@ void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db);
  * SQLITE_OK, or the first failure. */
 int cosmic_sqlite_functions (sqlite3 *db);
 
-/* Whether any of an SQL function's arguments is NULL, which the
- * functions of this module and of [`cosmic_vector_functions`] answer
- * with NULL. */
+/* Whether any of an SQL function's arguments is NULL, which the functions of
+ * this module and of vector.h answer with NULL. */
 static inline bool cosmic_any_null (int argc, sqlite3_value **argv) {
   for (int i = 0; i < argc; i++) {
     if (sqlite3_value_type(argv[i]) == SQLITE_NULL) {
