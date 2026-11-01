@@ -17,6 +17,11 @@
 --- A type declared inside a function body is named by the lowering as its module, `@` and the id of its node, so that one
 --- of the same name in another function is another type: its members are looked up in that node alone
 --- ([`build.syntax_places`]'s `within`), in the document that declares it.
+--- A type named so of another module can only be one of a repeated top-level name (a tree holding a ceiling of `shadows`):
+--- no value of a type declared in a function body leaves the body (a function declares what it returns, a field or
+--- parameter cannot name the type, `any` takes no typed value: [`lang.check_refused_test`]'s test of it). Its members are
+--- looked up in a parse of the text the checker was served of that module ([`source.served`]), where the node of that id
+--- stands, and put in the module's file.
 ---
 --- A place in another module is looked up by its symbol in the `places` the stage derived of the module's file
 --- ([`source.places`]), and put in the module's text as it is written: the checker is served the
@@ -30,17 +35,10 @@
 --- A place in the document is found in the text the checker read, which a build rewrites (the `splices` of
 --- [`check.Reading`]), and put back in the document's own text.
 
--- TODO: answer a field of a type declared in another module's function body, once its places rows name the node that
--- declares it by the id the checker's lowering named it by: the lowering names it `module@id` by the id of its node in the
--- text the checker was served, which for a module served as a stub (bodies left out, [`build.syntax_stub`]) is not the id
--- of the node in the file the `places` rows are derived of ([`source.places`]), so a row carrying the file's id would name
--- another node. Needs the places of the served text (stub or source, as [`source.served`] chose), with the declaring node's
--- id as a column of `places` (written by [`build.syntax_places`] and [`build.syntax_derivation`]; bump `version` of
--- [`build.work`]), so that the id means the same to both.
-
 local Ast = require("lang.ast")
 local Driver = require("build.driver")
 local Lexer = require("lang.lexer")
+local Node = require("build.syntax_node")
 local Places = require("build.syntax_places")
 local Report = require("build.syntax_report")
 local ShapeSpecs = require("build.syntax_shape_specs")
@@ -98,6 +96,57 @@ local function site_of_token(request: Request, token: integer): Site
   return { place = request.here, offset = Lexer.offset(tokens, token), length = Lexer.length(tokens, token) }
 end
 
+--- The site of `spot`, a place in the module `module` whose places are `placed` ([`source.places`]).
+local function spot_site(request: Request, module: string, placed: source.Placed, spot: source.Spot): Site?
+  local checker = request.checker
+  local uri: string
+  if placed.carried ~= nil then
+    local extracted = source.extracted(checker.source, placed)
+    if extracted == nil then return nil end
+    uri = protocol.uri_of(extracted)
+  else
+    uri = protocol.uri_of(checker.root .. "/" .. placed.file)
+    local opened = checker.open[placed.file]
+    if opened ~= nil then uri = opened.uri end
+  end
+  if spot.plain then
+    local character = spot.column - 1
+    local range = protocol.range({ line = spot.line - 1, character = character },
+      { line = spot.line - 1, character = character + spot.length })
+    return { place = { module = module, original = "", splices = {}, uri = uri }, offset = 0, length = spot.length,
+      range = range }
+  end
+  local text = placed.text()
+  if text == nil then return nil end
+  local start = lines.checker_starts(text)[spot.line]
+  if start == nil then return nil end
+  return { place = { module = module, original = text, splices = {}, uri = uri },
+    offset = start + spot.column - 1, length = spot.length }
+end
+
+--- Where the type the node `id` declares in the module `home`, other than the document's, declares `symbol` (from the
+--- type's own name): the node is the one the lowering named by that id in the text the checker was served of `home`, whose
+--- tokens stand where the file's do (a stub keeps them), so the declaration is looked up in a parse of that text
+--- ([`source.served`]) and put in the file as [`source.places`] has it. nil where `home` is not served, is a template
+--- (whose Teal has other positions), or declares no such type there.
+local function elsewhere(request: Request, home: string, id: integer, symbol: string): Site?
+  local checker = request.checker
+  local open = check.open_files(checker)
+  local served = source.served(checker.source, home, open, true)
+  if served == nil or served.file:match("%.tmpl$") ~= nil then return nil end
+  local chunk, _ = Node.parse(served.text, served.file)
+  if chunk == nil then return nil end
+  for _, found in ipairs(Places.within(chunk, id)) do
+    if found.symbol == symbol then
+      local placed = source.places(checker.source, home, open)
+      if placed == nil then return nil end
+      return spot_site(request, home, placed,
+        { line = found.line, column = found.column, length = found.length, plain = false })
+    end
+  end
+  return nil
+end
+
 --- Where the module `module` declares `symbol` ([`build.syntax_places`]): in the document's own tree where it is the
 --- document's module, else in the places of the module's file ([`source.places`]). nil where it declares none, or the
 --- working database lists no such module.
@@ -105,8 +154,8 @@ local function place_of(request: Request, module: string, symbol: string): Site?
   -- A type declared where no other module can name it is the module and `@` and the id of its node ([`lang.declarations`]).
   local home, id = module:match("^(.*)@(%d+)$")
   if home ~= nil and id ~= nil then
-    if home ~= request.here.module then return nil end
     local number = math.tointeger(id) or 0
+    if home ~= request.here.module then return elsewhere(request, home, number, symbol) end
     local nodes: mut {integer:{string:Places.Found}} = {}
     for key, kept in pairs(request.nested or {}) do nodes[key] = kept end
     local table_of = nodes[number]
@@ -142,29 +191,7 @@ local function place_of(request: Request, module: string, symbol: string): Site?
   if placed == nil then return nil end
   local spot = placed.spots[symbol]
   if spot == nil then return nil end
-  local uri: string
-  if placed.carried ~= nil then
-    local extracted = source.extracted(checker.source, placed)
-    if extracted == nil then return nil end
-    uri = protocol.uri_of(extracted)
-  else
-    uri = protocol.uri_of(checker.root .. "/" .. placed.file)
-    local opened = checker.open[placed.file]
-    if opened ~= nil then uri = opened.uri end
-  end
-  if spot.plain then
-    local character = spot.column - 1
-    local range = protocol.range({ line = spot.line - 1, character = character },
-      { line = spot.line - 1, character = character + spot.length })
-    return { place = { module = module, original = "", splices = {}, uri = uri }, offset = 0, length = spot.length,
-      range = range }
-  end
-  local text = placed.text()
-  if text == nil then return nil end
-  local start = lines.checker_starts(text)[spot.line]
-  if start == nil then return nil end
-  return { place = { module = module, original = text, splices = {}, uri = uri },
-    offset = start + spot.column - 1, length = spot.length }
+  return spot_site(request, module, placed, spot)
 end
 
 --- Where the type `decl` is declared.
