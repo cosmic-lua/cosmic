@@ -49,19 +49,6 @@ local function expect_failure(ctx: Context, label: string, pattern: string,
   return answer
 end
 
-local function no_private_entries(cache: string, stem: string)
-  for _, name in ipairs((assert(Fs.list(cache)))) do
-    assert(not String.starts_with(name, stem),
-      "cache retained private entry: " .. name)
-  end
-end
-
-local function hook_environment(cache: string, hook: string, ready: string,
-                                go: string): {string:string}
-  return environment(cache, { COSMIC_PORTABLE_TEST_HOOK = hook,
-    COSMIC_PORTABLE_TEST_READY = ready, COSMIC_PORTABLE_TEST_GO = go })
-end
-
 local function test_launcher_cold_warm_and_default_paths(tmp: string)
   local ctx = setup(tmp)
   local artifact_hash = Fixture.hash(ctx.artifact)
@@ -349,12 +336,12 @@ local function test_launcher_publication_and_interruption(tmp: string)
     local ready2 = Process.fifo(ctx.work, ctx.diagnostics, "race-ready2")
     local go2 = Process.fifo(ctx.work, ctx.diagnostics, "race-go2")
     local first = Process.start("race1", { ctx.artifact }, ctx.work,
-      hook_environment(race, "before_publish", ready1, go1),
+      LauncherFixture.hook_environment(race, "before_publish", ready1, go1),
       ctx.diagnostics)
     Process.adopt(active, first)
     Process.await_ready(ctx.work, ctx.diagnostics, "race1", ready1, first)
     local second = Process.start("race2", { ctx.artifact }, ctx.work,
-      hook_environment(race, "before_publish", ready2, go2),
+      LauncherFixture.hook_environment(race, "before_publish", ready2, go2),
       ctx.diagnostics)
     Process.adopt(active, second)
     Process.await_ready(ctx.work, ctx.diagnostics, "race2", ready2, second)
@@ -363,8 +350,8 @@ local function test_launcher_publication_and_interruption(tmp: string)
     assert(Process.finish(first).ok and Process.finish(second).ok,
       "publisher race failed")
     only_core(race)
-    no_private_entries(race, ".core.")
-    no_private_entries(race, ".repair-")
+    LauncherFixture.no_private_entries(race, ".core.")
+    LauncherFixture.no_private_entries(race, ".repair-")
 
     -- A launcher that found no core, then finds one another launcher
     -- published before it looked again, runs that winner.
@@ -372,7 +359,7 @@ local function test_launcher_publication_and_interruption(tmp: string)
     local late_ready = Process.fifo(ctx.work, ctx.diagnostics, "late-ready")
     local late_go = Process.fifo(ctx.work, ctx.diagnostics, "late-go")
     local waiting = Process.start("late-waiting", { ctx.artifact }, ctx.work,
-      hook_environment(late, "before_recheck", late_ready, late_go),
+      LauncherFixture.hook_environment(late, "before_recheck", late_ready, late_go),
       ctx.diagnostics)
     Process.adopt(active, waiting)
     Process.await_ready(ctx.work, ctx.diagnostics, "late-waiting", late_ready, waiting)
@@ -380,19 +367,19 @@ local function test_launcher_publication_and_interruption(tmp: string)
     Process.release(ctx.work, ctx.diagnostics, "late-waiting", late_go)
     assert(Process.finish(waiting).ok, "a launcher refused the core another published")
     only_core(late)
-    no_private_entries(late, ".core.")
+    LauncherFixture.no_private_entries(late, ".core.")
 
     local interrupted = ctx.work .. "/interrupted-cache"
     local ready = Process.fifo(ctx.work, ctx.diagnostics, "interrupt-ready")
     local go = Process.fifo(ctx.work, ctx.diagnostics, "interrupt-go")
     local publisher = Process.start("interrupted", { ctx.artifact }, ctx.work,
-      hook_environment(interrupted, "before_publish", ready, go),
+      LauncherFixture.hook_environment(interrupted, "before_publish", ready, go),
       ctx.diagnostics)
     Process.adopt(active, publisher)
     Process.await_ready(ctx.work, ctx.diagnostics, "interrupt", ready, publisher)
     assert(publisher.handle:stop(sys.SIGTERM))
     assert(not Process.finish(publisher).ok, "interrupted publisher succeeded")
-    no_private_entries(interrupted, ".core.")
+    LauncherFixture.no_private_entries(interrupted, ".core.")
     outcome_ok(run(ctx, "interrupt-next", interrupted), "post-interrupt launch")
     local core = only_core(interrupted)
     local bytes = Fixture.read(core)
@@ -401,20 +388,20 @@ local function test_launcher_publication_and_interruption(tmp: string)
     local repair_go = Process.fifo(ctx.work, ctx.diagnostics, "repair-go")
     local repair = Process.start("repair-interrupted", { ctx.artifact },
       ctx.work,
-      hook_environment(interrupted, "after_repair_lock", repair_ready, repair_go),
+      LauncherFixture.hook_environment(interrupted, "after_repair_lock", repair_ready, repair_go),
       ctx.diagnostics)
     Process.adopt(active, repair)
     Process.await_ready(ctx.work, ctx.diagnostics, "repair", repair_ready, repair)
     assert(repair.handle:stop(sys.SIGTERM))
     assert(not Process.finish(repair).ok, "interrupted repair succeeded")
-    no_private_entries(interrupted, ".repair-")
+    LauncherFixture.no_private_entries(interrupted, ".repair-")
     outcome_ok(run(ctx, "repair-next", interrupted), "post-repair launch")
 
     Fixture.write(core, bytes:sub(1, 20), 0x140)
     local kill_ready = Process.fifo(ctx.work, ctx.diagnostics, "kill-ready")
     local kill_go = Process.fifo(ctx.work, ctx.diagnostics, "kill-go")
     local killed = Process.start("repair-killed", { ctx.artifact }, ctx.work,
-      hook_environment(interrupted, "after_repair_lock", kill_ready, kill_go),
+      LauncherFixture.hook_environment(interrupted, "after_repair_lock", kill_ready, kill_go),
       ctx.diagnostics)
     Process.adopt(active, killed)
     Process.await_ready(ctx.work, ctx.diagnostics, "kill", kill_ready, killed)

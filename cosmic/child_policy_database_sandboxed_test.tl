@@ -129,10 +129,10 @@ local function test_a_decoded_policy_refuses_a_database_that_changed_since(tmp: 
 end
 
 --- A sealed program run under `nest` by `mode` (see the probe in `MAIN`) with
---- `policy` beside the database: what it printed, or nil where the host gives
---- no sandbox (skipped). The database is writable by anyone, so that only the
+--- `policy` beside the database: what it printed; the test is skipped where the
+--- host gives no sandbox. The database is writable by anyone, so that only the
 --- mount can refuse a write, whoever the program runs as.
-local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {string:string}?
+local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {string:string}
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
   assert(Fs.chmod(path, tonumber("666", 8)))
@@ -155,10 +155,10 @@ local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {s
   if result == nil then
     assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
     Test.skip(why)
-    return nil
   end
-  assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
-  return fixture.fields(assert(result.stdout))
+  local held = assert(result, "Test.skip ends the test where the start is refused")
+  assert(held.ok, "exit " .. tostring(held.code) .. ": " .. tostring(held.stderr))
+  return fixture.fields(assert(held.stdout))
 end
 
 --- EROFS: what a write to a read-only mount fails with, which no permission
@@ -190,7 +190,6 @@ local function test_a_sealed_program_under_nest_confines_children_of_its_own(tmp
     return
   end
   local out = under_nest(tmp, "child", {})
-  if out == nil then return end
   assert(out.main == "fixture.main", tostring(out.main))
   assert(out.own_file == "false", "the child read this program's own file")
   assert(out.grand_refused == nil, tostring(out.grand_refused))
@@ -213,7 +212,6 @@ local function test_a_sealed_program_under_nest_starts_a_nest_child_with_no_data
     return
   end
   local out = under_nest(tmp, "relay", {})
-  if out == nil then return end
   assert(out.grand_refused == nil, tostring(out.grand_refused))
   assert(out.grand_code == "0", tostring(out.grand_code) .. ": " .. tostring(out.grand_stderr))
   assert(out.g_main == "fixture.main", tostring(out.g_main))
@@ -231,7 +229,6 @@ local function test_a_policy_grant_of_the_database_does_not_make_it_writable(tmp
   end
   local path = tmp .. "/sealed.db"
   local out = under_nest(tmp, "child", { grants = { { path = path, letters = "rwc" } } })
-  if out == nil then return end
   assert_unwritable(out, "")
   assert_unwritable(out, "g_")
 end
@@ -245,7 +242,6 @@ local function test_a_nest_child_cannot_remount_the_database_writable(tmp: strin
     return
   end
   local out = under_nest(tmp, "remount", {})
-  if out == nil then return end
   refuse_or_skip("unshare of a user and mount namespace", out.unshare)
   refuse_or_skip("the write of its ids", out.mapped)
   assert(out.remount == tostring(sys.EPERM), "the database was remounted writable: " ..
