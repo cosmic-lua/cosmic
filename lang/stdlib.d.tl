@@ -1,3 +1,4 @@
+--- @kind language
 -- The Lua standard library's declarations, as the new checker reads them: the trust boundary of the type layer, the typing
 -- the checker takes without proof.
 -- Auditing or changing a declaration is an edit of this file.

@@ -252,6 +252,14 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
   for _, source in ipairs(todo) do
     entries[#entries + 1] = { source.relative, source.text }
   end
+  -- A declaration file that says nothing of what it is is refused as a build refuses it ([`build.driver.unnamed`]).
+  local unnamed = require("build.driver").unnamed(entries, function(_path: string): boolean
+    return false
+  end)
+  if unnamed ~= "" then
+    complain(unnamed)
+    return bare.refused
+  end
   local TreeProgram = require("build.tree_program")
   local library = TreeProgram.library_modules(options.globals)
   local reserved = TreeProgram.reserved(entries, library)

@@ -116,11 +116,11 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   assert(Fs.read(tmp .. "/salted.db") == Fs.read(tmp .. "/first.db"),
     "the code that writes it, writing the same rows, moved its bytes")
   local function extra(field: string)
-    assert(Fs.write(root .. "/extra.d.tl", "local type base = require 'base'\n" ..
+    assert(Fs.write(root .. "/extra.d.tl", "--- @kind binding\nlocal type base = require 'base'\n" ..
         "local record extra\n  " .. field .. ": base\nend\nreturn extra\n"))
   end
   local function base(field: string)
-    assert(Fs.write(root .. "/base.d.tl", "local record base\n  " .. field ..
+    assert(Fs.write(root .. "/base.d.tl", "--- @kind binding\nlocal record base\n  " .. field ..
         ": integer\nend\nreturn base\n"))
   end
   base("x")
@@ -366,6 +366,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
   assert(Fs.mkdirs(root))
   local function raw(parameter: string)
     assert(Fs.write(root .. "/raw.d.tl", table.concat({
+      "--- @kind binding",
       "local record raw",
       "  meta: function(" .. parameter .. ": string): string?",
       "end",

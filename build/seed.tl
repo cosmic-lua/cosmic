@@ -20,6 +20,7 @@
 --- refused (the code of the tool is held to its ceilings by the checks of the tree, not by a boot); a syntax error is,
 --- and so is a construct the generator does not write.
 
+local AnalysisSchema = require("build.analysis_schema")
 local CompileGrammar = require("build.compile_grammar")
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
@@ -48,8 +49,8 @@ local record Seed
 end
 
 --- The files of the tree that declare the standard library's globals.
-local PRELUDE <const> = "lang/prelude.d.tl"
-local STDLIB <const> = "lang/stdlib.d.tl"
+local PRELUDE <const> = AnalysisSchema.prelude_file()
+local STDLIB <const> = AnalysisSchema.stdlib_file()
 
 --- The declaration file `file` of the tree at `root`, a source of globals.
 local function declaration(root: string, file: string): Driver.Source
@@ -76,7 +77,8 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
   --- The source of each module asked for, and the names the tree has none of, so that a file is read once.
   local sources: mut {string: Driver.Source} = {}
   local absent: mut {string: boolean} = {}
-  --- Why the tree has no one module for a name: a declaration file and a source of it (the complaint of [`Driver.pairing`]).
+  --- Why the tree has no one module for a name: a declaration file and a source of it (the complaint of [`Driver.pairing`]),
+  --- or a declaration file that names no kind ([`Driver.naming`]).
   local paired: mut {string: string} = {}
   build:provide(function(name: string): Driver.Source?
     local held = sources[name]
@@ -95,7 +97,7 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
     local first_text = ""
     local others: mut {string} = {}
     -- A module is a declaration or a source, never both: one that has both is refused when it is asked for, as a build
-    -- refuses it ([`build.driver.paired`]).
+    -- refuses it ([`build.driver.declared`]); so is a declaration that says nothing of what it is ([`build.driver.naming`]).
     for _, file in ipairs(Driver.candidates(name)) do
       if first == nil then
         local read, _ = Fs.read(root .. "/" .. file)
@@ -122,6 +124,12 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
     end
     if first:match("%.d%.tl$") ~= nil and code ~= nil then
       paired[name] = Driver.pairing(first, code, name)
+    end
+    if first:match("%.d%.tl$") ~= nil and paired[name] == nil then
+      local unnamed = Driver.naming(first, first_text)
+      if unnamed ~= "" then
+        paired[name] = unnamed
+      end
     end
     local made = Driver.source(name, first, first_text, if first:match("%.d%.tl$") ~= nil then "decl" else "tl" end)
     sources[name] = made

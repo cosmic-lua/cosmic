@@ -127,7 +127,7 @@ local function seeded(tmp: string): Seed.Program
   end
   assert(Fs.write(tmp .. "/both.d.tl", "local record R\nend\nreturn R\n"))
   assert(Fs.write(tmp .. "/both.tl", "local record R\nend\nreturn {} as R\n"))
-  assert(Fs.write(tmp .. "/alone.d.tl", "local record R\nend\nreturn R\n"))
+  assert(Fs.write(tmp .. "/alone.d.tl", "--- @kind binding\nlocal record R\nend\nreturn R\n"))
   -- A declaration, a source and a package's entry: the complaint names the first source, as a build does.
   assert(Fs.mkdirs(tmp .. "/three"))
   assert(Fs.write(tmp .. "/three.d.tl", "local record R\nend\nreturn R\n"))

@@ -183,7 +183,7 @@ end
 local function test_a_declaration_is_read_under_its_own_name()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/decl.d.tl", "local record Decl\n  list: {integer}\nend\nreturn Decl\n"))
+  assert(Fs.write(root .. "/lib/decl.d.tl", "--- @kind binding\nlocal record Decl\n  list: {integer}\nend\nreturn Decl\n"))
   local text = 'local d = require("lib.decl")\nlocal s: string = d.list\nreturn s\n'
   local found = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
   assert(found.message == "`d.list` is `{integer}`, where `string` is wanted as the value of `s` " ..
@@ -194,7 +194,7 @@ end
 --- binary's own, which is a global.
 local function test_a_file_named_for_a_module_of_the_language_is_not_what_its_require_reads()
   local root = project()
-  assert(Fs.write(root .. "/math.d.tl", "local record M\n  abs: function(integer): string\nend\nreturn M\n"))
+  assert(Fs.write(root .. "/math.d.tl", "--- @kind binding\nlocal record M\n  abs: function(integer): string\nend\nreturn M\n"))
   local text = 'local s: string = require("math").abs(-1)\nreturn s\n'
   local found = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
   assert(found.message:find("the project has no module `math` (require_unknown)", 1, true) ~= nil, found.message)
@@ -227,6 +227,37 @@ local function test_a_declaration_beside_its_source_is_refused_in_each_document_
   local last = publications(after)
   local final = assert(last[#last])
   assert(final.uri:sub(-9) == "/lib/m.tl" and #final.diagnostics == 0, final.uri .. " " .. tostring(#final.diagnostics))
+end
+
+--- A `.d.tl` that names no kind is refused by the build, and its document is told so at its first line, in the words the build
+--- uses ([`build.driver.naming`]); tagged a binding it is published clear, and tagged `language` outside the two files of
+--- the globals it is refused again.
+local function test_a_declaration_that_names_nothing_is_refused_in_its_document()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  local record_text = "local record M\n  n: integer\nend\nreturn M\n"
+  assert(Fs.write(root .. "/lib/m.d.tl", record_text))
+  local send = serving(root)
+  local first = send({ initialize(root), open(root, "lib/m.d.tl", record_text) })
+  local told = only(nth(first, 1))
+  assert(told.message == "a .d.tl must name what it is, and this one names nothing. If it declares a module " ..
+      "implemented in C, add the line `--- @kind binding` to its leading comment; otherwise write it as a .tl (types and " ..
+      "code in a .tl are checked and real at run time).", told.message)
+  assert(edge(told, "start").line == 0 and edge(told, "start").character == 0)
+  -- Tagged a binding, the document is published clear.
+  local tagged = "--- @kind binding\n" .. record_text
+  assert(Fs.write(root .. "/lib/m.d.tl", tagged))
+  local after = send({ session_fixture.changed_on_disk(root, "lib/m.d.tl"), change(root, "lib/m.d.tl", tagged) })
+  local last = assert(publications(after)[#publications(after)])
+  assert(last.uri:sub(-11) == "/lib/m.d.tl" and #last.diagnostics == 0, last.uri .. " " .. tostring(#last.diagnostics))
+  -- Tagged for the language, outside the two files of the globals, it is refused.
+  local language = "--- @kind language\n" .. record_text
+  assert(Fs.write(root .. "/lib/m.d.tl", language))
+  local again = send({ session_fixture.changed_on_disk(root, "lib/m.d.tl"), change(root, "lib/m.d.tl", language) })
+  local refused = assert(publications(again)[#publications(again)])
+  local message = assert(refused.diagnostics[1]).message
+  assert(#refused.diagnostics == 1 and message:find("`--- @kind language` is only for the language's own " ..
+      "declarations, lang/prelude.d.tl and lang/stdlib.d.tl", 1, true) == 1, message)
 end
 
 --- A pair that appears after a good stage, and one that is gone, are told with no change to the text of the open document:
