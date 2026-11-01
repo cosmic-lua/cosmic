@@ -104,6 +104,10 @@ local record compile_grammar
     --- Why the generator wrote no Lua for a module that was checked: its refusals, one to a line, the first
     --- 20 and how many more there are. "" where it wrote some.
     trouble: string
+    --- How many reads of a narrowed place and how many typed parameters the Lua checks: what `facts` asked the
+    --- generator to write. 0 without `facts`, and unset where there is no Lua.
+    fact_wraps?: integer
+    parameter_checks?: integer
   end
 
   --- The module the file `relative` (its path below the root) is.
@@ -222,9 +226,12 @@ function compile_grammar.emit(build: Driver.Build, result: Driver.Outcome, facts
   local kinds, refusals = type_facts(build.program, result, lowered, counted)
   local wraps: {integer: string}? = nil
   local boundary_checks: {integer: string}? = nil
+  local wrap_count, check_count = 0, 0
   if facts == true then
     wraps = FactWraps.of(checked.narrowed, result.text, result.source.filename, result.chunk)
     boundary_checks = BoundaryChecks.of(checked.boundaries, result.text, result.source.filename)
+    for _ in pairs(wraps) do wrap_count = wrap_count + 1 end
+    for _ in pairs(boundary_checks) do check_count = check_count + 1 end
   end
   local generated = Codegen.generate(result.chunk, result.scoped, result.never_false, classes, Check.enums(lowered), wraps, kinds,
     served == true, boundary_checks)
@@ -236,7 +243,7 @@ function compile_grammar.emit(build: Driver.Build, result: Driver.Outcome, facts
     lines[#lines + 1] = line
   end
   if #lines == 0 then
-    return { code = generated.text, trouble = "" }
+    return { code = generated.text, trouble = "", fact_wraps = wrap_count, parameter_checks = check_count }
   elseif #lines > REPORTED then
     local more = #lines - REPORTED
     return { code = nil, trouble = table.concat(lines, "\n", 1, REPORTED) .. "\n... and " .. tostring(more) .. " more" }

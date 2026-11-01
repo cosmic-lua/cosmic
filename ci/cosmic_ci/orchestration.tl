@@ -1705,8 +1705,8 @@ end
 --- linux-x86_64 target alone: each read the checker narrowed by a test is
 --- written as a check of the test's fact, and a test that meets a read
 --- whose fact is false fails there ("fact violated at <file>:<y>:<x>",
---- doc/testing.md's "checked narrowing"). It runs every test, since a
---- checked run stands on no verdict. ci.yml runs it in the `checked-narrowing`
+--- doc/testing.md's "checked narrowing"). A checked run stands on verdicts of its own, but
+--- the jobs restore and save none yet, so each runs every test. ci.yml runs it in the `checked-narrowing`
 --- jobs, after `boot`, each a share of the tests where COSMIC_CI_NARROWING_SHARD
 --- names one (`I/N`, `--shard`). A share makes no check that some test enters
 --- each C function, which only a whole run does (build/test.tl); that check
@@ -1736,8 +1736,18 @@ local function phase_checked_narrowing(p: PlatformContext): integer
     p.local_diagnostics .. "/checked-narrowing-test.err", checked_narrowing_timeout_ns, c.root, values)
   -- A run that prints no "run-time types" line (the summary of a checked
   -- run) was not one: its modules carried no checks.
-  if status == 0 and read(out):find("test: run-time types:", 1, true) == nil then
+  local text = read(out)
+  if status == 0 and text:find("test: run-time types:", 1, true) == nil then
     local _, _ = Fs.put(Fs.stderr, "checked narrowing: the run reported nothing of the checks, so it carried none\n")
+    return 1
+  end
+  -- Nor was one whose compile wrote no check, however many of its tests stood: the line counts what the compile
+  -- wrote (cache hits included), not what the workers met.
+  local wraps, checks = text:match("test: run%-time types: (%d+) fact wraps? and (%d+) parameter checks? written")
+  if status == 0 and (wraps == nil or wraps == "0" or checks == "0") then
+    local _, _ = Fs.put(Fs.stderr, "checked narrowing: the compile wrote " ..
+        Plural.count(math.tointeger(tonumber(wraps or "0")) or 0, "fact wrap") .. " and " ..
+        Plural.count(math.tointeger(tonumber(checks or "0")) or 0, "parameter check") .. ", so the run carried none\n")
     return 1
   end
   return status
