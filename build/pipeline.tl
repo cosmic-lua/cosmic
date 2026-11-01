@@ -171,8 +171,8 @@ local record Pipeline
   --- name is its own.
   discounted: function(result: Driver.Outcome)
 
-  --- The tool string a compile in the new mode is keyed by, given the one the harness chose ([`build.grammar_mode`]'s `tool`): that and the
-  --- identity of the code that reads and checks a source in the new mode, which is the source, as the running binary carries it,
+  --- The tool string a compile is keyed by, given the one the harness chose ([`build.grammar_mode`]'s `tool`): that and the
+  --- identity of the code that reads and checks a source, which is the source, as the running binary carries it,
   --- of every module of the tree (`lang.*`, `build.*`) that [`build.pipeline`] reaches. A compile or a parse made with it is
   --- keyed by it, so that an edit to the checker or to a reader reads the tree again; the compiler's identity
   --- ([`build.identity`]) holds none of it, so a default run is not read again for it.
@@ -383,7 +383,7 @@ local type_only <const>: {string:string} = {
     "parse, and is a root of the analyzer's identity",
 }
 
---- The identity of the code that reads and checks in the new mode ([`Pipeline.coded`]), over the modules `reader` answers for.
+--- The identity of the code that reads and checks ([`Pipeline.coded`]), over the modules `reader` answers for.
 local function identity(reader: Reader): string
   local parts: mut {string} = {}
   local seen: mut {string: boolean} = {}
@@ -484,7 +484,7 @@ function Pipeline.coded_of(tool: string, db: Sqlite.Handle): string?, string
   end
   local count = rows[1]
   if count == nil or count:text(1) == "0" then
-    return nil, "build/pipeline.tl is not parsed yet, so the code that reads the tree in the new mode cannot be named"
+    return nil, "build/pipeline.tl is not parsed yet, so the code that reads the tree cannot be named"
   end
   return Hash.hex_sha256(tool .. "\0" .. identity(staged_code(db))), ""
 end

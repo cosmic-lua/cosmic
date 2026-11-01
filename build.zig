@@ -1161,8 +1161,7 @@ const seed_refused =
 
 /// The seed boot builds its compiler from: a directory holding the Lua the
 /// pinned release ([`bin/cosmic-bootstrap`], which `COSMIC_BOOTSTRAP` can
-/// point at another cosmic) writes, with its `cosmic compile --grammar
-/// new`, for the files of [`build/seed.txt`]: [`build/seed.tl`] and what it
+/// point at another cosmic) writes, with its `cosmic compile`, for the files of [`build/seed.txt`]: [`build/seed.tl`] and what it
 /// requires. It is raw: the bridge loads it as the first-stage compiler and
 /// has that compile the same files again (core/bridge.lua's `bootstrap`),
 /// so what the tool carries never depends on this release's emitter.
