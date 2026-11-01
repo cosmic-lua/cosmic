@@ -927,13 +927,15 @@ local function test_the_arms_of_an_if_expression_are_held_to_the_type_the_positi
   assert(codes_of("local function f(a: any)\nend\nlocal b: boolean = true\nf(if b then 1 else \"a\" end)\n") == "arms_differ")
 end
 
-local function test_an_or_whose_left_operand_is_never_answers_its_right_operand()
+local function test_an_or_or_and_whose_left_operand_is_never_adds_no_type_and_no_refusal()
   -- Found by the check-of-a-typed-program fuzz: `sn0` is nil here, so the branch that holds it non-nil is unreachable.
   local source = "local sn0: string? = nil\nlocal m: mut {string: integer} = {}\n" ..
     "if not (sn0 == nil) then\n  m[sn0 or \"a\"] = nil\nend\n"
   assert(codes_of(source) == "", codes_of(source))
   local typed = "local sn0: string? = nil\nif sn0 ~= nil then\n  local s: string = sn0 or \"a\"\n  print(s)\nend\n"
   assert(codes_of(typed) == "", codes_of(typed))
+  local conj = "local sn0: string? = nil\nif sn0 ~= nil then\n  local a = sn0 and 1\n  local b = sn0 and 1 or 2\n  print(a, b)\nend\n"
+  assert(codes_of(conj) == "", codes_of(conj))
   -- a never left does not excuse a right operand that is wrong for its position
   local wrong = "local sn0: string? = nil\nif sn0 ~= nil then\n  local n: integer = sn0 or \"a\"\n  print(n)\nend\n"
   assert(codes_of(wrong) ~= "", codes_of(wrong))

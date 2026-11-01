@@ -3632,6 +3632,10 @@ local function conjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Typ
     return right
   end
   if left_kind == "bool" then
+    -- A `never` left never reaches its right operand, so the answer is as unreachable as the left.
+    if left.tag == "never" then
+      return left
+    end
     if is_bool(right) or right.tag == "never" then
       return store.boolean
     end
