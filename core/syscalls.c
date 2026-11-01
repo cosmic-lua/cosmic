@@ -5373,6 +5373,9 @@ COSMIC_SYSCALL(relaunch, 2) {
   set_decimal(L, COSMIC_PORTABLE_ENV_CORE_FD, (uint64_t)core_to);
   set_decimal(L, COSMIC_PORTABLE_ENV_TARGET_ID, selected->target_id);
   set_decimal(L, COSMIC_PORTABLE_ENV_CONFIGURATION_ID, selected->configuration_id);
+  /* The offset is where the stored bytes lie, which startup compares with
+   * the launcher's; the length and digest are the raw core's, which it
+   * compares with the executing file. A compressed core's two differ. */
   set_decimal(L, COSMIC_PORTABLE_ENV_CORE_OFFSET, selected->offset);
   set_decimal(L, COSMIC_PORTABLE_ENV_CORE_LENGTH, selected->length);
   char digest[COSMIC_PORTABLE_SHA256_LENGTH * 2 + 1];
