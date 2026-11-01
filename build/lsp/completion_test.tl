@@ -691,6 +691,21 @@ local function test_a_name_declared_twice_or_in_a_block_is_completed_by_the_chec
   assert(has(items(again, 2), { "top", "inner" }) == "inner", answer(again, 2) .. again.err)
 end
 
+--- `local R = setmetatable(R, {})` binds the name again, so the checker gives the new binding the `function R.f` statement and
+--- none to the type: `R.` offers no `f`.
+local function test_a_function_statement_about_a_rebound_name_is_not_a_function_of_the_type()
+  local root = session_fixture.project()
+  -- `R` at the cursor is the type; the `function R.f` below is about the local that binds the name again.
+  local tail = 'local R = setmetatable(R, {})\nfunction R.f(): integer return 1 end\n'
+  local head = 'local record R\n  n: integer\nend\n'
+  assert(Fs.write(root .. "/main.tl", head .. 'local _ = R\n' .. tail))
+  local ran = served(root, { initialize(root), open(root, "main.tl", head .. 'local _ = R\n' .. tail),
+    change(root, "main.tl", head .. 'local _ = R.\n' .. tail),
+    ask(2, root, "main.tl", 3, 12),
+  })
+  assert(has(items(ran, 2), { "f" }) == "", answer(ran, 2) .. ran.err)
+end
+
 --- The checker refuses `function C.x` where the class has a field `x`, and a class's `function C.__index`: neither is a
 --- function of the class, and `C.` offers none.
 local function test_a_function_the_checker_refuses_to_give_a_class_is_not_offered()

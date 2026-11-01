@@ -86,12 +86,21 @@ function Members.found(chunk: Ast.Chunk): {Members.Found}
   --- The names the statements at the top of the module give the table of a type's functions: `function R.m` and `R.m = `,
   --- by the type's name.
   local given: mut {string: mut {string: boolean}} = {}
-  --- The top-level types by name, and how many top-level declarations (of a type, an alias or an import) each name has.
+  --- The top-level types by name, and how many top-level declarations (of a type, an alias, an import or a local) each name has.
   local tops: mut {string: Declared} = {}
   local counts: mut {string: integer} = {}
   for _, stat in ipairs(chunk.body.stats) do
     local held = declared(stat)
     if held ~= nil then tops[held.name.name] = held end
+    -- A `local R` or `local function R` binds the name again: the checker resolves `R.f` to the binding nearest, so the
+    -- statements about the type's name are no longer known to be about the type.
+    if stat.kind == "Local" then
+      for _, binding in ipairs(stat.bindings) do
+        counts[binding.name] = (counts[binding.name] or 0) + 1
+      end
+    elseif stat.kind == "LocalFunction" then
+      counts[stat.name.name] = (counts[stat.name.name] or 0) + 1
+    end
     local taken: string? = nil
     if held ~= nil then
       taken = held.name.name

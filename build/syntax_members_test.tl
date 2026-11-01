@@ -90,3 +90,12 @@ local function test_a_name_declared_twice_at_the_top_has_no_rows_and_neither_has
   local alias = rows_of("local record R\nend\nlocal type R = integer\nreturn R\n")
   assert(alias == "", alias)
 end
+
+local function test_a_name_a_local_binds_again_has_no_rows()
+  local text = "local record R\n  n: integer\nend\nlocal R = setmetatable(R, {})\nfunction R.f(): integer return 1 end\nreturn R\n"
+  assert(rows_of(text) == "", rows_of(text))
+  local fn = "local record R\n  n: integer\nend\nlocal function R() end\nreturn R\n"
+  assert(rows_of(fn) == "", rows_of(fn))
+  -- A local of another name leaves the type its rows.
+  assert(rows_of("local record R\nend\nlocal other = 1\nreturn R\n") == "R||record|both|")
+end
