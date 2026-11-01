@@ -187,6 +187,14 @@ local record test
     --- How many shares there are.
     count: integer
   end
+
+  --- What [`test.explained`] answers.
+  record Explained
+    --- The lines to show, in order.
+    lines: {string}
+    --- The selectors that matched a refused file.
+    matched: {string:boolean}
+  end
 end
 
 --- The variable a test deadline's default is read from, in seconds.
@@ -285,6 +293,37 @@ function test.refusals_of(lines: {string}, selectors: {string}): {string}
     end
   end
   return out
+end
+
+--- What a run that names files shows of the compile's refusals `lines` ([`importer.Result`]'s `refused`) for the
+--- `selectors` that match a refused file: the refusals that hold those files out, `roots` ([`importer.Result`]'s
+--- `refusal_roots`) giving their positions in `lines`, ahead of the lines of the files themselves, each once. Of a file that
+--- requires a refused module that is one line, so a dependent never buries the diagnostic it rests on. Also the selectors
+--- that matched such a file.
+function test.explained(lines: {string}, roots: {string:{integer}}, selectors: {string}): test.Explained
+  local explained: mut {string:boolean} = {}
+  local named: mut {integer:boolean} = {}
+  local held: mut {integer:boolean} = {}
+  for position, line in ipairs(lines) do
+    local file = line:match("^([^:\n]+)") or line
+    for _, selector in ipairs(selectors) do
+      if test.matches(selector, "", file) then
+        explained[selector] = true
+        named[position] = true
+      end
+    end
+    if named[position] == true then
+      for _, root in ipairs(roots[file] or { position }) do held[root] = true end
+    end
+  end
+  local out: mut {string} = {}
+  for position, line in ipairs(lines) do
+    if held[position] == true then out[#out + 1] = line end
+  end
+  for position, line in ipairs(lines) do
+    if named[position] == true and held[position] ~= true then out[#out + 1] = line end
+  end
+  return { lines = out, matched = explained }
 end
 
 --- The share `text`, `--shard`'s value, names: `I/N`, whole numbers with
@@ -1728,14 +1767,23 @@ local function select_tests(ctx: Run): integer?
   if #unmatched > 0 or #unfound > 0 then
     local _, _ = work.close(assert(ctx.handle))
     if #unmatched > 0 then
-      log:complain("no test module matches: " .. table.concat(unmatched, ", "))
-      -- A module the compile refused (the new checker's) has no tests to match, which its refusal says.
-      for _, line in ipairs(result.refused) do
-        local head = line:match("^[^\n]*") or line
-        for _, selector in ipairs(unmatched) do
-          if head:find(selector, 1, true) ~= nil then
-            log:complain(line)
-          end
+      -- A module the compile refused (the new checker's) has no tests to match: its refusals say why, those it rests
+      -- on first.
+      local explained = test.explained(result.refused, result.refusal_roots or {}, unmatched)
+      local refused = explained.matched
+      local absent: mut {string} = {}
+      for _, selector in ipairs(unmatched) do
+        if refused[selector] ~= true then absent[#absent + 1] = selector end
+      end
+      if #absent > 0 then
+        log:complain("no test module matches: " .. table.concat(absent, ", "))
+      end
+      for _, line in ipairs(explained.lines) do
+        log:complain(line)
+      end
+      for _, selector in ipairs(unmatched) do
+        if refused[selector] == true then
+          log:complain(selector .. " did not compile, so it has no tests to run")
         end
       end
     end

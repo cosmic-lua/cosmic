@@ -290,6 +290,33 @@ local function test_cli_fails_when_no_module_matches(tmp: string)
   end
 end
 
+local function test_a_named_file_whose_module_was_refused_is_shown_the_refusal_not_a_missing_module(tmp: string)
+  local root = tmp .. "/refused"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/tally.tl", "local record tally\n  count: function(n: integer): integer\nend\n" ..
+      "function tally.count(n: integer): integer\n  return \"x\"\nend\nreturn tally\n"))
+  assert(Fs.write(root .. "/tally_test.tl",
+    'local tally = require("tally")\nlocal function test_count()\n  assert(tally.count(1) == 1)\nend\n'))
+  assert(Fs.write(root .. "/other.tl", 'local tally = require("tally")\nlocal record other end\nreturn other\n'))
+  assert(Fs.write(root .. "/fine_test.tl", "local function test_fine()\n  assert(true)\nend\n"))
+  local output = tmp .. "/refused.out"
+  local result = invoke(root, output, "tally_test.tl")
+  local text = assert(Fs.read(output))
+  assert(not result.ok, text)
+  assert(not text:find("no test module matches", 1, true), text)
+  local root_at = text:find("tally.tl:5:10:", 1, true)
+  local cascade_at = text:find("tally_test.tl: not compiled: it requires tally", 1, true)
+  assert(root_at ~= nil and cascade_at ~= nil and root_at < cascade_at, text)
+  assert(text:find("tally_test.tl did not compile", 1, true), text)
+  -- Only the dependents the run named: the module nobody named is not told of.
+  assert(not text:find("other.tl: not compiled", 1, true), text)
+  -- A file that is no module of the tree is still missing.
+  local missing = invoke(root, tmp .. "/missing.out", "nothing_test.tl")
+  local missing_text = assert(Fs.read(tmp .. "/missing.out"))
+  assert(not missing.ok, missing_text)
+  assert(missing_text:find("no test module matches: nothing_test.tl", 1, true) ~= nil, missing_text)
+end
+
 --- `runs.elapsed_ns` is how long the test function took, not merely a
 --- value: a test that sleeps 50 ms is recorded as taking at least that,
 --- and well under 5 s.
