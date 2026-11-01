@@ -10,6 +10,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local build_paths = require("build.paths")
@@ -588,28 +589,40 @@ local function test_definition_counts_utf16_units_or_bytes_as_negotiated()
   assert_located(defined(narrow, 2), root, "main.tl", 0, 6, 11)
 end
 
---- A symbol of the binary's own `cosmic.*` modules, which the project's database does not list, is where the tool's
---- places say, in a read-only file below the build directory that holds the module's text. The tests' sealed databases
---- carry no places, so the tool's are given as the session's `store`.
+--- A symbol of the binary's own `cosmic.*` modules, which the project's database does not list, is where the places of
+--- the database the session reads by default ([`Store.databases`]: a worker's sealed one, which carries the closure's
+--- places, or the tool's own) say, in a read-only file below the build directory that holds the module's text.
 local function test_definition_of_a_binary_module_s_field_is_the_file_extracted_from_the_tool()
   local root = session_fixture.project()
   local text = 'local Fs = require("cosmic.fs")\nlocal _ = Fs.read\nlocal t: Fs.Staged? = nil\n'
-  local carried = "--- Files.\nlocal Fs = {}\nfunction Fs.read() end\nlocal record Fs.Staged\nend\nreturn Fs\n"
-  local db = session_fixture.carrying("cosmic.fs", "cosmic/fs.tl", carried,
-    { { "Fs.read", "field", "3", "13", "4", "1" }, { "Fs.Staged", "type", "4", "17", "6", "1" } })
+  local databases = Store.databases()
+  local carried = assert(assert(Sqlite.text_rows(assert(databases[#databases]),
+    "SELECT CAST(inflate(source) AS TEXT) FROM modules WHERE path = 'cosmic.fs'"))[1]):text(1)
+  local function line_of(needle: string): integer
+    local from = 0
+    for number = 0, 100000 do
+      local stop = carried:find("\n", from + 1, true)
+      local row = carried:sub(from + 1, (stop or #carried + 1) - 1)
+      if row:find(needle, 1, true) then return number end
+      if stop == nil then break end
+      from = stop
+    end
+    error("cosmic/fs.tl has no line with " .. needle)
+  end
+  local read_line = line_of("function Fs.read(")
+  local staged_line = line_of("interface Staged")
   local ran = served(root, { initialize(root), open(root, "main.tl", text),
     at(2, "textDocument/definition", root, "main.tl", 1, 15),
     at(3, "textDocument/definition", root, "main.tl", 2, 12),
     -- `Fs` of [`Fs.read`], a binding of the project.
     at(4, "textDocument/definition", root, "main.tl", 1, 11),
-  }, { db })
+  })
   local directory = build_paths.under((assert(build_paths.directory(root)))).cosmic_source
   local file = directory .. "/" .. Hash.hex_sha256(carried) .. "/cosmic/fs.tl"
-  assert_located_at(defined(ran, 2), file, 2, 12, 16)
-  assert_located_at(defined(ran, 3), file, 3, 16, 22)
+  assert_located_at(defined(ran, 2), file, read_line, 12, 16)
+  assert_located_at(defined(ran, 3), file, staged_line, 12, 18)
   assert_located(defined(ran, 4), root, "main.tl", 0, 6, 8)
   assert(Fs.read(file) == carried and assert(Fs.stat(file)).mode & 0x1ff == 0x124, "the file holds the text, read-only")
-  assert(db:close())
 end
 
 --- A tool whose database lists no places (one from before the table) answers none.
