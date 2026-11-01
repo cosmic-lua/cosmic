@@ -35,7 +35,8 @@ local record Flags
     --- One line on what it does.
     about?: string
     --- Whether the line must give it: [`Flags.parse`] refuses a line
-    --- without it, and [`Flags.help`] marks it.
+    --- without it, and [`Flags.help`] marks it. An empty value
+    --- (`--out=`) counts as given.
     required?: boolean
   end
 
@@ -317,10 +318,10 @@ end
 --- when given, and each option the command's `spec` names with its
 --- value's name and what it does, as a [`Flags.Option`] describes it:
 --- one named `false` is listed bare, and one named `true` with
---- "<value>". One a line must give ends "(required)". Columns are aligned by
---- characters, not bytes. `run` is not read, so a program with one command, or a tool that runs its command
---- itself, describes it the way [`Flags.dispatch`] describes each of its
---- own. It ends without a newline.
+--- "<value>". An option the line must give ends "(required)". Columns are
+--- aligned by characters, not bytes. `run` is not read, so a program with
+--- one command, or a tool that runs its command itself, describes it the
+--- way [`Flags.dispatch`] describes each of its own. It ends without a newline.
 ---
 ---     usage: prog count [options] <file>...
 ---
@@ -412,7 +413,8 @@ end
 --- command's spec refuses, or a command with no `run`. A line the spec
 --- refuses is answered with the command's name, the refusal and its usage
 --- line -- "build: --jobs is required; usage: prog build [options] <file>"
---- -- so a program that prints `why` shows how to type the line. Empty
+--- -- so a program that prints `why` shows how to type the line. Only the
+--- first line of a multi-line `usage` is shown. Empty
 --- `commands` raises.
 ---
 --- Help is answered rather than run -- `code` 0 and `help` for the

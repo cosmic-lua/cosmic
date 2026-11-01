@@ -406,6 +406,13 @@ local function test_parse_refuses_a_missing_required_option_by_name()
   assert(got == nil and why == "no such option: --nope", why)
 end
 
+local function test_an_empty_value_counts_as_given()
+  local got, why = Flags.parse({ "x", "--out=", "--force" }, 2, required_spec)
+  assert(got ~= nil and got.values["--out"] == "", why)
+  got, why = Flags.parse({ "x", "--out", "", "--force" }, 2, required_spec)
+  assert(got ~= nil and got.values["--out"] == "", why)
+end
+
 local function test_a_required_option_given_in_a_cluster_is_given()
   local clustered: {string:boolean | Flags.Option} = {
     ["-v"] = { required = true },
