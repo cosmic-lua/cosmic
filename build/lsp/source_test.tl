@@ -1224,6 +1224,33 @@ local function test_a_binary_module_of_a_project_is_placed_in_a_file_the_build_d
   assert(db:close())
 end
 
+--- The members of a module of the binary are read from the `members` of the database the tool carries, with their docs, kept
+--- by the module's hash; a name outside the standard library, a module with no members and a database that lacks the table
+--- (a tool from before it) have none.
+local function test_the_members_of_a_binary_module_are_read_from_the_database_the_tool_carries()
+  local db = session_fixture.carrying("cosmic.thing", "cosmic/thing.tl", THING, {}, {
+    { "thing", "", "record", "both", "" },
+    { "thing", "size", "field", "instance", "integer", "How big." },
+    { "thing", "make", "function", "value", "function()", "" },
+  })
+  local src = source.new(project(), function(_: string) end, nil, { db })
+  local rows = assert(source.members(src, "cosmic.thing", none_open))
+  local owner = assert(rows["thing"])
+  assert(owner.kind == "record" and #owner.members == 2)
+  local size = assert(owner.members[1])
+  assert(size.name == "size" and size.type == "integer" and size.doc == "How big." and size.scope == "instance")
+  assert(assert(owner.members[2]).kind == "function")
+  assert(rawequal(assert(source.members(src, "cosmic.thing", none_open)), rows), "the rows are kept")
+  assert(db:exec("UPDATE modules SET source_hash = CAST('cd' AS BLOB) WHERE path = 'cosmic.thing'"))
+  assert(not rawequal(assert(source.members(src, "cosmic.thing", none_open)), rows), "a module with another hash is read again")
+  assert(source.members(src, "cosmic.missing", none_open) == nil, "a module the database lacks")
+  assert(source.members(src, "lib.thing", none_open) == nil, "a name outside the standard library")
+  assert(db:exec("DROP TABLE members"))
+  local bare = source.new(project(), function(_: string) end, nil, { db })
+  assert(source.members(bare, "cosmic.thing", none_open) == nil, "a tool with no members table")
+  assert(db:close())
+end
+
 --- The directories of extracted texts that no module of the running tool names are removed at the first ask for a file, and
 --- those it names, and entries that are no text's, stay.
 local function test_the_extracted_texts_of_a_tool_built_again_are_removed()

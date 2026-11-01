@@ -676,14 +676,6 @@ static int push_binary_meta (lua_State *L, int list, const char *key) {
   return 1;
 }
 
-/* Whether the artifact's selected core hashes to the digest its manifest
- * names, which is what a runtime identity is made of. A portable start checked
- * it before Lua ran; a host program is checked the first time it is asked.
- * The artifact is main's own, not a constant: the answer is remembered on it. */
-static bool core_identity_holds (const struct cosmic_artifact *artifact) {
-  return cosmic_artifact_core_matches((struct cosmic_artifact *)artifact);
-}
-
 /* One entry of metadata. Runtime values come only from the validated artifact
  * context and its own final database, never from a project database searched
  * ahead of it, and so does `ca_roots_default`, the roots its requests trust by
@@ -696,7 +688,7 @@ static int store_meta (lua_State *L) {
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
 
   lua_getfield(L, LUA_REGISTRYINDEX, STORE_ARTIFACT);
-  const struct cosmic_artifact *artifact = lua_touserdata(L, -1);
+  struct cosmic_artifact *artifact = lua_touserdata(L, -1);
   lua_pop(L, 1);
   if (strcmp(key, "runtime_context") == 0) {
     if (artifact != NULL && artifact->fd >= 0 && artifact->split)
@@ -722,7 +714,7 @@ static int store_meta (lua_State *L) {
       return 1;
     }
     if ((strcmp(key, "host_image") == 0 || strcmp(key, "runtime") == 0) &&
-        !core_identity_holds(artifact)) {
+        !cosmic_artifact_core_matches(artifact)) {
       lua_pushnil(L);
       return 1;
     }
@@ -1024,7 +1016,7 @@ static bool read_running_core (const struct cosmic_portable_entry *entry,
  * the start is running, and hashed again, since the file may have changed
  * since startup hashed it. */
 static int store_trusted_core (lua_State *L) {
-  const struct cosmic_artifact *artifact =
+  struct cosmic_artifact *artifact =
       lua_touserdata(L, lua_upvalueindex(1));
   if (artifact == NULL || artifact->fd < 0) {
     lua_pushnil(L);
@@ -1037,7 +1029,7 @@ static int store_trusted_core (lua_State *L) {
     lua_pushliteral(L, "running core is too large");
     return 2;
   }
-  if (!core_identity_holds(artifact)) {
+  if (!cosmic_artifact_core_matches(artifact)) {
     lua_pushnil(L);
     lua_pushliteral(L, "running core's digest differs from its manifest");
     return 2;

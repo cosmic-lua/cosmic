@@ -6,6 +6,7 @@
 
 local Codec = require("cosmic.codec")
 local Fuzz = require("build.fuzz")
+local Sources = require("build.codec_fuzz_sources")
 local codec = require("build.codec")
 
 --- The element of `list` at `index`, which the case knows is there.
@@ -26,32 +27,6 @@ local PAIRS <const>: {Pair} = {
   { name = "base64", encode = Codec.base64, decode = Codec.unbase64 },
   { name = "base64url", encode = Codec.base64url, decode = Codec.unbase64url },
 }
-
---- Characters a decoder has to judge: every alphabet's, both cases of
---- hex, padding, whitespace, and the bytes at either end.
-local TEXT <const> = "0123456789abcdefABCDEFxyzXYZ+/-_==\n \0\xff"
-
-local function gen_text(src: Fuzz.Source): string
-  if src:int(0, 1) == 0 then
-    return Fuzz.bytes(src, 64)
-  end
-  local out: mut {string} = {}
-  while Fuzz.more(src, #out, 64) do
-    local at = src:int(1, #TEXT)
-    out[#out + 1] = TEXT:sub(at, at)
-  end
-  return table.concat(out)
-end
-
---- Draws a cutting of the input: sizes of chunks, empty ones included,
---- packed one byte each so that shrinking can cut any of them.
-local function gen_cuts(src: Fuzz.Source): string
-  local sizes: mut {string} = {}
-  while Fuzz.more(src, #sizes, 24) do
-    sizes[#sizes + 1] = string.char(src:int(0, 9))
-  end
-  return table.concat(sizes)
-end
 
 --- What `coder` answers to `input` cut by the sizes `cuts` bytes give,
 --- then a byte at a time: the output, or nil and the reason, and
@@ -81,7 +56,7 @@ local function test_chunked_encoding_equals_the_whole_string(tmp: string)
       name = p.name .. " chunked encode",
       dir = tmp,
       gen = function(src: Fuzz.Source): string
-        return Fuzz.pack({ Fuzz.bytes(src, 200), gen_cuts(src) })
+        return Fuzz.pack({ Fuzz.bytes(src, 200), Sources.cuts(src) })
       end,
       check = function(input: string): boolean, string
         local fields = Fuzz.unpack(input)
@@ -104,13 +79,13 @@ local function test_chunked_decoding_equals_the_whole_string(tmp: string)
       name = p.name .. " chunked decode",
       dir = tmp,
       gen = function(src: Fuzz.Source): string
-        local text = gen_text(src)
+        local text = Sources.text(src)
         if src:int(0, 2) == 0 then
           text = Fuzz.mutate(src, p.encode(Fuzz.bytes(src, 60)), 2)
         elseif src:int(0, 1) == 0 then
           text = p.encode(Fuzz.bytes(src, 60))
         end
-        return Fuzz.pack({ text, gen_cuts(src) })
+        return Fuzz.pack({ text, Sources.cuts(src) })
       end,
       check = function(input: string): boolean, string
         local fields = Fuzz.unpack(input)
