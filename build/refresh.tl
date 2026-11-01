@@ -36,6 +36,7 @@ local Http = require("cosmic.http")
 local Proc = require("cosmic.proc")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
+local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")
 local Vendor = require("build.vendor")
 local artifact = require("build.artifact")
@@ -708,7 +709,7 @@ local usage <const> = "cosmic refresh -o <path> [--binary <path>] [--<dataset> <
 
 --- `cosmic refresh`'s command line: see [`cosmic.cli.Cli.refresh`].
 local function run(argv: {string}): integer
-  local started = Time.monotonic_ns()
+  local started = Clock.monotonic_ns()
   -- A failure's complaint says why; only a run that passed is summarized.
   local function passed(detail: string): integer
     local _, _ = logger.summary("refresh", detail .. ", " .. clock.took(started))

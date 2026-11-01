@@ -460,7 +460,10 @@ local function test_a_failed_execve_keeps_sigpipe_ignored(tmp: string)
   assert(process.ignore_sigpipe())
   failed_with(sys.ENOENT, sys.execve(tmp .. "/missing", { "missing" }, {}))
   local fd = sys.open("/proc/self/status", sys.O_RDONLY)
-  if fd == nil then return end -- no /proc to ask
+  if fd == nil then
+    Test.skip("this host has no /proc/self/status to ask")
+    return
+  end
   local status = assert(sys.read(fd, 1 << 16))
   sys.close(fd)
   local ignored = assert(status:match("SigIgn:%s*(%x+)"), status)
@@ -490,7 +493,10 @@ local function test_a_read_of_a_huge_count_answers_what_there_is(tmp: string)
   sys.close(ends.writer)
 
   local proc = sys.open("/proc/self/status", sys.O_RDONLY)
-  if proc == nil then return end -- no /proc to read
+  if proc == nil then
+    Test.skip("this host has no /proc/self/status to read")
+    return
+  end
   local st = assert(sys.fstat(proc))
   local text = assert(sys.read(proc, 1 << 50))
   sys.close(proc)
@@ -679,7 +685,10 @@ end
 local function test_a_child_starts_with_this_process_s_signal_mask(tmp: string)
   local probe = probe_in(tmp)
   local status = sys.open("/proc/self/status", sys.O_RDONLY)
-  if status == nil then return end -- no /proc to ask
+  if status == nil then
+    Test.skip("this host has no /proc/self/status to ask")
+    return
+  end
   local own = assert(sys.read(status, 65536))
   sys.close(status)
   local output = create(tmp .. "/status")
@@ -722,7 +731,7 @@ local function test_cpu_features_are_named_as_proc_cpuinfo_names_them()
     assert(i == 1 or (before ~= nil and before < name), "not in byte order, or twice: " .. name)
   end
   local cpuinfo = read_file("/proc/cpuinfo")
-  if cpuinfo == "" then return end
+  if cpuinfo == "" then Test.skip("this host has no /proc/cpuinfo to list flags from") end
   local listed: mut {string:boolean} = {}
   for line in cpuinfo:gmatch("[^\n]+") do
     local flags = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
@@ -877,7 +886,7 @@ local function test_getgid_and_getgroups_answer_the_groups_the_process_runs_with
     assert(math.type(group) == "integer" and group >= 0, tostring(group))
   end
   local status = read_file("/proc/self/status")
-  if status == "" then return end
+  if status == "" then Test.skip("this host has no /proc/self/status to list groups from") end
   assert(status:match("\nGid:%s+(%d+)") == tostring(gid), status)
   local listed: mut {string} = {}
   for group in (status:match("\nGroups:([^\n]*)") or ""):gmatch("%d+") do
@@ -952,52 +961,8 @@ local function revent(revents: {integer}, i: integer): integer
   return answer
 end
 
-local function hex(bytes: string): string
-  return (bytes:gsub(".", function(c: string): string
-    return string.format("%02x", (assert(c:byte(), "a matched byte")))
-  end))
-end
-
---- FIPS 180-2's own examples, plus the lengths either side of where the
---- padding spills into a second block.
-local function test_digest_sha256_known_answers()
-  local cases: {{string}} = {
-    { "", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
-    { "abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
-    { "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
-      "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1" },
-    { string.rep("a", 1000000),
-      "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0" },
-  }
-  for _, case in ipairs(cases) do
-    local input, want = case[1], case[2]
-    assert(input and want, "a case is an input and its digest")
-    local digest = hash.digest("sha256", input)
-    assert(hex(digest) == want, tostring(#input) .. " bytes hashed to " .. hex(digest))
-  end
-  for _, len in ipairs({ 55, 56, 63, 64, 65 }) do
-    assert(#hash.digest("sha256", string.rep("x", len)) == 32)
-  end
-end
-
---- Every algorithm `digest` names, by the size of what it returns.
-local function test_digest_sizes_by_algorithm()
-  local sizes: {string: integer} = {
-    md5 = 16, sha1 = 20, sha224 = 28, sha256 = 32, sha384 = 48, sha512 = 64,
-    ["sha3-224"] = 28, ["sha3-256"] = 32, ["sha3-384"] = 48, ["sha3-512"] = 64,
-  }
-  for algorithm, size in pairs(sizes) do
-    assert(#hash.digest(algorithm, "abc") == size, algorithm)
-  end
-end
-
---- RFC 4231's second test case.
-local function test_hmac_sha256_known_answer()
-  local mac = hash.hmac("sha256", "Jefe", "what do ya want for nothing?")
-  assert(hex(mac) == "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
-    hex(mac))
-end
-
+--- The raw binding refuses a name it does not know; known answers are
+--- [`cosmic.hash`]'s tests.
 local function test_digest_and_hmac_raise_on_an_unknown_algorithm()
   raises(hash.digest, "sha0", "abc")
   raises(hash.hmac, "sha0", "key", "abc")
@@ -1393,6 +1358,7 @@ local function test_a_tree_digest_of_what_it_is_refused_is_not_special(tmp: stri
   if opened ~= nil then
     sys.close(opened)
     assert(sys.chmod(tree .. "/closed", 0x1ed))
+    Test.skip("a mode 0 file opens here: the runner can read what it has no permission for")
     return
   end
   local refused = assert(sys.tree_digest(tree, true))
@@ -1646,9 +1612,6 @@ end
 --- architecture fails with EBADARCH, not "No error information".
 local function test_the_errnos_only_macos_has_are_named_there()
   local uname = assert(sys.uname())
-  if uname.sysname ~= "Darwin" then
-    return
-  end
   local names: mut {string:string} = {}
   for number = 1, 4095 do
     local name = sys.errno_name(number)
@@ -1658,7 +1621,11 @@ local function test_the_errnos_only_macos_has_are_named_there()
   end
   for _, name in ipairs({ "EBADARCH", "EBADEXEC", "EBADMACHO", "ESHLIBVERS", "EAUTH",
       "ENEEDAUTH", "EDEVERR", "EPWROFF", "ENOATTR", "EFTYPE", "EQFULL" }) do
-    assert(names[name] ~= nil and names[name] ~= "No error information", name .. " is unnamed")
+    if uname.sysname == "Darwin" then
+      assert(names[name] ~= nil and names[name] ~= "No error information", name .. " is unnamed")
+    else
+      assert(names[name] == nil, name .. " is a macOS errno, named on " .. uname.sysname)
+    end
   end
 end
 

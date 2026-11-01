@@ -259,6 +259,18 @@ local function test_the_removed_time_members_name_their_replacements()
   end
 end
 
+--- A program that called a clock or span helper through [`cosmic.time`] is
+--- told to call the same function in [`cosmic.clock`].
+local function test_the_removed_time_clock_aliases_name_the_clock_function()
+  for _, name in ipairs({ "now_ns", "monotonic_ns", "sleep_ns", "ms", "seconds", "minutes",
+      "hours", "ceil" }) do
+    local instead = Removed.members["cosmic.time." .. name]
+    assert(instead ~= nil, name)
+    assert(instead:find("Clock." .. name, 1, true) ~= nil, name)
+    assert(instead:find("cosmic.clock", 1, true) ~= nil, name)
+  end
+end
+
 --- A program that read [`cosmic.cli`]'s `options`, `usage` or `summary` is told
 --- which field of the verb's record in `Cli.verbs` holds it now.
 local function test_the_removed_cli_maps_name_the_verb_record_field_that_replaced_each()

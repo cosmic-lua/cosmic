@@ -12,6 +12,7 @@ local Sqlite = require("cosmic.sqlite")
 local clock = require("build.clock")
 local narrow = require("build.narrow")
 local plural = require("build.plural")
+local quoted = require("build.sql_name").quoted
 local reboot = require("build.reboot")
 local work = require("build.work")
 
@@ -22,11 +23,6 @@ local verb_spec = require("build.verb_spec")
 local record databases
   --- The verb's registration: see build/verb_spec.tl.
   mut spec: verb_spec.Spec
-end
-
---- `name` as an SQL identifier, quoted, with each `"` in it doubled.
-local function quoted(name: string): string
-  return "\"" .. (name:gsub("\"", "\"\"")) .. "\""
 end
 
 --- `value` right-aligned in `width` columns.

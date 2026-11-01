@@ -8,6 +8,7 @@
 --- inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
+local Sources = require("build.codec_fuzz_sources")
 local codec = require("build.codec")
 
 --- The element of `list` at `index`, which the case knows is there.
@@ -18,20 +19,6 @@ local function nth<T>(list: {T}, index: integer): T
 end
 
 local NAMES <const>: {codec.Name} = { "hex", "base64", "base64url" }
-
-local TEXT <const> = "0123456789abcdefABCDEFxyzXYZ+/-_==\n \t\r\0\xff"
-
-local function gen_text(src: Fuzz.Source): string
-  if src:int(0, 1) == 0 then
-    return Fuzz.bytes(src, 64)
-  end
-  local out: mut {string} = {}
-  while Fuzz.more(src, #out, 64) do
-    local at = src:int(1, #TEXT)
-    out[#out + 1] = TEXT:sub(at, at)
-  end
-  return table.concat(out)
-end
 
 --- `text` with whitespace dropped in where the bytes of `where` say:
 --- each byte picks a place and which whitespace.
@@ -87,7 +74,7 @@ local function test_decoding_is_total_and_exact(tmp: string)
           name = name .. (if lenient then " lenient" else "" end) .. " verb decoder total",
           dir = tmp,
           gen = function(src: Fuzz.Source): string
-            local text = gen_text(src)
+            local text = Sources.text(src)
             if src:int(0, 2) == 0 then
               return Fuzz.mutate(src, codec.encode(name, text, 0), 3)
             end
@@ -127,16 +114,6 @@ local function test_decoding_is_total_and_exact(tmp: string)
   end
 end
 
---- Draws a cutting of the input: chunk sizes, empty ones included, one
---- byte each so that shrinking can cut any of them.
-local function gen_cuts(src: Fuzz.Source): string
-  local sizes: mut {string} = {}
-  while Fuzz.more(src, #sizes, 24) do
-    sizes[#sizes + 1] = string.char(src:int(0, 9))
-  end
-  return table.concat(sizes)
-end
-
 --- What decoding `text` answers in chunks whose sizes are the bytes of
 --- `cuts`, then a byte at a time: the bytes, or nil and the reason.
 local function decode_cut(name: codec.Name, text: string, lenient: boolean, cuts: string): string?, string
@@ -165,14 +142,14 @@ local function test_chunked_decoding_answers_as_the_whole_text_does(tmp: string)
           name = name .. (if lenient then " lenient" else "" end) .. " verb chunked decode",
           dir = tmp,
           gen = function(src: Fuzz.Source): string
-            local text = gen_text(src)
+            local text = Sources.text(src)
             local shape = src:int(0, 2)
             if shape == 0 then
               text = Fuzz.mutate(src, codec.encode(name, Fuzz.bytes(src, 60), src:int(0, 7)), 2)
             elseif shape == 1 then
               text = strewn(codec.encode(name, Fuzz.bytes(src, 60), 0), Fuzz.bytes(src, 6))
             end
-            return Fuzz.pack({ text, gen_cuts(src) })
+            return Fuzz.pack({ text, Sources.cuts(src) })
           end,
           check = function(input: string): boolean, string
             local fields = Fuzz.unpack(input)

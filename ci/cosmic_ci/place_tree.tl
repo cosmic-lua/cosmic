@@ -103,11 +103,6 @@ end
 
 local USAGE <const> = "usage: place-tree [--name | --restore]"
 
---- The digest of `text` as 64 hex digits.
-local function digest(text: string): string
-  return Hash.hex_sha256(text)
-end
-
 function PlaceTree.name(env: {string:string}): PlaceTree.Placed?, string
   local sha, worker = env["GITHUB_SHA"] or "", env["COSMIC_WORKER"] or ""
   if sha == "" then return nil, "place-tree: GITHUB_SHA is not set" end
@@ -118,17 +113,17 @@ function PlaceTree.name(env: {string:string}): PlaceTree.Placed?, string
   local seed, chosen: string, string
   local event = env["GITHUB_EVENT_NAME"] or ""
   if env["COSMIC_CI_DECLARED_KEYS"] == "1" and (event == "push" or event == "merge_group") then
-    seed = digest("leg " .. worker .. "\n")
+    seed = Hash.hex_sha256("leg " .. worker .. "\n")
     chosen = "leg " .. worker .. ", a gating run keyed by the path"
   else
-    seed = digest("commit " .. sha .. "\nleg " .. worker .. "\n")
+    seed = Hash.hex_sha256("commit " .. sha .. "\nleg " .. worker .. "\n")
     chosen = "commit " .. sha .. ", leg " .. worker
   end
   -- The first byte of the seed, as two hex digits, sets the length.
   local first = math.tointeger(tonumber(seed:sub(1, 2), 16))
   assert(first ~= nil, "the seed does not begin with two hex digits")
   local length = first % 24 + 1
-  return { name = digest(seed .. " 1\n"):sub(1, length), chosen = chosen }, ""
+  return { name = Hash.hex_sha256(seed .. " 1\n"):sub(1, length), chosen = chosen }, ""
 end
 
 function PlaceTree.run(host: PlaceTree.Host, mode: string): integer

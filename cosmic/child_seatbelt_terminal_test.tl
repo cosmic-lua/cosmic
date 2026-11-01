@@ -15,17 +15,11 @@ local Poll = require("cosmic.poll")
 local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
+local SeatbeltFixture = require("build.seatbelt_fixture")
 
 --- The system's own paths, the program's PATH for the host-program check,
 --- and the temporary directory.
 Test.policy{ env = { "TMPDIR", "PATH" }, profiles = { "system" }, requires = { "program:cc" } }
-
---- Ends the test where Seatbelt does not hold a child.
-local function macos_only()
-  if assert(sys.uname()).sysname ~= "Darwin" then
-    Test.skip("Seatbelt holds a child on macOS alone")
-  end
-end
 
 --- How a run ended, for the message of a failed assertion.
 local function describe(result: Child.Result): string
@@ -138,7 +132,7 @@ end
 --- /dev/tty opens, ttyname names the slave, and the terminal answers
 --- tcgetpgrp and tcgetsid, as the profile grants them.
 local function test_a_policy_child_on_a_pty_has_it_as_its_controlling_terminal(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local binary = report_program(tmp)
   local said, result = on_pty(binary, { 0, 1, 2 }, running(binary))
   assert(result.code == 0, describe(result) .. string.format(" %q", said))
@@ -151,7 +145,7 @@ end
 --- The terminal is the pty's alone: where stdin is not on it the child has
 --- none, so /dev/tty is refused it as for any policy's child.
 local function test_a_policy_child_with_stdin_off_the_pty_has_no_controlling_terminal(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local binary = report_program(tmp)
   local said, result = on_pty(binary, { 1 }, running(binary))
   assert(result.code == 0, describe(result) .. string.format(" %q", said))
@@ -163,7 +157,7 @@ end
 --- A start with no policy gets the pty as its controlling terminal on macOS
 --- too, through the same steps of the trampoline.
 local function test_a_child_without_a_policy_on_a_pty_has_it_as_its_controlling_terminal(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local binary = report_program(tmp)
   local said, result = on_pty(binary, { 0, 1, 2 })
   assert(result.code == 0, describe(result) .. string.format(" %q", said))
@@ -176,7 +170,7 @@ end
 --- A policy child cannot change its slave's mode (the terminal's rules grant
 --- its data and ioctls, not its attributes), though it reads and writes it.
 local function test_a_policy_child_cannot_chmod_its_slave_but_uses_it(tmp: string)
-  macos_only()
+  SeatbeltFixture.macos_only()
   local binary = report_program(tmp)
   local said, result = on_pty(binary, { 0, 1, 2 }, running(binary))
   assert(result.code == 0, describe(result) .. string.format(" %q", said))

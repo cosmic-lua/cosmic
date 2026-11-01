@@ -244,10 +244,10 @@ end
 --- The exact part comes last, after the calendar's own, as nanoseconds.
 local function test_add_calendar_adds_the_exact_part_last()
   local from = at("2024-01-31T10:00:00Z")
-  local moved = assert(Time.add_calendar(from, { months = 1, ns = Time.minutes(90) }, nil,
+  local moved = assert(Time.add_calendar(from, { months = 1, ns = Clock.minutes(90) }, nil,
     { overflow = "clamp" }))
   assert(Time.format_rfc3339(moved) == "2024-02-29T11:30:00Z", Time.format_rfc3339(moved))
-  local back = assert(Time.add_calendar(from, { days = 1, ns = -Time.hours(25) }))
+  local back = assert(Time.add_calendar(from, { days = 1, ns = -Clock.hours(25) }))
   assert(Time.format_rfc3339(back) == "2024-01-31T09:00:00Z", Time.format_rfc3339(back))
   assert(Time.add_calendar(from, { ns = 7 }) == from + 7)
   -- The sum is checked against the range, not wrapped.
@@ -532,12 +532,4 @@ end
 local function test_parse_http_reaches_the_ranges_edges()
   assert(Time.parse_http("Fri, 11 Apr 2262 23:47:16 GMT") == math.maxinteger - math.maxinteger % NS)
   assert(Time.parse_http("Tue, 21 Sep 1677 00:12:44 GMT") == (math.mininteger // NS + 1) * NS)
-end
-
---- The clock and span helpers moved to cosmic.clock stay under their old names here.
-local function test_the_clock_helpers_are_answered_under_their_old_names()
-  for _, name in ipairs({ "now_ns", "monotonic_ns", "sleep_ns", "ms", "seconds", "minutes", "hours",
-      "ceil" }) do
-    assert((Time as {string:any})[name] == (Clock as {string:any})[name], name)
-  end
 end

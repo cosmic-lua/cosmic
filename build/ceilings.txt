@@ -127,10 +127,6 @@ cosmic/internal/compress.d.tl interface_disagrees 1
 
 cosmic/internal/sqlite.d.tl interface_disagrees 1
 
-cosmic/json_reader_fuzz_test.tl interface_disagrees 1
-
-cosmic/json_reader_test.tl interface_disagrees 1
-
 cosmic/net.tl interface_disagrees 2
 
 cosmic/stream.tl interface_disagrees 5
@@ -824,17 +820,16 @@ cosmic/child_policy_cosmic_test.tl nil_not_allowed 1
 
 cosmic/child_policy_database_sandboxed_test.tl nil_not_allowed 1
 
-cosmic/child_policy_isolate_test.tl nil_not_allowed 6
+cosmic/child_policy_isolate_test.tl nil_not_allowed 5
 
 cosmic/child_policy_nest_test.tl nil_not_allowed 1
 
-cosmic/child_policy_root_user_test.tl nil_not_allowed 1
 
 cosmic/child_policy_system_test.tl nil_not_allowed 2
 
 cosmic/child_policy_test.tl nil_not_allowed 1
 
-cosmic/child_policy_user_test.tl nil_not_allowed 2
+cosmic/child_policy_user_test.tl nil_not_allowed 1
 
 cosmic/child_relay_seatbelt_test.tl nil_not_allowed 6
 
@@ -2152,7 +2147,7 @@ cosmic/template_html5lib_tree_test.tl field_fixed 1
 
 cosmic/test.tl field_fixed 35
 
-cosmic/time.tl field_fixed 9
+cosmic/time.tl field_fixed 1
 
 
 
@@ -2261,8 +2256,6 @@ lang/warnings.tl field_fixed 2
 # a field the record does not declare: a field an interface gives a record that lists it (declared again by the
 # rewrite), a field of a member of a union read without a test, and a method of the standard library the
 # declarations lack
-
-core/surface_test.tl field_unknown 2
 
 cosmic/errors_test.tl field_unknown 1
 
@@ -2531,7 +2524,7 @@ core/connector_filter_test.tl map_field 17
 
 core/database_start_sandbox_test.tl map_field 13
 
-core/database_start_test.tl map_field 66
+core/database_start_test.tl map_field 64
 
 core/declarations_test.tl map_field 21
 
@@ -3021,7 +3014,6 @@ build/link_resolve.tl any_use 1
 
 build/lsp/session.tl any_use 5
 
-build/perf_validation.tl any_use 7
 
 build/rand.tl any_use 1
 
@@ -3589,7 +3581,7 @@ cosmic/time_duration_fuzz_test.tl cast_refused 1
 
 cosmic/time_fuzz_test.tl cast_refused 1
 
-cosmic/time_test.tl cast_refused 8
+cosmic/time_test.tl cast_refused 6
 
 cosmic/time_zone_test.tl cast_refused 7
 
@@ -3752,9 +3744,7 @@ cosmic/http/server.tl is_disjoint 1
 # the method
 build/cache_lifetime.tl close_not_closable 1
 
-build/cache_maintenance.tl close_not_closable 8
-
-build/dataset_test.tl close_not_closable 1
+build/cache_maintenance.tl close_not_closable 5
 
 build/fetch_tool_test.tl close_not_closable 2
 
@@ -3816,7 +3806,6 @@ cosmic/net_tool_test.tl close_not_closable 1
 
 cosmic/seatbelt_network_probe_test.tl close_not_closable 4
 
-cosmic/sqlite_example.tl close_not_closable 1
 
 cosmic/time.tl close_not_closable 3
 
@@ -3833,9 +3822,7 @@ cosmic/web/testing.tl close_not_closable 1
 cosmic/web/testing_test.tl close_not_closable 1
 
 
-test/sqlite_query_test.tl close_not_closable 1
 
-test/sqlite_row_test.tl close_not_closable 1
 
 # a condition that is a string, a number, a table or a `boolean?`: the rewrite writes the test (`s ~= ""`, `x ==
 # true`)
@@ -4421,13 +4408,12 @@ cosmic/child_policy_isolate_test.tl or_mix 21
 
 cosmic/child_policy_nest_test.tl or_mix 8
 
-cosmic/child_policy_root_user_test.tl or_mix 5
+cosmic/child_policy_root_user_test.tl or_mix 4
 
 cosmic/child_policy_system_test.tl or_mix 1
 
 cosmic/child_policy_test.tl or_mix 5
 
-cosmic/child_policy_user_test.tl or_mix 1
 
 cosmic/child_relay_curl_test.tl or_mix 1
 
@@ -5481,7 +5467,7 @@ cosmic/zip.tl literal_missing 1
 
 lang/check.tl literal_missing 8
 
-lang/declarations.tl literal_missing 6
+lang/declarations.tl literal_missing 5
 
 lang/relation.tl literal_missing 1
 
@@ -5900,7 +5886,6 @@ build/flow_test.tl arms_differ 2
 
 build/json_query_test.tl arms_differ 2
 
-build/perf_validation.tl arms_differ 1
 
 build/shared_compiles.tl arms_differ 1
 
@@ -6037,7 +6022,7 @@ test/sqlite_parameter_test.tl arms_differ 1
 build/links_test.tl array_of_optional 1
 
 
-core/artifact_fd_test.tl array_of_optional 4
+core/artifact_fd_test.tl array_of_optional 3
 
 
 cosmic/child.tl array_of_optional 2
@@ -6616,7 +6601,6 @@ cosmic/removed_example.tl literal_missing 1
 
 cosmic/removed_example.tl setmetatable_call 1
 
-cosmic/sqlite_example.tl close_not_closable 1
 
 # TODO: write the JSON documents these examples encode and send as literals, once the new checker takes a literal of mixed
 # values where a JSON value is wanted: a recursive alias (`string | number | boolean | {Value} | {string: Value}`) is

@@ -335,9 +335,7 @@ local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
       if not wrote then kept.trouble = why end
       return
     end
-    -- TODO: hold the child in a `<close>` local again, once ci/cosmic-driver.pin names a release that declares
-    -- [`Child.Handle`] as a class: a `<close>` local must be one.
-    local handle = started
+    local handle <close> = started
     local function supervise(): string
       local deadline: integer? = nil
       local eof = false
@@ -383,7 +381,6 @@ local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
         end
       end)
     end
-    local _, _ = handle.close()
   end)
   local closed, close_trouble = Fs.close(out_fd)
   if not called then return { status = kept.status, trouble = tostring(failure) } end

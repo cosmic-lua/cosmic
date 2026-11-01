@@ -230,8 +230,9 @@ local record Driver
   --- answered to by the name of its path below each directory, since a project inside the tree (`ci/`, a fixture
   --- directory) names its modules from its own root, except by a name in `unaliased`: the language's own modules, which
   --- the binary answers and no tail of a project file's name stands for. `skip` says which paths are left out. A module
-  --- given as both `.tl` and `.d.tl` is refused before an index is made ([`Driver.declared`]); of two files that are one module
-  --- otherwise (`x.tl` and `x/init.tl`) the first given answers. A `*_test.tl` is a test module
+  --- given as both `.tl` and `.d.tl` is refused before an index is made ([`Driver.declared`]); two files that are one module
+  --- otherwise (`x.tl` and `x/init.tl`, or `x.d.tl` and `x/init.d.tl`) are refused by the derive ([`build.derivation`]),
+  --- and are not given here, but if they are the first given answers. A `*_test.tl` is a test module
   --- ([`Driver.Source.tests`]). An entry may give a third word, the module it is, and a fourth, the name its ceilings
   --- are kept under ([`Driver.Source.pinned`]), for a source the build writes from another file, whose path says
   --- neither: the entry's path is then the name of the text, and `.d.tl` still marks a declaration. `extras` says of a file
@@ -251,6 +252,10 @@ local record Driver
   --- standing beside `source` (a `.tl`), both the module `module`. It offers both ways out: delete the declaration, or
   --- rename one of the two so that they are different modules.
   pairing: function(declaration: string, source: string, module: string): string
+
+  --- Why two declaration files of one module (`x.d.tl` and `x/init.d.tl`) may not both be given: the complaint of `second`
+  --- standing beside `first`, both the module `module`. Which of two would answer is a choice no file makes, so neither does.
+  doubling: function(first: string, second: string, module: string): string
 
   --- Why the declaration file `file` (below the root) with `text` may not be a build's: "" where its leading comment names
   --- exactly one kind, `--- @kind binding` (a module implemented in C) or `--- @kind language` (the language's own
@@ -423,6 +428,12 @@ function Driver.pairing(declaration: string, source: string, module: string): st
   return declaration .. ": " .. source .. " is already the module " .. module .. ". A .d.tl is only for a module " ..
     "implemented in C, and the .tl is what is checked, so one module cannot have both. If the .tl is the module, " ..
     "delete " .. declaration .. ". To keep both, rename one of them so that they are different modules."
+end
+
+function Driver.doubling(first: string, second: string, module: string): string
+  return first .. ": " .. second .. " is already the module " .. module .. ". Two declaration files cannot both be it, " ..
+    "and neither is preferred. Delete one of " .. first .. " and " .. second .. ", or rename one so that they are " ..
+    "different modules."
 end
 
 --- The complaint of each declaration file of `entries` that stands beside a source of its module, keyed by the file.

@@ -43,13 +43,6 @@ local function test_print_with_nothing_writes_an_empty_line(tmp: string)
   assert(printed(tmp, function() print() end) == "\n")
 end
 
-local function test_trace_names_the_message_and_the_stack()
-  local trace = errors.trace("where it went wrong")
-  assert(trace:find("where it went wrong", 1, true) == 1)
-  assert(trace:find("stack traceback:", 1, true) ~= nil)
-  assert(errors.trace():find("stack traceback:", 1, true) == 1)
-end
-
 --- The error a chunk of plain Lua raises, compiled past the checker by
 --- `load` the way any Lua a program is handed would be.
 local function raised(code: string): string
@@ -161,34 +154,6 @@ local function test_big_strings_keep_their_bytes_through_reused_blocks()
       assert(made[index] == string.rep(byte, size - 1) .. "!", "size " .. tostring(size))
     end
   end
-end
-
---- A coroutine that raised keeps its stack until it is closed: the
---- trace of it names the function that raised, under the message.
-local function test_trace_of_a_coroutine_that_raised_names_where()
-  local function deepest()
-    error("raised in the coroutine", 0)
-  end
-  local co = coroutine.create(function() deepest() end)
-  local resumed, err = coroutine.resume(co)
-  assert(not resumed and err == "raised in the coroutine", tostring(err))
-  local trace = errors.trace_of(co, "it raised")
-  assert(trace:find("it raised\nstack traceback:", 1, true) == 1, trace)
-  assert(trace:find("deepest", 1, true) ~= nil, trace)
-  assert(errors.trace_of(co):find("stack traceback:", 1, true) == 1)
-  local own = errors.trace_of((coroutine.running()))
-  assert(own:find("stack traceback:\n\t[C]", 1, true) == nil, own)
-  -- Level 1, the default, is the binding's caller; 2 skips it.
-  local function at_site(level?: integer): string
-    local text = errors.trace_of((coroutine.running()), nil, level)
-    return text
-  end
-  local top = assert(at_site():match("stack traceback:\n\t([^\n]*)"), "a trace has a top frame")
-  assert(top:find("at_site", 1, true) ~= nil)
-  local skipped = assert(at_site(2):match("stack traceback:\n\t([^\n]*)"), "a trace has a top frame")
-  assert(skipped:find("at_site", 1, true) == nil)
-  -- A coroutine other than the running one is read from its top.
-  assert(errors.trace_of(co, nil, 5) == errors.trace_of(co))
 end
 
 --- `where` names the source and line of a Lua frame without a

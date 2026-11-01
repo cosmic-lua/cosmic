@@ -23,7 +23,7 @@ local _net = require("cosmic.net")
 --- descriptor.
 -- Declared for the program's descriptor, which only a worker that runs the
 -- whole program holds: one on a sealed database has none, so each test here
--- would return unchecked, and no test would enter the bindings it tries.
+-- would skip, and no test would enter the bindings it tries.
 Test.policy{
   grants = {
     { path = "core/syscalls.h", letters = "r" },
@@ -49,6 +49,15 @@ local function artifact_fd(): integer?
     error("this worker runs on a sealed database, which has no artifact descriptor to try")
   end
   return fd
+end
+
+--- The retained artifact descriptor, skipping the test where this start
+--- retains none (a host program, or a native start).
+local function artifact_fd_or_skip(): integer
+  local fd = artifact_fd()
+  if fd == nil then Test.skip("this start retains no portable artifact descriptor") end
+  local held = assert(fd, "Test.skip ends the test where this start retains no descriptor")
+  return held
 end
 
 --- Asserts calling `fn` with `...` raises, naming the artifact's
@@ -143,8 +152,7 @@ local not_descriptors: {string: boolean} = {
 --- descriptor refuses the artifact's at each such argument -- and one
 --- declared from here on fails this test until it has a case above.
 local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
-  local fd = artifact_fd()
-  if fd == nil then return end
+  local fd = artifact_fd_or_skip()
   local tables: {string: {string: any}} = {
     ["cosmic.sys"] = sys as {string: any}, -- cast: the table core/syscalls.h declares
     ["cosmic.internal.process"] = process as {string: any}, -- cast: core/process.h's
@@ -181,8 +189,7 @@ end
 --- A lookup's `supply`, a method the table walk above does not reach,
 --- refuses the artifact's descriptor as the socket for a parked connect.
 local function test_a_lookup_refuses_the_retained_artifact_as_a_supplied_socket(tmp: string)
-  local fd = artifact_fd()
-  if fd == nil then Test.skip("this start retains no portable artifact descriptor") end
+  local fd = artifact_fd_or_skip()
   if assert(sys.uname()).sysname ~= "Linux" then
     Test.skip("a lookup through a connector is Linux only")
   end
@@ -197,15 +204,13 @@ local function test_a_lookup_refuses_the_retained_artifact_as_a_supplied_socket(
 end
 
 local function test_a_descriptor_batch_refuses_the_retained_artifact_as_payload()
-  local fd = artifact_fd()
-  if fd == nil then Test.skip("this start retains no portable artifact descriptor") end
+  local fd = artifact_fd_or_skip()
   refused("a descriptor batch payload", socket.sendfds, 0, { fd })
 end
 
 --- A sandbox's ruleset is a descriptor too, and refused.
 local function test_a_ruleset_that_is_the_artifact_descriptor_is_refused()
-  local fd = artifact_fd()
-  if fd == nil then return end
+  local fd = artifact_fd_or_skip()
   refused("spawn's ruleset", process.spawn, "/nonexistent/program", { "program" }, nil, nil,
     nil, nil, nil, false, nil, { ruleset = fd })
 end
@@ -222,8 +227,7 @@ end
 --- a `#!` line and `setsid` among them -- and every worker `cosmic test`
 --- starts.
 local function test_spawn_hands_the_artifact_descriptor_on_only_to_a_relaunch()
-  local fd = artifact_fd()
-  if fd == nil then return end
+  local fd = artifact_fd_or_skip()
   local relaunch = assert(Proc.relaunch())
   local core = relaunch.argv[1]
   local env: mut {string: string} = {}
@@ -243,8 +247,7 @@ end
 --- /proc/self/fd/<it>, /dev/fd/<it>, or a link to either -- is refused
 --- as a permission; one of any other descriptor still opens.
 local function test_an_open_through_the_artifact_descriptor_is_refused(tmp: string)
-  local fd = artifact_fd()
-  if fd == nil then return end
+  local fd = artifact_fd_or_skip()
   local plain = tmp .. "/plain"
   assert(Fs.write(plain, "text"))
   local other = assert(sys.open(plain, sys.O_RDONLY))
@@ -334,8 +337,9 @@ end
 --- does not, has no name to read the program by: only its core, which
 --- carries no database (build/confine.tl's `worker_unveil`).
 local function test_a_worker_that_is_not_a_tool_cannot_open_the_program()
-  local program, _ = Proc.executable()
-  if program == nil or artifact_fd() == nil or sys.getcwd() ~= "/tree" then return end
+  artifact_fd_or_skip()
+  if sys.getcwd() ~= "/tree" then Test.skip("this worker's root is not the sandbox's /tree") end
+  local program = assert(Proc.executable())
   local opened, _ = sys.open(program, sys.O_RDONLY)
   assert(opened == nil, "a worker that is not a tool opened " .. program)
 end
@@ -355,8 +359,8 @@ end
 --- a test reads no module past build/test_worker.tl's hold on the
 --- store. An ordinary database still attaches on the same connection.
 local function test_the_program_s_database_cannot_be_reopened(tmp: string)
-  local program, _ = Proc.executable()
-  if program == nil or artifact_fd() == nil then return end
+  artifact_fd_or_skip()
+  local program = assert(Proc.executable())
   local path = tmp .. "/plain.db"
   local writer = assert(Sqlite.open(path, { writable = true }))
   assert(writer:exec("CREATE TABLE t (v TEXT)"))

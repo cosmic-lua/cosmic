@@ -96,6 +96,18 @@ local record Programs
 
   --- The type of the first variable called `name`.
   var: function(run: Run, name: string): Types.Type
+
+  --- The codes of checking `source`, which has no error of the parser, the scopes or the lowering.
+  codes_of: function(source: string): string
+
+  --- Checks that `source` is taken, runs, and prints `want` (joined by commas).
+  stands: function(source: string, want: string)
+
+  --- Checks that `source` is refused with exactly `codes`.
+  refused: function(source: string, codes: string)
+
+  --- The type of the last variable called `name` after checking `source`, which is taken.
+  type_of: function(source: string, name: string): string
 end
 
 Programs.library = [[
@@ -604,6 +616,38 @@ function Programs.var(run: Programs.Run, name: string): Types.Type
     end
   end
   error("no variable " .. name)
+end
+
+function Programs.codes_of(source: string): string
+  local r = Programs.run(source)
+  assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. source)
+  return Programs.codes(r)
+end
+
+function Programs.stands(source: string, want: string)
+  local x = Programs.execute(source, true)
+  assert(#x.run.before == 0, table.concat(x.run.before, " ") .. " in\n" .. source)
+  assert(x.ran, Programs.codes(x.run) .. " in\n" .. source)
+  assert(x.fault == nil, tostring(x.fault) .. " in\n" .. x.lua)
+  assert(table.concat(x.printed, ",") == want, table.concat(x.printed, ",") .. ", wanted " .. want .. " in\n" .. source)
+end
+
+function Programs.refused(source: string, codes: string)
+  local got = Programs.codes_of(source)
+  assert(got == codes, "wanted " .. codes .. ", got " .. got .. " in\n" .. source)
+end
+
+function Programs.type_of(source: string, name: string): string
+  local r = Programs.run(source)
+  assert(#r.before == 0 and Programs.codes(r) == "", table.concat(r.before, " ") .. Programs.codes(r) .. " in\n" .. source)
+  local found: Types.Type? = nil
+  for _, v in ipairs(r.scoped.list) do
+    if v.name == name then
+      found = r.result.vars[v.id] or found
+    end
+  end
+  assert(found ~= nil, "no variable " .. name)
+  return Types.display(found)
 end
 
 return Programs

@@ -275,7 +275,8 @@ analysis_schema.statements = {
                                         source_hash TEXT NOT NULL) WITHOUT ROWID]],
   [[CREATE VIEW IF NOT EXISTS inputs AS
       SELECT path AS file,
-             replace(CASE WHEN path GLOB '*.d.tl' THEN substr(path, 1, length(path) - 5)
+             replace(CASE WHEN path GLOB '*/init.d.tl' THEN substr(path, 1, length(path) - 10)
+                          WHEN path GLOB '*.d.tl' THEN substr(path, 1, length(path) - 5)
                           WHEN path GLOB '*/init.tl' THEN substr(path, 1, length(path) - 8)
                           ELSE substr(path, 1, length(path) - 3) END, '/', '.') AS path,
              ]] .. kind_case("path", "CAST(data AS TEXT)") .. [[ AS kind,

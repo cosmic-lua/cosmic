@@ -8,7 +8,7 @@ local Fs = require("cosmic.fs")
 local GithubApi = require("cosmic_ci.github_api")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 
 local record Github
   --- What a lookup asks of the world. A call that fails answers nil and
@@ -136,9 +136,9 @@ function Github.live(env: {string:string}, test?: GithubApi.Live): Github.Host
   return {
     fetch = over.fetch,
     delete = over.delete,
-    now = function(): integer return Time.now_ns() // 1000000000 end,
+    now = function(): integer return Clock.now_ns() // 1000000000 end,
     sleep = function(seconds: integer)
-      local _, _ = Time.sleep_ns(Time.seconds(seconds))
+      local _, _ = Clock.sleep_ns(Clock.seconds(seconds))
     end,
     -- $GITHUB_OUTPUT, standard output for a run by hand.
     output = function(text: string)

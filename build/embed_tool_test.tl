@@ -20,7 +20,7 @@ local embed = require("build.embed")
 local invoke = require("build.invoke")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local build_paths = require("build.paths")
 
 --- The element of `list` at `index`, which the case knows is there.
@@ -328,7 +328,7 @@ end
 
 local function run_program(path: string): Child.Result
   return (assert(Child.run({ path }, {
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
 end
 
 --- `--host` writes this core itself with the program inside: the kernel
@@ -369,7 +369,7 @@ end
   local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "echo", trouble)
   local r = assert(Child.run({ build_dir(tmp) .. "/bin/echo", "--artifact=x", "y" }, {
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   assert(r.stdout == "--artifact=x|y\n", tostring(r.stdout))
 end
@@ -509,7 +509,7 @@ end
   assert(names ~= nil and names[1] == "refuse", trouble)
   assert(Fs.write(tmp .. "/some.db", "a file, which is all the policy's check asks"))
   local r = assert(Child.run({ build_dir(tmp) .. "/bin/refuse", tmp .. "/some.db" }, {
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local printed = assert(r.stdout)
   -- Linux refuses a host program; macOS's policy refuses a database it has no
@@ -558,7 +558,7 @@ local function test_a_program_serves_the_static_files_it_carries(tmp: string)
   assert(Fs.mkdirs(elsewhere .. "/static/css"))
   assert(Fs.write(elsewhere .. "/static/css/app.css", "DECOY"))
   local r = assert(Child.run({ build_dir(tmp) .. "/bin/site" }, {
-    cwd = elsewhere, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+    cwd = elsewhere, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local out = assert(r.stdout)
   assert(out:find("payload\tcss/app.css\ttext/css; charset=utf-8\t" .. tostring(#css) .. "\t1\t1\n" ..
@@ -574,7 +574,7 @@ local function test_a_project_in_the_new_grammar_becomes_an_executable_with_the_
   local names, trouble = embed.tree(root, true, nil, "new")
   assert(names ~= nil and #names == 1 and names[1] == "tally", trouble)
   local r = assert(Child.run({ build_dir(root) .. "/bin/tally", "b", "a", "c" }, {
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.code == 3 and r.stdout == "b,a,c\n", tostring(r.code) .. ": " .. tostring(r.stdout) .. tostring(r.stderr))
 end
 
@@ -636,7 +636,7 @@ end
 --- What the program at `path` printed, run with `env`.
 local function run_with(path: string, env: {string:string}): string
   local r = assert(Child.run({ path }, { env = env,
-    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, tostring(r.stderr))
   return trust_of(assert(r.stdout))
 end

@@ -9,6 +9,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Seams = require("cosmic_ci.seams")
+local StepEnv = require("cosmic_ci.step_env")
 
 local record Images
   --- How a command came out: 0 and "", or docker's failing status and why.
@@ -25,14 +26,9 @@ local record Images
   end
 end
 
---- `env[name]`, which must be set and not empty. Unlike the rest of the
---- module, which answers a failing status, a missing one raises: it is
---- the workflow's mistake, not docker's.
-local function required(env: {string:string}, name: string): string
-  local value = env[name]
-  assert(value and value ~= "", "missing required environment variable: " .. name)
-  return value
-end
+-- Unlike the rest of the module, which answers a failing status, a missing
+-- variable raises: it is the workflow's mistake, not docker's.
+local required <const> = StepEnv.required
 
 --- The image's name on GHCR: `ghcr.io/<repository>-ci-<image>`, lowercase,
 --- since GHCR's names are and the repository's may not be.
