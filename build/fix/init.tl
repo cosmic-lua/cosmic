@@ -35,8 +35,10 @@
 --- in place of the whole tree's check; the merge queue still runs that.
 ---
 --- In any project it also holds the links in comments and Markdown to resolving ([`build.links`]): each Teal and C file it
---- covers, and each Markdown and Zig file, which it never lays out. A plain code span that would link to one thing is made a
---- link ([`build.links`]'s `rewrite`), and `--check` fails on one it would link.
+--- covers, and each Markdown and Zig file, whose layout it never changes. A plain code span that would link to one thing
+--- is made a link ([`build.links`]'s `rewrite`), and a Markdown file's definitions are rewritten to match; `--check` is
+--- the dry run, and fails on one it would link. A path git ignores ([`link_files.ignoring`]) and anything under a
+--- `node_modules/` is not covered, and no link names it.
 
 local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")

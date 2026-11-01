@@ -162,7 +162,11 @@ local record Cli
   --- declaration of its own file, one file, or, written in full
   --- (`module.member`), one symbol; in Markdown it also
   --- writes the definitions GitHub needs to show one, at the file's
-  --- end. It never lays out a Markdown or Zig file. A Teal file the
+  --- end. That is all it writes to a Markdown or Zig file: it never
+  --- reflows or re-indents one. `--check` writes nothing and reports
+  --- what a run would change, the dry run. A path git ignores, and
+  --- anything under a `node_modules/`, is neither checked, rewritten
+  --- nor linked to. A Teal file the
   --- build does not read (under `bin/` or a hidden directory, or
   --- outside the tree), named or under a named directory, is
   --- type-checked alone, as `cosmic --standalone` checks a file;
