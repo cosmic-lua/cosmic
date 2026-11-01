@@ -6242,7 +6242,7 @@ test/sqlite_parameter_test.tl arms_differ 1
 build/links_test.tl array_of_optional 1
 
 
-core/artifact_fd_test.tl array_of_optional 4
+core/artifact_fd_test.tl array_of_optional 3
 
 
 cosmic/child.tl array_of_optional 2

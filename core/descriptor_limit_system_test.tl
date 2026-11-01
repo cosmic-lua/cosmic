@@ -54,12 +54,14 @@ print(shell_limit())
 ]]
 
 --- The lines the program printed running `chunk`, started by the shell at a soft limit
---- of LOW; nil where this host's hard limit leaves no room to raise it,
---- or where there is no artifact to relaunch.
-local function started_low(tmp: string, chunk: string): {string}?
-  if Proc.relaunch() == nil then return nil end -- a native start has nothing to relaunch
+--- of LOW; the test is skipped where this host's hard limit leaves no room
+--- to raise it, or where there is no artifact to relaunch.
+local function started_low(tmp: string, chunk: string): {string}
+  if Proc.relaunch() == nil then Test.skip("a native start has nothing to relaunch") end
   local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
-  if limits.hard < 2 * LOW then return nil end
+  if limits.hard < 2 * LOW then
+    Test.skip("this host's hard descriptor limit leaves no room above " .. tostring(LOW))
+  end
   local started = this_program.program({ "-e", chunk }, { env = this_program.environment(),
     cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local argv = { "/bin/sh", "-c", 'ulimit -Sn "$0" && exec "$@"', tostring(LOW) }
@@ -76,7 +78,6 @@ end
 --- above it, which a soft limit of 256 refuses.
 local function test_a_start_at_a_low_limit_raises_it_and_relaunches(tmp: string)
   local lines = started_low(tmp, CHUNK)
-  if lines == nil then return end
   local limit = assert(lines[1], "the child reports its soft limit")
   assert(lines[2] == "relaunched", lines[2])
   local raised = assert(math.tointeger(tonumber(limit)), limit)
@@ -87,7 +88,6 @@ end
 --- gives this program its raised one back once the child has started.
 local function test_a_start_leaves_this_program_s_limit_raised(tmp: string)
   local lines = started_low(tmp, CHUNK)
-  if lines == nil then return end
   local limit = assert(lines[1], "the child reports its soft limit")
   assert(lines[4] == limit, tostring(lines[4]) .. " after starting, not " .. limit)
 end
@@ -96,7 +96,6 @@ end
 --- it raised; once the program sets the limit, it gets that one.
 local function test_a_host_program_gets_the_limit_the_program_started_with(tmp: string)
   local lines = started_low(tmp, CHUNK)
-  if lines == nil then return end
   assert(lines[3] == tostring(LOW), lines[3])
   assert(lines[5] == "300", lines[5])
 end
@@ -109,6 +108,5 @@ local Proc = require("cosmic.proc")
 local _, trouble = Proc.exec({ "/bin/sh", "-c", "ulimit -Sn" })
 error(trouble)
 ]])
-  if lines == nil then return end
   assert(lines[1] == tostring(LOW), tostring(lines[1]))
 end
