@@ -37,8 +37,9 @@
 --- In any project it also holds the links in comments and Markdown to resolving ([`build.links`]): each Teal and C file it
 --- covers, and each Markdown and Zig file, whose layout it never changes. A plain code span that would link to one thing
 --- is made a link ([`build.links`]'s `rewrite`), and a Markdown file's definitions are rewritten to match; `--check` is
---- the dry run, and fails on one it would link. A path git ignores ([`link_files.ignoring`]) and anything under a
---- `node_modules/` is not covered, and no link names it.
+--- the dry run, and fails on one it would link. A path the tree's own `.gitignore` files ignore ([`build.fix.ignored`]),
+--- and anything under a `node_modules/`, is not covered, and no link names it; where git cannot say (no git, no
+--- repository) only `node_modules/` is.
 
 local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
@@ -61,6 +62,7 @@ local link_files = require("build.link_files")
 local link_resolve = require("build.link_resolve")
 local links = require("build.links")
 local near = require("build.fix.near")
+local ignored = require("build.fix.ignored")
 local Ast = require("lang.ast")
 local SyntaxAnalyzer = require("build.syntax_analyzer")
 local SyntaxLinks = require("build.syntax_links")
@@ -282,10 +284,11 @@ local function checked_sources(root: string): {string}?, string
     return nil, trouble
   end
   local out: mut {string} = {}
+  local left_alone = ignored.of(root)
   for _, file in ipairs(files) do
     local core_teal = file:sub(1, 5) == "core/" and
       (String.ends_with(file, ".tl") or String.ends_with(file, ".lua"))
-    if check_only(file) or core_teal then out[#out + 1] = file end
+    if (check_only(file) or core_teal) and not left_alone(file) then out[#out + 1] = file end
   end
   return out, ""
 end
@@ -730,7 +733,23 @@ end
 function fix.links(context: link_resolve.Context, files: {string}, mode?: string,
                    facts?: {string: links.Facts}): fix.Linked
   local known: {string: links.Facts} = facts or {}
-  local resolver = link_resolve.resolver(context)
+  -- A path the tree ignores is no link's target. Only this layer asks: `context` is the build's, and a copy answers.
+  local left_alone = ignored.of(context.root)
+  local guarded: link_resolve.Context = {
+    root = context.root,
+    kind = function(path: string): string?
+      if path:sub(1, #context.root + 1) == context.root .. "/" and left_alone(path:sub(#context.root + 2)) then
+        return nil
+      end
+      return context.kind(path)
+    end,
+    read = context.read,
+    symbols = context.symbols,
+    member = context.member,
+    real = context.real,
+    unbuilt = context.unbuilt,
+  }
+  local resolver = link_resolve.resolver(guarded)
   local out: mut {string} = {}
   local would: mut {string} = {}
   local redefined: mut {string} = {}

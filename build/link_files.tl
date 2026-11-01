@@ -9,10 +9,7 @@
 --- ([`build.work`]), so the projection indexes their links as it does a
 --- module's ([`build.link_index`]).
 
-local Child = require("cosmic.child")
-local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local String = require("cosmic.string")
 local c_tokens = require("build.c_tokens")
 local link_text = require("build.link_text")
@@ -33,50 +30,7 @@ end
 --- The directories no walk for links enters, at any depth: a build's
 --- output and the upstream sources and the records that patch them,
 --- which a tree nested in this one (a project, a checkout) holds too.
-local never: {string: boolean} = { ["o"] = true, ["vendor"] = true, ["patch"] = true,
-  ["node_modules"] = true }
-
---- How long asking git which paths it ignores may take.
-local git_timeout_ns <const> = Clock.seconds(30)
-
---- Whether git ignores each path under `dir`, as `ignored(path)` answers
---- for a path relative to `dir`: one the tree's .gitignore files, its
---- `.git/info/exclude` and the user's global excludes name, and that git
---- does not track, and anything under a `node_modules/`. Git is asked
---- once, at the first path. A directory that is no checkout, or a host
---- with no git, ignores `node_modules/` alone.
-function link_files.ignoring(dir: string): function(string): boolean
-  local files: mut {string: boolean} = {}
-  local directories: mut {string: boolean} = {}
-  local asked = false
-  local function ask()
-    asked = true
-    local git, _ = Proc.find("git")
-    if git == nil then return end
-    local result, _ = Child.run({ git, "-C", dir, "ls-files", "-z", "--others", "--ignored",
-      "--exclude-standard", "--directory" }, { stdin = "null", stdout = "capture", stderr = "null",
-        timeout_ns = git_timeout_ns })
-    if result == nil or result.timed_out or not result.ok then return end
-    for path in (result.stdout or ""):gmatch("[^%z]+") do
-      if path:sub(-1) == "/" then
-        directories[path:sub(1, -2)] = true
-      else
-        files[path] = true
-      end
-    end
-  end
-  return function(path: string): boolean
-    if ("/" .. path .. "/"):find("/node_modules/", 1, true) ~= nil then return true end
-    if not asked then ask() end
-    if files[path] == true or directories[path] == true then return true end
-    local at = 0
-    while true do
-      at = path:find("/", at + 1, true) or 0
-      if at == 0 then return false end
-      if directories[path:sub(1, at - 1)] == true then return true end
-    end
-  end
-end
+local never: {string: boolean} = { ["o"] = true, ["vendor"] = true, ["patch"] = true }
 
 --- What a walk for files whose links are checked passes over, in the
 --- tree at `dir`, by an entry's path from `dir`: what `never` names,
@@ -84,13 +38,11 @@ end
 --- `.claude/skills/`, which are Markdown, and everything under a
 --- directory that is a checkout of its own (it holds a `.git`), such as
 --- a worktree nested in this one, whose files are its own tree's. Each
---- directory is asked after once. So is anything git ignores
---- ([`link_files.ignoring`]). A project's `static/` is carried
+--- directory is asked after once. A project's `static/` is carried
 --- verbatim ([`cosmic.layout`]'s `static`), so what is written in it is no
 --- source of the tree's.
 function link_files.skipper(dir: string): function(string): boolean
   local checkouts: mut {string: boolean} = {}
-  local ignored = link_files.ignoring(dir)
   local function checkout(path: string): boolean
     local known = checkouts[path]
     if known == nil then
@@ -103,7 +55,6 @@ function link_files.skipper(dir: string): function(string): boolean
   return function(entry: string): boolean
     local parts: mut {string} = {}
     for part in entry:gmatch("[^/]+") do parts[#parts + 1] = part end
-    if ignored(entry) then return true end
     for index, part in ipairs(parts) do
       if never[part] == true or (index == 1 and (part == "bin" or part == "static")) then
         return true

@@ -8,7 +8,6 @@
 
 local Fs = require("cosmic.fs")
 local String = require("cosmic.string")
-local link_files = require("build.link_files")
 local link_text = require("build.link_text")
 
 local record link_resolve
@@ -620,12 +619,9 @@ function link_resolve.on_disk(root: string,
                               symbols: function(query: string): {link_resolve.Symbol}?, string,
                               member: function(module: string, member: string): {link_resolve.Symbol}?, string,
                               unbuilt: function(): string?): link_resolve.Context
-  local ignored = link_files.ignoring(root)
   return {
     root = root,
     kind = function(path: string): string?
-      -- A path git ignores is not the project's, so no link names it.
-      if path:sub(1, #root + 1) == root .. "/" and ignored(path:sub(#root + 2)) then return nil end
       local st, _ = Fs.stat(path)
       if st == nil then return nil end
       return if st.kind == "dir" then "dir" else "file" end
