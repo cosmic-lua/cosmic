@@ -507,10 +507,15 @@ local function test_the_default_of_a_value_a_test_made_non_nil_is_deleted_not_ma
       "condition_type")
     assert(has(e.msg, "`c.stop_year` is `integer`"), e.msg)
     assert(has(e.fix, "never nil here"), e.fix)
-    assert(has(e.fix, "an earlier test"), e.fix)
+    assert(has(e.fix, "a test before may have narrowed it"), e.fix)
     assert(has(e.fix, "delete `or ...`"), e.fix)
     assert(not has(e.fix, "~= 0"), e.fix)
   end
+  local generic = first_error("local function h<T>(x: T?, d: T): T\n  if x == nil then\n    return d\n  end\n  return x or d\nend\n",
+    "condition_type")
+  assert(has(generic.fix, "a type parameter may be nil or false"), generic.fix)
+  local own = first_error("local function g(y: integer?): integer\n  return (y or 9) or 3\nend\n", "condition_type")
+  assert(has(own.fix, "is never nil, so the default") and not has(own.fix, "narrowed"), own.fix)
   local bare = first_error("local n = 1\nif n then\nend\n", "condition_type")
   assert(has(bare.fix, "write the test: `n ~= 0`"), bare.fix)
   local text = first_error("local s = \"a\"\nlocal t = s or \"b\"\n", "condition_type")
@@ -523,12 +528,13 @@ local function test_a_call_that_answers_several_values_as_the_last_argument_says
   local e = first_error(TWO .. "local function w(p: string, s: string, n: integer?)\nend\nw(\"a\", assert(two()))\n",
     "not_assignable")
   assert(has(e.fix, "`assert(two())` is the last argument and answers 2 values"), e.fix)
-  assert(has(e.fix, "values 2..2 land in the following parameters"), e.fix)
+  assert(has(e.fix, "value 2 lands in the following parameter"), e.fix)
   assert(has(e.fix, "`(assert(two()))`"), e.fix)
   assert(has(e.fix, "bind it to a local"), e.fix)
   assert(has(e.fix, "`assert(f())` passes every value of `f()` through"), e.fix)
   local arity = first_error(TWO .. "local function h(s: string)\nend\nh(assert(two()))\n", "arity")
   assert(has(arity.fix, "`assert(two())` is the last argument and answers 2 values"), arity.fix)
+  assert(has(arity.fix, "are passed as further arguments"), arity.fix)
   assert(has(arity.fix, "write `(assert(two()))`"), arity.fix)
   -- A single-valued last argument, and a parenthesized call, have nothing to spill.
   local plain = first_error("local function w(s: string, n: integer?)\nend\nw(\"a\", \"b\")\n", "not_assignable")

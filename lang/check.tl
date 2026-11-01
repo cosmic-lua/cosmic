@@ -2539,14 +2539,16 @@ local function condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: boole
     return "bad"
   end
   local fix = "remove the condition: " .. s .. " is never false"
-  if default == true then
-    fix = s .. " is never nil here (an earlier test may have narrowed it), so the default is never used: delete `or ...`"
+  if (t.tag == "var") then
+    fix = "a type parameter may be nil or false: test it with `" .. text_of(ctx, node) .. " ~= nil` where it is bounded"
+  elseif default == true then
+    local place = peel(node).kind
+    fix = s .. " is never nil" .. (if place == "Name" or place == "Field" then " here (a test before may have narrowed it)" else "" end) ..
+      ", so the default is never used: delete `or ...`"
   elseif is_text(t) then
     fix = "write the test: `" .. text_of(ctx, node) .. " ~= \"\"`"
   elseif tag == "integer" or tag == "number" then
     fix = "write the test: `" .. text_of(ctx, node) .. " ~= 0`"
-  elseif (t.tag == "var") then
-    fix = "a type parameter may be nil or false: test it with `" .. text_of(ctx, node) .. " ~= nil` where it is bounded"
   end
   report(ctx, "condition_type", node, s .. " is " .. tq(ctx, t) .. ", which is no boolean or optional, so it is no condition",
     fix, { show(ctx, t) })
@@ -4458,7 +4460,7 @@ local record Calls
   --- or none, and arguments of the types `types` and the `tail` an expanding last one gives, all plain ([`Tests.plain`]).
   note_plain: function(ctx: Ctx, node: Ast.Node, recv: Type?, types: {Type}, tail: Type?, lists: {Alt}?)
   replace_type: function(list: mut {Type}, at: integer, t: Type)
-  spill_note: function(ctx: Ctx, args: {Ast.Exp}, n: integer, position: integer): string?
+  spill_note: function(ctx: Ctx, args: {Ast.Exp}, n: integer, position: integer, arity?: boolean): string?
   hooks: function(ctx: Ctx): Generics.Hooks
   source: function(at: integer): string
   typed_literal: function(e: Ast.Exp): boolean
@@ -4580,16 +4582,19 @@ end
 
 --- What to add to the fix of an error at parameter `position` of a call with `n` values from `args`: the last argument is a
 --- call whose values spilled into the following parameters. Nil where they did not.
-function Calls.spill_note(ctx: Ctx, args: {Ast.Exp}, n: integer, position: integer): string?
+function Calls.spill_note(ctx: Ctx, args: {Ast.Exp}, n: integer, position: integer, arity?: boolean): string?
   local last = args[#args]
   if last == nil or position <= #args or not (last.kind == "Call" or last.kind == "MethodCall") then
     return nil
   end
   local call = text_of(ctx, last)
   local answers = n - #args + 1
-  return "; " .. quoted(call) .. " is the last argument and answers " .. tostring(answers) .. " values, so values 2.." ..
-    tostring(answers) .. " land in the following parameters: write `(" .. call .. ")` to pass its first value alone, or " ..
-    "bind it to a local (`assert(f())` passes every value of `f()` through)"
+  local landed = if arity == true then "are passed as further arguments" else "land in the following parameters" end
+  return "; " .. quoted(call) .. " is the last argument and answers " .. tostring(answers) .. " values, so " ..
+    (if answers == 2 then "value 2" else "values 2.." .. tostring(answers) end) .. " " ..
+    (if answers == 2 and arity ~= true then "lands in the following parameter" else landed end) .. ": write `(" .. call ..
+    ")` to pass its first value alone, or bind it to a local" ..
+    (if call:sub(1, 7) == "assert(" then " (`assert(f())` passes every value of `f()` through)" else "" end)
 end
 
 --- A call of the function `f`, with the arguments checked against its parameters. Answers its return lists. `given`
@@ -4632,7 +4637,7 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
     if want == nil then
       if not reported and why == "too many" then
         reported = true
-        ctx.spill = Calls.spill_note(ctx, args, n, n)
+        ctx.spill = Calls.spill_note(ctx, args, n, n, true)
         arity_error(ctx, node, quoted(callee), f, off, n, why)
         ctx.spill = nil
       end
