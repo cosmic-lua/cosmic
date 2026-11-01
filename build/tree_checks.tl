@@ -1091,7 +1091,8 @@ function tree_checks.requirements(build: Sqlite.Handle): {string:{string}}?, str
       names = {}
       out[row:text(1)] = names
     end
-    names[#names + 1] = row:text(2)
+    local second = row:text(2)
+    names[#names + 1] = second
   end
   return out, ""
 end
@@ -2264,6 +2265,8 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
     files[#files + 1] = entry
     derived[nth(entry, 1)] = true
   end
+  -- No [`TreeProgram.paired`] here: a `.d.tl` beside a `.tl` is refused when the tree is built ([`Pipeline.build`]), which the
+  -- checks that read this index follow, and the files given are a tree that built.
   local index = TreeProgram.index(files, {})
   local tree: Tree = { rows = {}, by_module = {}, index = index }
   local rows, by_module = tree.rows, tree.by_module

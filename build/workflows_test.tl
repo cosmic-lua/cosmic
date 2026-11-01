@@ -1555,7 +1555,9 @@ local function test_a_main_push_reuses_the_queue_run()
     -- The zig outputs' download is held apart, below.
     if artifact and with["name"] ~= "seed-zig-${{ matrix.name }}" then
       local product = with["name"] == "portable-product-${{ matrix.name }}"
-      assert(step["if"] == (if product then "!matrix.checked" else nil end),
+      -- A second try runs where its first try failed.
+      local retry = (step["if"] or ""):match("^steps%.[%w_-]+%.outcome == 'failure'$") ~= nil
+      assert(retry or step["if"] == (if product then "!matrix.checked" else nil end),
         "seed relays a product on the checked job's leg, or skips its seed there: " .. tostring(step["if"]))
     end
     if uses:find("actions/download-artifact@", 1, true) ~= nil then
@@ -1579,7 +1581,7 @@ local function test_a_main_push_reuses_the_queue_run()
   assert(relayed == 1, "the platform legs upload their product under another name")
 
   -- Each key the leg's own, of the shape its save takes.
-  local keys = step_running(steps, "seed.keys")
+  local keys = step_with_id(steps, "keys")
   -- Each key names the leg, then what only the leg's own key holds
   -- there (its host's hex, or its digest), so linux-x86_64's entry takes
   -- none of linux-x86_64-checked's.
@@ -1905,11 +1907,9 @@ local function phases_of(job: Job): string
 end
 
 --- The checked suite's gathering job (`checked`) runs beside the
---- platform legs where they run, and beside the shares of the suite that
---- `checked-shard` runs (it does not need them): it boots and builds,
---- then waits for the four shares through the API (`shares-wait`, a full
---- run's) and gathers only if every one passed; a light run has none to
---- wait for. It runs on
+--- platform legs where they run, after the shares of the suite that
+--- `checked-shard` runs: it runs where the legs do unless a share
+--- failed (a skipped share, a light run's, is none). It runs on
 --- linux-x86_64's host: its runner, its image and its builder, with its
 --- zig build outputs and compiles restored under that leg's names (which
 --- that leg saves, and this job does not), and its verdicts under a name
@@ -1923,72 +1923,21 @@ end
 local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x86_64s_host()
   local jobs = ci_workflow().jobs
   local platform, checked = job_of(jobs, "platform"), job_of(jobs, "checked")
-  -- It starts beside the shares: no share in its `needs`, which would
-  -- put its boot and build after the last of them.
-  assert(table.concat(needs_of(checked), ",") == "reuse,scope",
+  assert(table.concat(needs_of(checked), ",") == "reuse,scope,checked-shard",
     "the checked job waits on " .. tostring((Json.encode_any(checked["needs"]))))
-  assert(checked["if"] == "!cancelled() && needs.reuse.outputs.run == ''",
-    "the checked job runs other than where the legs do: " .. tostring(checked["if"]))
-  -- It waits for every share after its build, polling the run's jobs by
-  -- the shares' names, and the gather stands on that wait alone.
+  -- Past a failed share it runs only where it saves (main's push, the
+  -- nightly: a branch push has no shares to fail), to take the failed test's pass out of the cache, and fails.
+  assert(checked["if"] == "!cancelled() && needs.reuse.outputs.run == '' && " ..
+      "(needs.checked-shard.result != 'failure' || github.event_name == 'push' || github.event_name == 'schedule')",
+    "the checked job runs other than where the legs do, unless a share failed off a saving run: " ..
+      tostring(checked["if"]))
   local checked_steps = checked.steps
-  local waiting, waiting_at = step_with_id(checked_steps, "shares-wait")
-  local _, building_at = step_running(checked_steps, "platform checked-build")
-  local stopping, stopping_at = step_named(checked_steps, "stop where a share failed and nothing is saved")
-  local _, downloading_at = step_with_id(checked_steps, "shares-download")
   local failing, failing_at = step_named(checked_steps, "fail where a share failed")
-  local suite_step, running_at = step_with_id(checked_steps, "checked-suite")
-  assert(building_at < waiting_at and waiting_at < stopping_at and stopping_at < downloading_at and
-      downloading_at < failing_at and failing_at < running_at,
-    "the checked job does not wait for the shares after its build and before it takes their verdicts")
-  assert(waiting["if"] == FULL and waiting["run"] == "cosmic-driver cosmic_ci/driver.tl shares-wait" and
-      waiting["continue-on-error"] == nil, "the checked job's wait: " .. tostring(waiting["run"]))
-  local wenv = map_of(waiting.env)
-  local shard_job = job_of(ci_workflow().jobs, "checked-shard")
-  local shard_parts, shard_err: {integer}?, string = Shape.into(assert(assert(shard_job.strategy).matrix)["part"],
-    Shape.list(Shape.integer))
-  shard_parts = assert(shard_parts, shard_err)
-  local shard_names: mut {string} = {}
-  for _, part in ipairs(shard_parts) do
-    shard_names[#shard_names + 1] = "linux-x86_64-checked-shard-" .. tostring(part)
-  end
-  assert(wenv["JOBS"] == table.concat(shard_names, " "), "the checked job waits for other jobs than the shares: " ..
-      tostring(wenv["JOBS"]))
-  assert(wenv["REPOSITORY"] == "${{ github.repository }}" and wenv["RUN_ID"] == "${{ github.run_id }}" and
-      wenv["GH_TOKEN"] == "${{ github.token }}", "the checked job's wait asks for another run's jobs")
-  -- Bounded: a share is given its own timeout and a margin, the wait a
-  -- limit, and the step and the job minutes to hold the limit.
-  local limit, share = math.tointeger(tonumber(wenv["LIMIT_SECONDS"])), math.tointeger(tonumber(wenv["SHARE_SECONDS"]))
-  local shard_minutes = math.tointeger(shard_job["timeout-minutes"])
-  local step_minutes = math.tointeger(waiting["timeout-minutes"])
+  local _, running_at = step_with_id(checked_steps, "checked-suite")
+  assert(failing["if"] == "env.COSMIC_CI_SCOPE == 'full' && needs.checked-shard.result == 'failure'" and
+      failing_at < running_at, "the checked job does not fail, before its suite, where a share failed")
   local gather_minutes = math.tointeger(checked["timeout-minutes"])
-  assert(limit ~= nil and share ~= nil and shard_minutes ~= nil and step_minutes ~= nil and gather_minutes ~= nil,
-    "the checked job's wait is not bounded")
-  assert(share > shard_minutes * 60 and limit > share and step_minutes * 60 > limit and
-      gather_minutes > step_minutes, "the checked job's wait outlasts its step or its job, or a share's own timeout")
-  -- A share that did not pass stops the job, at once where nothing is
-  -- saved, and past the download (to save the shares' rows) where main
-  -- or the nightly does.
-  assert(stopping["if"] == FULL .. " && (steps.shares-wait.outputs.result == 'timeout' || " ..
-      "(steps.shares-wait.outputs.result != 'success' && env.COSMIC_CI_SAVES != 'true'))" and assert(stopping["run"]):find("exit 1", 1, true) ~= nil,
-    "the checked job goes on past a failed share where it saves nothing: " .. tostring(stopping["if"]))
-  assert(failing["if"] == FULL .. " && steps.shares-wait.outputs.result != 'success'" and
-      assert(failing["run"]):find("exit 1", 1, true) ~= nil, "the checked job does not fail where a share failed: " ..
-      tostring(failing["if"]))
-  -- Where the run saves, the wait holds for every share to complete.
-  assert(wenv["HOLD"] == "${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule') && '1' || '' }}",
-    "the checked job's wait does not hold for every share where it saves: " .. tostring(wenv["HOLD"]))
-  -- A timed out wait takes no rows and trims none to save.
-  local trimming = step_with_id(checked_steps, "verdicts-trim")
-  assert((trimming["if"] or ""):find("steps.shares-wait.outputs.result != 'timeout'", 1, true) ~= nil,
-    "the checked job trims, and so saves, the rows of an unfinished wait: " .. tostring(trimming["if"]))
-  assert(suite_step["if"] == FULL .. " && steps.shares-wait.outputs.result == 'success'",
-    "the checked job gathers other than on every share's passing: " .. tostring(suite_step["if"]))
-  for _, step in ipairs(checked_steps) do
-    assert(not (step["if"] or ""):find("needs.checked-shard", 1, true) and
-        not (step.run or ""):find("needs.checked-shard", 1, true),
-      "the checked job reads a share's result from `needs`, which it does not have: " .. tostring(step.name))
-  end
+  assert(gather_minutes ~= nil and gather_minutes <= 20, "the checked job's time is not sized for a gather")
   assert(platform["if"] == "!cancelled() && needs.reuse.outputs.run == ''", tostring(platform["if"]))
   local penv, cenv = map_of(platform.env), map_of(checked.env)
   assert(penv["COSMIC_CI_CHECKED_SUITE"] == "skip", "a leg runs the checked suite: " ..
@@ -2049,9 +1998,9 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
   local pulled = with_of(download)
   assert(download["uses"] == "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c" and
       pulled["pattern"] == "verdicts-linux-x86_64-checked-shard-*" and pulled["merge-multiple"] == nil and
-      pulled["name"] == nil and pulled["run-id"] == nil and download["continue-on-error"] == nil and
+      pulled["name"] == nil and pulled["run-id"] == nil and download["continue-on-error"] == true and
       download["if"] == FULL,
-    "the checked job takes the shares' verdicts from another run, merges them into one directory, or goes on without them")
+    "the checked job takes the shares' verdicts from another run, merges them into one directory, or goes on without them (its first try tolerates failure; test_a_gating_download_is_tried_twice holds the second)")
   assert(merge["run"] == "for share in \"${{ runner.temp }}\"/verdicts-shares/*/; do " ..
       "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"$share\" || exit 1; done" and
       merge["if"] == FULL and merge["continue-on-error"] == nil and
@@ -2669,7 +2618,7 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   assert(twin ~= nil and twin["if"] == "steps.keys.outputs.verdicts-sha != ''",
     "seed names no verdicts under the commit")
   assert(position(steps, assert(plain)) < position(steps, twin), "seed names its verdicts' entry before it saves it")
-  local keys = step_running(steps, "seed.keys")
+  local keys = step_with_id(steps, "keys")
   assert(assert(keys.run):find("|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}-[0-9a-f]+|",
     1, true), "seed takes a name under another commit")
 
@@ -3446,14 +3395,15 @@ local function test_the_join_compares_the_portable_share_with_the_legs()
     local pattern = with_of(step)["pattern"]
     assert(pattern == nil or not tostring(pattern):find("^portable%-share"),
       "the join downloads the share's attestation by a pattern, which puts one artifact in no directory of its own")
-    if name == "portable-share-alpine-x86_64" then
+    -- The second try (test_a_gating_download_is_tried_twice) runs on the first's failure alone.
+    if name == "portable-share-alpine-x86_64" and step["continue-on-error"] == true then
       downloads = downloads + 1
       assert(step["if"] == FULL .. " && needs.reuse.outputs.run == ''", "the share's attestation is downloaded on " .. tostring(step["if"]))
       assert(param(step, "path") == "${{ runner.temp }}/cosmic-ci/products/portable-share-alpine-x86_64",
         "the share's attestation is downloaded to " .. param(step, "path"))
     end
   end
-  assert(downloads == 1, "the join downloads " .. tostring(downloads) .. " sets of share attestations")
+  assert(downloads == 1, "the join first tries " .. tostring(downloads) .. " downloads of share attestations")
   local compare = step_named(join.steps, "compare the Cosmic bytes executed on every native host")
   assert(map_of(compare.env)["COSMIC_CI_PORTABLE_SHARES"] == "${{ needs.reuse.outputs.run == '' && '1' || '0' }}",
     "the join expects share attestations: " .. tostring(map_of(compare.env)["COSMIC_CI_PORTABLE_SHARES"]))
@@ -3633,4 +3583,96 @@ local function test_every_leg_has_its_promises_and_no_other_does()
   for name in pairs(promised) do
     assert(ran[name], name .. ": capabilities.json names no such leg")
   end
+end
+
+local DOWNLOAD <const> = "actions/download-artifact@"
+local RETRY_IF <const> = "^steps%.([%w_-]+)%.outcome == 'failure'$"
+
+local function is_download(step: Step): boolean
+  local uses = step.uses
+  return uses ~= nil and String.starts_with(uses, DOWNLOAD) == true
+end
+
+--- The paths under $RUNNER_TEMP that ci/cosmic_ci/queue_stage.tl stages
+--- into the seed the queue's legs upload: the directory each cache entry
+--- is copied from (`entry(temp, seed, name, dir, ...)`) and each name
+--- written under `seed .. "/"`.
+local function staged_paths(): {string: boolean}
+  local text = assert(Fs.read("ci/cosmic_ci/queue_stage.tl"))
+  local out: mut {string: boolean} = {}
+  for dir in text:gmatch('entry%(temp, seed, "[%w-]+", "([%w-]+)"') do out[dir] = true end
+  for name in text:gmatch('seed %.%. "/([%w%.-]+)') do out[name] = true end
+  return out
+end
+
+--- The words `rm -rf` removes in `script`, as a set.
+local function removed_by(script: string): {string: boolean}
+  local out: mut {string: boolean} = {}
+  local list = script:match("rm %-rf ([^;]-);")
+  assert(list, "no rm -rf in " .. script)
+  for word in list:gmatch("%S+") do out[(word:gsub('"', ""))] = true end
+  return out
+end
+
+--- A download that fails its job is tried twice. GitHub's artifact service
+--- fails a download now and then; in a merge queue each such failure ejects
+--- the entry. The first try has an `id` and `continue-on-error: true`. The
+--- second try has the same inputs, no `continue-on-error`, and runs `if:
+--- steps.<id>.outcome == 'failure'`, so an artifact that is absent still
+--- fails the job. Between them a step with that `if` sleeps and removes
+--- what the first try may have left: its `path`, or for a `path` of
+--- $RUNNER_TEMP itself (which holds more than the download) exactly the
+--- paths queue_stage.tl stages. A download that tolerates failure and has no
+--- second try (its consumer goes on without it) is not held to this.
+local function test_a_gating_download_is_tried_twice()
+  local retries = 0
+  for file, workflow in pairs(decoded_workflows()) do
+    for name, job in pairs(workflow.jobs) do
+      local retried: mut {string: integer} = {}
+      for i, step in ipairs(job.steps) do
+        local where = file .. " " .. name .. " step " .. tostring(i) .. " " .. (step.name or "")
+        local first_id = (step["if"] or ""):match(RETRY_IF)
+        if is_download(step) and first_id ~= nil then
+          retries = retries + 1
+          assert(step["continue-on-error"] ~= true, where .. ": a second try that tolerates failure passes where the artifact is absent")
+          local first, at = step_with_id(job.steps, first_id)
+          assert(at < i, where .. ": the first try " .. first_id .. " comes after it")
+          assert(is_download(first) and first["continue-on-error"] == true,
+            where .. ": " .. first_id .. " is not a download that tolerates its failure")
+          assert(first.uses == step.uses, where .. ": " .. first_id .. " is another action")
+          assert(Json.encode_any(first.with) == Json.encode_any(step.with),
+            where .. ": " .. first_id .. " downloads other inputs")
+          retried[first_id] = (retried[first_id] or 0) + 1
+          local waits = 0
+          for k = at + 1, i - 1 do
+            local between = assert(job.steps[k])
+            if between["if"] == step["if"] and (between.run or ""):find("sleep ", 1, true) ~= nil then
+              waits = waits + 1
+              local run = assert(between.run)
+              local path = param(first, "path")
+              if path == "${{ runner.temp }}" then
+                assert(String.starts_with(run, 'cd "' .. path .. '" && rm -rf '), where .. ": the wait does not clear in " .. path)
+                local gone, staged = removed_by(run), staged_paths()
+                for dir in pairs(staged) do
+                  assert(gone[dir], where .. ": the wait leaves " .. dir .. ", which queue_stage.tl stages")
+                end
+                for dir in pairs(gone) do
+                  assert(staged[dir], where .. ": the wait removes " .. dir .. ", which queue_stage.tl does not stage")
+                end
+              else
+                assert(String.starts_with(run, 'rm -rf "' .. path .. '"; sleep '), where .. ": the wait does not remove " .. path)
+              end
+            end
+          end
+          assert(waits == 1, where .. ": " .. tostring(waits) .. " steps between the tries sleep and clear, under its `if`")
+        elseif is_download(step) then
+          assert(step["continue-on-error"] == true, where .. ": no first try; run it first with continue-on-error and an id, then retry it `if: steps.<id>.outcome == 'failure'`")
+        end
+      end
+      for id, count in pairs(retried) do
+        assert(count == 1, file .. " " .. name .. ": " .. id .. " has " .. tostring(count) .. " retries")
+      end
+    end
+  end
+  assert(retries > 0, "no retried download found: the test reads nothing")
 end

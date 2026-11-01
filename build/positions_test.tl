@@ -12,7 +12,7 @@ local function module_at(file: string, requires: {string}, source: string): posi
       file:match("_example%.tl$") then "example" elseif
       file:match("^cmd/[^/]+/main%.tl$") then "main" else "module" end,
     source = source, source_hash = "", requires = requires, tests = {},
-    has_top_level_return = true, generated = false, key = "", lua = "",
+    has_top_level_return = true, generated = false, key = "", lua = "", inputs = nil,
   }
 end
 

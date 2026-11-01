@@ -217,6 +217,89 @@ local function test_definition_of_a_field_and_a_type_is_their_declaration()
   assert_located(defined(ran, 6), root, "main.tl", 8, 6, 7)
 end
 
+--- The text the kept-result tests ask definitions of: `count` of the last line is declared on the first.
+local KEPT_TEXT <const> = 'local count = 1\nlocal _ = count\n'
+
+local function test_definition_reads_the_check_the_diagnostics_made()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "main.tl", KEPT_TEXT),
+    at(2, "textDocument/definition", root, "main.tl", 1, 10),
+    at(3, "textDocument/definition", root, "main.tl", 1, 10),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 0, 6, 11)
+  assert_located(defined(ran, 3), root, "main.tl", 0, 6, 11)
+  assert(ran.ran["main.tl"] == 1, tostring(ran.ran["main.tl"]))
+end
+
+local function test_an_edit_is_checked_again_and_answered_from_the_new_check()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "main.tl", KEPT_TEXT),
+    at(2, "textDocument/definition", root, "main.tl", 1, 10),
+    change(root, "main.tl", "-- moved\n" .. KEPT_TEXT),
+    at(3, "textDocument/definition", root, "main.tl", 2, 10),
+    at(4, "textDocument/definition", root, "main.tl", 2, 10),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 0, 6, 11)
+  assert_located(defined(ran, 3), root, "main.tl", 1, 6, 11)
+  assert_located(defined(ran, 4), root, "main.tl", 1, 6, 11)
+  assert(ran.ran["main.tl"] == 2, tostring(ran.ran["main.tl"]))
+end
+
+local function test_definition_is_answered_from_the_kept_check_after_another_document_was_checked()
+  local root = session_fixture.project()
+  -- Both are files the stage lists: the program is made again when it leaves a document the stage does not list.
+  assert(Fs.write(root .. "/main.tl", KEPT_TEXT))
+  assert(Fs.write(root .. "/other.tl", "local other = 2\nreturn other\n"))
+  local ran = served(root, { initialize(root), open(root, "main.tl", KEPT_TEXT),
+    open(root, "other.tl", "local other = 2\nreturn other\n"),
+    at(2, "textDocument/definition", root, "main.tl", 1, 10),
+    at(3, "textDocument/definition", root, "other.tl", 1, 7),
+  })
+  assert_located(defined(ran, 2), root, "main.tl", 0, 6, 11)
+  assert_located(defined(ran, 3), root, "other.tl", 0, 6, 11)
+  assert(ran.ran["main.tl"] == 1, tostring(ran.ran["main.tl"]))
+  assert(ran.ran["other.tl"] == 1, tostring(ran.ran["other.tl"]))
+end
+
+local function test_a_document_closed_and_opened_again_is_checked_again()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "main.tl", KEPT_TEXT),
+    at(2, "textDocument/definition", root, "main.tl", 1, 10),
+    close(root, "main.tl"), open(root, "main.tl", KEPT_TEXT),
+    at(3, "textDocument/definition", root, "main.tl", 1, 10),
+  })
+  assert_located(defined(ran, 3), root, "main.tl", 0, 6, 11)
+  assert(ran.ran["main.tl"] == 2, tostring(ran.ran["main.tl"]))
+end
+
+local function test_a_text_that_does_not_parse_is_kept_as_nothing_found()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "main.tl", "local count = = 1\nlocal _ = count\n"),
+    at(2, "textDocument/definition", root, "main.tl", 1, 10),
+    at(3, "textDocument/definition", root, "main.tl", 1, 10),
+  })
+  assert(defined(ran, 2) == nil and defined(ran, 3) == nil)
+  assert(ran.ran["main.tl"] == 1, tostring(ran.ran["main.tl"]))
+end
+
+local function test_a_module_changed_on_disk_makes_the_kept_check_stale()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  local point = "local record point\n  x: integer\nend\n\nfunction point.origin(): point\n  return { x = 0 }\nend\n\nreturn point\n"
+  assert(Fs.write(root .. "/lib/point.tl", point))
+  local text = 'local point = require("lib.point")\nlocal _ = point.origin()\n'
+  local ran = session_fixture.served_between(root, {
+    { initialize(root), open(root, "main.tl", text), at(2, "textDocument/definition", root, "main.tl", 1, 18) },
+    { session_fixture.changed_on_disk(root, "lib/point.tl"),
+      at(3, "textDocument/definition", root, "main.tl", 1, 18) },
+  }, function(_after: integer)
+    assert(Fs.write(root .. "/lib/point.tl", "-- moved\n" .. point))
+  end)
+  assert_located(defined(ran, 2), root, "lib/point.tl", 4, 15, 21)
+  assert_located(defined(ran, 3), root, "lib/point.tl", 5, 15, 21)
+  assert(ran.ran["main.tl"] == 2, tostring(ran.ran["main.tl"]))
+end
+
 local function test_definition_follows_a_require_to_the_module_that_declares_it()
   local root = session_fixture.project()
   assert(Fs.mkdirs(root .. "/lib"))
@@ -310,7 +393,7 @@ local function test_definition_in_another_module_is_read_from_the_places_the_sta
     assert(held:close())
   end)
   assert_located(defined(ran, 3), root, "lib/point.tl", 0, 13, 18)
-  assert(ran.tally.parses == 0, tostring(ran.tally.parses))
+  assert(ran.tally.derived == 0, tostring(ran.tally.derived))
 end
 
 --- An open module is parsed only where the person has edited it, and once for a text.
@@ -323,7 +406,7 @@ local function test_definition_parses_an_open_module_only_where_it_differs_from_
     at(2, "textDocument/definition", root, "main.tl", 2, 12),
   })
   assert_located(defined(same, 2), root, "lib/point.tl", 1, 2, 3)
-  assert(same.tally.parses == 0, tostring(same.tally.parses))
+  assert(same.tally.derived == 0, tostring(same.tally.derived))
   local edited = served(root, { initialize(root), open(root, "main.tl", USES_POINT),
     open(root, "lib/point.tl", "-- moved down\n\n" .. POINT),
     at(2, "textDocument/definition", root, "main.tl", 2, 12),
@@ -333,7 +416,26 @@ local function test_definition_parses_an_open_module_only_where_it_differs_from_
   assert_located(defined(edited, 2), root, "lib/point.tl", 3, 2, 3)
   assert_located(defined(edited, 3), root, "lib/point.tl", 6, 15, 21)
   assert_located(defined(edited, 4), root, "lib/point.tl", 3, 2, 3)
-  assert(edited.tally.parses == 1, tostring(edited.tally.parses))
+  assert(edited.tally.derived == 1, tostring(edited.tally.derived))
+end
+
+--- Closing an edited module drops its rows from the scratch database, so opening it again with the same text derives
+--- it again, as a first open does.
+local function test_closing_an_edited_module_lets_go_of_its_derived_rows()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local edited = "-- moved down\n\n" .. POINT
+  local ran = served(root, { initialize(root), open(root, "main.tl", USES_POINT),
+    open(root, "lib/point.tl", edited),
+    at(2, "textDocument/definition", root, "main.tl", 2, 12),
+    close(root, "lib/point.tl"),
+    open(root, "lib/point.tl", edited),
+    at(3, "textDocument/definition", root, "main.tl", 2, 12),
+  })
+  assert_located(defined(ran, 2), root, "lib/point.tl", 3, 2, 3)
+  assert_located(defined(ran, 3), root, "lib/point.tl", 3, 2, 3)
+  assert(ran.tally.derived == 2, tostring(ran.tally.derived))
 end
 
 --- The editor's word that a file changed on disk stages the tree again, so a definition asked after it finds the place
@@ -352,8 +454,8 @@ local function test_definition_follows_a_module_saved_with_its_declarations_move
     at(3, "textDocument/definition", root, "main.tl", 2, 12),
   })
   assert_located(defined(second, 3), root, "lib/point.tl", 3, 2, 3)
-  assert(second.tally.stages == 2 and second.tally.parses == 0,
-    tostring(second.tally.stages) .. "," .. tostring(second.tally.parses))
+  assert(second.tally.stages == 2 and second.tally.derived == 0,
+    tostring(second.tally.stages) .. "," .. tostring(second.tally.derived))
 end
 
 local function test_definition_counts_utf16_units_or_bytes_as_negotiated()

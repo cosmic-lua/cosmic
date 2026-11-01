@@ -1118,6 +1118,15 @@ static int handle_sent (lua_State *L) {
   return 1;
 }
 
+/* How many of a scripted transfer's canned replies curl has taken, one
+ * per connection it opened (a followed redirect opens one more); 0 for a
+ * transfer over the network. */
+static int handle_connections (lua_State *L) {
+  struct transfer *t = checked(L);
+  lua_pushinteger(L, t->script != NULL ? (lua_Integer)t->script->opened : 0);
+  return 1;
+}
+
 /* `close`, and both __gc and __close: a handle closed any way, even one
  * a finalizer elsewhere revives, is `closed`, and its methods raise. */
 static int handle_close (lua_State *L) {
@@ -1507,7 +1516,8 @@ static int http_open (lua_State *L) {
 static const luaL_Reg handle_methods[] = {
   {"status", handle_status}, {"url", handle_url},
   {"headers", handle_headers}, {"read", handle_read},
-  {"sent", handle_sent},     {"close", handle_close},
+  {"sent", handle_sent},     {"connections", handle_connections},
+  {"close", handle_close},
   {NULL, NULL},
 };
 

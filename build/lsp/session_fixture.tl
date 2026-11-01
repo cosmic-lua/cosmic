@@ -77,7 +77,8 @@ local record session_fixture
   --- it sent, its complaints, how it served each module, and how many
   --- dependents it checked, all told ([`dependents.Queue`]), and as it
   --- sent each message, where it was asked to tell, and how many times
-  --- it checked each document, by name ([`build.lsp.check`]).
+  --- it was asked to check each document (`checks`) and checked it for real
+  --- (`ran`), by name ([`build.lsp.check`]).
   record Ran
     code: integer
     sent: {string}
@@ -86,6 +87,7 @@ local record session_fixture
     dependents: integer
     checked: {integer}
     checks: {string:integer}
+    ran: {string:integer}
   end
 
   SHUTDOWN: string
@@ -128,7 +130,7 @@ local function copied(tally: source.Tally): source.Tally
   return { database_stubs = tally.database_stubs, made_stubs = tally.made_stubs,
     sources = tally.sources, templates = tally.templates,
     whole_splices = tally.whole_splices, stages = tally.stages, reopened = tally.reopened,
-    parses = tally.parses }
+    derived = tally.derived }
 end
 
 --- Makes the directory `root` a project to a session, as one a build has
@@ -207,7 +209,7 @@ function session_fixture.served_between(root: string, batches: {{string}},
   end)
   return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
     err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally),
-    dependents = s.queue.checked, checked = {}, checks = s.checker.checks }
+    dependents = s.queue.checked, checked = {}, checks = s.checker.checks, ran = s.checker.ran }
 end
 
 --- What a session at `root` answers `messages` with, reading docs from
@@ -227,7 +229,7 @@ function session_fixture.served(root: string, messages: {string}, store?: {Sqlit
     end)
   return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
     err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally),
-    dependents = s.queue.checked, checked = {}, checks = s.checker.checks }
+    dependents = s.queue.checked, checked = {}, checks = s.checker.checks, ran = s.checker.ran }
 end
 
 --- What a session at `root` answers `messages` with, where `arrived`
@@ -257,7 +259,7 @@ function session_fixture.served_arriving(root: string, messages: {string},
     end)
   return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
     err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally),
-    dependents = s.queue.checked, checked = checked, checks = s.checker.checks }
+    dependents = s.queue.checked, checked = checked, checks = s.checker.checks, ran = s.checker.ran }
 end
 
 --- A session at `root` served one batch of messages after another, as an
@@ -277,7 +279,7 @@ function session_fixture.serving(root: string): function(messages: {string}): Ra
       end)
     return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
       err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally),
-      dependents = s.queue.checked, checked = {}, checks = s.checker.checks }
+      dependents = s.queue.checked, checked = {}, checks = s.checker.checks, ran = s.checker.ran }
   end
 end
 

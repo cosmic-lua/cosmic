@@ -27,6 +27,10 @@ local record http
     -- far; "" for one over the network. Raises if recording it ran
     -- out of memory.
     sent: function(Handle): string
+    -- How many of a scripted transfer's canned replies curl has taken,
+    -- one per connection it opened, a followed redirect's included; 0
+    -- for a transfer over the network.
+    connections: function(Handle): integer
     close: function(Handle)
   end
 

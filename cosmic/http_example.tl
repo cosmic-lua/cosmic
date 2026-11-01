@@ -4,6 +4,7 @@
 --- so each client one answers from [`Http.Options.script`], a canned
 --- reply; a real call leaves `script` out.
 
+local Clock = require("cosmic.clock")
 local Compress = require("cosmic.compress")
 local Http = require("cosmic.http")
 local Stream = require("cosmic.stream")
@@ -21,6 +22,25 @@ function Example.get()
   assert(got ~= nil, trouble)
   print(got.status, got.headers["content-type"], got.body)
   assert(got.status == 200 and got.body == '{"ok":true}', got.body)
+end
+
+--- Requests to one rate-limited API spaced out by a pacer made once, with
+--- a retry for the 429s that still come. Each call after the first waits
+--- until the interval has passed since the last request started. A real
+--- call leaves `script` out.
+function Example.pace()
+  local ok = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+  local api = Http.pacer(Clock.ms(50))
+  local began = Clock.monotonic_ns()
+  for id = 1, 3 do
+    local got = assert(Http.get("http://example.test/items/" .. tostring(id), {
+      pace = api, retry = { attempts = 3 }, script = { ok },
+    }))
+    assert(got.status == 200, tostring(got.status))
+  end
+  local took = Clock.monotonic_ns() - began
+  print(("three requests took %d ms"):format(took // Clock.ms(1)))
+  assert(took >= Clock.ms(100), tostring(took))
 end
 
 --- A status that is not 2xx, checked by hand: the call succeeds, since

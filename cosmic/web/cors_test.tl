@@ -97,12 +97,21 @@ end
 
 local function test_errors_carry_the_headers_so_the_browser_shows_them()
   local client = Web.test_client(make_app{ allow_origins = { APP } })
-  for _, case in ipairs({ { "/missing", 404 }, { "/denied", 403 }, { "/boom", 500 } }) do
-    local res = get(client, APP, case[1] as string)
-    assert(res.status == case[2], case[1] as string .. " " .. tostring(res.status))
-    assert(res.headers["access-control-allow-origin"] == APP, case[1] as string)
+  local record Failing
+    path: string
+    status: integer
+  end
+  local failing: {Failing} = {
+    { path = "/missing", status = 404 },
+    { path = "/denied", status = 403 },
+    { path = "/boom", status = 500 },
+  }
+  for _, case in ipairs(failing) do
+    local res = get(client, APP, case.path)
+    assert(res.status == case.status, case.path .. " " .. tostring(res.status))
+    assert(res.headers["access-control-allow-origin"] == APP, case.path)
     local res_headers_vary = assert(res.headers["vary"], "expected res.headers[\"vary\"]")
-    assert(res_headers_vary:find("Origin", 1, true), case[1] as string)
+    assert(res_headers_vary:find("Origin", 1, true), case.path)
   end
   local wrong = client:request("DELETE", "/data", { headers = { Origin = APP } })
   assert(wrong.status == 405 and wrong.headers["access-control-allow-origin"] == APP)

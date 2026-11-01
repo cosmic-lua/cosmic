@@ -61,6 +61,13 @@ _Noreturn void bz_internal_error (int errcode) {
 #define MAX_BZ2_LEVEL 9
 #define DEFAULT_BZ2_LEVEL 9
 
+/* The most output one library call is offered at a time, and the size of
+ * the scratch buffer a bzip2, xz or zstd stream owns for it. The library
+ * writes there and only the bytes it gave are added to the update's
+ * buffer: reserving a slice in a luaL_Buffer instead makes it box a whole
+ * slice on every update, however little that gives. */
+#define CODEC_SLICE ((size_t)1 << 16)
+
 typedef enum {
   OP_INFLATE,
   OP_DEFLATE,
@@ -173,6 +180,10 @@ struct stream {
     lzma_stream lzma;
   } u;
 
+  /* bzip2, xz and zstd, both directions: CODEC_SLICE bytes of output room
+   * for one library call, owned from the constructor to `release`. */
+  unsigned char *slice;
+
   ZSTD_DCtx *zd;
   uint64_t zwindow;  /* zstd: the largest window, in bytes, a frame may declare */
   int zhdr_ok;       /* zstd: the current frame's header has been checked */
@@ -245,6 +256,8 @@ static void release (struct stream *s) {
   s->tdefl = NULL;
   cosmic_free(s->inf);
   s->inf = NULL;
+  cosmic_free(s->slice);
+  s->slice = NULL;
   ZSTD_freeDCtx(s->zd);
   s->zd = NULL;
   ZSTD_freeCCtx(s->zc);
@@ -490,12 +503,6 @@ static int gzip_step (struct stream *s, const unsigned char *p, size_t n,
 
 /* ---- bzip2 and xz ---- */
 
-/* The most output one library call is offered at a time. */
-/* TODO: an update reserves a whole slice in its buffer however little it
- * gives, so a stream of one-byte updates spends ~80 us on each, in every
- * codec; waits on someone needing small updates to be cheap. */
-#define CODEC_SLICE ((size_t)1 << 16)
-
 static int bz2_step (struct stream *s, const unsigned char *p, size_t n,
                      size_t *used, struct sink *out, const char **err) {
   bz_stream *bz = &s->u.bz;
@@ -508,7 +515,7 @@ static int bz2_step (struct stream *s, const unsigned char *p, size_t n,
     /* bzlib counts in unsigned int: offer a larger chunk in pieces. */
     size_t in_take = n - i < UINT_MAX ? n - i : UINT_MAX;
     size_t out_take = out->budget < CODEC_SLICE ? out->budget : CODEC_SLICE;
-    char *dst = luaL_prepbuffsize(out->b, out_take);
+    char *dst = (char *)s->slice;
     bz->next_in = (char *)(p + i);
     bz->avail_in = (unsigned)in_take;
     bz->next_out = dst;
@@ -516,8 +523,7 @@ static int bz2_step (struct stream *s, const unsigned char *p, size_t n,
     int rc = BZ2_bzDecompress(bz);
     size_t produced = out_take - bz->avail_out;
     i += in_take - bz->avail_in;
-    luaL_addsize(out->b, produced);
-    out->budget -= produced;
+    sink_add(out, dst, produced);
     if (rc == BZ_STREAM_END) {
       BZ2_bzDecompressEnd(bz);
       s->codec_open = 0;
@@ -545,7 +551,7 @@ static int xz_step (struct stream *s, const unsigned char *p, size_t n,
       return STEP_FULL;
     }
     size_t out_take = out->budget < CODEC_SLICE ? out->budget : CODEC_SLICE;
-    unsigned char *dst = (unsigned char *)luaL_prepbuffsize(out->b, out_take);
+    unsigned char *dst = s->slice;
     z->next_in = p + i;
     z->avail_in = n - i;
     z->next_out = dst;
@@ -553,8 +559,7 @@ static int xz_step (struct stream *s, const unsigned char *p, size_t n,
     lzma_ret rc = lzma_code(z, LZMA_RUN);
     size_t produced = out_take - z->avail_out;
     i = n - z->avail_in;
-    luaL_addsize(out->b, produced);
-    out->budget -= produced;
+    sink_add(out, dst, produced);
     if (rc == LZMA_STREAM_END) {
       *used = i;
       return STEP_END;
@@ -663,13 +668,11 @@ static int zstd_step (struct stream *s, const unsigned char *p, size_t n,
       return STEP_FULL;
     }
     size_t out_take = out->budget < CODEC_SLICE ? out->budget : CODEC_SLICE;
-    char *dst = luaL_prepbuffsize(out->b, out_take);
-    ZSTD_outBuffer o = {dst, out_take, 0};
+    ZSTD_outBuffer o = {s->slice, out_take, 0};
     ZSTD_inBuffer in = {p + i, n - i, 0};
     size_t rc = ZSTD_decompressStream(s->zd, &o, &in);
     i += in.pos;
-    luaL_addsize(out->b, o.pos);
-    out->budget -= o.pos;
+    sink_add(out, s->slice, o.pos);
     if (ZSTD_isError(rc)) {
       *err = zstd_why(rc);
       return STEP_ERROR;
@@ -933,10 +936,23 @@ static int deflater (lua_State *L) {
   return cosmic_succeeded(L);
 }
 
+/* Gives `s` its output scratch; on failure ends it and answers what the
+ * constructor returns. */
+static int slice_alloc (lua_State *L, struct stream *s) {
+  s->slice = cosmic_malloc(CODEC_SLICE);
+  if (s->slice != NULL) return 0;
+  s->finished = 1;
+  release(s);
+  lua_pushnil(L);
+  lua_pushstring(L, "compress: out of memory");
+  return 2;
+}
+
 static int xz_decoder (lua_State *L) {
   lua_Integer memlimit = luaL_optinteger(L, 1, DEFAULT_XZ_MEMLIMIT);
   luaL_argcheck(L, memlimit > 0, 1, "the memory limit must be positive");
   struct stream *s = new_stream(L, OP_XZ);
+  if (slice_alloc(L, s) != 0) return 2;
   s->memlimit = (uint64_t)memlimit;
   s->ph = PH_BETWEEN;
   return cosmic_succeeded(L);
@@ -944,6 +960,7 @@ static int xz_decoder (lua_State *L) {
 
 static int bz2_decoder (lua_State *L) {
   struct stream *s = new_stream(L, OP_BZ2);
+  if (slice_alloc(L, s) != 0) return 2;
   s->ph = PH_BETWEEN;
   return cosmic_succeeded(L);
 }
@@ -964,6 +981,7 @@ static int zstd_decoder (lua_State *L) {
   luaL_argcheck(L, max_window >= ((lua_Integer)1 << ZSTD_WINDOWLOG_MIN), 1,
                 "the window limit must be at least 1024");
   struct stream *s = new_stream(L, OP_ZSTD);
+  if (slice_alloc(L, s) != 0) return 2;
   s->ph = PH_BETWEEN;
   s->zwindow = (uint64_t)max_window;
   s->zd = ZSTD_createDCtx_advanced(zstd_memory);
@@ -997,6 +1015,7 @@ static int bz2_encoder (lua_State *L) {
   luaL_argcheck(L, level >= 1 && level <= MAX_BZ2_LEVEL, 1,
                 "level must be 1 to 9");
   struct stream *s = new_stream(L, OP_BZ2_ENCODE);
+  if (slice_alloc(L, s) != 0) return 2;
   memset(&s->u.bz, 0, sizeof s->u.bz);
   s->u.bz.bzalloc = bz2_alloc;
   s->u.bz.bzfree = bz2_free;
@@ -1018,6 +1037,7 @@ static int zstd_encoder (lua_State *L) {
   luaL_argcheck(L, level >= 1 && level <= MAX_ZSTD_LEVEL, 1,
                 "level must be 1 to 19");
   struct stream *s = new_stream(L, OP_ZSTD_ENCODE);
+  if (slice_alloc(L, s) != 0) return 2;
   s->zc = ZSTD_createCCtx_advanced(zstd_memory);
   /* A checksum on every frame, as the `zstd` command writes one. */
   if (s->zc == NULL ||
@@ -1040,6 +1060,7 @@ static int xz_encoder (lua_State *L) {
   uint32_t flags = (uint32_t)preset;
   if (lua_toboolean(L, 2)) flags |= LZMA_PRESET_EXTREME;
   struct stream *s = new_stream(L, OP_XZ_ENCODE);
+  if (slice_alloc(L, s) != 0) return 2;
   s->u.lzma = (lzma_stream)LZMA_STREAM_INIT;
   s->u.lzma.allocator = &xz_memory;
   /* CRC-64, as the `xz` command writes. */
@@ -1084,10 +1105,9 @@ static const char *zstd_chunk (struct stream *s, const unsigned char *data,
                                luaL_Buffer *out) {
   ZSTD_inBuffer in = {data, len, 0};
   for (;;) {
-    char *dst = luaL_prepbuffsize(out, CODEC_SLICE);
-    ZSTD_outBuffer o = {dst, CODEC_SLICE, 0};
+    ZSTD_outBuffer o = {s->slice, CODEC_SLICE, 0};
     size_t rc = ZSTD_compressStream2(s->zc, &o, &in, mode);
-    luaL_addsize(out, o.pos);
+    luaL_addlstring(out, (const char *)s->slice, o.pos);
     if (ZSTD_isError(rc)) {
       return ZSTD_getErrorCode(rc) == ZSTD_error_memory_allocation
                  ? "out of memory"
@@ -1114,11 +1134,10 @@ static const char *xz_chunk (struct stream *s, const unsigned char *data,
   z->next_in = data;
   z->avail_in = len;
   for (;;) {
-    unsigned char *dst = (unsigned char *)luaL_prepbuffsize(out, CODEC_SLICE);
-    z->next_out = dst;
+    z->next_out = s->slice;
     z->avail_out = CODEC_SLICE;
     lzma_ret rc = lzma_code(z, action);
-    luaL_addsize(out, CODEC_SLICE - z->avail_out);
+    luaL_addlstring(out, (const char *)s->slice, CODEC_SLICE - z->avail_out);
     if (rc == LZMA_STREAM_END) return NULL;
     if (rc != LZMA_OK) {
       return rc == LZMA_MEM_ERROR ? "out of memory" : "xz encoder failed";
@@ -1145,15 +1164,14 @@ static const char *bz2_chunk (struct stream *s, const unsigned char *data,
   for (;;) {
     /* bzlib counts in unsigned int: offer a larger chunk in pieces. */
     size_t in_take = len - i < UINT_MAX ? len - i : UINT_MAX;
-    char *dst = luaL_prepbuffsize(out, CODEC_SLICE);
     bz->next_in = (char *)(data + i);
     bz->avail_in = (unsigned)in_take;
-    bz->next_out = dst;
+    bz->next_out = (char *)s->slice;
     bz->avail_out = (unsigned)CODEC_SLICE;
     int rc = BZ2_bzCompress(bz, action);
     size_t produced = CODEC_SLICE - bz->avail_out;
     i += in_take - bz->avail_in;
-    luaL_addsize(out, produced);
+    luaL_addlstring(out, (const char *)s->slice, produced);
     if (rc == BZ_STREAM_END) return NULL;
     /* When a call's output filled the slice exactly with the input all
      * taken, the next call may find nothing left to do: bzlib then

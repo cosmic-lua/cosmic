@@ -37,8 +37,6 @@ struct event {
   const XML_Char **attributes;
   const char *text;
   size_t len;
-  /* Names lose their namespace: [`deliver`] sets it from the parser. */
-  bool local_names;
 };
 
 /* A parser and what one call to it has collected. `parser` is NULL once
@@ -113,22 +111,24 @@ static void push_name (lua_State *L, const XML_Char *name, bool local) {
   }
 }
 
-/* Appends the event at 2 to the table at 1, as the event `count` at 3;
- * run under `lua_pcall`, so a raise stops at `deliver`. */
+/* Appends the event at 2 to the table at 1, as the event `count` at 3,
+ * its names without their namespace when 4 is true; run under
+ * `lua_pcall`, so a raise stops at `deliver`. */
 static int append_event (lua_State *L) {
   const struct event *ev = lua_touserdata(L, 2);
   lua_Integer index = lua_tointeger(L, 3);
+  bool local_names = lua_toboolean(L, 4);
   lua_createtable(L, 0, 3);
   lua_pushstring(L, kind_names[ev->kind]);
   lua_setfield(L, -2, "kind");
   if (ev->name != NULL) {
-    push_name(L, ev->name, ev->local_names);
+    push_name(L, ev->name, local_names);
     lua_setfield(L, -2, "name");
   }
   if (ev->attributes != NULL) {
     lua_newtable(L);
     for (const XML_Char **a = ev->attributes; a[0] != NULL; a += 2) {
-      push_name(L, a[0], ev->local_names);
+      push_name(L, a[0], local_names);
       lua_pushstring(L, a[1]);
       lua_rawset(L, -3);
     }
@@ -147,14 +147,13 @@ static int append_event (lua_State *L) {
 static void deliver (struct parser *p, const struct event *ev) {
   if (p->status != LUA_OK || p->out_of_memory || p->too_long) return;
   lua_State *L = p->L;
-  struct event named = *ev;
-  named.local_names = p->local_names;
   /* None of these pushes allocates. */
   lua_pushcfunction(L, append_event);
   lua_pushvalue(L, EVENTS);
-  lua_pushlightuserdata(L, &named);
+  lua_pushlightuserdata(L, (void *)ev);
   lua_pushinteger(L, p->count + 1);
-  p->status = lua_pcall(L, 3, 0, 0);
+  lua_pushboolean(L, p->local_names);
+  p->status = lua_pcall(L, 4, 0, 0);
   if (p->status == LUA_OK) {
     p->count++;
   } else {
@@ -165,7 +164,7 @@ static void deliver (struct parser *p, const struct event *ev) {
 /* Appends the character data held back, if any, as one `text` event. */
 static void flush_text (struct parser *p) {
   if (p->len == 0) return;
-  struct event ev = {TEXT, NULL, NULL, p->text, p->len, false};
+  struct event ev = {TEXT, NULL, NULL, p->text, p->len};
   deliver(p, &ev);
   p->len = 0;
 }
@@ -174,14 +173,14 @@ static void on_start (void *data, const XML_Char *name,
                       const XML_Char **attributes) {
   struct parser *p = data;
   flush_text(p);
-  struct event ev = {START, name, attributes, NULL, 0, false};
+  struct event ev = {START, name, attributes, NULL, 0};
   deliver(p, &ev);
 }
 
 static void on_end (void *data, const XML_Char *name) {
   struct parser *p = data;
   flush_text(p);
-  struct event ev = {END, name, NULL, NULL, 0, false};
+  struct event ev = {END, name, NULL, NULL, 0};
   deliver(p, &ev);
 }
 
@@ -220,7 +219,7 @@ static void on_text (void *data, const XML_Char *s, int len) {
 static void on_comment (void *data, const XML_Char *text) {
   struct parser *p = data;
   flush_text(p);
-  struct event ev = {COMMENT, NULL, NULL, text, strlen(text), false};
+  struct event ev = {COMMENT, NULL, NULL, text, strlen(text)};
   deliver(p, &ev);
 }
 
@@ -228,7 +227,7 @@ static void on_instruction (void *data, const XML_Char *target,
                             const XML_Char *text) {
   struct parser *p = data;
   flush_text(p);
-  struct event ev = {INSTRUCTION, target, NULL, text, strlen(text), false};
+  struct event ev = {INSTRUCTION, target, NULL, text, strlen(text)};
   deliver(p, &ev);
 }
 

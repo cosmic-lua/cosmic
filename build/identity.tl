@@ -450,7 +450,8 @@ local function requires_in(db: Sqlite.Handle): function(string): {string}?, stri
           list = {}
           read[row:text(1)] = list
         end
-        list[#list + 1] = row:text(2)
+        local second = row:text(2)
+        list[#list + 1] = second
       end
       held[1] = read
       all = read

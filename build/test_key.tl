@@ -557,7 +557,8 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
   for _, row in ipairs(imported) do
     local list = imports[row:text(1)] or {}
     imports[row:text(1)] = list
-    list[#list + 1] = row:text(2)
+    local second = row:text(2)
+    list[#list + 1] = second
   end
   local names: mut {string} = {}
   local runs: mut {string} = {}
@@ -661,10 +662,10 @@ end
 --- ([`test_inputs.resolved`]): "" where they can. Every test of such a
 --- module fails before its worker starts, sandboxed or not.
 local function unresolved(rec: Recording, m: Module): string
-  local effective = rec.effective ~= nil and rec.effective[m.path] or nil
+  local effective = if rec.effective ~= nil then rec.effective[m.path] else nil end
   if effective ~= nil then return effective.unresolved or "" end
   local inputs = m.inputs
-  for _, declared in ipairs(inputs ~= nil and inputs.host or {}) do
+  for _, declared in ipairs(if inputs ~= nil then inputs.host else {} end) do
     local path, trouble = test_inputs.resolved(declared, tree_roots(rec))
     if path == nil then return trouble end
   end
@@ -678,7 +679,7 @@ local function caches_of(rec: Recording, m: Module): {string}
   local found = rec.caches[m.path]
   if found == nil then
     local declared = m.inputs
-    found = declared ~= nil and host_caches.all(declared.caches or {}, rec.root, worker_view()) or {}
+    found = if declared ~= nil then host_caches.all(declared.caches, rec.root, worker_view()) else {} end
     rec.caches[m.path] = found
   end
   return found
@@ -903,7 +904,7 @@ local function declared_of(rec: Recording, m: Module, id: string, host?: string)
     return nil
   end
   local key, why = declared_key.compute(digests_of(rec), {
-    id = id, group = m.path, module_key = m.graph_key, runtime = rec.runtime,
+    id = id, group = m.path, module_key = assert(m.graph_key), runtime = rec.runtime,
     compiler = reads_compiler(rec, m) and rec.compiler or "",
     host = host or rec.host,
     system = rec.system,
@@ -1697,7 +1698,7 @@ local function requirements_of(m: Module): {string}
   local names: mut {string} = {}
   local declared = m.inputs
   if declared == nil then return names end
-  for _, name in ipairs(declared.requires or {}) do names[#names + 1] = name end
+  for _, name in ipairs(declared.requires) do names[#names + 1] = name end
   table.sort(names)
   return names
 end

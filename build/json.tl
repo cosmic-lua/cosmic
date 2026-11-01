@@ -335,14 +335,16 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   if #matches == 0 then
     if request.mode ~= "exists" then
-      local steps: Json.Steps = {}
+      local steps: mut {string | integer} = {}
       for i, segment in ipairs(request.query.segments) do
+        local step: string | integer
         if segment.kind == "name" then
-          steps[i] = assert(segment.name, "a name segment names one")
+          step = assert(segment.name, "a name segment names one")
         else
           local index = assert(segment.index)
-          steps[i] = if index >= 0 then index + 1 else index end
+          step = if index >= 0 then index + 1 else index end
         end
+        steps[i] = step
       end
       local _, missing = Json.get(document, steps)
       if missing == "" then

@@ -15,7 +15,7 @@ local type module = require("build.module")
 local type Module = module.Plan
 
 local record plans
-  Module: Module
+  type Module = module.Plan
   --- What compiling one module makes.
   record Generated
     lua: string
@@ -109,7 +109,8 @@ local function names_by_hash(db: Sqlite.Handle,
       list = {}
       out[row:text(1)] = list
     end
-    list[#list + 1] = row:text(2)
+    local second = row:text(2)
+    list[#list + 1] = second
   end
   return out, ""
 end

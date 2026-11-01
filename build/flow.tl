@@ -821,7 +821,7 @@ function flow.set(node: flow.Node, key: string | integer, new: flow.Node)
     if member ~= nil then
       member.value = new
     else
-      items[key] = { value = new, before = {} }
+      items[#items + 1] = { value = new, before = {} }
     end
     if node.inline == true then node.width = node.width or 100 end
   else

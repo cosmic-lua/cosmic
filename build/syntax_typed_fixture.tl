@@ -82,13 +82,15 @@ end
 
 local sessions: mut {string: Session} = {}
 local counter: mut {integer} = { 0 }
-local standard: {string} = {}
+local standard: mut {string} = {}
 local bindings: mut {string: string} = {}
 
 function Fixture.subject(source: string, modules?: {string: string}): Report.Subject
   if standard[1] == nil then
-    standard[1] = assert(Fs.read("lang/prelude.d.tl"))
-    standard[2] = assert(Fs.read("lang/stdlib.d.tl"))
+    local prelude = assert(Fs.read("lang/prelude.d.tl"))
+    local stdlib = assert(Fs.read("lang/stdlib.d.tl"))
+    standard[1] = prelude
+    standard[#standard + 1] = stdlib
     -- The bindings of C are typed from the declarations the build derives from their headers, as the tree checks have them.
     for _, derivation in ipairs(GenSyscalls.targets) do
       local text = assert(GenSyscalls.declaration(assert(Fs.read(derivation.target.header)), derivation.target))

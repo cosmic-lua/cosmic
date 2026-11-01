@@ -357,6 +357,10 @@ local function entries_of(db: Sqlite.Handle): {{string}}?, {string: string}, str
       kinds[file] = kind
     end
   end
+  local paired = TreeProgram.paired(entries)
+  if paired ~= "" then
+    return nil, {}, paired
+  end
   return entries, kinds, ""
 end
 
@@ -743,13 +747,15 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
     local problems = read.problems
     local allowed = Ceilings.of(built.ceilings, "untyped")[m.file] or 0
     if read.untyped > allowed then
+      local calls = String.counted(read.untyped, "call")
       if built.ceilings.none == true then
-        problems[#problems + 1] = m.file .. ": " .. String.counted(read.untyped, "call") .. " the checker gave no function, " ..
+        problems[#problems + 1] = m.file .. ": " .. calls .. " the checker gave no function, " ..
           "which no rule of the discipline judged: type what it calls through"
       else
-        problems[#problems + 1] = m.file .. ": " .. String.counted(read.untyped, "call") .. " the checker gave no function, " ..
+        local message = m.file .. ": " .. calls .. " the checker gave no function, " ..
           "which no rule of the discipline judged, pinned " .. tostring(allowed) ..
           "; type what it calls through rather than raise the pin (build/ceilings.txt's [untyped])"
+        problems[#problems + 1] = message
       end
     end
     if #problems > 0 and judged ~= false then

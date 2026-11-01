@@ -61,6 +61,14 @@ local record Http
     max_wait_ns?: integer
   end
 
+  --- Spaces requests out: made by [`Http.pacer`], passed as
+  --- [`Http.Options.pace`]. Its state is private to the module.
+  interface Pacer
+    --- The least time between the starts of two requests it lets through,
+    --- in nanoseconds.
+    interval_ns: integer
+  end
+
   --- One request. `follow` defaults to true, `max_redirects` to 10;
   --- a followed 303, or a 301/302 after a POST, turns the request
   --- into a GET, as RFC 9110 says. `method` is case-sensitive, as
@@ -150,6 +158,21 @@ local record Http
   --- wait, the wait ends and the call fails with "interrupted"; so does
   --- `cancelled` answering true before or during one.
   ---
+  --- `pace`, a [`Http.pacer`], spaces requests out: each request sent
+  --- with it, every `retry` attempt included, first waits until the
+  --- pacer's `interval_ns` has passed since the last request that pacer
+  --- let start, then marks its own start. The pacer is the caller's to
+  --- share: one passed to many calls spaces all of them, and across hosts
+  --- if the caller passes it so; one per rate-limited API is the expected
+  --- use. A `retry`'s own wait counts toward the interval, so a retried
+  --- request waits the longer of the two, not their sum. A request
+  --- that fails to connect still counts as a start. Each call and each
+  --- retry attempt is paced, not each redirect hop followed inside one
+  --- open. The same entry points as `retry` pace. The wait ends as a
+  --- retry's does: the call fails with "interrupted" when the innermost open
+  --- [`Signal.guard`] catches SIGINT or SIGTERM during it, or `cancelled`
+  --- answers true before or during it.
+  ---
   --- An option of the wrong shape is a bug, and [`Http.open`] raises
   --- for it, naming the option: a value of the wrong Lua type (the
   --- integers take no numeric strings), a number with a fraction, or
@@ -158,6 +181,7 @@ local record Http
   --- 65535 seconds. A `retry` raises the same way, naming
   --- `opts.retry.attempts` and the like: attempts below 1, statuses not
   --- a list of one or more integers from 100 to 599, or a span below 0.
+  --- So does a `pace` that [`Http.pacer`] did not make, naming `opts.pace`.
   --- A value of the right shape that cannot be sent as given is data,
   --- returned as `nil, err`: a method that is no HTTP token, a header
   --- name or value holding CR, LF or NUL (or a name that is empty or
@@ -205,12 +229,18 @@ local record Http
     --- False by default, so a body comes as the server sent it.
     decompress?: boolean
     --- Tests only: canned replies, one per connection, in place of the
-    --- network. Every entry must be a string. With `retry`, attempt N
-    --- reads from entry N on.
+    --- network. Every entry must be a string. With `retry`, an attempt
+    --- reads on from the entry after the last connection the one before
+    --- it opened, a followed redirect's included.
     script?: {string}
     --- The retry policy: see above. None by default, so a response of
     --- any status is returned at once.
     retry?: Retry
+    --- The pacer that spaces requests out: see above. None by default.
+    -- TODO: pace each redirect hop once cosmic.internal.http's `open`
+    -- hands the redirects it follows to this module, which now cannot wait
+    -- between them: curl follows them inside one open.
+    pace?: Pacer
     --- The CA roots to trust: "minimal", "mozilla", "none", or a list of
     --- the SHA-256 digests of roots this binary carries; when nil,
     --- [`Http.default_roots`].
@@ -913,6 +943,49 @@ local function retry_of(opts: Http.Options, level: integer): Policy?
   return { attempts = attempts, statuses = statuses, backoff_ns = backoff, max_wait_ns = max_wait }
 end
 
+-- The pacer [`Http.pacer`] makes. Its state is fields no caller is told
+-- of: when its last request started, once one has.
+local class PacerObject is Http.Pacer
+  interval_ns: integer
+  mut started: boolean
+  mut last_ns: integer
+end
+
+local function new_pacer(interval_ns: integer): PacerObject
+  local made: PacerObject = { interval_ns = interval_ns, started = false, last_ns = 0 }
+  return made
+end
+
+--- A pacer that spaces requests `interval_ns` apart, to pass as
+--- [`Http.Options.pace`] with each request. Nothing is shared behind it:
+--- a pacer waits on the requests sent through itself alone, so make one
+--- per rate-limited API and pass it to every call to that API.
+---
+--- A loop over items makes one pacer before it and passes it, with a
+--- `retry`, to each call: `local api = Http.pacer(Clock.ms(250))`, then
+--- `Http.get(base .. id, { pace = api, retry = { attempts = 3 } })`.
+---
+--- A call and each of its retry attempts is one request to a pacer; the
+--- redirect hops followed inside one open are not paced. A request that
+--- fails to connect still counts as a start, since the attempt loads the
+--- API. The first request through a pacer does not wait. Raises, naming
+--- `interval_ns`, for one that is not an integer of at least 0.
+function Http.pacer(interval_ns: integer): Http.Pacer
+  if math.type(interval_ns) ~= "integer" or interval_ns < 0 then
+    error("http: pacer interval_ns must be an integer of at least 0", 2)
+  end
+  return new_pacer(interval_ns)
+end
+
+--- `opts.pace` as the PacerObject it is, or nil when there is none. Raises at
+--- `level`, naming the option, for a value [`Http.pacer`] did not make.
+local function pace_of(opts: Http.Options, level: integer): PacerObject?
+  local given = opts.pace
+  if given == nil then return nil end
+  if given is PacerObject then return given end
+  error("http: opts.pace must be made by Http.pacer", level)
+end
+
 --- `opts` as the raw module reads them: its spans in the milliseconds
 --- (and, for `low_speed_ns`, the seconds) it counts them in, its `pin`
 --- as curl takes it, and, with `trusting`, the `ca_blob` of the roots it
@@ -935,6 +1008,7 @@ local function raw_options(given: Http.Options?, method?: string,
   -- Only to raise at `CALLER`, which no deeper call can; [`opened`] reads
   -- the policy it uses.
   local _ = retry_of(opts, CALLER)
+  local _ = pace_of(opts, CALLER)
   local trust, untold = trust_of(opts)
   if untold ~= "" then
     return nil, untold
@@ -1115,6 +1189,18 @@ local function pause(ns: integer, cancelled: (function(): boolean)?): boolean
   end
 end
 
+--- Waits out what is left of `pacer`'s interval since its last start, ending
+--- as [`pause`] does, then marks now as its start. False, and no start
+--- marked, when the wait was cut short.
+local function take_turn(pacer: PacerObject, cancelled: (function(): boolean)?): boolean
+  if pacer.started then
+    local left = pacer.interval_ns - (Clock.monotonic_ns() - pacer.last_ns)
+    if left > 0 and not pause(left, cancelled) then return false end
+  end
+  pacer.started, pacer.last_ns = true, Clock.monotonic_ns()
+  return true
+end
+
 --- [`Http.open`]'s work, which each public entry point that opens
 --- calls itself (`CALLER`); `method`, when given, stands in for
 --- `opts.method`.
@@ -1129,9 +1215,17 @@ local function opened(url: string, opts: Http.Options?, method: string?): Http.R
     return nil, unmade
   end
   local policy = retry_of(opts or {}, CALLER - 1)
+  local pacer = pace_of(opts or {}, CALLER - 1)
   local cancelled = opts and opts.cancelled
   local attempt = 1
+  -- The entry of `opts.script` the attempt starts at: every open starts
+  -- its script over, so each is handed the entries after the last
+  -- connection of the one before.
+  local first = 1
   while true do
+    if pacer ~= nil and not take_turn(pacer, cancelled) then
+      return nil, "interrupted"
+    end
     local handle, trouble, code = http.open(url, raw)
     if handle == nil then
       if opts ~= nil and opts.via ~= nil then
@@ -1143,6 +1237,7 @@ local function opened(url: string, opts: Http.Options?, method: string?): Http.R
     if policy ~= nil and attempt < policy.attempts and policy.statuses[handle:status()] == true then
       local wait = retry_wait(handle:headers(), attempt, policy)
       if wait <= policy.max_wait_ns then
+        first = first + handle:connections()
         handle:close()
         if (wait > 0 or cancelled ~= nil) and not pause(wait, cancelled) then
           return nil, "interrupted"
@@ -1155,13 +1250,8 @@ local function opened(url: string, opts: Http.Options?, method: string?): Http.R
       return respond(handle), ""
     end
     attempt = attempt + 1
-    -- Every open starts its script over, so the next attempt is handed
-    -- the entries from its own number on.
-    -- TODO: count the connections an attempt used once cosmic.internal.http's
-    -- handle reports them, so a scripted attempt that followed a redirect
-    -- leaves the next one the entries after its last connection.
     if opts ~= nil and opts.script ~= nil then
-      raw, unmade = raw_options(opts, method, true, attempt)
+      raw, unmade = raw_options(opts, method, true, first)
       if raw == nil then return nil, unmade end
     end
   end

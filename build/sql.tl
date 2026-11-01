@@ -392,13 +392,15 @@ local function ndjson_writer(): Writer
   return {
     header = function(names: {string}): string?
       whole_json = #names == 1 and names[1] == "_json"
+      local made: mut {string} = {}
       for index, name in ipairs(unique(names)) do
         local encoded, _ = Json.encode(name)
         if encoded == nil then
           unnamable_key = "column " .. tostring(index) .. "'s name is not UTF-8, which a JSON key must be"
         end
-        keys[index] = encoded or ""
+        made[#made + 1] = encoded or ""
       end
+      keys = made
       return nil
     end,
     row = function(statement: Sqlite.Statement, width: integer): string?, string
