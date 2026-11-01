@@ -393,7 +393,7 @@ local function test_definition_in_another_module_is_read_from_the_places_the_sta
     assert(held:close())
   end)
   assert_located(defined(ran, 3), root, "lib/point.tl", 0, 13, 18)
-  assert(ran.tally.parses == 0, tostring(ran.tally.parses))
+  assert(ran.tally.derived == 0, tostring(ran.tally.derived))
 end
 
 --- An open module is parsed only where the person has edited it, and once for a text.
@@ -406,7 +406,7 @@ local function test_definition_parses_an_open_module_only_where_it_differs_from_
     at(2, "textDocument/definition", root, "main.tl", 2, 12),
   })
   assert_located(defined(same, 2), root, "lib/point.tl", 1, 2, 3)
-  assert(same.tally.parses == 0, tostring(same.tally.parses))
+  assert(same.tally.derived == 0, tostring(same.tally.derived))
   local edited = served(root, { initialize(root), open(root, "main.tl", USES_POINT),
     open(root, "lib/point.tl", "-- moved down\n\n" .. POINT),
     at(2, "textDocument/definition", root, "main.tl", 2, 12),
@@ -416,7 +416,26 @@ local function test_definition_parses_an_open_module_only_where_it_differs_from_
   assert_located(defined(edited, 2), root, "lib/point.tl", 3, 2, 3)
   assert_located(defined(edited, 3), root, "lib/point.tl", 6, 15, 21)
   assert_located(defined(edited, 4), root, "lib/point.tl", 3, 2, 3)
-  assert(edited.tally.parses == 1, tostring(edited.tally.parses))
+  assert(edited.tally.derived == 1, tostring(edited.tally.derived))
+end
+
+--- Closing an edited module drops its rows from the scratch database, so opening it again with the same text derives
+--- it again, as a first open does.
+local function test_closing_an_edited_module_lets_go_of_its_derived_rows()
+  local root = session_fixture.project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  local edited = "-- moved down\n\n" .. POINT
+  local ran = served(root, { initialize(root), open(root, "main.tl", USES_POINT),
+    open(root, "lib/point.tl", edited),
+    at(2, "textDocument/definition", root, "main.tl", 2, 12),
+    close(root, "lib/point.tl"),
+    open(root, "lib/point.tl", edited),
+    at(3, "textDocument/definition", root, "main.tl", 2, 12),
+  })
+  assert_located(defined(ran, 2), root, "lib/point.tl", 3, 2, 3)
+  assert_located(defined(ran, 3), root, "lib/point.tl", 3, 2, 3)
+  assert(ran.tally.derived == 2, tostring(ran.tally.derived))
 end
 
 --- The editor's word that a file changed on disk stages the tree again, so a definition asked after it finds the place
@@ -435,8 +454,8 @@ local function test_definition_follows_a_module_saved_with_its_declarations_move
     at(3, "textDocument/definition", root, "main.tl", 2, 12),
   })
   assert_located(defined(second, 3), root, "lib/point.tl", 3, 2, 3)
-  assert(second.tally.stages == 2 and second.tally.parses == 0,
-    tostring(second.tally.stages) .. "," .. tostring(second.tally.parses))
+  assert(second.tally.stages == 2 and second.tally.derived == 0,
+    tostring(second.tally.stages) .. "," .. tostring(second.tally.derived))
 end
 
 local function test_definition_counts_utf16_units_or_bytes_as_negotiated()
