@@ -3,9 +3,10 @@
 <!-- policy: env = { "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD", "COSMIC_PORTABLE_CORE_SHA256" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 Cosmic ships one file that starts on every supported host. An ordinary release
-artifact contains a POSIX shell launcher, three release cores, a manifest, a
-SQLite database, and a fixed trailer. A checked artifact adds one
-configuration-2 core for its build host. This guide follows those bytes from
+artifact contains a POSIX shell launcher, three release cores stored zstd
+compressed, the decoder stub that restores each, a manifest, a SQLite database,
+and a fixed trailer. A checked artifact adds one configuration-2 core for its
+build host, stored raw. This guide follows those bytes from
 the build graph to a running program. [The design](../design.md) defines the
 format and trust rules; this guide explains where the implementation enforces
 them.
@@ -25,7 +26,9 @@ artifact. SQLite reads only the validated database range.
 
 [`build.zig`](../../build.zig) owns native compilation. Its `cores` step builds
 the same C sources for `x86_64-linux-musl`, `aarch64-linux-musl`, and
-`aarch64-macos`. It also writes `targets.tsv` in the build directory. Each record gives a stable
+`aarch64-macos`, and a small static decoder stub for each of them
+(`core/<target>/cosmic-unzstd`, from [`core/unzstd.c`]) at the architecture's
+baseline CPU. It also writes `targets.tsv` in the build directory. Each record gives a stable
 numeric identity, configuration, target name, and `uname` pair.
 
 The generated records are the authority shared by Zig, the artifact writer,
@@ -86,9 +89,15 @@ from one runtime context from standing in another.
 
 [`build.artifact`](../../build/artifact.tl) parses `targets.tsv`, reads each raw
 core, and renders launcher arms with
-[`build.launcher`](../../build/launcher.tl). It aligns every core range, hashes
-the exact bytes, and writes one fixed-size manifest entry per target and
-configuration. Unused manifest space is zero.
+[`build.launcher`](../../build/launcher.tl). A release writes each core as one
+zstd frame ([`Compress.zstd`]) beside the decoder stub built for its target. It
+aligns every stored range, hashes the exact bytes, and writes one fixed-size
+manifest entry per range. An entry has a kind (a core, or the stub of a
+target's core) and a codec (raw or zstd). It names the stored bytes by offset,
+length and digest, and the core they decode to by length and digest: the
+core's length and digest are its identity everywhere else, the cache entry's
+name among them. Unused manifest space is zero. A host-only boot, the checked
+core and a `cosmic build --host` program store their cores raw.
 
 [`artifact.program`] appends a projected database and fixed trailer to the shared
 prefix:
@@ -98,14 +107,17 @@ The regions appear in this order; their sizes are not to scale:
 | Region | Role |
 | --- | --- |
 | Shell launcher | Select a generated target and prepare a verified core. |
-| Aligned core ranges | Hold the exact native bytes named by the manifest. |
-| 4 KiB manifest | Bind identities to core offsets, lengths, and digests. |
+| Aligned stored ranges | Hold each core's stored bytes (a zstd frame, or the raw core) and its decoder stub. |
+| 4 KiB manifest | Bind identities to stored offsets, lengths and digests, and to the cores they decode to. |
 | SQLite database | Hold the host-neutral module projection. |
 | Fixed trailer | Locate the manifest and database and bind the file size. |
 
 Manifest and trailer offsets are relative to the whole file. Integer range
-checks happen before addition. Core ranges cannot overlap. Identities must be
-unique. The database must begin with the SQLite header.
+checks happen before addition. Stored ranges cannot overlap. Identities (target,
+configuration and kind) must be unique, and a compressed core needs a stub of
+its target. Version 1 artifacts, written by a release before this format, are
+refused by name: `artifact format version 1; this release reads version 2`.
+The database must begin with the SQLite header.
 [`core/portable.c`](../../core/portable.c) checks these rules again before the
 runtime trusts a range.
 
@@ -128,10 +140,10 @@ retained portable prefix: valid
 ```
 
 The stronger retention guarantee comes from
-[`core/store.c`](../../core/store.c), which rehashes every manifest core range
-before returning retained prefix bytes. `runtime_test.tl` and
-`self_rebuild_test.tl` exercise that guarantee across rename, unlink,
-replacement, and database-only rebuilds.
+[`core/store.c`](../../core/store.c), which rehashes every manifest stored range,
+core or stub, against its stored digest before returning retained prefix
+bytes. `runtime_test.tl` and `self_rebuild_test.tl` exercise that guarantee
+across rename, unlink, replacement, and database-only rebuilds.
 
 ## select and cache one core
 
@@ -151,6 +163,20 @@ On a cold start, the launcher copies the selected manifest range to a private
 temporary file, verifies its length and SHA-256 digest, sets its mode, and
 publishes it atomically. A symlink, unexpected entry, wrong owner or mode, or
 short core is repaired, or stops the launch when the cache is read-only.
+
+A compressed core takes a second stage first. The launcher cuts the target's
+decoder stub out of the artifact descriptor it holds, before anything else reads
+it, into a private `.stub.*` file; checks its length and digest; sets mode 0500
+and runs it as `stub <descriptor> <offset> <stored length> <length>`, its
+output going to the staging file of the core. The stub ([`core/unzstd.c`])
+reads the range with `pread`, accepts one zstd frame that names its size and
+checksum, and never writes more than the length it is given. The launcher
+reads its exit status (no pipeline hides it), removes the stub, and checks the
+staged core's length and digest as for a raw one. A stub that fails, writes
+the wrong bytes or cannot run (a `noexec` cache, which it names) stops the
+launch, and a signal removes the stub as it does any staged file (the shell
+holds its trap while the stub runs, so the signal takes effect when the stub
+returns).
 
 A warm core is hashed until it has been verified and left alone: once startup
 has hashed an entry and a second has passed since the entry last changed,
@@ -363,20 +389,20 @@ database-only rebuild fast without claiming old native code matches new C,
 Zig, or vendor inputs. Retained-descriptor access also lets a database-only
 rebuild finish after the starting artifact is renamed or unlinked.
 
-`bin/zig build boot -Dboot-cores=all` writes the portable artifact above,
-every release core behind the launcher, which is what CI verifies and what a
-release is. A bare `bin/zig build boot` builds the host's core alone and
-writes the same layout with a placeholder where each other core goes: a
-script that says the tool was booted for its host alone and exits 1
-([`artifact.placeholder`]), an entry of the manifest like any, so the core
-accepts it (it requires a core for every target) and runs as it does from any
-artifact. It runs every verb the same, and a rebuild reuses its prefix, so it
-stays what it is, and a boot it starts is a bare one when its prefix holds a
-placeholder ([`artifact.host_only`]) and `-Dboot-cores=all` when not. What
-needs another target's core refuses and names that boot: `cosmic build` of a
-portable program, which would run on this host alone and say nothing of it
-(`--host` is all such a tool writes), and the tests of one, which declare
-`all_cores` and are skipped, saying so.
+`bin/zig build boot -Dboot-cores=all` writes the portable artifact above, every
+release core behind the launcher, each compressed beside its decoder stub, which
+is what CI verifies and what a release is. A bare `bin/zig build boot` builds
+the host's core alone and writes the same layout with a placeholder where each
+other core goes: a script that says the tool was booted for its host alone and
+exits 1 ([`artifact.placeholder`]), an entry of the manifest like any, so the
+core accepts it (it requires a core for every target) and runs as it does from
+any artifact. It runs every verb the same, and a rebuild reuses its prefix, so
+it stays what it is, and a boot it starts is a bare one when its prefix holds a
+placeholder ([`artifact.host_only`]) and `-Dboot-cores=all` when not. What needs
+another target's core refuses and names that boot: `cosmic build` of a portable
+program, which would run on this host alone and say nothing of it (`--host` is
+all such a tool writes), and the tests of one, which declare `all_cores` and are
+skipped, saying so.
 
 ## test identity and transport
 
@@ -396,9 +422,13 @@ driver in isolated projects (see [`ci`](../../ci/)'s own README), with
 divide the runtime contract into observable boundaries:
 
 - `format_test.tl` and `format_test.c` reject malformed lengths, offsets,
-  identities, overlap, padding, and database headers.
+  identities, kinds, codecs, overlap, padding, versions, and database headers.
 - `launcher_test.tl` covers cache policy, digest failures, descriptor
   pressure, signals, and publication races.
+- `launcher_packed_test.tl` runs compressed payloads through the second
+  stage: a damaged stub or frame, a stub that fails or writes the wrong
+  bytes, a read-only cache, races, signals and a kill during decoding.
+- `unzstd_test.tl` runs the decoder stub on its own.
 - `runtime_test.tl` covers retained descriptors, replacement and unlink,
   immutable database reads, and mismatch rejection.
 - `self_rebuild_test.tl` proves one re-entry, exact prefix reuse, and
@@ -473,8 +503,9 @@ identity: from the validated artifact
 
 The manifest entry selected for this host names exactly the bytes this
 process runs. `host_image` is the digest of the running core, so the
-entry carrying that digest is the selected one, and hashing its range
-back out of the artifact file gives the same answer:
+core entry carrying that digest is the selected one, and decoding its range
+back out of the artifact file (a zstd frame, for a release) gives the same
+answer:
 
 ```teal
 local Codec = require("cosmic.codec")
@@ -489,15 +520,17 @@ local artifact = assert(fixture.read(path))
 local running = assert(Store.meta("host_image"))
 local selected: fixture.Entry? = nil
 for _, entry in ipairs(artifact.entries) do
-  if Codec.hex(entry.digest) == running then
+  if entry.kind == 1 and Codec.hex(entry.digest) == running then
     assert(selected == nil, "two manifest entries carry the running digest")
     selected = entry
   end
 end
 assert(selected ~= nil, "no manifest entry carries the running digest")
 local bytes = assert(Fs.read(path))
-local range = bytes:sub(selected.offset + 1, selected.offset + selected.length)
-assert(Hash.hex_sha256(range) == running)
+local stored = bytes:sub(selected.offset + 1, selected.offset + selected.stored_length)
+assert(Hash.hex_sha256(stored) == Codec.hex(selected.stored_digest))
+local core = assert(fixture.core_of(artifact, selected))
+assert(#core == selected.length and Hash.hex_sha256(core) == running)
 print("manifest: names the running core")
 ```
 
@@ -511,8 +544,10 @@ manifest: names the running core
 [`build.artifact.trusted_prefix`]: ../../build/artifact.tl
 [`Child.start`]: ../../cosmic/child.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../../ci/cosmic_ci/orchestration.tl
+[`Compress.zstd`]: ../../cosmic/compress.tl
 [`core/bridge.lua`]: ../../core/bridge.lua
 [`core/check.h`]: ../../core/check.h
+[`core/unzstd.c`]: ../../core/unzstd.c
 [`embed.tree`]: ../../build/embed.tl
 [`Proc.executable()`]: ../../cosmic/proc.tl
 [`Proc.relaunch`]: ../../cosmic/proc.tl

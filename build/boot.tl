@@ -8,6 +8,7 @@
 --- from the tree with it; everything from here is ordinary cosmic code.
 
 local Clock = require("cosmic.clock")
+local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Log = require("cosmic.log")
 local GrammarMode = require("build.grammar_mode")
@@ -236,9 +237,12 @@ end
 --- Writes the tool: the artifact prefix over every raw core in `images`,
 --- then the carried database `stage` wrote. The tool is written last and
 --- whole, so a failure anywhere before leaves the previous one in place.
+--- A core `stubs` names a decoder stub for is stored compressed beside it
+--- ([`artifact.Packing`]); the rest are raw.
 --- `expected`, when given, is the digest the database must have. Returns
 --- the database's length, or nil having said why.
 local function assemble(manifest_records: string, images: {string:string},
+                        stubs: {string:string}?,
                         selected_configuration: integer,
                         output: build_paths.Layout,
                         expected?: string): integer?
@@ -252,8 +256,17 @@ local function assemble(manifest_records: string, images: {string:string},
         " is not the database the last stage stamped")
     return nil
   end
+  local packing: artifact.Packing? = nil
+  if stubs ~= nil then
+    packing = {
+      stubs = stubs,
+      compress = function(core: string): string?, string
+        return Compress.zstd(core, artifact.zstd_level())
+      end,
+    }
+  end
   local prefix, prefix_trouble = artifact.prefix(manifest_records, images,
-    selected_configuration)
+    selected_configuration, packing)
   if prefix == nil then
     log:complain("boot: " .. prefix_trouble)
     return nil
@@ -288,12 +301,17 @@ end
 --- records the stamp does not name, so the step graph is not all that
 --- pairs the two, and its `boot: ` summary reports the whole boot.
 --- Neither takes a checked core.
+--- A whole boot stores each release core compressed beside the decoder stub
+--- of its target ([`build.paths.stub`]), the one CI verifies; the checked
+--- core stays raw, as does everything of a `--host-only` boot.
 --- A leading `--host-only` (before `--stage` or `--assemble`, or alone
 --- before the host target of a whole boot) says the tool carries the
 --- host's raw core alone: the assembly reads no other, and puts
 --- [`artifact.placeholder`] where each other target's core goes, in the
 --- same portable layout the core accepts, so the tool runs as one of every
---- core does. `cosmic build` of a portable program refuses such a tool
+--- core does. Every core of it is raw: the one compression a boot does is not
+--- worth the seconds it takes where a copy of the tool is not what is
+--- built. `cosmic build` of a portable program refuses such a tool
 --- ([`build.embed`]). Without it every raw core is read and the tool is the
 --- one CI verifies, byte for byte as it has been.
 --- Slots 7 through 9 optionally set the checked raw core, four-entry record
@@ -346,6 +364,7 @@ local function boot(root: string, argv: {string}): integer
 
   local targets: mut {string} = {}
   local images: mut {string:string} = {}
+  local stubs: mut {string:string} = {}
   local host_id: string? = nil
   local host_os: string? = nil
   local host_arch: string? = nil
@@ -372,6 +391,14 @@ local function boot(root: string, argv: {string}): integer
         return 1
       end
       images[target] = image
+      if not host_only then
+        local stub, stub_failure = Fs.read(build_paths.stub(working, target))
+        if stub == nil then
+          log:complain("boot: " .. stub_failure)
+          return 1
+        end
+        stubs[target] = stub
+      end
     end
     targets[#targets + 1] = target
     if target == host then
@@ -470,7 +497,7 @@ local function boot(root: string, argv: {string}): integer
     staged, expected = read.staged, read.carried
   end
   local database_length = assemble(manifest_records, images,
-    selected_configuration, output, expected)
+    if host_only then nil else stubs end, selected_configuration, output, expected)
   if database_length == nil then return 1 end
 
   -- A whole boot's time: the stage's (which `--assemble` reads from its

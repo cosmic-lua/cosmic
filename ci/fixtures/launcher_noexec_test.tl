@@ -13,6 +13,7 @@ Test.policy{
   grants = {
     { path = "o/fixtures/product/prefix", letters = "r" },
     { path = "o/fixtures/launcher/launcher.test", letters = "r" },
+    { path = "o/fixtures/launcher/launcher.packed-test", letters = "r" },
     { path = "o/fixtures/launcher/payloads/socket-x86_64-linux-musl", letters = "r" },
     { path = "o/fixtures/launcher/payloads/socket-aarch64-linux-musl", letters = "r" },
     { path = "o/fixtures/launcher/payloads/socket-aarch64-macos", letters = "r" },
@@ -48,6 +49,38 @@ local function test_launcher_noexec(tmp: string)
       "Permission denied here usually means a noexec cache filesystem\n"
     assert(diagnostic ==
         "cosmic portable: verified core cannot execute on the cache filesystem\n" or
+        String.ends_with(diagnostic, refused), diagnostic)
+    return true
+  end)
+  local removed, remove_trouble = Fs.remove_tree(noexec)
+  if not called then error(failure) end
+  assert(removed, "noexec cleanup: " .. tostring(remove_trouble))
+  assert(Fixture.hash(ctx.artifact) == before, "launcher artifact changed")
+end
+
+-- With the core stored compressed it is the decoder stub, run first, that a
+-- noexec cache refuses; the diagnostic names it, and nothing is published or
+-- left behind: neither a core nor the staged stub.
+local function test_launcher_noexec_refuses_the_decoder_stub(tmp: string)
+  local ctx = setup(tmp, "packed-test")
+  local before = Fixture.hash(ctx.artifact)
+  assert(ctx.target ~= "aarch64-macos", "noexec fixture requires the Linux grant")
+  local parent = assert(Env.get("COSMIC_TEST_NOEXEC"), "no private noexec grant")
+  local noexec = assert(sys.mkdtemp(parent .. "/cosmic-launcher.XXXXXX"))
+  local called, failure = pcall(function(): boolean
+    local cache = noexec .. "/cache"
+    local marker = ctx.work .. "/noexec-stub.marker"
+    local answer = run(ctx, "noexec-stub-launch", cache, { PORTABLE_PAYLOAD_MARKER = marker })
+    assert(answer.result.code == 126 and not answer.result.timed_out,
+      "noexec launch did not stop at 126")
+    assert(Fs.exists(marker) == false, "the payload ran")
+    assert(#assert(Fs.list(cache)) == 0, "a noexec launch left something in the cache")
+    local diagnostic = Fixture.small(answer.err, 4096)
+    local refused =
+      "\ncosmic portable: decoder stub was refused execution; " ..
+      "Permission denied here usually means a noexec cache filesystem\n"
+    assert(diagnostic ==
+        "cosmic portable: decoder stub cannot execute on the cache filesystem\n" or
         String.ends_with(diagnostic, refused), diagnostic)
     return true
   end)

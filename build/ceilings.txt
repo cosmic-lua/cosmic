@@ -476,7 +476,6 @@ cosmic/template_go_test.tl unchecked_binding 1
 
 build/archive_tool_test.tl nil_not_allowed 1
 
-build/artifact.tl nil_not_allowed 4
 
 build/artifact_fuzz_test.tl nil_not_allowed 1
 
@@ -1319,11 +1318,10 @@ core/syscalls_tool_test.tl missing_return 1
 
 
 
-build/artifact.tl index_may_be_nil 3
+build/artifact.tl index_may_be_nil 1
 
 build/artifact_fuzz_test.tl index_may_be_nil 2
 
-build/artifact_test.tl index_may_be_nil 1
 
 
 
@@ -3480,7 +3478,6 @@ build/archive_test.tl cast_refused 11
 
 build/artifact.tl cast_refused 1
 
-build/artifact_test.tl cast_refused 1
 
 build/assertions.tl cast_refused 2
 

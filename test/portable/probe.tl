@@ -40,7 +40,9 @@ local function entry(argv: {string}): integer
   return 0
 end
 
---- Writes one executable artifact per corrupted manifest core range.
+--- Writes one executable artifact per corrupted manifest range, core or
+--- decoder stub, and lists each as `selected` (the core at SELECTED_OFFSET),
+--- `selected-stub` (that core's decoder stub) or `nonselected`.
 local function corrupt_ranges(argv: {string}): integer
   local source, out = argv[1], argv[2]
   local selected = math.tointeger(tonumber(argv[3]))
@@ -48,11 +50,22 @@ local function corrupt_ranges(argv: {string}): integer
     "usage: probe.tl corrupt-ranges ARTIFACT OUT SELECTED_OFFSET")
   local read_artifact = assert(fixture.read(source))
   local listing: mut {string} = {}
+  local chosen: fixture.Entry? = nil
+  for _, one in ipairs(read_artifact.entries) do
+    if one.offset == selected then chosen = one end
+  end
+  assert(chosen ~= nil, "no manifest entry is at the selected offset")
   for index, one in ipairs(read_artifact.entries) do
     local path = out .. "/corrupt-range-" .. tostring(index)
     local corrupt = assert(fixture.change_byte(read_artifact.bytes, one.offset))
     assert(Fs.write(path, corrupt, 0x1ed))
-    local kind = if one.offset == selected then "selected" else "nonselected" end
+    local kind = "nonselected"
+    if one.offset == selected then
+      kind = "selected"
+    elseif one.kind == 2 and one.target == chosen.target and
+        one.configuration == chosen.configuration then
+      kind = "selected-stub"
+    end
     listing[#listing + 1] = path .. " " .. kind .. "\n"
   end
   assert(Fs.write(out .. "/corrupt-ranges", table.concat(listing)))

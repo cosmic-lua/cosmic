@@ -1,4 +1,4 @@
---- What launcher_test.tl and launcher_noexec_test.tl share: the
+--- What launcher_test.tl, launcher_packed_test.tl and launcher_noexec_test.tl share: the
 --- launcher contract's artifact, copied where a case may run it, and
 --- how a case runs it.
 local Clock = require("cosmic.clock")
@@ -27,7 +27,8 @@ local private_environment = {
   "COSMIC_PORTABLE_CORE_OFFSET", "COSMIC_PORTABLE_CORE_LENGTH",
   "COSMIC_PORTABLE_CORE_SHA256", "COSMIC_PORTABLE_TEST_HOOK",
   "COSMIC_PORTABLE_TEST_READY", "COSMIC_PORTABLE_TEST_GO",
-  "COSMIC_PORTABLE_TEST_CPUINFO",
+  "COSMIC_PORTABLE_TEST_CPUINFO", "COSMIC_PORTABLE_TEST_STUB_READY",
+  "COSMIC_PORTABLE_TEST_STUB_GO",
   "PORTABLE_PAYLOAD_MARKER", "PORTABLE_PAYLOAD_EXIT",
   "PORTABLE_PAYLOAD_SIGNAL", "PORTABLE_EXPECT_CWD",
   "PORTABLE_EXPECT_UMASK", "PORTABLE_CHECK_IO",
@@ -53,8 +54,13 @@ end
 --- A case's context beneath `tmp`: the contract's launcher
 --- (o/fixtures/launcher, cosmic_ci/launcher_setup.tl) copied into a
 --- directory whose name holds a space, a run directory and a link to it,
---- and the target's socket payload, where the contract has it.
-function LauncherFixture.setup(tmp: string): Context
+--- and the target's socket payload, where the contract has it. `kind` names
+--- the contract's launcher: `test` (the default) holds each payload raw, and
+--- `packed-test` the same stored compressed beside the decoder stub;
+--- `stub-fails`, `stub-short` and `stub-zero` have a stand-in stub that fails,
+--- writes too little or the wrong bytes, and `stub-slow` one that waits on
+--- the FIFOs named by COSMIC_PORTABLE_TEST_STUB_READY and _GO (test/portable/tool.tl).
+function LauncherFixture.setup(tmp: string, kind?: string): Context
   local work = tmp .. "/launcher"
   local program = work .. "/program space"
   local run = work .. "/run space"
@@ -67,7 +73,7 @@ function LauncherFixture.setup(tmp: string): Context
   local artifact = program .. "/launcher.test"
   local contract = Fixture.placed("launcher")
   local target = Fixture.required("COSMIC_FIXTURE_TARGET")
-  Fixture.copy(contract .. "/launcher.test", artifact, 0x1ed)
+  Fixture.copy(contract .. "/launcher." .. (kind or "test"), artifact, 0x1ed)
   return { artifact = artifact,
     socket = contract .. "/payloads/socket-" .. target,
     target = target, work = work, diagnostics = diagnostics }

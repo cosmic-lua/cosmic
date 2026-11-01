@@ -61,6 +61,9 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
     Fixture.mkdir(directory)
     Fixture.copy(BuildPaths.directory(root) .. "/core/" .. target.name .. "/cosmic-core",
       directory .. "/cosmic-core")
+    -- The decoder stub the artifact stores beside the core's compressed range.
+    Fixture.copy(BuildPaths.directory(root) .. "/core/" .. target.name .. "/cosmic-unzstd",
+      directory .. "/cosmic-unzstd")
   end
   Fixture.run("product-extract", { cosmic,
     root .. "/test/portable/tool.tl", "product-extract",
@@ -76,6 +79,7 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
     "apps/second", "cosmic.db", "targets.tsv" }
   for _, target in ipairs(targets) do
     names[#names + 1] = "cores/" .. target.name .. "/cosmic-core"
+    names[#names + 1] = "cores/" .. target.name .. "/cosmic-unzstd"
   end
   local hashes: mut {string} = {}
   for _, name in ipairs(names) do

@@ -115,6 +115,12 @@ function paths.core(layout: paths.Layout, target: string): string
   return layout.cores .. "/" .. target .. "/cosmic-core"
 end
 
+--- The decoder stub of `target` a boot of `layout` reads
+--- ([`core/unzstd.c`]), built beside its core.
+function paths.stub(layout: paths.Layout, target: string): string
+  return layout.cores .. "/" .. target .. "/cosmic-unzstd"
+end
+
 --- The build directory of the project whose canonical root is `root`,
 --- under the base `home`: the base and the SHA-256 of the root's path,
 --- with nothing resolved or looked at. The sandbox names the directory a
