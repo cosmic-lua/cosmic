@@ -23,6 +23,18 @@ local function environment(): mut {string:string}
   return env
 end
 
+--- This start's relaunch, skipping the test where it has none or its argv
+--- names no artifact (a host program, or a start with nothing to relaunch).
+local function relaunch_or_skip(): Proc.Relaunch
+  local relaunch = Proc.relaunch()
+  if relaunch == nil then Test.skip("this program has no relaunch to start again") end
+  local found = assert(relaunch, "Test.skip ends the test where there is no relaunch")
+  if #found.argv < 3 then
+    Test.skip("this relaunch names no artifact: its argv is " .. table.concat(found.argv, " "))
+  end
+  return found
+end
+
 --- Word `i` of the argv a relaunch starts: the core, `--artifact`, the artifact.
 local function argv_at(relaunch: Proc.Relaunch, i: integer): string
   local word = assert(relaunch.argv[i], "a relaunch's argv holds word " .. tostring(i))
@@ -40,8 +52,7 @@ end
 --- The core refuses an artifact it cannot name absolutely, before it
 --- reads anything from it, and says why.
 local function test_a_relative_artifact_path_is_refused()
-  local relaunch = Proc.relaunch()
-  if relaunch == nil or #relaunch.argv < 3 then return end
+  local relaunch = relaunch_or_skip()
   local r = run_relaunched(relaunch, { argv_at(relaunch, 1), argv_at(relaunch, 2), "relative/artifact" })
   assert(r.code == 2, "exit " .. tostring(r.code))
   assert((assert(r.stderr)):find("cosmic: portable artifact path is not absolute",
@@ -54,8 +65,7 @@ local SHOW_EXECUTABLE <const> = "print(require('cosmic.proc').executable(), ...)
 --- <path>` does: the runtime's own arguments follow, and the program
 --- names itself by the same path.
 local function test_the_joined_artifact_argument_starts_as_the_two_argument_form()
-  local relaunch = Proc.relaunch()
-  if relaunch == nil or #relaunch.argv < 3 then return end
+  local relaunch = relaunch_or_skip()
   local core, artifact = argv_at(relaunch, 1), argv_at(relaunch, 3)
   local joined = run_relaunched(relaunch,
     { core, "--artifact=" .. artifact, "-e", SHOW_EXECUTABLE, "a", "b c" })
@@ -71,8 +81,7 @@ end
 --- `--artifact=` naming no path is refused as `--artifact` with no path
 --- after it is, before anything runs.
 local function test_the_joined_artifact_argument_without_a_path_is_refused()
-  local relaunch = Proc.relaunch()
-  if relaunch == nil or #relaunch.argv < 3 then return end
+  local relaunch = relaunch_or_skip()
   local core = argv_at(relaunch, 1)
   for _, argv in ipairs({ { core, "--artifact=", "-e", "print(1)" }, { core, "--artifact" } }) do
     local flag = assert(argv[2], "each argv names the flag")
@@ -88,8 +97,7 @@ end
 --- the kernel cuts a `#!` line past what it reads without a word, and the
 --- program would then run under a name that is not its own.
 local function test_a_joined_artifact_path_naming_another_file_is_refused(tmp: string)
-  local relaunch = Proc.relaunch()
-  if relaunch == nil or #relaunch.argv < 3 then return end
+  local relaunch = relaunch_or_skip()
   local artifact = argv_at(relaunch, 3)
   assert(Fs.write(tmp .. "/other", "not the artifact\n"))
   for _, path in ipairs({ artifact:sub(1, #artifact - 1), tmp .. "/other" }) do
@@ -113,9 +121,8 @@ end
 --- macOS reads and splits the line otherwise; only Linux's is checked.
 local function test_a_script_names_the_core_as_its_interpreter(tmp: string)
   local names = assert(sys.uname())
-  if names.sysname ~= "Linux" then return end
-  local relaunch = Proc.relaunch()
-  if relaunch == nil or #relaunch.argv < 3 then return end
+  if names.sysname ~= "Linux" then Test.skip("only Linux checks a `#!` line this way") end
+  local relaunch = relaunch_or_skip()
   assert(Fs.symlink(argv_at(relaunch, 1), tmp .. "/c"))
   assert(Fs.symlink(argv_at(relaunch, 3), tmp .. "/a"))
   local line = "#!" .. tmp .. "/c --artifact=" .. tmp .. "/a"
@@ -154,8 +161,7 @@ end
 --- root of its own is such a start: no read-only descriptor may be handed to
 --- it.
 local function test_a_start_told_of_no_descriptor_opens_its_artifact_by_path()
-  local relaunch = Proc.relaunch()
-  if relaunch == nil or #relaunch.argv < 3 then return end
+  local relaunch = relaunch_or_skip()
   local r = run_by_path(relaunch, { argv_at(relaunch, 1), "--artifact", argv_at(relaunch, 3), "-e",
     SHOW_EXECUTABLE, "a" })
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
@@ -165,8 +171,7 @@ end
 --- By path, the artifact must be there to open, and it is still checked
 --- against what the contract says of its core: the core's own digest.
 local function test_a_start_by_path_names_an_artifact_it_can_open(tmp: string)
-  local relaunch = Proc.relaunch()
-  if relaunch == nil or #relaunch.argv < 3 then return end
+  local relaunch = relaunch_or_skip()
   local missing = run_by_path(relaunch, { argv_at(relaunch, 1), "--artifact", tmp .. "/none", "-e",
     "print(1)" })
   assert(missing.code == 2 and missing.stdout == "", tostring(missing.code))
@@ -181,8 +186,7 @@ end
 --- One of the two descriptors named and not the other is no contract:
 --- only neither, which says nothing was handed, is by path.
 local function test_a_start_naming_one_descriptor_alone_is_refused()
-  local relaunch = Proc.relaunch()
-  if relaunch == nil or #relaunch.argv < 3 then return end
+  local relaunch = relaunch_or_skip()
   for _, keep in ipairs({ "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD" }) do
     local r = run_by_path(relaunch, { argv_at(relaunch, 1), "--artifact", argv_at(relaunch, 3), "-e",
       "print(1)" }, keep)

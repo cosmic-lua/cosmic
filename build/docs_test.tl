@@ -438,6 +438,7 @@ end
 local function test_a_short_module_name_finds_the_public_module(dir: string)
   local db = built(dir, fs_tree({
     ["cosmic/internal/fs.d.tl"] = source(
+      "--- @kind binding",
       "local record fs",
       "end",
       "",
@@ -769,6 +770,7 @@ local function test_a_short_module_name_keeps_its_symbols(dir: string)
       "",
       "return module"),
     ["cosmic/internal/string.d.tl"] = source(
+      "--- @kind binding",
       "local record string",
       "end",
       "",
@@ -1411,7 +1413,7 @@ local function test_a_topic_example_pairs_with_the_longest_module(dir: string)
     ["cosmic/json_yaml.tl"] = source("return { yaml = true }"),
     ["cosmic/json_test.tl"] = source("local function test_it() end"),
     ["cosmic/json_test_helpers_example.tl"] = bare_example("helpers"),
-    ["cosmic/sys.d.tl"] = source("local record sys", "end", "return sys"),
+    ["cosmic/sys.d.tl"] = source("--- @kind binding", "local record sys", "end", "return sys"),
     ["cosmic/sys_socket_example.tl"] = bare_example("socket"),
     ["cosmic/json_example.tl"] = bare_example("plain"),
     ["cosmic/json_flow_example.tl"] = bare_example("flow"),
@@ -1800,6 +1802,7 @@ local function test_a_public_source_answers_only_for_the_standard_library(dir: s
       "return importer"),
     ["cosmic/internal/sqlite.d.tl"] = source(
       "--- SQLite at the Lua boundary.",
+      "--- @kind binding",
       "",
       "local record sqlite",
       "  --- A raw read.",

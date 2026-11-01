@@ -44,7 +44,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
-local Time = require("cosmic.time")
+local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 
 local record HostId
@@ -189,7 +189,7 @@ function HostId.live(env: {string:string}): HostId.Facts
     -- By its path: /usr/sbin is not on every shell's default PATH.
     sysctl = function(name: string): string?
       local result, _ = Child.run({ "/usr/sbin/sysctl", "-n", name }, { env = env, stdin = "null",
-        stdout = "capture", stderr = "null", timeout_ns = Time.seconds(30) })
+        stdout = "capture", stderr = "null", timeout_ns = Clock.seconds(30) })
       if result == nil or not result.ok then return nil end
       return result.stdout or ""
     end,
@@ -197,7 +197,7 @@ function HostId.live(env: {string:string}): HostId.Facts
       if docker == nil then return nil, "docker: not found" end
       local result, _ = Child.run({ docker, "version", "--format", "{{.Server.Version}}" },
         { env = env, stdin = "null", stdout = "capture", stderr = Fs.stderr,
-          timeout_ns = Time.seconds(120) })
+          timeout_ns = Clock.seconds(120) })
       if result == nil or not result.ok then return nil, "docker version failed" end
       return result.stdout or "", ""
     end,

@@ -1,6 +1,8 @@
 --- Tests of [`build.syntax_analyzer`] and [`build.syntax_link_text`]: what each reads of a source, and what the new grammar
 --- changes of the analysis the fork made once, which is what these tests say.
 local Analyzer = require("build.syntax_analyzer")
+local Node = require("build.syntax_node")
+local SyntaxLinkText = require("build.syntax_link_text")
 local Test = require("cosmic.test")
 
 --- The element of `list` at `index`, which the case knows is there.
@@ -23,7 +25,7 @@ local function analyzed(source: string, name?: string): Analyzer.Analysis
   return (assert(found, why))
 end
 
---- One source both analyzers read, and the dimension its test is about, which must hold rows.
+--- One source and the rows of the analysis it exists for.
 local record Fixture
   name: string
   dimension: string
@@ -207,6 +209,30 @@ local function test_a_fixture_is_analyzed_with_the_rows_it_exists_for()
   for _, case in ipairs(FIXTURES) do
     local found, why = Analyzer.analyze(case.source, "fixture.tl")
     assert(found ~= nil, case.name .. ": " .. tostring(why))
+    local rows: integer
+    if case.dimension == "analyzer tests" then
+      rows = #found.tests
+    elseif case.dimension == "analyzer export" then
+      rows = #found.export
+    elseif case.dimension == "analyzer catalog" then
+      rows = #found.catalog
+    elseif case.dimension == "analyzer docs" then
+      rows = #found.docs
+    elseif case.dimension == "analyzer references" then
+      rows = #found.references
+    elseif case.dimension == "analyzer bound" then
+      rows = #found.bound
+    elseif case.dimension == "analyzer examples" then
+      rows = #found.examples
+    elseif case.dimension == "analyzer inputs" then
+      rows = if found.inputs ~= nil then 1 else 0 end
+    elseif case.dimension == "link_text" then
+      local chunk = assert(Node.parse(case.source, "fixture.tl"))
+      rows = #SyntaxLinkText.found(chunk, Node.scope(chunk, "fixture.tl"), case.source)
+    else
+      error("unknown dimension " .. case.dimension)
+    end
+    assert(rows > 0, case.name .. ": no " .. case.dimension .. " rows")
   end
 end
 

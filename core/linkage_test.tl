@@ -56,7 +56,7 @@ end
 --- build host's glibc mapped its loader, libc and libm.
 local function test_a_linux_core_maps_no_shared_object()
   local names = assert(sys.uname())
-  if names.sysname ~= "Linux" then return end
+  if names.sysname ~= "Linux" then Test.skip("only a Linux core maps its libraries by glibc") end
   local maps = assert(Fs.read("/proc/self/maps"))
   assert(maps:find("\n", 1, true) ~= nil, "/proc/self/maps names no mapping")
   local found = shared_objects(maps)

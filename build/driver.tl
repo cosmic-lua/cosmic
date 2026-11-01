@@ -28,6 +28,7 @@
 ---
 --- Its callers are [`build.tree_checks`], `cosmic compile` ([`build.compile_grammar`]) and the pipeline of the
 --- new checker ([`build.pipeline`]), which the build's own compile calls ([`build.importer`]).
+local AnalysisSchema = require("build.analysis_schema")
 local Ast = require("lang.ast")
 local Ceilings = require("build.ceilings")
 local Check = require("lang.check")
@@ -229,8 +230,9 @@ local record Driver
   --- answered to by the name of its path below each directory, since a project inside the tree (`ci/`, a fixture
   --- directory) names its modules from its own root, except by a name in `unaliased`: the language's own modules, which
   --- the binary answers and no tail of a project file's name stands for. `skip` says which paths are left out. A module
-  --- given as both `.tl` and `.d.tl` is refused before an index is made ([`Driver.paired`]); of two files that are one module
-  --- otherwise (`x.tl` and `x/init.tl`) the first given answers. A `*_test.tl` is a test module
+  --- given as both `.tl` and `.d.tl` is refused before an index is made ([`Driver.declared`]); two files that are one module
+  --- otherwise (`x.tl` and `x/init.tl`, or `x.d.tl` and `x/init.d.tl`) are refused by the derive ([`build.derivation`]),
+  --- and are not given here, but if they are the first given answers. A `*_test.tl` is a test module
   --- ([`Driver.Source.tests`]). An entry may give a third word, the module it is, and a fourth, the name its ceilings
   --- are kept under ([`Driver.Source.pinned`]), for a source the build writes from another file, whose path says
   --- neither: the entry's path is then the name of the text, and `.d.tl` still marks a declaration. `extras` says of a file
@@ -251,9 +253,24 @@ local record Driver
   --- rename one of the two so that they are different modules.
   pairing: function(declaration: string, source: string, module: string): string
 
-  --- The complaints [`Driver.pairing`] makes of `entries` (as [`Driver.index`] takes them, less the `skip`ped paths), one to a
-  --- line and in the order of the declarations: "" for entries that pair none.
-  paired: function(entries: {{string}}, skip: function(path: string): boolean): string
+  --- Why two declaration files of one module (`x.d.tl` and `x/init.d.tl`) may not both be given: the complaint of `second`
+  --- standing beside `first`, both the module `module`. Which of two would answer is a choice no file makes, so neither does.
+  doubling: function(first: string, second: string, module: string): string
+
+  --- Why the declaration file `file` (below the root) with `text` may not be a build's: "" where its leading comment names
+  --- exactly one kind, `--- @kind binding` (a module implemented in C) or `--- @kind language` (the language's own
+  --- declarations, allowed only for the two files that are the build's globals, [`build.analysis_schema`]'s
+  --- `is_language_file`, and only where `own` says the build is cosmic's own tree: a project has no such declarations,
+  --- whatever it names its files). Else the complaint, which offers both ways out: tag it a binding, or write it as a `.tl`,
+  --- whose types and code are checked and real at run time; the language's two files that name nothing are told to say
+  --- `language`, and a file that names two kinds, to name one. A file that is no `.d.tl` is none of this helper's.
+  naming: function(file: string, text: string, own: boolean): string
+
+  --- Every complaint about the declaration files of `entries` (as [`Driver.index`] takes them, less the `skip`ped paths):
+  --- those of [`Driver.pairing`] for a `.d.tl` beside a source of its module, and those of [`Driver.naming`] for a `.d.tl`
+  --- that is in no pair, one to a line and in the order of the declarations: "" for none. What a build refuses a tree or
+  --- project for before an index is made.
+  declared: function(entries: {{string}}, skip: function(path: string): boolean, own: boolean): string
 
   --- The provider of `index`.
   files: function(index: Index): Provider
@@ -413,7 +430,14 @@ function Driver.pairing(declaration: string, source: string, module: string): st
     "delete " .. declaration .. ". To keep both, rename one of them so that they are different modules."
 end
 
-function Driver.paired(entries: {{string}}, skip: function(path: string): boolean): string
+function Driver.doubling(first: string, second: string, module: string): string
+  return first .. ": " .. second .. " is already the module " .. module .. ". Two declaration files cannot both be it, " ..
+    "and neither is preferred. Delete one of " .. first .. " and " .. second .. ", or rename one so that they are " ..
+    "different modules."
+end
+
+--- The complaint of each declaration file of `entries` that stands beside a source of its module, keyed by the file.
+local function pairs_of(entries: {{string}}, skip: function(path: string): boolean): mut {string: string}
   local sources: mut {string: string} = {}
   for _, entry in ipairs(entries) do
     local file = entry[1]
@@ -424,20 +448,77 @@ function Driver.paired(entries: {{string}}, skip: function(path: string): boolea
       end
     end
   end
-  local found: mut {string} = {}
+  local found: mut {string: string} = {}
   for _, entry in ipairs(entries) do
     local file = entry[1]
     if file ~= nil and entry[2] ~= nil and not skip(file) and file:match("%.d%.tl$") ~= nil then
       local module = entry[3] or Declarations.module_of(file)
       local source = sources[module]
       if source ~= nil then
-        found[#found + 1] = Driver.pairing(file, source, module)
+        found[file] = Driver.pairing(file, source, module)
       end
     end
   end
-  -- Each complaint starts with its declaration's path, so the order does not depend on the order of the entries.
-  table.sort(found)
-  return table.concat(found, "\n")
+  return found
+end
+
+--- The complaints in `found`, one to a line in the order of the files they start with, so that the order does not depend
+--- on the order of the entries.
+local function lines_of(found: {string: string}): string
+  local out: mut {string} = {}
+  for _, complaint in pairs(found) do
+    out[#out + 1] = complaint
+  end
+  table.sort(out)
+  return table.concat(out, "\n")
+end
+
+function Driver.naming(file: string, text: string, own: boolean): string
+  local named = AnalysisSchema.kinds_named(text)
+  if #named > 1 then
+    return file .. ": a .d.tl must name exactly one kind, and this one names " .. table.concat(named, " and ") ..
+      ": keep the one line that says what it is (`" .. AnalysisSchema.binding_tag() .. "` for a module implemented in C)"
+  end
+  local kind = AnalysisSchema.kind_of(file, text)
+  local how = "If it declares a module implemented in C, add the line `" .. AnalysisSchema.binding_tag() ..
+    "` to its leading comment; otherwise write it as a .tl (types and code in a .tl are checked and real at run time)."
+  if kind == "decl" and own and AnalysisSchema.is_language_file(file) then
+    return file .. ": the language's own declarations must say so: add the line `" .. AnalysisSchema.language_tag() ..
+      "` to its leading comment"
+  elseif kind == "decl" then
+    return file .. ": a .d.tl must name what it is, and this one names nothing. " .. how
+  elseif kind == "language" and not own then
+    return file .. ": `" .. AnalysisSchema.language_tag() .. "` is accepted only when building cosmic's own tree, and this is " ..
+      "not one. " .. how
+  elseif kind == "language" and not AnalysisSchema.is_language_file(file) then
+    return file .. ": `" .. AnalysisSchema.language_tag() .. "` is only for the language's own declarations, " ..
+      AnalysisSchema.prelude_file() .. " and " .. AnalysisSchema.stdlib_file() .. ", which are the build's globals. " .. how
+  end
+  return ""
+end
+
+local function unnamed_of(entries: {{string}}, skip: function(path: string): boolean, own: boolean): mut {string: string}
+  local found: mut {string: string} = {}
+  for _, entry in ipairs(entries) do
+    local file, text = entry[1], entry[2]
+    if file ~= nil and text ~= nil and not skip(file) and file:match("%.d%.tl$") ~= nil then
+      local complaint = Driver.naming(file, text, own)
+      if complaint ~= "" then
+        found[file] = complaint
+      end
+    end
+  end
+  return found
+end
+
+function Driver.declared(entries: {{string}}, skip: function(path: string): boolean, own: boolean): string
+  local found = pairs_of(entries, skip)
+  for file, complaint in pairs(unnamed_of(entries, skip, own)) do
+    if found[file] == nil then
+      found[file] = complaint
+    end
+  end
+  return lines_of(found)
 end
 
 function Driver.reserved(entries: {{string}}, skip: function(path: string): boolean, names: {string: boolean}): string

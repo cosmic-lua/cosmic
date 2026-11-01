@@ -1,0 +1,24 @@
+local enum Color "red" "green" end
+local record Point
+  x: number
+  y: number
+  color: Color
+  mut tag?: string
+end
+local i0: integer = 1
+local n0: number = 1.5
+local s0: string = "s"
+local b0: boolean = true
+local c0: Color = "red"
+local sn0: string? = nil
+local p0: Point = { x = 1, y = 2, color = "red" }
+local a0: mut {integer} = { 1 }
+local m0: mut {string: integer} = { k = 1 }
+local function f0(a: integer): integer
+  return a
+end
+p0.tag = nil
+if (not (sn0 == nil)) then
+  m0[(sn0 or "a")] = nil
+end
+local v1: integer = 0

@@ -1,7 +1,6 @@
 --- `cosmic compile --grammar new` (build/compile.tl, build/compile_grammar.tl): files in the new checker's
 --- grammar are lexed, parsed, scoped, lowered, checked and written as Lua, and the Lua is written despite type
---- errors, as for Teal. The grammar is named, never guessed. build/compile_lang_test.tl compiles the checker's
---- own source with it.
+--- errors, as for Teal. The grammar is named, never guessed.
 
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
@@ -178,7 +177,7 @@ end
 
 --- Given a declaration file, a module of the binary's own is one the checker cannot declare: typed `invalid`, and said so.
 local function test_a_cosmic_module_is_invalid_and_reported_beside_a_declaration_file(tmp: string)
-  local decl = file(tmp, "std.d.tl", "global print: function(...: any)\n")
+  local decl = file(tmp, "std.d.tl", "--- @kind binding\nglobal print: function(...: any)\n")
   local text = "local Fs = require(\"cosmic.fs\")\nlocal data = Fs.read(\"x\")\nlocal n: integer = data\nreturn n\n"
   local ran = run({ "--errors", decl, file(tmp, "uses.tl", text) })
   assert(ran.code == 0, ran.err)
@@ -224,7 +223,7 @@ end
 
 --- The globals are the declaration files': one given, its global is declared; none given, a standalone run's are.
 local function test_the_globals_are_those_the_declaration_files_declare(tmp: string)
-  local decl = file(tmp, "std.d.tl", "global shout: function(...: any)\n")
+  local decl = file(tmp, "std.d.tl", "--- @kind binding\nglobal shout: function(...: any)\n")
   local user = file(tmp, "user.tl", "shout(\"hi\")\nlocal record Done\nend\nreturn Done\n")
   local without = run({ "--errors", user })
   assert(without.code == 0, without.err)
@@ -238,11 +237,11 @@ end
 
 --- A syntax error in a declaration file refuses the run, as one in a program does.
 local function test_a_syntax_error_in_a_declaration_file_is_refused(tmp: string)
-  local decl = file(tmp, "std.d.tl", "global print: function(...: any\n")
+  local decl = file(tmp, "std.d.tl", "--- @kind binding\nglobal print: function(...: any\n")
   local user = file(tmp, "user.tl", "return 1\n")
   local ran = run({ "-o", tmp .. "/out", decl, user })
   assert(ran.code == 2, ran.err)
-  assert(ran.err:find("std.d.tl:2:1: expected `)`", 1, true), ran.err)
+  assert(ran.err:find("std.d.tl:3:1: expected `)`", 1, true), ran.err)
   assert(Fs.exists(tmp .. "/out/user.lua") == false)
 end
 

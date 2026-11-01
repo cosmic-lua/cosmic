@@ -412,6 +412,17 @@ local function test_a_flock_of_zero_milliseconds_does_not_wait(tmp: string)
   assert(quickest < Clock.ms(1) // 2, "the quickest of 200 tries took " .. tostring(quickest) .. " ns")
 end
 
+local function test_scratch_is_removed_when_its_block_raises(tmp: string)
+  local seen: mut {string} = {}
+  Test.raises(function()
+    local scratch <close> = assert(Fs.scratch(tmp))
+    seen[#seen + 1] = scratch.path
+    assert(Fs.exists(scratch.path))
+    error("raised inside the block")
+  end, "raised inside the block")
+  assert(#seen == 1 and Fs.exists(assert(seen[1])) == false, "the directory outlived the raise")
+end
+
 local function test_a_second_close_of_a_scratch_leaves_a_reused_descriptor(tmp: string)
   local scratch = assert(Fs.scratch(tmp))
   local owner = scratch.owner

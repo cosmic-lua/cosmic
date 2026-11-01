@@ -127,10 +127,6 @@ cosmic/internal/compress.d.tl interface_disagrees 1
 
 cosmic/internal/sqlite.d.tl interface_disagrees 1
 
-cosmic/json_reader_fuzz_test.tl interface_disagrees 1
-
-cosmic/json_reader_test.tl interface_disagrees 1
-
 cosmic/net.tl interface_disagrees 1
 
 cosmic/stream.tl interface_disagrees 5
@@ -836,17 +832,16 @@ cosmic/child_policy_cosmic_test.tl nil_not_allowed 1
 
 cosmic/child_policy_database_sandboxed_test.tl nil_not_allowed 1
 
-cosmic/child_policy_isolate_test.tl nil_not_allowed 6
+cosmic/child_policy_isolate_test.tl nil_not_allowed 5
 
 cosmic/child_policy_nest_test.tl nil_not_allowed 1
 
-cosmic/child_policy_root_user_test.tl nil_not_allowed 1
 
 cosmic/child_policy_system_test.tl nil_not_allowed 2
 
 cosmic/child_policy_test.tl nil_not_allowed 1
 
-cosmic/child_policy_user_test.tl nil_not_allowed 2
+cosmic/child_policy_user_test.tl nil_not_allowed 1
 
 cosmic/child_relay_seatbelt_test.tl nil_not_allowed 6
 
@@ -2355,7 +2350,7 @@ cosmic/test.tl field_fixed 35
 
 cosmic/test_policy_test.tl field_fixed 2
 
-cosmic/time.tl field_fixed 9
+cosmic/time.tl field_fixed 1
 
 
 
@@ -2732,7 +2727,7 @@ core/connector_filter_test.tl map_field 17
 
 core/database_start_sandbox_test.tl map_field 13
 
-core/database_start_test.tl map_field 66
+core/database_start_test.tl map_field 64
 
 core/declarations_test.tl map_field 21
 
@@ -3226,7 +3221,6 @@ build/link_resolve.tl any_use 1
 
 build/lsp/session.tl any_use 5
 
-build/perf_validation.tl any_use 7
 
 build/rand.tl any_use 1
 
@@ -3794,7 +3788,7 @@ cosmic/time_duration_fuzz_test.tl cast_refused 1
 
 cosmic/time_fuzz_test.tl cast_refused 1
 
-cosmic/time_test.tl cast_refused 8
+cosmic/time_test.tl cast_refused 6
 
 cosmic/time_zone_test.tl cast_refused 7
 
@@ -4622,13 +4616,12 @@ cosmic/child_policy_isolate_test.tl or_mix 21
 
 cosmic/child_policy_nest_test.tl or_mix 8
 
-cosmic/child_policy_root_user_test.tl or_mix 5
+cosmic/child_policy_root_user_test.tl or_mix 4
 
 cosmic/child_policy_system_test.tl or_mix 1
 
 cosmic/child_policy_test.tl or_mix 5
 
-cosmic/child_policy_user_test.tl or_mix 1
 
 cosmic/child_relay_curl_test.tl or_mix 1
 
@@ -5682,7 +5675,7 @@ cosmic/zip.tl literal_missing 1
 
 lang/check.tl literal_missing 8
 
-lang/declarations.tl literal_missing 6
+lang/declarations.tl literal_missing 5
 
 lang/relation.tl literal_missing 1
 
@@ -6099,7 +6092,6 @@ build/flow_test.tl arms_differ 2
 
 build/json_query_test.tl arms_differ 2
 
-build/perf_validation.tl arms_differ 1
 
 build/shared_compiles.tl arms_differ 1
 
@@ -6236,7 +6228,7 @@ test/sqlite_parameter_test.tl arms_differ 1
 build/links_test.tl array_of_optional 1
 
 
-core/artifact_fd_test.tl array_of_optional 4
+core/artifact_fd_test.tl array_of_optional 3
 
 
 cosmic/child.tl array_of_optional 2

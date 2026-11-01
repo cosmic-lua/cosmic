@@ -47,13 +47,21 @@ local function stamps(cache: string): integer
   return count
 end
 
+--- Skips the test where this program has no artifact to relaunch, as a
+--- native start has not.
+local function relaunch_or_skip()
+  if Proc.relaunch() == nil then
+    Test.skip("a native start has no artifact to launch from a cache")
+  end
+end
+
 --- A cache entry is hashed on its first launch, and stamped by the first
 --- launch a second or more after it was written, so none after that
 --- hashes it again. Whether the first launch itself stamps depends on
 --- how long extracting and hashing took, so only the settled launch is
 --- held to it.
 local function test_a_fresh_cache_entry_is_stamped_once_it_settles(tmp: string)
-  if Proc.relaunch() == nil then return end
+  relaunch_or_skip()
   local program = assert(Proc.executable())
   local cache = tmp .. "/cache"
   assert(Fs.write(tmp .. "/ok.tl", "return function(): integer print('ok') return 0 end\n"))
@@ -85,7 +93,7 @@ end
 --- others can read: a group that cannot change the leaf cannot plant a
 --- core in it, and every entry is checked as it is used.
 local function test_a_leaf_its_group_can_read_is_accepted(tmp: string)
-  if Proc.relaunch() == nil then return end
+  relaunch_or_skip()
   local program = assert(Proc.executable())
   local r, err = launch_with_mode(program, tmp, "group-read", 0x1e8)
   assert(r.ok and r.stdout == "ok\n", err)
@@ -93,7 +101,7 @@ end
 
 --- A leaf group or others can write is refused, naming the remedy.
 local function test_a_leaf_group_or_others_can_write_is_refused(tmp: string)
-  if Proc.relaunch() == nil then return end
+  relaunch_or_skip()
   local program = assert(Proc.executable())
   local modes: {string:integer} = { ["0770"] = 0x1f8, ["0777"] = 0x1ff, ["0702"] = 0x1c2 }
   for name, mode in pairs(modes) do
@@ -109,7 +117,7 @@ end
 --- cache that holds its core, and an owner that cannot write and read is
 --- refused.
 local function test_a_leaf_is_judged_by_its_owner_bits(tmp: string)
-  if Proc.relaunch() == nil then return end
+  relaunch_or_skip()
   local program = assert(Proc.executable())
   local cache = tmp .. "/owner"
   assert(Fs.write(tmp .. "/ok.tl", "return function(): integer print('ok') return 0 end\n"))
@@ -129,7 +137,7 @@ end
 --- A leaf made under a setgid parent can carry the bit and a readable
 --- group (2750), and is accepted; one a group can write (2770) is not.
 local function test_a_setgid_leaf_is_judged_without_the_bit(tmp: string)
-  if Proc.relaunch() == nil then return end
+  relaunch_or_skip()
   local program = assert(Proc.executable())
   local probe = tmp .. "/probe"
   assert(Fs.mkdirs(probe))

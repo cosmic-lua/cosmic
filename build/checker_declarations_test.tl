@@ -8,8 +8,8 @@ local work = require("build.work")
 
 Test.policy{ grants = { { path = "lang/prelude.d.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" } } }
 
-local PRELUDE <const> = "do\n   global record Seen\n   end\nend\n"
-local STDLIB <const> = "do\n   global print: function(...: any)\nend\n"
+local PRELUDE <const> = "--- @kind language\ndo\n   global record Seen\n   end\nend\n"
+local STDLIB <const> = "--- @kind language\ndo\n   global print: function(...: any)\nend\n"
 
 local function test_the_files_are_the_prelude_and_the_library_of_the_tree()
   assert(CheckerDeclarations.prelude_file() == "lang/prelude.d.tl" and CheckerDeclarations.stdlib_file() == "lang/stdlib.d.tl")
@@ -69,6 +69,15 @@ local function test_a_tree_staging_one_of_the_two_files_is_refused(tmp: string)
   local handle, root = own_tree(tmp, { ["lang/stdlib.d.tl"] = STDLIB })
   local texts, why = CheckerDeclarations.staged(handle.db, root)
   assert(texts == nil and why:find("stages lang/stdlib.d.tl without lang/prelude.d.tl", 1, true) ~= nil, tostring(why))
+  assert(work.close(handle))
+end
+
+local function test_a_file_of_the_language_that_does_not_say_so_is_refused(tmp: string)
+  local untagged = "do\n   global record Seen\n   end\nend\n"
+  local handle, root = own_tree(tmp, { ["lang/prelude.d.tl"] = untagged, ["lang/stdlib.d.tl"] = STDLIB })
+  local texts, why = CheckerDeclarations.staged(handle.db, root)
+  assert(texts == nil and why == "lang/prelude.d.tl: the language's own declarations must say so: add the line " ..
+      "`--- @kind language` to its leading comment", tostring(why))
   assert(work.close(handle))
 end
 

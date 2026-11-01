@@ -125,6 +125,7 @@ local function test_an_unused_export_of_an_internal_module_is_flagged(dir: strin
       "function shared.alone() end",
       "return shared"),
     ["cosmic/internal/raw.d.tl"] = source(
+      "--- @kind binding",
       "local record raw",
       "  poke: function()",
       "end",
@@ -496,13 +497,14 @@ end
 --- A declaration that requires only declarations passes; one that requires a module is refused.
 local function test_a_declaration_that_requires_a_module_is_refused(dir: string)
   local db = fixture.database(dir, {
-    ["build/base.d.tl"] = source("local record base", "  x: integer", "end", "return base"),
+    ["build/base.d.tl"] = source("--- @kind binding", "local record base", "  x: integer", "end", "return base"),
   })
   local found = tree_checks.declarations(db)
   assert(#found == 0, table.concat(found, "\n"))
   db = fixture.database(dir, {
     ["build/thing.tl"] = source("local record thing", "  x: integer", "end", "return thing"),
     ["build/raw.d.tl"] = source(
+      "--- @kind binding",
       "local type thing = require(\"build.thing\")",
       "local record raw",
       "  t: thing",

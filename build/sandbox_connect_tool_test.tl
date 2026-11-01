@@ -17,6 +17,7 @@ local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local searchable = require("build.searchable")
 local this_program = require("build.this_program")
+local ChildPolicy = require("build.child_policy_fixture")
 
 --- The verb is started by its own launch (the grant of o/bin) and starts
 --- the relay and the program under it, which nest. The two addresses are
@@ -37,15 +38,6 @@ local record Ran
   err: string
 end
 
---- Whether `why`, a refusal of the sandbox, is the host giving none.
-local function unsandboxable(why: string): boolean
-  for _, word in ipairs({ "Landlock", "seccomp", "not implemented", "namespace", "own /proc",
-      "root could not be built" }) do
-    if why:find(word, 1, true) then return true end
-  end
-  return false
-end
-
 --- Runs `cosmic <words>` in `dir` with `input` on its standard input and the
 --- environment `env` (the worker's own where nil), and answers how it ended;
 --- ends the test, skipped, where the host gave the sandbox it asked for none.
@@ -58,7 +50,7 @@ local function verb(dir: string, words: {string}, input: string, env?: {string:s
   })
   local result = assert(Child.run(started.argv, started.options))
   local err = result.stderr or ""
-  if result.code == 125 and unsandboxable(err) then Test.skip(err) end
+  if result.code == 125 and ChildPolicy.unsandboxable(err) then Test.skip(err) end
   return { code = result.code or -1, out = result.stdout or "", err = err }
 end
 

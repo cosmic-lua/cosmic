@@ -16,6 +16,7 @@ local SyntaxStub = require("build.syntax_stub")
 local plans = require("build.plans")
 local plan = require("build.lsp.plan")
 local type build_module = require("build.module")
+local type Derivation = require("build.syntax_derivation")
 local type Driver = require("build.driver")
 
 local record syntax_read
@@ -119,7 +120,8 @@ function syntax_read.plan_of(name: string, text: string, path: string, kind: str
   local chunk, why = Node.parse(text, name)
   if chunk == nil then
     refusals[1] = plan.refusal_of(why)
-    return { plan = nil, refusals = refusals, halted = true, parsed = false, requires = {} }
+    return { plan = nil, refusals = refusals, halted = true, parsed = false, requires = {},
+      chunk = nil, known = nil }
   end
   local requires: mut {Site} = {}
   for _, site in ipairs(Node.require_sites(chunk)) do
@@ -129,15 +131,19 @@ function syntax_read.plan_of(name: string, text: string, path: string, kind: str
     table.insert(refusals, plan.refusal_of(plans.global_refusal(name .. ":" ..
         tostring(place.line) .. ":" .. tostring(place.column))))
   end
-  local analysis, trouble = SyntaxAnalyzer.analysis_of(chunk, Node.scope(chunk, name), text, name)
+  local scoped = Node.scope(chunk, name)
+  local analysis, trouble = SyntaxAnalyzer.analysis_of(chunk, scoped, text, name)
   if analysis == nil then
     table.insert(refusals, plan.refusal_of(trouble))
-    return { plan = nil, refusals = refusals, halted = true, parsed = true, requires = requires }
+    return { plan = nil, refusals = refusals, halted = true, parsed = true, requires = requires, chunk = chunk,
+      known = nil }
   end
+  local known: Derivation.Known = { scoped = scoped, analysis = analysis }
   local misplaced = plans.policy_refusal(name, kind, analysis.inputs)
   if misplaced ~= nil then
     table.insert(refusals, plan.refusal_of(misplaced))
-    return { plan = nil, refusals = refusals, halted = true, parsed = true, requires = requires }
+    return { plan = nil, refusals = refusals, halted = true, parsed = true, requires = requires, chunk = chunk,
+      known = known }
   end
   local tests: mut {string} = {}
   if kind == "test" then
@@ -169,9 +175,11 @@ function syntax_read.plan_of(name: string, text: string, path: string, kind: str
   if refused ~= nil then
     local at = plan.refusal_of(refused)
     table.insert(refusals, { line = math.max(return_line(chunk), 1), column = at.column, message = at.message })
-    return { plan = made_plan, refusals = refusals, halted = true, parsed = true, requires = requires }
+    return { plan = made_plan, refusals = refusals, halted = true, parsed = true, requires = requires, chunk = chunk,
+      known = known }
   end
-  return { plan = made_plan, refusals = refusals, halted = false, parsed = true, requires = requires }
+  return { plan = made_plan, refusals = refusals, halted = false, parsed = true, requires = requires, chunk = chunk,
+    known = known }
 end
 
 --- Whether `line` counts the errors of a code ([`build.ceilings.over`]: `file: 2 errors of arity in its bodies; follow the fix

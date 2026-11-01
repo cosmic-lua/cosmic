@@ -29,7 +29,7 @@ local function test_the_graph_key_is_pinned(tmp: string)
     ["greet.tl"] = 'local shape = require("shape")\nlocal record greet\nend\n' ..
       'function greet.hello(): string\n  return "hello, " .. shape.name()\nend\n' ..
       "return greet\n",
-    ["shape.d.tl"] = "local record shape\n  name: function(): string\nend\nreturn shape\n",
+    ["shape.d.tl"] = "--- @kind binding\nlocal record shape\n  name: function(): string\nend\nreturn shape\n",
     ["greet_test.tl"] = 'local greet = require("greet")\nlocal function test_hello()\n' ..
       '  assert(greet.hello() ~= "")\nend\n',
   }
@@ -41,8 +41,8 @@ local function test_the_graph_key_is_pinned(tmp: string)
   local keys: mut {string:string} = {}
   for _, m in ipairs(result.modules) do keys[m.path] = assert(m.graph_key) end
   local pinned: {string:string} = {
-    greet = "452d1d88a705d377f2c7f4445c49aa854236e844c3c70c9949ae1e96743d9d3c",
-    greet_test = "d554b1d34bce1f8dedba1c008ac3f26ab1e773a0e5d66a923ceb12ad49c75d8d",
+    greet = "07e6235d49ab95351828b93955d97da256b61f9c1880c34f99fa2cd8a6bd3280",
+    greet_test = "096d191c13354deebadb0b68a6c4e888ef9bbbe1fd47651d3a439827db7726e9",
   }
   local moved: mut {string} = {}
   for name, want in pairs(pinned) do

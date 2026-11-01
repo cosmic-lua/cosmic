@@ -3584,6 +3584,10 @@ local function disjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Typ
   end
   if left_kind == "bool" then
     local right = expr(ctx, node.right, expected)
+    -- A `never` left cannot occur: the answer is the right operand's, as in the `T?` path below, where `join` drops `never`.
+    if left.tag == "never" then
+      return right
+    end
     if is_bool(right) or right.tag == "never" or right.tag == "invalid" then
       return store.boolean
     end
@@ -3623,11 +3627,13 @@ local function conjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Typ
     local _ = expr(ctx, node.right, nil)
     return ctx.invalid
   end
-  local right = expr(ctx, node.right, left_kind == "bool" and expected or nil)
+  -- A `never` left cannot occur, so it is no boolean: the answer is the right operand or nil, as for a `T?` left.
+  local boolean = left_kind == "bool" and left.tag ~= "never"
+  local right = expr(ctx, node.right, boolean and expected or nil)
   if right.tag == "invalid" then
     return right
   end
-  if left_kind == "bool" then
+  if boolean then
     if is_bool(right) or right.tag == "never" then
       return store.boolean
     end
@@ -7378,14 +7384,6 @@ local function declaration_bodies(ctx: Ctx, node: Ast.Node, decl: Decl?)
   end
 end
 
-local function names_of_params(list: {Ast.TypeParam}): {string}
-  local out: mut {string} = {}
-  for i, p in ipairs(list) do
-    out[i] = p.name.name
-  end
-  return out
-end
-
 --- `function R.m(...)`: the function implements the field `m` of `R`.
 local function function_statement(ctx: Ctx, s: Ast.Function)
   local head = s.path[1]
@@ -7427,7 +7425,7 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
   if (owner.tag == "named") and #s.path == 2 then
     LoadOrder.define(ctx.load, owner.decl, s.path[2].text, s.fn.id)
   end
-  function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil, s.fn.id, text)
+  function_body(ctx, s.fn.params, s.fn.body, ft, Declarations.parameter_names(s.typeparams), s, s.fn.rets ~= nil, s.fn.id, text)
 end
 
 --- `if`: each arm is walked under the state where its condition holds and those before it do not, and what follows is
@@ -7669,7 +7667,7 @@ local function stat(ctx: Ctx, s: Ast.Stat)
     if ctx.load.waiting > 0 then
       LoadOrder.hold(ctx.load, s.name.id, s.fn.id)
     end
-    function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil, s.fn.id,
+    function_body(ctx, s.fn.params, s.fn.body, ft, Declarations.parameter_names(s.typeparams), s, s.fn.rets ~= nil, s.fn.id,
       s.name.name)
   elseif (s.kind == "Function") then
     function_statement(ctx, s)

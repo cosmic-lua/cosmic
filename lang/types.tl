@@ -655,7 +655,7 @@ local function render(t: Type, sub: function(Type): string): string
   return table.concat(parts)
 end
 
-local function parts_of(t: Type): {Type}
+function Types.parts(t: Type): {Type}
   local parts: mut {Type} = {}
   if (t.tag == "named") then
     return t.args
@@ -694,10 +694,6 @@ local function parts_of(t: Type): {Type}
     end
   end
   return parts
-end
-
-function Types.parts(t: Type): {Type}
-  return parts_of(t)
 end
 
 local function id_text(t: Type): string
@@ -788,7 +784,7 @@ local function declared_names(root: Type): {string: boolean}
           taken[first] = true
         end
       end
-      for _, part in ipairs(parts_of(t)) do
+      for _, part in ipairs(Types.parts(t)) do
         stack[#stack + 1] = part
       end
     end
@@ -1090,7 +1086,7 @@ end
 --- reach, whether a view of it differs, how many types its text has and how deeply it nests.
 local function measure(t: Type)
   local open, changes, weight, height = 0, false, 1, 0
-  for _, part in ipairs(parts_of(t)) do
+  for _, part in ipairs(Types.parts(t)) do
     open = math.max(open, part.open)
     changes = changes or part.has_mut
     weight = math.min(WEIGHT_CAP, weight + part.weight)
@@ -1246,7 +1242,7 @@ local function unbound(t: Type, level: integer, count: integer, seen: mut {strin
     return ""
   end
   local inside = level + (if ((t.tag == "fn") and #t.tparams > 0) then 1 else 0 end)
-  for _, part in ipairs(parts_of(t)) do
+  for _, part in ipairs(Types.parts(t)) do
     local why = unbound(part, inside, count, seen)
     if why ~= "" then
       return why
@@ -1445,7 +1441,7 @@ Types.Store.fn = function(self: Store, spec: FnSpec): Type
   if #tparams > 0 then
     -- Its own variables, which may be anywhere in it, name a parameter it has.
     local seen: {string: boolean} = {}
-    for _, part in ipairs(parts_of(f)) do
+    for _, part in ipairs(Types.parts(f)) do
       local why = unbound(part, 0, #tparams, seen)
       if why ~= "" then
         error("types: " .. why, 2)

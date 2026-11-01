@@ -148,7 +148,7 @@ delete it. when a line needs its reason, give only the reason:
 
 ```text
 -- Before anything can fail: `finish` measures from it.
-job.started_ns = Time.monotonic_ns()
+job.started_ns = Clock.monotonic_ns()
 ```
 
 a comment that repeats itself:

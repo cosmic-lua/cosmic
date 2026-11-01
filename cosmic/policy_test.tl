@@ -4,6 +4,7 @@ local Json = require("cosmic.json")
 local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
 local Test = require("cosmic.test")
+local PolicyMerge = require("build.policy_merge_fixture")
 
 --- Why `json` is refused, asserting that it is, and names `field`, a path
 --- like `$.grants[0].letters`.
@@ -13,13 +14,6 @@ local function refused(json: string, field: string): string
   assert(why:find("^sandbox: "), why)
   assert(why:find(field, 1, true), json .. " refused without naming " .. field .. ": " .. why)
   return why
-end
-
---- The merged policy of `p`, which must merge.
-local function merged(...: Sandbox.Policy): Sandbox.Policy
-  local out, why = Sandbox.merge(...)
-  assert(out ~= nil, why)
-  return out
 end
 
 local function test_decode_reads_every_field()
@@ -104,23 +98,23 @@ local function test_a_letters_refusal_names_the_canonical_order()
 end
 
 local function test_merge_checks_a_digest_against_the_value()
-  local text = PolicyJson.encode(merged({ set_env = { A = "1" } }))
+  local text = PolicyJson.encode(PolicyMerge.merged({ set_env = { A = "1" } }))
   local digest = assert(PolicyJson.decode(text))
-  local out = merged({ set_env = { A = "1" } }, digest)
+  local out = PolicyMerge.merged({ set_env = { A = "1" } }, digest)
   assert(assert(out.set_env).A == "1" and next(assert(out.set_env_digests)) == nil)
   local none, why = Sandbox.merge({ set_env = { A = "2" } }, digest)
   assert(none == nil and why:find("$.set_env_digests.A", 1, true), why)
-  local kept = merged(digest)
+  local kept = PolicyMerge.merged(digest)
   assert(assert(kept.set_env).A == nil and assert(kept.set_env_digests).A ~= nil)
 end
 
 local function test_encode_is_canonical_and_keeps_no_value()
-  local a = merged({
+  local a = PolicyMerge.merged({
     grants = { { path = "/b", letters = "x" }, { path = "/a", letters = "r" } },
     promises = { "jit", "fork" }, tmp = true, set_env = { TOKEN = "hunter2" },
     limits = { open_files = 7 }, env = { "Z", "A" },
   })
-  local b = merged({
+  local b = PolicyMerge.merged({
     env = { "A", "Z" }, limits = { open_files = 7 }, set_env = { TOKEN = "hunter2" }, tmp = true,
     promises = { "fork", "jit" }, grants = { { path = "/a", letters = "r" }, { path = "/b", letters = "x" } },
   })
@@ -133,12 +127,12 @@ local function test_encode_is_canonical_and_keeps_no_value()
   assert(text:find('"grants":[{"letters":"r","path":"/a"},{"letters":"x","path":"/b"}]', 1, true), text)
   assert(text:find('"limits":{"open_files":7}', 1, true) and text:find('"tmp":true', 1, true), text)
   assert(text:find('"set_env_digests":{"TOKEN":"', 1, true), text)
-  assert(PolicyJson.encode(merged()) == "{}")
+  assert(PolicyJson.encode(PolicyMerge.merged()) == "{}")
 end
 
 local function test_a_value_changing_changes_the_text()
-  local one = PolicyJson.encode(merged({ set_env = { A = "1" } }))
-  local two = PolicyJson.encode(merged({ set_env = { A = "2" } }))
+  local one = PolicyJson.encode(PolicyMerge.merged({ set_env = { A = "1" } }))
+  local two = PolicyJson.encode(PolicyMerge.merged({ set_env = { A = "2" } }))
   assert(one ~= two)
 end
 
@@ -154,9 +148,9 @@ local function test_encode_decode_encode_is_the_identity()
     { profiles = { "cosmic" }, set_env_digests = { X = string.rep("a", 64) } },
   }
   for i, p in ipairs(policies) do
-    local text = PolicyJson.encode(merged(p))
+    local text = PolicyJson.encode(PolicyMerge.merged(p))
     local back = assert(PolicyJson.decode(text))
-    assert(PolicyJson.encode(merged(back)) == text, "policy " .. tostring(i) .. ": " .. text)
+    assert(PolicyJson.encode(PolicyMerge.merged(back)) == text, "policy " .. tostring(i) .. ": " .. text)
     assert(PolicyJson.encode(back) == text, "policy " .. tostring(i) .. " decoded: " .. text)
   end
 end
@@ -169,15 +163,15 @@ local function test_encode_raises_for_what_is_not_merged()
 end
 
 local function test_isolate_file_implies_proc_in_the_text()
-  local file = PolicyJson.encode(merged({ isolate = { "file" } }))
-  assert(file == PolicyJson.encode(merged({ isolate = { "proc", "file" } })), file)
+  local file = PolicyJson.encode(PolicyMerge.merged({ isolate = { "file" } }))
+  assert(file == PolicyJson.encode(PolicyMerge.merged({ isolate = { "proc", "file" } })), file)
   assert(file:find('"isolate":["file","proc"]', 1, true), file)
-  assert(PolicyJson.encode(merged({ isolate = { "proc" } })):find('"isolate":["proc"]', 1, true))
+  assert(PolicyJson.encode(PolicyMerge.merged({ isolate = { "proc" } })):find('"isolate":["proc"]', 1, true))
 end
 
 local function test_equal_policies_written_differently_encode_alike()
-  local a = PolicyJson.encode(merged({ grants = { { path = "/x/", letters = "wr" } }, isolate = { "file" } }))
-  local b = PolicyJson.encode(merged({ grants = { { path = "//x/./", letters = "rw" } }, isolate = { "proc", "file" } }))
+  local a = PolicyJson.encode(PolicyMerge.merged({ grants = { { path = "/x/", letters = "wr" } }, isolate = { "file" } }))
+  local b = PolicyJson.encode(PolicyMerge.merged({ grants = { { path = "//x/./", letters = "rw" } }, isolate = { "proc", "file" } }))
   assert(a == b, a .. " vs " .. b)
 end
 
@@ -202,23 +196,23 @@ end
 
 local function test_a_database_is_written_with_its_digest_and_read_back(tmp: string)
   local path = database_of(tmp, "bytes of a database")
-  local text = PolicyJson.encode(merged({ database = assert(Sandbox.database(path)) }))
+  local text = PolicyJson.encode(PolicyMerge.merged({ database = assert(Sandbox.database(path)) }))
   local digest = Hash.hex_sha256("bytes of a database")
   assert(text == '{"database":{"path":"' .. path .. '","sha256":"' .. digest .. '"}}', text)
   local policy = assert(PolicyJson.decode(text))
   assert(assert(policy.database).path == path)
-  assert(PolicyJson.encode(merged(policy)) == text)
+  assert(PolicyJson.encode(PolicyMerge.merged(policy)) == text)
 end
 
 --- The text names what the database is: another file at the same path is
 --- not it, and the text moves with the file.
 local function test_a_database_that_changed_is_not_the_one_the_text_names(tmp: string)
   local path = database_of(tmp, "one")
-  local before = PolicyJson.encode(merged({ database = assert(Sandbox.database(path)) }))
+  local before = PolicyJson.encode(PolicyMerge.merged({ database = assert(Sandbox.database(path)) }))
   database_of(tmp, "two")
   local policy, why = PolicyJson.decode(before)
   assert(policy == nil and why:find("$.database.sha256", 1, true), tostring(why))
-  assert(PolicyJson.encode(merged({ database = assert(Sandbox.database(path)) })) ~= before,
+  assert(PolicyJson.encode(PolicyMerge.merged({ database = assert(Sandbox.database(path)) })) ~= before,
     "the digest did not move")
   assert(Fs.remove(path))
   policy, why = PolicyJson.decode(before)
@@ -244,17 +238,17 @@ end
 local function test_a_checked_database_keeps_its_digest_through_copies_and_merges(tmp: string)
   local path = database_of(tmp, "one")
   local digest = Hash.hex_sha256("one")
-  local checked = assert(PolicyJson.decode(PolicyJson.encode(merged({ database = assert(Sandbox.database(path)) }))))
+  local checked = assert(PolicyJson.decode(PolicyJson.encode(PolicyMerge.merged({ database = assert(Sandbox.database(path)) }))))
   assert(assert(checked.database).sha256 == digest)
   local copy: Sandbox.Policy = {}
   for key, value in pairs(checked as {string:any}) do (copy as {string:any})[key] = value end
-  local again = merged(copy, { tmp = true })
+  local again = PolicyMerge.merged(copy, { tmp = true })
   assert(assert(again.database).path == path and assert(again.database).sha256 == digest)
   database_of(tmp, "two")
   local ok, trouble = pcall(PolicyJson.encode, again)
   assert(not ok and tostring(trouble):find("has changed since", 1, true), tostring(trouble))
   -- A path alone names no identity, and encoding does not give it one.
-  ok, trouble = pcall(PolicyJson.encode, merged({ database = { path = path } }))
+  ok, trouble = pcall(PolicyJson.encode, PolicyMerge.merged({ database = { path = path } }))
   assert(not ok and tostring(trouble):find("Sandbox.database", 1, true), tostring(trouble))
 end
 
@@ -265,7 +259,7 @@ local function test_merge_joins_database_digests_with_their_paths(tmp: string)
   local path = database_of(tmp, "one")
   local digest = assert(Sandbox.database(path)).sha256
   assert(digest == Hash.hex_sha256("one"))
-  local out = merged({ database = { path = path } }, { database = { path = path, sha256 = digest } })
+  local out = PolicyMerge.merged({ database = { path = path } }, { database = { path = path, sha256 = digest } })
   assert(assert(out.database).sha256 == digest)
   local other = string.rep("0", 64)
   local none, why = Sandbox.merge({ database = { path = path, sha256 = digest } },

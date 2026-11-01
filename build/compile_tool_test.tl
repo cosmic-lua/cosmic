@@ -29,7 +29,7 @@ end
 --- A module with a number in it, and the one global a `require` needs: a program has no globals but the ones a `.d.tl`
 --- file named declares.
 local LIB <const> = "local record lib\n  n: integer\nend\nlocal l: lib = { n = 1 }\nreturn l\n"
-local REQUIRE <const> = "global require: function(string): any\n"
+local REQUIRE <const> = "--- @kind binding\nglobal require: function(string): any\n"
 
 local function test_it_prints_the_lua_and_no_summary(tmp: string)
   assert(Fs.write(tmp .. "/n.tl", "local n: integer = 7\nreturn n\n"))

@@ -16,6 +16,7 @@ local searchable = require("build.searchable")
 local test_child = require("build.test_child")
 local testing = require("cosmic.internal.testing")
 local this_program = require("build.this_program")
+local ChildPolicy = require("build.child_policy_fixture")
 
 --- The temporary directory, which a start's root is built in; this
 --- program, which the child runs; and `nests`, since the sandbox the test
@@ -26,16 +27,6 @@ Test.policy{
   promises = { "nest" },
   requires = { "nest" },
 }
-
---- Whether `why`, a start's failure, is the host giving no seccomp or user
---- namespace.
-local function unsandboxable(why: string): boolean
-  for _, word in ipairs({ "Landlock", "seccomp", "not implemented", "namespace", "own /proc",
-      "root could not be built" }) do
-    if why:find(word, 1, true) then return true end
-  end
-  return false
-end
 
 --- What the child makes of the calls a program may make, one `name=result`
 --- line each, results being "ok" or the errno's name. The flags are
@@ -111,7 +102,7 @@ local function test_a_nested_program_cannot_widen_what_it_was_given(tmp: string)
     { policy = policy, cwd = work, stdout = "capture", stderr = "stdout" })
   local result, why = Child.run(started.argv, started.options)
   if result == nil then
-    assert(unsandboxable(why), "the start was refused: " .. why)
+    assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
     Test.skip(why)
     return
   end
