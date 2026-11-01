@@ -209,7 +209,7 @@ local function test_a_derived_source_keeps_its_symbols_at_the_lines_of_the_file_
   assert(nth(staged.analysis.docs, 1).line == 3)
 end
 
-local function test_the_types_and_members_a_source_declares_have_their_places_and_a_derived_source_has_none(tmp: string)
+local function test_the_types_and_members_a_source_declares_have_their_places_and_a_derived_source_without_a_line_map_has_none(tmp: string)
   local source = "local record Things\n  size: integer\nend\nfunction Things.open(): Things return { size = 0 } end\nreturn Things\n"
   local handle = assert(work.open(tmp))
   local ok, why = Derivation.insert(handle.db, "h1", "m.tl", source, parsed(source, "m.tl"), false)
@@ -217,10 +217,44 @@ local function test_the_types_and_members_a_source_declares_have_their_places_an
   assert(table.concat(rows(handle.db,
     "SELECT ordinal || '|' || symbol || '|' || kind || '|' || line || '|' || column || '|' || length FROM places " ..
       "ORDER BY ordinal"), " ") == "1|Things|type|1|14|6 2|Things.size|field|2|3|4 3|Things.open|function|4|17|4")
-  -- A source generated from another file is at that file's lines, which the places do not know.
+  -- A source generated from another file is at that file's lines, which its own places do not know: with no map it has none.
   ok, why = Derivation.insert(handle.db, "h2", "gen.tl", source, parsed(source, "gen.tl"), true)
   assert(ok, why)
   assert(#rows(handle.db, "SELECT * FROM places WHERE source_hash = 'h2'") == 0)
   assert(#rows(handle.db, "SELECT * FROM parsed WHERE source_hash = 'h2'") == 1)
+  assert(work.close(handle))
+end
+
+local MAPPED <const> = table.concat({
+  "local record sys",
+  "  record Stat",
+  "    size: integer",
+  "  end",
+  "  read: function(): integer",
+  "  open: function(): integer",
+  "end",
+  "function sys.close() end",
+  "return sys",
+  "-- line Stat 31",
+  "-- line Stat.size 32",
+  "-- line read 40",
+  "-- line close 52",
+  "",
+}, "\n")
+
+--- A source generated from a file keeps the places its `-- line` map names, at the map's line, and no other: the generated
+--- module's own lines are not the file's.
+local function test_a_derived_source_keeps_the_places_its_line_map_names_at_the_mapped_lines(tmp: string)
+  local handle = assert(work.open(tmp))
+  local ok, why = Derivation.insert(handle.db, "h", "gen.tl", MAPPED, parsed(MAPPED, "gen.tl"), true)
+  assert(ok, why)
+  assert(table.concat(rows(handle.db,
+    "SELECT symbol || '|' || kind || '|' || line || '|' || column || '|' || length FROM places ORDER BY ordinal"), " ") ==
+      "sys.Stat|type|31|1|0 sys.Stat.size|field|32|1|0 sys.read|field|40|1|0 sys.close|function|52|1|0")
+  -- The same text staged by hand is at its own lines, and the map is a comment.
+  ok, why = Derivation.insert(handle.db, "own", "gen.tl", MAPPED, parsed(MAPPED, "gen.tl"), false)
+  assert(ok, why)
+  assert(table.concat(rows(handle.db, "SELECT symbol || '|' || line FROM places WHERE source_hash = 'own' ORDER BY ordinal"),
+    " ") == "sys|1 sys.Stat|2 sys.Stat.size|3 sys.read|5 sys.open|6 sys.close|8")
   assert(work.close(handle))
 end

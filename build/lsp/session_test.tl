@@ -12,6 +12,7 @@ local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local build_paths = require("build.paths")
+local tree = require("build.tree")
 local docs_fixture = require("build.docs_fixture")
 local session = require("build.lsp.session")
 local session_fixture = require("build.lsp.session_fixture")
@@ -394,6 +395,25 @@ local function test_definition_in_another_module_is_read_from_the_places_the_sta
   end)
   assert_located(defined(ran, 3), root, "lib/point.tl", 0, 13, 18)
   assert(ran.tally.derived == 0, tostring(ran.tally.derived))
+end
+
+--- A symbol of a module generated from a header is defined in the header, at the name on the line the map gives.
+local function test_definition_of_a_symbol_of_a_generated_module_is_in_the_header()
+  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.write(root .. "/core/syscalls.h", table.concat({
+    "/*", " * --- Reads bytes.", " * ---@param fd integer descriptor", " * ---@return string|nil data bytes",
+    " * ---@return string error failure", " * ---@return integer errno number", " */",
+    "COSMIC_SYSCALL(read, 1);", "",
+  }, "\n") .. "\n"))
+  local built = assert(tree.built_from(root))
+  local text = 'local sys = require("cosmic.sys")\nlocal _ = sys.read\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    at(2, "textDocument/definition", root, "main.tl", 1, 14),
+  }, nil, built)
+  assert_located(defined(ran, 2), root, "core/syscalls.h", 7, 15, 19)
 end
 
 --- An open module is parsed only where the person has edited it, and once for a text.

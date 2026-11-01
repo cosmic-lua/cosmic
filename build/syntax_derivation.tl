@@ -22,7 +22,8 @@ local record Derivation
     requires: {string}
     globals: {Globals.Place}
     --- Where it declares the types and members that other modules name. A source that is generated from another
-    --- (`mapped`) keeps none: its lines are not the file's.
+    --- (`mapped`) keeps those its `-- line` map names, at the line the map gives and column 1, length 0: its own lines are
+    --- not the file's, and the name's column in that file is not known here ([`build.lsp.source`] finds it).
     places: {Places.Found}
     --- The stub of a source that returns a value, nil for one that returns nothing (a test, as a rule): it is no module
     --- a checker reads in place of anything.
@@ -101,6 +102,19 @@ function Derivation.rows_of(chunk: Ast.Chunk, source: string, file: string, mapp
   local places: {Places.Found} = {}
   if not mapped then
     places = Places.found(chunk)
+  elseif lines ~= nil then
+    -- A symbol is the dotted path from the module's record ([`sys.Stat.size`]), the map's key the path below it.
+    local kept: mut {Places.Found} = {}
+    local prefix = found.export .. "."
+    for _, place in ipairs(Places.found(chunk)) do
+      local key = place.symbol:sub(#prefix + 1)
+      local line = lines[key]
+      if found.export ~= "" and place.symbol:sub(1, #prefix) == prefix and line ~= nil then
+        kept[#kept + 1] = { symbol = place.symbol, kind = place.kind, token = place.token, line = line,
+          column = 1, length = 0 }
+      end
+    end
+    places = kept
   end
   return { requires = Node.requires(chunk), globals = Globals.found(chunk), places = places, stub = stub,
     analysis = analysis, links = links }, ""
