@@ -1,6 +1,6 @@
 local Clock = require("cosmic.clock")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Compress = require("cosmic.compress")
+local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Fixture = require("cosmic_ci.fixture")
 

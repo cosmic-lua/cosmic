@@ -1,5 +1,5 @@
-local Fs = require("cosmic.fs")
 local Compress = require("cosmic.compress")
+local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Fixture = require("cosmic_ci.fixture")
 local Stream = require("cosmic.stream")
