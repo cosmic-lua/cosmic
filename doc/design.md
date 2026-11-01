@@ -809,21 +809,8 @@ that does run runs in a worker process of its own:
   module it loads up to [`build.boot`], keyed by the digest of every `.tl`
   and `.h` under the root and of the compiler and the bridge, since no
   import graph exists yet to key them by. a boot of a tree none of whose
-  `.tl` or `.h` has changed, and each worker it starts, compile nothing
-  in the bridge; an edit to any one of them compiles it all again.
-- *parallel*: a build with much to parse or compile, a cold boot or an
-  edit that reaches most of the tree, does it in worker processes: one
-  fewer than the processors, `COSMIC_BUILD_JOBS` naming another count
-  and `1` none (`build/workers.tl`). sources are dealt to them by
-  size. modules are dealt by what they import (build/shards.tl),
-  since the checker's types cannot leave a process and a worker checks
-  every import of what it compiles. the build process alone writes the
-  rows, in the order a build without workers writes them, and compiles
-  itself what no worker did, a refusal included, so its error is the one
-  a build alone gives and the database and the tool come out byte for
-  byte the same (`build/worker.tl`). a boot loads the build's code from
-  source in each worker, which takes seconds, so it starts them only for
-  a few megabytes of new source.
+  `.tl` or `.h` has changed compiles nothing in the bridge; an edit to
+  any one of them compiles it all again.
 - *fast*: compile and check run in one process, one transaction,
   against declarations already in the database. each test runs in a worker
   -- the same core relaunched directly, never through the launcher --
@@ -1112,8 +1099,7 @@ the spirit is consistent, strong, explicit typing, the same shape the languages 
 inert until narrowed, no casts, the escape hatch in one greppable region, boundaries decoded through declared shapes. a
 runtime-checked cast is closed to Teal because Lua erases record types, so shapes construct their records rather than
 asserting them. there is no planned `cosmic check` verb: compilation performs checking, while `cosmic fix` reads and checks
-the files it is given and rewrites what the tree's structural rules (`build/fix/rule.tl`, still empty) ask for; it has no
-layout for the new grammar yet.
+the files it is given and writes each Teal file in the layout of [`build.fix.format`].
 
 ### the runtime
 
@@ -1352,6 +1338,7 @@ in [roadmap.md](roadmap.md).
 [`build.positions`]: ../build/positions.tl
 [`build.reboot.own_tool`]: ../build/reboot.tl
 [`build.test_worker`]: ../build/test_worker.tl
+[`build.fix.format`]: ../build/fix/format.tl
 [`build.work`]: ../build/work.tl
 [`build.writer`]: ../build/writer.tl
 [`build/bom.tl`]: ../build/bom.tl
