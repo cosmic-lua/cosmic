@@ -12,24 +12,11 @@ local Test = require("cosmic.test")
 local identity = require("build.identity")
 local work = require("build.work")
 local build_paths = require("build.paths")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
-
---- `root`'s build directory ([`build.paths`]), made, with `root` made
---- first where it is not there yet.
-local function build_dir(root: string): string
-  assert(Fs.mkdirs(root))
-  return (assert(build_paths.prepare(root)))
-end
+local support = require("build.test_support_fixture")
 
 local function count(db: Sqlite.Handle, table_name: string): integer
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))
-  return math.tointeger(tonumber(nth(rows, 1):text(1))) as integer
+  return math.tointeger(tonumber(support.nth(rows, 1):text(1))) as integer
 end
 
 local function test_recording_error_rolls_back_every_table(tmp: string)
@@ -44,7 +31,7 @@ local function test_recording_error_rolls_back_every_table(tmp: string)
   local inserted, trouble = handle.db:exec("INSERT INTO coverage VALUES (1, 'p', 1, 1)")
   assert(not inserted and trouble:find("injected", 1, true) ~= nil)
   assert(work.abort(handle))
-  local reopened = assert(Sqlite.open(build_dir(tmp) .. "/build.db"))
+  local reopened = assert(Sqlite.open(support.build_dir(tmp) .. "/build.db"))
   for _, table_name in ipairs({
       "runs", "verdicts", "test_runs", "coverage", "coverage_by_test",
   }) do
@@ -63,7 +50,7 @@ local function test_a_fresh_schema_is_made_in_one_transaction(tmp: string)
   -- off this line, once build.work declares `schema` as `mut {string}`.
   work.schema[#work.schema] = nil
   assert(ran and handle == nil and trouble ~= "", "the planted statement fails the open")
-  local db = assert(Sqlite.open(build_dir(tmp) .. "/build.db"))
+  local db = assert(Sqlite.open(support.build_dir(tmp) .. "/build.db"))
   assert(count(db, "sqlite_master") == 0, "a failed fresh schema leaves no table")
   assert(db:close())
   -- And the schema goes in whole once nothing fails.
@@ -82,7 +69,7 @@ local function test_assertion_failure_records_atomically(tmp: string)
   assert(handle.db:exec("INSERT INTO coverage VALUES (1, 'p', 1, 1)"))
   assert(work.close(handle))
 
-  local reopened = assert(Sqlite.open(build_dir(tmp) .. "/build.db"))
+  local reopened = assert(Sqlite.open(support.build_dir(tmp) .. "/build.db"))
   assert(count(reopened, "runs") == 1)
   assert(count(reopened, "verdicts") == 1)
   assert(count(reopened, "test_runs") == 1)
@@ -126,7 +113,7 @@ end
 --- mode, by a build before this one, is put in it at its next writable
 --- open.
 local function test_a_rollback_mode_database_is_put_in_write_ahead_mode(tmp: string)
-  local path = build_dir(tmp) .. "/build.db"
+  local path = support.build_dir(tmp) .. "/build.db"
   assert(work.close((assert(work.open(tmp)))))
   assert(journal_mode(path) == "wal", journal_mode(path))
   local db = assert(Sqlite.open(path, { writable = true }))
@@ -149,7 +136,7 @@ local function test_a_commit_is_in_the_file_while_its_run_goes_on(tmp: string)
   local handle = assert(work.open(tmp))
   assert(Sqlite.run(handle.db, "INSERT INTO meta (key, value) VALUES ('marker', 'committed')"))
   assert(work.commit(handle))
-  local alone = assert(Sqlite.open(build_dir(tmp) .. "/build.db", { immutable = true }))
+  local alone = assert(Sqlite.open(support.build_dir(tmp) .. "/build.db", { immutable = true }))
   -- Without the copy into the file, it holds no table yet.
   local rows = assert(Sqlite.text_rows(alone, "SELECT value FROM meta WHERE key = 'marker'"))
   assert(alone:close())
@@ -162,7 +149,7 @@ end
 --- free.
 local function test_an_open_that_waits_for_no_run_finds_one_holding_it(tmp: string)
   assert(work.close((assert(work.open(tmp)))))
-  local held = assert(Sqlite.open(build_dir(tmp) .. "/build.db", { writable = true }))
+  local held = assert(Sqlite.open(support.build_dir(tmp) .. "/build.db", { writable = true }))
   assert(held:exec("BEGIN IMMEDIATE"))
   local started = Clock.monotonic_ns()
   local busy = assert(work.try_open(tmp))
@@ -178,7 +165,7 @@ end
 --- A working database at `tmp` stamped with another schema, as another
 --- tool's would be, holding a row a remade file would not: its path.
 local function of_another_schema(tmp: string): string
-  local path = build_dir(tmp) .. "/build.db"
+  local path = support.build_dir(tmp) .. "/build.db"
   local made = assert(work.open(tmp))
   assert(Sqlite.run(made.db, "UPDATE meta SET value = 'another' WHERE key = 'schema'"))
   assert(Sqlite.run(made.db, "INSERT INTO meta (key, value) VALUES ('marker', 'kept')"))
@@ -230,7 +217,7 @@ end
 --- older tool must leave to the tool that made it, and one a run holds the
 --- rebuild lock for.
 local function test_a_lookups_open_removes_a_file_of_an_older_schema_alone(tmp: string)
-  local path = build_dir(tmp) .. "/build.db"
+  local path = support.build_dir(tmp) .. "/build.db"
   local function stamp(schema: string)
     local made = assert(work.open(tmp))
     assert(Sqlite.run(made.db, "UPDATE meta SET value = ?1 WHERE key = 'schema'", { { text = schema } }))
@@ -296,7 +283,7 @@ end
 --- file removed then is one that run goes on writing its records to,
 --- unlinked, and loses.
 local function test_a_remaking_open_leaves_a_file_a_run_holding_the_rebuild_lock_writes_to(tmp: string)
-  local path = build_dir(tmp) .. "/build.db"
+  local path = support.build_dir(tmp) .. "/build.db"
   local running = assert(work.open(tmp))
   assert(Sqlite.run(running.db, "UPDATE meta SET value = 'another' WHERE key = 'schema'"))
   assert(work.commit(running))
@@ -332,7 +319,7 @@ local function test_a_read_answers_at_once_while_a_run_writes(tmp: string)
       "WHERE i < 4000) INSERT INTO meta (key, value) SELECT 'filler ' || i, " ..
       "hex(randomblob(512)) FROM n"))
   local started = Clock.monotonic_ns()
-  local reader = assert(Sqlite.open(build_dir(tmp) .. "/build.db"))
+  local reader = assert(Sqlite.open(support.build_dir(tmp) .. "/build.db"))
   reader:busy_timeout(Clock.seconds(2))
   local rows = assert(Sqlite.text_rows(reader, "SELECT value FROM meta WHERE key = 'marker'"))
   local fillers = assert(Sqlite.text_rows(reader,
@@ -350,7 +337,7 @@ end
 local function staged_bytes(db: Sqlite.Handle, path: string): string
   local rows = assert(Sqlite.text_rows(db,
     "SELECT CAST(data AS TEXT) FROM files WHERE path = ?1", { { text = path } }))
-  return nth(rows, 1):text(1)
+  return support.nth(rows, 1):text(1)
 end
 
 --- Stage after the timestamp tick has settled, without waiting on the host clock.
@@ -399,7 +386,7 @@ local function test_an_unsettled_row_is_read_again_at_the_epoch(tmp: string)
   assert(staged_bytes(handle.db, "probe.tl") == "return 1\n")
   local unsettled = assert(Sqlite.text_rows(handle.db,
     "SELECT mtime_ns IS NULL FROM files WHERE path = 'probe.tl'"))
-  assert(nth(unsettled, 1):text(1) == "1", "the first stage must leave the row unsettled")
+  assert(support.nth(unsettled, 1):text(1) == "1", "the first stage must leave the row unsettled")
   local before = assert(Fs.stat(path))
 
   local fd = assert(Fs.open_write(path))
@@ -457,7 +444,7 @@ local function test_stage_takes_a_link_for_what_it_leads_to(tmp: string)
   assert(staged_bytes(handle.db, "linked_test.tl") ~= nil, "the linked test is staged")
   local looped = assert(Sqlite.text_rows(handle.db,
     "SELECT count(*) FROM files WHERE path LIKE 'loop/%'"))
-  assert(nth(looped, 1):text(1) == "0", "nothing is staged through the loop")
+  assert(support.nth(looped, 1):text(1) == "0", "nothing is staged through the loop")
   assert(work.close(handle))
 end
 
@@ -467,14 +454,14 @@ local function refused_above(project: string, target: string, link: string)
   local handle = assert(work.open(project))
   assert(work.stage(handle, { own = false }))
   local before = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM files"))
-  assert(nth(before, 1):text(1) ~= "0")
+  assert(support.nth(before, 1):text(1) ~= "0")
   assert(Fs.symlink(target, project .. "/" .. link))
   local staged, trouble = work.stage(handle, { own = false })
   assert(staged == nil, "a link above the root is refused")
   assert(trouble:find(link .. ": a link to ", 1, true), trouble)
   assert(trouble:find("above the root", 1, true), trouble)
   local after = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM files"))
-  assert(nth(after, 1):text(1) == nth(before, 1):text(1), "the refusal leaves the rows staged before")
+  assert(support.nth(after, 1):text(1) == support.nth(before, 1):text(1), "the refusal leaves the rows staged before")
   assert(work.close(handle))
 end
 
@@ -519,7 +506,7 @@ local function test_zoneinfo_is_replaced_whole_and_read_back(tmp: string)
   assert(back["Europe/Paris"] == "TZif\0paris" and back["UTC"] == "TZif utc")
   local rows = assert(Sqlite.text_rows(handle.db,
     "SELECT group_concat(name || ' ' || typeof(data), ',' ORDER BY rowid) FROM zoneinfo"))
-  assert(nth(rows, 1):text(1) == "Europe/Paris blob,UTC blob", nth(rows, 1):text(1))
+  assert(support.nth(rows, 1):text(1) == "Europe/Paris blob,UTC blob", support.nth(rows, 1):text(1))
   assert(work.close(handle))
 
   local older = assert(Sqlite.memory())
@@ -534,9 +521,9 @@ end
 local function test_web_assets_are_hashed_replaced_whole_and_read_back(tmp: string)
   for _, tree in ipairs({ { "htmx", "dist/htmx.min.js", "1.2.3", "js one" },
       { "htmx-ext-sse", "dist/sse.min.js", "4.5.6", "js two" } }) do
-    assert(Fs.mkdirs(tmp .. "/vendor/" .. nth(tree, 1) .. "/dist"))
-    assert(Fs.write(tmp .. "/vendor/" .. nth(tree, 1) .. "/PIN", "version " .. nth(tree, 3) .. "\nurl x\n"))
-    assert(Fs.write(tmp .. "/vendor/" .. nth(tree, 1) .. "/" .. nth(tree, 2), nth(tree, 4)))
+    assert(Fs.mkdirs(tmp .. "/vendor/" .. support.nth(tree, 1) .. "/dist"))
+    assert(Fs.write(tmp .. "/vendor/" .. support.nth(tree, 1) .. "/PIN", "version " .. support.nth(tree, 3) .. "\nurl x\n"))
+    assert(Fs.write(tmp .. "/vendor/" .. support.nth(tree, 1) .. "/" .. support.nth(tree, 2), support.nth(tree, 4)))
   end
   local assets = assert(work.read_web_assets(tmp .. "/vendor"))
   assert(#assets == 2 and assets[1].name == "htmx-ext-sse.min.js" and assets[2].name == "htmx.min.js")
@@ -877,7 +864,7 @@ local function test_stage_takes_every_file_under_static(tmp: string)
     ["static/css/app.css"] = "a{}", ["static/notes.tl"] = "TODO: not ours\nx", ["static/p.tmpl"] = "{{",
     ["static/bin.dat"] = "\0\1\2", ["static/.hidden/x"] = "x", ["main.tl"] = "return 1\n",
   }))
-  local db = assert(Sqlite.open(build_dir(tmp) .. "/build.db"))
+  local db = assert(Sqlite.open(support.build_dir(tmp) .. "/build.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT path FROM files WHERE path GLOB 'static/*' ORDER BY path"))
   local paths: mut {string} = {}
@@ -895,7 +882,7 @@ local function test_stage_notes_a_module_shaped_asset(tmp: string)
     ["static/a.css"] = "a{}", ["main.tl"] = "return 1\n" }))
   table.sort(staged.notes)
   assert(#staged.notes == 2, table.concat(staged.notes, "\n"))
-  assert(nth(staged.notes, 1):find("^static/notes%.tl: ") and nth(staged.notes, 2):find("^static/p%.tmpl: "))
+  assert(support.nth(staged.notes, 1):find("^static/notes%.tl: ") and support.nth(staged.notes, 2):find("^static/p%.tmpl: "))
 end
 
 --- Each rule the build refuses an asset by, named by the file.

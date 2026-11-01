@@ -8,13 +8,7 @@ local invoke = require("build.invoke")
 local sys = require("cosmic.sys")
 local tree_root = require("build.tree_root")
 local build_paths = require("build.paths")
-
---- `root`'s build directory ([`build.paths`]), made, with `root` made
---- first where it is not there yet.
-local function build_dir(root: string): string
-  assert(Fs.mkdirs(root))
-  return (assert(build_paths.prepare(root)))
-end
+local support = require("build.test_support_fixture")
 
 --- The move a command line gets, or nil.
 local function moved_by(argv: {string}, options: {string:boolean | Flags.Option},
@@ -26,11 +20,11 @@ end
 --- path, resolved.
 local function project(dir: string): string
   local tmp = assert(sys.realpath(dir))
-  assert(build_dir(tmp .. "/proj"))
-  assert(Fs.write(build_dir(tmp .. "/proj") .. "/cosmic.db", ""))
+  assert(support.build_dir(tmp .. "/proj"))
+  assert(Fs.write(support.build_dir(tmp .. "/proj") .. "/cosmic.db", ""))
   assert(Fs.mkdirs(tmp .. "/proj/a/b"))
   -- What the last build staged: one source under a/b.
-  local db = assert(Sqlite.open(build_dir(tmp .. "/proj") .. "/build.db", { writable = true }))
+  local db = assert(Sqlite.open(support.build_dir(tmp .. "/proj") .. "/build.db", { writable = true }))
   assert(Sqlite.run(db, "CREATE TABLE files (path TEXT PRIMARY KEY, size INTEGER, " ..
       "mtime_ns INTEGER, ino INTEGER, dev INTEGER, sha256 TEXT, data BLOB) WITHOUT ROWID"))
   assert(Sqlite.run(db, "INSERT INTO files (path) VALUES ('a/b/x_test.tl')"))
@@ -75,10 +69,10 @@ end
 --- own tree, nested or not.
 local function test_only_a_built_database_establishes_a_tree(tmp: string)
   local root = project(tmp)
-  assert(build_dir(root .. "/a"))
-  assert(Fs.write(build_dir(root .. "/a") .. "/build.db", ""))
+  assert(support.build_dir(root .. "/a"))
+  assert(Fs.write(support.build_dir(root .. "/a") .. "/build.db", ""))
   assert(rooted(root .. "/a", nil) == root)
-  assert(Fs.write(build_dir(root .. "/a") .. "/cosmic.db", ""))
+  assert(Fs.write(support.build_dir(root .. "/a") .. "/cosmic.db", ""))
   assert(rooted(root .. "/a", nil) == nil)
   -- The nearest built ancestor is a/, which staged nothing under a/b.
   assert(rooted(root .. "/a/b", nil) == nil)
@@ -170,7 +164,7 @@ end
 --- the directory stays a root of its own, and the note says why.
 local function test_an_unreadable_database_is_said(tmp: string)
   local root = project(tmp)
-  assert(Fs.write(build_dir(root) .. "/build.db", "not a database"))
+  assert(Fs.write(support.build_dir(root) .. "/build.db", "not a database"))
   local here = assert(sys.getcwd())
   assert(sys.chdir(root .. "/a/b"))
   local answer = tree_root.move({ "todos" }, {}, nil)
