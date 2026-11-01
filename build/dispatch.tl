@@ -359,15 +359,13 @@ local function module_of(root: string, file: string): string?, string
   return (name:gsub("/", ".")), ""
 end
 
---- `trouble`, the reason a file run's build failed, with a line saying `--standalone` where the file it names is
---- neither the file run nor one the file requires by name: the tree around a file is built to run it, so a refused
---- file beside it stops the run, and `--standalone` runs the file alone.
+--- `trouble`, the reason a file run's build failed, with a line saying `--standalone` where the file it names is not the
+--- file run and the file run requires no module of the project: `--standalone` finds only `cosmic.*` modules, so
+--- it is the way to run such a file past a refused file beside it, and no way for one that requires a project module,
+--- directly or through another. A file that does not parse gets no hint.
 --- @param file the path named on the command line
 --- @param name the module of that file
 local function with_standalone_hint(trouble: string, file: string, name: string): string
-  -- TODO: follow the file's requires through the files they name, not its own `require` lines alone, once a build that
-  -- stops at a refused source can say which modules the rest of the tree requires: a file reached only through another
-  -- gets the hint today.
   local culprit = trouble:match("^([^:\n]+):")
   if culprit == nil or not (culprit:match("%.tl$") ~= nil or culprit:match("%.tmpl$") ~= nil) then
     return trouble
@@ -378,9 +376,18 @@ local function with_standalone_hint(trouble: string, file: string, name: string)
   end
   local Fs = require("cosmic.fs")
   local source, _ = Fs.read(file)
-  local quoted = module:gsub("%p", "%%%0")
-  if source ~= nil and (source:find("require%s*%(?%s*[\"']" .. quoted .. "[\"']") ~= nil) then
+  if source == nil then
     return trouble
+  end
+  -- The requires as the checker's syntax tree reads them, the way `--standalone` itself reads them.
+  local required, _ = require("build.standalone").requires(file, source)
+  if required == nil then
+    return trouble
+  end
+  for _, needed in ipairs(required) do
+    if needed:sub(1, 7) ~= "cosmic." then
+      return trouble
+    end
   end
   return trouble .. "\n" .. "cosmic: " .. culprit .. " is not the file run, but a run builds the tree around its file; " ..
     "`cosmic --standalone " .. file .. "` (or COSMIC_STANDALONE=1) runs the file alone"
@@ -441,7 +448,7 @@ local function run(file: string, argv: {string}): integer
   local staged, stage_trouble = work.stage(handle, standing)
   if staged == nil then
     local _, _ = work.close(handle)
-    log:complain(with_standalone_hint(stage_trouble, file, name))
+    log:complain(stage_trouble)
     return 1
   end
 
@@ -470,8 +477,9 @@ local function run(file: string, argv: {string}): integer
   local result, compile_trouble = importer.compile_for(handle, tool, name, shared_compiles.for_build())
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
+    local hinted = with_standalone_hint(compile_trouble, file, name)
     local _, _ = work.close(handle)
-    log:complain(with_standalone_hint(compile_trouble, file, name))
+    log:complain(hinted)
     return 1
   end
   local written, write_trouble =

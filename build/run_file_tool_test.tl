@@ -252,16 +252,29 @@ local function test_a_refused_file_beside_the_one_run_names_standalone(tmp: stri
   assert((result.stderr or ""):find("COSMIC_STANDALONE=1", 1, true) ~= nil, said)
 end
 
---- The hint is wrong where the file run requires the refused file, and where the refused file is the one run.
-local function test_the_standalone_hint_is_left_off_a_file_the_run_needs(tmp: string)
-  local needs = tree_of(tmp, "needs", { ["x.tl"] = 'local a = require("a")\nprint(a)\n',
+--- The hint is wrong where the run file requires a project module, directly or through another, and where the refused
+--- file is the one run: `--standalone` finds no project module.
+local function test_the_standalone_hint_is_left_off_where_it_would_not_work(tmp: string)
+  local cases: {string: {string:string}} = {
+    direct = { ["x.tl"] = 'local a = require("a")\nprint(a)\n', ["a.tmpl"] = BAD_TEMPLATE },
+    stray = { ["x.tl"] = 'local b = require("b")\nprint(b)\n', ["b.tl"] = "return 1\n",
+      ["a.tmpl"] = BAD_TEMPLATE },
+    long = { ["x.tl"] = 'local b = require("b")\nprint(b)\n', ["b.tl"] = 'return require("a")\n',
+      ["a.tmpl"] = BAD_TEMPLATE },
+    itself = { ["x.tl"] = SYNTAX_ERROR },
+  }
+  for name, files in pairs(cases) do
+    local result = run_in(tree_of(tmp, name, files), "x.tl")
+    assert(result.code ~= 0, name .. ": " .. tostring(result.stderr))
+    assert((result.stderr or ""):find("--standalone", 1, true) == nil, name .. ": " .. tostring(result.stderr))
+  end
+end
+
+--- A file run that requires only the standard library keeps the hint.
+local function test_the_standalone_hint_stays_for_a_file_that_requires_only_cosmic(tmp: string)
+  local root = tree_of(tmp, "stdlib", { ["x.tl"] = 'local Fs = require("cosmic.fs")\nprint(Fs.basename("a/b"))\n',
     ["a.tmpl"] = BAD_TEMPLATE })
-  local required = run_in(needs, "x.tl")
-  assert(required.code ~= 0, tostring(required.stderr))
-  assert((required.stderr or ""):find("a.tmpl:1:1:", 1, true) ~= nil, tostring(required.stderr))
-  assert((required.stderr or ""):find("--standalone", 1, true) == nil, tostring(required.stderr))
-  local itself = tree_of(tmp, "itself", { ["x.tl"] = SYNTAX_ERROR })
-  local own = run_in(itself, "x.tl")
-  assert(own.code ~= 0, tostring(own.stderr))
-  assert((own.stderr or ""):find("--standalone", 1, true) == nil, tostring(own.stderr))
+  local result = run_in(root, "x.tl")
+  assert(result.code ~= 0 and (result.stderr or ""):find("cosmic --standalone x.tl", 1, true) ~= nil,
+    tostring(result.stderr))
 end
