@@ -205,15 +205,6 @@ static void finish_digest (sqlite3_context *ctx, int status,
   sqlite3_result_blob(ctx, digest, (int)len, SQLITE_TRANSIENT);
 }
 
-static int any_null (int argc, sqlite3_value **argv) {
-  for (int i = 0; i < argc; i++) {
-    if (sqlite3_value_type(argv[i]) == SQLITE_NULL) {
-      return 1;
-    }
-  }
-  return 0;
-}
-
 /* A value's bytes, with an empty text or blob as a valid empty span
  * rather than a NULL pointer. */
 static const void *bytes_of (sqlite3_value *value, size_t *len) {
@@ -224,7 +215,7 @@ static const void *bytes_of (sqlite3_value *value, size_t *len) {
 
 static void sha256_function (sqlite3_context *ctx, int argc,
                              sqlite3_value **argv) {
-  if (any_null(argc, argv)) {
+  if (cosmic_any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }
@@ -238,7 +229,7 @@ static void sha256_function (sqlite3_context *ctx, int argc,
 
 static void digest_function (sqlite3_context *ctx, int argc,
                              sqlite3_value **argv) {
-  if (any_null(argc, argv)) {
+  if (cosmic_any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }
@@ -253,7 +244,7 @@ static void digest_function (sqlite3_context *ctx, int argc,
 
 static void hmac_function (sqlite3_context *ctx, int argc,
                            sqlite3_value **argv) {
-  if (any_null(argc, argv)) {
+  if (cosmic_any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }
@@ -277,7 +268,7 @@ static void hmac_function (sqlite3_context *ctx, int argc,
  * of the core's own heap. */
 static void deflate_function (sqlite3_context *ctx, int argc,
                               sqlite3_value **argv) {
-  if (any_null(argc, argv)) {
+  if (cosmic_any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }
@@ -295,7 +286,7 @@ static void deflate_function (sqlite3_context *ctx, int argc,
 
 static void inflate_function (sqlite3_context *ctx, int argc,
                               sqlite3_value **argv) {
-  if (any_null(argc, argv)) {
+  if (cosmic_any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }
@@ -393,25 +384,12 @@ static const char *immutable_uri (lua_State *L, const char *path,
   luaL_buffinit(L, &b);
   luaL_addstring(&b, "file:");
   /* An absolute path takes the empty authority, so a leading "//" stays
-   * part of the path; a Windows drive letter needs the slash too. */
+   * part of the path. */
   if (path_len > 0 && path[0] == '/') {
     luaL_addstring(&b, "//");
   }
-  /* TODO: check this branch on a Windows leg once CI runs core/sqlite_test.tl
-   * there with a drive-letter path: nothing here has run it, and SQLite may
-   * want "C:" left unescaped after the "///". */
-#ifdef _WIN32
-  else if (path_len > 0 && path[0] == '\\') {
-    luaL_addstring(&b, "//");
-  } else if (path_len > 1 && path[1] == ':') {
-    luaL_addstring(&b, "///");
-  }
-#endif
   for (size_t i = 0; i < path_len; i++) {
     unsigned char c = (unsigned char)path[i];
-#ifdef _WIN32
-    if (c == '\\') c = '/';
-#endif
     if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
         (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' ||
         c == '~' || c == '/') {
