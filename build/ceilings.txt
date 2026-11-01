@@ -127,7 +127,7 @@ cosmic/internal/compress.d.tl interface_disagrees 1
 
 cosmic/internal/sqlite.d.tl interface_disagrees 1
 
-cosmic/net.tl interface_disagrees 2
+cosmic/net.tl interface_disagrees 1
 
 cosmic/stream.tl interface_disagrees 5
 
@@ -2459,8 +2459,6 @@ cosmic/http/server.tl field_unknown 4
 
 cosmic/http/wire.tl field_unknown 12
 
-cosmic/net.tl field_unknown 1
-
 cosmic/poll.tl field_unknown 4
 
 cosmic/poll_test.tl field_unknown 1
@@ -3946,9 +3944,9 @@ build/cache_lifetime.tl close_not_closable 1
 
 build/cache_maintenance.tl close_not_closable 5
 
-build/fetch_tool_test.tl close_not_closable 2
+build/fetch_tool_test.tl close_not_closable 1
 
-build/lsp/session_test.tl close_not_closable 3
+build/lsp/session_test.tl close_not_closable 2
 
 build/lsp/tool_test.tl close_not_closable 3
 
@@ -3962,11 +3960,9 @@ build/test.tl close_not_closable 1
 
 build/udp_fixture_test.tl close_not_closable 4
 
-core/allocation_test.tl close_not_closable 12
+core/allocation_test.tl close_not_closable 8
 
-core/grants_child_test.tl close_not_closable 1
-
-core/lookup_test.tl close_not_closable 2
+core/lookup_test.tl close_not_closable 1
 
 cosmic/child.tl close_not_closable 3
 
@@ -3982,15 +3978,13 @@ cosmic/http/server_test.tl close_not_closable 38
 
 cosmic/http/server_tool_test.tl close_not_closable 1
 
-cosmic/http_timeout_test.tl close_not_closable 3
-
-cosmic/http_tool_test.tl close_not_closable 4
+cosmic/http_tool_test.tl close_not_closable 2
 
 cosmic/internal/connector.tl close_not_closable 1
 
 cosmic/net.tl close_not_closable 1
 
-cosmic/net_example.tl close_not_closable 10
+cosmic/net_example.tl close_not_closable 7
 
 cosmic/net_resolve_through_test.tl close_not_closable 13
 
@@ -3998,13 +3992,13 @@ cosmic/net_resolve_tool_test.tl close_not_closable 1
 
 cosmic/net_serve_test.tl close_not_closable 16
 
-cosmic/net_tcp_test.tl close_not_closable 8
+cosmic/net_tcp_test.tl close_not_closable 4
 
-cosmic/net_test.tl close_not_closable 32
+cosmic/net_test.tl close_not_closable 24
 
 cosmic/net_tool_test.tl close_not_closable 1
 
-cosmic/seatbelt_network_probe_test.tl close_not_closable 4
+cosmic/seatbelt_network_probe_test.tl close_not_closable 2
 
 
 cosmic/time.tl close_not_closable 3
@@ -4013,7 +4007,7 @@ cosmic/web/app.tl close_not_closable 1
 
 cosmic/web/input.tl close_not_closable 1
 
-cosmic/web/serve_test.tl close_not_closable 4
+cosmic/web/serve_test.tl close_not_closable 3
 
 cosmic/web/sse.tl close_not_closable 1
 
@@ -5666,8 +5660,6 @@ lang/types.tl literal_missing 2
 # a field a literal names that its record lacks: the fields an interface gives
 cosmic/http/wire.tl literal_unknown 3
 
-cosmic/net.tl literal_unknown 1
-
 cosmic/web/sse.tl literal_unknown 1
 
 # a `{}` with no type to make it from: the rewrite declares the local `mut {T}`
@@ -6782,7 +6774,7 @@ cosmic/removed_example.tl setmetatable_call 1
 # `setmetatable`.
 cosmic/http/server_example.tl close_not_closable 1
 
-cosmic/net_example.tl close_not_closable 10
+cosmic/net_example.tl close_not_closable 7
 
 cosmic/poll_example.tl cast_refused 1
 
