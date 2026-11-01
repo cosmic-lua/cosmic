@@ -8,6 +8,7 @@ local Report = require("cosmic_ci.report")
 local State = require("cosmic_ci.state")
 local Stream = require("cosmic.stream")
 local Zip = require("cosmic.zip")
+local TestSupport = require("cosmic_ci.test_support")
 
 local repository <const> = "owner/repo"
 
@@ -24,14 +25,7 @@ end
 
 --- Whether `said` holds the Shape failure at JSON Pointer `at` that wants `expected`
 --- (`string, got integer`): `$.a[0].b: want string, got integer` for the pointer `/a/0/b`.
-local function shape_failure(said: string, at: string, expected: string): boolean
-  local path = "$"
-  for segment in at:gmatch("/([^/]*)") do
-    path = path .. (if segment:find("^%d+$") then "[" .. segment .. "]" else "." .. segment end)
-  end
-  local rest = if expected:find(", got nothing$") then "missing" else "want " .. expected end
-  return said:find(path .. ": " .. rest, 1, true) ~= nil
-end
+local shape_failure <const> = TestSupport.shape_failure
 
 --- The lists the API answers are checked against the records `Report`
 --- reads: a value of another shape is refused naming where it is, where

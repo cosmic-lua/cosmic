@@ -68,6 +68,7 @@ local Github = require("cosmic_ci.github")
 local Plural = require("cosmic_ci.plural")
 local Shape = require("cosmic.shape")
 local Time = require("cosmic.time")
+local StepEnv = require("cosmic_ci.step_env")
 
 local record CommitVerdicts
   merge_base: function(env: {string:string}, host: Github.Host): integer
@@ -103,15 +104,7 @@ local record CachePage
 end
 local CACHE_PAGE <const> = Shape.record_of("CachePage")
 
---- A whole number of `name` in `env`, `default` where it names none, nil
---- and why where it is no whole number.
-local function whole(env: {string:string}, name: string, default: integer): integer?, string
-  local text = env[name]
-  if text == nil or text == "" then return default, "" end
-  local value = math.tointeger(tonumber(text))
-  if value == nil or value < 0 then return nil, name .. " is no whole number: " .. text end
-  return value, ""
-end
+local whole <const> = StepEnv.whole
 
 function CommitVerdicts.merge_base(env: {string:string}, host: Github.Host): integer
   local call, why = whole(env, "CALL_SECONDS", 15)

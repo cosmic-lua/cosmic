@@ -67,19 +67,6 @@ local function compare_file_prefixes(left: string, right: string,
 end
 
 -- Require one or more digits followed only by optional newlines.
-local function read_prefix_length(fixture_dir: string): integer
-  local text = Fixture.read(fixture_dir .. "/runtime.old.prefix-length")
-  local digits = text:match("^(%d+)\n*$")
-  return (assert(digits and math.tointeger(tonumber(digits)),
-    "invalid prefix length: " .. text))
-end
-
--- Copies a whole directory tree to `to`, which must not exist yet.
-local function copy_tree(label: string, from: string, to: string)
-  local copied, trouble = Fs.copy_tree(from, to)
-  assert(copied, label .. ": " .. trouble)
-end
-
 -- Counts the cores a cache holds: the plain files directly inside
 -- `directory`, its public entries. A name beginning with "." is the
 -- launcher's or startup's own (a verified stamp, a repair lock). The
@@ -221,10 +208,10 @@ local function check_transported(fixture_dir: string, finished: string,
                                  work: string, diagnostics: string)
   -- The destination must not exist so this creates a fresh relocated project.
   local project = work .. "/transported-project"
-  copy_tree("restore-transported-state", finished, project)
+  Fixture.copy_tree("restore-transported-state", finished, project)
   -- Its build directory, outside it, goes with it, as one kept in the
   -- project would have.
-  copy_tree("restore-transported-build", Fixture.built(finished), Fixture.built(project))
+  Fixture.copy_tree("restore-transported-build", Fixture.built(finished), Fixture.built(project))
   local counter = project .. "/test-runs"
   local cache = work .. "/transported-cache"
 
@@ -287,7 +274,7 @@ local function test_identity_primary(tmp: string)
     project, diagnostics, { COSMIC_PORTABLE_CACHE = cache })
   built_both(build1.out, project)
 
-  local prefix_length = read_prefix_length(fixture_dir)
+  local prefix_length = Fixture.read_prefix_length(fixture_dir)
   local runtime_prefix = Fixture.read(fixture_dir .. "/runtime.old.prefix")
   for _, application in ipairs({ "hello", "second" }) do
     local output = Fixture.built(project) .. "/bin/" .. application

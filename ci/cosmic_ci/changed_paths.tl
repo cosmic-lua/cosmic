@@ -28,6 +28,7 @@ local Github = require("cosmic_ci.github")
 local Plural = require("cosmic_ci.plural")
 local Proc = require("cosmic.proc")
 local Clock = require("cosmic.clock")
+local StepEnv = require("cosmic_ci.step_env")
 
 local record ChangedPaths
   --- What a run of git came to: whether it exited 0, and what it wrote to standard output.
@@ -48,15 +49,7 @@ local record ChangedPaths
   command: function(argv: {string}): integer
 end
 
---- A whole number of `name` in `env`, `default` where it names none, nil
---- and why where it is no whole number.
-local function whole(env: {string:string}, name: string, default: integer): integer?, string
-  local text = env[name]
-  if text == nil or text == "" then return default, "" end
-  local value = math.tointeger(tonumber(text))
-  if value == nil or value < 0 then return nil, name .. " is no whole number: " .. text end
-  return value, ""
-end
+local whole <const> = StepEnv.whole
 
 -- No test runs this, since no test runs the system's git: the tests hold
 -- the argv through a recorded git, and finding git, the time limit and a

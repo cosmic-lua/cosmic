@@ -281,29 +281,10 @@ end
 -- Rejects the whole value if it is anything but digits: a loose `%d+` search
 -- would instead silently accept and truncate a malformed value (e.g. extra
 -- trailing text).
-local function read_prefix_length(fixture_dir: string): integer
-  local text = Fixture.read(fixture_dir .. "/runtime.old.prefix-length")
-  local digits = text:match("^(%d+)\n*$")
-  return (assert(digits and math.tointeger(tonumber(digits)),
-    "invalid prefix length: " .. text))
-end
-
 local function cache_entries(cache: string): integer
   local count = 0
   for _, name in ipairs((assert(Fs.list(cache)))) do
     if name:match("^core%-") then count = count + 1 end
-  end
-  return count
-end
-
-local function count_occurrences(text: string, needle: string): integer
-  local count = 0
-  local at = 1
-  while true do
-    local from = text:find(needle, at, true)
-    if from == nil then break end
-    count = count + 1
-    at = from + #needle
   end
   return count
 end
@@ -324,7 +305,7 @@ local function run_rebuild_case(fixture_dir: string,
   archive_tree(tree)
   local program = place_runtime(fixture_dir, tree)
   local original_hash = Fixture.hash(program)
-  local prefix_length = read_prefix_length(fixture_dir)
+  local prefix_length = Fixture.read_prefix_length(fixture_dir)
   apply_step8_edit(tree)
 
   local ready = fifo(case_root, diagnostics, "ready-" .. action)
@@ -375,7 +356,7 @@ local function run_rebuild_case(fixture_dir: string,
       action .. ": self-rebuild output did not match the expected pattern")
     local err = Fixture.read(child.err)
     took_compiles(action, seed, since, err)
-    local stale_lines = count_occurrences(err,
+    local stale_lines = Fixture.count_occurrences(err,
       "the tool is stale; rebuilding it from the tree")
     assert(stale_lines == 1, action .. ": self-rebuild reported " ..
         tostring(stale_lines) .. " stale-rebuild lines, want 1")
@@ -534,7 +515,7 @@ local function test_self_rebuild_docs_verb(tmp: string)
   assert(outcome.result.code == 0, "docs: exit status was " ..
       tostring(outcome.result.code) .. ", want 0")
   Fixture.contains(outcome.out, "step8-docs-marker")
-  local stale_lines = count_occurrences(Fixture.read(outcome.err),
+  local stale_lines = Fixture.count_occurrences(Fixture.read(outcome.err),
     "the tool is stale; rebuilding it from the tree")
   assert(stale_lines == 1, "docs: reported " .. tostring(stale_lines) ..
       " stale-rebuild lines, want 1")
@@ -613,7 +594,7 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
           err:find("rebuilt the tool; entering it", 1, true),
         child.label .. ": neither rebuilt the tool, waited nor entered " ..
           "another's; it said:\n" .. err)
-      rebuilt = rebuilt + count_occurrences(err,
+      rebuilt = rebuilt + Fixture.count_occurrences(err,
         "the tool is stale; rebuilding it from the tree")
     end
     assert(rebuilt >= 1, "concurrent: no run rebuilt the tool")
@@ -634,7 +615,7 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
         tostring(reader.result.code) .. ", want 0; it said:\n" .. err)
     Fixture.contains(reader.out, "step8-docs-marker")
     Fixture.contains(reader.err, "not waiting for it, reading what it last committed")
-    assert(count_occurrences(err, "; waiting for it") == 0,
+    assert(Fixture.count_occurrences(err, "; waiting for it") == 0,
       "reader: waited for the run holding the working database; it said:\n" .. err)
     return true
   end)
@@ -707,7 +688,7 @@ local function test_self_rebuild_fix_verb(tmp: string)
       tostring(outcome.result.code) .. ", want 0")
   Fixture.contains(outcome.out, "step8-fix-marker")
   took_compiles("fix", seed, since, Fixture.read(outcome.err))
-  local stale_lines = count_occurrences(Fixture.read(outcome.err),
+  local stale_lines = Fixture.count_occurrences(Fixture.read(outcome.err),
     "the tool is stale; rebuilding it from the tree")
   assert(stale_lines == 1, "fix: reported " .. tostring(stale_lines) ..
       " stale-rebuild lines, want 1")
