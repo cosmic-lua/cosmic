@@ -585,10 +585,10 @@ Codes.catalog = {
     fix = "write items of the shape of <type>",
   },
   {
-    code = "literal_spread", rule = "fields are fixed unless declared mutable",
-    why = "a record is varied by making a copy with some fields replaced, `{ ...r, field = v }`: the copy has the fields " ..
-      "the record declares, so the spread is a record that is not nilable and the first item, with nothing but fields " ..
-      "after it, and a table that is no record has no declared fields to copy",
+    code = "literal_spread", rule = "a copy has the fields its record declares",
+    why = "`{ ...r, field = v }` varies a record whose fields are fixed by copying the fields it declares: the spread " ..
+      "is the first and only one, and its source is a record value that is not nilable and not a literal; an array, a " ..
+      "map or a class has no declared fields to copy, and a record with an array part would lose the array",
     fix = "spread one record value first, and write the fields that differ after it",
   },
   {

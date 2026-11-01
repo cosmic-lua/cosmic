@@ -26,7 +26,8 @@ visits	1
 ```
 
 A record with one field changed is made with a spread, `{ ...r, field = v }`. The spread copies the fields that the
-record declares, and the fields written after it replace them. The source is not changed.
+record declares, and the fields written after it replace them. The source is not changed. The copy is shallow: a field
+that holds a record or an array holds the same one in both.
 
 ```teal
 local record Config
@@ -49,7 +50,7 @@ a	80
 The rules of the spread (`literal_spread`, `cosmic docs literal_spread`):
 
 - It is the first item of the literal, and the only one.
-- Its source is a value of a record type, not nilable: test a `Config?` before spreading it. An array, a map, a class
+- Its source is a value of a record type, not a table literal and not nilable: test a `Config?` before spreading it. An array, a map, a class
   value and a value of a record with an array part are refused.
 - The literal is a value of the record the source is, or of the record the literal is wanted as, when the source is a
   value of it. A source of another record type is `not_assignable`.

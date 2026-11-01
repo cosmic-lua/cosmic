@@ -101,6 +101,7 @@ local function test_a_spread_of_a_value_that_is_no_record_is_refused_and_says_wh
   refused("local m: {string: integer} = {}\nlocal c = { ...m }\n", "literal_spread", "`m` is `{string: integer}`")
   refused("local c = { ...base.port }\n", "literal_spread")
   refused("local c = { ...nil }\n", "nil_not_allowed")
+  refused("local c: Config = { ...{ host = \"x\", port = 1, retries = 1 }, port = 2 }\n", "literal_spread", "a table literal")
 end
 
 local function test_a_class_value_is_no_source_for_a_spread()
@@ -183,6 +184,13 @@ local function test_the_lua_names_the_declared_fields_and_never_iterates_the_sou
   local x = Programs.execute(HEAD .. "local c = { ...base, port = 2 }\nprint(c.port)\n", false)
   assert(x.fault == nil and x.ran, tostring(x.fault))
   assert(not x.lua:find("pairs", 1, true), x.lua)
-  assert(x.lua:find("(function(s, v1) return { host = s.host, port = v1, retries = s.retries, note = s.note, tag = s.tag } end)(base, 2)",
+  assert(x.lua:find("(function(c, v1) c.port = v1 return c end)((function(s) return { host = s.host, port = s.port, retries = s.retries, note = s.note, tag = s.tag } end)(base), 2)",
     1, true), x.lua)
+end
+
+local function test_the_source_is_copied_before_an_override_runs_that_changes_it()
+  -- Reading the source's fields after the overrides ran would give the copy the m of 99.
+  local head = "local record Cell\n  mut n: integer\n  mut m: integer\nend\nlocal r: Cell = { n = 0, m = 2 }\n" ..
+    "local function bump(): integer\n  r.m = 99\n  return 1\nend\n"
+  prints("local c: Cell = { ...r, n = bump() }\nprint(c.n, c.m, r.m)\n", "1\t2\t99", head)
 end

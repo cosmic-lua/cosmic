@@ -1952,6 +1952,12 @@ local function spread_literal(ctx: Ctx, e: Ast.Table, expected: Type?): Type
     end
   end
   local source = first.value
+  if (peel(source).kind == "Table") then
+    report(ctx, "literal_spread", source, "a spread copies a record value, and this is a table literal",
+      "write the fields by name, or spread a value held in a local")
+    items_after_first()
+    return ctx.invalid
+  end
   local got = expr(ctx, source, nil)
   local readable_type = readable(ctx, source, got, "its fields cannot be copied")
   if readable_type == nil then

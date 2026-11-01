@@ -676,36 +676,46 @@ local function given_name(it: Ast.Item): string?
   return nil
 end
 
---- A literal `{ ...source, a = 1 }`: a function called on the spot, `(function(s, v1) return { a = v1, b = s.b } end)(source, 1)`.
---- The arguments are evaluated in the order written, before the function copies the fields, so the source is evaluated once
---- and the other values are evaluated where they are written, with the varargs of the function around them. The copy
---- names the fields the record declares (`fields`), and not what the source table holds. An item after the spread
---- replaces the field it names.
+--- A literal `{ ...source, a = 1 }`: the copy is made first by a function called on the spot, and a second one sets the
+--- fields after the spread into the copy: `(function(c, v1) c.a = v1 return c end)((function(s) return { a = s.a, b = s.b } end)(source), 1)`.
+--- The arguments are evaluated in the order written, so the source is evaluated once and is copied before any value after
+--- it runs (a value that changes the source does not change the copy), and those values are evaluated where they are
+--- written, with the varargs of the function around them. The copy names the fields the record declares (`fields`),
+--- and not what the source table holds. Assigning a field of the fresh copy is no write to a fixed field: the checker has
+--- passed the literal.
 local function spread_literal(node: Ast.Table, spread: Ast.Spread, fields: {string}): Output
   local y = line_of(node.first)
   local yend = line_of(node.last)
   local items = node.items
-  local params: mut {string} = { "s" }
-  local given: mut {string: string} = {}
+  local params: mut {string} = { "c" }
+  local sets: mut {string} = {}
   for i, it in ipairs(items) do
     if i > 1 then
       local name = given_name(it)
-      params[#params + 1] = "v" .. tostring(i - 1)
+      local param = "v" .. tostring(i - 1)
+      params[#params + 1] = param
       if name ~= nil then
-        given[name] = "v" .. tostring(i - 1)
+        local _, at = field_spelling(name)
+        sets[#sets + 1] = "c" .. at .. " = " .. param
       end
     end
   end
   local copies: mut {string} = {}
   for i, name in ipairs(fields) do
     local key, read = field_spelling(name)
-    copies[i] = key .. " = " .. (given[name] or "s" .. read)
+    copies[i] = key .. " = s" .. read
   end
+  local copy = "(function(s) return { " .. table.concat(copies, ", ") .. " } end)("
   local out = new(y)
-  put(out, "(function(" .. table.concat(params, ", ") .. ") return { " .. table.concat(copies, ", ") .. " } end)(")
+  if #sets == 0 then
+    put(out, copy)
+  else
+    put(out, "(function(" .. table.concat(params, ", ") .. ") " .. table.concat(sets, " ") .. " return c end)(" .. copy)
+  end
   local child_y = line_of(spread.first)
   indent_in(y, child_y)
   add_child(out, exp(spread.value))
+  put(out, ")")
   for i, it in ipairs(items) do
     if i > 1 then
       put(out, ",")
@@ -714,7 +724,7 @@ local function spread_literal(node: Ast.Table, spread: Ast.Spread, fields: {stri
     end
   end
   indent_out(y, child_y)
-  add_child(out, text(yend, ")"), "", G.indent)
+  add_child(out, text(yend, if #sets == 0 then "" else ")" end), "", G.indent)
   return out
 end
 
