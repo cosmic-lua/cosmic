@@ -347,7 +347,7 @@ local function test_root_probe_grants_a_copy_without_mutating_cached_relaunch(tm
       if position < #words then probe[#probe + 1] = word end
     end
     probe[#probe + 1] = "assert(require('cosmic.proc').executable()==" ..
-      string.format("%q", tostring((assert(Proc.executable())))) .. "); print('copied runtime identity')"
+      string.format("%q", tostring((assert(Proc.executable())))) .. ")\nprint('copied runtime identity')"
     local result = assert(run(probe, { env = options.env, fds = options.fds, cwd = "/",
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) }))
     assert(result.ok and result.stdout == "copied runtime identity\n", result.stderr)
