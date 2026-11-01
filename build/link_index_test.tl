@@ -12,7 +12,7 @@ local writer = require("build.writer")
 local build_paths = require("build.paths")
 
 --- The docs fixture and the projects here build with the tree's own code.
-Test.policy{ grants = { { path = "core", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
+Test.policy{ cpu_features = true, grants = { { path = "core", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
   { path = "lang/stdlib.d.tl", letters = "r" } } }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made

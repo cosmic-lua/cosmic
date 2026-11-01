@@ -6,6 +6,9 @@
 
 local Fs = require("cosmic.fs")
 local session_fixture = require("build.lsp.session_fixture")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local at, change, initialize = session_fixture.at, session_fixture.change, session_fixture.initialize
 local open, project, publications = session_fixture.open, session_fixture.project, session_fixture.publications

@@ -23,6 +23,7 @@ local this_program = require("build.this_program")
 --- The program is this one, which a test starts only with `tool`; its
 --- temporary directory is the test's own.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
   env = { "TMPDIR" },

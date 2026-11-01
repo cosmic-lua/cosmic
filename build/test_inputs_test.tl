@@ -5,6 +5,9 @@ local key_parts = require("build.key_parts")
 local type PolicyRules = require("build.policy_rules")
 local type declared_inputs = require("build.inputs")
 local type positions = require("build.positions")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local type Module = positions.Module
 

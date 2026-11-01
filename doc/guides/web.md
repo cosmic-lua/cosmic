@@ -1,6 +1,6 @@
 # web apps
 
-<!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
+<!-- policy: cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 [`cosmic.web`] makes an htmx page, a JSON API, or both in one program a
 matter of a route table, a few templates and a call to [`Web.serve`]. It

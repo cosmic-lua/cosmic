@@ -1,5 +1,7 @@
 # calling a rate-limited api politely
 
+<!-- policy: cpu_features = true -->
+
 A rate-limited API answers too many requests in a row with 429 or 503,
 and often says when to come back. This guide fetches a list of items
 from one with [`cosmic.http`]: a pacer spaces the requests out, `retry`

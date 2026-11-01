@@ -3,6 +3,9 @@ local Hash = require("cosmic.hash")
 local Session = require("cosmic.web.session")
 local SessionSqlite = require("cosmic.web.session.sqlite")
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local function open(opts?: SessionSqlite.Options): Session.Store, Sqlite.Handle
   local db = assert(Sqlite.memory())

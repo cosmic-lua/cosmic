@@ -20,7 +20,7 @@ local Url = require("cosmic.url")
 --- the worker runs offline, and is keyed. The tests that start the
 --- program, or read the roots its own database carries, are
 --- cosmic/http_tool_test.tl's.
-Test.policy{ loopback = { "127.0.0.1" } }
+Test.policy{ cpu_features = true, loopback = { "127.0.0.1" } }
 
 local url = "http://cosmic.test/"
 

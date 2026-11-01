@@ -14,7 +14,7 @@ local this_program = require("build.this_program")
 local logger = require("build.logger")
 local work = require("build.work")
 
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" } }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.

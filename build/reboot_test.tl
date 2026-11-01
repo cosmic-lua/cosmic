@@ -14,6 +14,9 @@ local artifact = require("build.artifact")
 local stand_in = require("build.stand_in")
 local logger = require("build.logger")
 local work = require("build.work")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 --- A core change boots unless COSMIC_AUTO_BOOT is "0".
 --- How the test runner's tool, which is not built from any tree of a test, is seen at `root`, a tree it is told was

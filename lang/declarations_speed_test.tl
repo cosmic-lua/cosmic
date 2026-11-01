@@ -9,7 +9,7 @@ local Scopes = require("lang.scopes")
 local Speed = require("lang.speed")
 local Test = require("cosmic.test")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 --- `source` parsed and scoped, to lower again and again.
 local function prepare(source: string): Declarations.Input

@@ -24,6 +24,7 @@ local build_paths = require("build.paths")
 --- test's own, and the stand-in reads none of the one it inherits.
 --- build/zig_fetch.tl is the script a cache miss starts.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic" },
   grants = {
     { path = "o/bin", letters = "rx" },

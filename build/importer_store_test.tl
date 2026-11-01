@@ -27,6 +27,7 @@ local build_paths = require("build.paths")
 
 --- The projection, asked directly, and whether the tree is cosmic's own.
 Test.policy{
+  cpu_features = true,
   grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" } },
 }
 

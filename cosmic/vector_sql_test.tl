@@ -5,6 +5,9 @@
 
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local function close_to(a: number, b: number): boolean
   return math.abs(a - b) < 1e-6

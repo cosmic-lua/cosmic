@@ -16,7 +16,7 @@ local type _ = require("cosmic.http")
 
 --- The program itself, which a test starts only to run a script
 --- standalone (`lua`, [`build.standalone`]).
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" } }
 
 --- A request that is told to wait 30 seconds before its retry is ended
 --- by a SIGINT its guard catches during the wait: the call fails

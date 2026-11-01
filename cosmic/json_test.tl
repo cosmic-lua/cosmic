@@ -5,6 +5,9 @@
 
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 --- The bits of a double, in hex, and the shortest text RFC 8785 writes it as.
 local record Sample

@@ -16,6 +16,7 @@ end
 --- What the bill of materials describes: every vendored tree, the patches
 --- to it and the pins it came by.
 Test.policy{
+  cpu_features = true,
   grants = {
     { path = "bin/zig.pin", letters = "r" },
     { path = "build/bom/", letters = "r" },

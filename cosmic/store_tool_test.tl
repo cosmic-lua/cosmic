@@ -13,7 +13,7 @@ local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which the test starts.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- The child that runs as the program does: the binary's own database is the one [`Store.databases`] ends with, and
 --- every module there the searcher hands a raw value is a wrapper the core grants one. A project database then attached

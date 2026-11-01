@@ -10,7 +10,7 @@ local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
 local type build_module = require("build.module")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 --- The modules a case compiles one after another, each requiring the one before, and the functions in each. A module of this
 --- size holds some seven hundred tokens, which a build that kept every tree would hold eight times over.

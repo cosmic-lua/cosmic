@@ -4,7 +4,7 @@
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 --- Checks that `source` has exactly the errors `codes` (space separated), and that the message or the fix of the first says `msg`.
 local function refused(source: string, codes: string, msg?: string, modules?: {string: string}, declared?: {string: string})

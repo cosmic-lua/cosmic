@@ -31,6 +31,7 @@ end
 --- link leads out of the tree to. The package databases are a copy of
 --- build/declared_key.tl's `package_databases`.
 Test.policy{
+  cpu_features = true,
   grants = {
     { path = "/etc/os-release", letters = "r" },
     { path = "/etc/passwd", letters = "r" },
@@ -422,13 +423,14 @@ local function full_spec(hostdir: string): declared_key.Spec
     env = { DECLARED = true }, network = { ["127.0.0.1"] = true },
     tool = true, lua = true, nests = true, noexec = true,
     noexec_ready = true, noexec_trouble = "no reason", store = true, system = true,
+    cpu_features = true,
     caches = { "zig" }, cache_paths = { hostdir .. "/cache" }, parent = { "absent.txt" },
     unresolved = "no reason",
   }
   return {
     id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
     runtime = "runtime sandboxed", compiler = "compiler", epoch = "1-00000000", timeout_ns = Clock.seconds(30),
-    program = "program", host = "host", system = "system", launcher = "launcher",
+    program = "program", host = "host", cpu = "cpu", system = "system", launcher = "launcher",
     declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
     requires = { proc = "mounted", ["program:jq"] = "sha256:jq" },
     environment = { DECLARED = "d", TMPDIR = "/tmp" },
@@ -473,6 +475,8 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
     tree = append("tree"),
     -- Keyed only for a module given the system's paths.
     system = append("system"),
+    -- Keyed only for a module that declares `cpu_features`.
+    cpu = append("cpu"),
     -- Keyed only for a test that runs the tool.
     program = append("program"),
     -- Keyed only where the module does not declare `store`.
@@ -525,6 +529,8 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
     function(s: declared_key.Spec): any return s.effective end, key, effective_changes, {
       noexec_trouble = "diagnostic only: the noexec grant itself is keyed, and no pass is " ..
         "kept when it is unavailable",
+      cpu_features = declaration .. ", and the spec's `cpu`, the features themselves, which a " ..
+        "module that declares it alone holds (build.test_key's `declared_of`)",
       env = declaration .. ", and `environment` by what the worker is given",
       network = declaration .. ": loopback addresses alone (`cosmic.test`), which an " ..
         "offline worker's own loopback answers",
@@ -572,7 +578,7 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
   local function key(sources: declared_key.HostSources): string
     local digests = declared_key.digests(tmp)
     return declared_key.host_identity(digests, sources) .. " " ..
-      declared_key.system_identity(digests, sources, true)
+      declared_key.system_identity(digests, sources, true) .. " " .. declared_key.host_cpu(sources)
   end
   local function set(field: string, value: any): Change<declared_key.HostSources>
     return { change = function(s: declared_key.HostSources)
@@ -862,6 +868,8 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   assert(identity() == identity(), "the same host")
   sources.cpu_features = { "fma", "aes", "avx512bw" }
   assert(seen[identity()] == "the start", "each feature is counted once, if a core reads it")
+  sources.cpu_features = { "aes", "pclmulqdq" }
+  assert(seen[identity()] == "the start", "the processor's features are no part of the identity")
   local installed = declared_key.system_identity(declared_key.digests(tmp), sources)
   write("packages", "p2")
   write("os", "o2")
@@ -874,10 +882,8 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   differs("the kernel's release")
   write("version", "v2")
   differs("the kernel's version")
-  sources.cpu_features = { "aes" }
-  assert(seen[identity()] == "the kernel's version", "a feature no core reads")
   sources.cpu_features = { "aes", "fma", "pclmulqdq" }
-  differs("a feature of the processor")
+  assert(seen[identity()] == "the kernel's version", "a feature of the processor")
   write("status", "Name: x\nCapEff: 1\nUid: 1 1 1 1\n")
   differs("the capabilities")
   write("status", "Name: y\nCapEff: 1\nUid: 1 1 1 1\n")
@@ -1383,12 +1389,12 @@ local function test_a_file_rewritten_since_an_earlier_run_is_read_once(tmp: stri
 end
 
 --- The rest of the host's identity (`host_split`) moves with everything
---- of it but its features: the kernel's release and version and the
---- processor's features move the identity and not the rest, while the
---- user, the sandbox's /proc and what the host says of itself move both.
---- A gathering run takes the verdicts of a host of another features by
---- this (build/shared_verdicts.tl's `hosts_like`).
-local function test_the_rest_of_a_hosts_identity_leaves_out_its_features(tmp: string)
+--- of it but its kernel: the kernel's release and version move the
+--- identity and not the rest, while the user, the sandbox's /proc and
+--- what the host says of itself move both, and the processor's features
+--- move neither. A gathering run takes the verdicts of a host of another
+--- kernel by this (build/shared_verdicts.tl's `hosts_like`).
+local function test_the_rest_of_a_hosts_identity_leaves_out_its_kernel(tmp: string)
   local function write(name: string, text: string): string
     assert(Fs.write(tmp .. "/" .. name, text))
     return tmp .. "/" .. name
@@ -1419,11 +1425,53 @@ local function test_the_rest_of_a_hosts_identity_leaves_out_its_features(tmp: st
   assert(Fs.write(version, "v2"))
   assert(start().rest == first.rest, "a kernel's version")
   local features = split({ "aes", "ssse3" }, "h1", true, 1)
-  assert(features.identity ~= kernel.identity and features.rest == first.rest, "a feature")
+  assert(features.identity == start().identity and features.rest == first.rest, "a feature")
   assert(Fs.write(release, "r1"))
   assert(Fs.write(version, "v1"))
   assert(start().identity == first.identity, "put back")
   assert(split({ "aes", "pclmulqdq" }, "h2", true, 1).rest ~= first.rest, "what the host says of itself")
   assert(split({ "aes", "pclmulqdq" }, "h1", false, 1).rest ~= first.rest, "a /proc of the sandbox's own")
   assert(split({ "aes", "pclmulqdq" }, "h1", true, 2).rest ~= first.rest, "the user")
+end
+
+--- A verdict earned on a host of other processor features stands for a
+--- test whose module does not declare `cpu_features`, and not for one
+--- that does: the key holds the features a core chooses code by
+--- ([`declared_key.host_cpu`]) in the second alone, and no feature a core
+--- chooses no code by in either. The kernel moves both keys.
+local function test_a_key_holds_the_processors_features_only_where_declared(tmp: string)
+  tree(tmp)
+  assert(Fs.write(tmp .. "/version", "v1"))
+  local function host(cpu: {string}, release: string): declared_key.HostSources
+    assert(Fs.write(tmp .. "/release-" .. release, release))
+    return {
+      packages = {}, system = { tmp .. "/os", tmp .. "/release-" .. release, tmp .. "/version" },
+      sysname = "Linux", cpu_features = cpu, machine = "x86_64", status = tmp .. "/status",
+      own_proc = true, host_id = "h", uid = 1,
+    }
+  end
+  -- The key of the test of a host, as build/test_key.tl's `declared_of` keys it.
+  local function key(sources: declared_key.HostSources, declares: boolean): string
+    local s = spec(nil, declared_key.host_identity(declared_key.digests(tmp), sources))
+    if declares then
+      s.cpu = declared_key.host_cpu(sources)
+      s.effective.cpu_features = true
+    end
+    return key_of(tmp, s)
+  end
+  local here = host({ "aes", "sse4_1", "ssse3", "avx512bw" }, "r1")
+  -- Another processor: one dispatched feature fewer.
+  local elsewhere = host({ "aes", "ssse3", "avx512bw" }, "r1")
+  assert(key(here, false) == key(elsewhere, false), "an undeclared test's key holds the processor")
+  assert(key(here, true) ~= key(elsewhere, true), "a declared test's key lacks the processor")
+  assert(key(here, true) ~= key(here, false))
+  -- A feature no core chooses code by names no other processor.
+  local lesser = host({ "aes", "sse4_1", "ssse3" }, "r1")
+  assert(key(here, true) == key(lesser, true), "a feature no core reads split the verdicts")
+  -- The kernel moves both.
+  local newer = host({ "aes", "sse4_1", "ssse3", "avx512bw" }, "r2")
+  assert(key(here, false) ~= key(newer, false), "a kernel moved no undeclared key")
+  assert(key(here, true) ~= key(newer, true), "a kernel moved no declared key")
+  assert(declared_key.host_cpu(here) == declared_key.host_cpu(lesser))
+  assert(declared_key.host_cpu(here) ~= declared_key.host_cpu(elsewhere))
 end

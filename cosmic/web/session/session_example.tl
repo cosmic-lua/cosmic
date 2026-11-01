@@ -8,6 +8,9 @@ local SessionCookie = require("cosmic.web.session.cookie")
 local SessionSqlite = require("cosmic.web.session.sqlite")
 local Sqlite = require("cosmic.sqlite")
 local Web = require("cosmic.web")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local Example = {}
 

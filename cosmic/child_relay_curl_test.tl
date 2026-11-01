@@ -15,6 +15,7 @@ local Test = require("cosmic.test")
 local ChildPolicy = require("build.child_policy_fixture")
 
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic", "system" },
   promises = { "nest" },
   loopback = { "127.0.0.1" },

@@ -899,7 +899,7 @@ local program_of = test_key.program_of
 -- today a test that leans on a file of the tree's times sees what its
 -- checkout gave it, and stands on a sibling's verdict where they differ.
 local function declared_of(rec: Recording, m: Module, id: string, host?: string): string?
-  local effective = rec.effective[m.path]
+  local effective = assert(rec.effective[m.path])
   local runs_tool = tool_use(rec, m) == "allowed"
   local store, store_trouble = store_digest(rec, m)
   if store == nil and store_trouble ~= "" then
@@ -910,6 +910,7 @@ local function declared_of(rec: Recording, m: Module, id: string, host?: string)
     id = id, group = m.path, module_key = assert(m.graph_key), runtime = rec.runtime,
     compiler = reads_compiler(rec, m) and rec.compiler or "",
     host = host or rec.host,
+    cpu = if effective.cpu_features == true then rec.cpu else nil end,
     system = rec.system,
     epoch = rec.epoch, timeout_ns = rec.timeout_ns,
     -- Held only where the key holds the program ([`declared_key.compute`]).
@@ -959,7 +960,7 @@ local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, S
 ---   pause one startup of a fixture runtime for a handshake and belong to
 ---   this process's own launch, not to every worker it starts;
 --- - what `launch_only` names; and
---- - COSMIC_TEST_NO_SHARED, COSMIC_TEST_FOREIGN_FEATURES and COSMIC_TEST_BAIL;
+--- - COSMIC_TEST_NO_SHARED, COSMIC_TEST_FOREIGN_KERNEL and COSMIC_TEST_BAIL;
 --- - COSMIC_TEST_CHECK_TYPES and COSMIC_TEST_TYPES, which ask for a checked
 ---   run and tell its workers to report one;
 ---
@@ -984,7 +985,7 @@ function test_key.worker_environment(environment: {string:string}): {string:stri
   -- Nor does it take this run's choice not to stand on them: a test
   -- that runs `cosmic test` says for itself what that run does.
   out.COSMIC_TEST_NO_SHARED = nil
-  out["COSMIC_TEST_FOREIGN_FEATURES"] = nil
+  out["COSMIC_TEST_FOREIGN_KERNEL"] = nil
   out.COSMIC_TEST_BAIL = nil
   -- Nor whether this run compiles its tree with run-time checks, and its
   -- workers report them: a `cosmic test` a test starts compiles its tree
@@ -1886,6 +1887,14 @@ function test_key.gather(rec: Recording, from: Gather): string?
   rec.compiler = compiled_with .. " " .. from.compiled_by
   local split = declared_key.host_split(digests_of(rec))
   rec.host, rec.host_rest = split.identity, split.rest
+  local cpu = declared_key.host_cpu()
+  -- A run in a tree of a project stands in for a processor of other features, as COSMIC_TEST_COMPILER_SALT does
+  -- for a compiler (build/sandboxed_verdicts_test.tl).
+  local cpu_salt = Env.read("COSMIC_TEST_CPU_SALT")
+  if not from.own_tree and cpu_salt ~= nil and cpu_salt ~= "" then
+    cpu = hex_sha256(cpu .. "\0" .. cpu_salt)
+  end
+  rec.cpu = cpu
   -- What the system's paths hold is walked only for a run that holds
   -- a module given them, whose key alone holds it: half a second of
   -- /usr's entries otherwise spent for nothing.
@@ -2043,11 +2052,11 @@ end
 ---
 --- Where the run `accept_foreign`s, a test no verdict answers for under
 --- this host's key is looked up under the key it would have had on each
---- other host the cache names of this host's rest but for its features,
+--- other host the cache names of this host's rest but for its kernel,
 --- the identity that host stamped its rows with: the same key in every
 --- other input, as this host works each out, so the row is the test's
 --- verdict of this tree, closure, epoch and runtime, reached on a host
---- of other features. The key found is then the lookup's, and the row
+--- of another kernel. The key found is then the lookup's, and the row
 --- stays under it: no row is made under this host's key, so a run that
 --- does not accept them finds none. The hosts are tried in sorted
 --- order and the first row found answers: a pass on any like host

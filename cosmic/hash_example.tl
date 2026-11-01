@@ -4,6 +4,9 @@
 
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local Example = {}
 

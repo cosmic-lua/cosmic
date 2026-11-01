@@ -11,6 +11,7 @@ local fixture = require("build.must_confine_fixture")
 local _ = require("build.must_confine_children_test")
 
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
 }

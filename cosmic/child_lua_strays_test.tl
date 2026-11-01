@@ -15,6 +15,7 @@ local fixture = require("build.child_lua_fixture")
 --- /proc, where a test reads a stray's name; and the program itself,
 --- started past its launcher (`lua`).
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic", "proc" },
   requires = { "path:/proc/thread-self/children" },
 }

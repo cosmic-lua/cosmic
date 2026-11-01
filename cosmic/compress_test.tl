@@ -8,6 +8,8 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 
+Test.policy{ cpu_features = true }
+
 local formats: {Compress.Format} = { "raw", "zlib", "gzip" }
 
 -- Feeds `data` through `stream` in pieces of `size` bytes (the whole of

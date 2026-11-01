@@ -37,11 +37,13 @@ stands on another checkout's pass.
 
 - `--all` (`COSMIC_TEST_ALL=1`) runs every test.
 - `--no-shared` (`COSMIC_TEST_NO_SHARED=1`) stands on no shared verdict.
-- `COSMIC_TEST_FOREIGN_FEATURES=1`, set only by CI's checked gathering run,
+- `COSMIC_TEST_FOREIGN_KERNEL=1`, set only by CI's checked gathering run,
   also looks a test up under the key of another host in the shared cache
-  that differs from this one in its kernel and processor features alone
-  ([`declared_key.host_split`]), every other input as this host keys it.
-  Unset, a run reuses only the rows of its own host's keys.
+  that differs from this one in its kernel alone
+  ([`declared_key.host_split`]), every other input as this host keys it:
+  a share that ran on an image with another kernel. It never reaches a
+  row of another processor's features (below). Unset, a run reuses only
+  the rows of its own host's keys.
 - The new checker is the tool's only one: [`build.pipeline`] reads the tree, checks it against its ceilings and writes
   the Lua. `COSMIC_GRAMMAR` takes `new` or nothing ([`build.grammar_mode`]); `teal`, the grammar of the fork that was
   deleted, is refused, pointing to the project guide, which says how to rewrite a project to the new one. A project outside cosmic's own
@@ -99,7 +101,8 @@ moved path.
 A module declares what its tests read with one top-level
 `Test.policy { ... }` ([`Test.policy`]). Its fields are those of
 [`cosmic.sandbox`]'s `Policy`: `profiles`, `grants`, `env`, `promises`,
-`loopback` and `requires`. The harness takes only some of the rest (below).
+`loopback` and `requires`, and `cpu_features`, which only a test declares
+(below). The harness takes only some of the rest.
 
 ```text
 local Test = require("cosmic.test")
@@ -143,6 +146,45 @@ The rules:
 The key holds no file times, inode, device, link count or owner. They
 differ in every checkout. A test that needs them makes its own files in
 its temporary directory and sets them.
+
+### processor features
+
+A verdict stands across hosts of other processors. A key holds the
+host's kernel (its release and version) and not the processor's
+features, so CI's runners of one image, which land on processors that
+differ, share their verdicts and their cache.
+
+A module whose tests can turn on the processor says so with
+`cpu_features = true` in its [`Test.policy`]
+(`Test.policy { cpu_features = true }`, [`Test.policy`]). Its tests' keys
+then hold the features a core chooses code by
+([`declared_key.host_cpu`]: AES-NI and the Arm crypto instructions,
+SHA-NI, carry-less multiply, the int8 VNNI dot product, listed in
+[`declared_key.dispatched`]), and a verdict of a host that lacks one
+does not stand for a host that has it, nor the other way. Policy is
+static, so the key is worked out before the test runs.
+
+The harness holds a module to declaring it. A run of cosmic's own tree
+reads which of the core's C functions each test entered (the lines its
+worker and the processes it started ran, [`Coverage.native_functions`]),
+and a test that passes having entered one that turns on the processor,
+in a module that does not declare `cpu_features`, fails, naming the
+function and the fix. Those functions are derived from the audit of
+[`build/dispatched_features_test.tl`], not listed: every function of a
+core file that is itself a site that reads a feature (core/vector.c), and
+every function of any core file whose body calls the API of a vendored
+library with such a site (`psa_` and `mbedtls_` for mbedtls, `lzma_` for
+xz; [`build/dispatch_sites.tl`]). A function that only calls one that does
+is not among them: the test enters that one too. A pass that stands
+without running is not checked again, since its key held the module's
+declaration when it was earned. A core that observes no C of its own
+([`Coverage.native_functions`] empty), and a project outside cosmic's tree,
+whose C is not there to read, are not checked.
+
+A verdict that fails the check is kept as a failure is, so it runs
+again. The tests that need the field today are the modules that reach
+crypto and hashing, compression with xz, [`cosmic.vector`] and the TLS
+client; `git grep -l cpu_features -- '*_test.tl'` lists them.
 
 ### the import closure
 
@@ -570,6 +612,8 @@ Other rules:
 [`build.this_program`]: ../build/this_program.tl
 [`build.tree_checks`]: ../build/tree_checks.tl
 [`build/declared_key.tl`]: ../build/declared_key.tl
+[`build/dispatch_sites.tl`]: ../build/dispatch_sites.tl
+[`build/dispatched_features_test.tl`]: ../build/dispatched_features_test.tl
 [`build/fact_hook_tool_test.tl`]: ../build/fact_hook_tool_test.tl
 [`build/harness_epoch_test.tl`]: ../build/harness_epoch_test.tl
 [`build/rebuild_lock_tool_test.tl`]: ../build/rebuild_lock_tool_test.tl
@@ -583,7 +627,11 @@ Other rules:
 [`cosmic.layout`]: ../cosmic/layout.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
 [`cosmic.template`]: ../cosmic/template/init.tl
+[`cosmic.vector`]: ../cosmic/vector.tl
 [`cosmic/store_seal_test.tl`]: ../cosmic/store_seal_test.tl
+[`Coverage.native_functions`]: ../cosmic/coverage.tl
+[`declared_key.dispatched`]: ../build/declared_key.tl
+[`declared_key.host_cpu`]: ../build/declared_key.tl
 [`declared_key.host_split`]: ../build/declared_key.tl
 [`doc/performance.md`]: performance.md
 [`Fuzz.label`]: ../build/fuzz/init.tl

@@ -28,6 +28,7 @@ local stand_in = require("build.stand_in")
 --- core/syscalls_tool_test.tl's, and the one that reads the program's
 --- own path core/artifact_fd_tool_test.tl's.
 Test.policy{
+  cpu_features = true,
   profiles = { "proc" },
   loopback = { "127.0.0.1" },
 }

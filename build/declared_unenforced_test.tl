@@ -24,6 +24,7 @@ local Test = require("cosmic.test")
 --- What a run of `cosmic test` needs of the host, and the program it
 --- runs.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
 }

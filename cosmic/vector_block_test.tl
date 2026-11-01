@@ -11,6 +11,8 @@ local sys = require("cosmic.sys")
 local Vector = require("cosmic.vector")
 local Test = require("cosmic.test")
 
+Test.policy{ cpu_features = true }
+
 local storages: {Vector.Storage} = { "f32", "f16", "int8" }
 local metrics: {Vector.Metric} = { "inner_product", "cosine", "l2" }
 

@@ -14,6 +14,9 @@
 local Fuzz = require("build.fuzz")
 local Sqlite = require("cosmic.sqlite")
 local Vector = require("cosmic.vector")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 -- The in-memory database the SQL-reading properties ask; each opens it
 -- before its run and closes it after.

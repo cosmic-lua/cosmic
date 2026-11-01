@@ -23,6 +23,7 @@ local ChildPolicy = require("build.child_policy_fixture")
 --- the relay and the program under it, which nest. The two addresses are
 --- those of the servers, and the one the worker's own loopback is.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic" },
   promises = { "nest" },
   loopback = { "127.0.0.1", "127.0.0.2" },

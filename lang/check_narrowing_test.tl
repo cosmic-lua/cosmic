@@ -14,6 +14,7 @@ local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 
 Test.policy{
+  cpu_features = true,
   grants = { { path = "lang/stdlib.d.tl", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" } },
 }
 

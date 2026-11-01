@@ -10,7 +10,7 @@ local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
 --- The program itself, which its tests start.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local record Ran
   code: integer

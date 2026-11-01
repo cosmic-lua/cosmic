@@ -16,6 +16,9 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local declared_key = require("build.declared_key")
+local type Coverage = require("cosmic.coverage")
+local DispatchSites = require("build.dispatch_sites")
+local c_functions = require("build.c_functions")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 
@@ -23,6 +26,7 @@ local String = require("cosmic.string")
 --- libraries' and the patches it applies to them, and build.zig itself,
 --- which names them and passes the compiler's definitions.
 Test.policy{
+  cpu_features = true,
   grants = {
     { path = "build.zig", letters = "r" },
     { path = "core/", letters = "r" },
@@ -71,75 +75,10 @@ local PATTERNS <const> = { "#define MBEDTLS_AESNI_%u+%s+0x%x+" }
 --- cpuid).
 local AFTER <const> = 12
 
-local AESNI <const> = "vendor/mbedtls/tf-psa-crypto/drivers/builtin/src/aesni.c"
-local AESCE <const> = "vendor/mbedtls/tf-psa-crypto/drivers/builtin/src/aesce.c"
+local SITES <const> = DispatchSites.sites
+
 local SHA256 <const> = "vendor/mbedtls/tf-psa-crypto/drivers/builtin/src/sha256.c"
 local SHA512 <const> = "vendor/mbedtls/tf-psa-crypto/drivers/builtin/src/sha512.c"
-
---- A file that asks what the processor can do: the first 16 hex digits
---- of the sha256 of the lines `asking` finds in it, and the
---- features it reads, by machine -- none for one that only configures
---- a site, or asks what is no feature.
-local record Site
-  lines: string
-  reads: {string:{string}}
-end
-
-local SITES <const>: {string:Site} = {
-  -- mbedtls's AES-NI: cpuid leaf 1, ECX bits 25 and 1 ...
-  [AESNI] = { lines = "47d2248fdd65bde3", reads = { x86_64 = { "aes", "pclmulqdq" } } },
-  -- ... which aesni.h names.
-  ["vendor/mbedtls/tf-psa-crypto/drivers/builtin/src/aesni.h"] = { lines = "52e680e7c3f51daa",
-    reads = {} },
-  -- mbedtls's AES instructions: HWCAP_ASIMD and HWCAP_AES, and it runs
-  -- pmull, which the kernel lists with aes.
-  [AESCE] = { lines = "bb97ae0e43fe952e", reads = { aarch64 = { "asimd", "aes", "pmull" } } },
-  -- mbedtls's Armv8 SHA-2 instructions, chosen at run time
-  -- ([`test_the_sha_instructions_are_chosen_at_run_time`]): HWCAP_SHA2 and
-  -- HWCAP_SHA512, and on Apple sysctl (hw.optional.armv8_2_sha512; SHA-256
-  -- is assumed there).
-  [SHA256] = { lines = "348fc7a6aafc5db0", reads = { aarch64 = { "sha2" } } },
-  [SHA512] = { lines = "08b640331951aadd", reads = { aarch64 = { "sha512" } } },
-  -- patch/mbedtls's SHA-NI SHA-256: cpuid leaf 7 EBX bit 29, with the
-  -- SSSE3 and SSE4.1 bits of leaf 1 its shuffles and blends need ...
-  ["patch/mbedtls/04-sha256-ni.txt"] = { lines = "a2bc2eeb6868491a",
-    reads = { x86_64 = { "sha_ni", "sse4_1", "ssse3" } } },
-  -- ... and the header that declares __get_cpuid_count.
-  ["patch/mbedtls/03-sha256-ni-select.txt"] = { lines = "bfdef8b0c7ebba67", reads = {} },
-  -- xz's CRC32 and CRC64 by carry-less multiply: cpuid leaf 1, ECX
-  -- bits 1, 9 and 19.
-  ["vendor/xz/src/liblzma/check/crc_x86_clmul.h"] = { lines = "3df82a3bd7e3826c",
-    reads = { x86_64 = { "pclmulqdq", "ssse3", "sse4_1" } } },
-  -- xz's CRC32: HWCAP_CRC32.
-  ["vendor/xz/src/liblzma/check/crc32_arm64.h"] = { lines = "82240c4bfa8815ab",
-    reads = { aarch64 = { "crc32" } } },
-  -- Whether xz compiles crc32_arm64.h's check in, and the configuration
-  -- that says it may: neither reads a feature.
-  ["vendor/xz/src/liblzma/check/crc_common.h"] = { lines = "02b9a4dfc40599e0", reads = {} },
-  ["core/xz_config/config.h"] = { lines = "6696e76730b82c2d", reads = {} },
-  -- zstd's cpuid, and the two that call it for BMI1 and BMI2: every
-  -- choice made by what it answers is under `#if DYNAMIC_BMI2`, which
-  -- build.zig sets to 0, so it chooses no code.
-  ["vendor/zstd/lib/common/cpu.h"] = { lines = "2a52cdfcf036b836", reads = {} },
-  ["vendor/zstd/lib/common/zstd_internal.h"] = { lines = "7db2f12b59d3e0b4", reads = {} },
-  ["vendor/zstd/lib/compress/zstd_compress.c"] = { lines = "e1810b0562e88cca", reads = {} },
-  -- `cpu_features`, which answers what the processor has for a key
-  -- (build/declared_key.tl's `features`), its declaration and its test:
-  -- none chooses code by it. syscalls.c asks Apple's
-  -- kern.maxfilesperproc too, for the descriptor limit a start raises
-  -- to: no feature.
-  ["core/syscalls.c"] = { lines = "6d6f8c1e9f60c406", reads = {} },
-  ["core/syscalls.h"] = { lines = "297b223c6bbcbc65", reads = {} },
-  ["core/syscalls_test.tl"] = { lines = "6c8d56b73b02f0bb", reads = {} },
-  -- The int8 dot product of [`Vector.corpus`]: VNNI in its AVX-512 (256-bit
-  -- forms) and AVX encodings, by cpuid leaf 7. It also asks cpuid leaf 1
-  -- for OSXSAVE and xgetbv for the state the system saves, which are the
-  -- system's and no feature of the processor.
-  ["core/vector.c"] = { lines = "cd0767ce3aa41c0c",
-    reads = { x86_64 = { "avx512f", "avx512vl", "avx512_vnni", "avx_vnni" } } },
-  -- The processor count on Apple (sysctlbyname("hw.ncpu")): no feature.
-  ["vendor/sqlite/sqlite3.c"] = { lines = "7b27815aae63deac", reads = {} },
-}
 
 --- Whether `line` holds a needle or matches a pattern.
 local function asks(line: string): boolean
@@ -291,10 +230,10 @@ local function test_every_site_that_asks_the_processor_is_named()
     if site == nil then
       problems[#problems + 1] = path .. " asks what the processor can do: key the features " ..
         "it reads in build/declared_key.tl's `dispatched`, core/syscalls.c's `cpu_features` " ..
-        "and ci/cosmic_ci/host_id.tl, and name it in SITES (lines = \"" .. digest ..
+        "and ci/cosmic_ci/host_id.tl, and name it in build/dispatch_sites.tl's `sites` (lines = \"" .. digest ..
         "\"), or name it with `reads = {}` if it reads none"
     elseif site.lines ~= digest then
-      problems[#problems + 1] = path .. " asks the processor otherwise than SITES says " ..
+      problems[#problems + 1] = path .. " asks the processor otherwise than build/dispatch_sites.tl's `sites` say " ..
         "(lines = \"" .. digest .. "\"): read what it asks now, key what it reads, then " ..
         "take the new digest:\n  " .. table.concat(lines, "\n  ")
     end
@@ -302,7 +241,7 @@ local function test_every_site_that_asks_the_processor_is_named()
   for path in pairs(SITES) do
     if found[path] == nil then
       problems[#problems + 1] = path .. " no longer asks what the processor can do: drop it " ..
-        "from SITES"
+        "from build/dispatch_sites.tl's `sites`"
     end
   end
   table.sort(problems)
@@ -370,4 +309,124 @@ local function test_zstd_dispatch_is_compiled_out()
   assert(build:find('"-DDYNAMIC_BMI2=0"', 1, true) ~= nil, "build.zig no longer turns zstd's dispatch off")
   local macros = assert(Fs.read("vendor/zstd/lib/common/portability_macros.h"))
   assert(macros:find("#ifndef DYNAMIC_BMI2", 1, true) ~= nil, "zstd no longer takes DYNAMIC_BMI2 from outside")
+end
+
+--- Every library with a site that reads a feature names the prefixes of
+--- the functions it exports (`api`), and its public headers declare one
+--- under each: the core's calls into it, which are how a test's entry
+--- into the library is found, are found by them.
+local function test_every_dispatching_library_names_its_api()
+  local libraries = DispatchSites.libraries()
+  assert(#libraries >= 2, "the libraries with a site: " .. table.concat(libraries, ", "))
+  for _, library in ipairs(libraries) do
+    local prefixes = DispatchSites.api[library]
+    assert(prefixes ~= nil and #prefixes > 0, library .. " has a site that reads a processor " ..
+        "feature: name the prefixes of its API in build/dispatch_sites.tl's `api`")
+    for _, prefix in ipairs(prefixes) do
+      local found = false
+      for _, relative in ipairs((assert(Fs.walk("vendor/" .. library)))) do
+        if relative:match("%.h$") ~= nil then
+          local text = assert(Fs.read("vendor/" .. library .. "/" .. relative))
+          if text:find("%f[%w_]" .. prefix) ~= nil then
+            found = true
+            break
+          end
+        end
+      end
+      assert(found, "no header of vendor/" .. library .. " has a name that begins " .. prefix)
+    end
+  end
+  for library in pairs(DispatchSites.api) do
+    local listed = false
+    for _, name in ipairs(libraries) do listed = listed or name == library end
+    assert(listed, library .. " is named in `api` but no site of it reads a feature")
+  end
+end
+
+--- The lines of the core's C that turn on the processor, by function key.
+local function reached(found: {DispatchSites.Reach}): {string:DispatchSites.Reach}
+  local out: mut {string:DispatchSites.Reach} = {}
+  for _, each in ipairs(found) do out[each.key] = each end
+  return out
+end
+
+--- The lines that turn on the processor are the calls into a dispatching
+--- library, and, in a file that is a site, the code compiled for a feature
+--- and the calls through the pointer it is assigned to.
+local function test_the_core_lines_that_turn_on_the_processor_are_found()
+  local functions: {Coverage.Function} = {
+    { path = "core/vector.c", name = "kernel_generic", line = 1 },
+    { path = "core/vector.c", name = "kernel_avx", line = 4 },
+    { path = "core/vector.c", name = "pick", line = 7 },
+    { path = "core/vector.c", name = "use", line = 10 },
+    { path = "core/hash.c", name = "digest", line = 1 },
+    { path = "core/hash.c", name = "plain", line = 5 },
+    { path = "core/compress.c", name = "stream", line = 1 },
+  }
+  local sources: {string:{string}} = {
+    ["core/vector.c"] = {
+      "static int kernel_generic (void) {", "}",
+      "__attribute__((target(\"avx2\")))",
+      "static int kernel_avx (void) {", "}",
+      "static int (*kernel) (void) = kernel_generic;",
+      "static void pick (void) {", "  kernel = kernel_avx;", "}",
+      "static void use (void) {", "  kernel();", "}",
+    },
+    ["core/hash.c"] = {
+      "static int digest (void) {", "  return psa_hash_setup(0, 0);", "}", "",
+      "static int plain (void) {", "  return helper_psa_hash(0) + my_mbedtls_x;", "}",
+    },
+    ["core/compress.c"] = {
+      "static int stream (int op) {", "  if (op == 1) return 0;", "  return lzma_code(op);", "}",
+    },
+  }
+  local found = reached(DispatchSites.reaching(c_functions.spans(functions, sources), sources))
+  assert(found["core/hash.c:digest"] ~= nil, "a call to psa_ is a call into mbedtls")
+  assert(found["core/hash.c:plain"] == nil, "a name that merely contains a prefix is no call")
+  local xz = assert(found["core/compress.c:stream"], "a call to lzma_ is a call into xz")
+  assert(#xz.lines == 1 and xz.lines[1] == 3, "the line of the call, not the function's")
+  assert(found["core/vector.c:kernel_avx"] ~= nil, "a function compiled for a feature")
+  local used = assert(found["core/vector.c:use"], "a call through the pointer it is assigned to")
+  assert(#used.lines == 1 and used.lines[1] == 11)
+  assert(found["core/vector.c:pick"] == nil, "the choice runs whenever the file loads")
+  assert(found["core/vector.c:kernel_generic"] == nil, "the code any processor runs")
+  -- The tree's own C: the kernels, and the scan that calls the one chosen, but not the function
+  -- that registers the module and picks (which every open of a database enters).
+  local text = assert(Fs.read("core/vector.c"))
+  local own_lines: mut {string} = {}
+  for line in String.lines(text) do own_lines[#own_lines + 1] = line end
+  local own: {string:{string}} = { ["core/vector.c"] = own_lines }
+  local own_functions: mut {Coverage.Function} = {}
+  for _, name in ipairs({ "dot_i8_avx512_vnni", "dot_i8_avx_vnni", "dot_i8_generic", "cosmic_vector_functions",
+      "row_key" }) do
+    for at, line in ipairs(own_lines) do
+      if line:match("^[%a_]") ~= nil and line:find(" " .. name .. " (", 1, true) ~= nil then
+        own_functions[#own_functions + 1] = { path = "core/vector.c", name = name, line = at }
+        break
+      end
+    end
+  end
+  assert(#own_functions == 5, "core/vector.c has the functions this reads")
+  local real = reached(DispatchSites.reaching(c_functions.spans(own_functions, own), own))
+  assert(real["core/vector.c:dot_i8_avx_vnni"] ~= nil and real["core/vector.c:dot_i8_avx512_vnni"] ~= nil)
+  assert(real["core/vector.c:dot_i8_generic"] == nil)
+  assert(real["core/vector.c:cosmic_vector_functions"] == nil, "the function that registers and picks")
+  assert(real["core/vector.c:row_key"] ~= nil, "the scan that calls the kernel chosen")
+end
+
+--- A test whose module does not declare `cpu_features` fails for running
+--- a line that calls into a dispatching library, naming the function and the
+--- fix; one that runs the function's other lines, or none, does not.
+local function test_a_test_that_runs_a_dispatched_line_fails_without_the_policy()
+  local reaches: {DispatchSites.Reach} = {
+    { key = "core/hash.c:digest", path = "core/hash.c", lines = { 2 }, why = "it calls mbedtls" },
+    { key = "core/hash.c:other", path = "core/hash.c", lines = { 9 }, why = "it calls mbedtls" },
+  }
+  local said = DispatchSites.failure(reaches, { ["core/hash.c"] = { [1] = true, [2] = true } })
+  assert(said:find("core/hash.c:digest: it calls mbedtls (line 2)", 1, true) ~= nil, said)
+  assert(said:find("core/hash.c:other", 1, true) == nil, said)
+  assert(said:find("declare cpu_features = true in the module's Test.policy", 1, true) ~= nil, said)
+  assert(DispatchSites.failure(reaches, { ["core/hash.c"] = { [1] = true, [3] = true } }) == "")
+  assert(DispatchSites.failure(reaches, { ["core/other.c"] = { [2] = true } }) == "")
+  assert(DispatchSites.failure({}, { ["core/hash.c"] = { [2] = true } }) == "")
 end

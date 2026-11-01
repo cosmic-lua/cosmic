@@ -5,6 +5,9 @@ local SessionCookie = require("cosmic.web.session.cookie")
 local SessionSqlite = require("cosmic.web.session.sqlite")
 local Sqlite = require("cosmic.sqlite")
 local Web = require("cosmic.web")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local KEY <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0"
 

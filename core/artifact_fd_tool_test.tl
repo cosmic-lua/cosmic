@@ -19,7 +19,7 @@ local test_child = require("build.test_child")
 local unix_socket = require("build.unix_socket")
 local type raw_socket = require("cosmic.internal.socket")
 
-Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" },
+Test.policy{ cpu_features = true, profiles = { "cosmic" }, loopback = { "127.0.0.1" },
   grants = { { path = "o/bin", letters = "rx" } } }
 
 local socket = require("cosmic.internal.socket")

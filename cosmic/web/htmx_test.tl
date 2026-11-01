@@ -7,7 +7,7 @@ local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 local Web = require("cosmic.web")
 
-Test.policy{ grants = {
+Test.policy{ cpu_features = true, grants = {
   { path = "vendor/htmx/dist/htmx.min.js", letters = "r" },
   { path = "vendor/htmx-ext-sse/dist/sse.min.js", letters = "r" },
 } }

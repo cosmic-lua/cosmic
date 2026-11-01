@@ -3,6 +3,9 @@
 --- other test -- see doc/design.md's `examples` table.
 
 local Compress = require("cosmic.compress")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local Example = {}
 

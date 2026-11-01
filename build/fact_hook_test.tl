@@ -7,7 +7,7 @@ local Test = require("cosmic.test")
 local programs = require("build.fact_programs")
 local worker = require("build.test_worker")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 --- The facts violated after the first `before` violations. A checked run also reports the boundaries this file's own
 --- functions cross (parameters, return values, fields: kinds `parameter`, `return` and `field`), which are not what

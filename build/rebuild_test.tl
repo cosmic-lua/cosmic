@@ -12,6 +12,9 @@ local GrammarMode = require("build.grammar_mode")
 local Pipeline = require("build.pipeline")
 local rebuild = require("build.rebuild")
 local work = require("build.work")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local function test_a_directory_that_is_no_project_is_never_staged(tmp: string)
   local root = tmp .. "/stray"

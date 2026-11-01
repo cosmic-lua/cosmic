@@ -5,6 +5,7 @@ local Receivers = require("build.syntax_receivers")
 local Test = require("cosmic.test")
 
 Test.policy{
+  cpu_features = true,
   grants = {
     { path = "lang/stdlib.d.tl", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
     { path = "core/syscalls.h", letters = "r" }, { path = "core/process.h", letters = "r" }, { path = "core/socket.h", letters = "r" },

@@ -11,7 +11,7 @@ local CheckerDeclarations = require("build.checker_declarations")
 local this_program = require("build.this_program")
 
 --- The program itself, which this test starts, and the two projects it builds.
-Test.policy{ profiles = { "cosmic" }, grants = {
+Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = {
   { path = "o/bin", letters = "rx" }, { path = "testdata/projects", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" },
   { path = "lang/prelude.d.tl", letters = "r" },
 } }

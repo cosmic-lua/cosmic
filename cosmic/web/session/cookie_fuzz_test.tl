@@ -5,6 +5,9 @@
 local Fuzz = require("build.fuzz")
 local Session = require("cosmic.web.session")
 local SessionCookie = require("cosmic.web.session.cookie")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local KEY <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0"
 

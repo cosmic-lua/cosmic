@@ -37,6 +37,7 @@ end
 --- beyond this module's closure -- the docs a compile's hint names --
 --- are build/importer_store_test.tl's.
 Test.policy{
+  cpu_features = true,
   grants = { { path = "core", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
     { path = "lang/stdlib.d.tl", letters = "r" } },
 }

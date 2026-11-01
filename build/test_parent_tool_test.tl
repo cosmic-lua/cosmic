@@ -13,6 +13,7 @@ local fixture = require("build.test_sandbox_fixture")
 local Test = require("cosmic.test")
 
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" } },
   promises = { "nest" },

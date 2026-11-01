@@ -18,6 +18,7 @@ local Test = require("cosmic.test")
 --- variables that hold a run to sandboxing, which a case whose run
 --- sandboxed none of its workers reads to skip (Test.skip).
 Test.policy{
+  cpu_features = true,
   profiles = { "system", "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" },
     { path = "/bin/sh", letters = "r" }, { path = "/etc/passwd", letters = "r" } },

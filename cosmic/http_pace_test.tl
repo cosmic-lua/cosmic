@@ -8,7 +8,7 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Test = require("cosmic.test")
 
-Test.policy{ loopback = { "127.0.0.1" } }
+Test.policy{ cpu_features = true, loopback = { "127.0.0.1" } }
 
 local url = "http://cosmic.test/"
 

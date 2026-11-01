@@ -14,7 +14,7 @@ local build_paths = require("build.paths")
 local this_program = require("build.this_program")
 local type _ = require("build.standalone")
 
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "build/paths.tl", letters = "r" } } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "build/paths.tl", letters = "r" } } }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.

@@ -11,7 +11,7 @@ local this_program = require("build.this_program")
 
 --- The program itself, which its tests start to run a file `--standalone`
 --- ([`build.standalone`]).
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" } }
 
 --- Runs `body` as a standalone script and answers what it wrote.
 local function run(tmp: string, body: string): string, string

@@ -21,6 +21,7 @@ local build_paths = require("build.paths")
 --- refuses a path starts, and roots of their own for the workers of that
 --- run (`nests`), which a host that refuses them runs unsandboxed.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },

@@ -12,7 +12,7 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function run(dir: string, words: {string}): Child.Result
   local env = this_program.environment()

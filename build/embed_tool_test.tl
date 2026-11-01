@@ -42,6 +42,7 @@ end
 --- and no `sh` -- runs them.
 --- `store`: [`embed.database`] reads every `cosmic.*` module's rows.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" },
     { path = "testdata/projects", letters = "r" } },

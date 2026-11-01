@@ -18,6 +18,7 @@ local fixture = require("build.sandbox_tool_fixture")
 
 --- The program itself, and the host programs it starts under a policy.
 Test.policy{
+  cpu_features = true,
   profiles = { "system", "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
   requires = { "sandbox" },

@@ -11,7 +11,7 @@ local fixture = require("build.docs_fixture")
 
 -- The new checker types an example against the declarations the tool carries, which only a worker that holds the tool's
 -- database ("cosmic") has.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function source(...: string): string
   return table.concat({ ... }, "\n") .. "\n"

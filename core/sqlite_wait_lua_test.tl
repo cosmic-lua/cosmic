@@ -9,7 +9,7 @@ local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" } }
 
 local function start(script: string): Child.Handle
   local command = this_program.program({ "-e", script },

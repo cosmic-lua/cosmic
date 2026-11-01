@@ -12,7 +12,7 @@ local this_program = require("build.this_program")
 local work = require("build.work")
 local type _ = require("build.standalone")
 
-Test.policy{ profiles = { "cosmic" }, grants = {
+Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = {
   { path = "build/paths.tl", letters = "r" },
   { path = "build.zig", letters = "r" },
 } }

@@ -1,6 +1,6 @@
 # portable runtime implementation
 
-<!-- policy: env = { "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD", "COSMIC_PORTABLE_CORE_SHA256" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
+<!-- policy: cpu_features = true, env = { "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD", "COSMIC_PORTABLE_CORE_SHA256" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 Cosmic ships one file that starts on every supported host. An ordinary release
 artifact contains a POSIX shell launcher, three release cores stored zstd

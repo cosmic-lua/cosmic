@@ -11,6 +11,9 @@
 local Fs = require("cosmic.fs")
 local importer = require("build.importer")
 local work = require("build.work")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 --- What a failed pin says, beside what moved and where to.
 local function bump(what: string): string

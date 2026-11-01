@@ -4,6 +4,9 @@ local Json = require("cosmic.json")
 local Secret = require("cosmic.web.secret")
 local Session = require("cosmic.web.session")
 local SessionCookie = require("cosmic.web.session.cookie")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local NEW <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0"
 local OLD <const> = "Qp8Ws2Ed5Rf7Tg1Yh3Uj6Ik9Ol0Pm4Nb"

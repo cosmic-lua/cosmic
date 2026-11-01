@@ -26,6 +26,7 @@ local Clock = require("cosmic.clock")
 --- loopback, which the offline child's own `lo` answers, as a worker under a
 --- policy makes no inet socket without it.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic", "proc" },
   promises = { "nest" },
   loopback = { "127.0.0.1" },

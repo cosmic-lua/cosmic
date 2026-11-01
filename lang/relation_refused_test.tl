@@ -8,7 +8,7 @@ local Programs = require("lang.relation_programs")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 local world = Programs.world
 local named = Programs.named

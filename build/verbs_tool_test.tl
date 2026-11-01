@@ -23,6 +23,7 @@ local verbs_fixture = require("build.verbs_fixture")
 --- The tool itself, the CA bundle a file run reads, and what bin/zig reads
 --- to find or fetch zig.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "vendor/cacert/certdata.txt", letters = "r" } },
   env = { "ALL_PROXY", "COSMIC_BOOTSTRAP", "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",

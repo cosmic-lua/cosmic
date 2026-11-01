@@ -17,7 +17,7 @@ local Test = require("cosmic.test")
 local importer = require("build.importer")
 local work = require("build.work")
 
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local DATA <const> = [[
 local html = require("cosmic.html")

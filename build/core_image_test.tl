@@ -1,6 +1,9 @@
 local Hash = require("cosmic.hash")
 local core_image = require("build.core_image")
 local fixture = require("build.core_image_fixture")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 --- What a key holds of the core `bytes`: its image's digest, or its own.
 local function digest(bytes: string): string

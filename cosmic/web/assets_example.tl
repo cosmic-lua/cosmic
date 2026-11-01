@@ -4,6 +4,9 @@
 
 local Assets = require("cosmic.web.assets")
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local Example = {}
 

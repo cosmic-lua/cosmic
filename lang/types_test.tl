@@ -5,7 +5,7 @@ local Programs = require("lang.types_programs")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 local record World
   store: Types.Store

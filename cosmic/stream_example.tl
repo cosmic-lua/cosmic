@@ -10,6 +10,9 @@ local Hash = require("cosmic.hash")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local Example = {}
 

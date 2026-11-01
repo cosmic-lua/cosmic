@@ -23,7 +23,7 @@ local confine = require("build.confine")
 local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" } }
 
 --- Runs `words` after this program, past its launcher, and answers
 --- whether it exited 0, and what it wrote to stdout and stderr.

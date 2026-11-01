@@ -14,6 +14,7 @@ local this_program = require("build.this_program")
 --- The program itself, which its tests start, and a local port: closed,
 --- or one a test serves.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
   loopback = { "127.0.0.1" },

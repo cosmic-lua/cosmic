@@ -59,7 +59,7 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:PolicyRules.Decla
     if one == nil then
       one = { line = 0, reads = {}, host = {}, env = {}, network = {},
         tool = false, lua = false, nests = false, noexec = false, store = false,
-        system = false, caches = {}, requires = {} }
+        system = false, cpu_features = false, caches = {}, requires = {} }
       declared[hash] = one
     end
     if field == "line" then
@@ -84,6 +84,8 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:PolicyRules.Decla
       one.store = true
     elseif field == "system" then
       one.system = true
+    elseif field == "cpu_features" then
+      one.cpu_features = true
     elseif field == "caches" then
       one.caches[#one.caches + 1] = value
     elseif field == "parent" then

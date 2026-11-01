@@ -12,7 +12,7 @@ local this_program = require("build.this_program")
 local build_paths = require("build.paths")
 
 --- The program itself, which builds the tree around the file it runs.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- Runs `file` in `root` with this user's cache under `cache`, and no
 --- COSMIC_BUILD_HOME, so the build directory is that cache's.

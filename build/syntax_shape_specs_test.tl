@@ -6,7 +6,7 @@ local Programs = require("lang.check_programs")
 local ShapeSpecs = require("build.syntax_shape_specs")
 local Test = require("cosmic.test")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 --- The modules of the standard library the cases name, which are lowered for their types and never checked.
 local STANDARD <const>: {string: string} = {

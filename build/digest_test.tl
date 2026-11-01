@@ -5,6 +5,9 @@
 
 local Hash = require("cosmic.hash")
 local digest = require("build.digest")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 --- The empty string, every byte alone, strings of every length to 130
 --- over a spread of bytes (across SHA-256's 64-byte block and its

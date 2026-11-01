@@ -10,7 +10,7 @@ local Test = require("cosmic.test")
 local fixture = require("build.child_lua_fixture")
 local sys = require("cosmic.sys")
 
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" } }
 
 local DEADLINE_NS <const> = Clock.seconds(8)
 

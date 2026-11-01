@@ -13,7 +13,7 @@ local Clock = require("cosmic.clock")
 
 --- The program itself, which its test starts to run a file `--standalone`
 --- ([`build.standalone`]).
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" } }
 
 --- A process's first window keeps the C that ran before it opened --
 --- startup -- and every later one starts empty. Run in a fresh process,

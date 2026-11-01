@@ -11,6 +11,7 @@ local database_start_fixture = require("build.database_start_fixture")
 --- The core is started past its launcher, as core/database_start_test.tl
 --- does, and `/proc` is what the sandboxed child reads of its own descriptors.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" } },
   requires = { "sandbox" },

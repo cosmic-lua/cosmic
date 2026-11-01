@@ -12,7 +12,7 @@ local build_paths = require("build.paths")
 local this_program = require("build.this_program")
 
 --- The program itself, which this test starts.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- Whether a module of the database file at `path` holds `needle` in its bytecode, which the database stores
 --- deflated: the file's own bytes show none of it.

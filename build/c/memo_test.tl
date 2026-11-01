@@ -9,6 +9,7 @@ local c = require("build.c")
 --- The core's C and the headers it includes, which zig parses to a syntax tree, and what bin/zig reads to find or fetch
 --- zig, which the system's `sh` runs; the bootstrap cosmic and zig, and the caches zig builds in, which it writes.
 Test.policy{
+  cpu_features = true,
   profiles = { "system" },
   grants = {
     { path = "bin/cosmic-bootstrap", letters = "r" },

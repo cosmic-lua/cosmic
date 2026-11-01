@@ -10,6 +10,9 @@ local Stream = require("cosmic.stream")
 local artifact = require("build.artifact")
 local fixture = require("build.core_image_fixture")
 local String = require("cosmic.string")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local records = table.concat({
   "1\t1\trelease\tx86\tLinux\tx86_64",

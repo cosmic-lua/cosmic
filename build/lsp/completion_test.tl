@@ -10,7 +10,7 @@ local Test = require("cosmic.test")
 local docs_fixture = require("build.docs_fixture")
 local session_fixture = require("build.lsp.session_fixture")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 local type Ran = session_fixture.Ran
 local answer, at, change = session_fixture.answer, session_fixture.at, session_fixture.change

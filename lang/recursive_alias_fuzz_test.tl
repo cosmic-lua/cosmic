@@ -11,7 +11,7 @@ local Test = require("cosmic.test")
 local Types = require("lang.types")
 local TypesPrograms = require("lang.types_programs")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 local type Type = Types.Type
 

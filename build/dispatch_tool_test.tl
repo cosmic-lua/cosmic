@@ -8,7 +8,7 @@ local test_child = require("build.test_child")
 local this_program = require("build.this_program")
 
 --- The program itself, started with `-e`.
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" } }
 
 --- The child of the test below: the names of the modules loaded when `-e` runs a chunk (the test module's own are among them).
 test_child.register("loaded", function(_args: {string}): integer

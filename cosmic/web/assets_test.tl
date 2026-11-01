@@ -5,7 +5,7 @@ local Hash = require("cosmic.hash")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 local function test_memory_holds_files_with_a_hash_a_tag_and_a_type()
   local source = Assets.memory({ ["css/app.css"] = "body{}", ["a.txt"] = "hi" })

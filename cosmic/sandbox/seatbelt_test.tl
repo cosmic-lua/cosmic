@@ -3,6 +3,9 @@ local PolicyJson = require("cosmic.policy")
 local Sandbox = require("cosmic.sandbox")
 local Seatbelt = require("cosmic.sandbox.seatbelt")
 local rules = require("cosmic.sandbox.policy")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local BASE <const> = [[(version 1)
 (deny default)

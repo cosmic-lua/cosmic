@@ -7,6 +7,7 @@ local stand_in = require("build.stand_in")
 local fixture = require("build.test_isolation_fixture")
 
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },

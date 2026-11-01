@@ -3,6 +3,9 @@
 --- nothing, and the rest warn as the case says, by kind, what it declares and the line. A test the checker refuses
 --- (`is_disjoint`) or a `pairs` of an array (`not_assignable`) is an error of its own, so it warns of nothing.
 local Programs = require("lang.check_programs")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 --- A program and the warnings the new checker gives it, as `kind declares name@line`, sorted.
 local record Case

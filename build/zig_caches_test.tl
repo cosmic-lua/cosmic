@@ -6,6 +6,9 @@ local Fs = require("cosmic.fs")
 local Zig = require("build.zig")
 local zig_caches = require("build.zig_caches")
 local build_paths = require("build.paths")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local function test_the_caches_are_where_zig_puts_them(tmp: string)
   local root = tmp .. "/repo"

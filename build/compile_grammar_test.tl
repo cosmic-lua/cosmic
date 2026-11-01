@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 local compile = require("build.compile")
 local Grammar = require("build.compile_grammar")
 
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" } }
 
 local record Ran
   mut code: integer

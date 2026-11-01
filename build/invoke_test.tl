@@ -6,6 +6,9 @@
 local Store = require("cosmic.store")
 local invoke = require("build.invoke")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 --- What a verb writes -- `print`'s C included -- and what it exits with
 --- come back as a started binary's would.

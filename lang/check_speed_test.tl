@@ -16,7 +16,7 @@ local Scopes = require("lang.scopes")
 local Speed = require("lang.speed")
 local Test = require("cosmic.test")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 --- `source` lowered into a program, to check again and again.
 local record Prepared

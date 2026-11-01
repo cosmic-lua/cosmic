@@ -25,7 +25,7 @@ local Udp = require("build.udp_fixture")
 
 --- The program itself, which runs a lookup; a loopback alone answers; the
 --- connector is a process the lookup's forks.
-Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, promises = { "fork" } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" }, loopback = { "127.0.0.1" }, promises = { "fork" } }
 
 local process = require("cosmic.internal.process")
 local socket = require("cosmic.internal.socket")

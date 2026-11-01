@@ -12,7 +12,7 @@ local launcher = require("build.launcher")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
-Test.policy{ profiles = { "system" } }
+Test.policy{ cpu_features = true, profiles = { "system" } }
 
 local arm = "  'Linux x86_64') cosmic_os=Linux; cosmic_target_id=1; " ..
   "cosmic_configuration_id=1; cosmic_offset=0; cosmic_block=0; cosmic_stored=0; " ..

@@ -17,6 +17,7 @@ local stand_in = require("build.stand_in")
 --- such starts to see them refused. The stand-in they name is built in
 --- the test's own directory and never started.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic" },
   promises = { "nest" },
 }

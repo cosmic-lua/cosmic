@@ -20,6 +20,7 @@ local build_paths = require("build.paths")
 --- `store`: the verbs it runs in this process ([`build.invoke`]) read
 --- every module's rows.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic" },
   grants = {
     { path = "o/bin", letters = "rx" },

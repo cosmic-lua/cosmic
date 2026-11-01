@@ -12,7 +12,7 @@ local Test = require("cosmic.test")
 local TypeWatch = require("build.type_watch")
 
 --- `store`: both read every module's rows through [`Store.databases()`].
-Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
+Test.policy{ cpu_features = true, grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 local function text(value: string): Sqlite.Value
   return { text = value }

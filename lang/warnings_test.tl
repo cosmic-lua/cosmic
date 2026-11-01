@@ -10,7 +10,7 @@ local Types = require("lang.types")
 local _fn_type: Types.Fn? = nil
 local Warnings = require("lang.warnings")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 --- The warnings of `source` as `code line:column name`, one string each, in source order.
 local function found(source: string, modules?: {string: string}): {string}

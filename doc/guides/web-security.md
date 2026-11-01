@@ -1,6 +1,6 @@
 # web security
 
-<!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
+<!-- policy: cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 The defences of [`cosmic.web`] are middleware you list in the app, so the
 list shows what protects it. This guide builds `guestbook`, a page with a

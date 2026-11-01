@@ -9,6 +9,9 @@ local Fuzz = require("build.fuzz")
 local Hash = require("cosmic.hash")
 local artifact = require("build.artifact")
 local String = require("cosmic.string")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local records = "1\t1\trelease\tx86\tLinux\tx86_64\n"
 local core = "ELF-x86-core"

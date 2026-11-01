@@ -14,7 +14,7 @@ local symbols = require("build.symbols")
 --- Whether the tree is cosmic's own. No test here reads the binary's
 --- own databases, or the tree's o/cosmic.db, whole: [`docs.databases`]
 --- is handed databases of the test's own in the store's place.
-Test.policy{ grants = { { path = "core", letters = "r" } } }
+Test.policy{ cpu_features = true, grants = { { path = "core", letters = "r" } } }
 
 --- The element of `list` at `index`, which the case knows is there.
 local function nth<T>(list: {T}, index: integer): T

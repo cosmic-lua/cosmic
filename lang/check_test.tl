@@ -7,7 +7,7 @@ local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 local function has(text: string, part: string): boolean
   return text:find(part, 1, true) ~= nil

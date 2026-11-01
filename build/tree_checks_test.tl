@@ -24,6 +24,7 @@ local function nth<T>(list: {T}, index: integer): T
 end
 
 Test.policy{
+  cpu_features = true,
   grants = {
     { path = "build/ceilings.txt", letters = "r" }, { path = "core/syscalls.h", letters = "r" }, { path = "core/process.h", letters = "r" },
     { path = "core/socket.h", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" },

@@ -12,6 +12,9 @@ local embed = require("build.embed")
 local tree = require("build.tree")
 local Clock = require("cosmic.clock")
 local build_paths = require("build.paths")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.

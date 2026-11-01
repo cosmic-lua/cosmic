@@ -8,7 +8,7 @@ local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
 --- `store`: both read every module's rows through [`Store.databases()`].
-Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
+Test.policy{ cpu_features = true, grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 local Example = {}
 

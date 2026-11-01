@@ -13,6 +13,7 @@ local this_program = require("build.this_program")
 --- worker is the variables it declares and the pinned ones, and what it
 --- starts is this very program, which reads its own command line in /proc.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic", "proc" },
 }
 

@@ -6,6 +6,9 @@ local docs = require("build.docs")
 local docs_checks = require("build.docs_checks")
 local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 --- Lines as one source file's text.
 local function source(...: string): string

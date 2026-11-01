@@ -6,7 +6,7 @@ local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 local HEAD <const> = [[
 local function identity<T>(x: T): T

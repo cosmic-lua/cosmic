@@ -18,6 +18,9 @@ local session_fixture = require("build.lsp.session_fixture")
 local source = require("build.lsp.source")
 local syntax_read = require("build.lsp.syntax_read")
 local work = require("build.work")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local change, changed_on_disk, close = session_fixture.change, session_fixture.changed_on_disk,
   session_fixture.close

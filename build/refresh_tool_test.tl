@@ -21,6 +21,7 @@ local Clock = require("cosmic.clock")
 --- host program of this program's core: the kernel runs it, with no
 --- launcher of the system's `sh` to run.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "vendor/tzdata/zoneinfo/Etc/GMT", letters = "r" } },
 }

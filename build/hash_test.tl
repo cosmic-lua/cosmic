@@ -13,6 +13,9 @@ local Hash = require("cosmic.hash")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local hash = require("build.hash")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 --- The element of `list` at `index`, which the case knows is there.
 local function nth<T>(list: {T}, index: integer): T

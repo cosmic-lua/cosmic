@@ -155,19 +155,19 @@ end
 --- asking: not a row that names no host, nor one that names only its
 --- rest or its identity, nor the host's own, nor another rest's.
 local function test_a_cache_names_the_other_hosts_of_a_rest(tmp: string)
-  local named = shared_verdicts.host_of("host features aa, host bb, host identity 0f, host rest 1e")
+  local named = shared_verdicts.host_of("host kernel aa, host bb, host identity 0f, host rest 1e")
   assert(named.identity == "0f" and named.rest == "1e")
-  local none = shared_verdicts.host_of("host features aa, host bb, system cc")
+  local none = shared_verdicts.host_of("host kernel aa, host bb, system cc")
   assert(none.identity == nil and none.rest == nil)
   local near = shared_verdicts.host_of("host identity 0f2, the host identity 0e, host rest")
   assert(near.identity == "0f2" and near.rest == nil, "a part is named whole")
   local cache = assert(shared_verdicts.open(tmp .. "/cache/verdicts.db"))
   local kept: mut {shared_verdicts.Kept} = {}
-  local owed = { "host features aa, host identity 0a, host rest 11",
-    "host features bb, host identity 0b, host rest 11",
-    "host features cc, host identity 0c, host rest 22",
-    "host features dd, host identity 0d",
-    "host features ee, host rest 11", "" }
+  local owed = { "host kernel aa, host identity 0a, host rest 11",
+    "host kernel bb, host identity 0b, host rest 11",
+    "host kernel cc, host identity 0c, host rest 22",
+    "host kernel dd, host identity 0d",
+    "host kernel ee, host rest 11", "" }
   for at, parts in ipairs(owed) do
     kept[#kept + 1] = { key = "k" .. tostring(at), test = "t_test.tl test_" .. tostring(at), hits = "", elapsed_ns = 1 }
     assert(shared_verdicts.settle(cache, "o", { parts = parts, kept = { assert(kept[at]) },

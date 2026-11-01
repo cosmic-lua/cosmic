@@ -10,7 +10,7 @@ local Grammar = require("build.compile_grammar")
 
 -- With no declaration file named the files are typed against the declarations the tool carries, which only a worker that holds
 -- the tool's database ("cosmic") has.
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" } }
 
 local record Ran
   mut code: integer

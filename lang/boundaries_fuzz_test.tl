@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 local Types = require("lang.types")
 local worker = require("build.test_worker")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 local function gen_draws(src: Fuzz.Source): string
   local out: mut {string} = {}

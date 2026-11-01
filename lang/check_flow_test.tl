@@ -6,7 +6,7 @@
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 --- Every program starts with a source of nil: `find()` answers `"ab"` on its odd calls and nil on its even ones.
 local PRELUDE <const> = [[

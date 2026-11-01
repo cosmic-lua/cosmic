@@ -13,7 +13,7 @@ local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start to run a chunk (`lua`).
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" } }
 
 --- The public wrapper and annotated syscall name the same directly executable
 --- logical program. Native mode preserves the physical executable answer;

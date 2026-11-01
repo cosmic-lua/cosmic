@@ -13,6 +13,7 @@
 local type Child = require("cosmic.child")
 local type Coverage = require("cosmic.coverage")
 local type Sqlite = require("cosmic.sqlite")
+local type dispatch_sites = require("build.dispatch_sites")
 local type closure_store = require("build.closure_store")
 local type declared_key = require("build.declared_key")
 local type host_requires = require("build.host_requires")
@@ -174,6 +175,9 @@ local record test_state
     --- test's lines would stay in memory until the run ends: hundreds of
     --- megabytes.
     by_test: {string: string}
+    --- Whether the tree is cosmic's own, whose C a test's hits can be
+    --- read against ([`build.dispatch_sites`]).
+    own_tree: boolean
     --- The core's C when the tree is not cosmic's own: its hits are kept
     --- out of every record of the run (see `write_coverage`).
     unowned: Coverage.Hits
@@ -246,7 +250,10 @@ local record test_state
     --- have no key has none, but for the network, by module path.
     host?: string
     system?: string
-    --- The digest of the rest of the host's identity but its features
+    --- The processor's features ([`declared_key.host_cpu`]), which only
+    --- the key of a module that declares `cpu_features` holds.
+    mut cpu?: string
+    --- The digest of the rest of the host's identity but its kernel
     --- ([`declared_key.host_split`]), the identities of other hosts of
     --- that rest the shared verdicts name, which `accept_foreign` looks
     --- a verdict up under (`foreign_hosts`, worked out once a run).
@@ -300,6 +307,11 @@ local record test_state
     --- a table folded into another run's `hits` is not in this one's.
     spelled: {{integer:boolean}:string}
     folded: {{integer:boolean}:boolean}
+    --- The lines of the core's C that turn on the processor's features,
+    --- made once a run when a test first needs them
+    --- ([`build.dispatch_sites`]). Nil until then; empty in a core without
+    --- native coverage, which names no function.
+    mut dispatched?: {dispatch_sites.Reach}
     --- Every module of the tree, by path, sorted: what a worker refuses a
     --- `require` of outside its closure ([`build.test_worker`]).
     tree_names: mut {string}

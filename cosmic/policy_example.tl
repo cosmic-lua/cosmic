@@ -3,6 +3,9 @@
 
 local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local Example = {}
 

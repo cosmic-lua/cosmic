@@ -6,6 +6,9 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local shared_compiles = require("build.shared_compiles")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 --- A key names what decides a compile beside the module's own key:
 --- each salt moves it, and the same inputs make the same key.

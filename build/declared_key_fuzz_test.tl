@@ -15,6 +15,9 @@ local declared_key = require("build.declared_key")
 local key_parts = require("build.key_parts")
 local test_inputs = require("build.test_inputs")
 local Clock = require("cosmic.clock")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 --- The scalar fields of a spec a preimage names, in the order it spells
 --- them, and the optional ones, which are there or not.

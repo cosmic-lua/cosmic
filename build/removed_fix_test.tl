@@ -6,7 +6,7 @@ local Programs = require("lang.check_programs")
 local Removed = require("cosmic.removed")
 local Test = require("cosmic.test")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 local function nothing(_file: string): boolean
   return false

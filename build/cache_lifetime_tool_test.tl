@@ -11,7 +11,7 @@ local build_paths = require("build.paths")
 local this_program = require("build.this_program")
 
 --- The program itself, whose run of `test` prunes.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- A run in a project prunes the directory of one no run has used for
 --- over thirty days, says so, and leaves its own and a recent one's.

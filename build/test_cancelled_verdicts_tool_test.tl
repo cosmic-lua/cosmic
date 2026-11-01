@@ -14,6 +14,7 @@ local build_paths = require("build.paths")
 local declared = cache_formats.declared
 
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
 }

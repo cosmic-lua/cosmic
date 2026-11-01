@@ -7,7 +7,7 @@ local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
 
-Test.policy{ grants = { { path = "lang/stdlib.d.tl", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" } } }
+Test.policy{ cpu_features = true, grants = { { path = "lang/stdlib.d.tl", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" } } }
 
 --- Checks that `source` has exactly the errors `codes` (space separated) after the declarations, and that the first
 --- says `msg`.

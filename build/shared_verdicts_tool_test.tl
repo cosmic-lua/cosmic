@@ -24,6 +24,7 @@ local build_paths = require("build.paths")
 --- the sandboxed workers of the runs they start (`nests`), and the
 --- variables `shares` reads, which hold a run to sandboxing.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },
@@ -224,7 +225,7 @@ local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: stri
     asked)
   -- With nothing looked up, it says the parts alone.
   local parts = said("parts", tmp .. "/first", "0 ran, 5 stood", { "--census" })
-  assert(parts:find("test: key parts: host features %x+, host %x+, system %x+, runtime %x+") and
+  assert(parts:find("test: key parts: host kernel %x+, host %x+, system %x+, runtime %x+") and
       not parts:find("shared verdicts: none of", 1, true), parts)
   -- And what the cache held: rows under the parts the runs keeping
   -- them said, these among them.
@@ -570,7 +571,7 @@ local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(
   -- longer reaches.
   assert(second:find("none of 4 tests looked up stood, though " .. cache ..
       " holds 4 rows, 4 of them of those tests: none under the keys this run reached", 1, true), second)
-  assert(second:find("host features %x+, host %x+, system %x+, runtime %x+") ~= nil, second)
+  assert(second:find("host kernel %x+, host %x+, system %x+, runtime %x+") ~= nil, second)
 end
 
 --- A cache that cannot answer -- its pages overwritten, or this
@@ -861,7 +862,7 @@ local function seeded_as_another_host(tmp: string, extra: {string:string},
   return { env = varied(probing, {}, { COSMIC_VERDICT_CACHE = cache }), cache = cache, root = root }
 end
 
---- A gathering run (COSMIC_TEST_FOREIGN_FEATURES=1) stands on the rows
+--- A gathering run (COSMIC_TEST_FOREIGN_KERNEL=1) stands on the rows
 --- another host of this host's rest reached, under that host's key;
 --- the same run without it, as every local `cosmic test` is, runs the
 --- tests.
@@ -872,7 +873,7 @@ local function test_a_gathering_run_stands_on_the_rows_of_a_host_of_other_featur
   checkout(root .. "/local", "one\n")
   local alone = run(root .. "/local", root .. "/local.out", held.env, { "suite/reads_test.tl" })
   assert(alone:find("4 ran, 0 stood", 1, true), alone)
-  local gathering = varied(held.env, {}, { COSMIC_TEST_FOREIGN_FEATURES = "1" })
+  local gathering = varied(held.env, {}, { COSMIC_TEST_FOREIGN_KERNEL = "1" })
   checkout(root .. "/gather", "one\n")
   local gathered = run(root .. "/gather", root .. "/gather.out", gathering, { "suite/reads_test.tl" })
   assert(gathered:find("0 ran, 4 stood, 4 of them on another checkout's verdict", 1, true), gathered)
@@ -895,7 +896,7 @@ local function test_a_gathering_run_runs_what_the_other_hosts_rows_do_not_answer
   }, true)
   if held == nil then return end
   local root = held.root
-  local gathering = varied(held.env, {}, { COSMIC_TEST_FOREIGN_FEATURES = "1" })
+  local gathering = varied(held.env, {}, { COSMIC_TEST_FOREIGN_KERNEL = "1" })
   checkout(root .. "/gather", "one\n")
   assert(Fs.write(root .. "/gather/suite/extra_test.tl", "local function test_extra() assert(1 == 1) end\n"))
   assert(Fs.write(root .. "/gather/suite/fails_test.tl", "local function test_fails() assert(false) end\n"))

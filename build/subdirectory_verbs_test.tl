@@ -12,6 +12,7 @@ local invoke = require("build.invoke")
 
 -- `store`: the verbs, run in this process, read every module's docs.
 Test.policy{
+  cpu_features = true,
   grants = { { path = "o/cosmic.db", letters = "r" } },
   env = { "COSMIC_TREE" },
 }

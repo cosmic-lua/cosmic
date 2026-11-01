@@ -12,6 +12,9 @@ local Sandbox = require("cosmic.sandbox")
 local Shape = require("cosmic.shape")
 local sys = require("cosmic.sys")
 local sandbox = require("build.sandbox")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 --- The node a record's spec describes.
 local function described<T>(spec: Shape.Spec<T>): Shape.Node

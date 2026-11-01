@@ -18,6 +18,7 @@ local Test = require("cosmic.test")
 --- them, beside what it gives every worker; `nests`, since the plan reads
 --- the root a worker's process would confine.
 Test.policy{
+  cpu_features = true,
   profiles = { "system", "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" } },
   promises = { "nest" },

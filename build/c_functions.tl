@@ -36,6 +36,16 @@ local record c_functions
     --- requirement and the probe's reason. An entered function stays entered.
     unavailable: mut {string}
   end
+
+  --- Where one C function's body is: its [`key_of`], its file, the line it
+  --- is defined on (`first`) and the line after its last (`stop`, nil for the
+  --- end of the file).
+  record Span
+    key: string
+    path: string
+    first: integer
+    stop: integer?
+  end
 end
 
 local read_only <const> = "the store's VFS is read-only: SQLite never writes, syncs, locks or sizes sectors through it"
@@ -237,6 +247,43 @@ function c_functions.sources(root: string, functions: {Coverage.Function}): {str
   return sources
 end
 
+--- Where each C function of `functions` is, in `sources` (see [`tally`]
+--- for what they hold): a function is entered when a hit lands anywhere in
+--- its span.
+function c_functions.spans(functions: {Coverage.Function}, sources?: {string: {string}}): {c_functions.Span}
+  local starts: mut {string: {integer}} = {}
+  for _, fn in ipairs(functions) do
+    local lines = starts[fn.path]
+    if lines == nil then
+      lines = {}
+      starts[fn.path] = lines
+    end
+    lines[#lines + 1] = fn.line
+  end
+  for _, lines in pairs(starts) do table.sort(lines) end
+  local out: mut {c_functions.Span} = {}
+  for _, fn in ipairs(functions) do
+    if fn.path:match("%.c$") ~= nil then
+      local source = sources ~= nil and sources[fn.path] or nil
+      local first = fn.line
+      local stop: integer? = nil
+      if source ~= nil then
+        first = definition(source, fn.name) or fn.line
+        stop = after_end(source, first)
+      else
+        for _, line in ipairs((assert(starts[fn.path], "every function's file has its starts"))) do
+          if line > fn.line then
+            stop = line
+            break
+          end
+        end
+      end
+      out[#out + 1] = { key = key_of(fn), path = fn.path, first = first, stop = stop }
+    end
+  end
+  return out
+end
+
 --- Measures `hits`, a run's hits, against `functions`, every C function
 --- of the core. A function was entered when a hit lands anywhere in its
 --- body: where the compiler inlines a call, the body runs without the
@@ -262,38 +309,11 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
   local function exempts(key: string): boolean
     return exempt[key] ~= nil or here_exempt[key] ~= nil
   end
-  local starts: mut {string: {integer}} = {}
-  for _, fn in ipairs(functions) do
-    local lines = starts[fn.path]
-    if lines == nil then
-      lines = {}
-      starts[fn.path] = lines
-    end
-    lines[#lines + 1] = fn.line
-  end
-  for _, lines in pairs(starts) do table.sort(lines) end
   local entered: mut {string: boolean} = {}
-  for _, fn in ipairs(functions) do
-    if fn.path:match("%.c$") ~= nil then
-      local key = key_of(fn)
-      local here = hits[fn.path]
-      local source = sources ~= nil and sources[fn.path] or nil
-      local first = fn.line
-      local stop: integer? = nil
-      if source ~= nil then
-        first = definition(source, fn.name) or fn.line
-        stop = after_end(source, first)
-      else
-        for _, line in ipairs((assert(starts[fn.path], "every function's file has its starts"))) do
-          if line > fn.line then
-            stop = line
-            break
-          end
-        end
-      end
-      entered[key] = entered[key] == true or
-        (here ~= nil and hit_between(here, first, stop))
-    end
+  for _, span in ipairs(c_functions.spans(functions, sources)) do
+    local here = hits[span.path]
+    entered[span.key] = entered[span.key] == true or
+      (here ~= nil and hit_between(here, span.first, span.stop))
   end
   local keys: mut {string} = {}
   for key in pairs(entered) do

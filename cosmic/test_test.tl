@@ -8,7 +8,7 @@ local test_child = require("build.test_child")
 local this_program = require("build.this_program")
 
 --- The program itself, which the policy test below starts again, past its launcher.
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" } }
 
 --- `skip` takes a reason: none, or an empty one, raises before the test
 --- is counted skipped, so this test, which passes, is not.

@@ -20,7 +20,7 @@ local function nth<T>(list: {T}, index: integer): T
   return found
 end
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 local function nothing(_file: string): boolean
   return false

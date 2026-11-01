@@ -7,7 +7,7 @@ local Declarations = require("lang.declarations")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 --- What the first error says, or "" for none.
 local function first_msg(r: Programs.Run): string

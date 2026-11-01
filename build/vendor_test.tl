@@ -10,6 +10,9 @@ local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 local sys = require("cosmic.sys")
 local Vendor = require("build.vendor")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local function write_all(root: string, files: {string:string})
   assert(Fs.mkdirs(root))

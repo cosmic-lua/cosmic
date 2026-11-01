@@ -19,7 +19,7 @@ local docs_fixture = require("build.docs_fixture")
 local session = require("build.lsp.session")
 local session_fixture = require("build.lsp.session_fixture")
 
-Test.policy{ loopback = { "127.0.0.1" } }
+Test.policy{ cpu_features = true, loopback = { "127.0.0.1" } }
 
 local type Ran = session_fixture.Ran
 local answer, at, bodies = session_fixture.answer, session_fixture.at, session_fixture.bodies

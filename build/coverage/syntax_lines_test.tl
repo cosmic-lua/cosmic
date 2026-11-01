@@ -7,7 +7,7 @@ local Test = require("cosmic.test")
 local lines = require("build.coverage.syntax_lines")
 local work = require("build.work")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 local function count(db: Sqlite.Handle, table_name: string): integer
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))

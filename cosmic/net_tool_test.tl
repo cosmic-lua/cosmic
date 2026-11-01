@@ -17,7 +17,7 @@ local Clock = require("cosmic.clock")
 
 --- The program itself, which the test starts, running a file `--standalone`
 --- ([`build.standalone`]).
-Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
 
 local function test_a_write_to_a_closed_peer_does_not_end_the_process(tmp: string)
   local script = tmp .. "/write.tl"

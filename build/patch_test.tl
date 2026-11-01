@@ -2,6 +2,9 @@
 local Fs = require("cosmic.fs")
 local Patch = require("build.patch")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 --- The open descriptors of this process, each with what it names.
 local function descriptors(): string

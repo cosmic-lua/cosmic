@@ -7,7 +7,7 @@ local Programs = require("lang.declarations_programs")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 local function fresh(): Declarations.Program
   return Declarations.new()

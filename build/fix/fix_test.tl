@@ -11,6 +11,9 @@ local Ast = require("lang.ast")
 local Format = require("build.fix.format")
 local laid = require("build.fix.laid")
 local SyntaxNode = require("build.syntax_node")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 --- The element of `list` at `index`, which the case knows is there.
 --- [`fix.chosen`] for `root`, which a tool built from it holds to be cosmic's own where `own`, and which any other is a

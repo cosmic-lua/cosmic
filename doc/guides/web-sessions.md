@@ -1,6 +1,6 @@
 # web sessions
 
-<!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
+<!-- policy: cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 A session is a small JSON object kept for a browser: a name it gave, a
 message to show once, who it is logged in as. [`cosmic.web`] keeps it

@@ -14,6 +14,7 @@ local build_paths = require("build.paths")
 --- The program itself, whose core the programs it builds run on.
 --- `store`: [`embed.tree`] joins every `cosmic.*` module's rows.
 Test.policy{
+  cpu_features = true,
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
 }

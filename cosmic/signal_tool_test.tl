@@ -14,7 +14,7 @@ local this_program = require("build.this_program")
 
 --- The program itself (`tool`), which runs every fixture, started past
 --- its launcher so that no host program is read.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- A released guard hands its signal back rather than delivering it,
 --- and a later close -- here the `<close>` scope's -- delivers nothing

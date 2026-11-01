@@ -20,7 +20,7 @@ local type _ = require("cosmic.http")
 
 --- A server on the worker's own loopback, and the program itself,
 --- started to run a script `--standalone` ([`build.standalone`]).
-Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
 
 --- cosmic.http's client and server speak the same HTTP/1.1: a GET, a
 --- PUT with a body, a HEAD and a DELETE over TCP, each answered as sent.

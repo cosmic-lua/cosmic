@@ -6,6 +6,9 @@ local sys = require("cosmic.sys")
 local cache = require("build.cache")
 local formats = require("build.cache_formats")
 local maintenance = require("build.cache_maintenance")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 --- The element of `list` at `index`, which the case knows is there.
 local function nth<T>(list: {T}, index: integer): T

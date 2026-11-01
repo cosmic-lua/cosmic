@@ -6,7 +6,7 @@ local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
 
-Test.policy{}
+Test.policy{ cpu_features = true }
 
 --- The codes of checking `source`.
 local function codes_of(source: string): string

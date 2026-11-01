@@ -13,7 +13,7 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Web = require("cosmic.web")
 
-Test.policy{ loopback = { "127.0.0.1" } }
+Test.policy{ cpu_features = true, loopback = { "127.0.0.1" } }
 
 local CSS <const> = ("a { color: red }\n"):rep(200)
 

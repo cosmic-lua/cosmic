@@ -11,7 +11,7 @@ local Test = require("cosmic.test")
 local artifact = require("build.artifact")
 local cache_formats = require("build.cache_formats")
 
-Test.policy{ grants = { { path = "core/bridge.lua", letters = "r" } } }
+Test.policy{ cpu_features = true, grants = { { path = "core/bridge.lua", letters = "r" } } }
 
 --- What [`boot`] ran.
 local record Booted

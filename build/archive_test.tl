@@ -12,6 +12,8 @@ local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 local Zip = require("cosmic.zip")
 local sys = require("cosmic.sys")
 local archive = require("build.archive")

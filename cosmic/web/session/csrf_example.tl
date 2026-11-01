@@ -8,6 +8,9 @@ local Secret = require("cosmic.web.secret")
 local Session = require("cosmic.web.session")
 local SessionCookie = require("cosmic.web.session.cookie")
 local Web = require("cosmic.web")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local Example = {}
 

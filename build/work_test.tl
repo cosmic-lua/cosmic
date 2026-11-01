@@ -9,6 +9,8 @@ local Hash = require("cosmic.hash")
 local sys = require("cosmic.sys")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 local identity = require("build.identity")
 local work = require("build.work")
 local build_paths = require("build.paths")

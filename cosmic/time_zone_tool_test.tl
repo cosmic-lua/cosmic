@@ -15,7 +15,7 @@ local _ = require("cosmic.time")
 --- The program itself, which the test starts, running a file `--standalone`
 --- ([`build.standalone`]). No zone is read from the host's files: a program
 --- reads only the zones it carries.
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" } }
 
 --- `local_zone` with no options reads the process's own `TZ` -- set
 --- and empty, UTC -- and neither it nor `zone` reads `TZDIR`: a zone

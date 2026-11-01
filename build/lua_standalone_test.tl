@@ -20,7 +20,7 @@ local confine = require("build.confine")
 local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" } }
 
 --- Whether this worker is sandboxed, which is what narrows what its children
 --- run: the runner marks every worker it holds with the module's name in

@@ -57,6 +57,7 @@ local type _zip = require("cosmic.zip")
 --- and socket tables' are derived from, and core/store.c, whose `raw_modules` names
 --- the wrapper each raw module is handed to.
 Test.policy{
+  cpu_features = true,
   grants = {
     { path = "cosmic/internal/", letters = "r" },
     { path = "core/process.h", letters = "r" },
