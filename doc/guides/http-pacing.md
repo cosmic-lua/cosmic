@@ -242,12 +242,15 @@ local window = "x-ratelimit-remaining: 0\r\nx-ratelimit-reset: 1\r\n"
 for id = 1, 3 do canned[id] = { reply("200 OK", window, "item " .. tostring(id)) } end
 local never = function(): boolean return false end
 local nothing = function(_: integer) end
-local short_second = Clock.ms(40)
+local short_second = Clock.ms(200)
 local waited_from = Clock.monotonic_ns()
-local fetched, finished = crawl_slowly({ 1, 2, 3 }, get_canned, short_second, never, nothing)
--- Two holds of "one second", here 40 ms each: not one after the last item.
-local waited = Clock.monotonic_ns() - waited_from
-assert(waited >= 2 * short_second and waited < 3 * short_second + 2 * interval_ns + backoff_ns)
+local last_done = 0
+local function note(id: integer) if id == 3 then last_done = Clock.monotonic_ns() end end
+local fetched, finished = crawl_slowly({ 1, 2, 3 }, get_canned, short_second, never, note)
+-- Two holds of "one second", here 200 ms each, and none after the last
+-- item: the crawl ends a moment after the last item is done.
+assert(last_done - waited_from >= 2 * short_second)
+assert(Clock.monotonic_ns() - last_done < short_second)
 print(#fetched, finished == "")
 ```
 
