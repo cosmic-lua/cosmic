@@ -203,7 +203,7 @@ local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: stri
   tmp = assert(Fs.absolute(tmp))
   -- A file beneath what a module declares differs: its tests run.
   checkout(tmp .. "/changed", "two\n")
-  said("changed", tmp .. "/changed", "4 ran, 1 stood")
+  said("changed", tmp .. "/changed", "4 ran, 1 stood, 1 of them on another checkout's verdict")
   -- An edit to one module's input in a checkout runs that module's
   -- tests, looked up in the cache and not found there, while the rest
   -- stand on the checkout's own verdicts: no key of the run moved but

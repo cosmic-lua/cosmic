@@ -1,7 +1,8 @@
 --- End to end: a sandboxed run keys each verdict by its test's
 --- declared inputs (build/declared_key.tl). A verdict stands while
---- nothing declared changes -- whatever else of the tree does -- and in
---- another checkout of the same content, through the shared cache; a
+--- nothing declared changes -- whatever else of the tree does (standing
+--- in another checkout, through the shared cache, is
+--- build/shared_verdicts_tool_test.tl's); a
 --- test runs again when what it declares changes, and every test runs
 --- under `--all`. Where this host cannot sandbox a worker -- one
 --- nested in this test's own confinement, three deep, which the kernel
@@ -244,39 +245,6 @@ end
   local offline = probed:match("loopback in (%S+) |")
   local own = assert(Fs.readlink("/proc/self/ns/net"))
   assert(offline ~= nil and offline:find("^net:") ~= nil and offline ~= own, probed .. own)
-end
-
---- A checkout of the same content stands on the verdicts another
---- reached, by their keys alone, and one whose declared input differs
---- runs that test.
-local function test_a_sandboxed_verdict_stands_in_another_checkout(tmp: string)
-  local env = environment(tmp .. "/cache/verdicts.db")
-  checkout(tmp .. "/first")
-  local first = run(tmp .. "/first", tmp .. "/first.out", env)
-  if unsandboxed(first) then return end
-  assert(first:find("3 ran, 0 stood", 1, true), first)
-  checkout(tmp .. "/second")
-  local second = run(tmp .. "/second", tmp .. "/second.out", env)
-  assert(second:find("0 ran, 3 stood", 1, true) and
-      second:find("3 of them on another checkout's verdict", 1, true), second)
-  checkout(tmp .. "/third")
-  assert(Fs.write(tmp .. "/third/suite/data/f", "three\n"))
-  local third = run(tmp .. "/third", tmp .. "/third.out", env)
-  assert(third:find("1 ran, 2 stood", 1, true) and
-      third:find("2 of them on another checkout's verdict", 1, true), third)
-end
-
---- Told to stand on no other checkout's verdicts, a checkout runs
---- everything.
-local function test_a_sandboxed_checkout_told_to_share_nothing_runs_everything(tmp: string)
-  local env = environment(tmp .. "/cache/verdicts.db")
-  checkout(tmp .. "/first")
-  local first = run(tmp .. "/first", tmp .. "/first.out", env)
-  if unsandboxed(first) then return end
-  assert(first:find("3 ran, 0 stood", 1, true), first)
-  checkout(tmp .. "/unshared")
-  local unshared = run(tmp .. "/unshared", tmp .. "/unshared.out", env, { "--no-shared" })
-  assert(unshared:find("3 ran, 0 stood", 1, true), unshared)
 end
 
 --- A checkout whose tests run this program: one that declares `tool`,
