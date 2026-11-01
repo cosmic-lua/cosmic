@@ -1,3 +1,11 @@
+--- The tests of [`ci/run-local`]. CI does not run this file: its `ci/`
+--- step selects `cosmic_ci` alone (.github/workflows/ci.yml), and this file
+--- sits beside that directory, not in it. Run it by hand after a change to
+--- run_local.tl or to this file: `cd ci && ../bin/cosmic test run_local_test.tl`.
+--- On a root host its credential tests make a directory under /tmp, which a
+--- test's sandbox does not let it write; `COSMIC_TEST_SANDBOX=0` runs them.
+---
+--- [`ci/run-local`]: run-local
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
