@@ -18,7 +18,8 @@
 ---
 --- THE GRAMMAR is the new checker's, which `--grammar new` names and the verb takes by
 --- default; `--grammar teal` is refused, pointing to the project guide. The files named are the
---- whole program, a `.d.tl` among them declares the globals every file may use (the standard library's), and a `cosmic.*`
+--- whole program, a `.d.tl` among them declares the globals every file may use and must carry `--- @kind binding` (`--- @kind language`
+--- is only for the build of cosmic's own tree, which this is not), and a `cosmic.*`
 --- module no file named is the module of is then typed `invalid` and reported, since the checker cannot declare the binary's own
 --- modules. With no `.d.tl` named the files are checked as `cosmic --standalone` checks a file: against the globals and the
 --- `cosmic.*` modules this binary carries, and a warning is listed with the errors, so `--errors` names what `--standalone` would

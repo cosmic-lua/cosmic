@@ -474,8 +474,8 @@ local function test_a_declaration_of_the_language_outside_its_files_is_refused_i
     })
     assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
     local result, trouble = compile_fixture(root)
-    local want = file .. ": `--- @kind language` is only for the language's own declarations, lang/prelude.d.tl and " ..
-      "lang/stdlib.d.tl, which are the build's globals. If it declares a module implemented in C, add the line " ..
+    local want = file .. ": `--- @kind language` is accepted only when building cosmic's own tree, and this is not one. " ..
+      "If it declares a module implemented in C, add the line " ..
       "`--- @kind binding` to its leading comment; otherwise write it as a .tl (types and code in a .tl are checked and " ..
       "real at run time)."
     assert(result == nil and trouble == want, file .. ": " .. tostring(trouble))
@@ -492,7 +492,7 @@ local function test_a_project_file_at_the_path_of_the_language_s_own_is_refused_
     })
     assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
     local result, trouble = compile_fixture(root)
-    assert(result == nil and trouble:find(file .. ": `--- @kind language` is only for the language's own declarations", 1, true) == 1,
+    assert(result == nil and trouble:find(file .. ": `--- @kind language` is accepted only when building cosmic's own tree", 1, true) == 1,
       file .. ": " .. tostring(trouble))
   end
 end

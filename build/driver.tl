@@ -476,7 +476,10 @@ function Driver.naming(file: string, text: string, own: boolean): string
       "` to its leading comment"
   elseif kind == "decl" then
     return file .. ": a .d.tl must name what it is, and this one names nothing. " .. how
-  elseif kind == "language" and not (own and AnalysisSchema.is_language_file(file)) then
+  elseif kind == "language" and not own then
+    return file .. ": `" .. AnalysisSchema.language_tag() .. "` is accepted only when building cosmic's own tree, and this is " ..
+      "not one. " .. how
+  elseif kind == "language" and not AnalysisSchema.is_language_file(file) then
     return file .. ": `" .. AnalysisSchema.language_tag() .. "` is only for the language's own declarations, " ..
       AnalysisSchema.prelude_file() .. " and " .. AnalysisSchema.stdlib_file() .. ", which are the build's globals. " .. how
   end

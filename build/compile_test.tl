@@ -145,6 +145,12 @@ local function test_a_command_line_it_refuses_says_how_to_fix_it(tmp: string)
     refused({ "-o", tmp .. "/o", one, language }, name .. ": its module is named for `" .. module ..
         "`, which the binary answers at run time with the language's own module")
   end
+  -- `language` is for the build of cosmic's own tree: a file given here is refused for it, whatever its path.
+  assert(Fs.mkdirs(tmp .. "/lang"))
+  for _, name in ipairs({ "lang/prelude.d.tl", "lang/stdlib.d.tl" }) do
+    local language = file(tmp, name, "--- @kind language\nglobal count: integer\n")
+    refused({ "-o", tmp .. "/o", one, language }, name .. ": `--- @kind language` is accepted only when building cosmic's own tree")
+  end
   local near = file(tmp, "mathlib.tl", "local n: integer = 1\nreturn n\n")
   assert(run({ "-o", tmp .. "/near", near }).code == 0)
   refused({ one, "--root", tmp .. "/nowhere" }, "--root must name a directory")

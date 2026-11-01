@@ -493,13 +493,15 @@ local function test_naming_accepts_the_language_kind_only_for_the_files_of_the_g
     "build's globals. If it declares a module implemented in C, add the line `--- @kind binding` to its leading comment; " ..
     "otherwise write it as a .tl (types and code in a .tl are checked and real at run time)."
   for _, file in ipairs({ "lang/other.d.tl", "lib/lang/stdlib.d.tl", "stdlib.d.tl", "cosmic/internal/x.d.tl", "lang/stdlib/init.d.tl" }) do
-    for _, own in ipairs({ true, false }) do
-      assert(Driver.naming(file, text, own) == file .. ": `--- @kind language`" .. words, Driver.naming(file, text, own))
-    end
+    assert(Driver.naming(file, text, true) == file .. ": `--- @kind language`" .. words, Driver.naming(file, text, true))
   end
-  -- A project's file at exactly the path of either is refused, with the same words.
-  for _, file in ipairs({ "lang/prelude.d.tl", "lang/stdlib.d.tl" }) do
-    assert(Driver.naming(file, text, false) == file .. ": `--- @kind language`" .. words, Driver.naming(file, text, false))
+  -- Outside cosmic's own tree (a project, `cosmic compile`, the editor of one) the kind is not accepted anywhere, the two
+  -- files of the globals included, and the message says so rather than naming the file the user gave.
+  local outside = " is accepted only when building cosmic's own tree, and this is not one. If it declares a module " ..
+    "implemented in C, add the line `--- @kind binding` to its leading comment; otherwise write it as a .tl (types and " ..
+    "code in a .tl are checked and real at run time)."
+  for _, file in ipairs({ "lang/prelude.d.tl", "lang/stdlib.d.tl", "lang/other.d.tl", "x.d.tl" }) do
+    assert(Driver.naming(file, text, false) == file .. ": `--- @kind language`" .. outside, Driver.naming(file, text, false))
   end
   -- Untagged, the two files of the own tree are told to say `language`; a project's file of that name is told as any other.
   assert(Driver.naming("lang/stdlib.d.tl", "do\nend\n", true) == "lang/stdlib.d.tl: the language's own declarations must " ..
