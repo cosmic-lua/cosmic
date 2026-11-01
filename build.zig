@@ -1186,7 +1186,7 @@ fn seedCompiler(b: *std.Build) std.Build.LazyPath {
     // The tree is the working directory and so the root the modules are
     // named from: [`lang/flow.tl`] is [`lang.flow`].
     compile.setCwd(b.path("."));
-    compile.addArgs(&.{ "bin/cosmic-bootstrap", "compile", "--grammar", "new", "-o" });
+    compile.addArgs(&.{ "bin/cosmic-bootstrap", "compile", "-o" });
     const out = compile.addOutputDirectoryArg("seed");
     const listing = b.path("build/seed.txt");
     const at = b.root.joinString(b.allocator, "build/seed.txt") catch @panic("OOM");

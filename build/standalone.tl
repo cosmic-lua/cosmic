@@ -90,8 +90,8 @@ end
 --- and it is checked each time and kept nowhere.
 function standalone.code(file: string, source: string, variables?: {string:string}, own?: boolean,
                          outcome?: importer.Outcome): string?, string
-  local mode, mode_trouble = GrammarMode.mode()
-  if mode == nil then
+  local mode_trouble = GrammarMode.refusal()
+  if mode_trouble ~= nil then
     return nil, mode_trouble
   end
   -- A chunk of `-e` is not kept: it is checked against more than a file is, runs once and is written afresh each time.
@@ -130,8 +130,8 @@ end
 --- The modules `source`, which is `file`'s Teal, requires by a literal name, in the order they stand: read by the syntax tree
 --- of the checker that compiles the file ([`standalone.code`]). nil and why where the file does not parse.
 function standalone.requires(file: string, source: string): {string}?, string
-  local mode, mode_trouble = GrammarMode.mode()
-  if mode == nil then
+  local mode_trouble = GrammarMode.refusal()
+  if mode_trouble ~= nil then
     return nil, mode_trouble
   end
   return Pipeline.requires(file, source)

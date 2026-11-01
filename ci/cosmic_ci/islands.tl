@@ -1,5 +1,5 @@
 --- `check-islands`, which type-checks the files `bin/cosmic-bootstrap` runs standalone on the release
---- ci/cosmic-driver.pin names, in the new checker's grammar (it sets COSMIC_GRAMMAR=new), on that release, the one
+--- ci/cosmic-driver.pin names, in the new checker's grammar, on that release, the one
 --- running this driver:
 ---
 ---     cosmic-driver cosmic_ci/driver.tl check-islands [ROOT]
@@ -11,8 +11,8 @@
 --- given to the release as `--standalone --check`, the check of a script as the bootstrap's `--standalone` reads it: the
 --- release reads it in the new grammar and holds it to its checker with the standard library it carries and no ceiling,
 --- and it type-checks without running the file, so no script needs its `--help` to be safe or its tools (zig) installed.
---- A file that has a finding says so on standard error as `file:line:column: message` and exits 1. `compile --grammar
---- new --errors` is not used: it reads a project from a root, where the check reads the lone file as the bootstrap runs
+--- A file that has a finding says so on standard error as `file:line:column: message` and exits 1. `compile
+--- --errors` is not used: it reads a project from a root, where the check reads the lone file as the bootstrap runs
 --- it, with the globals the standalone run meets.
 ---
 --- All of `ci/` also runs on that release, and the driver's own tests compile only the modules they require, so the
