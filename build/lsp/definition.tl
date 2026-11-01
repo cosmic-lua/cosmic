@@ -18,7 +18,8 @@
 --- A place in another module is looked up by its symbol in the `places` the stage derived of the module's file
 --- ([`source.places`]), and put in the module's text as it is written: the checker is served the
 --- module as a stub, whose positions are not the file's. Only an open document that differs from the staged file is
---- parsed. A place in the document is found in the text the checker read, which a build rewrites (the `splices` of
+--- parsed. A module generated from another file (the syscall modules, from `core/*.h`) is answered in that file, at the
+--- line its `-- line` map gives. A place in the document is found in the text the checker read, which a build rewrites (the `splices` of
 --- [`check.Reading`]), and put back in the document's own text.
 
 -- TODO: answer a symbol of the binary's own `cosmic.*` modules, once the checker is served the positions of their sources: it
@@ -28,9 +29,6 @@
 -- TODO: answer a field of a type declared inside a function body, once the lowering names such a type by something that tells
 -- it from another of the same name in the module: the declarations are found by their names at the top of the module and in
 -- its `do` blocks, where the name is the type's alone ([`build.syntax_places`]).
-
--- TODO: answer a symbol of a module generated from another file, once the `-- line` map of its source gives its places the
--- lines of the file ([`build.syntax_derivation`]'s `origin_lines`): the stage derives none for it.
 
 -- TODO: answer the value of an enum that a string literal stands for, once the type report keeps the enum a literal was read
 -- as: the report types the literal `"w"` as the string, and the enum's values are found only by a member access.

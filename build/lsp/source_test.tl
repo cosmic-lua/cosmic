@@ -758,6 +758,49 @@ local function test_the_places_of_a_staged_module_are_read_from_the_database_and
   source.close(again)
 end
 
+--- A header in the syscall grammar: `read` is declared on line 8.
+local SYSCALLS_H <const> = table.concat({
+  "/*",
+  " * --- Reads bytes.",
+  " * ---@param fd integer descriptor",
+  " * ---@return string|nil data bytes",
+  " * ---@return string error failure",
+  " * ---@return integer errno number",
+  " */",
+  "COSMIC_SYSCALL(read, 1);",
+  "",
+}, "\n") .. "\n"
+
+--- A project that is cosmic's own tree, with the header [`cosmic.sys`] is generated from staged.
+local function own_tree_with_header(): string, string
+  local root = project()
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.write(root .. "/core/syscalls.h", SYSCALLS_H))
+  local built = assert(tree.built_from(root))
+  return root, built
+end
+
+--- A module generated from a header has the places its `-- line` map names, at the lines of the header, in the header's
+--- text and file: the generated source's own lines say nothing of it.
+local function test_the_places_of_a_generated_module_are_the_headers_and_at_its_lines()
+  local root, built = own_tree_with_header()
+  local src = source.new(root, function(_: string) end, built)
+  source.refresh(src)
+  local placed = assert(source.places(src, "cosmic.sys", none_open))
+  assert(placed.file == "core/syscalls.h" and placed.text == SYSCALLS_H, placed.file)
+  local read = assert(placed.spots["sys.read"])
+  assert(read.line == 8 and read.column == 16 and read.length == 4,
+    tostring(read.line) .. ":" .. tostring(read.column) .. ":" .. tostring(read.length))
+  -- A symbol the map does not name has no place, and nothing is derived for the module.
+  assert(placed.spots["sys"] == nil and placed.spots["sys.missing"] == nil and src.tally.derived == 0)
+  -- An open document of the header is not read: the rows are the staged header's.
+  local edited = assert(source.places(src, "cosmic.sys", open_with("core/syscalls.h", "// edited\n" .. SYSCALLS_H)))
+  assert(edited.text == SYSCALLS_H and assert(edited.spots["sys.read"]).line == 8)
+  source.close(src)
+end
+
 --- An open document the same as the staged file is the staged file; an edited one is derived once, into the scratch database.
 local function test_the_places_of_an_open_module_are_derived_only_where_it_differs_from_the_staged_file()
   local root = project()

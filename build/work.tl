@@ -173,7 +173,8 @@ local version <const> = "31"
 --- `R.f`), its kind, and the line, byte column and byte length of the
 --- name. `cosmic lsp` finds a declaration in another module by it
 --- ([`build.lsp.source`]) without parsing the module. A source derived
---- from another file (`mapped`) has none: its lines are not the file's.
+--- from another file (`mapped`) has the rows its `-- line` map names, at the
+--- map's line of that file (column 1, length 0), and none if it has no map.
 ---
 --- `executable` is [`build.coverage.syntax_lines.executable`]'s answer for one
 --- source, keyed by content hash the same way as `parsed`: which lines
