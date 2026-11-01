@@ -374,12 +374,11 @@ The same line holds a [`Signal.guard`], a [`cosmic.net`] socket or an
 integer, which `<close>` cannot hold: [`Fs.close`] closes it, and
 [`Fs.read`] reads a whole file without one.
 
-A record of your own is closable too: its body declares `metamethod
-__close: function(Handle)`, and each value is made with a metatable that
-holds a `__close` (`local mt: metatable<Handle> = { __close = function(self:
-Handle) ... end }`, then `setmetatable(value, mt)`); [`Fs.Scratch.__close`]
-is one. Without it the compiler refuses `<close>` with `to-be-closed
-variable h has a non-closable type Handle`.
+A type of your own is closable too: declare it as a class with a
+`function __close(self)` method (`local class Handle ... function
+__close(self) ... end end`), and a table literal makes each value;
+[`Fs.Scratch`] is one. Without it the compiler refuses `<close>` with
+`to-be-closed variable h has a non-closable type Handle`.
 
 ## ending early
 
@@ -421,7 +420,7 @@ A function declared `: number` may still
 [`Fs.mkdtemp`]: ../../cosmic/fs.tl
 [`Fs.open_read`]: ../../cosmic/fs.tl
 [`Fs.read`]: ../../cosmic/fs.tl
-[`Fs.Scratch.__close`]: ../../cosmic/fs.tl
+[`Fs.Scratch`]: ../../cosmic/fs.tl
 [`Fs.write`]: ../../cosmic/fs.tl
 [`Hash.hex_sha256`]: ../../cosmic/hash.tl
 [`Http.open`]: ../../cosmic/http/init.tl

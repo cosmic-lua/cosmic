@@ -240,7 +240,7 @@ build/work.tl 1
 
 cosmic/child.tl 11
 
-cosmic/fs.tl 4
+cosmic/fs.tl 3
 
 cosmic/http/init.tl 1
 
@@ -376,7 +376,7 @@ cosmic/child.tl setmetatable_call 4
 
 cosmic/compress_test.tl setmetatable_call 1
 
-cosmic/fs.tl setmetatable_call 4
+cosmic/fs.tl setmetatable_call 3
 
 cosmic/hash_test.tl setmetatable_call 2
 
@@ -2294,7 +2294,7 @@ cosmic/child_task_tool_test.tl field_fixed 2
 cosmic/compress_test.tl field_fixed 1
 
 
-cosmic/fs.tl field_fixed 4
+cosmic/fs.tl field_fixed 3
 
 cosmic/fs_append_test.tl field_fixed 18
 
@@ -3676,7 +3676,6 @@ cosmic/declared_types_test.tl cast_refused 1
 
 cosmic/fs_append_test.tl cast_refused 1
 
-cosmic/fs_test.tl cast_refused 2
 
 cosmic/hash_test.tl cast_refused 8
 
@@ -4021,9 +4020,7 @@ cosmic/fs.tl close_not_closable 1
 
 cosmic/fs_append_tool_test.tl close_not_closable 2
 
-cosmic/fs_example.tl close_not_closable 1
 
-cosmic/fs_test.tl close_not_closable 4
 
 cosmic/http/init.tl close_not_closable 1
 
@@ -5684,7 +5681,7 @@ cosmic/channel_test.tl literal_missing 1
 
 cosmic/child.tl literal_missing 3
 
-cosmic/fs.tl literal_missing 6
+cosmic/fs.tl literal_missing 4
 
 cosmic/http/init.tl literal_missing 1
 
@@ -6864,7 +6861,6 @@ cosmic/removed_example.tl setmetatable_call 1
 # `<close>` on a record and a call of `setmetatable`.
 cosmic/child_example.tl close_not_closable 2
 
-cosmic/fs_example.tl close_not_closable 1
 
 cosmic/http/server_example.tl close_not_closable 1
 
