@@ -724,6 +724,18 @@ local function test_a_pcall_taken_as_a_value_in_a_test_file_names_test_raises()
   assert(named ~= nil and has(named, "match pcall(f) do"), tostring(named))
   assert(has(named, "`Test.raises(fn, says?)`"), named)
   assert(not has(error_of(source, "alternatives_as_value").fix, "Test.raises"))
+  -- A name that only ends in `_test.tl` is no test file.
+  local other = Programs.runner()(source, "t_test.tlx")
+  for _, e in ipairs(other.errors) do
+    assert(not has(e.fix, "Test.raises"), e.fix)
+  end
+  local handled = Programs.runner()("local function f()\nend\nlocal function h(m: string): string\n  return m\nend\n" ..
+      "local ok = xpcall(f, h)\n", "t_test")
+  for _, e in ipairs(handled.errors) do
+    if e.code == "alternatives_as_value" then
+      assert(has(e.fix, "`Test.raises(fn, says?)`"), e.fix)
+    end
+  end
 end
 
 local function test_programs_that_follow_the_rules_check_clean()

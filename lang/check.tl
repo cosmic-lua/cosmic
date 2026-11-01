@@ -1334,7 +1334,7 @@ local function first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
   elseif #alts > 1 then
     local call = text_of(ctx, node)
     local raises = ""
-    if ctx.filename:find("_test.tl", 1, true) ~= nil and (call:find("^pcall%(") ~= nil or call:find("^xpcall%(") ~= nil) then
+    if ctx.filename:sub(-8) == "_test.tl" and (call:find("^pcall%(") ~= nil or call:find("^xpcall%(") ~= nil) then
       raises = "; to check that a call raises, `Test.raises(fn, says?)` runs it and answers the message it raised"
     end
     report(ctx, "alternatives_as_value", node, subject(ctx, node) .. " answers one of " .. tostring(#alts) ..

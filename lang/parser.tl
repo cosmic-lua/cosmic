@@ -1660,11 +1660,13 @@ local function parse_field(first: integer, seen: {string: boolean}): Ast.Member
     advance()
   else
     local fix = "write `name: Type` for a field, `function name(self) ... end` for a method of a class, or `end` to close the body"
+    local msg = "expected a field name, found " .. shown(S.pos)
     if S.kind == "keyword" and (peek_text(1) == ":" or peek_text(1) == "?") then
+      msg = msg .. ": a keyword cannot name a field here"
       fix = "a field named by a keyword is declared and indexed as `[\"" .. S.text .. "\"]`: write `[\"" .. S.text ..
         "\"]: T` in the declaration and `t[\"" .. S.text .. "\"]` to read it"
     end
-    report("expected_name", S.pos, "expected a field name, found " .. shown(S.pos), fix)
+    report("expected_name", S.pos, msg, fix)
     name = { kind = "Binding", id = 0, first = nfirst, last = nfirst - 1, name = "" }
   end
   local omittable = false
@@ -1813,15 +1815,25 @@ local function parse_member(owner: string, seen: {string: boolean}): Ast.Member
   return parse_field(first, seen)
 end
 
+--- Whether the current token is a keyword written as a field, `end: T` or `if?: T`, in a declaration body.
+local function keyword_field(): boolean
+  return S.kind == "keyword" and not is_field_word() and (peek_text(1) == ":" or peek_text(1) == "?")
+end
+
 --- The members up to the `end` that closes the declaration opened at `open`,
 --- or up to a statement that begins a line: a body that is not closed ends
 --- there, as `desc` is reported not closed.
 local function parse_members(owner: string, open: integer, desc: string): {Ast.Member}
   local members: mut {Ast.Member} = {}
   local seen: {string: boolean} = {}
-  while S.text ~= "end" and S.kind ~= "$EOF$" and not begins_statement(open) do
+  while S.kind ~= "$EOF$" and (keyword_field() or (S.text ~= "end" and not begins_statement(open))) do
     local before = S.pos
-    local member = parse_member(owner, seen)
+    local member: Ast.Member
+    if keyword_field() then
+      member = parse_field(before, seen)
+    else
+      member = parse_member(owner, seen)
+    end
     if S.pos == before then
       member = skip_junk(before, true)
     end
@@ -2559,10 +2571,6 @@ parse_statement = function(): Ast.Stat
     stat = parse_expression_statement()
   else
     local fix = unexpected_fix(S.text)
-    if S.text == ":" and S.texts[S.pos - 1] == "end" then
-      fix = "if `end` was meant as a field of a record, a field named by a keyword is declared and indexed as " ..
-        "`[\"end\"]`: write `[\"end\"]: T` in the declaration and `t[\"end\"]` to read it"
-    end
     report("unexpected_token", first, "unexpected " .. shown(S.pos) .. " where a statement begins", fix)
     return skip_junk(first, true)
   end
