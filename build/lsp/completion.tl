@@ -13,10 +13,13 @@
 ---   included (`x` after `if x is T then`); else it is worked out from the declared types of the names, the members, the
 ---   element of an array or a map and the result of a function. `.` offers a record's or class's fields and methods, an
 ---   interface's (its own and those of the interfaces it lists), the functions of a module or of a declaration used as a
----   value, and an enum's values; `:` offers the methods. A member's `detail` is its signature in the docs where they have
----   it, else its type. Its `documentation` is the docs' text of the same symbol, for a type of another module; the members
----   themselves are the checker's declarations of that module, which an open document or the stage's stub gives
----   ([`build.lsp.source`]), so an unsaved module is completed as the person has it.
+---   value, and an enum's values; `:` offers the methods. A member of a type the rows hold has the type as written
+---   for its `detail` and the `docs` text of its symbol for `documentation` ([`source.members`]), none when the text has no
+---   doc comment on it: the rows are those of the module as staged, or open and unsaved, and for the document's own module of
+---   the last text that parsed. The checker's declarations answer for a type the rows cannot name exactly: a module the
+---   database does not list (the standard library's `cosmic.*`), a name declared twice in a module or in a block, an
+---   interface listing one the rows do not resolve, and a text with no rows (one that does not parse). There the `detail`
+---   is the signature in the docs database where it has one, else the checker's type, and the `documentation` its text.
 --- - In a type position, wherever the grammar has one (after `:`, `is`, `<` and `,` of type arguments, `{`, `|`, a return
 ---   type, `local type T =`, a field of a record, ...): the types in scope and the primitive types.
 --- - Anywhere else, the names in scope: the locals, parameters, functions and types visible at the cursor
@@ -43,14 +46,12 @@
 -- shared prefix. A name declared again in the text typed since is told only by a line that begins `local`, `for` or has
 -- `function` and names it ([`declares`]).
 
--- TODO: offer the documentation of the members of the document's own module and of a module edited and unsaved, once the
--- derivation writes the docs rows of the scratch database ([`source.places`]): the docs are the last build's, so a member
--- the person has not built has none.
+-- TODO: complete the members of the standard library's `cosmic.*` modules from rows too, once the binary's own modules have
+-- `members` and `docs` rows in a database the session reads: the working database lists none of them, so their members are
+-- the checker's declarations of the module and their docs the docs database's.
 
--- TODO: complete the members of another module from db rows (their names, types and docs) in place of the checker's
--- declarations of its stub, once the derivation writes each type's members with their types as rows (`places` holds only
--- where a name is declared): the checker's declarations are what the session has served, so a member is read from the
--- program and not the working database.
+-- TODO: resolve an interface a declaration lists from another module, or with type arguments, in the rows, once the rows
+-- name a listed interface by the module that declares it: the members are then the checker's declarations.
 
 -- TODO: rank the items by how near they are and what was used (`sortText`), fill in `documentation` and `detail` at
 -- `completionItem/resolve`, and offer snippets for a call's parameters, once a request needs them: names are ordered by
@@ -64,6 +65,7 @@ local Report = require("build.syntax_report")
 local Scopes = require("lang.scopes")
 local Types = require("lang.types")
 local check = require("build.lsp.check")
+local source = require("build.lsp.source")
 local docs = require("build.docs")
 local hover = require("build.lsp.hover")
 local lines = require("build.lsp.lines")
@@ -87,6 +89,8 @@ local record completion
     --- Nil for an enum's value.
     type: Types.Type?
     method: boolean
+    --- Where the member is a row: its type as written, its documentation and its kind.
+    row: source.MemberRow?
   end
 end
 
@@ -317,6 +321,9 @@ end
 local record Request
   program: Declarations.Program
   outcome: Driver.Outcome
+  checker: check.Checker
+  --- The text the last check was of.
+  text: string
 end
 
 --- The declaration `t` is, or is an optional or a union of, and whether it is used as a value (the table of its functions).
@@ -343,7 +350,7 @@ local function members_of(program: Declarations.Program, decl: Types.Decl, value
   local function add(name: string, t: Types.Type?, method: boolean)
     if seen[name] == true then return end
     seen[name] = true
-    out[#out + 1] = { name = name, type = t, method = method }
+    out[#out + 1] = { name = name, type = t, method = method, row = nil }
   end
   local absent = program.absent[decl] or {}
   for _, field in ipairs(body.fields) do
@@ -583,8 +590,18 @@ local function markup(entry: docs.Entry?): protocol.MarkupContent?
   return { kind = "markdown", value = entry.text }
 end
 
+-- TODO: offer a field whose type is an alias of a function as a function, once the rows carry the kind of a member's
+-- resolved type: a row's type is as written, so only `function(` shows it.
+
 --- The kind of item a member is.
 local function member_kind(member: Member): integer
+  local row = member.row
+  if row ~= nil then
+    if row.kind == "value" then return ENUM_MEMBER end
+    if row.kind == "method" then return METHOD end
+    if row.kind == "function" or row.type:sub(1, 9) == "function(" then return FUNCTION end
+    return FIELD
+  end
   local t = member.type
   if t == nil then return ENUM_MEMBER end
   if member.method then return METHOD end
@@ -592,10 +609,60 @@ local function member_kind(member: Member): integer
   return FIELD
 end
 
+--- The members of the type at `symbol` of `rows` (the interfaces it lists too), of its value when `value`, else of an
+--- instance of it; nil where the rows do not hold the type, or a type it lists.
+local function row_members(rows: source.Members, symbol: string, value: boolean, depth?: integer): {Member}?
+  local owner = rows[symbol]
+  if owner == nil or owner.kind == "" or (depth or 0) > 16 then return nil end
+  local out: mut {Member} = {}
+  local seen: mut {string: boolean} = {}
+  for _, row in ipairs(owner.members) do
+    local wanted = if value then row.scope ~= "instance" else row.scope ~= "value" end
+    if wanted and seen[row.name] ~= true then
+      seen[row.name] = true
+      out[#out + 1] = { name = row.name, type = nil, method = row.kind == "method", row = row }
+    end
+  end
+  if owner.kind == "interface" and not value then
+    local parent = symbol:match("^(.*)%.[^.]*$")
+    for _, listed in ipairs(owner.supers) do
+      local named = if parent ~= nil and rows[parent .. "." .. listed] ~= nil then parent .. "." .. listed else listed end
+      local inherited = if listed:find("[<.]") == nil then row_members(rows, named, false, (depth or 0) + 1) else nil end
+      if inherited == nil then return nil end
+      for _, member in ipairs(inherited) do
+        if seen[member.name] ~= true then
+          seen[member.name] = true
+          out[#out + 1] = member
+        end
+      end
+    end
+  end
+  table.sort(out, function(a: Member, b: Member): boolean return a.name < b.name end)
+  return out
+end
+
+--- The members of `decl` its module's rows give, nil where there are none ([`source.members`]).
+local function rows_of(request: Request, decl: Types.Decl, value: boolean): {Member}?
+  local checker = request.checker
+  local text: string? = nil
+  if decl.module == request.outcome.module then text = request.text end
+  local rows = source.members(checker.source, decl.module, check.open_files(checker), text)
+  if rows == nil then return nil end
+  return row_members(rows, decl.name, value)
+end
+
 --- The members offered after a separator.
 local function member_items(request: Request, d: hover.Docs, decl: Types.Decl, value: boolean, context: Context,
                             out: mut {protocol.CompletionItem}, edit: protocol.Range)
-  local members = members_of(request.program, decl, value)
+  local tally = request.checker.source.tally
+  local members = rows_of(request, decl, value)
+  local from_rows = members ~= nil
+  if members ~= nil then
+    tally.member_rows = tally.member_rows + 1
+  else
+    tally.member_declarations = tally.member_declarations + 1
+    members = members_of(request.program, decl, value)
+  end
   local wanted: mut {Member} = {}
   for _, member in ipairs(members) do
     -- A `:` reads a method.
@@ -603,18 +670,25 @@ local function member_items(request: Request, d: hover.Docs, decl: Types.Decl, v
       wanted[#wanted + 1] = member
     end
   end
-  local entries = documented(request, d, decl, wanted)
+  -- The docs of the rows are the text's own: the docs database, the last build's, is no source for a member they hold.
+  local entries: {string: docs.Entry} = {}
+  if not from_rows then entries = documented(request, d, decl, wanted) end
   for _, member in ipairs(wanted) do
     local entry = entries[member.name]
     local t = member.type
+    local row = member.row
     local detail: string? = nil
-    if entry ~= nil and entry.signature ~= "" then
+    local documentation = markup(entry)
+    if row ~= nil then
+      if row.type ~= "" then detail = row.type end
+      if row.doc ~= "" then documentation = { kind = "markdown", value = row.doc } end
+    elseif entry ~= nil and entry.signature ~= "" then
       detail = entry.signature
     elseif t ~= nil then
       detail = Types.display(t)
     end
     local item: protocol.CompletionItem = { label = member.name, kind = member_kind(member), detail = detail,
-      documentation = markup(entry), sortText = nil, textEdit = { range = edit, newText = member.name } }
+      documentation = documentation, sortText = nil, textEdit = { range = edit, newText = member.name } }
     out[#out + 1] = item
   end
 end
@@ -790,7 +864,7 @@ function completion.at(checker: check.Checker, d: hover.Docs, document: check.Do
   -- The byte before the cursor, in the text the reading was of, then in the text the checker read.
   local earlier = earlier_count(last.text, document.text, cursor - 1)
   local token = token_near(outcome.chunk.tokens, check.checker_offset(last.reading, math.max(earlier, 1)))
-  local request: Request = { program = last.reading.program, outcome = outcome }
+  local request: Request = { program = last.reading.program, outcome = outcome, checker = checker, text = last.text }
   local scope = Scopes.in_scope(outcome.scoped, token)
   local at = token_near(tokens, cursor - #prefix)
   if Lexer.text(tokens, at) ~= PLACEHOLDER or Lexer.offset(tokens, at) ~= cursor - #prefix then

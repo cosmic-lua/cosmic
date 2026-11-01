@@ -141,6 +141,10 @@ local record source
     --- is counted for the places of its recovered tree; one whose rows fail to
     --- write is not.
     mut derived: integer
+    --- Completions of a module's members read from the `members` rows ([`source.members`]), and from the checker's
+    --- declarations of its stub, where there are no rows.
+    mut member_rows: integer
+    mut member_declarations: integer
   end
 
   --- A module's text as its file holds it, not as the checker is served it (a stub, a template's Teal): where a place in
@@ -171,6 +175,30 @@ local record source
     --- below no root ([`source.extracted`]); nil for a module of the root.
     carried?: string
   end
+
+  --- One member of a declared type, as the `members` rows hold it ([`build.syntax_members`]), with the documentation of the
+  --- same symbol in the `docs` rows of the text.
+  record MemberRow
+    name: string
+    --- "field", "method", "function" or "value".
+    kind: string
+    --- "instance", "value" or "both".
+    scope: string
+    --- The type as written, "" for an enum's value.
+    type: string
+    doc: string
+  end
+
+  --- A type the `members` rows hold: "record", "class", "interface" or "enum", the interfaces it lists as written, and its
+  --- members in the order the rows are in.
+  record MemberOwner
+    kind: string
+    supers: {string}
+    members: {MemberRow}
+  end
+
+  --- The types a text declares, by dotted symbol ([`build.syntax_places`]).
+  type Members = {string:MemberOwner}
 
   --- An open document's text, and its SHA-256.
   record Text
@@ -263,7 +291,8 @@ end
 --- A source for the tree at `root`, staged at its first [`source.refresh`].
 function source.new(root: string, err: function(line: string), carried?: string, store?: {Sqlite.Handle}): source.View
   local tally: Tally = { database_stubs = 0, made_stubs = 0, sources = 0, templates = 0,
-    whole_splices = 0, stages = 0, reopened = 0, derived = 0 }
+    whole_splices = 0, stages = 0, reopened = 0, derived = 0, member_rows = 0,
+    member_declarations = 0 }
   return {
     root = root,
     carried = carried,
@@ -950,6 +979,10 @@ local function mapped_places(src: source.View, found: Module, written: Written):
   return { file = written.file, text = written.text, spots = spots }
 end
 
+-- TODO: keep the rows of both the text a check read and the text now in the scratch database of a file, once a file may hold
+-- two texts there: a completion on the own module of an edited document that does not parse derives the text last checked,
+-- which drops the rows of the text now, and the next request for its places derives that again.
+
 -- TODO: serve the stub of an edited open document from its scratch `stubs` row, in place of the one made here ([`made_stub`],
 -- [`View`]'s `made`), once the scratch database is derived for every open document rather than at the first read of its places.
 
@@ -1021,6 +1054,77 @@ function source.extracted(src: source.View, placed: source.Placed): string?
     return nil
   end
   return path
+end
+
+--- The `members` rows of a text, by owner, with the docs of the same symbols, in `db`, which holds the parse of the text
+--- `hash`; nil where it holds none or cannot be read.
+local function read_members(db: Sqlite.Handle, hash: string): source.Members?
+  local parsed, _ = Sqlite.text_rows(db, "SELECT 1 FROM parsed WHERE source_hash = ?1", { { text = hash } })
+  if parsed == nil or #parsed == 0 then return nil end
+  local rows, _ = Sqlite.text_rows(db,
+    "SELECT owner, name, kind, scope, type, coalesce((SELECT text FROM docs WHERE docs.source_hash = members.source_hash " ..
+      "AND docs.source_symbol IN (members.owner || '.' || members.name, members.owner || ':' || members.name) " ..
+      "ORDER BY length(text) DESC LIMIT 1), '') FROM members WHERE source_hash = ?1 ORDER BY ordinal",
+    { { text = hash } })
+  if rows == nil then return nil end
+  local kinds: mut {string:string} = {}
+  local supers: mut {string:mut {string}} = {}
+  local members: mut {string:mut {source.MemberRow}} = {}
+  for _, row in ipairs(rows) do
+    local owner = row:text(1)
+    local name = row:text(2)
+    local interfaces = supers[owner] or {}
+    supers[owner] = interfaces
+    local held = members[owner] or {}
+    members[owner] = held
+    if name == "" then
+      kinds[owner] = row:text(3)
+      for each in row:text(5):gmatch("[^,]+") do
+        local trimmed = each:gsub("^%s+", ""):gsub("%s+$", "")
+        interfaces[#interfaces + 1] = trimmed
+      end
+    else
+      local made: source.MemberRow = { name = name, kind = row:text(3), scope = row:text(4), type = row:text(5),
+        doc = row:text(6) }
+      held[#held + 1] = made
+    end
+  end
+  local out: mut {string:source.MemberOwner} = {}
+  for owner, list in pairs(members) do
+    out[owner] = { kind = kinds[owner] or "", supers = supers[owner] or {}, members = list }
+  end
+  return out
+end
+
+--- The types the module `name` declares and their members, from the rows derived of its text: the open document's, else
+--- the working database's, or `given` where that is the text the caller means (the text a check read, which is no text
+--- being typed). The staged file's own rows answer while the text is the staged file's and they are the running analyzer's;
+--- any other text is derived into the scratch database, once a text, as [`source.places`] does. nil where the module is
+--- not listed, or the text does not parse, and a module generated from another file (`mapped`) is as the rows of its text
+--- say.
+function source.members(src: source.View, name: string, open: source.Open, given?: string): source.Members?
+  local found = src.modules[name]
+  if found == nil then return nil end
+  local written = written_of(src, name, open)
+  if written == nil then return nil end
+  local text = written.text
+  local hash = found.source_hash
+  local opened = open(found.file)
+  if opened ~= nil then hash = opened.hash end
+  if given ~= nil and given ~= text then
+    text = given
+    hash = Hash.hex_sha256(given)
+  end
+  if hash == found.source_hash and src.stubs then
+    local db, _ = database(src)
+    if db == nil then return nil end
+    local held = read_members(db, hash)
+    if held ~= nil then return held end
+  end
+  local scratch = scratch_of(src)
+  if scratch == nil then return nil end
+  derive(src, scratch, found.file, text, hash)
+  return read_members(scratch, hash)
 end
 
 --- Lets go of the scratch database in the files whose text is the staged file's now, the rows of `build.db` answering

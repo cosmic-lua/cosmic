@@ -9,6 +9,7 @@ local Analyzer = require("build.syntax_analyzer")
 local Ast = require("lang.ast")
 local Globals = require("build.syntax_globals")
 local LinkText = require("build.link_text")
+local Members = require("build.syntax_members")
 local Node = require("build.syntax_node")
 local Places = require("build.syntax_places")
 local Sqlite = require("cosmic.sqlite")
@@ -25,6 +26,8 @@ local record Derivation
     --- (`mapped`) keeps those its `-- line` map names, at the line the map gives and column 1, length 0: its own lines are
     --- not the file's, and the name's column in that file is not known here ([`build.lsp.source`] finds it).
     places: {Places.Found}
+    --- The types it declares and their members, with their types as written ([`build.syntax_members`]).
+    members: {Members.Found}
     --- The stub of a source that returns a value, nil for one that returns nothing (a test, as a rule): it is no module
     --- a checker reads in place of anything.
     stub: Stub.Made?
@@ -116,8 +119,8 @@ function Derivation.rows_of(chunk: Ast.Chunk, source: string, file: string, mapp
     end
     places = kept
   end
-  return { requires = Node.requires(chunk), globals = Globals.found(chunk), places = places, stub = stub,
-    analysis = analysis, links = links }, ""
+  return { requires = Node.requires(chunk), globals = Globals.found(chunk), places = places,
+    members = Members.found(chunk), stub = stub, analysis = analysis, links = links }, ""
 end
 
 --- A row of `test_inputs`: a `field` of the declaration and its `value`.
@@ -269,6 +272,15 @@ function Derivation.insert(db: Sqlite.Handle, source_hash: string, file: string,
         "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
       { hash, { integer = ordinal }, text(place.symbol), text(place.kind), { integer = place.line },
         { integer = place.column }, { integer = place.length } })
+    if not ok then
+      return false, why
+    end
+  end
+  for ordinal, member in ipairs(rows.members) do
+    ok, why = put("INSERT INTO members (source_hash, ordinal, owner, name, kind, scope, type) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+      { hash, { integer = ordinal }, text(member.owner), text(member.name), text(member.kind), text(member.scope),
+        text(member.type) })
     if not ok then
       return false, why
     end

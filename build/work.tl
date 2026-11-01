@@ -92,7 +92,7 @@ end
 
 --- The shape of the schema. A file of another shape holds nothing the
 --- tree cannot produce again, so it is thrown away.
-local version <const> = "31"
+local version <const> = "32"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -175,6 +175,17 @@ local version <const> = "31"
 --- ([`build.lsp.source`]) without parsing the module. A source derived
 --- from another file (`mapped`) has the rows its `-- line` map names, at the
 --- map's line of that file (column 1, length 0), and none if it has no map.
+--- `members` is what each type a source declares has: a row for the type
+--- (`name` ""), and one for each field, method, enum value and `function
+--- R.f` of it ([`build.syntax_members`]), under the same dotted symbol as
+--- `places`, with its kind, where it is offered (`scope`) and its type as
+--- written. `cosmic lsp` completes the members of a module by it
+--- ([`build.lsp.completion`]) without the checker's declarations of the
+--- module. It is a table of its own because neither neighbour can hold
+--- it: `places` has a row for where a name is declared and no more, and
+--- `docs` is the documentation's view (a symbol is named as the module
+--- exports it, a type no export reaches is left out, a member has no
+--- scope or kind a read of it needs).
 ---
 --- `executable` is [`build.coverage.syntax_lines.executable`]'s answer for one
 --- source, keyed by content hash the same way as `parsed`: which lines
