@@ -225,7 +225,7 @@ local record Serving
 end
 
 --- A session at `root` that nothing has been served yet, reading docs
---- from `store` when given.
+--- from `store` when given, with `carried` as the `built_from` the tool carries.
 local function begin(root: string, store?: {Sqlite.Handle}, carried?: string): Serving
   local complaints: mut {string} = {}
   return {

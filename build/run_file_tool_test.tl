@@ -138,7 +138,7 @@ local function test_each_broken_file_of_one_source_is_told(tmp: string)
     tostring(result.stdout) .. stderr)
 end
 
---- Runs `file` in `root` as this program with the new checker (`COSMIC_GRAMMAR=new`), whatever the mode of the suite.
+--- Runs `file` in `root` as this program with the new checker (`COSMIC_GRAMMAR=new`).
 local function run_new_in(root: string, file: string): Child.Result
   local env = this_program.environment()
   env["COSMIC_BUILD_CACHE"] = "0"
