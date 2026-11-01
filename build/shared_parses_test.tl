@@ -66,11 +66,16 @@ local function boot(root: string, path: string): importer.Parses, string, string
     if key == "boot_hash" then return nil end
     return meta(key)
   end
-  local ok, parses, trouble = pcall(importer.derive, handle, shared)
+  local derived: importer.Parses? = nil
+  local trouble = ""
+  local ok, raised = pcall(function()
+    local made, why = importer.derive(handle, shared)
+    derived, trouble = made, why
+  end)
   Store.meta = meta
   if shared ~= nil then shared.finish() end
-  assert(ok, tostring(parses))
-  assert(parses ~= nil, trouble)
+  assert(ok, tostring(raised))
+  local parses = assert(derived, trouble)
   local recorded = assert(Sqlite.text_rows(handle.db,
     "SELECT value FROM meta WHERE key = 'analyzer'"))
   local rows = parse_rows(handle.db)
@@ -100,11 +105,11 @@ local function test_a_boot_takes_only_the_parses_its_own_analyzer_made(tmp: stri
   for _ in pairs(analyzer_tree) do count = count + 1 end
   analyzer_checkout(tmp .. "/first")
   local parses, named, rows = boot(tmp .. "/first", path)
-  assert(parses.parsed == count and parses.shared == 0, parses.parsed .. " " .. parses.shared)
+  assert(parses.parsed == count and parses.shared == 0, tostring(parses.parsed) .. " " .. tostring(parses.shared))
   -- The same tree elsewhere: every parse taken, and the same rows.
   analyzer_checkout(tmp .. "/second")
   local taken, taken_named, taken_rows = boot(tmp .. "/second", path)
-  assert(taken.parsed == 0 and taken.shared == count, taken.parsed .. " " .. taken.shared)
+  assert(taken.parsed == 0 and taken.shared == count, tostring(taken.parsed) .. " " .. tostring(taken.shared))
   assert(taken_named == named and taken_rows == rows, taken_rows .. "\n--\n" .. rows)
   assert(rows:find("globals 1\n", 1, true) ~= nil, rows)
   -- An analyzer module edited that no root is: the roots' parses are
@@ -114,7 +119,7 @@ local function test_a_boot_takes_only_the_parses_its_own_analyzer_made(tmp: stri
   analyzer_checkout(tmp .. "/edited", edited)
   local declined, declined_named, declined_rows = boot(tmp .. "/edited", path)
   assert(declined.parsed == count and declined.shared == 0,
-    declined.parsed .. " " .. declined.shared)
+    tostring(declined.parsed) .. " " .. tostring(declined.shared))
   analyzer_checkout(tmp .. "/edited_alone", edited)
   local _, alone_named, alone_rows = boot(tmp .. "/edited_alone", "0")
   assert(declined_named ~= named and declined_named == alone_named and
@@ -132,11 +137,11 @@ local function test_a_boot_takes_only_the_parses_its_own_analyzer_made(tmp: stri
   assert(dump(path, "SELECT count(*) FROM parsed_v1 WHERE requires = 'build.ast\n'") == "1")
   analyzer_checkout(tmp .. "/misled")
   local misled, misled_named, misled_rows = boot(tmp .. "/misled", path)
-  assert(misled.parsed == count and misled.shared == 0, misled.parsed .. " " .. misled.shared)
+  assert(misled.parsed == count and misled.shared == 0, tostring(misled.parsed) .. " " .. tostring(misled.shared))
   assert(misled_named == named and misled_rows == rows)
   analyzer_checkout(tmp .. "/mended")
   local mended = boot(tmp .. "/mended", path)
-  assert(mended.parsed == 0 and mended.shared == count, mended.parsed .. " " .. mended.shared)
+  assert(mended.parsed == 0 and mended.shared == count, tostring(mended.parsed) .. " " .. tostring(mended.shared))
 end
 
 --- A guess can accept an analyzer that is not the tree's: here the
@@ -175,7 +180,7 @@ local function test_a_taken_analyzer_the_parse_moves_is_parsed_afresh(tmp: strin
   for _ in pairs(analyzer_tree) do count = count + 1 end
   analyzer_checkout(tmp .. "/again", having)
   local parses, named, rows = boot(tmp .. "/again", path)
-  assert(parses.parsed == count + 1 and parses.shared == 0, parses.parsed .. " " .. parses.shared)
+  assert(parses.parsed == count + 1 and parses.shared == 0, tostring(parses.parsed) .. " " .. tostring(parses.shared))
   assert(named == having_named, "the name the parse moved to was not recorded")
   assert(rows == having_rows, rows .. "\n--\n" .. having_rows)
 end

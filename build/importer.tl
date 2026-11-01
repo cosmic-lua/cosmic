@@ -40,7 +40,7 @@ local type Module = plans.Module
 local type Source = derivation.Source
 
 local record importer
-  Module: Module
+  type Module = plans.Module
 
   --- Where the code that analyzes is read from, as [`Store.requires`]
   --- and [`Store.source`] read it of the binary ([`importer.tree_code`]
@@ -98,7 +98,7 @@ local record importer
 
   --- What a derive parsed ([`importer.derive`]): how many sources it
   --- parsed, and how many more another checkout's parse stood in for.
-  Parses: derivation.Parses
+  type Parses = derivation.Parses
 
   --- The databases a hint looks a name up in, and whether each is read
   --- as the public standard library's (importer.said).

@@ -182,14 +182,14 @@ local function test_a_chunk_module_is_keyed_with_what_dash_e_loads(tmp: string)
       assert(Fs.mkdirs(tmp .. "/" .. assert(file:match("^(.*)/"), file .. " is in a directory")))
       assert(Fs.write(tmp .. "/" .. file, "return {} -- " .. name .. "\n"))
       by_path[name] = { path = name, file = file, kind = "lib", source = "", source_hash = "",
-        requires = {}, tests = {} }
+        requires = {}, tests = {}, inputs = nil }
     end
   end
   local needed: mut {string} = {}
   for _, name in ipairs(test_inputs.standalone_loads) do
     if name ~= "build.standalone" then needed[#needed + 1] = name end
   end
-  by_path["build.standalone"].requires = needed
+  assert(by_path["build.standalone"]).requires = needed
   local function key_declaring(standalone: boolean): string
     local declared: PolicyRules.Declared = { line = 1, reads = {}, host = {}, env = {},
       network = {}, tool = false, lua = true, nests = false, noexec = false,
@@ -200,7 +200,7 @@ local function test_a_chunk_module_is_keyed_with_what_dash_e_loads(tmp: string)
       tests = { "test_t" }, inputs = declared }
     by_path[m.path] = m
     by_path["suite.lib"] = { path = "suite.lib", file = "suite/lib.tl", kind = "lib",
-      source = "", source_hash = "", requires = {}, tests = {} }
+      source = "", source_hash = "", requires = {}, tests = {}, inputs = nil }
     local s = spec()
     s.effective = test_inputs.effective(m, by_path, {})
     s.declaration = test_inputs.canonical(declared)
@@ -226,16 +226,16 @@ local function test_a_type_only_module_is_no_part_of_the_key(tmp: string)
   end
   local function key_with(type_only: {string:{string:boolean}}): string
     local lib: positions.Module = { path = "suite.lib", file = "suite/lib.tl", kind = "module",
-      source = "", source_hash = "", requires = { "suite.typed", "suite.valued" }, tests = {} }
+      source = "", source_hash = "", requires = { "suite.typed", "suite.valued" }, tests = {}, inputs = nil }
     local by_path: mut {string:positions.Module} = { ["suite.lib"] = lib }
     for _, name in ipairs({ "typed", "valued", "named" }) do
       local path = "suite." .. name
       by_path[path] = { path = path, file = "suite/" .. name .. ".tl", kind = "module",
-        source = "", source_hash = "", requires = {}, tests = {} }
+        source = "", source_hash = "", requires = {}, tests = {}, inputs = nil }
     end
     local m: positions.Module = { path = "suite.t_test", file = "suite/t_test.tl",
       kind = "test", source = "", source_hash = "", requires = { "suite.lib", "suite.named" },
-      tests = { "test_t" } }
+      tests = { "test_t" }, inputs = nil }
     by_path[m.path] = m
     local s = spec()
     s.effective = test_inputs.effective(m, by_path, {}, type_only)

@@ -43,7 +43,7 @@ local record module
     --- Its source's stub ([`build.syntax_stub`]), which cosmic's own build holds
     --- to the source's type, and whether it is declaration-only; none for
     --- a source with no top-level `return`, which has none.
-    stub?: SyntaxStub.Made
+    mut stub?: SyntaxStub.Made
   end
 end
 

@@ -1740,7 +1740,7 @@ local function select_tests(ctx: Run): integer?
       end
     end
     for _, selector in ipairs(unfound) do
-      local m = module_of[selector]
+      local m = assert(module_of[selector])
       local _, asked = split(selector)
       local name = assert(asked)
       local near = test.nearest(name, m.tests)

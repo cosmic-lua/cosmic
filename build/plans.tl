@@ -15,7 +15,7 @@ local type module = require("build.module")
 local type Module = module.Plan
 
 local record plans
-  Module: Module
+  type Module = module.Plan
   --- What compiling one module makes.
   record Generated
     lua: string
