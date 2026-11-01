@@ -252,7 +252,7 @@ local function test_a_declaration_beside_its_source_and_two_sources_are_refused(
   local source = file(tmp, "foo.tl", "local record Foo\n  n: integer\nend\nlocal f: Foo = { n = 1 }\nreturn f\n")
   local ran = run({ "-o", tmp .. "/out", decl, source })
   assert(ran.code == 2, ran.err)
-  assert(ran.err:find("is also the module foo, and a module has one type source", 1, true) ~= nil, ran.err)
+  assert(ran.err:find("is already the module foo", 1, true) ~= nil, ran.err)
   assert(Fs.exists(tmp .. "/out/foo.lua") == false)
   assert(Fs.mkdirs(tmp .. "/foo"))
   local nested = file(tmp, "foo/init.tl", "local n: integer = 1\nreturn n\n")

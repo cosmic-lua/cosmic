@@ -228,9 +228,9 @@ local record Driver
   --- path ([`Declarations.module_of`]), checked. A module is also
   --- answered to by the name of its path below each directory, since a project inside the tree (`ci/`, a fixture
   --- directory) names its modules from its own root, except by a name in `unaliased`: the language's own modules, which
-  --- the binary answers and no tail of a project file's name stands for. `skip` says which paths are left out. Where a module is given as
-  --- `.tl` and `.d.tl` the declaration is the one answered, under every name, and the source is the module
-  --- [`Driver.implementation`] names. A `*_test.tl` is a test module
+  --- the binary answers and no tail of a project file's name stands for. `skip` says which paths are left out. A module
+  --- given as both `.tl` and `.d.tl` is refused before an index is made ([`Driver.paired`]); of two files that are one module
+  --- otherwise (`x.tl` and `x/init.tl`) the first given answers. A `*_test.tl` is a test module
   --- ([`Driver.Source.tests`]). An entry may give a third word, the module it is, and a fourth, the name its ceilings
   --- are kept under ([`Driver.Source.pinned`]), for a source the build writes from another file, whose path says
   --- neither: the entry's path is then the name of the text, and `.d.tl` still marks a declaration. `extras` says of a file
@@ -242,18 +242,18 @@ local record Driver
   --- with its own module. One to a line and in the order of the files: "" for none.
   reserved: function(entries: {{string}}, skip: function(path: string): boolean, names: {string: boolean}): string
 
+  --- The files a module may be written in below the root, in the order a declaration comes before a source: `x.d.tl`,
+  --- `x/init.d.tl`, `x.tl`, `x/init.tl`.
+  candidates: function(module: string): {string}
+
   --- Why a declaration file and a source of one module may not both be given: the complaint of `declaration` (a `.d.tl`)
-  --- standing beside `source` (a `.tl`), both the module `module`. A module has one type source, and a `.tl` is its own
-  --- declaration.
+  --- standing beside `source` (a `.tl`), both the module `module`. It offers both ways out: delete the declaration, or
+  --- rename one of the two.
   pairing: function(declaration: string, source: string, module: string): string
 
   --- The complaints [`Driver.pairing`] makes of `entries` (as [`Driver.index`] takes them, less the `skip`ped paths), one to a
   --- line and in the order of the declarations: "" for entries that pair none.
   paired: function(entries: {{string}}, skip: function(path: string): boolean): string
-
-  --- The name a build holds the implementation of `module` under where a declaration file is written for it too: requirers
-  --- of `module` get the declaration, and the implementation is checked and written as a module of its own, that name.
-  implementation: function(module: string): string
 
   --- The provider of `index`.
   files: function(index: Index): Provider
@@ -363,14 +363,6 @@ end
 function Driver.index(entries: {{string}}, skip: function(path: string): boolean, extras?: Driver.Extras,
                       unaliased?: {string: boolean}): Driver.Index
   local index: Driver.Index = { sources = {}, by_module = {} }
-  -- The modules a declaration file is written for: a source of the same name is their implementation.
-  local declared: mut {string: boolean} = {}
-  for _, entry in ipairs(entries) do
-    local file = entry[1]
-    if file ~= nil and entry[2] ~= nil and not skip(file) and file:match("%.d%.tl$") ~= nil then
-      declared[entry[3] or Declarations.module_of(file)] = true
-    end
-  end
   for _, entry in ipairs(entries) do
     local file = entry[1]
     local text = entry[2]
@@ -384,16 +376,10 @@ function Driver.index(entries: {{string}}, skip: function(path: string): boolean
         extra = extras(file, text)
       end
       local module = entry[3] or Declarations.module_of(file)
-      local implementing = dialect == "tl" and declared[module] == true
-      if implementing then
-        module = Driver.implementation(module)
-      end
       local source = make(module, file, text, dialect, true, {},
         extra.tests or file:match("_test%.tl$") ~= nil, entry[4] or "")
       index.sources[#index.sources + 1] = source
-      local held = index.by_module[source.module]
-      -- A declaration is read ahead of a source of the same name; the source is the module of the name beside it.
-      if held == nil or dialect == "decl" then
+      if index.by_module[source.module] == nil then
         index.by_module[source.module] = source
       end
     end
@@ -416,10 +402,15 @@ function Driver.index(entries: {{string}}, skip: function(path: string): boolean
   return index
 end
 
+function Driver.candidates(module: string): {string}
+  local stem = module:gsub("%.", "/")
+  return { stem .. ".d.tl", stem .. "/init.d.tl", stem .. ".tl", stem .. "/init.tl" }
+end
+
 function Driver.pairing(declaration: string, source: string, module: string): string
-  return declaration .. ": " .. source .. " is also the module " .. module .. ", and a module has one type source: " ..
-    "a .tl is its own declaration (its written record), so a .d.tl beside it is never read as the interface. " ..
-    "Delete " .. declaration .. " (a .d.tl is for a module whose code is C, with no .tl)"
+  return declaration .. ": " .. source .. " is already the module " .. module .. ". A .d.tl is only for a module " ..
+    "implemented in C, and the .tl is what is checked, so one module cannot have both. If the .tl is the module, " ..
+    "delete " .. declaration .. "; if they are different modules, rename one of them."
 end
 
 function Driver.paired(entries: {{string}}, skip: function(path: string): boolean): string
@@ -464,10 +455,6 @@ function Driver.reserved(entries: {{string}}, skip: function(path: string): bool
   end
   table.sort(found)
   return table.concat(found, "\n")
-end
-
-function Driver.implementation(module: string): string
-  return module .. "~impl"
 end
 
 function Driver.files(index: Driver.Index): Driver.Provider

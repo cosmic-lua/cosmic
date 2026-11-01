@@ -362,7 +362,7 @@ local function test_declaration_edit_invalidates_transitive_type_only_dependents
     "the transitive declaration did not reach the checker: " .. trouble)
 end
 
---- A module has one type source: a `.d.tl` beside the `.tl` of its module is refused, naming both files and the fix, and
+--- A module is a declaration or a source, never both: a `.d.tl` beside the `.tl` of its module is refused, naming both files and the fix, and
 --- the project builds once it is deleted. A `.d.tl` beside a `.tl` of another module is no pair.
 local function test_a_declaration_beside_its_source_is_refused()
   local root, write_trouble = write_fixture("declared-implementation-pair", {
@@ -374,9 +374,9 @@ local function test_a_declaration_beside_its_source_is_refused()
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
   local result, trouble = compile_fixture(root)
   assert(result == nil, "a declaration beside its source was built")
-  local want = "lib/dep.d.tl: lib/dep.tl is also the module lib.dep, and a module has one type source: " ..
-    "a .tl is its own declaration (its written record), so a .d.tl beside it is never read as the interface. " ..
-    "Delete lib/dep.d.tl (a .d.tl is for a module whose code is C, with no .tl)"
+  local want = "lib/dep.d.tl: lib/dep.tl is already the module lib.dep. A .d.tl is only for a module implemented in C, " ..
+    "and the .tl is what is checked, so one module cannot have both. If the .tl is the module, delete lib/dep.d.tl; " ..
+    "if they are different modules, rename one of them."
   assert(trouble == want, tostring(trouble))
   assert(Fs.remove(root .. "/lib/dep.d.tl"))
   local built, built_trouble = compile_fixture(root)

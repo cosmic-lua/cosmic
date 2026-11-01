@@ -3,12 +3,13 @@
 --- `require`, and a file the list carries that nothing reaches is compiled by every boot for nothing.
 
 --- It sees what the parser records: a literal `require("x")` anywhere in a file. A `require(name)` of a computed name, or one
---- under `pcall`, is not seen, and a module given as both `x.d.tl` and `x.tl` is taken as the `.tl` where `Seed.program`
---- reads the declaration first; none is in the closure today.
+--- under `pcall`, is not seen, and a module given as both `x.d.tl` and `x.tl` is refused where [`Seed.program`] reads it, as a build
+--- refuses one; none is in the closure.
 
 local Fs = require("cosmic.fs")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
+local Seed = require("build.seed")
 local Test = require("cosmic.test")
 
 Test.policy{ grants = {
@@ -115,4 +116,32 @@ local function test_the_seed_holds_nothing_of_the_fork()
       assert(module:find("^build%.teal") == nil and module:find("^checker%.") == nil, file .. " requires the fork's " .. module)
     end
   end
+end
+
+--- A tree of its own with the declarations of the standard library and a module given as both `.d.tl` and `.tl`, a module
+--- given as a declaration alone and one as a source alone.
+local function seeded(tmp: string): Seed.Program
+  assert(Fs.mkdirs(tmp .. "/lang"))
+  for _, file in ipairs({ "lang/prelude.d.tl", "lang/stdlib.d.tl" }) do
+    assert(Fs.write(tmp .. "/" .. file, (assert(Fs.read(file)))))
+  end
+  assert(Fs.write(tmp .. "/both.d.tl", "local record R\nend\nreturn R\n"))
+  assert(Fs.write(tmp .. "/both.tl", "local record R\nend\nreturn {} as R\n"))
+  assert(Fs.write(tmp .. "/alone.d.tl", "local record R\nend\nreturn R\n"))
+  assert(Fs.write(tmp .. "/code.tl", "local n: integer = 1\nreturn n\n"))
+  return Seed.program(tmp, {})
+end
+
+--- The seed refuses a module with a declaration and a source, with the words a build uses, where it would have taken the
+--- declaration and gone on; a declaration alone has no Lua and a source alone has.
+local function test_the_seed_refuses_a_declaration_beside_a_source(tmp: string)
+  local program = seeded(tmp)
+  local module, why = program.module("both")
+  assert(module == nil and why == "both.d.tl: both.tl is already the module both. A .d.tl is only for a module " ..
+      "implemented in C, and the .tl is what is checked, so one module cannot have both. If the .tl is the module, " ..
+      "delete both.d.tl; if they are different modules, rename one of them.", tostring(why))
+  local declared, declared_why = program.module("alone")
+  assert(declared == nil and declared_why == "", tostring(declared_why))
+  local code, code_why = program.module("code")
+  assert(code ~= nil and code_why == "" and code.file == "code.tl")
 end

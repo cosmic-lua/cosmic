@@ -68,6 +68,7 @@
 
 local AnalysisSchema = require("build.analysis_schema")
 local Ast = require("lang.ast")
+local Declarations = require("lang.declarations")
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
 local Places = require("build.syntax_places")
@@ -184,6 +185,9 @@ local record source
     --- analyzer this session's last stage recorded, nil before one.
     mut stubs: boolean
     mut analyzer: string?
+    --- Why the last stage staged nothing, "" for a stage that did. A document of a pair it refused is told of it
+    --- ([`source.refusal`]).
+    mut trouble: string
     --- Whether the tree is yet to be staged: before the first check, or
     --- since a stage that found the database busy.
     mut pending: boolean
@@ -245,6 +249,7 @@ function source.new(root: string, err: function(line: string), carried?: string)
     analyzer = nil,
     pending = true,
     told_busy = false,
+    trouble = "",
     made = {},
     placed = {},
     tally = tally,
@@ -347,9 +352,6 @@ end
 --- whether its stubs are the running analyzer's ([`trusted`]); none of
 --- them where other code than this session's staged it
 --- ([`staged_by_other`]).
----
--- TODO: report a `.d.tl` beside a `.tl` ([`build.driver.paired`]) as a diagnostic of both files; the build refuses the pair, and
--- the document that requires their module is told that the project has no such module.
 local function listed(src: source.View, staged: boolean)
   local db, _ = database(src)
   if db == nil then return end
@@ -525,11 +527,42 @@ function source.refresh(src: source.View)
   end
   if staged == nil then
     src.err("cosmic: lsp: not staged, answering from the tree as last staged: " .. trouble)
+    src.trouble = trouble
   else
     src.tally.stages = src.tally.stages + 1
+    src.trouble = ""
   end
   src.pending, src.told_busy = false, false
   listed(src, staged ~= nil)
+end
+
+--- Whether the last stage staged nothing.
+function source.refused(src: source.View): boolean
+  return src.trouble ~= ""
+end
+
+--- The complaint about the file `name` (below the root) where the last stage staged nothing and the file is one of a
+--- declaration and a source of one module on disk, or nil: what a document of that file is told, at its first line. The pair
+--- is found as the build finds one, by the files a module may be written in ([`build.driver.candidates`]).
+function source.refusal(src: source.View, name: string): string?
+  if src.trouble == "" then return nil end
+  local module = Declarations.module_of(name)
+  local declaration: string? = nil
+  local code: string? = nil
+  for _, file in ipairs(Driver.candidates(module)) do
+    local there, _ = Fs.exists(src.root .. "/" .. file)
+    if there == true then
+      if file:match("%.d%.tl$") ~= nil then
+        declaration = declaration or file
+      else
+        code = code or file
+      end
+    end
+  end
+  if declaration ~= nil and code ~= nil and (name == declaration or name == code) then
+    return Driver.pairing(declaration, code, module)
+  end
+  return nil
 end
 
 --- What to say once, on stderr and to the person, where the session's

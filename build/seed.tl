@@ -57,12 +57,6 @@ local function declaration(root: string, file: string): Driver.Source
   return Driver.declarations(CompileGrammar.module_of(file), file, text, {})
 end
 
---- The files a `require` of `name` may name, in the order they are tried: a declaration before the source it stands for.
-local function candidates(name: string): {string}
-  local stem = name:gsub("%.", "/")
-  return { stem .. ".d.tl", stem .. "/init.d.tl", stem .. ".tl", stem .. "/init.tl" }
-end
-
 --- One line for an error of the syntax, as the checker's complaints are written.
 local function line_of(file: string, p: Driver.Problem): string
   return file .. ":" .. tostring(p.y) .. ":" .. tostring(p.x) .. ": syntax error: " .. p.msg
@@ -82,6 +76,8 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
   --- The source of each module asked for, and the names the tree has none of, so that a file is read once.
   local sources: mut {string: Driver.Source} = {}
   local absent: mut {string: boolean} = {}
+  --- Why the tree has no one module for a name: a declaration file and a source of it (the complaint of [`Driver.pairing`]).
+  local paired: mut {string: string} = {}
   build:provide(function(name: string): Driver.Source?
     local held = sources[name]
     if held ~= nil then
@@ -95,22 +91,46 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
       sources[name] = made
       return made
     end
-    for _, file in ipairs(candidates(name)) do
-      local read, _ = Fs.read(root .. "/" .. file)
-      if read ~= nil then
-        local made = Driver.source(name, file, read, if file:match("%.d%.tl$") ~= nil then "decl" else "tl" end)
-        sources[name] = made
-        return made
+    local first: string? = nil
+    local first_text = ""
+    local others: mut {string} = {}
+    -- A module is a declaration or a source, never both: one that has both is refused when it is asked for, as a build
+    -- refuses it ([`build.driver.paired`]).
+    for _, file in ipairs(Driver.candidates(name)) do
+      if first == nil then
+        local read, _ = Fs.read(root .. "/" .. file)
+        if read ~= nil then
+          first, first_text = file, read
+        end
+      else
+        local there, _ = Fs.exists(root .. "/" .. file)
+        if there == true then
+          others[#others + 1] = file
+        end
       end
     end
-    absent[name] = true
-    return nil
+    if first == nil then
+      absent[name] = true
+      return nil
+    end
+    -- The declaration comes first among the candidates, so a pair is a declaration first and a source after it.
+    local last = others[#others]
+    if first:match("%.d%.tl$") ~= nil and last ~= nil and last:match("%.d%.tl$") == nil then
+      paired[name] = Driver.pairing(first, last, name)
+    end
+    local made = Driver.source(name, first, first_text, if first:match("%.d%.tl$") ~= nil then "decl" else "tl" end)
+    sources[name] = made
+    return made
   end)
   --- The Lua of `name`, its file; nil and why.
   local function module(name: string): Seed.Module?, string
     local found = build:parsed(name)
     if found == nil then
       return nil, ""
+    end
+    local refused = paired[name]
+    if refused ~= nil then
+      return nil, refused
     end
     local file = found.source.filename
     -- A declaration file that does not parse is reported too: it has no Lua, but the modules that require it are typed by it.

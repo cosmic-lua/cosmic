@@ -202,6 +202,33 @@ local function test_a_file_named_for_a_module_of_the_language_is_not_what_its_re
     found.message)
 end
 
+--- A `.d.tl` beside a `.tl` of its module is refused by the build, and each of the two documents is told so at its first
+--- line, in the words the build uses ([`build.driver.pairing`]); deleting the declaration clears it, though the pair was cached.
+local function test_a_declaration_beside_its_source_is_refused_in_each_document_of_the_pair()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  local declaration = "local record M\n  n: integer\nend\nreturn M\n"
+  local source = "local record M\n  n: integer\nend\nlocal m: M = { n = 1 }\nreturn m\n"
+  assert(Fs.write(root .. "/lib/m.d.tl", declaration))
+  assert(Fs.write(root .. "/lib/m.tl", source))
+  local send = serving(root)
+  local first = send({ initialize(root), open(root, "lib/m.tl", source), open(root, "lib/m.d.tl", declaration) })
+  local words = "lib/m.tl is already the module lib.m. A .d.tl is only for a module implemented in C, and the .tl is what " ..
+    "is checked, so one module cannot have both. If the .tl is the module, delete lib/m.d.tl; if they are different " ..
+    "modules, rename one of them."
+  local in_source, in_declaration = only(nth(first, 1)), only(nth(first, 2))
+  assert(in_source.message == words, in_source.message)
+  assert(in_declaration.message == words, in_declaration.message)
+  assert(edge(in_source, "start").line == 0 and edge(in_source, "start").character == 0)
+  -- The declaration is deleted and its document closed: the pair is gone, and the source is published clear.
+  assert(Fs.remove(root .. "/lib/m.d.tl"))
+  local after = send({ close(root, "lib/m.d.tl"), session_fixture.changed_on_disk(root, "lib/m.d.tl"),
+    change(root, "lib/m.tl", source .. "\n") })
+  local last = publications(after)
+  local final = assert(last[#last])
+  assert(final.uri:sub(-9) == "/lib/m.tl" and #final.diagnostics == 0, final.uri .. " " .. tostring(#final.diagnostics))
+end
+
 --- Closing a document that stood for its file with another text checks
 --- the other open documents again: the cycle of imports it closed is gone
 --- with it.
