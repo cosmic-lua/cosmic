@@ -386,13 +386,17 @@ end
 --- A query's rows read one at a time: see [`Sqlite.query`]. It is a class,
 --- so a query is held in a `<close>` variable.
 local class Query
-  --- The prepared statement the rows are read from.
+  --- Internal: the prepared statement the rows are read from. No caller
+  --- reads or writes it.
   statement: raw_sqlite.Statement
-  --- Whether the statement is still unfinalized.
+  --- Internal: whether the statement is still unfinalized. No caller reads
+  --- or writes it.
   mut open: boolean
-  --- Whether the last row has been read.
+  --- Internal: whether the last row has been read. No caller reads or
+  --- writes it.
   mut ended: boolean
-  --- Why stepping failed, "" until it does.
+  --- Internal: why stepping failed, "" until it does. No caller reads or
+  --- writes it; [`Query.failure`] answers it.
   mut failed: string
 
   --- The next row, and ""; nil and "" after the last; nil and why
