@@ -637,7 +637,7 @@ function source.refused(src: source.View): boolean
 end
 
 --- The complaint about the file `name` (below the root) where the last stage staged nothing and the file is one of a
---- declaration and a source of one module on disk, or nil: what a document of that file is told, at its first line. The pair
+--- declaration and a source of one module on disk, or one of two declarations of it, or nil: what a document of that file is told, at its first line. The pair
 --- is found as the build finds one, by the files a module may be written in ([`build.driver.candidates`]). A declaration
 --- file whose `text` (the document's, as it is open) names no kind is told so as well ([`build.driver.naming`]).
 function source.refusal(src: source.View, name: string, text?: string): string?
@@ -645,12 +645,13 @@ function source.refusal(src: source.View, name: string, text?: string): string?
   if TreeProgram.skipped(name) then return nil end
   local module = Declarations.module_of(name)
   local declaration: string? = nil
+  local second: string? = nil
   local code: string? = nil
   for _, file in ipairs(Driver.candidates(module)) do
     local there, _ = Fs.exists(src.root .. "/" .. file)
     if there == true then
       if file:match("%.d%.tl$") ~= nil then
-        declaration = declaration or file
+        if declaration == nil then declaration = file elseif second == nil then second = file end
       else
         code = code or file
       end
@@ -658,6 +659,9 @@ function source.refusal(src: source.View, name: string, text?: string): string?
   end
   if src.trouble ~= "" and declaration ~= nil and code ~= nil and (name == declaration or name == code) then
     return Driver.pairing(declaration, code, module)
+  end
+  if src.trouble ~= "" and declaration ~= nil and second ~= nil and (name == declaration or name == second) then
+    return Driver.doubling(declaration, second, module)
   end
   if text ~= nil and name:match("%.d%.tl$") ~= nil then
     local unnamed = Driver.naming(name, text, source.standing(src).own)
