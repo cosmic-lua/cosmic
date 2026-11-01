@@ -78,6 +78,11 @@ local record importer
     -- from `compiled` under a key that stood.
     compiled: integer
     cached: integer
+    --- How many reads of a narrowed place and how many typed parameters the Lua of the modules checks, summed over
+    --- the modules compiled and those a cache answered (the counts are kept with a compile): what a checked compile
+    --- wrote, 0 for an unchecked one.
+    mut fact_wraps: integer
+    mut parameter_checks: integer
     --- How many of those `cached` came from the compiles every
     --- checkout shares ([`Shared`]) rather than this one's own.
     shared: integer
@@ -113,6 +118,10 @@ local record importer
       bytecode: string
       --- The record-field uses its checker found (`typed_refs`).
       references: {SyntaxReceivers.Reference}
+      --- How many reads of a narrowed place and how many typed parameters the Lua checks: 0 and 0 for an
+      --- unchecked compile.
+      fact_wraps: integer
+      parameter_checks: integer
     end
     --- One parse: what a parse writes of a source in every table
     --- `analysis_tables` names.
@@ -823,6 +832,9 @@ local record Cache
   touch: Sqlite.Statement
   put: Sqlite.Statement
   plan: Sqlite.Statement
+  --- The counts of the checks the compile that [`cached_stands`] found last wrote (0 and 0 for none).
+  mut wraps: integer
+  mut checks: integer
 end
 
 local function prepare_cache(handle: work.Handle, tool: string): Cache?, string
@@ -832,12 +844,13 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache?, string
   -- judges the module again. Changing which verdict may stand is a
   -- semantic change: invalidate the stored keys or the cache schema,
   -- rather than treating it as a transport-only edit.
-  -- By the index that holds `seen` beside the key (`compiled_by_seen`,
-  -- [`build.work`]): a row holds the module's Lua and bytecode before its
-  -- `seen`, and SQLite reaches a column by reading through every page
-  -- of the ones before it, 27 MB a run for a tree's modules.
+  -- By the index that holds `seen` and the counts of the checks beside the key
+  -- (`compiled_by_checks`, [`build.work`]): a row holds the module's Lua and
+  -- bytecode before them, and SQLite reaches a column by reading through every
+  -- page of the ones before it, 27 MB a run for a tree's modules.
   local look, look_trouble = db:prepare(
-    "SELECT seen FROM compiled INDEXED BY compiled_by_seen WHERE key = ?1 AND seen >= 0")
+    "SELECT seen, fact_wraps, parameter_checks FROM compiled INDEXED BY compiled_by_checks " ..
+      "WHERE key = ?1 AND seen >= 0")
   if look == nil then
     return nil, look_trouble
   end
@@ -848,8 +861,8 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache?, string
     return nil, touch_trouble
   end
   local put, put_trouble = db:prepare(
-    "INSERT OR REPLACE INTO compiled (key, tool, lua, bytecode, seen) " ..
-      "VALUES (?1, ?2, ?3, ?4, ?5)")
+    "INSERT OR REPLACE INTO compiled (key, tool, lua, bytecode, seen, fact_wraps, parameter_checks) " ..
+      "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
   if put == nil then
     look:finalize()
     touch:finalize()
@@ -864,7 +877,7 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache?, string
     return nil, plan_trouble
   end
   return { run = handle.run, tool = tool, look = look, touch = touch,
-    put = put, plan = plan }, ""
+    put = put, plan = plan, wraps = 0, checks = 0 }, ""
 end
 
 local function finish_cache(cache: Cache)
@@ -903,9 +916,11 @@ local function cached_stands(cache: Cache, key: string): boolean, string
   end
   local stands = false
   local stale = false
+  cache.wraps, cache.checks = 0, 0
   if state == "row" then
     stands = true
     stale = look:integer(0) < cache.run - refresh_after
+    cache.wraps, cache.checks = look:integer(1), look:integer(2)
   end
   local reset, reset_trouble = look:reset()
   if not reset then
@@ -930,7 +945,7 @@ end
 --- this run's plan. A `refused` compile is kept for this run alone.
 local function remember(cache: Cache, path: string, key: string, ordinal: integer,
                         lua: string?, bytecode: string?,
-                        refused: boolean): boolean, string
+                        refused: boolean, fact_wraps: integer, parameter_checks: integer): boolean, string
   if lua ~= nil and bytecode ~= nil then
     local put = cache.put
     local bound, bind_trouble = put:bind_text(1, key)
@@ -940,6 +955,8 @@ local function remember(cache: Cache, path: string, key: string, ordinal: intege
     if bound then
       bound, bind_trouble = put:bind_integer(5, if refused then -1 else cache.run end)
     end
+    if bound then bound, bind_trouble = put:bind_integer(6, fact_wraps) end
+    if bound then bound, bind_trouble = put:bind_integer(7, parameter_checks) end
     if not bound then
       return false, bind_trouble
     end
@@ -982,10 +999,9 @@ local record Hinting
 end
 
 --- Every module path `target` reaches through what each source at a
---- path requires, itself included: a declaration's requires as well as
---- its implementation's, since a caller is checked against the one and
---- runs the other. A name no source of the tree is (a standard-library
---- module), or one whose only source does not parse, reaches no further.
+--- path requires, itself included. A name no source of the tree is (a
+--- standard-library module), or one whose only source does not parse,
+--- reaches no further.
 local function reach(db: Sqlite.Handle, target: string): {string:boolean}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.path, r.name FROM inputs i JOIN requires r ON r.source_hash = i.source_hash " ..
@@ -1152,7 +1168,7 @@ local function compile_derived(handle: work.Handle, tool: string,
   end
   local result: importer.Result = {
     modules = {}, tool = tool, main = nil, refused = refusals, own_refused = own_refused,
-    left_out = left, compiled = 0, cached = 0, shared = 0, parses = parses,
+    left_out = left, compiled = 0, cached = 0, shared = 0, parses = parses, fact_wraps = 0, parameter_checks = 0,
     catalog = pipeline.catalog,
   }
   local db = handle.db
@@ -1241,6 +1257,8 @@ local function compile_derived(handle: work.Handle, tool: string,
         local lua: string? = nil
         local bytecode: string? = nil
         local refused = false
+        -- What the Lua of the module checks: the counts of the compile that stands or was copied, or made here.
+        local fact_wraps, parameter_checks = cache.wraps, cache.checks
         -- Another checkout's compile stands for one made here: its key
         -- and what else decides it are the same ([`build.shared_compiles`]),
         -- and it lands as a compile does, uses and all.
@@ -1253,6 +1271,7 @@ local function compile_derived(handle: work.Handle, tool: string,
         elseif elsewhere ~= nil then
           lua = elsewhere.lua
           bytecode = elsewhere.bytecode
+          fact_wraps, parameter_checks = elsewhere.fact_wraps, elsewhere.parameter_checks
           result.cached = result.cached + 1
           result.shared = result.shared + 1
           local kept_refs, refs_trouble = plans.keep_references(db, key, elsewhere.references)
@@ -1289,6 +1308,7 @@ local function compile_derived(handle: work.Handle, tool: string,
             lua = generated.lua
             bytecode = generated.bytecode
             refused = generated.refused
+            fact_wraps, parameter_checks = generated.fact_wraps, generated.parameter_checks
             result.compiled = result.compiled + 1
             local kept_refs, refs_trouble = plans.keep_references(db, key,
               generated.references)
@@ -1300,7 +1320,8 @@ local function compile_derived(handle: work.Handle, tool: string,
             -- never another checkout's.
             if shared ~= nil and not refused then
               shared.keep(m, standing.own, { lua = generated.lua, bytecode = generated.bytecode,
-                references = generated.references })
+                references = generated.references, fact_wraps = generated.fact_wraps,
+                parameter_checks = generated.parameter_checks })
             end
           end
         end
@@ -1308,8 +1329,10 @@ local function compile_derived(handle: work.Handle, tool: string,
         -- above, of which nothing is kept.
         if stands or lua ~= nil then
           m.lua = lua
+          result.fact_wraps = result.fact_wraps + fact_wraps
+          result.parameter_checks = result.parameter_checks + parameter_checks
           local kept, keep_trouble = remember(cache, m.path, key, ordinal, lua,
-            bytecode, refused)
+            bytecode, refused, fact_wraps, parameter_checks)
           if not kept then
             finish_cache(cache)
             return false, m.file .. ": " .. keep_trouble
@@ -1412,7 +1435,7 @@ end
 --- compile cached with the one is never the answer to a request for the other,
 --- nor for none.
 function importer.checked_tool(tool: string, wraps?: boolean): string
-  return Hash.hex_sha256(tool .. (if wraps == true then "\0fact-wraps\0parameter-checks" else "\0run-time-checks" end))
+  return Hash.hex_sha256(tool .. (if wraps == true then "\0fact-wraps\0parameter-checks\0counted" else "\0run-time-checks" end))
 end
 
 --- What a compile that asked to be reused stood on, and what it made.
@@ -1503,6 +1526,7 @@ function importer.compile(handle: work.Handle, tool: string, unjudged?: boolean,
       modules = was.modules, tool = was.tool, main = was.main, refused = was.refused, own_refused = was.own_refused,
       left_out = was.left_out,
       compiled = 0, cached = #was.modules, shared = 0, parses = was.parses, catalog = was.catalog,
+      fact_wraps = was.fact_wraps, parameter_checks = was.parameter_checks,
     }
     return again_result, ""
   end

@@ -150,6 +150,9 @@ local record check
     mut served: mut {string:string}
     --- How many times the modules served were dropped.
     mut epoch: integer
+    --- Whether the stage last staged nothing ([`source.refused`]), which moves `epoch` when it changes, so that a publish kept
+    --- for a document of a refused pair is made again.
+    mut refused: boolean
     --- The open documents, by name.
     open: mut {string:Document}
     --- The databases a message's hint looks a name up in.
@@ -190,6 +193,7 @@ function check.new(root: string, err: function(line: string), hints: function():
     program = nil,
     served = {},
     epoch = 0,
+    refused = false,
     open = {},
     hints = hints,
     graph_moved = false,
@@ -447,6 +451,9 @@ local function checked_of(checker: Checker, document: Document): Checked
     return { refusals = refusals, text = spliced, splices = splices, generated = generated, outcome = outcome,
       program = declarations }
   end
+  -- A file of a pair the stage refused is told so at its first line, whatever else it holds.
+  local pair_refusal = source.refusal(checker.source, document.name)
+  if pair_refusal ~= nil then return checked({ plan.refusal_of(pair_refusal) }, text, none) end
   local named = plan.named(document.name)
   local path, kind = named.path, named.kind
   local listed = source.module(checker.source, document.name)
@@ -534,6 +541,11 @@ end
 local function staged(checker: Checker, document: Document): boolean
   local outside = source.outside(checker.source)
   source.refresh(checker.source)
+  local refused = source.refused(checker.source)
+  if refused ~= checker.refused then
+    checker.refused = refused
+    checker.epoch = checker.epoch + 1
+  end
   if source.outside(checker.source) or apart(checker, document.name) then return false end
   if outside then
     checker.graph_moved = true

@@ -1975,9 +1975,11 @@
     # The whole suite on a checked run (`--check-types`): each read the
     # checker narrowed by a test is checked against the real run, and a
     # fact that is false fails the test (cosmic_ci's
-    # phase_checked_narrowing). It stands on no verdict and runs every
-    # test, on the release tool and no checked core, so it boots and
-    # builds nothing else, and keeps and saves no verdicts. Jobs of their
+    # phase_checked_narrowing). A checked run can stand on verdicts of its
+    # own, but these jobs restore and save none yet (TODO: restore and
+    # save their verdicts, as the checked suite's jobs do), so each runs
+    # every test of its share, on the release tool and no checked core,
+    # so it boots and builds nothing else. Jobs of their
     # own on linux-x86_64's host, beside the legs and the checked suite's
     # shares, in two shares of the tests (`cosmic test --check-types
     # --shard I/2`, COSMIC_CI_NARROWING_SHARD, as `checked-shard` splits

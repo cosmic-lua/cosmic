@@ -107,6 +107,8 @@ local record ChecksCase
   status: integer
   ok: boolean
   ran?: string
+  --- The compile wrote no check (the summary says 0 fact wraps), though the run is checked.
+  empty?: boolean
   share?: string
 end
 
@@ -1969,6 +1971,8 @@ local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_
       ran = "test --check-types 120 " .. promised .. "\n" },
     { name = "linux-unchecked", target = "x86_64-linux-musl", report = false, status = 0, ok = false,
       ran = "test --check-types 120 " .. promised .. "\n" },
+    { name = "linux-empty", target = "x86_64-linux-musl", report = true, status = 0, ok = false, empty = true,
+      ran = "test --check-types 120 " .. promised .. "\n" },
     { name = "linux-aarch64", target = "aarch64-linux-musl", report = true, status = 0, ok = true,
       ran = nil },
   }
@@ -1980,8 +1984,11 @@ local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     -- bin/zig's boot leaves a cosmic that logs the command line and the
     -- test timeout it was given, and says what a checked run does.
+    local written = if case.empty == true then "0 fact wraps and 0 parameter checks" else
+      "12 fact wraps and 7 parameter checks" end
     local summary = if case.report then
-      "printf '%s\\n' 'test: run-time types: 0 violations, 0 distinct, at 0 places'\n" else "" end
+      "printf '%s\\n' 'test: run-time types: 0 violations, 0 distinct, at 0 places' " ..
+        "'test: run-time types: " .. written .. " written in the compile; 0 tests stood on checked verdicts'\n" else "" end
     Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
         "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
         "if [ \"$1\" = test ]; then printf '%s %s %s\\n' \"$*\" \"$COSMIC_TEST_TIMEOUT\" \"$COSMIC_TEST_PROMISES\" >> \"$0.ran\"; fi\n" ..

@@ -72,14 +72,6 @@ local function test_a_file_is_the_module_its_path_names_and_answers_to_the_tail_
   assert(Driver.files(index)("build.a") == index.by_module["build.a"] and Driver.files(index)("nope") == nil)
 end
 
-local function test_a_declaration_is_read_ahead_of_a_source_of_the_same_module()
-  local index = Driver.index({ { "m.tl", "return 1\n" }, { "m.d.tl", "global record M\nend\n" } }, nothing)
-  assert(#index.sources == 2)
-  assert(assert(index.by_module["m"]).dialect == "decl")
-  local backwards = Driver.index({ { "m.d.tl", "global record M\nend\n" }, { "m.tl", "return 1\n" } }, nothing)
-  assert(assert(backwards.by_module["m"]).dialect == "decl")
-end
-
 local function test_one_program_is_built_over_modules_that_require_each_other_through_their_names()
   local build = build_of({
     { "box.tl", RECORD },
@@ -362,11 +354,10 @@ local function test_the_driver_checks_what_the_checker_does_alone()
   assert(#Check.codes > 0 and Ceilings.path == "build/ceilings.txt")
 end
 
-local function test_a_declaration_is_read_ahead_of_its_source_under_every_name_whichever_is_asked_first()
-  local source = { "p/foo.tl", "local record Box\n  n: integer\nend\nreturn Box\n" }
+local function test_a_declaration_answers_under_every_name_whichever_is_asked_first()
   local decl = { "p/foo.d.tl", "local record Box\n  s: string\nend\nreturn Box\n" }
   local user = { "q/use.tl", "local Box = require(\"foo\")\nlocal b: Box = { s = \"x\" }\nreturn b\n" }
-  local orders = { { source, decl, user }, { decl, source, user } }
+  local orders = { { decl, user }, { user, decl } }
   for _, files in ipairs(orders) do
     local index = Driver.index(files, nothing)
     local winner = assert(index.by_module["p.foo"])
@@ -386,6 +377,86 @@ local function test_a_declaration_is_read_ahead_of_its_source_under_every_name_w
       assert(#used.errors == 0, codes_of(used.errors))
     end
   end
+end
+
+--- Two files that are one module, a source and its package's entry, are not a pair: the first given answers, and the other is
+--- a source of the index all the same.
+local function test_the_first_of_two_files_of_one_module_answers()
+  local one = "local n: integer = 1\nreturn n\n"
+  local two = "local n: integer = 2\nreturn n\n"
+  local index = Driver.index({ { "x.tl", one }, { "x/init.tl", two } }, nothing)
+  assert(#index.sources == 2 and assert(index.by_module["x"]).filename == "x.tl")
+  local reversed = Driver.index({ { "x/init.tl", two }, { "x.tl", one } }, nothing)
+  assert(assert(reversed.by_module["x"]).filename == "x/init.tl")
+end
+
+--- The paths a test of the tree leaves out of its programs, as [`build.tree_program`] does.
+local function testdata(file: string): boolean
+  return file:find("^testdata/") ~= nil or file:find("/testdata/", 1, true) ~= nil
+end
+
+local DECLARATION <const> = "local record R\nend\nreturn R\n"
+local SOURCE <const> = "local n: integer = 1\nreturn n\n"
+
+--- The complaint of a declaration beside a source of its module offers both ways out and names both files and the module.
+local function test_pairing_names_both_files_and_offers_to_delete_or_rename()
+  assert(Driver.pairing("lib/m.d.tl", "lib/m.tl", "lib.m") ==
+      "lib/m.d.tl: lib/m.tl is already the module lib.m. A .d.tl is only for a module implemented in C, and the .tl is " ..
+      "what is checked, so one module cannot have both. If the .tl is the module, delete lib/m.d.tl. To keep both, " ..
+      "rename one of them so that they are different modules.")
+end
+
+--- A pair is found whichever way each of its files is written, in either order of the entries.
+local function test_paired_finds_a_declaration_beside_a_source_of_its_module_in_each_form()
+  local forms: {{string}} = {
+    { "x.tl", "x.d.tl", "x" },
+    { "x/init.tl", "x.d.tl", "x" },
+    { "x.tl", "x/init.d.tl", "x" },
+    { "x/init.tl", "x/init.d.tl", "x" },
+    { "a/b.tl", "a/b.d.tl", "a.b" },
+  }
+  for _, form in ipairs(forms) do
+    local source, declaration, module = assert(form[1]), assert(form[2]), assert(form[3])
+    local want = Driver.pairing(declaration, source, module)
+    local together: {{string}} = { { source, SOURCE }, { declaration, DECLARATION } }
+    local backwards: {{string}} = { { declaration, DECLARATION }, { source, SOURCE } }
+    assert(Driver.paired(together, nothing) == want, source .. " + " .. declaration)
+    assert(Driver.paired(backwards, nothing) == want, declaration .. " + " .. source)
+  end
+  -- Not a pair: different modules, a test or an example beside a declaration, and a declaration alone.
+  local apart: {{string}} = {
+    { "x.tl", SOURCE }, { "y.d.tl", DECLARATION }, { "x_test.tl", SOURCE }, { "z.d.tl", DECLARATION },
+    { "z_example.tl", SOURCE }, { "w/init.d.tl", DECLARATION },
+  }
+  assert(Driver.paired(apart, nothing) == "")
+end
+
+--- A pair under `testdata/` is a fixture of a test, left out of the programs, and so not refused; nor is a path the
+--- caller skips.
+local function test_paired_leaves_out_what_is_skipped()
+  local fixture: {{string}} = {
+    { "testdata/m.tl", SOURCE }, { "testdata/m.d.tl", DECLARATION },
+    { "lib/testdata/n.tl", SOURCE }, { "lib/testdata/n.d.tl", DECLARATION },
+  }
+  assert(Driver.paired(fixture, testdata) == "")
+  assert(Driver.paired(fixture, nothing) ~= "")
+end
+
+--- Several pairs are all told, one to a line and in the order of their declarations' paths, whatever the order of the entries.
+local function test_paired_tells_every_pair_in_the_order_of_the_declarations()
+  local entries: {{string}} = {
+    { "z.d.tl", DECLARATION }, { "b/c.tl", SOURCE }, { "z.tl", SOURCE }, { "a.tl", SOURCE }, { "b/c.d.tl", DECLARATION },
+    { "a.d.tl", DECLARATION }, { "lone.d.tl", DECLARATION },
+  }
+  local want = table.concat({
+    Driver.pairing("a.d.tl", "a.tl", "a"),
+    Driver.pairing("b/c.d.tl", "b/c.tl", "b.c"),
+    Driver.pairing("z.d.tl", "z.tl", "z"),
+  }, "\n")
+  assert(Driver.paired(entries, nothing) == want, Driver.paired(entries, nothing))
+  local reversed: mut {{string}} = {}
+  for i = #entries, 1, -1 do reversed[#reversed + 1] = assert(entries[i]) end
+  assert(Driver.paired(reversed, nothing) == want)
 end
 
 local function test_a_test_module_is_a_file_that_ends_in_test_and_its_functions_are_not_unused()

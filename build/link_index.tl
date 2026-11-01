@@ -161,10 +161,8 @@ end
 
 local text = bind.text
 
---- Every link the parse recorded in a planned module or a declaration
---- -- preferring a paired declaration, as the documented interface does
---- ([`build.writer`]'s `insert_docs`), each under the module its docs name -- in file and
---- line order. The compiler a boot puts in, which [`build.derivation`] names
+--- Every link the parse recorded in a planned module or a declaration,
+--- each under the module its docs name, in file and line order. The compiler a boot puts in, which [`build.derivation`] names
 --- `lang/`, is the tree's by no link: it is that tree's Lua.
 --- Then every link the stage read of a file that is no module (`linked`).
 local raw_links =
@@ -172,8 +170,6 @@ local raw_links =
   "CASE l.doc WHEN 1 THEN 'doc' ELSE 'comment' END, l.text, l.target, l.own, l.alias " ..
   "FROM (SELECT path FROM plan UNION SELECT path FROM inputs WHERE " .. AnalysisSchema.declaration("kind") .. ") m " ..
   "JOIN inputs i ON i.path = m.path AND i.origin <> 'vendor' " ..
-  "AND (" .. AnalysisSchema.declaration("i.kind") .. " OR NOT EXISTS (SELECT 1 FROM inputs d " ..
-  "WHERE d.path = i.path AND " .. AnalysisSchema.declaration("d.kind") .. ")) " ..
   "JOIN links l ON l.source_hash = i.source_hash " ..
   "UNION ALL SELECT '', f.path, l.line, l.column, l.form, " ..
   "CASE f.kind WHEN 'markdown' THEN 'text' ELSE 'comment' END, l.text, l.target, l.own, '' " ..

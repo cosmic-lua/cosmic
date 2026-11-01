@@ -90,3 +90,20 @@ local function test_a_field_declared_in_the_library_is_recorded_and_passes()
   local met = met_since(before)
   assert(#met == 1 and assert(met[1]).kind == "field")
 end
+
+--- A spec the hook cannot read checks nothing and fails nothing, but it is a row: the run reports it and keeps no
+--- verdict of the test that crossed it, so a check that checks nothing is never taken for one that held. A
+--- spec of any malformed kind is one, and a spec is one row however often it is crossed.
+local function test_a_spec_the_hook_cannot_read_is_a_row()
+  worker.install_checks()
+  local before = #worker.violations()
+  worker.cross("no such kind of check", 1)
+  worker.cross("q;another unknown kind", 1)
+  worker.cross("no such kind of check", 1)
+  worker.cross("-", 1)
+  local met = met_since(before)
+  assert(#met == 2, tostring(#met) .. " rows (the spec \"-\" of a boundary with nothing to check is none)")
+  local first = assert(met[1])
+  assert(first.kind == "unreadable" and first.count == 1, first.kind .. " " .. tostring(first.count))
+  assert(assert(met[2]).kind == "unreadable")
+end

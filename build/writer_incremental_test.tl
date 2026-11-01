@@ -109,7 +109,7 @@ local function write_tree(root: string, tree: string, gone: string)
   end
   for line in tree:gmatch("[^\n]+") do
     local spec = decode(line)
-    -- A module has one type source: a declared one is its declaration alone, and any other its source.
+    -- A module is a declaration or a source, never both: a declared one is its declaration alone, and any other its source.
     local source = root .. "/" .. spec.name .. ".tl"
     local declaration = root .. "/" .. spec.name .. ".d.tl"
     if spec.declared > 0 then

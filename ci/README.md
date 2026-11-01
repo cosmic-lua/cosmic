@@ -704,8 +704,9 @@ verdicts, which would otherwise ride along whole in each save.
   narrowing run kept a `verdicts.db` of another 8700 rows nothing read.
 - `checked-narrowing` (`linux-x86_64-checked-narrowing-<part>`), the whole
   suite on a checked run (`--check-types`, `platform checked-narrowing`)
-  on the release tool, which stands on no verdict and reads no checked
-  core: it boots and keeps and saves nothing. Two jobs of one matrix, a
+  on the release tool, which restores and saves no verdict yet (a checked
+  run can stand on its own, doc/testing.md) and reads no checked core: it
+  boots and runs every test of its share. Two jobs of one matrix, a
   share of the tests each (`cosmic test --check-types --shard I/2`,
   `COSMIC_CI_NARROWING_SHARD`), bound to 900 s
   (`checked_narrowing_timeout_ns`): the whole run's 726 to 861 s are

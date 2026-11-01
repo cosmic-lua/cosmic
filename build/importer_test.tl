@@ -10,6 +10,7 @@ local Test = require("cosmic.test")
 local identity = require("build.identity")
 local docs = require("build.docs")
 local importer = require("build.importer")
+local Hash = require("cosmic.hash")
 local GrammarMode = require("build.grammar_mode")
 local Pipeline = require("build.pipeline")
 local type _ = require("build.test_inputs")
@@ -18,6 +19,7 @@ local type _ = require("build.test_inputs")
 local type _ = require("build.module")
 local type _ = require("build.inputs")
 local work = require("build.work")
+local build_paths = require("build.paths")
 local writer = require("build.writer")
 local shared_compiles = require("build.shared_compiles")
 local Lexer = require("lang.lexer")
@@ -362,7 +364,7 @@ local function test_declaration_edit_invalidates_transitive_type_only_dependents
     "the transitive declaration did not reach the checker: " .. trouble)
 end
 
---- A module has one type source: a `.d.tl` beside the `.tl` of its module is refused, naming both files and the fix, and
+--- A module is a declaration or a source, never both: a `.d.tl` beside the `.tl` of its module is refused, naming both files and the fix, and
 --- the project builds once it is deleted. A `.d.tl` beside a `.tl` of another module is no pair.
 local function test_a_declaration_beside_its_source_is_refused()
   local root, write_trouble = write_fixture("declared-implementation-pair", {
@@ -374,9 +376,9 @@ local function test_a_declaration_beside_its_source_is_refused()
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
   local result, trouble = compile_fixture(root)
   assert(result == nil, "a declaration beside its source was built")
-  local want = "lib/dep.d.tl: lib/dep.tl is also the module lib.dep, and a module has one type source: " ..
-    "a .tl is its own declaration (its written record), so a .d.tl beside it is never read as the interface. " ..
-    "Delete lib/dep.d.tl (a .d.tl is for a module whose code is C, with no .tl)"
+  local want = "lib/dep.d.tl: lib/dep.tl is already the module lib.dep. A .d.tl is only for a module implemented in C, " ..
+    "and the .tl is what is checked, so one module cannot have both. If the .tl is the module, delete lib/dep.d.tl. " ..
+    "To keep both, rename one of them so that they are different modules."
   assert(trouble == want, tostring(trouble))
   assert(Fs.remove(root .. "/lib/dep.d.tl"))
   local built, built_trouble = compile_fixture(root)
@@ -2120,4 +2122,98 @@ local function test_the_module_shape_does_not_reach_the_plans_or_the_readers()
   for _, name in ipairs({ "build.plans", "build.syntax_contracts", "build.syntax_receivers" }) do
     assert(seen[name] ~= true, "the shared module shape pulled in " .. name)
   end
+end
+
+--- The compile keys of a checked run ([`importer.checked_tool`], [`GrammarMode.tool`]) and its verdict keys
+--- ([`build.declared_key`]'s `checks`) name what the compile writes by one format, [`GrammarMode.checks_format`]:
+--- the importer is outside the compiler's identity of the modules it may require, so it spells the same text, and
+--- this holds the two together.
+local function test_the_importer_spells_the_checks_format_of_the_grammar_mode()
+  assert(importer.checked_tool("tool", true) == Hash.hex_sha256("tool\0" .. GrammarMode.checks_format))
+  assert(GrammarMode.tool("tool", "new", true) == Hash.hex_sha256("tool\0grammar-new\0" .. GrammarMode.checks_format))
+end
+
+--- A module whose Lua a checked compile writes checks into: `hello` takes nil out of `name` with an `assert` (a
+--- read the test narrowed, so a wrap of `__fact`) and types its parameter (a parameter check).
+local COUNTED <const> = table.concat({
+  "local record Greet",
+  "  hello: function(string?): string",
+  "end",
+  "local module: Greet = {",
+  "  hello = function(name: string?): string",
+  "    assert(name)",
+  "    return name",
+  "  end,",
+  "}",
+  "return module",
+  "",
+}, "\n")
+
+--- Stages the fixture at `root` and compiles it, checked or not, handing `shared` on when given; the result.
+local function compile_counted(root: string, checks: boolean, shared?: importer.Shared): importer.Result
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, { own = false }))
+  local result, trouble = importer.compile(handle, "counted-test", false, shared, checks)
+  work.close(handle)
+  assert(result ~= nil, trouble)
+  assert(#result.refused == 0, table.concat(result.refused, "\n"))
+  return result
+end
+
+--- The number of checks a checked compile wrote is the same whichever way the compile came: made (cold), standing in
+--- the working database (warm), or copied from another checkout's through the shared cache; an unchecked compile
+--- writes none, though a module names `__fact` in a string. A count lost in a cache would read as an unchecked
+--- compile, and fail the run that has to tell the two apart.
+local function test_the_checks_written_survive_every_compile_path()
+  local files = { ["greet.tl"] = COUNTED, ["marker.tl"] = "local record M\n  text: string\nend\nlocal m: M = { text = \"__fact\" }\nreturn m\n" }
+  local root = assert(write_fixture("counted", files))
+  local cache = root .. "/cache/cache.db"
+  local cold = compile_counted(root, true, shared_compiles.for_build({ COSMIC_BUILD_CACHE = cache }))
+  assert(cold.compiled == 2 and cold.cached == 0, "the first compile was not made")
+  assert(cold.fact_wraps > 0 and cold.parameter_checks > 0,
+    "a checked compile wrote " .. tostring(cold.fact_wraps) .. " wraps and " .. tostring(cold.parameter_checks) .. " checks")
+  local warm = compile_counted(root, true)
+  assert(warm.compiled == 0 and warm.cached == 2, "a standing compile was made again")
+  assert(warm.fact_wraps == cold.fact_wraps and warm.parameter_checks == cold.parameter_checks,
+    "a compile that stands lost its counts: " .. tostring(warm.fact_wraps) .. " and " .. tostring(warm.parameter_checks))
+  local other = assert(write_fixture("counted-other", files))
+  local copied = compile_counted(other, true, shared_compiles.for_build({ COSMIC_BUILD_CACHE = cache }))
+  assert(copied.shared == 2 and copied.compiled == 0, "the shared compile was not taken: " .. tostring(copied.shared))
+  assert(copied.fact_wraps == cold.fact_wraps and copied.parameter_checks == cold.parameter_checks,
+    "a shared compile lost its counts: " .. tostring(copied.fact_wraps) .. " and " .. tostring(copied.parameter_checks))
+  local plain = compile_counted(assert(write_fixture("counted-plain", files)), false)
+  assert(plain.fact_wraps == 0 and plain.parameter_checks == 0, "an unchecked compile reported checks")
+end
+
+--- A working database of an older tool has `compiled` without the counts: the new tool opens it, adds them, reads
+--- the rows it holds as compiles of no checks, and compiles a checked tree afresh.
+local function test_a_build_directory_of_the_old_tool_opens_under_the_new_one()
+  local root = assert(write_fixture("counted-old", { ["greet.tl"] = COUNTED }))
+  local first = compile_counted(root, false)
+  assert(first.compiled == 1 and first.fact_wraps == 0)
+  local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db", { writable = true }))
+  assert(db:exec("DROP INDEX compiled_by_checks"))
+  assert(db:exec("ALTER TABLE compiled DROP COLUMN fact_wraps"))
+  assert(db:exec("ALTER TABLE compiled DROP COLUMN parameter_checks"))
+  assert(db:close())
+  local again = compile_counted(root, false)
+  assert(again.compiled == 0 and again.cached == 1, "the old file's compile did not stand")
+  assert(again.fact_wraps == 0 and again.parameter_checks == 0)
+  local checked = compile_counted(root, true)
+  assert(checked.compiled == 1 and checked.fact_wraps > 0 and checked.parameter_checks > 0,
+    "a checked compile of the old file was not made")
+end
+
+--- A file with one of the two columns only (a run that added the first and was ended) opens, and gains the other.
+local function test_a_build_directory_with_one_count_column_gains_the_other()
+  local root = assert(write_fixture("counted-half", { ["greet.tl"] = COUNTED }))
+  assert(compile_counted(root, false).compiled == 1)
+  local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db", { writable = true }))
+  assert(db:exec("DROP INDEX compiled_by_checks"))
+  assert(db:exec("ALTER TABLE compiled DROP COLUMN parameter_checks"))
+  assert(db:close())
+  local again = compile_counted(root, false)
+  assert(again.compiled == 0 and again.cached == 1, "the half-migrated file's compile did not stand")
+  local checked = compile_counted(root, true)
+  assert(checked.parameter_checks > 0)
 end

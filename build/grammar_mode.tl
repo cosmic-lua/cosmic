@@ -12,6 +12,9 @@ local Env = require("cosmic.env")
 local Hash = require("cosmic.hash")
 
 local record GrammarMode
+  --- What a checked compile writes ([`GrammarMode.tool`], [`importer.checked_tool`]).
+  mut checks_format: string
+
   --- The checkers a run may compile with.
   enum Mode
     "new"
@@ -43,8 +46,13 @@ function GrammarMode.mode(): GrammarMode.Mode?, string
   return GrammarMode.of(Env.read("COSMIC_GRAMMAR"))
 end
 
+--- What a checked compile writes, which every key of a checked run holds: the compile keys
+--- ([`GrammarMode.tool`], [`importer.checked_tool`]) and the verdict keys ([`build.declared_key`]'s `checks`). A check
+--- added to the compile (returns, fields) changes it, and so moves all three at once.
+GrammarMode.checks_format = "fact-wraps\0parameter-checks\0counted"
+
 function GrammarMode.tool(tool: string, _mode: GrammarMode.Mode, wraps?: boolean): string
-  return Hash.hex_sha256(tool .. (if wraps == true then "\0grammar-new\0fact-wraps\0parameter-checks" else "\0grammar-new" end))
+  return Hash.hex_sha256(tool .. (if wraps == true then "\0grammar-new\0" .. GrammarMode.checks_format else "\0grammar-new" end))
 end
 
 return GrammarMode

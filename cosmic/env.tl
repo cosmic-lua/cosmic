@@ -54,6 +54,8 @@ local record Env
     "COSMIC_TEST_HARNESS_EPOCH"
     --- The module a held run was handed.
     "COSMIC_TEST_HELD"
+    --- For a test of the runner alone: stands in for an edit to a checked run's hooks.
+    "COSMIC_TEST_HOOKS_SALT"
     --- The CI leg's name.
     "COSMIC_TEST_LEG"
     --- "1" stands on no shared verdict.
