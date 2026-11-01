@@ -13,12 +13,13 @@
 ---   included (`x` after `if x is T then`); else it is worked out from the declared types of the names, the members, the
 ---   element of an array or a map and the result of a function. `.` offers a record's or class's fields and methods, an
 ---   interface's (its own and those of the interfaces it lists), the functions of a module or of a declaration used as a
----   value, and an enum's values; `:` offers the methods. A member's `detail` is its signature in the docs where they have
----   it, else its type. Of a module the working database lists, the members are its `members` rows with their types as written
----   and the `docs` text of the same symbol as `documentation` ([`source.members`]), for the document's own module as the last
----   text that parsed has it and for another as it is staged, or open and unsaved, so an unsaved module is completed as the
----   person has it. Of any other (the standard library's `cosmic.*`) they are the checker's declarations, and the
----   `documentation` the docs database's text of the same symbol.
+---   value, and an enum's values; `:` offers the methods. A member of a type the rows hold has the type as written
+---   for its `detail` and the `docs` text of its symbol for `documentation` ([`source.members`]), none when the text has no
+---   doc comment on it: the rows are those of the module as staged, or open and unsaved, and for the document's own module of
+---   the last text that parsed. The checker's declarations answer for a type the rows cannot name exactly: a module the
+---   database does not list (the standard library's `cosmic.*`), a name declared twice in a module or in a block, an
+---   interface listing one the rows do not resolve, and a text with no rows (one that does not parse). There the `detail`
+---   is the signature in the docs database where it has one, else the checker's type, and the `documentation` its text.
 --- - In a type position, wherever the grammar has one (after `:`, `is`, `<` and `,` of type arguments, `{`, `|`, a return
 ---   type, `local type T =`, a field of a record, ...): the types in scope and the primitive types.
 --- - Anywhere else, the names in scope: the locals, parameters, functions and types visible at the cursor
@@ -589,6 +590,9 @@ local function markup(entry: docs.Entry?): protocol.MarkupContent?
   return { kind = "markdown", value = entry.text }
 end
 
+-- TODO: offer a field whose type is an alias of a function as a function, once the rows carry the kind of a member's
+-- resolved type: a row's type is as written, so only `function(` shows it.
+
 --- The kind of item a member is.
 local function member_kind(member: Member): integer
   local row = member.row
@@ -652,6 +656,7 @@ local function member_items(request: Request, d: hover.Docs, decl: Types.Decl, v
                             out: mut {protocol.CompletionItem}, edit: protocol.Range)
   local tally = request.checker.source.tally
   local members = rows_of(request, decl, value)
+  local from_rows = members ~= nil
   if members ~= nil then
     tally.member_rows = tally.member_rows + 1
   else
@@ -665,7 +670,9 @@ local function member_items(request: Request, d: hover.Docs, decl: Types.Decl, v
       wanted[#wanted + 1] = member
     end
   end
-  local entries = documented(request, d, decl, wanted)
+  -- The docs of the rows are the text's own: the docs database, the last build's, is no source for a member they hold.
+  local entries: {string: docs.Entry} = {}
+  if not from_rows then entries = documented(request, d, decl, wanted) end
   for _, member in ipairs(wanted) do
     local entry = entries[member.name]
     local t = member.type

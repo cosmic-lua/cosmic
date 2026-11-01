@@ -86,11 +86,19 @@ function Members.found(chunk: Ast.Chunk): {Members.Found}
   --- The names the statements at the top of the module give the table of a type's functions: `function R.m` and `R.m = `,
   --- by the type's name.
   local given: mut {string: mut {string: boolean}} = {}
-  --- The top-level types by name, and the `function R.f` statements to add to them.
+  --- The top-level types by name, and how many top-level declarations (of a type, an alias or an import) each name has.
   local tops: mut {string: Declared} = {}
+  local counts: mut {string: integer} = {}
   for _, stat in ipairs(chunk.body.stats) do
     local held = declared(stat)
     if held ~= nil then tops[held.name.name] = held end
+    local taken: string? = nil
+    if held ~= nil then
+      taken = held.name.name
+    elseif stat.kind == "Alias" or stat.kind == "Import" then
+      taken = stat.name.name
+    end
+    if taken ~= nil then counts[taken] = (counts[taken] or 0) + 1 end
     local head: string? = nil
     local member: string? = nil
     if stat.kind == "Function" and #stat.path == 2 then
@@ -128,8 +136,16 @@ function Members.found(chunk: Ast.Chunk): {Members.Found}
     out[#out + 1] = { owner = owner, name = name, kind = kind, scope = scope, type = text }
   end
 
+  --- The symbols of the types added, and the names each has for members, to hold a member to one row of a name.
+  local added: mut {string: boolean} = {}
+  local named: mut {string: mut {string: boolean}} = {}
+
   --- Adds the type `held` is at `symbol`, its members and the types nested in it.
   local function add_type(held: Declared, symbol: string)
+    if added[symbol] == true then return end
+    added[symbol] = true
+    local names = named[symbol] or {}
+    named[symbol] = names
     local supers: mut {string} = {}
     for _, super in ipairs(held.supers) do supers[#supers + 1] = spell(super.first, super.last) end
     add(symbol, "", held.kind, "both", table.concat(supers, ", "))
@@ -137,8 +153,10 @@ function Members.found(chunk: Ast.Chunk): {Members.Found}
       if member.kind == "FieldDecl" then
         local scope = "both"
         if held.kind == "class" or held_by_values(held, symbol, member) then scope = "instance" end
+        names[member.name.name] = true
         add(symbol, member.name.name, "field", scope, spell(member.type.first, member.type.last))
       elseif member.kind == "Method" then
+        names[member.name.name] = true
         add(symbol, member.name.name, "method", "both", function_type(member.params, member.rets))
       else
         local nested = declared(member)
@@ -148,24 +166,25 @@ function Members.found(chunk: Ast.Chunk): {Members.Found}
     for _, value in ipairs(held.values) do add(symbol, value.value, "value", "value", "") end
   end
 
-  --- Adds the types of `stats`, and of the `do` blocks in them.
-  local function add_types(stats: {Ast.Stat})
-    for _, stat in ipairs(stats) do
-      if stat.kind == "Do" then
-        add_types(stat.body.stats)
-      else
-        local held = declared(stat)
-        if held ~= nil then add_type(held, held.name.name) end
-      end
-    end
+  --- Adds the types at the top of the module that no other declaration of the module has the name of. The checker names
+  --- the second of two (`R` twice), and a type in a block, by an id of its own tree ([`lang.declarations`]' `module@id`),
+  --- which a stub's tree does not share, so those have no rows and a read of them falls back to the checker.
+  for _, stat in ipairs(chunk.body.stats) do
+    local held = declared(stat)
+    if held ~= nil and counts[held.name.name] == 1 then add_type(held, held.name.name) end
   end
-  add_types(chunk.body.stats)
 
+  --- The functions `function R.f` give the table of a type, as the checker takes them: the first of a name, none that a
+  --- field or method of the type has, and none a class names for a metamethod (the checker refuses the program).
   for _, stat in ipairs(chunk.body.stats) do
     if stat.kind == "Function" and #stat.path == 2 then
       local object, name = stat.path[1], stat.path[2]
       local held = tops[object.text]
-      if held ~= nil and (held.kind == "record" or held.kind == "class") then
+      local names = named[object.text]
+      if held ~= nil and names ~= nil and counts[object.text] == 1 and names[name.text] ~= true and
+          (held.kind == "record" or held.kind == "class") and
+          not (held.kind == "class" and name.text:sub(1, 2) == "__") then
+        names[name.text] = true
         local text = function_type(stat.fn.params, stat.fn.rets)
         add(object.text, name.text, "function", "value", text)
         if held.kind == "class" and held.arity == 0 then

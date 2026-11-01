@@ -980,6 +980,10 @@ local function mapped_places(src: source.View, found: Module, written: Written):
   return { file = written.file, text = written.text, spots = spots }
 end
 
+-- TODO: keep the rows of both the text a check read and the text now in the scratch database of a file, once a file may hold
+-- two texts there: a completion on the own module of an edited document that does not parse derives the text last checked,
+-- which drops the rows of the text now, and the next request for its places derives that again.
+
 -- TODO: serve the stub of an edited open document from its scratch `stubs` row, in place of the one made here ([`made_stub`],
 -- [`View`]'s `made`), once the scratch database is derived for every open document rather than at the first read of its places.
 
@@ -1060,7 +1064,7 @@ local function read_members(db: Sqlite.Handle, hash: string): source.Members?
   if parsed == nil or #parsed == 0 then return nil end
   local rows, _ = Sqlite.text_rows(db,
     "SELECT owner, name, kind, scope, type, coalesce((SELECT text FROM docs WHERE docs.source_hash = members.source_hash " ..
-      "AND docs.source_symbol = members.owner || CASE members.kind WHEN 'method' THEN ':' ELSE '.' END || members.name " ..
+      "AND docs.source_symbol IN (members.owner || '.' || members.name, members.owner || ':' || members.name) " ..
       "ORDER BY length(text) DESC LIMIT 1), '') FROM members WHERE source_hash = ?1 ORDER BY ordinal",
     { { text = hash } })
   if rows == nil then return nil end
