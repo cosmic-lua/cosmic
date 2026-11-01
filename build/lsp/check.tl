@@ -92,6 +92,8 @@ local record check
     --- The last check of it whose text parsed, kept as `kept` is: a text being typed often does not parse, and completion
     --- reads what the text was before ([`check.last`]).
     mut parsed: Kept?
+    --- Whether it is a probe ([`check.probe`]): a check made of it is counted toward no document's kept result.
+    mut probe?: boolean
   end
 
   --- What a check of a document was of: the result stands while every part of it is as it was. It holds no more than the
@@ -184,6 +186,8 @@ local record check
     recent: mut {Document}
     --- The open documents, by name.
     open: mut {string:Document}
+    --- The document the last probe was made by, kept so that a probe of the same text is answered from its kept result.
+    mut probed: Document?
     --- The databases a message's hint looks a name up in.
     hints: function(): Hinted
     --- Whether a check found a document requiring other modules than
@@ -225,6 +229,7 @@ function check.new(root: string, err: function(line: string), hints: function():
     epoch = 0,
     refused = false,
     recent = {},
+    probed = nil,
     open = {},
     hints = hints,
     graph_moved = false,
@@ -306,6 +311,8 @@ end
 --- Makes `document` the document most recently asked of, and drops the results kept for the one asked of least recently
 --- while more than [`KEPT_AT_MOST`] documents keep one.
 local function bounded(checker: Checker, document: Document)
+  -- A probe takes no place from the documents the person has open.
+  if document.probe == true then return end
   for n, other in ipairs(checker.recent) do
     if other == document then
       table.remove(checker.recent, n)
@@ -355,6 +362,7 @@ end
 --- Lets go of what the checker holds open.
 function check.close(checker: Checker)
   checker.program = nil
+  checker.probed = nil
   source.close(checker.source)
 end
 
@@ -805,11 +813,18 @@ end
 --- What completion reads of `document` when its text does not parse (it is being typed): the reading of `text`, the text of the
 --- document with what is needed to parse it (a name where the word is being typed, a statement made of a receiver), checked
 --- as it would be if the person had typed it. nil where that is no text a build reads or its check read nothing. The check is
---- made by a document of its own that nothing opens, so that what the document last published and what it kept stand; it
---- counts as no check of the document, and the program reads the document's text again at the next real check
+--- made by a document of its own that nothing opens, so that what the document last published and what it kept stand, and that
+--- takes no place of a document's kept result ([`bounded`]); the last is kept, so that a probe of the same text, as an
+--- editor asks again for each key typed or for an item's documentation, is answered from its result. It counts as no check
+--- of the document, and the program reads the document's text again at the next real check
 --- ([`held.document`]).
 function check.probe(checker: Checker, document: Document, text: string): check.Reading?
-  local probe = check.document(document.uri, document.name, text, document.outside)
+  local probe = checker.probed
+  if probe == nil or probe.name ~= document.name or probe.text ~= text then
+    probe = check.document(document.uri, document.name, text, document.outside)
+    probe.probe = true
+    checker.probed = probe
+  end
   probe.requires = document.requires
   local checks, ran = checker.checks[document.name], checker.ran[document.name]
   local reading = check.read(checker, probe)
@@ -819,8 +834,12 @@ function check.probe(checker: Checker, document: Document, text: string): check.
     checker.checks[document.name] = checks
   end
   if ran == nil then checker.ran[document.name] = nil else checker.ran[document.name] = ran end
-  forget(checker, probe, true)
   return reading
+end
+
+--- The SHA-256 of the text of `document`.
+function check.hash(document: Document): string
+  return hash_of(document)
 end
 
 --- The byte `offset` (from 1) of the text the reading was of, as the checker's text has it: a build put text in the one

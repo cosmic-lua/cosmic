@@ -179,6 +179,8 @@ local record protocol
     uri: string
     line: integer
     character: integer
+    --- The SHA-256 of the document's text, which an item is completed again only for.
+    hash: string
   end
 
   --- One completion: `kind` is the protocol's CompletionItemKind, and `textEdit` replaces the text typed of the name, as a

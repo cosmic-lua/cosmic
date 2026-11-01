@@ -86,6 +86,8 @@ local record completion
     --- Whether the documentation of an item is left out of the list, to be asked for when the item is chosen
     --- ([`completion.resolve`]).
     lazy: boolean
+    --- The one member whose items are wanted, by name, where an item is completed again.
+    only: string?
   end
 
   --- What is typed at the cursor.
@@ -475,8 +477,9 @@ local function located(ground: Ground, node: Ast.Node): Types.Type?
   local from = Lexer.offset(ground.tokens, node.first) + ground.delta
   local to = Lexer.stop(ground.tokens, node.last) - 1 + ground.delta
   local old, new = ground.old, ground.new
-  local first = lines.earlier(ground.alignment, from - 1) + 1
-  local last = lines.earlier(ground.alignment, to)
+  local before, last = lines.earlier(ground.alignment, from - 1), lines.earlier(ground.alignment, to)
+  if before == nil or last == nil then return nil end
+  local first = before + 1
   if from < 1 or last - first ~= to - from or old:sub(first, last) ~= new:sub(from, to) then
     return nil
   end
@@ -689,16 +692,31 @@ local function written_params(written: string, colon: boolean): {string}?
   return names
 end
 
---- The text inserted for a call of `name` with a placeholder for each of `params`, as a snippet.
-local function call_snippet(name: string, params: {string}): string
-  if #params == 0 then return name .. "($0)" end
-  local parts: mut {string} = {}
-  for at, param in ipairs(params) do
-    parts[#parts + 1] = "${" .. tostring(at) .. ":" .. param .. "}"
+--- Whether the placeholder token `at` of `tokens` is the name a `function` statement declares (`function Point.ori`), where
+--- a call is not written.
+local function declaring(tokens: Lexer.Tokens, at: integer): boolean
+  local back = at - 1
+  while back >= 2 and (Lexer.kind(tokens, back) == "." or Lexer.kind(tokens, back) == ":") and
+      Lexer.kind(tokens, back - 1) == "identifier" do
+    back = back - 2
   end
-  return name .. "(" .. table.concat(parts, ", ") .. ")"
+  return back >= 1 and Lexer.kind(tokens, back) == "keyword" and Lexer.text(tokens, back) == "function"
 end
 
+--- `text` as it is written in a snippet, where `\`, `$` and `}` stand for themselves.
+local function escaped(text: string): string
+  return (text:gsub("[\\$}]", "\\%0"))
+end
+
+--- The text inserted for a call of `name` with a placeholder for each of `params`, as a snippet.
+local function call_snippet(name: string, params: {string}): string
+  if #params == 0 then return escaped(name) .. "($0)" end
+  local parts: mut {string} = {}
+  for at, param in ipairs(params) do
+    parts[#parts + 1] = "${" .. tostring(at) .. ":" .. escaped(param) .. "}"
+  end
+  return escaped(name) .. "(" .. table.concat(parts, ", ") .. ")"
+end
 --- The names to put in a call of a function of type `t` that is not written: one for each parameter.
 local function typed_params(t: Types.Type?, drop: boolean): {string}?
   local fn = stripped(t)
@@ -728,7 +746,8 @@ local function member_items(request: Request, d: hover.Docs, decl: Types.Decl, v
   local wanted: mut {Member} = {}
   for _, member in ipairs(members) do
     -- A `:` reads a method.
-    if matches(member.name, context.prefix) and (not context.method or member.method) then
+    if matches(member.name, context.prefix) and (not context.method or member.method) and
+        (request.options.only == nil or request.options.only == member.name) then
       wanted[#wanted + 1] = member
     end
   end
@@ -986,7 +1005,10 @@ end
 function completion.resolve(checker: check.Checker, d: hover.Docs, document: check.Document, label: string,
                             data: protocol.ResolveData, encoding: string, given: completion.Options):
     protocol.ResolvedItem
-  local options: completion.Options = { uri = given.uri, snippets = false, lazy = false }
+  if data.hash ~= check.hash(document) then
+    return { label = label, detail = nil, documentation = nil }
+  end
+  local options: completion.Options = { uri = given.uri, snippets = false, lazy = false, only = label }
   local listed = completion.at(checker, d, document, { line = data.line, character = data.character }, encoding, options)
   if listed ~= nil then
     for _, item in ipairs(listed.items) do
@@ -1002,7 +1024,7 @@ end
 --- An empty list is a place where nothing can be typed, or nothing is known.
 function completion.at(checker: check.Checker, d: hover.Docs, document: check.Document, where: protocol.Position,
                        encoding: string, given?: completion.Options): protocol.CompletionList?
-  local options: completion.Options = given or { uri = document.uri, snippets = false, lazy = false }
+  local options: completion.Options = given or { uri = document.uri, snippets = false, lazy = false, only = nil }
   local split = lines.lines_of(document.text)
   local line = split.texts[where.line + 1]
   local start = split.starts[where.line + 1]
@@ -1070,11 +1092,16 @@ function completion.at(checker: check.Checker, d: hover.Docs, document: check.Do
   local outcome = last.reading.outcome
   local aligned = alignment or lines.align(last.text, document.text)
   local earlier = lines.earlier(aligned, cursor - 1)
+  -- A place the texts do not tell: nothing is offered from a guess.
+  if earlier == nil and not probed then return { isIncomplete = false, items = out } end
+  earlier = earlier or 1
   -- The probe text has the placeholder where the word is, so the cursor is at its start.
   if probed then earlier = cursor - #prefix + shift end
   local token = token_near(outcome.chunk.tokens, check.checker_offset(last.reading, math.max(earlier, 1)))
-  local request: Request = { options = options, uses = uses_of(tokens), call = options.snippets and not continues,
-    data = { uri = document.uri, line = where.line, character = where.character }, program = last.reading.program,
+  local request: Request = { options = options, uses = uses_of(tokens),
+    call = options.snippets and not continues and not declaring(tokens, at),
+    data = { uri = document.uri, line = where.line, character = where.character, hash = check.hash(document) },
+    program = last.reading.program,
     outcome = outcome, checker = checker, text = last.text }
   local scope = Scopes.in_scope(outcome.scoped, token)
   if not placed then

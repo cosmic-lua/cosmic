@@ -50,3 +50,44 @@ local function test_lines_that_moved_are_found_by_their_text()
   assert(aligned.same_as[3] == 0)
   assert(aligned.same_as[1] == 2 and aligned.same_as[2] == 3 and aligned.same_as[4] == 4)
 end
+
+--- `count` lines "line n", with the numbers in `changed` spelled otherwise.
+local function numbered(count: integer, changed: {integer: string}): string
+  local out: mut {string} = {}
+  for n = 1, count do out[#out + 1] = changed[n] or ("line " .. tostring(n)) end
+  return table.concat(out, "\n") .. "\n"
+end
+
+local function test_a_place_is_found_by_lines_that_stand_once_where_the_texts_are_too_large_to_pair()
+  -- Two edits 890 lines apart leave 890 x 890 lines between them: more cells than are paired.
+  local old = numbered(1000, {})
+  local new = numbered(1000, { [10] = "edited ten", [900] = "line 900 and" })
+  local aligned = lines.align(old, new)
+  assert(aligned.complete)
+  assert(aligned.same_as[500] == 500 and aligned.same_as[11] == 11 and aligned.same_as[901] == 901)
+  assert(aligned.same_as[10] == 0 and aligned.same_as[900] == 0)
+  -- The cursor after the edit in line 900 is in line 900 of the earlier text, not in a line near it.
+  local count = #numbered(899, {}) + #"line 900 and"
+  local expected = #numbered(899, {}) + #"line 900"
+  assert(lines.earlier(aligned, count) == expected, tostring(lines.earlier(aligned, count)))
+end
+
+local function test_a_place_in_lines_that_cannot_be_told_apart_is_unknown()
+  local old_lines: mut {string} = {}
+  local new_lines: mut {string} = {}
+  for n = 1, 1500 do
+    old_lines[#old_lines + 1] = "x"
+    new_lines[#new_lines + 1] = if n == 100 then "y" else "x" end
+  end
+  local old = table.concat(old_lines, "\n") .. "\nend\n"
+  local new = table.concat(new_lines, "\n") .. "\nz\n"
+  local aligned = lines.align(old, new)
+  assert(not aligned.complete)
+  assert(lines.earlier(aligned, 1500) == nil)
+end
+
+local function test_the_places_of_a_line_replaced_by_more_lines_rise_with_the_text()
+  local aligned = lines.align("a\nb\nz\n", "a\nb1\nb2\nb3\nz\n")
+  local first, last = assert(lines.earlier(aligned, 4)), assert(lines.earlier(aligned, 11))
+  assert(first <= last and last <= 5, tostring(first) .. " " .. tostring(last))
+end

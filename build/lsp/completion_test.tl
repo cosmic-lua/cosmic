@@ -35,6 +35,7 @@ local record Data
   uri: string
   line: integer
   character: integer
+  hash: string
 end
 
 local record Item
@@ -895,7 +896,7 @@ local function resolve(id: integer, item: Item): string
   local data = assert(item.data, "no data")
   return '{"jsonrpc":"2.0","id":' .. tostring(id) .. ',"method":"completionItem/resolve","params":{"label":' ..
     Json.quote(item.label) .. ',"data":{"uri":' .. Json.quote(data.uri) .. ',"line":' .. tostring(data.line) ..
-    ',"character":' .. tostring(data.character) .. "}}}"
+    ',"character":' .. tostring(data.character) .. ',"hash":' .. Json.quote(data.hash) .. "}}}"
 end
 
 local function test_resolving_an_item_is_advertised()
@@ -959,7 +960,7 @@ local function test_an_item_resolved_after_its_document_closed_or_changed_answer
   local root = session_fixture.project()
   local item: Item = { label = "gone", kind = 3, detail = nil, documentation = nil, sortText = nil,
     textEdit = { range = {}, newText = "gone" }, insertTextFormat = nil,
-    data = { uri = "file://" .. root .. "/main.tl", line = 0, character = 0 } }
+    data = { uri = "file://" .. root .. "/main.tl", line = 0, character = 0, hash = "" } }
   local ran = served(root, { initialize(root), resolve(2, item) })
   local resolved = assert(assert(RESOLVE_SENT:decode_into(answer(ran, 2))).result)
   assert(resolved.label == "gone" and resolved.documentation == nil and resolved.detail == nil)
@@ -1007,4 +1008,34 @@ local function test_a_method_is_inserted_as_a_call_without_its_self()
   })
   local bump = assert(items(ran, 2)["bump"], ran.err)
   assert(bump.insertTextFormat == 2 and bump.textEdit.newText == "bump($0)", bump.textEdit.newText)
+end
+
+local function test_an_item_is_resolved_only_for_the_text_it_was_listed_for()
+  local root = session_fixture.project()
+  local text = 'local Fs = require("cosmic.fs")\nlocal _ = Fs\n'
+  local typed = 'local Fs = require("cosmic.fs")\nlocal _ = Fs.rea\n'
+  local first = served(root, { initialize(root, LAZY), open(root, "main.tl", text), change(root, "main.tl", typed),
+    ask(2, root, "main.tl", 1, 16),
+  }, { fs_docs(root) })
+  local read = assert(items(first, 2)["read"])
+  local ran = served(root, { initialize(root, LAZY), open(root, "main.tl", text), change(root, "main.tl", typed),
+    -- Another text since the list was made: the item is not completed for it.
+    change(root, "main.tl", typed .. "local other = 1\n"), resolve(3, read) }, { fs_docs(root) })
+  local resolved = assert(assert(RESOLVE_SENT:decode_into(answer(ran, 3))).result)
+  assert(resolved.documentation == nil and resolved.detail == nil)
+end
+
+local function test_a_name_a_function_statement_declares_is_no_call()
+  local root = session_fixture.project()
+  local text = POINT .. 'local function area(w: integer): integer\n  return w\nend\nlocal _ = p\n'
+  local ran = served(root, { initialize(root, SNIPPETS), open(root, "main.tl", text),
+    change(root, "main.tl", (text:gsub("local _ = p\n$", "function Point.ori\n"))),
+    ask(2, root, "main.tl", 13, 18),
+    change(root, "main.tl", (text:gsub("local _ = p\n$", "local function ar\n"))),
+    ask(3, root, "main.tl", 13, 17),
+  })
+  assert(count(items(ran, 3)) > 0 and items(ran, 3)["area"] ~= nil, ran.err)
+  assert(items(ran, 2)["origin"] ~= nil, ran.err)
+  for _, item in pairs(items(ran, 2)) do assert(item.insertTextFormat == nil, item.label) end
+  for _, item in pairs(items(ran, 3)) do assert(item.insertTextFormat == nil, item.label) end
 end

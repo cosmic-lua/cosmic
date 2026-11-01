@@ -174,7 +174,7 @@ end
 
 --- What the editor takes of a completion in the document `uri`.
 local function options_of(s: Session, uri: string): completion.Options
-  return { uri = uri, snippets = s.snippets, lazy = s.lazy }
+  return { uri = uri, snippets = s.snippets, lazy = s.lazy, only = nil }
 end
 
 --- The completions for `params`, or nil where no such document is open.
