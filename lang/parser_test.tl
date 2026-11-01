@@ -355,6 +355,23 @@ local function test_a_name_followed_by_an_equals_in_a_table_is_a_key_and_any_oth
     "(Table [(Positional (Binary \"==\" (Name \"a\") (Integer 1))) (Named \"a\" (Integer 1)) (Positional (Name \"a\"))])", "table")
 end
 
+local function test_a_spread_item_is_the_dots_before_an_expression_and_a_lone_vararg_stays_a_vararg()
+  local function table_of(source: string): string
+    return Dump.dump(assert(the_local("local t = " .. source).values[1]))
+  end
+  same(table_of("{ ...r, a = 1 }"), "(Table [(Spread (Name \"r\")) (Named \"a\" (Integer 1))])", "spread then a field")
+  same(table_of("{ ...f(x).y }"), "(Table [(Spread (Field (Call (Name \"f\") [(Name \"x\")]) \"y\"))])", "a call and a field")
+  same(table_of("{ ...(r) }"), "(Table [(Spread (Paren (Name \"r\")))])", "a parenthesized spread")
+  same(table_of("{ a = 1, ...r }"), "(Table [(Named \"a\" (Integer 1)) (Spread (Name \"r\"))])", "a spread is parsed wherever it stands")
+  same(table_of("{ ...r, ...s }"), "(Table [(Spread (Name \"r\")) (Spread (Name \"s\"))])", "two spreads are parsed")
+  -- Lua's varargs: the dots followed by `,`, `}` or an operator are the vararg value.
+  same(table_of("{ ... }"), "(Table [(Positional (Vararg))])", "a lone vararg")
+  same(table_of("{ 1, ... }"), "(Table [(Positional (Integer 1)) (Positional (Vararg))])", "a vararg last")
+  same(table_of("{ ..., 1 }"), "(Table [(Positional (Vararg)) (Positional (Integer 1))])", "a vararg first")
+  same(table_of("{ ... - 1 }"), "(Table [(Positional (Binary \"-\" (Vararg) (Integer 1)))])", "a vararg minus one")
+  same(table_of("{ ... .. 'x' }"), "(Table [(Positional (Binary \"..\" (Vararg) (String \"x\")))])", "a vararg concatenated")
+end
+
 local function test_a_comma_in_a_type_list_ends_it_where_a_parameter_begins()
   -- The type of `f` returns `A, B` and `c` is the next parameter.
   same(Dump.dump(assert(the_local("local x: function(f: function(): A, B, c: C)").types[1])),

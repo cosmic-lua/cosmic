@@ -35,7 +35,7 @@ local record Roles
     "group_open"
     -- any `)`: tight before
     "paren_close"
-    -- the operator of a `Unary` other than `not`: tight after
+    -- the operator of a `Unary` other than `not`, and the `...` of a `Spread`: tight after
     "unary"
     -- `[` and `]` of an index: tight on both sides
     "index_open"
@@ -186,6 +186,8 @@ function Roles.of(chunk: Ast.Chunk): Roles.Roled
       if Lexer.text(tokens, base.first) ~= "not" then
         set[base.first] = "unary"
       end
+    elseif kind == "Spread" then
+      set[base.first] = "unary"
     elseif kind == "Binding" then
       if base.last == base.first + 3 then
         mark(base.last - 2, "<", "attr_open")

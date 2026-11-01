@@ -25,6 +25,39 @@ print(counter.name, counter.hits)
 visits	1
 ```
 
+A record with one field changed is made with a spread, `{ ...r, field = v }`. The spread copies the fields that the
+record declares, and the fields written after it replace them. The source is not changed.
+
+```teal
+local record Config
+  host: string
+  port: integer
+  mut retries: integer
+end
+
+local base: Config = { host = "a", port = 80, retries = 3 }
+local staging = { ...base, host = "b", port = 8080 }
+print(staging.host, staging.port, staging.retries)
+print(base.host, base.port)
+```
+
+```output
+b	8080	3
+a	80
+```
+
+The rules of the spread (`literal_spread`, `cosmic docs literal_spread`):
+
+- It is the first item of the literal, and the only one.
+- Its source is a value of a record type, not nilable: test a `Config?` before spreading it. An array, a map, a class
+  value and a value of a record with an array part are refused.
+- The literal is a value of the record the source is, or of the record the literal is wanted as, when the source is a
+  value of it. A source of another record type is `not_assignable`.
+- Each field after it is checked as a field of a literal of the record is: an unknown field is `literal_unknown`, a value
+  of the wrong type `not_assignable`. A literal with a spread leaves out no field.
+- The source is evaluated once, before the values after it, which are evaluated in the order written. Only the declared
+  fields are copied.
+
 `readonly f: T` is a form of the old grammar. The parser refuses it (`expected_token`): write `f: T`.
 
 ## narrowing

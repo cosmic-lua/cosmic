@@ -270,7 +270,7 @@ local function lower(program: Declarations.Program, module: string, source: stri
   for _, e in ipairs(lowered.errors) do
     before[#before + 1] = e.code
   end
-  local result: Check.Checked = { errors = {}, vars = {}, literals = {}, narrowed = {}, boundaries = {}, types = {}, callees = {}, warnings = {} }
+  local result: Check.Checked = { errors = {}, vars = {}, literals = {}, spreads = {}, narrowed = {}, boundaries = {}, types = {}, callees = {}, warnings = {} }
   if dialect == "tl" then
     result = Check.check(program, input, lowered)
   end
@@ -531,7 +531,8 @@ local function generated(run: Programs.Run, wraps: {integer: string}, kind_only:
   for id, decl in pairs(run.result.literals) do
     classes[id] = decl.name
   end
-  return Codegen.generate(run.chunk, run.scoped, nil, classes, if kind_only == true then {} else Check.enums(run.lowered) end, wraps).text
+  return Codegen.generate(run.chunk, run.scoped, nil, classes, if kind_only == true then {} else Check.enums(run.lowered) end, wraps, nil, nil,
+    nil, run.result.spreads).text
 end
 
 function Programs.lua(run: Programs.Run): string

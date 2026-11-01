@@ -41,6 +41,7 @@ for k, v in pairs(t) do end
 for j = 1, 3 do end
 local p = if x then 1 elseif y then 2 else 3 end
 local q = (x is T) and (y as U) and (...) and { 1, k = 2, [3] = f(), function() end }
+local spread = { ...x, k = 2 }
 s:m(1).f.g[2]()
 if x then elseif y then else end
 match f() do

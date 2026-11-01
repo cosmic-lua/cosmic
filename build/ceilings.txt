@@ -3232,7 +3232,7 @@ build/sql.tl any_use 4
 
 build/stand_in_probe.tl any_use 1
 
-build/syntax_match.tl any_use 75
+build/syntax_match.tl any_use 3
 
 build/test.tl any_use 2
 

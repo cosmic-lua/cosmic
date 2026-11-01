@@ -1025,7 +1025,7 @@ end
 local function walk_items(items: {Ast.Item})
   for i = 1, #items do
     local item = items[i]
-    if (item.kind == "Positional") then
+    if (item.kind == "Positional") or (item.kind == "Spread") then
       exp(item.value)
     elseif (item.kind == "Named") then
       exp(item.value)
