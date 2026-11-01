@@ -229,14 +229,14 @@ end
 
 --- As the case above, on a socket file, which the stop removes.
 local function test_stop_drains_then_kills_after_grace_ns_on_a_socket_file(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   stop_drains_then_kills_after_grace_ns_at(tmp .. "/s.sock")
 end
 
 --- A listener that cannot listen fails the whole server, having closed
 --- the ones that could and called nothing.
 local function test_a_listener_that_cannot_listen_fails_the_server(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local called: boolean = false
   local ok, why = Net.serve{
     listeners = { Net.unix(tmp .. "/a.sock"), Net.unix(tmp .. "/missing/b.sock") },
@@ -469,7 +469,7 @@ end
 
 --- As the case above, on a socket file, which the stop removes.
 local function test_a_protocol_stops_its_server_on_a_socket_file(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   a_protocol_stops_its_server_at(tmp .. "/s.sock")
 end
 
@@ -497,7 +497,7 @@ end
 
 --- As the case above, on a socket file, which the stop removes.
 local function test_a_server_stopped_twice_before_accepting_returns_on_a_socket_file(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   a_server_stopped_twice_before_accepting_returns_at(tmp .. "/s.sock")
 end
 
@@ -551,7 +551,7 @@ end
 
 --- As the case above, on a socket file, which the stop removes.
 local function test_sigterm_stops_the_server_and_it_drains_on_a_socket_file(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   sigterm_stops_the_server_and_it_drains_at(tmp .. "/s.sock")
 end
 
@@ -591,7 +591,7 @@ end
 
 --- As the case above, on a socket file, which the stop removes.
 local function test_a_second_signal_ends_the_grace_on_a_socket_file(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   a_second_signal_ends_the_grace_at(tmp .. "/s.sock")
 end
 
@@ -682,7 +682,7 @@ end
 
 --- As the case above, on a socket file, which the stop removes.
 local function test_on_stop_runs_once_at_stop_on_a_socket_file(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   on_stop_runs_once_at_stop_at(tmp .. "/s.sock")
 end
 
@@ -711,7 +711,7 @@ end
 
 --- As the case above, on a socket file, which the stop removes.
 local function test_on_stop_runs_once_at_sigterm_on_a_socket_file(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   on_stop_runs_once_at_sigterm_at(tmp .. "/s.sock")
 end
 
@@ -798,7 +798,7 @@ end
 
 --- As the case above, on a socket file, which the stop removes.
 local function test_a_raising_on_stop_reaches_on_error_and_the_server_stops_on_a_socket_file(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   a_raising_on_stop_reaches_on_error_and_the_server_stops_at(tmp .. "/s.sock")
 end
 
@@ -831,7 +831,7 @@ end
 
 --- As the case above, on a socket file, which the stop removes.
 local function test_a_second_signal_cancels_on_stops_wait_on_a_socket_file(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   a_second_signal_cancels_on_stops_wait_at(tmp .. "/s.sock")
 end
 

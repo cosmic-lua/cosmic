@@ -31,6 +31,28 @@ local function test_a_run_that_names_tests_is_failed_by_the_refusals_of_the_file
   assert(#test.refusals_of(lines, { "build/one_test.tl:test_it" }) == 1, "a selector that names a test is its module's")
 end
 
+local function test_a_named_file_that_did_not_compile_is_shown_the_refusals_it_rests_on_first()
+  local lines = {
+    "build/one_test.tl: not compiled: it requires build.one, which the new checker refused",
+    "build/one.tl: the compiler refused it\nbuild/one.tl:1:1: wrong (code): fix",
+    "build/two.tl: the compiler refused it\nbuild/two.tl:1:1: also wrong (code): fix",
+    "build/mid.tl: not compiled: it requires build.one, which the new checker refused",
+  }
+  local roots = { ["build/one_test.tl"] = { 2 }, ["build/one.tl"] = { 2 }, ["build/two.tl"] = { 3 },
+    ["build/mid.tl"] = { 2, 3 } }
+  local explained = test.explained(lines, roots, { "build/one_test.tl" })
+  local shown = explained.lines
+  assert(#shown == 2 and shown[1] == lines[2] and shown[2] == lines[1], table.concat(shown, "|"))
+  assert(explained.matched["build/one_test.tl"] == true)
+  -- A directory choosing the root and its dependents shows each line once, roots ahead of dependents.
+  local whole = test.explained(lines, roots, { "build" }).lines
+  assert(#whole == 4 and whole[1] == lines[2] and whole[2] == lines[3], table.concat(whole, "|"))
+  local mid = test.explained(lines, roots, { "build/mid.tl" }).lines
+  assert(#mid == 3 and mid[1] == lines[2] and mid[2] == lines[3] and mid[3] == lines[4], table.concat(mid, "|"))
+  local none = test.explained(lines, roots, { "build/absent_test.tl" })
+  assert(#none.lines == 0 and none.matched["build/absent_test.tl"] == nil)
+end
+
 local function test_selection_is_exact_or_at_a_directory_boundary()
   assert(test.matches("build.test_test", "build.test_test", "build/test_test.tl"))
   assert(test.matches("build/test_test.tl", "build.test_test", "build/test_test.tl"))

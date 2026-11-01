@@ -63,7 +63,9 @@ local function test_exec_hands_on_sigpipe_at_its_default(tmp: string)
   -- everything it starts: a runner that ignores SIGPIPE has no case here.
   local own = assert(assert(Fs.read("/proc/self/status")):match("SigIgn:%s*(%x+)"))
   local own_mask = math.tointeger(tonumber(own, 16)) or 0
-  if own_mask & (1 << (sys.SIGPIPE - 1)) ~= 0 then return end
+  if own_mask & (1 << (sys.SIGPIPE - 1)) ~= 0 then
+    Test.skip("this runner ignores SIGPIPE, which everything it starts inherits")
+  end
   -- The program it becomes, and the child it feeds: a stand-in, which
   -- starts with no descriptors and no environment handed it, and says
   -- which signals it arrived ignoring.

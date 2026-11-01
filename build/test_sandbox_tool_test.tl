@@ -332,22 +332,23 @@ local function test_an_unsandboxed_run_reads_the_tree_and_a_platform_with_no_san
       fields[8] == "declaredundeclared/d/", seen)
   -- Branches on the platform: where it can sandbox, the run does, and that
   -- is checked by the module that requires a nest.
-  if assert(sys.uname()).sysname == "Linux" then return end
-  env.COSMIC_TEST_SANDBOX = nil
-  text, ok = run(root, tmp .. "/sandboxed", env)
-  assert(not ok, text)
-  -- And why, in the head line alone: the summary points back to it rather
-  -- than say the probe's explanation again.
-  assert(text:find("test: running unsandboxed: no worker can be sandboxed here: ", 1, true), text)
-  local summary = text:match("[^\n]*; unsandboxed, as no worker can be sandboxed here[^\n]*\n")
-  assert(summary ~= nil, text)
-  assert(summary:find("; unsandboxed, as no worker can be sandboxed here " ..
-      "(see the head line), keyed by declared inputs, sharing no verdicts\n", 1, true) ~= nil and
-      #summary < 300, summary)
-  -- Required, the run fails instead.
-  env.COSMIC_TEST_SANDBOX = "1"
-  local required: string? = nil
-  required, ok = run(root, tmp .. "/required", env)
-  assert(not ok and required:find("COSMIC_TEST_SANDBOX=1, but no worker can be sandboxed here",
-    1, true) ~= nil, required)
+  if assert(sys.uname()).sysname ~= "Linux" then
+    env.COSMIC_TEST_SANDBOX = nil
+    text, ok = run(root, tmp .. "/sandboxed", env)
+    assert(not ok, text)
+    -- And why, in the head line alone: the summary points back to it rather
+    -- than say the probe's explanation again.
+    assert(text:find("test: running unsandboxed: no worker can be sandboxed here: ", 1, true), text)
+    local summary = text:match("[^\n]*; unsandboxed, as no worker can be sandboxed here[^\n]*\n")
+    assert(summary ~= nil, text)
+    assert(summary:find("; unsandboxed, as no worker can be sandboxed here " ..
+        "(see the head line), keyed by declared inputs, sharing no verdicts\n", 1, true) ~= nil and
+        #summary < 300, summary)
+    -- Required, the run fails instead.
+    env.COSMIC_TEST_SANDBOX = "1"
+    local required: string? = nil
+    required, ok = run(root, tmp .. "/required", env)
+    assert(not ok and required:find("COSMIC_TEST_SANDBOX=1, but no worker can be sandboxed here",
+      1, true) ~= nil, required)
+  end
 end
