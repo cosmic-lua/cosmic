@@ -117,10 +117,12 @@ aarch64 macOS core stays at Apple M1, the oldest Apple silicon Mac.
 The host tools the build runs stay at each architecture's baseline, since
 their bytes key the build's caches across runners.
 
-every cosmic binary carries the raw core for all three targets, so any
-host builds any target offline with nothing fetched. the POSIX launcher selects
-one by `uname`, verifies its exact range and digest, retains the artifact
-descriptor, and executes a cached copy. a program `cosmic build` writes has the
+every cosmic binary carries the core for all three targets, so any
+host builds any target offline with nothing fetched. each is stored as one zstd
+frame beside a small decoder stub for its target, about 40% of the raw size. the
+POSIX launcher selects one by `uname`, extracts and verifies it (decoding the
+frame with the stub on a cold start), retains the artifact descriptor, and
+executes a cached copy of the raw core. a program `cosmic build` writes has the
 same portable prefix and its own database suffix. `cosmic build --host` writes
 the running core itself with the program's database appended instead: it
 starts with no launcher, and runs only where that core does.
@@ -533,17 +535,37 @@ information so a runtime error names its line; the bytecode header check is
 the safety net. target-specific bytes live only in manifest ranges, outside
 the database.
 
-the binary is a versioned portable artifact: a POSIX shell launcher, aligned
-raw core ranges, a fixed manifest, one SQLite database, and a fixed trailer.
+the binary is a versioned portable artifact (version 2): a POSIX shell launcher,
+aligned stored ranges (each release core compressed, with the decoder stub of its
+target), a fixed manifest, one SQLite database, and a fixed trailer.
 [The portable runtime implementation guide](guides/portable-runtime.md) follows
 those bytes through startup, project embedding, self-rebuild, and CI.
 the manifest is the sole authority for target/configuration, byte range, and
-sha256. the launcher retains an open descriptor before executing the selected
-core; startup validates the complete manifest and trailer against that same
-descriptor. the runtime's VFS reads only the validated database range from the
+sha256. each 104-byte entry has a kind (a core, or the decoder stub of a
+core), a codec (raw or zstd), the stored range (offset, length, sha256) and
+the core it decodes to (length, sha256). the core's length and digest are its
+identity: the cache entry is named for them, and the stamp, the runtime
+identity, a verdict's key and the launcher's environment hold them. a raw entry's
+two are equal. a reader of version 2 refuses version 1 by name. the launcher
+retains an open descriptor before executing the selected core; startup
+validates the complete manifest and trailer against that same descriptor. the runtime's VFS reads only the validated database range from the
 retained descriptor. it never reopens the logical pathname, so rename, unlink,
 and atomic replacement after adoption cannot mix files. the last partial range
 is hashed over its real length, never zero-padded.
+
+a cold launch of a compressed core cuts the stub out of the descriptor first
+(it is the only reader that relies on the descriptor's offset, which is 0 until
+then), checks its length and digest, and runs it as `stub <descriptor> <offset>
+<stored length> <length>`. the stub reads its range with `pread`, accepts
+exactly one frame that names its content size and a checksum, with a window of
+at most 8 MiB, and writes no more than the length it is given. the launcher
+reads its exit status, removes it, and checks the output's length and digest as
+it does a raw core's. the stub is private, mode 0500, in the validated leaf, and
+a `noexec` cache fails there with a diagnostic that names it. a program
+`cosmic build` writes shares the prefix and so the compressed cores. the
+runtime's own readers never decode: `trusted_prefix` hashes each stored range
+against its stored digest, and `trusted_core` (for `cosmic build --host`) reads
+the running cached core and hashes it again.
 
 the database is read-only, and the runtime never writes it. it is opened with `immutable=1`
 so SQLite skips locks and staleness checks on a file no one else can
@@ -571,11 +593,14 @@ name under the prefix except `COSMIC_PORTABLE_CACHE` before Teal runs, for both
 portable and native startup. `COSMIC_PORTABLE_CACHE` alone is public
 configuration.
 
-ordinary artifacts have exactly three release entries and select configuration
-1. the checked artifact retains those required release entries and adds one
-configuration-2 entry for the real build host; its private launcher selects
-only that entry. target/configuration pairs are unique across the manifest and
-system identities are unique in the selected configuration. the production
+ordinary artifacts have exactly three release cores (and their three stubs) and
+select configuration 1. the checked artifact retains those required release
+entries and adds one raw configuration-2 core for the real build host, 38 to 50
+MB with its debug information, which compression would only slow; its private
+launcher selects only that entry. a host-only boot stores the host's core and a
+placeholder per other target raw. target/configuration/kind triples are unique
+across the manifest and system identities are unique in the selected
+configuration. the production
 decoder's required-release mask is unchanged.
 
 a project's projected module database, `cosmic.db` in its build
@@ -943,6 +968,16 @@ engine are planned. a library that needs a configuration header gets a
 hand-written one under `core/` (`curl_config.h`, `ares_config.h`,
 `xz_config/config.h`, `mbedtls_cosmic_config.h`, `expat_config.h`), never one generated
 by the library's own configure step.
+
+zstd's decoder is also built apart from the core, as `cosmic-unzstd`, a
+small static program ([`core/unzstd.c`]) for each target, installed in the
+build directory beside that target's core (`core/<target>/cosmic-unzstd`).
+It decodes one zstd frame read from a range of an inherited descriptor
+and takes the frame's decoded length, so it can never write more than the
+length it is told. It is built at the architecture's baseline CPU, and
+the macOS one carries the ad-hoc signature zig's linker writes, which CI
+verifies as it does the core's. Every release artifact carries it, stored raw,
+beside the compressed core it restores.
 
 each tree keeps its upstream license file (`vendor/<name>/COPYING`,
 `LICENSE`, `LICENSE.md`). a few vendored files carry a license of their
@@ -1346,6 +1381,7 @@ in [roadmap.md](roadmap.md).
 [`ci/cosmic_ci/place_tree.tl`]: ../ci/cosmic_ci/place_tree.tl
 [`core/bridge.lua`]: ../core/bridge.lua
 [`core/http.c`]: ../core/http.c
+[`core/unzstd.c`]: ../core/unzstd.c
 [`core/mbedtls_cosmic_config.h`]: ../core/mbedtls_cosmic_config.h
 [`core/process.h`]: ../core/process.h
 [`core/syscalls.c`]: ../core/syscalls.c

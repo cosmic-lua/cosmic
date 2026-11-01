@@ -334,7 +334,7 @@ local function test_identity_primary(tmp: string)
     Fixture.environment({ COSMIC_PORTABLE_CACHE = work .. "/corrupt-cache" }))
   assert(not corrupt_outcome.result.ok,
     "corrupt-core build unexpectedly succeeded")
-  Fixture.contains(corrupt_outcome.err, "retained portable core range ")
+  Fixture.contains(corrupt_outcome.err, "retained portable range ")
   Fixture.contains(corrupt_outcome.err, " digest differs from manifest")
   assert(Fs.exists(Fixture.built(corrupt_project) .. "/bin/hello") == false,
     "corrupt-core build produced an application")

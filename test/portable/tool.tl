@@ -5,9 +5,11 @@
 --- Run as:
 ---   cosmic test/portable/tool.tl SUBCOMMAND ARGS...
 
+local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Stream = require("cosmic.stream")
 local artifact = require("build.artifact")
 local fixture = require("test.portable")
 local probe = require("test.portable.probe")
@@ -16,6 +18,52 @@ local record Target
   id: integer
   configuration: integer
   name: string
+end
+
+--- The frame a fixture stores a core as. The fixtures that check a layout
+--- (the format contract, the launcher's) take a low level, which costs a
+--- fraction of the release's seconds a core and is the same format; the
+--- release level is held by `compress-core` and the product.
+local function compress_core(core: string): string?, string
+  return Compress.zstd(core, 3)
+end
+
+--- Writes the frame a release stores the core file CORE as, at the release
+--- level, to OUT: what a fixture compares with the frame a boot wrote.
+local function compress_release_core(argv: {string}): integer
+  local core_path, out = argv[1], argv[2]
+  assert(core_path ~= nil and out ~= nil, "usage: tool.tl compress-core CORE OUT")
+  local frame = assert(Compress.zstd(assert(Fs.read(core_path)), artifact.zstd_level()))
+  assert(Fs.write(out, frame))
+  return 0
+end
+
+--- Writes to OUT the zstd frame of the file IN at LEVEL: with `stream`, as the
+--- streaming encoder writes it (a checksum and no content size), otherwise as
+--- [`Compress.zstd`] does (the frame the decode stub takes). What a fixture
+--- that cannot call the encoder itself has a tool write.
+local function zstd_encode(argv: {string}): integer
+  local input, out, level, how = argv[1], argv[2], tonumber(argv[3]), argv[4]
+  assert(input ~= nil and out ~= nil and level ~= nil and (how == nil or how == "stream"),
+    "usage: tool.tl zstd-encode IN OUT LEVEL [stream]")
+  local raw = assert(Fs.read(input))
+  local frame: string
+  if how == "stream" then
+    frame = assert(Stream.run(assert(Compress.zstd_encoder(math.tointeger(level) or 0)), raw))
+  else
+    frame = assert(Compress.zstd(raw, math.tointeger(level) or 0))
+  end
+  assert(Fs.write(out, frame))
+  return 0
+end
+
+--- Writes to OUT the LENGTH bytes the zstd frame in the file IN decodes to.
+local function zstd_decode(argv: {string}): integer
+  local input, out, length = argv[1], argv[2], math.tointeger(tonumber(argv[3]))
+  assert(input ~= nil and out ~= nil and length ~= nil, "usage: tool.tl zstd-decode IN OUT LENGTH")
+  local decoded = assert(Stream.run(assert(Compress.zstd_decoder(1 << 23)), assert(Fs.read(input)), length))
+  assert(Fs.write(out, decoded))
+  return 0
 end
 
 local function text(value: string): Sqlite.Value
@@ -96,7 +144,7 @@ local function prepare_artifacts(argv: {string}): integer
     target_names[assert(math.tointeger(tonumber(id)))] = name
   end
   for _, selected in ipairs(old.entries) do
-    if selected.configuration == 1 then
+    if selected.configuration == 1 and selected.kind == 1 then
       local other: fixture.Entry? = nil
       for _, candidate in ipairs(old.entries) do
         if candidate.target ~= selected.target then
@@ -105,7 +153,7 @@ local function prepare_artifacts(argv: {string}): integer
         end
       end
       assert(other ~= nil, "runtime fixture: no nonselected core range")
-      local offset = other.offset + math.min(128, other.length - 1)
+      local offset = other.offset + math.min(128, other.stored_length - 1)
       local corrupt = assert(fixture.change_byte(old.bytes, offset))
       local name = assert(target_names[selected.target],
         "runtime fixture: target name is missing")
@@ -116,10 +164,17 @@ local function prepare_artifacts(argv: {string}): integer
 end
 
 --- Checks that each manifest entry of `from` holds exactly the raw core
---- built for its target, once, at the range the entry names.
+--- built for its target, once, at the range the entry names, stored raw or as
+--- the frame that decodes to it; and that a compressed core's decoder stub is
+--- the stub built for its target, once, at its range.
 local function verify_ranges(path: string, from: fixture.Artifact,
                              targets: {Target}, cores: string)
-  assert(#from.entries == #targets,
+  local stubs = 0
+  for _, target in ipairs(targets) do
+    local stub = fixture.entry(from, target.id, target.configuration, 2)
+    if stub ~= nil then stubs = stubs + 1 end
+  end
+  assert(#from.entries == #targets + stubs,
     path .. ": manifest entry count differs from generated targets")
   for _, target in ipairs(targets) do
     local found = assert(fixture.entry(from, target.id, target.configuration),
@@ -130,14 +185,34 @@ local function verify_ranges(path: string, from: fixture.Artifact,
       path .. ": manifest core length differs from raw core")
     assert(found.digest == Hash.sha256(core),
       path .. ": manifest core digest differs from raw core")
-    assert(from.bytes:sub(found.offset + 1, found.offset + found.length) == core,
+    local stored = from.bytes:sub(found.offset + 1, found.offset + found.stored_length)
+    assert(Hash.sha256(stored) == found.stored_digest,
+      path .. ": manifest stored digest differs from its range")
+    assert(assert(fixture.core_of(from, found)) == core,
       path .. ": manifest core range differs from raw core")
-    local first, last = from.bytes:find(core, 1, true)
+    local first, last = from.bytes:find(stored, 1, true)
     assert(first ~= nil and first == found.offset + 1 and
-        last == found.offset + found.length,
-      path .. ": raw core occurs outside its manifest range")
-    assert(from.bytes:find(core, first + 1, true) == nil,
-      path .. ": raw core occurs more than once")
+        last == found.offset + found.stored_length,
+      path .. ": stored core occurs outside its manifest range")
+    assert(from.bytes:find(stored, first + 1, true) == nil,
+      path .. ": stored core occurs more than once")
+    if found.codec == 0 then
+      assert(stored == core, path .. ": a raw entry is not the raw core")
+      assert(fixture.entry(from, target.id, target.configuration, 2) == nil,
+        path .. ": a raw core has a decoder stub")
+    else
+      local stub = assert(fixture.entry(from, target.id, target.configuration, 2),
+        path .. ": a compressed core has no decoder stub")
+      local stub_path = cores .. "/" .. target.name .. "/cosmic-unzstd"
+      local built = assert(Fs.read(stub_path))
+      assert(stub.codec == 0 and stub.stored_length == #built and stub.length == #built and
+          stub.stored_digest == Hash.sha256(built) and stub.digest == stub.stored_digest,
+        path .. ": the decoder stub differs from the one built for " .. target.name)
+      assert(from.bytes:sub(stub.offset + 1, stub.offset + stub.stored_length) == built,
+        path .. ": decoder stub range differs from the built stub")
+      assert(from.bytes:find(built, stub.offset + #built + 1, true) == nil,
+        path .. ": decoder stub occurs more than once")
+    end
   end
 end
 
@@ -205,7 +280,13 @@ local function write_format_fixture(argv: {string}): integer
       return core_root .. "/" .. target .. "/cosmic-core"
     end)
   local cores, records = targets.blobs, targets.records
-  local prefix = assert(artifact.prefix(records, cores))
+  -- Every core compressed, as a release is: its stub is the one built.
+  local stubs = fixture.load_by_target(records_path,
+    function(target: string): string
+      return core_root .. "/" .. target .. "/cosmic-unzstd"
+    end).blobs
+  local packing: artifact.Packing = { stubs = stubs, compress = compress_core }
+  local prefix = assert(artifact.prefix(records, cores, nil, packing))
   local database_a = "SQLite format 3\0fixture database A"
   local database_b = "SQLite format 3\0fixture database B"
   local program_a = assert(artifact.program(prefix, database_a))
@@ -231,9 +312,21 @@ local function write_format_fixture(argv: {string}): integer
   return 0
 end
 
+--- A decoder stub's stand-in: a script that ignores its range and does
+--- `body`, which sees the contract's arguments (`$1` the descriptor, `$2` the
+--- offset, `$3` the stored length, `$4` the core's length).
+local function script_stub(body: string): string
+  return "#!/bin/sh\n" .. body .. "\n"
+end
+
 --- Builds executable launcher fixtures around small native contract payloads.
 --- The test prefix adds synchronization hooks to the production artifact
---- layout.
+--- layout. Beside the raw `.release` and `.test` it writes the same payloads
+--- stored compressed, with the target's real stub (`.packed-release`,
+--- `.packed-test`), and test launchers whose stub is a script that fails
+--- (`.stub-fails`), writes too little (`.stub-short`) or the right length
+--- of the wrong bytes (`.stub-zero`), or waits on two FIFOs while it runs
+--- (`.stub-slow`).
 local function write_launcher_fixture(argv: {string}): integer
   local records_path, payload_root, output = argv[1], argv[2], argv[3]
   assert(records_path ~= nil and payload_root ~= nil and output ~= nil,
@@ -243,13 +336,36 @@ local function write_launcher_fixture(argv: {string}): integer
       return payload_root .. "/payload-" .. target
     end)
   local payloads, records = targets.blobs, targets.records
-  local release = assert(artifact.prefix(records, payloads))
-  local testing = assert(artifact.test_prefix(records, payloads))
   local database = "SQLite format 3\0launcher contract fixture"
-  local release_program = assert(artifact.program(release, database))
-  local test_program = assert(artifact.program(testing, database))
-  assert(Fs.write(output .. ".release", release_program))
-  assert(Fs.write(output .. ".test", test_program))
+  local function write(name: string, prefix: string)
+    assert(Fs.write(output .. "." .. name, (assert(artifact.program(prefix, database)))))
+  end
+  write("release", (assert(artifact.prefix(records, payloads))))
+  write("test", (assert(artifact.test_prefix(records, payloads))))
+
+  local function packing(stubs: {string:string}): artifact.Packing
+    return { stubs = stubs, compress = compress_core }
+  end
+  local real = fixture.load_by_target(records_path,
+    function(target: string): string
+      return payload_root .. "/unzstd-" .. target
+    end).blobs
+  write("packed-release", (assert(artifact.prefix(records, payloads, nil, packing(real)))))
+  write("packed-test", (assert(artifact.test_prefix(records, payloads, packing(real)))))
+  local scripts: {string:string} = {
+    ["stub-fails"] = script_stub("echo 'stand-in decoder: refusing' >&2; exit 7"),
+    ["stub-short"] = script_stub("printf short"),
+    ["stub-zero"] = script_stub("head -c \"$4\" /dev/zero"),
+    -- Tells the test it is running, then waits to be let go: the launcher
+    -- is held while its stub decodes.
+    ["stub-slow"] = script_stub("printf 'ready\\n' > \"$COSMIC_PORTABLE_TEST_STUB_READY\"\n" ..
+        "IFS= read -r released < \"$COSMIC_PORTABLE_TEST_STUB_GO\"\nexit 3"),
+  }
+  for name, body in pairs(scripts) do
+    local stubs: mut {string:string} = {}
+    for target in pairs(payloads) do stubs[target] = body end
+    write(name, (assert(artifact.test_prefix(records, payloads, packing(stubs)))))
+  end
   return 0
 end
 
@@ -267,10 +383,21 @@ local function write_runtime_fixture(argv: {string}): integer
       return cores_root .. "/" .. target .. "/cosmic-core"
     end)
   local cores, records = targets.blobs, targets.records
+  -- A release is stored compressed: the stubs of the targets that have one
+  -- in the cores' directory (the build's `core`, not the hook-core copies).
+  local stubs: mut {string:string} = {}
+  for target in pairs(cores) do
+    local stub, _ = Fs.read(cores_root .. "/" .. target .. "/cosmic-unzstd")
+    if stub ~= nil then stubs[target] = stub end
+  end
+  local packing: artifact.Packing? = nil
+  if next(stubs) ~= nil then
+    packing = { stubs = stubs, compress = compress_core }
+  end
   local prefix = if argv[5] == "test" then
-    assert(artifact.test_prefix(records, cores))
+    assert(artifact.test_prefix(records, cores, packing))
     else
-    assert(artifact.prefix(records, cores))
+    assert(artifact.prefix(records, cores, nil, packing))
     end
   local database = assert(Fs.read(database_path))
   local program = assert(artifact.program(prefix, database))
@@ -279,11 +406,14 @@ local function write_runtime_fixture(argv: {string}): integer
 end
 
 local subcommands: mut {string:function({string}):integer} = {
+  ["compress-core"] = compress_release_core,
   ["prepare-databases"] = prepare_databases,
   ["prepare-artifacts"] = prepare_artifacts,
   ["product-database"] = product_database,
   ["product-extract"] = product_extract,
   ["write-format-fixture"] = write_format_fixture,
+  ["zstd-decode"] = zstd_decode,
+  ["zstd-encode"] = zstd_encode,
   ["write-launcher-fixture"] = write_launcher_fixture,
   ["write-runtime-fixture"] = write_runtime_fixture,
 }

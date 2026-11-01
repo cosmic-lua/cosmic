@@ -129,13 +129,14 @@ local function test_an_image_holds_the_code_and_not_the_dwarf(tmp: string)
 end
 
 --- A head's manifest fields, from its end: the prefix length, count and
---- entry size, and the first entries' offsets and lengths.
+--- entry size, and the first entries' kinds, codecs, offsets and lengths.
 local function manifest_fields(bytes: string): {{integer}}
   local at = #bytes - 4096 + 1
   local fields: mut {{integer}} = { { at + 16, 8 }, { at + 24, 4 }, { at + 28, 4 } }
-  for entry = 0, 1 do
-    fields[#fields + 1] = { at + 32 + entry * 56 + 8, 8 }
-    fields[#fields + 1] = { at + 32 + entry * 56 + 16, 8 }
+  for entry = 0, 2 do
+    for _, field in ipairs({ { 8, 4 }, { 12, 4 }, { 16, 8 }, { 24, 8 }, { 64, 8 } }) do
+      fields[#fields + 1] = { at + 32 + entry * 104 + nth(field, 1), nth(field, 2) }
+    end
   end
   for i = #fields, 1, -1 do
     if nth(nth(fields, i), 1) < 1 then table.remove(fields, i) end
@@ -150,8 +151,11 @@ local function test_keyed_head_is_total(tmp: string)
     return assert(artifact.split((assert(artifact.program(prefix, "SQLite format 3\0db"))))).head
   end
   local core = fixture.elf("code", "dwarf")
+  local packing: artifact.Packing = { stubs = { arm = "STUB" },
+    compress = function(raw: string): string?, string return "frame:" .. raw, "" end }
   local bases = {
     head((assert(artifact.prefix(records, { x86 = core, arm = "arm core" })))),
+    head((assert(artifact.prefix(records, { x86 = core, arm = "arm core" }, nil, packing)))),
     assert(artifact.split((assert(artifact.host_program({ bytes = core, target_id = 1,
       configuration_id = 2, digest = Hash.sha256(core) }, "SQLite format 3\0db"))))).head,
   }
@@ -166,7 +170,7 @@ local function test_keyed_head_is_total(tmp: string)
         return true, ""
       end
       Fuzz.label("imaged")
-      if keyed:sub(1, 21) ~= "cosmic-head-image-v1\0" then
+      if keyed:sub(1, 21) ~= "cosmic-head-image-v2\0" then
         return false, "a head keyed by its images has no domain"
       end
       return true, ""

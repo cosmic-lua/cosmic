@@ -1443,6 +1443,38 @@ local function test_entropy_and_ftruncate_answer_their_contracts(tmp: string)
   assert(not ok and why ~= "" and errno == sys.EBADF, why)
 end
 
+--- `rand_draw` refuses what the Teal wrapper never passes it, and a
+--- refusal leaves the generator's state words as they were.
+local function test_rand_draw_checks_its_arguments_and_keeps_the_state_on_refusal()
+  local st: mut {integer} = { 1, 2, 3, 4 }
+  local values = sys.rand_draw(st, 0, 3, 0.0, 0.0)
+  assert(#values == 3 and st[1] ~= 1 and #st == 4)
+  local cases: {{integer}} = { { -1, 1 }, { 3, 1 }, { 0, -1 }, { 0, (1 << 20) + 1 } }
+  for _, case in ipairs(cases) do
+    local kind, count = case[1], case[2]
+    assert(kind ~= nil and count ~= nil)
+    local fresh: mut {integer} = { 1, 2, 3, 4 }
+    Test.raises(function() sys.rand_draw(fresh, kind, count, 0.0, 0.0) end, "rand_draw")
+    assert(fresh[1] == 1 and fresh[2] == 2 and fresh[3] == 3 and fresh[4] == 4)
+  end
+  Test.raises(function() sys.rand_draw({ 1, 2, 3 }, 0, 1, 0.0, 0.0) end, "four integers")
+  local nan, inf = 0 / 0, math.huge
+  local ninf = -math.huge
+  local refused: {{integer | number}} = {
+    { 1, 0, -1 }, { 1, inf, 1 }, { 1, 0, nan }, { 1, nan, 1 }, { 1, 0, inf }, { 1, ninf, 1 },
+    { 2, 0, 1 }, { 2, -1, 1 }, { 2, nan, 1 }, { 2, inf, 1 }, { 2, 1, 0 }, { 2, 1, -1 },
+    { 2, 1, nan }, { 2, 1, inf },
+  }
+  for _, case in ipairs(refused) do
+    local kind, first, second = case[1], case[2], case[3]
+    assert(kind ~= nil and first ~= nil and second ~= nil)
+    local fresh: mut {integer} = { 1, 2, 3, 4 }
+    Test.raises(function() sys.rand_draw(fresh, math.tointeger(kind) or 0, 1, first, second) end, "must be finite")
+    assert(fresh[1] == 1 and fresh[2] == 2 and fresh[3] == 3 and fresh[4] == 4)
+  end
+  assert(#sys.rand_draw({ 1, 2, 3, 4 }, 1, 0, 0.0, 1.0) == 0)
+end
+
 --- A lock belongs to the open file: a second open of the same file is
 --- refused an exclusive lock the first holds, whether it asks once or
 --- waits, until the first unlocks or closes.

@@ -131,7 +131,8 @@ local function selected_header_line(artifact_bytes: string, host: string):
 end
 
 -- Each of the four integer fields is `NAME=DIGITS;` and
--- the digest is `NAME=HEX ` (space-terminated, not semicolon-terminated).
+-- the digest is `NAME=HEX;`. The offset is where the stored bytes lie, the
+-- length and digest the raw core's.
 local function parse_selected_header(artifact_bytes: string, host: string):
     string, string, integer, integer, string
   local line = selected_header_line(artifact_bytes, host)
@@ -149,7 +150,7 @@ local function parse_selected_header(artifact_bytes: string, host: string):
   local length_text = assert(line:match("cosmic_length=(%d+);"),
     "manifest header line is missing cosmic_length")
   local length = math.tointeger(assert(tonumber(length_text)))
-  local digest = assert(line:match("cosmic_sha256=([0-9a-f]+) "),
+  local digest = assert(line:match("cosmic_sha256=([0-9a-f]+);"),
     "manifest header line is missing cosmic_sha256")
   return target_id, configuration_id, assert(offset), assert(length), digest
 end
@@ -436,11 +437,12 @@ local function test_runtime_corrupt_ranges(tmp: string)
     diagnostics, { COSMIC_PORTABLE_CACHE = cache })
 
   local selected_corrupt: string? = nil
+  local selected_stub_corrupt: string? = nil
   local nonselected_count = 0
   local index = 0
   for line in Fixture.read(work .. "/corrupt-ranges"):gmatch("[^\n]+") do
     index = index + 1
-    local path, kind = line:match("^(.*) (%a+)$")
+    local path, kind = line:match("^(.*) ([%a-]+)$")
     assert(path and kind, "invalid corrupt-ranges listing line: " .. line)
 
     -- A warm cached core remains independently usable when any artifact
@@ -457,12 +459,15 @@ local function test_runtime_corrupt_ranges(tmp: string)
     assert(not probe.result.ok,
       "retained-prefix-probe against a corrupt range unexpectedly succeeded")
     assert(Fixture.read(probe.err):find(
-      "retained portable core range .* digest differs from manifest") ~= nil,
+      "retained portable range .* digest differs from manifest") ~= nil,
       "corrupt-range probe: expected error message not found")
 
     if kind == "selected" then
       assert(selected_corrupt == nil, "multiple selected corrupt-range entries")
       selected_corrupt = path
+    elseif kind == "selected-stub" then
+      assert(selected_stub_corrupt == nil, "multiple selected corrupt-stub entries")
+      selected_stub_corrupt = path
     elseif kind == "nonselected" then
       nonselected_count = nonselected_count + 1
     else
@@ -470,17 +475,29 @@ local function test_runtime_corrupt_ranges(tmp: string)
     end
   end
   assert(selected_corrupt ~= nil, "no selected corrupt-range entry found")
+  assert(selected_stub_corrupt ~= nil, "no selected corrupt-stub entry found")
   assert(nonselected_count >= 1,
     "expected at least one nonselected corrupt-range entry")
 
   -- A cold launch still rejects corruption in the selected range while
-  -- extracting it.
+  -- extracting it. The release fixture stores its cores compressed, so
+  -- the damaged frame is the decoder stub's to refuse (its own message
+  -- follows the launcher's), before any core is published.
   local cold = Fixture.call_with_environment("selected-corrupt-cold",
     { assert(selected_corrupt), "help" }, work, diagnostics,
     Fixture.environment({
       COSMIC_PORTABLE_CACHE = work .. "/cache-selected-corrupt" }))
   assert(not cold.result.ok, "cold corrupted-core help unexpectedly succeeded")
-  Fixture.contains(cold.err, "extracted core digest differs")
+  Fixture.contains(cold.err, "decoder stub failed with status 1")
+  Fixture.contains(cold.err, "unzstd: ")
+  -- And the decoder stub's own range, damaged, is refused by its digest
+  -- before it runs.
+  local cold_stub = Fixture.call_with_environment("selected-corrupt-stub-cold",
+    { assert(selected_stub_corrupt), "help" }, work, diagnostics,
+    Fixture.environment({
+      COSMIC_PORTABLE_CACHE = work .. "/cache-selected-corrupt-stub" }))
+  assert(not cold_stub.result.ok, "cold corrupted-stub help unexpectedly succeeded")
+  Fixture.contains(cold_stub.err, "extracted decoder digest differs")
 end
 
 -- Startup stamps a cache entry it hashed once a second has passed since the

@@ -15,12 +15,14 @@ local Test = require("cosmic.test")
 Test.policy{ profiles = { "system" } }
 
 local arm = "  'Linux x86_64') cosmic_os=Linux; cosmic_target_id=1; " ..
-  "cosmic_configuration_id=1; cosmic_offset=0; cosmic_block=0; " ..
-  "cosmic_length=0; cosmic_sha256=0 ;;"
+  "cosmic_configuration_id=1; cosmic_offset=0; cosmic_block=0; cosmic_stored=0; " ..
+  "cosmic_length=0; cosmic_sha256=0; cosmic_stub_block=; cosmic_stub_length=; " ..
+  "cosmic_stub_sha256= ;;"
 
 local arm64 = "  'Linux aarch64') cosmic_os=Linux; cosmic_target_id=2; " ..
-  "cosmic_configuration_id=1; cosmic_offset=0; cosmic_block=0; " ..
-  "cosmic_length=0; cosmic_sha256=0 ;;"
+  "cosmic_configuration_id=1; cosmic_offset=0; cosmic_block=0; cosmic_stored=0; " ..
+  "cosmic_length=0; cosmic_sha256=0; cosmic_stub_block=; cosmic_stub_length=; " ..
+  "cosmic_stub_sha256= ;;"
 
 local v3 = "fpu sse4_2 avx avx2 fma bmi1 bmi2 movbe f16c abm xsave"
 
@@ -171,10 +173,22 @@ local function test_a_release_launcher_reads_only_proc_cpuinfo()
   assert(not text:find("TEST_CPUINFO", 1, true), "release carries the test override")
 end
 
+--- A header's script, without the comment that pads it to its fixed length.
+local function script_of(header: string): string
+  return (header:sub(1, 16384):gsub("\n# *\n$", "\n"))
+end
+
+-- The shell header is a fixed 16384 bytes and the arms and hooks go into it.
+-- A ceiling under it leaves room for the next addition to be made on purpose:
+-- the release launcher and the hook-bearing test launcher, each with the
+-- largest arms a release has (every target compressed, with a stub, the
+-- widest offsets), must stay under it, so growth meets the limit in a test
+-- and not in a release build.
+local script_ceiling <const> = 16000
+
 local function test_the_shell_header_fits_its_capacity_with_every_target_arm()
-  -- The header is a fixed size and the arms and hooks go into it: a launcher
-  -- addition that outgrows it fails here, not in a build. The cores are large
-  -- so the offsets and lengths in the arms have their widest digits.
+  -- The cores are large so the offsets and lengths in the arms have their
+  -- widest digits.
   local records = table.concat({
     "1\t1\trelease\tx86\tLinux\tx86_64",
     "2\t1\trelease\tarm\tLinux\taarch64",
@@ -185,20 +199,55 @@ local function test_the_shell_header_fits_its_capacity_with_every_target_arm()
     arm = string.rep("a", 12000000),
     mac = string.rep("m", 12000000),
   }
-  local release, release_trouble = artifact.prefix(records, cores)
-  assert(release ~= nil, "the release header: " .. release_trouble)
-  local fixture, fixture_trouble = artifact.test_prefix(records, cores)
-  assert(fixture ~= nil, "the fixture header: " .. fixture_trouble)
-  -- A line opening with an arm's quoted name is the arm the manifest
-  -- selects (ci/fixtures/runtime_test.tl reads it so), so the launcher's
-  -- own code must open no other line that way.
-  for _, header in ipairs({ release, fixture }) do
-    for _, host in ipairs({ "'Linux x86_64'", "'Linux aarch64'", "'Darwin arm64'" }) do
-      local count = 0
-      for line in header:sub(1, 16384):gmatch("[^\n]+") do
-        if line:sub(1, #host + 2) == "  " .. host then count = count + 1 end
+  local packing: artifact.Packing = {
+    stubs = { x86 = string.rep("s", 60000), arm = string.rep("t", 60000),
+      mac = string.rep("u", 120000) },
+    compress = function(core: string): string?, string
+      return core:sub(1, #core // 2), ""
+    end,
+  }
+  for _, packed in ipairs({ false, true }) do
+    local with = if packed then packing else nil end
+    local release, release_trouble = artifact.prefix(records, cores, nil, with)
+    assert(release ~= nil, "the release header: " .. release_trouble)
+    local fixture, fixture_trouble = artifact.test_prefix(records, cores, with)
+    assert(fixture ~= nil, "the fixture header: " .. fixture_trouble)
+    for name, header in pairs({ release = release, fixture = fixture }) do
+      assert(#script_of(header) <= script_ceiling, name .. " launcher is " ..
+          tostring(#script_of(header)) .. " bytes, over its ceiling of " .. tostring(script_ceiling))
+    end
+    -- A line opening with an arm's quoted name is the arm the manifest
+    -- selects (ci/fixtures/runtime_test.tl reads it so), so the launcher's
+    -- own code must open no other line that way.
+    for _, header in ipairs({ release, fixture }) do
+      for _, host in ipairs({ "'Linux x86_64'", "'Linux aarch64'", "'Darwin arm64'" }) do
+        local count = 0
+        for line in header:sub(1, 16384):gmatch("[^\n]+") do
+          if line:sub(1, #host + 2) == "  " .. host then count = count + 1 end
+        end
+        assert(count == 1, host .. " opens " .. tostring(count) .. " header lines")
       end
-      assert(count == 1, host .. " opens " .. tostring(count) .. " header lines")
     end
   end
+end
+
+local function test_a_release_launcher_carries_no_test_hook_and_a_raw_arm_no_stub()
+  local records = "1\t1\trelease\tx86\tLinux\tx86_64\n"
+  local raw = assert(artifact.prefix(records, { x86 = "ELF-x" }))
+  assert(raw:find("cosmic_stub_length=;", 1, true) ~= nil,
+    "a raw arm sets its stub fields empty, so the environment's cannot be read")
+  assert(raw:find("portable_test_hook", 1, true) == nil and raw:find("after_stub", 1, true) == nil)
+  local packed = assert(artifact.prefix(records, { x86 = "ELF-x" },
+    nil, { stubs = { x86 = "STUB" }, compress = function(core: string): string?, string
+      return "frame-of-" .. core, ""
+    end }))
+  assert(packed:find("cosmic_stub_length=4;", 1, true) ~= nil, "a compressed arm names its stub")
+  assert(packed:find("cosmic_stored=" .. tostring(#"frame-of-ELF-x") .. ";", 1, true) ~= nil,
+    "and the stored length of its core")
+  local hooked = assert(artifact.test_prefix(records, { x86 = "ELF-x" },
+    { stubs = { x86 = "STUB" }, compress = function(core: string): string?, string
+      return "frame-of-" .. core, ""
+    end }))
+  assert(hooked:find("portable_test_hook after_stub", 1, true) ~= nil,
+    "the test launcher gates the stub's run")
 end

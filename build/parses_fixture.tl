@@ -4,12 +4,12 @@
 --- build/shared_parses_test.tl and build/shared_parses_tool_test.tl,
 --- which compare what one build or boot parsed with another's.
 ---
---- The rows are written with [`cosmic.csv.encode`], a tab between fields and a
---- line between rows, so a field that holds a tab, a quote or a line break is
---- quoted and no two row sets dump alike, but for NULL and '' (see
---- [`dump`]): the parse tables hold text, such as a source, that has all of
---- them, and the tests compare dumps with `==`. Plain fields come out as they
---- are.
+--- The rows are written with [`cosmic.csv.encode`], a tab between fields
+--- and a line between rows, so a field that holds a tab, a quote or a line
+--- break is quoted, so no field's text runs into the next (see [`dump`] for
+--- what else it tells apart): the parse tables hold text, such as a source,
+--- that has all of them, and the tests compare dumps with `==`. Plain fields
+--- come out as they are.
 
 local Csv = require("cosmic.csv")
 local Sqlite = require("cosmic.sqlite")
@@ -24,20 +24,50 @@ local function written(records: {{string}}): string
   return (text:gsub("\n$", ""))
 end
 
---- Every row `sql` answers of the database at `path`, a line each.
+--- `field` as a dump writes it. NULL is the bare `\N`, and a text that is
+--- exactly `\N` is quoted so it is no NULL. An empty text is quoted when
+--- `alone`, the only field of its record: unquoted, the record would be a
+--- blank line, no record.
+local function dumped_field(field: string?, alone: boolean): string
+  if field == nil then return "\\N" end
+  if field == "\\N" then return '"\\N"' end
+  return Csv.encode_field(field, { delimiter = "\t", quote_empty = alone })
+end
+
+--- Every row `sql` answers of the database at `path`, a line each: fields
+--- joined by a tab, lines by a line feed, the last without its end.
 ---
---- TODO: write NULL and '' apart once [`cosmic.csv`] can write an empty field
---- quoted, which [`Csv.encode_field`]'s `quote_empty` (cosmic-lua/cosmic#3431)
---- adds: read each cell's kind ([`Sqlite.rows`], not `text_rows`, which answers
---- NULL as "") and quote an empty text, leaving NULL a bare empty field. Every
---- column of the parse tables is NOT NULL, so [`rows`] is unaffected.
+--- NULL, an empty text and no rows dump apart. A field is written as
+--- [`Csv.encode_field`] writes it with a tab delimiter, except that NULL is
+--- the bare `\N` (as `cosmic sql` writes it), and a text that is exactly `\N`
+--- is quoted, `"\N"`. An empty text is quoted, `""`, when it is the only field
+--- of a row, so a row of one empty text is not no rows, and a row of one NULL
+--- is neither. Every other cell is written as its text, as
+--- [`Sqlite.text_rows`] answers it, with no mark of its type: the integer 1
+--- and the text '1' dump alike, as a blob and the text of the same bytes do.
+---
+--- The rows are read in one pass, so a query with no ORDER BY that answers in
+--- another order on each run still dumps each NULL on its own row. A query
+--- that fails raises, as a test fixture should, leaving the database open.
 function parses_fixture.dump(path: string, sql: string): string
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db, sql))
+  local statement = assert(db:prepare(sql))
+  local width = statement:columns()
+  local lines: mut {string} = {}
+  while true do
+    local state = assert(statement:step())
+    if state == "done" then break end
+    local record: mut {string} = {}
+    for i = 0, width - 1 do
+      local field: string? = nil
+      if statement:kind(i) ~= "null" then field = statement:bytes(i) end
+      record[#record + 1] = dumped_field(field, width == 1)
+    end
+    lines[#lines + 1] = table.concat(record, "\t")
+  end
+  statement:finalize()
   assert(db:close())
-  local records: mut {{string}} = {}
-  for _, row in ipairs(rows) do records[#records + 1] = row:texts() end
-  return written(records)
+  return table.concat(lines, "\n")
 end
 
 --- Every row of every parse table of the working database `db`.
