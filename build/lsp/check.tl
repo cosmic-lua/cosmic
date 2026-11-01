@@ -34,9 +34,10 @@
 --- A session checks every document in one program kept between checks ([`build.lsp.held`]): the document's text is put in it,
 --- and each module served is put in it again where what it is served as changes, so that a check lowers the standard library
 --- once and the stubs the document reaches, and not the project. A document whose text has not changed since its last check,
---- with no module served dropped since, publishes what it published then, and answers the questions asked of its types from the
---- result of that check ([`check.read`]), kept in memory: it depends on the editor's unsaved text, which the working
---- database does not hold. A text being typed does not parse: completion reads the last text of the document that did
+--- with none of the modules it reads, its own listing or the hints moved since ([`Basis`]), publishes what it published then,
+--- and answers the questions asked of its types from the result of that check ([`check.read`]), kept in memory for the few
+--- documents asked of last ([`KEPT_AT_MOST`]): it depends on the editor's unsaved text, which the working database does
+--- not hold. A text being typed does not parse: completion reads the last text of the document that did
 --- ([`check.last`]).
 
 local Ast = require("lang.ast")
@@ -72,26 +73,39 @@ local record check
     outside: boolean
     --- The SHA-256 of `text`, once asked for.
     mut hash: string?
-    --- What it last published, each diagnostic encoded, and the text and
-    --- the checker's [`Checker`] `epoch` it was of.
+    --- What it last published, each diagnostic encoded, and what that was of ([`Basis`]): it is published again, and not
+    --- checked again, while the basis stands, whether or not the result of the check is still kept.
     mut published: {string}?
-    mut published_text: string
-    mut published_epoch: integer
+    mut published_basis: Basis?
     --- What its text required at its last check, nil before one.
     mut requires: {string}?
-    --- The result of its last check, for the questions asked of its types ([`check.read`]): a function of its text and
-    --- of the program, which the checker's `epoch` stands for. It is the session's and not the working database's, since
-    --- the text is the editor's and not a staged file's.
+    --- The result of its last check, for the questions asked of its types ([`check.read`]), while its [`Basis`] stands.
+    --- It is the session's and not the working database's, since the text is the editor's and not a staged file's. Only
+    --- the documents most recently asked of keep one ([`KEPT_AT_MOST`]).
     mut kept: Kept?
     --- The last check of it whose text parsed, kept as `kept` is: a text being typed often does not parse, and completion
     --- reads what the text was before ([`check.last`]).
     mut parsed: Kept?
   end
 
+  --- What a check of a document was of: the result stands while every part of it is as it was.
+  record Basis
+    text: string
+    --- The checker's `epoch` ([`Checker`]), which stands for what the modules served do not: the imports of the open
+    --- documents, and the program made again.
+    epoch: integer
+    --- What the stage lists the document as, and whether the tree is cosmic's own ([`listing_of`]).
+    listing: string
+    --- The databases a message's hint looks a name up in ([`hints_key`]).
+    hints: string
+    --- The key ([`source.key`]) of each module the document reads, by name: the modules it requires and those they
+    --- require, in turn ([`reads_of`]). "" for a name no module is found for.
+    reads: {string:string}
+  end
+
   --- What a document's check found, and what it was of.
   record Kept
-    text: string
-    epoch: integer
+    basis: Basis
     checked: Checked
   end
 
@@ -148,11 +162,16 @@ local record check
     --- What each project module the checker was served was served from
     --- ([`source.key`]), by name: "" for one not found.
     mut served: mut {string:string}
-    --- How many times the modules served were dropped.
+    --- How many times what the modules served cannot say moved: an open document's imports (a cycle of imports through
+    --- another open document may have closed or opened), the stage found a project, the program made again. A kept
+    --- result is also keyed by the modules it reads ([`Basis`]'s `reads`), so that a module it does not read moves
+    --- nothing of it.
     mut epoch: integer
     --- Whether the stage last staged nothing ([`source.refused`]), which moves `epoch` when it changes, so that a publish kept
     --- for a document of a refused pair is made again.
     mut refused: boolean
+    --- The documents with a kept result, the least recently asked first ([`KEPT_AT_MOST`]).
+    recent: mut {Document}
     --- The open documents, by name.
     open: mut {string:Document}
     --- The databases a message's hint looks a name up in.
@@ -173,6 +192,7 @@ end
 local type Checker = check.Checker
 local type Document = check.Document
 local type Checked = check.Checked
+local type Basis = check.Basis
 
 --- The hints of `checker` as the importer asks for them.
 local function importer_hints(checker: Checker): importer.Hints
@@ -194,6 +214,7 @@ function check.new(root: string, err: function(line: string), hints: function():
     served = {},
     epoch = 0,
     refused = false,
+    recent = {},
     open = {},
     hints = hints,
     graph_moved = false,
@@ -206,7 +227,7 @@ end
 --- the root where `outside`.
 function check.document(uri: string, name: string, text: string, outside?: boolean): Document
   return { uri = uri, text = text, name = name, outside = outside == true, hash = nil, published = nil,
-    published_text = "", published_epoch = 0, requires = nil, kept = nil, parsed = nil }
+    published_basis = nil, requires = nil, kept = nil, parsed = nil }
 end
 
 --- Whether `document` is no module a build at the root reads
@@ -248,6 +269,37 @@ function check.regraphs(checker: Checker, document: Document): boolean
   return table.concat(document.requires or staged, "\0") ~= table.concat(staged, "\0")
 end
 
+--- The most documents that keep the result of their check at once: the documents asked of least recently drop theirs ([`bounded`]).
+--- Each holds the whole [`Declarations.Program`] of its check, two where the text last asked of does not parse. Eight is
+--- the files a person edits across at one time; a session that asks of more checks again the ones it asks of after a
+--- sweep, and publishes what it published where nothing they read moved ([`Document`]'s `published_basis`).
+local KEPT_AT_MOST <const> = 8
+
+--- Lets go of the result kept for `document`, and of its place among the most recently asked.
+local function forget(checker: Checker, document: Document)
+  document.kept = nil
+  document.parsed = nil
+  for n, other in ipairs(checker.recent) do
+    if other == document then
+      table.remove(checker.recent, n)
+      return
+    end
+  end
+end
+
+--- Makes `document` the document most recently asked of, and drops the results kept for the one asked of least recently
+--- while more than [`KEPT_AT_MOST`] documents keep one.
+local function bounded(checker: Checker, document: Document)
+  for n, other in ipairs(checker.recent) do
+    if other == document then
+      table.remove(checker.recent, n)
+      break
+    end
+  end
+  table.insert(checker.recent, document)
+  while #checker.recent > KEPT_AT_MOST do forget(checker, assert(checker.recent[1])) end
+end
+
 --- Makes `document` one a `require` no longer reads. Where it stood for
 --- its file with another text than the stage's, the modules served are
 --- dropped at the next check ([`source.refresh`]); its dependents are checked
@@ -256,6 +308,7 @@ end
 --- have closed or opened: every other open document is to be checked
 --- again ([`check.moved`]).
 function check.closed(checker: Checker, document: Document)
+  forget(checker, document)
   if checker.open[document.name] ~= document then return end
   local regraphs = check.regraphs(checker, document)
   checker.open[document.name] = nil
@@ -304,7 +357,7 @@ local PUT_AT_MOST <const> = 12
 
 --- Makes the session's program agree with what is served now ([`source.key`]): each module served otherwise than it was is
 --- put in it again ([`held.put`]), and a program that cannot (`dead` of [`held.Program`]) is made again at the next check. The
---- documents already checked are checked again where one moved ([`Checker`]'s `epoch`).
+--- documents already checked are checked again where a module they read moved ([`Basis`]'s `reads`).
 local function refresh_program(checker: Checker)
   local open = check.open_files(checker)
   local moved = 0
@@ -312,7 +365,6 @@ local function refresh_program(checker: Checker)
     if source.key(checker.source, name, open) ~= key then moved = moved + 1 end
   end
   if moved == 0 then return end
-  checker.epoch = checker.epoch + 1
   local program = checker.program
   if program == nil then
     checker.served = {}
@@ -501,31 +553,87 @@ local function checked_of(checker: Checker, document: Document): Checked
   return checked(refusals, spliced, splices, program.build:result(path, true), program.build.program)
 end
 
--- TODO: bound the results kept to the documents most recently asked of (the least recently used dropped), once a session is seen
--- to hold enough open documents for them to matter: every open document keeps its tree, scopes and types until it is closed, and `kept` and `parsed` each hold the whole
--- [`Declarations.Program`] of their check (up to two a document; `parsed` pins an old program while a line does not parse).
+--- What the stage lists `document` as, and whether the tree is cosmic's own: what a check reads of the document's own file
+--- besides its text. "" for a file the stage lists none of.
+local function listing_of(checker: Checker, document: Document): string
+  local listed = source.module(checker.source, document.name)
+  local own = if source.standing(checker.source).own then "own" else "other" end
+  if listed == nil then return own end
+  return table.concat({ own, listed.path, listed.kind, listed.file }, "\0")
+end
 
--- TODO: invalidate a kept result by the keys of the modules its document reads ([`source.key`]) in place of the checker's
--- `epoch`, once a check records which modules it was served: any module served otherwise than it was checks every open
--- document again, one it does not read among them.
+-- TODO: key a kept result by the contents of the docs databases, once [`hover.sources`] says which version of them a handle
+-- reads: a database written in place under the same handle moves no key.
+--- The databases a message's hint looks a name up in now ([`importer_hints`]), by identity: a restage that opens them again
+--- changes it.
+local function hints_key(checker: Checker): string
+  local hinted = checker.hints()
+  local parts: mut {string} = {}
+  for n, handle in ipairs(hinted.databases) do
+    parts[#parts + 1] = tostring(handle) .. (if hinted.public[n] == true then "+" else "-" end)
+  end
+  return table.concat(parts, "\0")
+end
 
--- TODO: key a kept result by what the document's own listing and the importer's hints were ([`importer_hints`]), once a check
--- records them: a restage that changes the listing of the document's own file (its kind) without moving a module served, or a
--- change of the docs databases, bumps no epoch, so the result kept (and what [`check.diagnose`] publishes) stands until the
--- text or the epoch moves.
+--- The key ([`source.key`]) of each module `document` reads, by name: the modules it requires at its last check and those
+--- they require, as an open document or the stage has them. A module the program already held is not served again, so the
+--- modules served in a check are no account of what the check read.
+local function reads_of(checker: Checker, document: Document): {string:string}
+  local open = check.open_files(checker)
+  local reads: mut {string:string} = {}
+  local pending: mut {string} = {}
+  for _, name in ipairs(document.requires or {}) do pending[#pending + 1] = name end
+  while #pending > 0 do
+    local name = assert(table.remove(pending))
+    if reads[name] == nil then
+      reads[name] = source.key(checker.source, name, open)
+      local listed = checker.source.modules[name]
+      if listed ~= nil then
+        local opened = checker.open[listed.file]
+        local requires = opened and opened.requires
+        for _, further in ipairs(requires or checker.source.requires[listed.source_hash] or {}) do
+          pending[#pending + 1] = further
+        end
+      end
+    end
+  end
+  return reads
+end
 
---- The check of `document` as it stands: the one kept from the last, where the text and the checker's `epoch` are those it
---- was of, else a check made now and kept. A text that does not parse is kept as well, its outcome nil.
+--- What the check of `document` just made was of.
+local function basis_of(checker: Checker, document: Document): Basis
+  return { text = document.text, epoch = checker.epoch, listing = listing_of(checker, document),
+    hints = hints_key(checker), reads = reads_of(checker, document) }
+end
+
+--- Whether a check of `document` that was of `basis` would find what it found: nothing it was of moved.
+local function stands(checker: Checker, document: Document, basis: Basis): boolean
+  if basis.text ~= document.text or basis.epoch ~= checker.epoch then return false end
+  if basis.listing ~= listing_of(checker, document) or basis.hints ~= hints_key(checker) then
+    return false
+  end
+  local open = check.open_files(checker)
+  for name, key in pairs(basis.reads) do
+    if source.key(checker.source, name, open) ~= key then return false end
+  end
+  return true
+end
+
+--- The check of `document` as it stands: the one kept from the last, where what it was of stands ([`stands`]), else a check
+--- made now and kept. A text that does not parse is kept as well, its outcome nil. The document becomes the one most
+--- recently asked of ([`bounded`]).
 local function checked_now(checker: Checker, document: Document): Checked
   local kept = document.kept
-  if kept ~= nil and kept.text == document.text and kept.epoch == checker.epoch then
+  if kept ~= nil and stands(checker, document, kept.basis) then
+    bounded(checker, document)
     return kept.checked
   end
   checker.ran[document.name] = (checker.ran[document.name] or 0) + 1
   local checked = checked_of(checker, document)
-  -- The epoch after the check, which may move it (`remember`, [`program_of`]): the next ask is of the same program.
-  document.kept = { text = document.text, epoch = checker.epoch, checked = checked }
+  -- The basis after the check, which may move the epoch (`remember`, [`program_of`]): the next ask is of the same program.
+  document.kept = { basis = basis_of(checker, document), checked = checked }
   if checked.outcome ~= nil and not checked.generated then document.parsed = document.kept end
+  bounded(checker, document)
   return checked
 end
 
@@ -569,8 +677,8 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
   refresh_program(checker)
   checker.checks[document.name] = (checker.checks[document.name] or 0) + 1
   local published = document.published
-  if published ~= nil and document.published_text == document.text and
-      document.published_epoch == checker.epoch then
+  local basis = document.published_basis
+  if published ~= nil and basis ~= nil and stands(checker, document, basis) then
     return published
   end
   local checked = checked_now(checker, document)
@@ -600,8 +708,7 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
     add(refusal.line, refusal.column, refusal.message, refusal.code)
   end
   document.published = out
-  document.published_text = document.text
-  document.published_epoch = checker.epoch
+  document.published_basis = assert(document.kept).basis
   return out
 end
 
@@ -632,7 +739,8 @@ function check.last(checker: Checker, document: Document): check.Last?
   if parsed == nil then return nil end
   local outcome, declarations = parsed.checked.outcome, parsed.checked.program
   if outcome == nil or declarations == nil then return nil end
-  return { reading = { outcome = outcome, splices = parsed.checked.splices, program = declarations }, text = parsed.text }
+  return { reading = { outcome = outcome, splices = parsed.checked.splices, program = declarations },
+    text = parsed.basis.text }
 end
 
 --- The byte `offset` (from 1) of the text the reading was of, as the checker's text has it: a build put text in the one
