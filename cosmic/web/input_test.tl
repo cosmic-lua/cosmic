@@ -684,16 +684,19 @@ local function test_a_json_pointer_with_escapes_is_one_dotted_field()
 end
 
 local function test_a_json_body_failure_at_an_odd_key_keeps_its_pointer()
-  -- TODO: give these positional rows a record, as the case lists of cosmic/hash_test.tl have, once #3348 (Shape) merges:
-  -- it moves cosmic/web, which this change leaves alone.
-  local cases: {{string}} = {
-    { 'a"b', '/a"b/1', 'a"b.1' },
-    { "", "//1", ".1" },
-    { "x\\y", "/x\\y/1", "x\\y.1" },
-    { "caf\u{e9} 1st", "/caf\u{e9} 1st/1", "caf\u{e9} 1st.1" },
+  local record OddKey
+    key: string
+    pointer: string
+    field: string
+  end
+  local cases: {OddKey} = {
+    { key = 'a"b', pointer = '/a"b/1', field = 'a"b.1' },
+    { key = "", pointer = "//1", field = ".1" },
+    { key = "x\\y", pointer = "/x\\y/1", field = "x\\y.1" },
+    { key = "caf\u{e9} 1st", pointer = "/caf\u{e9} 1st/1", field = "caf\u{e9} 1st.1" },
   }
   for _, case in ipairs(cases) do
-    local key, want_pointer, want_field = assert(case[1]), assert(case[2]), assert(case[3])
+    local key, want_pointer, want_field = case.key, case.pointer, case.field
     local typed = typed_by("Odd", Shape.map(Shape.list(Shape.integer)))
     with_request("POST", { json = { [key] = { 1, "x" } } }, function(req: Web.Request)
       local read = Input.json_into(req, typed)
