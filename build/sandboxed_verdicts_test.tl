@@ -90,9 +90,10 @@ local function skip_if_unsandboxed(text: string)
 end
 
 --- The environment a sandboxed run of the suite is started with, its
---- shared cache at `cache`.
-local function environment(cache: string): {string:string}
+--- shared cache at `cache`, and `harness_salt` where given.
+local function environment(cache: string, harness_salt?: string): {string:string}
   local env = this_program.environment()
+  if harness_salt ~= nil then env["COSMIC_TEST_HARNESS_SALT"] = harness_salt end
   env.COSMIC_VERDICT_CACHE = cache
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_TEST_NO_SHARED = nil
@@ -567,6 +568,24 @@ local function test_a_bump_of_the_epoch_runs_every_test_again(tmp: string)
   env.COSMIC_TEST_TIMEOUT = "31"
   local longer = run(root, tmp .. "/longer.out", env)
   assert(longer:find("3 ran, 0 stood", 1, true), longer)
+end
+
+--- The harness's digest is in every sandboxed key, wired through [`test_key.begin`]: an edit to the
+--- harness's code -- stood in for by COSMIC_TEST_HARNESS_SALT, as a binary with other harness bytecode
+--- would bring -- runs every test again, and the same salt stands on the verdicts it reached.
+local function test_an_edit_to_the_harness_runs_every_test_again(tmp: string)
+  local root = tmp .. "/root"
+  checkout(root)
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local first = run(root, tmp .. "/first.out", env)
+  skip_if_unsandboxed(first)
+  local again = run(root, tmp .. "/again.out", env)
+  assert(again:find("0 ran, 3 stood", 1, true), again)
+  local salted = environment(tmp .. "/cache/verdicts.db", "another harness")
+  local moved = run(root, tmp .. "/moved.out", salted)
+  assert(moved:find("3 ran, 0 stood", 1, true), moved)
+  local same = run(root, tmp .. "/same.out", salted)
+  assert(same:find("0 ran, 3 stood", 1, true), same)
 end
 
 --- A compiler of another identity that makes the same bytecode --

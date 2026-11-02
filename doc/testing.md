@@ -699,52 +699,52 @@ the repository's own timing fixtures, not this recipe.
 ## changing the harness
 
 Most authors skip this section. It is for a change to the code that
-runs, sandboxes or keys tests.
+runs, sandboxes or keys tests, and it asks nothing of them.
 
-No key holds the harness's code. It holds `epoch` in
-[`build.harness_epoch`]. An edit to the harness therefore runs no test
-again by itself. [`build.harness_epoch_test`] fails until
-`acknowledged` holds every harness module's digest. It prints the line
-to set or add, and each stale entry to delete.
+Every verdict key holds a digest of the harness's code, beside `epoch`
+in [`build.harness_epoch`]. The digest (`harness` in [`build/test_key.tl`])
+is taken over each harness module's bytecode with its debug information
+stripped, computed once per run. An edit to the harness that changes
+what it does (a constant, an instruction, a function's shape) therefore
+runs every test again with nothing recorded by hand. A comment, a blank
+line, a moved line or a renamed local changes none of it and runs
+nothing again. A compiler change that emits other bytecode for the
+harness moves it as an edit does.
 
-The code that makes a key, looks a verdict up or keeps one, and gives a
-worker what it runs on is [`build/test_key.tl`], which the harness holds
-alone. The runner around it, [`build/test.tl`], and the types they
-share, [`build/test_state.tl`], are not held: an edit to either (a
-progress line, the coverage, the summary) moves no digest, and needs
-nothing here. Where a part of the runner could be either, it is in
+The harness is what every worker loads, the sandbox's maker, and the
+code that makes a key, looks a verdict up or keeps one:
+[`build/test_key.tl`], which it holds alone, and the closure of
+[`build/declared_key.tl`] and the shared verdicts.
+[`build.harness_epoch_test`] holds that set to everything a worker runs
+and to the standard-library modules `library` in
+[`build.harness_epoch`] names. The runner around it,
+[`build/test.tl`], and the types they share, [`build/test_state.tl`], are
+not held: an edit to either (a progress line, the coverage, the summary)
+moves no digest. Where a part of the runner could be either, it is in
 [`build/test_key.tl`].
 
-The hooks of a checked run (`install_checks`, the hooks it defines, what they record) and the judge's checks that
-apply to a checked run alone are the code of [`build.test_worker`] that no ordinary run executes. The keys of a checked
-run hold that module's digest, so an edit confined to them moves those keys and no other, and needs no bump: a bump
-would run the ordinary suites on a change that cannot alter them. This is the one exception to the rule below. An edit
-to the module's ordinary judging, its run or its sandbox setup bumps, as does an edit to [`build/test_key.tl`] or
-[`build/declared_key.tl`] that alters a checked pass.
+The hooks of a checked run (`install_checks`, the hooks it defines, what
+they record) are the code of [`build.test_worker`], a harness module, so
+an edit to them moves every key, the ordinary suites' too.
 
-Bump `epoch` in the same edit where the change can alter a pass or a
-fail:
+`epoch` stays as a lever for a change the modules' code does not show:
+the host or the toolchain a verdict stands on, or verdicts cached wrongly
+under the keys as they were. Bump it in that edit. A bump appends the old
+token to `retired` and draws a new one;
+[`build.harness_epoch_test`] prints both lines. On a merge conflict in
+`epoch`, keep neither side. Set the bare count, and the test prints a
+fresh value. Two bumps conflict on that line by design.
 
-- what a worker is given,
-- how it is judged,
-- how a key is computed,
-- a sandbox hold or bind tightened. A pass earned through the hole
-  must not stand.
-
-A comment-only edit sets the `acknowledged` lines and does not bump.
-A bump appends the old token to `retired` and draws a new one. The
-guard prints both lines. On a merge conflict in `epoch`, keep neither
-side. Set the bare count, and the guard prints a fresh value.
-
-A merge-queue run whose change moves that file runs every test.
+A merge-queue run that finds the change's keys moved runs those tests,
+and the shared verdict cache has no entry under them.
 
 Other rules:
 
 - A held run fails instead of falling back. Hold a run with
   `COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must` or
   `COSMIC_CI_REQUIRE_SANDBOX=1`. CI's Linux legs hold theirs.
-- Never set `COSMIC_TEST_HARNESS_EPOCH` or `COSMIC_TEST_PLATFORM=other`
-  to run a suite. They are for the runner's own tests
+- Never set `COSMIC_TEST_HARNESS_EPOCH`, `COSMIC_TEST_HARNESS_SALT` or
+  `COSMIC_TEST_PLATFORM=other` to run a suite. They are for the runner's own tests
   ([`build.sandboxed_verdicts_test`]).
 - Harness modules reach the host through raw bindings and the
   standard-library modules `library` in [`build.harness_epoch`] names,

@@ -389,10 +389,9 @@ local function test_a_base_that_heads_no_queue_run_is_none()
   end
 end
 
---- A checkout whose change moves build/harness_epoch.tl from the base's
---- runs every test (--all), standing on no verdict: nothing is asked.
---- One that leaves it asks as ever. (github_test.tl holds git's answer.)
-local function test_a_change_that_moves_the_harness_takes_nothing()
+--- A checkout that changes a file of the test harness from the base's moves every key, so nothing is
+--- asked of the run ahead. One that leaves them asks as ever. (github_test.tl holds git's answer.)
+local function test_a_change_to_the_harness_takes_nothing_from_the_run_ahead()
   local running = listed(run("42", "in_progress", nil, SHA, QUEUE))
   local fake, code = ahead(SHA, { runs = { running }, artifacts = { ["42"] = KEPT } })
   assert(code == 0 and outputs(fake) == "run=42\n" and fake.asked[1] == SHA, outputs(fake) .. said(fake))
@@ -400,7 +399,7 @@ local function test_a_change_that_moves_the_harness_takes_nothing()
   fake.moved = true
   code = QueueSeed.ahead({ REPOSITORY = "o/r", BASE = SHA, JOB = "a", ARTIFACT = "verdicts-a" }, fake.host)
   assert(code == 0 and outputs(fake) == "run=\n" and #fake.calls == 0, outputs(fake) .. table.concat(fake.calls, "\n"))
-  assert(said(fake):find("a suite runs every test (--all)", 1, true), said(fake))
+  assert(said(fake):find("every key moves", 1, true), said(fake))
 end
 
 --- The step's words reach where the live host writes them: $GITHUB_OUTPUT

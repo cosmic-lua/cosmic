@@ -286,14 +286,13 @@ resolution and what counts as prose.
    not a comment fix. leave the comment, add a `TODO:` naming the
    defect, and list it in the PR.
 5. a comment edit in a harness module ([`build/harness_epoch.tl`]) moves
-   its digest. set the lines [`build/harness_epoch_test.tl`] prints and
-   do not bump `epoch`: no pass or fail moves.
+   no digest: the harness is held by its bytecode without debug
+   information. do nothing more, and do not bump `epoch`.
 6. one PR per coherent part of the tree, titled `<area>: audit
    comments`. its description gives the kinds of change made with a few
    examples, any refactor, and any defect found.
 
 [`build/harness_epoch.tl`]: ../build/harness_epoch.tl
-[`build/harness_epoch_test.tl`]: ../build/harness_epoch_test.tl
 [`build/links.tl`]: ../build/links.tl
 [`cosmic.fs.read`]: ../cosmic/fs.tl
 [`cosmic.test`]: ../cosmic/test.tl

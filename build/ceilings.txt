@@ -5998,7 +5998,7 @@ build/driver_test.tl not_assignable 1
 
 build/fix/notes_test.tl not_assignable 1
 
-build/harness_epoch_test.tl not_assignable 2
+build/harness_epoch_test.tl not_assignable 1
 
 
 build/importer.tl not_assignable 1

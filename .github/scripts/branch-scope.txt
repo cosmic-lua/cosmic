@@ -48,9 +48,8 @@ core/*.h
 core/*.zig
 test/portable/*.c
 
-# The harness: a change to a module it names moves this file
-# (build/harness_epoch_test.tl), and a queue run whose change moves it
-# runs every test (orchestration.tl's `harness_moved`).
+# The harness's epoch, which moves every verdict key by hand
+# (doc/testing.md, "changing the harness").
 build/harness_epoch.tl
 
 # The artifact format, the launcher, boot and the vocabulary a test's
