@@ -86,9 +86,9 @@ local function in_child(chunk: string): Said
   local said: Said = { code = result.code or -1, lines = {}, raw = result.stdout or "" }
   for line in said.raw:gmatch("[^\n]+") do
     local name, value = line:match("^([%w_]+)=(.*)$")
-    if name ~= nil then said.lines[name] = value end
+    if name ~= nil and value ~= nil then said.lines[name] = value end
   end
-  local skip = said.lines.skip
+  local skip = said.lines["skip"]
   if skip ~= nil then Test.skip(skip) end
   assert(result.code == 0, "the child ended " .. tostring(result.code) .. ": " .. said.raw)
   return said
@@ -120,12 +120,12 @@ say("sibling", reads(%q))
 say("create", writes(%q))
 say("overwrite", writes(%q))
 ]], tmp .. "/ro/a", tmp .. "/other/b", tmp .. "/ro/new", tmp .. "/ro/a")))
-  assert(said.lines.restrict == "true ", said.raw)
-  assert(said.lines.granted == "alpha", said.raw)
-  assert(said.lines.sibling == "denied: " .. DENIED, said.raw)
+  assert(said.lines["restrict"] == "true ", said.raw)
+  assert(said.lines["granted"] == "alpha", said.raw)
+  assert(said.lines["sibling"] == "denied: " .. DENIED, said.raw)
   -- Read alone is not write, whether to make a file or to change one.
-  assert(said.lines.create == "denied: " .. DENIED, said.raw)
-  assert(said.lines.overwrite == "denied: " .. DENIED, said.raw)
+  assert(said.lines["create"] == "denied: " .. DENIED, said.raw)
+  assert(said.lines["overwrite"] == "denied: " .. DENIED, said.raw)
 end
 
 local function test_w_and_c_give_writing_and_creating(tmp: string)
@@ -136,7 +136,7 @@ local function test_w_and_c_give_writing_and_creating(tmp: string)
 say("overwrite", writes(%q))
 say("create", writes(%q))
 ]], tmp .. "/rw/f", tmp .. "/rw/made")))
-  assert(said.lines.overwrite == "wrote" and said.lines.create == "wrote", said.raw)
+  assert(said.lines["overwrite"] == "wrote" and said.lines["create"] == "wrote", said.raw)
   assert(Fs.exists(tmp .. "/rw/made"))
 end
 
@@ -151,9 +151,9 @@ local started, trouble = Child.start({ %q, "print hi" }, { process_group = false
 say("fork", started ~= nil, trouble)
 ]], probe)))
   -- Not "Connection refused", which a socket the filter let through would meet.
-  assert(said.lines.socket:find("^false") and said.lines.socket:find("Operation not permitted", 1, true),
+  assert(assert(said.lines["socket"]):find("^false") and assert(said.lines["socket"]):find("Operation not permitted", 1, true),
     said.raw)
-  assert(said.lines.fork:find("^false") and said.lines.fork:find("Operation not permitted", 1, true),
+  assert(assert(said.lines["fork"]):find("^false") and assert(said.lines["fork"]):find("Operation not permitted", 1, true),
     said.raw)
 end
 
@@ -165,7 +165,7 @@ local function test_the_fork_promise_lets_a_process_start(tmp: string)
 local result, trouble = Child.run({ %q, "print hi" }, { process_group = false, stdout = "capture" })
 if result ~= nil then say("fork", result.ok, result.stdout) else say("fork", false, trouble) end
 ]], probe)))
-  assert(said.lines.fork:find("^true"), said.raw)
+  assert(assert(said.lines["fork"]):find("^true"), said.raw)
 end
 
 --- Landlock's signal scope (ABI 6) is what lets the filter's signal calls
@@ -197,18 +197,18 @@ say("parent", parent, parent_why)
   sibling:stop(sys.SIGKILL)
   assert(sibling:wait())
   local refused = "^false.*Operation not permitted"
-  assert(said.lines.pid:find("^true"), said.raw)
+  assert(assert(said.lines["pid"]):find("^true"), said.raw)
   -- Never a process outside it, whichever ABI: the kernel's, or the filter's.
   assert(alive, "the sibling outside the sandbox was signalled: " .. said.raw)
-  assert(said.lines.sibling:find(refused), said.raw)
-  assert(said.lines.parent:find(refused), said.raw)
+  assert(assert(said.lines["sibling"]):find(refused), said.raw)
+  assert(assert(said.lines["parent"]):find(refused), said.raw)
   if abi ~= nil and abi >= 6 then
-    assert(said.lines.self == tostring(sys.SIGTERM) .. " nil ", said.raw)
-    assert(said.lines.child:find("^true"), said.raw)
-    assert(said.lines.reaped == tostring(sys.SIGKILL), said.raw)
+    assert(said.lines["self"] == tostring(sys.SIGTERM) .. " nil ", said.raw)
+    assert(assert(said.lines["child"]):find("^true"), said.raw)
+    assert(said.lines["reaped"] == tostring(sys.SIGKILL), said.raw)
   else
-    assert(said.lines.self:find("not permitted", 1, true), said.raw)
-    assert(said.lines.child:find(refused), said.raw)
+    assert(assert(said.lines["self"]):find("not permitted", 1, true), said.raw)
+    assert(assert(said.lines["child"]):find(refused), said.raw)
   end
 end
 
@@ -221,10 +221,10 @@ local held = 0
 while sys.dup(0) ~= nil do held = held + 1 end
 say("dups", held <= 24)
 ]]))
-  assert(said.lines.nofile == "24 24" and said.lines.cpu == "100 100", said.raw)
+  assert(said.lines["nofile"] == "24 24" and said.lines["cpu"] == "100 100", said.raw)
   -- No core dump unless the policy says so.
-  assert(said.lines.core == "0 0", said.raw)
-  assert(said.lines.dups == "true", said.raw)
+  assert(said.lines["core"] == "0 0", said.raw)
+  assert(said.lines["dups"] == "true", said.raw)
 end
 
 local function test_a_limit_is_never_raised()
@@ -234,7 +234,7 @@ assert(sys.setrlimit(sys.RLIMIT_NOFILE, 64, 64))
 ]] .. restricted("{}", [[
 say("nofile", limit(sys.RLIMIT_NOFILE))
 ]]))
-  assert(said.lines.nofile == "64 64", said.raw)
+  assert(said.lines["nofile"] == "64 64", said.raw)
 end
 
 local function test_restricting_again_narrows(tmp: string)
@@ -254,13 +254,13 @@ say("b2", reads(%q))
 say("c2", reads(%q))
 ]], tmp .. "/a/f", tmp .. "/b/f", tmp .. "/c/f", tmp .. "/a", tmp .. "/c", tmp .. "/a/f", tmp .. "/b/f",
     tmp .. "/c/f")))
-  assert(said.lines.a == "a" and said.lines.b == "b" and said.lines.c == "denied: " .. DENIED, said.raw)
-  assert(said.lines.second == "true ", said.raw)
+  assert(said.lines["a"] == "a" and said.lines["b"] == "b" and said.lines["c"] == "denied: " .. DENIED, said.raw)
+  assert(said.lines["second"] == "true ", said.raw)
   -- A path the second names and the first did not stays refused: the
   -- process is held to what both grant, and what the second drops goes.
-  assert(said.lines.a2 == "a", said.raw)
-  assert(said.lines.b2 == "denied: " .. DENIED, said.raw)
-  assert(said.lines.c2 == "denied: " .. DENIED, said.raw)
+  assert(said.lines["a2"] == "a", said.raw)
+  assert(said.lines["b2"] == "denied: " .. DENIED, said.raw)
+  assert(said.lines["c2"] == "denied: " .. DENIED, said.raw)
 end
 
 --- A limit a later restriction lowers asks for setrlimit, which the first
@@ -271,7 +271,7 @@ local second, second_why = Sandbox.restrict({ limits = { cpu_seconds = 5 } })
 say("second", second, second_why)
 say("cpu", limit(sys.RLIMIT_CPU))
 ]]))
-  assert(said.lines.second == "true " and said.lines.cpu == "5 5", said.raw)
+  assert(said.lines["second"] == "true " and said.lines["cpu"] == "5 5", said.raw)
 end
 
 --- Every restriction lowers a limit, however many are stacked: a later one
@@ -310,13 +310,13 @@ say("cpu", limit(sys.RLIMIT_CPU))
 local raised, raised_why = sys.setrlimit(sys.RLIMIT_CPU, 50, 50)
 say("raised", raised, raised_why)
 ]]))
-  if said.lines.capable == "true" then
-    assert(said.lines.lowered:find("^false Operation not permitted"), said.raw)
+  if said.lines["capable"] == "true" then
+    assert(assert(said.lines["lowered"]):find("^false Operation not permitted"), said.raw)
     return
   end
-  assert(said.lines.lowered == "true nil", said.raw)
-  assert(said.lines.cpu == "5 5", said.raw)
-  assert(said.lines.raised:find("^false Operation not permitted"), said.raw)
+  assert(said.lines["lowered"] == "true nil", said.raw)
+  assert(said.lines["cpu"] == "5 5", said.raw)
+  assert(assert(said.lines["raised"]):find("^false Operation not permitted"), said.raw)
 end
 
 --- A policy for each field a process cannot be held to, with the name
@@ -383,18 +383,18 @@ say("free", reads(%q))
     assert(answer:find("^false sandbox: ") and answer:find(case.says, 1, true),
       case.policy .. " -> " .. answer)
   end
-  local fd = said.lines.fd
-  assert(said.lines.unnamed == "false sandbox: restrict: descriptor " .. fd ..
+  local fd = assert(said.lines["fd"])
+  assert(said.lines["unnamed"] == "false sandbox: restrict: descriptor " .. fd ..
       " is open and not named in fds: close it, or name it to keep it", said.raw)
-  assert(said.lines.absent_fd:find("descriptor 40, which fds names, is not open", 1, true), said.raw)
-  assert(said.lines.missing:find("^false sandbox: restrict: grant .*absent: No such file"), said.raw)
-  assert(said.lines.child:find("^false sandbox: restrict: this process has a child, pid %d+, not waited for"),
+  assert(assert(said.lines["absent_fd"]):find("descriptor 40, which fds names, is not open", 1, true), said.raw)
+  assert(assert(said.lines["missing"]):find("^false sandbox: restrict: grant .*absent: No such file"), said.raw)
+  assert(assert(said.lines["child"]):find("^false sandbox: restrict: this process has a child, pid %d+, not waited for"),
     said.raw)
-  assert(said.lines.cpu == "true" and said.lines.free == "free", said.raw)
+  assert(said.lines["cpu"] == "true" and said.lines["free"] == "free", said.raw)
   -- A refusal that comes with limits and grants sets no limit and holds nothing.
-  assert(said.lines.nofile == "true" and said.lines.nofile_after == "true", said.raw)
-  assert(said.lines.with_limits:find("^false sandbox: restrict: isolate", 1) and
-      said.lines.cpu_after == "true", said.raw)
+  assert(said.lines["nofile"] == "true" and said.lines["nofile_after"] == "true", said.raw)
+  assert(assert(said.lines["with_limits"]):find("^false sandbox: restrict: isolate", 1) and
+      said.lines["cpu_after"] == "true", said.raw)
 end
 
 --- The slot of one of the three /proc handles a restriction keeps (the
@@ -421,9 +421,9 @@ say("reused", fd == slot)
 say("second", Sandbox.restrict({}))
 say("write", writes(%q))
 ]], tmp .. "/rw", which, tmp .. "/rw/f", tmp .. "/rw/f"))
-  assert(said.lines.first == "true " and said.lines.slots == "3" and said.lines.reused == "true", said.raw)
+  assert(said.lines["first"] == "true " and said.lines["slots"] == "3" and said.lines["reused"] == "true", said.raw)
   -- Refused, naming the descriptor or failing closed; never accepted.
-  assert(said.lines.second:find("^false sandbox: restrict: "), said.raw)
+  assert(assert(said.lines["second"]):find("^false sandbox: restrict: "), said.raw)
 end
 
 local function test_a_replaced_threads_handle_is_not_trusted(tmp: string)
@@ -457,7 +457,7 @@ say("mine", mine)
 say("refused", Sandbox.restrict({}))
 say("named", Sandbox.restrict({}, { fds = { mine } }))
 ]], build_paths.resolve(".").projection, tmp))
-  assert(said.lines.refused == "false sandbox: restrict: descriptor " .. said.lines.mine ..
+  assert(said.lines["refused"] == "false sandbox: restrict: descriptor " .. assert(said.lines["mine"]) ..
       " is open and not named in fds: close it, or name it to keep it", said.raw)
 end
 
@@ -471,16 +471,16 @@ say("named", named, trouble)
 say("through", sys.read(fd, 10))
 say("after", reads(%q))
 ]], tmp .. "/f", tmp .. "/f"))
-  assert(said.lines.named == "true ", said.raw)
-  assert(said.lines.through == "held", said.raw)
-  assert(said.lines.after == "denied: " .. DENIED, said.raw)
+  assert(said.lines["named"] == "true ", said.raw)
+  assert(said.lines["through"] == "held", said.raw)
+  assert(said.lines["after"] == "denied: " .. DENIED, said.raw)
 end
 
 local function test_fds_names_a_descriptor_above_2()
   local said = in_child([[
 say("low", Sandbox.restrict({}, { fds = { 1 } }))
 ]])
-  assert(said.lines.low:find("^false sandbox: restrict: fds names 1, which is not a descriptor above 2"),
+  assert(assert(said.lines["low"]):find("^false sandbox: restrict: fds names 1, which is not a descriptor above 2"),
     said.raw)
 end
 
@@ -492,10 +492,10 @@ assert(running:close())
 local after, trouble = Sandbox.restrict({})
 say("reaped", after, trouble)
 ]], probe))
-  assert(said.lines.reaped == "true ", said.raw)
+  assert(said.lines["reaped"] == "true ", said.raw)
 end
 
 local function test_a_policy_is_merged_first_so_profiles_resolve()
   local said = in_child(restricted("{ profiles = { \"system\" } }", ""))
-  assert(said.lines.restrict == "true ", said.raw)
+  assert(said.lines["restrict"] == "true ", said.raw)
 end

@@ -52,9 +52,8 @@ local function test_a_path_another_bind_shows_is_not_bound_again(tmp: string)
   assert(Fs.write(tmp .. "/elsewhere/y.tl", "y"))
   assert(sys.symlink(tmp .. "/elsewhere/y.tl", root .. "/data/y.tl"))
   assert(Fs.write(dir .. "/given", "h"))
-  local inputs = TestInputsFixture.effective({ "data/x.tl", "data/y.tl" })
-  inputs.reads = { "data" }
-  inputs.host = { dir, dir .. "/given" }
+  local inputs = { ...TestInputsFixture.effective({ "data/x.tl", "data/y.tl" }), reads = { "data" },
+    host = { dir, dir .. "/given" } }
   local plan = test_sandbox.plan(root, scratch, inputs, {})
   local unveil = assert(plan.sandbox.unveil)
   assert(support.holds(unveil.reads, root .. "/data") and (unveil.at or {})[root .. "/data"] == "/tree/data")
@@ -126,9 +125,8 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   end
   local host = dir .. "/given"
   assert(Fs.write(host, "h"))
-  local inputs = TestInputsFixture.effective({ "a/x.tl", "a/missing.tl" })
-  inputs.reads = { "data/", "../outside" }
-  inputs.host = { host }
+  local inputs = { ...TestInputsFixture.effective({ "a/x.tl", "a/missing.tl" }),
+    reads = { "data/", "../outside" }, host = { host } }
   local plan = test_sandbox.plan(root, scratch, inputs, {})
   local unveil = assert(plan.sandbox.unveil)
   assert(plan.over == 0 and plan.sandbox.offline == true)
@@ -167,10 +165,8 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
       not support.holds(assert(whole.sandbox.unveil).reads, closure_store))
   inputs.store = false
   -- A declared path not there yet is given nothing.
-  inputs.reads = { "data/", "later/x" }
-  local later = test_sandbox.plan(root, scratch, inputs, {})
+  local later = test_sandbox.plan(root, scratch, { ...inputs, reads = { "data/", "later/x" } }, {})
   assert(not support.holds(assert(later.sandbox.unveil).reads, root .. "/later/x"))
-  inputs.reads = { "data/", "../outside" }
   -- A declared cache is given to write at its own name, made first.
   inputs.cache_paths = { tmp .. "/caches/zig-global" }
   local cached = test_sandbox.plan(root, scratch, inputs, {})
@@ -196,9 +192,8 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   -- directory before it starts -- a ruleset that holds it walks what is
   -- there then -- and named to it, not the host's, which the cores
   -- directory this program's core is in stays.
-  inputs.caches, inputs.cache_paths = { "bootstrap" }, { tmp .. "/caches/cores" }
-  local own_cores = test_sandbox.plan(root, scratch, inputs, { COSMIC_PORTABLE_CACHE =
-      tmp .. "/caches/cores" })
+  local own_cores = test_sandbox.plan(root, scratch, { ...inputs, caches = { "bootstrap" } },
+    { COSMIC_PORTABLE_CACHE = tmp .. "/caches/cores" })
   assert(own_cores.trouble == "", own_cores.trouble)
   assert(own_cores.env["COSMIC_PORTABLE_CACHE"] == test_sandbox.scratch .. "/cores",
     tostring(own_cores.env["COSMIC_PORTABLE_CACHE"]))
@@ -206,7 +201,7 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   assert(cores.kind == "dir" and cores.mode & 511 == 448, tostring(cores.mode))
   assert(not support.holds(assert(own_cores.sandbox.unveil).writes or {}, tmp .. "/caches/cores") and
       support.holds(assert(own_cores.sandbox.unveil).reads, stamp))
-  inputs.caches, inputs.cache_paths = {}, {}
+  inputs.cache_paths = {}
   local alone = test_sandbox.plan(root, scratch, inputs, {})
   assert(support.holds(assert(alone.sandbox.unveil).reads, stamp))
   inputs.host = { host }
@@ -231,14 +226,12 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   -- Offline, whatever it declares: the loopback addresses it may
   -- declare, its own loopback answers.
   for _, hosts in ipairs({ "", "127.0.0.1 127.0.0.2" }) do
-    inputs.network = {}
-    for name in hosts:gmatch("%S+") do inputs.network[name] = true end
-    local planned = test_sandbox.plan(root, scratch, inputs, {})
+    local network: mut {string:boolean} = {}
+    for name in hosts:gmatch("%S+") do network[name] = true end
+    local planned = test_sandbox.plan(root, scratch, { ...inputs, network = network }, {})
     assert(planned.sandbox.offline == true, hosts)
   end
-  inputs.network = {}
-  inputs.tool = true
-  local tooled = test_sandbox.plan(root, scratch, inputs, {})
+  local tooled = test_sandbox.plan(root, scratch, { ...inputs, network = {}, tool = true }, {})
   -- No o/bin here to give.
   assert(not support.holds(assert(tooled.sandbox.unveil).reads, support.build_dir(root) .. "/bin"))
 end

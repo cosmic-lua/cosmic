@@ -257,7 +257,7 @@ local function test_a_declaration_beside_its_source_and_two_sources_are_refused(
   local nested = file(tmp, "foo/init.tl", "local n: integer = 1\nreturn n\n")
   local twice = run({ "-o", tmp .. "/out2", source, nested })
   assert(twice.code == 2, twice.err)
-  assert(twice.err:find("both the module foo", 1, true), twice.err)
+  assert(twice.err:find("both answer to import path 'foo'", 1, true), twice.err)
 end
 
 --- Two files that name each other's types: the one lowered first finds the other declared, not lowered.

@@ -182,9 +182,10 @@ local function insert_test_inputs(db: Sqlite.Handle, source_hash: string, declar
     each("host", declared.host)
     each("env", declared.env)
     each("network", declared.network)
-    for _, flag in ipairs({ "tool", "lua", "nests", "noexec", "store", "system" }) do
+    for _, flag in ipairs({ "tool", "lua", "nests", "noexec", "store", "system", "cpu_features" }) do
       local set: {string: boolean} = { tool = declared.tool, lua = declared.lua, nests = declared.nests,
-        noexec = declared.noexec, store = declared.store, system = declared.system }
+        noexec = declared.noexec, store = declared.store, system = declared.system,
+        cpu_features = declared.cpu_features == true }
       if set[flag] == true then
         rows[#rows + 1] = { field = flag, value = "true" }
       end

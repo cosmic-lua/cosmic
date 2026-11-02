@@ -107,13 +107,14 @@ local function test_open_stream_reads_a_plain_tar_from_a_stream_one_byte_at_a_ti
   local bytes = assert(Fs.read(path))
   -- A source that answers a byte per read splits the peek across reads.
   local at: integer = 1
-  local source: Stream.Reader = {}
-  source.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-    if at > #bytes then return nil, "" end
-    at = at + 1
-    return bytes:sub(at - 1, at - 1), ""
-  end
-  source.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  local source: Stream.Reader = {
+    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
+      if at > #bytes then return nil, "" end
+      at = at + 1
+      return bytes:sub(at - 1, at - 1), ""
+    end,
+    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+  }
   local by = walked((assert(Archive.open_stream(source))))
   assert(by["adir/short.txt"].size == 11)
   assert(by["adir/link"].linkpath == "short.txt")
@@ -763,11 +764,12 @@ local function reader_of_one_file(path: string, size: integer,
   local entry: Archive.Entry = {
     path = path, kind = "file", mode = 0x1a4, size = size, mtime = 0, linkpath = "",
     open = function(_self: Archive.Entry): Stream.Reader?, string
-      local r: Stream.Reader = {}
-      r.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-        return answer(max_bytes or 65536)
-      end
-      r.close = function(_self: Stream.Reader): boolean, string return true, "" end
+      local r: Stream.Reader = {
+        read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+          return answer(max_bytes or 65536)
+        end,
+        close = function(_self: Stream.Reader): boolean, string return true, "" end,
+      }
       return r, ""
     end,
   }

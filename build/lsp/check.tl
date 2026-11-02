@@ -180,9 +180,9 @@ local record check
     --- result is also keyed by the modules it reads ([`Basis`]'s `reads`), so that a module it does not read moves
     --- nothing of it.
     mut epoch: integer
-    --- Whether the stage last staged nothing ([`source.refused`]), which moves `epoch` when it changes, so that a publish kept
-    --- for a document of a refused pair is made again.
-    mut refused: boolean
+    --- What every document is told while the stage last staged nothing ([`source.banner`]), "" when it did, which moves `epoch`
+    --- when it changes, so that a publish kept is made again when a refusal starts, changes or clears.
+    mut banner: string
     --- The documents with a kept result, the least recently asked first ([`KEPT_AT_MOST`]).
     recent: mut {Document}
     --- The open documents, by name.
@@ -228,7 +228,7 @@ function check.new(root: string, err: function(line: string), hints: function():
     program = nil,
     served = {},
     epoch = 0,
-    refused = false,
+    banner = "",
     recent = {},
     probed = nil,
     open = {},
@@ -531,10 +531,22 @@ local function checked_of(checker: Checker, document: Document): Checked
   local none: {ShapeSpecs.Splice} = {}
   local generated = document.name:match("%.tmpl$") ~= nil
   local text = document.text
+  -- A document the refusal names is told that alone, at its first line ([`source.refusal`]); every other is told the stage's
+  -- text before what its own check finds. A file the build does not read is told none, as the refusal is not of it: a fixture
+  -- under `testdata/` ([`build.tree_program.skipped`]), and, not checked here at all, a file of a tree of its own ([`apart`]) such
+  -- as `ci/` from the root, one that is no module file (`static/`), and one outside the root ([`unread`]).
+  local told = source.refusal(checker.source, document.name, text)
+  local banner = source.banner(checker.source)
+  local function with_banner(found: {plan.Refusal}): {plan.Refusal}
+    if banner == nil or told ~= nil or TreeProgram.skipped(document.name) then return found end
+    local out: mut {plan.Refusal} = { { line = 1, column = 1, message = banner } }
+    for _, each in ipairs(found) do out[#out + 1] = each end
+    return out
+  end
   if generated then
     local compiled, trouble = Template.compile(document.text, document.name, { dialects = nil })
     if compiled == nil then
-      return { refusals = { plan.refusal_of(trouble) }, text = text, splices = none, generated = false,
+      return { refusals = with_banner({ plan.refusal_of(trouble) }), text = text, splices = none, generated = false,
         outcome = nil, program = nil }
     end
     text = compiled
@@ -542,11 +554,10 @@ local function checked_of(checker: Checker, document: Document): Checked
   --- What was found, its places in `spliced` as spliced by `splices`.
   local function checked(refusals: {plan.Refusal}, spliced: string, splices: {ShapeSpecs.Splice},
                          outcome?: Driver.Outcome, declarations?: Declarations.Program): Checked
-    return { refusals = refusals, text = spliced, splices = splices, generated = generated, outcome = outcome,
+    return { refusals = with_banner(refusals), text = spliced, splices = splices, generated = generated, outcome = outcome,
       program = declarations }
   end
   -- A file of a pair the stage refused, or a declaration that names no kind, is told so at its first line, whatever else it holds.
-  local told = source.refusal(checker.source, document.name, text)
   if told ~= nil then return checked({ plan.refusal_of(told) }, text, none) end
   local named = plan.named(document.name, text)
   local path, kind = named.path, named.kind
@@ -725,9 +736,12 @@ end
 local function staged(checker: Checker, document: Document): boolean
   local outside = source.outside(checker.source)
   source.refresh(checker.source)
-  local refused = source.refused(checker.source)
-  if refused ~= checker.refused then
-    checker.refused = refused
+  local banner = source.banner(checker.source) or ""
+  if banner ~= checker.banner then
+    checker.banner = banner
+    -- Every other open document shows it too, however this stage came about (a save, a change on disk, or a check that found
+    -- the stage pending): ask for them to be checked again ([`check.moved`]).
+    checker.graph_moved = true
     checker.epoch = checker.epoch + 1
   end
   if source.outside(checker.source) or apart(checker, document.name) then return false end

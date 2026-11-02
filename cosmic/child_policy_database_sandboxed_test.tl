@@ -71,11 +71,11 @@ local function test_a_policy_runs_a_sealed_database_under_a_sandbox(tmp: string)
   end
   assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
   local out = fixture.fields(assert(result.stdout))
-  assert(out.main == "fixture.main", tostring(out.main))
-  assert(out.outside == "false", "a module outside the sealed set loaded")
-  assert(out.own_file == "false", "the child read this program's own file")
-  local real = assert(out.relaunch):match("^[^|]+|%-%-database|(.*)$")
-  assert(real ~= nil and real:sub(-#"/sealed.db") == "/sealed.db", tostring(out.relaunch))
+  assert(out["main"] == "fixture.main", tostring(out["main"]))
+  assert(out["outside"] == "false", "a module outside the sealed set loaded")
+  assert(out["own_file"] == "false", "the child read this program's own file")
+  local real = assert(out["relaunch"]):match("^[^|]+|%-%-database|(.*)$")
+  assert(real ~= nil and real:sub(-#"/sealed.db") == "/sealed.db", tostring(out["relaunch"]))
 end
 
 --- Only this program runs on a database: another one is refused before
@@ -141,16 +141,13 @@ local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {s
   local scratch = tmp .. "/scratch"
   assert(Fs.mkdirs(scratch))
   searchable.share(scratch)
-  if policy.database == nil then policy.database = { path = path } end
-  policy.isolate = { "file" }
-  policy.promises = { "fork", "nest" }
-  policy.set_env = { TMPDIR = scratch }
   local grants = policy.grants or {}
-  policy.grants = grants
   table.insert(grants, { path = scratch, letters = "rwc" })
+  local nested: Sandbox.Policy = { ...policy, database = policy.database or { path = path },
+    isolate = { "file" }, promises = { "fork", "nest" }, set_env = { TMPDIR = scratch }, grants = grants }
   local executable = assert(Proc.executable())
   local result, why = Child.run({ executable, executable, mode, scratch },
-    { policy = policy, cwd = tmp, stdout = "capture", stderr = "capture",
+    { policy = nested, cwd = tmp, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(60) })
   if result == nil then
     assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
@@ -190,15 +187,15 @@ local function test_a_sealed_program_under_nest_confines_children_of_its_own(tmp
     return
   end
   local out = under_nest(tmp, "child", {})
-  assert(out.main == "fixture.main", tostring(out.main))
-  assert(out.own_file == "false", "the child read this program's own file")
-  assert(out.grand_refused == nil, tostring(out.grand_refused))
+  assert(out["main"] == "fixture.main", tostring(out["main"]))
+  assert(out["own_file"] == "false", "the child read this program's own file")
+  assert(out["grand_refused"] == nil, tostring(out["grand_refused"]))
   -- The grandchild is the sealed main again, on the same database.
-  assert(out.grand_code == "0", tostring(out.grand_code) .. ": " .. tostring(out.grand_stderr))
-  assert(out.g_main == "fixture.main", tostring(out.g_main))
-  assert(out.g_outside == "false", "a module outside the sealed set loaded in the grandchild")
-  assert(out.g_relaunch ~= nil and out.g_relaunch:find("|--database|", 1, true),
-    tostring(out.g_relaunch))
+  assert(out["grand_code"] == "0", tostring(out["grand_code"]) .. ": " .. tostring(out["grand_stderr"]))
+  assert(out["g_main"] == "fixture.main", tostring(out["g_main"]))
+  assert(out["g_outside"] == "false", "a module outside the sealed set loaded in the grandchild")
+  assert(assert(out["g_relaunch"]):find("|--database|", 1, true),
+    tostring(out["g_relaunch"]))
   assert_unwritable(out, "")
   assert_unwritable(out, "g_")
 end
@@ -212,9 +209,9 @@ local function test_a_sealed_program_under_nest_starts_a_nest_child_with_no_data
     return
   end
   local out = under_nest(tmp, "relay", {})
-  assert(out.grand_refused == nil, tostring(out.grand_refused))
-  assert(out.grand_code == "0", tostring(out.grand_code) .. ": " .. tostring(out.grand_stderr))
-  assert(out.g_main == "fixture.main", tostring(out.g_main))
+  assert(out["grand_refused"] == nil, tostring(out["grand_refused"]))
+  assert(out["grand_code"] == "0", tostring(out["grand_code"]) .. ": " .. tostring(out["grand_stderr"]))
+  assert(out["g_main"] == "fixture.main", tostring(out["g_main"]))
   assert_unwritable(out, "")
   assert_unwritable(out, "g_")
 end
@@ -242,8 +239,8 @@ local function test_a_nest_child_cannot_remount_the_database_writable(tmp: strin
     return
   end
   local out = under_nest(tmp, "remount", {})
-  refuse_or_skip("unshare of a user and mount namespace", out.unshare)
-  refuse_or_skip("the write of its ids", out.mapped)
-  assert(out.remount == tostring(sys.EPERM), "the database was remounted writable: " ..
-      tostring(out.remount) .. " " .. tostring(out.remount_why))
+  refuse_or_skip("unshare of a user and mount namespace", tostring(out["unshare"]))
+  refuse_or_skip("the write of its ids", tostring(out["mapped"]))
+  assert(out["remount"] == tostring(sys.EPERM), "the database was remounted writable: " ..
+      tostring(out["remount"]) .. " " .. tostring(out["remount_why"]))
 end

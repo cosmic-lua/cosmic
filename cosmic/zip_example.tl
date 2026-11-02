@@ -4,6 +4,9 @@
 
 local Stream = require("cosmic.stream")
 local Zip = require("cosmic.zip")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local Example = {}
 

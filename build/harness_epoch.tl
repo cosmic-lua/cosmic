@@ -66,7 +66,7 @@ local record harness_epoch
   mut library: {string:string}
 end
 
-harness_epoch.epoch = "69-2de1cd7d" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "70-c7ed4540" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.library = {
   ["cosmic.child"] = "its `start` turns a worker's plan into the unveils, binds and " ..
     "offline spawn holds it to; held alone, what it requires is not walked",
@@ -177,6 +177,7 @@ harness_epoch.retired = {
   "3cf04e65",
   "130cdab9",
   "e680128b",
+  "8d5544ad",
 }
 
 return harness_epoch

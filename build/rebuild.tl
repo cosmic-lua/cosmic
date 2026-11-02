@@ -38,6 +38,9 @@ local record rebuild
     --- not having held the tool to the tree ([`reboot.unchecked`]): what
     --- its code derived could be older code's than the tree's.
     unchecked: boolean
+    --- The derive's refusal of the tree, where [`rebuild.stage`] staged nothing for what the sources hold ([`importer.derive`]),
+    --- "" otherwise. Not a trouble of the host: that is the stage's second answer.
+    refused: string
   end
 end
 
@@ -73,12 +76,12 @@ local function where(root: string, carried?: string): rebuild.Where?, string
   if directory == nil then
     if directory_trouble ~= "" and not own_tree then return nil, directory_trouble end
     return { project = own_tree, standing = standing, directory = nil, busy = false,
-      other_schema = nil, unchecked = false }, ""
+      other_schema = nil, unchecked = false, refused = "" }, ""
   end
   local started, trouble = rebuild.started(directory)
   if started == nil then return nil, trouble end
   return { project = own_tree or started == true, standing = standing, directory = directory, busy = false,
-    other_schema = nil, unchecked = false }, ""
+    other_schema = nil, unchecked = false, refused = "" }, ""
 end
 
 --- Whether the check before the verb went on in the tree at `root`
@@ -232,14 +235,15 @@ end
 --- is `busy`; where the database is of another schema, nothing is staged
 --- and none of it read, and what it answers names that schema. The
 --- sources are read by the new checker's syntax tree, in this process.
---- Answers what the directory is, or nil and why it could not be staged.
+--- Answers what the directory is, or nil and why it could not be staged. A tree the derive refused is what it is, with
+--- `refused` saying why: the database is as it was.
 function rebuild.stage(root: string, carried?: string): rebuild.Where?, string
   local found, found_trouble = where(root, carried)
   if found == nil then return nil, found_trouble end
   if not found.project then return found, "" end
   if unchecked(root) then
     return { project = true, standing = found.standing, directory = found.directory,
-      busy = false, other_schema = nil, unchecked = true }, ""
+      busy = false, other_schema = nil, unchecked = true, refused = "" }, ""
   end
   local opening, open_trouble = work.try_open(root)
   if opening == nil then return nil, open_trouble end
@@ -247,7 +251,7 @@ function rebuild.stage(root: string, carried?: string): rebuild.Where?, string
   if handle == nil then
     local other = opening.other_schema
     return { project = true, standing = found.standing, directory = found.directory,
-      busy = other == nil, other_schema = other, unchecked = false }, ""
+      busy = other == nil, other_schema = other, unchecked = false, refused = "" }, ""
   end
   local staged, stage_trouble = work.stage(handle, found.standing)
   if staged == nil then
@@ -259,7 +263,11 @@ function rebuild.stage(root: string, carried?: string): rebuild.Where?, string
   if shared ~= nil then shared.finish() end
   if parses == nil then
     local _, _ = work.abort(handle)
-    return nil, derive_trouble
+    -- TODO: tell a failure of the host in the derive (a database that errors, a directory that cannot be read) from a refusal
+    -- of the tree: [`importer.derive`] answers both as one string, so a database error is worded as the build's refusal; this
+    -- waits on [`importer.derive`] answering a refusal apart from a failure.
+    return { project = true, standing = found.standing, directory = found.directory,
+      busy = false, other_schema = nil, unchecked = false, refused = derive_trouble }, ""
   end
   local closed, close_trouble = work.close(handle)
   if not closed then return nil, close_trouble end

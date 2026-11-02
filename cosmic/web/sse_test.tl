@@ -96,15 +96,14 @@ end
 --- client's Last-Event-ID.
 local function hub_app(hub: Sse.Hub, opts?: Sse.EventStreamOptions, spec?: Web.AppSpec): Web.App
   local given: Sse.EventStreamOptions = opts or { heartbeat_ns = BEAT_NS, retry_ms = 100 }
-  local app_spec: Web.AppSpec = spec or {}
-  app_spec.routes = { Web.get("/events/:topic", function(req: Web.Request): Web.Response
+  local routes: {Web.Route} = { Web.get("/events/:topic", function(req: Web.Request): Web.Response
     local sub, why = hub:subscribe({ req.params.topic }, { after = Sse.last_event_id(req) })
     if sub == nil then
       return Web.text(why, { status = 503, headers = { ["Retry-After"] = "5" } })
     end
     return Sse.EventStream(req, sub, given)
   end) }
-  return Web.app(app_spec)
+  return Web.app({ ...(spec or {}), routes = routes })
 end
 
 local function test_format_event_splits_data_on_every_line_ending()

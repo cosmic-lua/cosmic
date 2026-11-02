@@ -150,13 +150,13 @@ local function serving(handle: function(Server.Request): Server.Reply,
     body_ns = chosen.body_ns,
     compress = chosen.compress,
     on_stop = chosen.on_stop,
+    on_error = function(trouble: string) troubles[#troubles + 1] = trouble end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local listening = assert(addresses[1], "the server listens")
+      client(listening)
+      server:stop()
+    end,
   }
-  given.on_error = function(trouble: string) troubles[#troubles + 1] = trouble end
-  given.on_ready = function(addresses: {Net.Address}, server: Net.Server)
-    local listening = assert(addresses[1], "the server listens")
-    client(listening)
-    server:stop()
-  end
   assert(Server.serve(given))
   return troubles
 end

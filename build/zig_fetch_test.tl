@@ -210,8 +210,8 @@ local function test_fetch_sees_a_real_mismatch(tmp: string)
   local fetcher: ZigFetch.Fetcher = {
     download = function(url: string, path: string, opts: Http.Options): Http.DownloadResult
       calls[#calls + 1] = url
-      opts.script = { "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nwrong" }
-      return Http.download_result(url, path, opts)
+      return Http.download_result(url, path,
+        { ...opts, script = { "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nwrong" } })
     end,
     sleep = function(_: integer) end,
     now = function(): integer return 0 end,

@@ -13,6 +13,8 @@ local Vector = require("cosmic.vector")
 local VectorFixture = require("build.vector_fixture")
 local Test = require("cosmic.test")
 
+Test.policy{ cpu_features = true }
+
 local storages: {Vector.Storage} = { "f32", "f16", "int8" }
 local metrics: {Vector.Metric} = { "inner_product", "cosine", "l2" }
 local smaller: {Vector.Storage} = { "f16", "int8" }

@@ -510,15 +510,16 @@ end
 --- and cannot skip, like a pipe.
 local function trickle(data: string, step: integer): Stream.Reader
   local inner = Stream.from_string(data)
-  local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-    local want = max_bytes or step
-    if want > step then want = step end
-    return inner:read(want)
-  end
-  r.close = function(_self: Stream.Reader): boolean, string
-    return inner:close()
-  end
+  local r: Stream.Reader = {
+    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+      local want = max_bytes or step
+      if want > step then want = step end
+      return inner:read(want)
+    end,
+    close = function(_self: Stream.Reader): boolean, string
+      return inner:close()
+    end,
+  }
   return r
 end
 
@@ -572,12 +573,13 @@ local function test_a_reader_body_is_read_to_its_stated_size_and_no_further()
 end
 
 local function test_a_failing_body_names_what_the_writer_was_doing()
-  local bad: Stream.Reader = {}
-  bad.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-    return nil, "disk on fire"
-  end
-  bad.close = function(_self: Stream.Reader): boolean, string return true, "" end
   local w = Tar.writer(Stream.collect())
+  local bad: Stream.Reader = {
+    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
+      return nil, "disk on fire"
+    end,
+    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+  }
   local ok, trouble = w:add_file("f", bad, { size = 3 })
   assert(not ok and trouble == "tar: add_file: disk on fire", trouble)
   assert(not w:add_file("g", "x"))
@@ -594,12 +596,13 @@ end
 --- A failing Writer's own words are what the writer answers, as they
 --- are; a failing body Reader's are told what the writer was doing.
 local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
-  local full: Stream.Writer = {}
-  full.write = function(_self: Stream.Writer, _data: string): boolean, string
-    return false, "disk full"
-  end
-  full.close = function(_self: Stream.Writer): boolean, string return true, "" end
-  full.abort = full.close
+  local function closed(_self: Stream.Writer): boolean, string return true, "" end
+  local full: Stream.Writer = {
+    write = function(_self: Stream.Writer, _data: string): boolean, string
+      return false, "disk full"
+    end,
+    close = closed, abort = closed,
+  }
   local w = Tar.writer(full)
   local ok, trouble = w:add_file("f", Stream.from_string(string.rep("x", 100000)), { size = 100000 })
   assert(not ok and trouble == "disk full", trouble)
