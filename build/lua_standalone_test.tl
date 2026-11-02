@@ -9,15 +9,13 @@
 --- declares `lua` alone starts, and how a worker is known to be sandboxed,
 --- where only the sealed database narrows what a child reads.
 
-local Child = require("cosmic.child")
+local TestSandboxFixture = require("build.test_sandbox_fixture")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
 local test_inputs = require("build.test_inputs")
 local confine = require("build.confine")
-local this_program = require("build.this_program")
-local Clock = require("cosmic.clock")
 
 Test.policy{ profiles = { "cosmic" } }
 
@@ -36,10 +34,8 @@ end
 --- Runs `words` after this program, past its launcher, and answers
 --- whether it exited 0, and what it wrote to stdout and stderr.
 local function run(words: {string}): boolean, string, string
-  local started = this_program.program(words, { stdout = "capture", stderr = "capture",
-    timeout_ns = Clock.seconds(30) })
-  local result = assert(Child.run(started.argv, started.options))
-  return result.ok, result.stdout or "", result.stderr or ""
+  local ran = TestSandboxFixture.run_words(words)
+  return ran.ok, ran.stdout, ran.stderr
 end
 
 --- A Teal file runs standalone, checked by the new checker: typed against a module of the

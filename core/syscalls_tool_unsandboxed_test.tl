@@ -4,6 +4,7 @@
 --- starts this very program to run a chunk. They run on every platform,
 --- as the cases that unveil a child's root are Linux's alone.
 
+local TestSandboxFixture = require("build.test_sandbox_fixture")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
@@ -22,22 +23,6 @@ Test.policy{
 }
 
 local process = require("cosmic.internal.process")
-
---- The descriptors [`this_program.program`] hands its child, as
---- [`process.spawn`] takes them: each a descriptor of this process, as
---- the relaunch's are, and none "capture", which only [`cosmic.child`]
---- reads.
-local function spawn_fds(started: this_program.Program): {integer:integer}
-  local fds: mut {integer:integer} = {}
-  for number, fd in pairs(started.options.fds or {}) do
-    if fd is integer then
-      fds[number] = fd
-    else
-      error("descriptor " .. tostring(number) .. " is " .. fd .. ", which spawn cannot hand on")
-    end
-  end
-  return fds
-end
 
 --- A stand-in program built under `tmp` (build/stand_in.tl).
 local function probe_in(tmp: string): string
@@ -133,7 +118,7 @@ local function test_an_exit_watch_is_readable_once_its_child_exits()
   local started = this_program.program({ "-e",
     'local Fs = require("cosmic.fs") while assert(Fs.take(0, 4096)) ~= "" do end' })
   local pid = process.spawn(assert(started.argv[1], "this_program.program puts the executable first"), started.argv, started.options.env, nil,
-    ends.reader, nil, nil, false, spawn_fds(started))
+    ends.reader, nil, nil, false, TestSandboxFixture.spawn_fds(started))
   sys.close(ends.reader)
   assert(pid, "the child did not start")
   local watch = assert(process.exit_watch(pid))

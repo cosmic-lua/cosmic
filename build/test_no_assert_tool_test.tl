@@ -6,11 +6,9 @@
 --- run here is unsandboxed (COSMIC_TEST_SANDBOX=0), so it means the same on
 --- every host.
 
-local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local this_program = require("build.this_program")
+local TestSandboxFixture = require("build.test_sandbox_fixture")
 local Test = require("cosmic.test")
-local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
@@ -63,17 +61,9 @@ end
 --- What `cosmic test` in `root` printed and its status, run
 --- unsandboxed with `extra` set in its environment, and held to
 --- sandboxing by nothing else.
-local function run(root: string, extra: {string:string}): string, integer
-  local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = "0"
-  env.COSMIC_SANDBOX = nil
-  env.COSMIC_CI_REQUIRE_SANDBOX = nil
-  for name, value in pairs(extra) do env[name] = value end
-  local started = this_program.program({ "test" }, {
-    cwd = root, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60),
-  })
-  local result = assert(Child.run(started.argv, started.options))
-  return (result.stdout or "") .. (result.stderr or ""), result.code
+local function run(root: string, extra: {string:string}): string, integer?
+  local ran = TestSandboxFixture.unsandboxed(root, extra)
+  return ran.text, ran.code
 end
 
 local function test_a_pass_that_asserted_nothing_is_listed_not_failed_and_runs_every_time(tmp: string)
