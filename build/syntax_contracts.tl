@@ -70,6 +70,8 @@ local record SyntaxContracts
     sites: {string: integer}
     --- How many calls the checker gave no function (the callee is `invalid`) and that are no `require`: calls no rule judged.
     untyped: integer
+    --- The line of each of those calls, in the order of the program: the places `[untyped]` markers hold ([`build.ceilings`]).
+    untyped_lines: {integer}
   end
 
   --- The breaches of the discipline in `subject`, a module of cosmic's own tree that was checked with its types kept.
@@ -1763,6 +1765,7 @@ function SyntaxContracts.check(subject: Subject, given?: Rules.Exemptions, decla
   end
   local kept, statements, stood = keeping(run), standing(run), stand_ins(run)
   local untyped = 0
+  local untyped_lines: mut {integer} = {}
   for _, n in ipairs(run.index.order) do
     if is_call(n) and callee_fn(run, n) == nil then
       local is_require = false
@@ -1772,6 +1775,7 @@ function SyntaxContracts.check(subject: Subject, given?: Rules.Exemptions, decla
       end
       if not is_require then
         untyped = untyped + 1
+        untyped_lines[#untyped_lines + 1] = line_of(subject, n)
       end
     end
     local fallible = is_call(n) and not is_assert(n) and fallible_type(callee_fn(run, n))
@@ -1823,7 +1827,7 @@ function SyntaxContracts.check(subject: Subject, given?: Rules.Exemptions, decla
     end
   end
   table.sort(used)
-  return { problems = run.problems, used = used, sites = run.sites, untyped = untyped }
+  return { problems = run.problems, used = used, sites = run.sites, untyped = untyped, untyped_lines = untyped_lines }
 end
 
 return SyntaxContracts

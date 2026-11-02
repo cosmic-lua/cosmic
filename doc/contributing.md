@@ -79,24 +79,50 @@ conflict with the parent's squash.
 
 ## ceilings only fall
 
-[`build/ceilings.txt`] pins, per file and code, the errors the checker
-still finds in the tree, and a compile refuses a file over its pin. a
-pin is never raised and a row is never added, whatever the change
-adds: fix the places the checker refuses, in the change. to lower a pin,
-remove the places it counts and lower the number, or delete the row at 0.
-a code with no row left in any stage is closed: take its last row out
-and add it to `Ceilings.closed` in [`build/ceilings.tl`], and
-`Ceilings.parse` refuses a line for it from then on.
+the checker still finds things in the tree that a rewrite has not
+removed yet. each is held where it occurs, by a marker: a trailing
+comment on the line the finding is reported at, naming the stage and the
+codes, as in `local x = t[k] -- checked: map_field`. the stages are
+`scoped`, `declared`, `checked` and `untyped` (`-- untyped: call`, a call
+the checker gave no function); a line may hold several, in the one
+comment (`-- declared: float_key -- checked: map_field, nil_not_allowed`),
+and `code*2` holds two findings of a code on a line. a line that ends
+inside a long string cannot take a comment, so its marker is a comment
+of its own on the line above, which begins `-- checked:` and holds the
+line below it. [`build/markers.tl`] has the rules.
 
-the tree check `ceilings` ([`build/ceilings_base.tl`]) holds the file to
-the file at the merge base with main and names each line that raised a
-count or added a row. CI runs it on every branch push and in the merge
-queue, where it fails when no base can be found (GitHub could not name
-it: run the job again), and
-`bin/cosmic fix --check .` runs it locally against
-`git merge-base HEAD origin/main`, saying so when there is no
-`origin/main` (`git fetch origin main`) or no git checkout. a file
-renamed with pins loses them: the key is the path.
+- a finding with no marker for its code on its line is refused, by a
+  compile of the module and by the tree check: fix the code. a marker is
+  never the fix, and none is ever added.
+- a marker whose finding is gone is stale. `bin/cosmic fix .` removes
+  it, and `fix --check` and the tree check name it. run `fix .` after
+  a change that removes findings and commit what it wrote.
+- the markers only fall. the tree check `ceilings`
+  ([`build/ceilings_base.tl`]) counts each file's markers of each code and
+  refuses a file that holds more than it did at the merge base with
+  main, so a marker cannot be added, and one that is written over a
+  line that moved is not new. it reads the base with git alone (`git
+  grep` and `git cat-file`), with no run of the checker. CI runs it on
+  every branch push and in the merge queue, where it fails when no base
+  can be found (GitHub could not name it: run the job again), and
+  `bin/cosmic fix --check .` runs it locally against `git merge-base HEAD
+  origin/main`, saying so when there is no `origin/main` (`git fetch
+  origin main`) or no git checkout. a file renamed with markers loses
+  them: the key is the path.
+- code that moves keeps its markers, since they are on its lines. a
+  change that moves a finding to another line moves its marker, and a
+  marker left behind is stale where the finding is no longer.
+
+a code none of whose findings remain is closed: add it to
+`Ceilings.closed` in [`build/ceilings.tl`], and a marker naming it is
+refused from then on.
+
+[`build/ceilings.txt`] still holds what markers do not: the `[examples]`
+(the findings in the text a reader copies, which a marker would be in) and
+the stages not yet listed under its `[marked]`, as pins that only fall. a
+stage moves to markers once, with `bin/cosmic fix --mark-ceilings .`,
+which writes a marker at each finding it counts and lists the stage under
+`[marked]` in place of its rows.
 
 ## teal layout
 
@@ -281,6 +307,7 @@ the tool named can be older than the tree's generator.
 [`build/ceilings.tl`]: ../build/ceilings.tl
 [`build/ceilings.txt`]: ../build/ceilings.txt
 [`build/ceilings_base.tl`]: ../build/ceilings_base.tl
+[`build/markers.tl`]: ../build/markers.tl
 [`build/paths.tl`]: ../build/paths.tl
 [`build/seed.tl`]: ../build/seed.tl
 [`build/seed.txt`]: ../build/seed.txt

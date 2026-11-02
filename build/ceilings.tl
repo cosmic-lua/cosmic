@@ -1,5 +1,14 @@
---- The ceilings of the new checker: how many errors of each code each file of the tree may still have, per stage, as data
---- in [`build/ceilings.txt`] and not as Teal compiled into the tool.
+--- The ceilings of the new checker: how many errors of each code each file of the tree may still have, per stage.
+---
+--- A stage is held in one of two ways. A stage listed under `[marked]` in [`build/ceilings.txt`] is held by MARKERS: each
+--- finding it still makes is held by a comment on the line it is reported at (`-- checked: map_field`, [`build.markers`]), so
+--- that a change that removes code moves or deletes the markers with it and touches no shared file. [`Ceilings.marked`] judges
+--- a file against its markers: a finding with no marker on its line is refused, by a compile of the module and by the check of
+--- the tree, and a marker whose finding is gone is stale, which the check of the tree tells and `cosmic fix` removes. The
+--- markers only fall: [`build.ceilings_base`] holds each file's count of each code to the file at the merge base with main. The
+--- stage `examples` and the stages not listed are held by counts, as the rest of this comment says.
+---
+--- A COUNT is data in [`build/ceilings.txt`] and not Teal compiled into the tool.
 ---
 --- A ceiling only falls, and three things enforce it. A file that goes over its ceiling is refused, by a compile of a module
 --- and by the check of the tree ([`Ceilings.over`]); a missing row is a ceiling of 0. A change to the data file that
@@ -26,6 +35,7 @@
 local Check = require("lang.check")
 local Declarations = require("lang.declarations")
 local Fs = require("cosmic.fs")
+local Markers = require("build.markers")
 local Scopes = require("lang.scopes")
 local String = require("cosmic.string")
 
@@ -55,6 +65,9 @@ local record Ceilings
     --- Whether the tree has no ceilings to be held to and none to raise: a project's. An error over a ceiling of 0 is then
     --- listed without the pin that is not there.
     none: boolean?
+    --- The stages whose findings are held by markers at the lines they occur on ([`Ceilings.marked`]) and not by
+    --- counts: those the file lists under `[marked]`. A stage listed has no rows. Nil where no stage is.
+    marked?: {string: boolean}
   end
 
   --- The path of the data file below the root of the tree.
@@ -98,6 +111,69 @@ local record Ceilings
 
   --- The ceilings of `stage` in `ceilings`: empty for a stage the table has none of.
   of: function(ceilings: Table, stage: Stage): {string: integer}
+
+  --- The pseudo code of a call the checker gave no function ([`build.syntax_contracts`]'s `untyped`), the one finding of the
+  --- stage `untyped`: a marker (`-- untyped: call`) names it as it names a code of the checker.
+  mut untyped_code: string
+  --- The words of that finding: what it is and what to do.
+  mut untyped_message: string
+  mut untyped_fix: string
+
+  --- The stages that markers can hold: those whose findings have a line.
+  markable: function(): {Stage}
+
+  --- Whether `ceilings` holds the findings of `stage` by markers.
+  by_marks: function(ceilings: Table, stage: Stage): boolean
+
+  --- The codes a marker of `stage` may name: those of the stage's check, and for `untyped` the one pseudo code.
+  stage_codes: function(stage: Stage): {string}
+
+  --- A place where a finding and a marker disagree, for the check that tells it and the fix that mends it.
+  type Spot = Markers.Spot
+
+  --- The places a run found that the markers of the tree disagree with its findings: `unmarked` where findings have no
+  --- marker (what `cosmic fix --mark-ceilings` writes) and `stale` where a marker holds more than the line has (what
+  --- `cosmic fix` removes). Each is of one file and one code.
+  record Sink
+    unmarked: mut {Spot}
+    stale: mut {Spot}
+    --- Whether the caller mends the stale markers itself, so that the check does not tell them as findings.
+    mend?: boolean
+  end
+
+  --- How a check of the tree is run over the markers: `sink` collects what disagrees ([`Ceilings.Sink`]), and with `force` the
+  --- stage is held by markers whether the ceilings file lists it or not, which is how `cosmic fix --mark-ceilings` finds
+  --- the findings to write markers for.
+  record Marking
+    sink?: Sink
+    force?: boolean
+  end
+
+  --- What [`Ceilings.marked`] found of one file.
+  record Judged
+    --- The refusals, listed: each finding that has no marker, with its place, message and fix, then a line that says how many
+    --- there are at the line and what the marker holds; and a marker of a closed code.
+    lines: {string}
+    --- The findings no marker holds, by line and code.
+    unmarked: {Spot}
+    --- The markers that hold what the line lacks, by line and code.
+    stale: {Spot}
+  end
+
+  --- The errors of the file `file` whose text is `text`, held by its markers of `stage`: the errors of a code on a line that
+  --- the markers of that line do not hold, listed. `codes` are the codes of the stage, and a marker of another code or
+  --- another stage is none of its business. `what` says where the errors are (`bodies`). With `unpinned` the lines do not point to the marker.
+  marked: function(stage: Stage, file: string, text: string, errors: {Finding}, codes: {string}, what: string,
+                   unpinned?: boolean): Judged
+
+  --- `text`, a ceilings file, as it reads once the stages in `stages` are held by markers: their rows are gone and they are
+  --- listed under `[marked]`, which the file gains at the head of its sections. A comment before a section's first row
+  --- goes with the section.
+  migrated: function(text: string, stages: {string}): string
+
+  --- The markers of `text` that name no code of their stage, as spots of `file`: a typo, a code of another stage or a code
+  --- the checker lost, which holds nothing.
+  unknown: function(file: string, text: string): {Spot}
 
   --- What [`Ceilings.over`] found.
   record Held
@@ -257,6 +333,14 @@ local STAGES <const>: {string: boolean} = {
   scoped = true, declared = true, untyped = true, checked = true, examples = true, testdata = true,
 }
 
+--- The stages that markers hold, in the order of the file.
+local MARKABLE_LIST <const>: {Ceilings.Stage} = { "scoped", "declared", "untyped", "checked" }
+
+local MARKABLE: mut {string: boolean} = {}
+for _, stage in ipairs(MARKABLE_LIST) do
+  MARKABLE[tostring(stage)] = true
+end
+
 function Ceilings.parse(text: string, closed?: {string}): Ceilings.Table?, string
   local shut = CLOSED
   if closed ~= nil then
@@ -266,15 +350,30 @@ function Ceilings.parse(text: string, closed?: {string}): Ceilings.Table?, strin
     end
     shut = own
   end
-  local out: Ceilings.Table = { stages = {}, none = nil }
+  local marked: mut {string: boolean} = {}
+  local out: Ceilings.Table = { stages = {}, none = nil, marked = marked }
   local held: mut {string: integer}? = nil
   local stage = ""
   local number = 0
+  local listing = false
   for line in (text .. "\n"):gmatch("(.-)\n") do
     number = number + 1
     if line ~= "" and line:sub(1, 1) ~= "#" then
       local name = line:match("^%[([a-z]+)%]$")
-      if name ~= nil then
+      if name == "marked" then
+        listing = true
+        held = nil
+        stage = "marked"
+      elseif listing and name == nil and line:match("^[a-z ]+$") ~= nil then
+        local at = Ceilings.path .. ":" .. tostring(number) .. ": "
+        for word in line:gmatch("%S+") do
+          if MARKABLE[word] ~= true then
+            return nil, at .. "`" .. word .. "` is no stage that markers hold; [marked] lists " .. table.concat(MARKABLE_LIST, ", ")
+          end
+          marked[word] = true
+        end
+      elseif name ~= nil then
+        listing = false
         if STAGES[name] ~= true then
           return nil, Ceilings.path .. ":" .. tostring(number) .. ": no stage " .. name .. " in a check of the tree"
         end
@@ -283,6 +382,8 @@ function Ceilings.parse(text: string, closed?: {string}): Ceilings.Table?, strin
         for key, count in pairs(out.stages[name] or {}) do opened[key] = count end
         out.stages[name] = opened
         held = opened
+      elseif listing then
+        return nil, Ceilings.path .. ":" .. tostring(number) .. ": [marked] lists stages by name, not `" .. line .. "`"
       else
         local key, count = line:match("^(%S.-)%s+(%d+)$")
         local n: integer? = nil
@@ -307,6 +408,11 @@ function Ceilings.parse(text: string, closed?: {string}): Ceilings.Table?, strin
         end
         held[key] = n
       end
+    end
+  end
+  for word in pairs(marked) do
+    if next(out.stages[word] or {}) ~= nil then
+      return nil, Ceilings.path .. ": [" .. word .. "] is held by markers, so it has no rows; the markers are its ceilings"
     end
   end
   return out, ""
@@ -409,6 +515,193 @@ end
 
 function Ceilings.of(ceilings: Ceilings.Table, stage: Ceilings.Stage): {string: integer}
   return ceilings.stages[tostring(stage)] or {}
+end
+
+Ceilings.untyped_code = "call"
+Ceilings.untyped_message = "a call the checker gave no function, which no rule of the discipline judged"
+Ceilings.untyped_fix = "type what it calls through"
+
+function Ceilings.markable(): {Ceilings.Stage}
+  return MARKABLE_LIST
+end
+
+function Ceilings.by_marks(ceilings: Ceilings.Table, stage: Ceilings.Stage): boolean
+  local marked = ceilings.marked
+  return marked ~= nil and marked[tostring(stage)] == true
+end
+
+function Ceilings.stage_codes(stage: Ceilings.Stage): {string}
+  if stage == "untyped" then
+    return { Ceilings.untyped_code }
+  end
+  return codes_of(tostring(stage)) or {}
+end
+
+function Ceilings.marked(stage: Ceilings.Stage, file: string, text: string, errors: {Ceilings.Finding}, codes: {string},
+                         what: string, unpinned?: boolean): Ceilings.Judged
+  local out: mut {string} = {}
+  local unmarked: mut {Markers.Spot} = {}
+  local stale: mut {Markers.Spot} = {}
+  local wanted: mut {string: boolean} = {}
+  for _, code in ipairs(codes) do
+    wanted[code] = true
+  end
+  -- What the markers hold, by line and code: those of this stage's codes alone.
+  local held: mut {integer: mut {string: integer}} = {}
+  local marks = Markers.read(text, file).marks
+  for _, mark in ipairs(marks) do
+    for _, segment in ipairs(mark.segments) do
+      if segment.stage == tostring(stage) then
+        for code, n in pairs(segment.counts) do
+          if wanted[code] == true then
+            local on = held[mark.line] or {}
+            held[mark.line] = on
+            on[code] = (on[code] or 0) + n
+          end
+        end
+      end
+    end
+  end
+  -- The findings, by line and code, in the order of the lines.
+  local found: mut {integer: mut {string: mut {Ceilings.Finding}}} = {}
+  local lines: mut {integer} = {}
+  for _, e in ipairs(errors) do
+    if wanted[e.code] == true then
+      local on = found[e.y] or {}
+      if found[e.y] == nil then
+        found[e.y] = on
+        lines[#lines + 1] = e.y
+      end
+      local list = on[e.code] or {}
+      on[e.code] = list
+      list[#list + 1] = e
+    end
+  end
+  table.sort(lines)
+  for _, line in ipairs(lines) do
+    local on = assert(found[line])
+    for _, code in ipairs(codes) do
+      local list = on[code]
+      if list ~= nil then
+        local marked_n = (held[line] or {})[code] or 0
+        -- A closed code has no exceptions: a marker for it holds nothing.
+        local allowed = marked_n
+        if CLOSED[code] == true then
+          allowed = 0
+        end
+        if #list > allowed then
+          for _, e in ipairs(list) do
+            out[#out + 1] = file .. ":" .. tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg .. " (" .. code .. "): " .. e.fix
+          end
+          local tail = "; follow the fix above"
+          if unpinned ~= true then
+            tail = ", and its marker holds " .. tostring(allowed) .. tail .. " rather than add a marker"
+          end
+          out[#out + 1] = file .. ":" .. tostring(line) .. ": " .. String.counted(#list, "error") .. " of " .. code ..
+            " on this line of its " .. what .. tail
+          unmarked[#unmarked + 1] = { file = file, line = line, stage = tostring(stage), code = code, count = #list - allowed }
+        end
+      end
+    end
+  end
+  -- The markers that hold more than the line has, in the order of the lines.
+  local marked_lines: mut {integer} = {}
+  for line in pairs(held) do
+    marked_lines[#marked_lines + 1] = line
+  end
+  table.sort(marked_lines)
+  for _, line in ipairs(marked_lines) do
+    local on = assert(held[line])
+    for _, code in ipairs(codes) do
+      local n = on[code]
+      if n ~= nil then
+        local has = #(((found[line] or {})[code]) or {})
+        if n > has then
+          stale[#stale + 1] = { file = file, line = line, stage = tostring(stage), code = code, count = n - has }
+        elseif CLOSED[code] == true then
+          out[#out + 1] = file .. ":" .. tostring(line) .. ": " .. code .. " is closed: the tree keeps this rule with no " ..
+            "exceptions; a marker holds none of it, so fix the code"
+        end
+      end
+    end
+  end
+  return { lines = out, unmarked = unmarked, stale = stale }
+end
+
+function Ceilings.migrated(text: string, stages: {string}): string
+  local gone: mut {string: boolean} = {}
+  for _, stage in ipairs(stages) do
+    gone[stage] = true
+  end
+  local head: mut {string} = {}
+  local kept: mut {string} = {}
+  local listed: mut {string} = {}
+  -- The sections of the file, each a header and the lines to the next header.
+  local section = ""
+  local seen = false
+  local dropping = false
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    local name = line:match("^%[([a-z]+)%]$")
+    if name ~= nil then
+      seen = true
+      section = name
+      dropping = gone[name] == true
+    end
+    if not seen then
+      head[#head + 1] = line
+    elseif section == "marked" then
+      -- the stages already listed are kept
+      if name == nil and line:match("^[a-z ]+$") ~= nil then
+        for word in line:gmatch("%S+") do listed[#listed + 1] = word end
+      end
+    elseif not dropping then
+      kept[#kept + 1] = line
+    end
+  end
+  -- The text ends in a break, which the split read as a last empty line.
+  if head[#head] == "" and not seen then head[#head] = nil end
+  for _, stage in ipairs(stages) do
+    listed[#listed + 1] = stage
+  end
+  local order: mut {string} = {}
+  for _, stage in ipairs(MARKABLE_LIST) do
+    for _, word in ipairs(listed) do
+      if word == tostring(stage) then
+        order[#order + 1] = word
+        break
+      end
+    end
+  end
+  local out = table.concat(head, "\n")
+  if out ~= "" then out = out .. "\n" end
+  out = out .. "[marked]\n# The stages whose findings a marker holds at the line they occur on (`-- checked: <code>`), in place of\n" ..
+    "# the rows of a section here: [`build.ceilings`] and [`build.markers`] say how.\n" .. table.concat(order, " ") .. "\n\n"
+  local rest = table.concat(kept, "\n"):gsub("^\n+", ""):gsub("\n+$", "")
+  if rest ~= "" then out = out .. rest .. "\n" end
+  return out
+end
+
+function Ceilings.unknown(file: string, text: string): {Markers.Spot}
+  local out: mut {Markers.Spot} = {}
+  for _, mark in ipairs(Markers.read(text, file).marks) do
+    for _, segment in ipairs(mark.segments) do
+      local known: mut {string: boolean} = {}
+      for _, stage in ipairs(MARKABLE_LIST) do
+        if tostring(stage) == segment.stage then
+          for _, code in ipairs(Ceilings.stage_codes(stage)) do
+            known[code] = true
+          end
+        end
+      end
+      for _, code in ipairs(segment.codes) do
+        if known[code] ~= true then
+          out[#out + 1] = { file = file, line = mark.line, stage = segment.stage, code = code,
+            count = assert(segment.counts[code]) }
+        end
+      end
+    end
+  end
+  return out
 end
 
 function Ceilings.over(file: string, errors: {Ceilings.Finding}, codes: {string}, pinned: {string: integer},

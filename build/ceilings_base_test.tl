@@ -185,3 +185,90 @@ local function test_a_checkout_without_git_or_origin_main_is_skipped_saying_so_a
   local held = CeilingsBase.check(root, {}, git_of(answers, { calls = {} }))
   assert(#held.lines == 1 and has(held.lines[1], "rose from 3 to 9"), table.concat(held.lines, "\n"))
 end
+
+-- The markers: a file may hold no more of a stage's code than it did at the merge base. A marker in a fixture is written as
+-- `KEY .. " ..."` so that this file holds none.
+
+local KEY <const> = "-- checked:"
+
+local GREP <const> = "grep -l -F -e -- scoped: -e -- declared: -e -- checked: -e -- untyped: " .. BASE ..
+  " -- *.tl :(exclude)vendor :(exclude)ci"
+
+--- A `git cat-file --batch` stream of `files`: a header and the bytes of each, in order.
+local function stream(files: {string}): string
+  local out: mut {string} = {}
+  for _, content in ipairs(files) do
+    out[#out + 1] = string.rep("a", 40) .. " blob " .. tostring(#content) .. "\n" .. content .. "\n"
+  end
+  return table.concat(out)
+end
+
+--- A git that has the base, whose markers are in `files` (path to text).
+local function marked_base(files: {string: string}): Answers
+  local answers = holding(BASE_TEXT)
+  local paths: mut {string} = {}
+  for path in pairs(files) do paths[#paths + 1] = path end
+  table.sort(paths)
+  local listed: mut {string} = {}
+  local contents: mut {string} = {}
+  for _, path in ipairs(paths) do
+    listed[#listed + 1] = BASE .. ":" .. path
+    contents[#contents + 1] = assert(files[path])
+  end
+  if #paths == 0 then
+    answers.status[GREP] = 1
+  else
+    answers.status[GREP] = 0
+  end
+  answers.printed[GREP] = table.concat(listed, "\n") .. "\n"
+  answers.status["cat-file --batch"] = 0
+  answers.printed["cat-file --batch"] = stream(contents)
+  return answers
+end
+
+local function test_a_file_with_more_markers_of_a_code_than_the_base_is_refused(tmp: string)
+  local root = tree_with(tmp, BASE_TEXT)
+  local base = marked_base({ ["build/a.tl"] = "f() " .. KEY .. " map_field\ng()\n" })
+  local held: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 2, ["checked any_use"] = 1 } }
+  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), held)
+  assert(#verdict.lines == 2, table.concat(verdict.lines, "\n"))
+  assert(has(verdict.lines[1], "build/a.tl: 1 of its markers hold checked any_use and the merge base's file held 0"),
+    verdict.lines[1])
+  assert(has(verdict.lines[2], "2 of its markers hold checked map_field and the merge base's file held 1"), verdict.lines[2])
+end
+
+local function test_a_new_file_of_markers_is_refused_and_a_file_at_or_under_its_base_is_not(tmp: string)
+  local root = tree_with(tmp, BASE_TEXT)
+  local base = marked_base({ ["build/a.tl"] = "f() " .. KEY .. " map_field*3\n" })
+  local fine: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 3 } }
+  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), fine)
+  assert(#verdict.lines == 0, table.concat(verdict.lines, "\n"))
+  local lower: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 1 } }
+  assert(#CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), lower).lines == 0)
+  local added: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 3 }, ["build/new.tl"] = { ["checked map_field"] = 1 } }
+  local refused = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), added)
+  assert(#refused.lines == 1 and has(refused.lines[1], "build/new.tl: 1 of its markers hold checked map_field and the " ..
+      "merge base's file held 0"), table.concat(refused.lines, "\n"))
+end
+
+local function test_a_base_without_markers_makes_every_marker_new_and_a_tree_without_asks_git_nothing(tmp: string)
+  local root = tree_with(tmp, BASE_TEXT)
+  local held: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 1 } }
+  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(marked_base({}), { calls = {} }), held)
+  assert(#verdict.lines == 1, table.concat(verdict.lines, "\n"))
+  local asked: Asked = { calls = {} }
+  local none = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(marked_base({}), asked), {})
+  assert(#none.lines == 0)
+  for _, call in ipairs(asked.calls) do
+    assert(call:find("^grep") == nil and call:find("^cat%-file %-%-batch") == nil, call)
+  end
+end
+
+local function test_a_base_whose_markers_git_cannot_read_fails_the_check(tmp: string)
+  local root = tree_with(tmp, BASE_TEXT)
+  local base = marked_base({ ["build/a.tl"] = "f()\n" })
+  base.status[GREP] = 128
+  local held: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 1 } }
+  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), held)
+  assert(#verdict.lines == 1 and has(verdict.lines[1], "git grep of the markers"), table.concat(verdict.lines, "\n"))
+end

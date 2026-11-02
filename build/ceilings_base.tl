@@ -20,6 +20,7 @@
 --- where the checkout holds enough history to tell (a shallow one, as CI's branch pushes are, cannot), a base that is not an
 --- ancestor of HEAD.
 local Ceilings = require("build.ceilings")
+local Markers = require("build.markers")
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -27,9 +28,13 @@ local Proc = require("cosmic.proc")
 local Clock = require("cosmic.clock")
 
 local record CeilingsBase
-  --- Runs git with `args` in the checkout at `root`: its exit status (-1 where git could not run, or ran out of time) and
-  --- what it wrote to standard output.
-  type Git = function(root: string, args: {string}): integer, string
+  --- Runs git with `args` in the checkout at `root`, feeding it `input` as its standard input where given: its exit status
+  --- (-1 where git could not run, or ran out of time) and what it wrote to standard output.
+  type Git = function(root: string, args: {string}, input?: string): integer, string
+
+  --- What the markers of a tree hold: a file to a code to how many findings its markers hold ([`build.tree_checks`]'s
+  --- `markers`).
+  type Held = {string: {string: integer}}
 
   --- What the check found.
   record Verdict
@@ -42,15 +47,16 @@ local record CeilingsBase
   --- [`CeilingsBase.Git`] for the host's own `git`.
   live_git: function(): Git
 
-  --- Holds the ceilings file of the tree at `root` to the file at the base `env` names, or that `git` finds.
-  check: function(root: string, env: {string:string}, git: Git): Verdict
+  --- Holds the ceilings file of the tree at `root` to the file at the base `env` names, or that `git` finds, and the markers
+  --- the tree `held` to the markers of the files at that base: a file may hold no more markers of a code than it did there.
+  check: function(root: string, env: {string:string}, git: Git, held?: Held): Verdict
 end
 
 --- How long one git call may take: a local lookup, or a fetch of one commit.
 local git_timeout_ns <const> = Clock.seconds(60)
 
 function CeilingsBase.live_git(): CeilingsBase.Git
-  return function(root: string, args: {string}): integer, string
+  return function(root: string, args: {string}, input?: string): integer, string
     local git, _ = Proc.find("git")
     if git == nil then
       return -1, ""
@@ -62,8 +68,12 @@ function CeilingsBase.live_git(): CeilingsBase.Git
     -- A fetch never asks for credentials: it works with what the checkout keeps or fails.
     local env = Env.all()
     env["GIT_TERMINAL_PROMPT"] = "0"
-    local result, _ = Child.run(argv, { env = env, stdin = "null", stdout = "capture", stderr = "null",
-      timeout_ns = git_timeout_ns })
+    -- The files of a base read together (`cat-file --batch`) come back in one stream, so the limit is raised for them.
+    local result, _ = Child.run(argv, if input == nil then
+      { env = env, stdin = "null", stdout = "capture", stderr = "null", timeout_ns = git_timeout_ns }
+      else
+      { env = env, input = input, stdout = "capture", stderr = "null", timeout_ns = git_timeout_ns, capture_limit = 1 << 28 }
+      end)
     if result == nil or result.timed_out then
       return -1, ""
     end
@@ -108,7 +118,105 @@ local function failed(why: string): CeilingsBase.Verdict
   return { lines = { Ceilings.path .. ": cannot hold the ceilings to the merge base, so they are refused: " .. why }, note = "" }
 end
 
-function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBase.Git): CeilingsBase.Verdict
+--- The markers each file holds at `base`, by file and code, read from the commit with git alone: the files that mention the
+--- keyword (`git grep`), then their blobs in one stream (`git cat-file --batch`). nil and why where git fails.
+local function base_marks(root: string, base: string, held: CeilingsBase.Held, git: CeilingsBase.Git):
+    CeilingsBase.Held?, string
+  local args: mut {string} = { "grep", "-l", "-F" }
+  for _, key in ipairs(Markers.keys()) do
+    args[#args + 1] = "-e"
+    args[#args + 1] = key
+  end
+  for _, word in ipairs({ base, "--", "*.tl", ":(exclude)vendor", ":(exclude)ci" }) do
+    args[#args + 1] = word
+  end
+  local status, listed = git(root, args)
+  -- Status 1 is "no match", which a base without markers answers.
+  if status ~= 0 and status ~= 1 then
+    return nil, "git grep of the markers at " .. base .. " failed"
+  end
+  local paths: mut {string} = {}
+  for line in listed:gmatch("[^\n]+") do
+    if line:sub(1, #base + 1) == base .. ":" then
+      paths[#paths + 1] = line:sub(#base + 2)
+    end
+  end
+  local out: mut {string: {string: integer}} = {}
+  if #paths == 0 then
+    return out, ""
+  end
+  local wanted: mut {string} = {}
+  for _, path in ipairs(paths) do
+    wanted[#wanted + 1] = base .. ":" .. path
+  end
+  local shown, stream = git(root, { "cat-file", "--batch" }, table.concat(wanted, "\n") .. "\n")
+  if shown ~= 0 then
+    return nil, "git cat-file of the markers at " .. base .. " failed"
+  end
+  local at = 1
+  for _, path in ipairs(paths) do
+    local header_end = stream:find("\n", at, true)
+    if header_end == nil then
+      return nil, "git cat-file answered fewer files than asked at " .. base
+    end
+    local size = stream:sub(at, header_end - 1):match("^%x+ blob (%d+)$")
+    if size == nil then
+      -- `<name> missing`: a path the listing named and the commit lacks does not happen; leave it out.
+      at = header_end + 1
+    else
+      local n = math.tointeger(tonumber(size)) or 0
+      local content = stream:sub(header_end + 1, header_end + n)
+      -- A file the change left as it was holds the markers the tree's holds: no lexing for it.
+      local there, _ = Fs.read(root .. "/" .. path)
+      local mine = held[path]
+      if there == content and mine ~= nil then
+        out[path] = mine
+      else
+        local counts = Markers.counts(content, path)
+        if next(counts) ~= nil then
+          out[path] = counts
+        end
+      end
+      at = header_end + n + 2
+    end
+  end
+  return out, ""
+end
+
+--- The lines that refuse the markers `held` of the tree where a file holds more of a code than it did at `base`, or nil and
+--- why where the base cannot be read. A moved line keeps its marker and so its count; a marker never added is how a pin never
+--- rose. The count of a file is its own: a marker of a file renamed or split is new where it lands.
+local function marks_rise(root: string, base: string, held: CeilingsBase.Held, git: CeilingsBase.Git): {string}?, string
+  local was, why = base_marks(root, base, held, git)
+  if was == nil then
+    return nil, why
+  end
+  local files: mut {string} = {}
+  for file in pairs(held) do
+    files[#files + 1] = file
+  end
+  table.sort(files)
+  local out: mut {string} = {}
+  for _, file in ipairs(files) do
+    local codes: mut {string} = {}
+    for code in pairs(assert(held[file])) do
+      codes[#codes + 1] = code
+    end
+    table.sort(codes)
+    for _, code in ipairs(codes) do
+      local now = assert(held[file])[code] or 0
+      local before = (was[file] or {})[code] or 0
+      if now > before then
+        out[#out + 1] = file .. ": " .. tostring(now) .. " of its markers hold " .. code .. " and the merge base's file held " ..
+          tostring(before) .. "; a marker is never added and a count only falls: fix the finding instead"
+      end
+    end
+  end
+  return out, ""
+end
+
+function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBase.Git, held?: CeilingsBase.Held):
+    CeilingsBase.Verdict
   local in_ci = env["GITHUB_ACTIONS"] == "true"
   local base = named(env, { "COSMIC_CEILINGS_BASE", "COSMIC_CI_BASE_SHA" })
   if base ~= "" and not full_hash(base) then
@@ -169,7 +277,20 @@ function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBas
   if parsed == nil then
     return failed(parse_why)
   end
-  return { lines = Ceilings.rises(was, text), note = "held to the ceilings of " .. base:sub(1, 12) }
+  local lines: mut {string} = {}
+  for _, line in ipairs(Ceilings.rises(was, text)) do
+    lines[#lines + 1] = line
+  end
+  if held ~= nil and next(held) ~= nil then
+    local rose, rose_why = marks_rise(root, base, held, git)
+    if rose == nil then
+      return failed(rose_why)
+    end
+    for _, line in ipairs(rose) do
+      lines[#lines + 1] = line
+    end
+  end
+  return { lines = lines, note = "held to the ceilings of " .. base:sub(1, 12) }
 end
 
 return CeilingsBase
