@@ -628,6 +628,63 @@ and `decimal` and `uint` from [SQLite's extensions](#sqlites-extensions).
   Everything else compares as bytes, signs and decimal points too: `'-5'`
   differs from `'5'`, and `'a1.05' = 'a1.5' COLLATE uint`.
 
+## copying tables between files
+
+A handle that is open `writable` attaches another database file and copies from it in SQL. `ATTACH` names the file and a
+schema; `create table ... as select` and `insert into ... select` read through that schema. A handle may attach 10
+databases until `handle:limit("attached", n)` raises that, to at most 125 ([`Sqlite.open`] has the rule).
+
+```teal
+local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
+
+local dir = assert(Fs.mkdtemp("copy-"))
+local old = assert(Sqlite.open(dir .. "/old.db", { writable = true, create = true }))
+assert(old:exec("create table t (id integer primary key, body text)"))
+assert(old:exec("insert into t (body) values ('a'), ('b')"))
+local _, _ = old:close()
+
+local db = assert(Sqlite.open(dir .. "/new.db", { writable = true, create = true }))
+assert(db:exec("ATTACH '" .. dir .. "/old.db' AS old"))
+assert(db:exec("create table t2 as select * from old.t"))
+print(assert(assert(Sqlite.rows(db, "select count(*) from t2"))[1]):integer(1))
+```
+
+```output
+2
+```
+
+`cosmic sql` runs one read-only statement on one database, so `ATTACH` is not available there: work across files is a short
+program, as above.
+
+## a prepared statement in a loop
+
+[`Statement.reset()`] rewinds a statement and clears every binding, so bind again inside the loop with
+`bind_values_result(values)`. For one-off rows, [`Sqlite.run`] with a values table per row prepares, binds and steps in one
+call.
+
+```teal
+local Sqlite = require("cosmic.sqlite")
+
+local db = assert(Sqlite.memory())
+assert(db:exec("create table t (id integer, body text)"))
+
+local insert = assert(db:prepare("insert into t values (?1, ?2)"))
+for id, body in ipairs({ "a", "b", "c" }) do
+  assert(insert:reset())
+  assert(insert:bind_values_result({ { integer = id }, { text = body } }).code == Sqlite.OK)
+  assert(insert:step())
+end
+insert:finalize()
+
+assert(Sqlite.run(db, "insert into t values (?1, ?2)", { { integer = 4 }, { text = "d" } }))
+print(assert(assert(Sqlite.rows(db, "select count(*) from t"))[1]):integer(1))
+```
+
+```output
+4
+```
+
 [`cosmic.csv`]: ../../cosmic/csv.tl
 [`cosmic.hash`]: ../../cosmic/hash.tl
 [`cosmic.json`]: ../../cosmic/json.tl
@@ -637,4 +694,7 @@ and `decimal` and `uint` from [SQLite's extensions](#sqlites-extensions).
 [`cosmic.vector`]: ../../cosmic/vector.tl
 [`cosmic/sqlite_example.tl`]: ../../cosmic/sqlite_example.tl
 [`Signal.guard`]: ../../cosmic/signal.tl
+[`Sqlite.open`]: ../../cosmic/sqlite.tl
+[`Sqlite.run`]: ../../cosmic/sqlite.tl
+[`Statement.reset()`]: ../../cosmic/internal/sqlite.d.tl
 [`Vector.load_blocks`]: ../../cosmic/vector.tl
