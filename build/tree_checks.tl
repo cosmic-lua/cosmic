@@ -2749,16 +2749,15 @@ local cloned_helpers: {string: string} = {
 --- held were few enough for one change to move (a process runner, a project writer).
 local CLONE_TOKENS = 70
 
---- A helper [`test_clones`] has read: where it is, and whether its file is a test or a fixture.
+--- A helper [`test_clones`] has read: where it is.
 local record CloneSite
   file: string
   line: integer
   name: string
-  held: boolean
 end
 
 --- Each top-level `local function` that is no test, of a `*_test.tl` or `*_fixture.tl` file under `root`, written
---- token for token as one in another file of the tree ([`TestClones`]), as `<file>:<line>: <name> is ...`, one for each
+--- token for token as one in another such file ([`TestClones`]), as `<file>:<line>: <name> is ...`, one for each
 --- set of copies; then each entry of `copies` (by default `cloned_helpers`) that no copy needs any more. A copy is
 --- fixed in one place: a helper goes into a shared fixture (build/test_support_fixture.tl,
 --- build/test_sandbox_fixture.tl, build/child_policy_fixture.tl ...), and each file requires it.
@@ -2771,79 +2770,118 @@ function tree_checks.test_clones(root: string, copies?: {string: string}, thresh
   local least = threshold or CLONE_TOKENS
   local out: mut {string} = {}
   local used: mut {string: boolean} = {}
-  -- A helper is read only where its head ([`TestClones`]'s `scan`) is another file's too, and one of the two is a test or
-  -- a fixture.
+  -- Only the files that are tests or fixtures take part, on both sides of a pair. A helper is read only where its head
+  -- ([`TestClones`]'s `scan`) is another file's too.
   local scans: mut {string: TestClones.Scan} = {}
+  local texts: mut {string: string} = {}
   local candidates: mut {string} = {}
   local in_files: mut {string: mut {string: boolean}} = {}
-  local held_key: mut {string: boolean} = {}
   for _, entry in ipairs(sources) do
     local file, text = entry[1], entry[2]
-    if file ~= nil and text ~= nil and text:find("local function", 1, true) ~= nil then
-      local held = file:match("_test%.tl$") ~= nil or file:match("_fixture%.tl$") ~= nil
+    if file ~= nil and text ~= nil and text:find("local function", 1, true) ~= nil and
+        (file:match("_test%.tl$") ~= nil or file:match("_fixture%.tl$") ~= nil) then
       local scan = TestClones.scan(text)
       scans[file] = scan
+      texts[file] = text
       candidates[#candidates + 1] = file
       for _, head in ipairs(scan.heads) do
         local files: mut {string: boolean} = in_files[head.key] or {}
         in_files[head.key] = files
         files[file] = true
-        if held then held_key[head.key] = true end
       end
     end
   end
+  -- The lines where a file's real top-level helpers begin, parsed whole once and only for a file a finding is made of:
+  -- a head in a long string that holds Teal source is no helper.
+  local real: mut {string: {string: boolean}} = {}
+  local function is_real(file: string, line: integer): boolean, string
+    local lines = real[file]
+    if lines == nil then
+      local chunk, parse_trouble = SyntaxNode.parse(assert(texts[file]), file)
+      if chunk == nil then
+        return false, parse_trouble
+      end
+      local found: mut {string: boolean} = {}
+      for _, top in ipairs(chunk.body.stats) do
+        if top.kind == "LocalFunction" then
+          found[tostring(SyntaxNode.span(chunk, top).y)] = true
+        end
+      end
+      real[file] = found
+      lines = found
+    end
+    return lines[tostring(line)] == true, ""
+  end
   local groups: mut {string: mut {CloneSite}} = {}
   local order: mut {string} = {}
+  local unreadable: mut {string} = {}
   for _, file in ipairs(candidates) do
     local scan = assert(scans[file])
-    local held = file:match("_test%.tl$") ~= nil or file:match("_fixture%.tl$") ~= nil
     for _, head in ipairs(scan.heads) do
       local files = assert(in_files[head.key])
       local count = 0
       for _ in pairs(files) do count = count + 1 end
-      if count >= 2 and held_key[head.key] == true then
+      if count >= 2 then
         local helper, cut_trouble = TestClones.read(scan, head, file)
         if helper == nil then
-          out[#out + 1] = file .. ":" .. tostring(head.line) .. ": cannot read " .. head.name ..
-            " to check it is no copy: " .. cut_trouble
+          local genuine, parse_trouble = is_real(file, head.line)
+          if parse_trouble ~= "" then
+            out[#out + 1] = file .. ": cannot read it to check its helpers: " .. parse_trouble
+          elseif genuine then
+            unreadable[#unreadable + 1] = file .. ":" .. tostring(head.line) .. ": cannot read " .. head.name ..
+              " to check it is no copy: " .. cut_trouble
+          end
         elseif helper.size >= least then
           local group: mut {CloneSite} = groups[helper.body] or {}
           if groups[helper.body] == nil then
             groups[helper.body] = group
             order[#order + 1] = helper.body
           end
-          group[#group + 1] = { file = file, line = helper.line, name = helper.name, held = held }
+          group[#group + 1] = { file = file, line = helper.line, name = helper.name }
         end
       end
     end
   end
+  for _, line in ipairs(unreadable) do out[#out + 1] = line end
   for _, body in ipairs(order) do
     local group = assert(groups[body])
     local files: mut {string: boolean} = {}
     local distinct = 0
-    local tests = false
     local refused: mut {CloneSite} = {}
     local excused_sites: mut {CloneSite} = {}
+    local checked = #group >= 2
     for _, site in ipairs(group) do
-      if files[site.file] ~= true then
-        files[site.file] = true
-        distinct = distinct + 1
+      local genuine = false
+      if checked then
+        local real_here, parse_trouble = is_real(site.file, site.line)
+        genuine = real_here
+        if parse_trouble ~= "" then
+          out[#out + 1] = site.file .. ": cannot read it to check its helpers: " .. parse_trouble
+        end
       end
-      if site.held then tests = true end
-      if excused[site.file .. ":" .. site.name] ~= nil then
-        excused_sites[#excused_sites + 1] = site
-      else
-        refused[#refused + 1] = site
+      if genuine then
+        if files[site.file] ~= true then
+          files[site.file] = true
+          distinct = distinct + 1
+        end
+        if excused[site.file .. ":" .. site.name] ~= nil then
+          excused_sites[#excused_sites + 1] = site
+        else
+          refused[#refused + 1] = site
+        end
       end
     end
     -- A copy is a copy wherever it is: a set the allowance names stays excused only while it holds no site it does not name.
-    if distinct >= 2 and tests then
+    if distinct >= 2 then
       for _, site in ipairs(excused_sites) do used[site.file .. ":" .. site.name] = true end
       if #refused > 0 then
-        local first = assert(group[1])
+        local first = assert(refused[1])
         local others: mut {string} = {}
-        for i = 2, #group do
-          local site = assert(group[i])
+        for i = 2, #refused do
+          local site = assert(refused[i])
+          others[#others + 1] = site.file .. ":" .. tostring(site.line) .. " (" .. site.name .. ")"
+        end
+        for _, site in ipairs(excused_sites) do
           others[#others + 1] = site.file .. ":" .. tostring(site.line) .. " (" .. site.name .. ")"
         end
         out[#out + 1] = first.file .. ":" .. tostring(first.line) .. ": " .. first.name ..

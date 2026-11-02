@@ -539,6 +539,8 @@ local function test_a_helper_copied_between_test_files_is_refused(dir: string)
   local library = helper("library", "|")
   put("build/lib.tl", library)
   put("build/lib_other.tl", library)
+  -- A plain script is no side of a pair, though the other side is a test.
+  put("build/script.tl", body)
   local twice = helper("twice", ";")
   put("build/twice_test.tl", twice .. "\n" .. swap(twice, "twice", "again"))
   put("build/tests_test.tl", helper("test_join", ","))
@@ -578,13 +580,41 @@ local function test_a_copy_between_fixtures_and_a_copy_the_allowance_does_not_na
   put("build/three_test.tl", body)
   found = tree_checks.test_clones(dir, named, 20)
   assert(#found == 1, table.concat(found, "\n"))
-  assert(found[1]:find("^build/one_fixture.tl:1: join is copied token for token in build/three_test.tl:1 %(join%), " ..
-      "build/two_fixture.tl:1"), found[1])
+  assert(found[1]:find("^build/three_test.tl:1: join is copied token for token in build/one_fixture.tl:1 %(join%), " ..
+      "build/two_fixture.tl:1 %(join%): "), found[1])
   found = tree_checks.test_clones(dir, { ["build/one_fixture.tl:join"] = "moved later", ["build/two_fixture.tl:join"] = "moved later",
     ["build/three_test.tl:join"] = "moved later", ["build/nothing_test.tl:join"] = "gone" }, 20)
   assert(#found == 1, table.concat(found, "\n"))
   assert(found[1] == "build/nothing_test.tl:join: excused from the copied-helper check, but no other file has a copy of it " ..
       "any more -- remove the exemption", found[1])
+end
+
+--- Two files that embed the same snippet of Teal in a string, with a `local function` at the left margin in it, hold no
+--- helper of it: nothing is found, though the heads match and one of them is unreadable.
+local function test_a_snippet_in_a_string_is_no_helper(dir: string)
+  local function put(file: string, text: string)
+    assert(Fs.write(dir .. "/" .. file, text))
+  end
+  local text = source(
+    "local function writes(root: string)",
+    "  assert(Fs.write(root .. \"/a.tl\", [[",
+    "local function inner(first: string, second: string): string",
+    "  local out: {string} = {}",
+    "  out[#out + 1] = first",
+    "  out[#out + 1] = second",
+    "  return table.concat(out, \"/\")",
+    "end",
+    "local function broken(a: string): string",
+    "  return a +",
+    "end",
+    "]]))",
+    "  assert(Fs.write(root .. \"/b.tl\", \"x\"))",
+    "end")
+  assert(Fs.mkdirs(dir .. "/build"))
+  put("build/first_test.tl", (text:gsub("writes", "first")))
+  put("build/second_test.tl", (text:gsub("\"x\"", "\"y\"")))
+  local found = tree_checks.test_clones(dir, {}, 5)
+  assert(#found == 0, table.concat(found, "\n"))
 end
 
 --- A helper that writes Teal source in a long string, with `end` lines of its own, and one written on a line are read
