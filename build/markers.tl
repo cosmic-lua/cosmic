@@ -73,6 +73,10 @@ local record Markers
   --- comment at the end of the line, or on a line of its own above it where the line cannot take a comment.
   with: function(text: string, name: string, spots: {Spot}): string
 
+  --- `line`, a line of source, without the markers that end it: they are comments of the checker's, not part of what the line
+  --- declares, so a signature shown from the line is shown without them.
+  bare: function(line: string): string
+
   --- The words that open a marker of each stage (`-- checked:`), in the order of the stages.
   keys: function(): {string}
 
@@ -132,7 +136,7 @@ local function in_comment(text: string, alone: boolean): string, {Markers.Segmen
       if start == nil then
         break
       end
-      if start == 1 or (not alone and sub(text, start - 1, start - 1):match("%s") ~= nil) then
+      if start == 1 or sub(text, start - 1, start - 1):match("%s") ~= nil then
         starts[#starts + 1] = start
         stage_at[start] = stage
       end
@@ -246,6 +250,32 @@ function Markers.counts(text: string, name: string): {string: integer}
     end
   end
   return out
+end
+
+function Markers.bare(line: string): string
+  local best: integer? = nil
+  for _, stage in ipairs(STAGES) do
+    local key = key_of(stage)
+    local at = 1
+    while true do
+      local start = find(line, key, at, true)
+      if start == nil then
+        break
+      end
+      if start > 1 and sub(line, start - 1, start - 1):match("%s") ~= nil then
+        local _, segments = in_comment(sub(line, start), true)
+        if segments ~= nil and (best == nil or start < best) then
+          best = start
+        end
+      end
+      at = start + 1
+    end
+  end
+  if best == nil then
+    return line
+  end
+  local kept = sub(line, 1, best - 1)
+  return (kept:gsub("%s+$", ""))
 end
 
 --- `code`, or `code*n` for n findings.

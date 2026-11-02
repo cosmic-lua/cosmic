@@ -406,6 +406,22 @@ local function test_a_signature_is_the_head_on_one_line()
   assert(support.nth(found.docs, 3).signature == "local function g()", support.nth(found.docs, 3).signature)
 end
 
+--- A marker of the checker ([`build.markers`]) at the end of a declaration is no part of its signature.
+local function test_a_signature_is_shown_without_the_marker_that_ends_its_line()
+  local found = analyzed(lines(
+    "local record R",
+    "  n: integer -- declared: key_type",
+    "  type Table = {any: any} -- declared: key_type -- checked: any_use",
+    "end",
+    "return R"))
+  local by: mut {string: string} = {}
+  for _, entry in ipairs(found.docs) do
+    by[entry.source_symbol] = entry.signature
+  end
+  assert(by["R.n"] == "n: integer", tostring(by["R.n"]))
+  assert(by["R.Table"] == "type Table = {any: any}", tostring(by["R.Table"]))
+end
+
 --- The comment that opens a file is the module's, unless it ends right above a function, which it documents.
 local function test_the_opening_comment_documents_the_module_or_the_function_below_it()
   local function symbols(source: string): string

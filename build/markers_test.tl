@@ -128,3 +128,23 @@ local function test_the_markers_are_written_in_the_order_of_the_stages_and_after
   assert(Markers.without(marked, "a.tl", { spot(1, "map_field", 2), spot(1, "any_use"),
     { file = "a.tl", line = 1, stage = "scoped", code = "shadows", count = 1 } }) == text("g() -- why"))
 end
+
+local function test_a_line_is_shown_without_the_markers_that_end_it()
+  assert(Markers.bare("mut skip?: function(Response): boolean " .. KEY .. " any_use") == "mut skip?: function(Response): boolean")
+  assert(Markers.bare("n: integer -- declared: key_type -- checked: any_use, map_field*2") == "n: integer")
+  -- a comment of the author's, or a sentence after the words, stays
+  assert(Markers.bare("n: integer -- the count") == "n: integer -- the count")
+  assert(Markers.bare("n: integer -- the count " .. KEY .. " any_use") == "n: integer -- the count")
+  assert(Markers.bare("n: integer " .. KEY .. " it is why") == "n: integer " .. KEY .. " it is why")
+  assert(Markers.bare("n: integer") == "n: integer")
+end
+
+local function test_a_line_of_its_own_holds_the_markers_of_several_stages()
+  local source = text("-- declared: key_type -- checked: any_use", "n: {any: any}")
+  local mark = assert(Markers.read(source, "a.tl").marks[1])
+  assert(mark.alone and mark.line == 2 and #mark.segments == 2)
+  local written = Markers.with(text("local s = g([[", "x", "]])"), "a.tl", { spot(1, "any_use"),
+    { file = "a.tl", line = 1, stage = "declared", code = "key_type", count = 1 } })
+  assert(written == text("-- declared: key_type -- checked: any_use", "local s = g([[", "x", "]])"), written)
+  assert(Markers.counts(written, "a.tl")["declared key_type"] == 1)
+end

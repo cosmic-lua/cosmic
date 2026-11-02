@@ -183,11 +183,59 @@ local function base_marks(root: string, base: string, held: CeilingsBase.Held, g
   return out, ""
 end
 
---- The lines that refuse the markers `held` of the tree where a file holds more of a code than it did at `base`, or nil and
---- why where the base cannot be read. A moved line keeps its marker and so its count; a marker never added is how a pin never
---- rose. The count of a file is its own: a marker of a file renamed or split is new where it lands.
-local function marks_rise(root: string, base: string, held: CeilingsBase.Held, git: CeilingsBase.Git): {string}?, string
-  local was, why = base_marks(root, base, held, git)
+--- What the merge base held, by file and `<stage> <code>`: its markers for a stage its ceilings file lists under `[marked]`, and
+--- the rows of its ceilings file for any other (`untyped` counts its calls as `untyped call`). So the change that moves a stage
+--- from rows to markers may hold up to the rows' counts of them, and no more. nil and why where it cannot be read.
+local function base_held(root: string, base: string, text: string, held: CeilingsBase.Held, git: CeilingsBase.Git):
+    CeilingsBase.Held?, string
+  -- Nothing is closed for the base: it may still hold a row of a code closed since.
+  local table_, why = Ceilings.parse(text, {})
+  if table_ == nil then
+    return nil, why
+  end
+  local out: mut {string: mut {string: integer}} = {}
+  local any_marked = false
+  for _, stage in ipairs(Ceilings.markable()) do
+    if Ceilings.by_marks(table_, stage) then
+      any_marked = true
+    else
+      for key, n in pairs(Ceilings.of(table_, stage)) do
+        local file = assert(key:match("^(%S+)"))
+        local code = key:match("^%S+ (%S+)$") or Ceilings.untyped_code
+        local files = out[file] or {}
+        out[file] = files
+        files[tostring(stage) .. " " .. code] = n
+      end
+    end
+  end
+  if any_marked then
+    local marked, marked_why = base_marks(root, base, held, git)
+    if marked == nil then
+      return nil, marked_why
+    end
+    for file, counts in pairs(marked) do
+      for key, n in pairs(counts) do
+        local name = assert(key:match("^(%S+) "))
+        for _, stage in ipairs(Ceilings.markable()) do
+          if tostring(stage) == name and Ceilings.by_marks(table_, stage) then
+            local files = out[file] or {}
+            out[file] = files
+            files[key] = n
+          end
+        end
+      end
+    end
+  end
+  return out, ""
+end
+
+--- The lines that refuse the markers `held` of the tree where a file holds more of a code than the merge base did (as markers,
+--- or as rows of its ceilings file `text`), or nil and why where the base cannot be read. A moved line keeps its marker and so
+--- its count; a marker is never added, as a pin never rose. The count of a file is its own: a marker of a file renamed or split
+--- is new where it lands.
+local function marks_rise(root: string, base: string, text: string, held: CeilingsBase.Held, git: CeilingsBase.Git):
+    {string}?, string
+  local was, why = base_held(root, base, text, held, git)
   if was == nil then
     return nil, why
   end
@@ -207,8 +255,9 @@ local function marks_rise(root: string, base: string, held: CeilingsBase.Held, g
       local now = assert(held[file])[code] or 0
       local before = (was[file] or {})[code] or 0
       if now > before then
-        out[#out + 1] = file .. ": " .. tostring(now) .. " of its markers hold " .. code .. " and the merge base's file held " ..
+        local line = file .. ": " .. tostring(now) .. " of its markers hold " .. code .. " and the merge base held " ..
           tostring(before) .. "; a marker is never added and a count only falls: fix the finding instead"
+        out[#out + 1] = line
       end
     end
   end
@@ -282,7 +331,7 @@ function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBas
     lines[#lines + 1] = line
   end
   if held ~= nil and next(held) ~= nil then
-    local rose, rose_why = marks_rise(root, base, held, git)
+    local rose, rose_why = marks_rise(root, base, was, held, git)
     if rose == nil then
       return failed(rose_why)
     end
