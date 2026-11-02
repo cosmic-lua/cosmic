@@ -512,7 +512,13 @@ local function test_a_check_that_was_deferred_is_made_once_the_lock_is_free(tmp:
   local current: reboot.Seen = { tool = layout.tool, environment = {},
     meta = { image_hash = fingerprint.image, boot_hash = fingerprint.boot, built_from = built_from } }
   held_elsewhere(root, function()
-    assert(reboot.recheck({ "lsp" }, root, stale) == nil)
+    local asked = false
+    local function before_enter(): {string:string}?, string
+      asked = true
+      return {}, ""
+    end
+    assert(reboot.recheck({ "lsp" }, root, stale, before_enter) == nil)
+    assert(not asked, "the session was written for a check that deferred")
     assert(reboot.unchecked(root), "a stale tool under the lock is not deferred")
     assert(assert(rebuild.stage(root)).unchecked)
   end)
@@ -526,7 +532,12 @@ local function test_a_check_that_was_deferred_is_made_once_the_lock_is_free(tmp:
   assert(said:find("still stale after a reboot", 1, true), said)
   assert(reboot.unchecked(root), "a failed check leaves the tree held")
   -- The tool is the tree's and the lock is free: the tree is held to it again.
-  assert(reboot.recheck({ "lsp" }, root, current) == nil)
+  local fresh_asked = false
+  assert(reboot.recheck({ "lsp" }, root, current, function(): {string:string}?, string
+    fresh_asked = true
+    return {}, ""
+  end) == nil)
+  assert(not fresh_asked, "the session was written for a tool that was fresh")
   assert(not reboot.unchecked(root), "a check that found the tool fresh left the tree unchecked")
 end
 

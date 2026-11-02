@@ -259,6 +259,8 @@ for _, name in ipairs({ "key", "open", "close", "look", "settle", "analyzers", "
 end
 allowed["build.importer.analyzer_modules"] = "tested directly: the test holds the " ..
   "list to every module the analysis requires"
+allowed["build.lsp.reentry"] = "tested directly: the test hands it checks that answer stale " ..
+  "or fresh, since a real exec into a rebuilt tool replaces the test's own process"
 allowed["build.importer.tree_code"] = "tested directly: the test holds what a " ..
   "boot names its analyzer by to what the tool it writes names it by, around a " ..
   "derive run as a boot runs it, which no binary under the suite otherwise does"

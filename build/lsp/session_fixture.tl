@@ -306,7 +306,7 @@ end
 --- ([`session.Options`]); `resumed`, a session a predecessor handed over ([`session.handed`]), serves them instead,
 --- after the messages it was left.
 function session_fixture.served_holding(root: string, messages: {string},
-                                        reenter: function(state: handoff.Session): integer?,
+                                        reenter: function(root: string, state: function(): handoff.Session): integer?,
                                         resumed?: handoff.Session): Ran
   local complaints: mut {string} = {}
   local options: session.Options = {

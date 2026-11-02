@@ -1,6 +1,6 @@
---- One editor's session of `cosmic lsp` ([`build.lsp`]): what it opened,
---- what it was told, and its answer to each message it sends, as the
---- protocol's lifecycle holds them ([`build.lsp.protocol`]).
+--- One editor's session of `cosmic lsp` ([`build.lsp`]): what it opened, what it was told, and its
+--- answer to each message it sends, as the protocol's lifecycle holds them
+--- ([`build.lsp.protocol`]).
 ---
 --- What it answers:
 ---
@@ -14,28 +14,23 @@
 --- - Formatting: a document laid out as `cosmic fix` lays out a Teal file ([`build.fix`]'s `format_text`), as one edit of the whole
 ---   text, or none where it is laid out already or the formatter refuses it, which the person is shown.
 ---
---- The open documents that require one whose text changed are checked
---- again once its own check is published, where what it serves them
---- changed, one at a time, while no other message waits
---- ([`build.lsp.dependents`]). A root no build was started in has its
---- documents checked against nothing: none is published, and the person
---- is shown, once, what to run there ([`source.outside`]); a tool not
---- checked against its tree, which stages nothing, says so once too
---- ([`source.unchecked`]).
+--- The open documents that require one whose text changed are checked again once its own check is
+--- published, where what it serves them changed, one at a time, while no other message waits
+--- ([`build.lsp.dependents`]). A root no build was started in has its documents checked against
+--- nothing: none is published, and the person is shown, once, what to run there
+--- ([`source.outside`]); a tool not checked against its tree, which stages nothing, says so once
+--- too ([`source.unchecked`]).
 ---
---- A session whose process the tree's newer tool is to replace
---- ([`session.Options`]'s `reenter`) hands itself over before it handles the
---- messages that stage the tree (`initialized`, a document opened or saved,
---- a watched file changed): the successor serves the same editor over the
---- same stream with the same open documents ([`build.lsp.handoff`]), and
---- first the message that was about to be handled. A check or a rebuild
---- that fails leaves the session serving, and the person is told once.
---- Where the editor
---- takes a registration of the files to watch, the session registers
+--- A session whose process the tree's newer tool is to replace ([`session.Options`]'s `reenter`)
+--- hands itself over before it handles the messages that stage the tree (`initialized`, a document
+--- opened or saved, a watched file changed): the successor serves the same editor over the same
+--- stream with the same open documents ([`build.lsp.handoff`]), and first the message that was
+--- about to be handled. A check or a rebuild that fails leaves the session serving, and the person
+--- is told once. Where the editor takes a registration of the files to watch, the session registers
 --- every `.tl` and `.tmpl` file at `initialized`.
 ---
---- A message with no method answers a request of the session's own, and
---- is never answered, whatever its id.
+--- A message with no method answers a request of the session's own, and is never answered, whatever
+--- its id.
 
 local Json = require("cosmic.json")
 local sys = require("cosmic.sys")
@@ -62,11 +57,13 @@ local record session
     store?: {Sqlite.Handle}
     --- The `built_from` the tool carries: the binary's when nil ([`tree.standing`]).
     carried?: string
-    --- Holds the tool to the tree and replaces the process by the rebuilt one where it is older, given the session to
-    --- hand it ([`build.lsp.handoff`]); it returns only where it did not, nil unless the check or the rebuild failed,
-    --- which it then answers as an exit code, having said why. None when the process cannot be replaced: a listener
-    --- serves many editors, and one stdin or connection of them has no process of its own.
-    reenter?: function(state: handoff.Session): integer?
+    --- Holds the tool to the tree and replaces the process by the rebuilt one where it is older,
+    --- given the root and, to be called only where the process is to be replaced, the session to
+    --- hand it ([`build.lsp.handoff`]); it returns only where it did not, nil unless the check or
+    --- the rebuild failed, which it then answers as an exit code, having said why. None when the
+    --- process cannot be replaced: a listener serves many editors, and one stdin or connection of
+    --- them has no process of its own.
+    reenter?: function(root: string, state: function(): handoff.Session): integer?
   end
 
   --- One editor's session: what it opened and what it was told.
@@ -99,10 +96,11 @@ local record session
     --- Whether the person was shown that the root is no project, or that
     --- the tool was not checked against the tree: one message a session.
     mut told_outside: boolean
-    reenter: (function(state: handoff.Session): integer?)?
+    reenter: (function(root: string, state: function(): handoff.Session): integer?)?
     --- Whether the person was shown that a rebuild failed: one message a session.
     mut told_stale: boolean
-    --- The messages a predecessor read and did not answer, framed, which the stream gives first ([`session.handed`]).
+    --- The messages a predecessor read and did not answer, framed, which the stream gives first
+    --- ([`session.handed`]).
     mut inherited: string
   end
 end
@@ -179,8 +177,8 @@ local function document_of(s: Session, params: protocol.DocumentParams, text?: s
   return document
 end
 
---- The session `handed` left, to be served by this process: the open documents are open again, with the text the editor
---- holds, and the messages the predecessor had not answered are read first.
+--- The session `handed` left, to be served by this process: the open documents are open again, with
+--- the text the editor holds, and the messages the predecessor had not answered are read first.
 function session.handed(state: handoff.Session, options?: session.Options): Session
   local s = session.new(state.root, options)
   s.encoding = state.encoding
@@ -495,15 +493,15 @@ local function handle(s: Session, message: protocol.Message): {string}
   return out
 end
 
---- Whether the message `method` stages the tree: the session holds the tool to the tree before it handles one
---- ([`reentering`]).
+--- Whether the message `method` stages the tree: the session holds the tool to the tree before it
+--- handles one ([`reentering`]).
 local function stages(method: string?): boolean
   return method == "initialized" or method == "textDocument/didOpen" or method == "textDocument/didSave" or
     method == "workspace/didChangeWatchedFiles"
 end
 
---- What the editor was told of the session, to hand to a successor: the root, what was negotiated and the open documents,
---- in the order of their URIs, and `input`, the messages not answered.
+--- What the editor was told of the session, to hand to a successor: the root, what was negotiated
+--- and the open documents, in the order of their URIs, and `input`, the messages not answered.
 local function handed_of(s: Session, input: string): handoff.Session
   local uris: mut {string} = {}
   for uri in pairs(s.documents) do uris[#uris + 1] = uri end
@@ -513,25 +511,30 @@ local function handed_of(s: Session, input: string): handoff.Session
     local document = s.documents[uri]
     if document ~= nil then opened[#opened + 1] = { uri = uri, text = document.text } end
   end
-  return { version = handoff.version(), pid = sys.getpid(), root = s.root, encoding = s.encoding, watch = s.watch,
+  return { version = handoff.version(), pid = sys.getpid(), nonce = "", root = s.root, encoding = s.encoding, watch = s.watch,
     snippets = s.snippets, lazy = s.lazy, told_outside = s.told_outside, documents = opened, input = input }
 end
 
---- Holds the tool to the tree before the message `body` is handled, where this process can be replaced: a rebuilt tool
---- enters in its place and handles `body` first, so this returns only where it did not. `unanswered` is the messages
---- read after `body` and not handled. What to show the person where a check or a rebuild failed, once, or nil.
+--- Holds the tool to the tree before the message `body` is handled, where this process can be
+--- replaced: a rebuilt tool enters in its place and handles `body` first, so this returns only
+--- where it did not. `unanswered` is the messages read after `body` and not handled. What to show
+--- the person where a check or a rebuild failed, once, or nil.
 local function reentering(s: Session, body: string, unanswered: function(): string): string?
   local reenter = s.reenter
   if reenter == nil then return nil end
-  local code = reenter(handed_of(s, protocol.frame(body) .. unanswered()))
+  -- The session is built only if the process is replaced.
+  local code = reenter(s.root, function(): handoff.Session
+    return handed_of(s, protocol.frame(body) .. unanswered())
+  end)
   if code == nil or s.told_stale then return nil end
   s.told_stale = true
   return "cosmic: the tool is older than the tree and could not be rebuilt (exit " .. tostring(code) ..
     "; the server's log says why): it goes on with its own code, which stages nothing, until the tree builds"
 end
 
---- The messages to send in answer to the message `body`, encoded, and what to show the person of a tool that could not
---- be held to the tree. `unanswered` is the messages read after it and not handled.
+--- The messages to send in answer to the message `body`, encoded, and what to show the person of a
+--- tool that could not be held to the tree. `unanswered` is the messages read after it and not
+--- handled.
 local function answers(s: Session, body: string, unanswered: function(): string): {string}, string?
   local message, refusal = protocol.message_of(body)
   if message == nil then return { refusal }, nil end
