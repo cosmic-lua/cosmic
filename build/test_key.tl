@@ -951,7 +951,12 @@ local function declared_of(rec: Recording, m: Module, id: string, host?: string)
     return nil
   end
   local key, why = declared_key.compute(digests_of(rec), {
-    id = id, group = m.path, module_key = assert(m.graph_key), runtime = rec.runtime,
+    id = id, group = m.path, runtime = rec.runtime,
+    -- The pure store holds all of the closure a test can observe and its address
+    -- is the digest of what that holds ([`closure_store.address`]); the graph's
+    -- key is over the closure's sources, which a comment moves.
+    module_key = if effective.pure == true then ("pure " .. assert(rec.stores[m.path]))
+      else assert(m.graph_key) end,
     compiler = reads_compiler(rec, m) and rec.compiler or "", -- checked: and_ternary
     host = host or rec.host, -- checked: nil_not_allowed
     cpu = if effective.cpu_features == true then rec.cpu else nil end,
@@ -1114,7 +1119,7 @@ end
 local function address_stores(rec: Recording, modules: {Module},
                               by_path: {string:Module},
                               declarations: {string:string}): boolean, string
-  local basis, trouble = closure_store.basis(projection_of(rec))
+  local basis, trouble = closure_store.basis(projection_of(rec), rec.pure_store)
   if basis == nil then return false, trouble end
   rec.basis = basis
   -- The code that writes a store, and the core that runs it -- SQLite
@@ -1130,7 +1135,13 @@ local function address_stores(rec: Recording, modules: {Module},
       local names = rec.closures[m.path] or
         test_inputs.modules(m, by_path, declarations, rec.type_only)
       rec.closures[m.path] = names
-      rec.stores[m.path] = closure_store.address(basis, names, salt)
+      if test_inputs.is_pure(declared, rec.pure_store) then
+        local address = closure_store.address(basis, names, salt, m.path)
+        rec.stores[m.path] = address
+        rec.store_owns[address] = m.path
+      else
+        rec.stores[m.path] = closure_store.address(basis, names, salt)
+      end
     end
   end
   return true, ""
@@ -1190,7 +1201,7 @@ end
 --- and why where it could not be made. `base` names the store of no
 --- module ([`base_name`]), which the counts of stores written leave out.
 local function store_at(rec: Recording, address: string, names: {string},
-                        base?: boolean): string?, string
+                        base?: boolean, own?: string): string?, string
   local path = rec.built[address]
   if path ~= nil then return path, "" end
   local directory = stores_directory(rec.root)
@@ -1203,7 +1214,7 @@ local function store_at(rec: Recording, address: string, names: {string},
     local extraction, extraction_trouble = extraction_for(rec)
     if extraction == nil then return nil, extraction_trouble end
     local written, write_trouble = closure_store.write(projection_of(rec), path, names, assert(rec.basis), -- checked: nil_not_allowed
-      extraction)
+      extraction, own)
     if not written then return nil, "the store of its closure: " .. write_trouble end
     if base ~= true then
       rec.writing_ns = rec.writing_ns + (Clock.monotonic_ns() - started)
@@ -1222,7 +1233,7 @@ end
 local function given_store(rec: Recording, m: Module): string?, string
   local address = rec.stores ~= nil and rec.stores[m.path] or nil -- checked: and_ternary, compare_disjoint
   if address == nil then return nil, "" end
-  return store_at(rec, address, rec.closures[m.path]) -- checked: index_may_be_nil
+  return store_at(rec, address, rec.closures[m.path], nil, rec.store_owns[address]) -- checked: index_may_be_nil
 end
 
 --- The tables of a sealed database as the core reads them
@@ -1628,9 +1639,10 @@ end
 --- and so is one sampled each run that writes none ([`verify_sample`]).
 --- Nil and why where it could not be written.
 local function address_digest(rec: Recording, address: string, names: {string},
-                              base: boolean): string?, string
+                              base: boolean, own?: string): string?, string
   local started = Clock.monotonic_ns()
   rec.store_names[address] = names
+  if own ~= nil then rec.store_owns[address] = own end
   rec.store_bases[address] = base
   local path = stores_directory(rec.root) .. "/" .. (base and base_name(address) or -- checked: and_ternary
     (address .. ".db"))
@@ -1642,7 +1654,7 @@ local function address_digest(rec: Recording, address: string, names: {string},
   end
   if digest == nil then
     charge_keying(rec, started)
-    local made, trouble = store_at(rec, address, names, base)
+    local made, trouble = store_at(rec, address, names, base, own)
     if made == nil then return nil, trouble end
     started = Clock.monotonic_ns()
     digest = declared_key.store_digest(digests_of(rec), made)
@@ -1691,7 +1703,7 @@ local function verify_sample(rec: Recording)
       written, trouble = false, extraction_trouble
     else
       written, trouble = closure_store.write(projection_of(rec), path, rec.store_names[address], -- checked: index_may_be_nil, nil_not_allowed
-        assert(rec.basis), extraction)
+        assert(rec.basis), extraction, rec.store_owns[assert(address)])
     end
   end
   if not written then
@@ -1720,7 +1732,7 @@ end
 store_digest = function(rec: Recording, m: Module): string?, string
   local address = rec.stores ~= nil and rec.stores[m.path] or nil -- checked: and_ternary, compare_disjoint
   if address == nil then return nil, "" end
-  return address_digest(rec, address, rec.closures[m.path], false) -- checked: index_may_be_nil
+  return address_digest(rec, address, rec.closures[m.path], false, rec.store_owns[address]) -- checked: index_may_be_nil
 end
 
 --- The digest of the bytes of the store of no module (`base_store`),
@@ -1888,12 +1900,19 @@ function test_key.gather(rec: Recording, from: Gather): string?
   local type_only, type_only_trouble = projection_type_only(from.database)
   if type_only == nil then return type_only_trouble end
   rec.type_only = type_only
+  -- Only a sandboxed worker is held to the store and the files it is given: unsandboxed, it reads the real tree,
+  -- which a key without the imports' sources would not follow.
+  --
+  -- TODO: make the pure store the default (drop this switch) once every test module that fails under it
+  -- (`COSMIC_TEST_PURE_STORE=1 bin/cosmic test`) declares what it reads: `store_text` for one whose subject is
+  -- the text of the store, `reads` for one that reads the source file of a module it imports.
+  rec.pure_store = Env.read("COSMIC_TEST_PURE_STORE") == "1" and rec.sandbox
   for _, m in ipairs(selected_modules) do
     rec.closures[m.path] = test_inputs.modules(m, by_path, declarations, type_only)
   end
   local noexec_probes: mut {string:string} = {}
   for _, m in ipairs(selected_modules) do
-    local effective = test_inputs.effective(m, by_path, declarations, type_only)
+    local effective = test_inputs.effective(m, by_path, declarations, type_only, rec.pure_store)
     effective.cache_paths = caches_of(rec, m)
     test_inputs.resolve(effective, tree_roots(rec))
     test_sandbox_probe.resolve_noexec(effective, rec.sandbox, noexec_probes)

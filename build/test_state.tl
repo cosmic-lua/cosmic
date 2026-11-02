@@ -330,6 +330,11 @@ local record test_state
     --- store by its bytes ([`declared_key.store_digest`]), the address
     --- only where it is and whether it must be written.
     stores: mut {string:string}
+    --- Whether the run gives a test that declares neither `store` nor `store_text` the
+    --- pure store ([`build.closure_store`]'s `write`), which COSMIC_TEST_PURE_STORE=1
+    --- asks for: a store with none of its modules' text, whose address and digest move with
+    --- nothing but what the tests can observe of it.
+    mut pure_store?: boolean
     --- What sealing the databases of the workers that run on one needs,
     --- made the first time one is: the directory they are written in, the
     --- program's own database written there (`sealing_for`); the reason
@@ -376,6 +381,9 @@ local record test_state
     store_kept: mut {string:string}
     store_names: mut {string:{string}}
     store_bases: mut {string:boolean}
+    --- The test module a pure store at an address is for ([`build.closure_store`]'s
+    --- `write` takes it as `own`), by address; none for a store that is not pure.
+    store_owns: mut {string:string}
     store_mismatched: mut {string:boolean}
     --- How many of them this run wrote, their bytes, and the time taken.
     mut written: integer
