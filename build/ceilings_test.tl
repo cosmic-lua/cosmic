@@ -187,49 +187,6 @@ local function has(text: string?, needle: string): boolean
   return text ~= nil and text:find(needle, 1, true) ~= nil
 end
 
-local function test_a_raised_count_is_refused_with_its_line_and_the_two_counts()
-  local base = "[checked]\n# why\nbuild/a.tl nil_not_allowed 3\n\nbuild/b.tl view_written 2\n"
-  local now = "[checked]\n# why\nbuild/a.tl nil_not_allowed 4\n\nbuild/b.tl view_written 2\n"
-  local raised = Ceilings.rises(base, now)
-  assert(#raised == 1, table.concat(raised, "\n"))
-  assert(raised[1] == "build/ceilings.txt:3: [checked] build/a.tl nil_not_allowed rose from 3 to 4; a ceiling only falls: fix the code instead",
-    raised[1])
-end
-
-local function test_a_row_the_base_lacks_is_refused_whether_it_is_a_new_file_a_new_code_a_stage_moved_to_or_a_rename()
-  local base = "[checked]\nbuild/a.tl nil_not_allowed 3\n\n[declared]\nbuild/c.tl key_type 1\n"
-  local now = "[checked]\nbuild/a.tl nil_not_allowed 3\n\nbuild/new.tl nil_not_allowed 1\n\nbuild/a.tl view_written 1\n\n" ..
-    "[declared]\nbuild/c.tl key_type 1\n\nbuild/a.tl nil_not_allowed 3\n\nbuild/renamed.tl key_type 1\n"
-  local raised = Ceilings.rises(base, now)
-  assert(#raised == 4, table.concat(raised, "\n"))
-  assert(raised[1] == "build/ceilings.txt:4: [checked] build/new.tl nil_not_allowed is a row the merge base lacks, pinned 1; " ..
-      "a ceiling only falls and a row is never added: fix the code instead", raised[1])
-  assert(has(raised[2], ":6: [checked] build/a.tl view_written is a row the merge base lacks"), raised[2])
-  assert(has(raised[3], ":11: [declared] build/a.tl nil_not_allowed is a row the merge base lacks"), raised[3])
-  assert(has(raised[4], ":13: [declared] build/renamed.tl key_type is a row the merge base lacks"), raised[4])
-end
-
-local function test_a_count_lowered_a_row_removed_and_a_file_unchanged_are_accepted()
-  local base = "[checked]\nbuild/a.tl nil_not_allowed 3\n\nbuild/b.tl view_written 2\n\nbuild/c.tl arity 1\n\n[untyped]\nbuild/u.tl 5\n"
-  local now = "[checked]\nbuild/a.tl nil_not_allowed 2\n\nbuild/c.tl arity 1\n\n[untyped]\nbuild/u.tl 5\n"
-  assert(#Ceilings.rises(base, now) == 0, table.concat(Ceilings.rises(base, now), "\n"))
-  assert(#Ceilings.rises(base, base) == 0)
-  assert(#Ceilings.rises(base, "") == 0, "every row removed")
-end
-
-local function test_the_untyped_stage_rises_by_file_like_the_others()
-  local raised = Ceilings.rises("[untyped]\nbuild/u.tl 5\n", "[untyped]\nbuild/u.tl 6\n\nbuild/v.tl 1\n")
-  assert(#raised == 2, table.concat(raised, "\n"))
-  assert(has(raised[1], "[untyped] build/u.tl rose from 5 to 6"), raised[1])
-end
-
-local function test_a_base_that_holds_a_row_of_a_code_closed_since_is_still_a_base()
-  -- `arity` is closed now, and the merge base of a branch cut before it was closed can still hold a row of it
-  local base = "[checked]\nbuild/a.tl arity 3\n"
-  assert(#Ceilings.rises(base, "") == 0)
-  assert(#Ceilings.rises(base, "[checked]\nbuild/a.tl arity 2\n") == 0, "rises judges counts; parse refuses the row")
-end
-
 local function test_a_line_keyed_by_a_closed_code_is_refused_in_every_stage_that_counts_by_code()
   -- a closed code of the stage (`testdata` counts the findings of any stage's codes)
   local closed_of: {string: string} = {
@@ -343,19 +300,4 @@ local function test_a_closed_code_is_held_by_no_marker()
   local judged = Ceilings.marked("checked", "a.tl", source, { finding(closed, 1) }, { closed }, "bodies")
   assert(#judged.unmarked == 1, "a marker for a closed code holds nothing")
   assert(table.concat(judged.lines, "\n"):find("on line 1, marked 0", 1, true) ~= nil, table.concat(judged.lines, "\n"))
-end
-
-local function test_migrating_a_ceilings_file_drops_the_rows_of_a_stage_and_lists_it_under_marked()
-  local text = "# the header\n\n[scoped]\n\n[checked]\n# why\nbuild/a.tl nil_not_allowed 3\n\n[untyped]\nbuild/a.tl 2\n\n" ..
-    "[testdata]\nbuild/b.tl view_written 1\n"
-  local migrated = Ceilings.migrated(text, { "scoped", "checked", "untyped" })
-  local ceilings = parsed(migrated)
-  assert(Ceilings.by_marks(ceilings, "checked") and Ceilings.by_marks(ceilings, "scoped") and
-      Ceilings.by_marks(ceilings, "untyped") and not Ceilings.by_marks(ceilings, "declared"), migrated)
-  assert(Ceilings.of(ceilings, "testdata")["build/b.tl view_written"] == 1 and next(Ceilings.of(ceilings, "checked")) == nil)
-  assert(migrated:find("# the header", 1, true) == 1 and migrated:find("nil_not_allowed", 1, true) == nil, migrated)
-  assert(Ceilings.crowded(migrated) == "", Ceilings.crowded(migrated))
-  -- a second migration of another stage keeps the first listed, in the order of the stages
-  local again = Ceilings.migrated(migrated, { "declared" })
-  assert(again:find("scoped declared untyped checked", 1, true) ~= nil, again)
 end

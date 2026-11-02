@@ -118,20 +118,17 @@ local function test_several_findings_on_one_line_are_held_by_a_count_and_by_seve
   assert(rest:find("(nil_not_allowed)", 1, true) and not rest:find("(not_assignable)", 1, true), rest)
 end
 
-local function test_a_stage_listed_nowhere_is_found_by_forcing_it_and_the_markers_written_hold_it(dir: string)
+local function test_the_findings_no_marker_holds_are_told_and_collected_for_the_sink(dir: string)
   local body = source("local t: integer = 3.5", "local u: integer = 3.5")
-  local root = tree(dir, "forced", "[checked]\nbuild/bad.tl not_assignable 2\n", body)
+  local root = tree(dir, "unmarked", MARKED, body)
   local sink: Ceilings.Sink = { unmarked = {}, stale = {} }
-  tree_checks.checked(root, nil, nil, nil, { sink = sink, force = true })
+  local told = joined(tree_checks.checked(root, nil, nil, nil, { sink = sink }))
+  assert(told:find("2 errors of not_assignable", 1, false) == nil and told:find("1 error of not_assignable in its bodies on line 1, marked 0", 1, true) ~= nil, told)
   assert(#sink.unmarked == 2 and #sink.stale == 0, tostring(#sink.unmarked))
-  local text = assert(Fs.read(root .. "/build/bad.tl"))
-  local marked = Markers.with(text, "build/bad.tl", sink.unmarked)
-  assert(marked == source("local t: integer = 3.5 " .. KEY .. " not_assignable",
-    "local u: integer = 3.5 " .. KEY .. " not_assignable"), marked)
-  assert(Fs.write(root .. "/build/bad.tl", marked))
-  assert(Fs.write(root .. "/build/ceilings.txt", Ceilings.migrated(assert(Fs.read(root .. "/build/ceilings.txt")), { "checked" })))
+  -- a marker on each line holds them, and the markers are the tree's count for the ratchet
+  assert(Fs.write(root .. "/build/bad.tl", source("local t: integer = 3.5 " .. KEY .. " not_assignable",
+    "local u: integer = 3.5 " .. KEY .. " not_assignable")))
   assert(#tree_checks.checked(root) == 0, joined(tree_checks.checked(root)))
-  -- and the markers are the tree's count now, for the ratchet
   local counted = tree_checks.markers(root)
   local file = assert(counted.counts["build/bad.tl"])
   assert(file["checked not_assignable"] == 2 and #counted.lines == 0, joined(counted.lines))

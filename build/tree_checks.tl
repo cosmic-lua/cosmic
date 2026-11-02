@@ -1904,12 +1904,9 @@ local function ceilings_for(root: string, stage: Ceilings.Stage, given: {string:
 end
 
 --- Whether the check of `stage` for the tree at `root` is held by markers: the stage is listed under `[marked]` in the ceilings
---- file ([`Ceilings.by_marks`]), or `marking` forces it. Where a caller gives its own counts (`given`) it is held by them. A
+--- file ([`Ceilings.by_marks`]). Where a caller gives its own counts (`given`) it is held by them. A
 --- tree without a ceilings file has no ceilings and no marker holds anything.
-local function marked_for(root: string, stage: Ceilings.Stage, given: {string: integer}?, marking: Ceilings.Marking?): boolean
-  if marking ~= nil and marking.force == true then
-    return true
-  end
+local function marked_for(root: string, stage: Ceilings.Stage, given: {string: integer}?): boolean
   if given ~= nil then
     return false
   end
@@ -1967,23 +1964,12 @@ end
 --- `runtime_test.tl` by `cosmic test`. Each requires `cosmic.*` modules alone and is held to a build's own strictness,
 --- which a file alone is checked under ([`Pipeline.alone`]: the declarations the tool carries, and no ceiling), so a
 --- refusal that would otherwise be met only when a leg runs it is met here; `cosmic fix --check` in `ci/` only parses
---- them. Each is read as written, and what the checker finds is held to the ceilings of [`Ceilings.Stage`] `testdata`:
---- none in a tree without ceilings, where every finding is told. A test module's unused functions are no complaint (a
---- test runner calls them); any other file's unused locals are.
+--- them. Each is read as written, and every finding of the checker is told: no marker or count holds one. A test module's
+--- unused functions are no complaint (a test runner calls them); any other file's unused locals are.
 function tree_checks.ci_testdata(root: string): {string}
   local out: mut {string} = {}
   local options, options_trouble = Pipeline.alone()
   if options == nil then return { options_trouble } end
-  local pins: {string: integer} = {}
-  local unpinned = true
-  local found_pins: mut {string: integer} = {}
-  local there, _ = Fs.exists(root .. "/" .. Ceilings.path)
-  if there == true then
-    local given, why = ceilings_for(root, "testdata", nil)
-    if given == nil then return { why } end
-    pins = given
-    unpinned = false
-  end
   local listed, _ = Fs.walk(root .. "/ci/testdata")
   local names: mut {string} = {}
   for _, name in ipairs(listed or {}) do
@@ -2021,16 +2007,13 @@ function tree_checks.ci_testdata(root: string): {string}
           end
         end
       end
-      local held = Ceilings.over(file, findings, codes, pins, "bodies", unpinned)
-      for _, line in ipairs(held.lines) do out[#out + 1] = line end
-      for key, count in pairs(held.found) do found_pins[key] = count end
+      for _, line in ipairs(Ceilings.over(file, findings, codes, {}, "bodies", true).lines) do
+        out[#out + 1] = line
+      end
       if made.code == nil and #made.lines == 0 then
         out[#out + 1] = file .. ": the compiler refused it"
       end
     end
-  end
-  for _, line in ipairs(Ceilings.fallen(found_pins, pins, Ceilings.path .. "'s [testdata]")) do
-    out[#out + 1] = line
   end
   return out
 end
@@ -2139,7 +2122,7 @@ function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sql
   if ceilings == nil then
     return { "reading the ceilings: " .. why }
   end
-  local by_marks = marked_for(root, "scoped", pinned, marking)
+  local by_marks = marked_for(root, "scoped", pinned)
   if pinned == nil then
     local text, _ = Fs.read(root .. "/" .. Ceilings.path)
     local crowded = Ceilings.crowded(text or "")
@@ -2527,7 +2510,7 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
   if ceilings == nil then
     return { "reading the ceilings: " .. why }
   end
-  local by_marks = marked_for(root, "declared", pinned, marking)
+  local by_marks = marked_for(root, "declared", pinned)
   pinned = ceilings
   local files, trouble = sources_of(root)
   if files == nil then
@@ -2587,7 +2570,7 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
   if ceilings == nil then
     return { "reading the ceilings: " .. why }
   end
-  local by_marks = marked_for(root, "checked", pinned, marking)
+  local by_marks = marked_for(root, "checked", pinned)
   pinned = ceilings
   local files, trouble = sources_of(root)
   if files == nil then
@@ -3060,7 +3043,7 @@ function tree_checks.untyped(root: string, pinned?: {string: integer}, memo?: Sq
   if given == nil then
     return { "reading the ceilings: " .. why }
   end
-  local by_marks = marked_for(root, "untyped", pinned, marking)
+  local by_marks = marked_for(root, "untyped", pinned)
   local ceilings: {string: integer} = given
   local files, trouble = sources_of(root)
   if files == nil then

@@ -45,23 +45,17 @@ local function test_a_tree_without_testdata_has_nothing_to_say(dir: string)
   assert(#tree_checks.ci_testdata(dir .. "/nowhere") == 0)
 end
 
---- What the new checker finds in a file is held to the ceilings of [testdata]: a count at its pin passes, one over is
---- told whole with the pin, and a pin above the count is told to fall.
-local function test_findings_are_held_to_the_ceilings_of_the_testdata_stage(dir: string)
+--- Every finding of the new checker in a file under ci/testdata is told: no marker or count holds one, so a new finding fails.
+local function test_a_finding_is_told_whatever_a_ceilings_file_says(dir: string)
   local root = dir .. "/tree"
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.mkdirs(root .. "/ci/testdata"))
-  assert(Fs.write(root .. "/ci/testdata/bad.tl", "local x: integer = \"s\"\nreturn x\n"))
-  local function pinned(count: integer): string
-    local line = if count > 0 then "ci/testdata/bad.tl not_assignable " .. tostring(count) .. "\n" else "" end
-    assert(Fs.write(root .. "/build/ceilings.txt", "[testdata]\n" .. line))
-    return table.concat(tree_checks.ci_testdata(root), "\n")
-  end
-  assert(pinned(1) == "", pinned(1))
-  local over = pinned(0)
-  assert(over:find("ci/testdata/bad.tl:1:", 1, true) ~= nil and
-      over:find("1 error of not_assignable in its bodies, pinned 0", 1, true) ~= nil, over)
-  local fallen = pinned(3)
-  assert(fallen:find("ci/testdata/bad.tl not_assignable: pinned 3 but 1 found; lower the pin in build/ceilings.txt's [testdata]",
-    1, true) ~= nil, fallen)
+  assert(Fs.write(root .. "/ci/testdata/bad.tl", "local x: integer = \"s\" -- checked: not_assignable\nreturn x\n"))
+  local bare = table.concat(tree_checks.ci_testdata(root), "\n")
+  assert(bare:find("ci/testdata/bad.tl:1:", 1, true) ~= nil and
+      bare:find("1 error of not_assignable in its bodies; follow the fix above", 1, true) ~= nil, bare)
+  -- a row of the old section, or a marker on the line, holds nothing
+  assert(Fs.write(root .. "/build/ceilings.txt", "[testdata]\nci/testdata/bad.tl not_assignable 1\n"))
+  local pinned = table.concat(tree_checks.ci_testdata(root), "\n")
+  assert(pinned == bare, pinned)
 end

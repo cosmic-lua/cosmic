@@ -10,13 +10,10 @@
 ---
 --- A COUNT is data in [`build/ceilings.txt`] and not Teal compiled into the tool.
 ---
---- A ceiling only falls, and three things enforce it. A file that goes over its ceiling is refused, by a compile of a module
---- and by the check of the tree ([`Ceilings.over`]); a missing row is a ceiling of 0. A change to the data file that
---- raises a count, or adds a row, is refused by [`Ceilings.rises`] against the file at the merge base with main, in the
---- check of the tree ([`build.ceilings_base`], which CI runs on every branch push and in the merge queue, and
---- `bin/cosmic fix --check .` runs wherever a base can be named). And a code that has no row left in any stage is
---- closed ([`Ceilings.closed`]): [`Ceilings.parse`] refuses a line keyed by it. A rewrite removes the places a ceiling
---- counts and lowers the number; nothing raises it.
+--- A ceiling only falls, and two things enforce it. A file that goes over its ceiling is refused, by a compile of a module
+--- and by the check of the tree ([`Ceilings.over`]); a missing row is a ceiling of 0. And a code that has no row left in any
+--- stage is closed ([`Ceilings.closed`]): [`Ceilings.parse`] refuses a line keyed by it. A rewrite removes the places a
+--- ceiling counts and lowers the number; nothing raises it. The markers are held falling by [`build.ceilings_base`].
 ---
 --- The file is text, a section per stage (`[checked]`) and a line per ceiling: a file, a code and a count, or for the stage
 --- `untyped` a file and a count. A line that begins with `#` is a comment, and a comment before the lines it explains
@@ -100,14 +97,6 @@ local record Ceilings
   --- the tree finds no error in a file that is not there.
   dead: function(root: string, ceilings: Table): {string}
 
-  --- The lines of `text`, the ceilings file as it stands, that raise a ceiling over `base`, the file as it stood at the
-  --- merge base with main: a row whose count is above the base's and a row the base lacks (a new file, a code at
-  --- zero, a stage it was moved to, a renamed file), one line each with its place in `text`; none where the file only
-  --- falls (a count lowered, a row removed, both unchanged). A row is the same when its stage and key are. `base` is
-  --- read as far as its rows go, so that a base that holds what `parse` now refuses (a row of a code closed since) is
-  --- still a base.
-  rises: function(base: string, text: string): {string}
-
   --- The ceilings of `stage` in `ceilings`: empty for a stage the table has none of.
   of: function(ceilings: Table, stage: Stage): {string: integer}
 
@@ -128,7 +117,7 @@ local record Ceilings
   type Spot = Markers.Spot
 
   --- The places a run found that the markers of the tree disagree with its findings: `unmarked` where findings have no
-  --- marker (what `cosmic fix --mark-ceilings` writes) and `stale` where a marker holds more than the line has (what
+  --- marker (which the author writes) and `stale` where a marker holds more than the line has (what
   --- `cosmic fix` removes). Each is of one file and one code.
   record Sink
     unmarked: mut {Spot}
@@ -137,12 +126,9 @@ local record Ceilings
     mend?: boolean
   end
 
-  --- How a check of the tree is run over the markers: `sink` collects what disagrees ([`Ceilings.Sink`]), and with `force` the
-  --- stage is held by markers whether the ceilings file lists it or not, which is how `cosmic fix --mark-ceilings` finds
-  --- the findings to write markers for.
+  --- How a check of the tree is run over the markers: `sink` collects what disagrees ([`Ceilings.Sink`]).
   record Marking
     sink?: Sink
-    force?: boolean
   end
 
   --- What [`Ceilings.marked`] found of one file.
@@ -161,11 +147,6 @@ local record Ceilings
   --- another stage is none of its business. `what` says where the errors are (`bodies`). With `unpinned` the lines do not point to the marker.
   marked: function(stage: Stage, file: string, text: string, errors: {Finding}, codes: {string}, what: string,
                    unpinned?: boolean): Judged
-
-  --- `text`, a ceilings file, as it reads once the stages in `stages` are held by markers: their rows are gone and they are
-  --- listed under `[marked]`, which the file gains at the head of its sections. A comment before a section's first row
-  --- goes with the section.
-  migrated: function(text: string, stages: {string}): string
 
   --- What [`Ceilings.over`] found.
   record Held
@@ -410,57 +391,6 @@ function Ceilings.parse(text: string, closed?: {string}): Ceilings.Table?, strin
   return out, ""
 end
 
-function Ceilings.rises(base: string, text: string): {string}
-  -- The count of each row of `source` by stage and key, in the order of the file, with the line of each.
-  local function rows(source: string): {string: integer}, {string}, {integer}
-    local count: mut {string: integer} = {}
-    local order: mut {string} = {}
-    local at: mut {integer} = {}
-    local stage = ""
-    local number = 0
-    for line in (source .. "\n"):gmatch("(.-)\n") do
-      number = number + 1
-      if line ~= "" and line:sub(1, 1) ~= "#" then
-        local name = line:match("^%[([a-z]+)%]$")
-        if name ~= nil then
-          stage = name
-        else
-          local key, digits = line:match("^(%S.-)%s+(%d+)$")
-          local n: integer? = nil
-          if digits ~= nil then
-            n = math.tointeger(tonumber(digits))
-          end
-          if key ~= nil and n ~= nil then
-            local id = "[" .. stage .. "] " .. key
-            if count[id] == nil then
-              order[#order + 1] = id
-              at[#at + 1] = number
-            end
-            count[id] = n
-          end
-        end
-      end
-    end
-    return count, order, at
-  end
-  local was = rows(base)
-  local now, order, at = rows(text)
-  local out: mut {string} = {}
-  for i, id in ipairs(order) do
-    local n = assert(now[id])
-    local before = was[id]
-    local place = Ceilings.path .. ":" .. tostring(at[i]) .. ": "
-    if before == nil then
-      out[#out + 1] = place .. id .. " is a row the merge base lacks, pinned " .. tostring(n) ..
-        "; a ceiling only falls and a row is never added: fix the code instead"
-    elseif n > before then
-      out[#out + 1] = place .. id .. " rose from " .. tostring(before) .. " to " .. tostring(n) ..
-        "; a ceiling only falls: fix the code instead"
-    end
-  end
-  return out
-end
-
 function Ceilings.crowded(text: string): string
   local out = ""
   local number = 0
@@ -611,59 +541,6 @@ function Ceilings.marked(stage: Ceilings.Stage, file: string, text: string, erro
     end
   end
   return { lines = out, unmarked = unmarked, stale = stale }
-end
-
-function Ceilings.migrated(text: string, stages: {string}): string
-  local gone: mut {string: boolean} = {}
-  for _, stage in ipairs(stages) do
-    gone[stage] = true
-  end
-  local head: mut {string} = {}
-  local kept: mut {string} = {}
-  local listed: mut {string} = {}
-  -- The sections of the file, each a header and the lines to the next header.
-  local section = ""
-  local seen = false
-  local dropping = false
-  for line in (text .. "\n"):gmatch("(.-)\n") do
-    local name = line:match("^%[([a-z]+)%]$")
-    if name ~= nil then
-      seen = true
-      section = name
-      dropping = gone[name] == true
-    end
-    if not seen then
-      head[#head + 1] = line
-    elseif section == "marked" then
-      -- the stages already listed are kept
-      if name == nil and line:match("^[a-z ]+$") ~= nil then
-        for word in line:gmatch("%S+") do listed[#listed + 1] = word end
-      end
-    elseif not dropping then
-      kept[#kept + 1] = line
-    end
-  end
-  -- The text ends in a break, which the split read as a last empty line.
-  if head[#head] == "" and not seen then head[#head] = nil end
-  for _, stage in ipairs(stages) do
-    listed[#listed + 1] = stage
-  end
-  local order: mut {string} = {}
-  for _, stage in ipairs(MARKABLE_LIST) do
-    for _, word in ipairs(listed) do
-      if word == tostring(stage) then
-        order[#order + 1] = word
-        break
-      end
-    end
-  end
-  local out = table.concat(head, "\n")
-  if out ~= "" then out = out .. "\n" end
-  out = out .. "[marked]\n# The stages whose findings a marker holds at the line they occur on (`-- checked: <code>`), in place of\n" ..
-    "# the rows of a section here: [`build.ceilings`] and [`build.markers`] say how.\n" .. table.concat(order, " ") .. "\n\n"
-  local rest = table.concat(kept, "\n"):gsub("^\n+", ""):gsub("\n+$", "")
-  if rest ~= "" then out = out .. rest .. "\n" end
-  return out
 end
 
 function Ceilings.over(file: string, errors: {Ceilings.Finding}, codes: {string}, pinned: {string: integer},

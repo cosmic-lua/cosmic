@@ -122,8 +122,8 @@ The examples a reader copies (`*_example.tl`) hold their findings by
 markers too: a marker is part of the text `cosmic docs` shows, and
 `cosmic fix --check .` refuses a finding with none and a marker whose
 finding is gone. A code block of a guide holds none, since a reader copies
-the block: a finding there is fixed. [`build/ceilings.txt`] holds only
-`[testdata]`, whose counts only fall and which pins none now.
+the block: a finding there is fixed, and so is one in a file under
+`ci/testdata`. [`build/ceilings.txt`] lists the marked stages and has no row.
 
 ## teal layout
 
