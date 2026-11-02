@@ -99,14 +99,14 @@ end
 
 --- The environment the builds of a case run in, sharing through a
 --- cache in `tmp`, and where that cache is.
-local function environment(tmp: string): {string:string}, string
+local function environment(tmp: string): mut {string:string}, string
   local env = this_program.environment()
   local path = tmp .. "/cache/cache.db"
-  env.COSMIC_BUILD_CACHE = path -- checked: map_field
-  env.COSMIC_TEST_ALL = nil -- checked: map_field
-  env.COSMIC_SANDBOX = nil -- checked: map_field
+  env["COSMIC_BUILD_CACHE"] = path
+  env["COSMIC_TEST_ALL"] = nil
+  env["COSMIC_SANDBOX"] = nil
   -- It runs no test, so it sandboxes none: the same on every host.
-  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
+  env["COSMIC_TEST_SANDBOX"] = "0"
   return env, path
 end
 
@@ -192,7 +192,7 @@ end
 local function test_the_cache_turned_off_writes_nothing(tmp: string)
   tmp = assert(Fs.absolute(tmp))
   local env = environment(tmp)
-  env.COSMIC_BUILD_CACHE = "0" -- checked: map_field
+  env["COSMIC_BUILD_CACHE"] = "0"
   checkout(tmp .. "/first")
   built(tmp .. "/first", env, "(3 compiled, 0 cached;")
   checkout(tmp .. "/second")
@@ -241,9 +241,9 @@ local function test_a_damaged_row_is_compiled_again_and_replaced(tmp: string)
   local cache = assert(Sqlite.open(path, { writable = true }))
   -- `b`'s Lua becomes no stream at all, and `c`'s becomes `a`'s.
   assert(Sqlite.run(cache, "UPDATE compiled_v2 SET lua = x'deadbeef' WHERE key = ?1",
-    { { text = keys.b } })) -- checked: map_field
+    { { text = keys["b"] } }))
   assert(Sqlite.run(cache, "UPDATE compiled_v2 SET lua = (SELECT lua FROM compiled_v2 " ..
-      "WHERE key = ?2) WHERE key = ?1", { { text = keys.c }, { text = keys.a } })) -- checked: map_field*2
+      "WHERE key = ?2) WHERE key = ?1", { { text = keys["c"] }, { text = keys["a"] } }))
   assert(cache:close())
   checkout(tmp .. "/second")
   local second = built(tmp .. "/second", env,
@@ -267,7 +267,7 @@ local function test_a_cache_others_can_write_is_refused(tmp: string)
   local env = environment(tmp)
   assert(Fs.mkdirs(tmp .. "/open"))
   assert(Fs.chmod(tmp .. "/open", 0x1ff))
-  env.COSMIC_BUILD_CACHE = tmp .. "/open/cache.db" -- checked: map_field
+  env["COSMIC_BUILD_CACHE"] = tmp .. "/open/cache.db"
   checkout(tmp .. "/first")
   local first = built(tmp .. "/first", env, "(3 compiled, 0 cached;")
   assert(first:find("writable by its group or others", 1, true), first)

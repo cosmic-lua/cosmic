@@ -65,10 +65,10 @@ end
 ]]
   assert(Fs.write(root .. "/suite/outside_test.tl", source))
   local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
-  env.COSMIC_TEST_ALL = nil -- checked: map_field
-  env.COSMIC_SANDBOX = nil -- checked: map_field
-  env.FLAVOUR = "sweet" -- checked: map_field
+  env["COSMIC_TEST_SANDBOX"] = "0"
+  env["COSMIC_TEST_ALL"] = nil
+  env["COSMIC_SANDBOX"] = nil
+  env["FLAVOUR"] = "sweet"
   local function said(name: string, words: {string}, wanted: string, fails?: boolean)
     local text = run(root, tmp .. "/" .. name .. ".out", env, fails, words)
     assert(text:find(wanted, 1, true), name .. ": " .. text)
@@ -78,12 +78,12 @@ end
   said("second", {}, "0 ran, 2 stood")
   said("all", { "--all" }, "2 ran, 0 stood")
   said("named", { "suite/outside_test.tl:test_reads_outside" }, "0 ran, 1 stood")
-  env.COSMIC_TEST_ALL = "1" -- checked: map_field
+  env["COSMIC_TEST_ALL"] = "1"
   said("everything", {}, "2 ran, 0 stood")
-  env.COSMIC_TEST_ALL = nil -- checked: map_field
-  env.COSMIC_SANDBOX = "must" -- checked: map_field
+  env["COSMIC_TEST_ALL"] = nil
+  env["COSMIC_SANDBOX"] = "must"
   said("must", {}, "2 ran, 0 stood")
-  env.COSMIC_SANDBOX = nil -- checked: map_field
+  env["COSMIC_SANDBOX"] = nil
   said("unheld", {}, "0 ran, 2 stood")
   -- Undeclared, a read is trusted: its change moves no key.
   assert(Fs.write(tmp .. "/outside/undeclared", "two\n"))
@@ -94,9 +94,9 @@ end
   said("host", {}, "1 of 2 tests failed", true)
   assert(Fs.write(tmp .. "/outside/f", "out\n"))
   said("restored", {}, "0 ran, 2 stood")
-  env.FLAVOUR = "sour" -- checked: map_field
+  env["FLAVOUR"] = "sour"
   said("sour", {}, "1 of 2 tests failed", true)
   said("failed", {}, "1 of 2 tests failed", true)
-  env.FLAVOUR = "sweet" -- checked: map_field
+  env["FLAVOUR"] = "sweet"
   said("sweet", {}, "0 ran, 2 stood")
 end

@@ -20,9 +20,9 @@ local function invoke(root: string, output: string, selector: string): Child.Res
   -- only two deep, where its runner cannot run its workers as a user of
   -- their own). The rerun line it prints repeats the switch.
   local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
+  env["COSMIC_TEST_SANDBOX"] = "0"
   -- What its failing tests keep stays in this test's directory.
-  env.TMPDIR = Fs.dirname(output) -- checked: map_field
+  env["TMPDIR"] = Fs.dirname(output)
   local started = this_program.program({ "test", selector }, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ns = Clock.seconds(30),
@@ -36,8 +36,8 @@ end
 local function invoke_words(root: string, output: string, words: {string}): Child.Result
   local fd = assert(Fs.open_write(output))
   local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
-  env.TMPDIR = Fs.dirname(output) -- checked: map_field
+  env["COSMIC_TEST_SANDBOX"] = "0"
+  env["TMPDIR"] = Fs.dirname(output)
   local argv: mut {string} = { "test" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local started = this_program.program(argv, {
@@ -419,10 +419,10 @@ local function test_a_test_without_a_directory_fails_alone(tmp: string)
   local root = project(tmp)
   local output = tmp .. "/nowhere.out"
   local environment = this_program.environment()
-  environment.TMPDIR = tmp .. "/missing" -- checked: map_field
+  environment["TMPDIR"] = tmp .. "/missing"
   -- Unsandboxed, as `invoke` runs one: the directory is made before a
   -- worker starts, sandboxed or not.
-  environment.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
+  environment["COSMIC_TEST_SANDBOX"] = "0"
   local fd = assert(Fs.open_write(output))
   local started = this_program.program({ "test", "suite/selected_test.tl" }, {
     cwd = root, env = environment, stdout = fd, stderr = fd, timeout_ns = Clock.seconds(30),

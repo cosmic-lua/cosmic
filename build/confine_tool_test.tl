@@ -11,6 +11,7 @@ local confine = require("build.confine")
 local fixture = require("build.must_confine_fixture")
 local test_child = require("build.test_child")
 local stand_in = require("build.stand_in")
+local support = require("build.test_support_fixture")
 local type raw_process = require("cosmic.internal.process")
 
 --- What the stand-in is tested holding: /proc, where the stand-in program
@@ -36,15 +37,15 @@ end
 --- the kernel confined it, true where it could not and it ran
 --- unconfined.
 local function sees(probe: string, own: string, hidden: string): boolean
-  local code = { value = nil as integer? } -- checked: cast_refused
+  local code: support.Cell<integer> = {}
   local ran = confine.call(function() -- checked: not_assignable
     confine.confine({ reads = { probe } })
     local r = assert(Child.run({ probe, "exists " .. hidden .. " 3" }))
     confine.confine(nil)
-    code.value = r.code -- checked: map_field
+    code.value = r.code
   end, nil, { own })
   assert(ran.ok, tostring(ran.produced))
-  return code.value == 3 -- checked: map_field
+  return code.value == 3
 end
 
 --- `call` answers what its call returned, the very table, and puts back
@@ -75,16 +76,16 @@ local function test_a_confined_process_has_what_it_was_given(tmp: string)
   for _, dir in ipairs({ given, own, hidden }) do assert(Fs.mkdirs(dir)) end
   assert(Fs.write(given .. "/f", "in"))
   assert(Fs.write(hidden .. "/f", "secret"))
-  local code = { value = nil as integer? } -- checked: cast_refused
+  local code: support.Cell<integer> = {}
   local ran = confine.call(function() -- checked: not_assignable
     confine.confine({ reads = { given, probe } })
     local r = assert(Child.run({ probe,
       "exists " .. hidden .. "/f 3; copy " .. given .. "/f out" }))
     confine.confine(nil)
-    code.value = r.code -- checked: map_field
+    code.value = r.code
   end, nil, { own })
   assert(ran.ok, tostring(ran.produced))
-  local code_value = code.value -- checked: map_field
+  local code_value = code.value
   -- Unconfined, it sees what it was not given.
   if code_value == 3 then
     Test.skip("this host confined nothing: the process saw what it was not given")
@@ -101,17 +102,17 @@ local function test_a_process_a_library_declares_in_a_sandbox_is_held_by_it(tmp:
   local probe = probe_in(tmp)
   local own, hidden = tmp .. "/own", tmp .. "/hidden"
   for _, dir in ipairs({ own, hidden }) do assert(Fs.mkdirs(dir)) end
-  local code = { value = nil as integer? } -- checked: cast_refused
+  local code: support.Cell<integer> = {}
   local ran = confine.call(function() -- checked: not_assignable
     local inner = confine.call(function() -- checked: not_assignable
       confine.declaring({ reads = { probe }, writes = {} }, function()
-        code.value = assert(Child.run({ probe, "exists " .. hidden .. " 3" })).code -- checked: map_field
+        code.value = assert(Child.run({ probe, "exists " .. hidden .. " 3" })).code
       end)
     end, nil, { own })
     assert(inner.ok, tostring(inner.produced))
   end, nil, { own }, true)
   assert(ran.ok, tostring(ran.produced))
-  assert(code.value == 3, "a library's process was confined in a sandbox: " .. tostring(code.value)) -- checked: map_field*2
+  assert(code.value == 3, "a library's process was confined in a sandbox: " .. tostring(code.value))
 end
 
 --- A confined process has a /tmp of its own to write in; a TMPDIR its
@@ -187,7 +188,7 @@ end
 local function refusing_sandboxes(fn: function()): integer
   local process = require("cosmic.internal.process")
   local spawn = process.spawn
-  local refused = { value = 0 }
+  local refused = 0
   process.spawn = function(path: string, argv: {string}, environment: {string:string}?, -- checked: field_fixed, not_assignable
                            cwd: string?, stdin: integer?, stdout: integer?,
                            stderr: integer?, process_group: boolean,
@@ -195,7 +196,7 @@ local function refusing_sandboxes(fn: function()): integer
                            credentials?: raw_process.Credentials):
       integer?, string, integer
     if sandbox ~= nil then
-      refused.value = refused.value + 1 -- checked: map_field*2
+      refused = refused + 1
       return nil, "Operation not permitted", sys.EPERM
     end
     return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds, sandbox, credentials)
@@ -203,7 +204,7 @@ local function refusing_sandboxes(fn: function()): integer
   local ok, trouble: boolean, any = pcall(fn)
   process.spawn = spawn -- checked: field_fixed
   if not ok then error(trouble, 0) end
-  return refused.value -- checked: map_field
+  return refused
 end
 
 --- Where the kernel cannot confine a process it starts as it would have,
@@ -222,9 +223,9 @@ local function test_an_unconfinable_process_starts_unconfined(tmp: string)
     local path = tmp .. "/many" .. tostring(i)
     many[#many + 1] = path
   end
-  local ran = { value = nil as confine.Ran? } -- checked: cast_refused
+  local ran: support.Cell<confine.Ran> = {}
   local sandboxed = refusing_sandboxes(function()
-    ran.value = confine.call(function() -- checked: map_field, not_assignable
+    ran.value = confine.call(function() -- checked: not_assignable
       confine.confine({ reads = { probe } })
       assert(Child.run({ probe, "cwd where" }))
       many[#many + 1] = probe
@@ -233,7 +234,7 @@ local function test_an_unconfinable_process_starts_unconfined(tmp: string)
       confine.confine(nil)
     end, nil, { own })
   end)
-  local finished = assert(ran.value) -- checked: map_field
+  local finished = assert(ran.value)
   assert(finished.ok, tostring(finished.produced))
   assert(sandboxed == 1, "only the first was tried confined: " .. tostring(sandboxed))
   assert(assert(Fs.read(own .. "/where")) == assert(Fs.absolute(own)) .. "\n")
@@ -247,20 +248,20 @@ local function test_a_must_confined_program_exec_cannot_run_fails_as_its_own(tmp
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
   for _, sandboxes in ipairs({ "refused", "real" }) do
-    local trouble = { value = nil as string? } -- checked: cast_refused
-    local ran = { value = nil as confine.Ran? } -- checked: cast_refused
+    local trouble: support.Cell<string> = {}
+    local ran: support.Cell<confine.Ran> = {}
     local function attempt()
-      ran.value = confine.call(function() -- checked: map_field, not_assignable
+      ran.value = confine.call(function() -- checked: not_assignable
         confine.must_confine({})
         local started: any = nil -- checked: any_use
-        started, trouble.value = Child.run({ own }) -- checked: any_use, map_field
+        started, trouble.value = Child.run({ own }) -- checked: any_use
         confine.confine(nil)
         assert(started == nil, "a directory ran")
       end, nil, { own })
     end
     if sandboxes == "refused" then refusing_sandboxes(attempt) else attempt() end
-    local finished = assert(ran.value) -- checked: map_field
-    local reason = assert(trouble.value) -- checked: map_field
+    local finished = assert(ran.value)
+    local reason = assert(trouble.value)
     assert(finished.ok, sandboxes .. ": " .. tostring(finished.produced))
     assert(not reason:find("could not start confined", 1, true), reason)
   end

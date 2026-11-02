@@ -72,16 +72,16 @@ end
 
 --- The environment of a run on a tree of its own: this program's, with no
 --- shared verdicts, and nothing of this run's choice of sandbox.
-local function environment(): {string:string}
+local function environment(): mut {string:string}
   local env = this_program.environment()
   -- The seccomp filters this worker has, which each worker of a run it
   -- starts inherits.
   local status = assert((Fs.read("/proc/self/status")))
-  env.BASELINE_FILTERS = status:match("Seccomp_filters:\t(%d+)") or "0" -- checked: map_field
-  env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
-  env.COSMIC_TEST_ALL = nil -- checked: map_field
-  env.COSMIC_SANDBOX = nil -- checked: map_field
-  env.COSMIC_TEST_SANDBOX = nil -- checked: map_field
+  env["BASELINE_FILTERS"] = status:match("Seccomp_filters:\t(%d+)") or "0"
+  env["COSMIC_VERDICT_CACHE"] = "0"
+  env["COSMIC_TEST_ALL"] = nil
+  env["COSMIC_SANDBOX"] = nil
+  env["COSMIC_TEST_SANDBOX"] = nil
   return env
 end
 
@@ -159,7 +159,7 @@ local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_
   assert(not text:find("test_a_declared_read_is_held_as_a_policy_holds_it", 1, true), text)
   -- Unsandboxed, no filter and no ruleset hold it: the policy is what held
   -- it above.
-  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
+  env["COSMIC_TEST_SANDBOX"] = "0"
   local plain, plain_ok = run(root, tmp .. "/plain", env, { "--all", "suite/held_test.tl" })
   assert(not plain_ok and plain:find("; unsandboxed (COSMIC_TEST_SANDBOX=0)", 1, true) ~= nil, plain)
   assert(plain:find("test_a_declared_read_is_held_as_a_policy_holds_it", 1, true) and
@@ -246,7 +246,7 @@ end
   assert(text:find("its directory was a tmpfs of its worker's own, gone with it", 1, true), text)
   assert(not text:find("its directory is kept:", 1, true), text)
   -- Run unsandboxed, the host keeps it.
-  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
+  env["COSMIC_TEST_SANDBOX"] = "0"
   local old, old_ok = run(root, tmp .. "/old", env, { "--all", "suite/own_test.tl" })
   assert(not old_ok and old:find("its directory is kept: ", 1, true) ~= nil, old)
 end
@@ -281,12 +281,13 @@ local function test_the_verdicts_of_a_sandboxed_and_an_unsandboxed_run_stand_apa
   local root = tmp .. "/root"
   suite_tree(root)
   local env = environment()
-  local step = { value = 0 }
+  local step = 0
   local function said(sandboxed: boolean, wanted: string): string
-    step.value = step.value + 1 -- checked: map_field*2
-    env.COSMIC_TEST_SANDBOX = if not sandboxed then "0" else nil end -- checked: map_field
-    local text, ok = run(root, tmp .. "/run" .. step.value, env, { "suite/plain_test.tl" }) -- checked: map_field
-    assert(ok and text:find(wanted, 1, true) ~= nil, step.value .. ": " .. text) -- checked: map_field
+    step = step + 1
+    env["COSMIC_TEST_SANDBOX"] = nil
+    if not sandboxed then env["COSMIC_TEST_SANDBOX"] = "0" end
+    local text, ok = run(root, tmp .. "/run" .. tostring(step), env, { "suite/plain_test.tl" })
+    assert(ok and text:find(wanted, 1, true) ~= nil, tostring(step) .. ": " .. text)
     return text
   end
   local first = said(true, "1 ran, 0 stood")
@@ -336,7 +337,7 @@ local function test_a_broken_probe_fails_the_run_rather_than_going_unsandboxed(t
   local root = tmp .. "/root"
   suite_tree(root)
   local env = environment()
-  env.TMPDIR = tmp .. "/no/such/directory" -- checked: map_field
+  env["TMPDIR"] = tmp .. "/no/such/directory"
   local text, ok = run(root, tmp .. "/broken", env, { "--all", "suite/plain_test.tl" })
   assert(not ok, text)
   assert(text:find("the probe of whether workers can be sandboxed failed: " ..
