@@ -32,6 +32,8 @@ local function clean_env(): {string: string}
   out["GIT_CONFIG_SYSTEM"] = "/dev/null"
   out["GIT_CONFIG_NOSYSTEM"] = "1"
   out["GIT_TERMINAL_PROMPT"] = "0"
+  -- Git's refusal is matched by its English words.
+  out["LC_ALL"] = "C"
   return out
 end
 

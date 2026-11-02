@@ -267,8 +267,9 @@ local attach_hint <const> = "\n`cosmic sql` runs one read-only statement on one 
   "`Sqlite.open(path, { writable = true })` and run `db:exec(\"ATTACH ...\")`."
 
 --- `reason`, SQLite's, with how to work across files appended where it is the attached-database limit's refusal.
--- TODO: tell an ATTACH by something but its message, once SQLite gives a refused ATTACH a result code of its own
--- (today it is the generic SQLITE_ERROR, which no statement kind separates from any other failure).
+--
+-- TODO: tell an ATTACH by its kind and not by SQLite's message, once cosmic.sqlite exposes the authorizer's attach action
+-- (SQLITE_ATTACH). The refusal carries only the generic SQLITE_ERROR, which no code separates from any other failure.
 local function attach_hinted(reason: string): string
   if reason:find("too many attached databases", 1, true) ~= nil then
     return reason .. attach_hint
@@ -494,7 +495,7 @@ local function stream(db: Sqlite.Handle, statement: string,
     if asked and code == sqlite_auth and refusal_hint ~= nil then
       return nil, prepare_trouble .. refusal_hint
     end
-    return nil, attach_hinted(prepare_trouble)
+    return nil, prepare_trouble
   end
   -- Nothing is bound: a parameter left unbound would read as NULL.
   local wanted = prepared:parameters()

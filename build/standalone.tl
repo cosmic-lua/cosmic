@@ -165,7 +165,9 @@ end
 
 --- The first module `file` requires by a literal name that is no `cosmic.*` module but a file of the project the file sits
 --- in: found as `<name>.tl`, `<name>/init.tl` or `<name>.tmpl` (the name's dots as slashes) beside the file or in a directory
---- above it. nil where there is none, or the file does not parse.
+--- above it, as far up as the root `cosmic <file>` would build as the project: the working directory when the file sits
+--- under it, the file's own directory otherwise (`root_of` in [`build.dispatch`]). nil where there is none, or the file does
+--- not parse.
 local function project_module(file: string, source: string): string?
   local required, _ = standalone.requires(file, source)
   if required == nil then
@@ -175,6 +177,8 @@ local function project_module(file: string, source: string): string?
   if absolute == nil then
     return nil
   end
+  local here, _ = Fs.absolute(".")
+  local top = if here ~= nil and Fs.within(absolute, here) then here else Fs.dirname(absolute) end
   for _, name in ipairs(required) do
     if name:sub(1, 7) ~= "cosmic." and name ~= "cosmic" then
       local stem = name:gsub("%.", "/")
@@ -187,7 +191,7 @@ local function project_module(file: string, source: string): string?
           end
         end
         local parent = Fs.dirname(directory)
-        if parent == directory then
+        if directory == top or parent == directory then
           break
         end
         directory = parent

@@ -85,11 +85,14 @@ local log = logger.log
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
 
---- Tells once that git refused the repository, whichever layer asked: `line` is [`ignored.of`]'s notice.
-local told_ignored = false
+--- The notices told so far. `line` is [`ignored.of`]'s and names the root, so a repository is told once, whichever layer
+--- asked, and another one (a language server holds several) is told in its turn.
+local told_ignored: mut {string: boolean} = {}
+
+--- Tells `line` unless it was told already.
 local function ignored_notice(line: string)
-  if told_ignored then return end
-  told_ignored = true
+  if told_ignored[line] == true then return end
+  told_ignored[line] = true
   log:say("fix: " .. line)
 end
 

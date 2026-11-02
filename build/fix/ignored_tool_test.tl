@@ -84,7 +84,9 @@ local function test_a_repository_git_refuses_is_told_once(tmp: string)
   assert(Fs.write(root .. "/README.md", "Writes `src/kept.txt`.\n"))
   local bin = tmp .. "/fakebin"
   assert(Fs.mkdirs(bin))
-  assert(Fs.write(bin .. "/git", "#!/bin/sh\necho 'fatal: detected dubious ownership in repository at x' >&2\nexit 128\n", 0x1ed))
+  -- Git's words are English only under LC_ALL=C, as a localized git would print others.
+  assert(Fs.write(bin .. "/git", "#!/bin/sh\nif [ \"$LC_ALL\" = C ]; then echo 'fatal: detected dubious ownership in " ..
+      "repository at x' >&2; else echo 'fatal: autre langue' >&2; fi\nexit 128\n", 0x1ed))
   local result = run(root, { "fix" }, { PATH = bin })
   assert(result.ok, result.stdout)
   local said = assert(result.stdout)

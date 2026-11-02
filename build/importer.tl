@@ -665,13 +665,20 @@ end
 --- Parses every source no parse has seen, with the new checker's syntax tree ([`build.pipeline`]'s `derive`), in this
 --- process. The rows land in hash order. `broken`, when given, lists what does not parse rather than stopping there.
 local function parse_new(handle: work.Handle, tally: importer.Parses, made: {Source},
-                         broken: {derivation.Broken}?): boolean, string
+                         broken: {derivation.Broken}?, outcome: importer.Outcome?): boolean, string
   local db = handle.db
   local fresh, trouble = derivation.fresh(db)
   if fresh == nil then
     return false, trouble
   end
-  return require("build.pipeline").derive(db, work.standing(handle).own, fresh, tally, made, broken)
+  local pipeline = require("build.pipeline")
+  local refusal: pipeline.Refusal = { refused = false }
+  local parsed, parse_trouble = pipeline.derive(db, work.standing(handle).own, fresh, tally, made, broken, refusal)
+  if not parsed then
+    if refusal.refused and outcome ~= nil then outcome.refused = true end
+    return false, parse_trouble
+  end
+  return true, ""
 end
 
 --- Derives and parses what the staged tree holds that the tables do
@@ -712,7 +719,7 @@ local function derive_new(handle: work.Handle, tally: importer.Parses,
       taken = identity
     end
   end
-  local parsed, parse_trouble = parse_new(handle, tally, made, broken)
+  local parsed, parse_trouble = parse_new(handle, tally, made, broken, outcome)
   if not parsed then
     return nil, parse_trouble
   end
@@ -1323,8 +1330,10 @@ local function compile_derived(handle: work.Handle, tool: string,
           local generated: plans.Generated? = nil
           -- Read the tree once, when the first module that is not cached asks.
           if reading.built == nil then
-            local made_built, built_trouble = pipeline.build(handle.db, assert(reading.options))
+            local tree_refusal: pipeline.Refusal = { refused = false }
+            local made_built, built_trouble = pipeline.build(handle.db, assert(reading.options), tree_refusal)
             if made_built == nil then
+              if tree_refusal.refused and outcome ~= nil then outcome.refused = true end
               progress.failure = built_trouble
               break
             end
