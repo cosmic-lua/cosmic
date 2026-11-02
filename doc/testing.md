@@ -491,14 +491,16 @@ reading the tree's ceilings.
 
 ### temporary files
 
-A test function receives the path of a fresh directory made for it. It
-is writable and empty, and the runner removes it once the test passes.
-The worker's `TMPDIR` is the directory above it, so [`Fs.mkdtemp`] and
-every process the test starts make their temporary files beneath the
-test's own scratch directory. Sandboxed, that directory is a tmpfs of the
-worker's own and is gone with it, even after a failure. Unsandboxed
-(`COSMIC_TEST_SANDBOX=0`), a failing test's directory is kept, and its
-failure says where. A sandboxed test has no write grant anywhere else.
+Each test has a scratch directory, `<scratch>`. The test function
+receives `<scratch>/tmp`, a link to the fresh, empty, writable directory
+`<scratch>/real`. The worker's `TMPDIR` is `<scratch>` itself, so
+[`Fs.mkdtemp`] and every process the test starts make their temporary files
+there, as siblings of `tmp` (`<scratch>/xXXXX`), not inside it. After a
+pass the runner removes the whole scratch directory, `tmp` and those
+siblings with it. Sandboxed, `<scratch>` is a tmpfs of the worker's own and
+is gone after a failure too. Unsandboxed (`COSMIC_TEST_SANDBOX=0`), a failing
+test's scratch directory is kept, and its failure says where. A sandboxed
+test has no write grant anywhere else.
 
 ### output
 
@@ -514,7 +516,7 @@ test: PASS  suite.chatty_test test_prints_values
 
 Only a test that ran prints. A test whose verdict stands is not run, so the
 flag says how many stood and prints nothing for them: add `--all` to run
-them. The flag moves no key and keeps no other verdict. A run with it
+them. The flag changes nothing a verdict is keyed or kept by. A run with it
 stands on the verdicts of a run without it. Only the last 4096 bytes of a
 test's output are shown.
 
