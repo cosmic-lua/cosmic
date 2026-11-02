@@ -325,3 +325,12 @@ local function test_a_stage_the_base_lists_under_marked_is_held_to_its_markers_a
   assert(#refused.lines == 1 and has(refused.lines[1], "3 of its markers hold declared float_key and the merge base held 2"),
     table.concat(refused.lines, "\n"))
 end
+
+--- A base cut before the examples were held by markers has an `[examples]` section, which is no stage now: the check reads
+--- the base without it, and the change that deletes the section is not refused for it.
+local function test_a_base_with_an_examples_section_is_read_without_it(tmp: string)
+  local base = BASE_TEXT .. "\n[examples]\ncosmic/a_example.tl view_written 2\n"
+  local root = tree_with(tmp, BASE_TEXT)
+  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(holding(base), { calls = {} }))
+  assert(#verdict.lines == 0, table.concat(verdict.lines, "\n"))
+end

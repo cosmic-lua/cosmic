@@ -111,6 +111,10 @@ function Example.cancel()
   assert(waited["answer"] == Poll.CANCELLED)
 end
 
+-- TODO: write the metatable of this example as a class, once the library's handles are classes (a change of its own,
+-- library by library): the new checker refuses a call of `setmetatable`, a literal of `metatable` that leaves its
+-- fields out and a cast, which the markers on the lines hold until then.
+
 --- A task that waits on whatever its waits answer outlasts `cancel`,
 --- and is ended by `kill` where it waits: its `<close>` variables are
 --- closed, and a join answers [`Poll.CANCELLED`].

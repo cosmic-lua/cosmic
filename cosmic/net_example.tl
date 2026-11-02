@@ -30,8 +30,7 @@ function Example.listen()
 end
 
 -- TODO: hold these in `<close>` locals once a Conn is a class the checker
--- finds `__close` on (the `close_not_closable` pins of cosmic/net_example.tl
--- in build/ceilings.txt).
+-- finds `__close` on (the `close_not_closable` markers of this file).
 
 --- A request and its answer: `shutdown("write")` tells the server the
 --- request is whole while the client still reads what comes back. This
