@@ -5,9 +5,9 @@
 --- (core/testing.h), and CI runs this suite on it; on any other the
 --- walk returns at once.
 
+local AllocationFixture = require("build.allocation_fixture")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
-local testing = require("cosmic.internal.testing")
 local type raw_process = require("cosmic.internal.process")
 local Test = require("cosmic.test")
 
@@ -17,32 +17,6 @@ local Test = require("cosmic.test")
 Test.policy{ requires = { "checked" }, profiles = { "cosmic" } }
 
 local process = require("cosmic.internal.process")
-
---- Runs `work` once per allocation it makes, refusing that allocation,
---- and a last time with none refused; answers how many runs a refusal
---- ended. A run that nothing was refused in must succeed.
----
---- `settle`, when given, runs after each run with allocations granted
---- again, to release what the run was handed. The work cannot release it
---- itself: a worker's coverage hook runs Lua between any two lines, and
---- can itself be refused, so a refusal can fall between a binding's
---- return and the line that would have released what it returned.
-local function under_every_failure(work: function(), settle?: function()): integer
-  local ended = 0
-  for after = 0, 1000000 do
-    testing.fail_allocations(after)
-    local ok, failure = pcall(work as function(): any)
-    local refused = testing.allow_allocations()
-    if settle ~= nil then settle() end
-    collectgarbage("collect")
-    if refused == 0 then
-      assert(ok, "the work failed with every allocation granted: " .. tostring(failure))
-      return ended
-    end
-    ended = ended + 1
-  end
-  error("the work never ran with every allocation granted")
-end
 
 --- This program again, past its launcher, as build.this_program's
 --- `program` starts it, handed the chunk `chunk`. A test's worker
@@ -64,7 +38,7 @@ local function test_waitpid_never_loses_a_status_to_a_failed_allocation()
   local pid = spawn_again("return 7")
   local received = { value = nil as raw_process.ChildStatus? }
   local reaped = { value = nil as raw_process.ChildStatus? }
-  under_every_failure(function()
+  AllocationFixture.under_every_failure(function()
     if reaped.value == nil then received.value = process.waitpid(pid, false) end
   end, function()
     local value = received.value
@@ -93,7 +67,7 @@ local function test_an_exit_watch_leaves_no_descriptor_whenever_an_allocation_fa
   local before = next_descriptor()
   local received = { value = nil as integer? }
   local opened = { value = 0 }
-  under_every_failure(function()
+  AllocationFixture.under_every_failure(function()
     received.value = process.exit_watch(pid)
   end, function()
     local value = received.value
@@ -108,7 +82,7 @@ local function test_an_exit_watch_leaves_no_descriptor_whenever_an_allocation_fa
   assert(process.waitpid(pid, false))
   -- Reaped, the child has no watch to give, and its failure is made
   -- under every refusal too.
-  under_every_failure(function()
+  AllocationFixture.under_every_failure(function()
     local none, _, errno = process.exit_watch(pid)
     assert(none == nil and errno == sys.ESRCH)
   end)

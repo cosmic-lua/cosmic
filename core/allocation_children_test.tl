@@ -2,7 +2,7 @@
 --- core/allocation_test.tl because it needs a children file in this
 --- process's mounted /proc as well as the checked core's instruments.
 
-local sys = require("cosmic.sys")
+local AllocationFixture = require("build.allocation_fixture")
 local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
 
@@ -12,40 +12,6 @@ Test.policy{
 }
 
 local process = require("cosmic.internal.process")
-
---- Runs `work` once per allocation it makes, refusing that allocation,
---- and a last time with none refused; answers how many runs a refusal
---- ended. A run that nothing was refused in must succeed.
----
---- `settle`, when given, runs after each run with allocations granted
---- again, to release what the run was handed. The work cannot release it
---- itself: a worker's coverage hook runs Lua between any two lines, and
---- can itself be refused, so a refusal can fall between a binding's
---- return and the line that would have released what it returned.
-local function under_every_failure(work: function(), settle?: function()): integer
-  local ended = 0
-  for after = 0, 1000000 do
-    testing.fail_allocations(after)
-    local ok, failure = pcall(work as function(): any)
-    local refused = testing.allow_allocations()
-    if settle ~= nil then settle() end
-    collectgarbage("collect")
-    if refused == 0 then
-      assert(ok, "the work failed with every allocation granted: " .. tostring(failure))
-      return ended
-    end
-    ended = ended + 1
-  end
-  error("the work never ran with every allocation granted")
-end
-
---- The descriptor the next open is handed: the lowest free one, so an
---- earlier one left open shows as a higher number.
-local function next_descriptor(tmp: string): integer
-  local fd = assert(sys.open(tmp .. "/probe", sys.O_CREAT | sys.O_RDWR, 420))
-  sys.close(fd)
-  return fd
-end
 
 --- Asserts the core's own C heap holds what it held when `c_heap`
 --- answered `before_bytes` and `before_blocks`: a block a refusal path
@@ -62,13 +28,13 @@ end
 --- closes the list's descriptor, whichever allocation is refused. Off
 --- Linux it allocates nothing, and there is nothing to walk.
 local function test_children_releases_its_block_whenever_an_allocation_fails(tmp: string)
-  local before = next_descriptor(tmp)
+  local before = AllocationFixture.next_descriptor(tmp)
   local bytes, blocks = testing.c_heap()
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     assert(process.children())
   end)
   assert(ended > 0, "listing the children allocates")
   collectgarbage("collect")
-  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
+  assert(AllocationFixture.next_descriptor(tmp) == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
   assert_c_heap(bytes, blocks, "children under refusal")
 end

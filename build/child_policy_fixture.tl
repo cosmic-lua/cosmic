@@ -97,4 +97,12 @@ function child_policy_fixture.placed(tmp: string): child_policy_fixture.Place
   return { probe = probe, work = work }
 end
 
+--- A copy of `grants` with `more` after them.
+function child_policy_fixture.with(grants: {Sandbox.Grant}, ...: Sandbox.Grant): {Sandbox.Grant}
+  local out: mut {Sandbox.Grant} = {}
+  for _, grant in ipairs(grants) do out[#out + 1] = grant end
+  for _, grant in ipairs({ ... }) do out[#out + 1] = grant end
+  return out
+end
+
 return child_policy_fixture

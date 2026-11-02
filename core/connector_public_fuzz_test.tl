@@ -6,6 +6,7 @@
 --- which is what the relay holds in depth: the two must agree on every
 --- address. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
+local ConnectorFixture = require("build.connector_fixture")
 local Fuzz = require("build.fuzz")
 local type _ = require("cosmic.child")
 local type _net = require("cosmic.net")
@@ -131,14 +132,6 @@ local function spelled(bytes: {integer}): string
   return table.concat(groups, ":")
 end
 
-local function require_native_connector()
-  local result, why, number = process.connector_probe({ host = "127.0.0.1", port = 9 }, "pointer")
-  if result == nil and (number == sys.ENOSYS or number == sys.EOPNOTSUPP) then
-    Test.skip("this host has no native connector confinement: " .. why)
-  end
-  assert(result == sys.EPERM, "native connector setup failed: " .. (why or ""))
-end
-
 --- The connector's decision for `item`, 17 bytes as [`packed`] leaves them.
 local function read_whole(fd: integer, count: integer): string
   local got = ""
@@ -174,7 +167,7 @@ local function test_moving_an_address_changes_it_with_or_without_a_carry()
 end
 
 local function test_the_connector_and_the_relay_s_check_agree_on_every_address(tmp: string)
-  require_native_connector()
+  ConnectorFixture.require_native_connector()
   local pair = ConnectorEnds.connector_pair()
   local child, why = process.connector_start({}, pair.connector, 500, { deny = DENIED, own = OWN })
   assert(sys.close(pair.connector))

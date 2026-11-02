@@ -2,6 +2,7 @@
 --- warm compile compiles again, the tool's hashes, the compiler's,
 --- analyzer's and writer's identities, the uses a projection keeps, and
 --- what a compile refuses.
+local importer_fixture = require("build.importer_fixture")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -150,28 +151,6 @@ local function requires_of_fixture(root: string, path: string): {string}?, strin
   return nil, path .. ": not found among compiled modules"
 end
 
---- Stages and compiles one fixture run. Reopening the same root keeps its
---- working database, which lets a test exercise the real warm cache.
-local function compile_fixture(root: string): importer.Result?, string
-  local handle, open_trouble = work.open(root)
-  if handle == nil then
-    return nil, open_trouble
-  end
-  local staged, stage_trouble = work.stage(handle, { own = false })
-  if staged == nil then
-    work.close(handle)
-    return nil, stage_trouble
-  end
-  local result, compile_trouble = importer.compile(handle,
-    "declaration-cache-test")
-  work.close(handle)
-  -- The new checker goes on past a module it refuses and says so in `refused`: that is no compile, as the tests ask.
-  if result ~= nil and #result.refused > 0 then
-    return nil, table.concat(result.refused, "\n")
-  end
-  return result, compile_trouble
-end
-
 --- Observes the real derive and compile through an empty shared cache.
 --- Offers must survive a later failure, and no operation may follow finish.
 local record SharedTrace
@@ -318,9 +297,9 @@ local function edit_invalidates_a_warm_dependent(file: string)
     [file] = types_module(file, "number"),
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-  assert(compile_fixture(root))
+  assert(importer_fixture.compile_fixture(root))
   assert(Fs.write(root .. "/" .. file, types_module(file, "string")))
-  local result, trouble = compile_fixture(root)
+  local result, trouble = importer_fixture.compile_fixture(root)
   assert(result == nil, "a warm compile reused code checked against the old declaration")
   assert(trouble:find("string", 1, true) ~= nil,
     "the changed declaration did not reach the checker: " .. trouble)
@@ -365,9 +344,9 @@ local function edit_invalidates_transitive_type_only_dependents(file: string)
     [file] = types_module(file, "number"),
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-  assert(compile_fixture(root))
+  assert(importer_fixture.compile_fixture(root))
   assert(Fs.write(root .. "/" .. file, types_module(file, "string")))
-  local result, trouble = compile_fixture(root)
+  local result, trouble = importer_fixture.compile_fixture(root)
   assert(result == nil, "a warm compile missed a transitive declaration edit")
   assert(trouble:find("string", 1, true) ~= nil,
     "the transitive declaration did not reach the checker: " .. trouble)
@@ -391,14 +370,14 @@ local function test_a_declaration_beside_its_source_is_refused()
     ["main.tl"] = 'local dep = require("lib.dep")\nlocal n: number = dep.value\nreturn n\n',
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-  local result, trouble = compile_fixture(root)
+  local result, trouble = importer_fixture.compile_fixture(root)
   assert(result == nil, "a declaration beside its source was built")
   local want = "lib/dep.d.tl: lib/dep.tl is already the module lib.dep. A .d.tl is only for a module implemented in C, " ..
     "and the .tl is what is checked, so one module cannot have both. If the .tl is the module, delete lib/dep.d.tl. " ..
     "To keep both, rename one of them so that they are different modules."
   assert(trouble == want, tostring(trouble))
   assert(Fs.remove(root .. "/lib/dep.d.tl"))
-  local built, built_trouble = compile_fixture(root)
+  local built, built_trouble = importer_fixture.compile_fixture(root)
   assert(built ~= nil, "the project did not build once the declaration was deleted: " .. tostring(built_trouble))
 end
 
@@ -413,7 +392,7 @@ local function test_a_declaration_beside_its_source_is_refused_cold_and_warm()
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
   local first: string? = nil
   for run = 1, 3 do
-    local result, trouble = compile_fixture(root)
+    local result, trouble = importer_fixture.compile_fixture(root)
     assert(result == nil, "run " .. tostring(run) .. " built a declaration beside its source")
     assert(trouble:find("m.d.tl: m.tl is already the module m.", 1, true) == 1, "run " .. tostring(run) .. ": " .. trouble)
     first = first or trouble
@@ -431,13 +410,13 @@ local function test_two_declarations_of_one_module_are_refused_cold_and_warm()
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
   for run = 1, 3 do
-    local result, trouble = compile_fixture(root)
+    local result, trouble = importer_fixture.compile_fixture(root)
     assert(result == nil, "run " .. tostring(run) .. " built two declarations of one module")
     assert(trouble == "x.d.tl and x/init.d.tl both answer to import path 'x'; delete or rename one",
       "run " .. tostring(run) .. ": " .. trouble)
   end
   assert(Fs.remove(root .. "/x/init.d.tl"))
-  local built, built_trouble = compile_fixture(root)
+  local built, built_trouble = importer_fixture.compile_fixture(root)
   assert(built ~= nil, "the project did not build once one was deleted: " .. tostring(built_trouble))
 end
 
@@ -481,7 +460,7 @@ local function test_a_declaration_that_names_nothing_is_refused_in_a_project()
     local name, file, text = assert(case[1]), assert(case[2]), assert(case[3])
     local root, write_trouble = write_fixture("unnamed-" .. name, { [file] = text, ["main.tl"] = "local n: integer = 1\nreturn n\n" })
     assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-    local result, trouble = compile_fixture(root)
+    local result, trouble = importer_fixture.compile_fixture(root)
     assert(result == nil and trouble == unnamed_words(file), name .. ": " .. tostring(trouble))
   end
 end
@@ -493,7 +472,7 @@ local function test_a_declaration_that_says_it_is_a_binding_is_built_in_a_projec
     ["main.tl"] = 'local m = require("lib.m")\nlocal n: integer = m.n\nreturn n\n',
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-  local result, trouble = compile_fixture(root)
+  local result, trouble = importer_fixture.compile_fixture(root)
   assert(result ~= nil, tostring(trouble))
 end
 
@@ -506,7 +485,7 @@ local function test_a_declaration_of_the_language_outside_its_files_is_refused_i
       ["main.tl"] = "local n: integer = 1\nreturn n\n",
     })
     assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-    local result, trouble = compile_fixture(root)
+    local result, trouble = importer_fixture.compile_fixture(root)
     local want = file .. ": `--- @kind language` is accepted only when building cosmic's own tree, and this is not one. " ..
       "If it declares a module implemented in C, add the line " ..
       "`--- @kind binding` to its leading comment; otherwise write it as a .tl (types and code in a .tl are checked and " ..
@@ -524,7 +503,7 @@ local function test_a_project_file_at_the_path_of_the_language_s_own_is_refused_
       ["main.tl"] = "local n: integer = 1\nreturn n\n",
     })
     assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-    local result, trouble = compile_fixture(root)
+    local result, trouble = importer_fixture.compile_fixture(root)
     assert(result == nil and trouble:find(file .. ": `--- @kind language` is accepted only when building cosmic's own tree", 1, true) == 1,
       file .. ": " .. tostring(trouble))
   end
@@ -537,7 +516,7 @@ local function test_a_declaration_that_names_two_kinds_is_refused_in_a_project()
     ["main.tl"] = "local n: integer = 1\nreturn n\n",
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-  local result, trouble = compile_fixture(root)
+  local result, trouble = importer_fixture.compile_fixture(root)
   assert(result == nil and trouble:find("lib/m.d.tl: a .d.tl must name exactly one kind", 1, true) == 1, tostring(trouble))
 end
 
@@ -571,7 +550,7 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
       ["main.tl"] = "local n: integer = 1\nreturn n\n",
     })
     assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-    local result, trouble = compile_fixture(root)
+    local result, trouble = importer_fixture.compile_fixture(root)
     local want = file .. ": its module is named for `" .. name .. "`, which the binary answers at run time with " ..
       "the language's own module, so a project file of that name would be checked as one thing and run as another: " ..
       "rename it (for example to `" .. name .. "_lib`)"
@@ -591,7 +570,7 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
     end
     local root, write_trouble = write_fixture("language-module-near", { [file] = text })
     assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-    local result, trouble = compile_fixture(root)
+    local result, trouble = importer_fixture.compile_fixture(root)
     assert(result ~= nil, file .. " was refused: " .. tostring(trouble))
   end
   -- The tail of such a file's name does not stand for the language's module: the call is none of the project's.
@@ -600,7 +579,7 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
     ["main.tl"] = 'local s: string = require("math").abs(-1)\nreturn s\n',
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-  local result, trouble = compile_fixture(root)
+  local result, trouble = importer_fixture.compile_fixture(root)
   assert(result == nil and trouble:find("the project has no module `math`", 1, true) ~= nil, tostring(trouble))
   -- A language module is a global, which the refusal says.
   assert(trouble:find("`math` is a global the language declares, available without `require`", 1, true) ~= nil,
@@ -613,7 +592,7 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
       ["main.tl"] = 'local s = require("' .. name .. '")\nreturn s\n',
     })
     assert(named ~= nil, "could not write fixture: " .. tostring(named_trouble))
-    local _, said = compile_fixture(named)
+    local _, said = importer_fixture.compile_fixture(named)
     local global_hint = "`" .. name .. "` is a global the language declares, available without `require`"
     assert((said:find(global_hint, 1, true) ~= nil) == hinted, name .. ": " .. tostring(said))
     assert((said:find("require a module of the project: `bin/cosmic docs` lists them", 1, true) ~= nil) == not hinted,
@@ -623,7 +602,7 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
     ["main.tl"] = 'local s = require("nothing_here")\nreturn s\n',
   })
   assert(other ~= nil, "could not write fixture: " .. tostring(other_trouble))
-  local _, unknown = compile_fixture(other)
+  local _, unknown = importer_fixture.compile_fixture(other)
   assert(unknown:find("require a module of the project: `bin/cosmic docs` lists them", 1, true) ~= nil, tostring(unknown))
 end
 
@@ -638,10 +617,10 @@ local function test_a_module_moved_to_its_init_file_is_compiled_again()
     ["main.tl"] = requiring("x"),
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-  local first = assert(compile_fixture(root))
+  local first = assert(importer_fixture.compile_fixture(root))
   assert(Fs.mkdirs(root .. "/x"))
   assert(Fs.rename(root .. "/x.tl", root .. "/x/init.tl"))
-  local result = assert(compile_fixture(root))
+  local result = assert(importer_fixture.compile_fixture(root))
   assert(result.compiled == 1 and result.cached == 1,
     tostring(result.compiled) .. " compiled, " .. tostring(result.cached) .. " cached")
   local function by_path(modules: {importer.Module}, path: string): importer.Module
@@ -684,21 +663,21 @@ local function test_the_keys_of_unchanged_inputs_are_kept_and_an_edit_moves_them
     end
     return out
   end
-  local first = keys_of((assert(compile_fixture(root))))
+  local first = keys_of((assert(importer_fixture.compile_fixture(root))))
   assert(#asked_of(root, "SELECT fp FROM keys_memo") == 1, "the first run kept no keys")
-  local again = keys_of((assert(compile_fixture(root))))
+  local again = keys_of((assert(importer_fixture.compile_fixture(root))))
   assert(#asked_of(root, "SELECT fp FROM keys_memo") == 1, "an unchanged tree kept its keys twice")
   for path, key in pairs(first) do
     assert(again[path] == key, path .. ": the kept keys are not the ones made")
   end
   assert(Fs.write(root .. "/x.tl", valued(3)))
-  local edited = keys_of((assert(compile_fixture(root))))
+  local edited = keys_of((assert(importer_fixture.compile_fixture(root))))
   assert(#asked_of(root, "SELECT fp FROM keys_memo") == 2, "an edit was answered with the keys before it")
   assert(edited["x"] ~= first["x"], "x: an edit kept its key")
   assert(edited["main"] ~= first["main"], "main: an edit to what it requires kept its key")
   assert(edited["other"] == first["other"], "other: an edit to another module moved its key")
   assert(Fs.write(root .. "/x.tl", valued(1)))
-  local undone = keys_of((assert(compile_fixture(root))))
+  local undone = keys_of((assert(importer_fixture.compile_fixture(root))))
   for path, key in pairs(first) do
     assert(undone[path] == key, path .. ": undoing the edit did not find its keys again")
   end
@@ -711,7 +690,7 @@ local function test_a_cached_compile_is_marked_seen_only_once_it_is_old()
   local root = assert(write_fixture("seen-lazily", {
     ["x.tl"] = valued(1),
   }))
-  assert(compile_fixture(root))
+  assert(importer_fixture.compile_fixture(root))
   local function seen_of(): integer
     local rows = asked_of(root, "SELECT seen FROM compiled")
     assert(#rows == 1, "expected one compile")
@@ -719,12 +698,12 @@ local function test_a_cached_compile_is_marked_seen_only_once_it_is_old()
     return assert(math.tointeger(tonumber(row[1])))
   end
   local made = seen_of()
-  assert(compile_fixture(root))
+  assert(importer_fixture.compile_fixture(root))
   assert(seen_of() == made, "a run that used a recent compile wrote its row again")
   local handle = assert(work.open(root))
   assert(Sqlite.run(handle.db, "UPDATE compiled SET seen = seen - 50"))
   work.close(handle)
-  assert(compile_fixture(root))
+  assert(importer_fixture.compile_fixture(root))
   assert(seen_of() ~= made - 50, "an old compile used by a run kept its old mark")
 end
 
@@ -737,7 +716,7 @@ local function test_a_standing_compile_used_many_runs_later_is_marked_not_compil
   local root = assert(write_fixture("seen-by-runs", {
     ["x.tl"] = valued(1),
   }))
-  assert(compile_fixture(root))
+  assert(importer_fixture.compile_fixture(root))
   local function seen_of(): integer
     local rows = asked_of(root, "SELECT seen FROM compiled")
     assert(#rows == 1, "expected one compile")
@@ -748,7 +727,7 @@ local function test_a_standing_compile_used_many_runs_later_is_marked_not_compil
   local handle = assert(work.open(root))
   assert(Sqlite.run(handle.db, "UPDATE meta SET value = value + 40 WHERE key = 'run'"))
   work.close(handle)
-  local result = assert(compile_fixture(root))
+  local result = assert(importer_fixture.compile_fixture(root))
   assert(result.compiled == 0 and result.cached == 1, "a standing compile was made again")
   assert(seen_of() >= made + 40, "a compile used 40 runs after its mark kept its mark")
 end
@@ -835,7 +814,7 @@ local function test_declaration_dependency_keys_allow_cycles()
     }, "\n"),
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-  local result, trouble = compile_fixture(root)
+  local result, trouble = importer_fixture.compile_fixture(root)
   assert(result ~= nil, "declaration cycle was refused: " .. tostring(trouble))
 end
 
@@ -892,9 +871,9 @@ local function test_finds_a_pcall_of_require_with_a_literal_name_and_keys_it()
     end
     error(path .. ": not among the modules")
   end
-  local first = key_of(assert(compile_fixture(root)), "main")
+  local first = key_of(assert(importer_fixture.compile_fixture(root)), "main")
   assert(Fs.write(root .. "/probed.tl", valued(2)))
-  local edited = key_of(assert(compile_fixture(root)), "main")
+  local edited = key_of(assert(importer_fixture.compile_fixture(root)), "main")
   assert(edited ~= first, "an edit to a module probed with pcall(require, ...) kept its importer's key")
 end
 
@@ -920,7 +899,7 @@ local function test_testdata_is_not_a_module_or_test_source()
       "this is deliberately not valid Teal\n",
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-  local result, trouble = compile_fixture(root)
+  local result, trouble = importer_fixture.compile_fixture(root)
   assert(result ~= nil, "testdata entered compilation: " .. tostring(trouble))
   local found = false
   for _, module in ipairs(result.modules) do

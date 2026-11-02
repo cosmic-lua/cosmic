@@ -1529,6 +1529,9 @@ local function run_tree_checks(ctx: Fix)
       for _, line in ipairs(tree_checks.test_returns(root)) do
         findings[#findings + 1] = "early returns: " .. line
       end
+      for _, line in ipairs(tree_checks.test_clones(root)) do
+        findings[#findings + 1] = "copied helpers: " .. line
+      end
       -- The ceilings only fall: the file is held to its merge base with main.
       local held = CeilingsBase.check(root, Env.all(), CeilingsBase.live_git())
       for _, line in ipairs(held.lines) do

@@ -11,6 +11,7 @@
 --- narrows the program is asserted only in a sandboxed worker, and skipped
 --- (`sandboxed`) where a Linux run gave none.
 
+local TestSandboxFixture = require("build.test_sandbox_fixture")
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Test = require("cosmic.test")
@@ -19,7 +20,6 @@ local test_child = require("build.test_child")
 local test_inputs = require("build.test_inputs")
 local _ = require("build.standalone") -- the checker `-e` types its chunk with: loaded here, as a child's is
 local confine = require("build.confine")
-local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 
 Test.policy{ profiles = { "cosmic" } }
@@ -27,10 +27,8 @@ Test.policy{ profiles = { "cosmic" } }
 --- Runs `words` after this program, past its launcher, and answers
 --- whether it exited 0, and what it wrote to stdout and stderr.
 local function run(words: {string}): boolean, string, string
-  local started = this_program.program(words, { stdout = "capture", stderr = "capture",
-    timeout_ns = Clock.seconds(30) })
-  local result = assert(Child.run(started.argv, started.options))
-  return result.ok, result.stdout or "", result.stderr or ""
+  local ran = TestSandboxFixture.run_words(words)
+  return ran.ok, ran.stdout, ran.stderr
 end
 
 --- Ends the running test as skipped ([`Test.skip`]) where this worker is

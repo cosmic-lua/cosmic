@@ -11,8 +11,8 @@
 --- walks a fault in a fresh process, which starts this program, is in
 --- core/fault_tool_test.tl.
 
+local AllocationFixture = require("build.allocation_fixture")
 local Http = require("cosmic.http")
-local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
 
@@ -48,14 +48,6 @@ local function succeeds(what: string)
   response:close()
 end
 
---- The descriptor the next open is handed: the lowest free one, so an
---- earlier one left open shows as a higher number.
-local function next_descriptor(tmp: string): integer
-  local fd = assert(sys.open(tmp .. "/probe", sys.O_CREAT | sys.O_RDWR, 420))
-  sys.close(fd)
-  return fd
-end
-
 --- What a process holds before a fault, to hold it to after.
 local record Held
   fd: integer
@@ -66,7 +58,7 @@ end
 local function held(tmp: string): Held
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
-  return { fd = next_descriptor(tmp), bytes = bytes, blocks = blocks }
+  return { fd = AllocationFixture.next_descriptor(tmp), bytes = bytes, blocks = blocks }
 end
 
 local function assert_released(tmp: string, before: Held, what: string)
@@ -75,7 +67,7 @@ local function assert_released(tmp: string, before: Held, what: string)
   local bytes, blocks = testing.c_heap()
   assert(bytes == before.bytes and blocks == before.blocks,
     what .. " left " .. tostring((blocks - before.blocks)) .. " blocks on the C heap")
-  local fd = next_descriptor(tmp)
+  local fd = AllocationFixture.next_descriptor(tmp)
   assert(fd == before.fd, what .. " left descriptor " .. tostring(before.fd) .. " open")
 end
 
