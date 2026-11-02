@@ -13,6 +13,10 @@ Test.policy{ loopback = { "127.0.0.1" } }
 
 local Example = {} -- checked: literal_needs_type
 
+-- TODO: declare the handles these examples close with `<close>` (a connection, a listener, a query, a response) as classes,
+-- once the library's handles are classes (a change of its own, library by library): the new checker refuses `<close>`
+-- on a record, which the marker on the line holds until then.
+
 --- A key-value store over HTTP: PUT stores a body under its path, GET
 --- (and HEAD) answers it, 404 when there is none. A HEAD is answered as
 --- the GET is: the server sends its head, Content-Length included, and
