@@ -1140,28 +1140,65 @@ local function compile_derived(handle: work.Handle, tool: string,
       end
     end
   end
-  local positioned, position_trouble = positions.check(modules, standing,
-    function(name: string): boolean
-      -- A declaration has a source but no bytecode.
-      local bytecode, _ = Store.bytecode(name)
-      return bytecode ~= nil
-    end)
-  if not positioned then
-    if outcome ~= nil then outcome.refused = true end
-    return nil, position_trouble
+  local carries = function(name: string): boolean
+    -- A declaration has a source but no bytecode.
+    local bytecode, _ = Store.bytecode(name)
+    return bytecode ~= nil
+  end
+  -- The modules a run holds out for what they do, not for what they hold: a position rule they break, a `global`
+  -- they declare. A run that names a file stops at the first, as it always did; one over the tree refuses the modules
+  -- alone ([`importer.Result`]'s `refused`) and goes on, so that a module that breaks none still builds.
+  local held_out: mut {string:boolean} = {}
+  --- Holds `path` out with `message` among the refusals.
+  local function hold(path: string, file: string, message: string)
+    refusals[#refusals + 1] = message
+    if held_out[path] ~= true then own_refused[#own_refused + 1] = file end
+    held_out[path] = true
+    failed[path] = true
+    local resting: mut {integer} = {}
+    for _, position in ipairs(roots_of[path] or {}) do resting[#resting + 1] = position end
+    resting[#resting + 1] = #refusals
+    roots_of[path] = resting
+    roots_by_file[file] = resting
+  end
+  if lenient then
+    for _, one in ipairs(positions.violations(modules, standing, carries)) do
+      hold(one.module.path, one.module.file, one.message)
+    end
+  else
+    local positioned, position_trouble = positions.check(modules, standing, carries)
+    if not positioned then
+      if outcome ~= nil then outcome.refused = true end
+      return nil, position_trouble
+    end
   end
   local order, why = plans.ordered(modules)
   if order == nil then
     if outcome ~= nil then outcome.refused = true end
     return nil, why
   end
-  local refused_globals, globals_trouble = plans.refuse_globals(handle.db)
-  if globals_trouble ~= "" then
+  local globals, globals_trouble = plans.global_refusals(handle.db)
+  if globals == nil then
     return nil, globals_trouble
   end
-  if refused_globals ~= nil then
-    if outcome ~= nil then outcome.refused = true end
-    return nil, refused_globals
+  if #globals > 0 then
+    local by_file: mut {string:Module} = {}
+    for _, m in ipairs(modules) do by_file[m.file] = m end
+    local unplaced = false
+    for _, one in ipairs(globals) do
+      if not lenient or by_file[one.file] == nil then unplaced = true end
+    end
+    if unplaced then
+      -- A `global` of a declaration file, or in a run that names a file: no one module is the culprit.
+      local lines: mut {string} = {}
+      for _, one in ipairs(globals) do lines[#lines + 1] = one.message end
+      if outcome ~= nil then outcome.refused = true end
+      return nil, table.concat(lines, "\n")
+    end
+    for _, one in ipairs(globals) do
+      local m = assert(by_file[one.file], "a global is placed in a module")
+      hold(m.path, m.file, one.message)
+    end
   end
   local keys, keys_trouble = plans.dependency_keys(handle.db, modules, tool)
   if keys == nil then
@@ -1250,7 +1287,10 @@ local function compile_derived(handle: work.Handle, tool: string,
       m.graph_key = planned.graph
 
       local refusal = plans.refusal(m)
-      if needed ~= nil and needed[m.path] ~= true and leans_on(m, failed) then
+      if held_out[m.path] == true then
+        -- Told of already, with the rule it breaks.
+        failed[m.path] = true
+      elseif needed ~= nil and needed[m.path] ~= true and leans_on(m, failed) then
         -- Left out quietly: the module it requires was told of.
         failed[m.path] = true
       elseif lenient and leans_on(m, failed) then

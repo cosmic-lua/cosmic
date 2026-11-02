@@ -164,7 +164,7 @@ local version <const> = "34"
 --- though only those modules' are read: a test has none.
 --- `globals` is where each `global` declaration of a source starts
 --- (build.globals), a row each by line and column: the rows a build
---- refuses from ([`build.plans`]'s `refuse_globals`) without
+--- refuses from ([`build.plans`]'s `global_refusals`) without
 --- reading a source again. A guide's example is at the line of the
 --- module extracted from the guide.
 --- `places` is where each type a source declares, and each field, method

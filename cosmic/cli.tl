@@ -901,8 +901,10 @@ local module: Module = {
     },
     build = {
       about = "write bin/<name> in the build directory per cmd/<name>/main.tl; a file that does not compile " ..
-        "holds out only the programs that need it (the rest are written, the earlier executable of each " ..
-        "held out is removed, and the exit status is 4)",
+        "(a test among them) holds out only the programs that need it: the rest are written, the earlier " ..
+        "executable of each held out is removed, and the exit status is 4. An import cycle, a `global` of a " ..
+        "declaration file or a source that cannot be read stops the whole tree and writes none. A failure to " ..
+        "write is 1 and outranks the refusal, which is still named",
       usage = "[path...]",
       spec = {
         ["--host"] = { about = "this system's native executable: no launcher, runs only here" },
