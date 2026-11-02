@@ -2,6 +2,7 @@ local Html = require("cosmic.html")
 local Json = require("cosmic.json")
 local Response = require("cosmic.web.response")
 local Server = require("cosmic.http.server")
+local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local Types = require("cosmic.web.types")
 local Test = require("cosmic.test")
@@ -25,14 +26,19 @@ local function test_html_takes_safe_markup_and_sets_the_content_type()
   sendable(res)
 end
 
+--- A value that holds itself, which no JSON can encode.
+local record Loop
+  mut loop?: Loop
+end
+
 local function test_json_encodes_and_marks_the_body_nosniff()
   local res = Response.json({ id = 7 })
   assert(res.status == 200 and res.body == '{"id":7}')
   assert(Response.header(res, "Content-Type") == "application/json")
   assert(Response.header(res, "X-Content-Type-Options") == "nosniff")
   sendable(res)
-  local cycle: {string:any} = {}
-  cycle.self = cycle -- checked: map_field
+  local cycle: Loop = {}
+  cycle.loop = cycle
   assert(Test.raises(function() Response.json(cycle) end):find("web: json:", 1, true)) -- checked: not_assignable
 end
 
@@ -101,18 +107,33 @@ local function test_stream_carries_a_reader_with_its_content_type()
   sendable(res)
 end
 
+local record Problem
+  type: string
+  title: string
+  status: integer
+  detail?: string
+  errors?: {string}
+end
+local PROBLEM <const> = Shape.record_of("Problem")
+
+--- The problem body `res` carries.
+local function problem_of(res: Types.Response): Problem
+  local seen, why = PROBLEM:decode_into(body_of(res))
+  assert(seen ~= nil, why)
+  return seen
+end
+
 local function test_problem_is_rfc_9457_json_with_the_reason_as_its_title()
   local res = Response.problem(404, "no such item", { errors = Json.array({ "x" }), status = 1 }) -- checked: any_use*2
   assert(Response.header(res, "Content-Type") == "application/problem+json")
-  local body = assert(Json.decode_object(body_of(res)))
-  assert(body["type"] == "about:blank" and body["title"] == "Not Found" and body["status"] == 404)
-  assert(body["detail"] == "no such item")
-  -- TODO: once the problem body is a record, these keys are fields; a key read here is `any`, which `is` cannot narrow.
-  local errors = body.errors -- checked: map_field
-  assert(errors is {string} and errors[1] == "x")
+  local body = problem_of(res)
+  assert(body.type == "about:blank" and body.title == "Not Found" and body.status == 404)
+  assert(body.detail == "no such item")
+  local errors = assert(body.errors)
+  assert(errors[1] == "x")
   sendable(res)
-  local unnamed = assert(Json.decode_object(body_of(Response.problem(499))))
-  assert(unnamed["title"] == "Error" and unnamed["detail"] == nil)
+  local unnamed = problem_of(Response.problem(499))
+  assert(unnamed.title == "Error" and unnamed.detail == nil)
 end
 
 local function test_add_header_appends_lines_and_keeps_the_first_as_a_string()
@@ -196,8 +217,8 @@ local function test_a_constructor_refuses_a_status_the_server_cannot_send()
 end
 
 local function test_a_json_failure_names_json_once()
-  local cycle: {string:any} = {}
-  cycle.self = cycle -- checked: map_field
+  local cycle: Loop = {}
+  cycle.loop = cycle
   local message = Test.raises(function() Response.json(cycle) end) -- checked: not_assignable
   assert(message:find("web: json: ", 1, true) and not message:find("json: json:", 1, true), message)
   local problem = Test.raises(function() Response.problem(500, "x", { bad = cycle }) end) -- checked: any_use

@@ -67,7 +67,7 @@ local function test_two_requests_that_changed_different_keys_both_land()
   local id = create(store, { base = 1 }) -- checked: any_use
   local first = assert(store:load(id, 500, "session"))
   local second = assert(store:load(id, 500, "session"))
-  -- TODO: once session values are a typed map, these are key writes; a write into an `any` map is any_use.
+  -- TODO: once session values are a typed map, these are typed writes: a key write into the `{string: any}` values is any_use.
   first.values.a = "from first" -- checked: map_field
   second.values.b = "from second" -- checked: map_field
   assert(store:save(id, first, changed({ a = "from first" }), 500, "session") == id) -- checked: any_use

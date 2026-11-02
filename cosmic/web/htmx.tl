@@ -479,7 +479,7 @@ local function config_of(opts: Htmx.HeadOptions): {string: any}
     },
   }
   local history_cache_size = config.history_cache_size
-  -- TODO: once the config is a record that encodes to JSON, these keys are fields, not writes into an `any` map.
+  -- TODO: once the config is a record that encodes to JSON, these are fields: a key write of a typed value into this `{string: any}` is any_use.
   if history_cache_size ~= nil then out.historyCacheSize = history_cache_size end -- checked: map_field
   local nonce = opts.nonce
   if nonce ~= nil then out.inlineScriptNonce = nonce end -- checked: map_field

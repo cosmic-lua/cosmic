@@ -1,12 +1,11 @@
 local Cors = require("cosmic.web.cors")
 local Csrf = require("cosmic.web.csrf")
 local Web = require("cosmic.web")
-local support = require("build.test_support_fixture")
 
 local APP <const> = "https://app.example.com"
 
 --- Handlers of the app under test count how often they run.
-local ran: support.Counter = { value = 0 }
+local ran = 0
 
 --- A response one handler returns for every request.
 local shared: Web.Response = { status = 200, headers = { ["Content-Type"] = "text/plain", Vary = "Accept" },
@@ -20,7 +19,7 @@ local function make_app(opts: Cors.Options, more?: {Web.Middleware}): Web.App
     middleware = stack,
     routes = {
       Web.get("/data", function(_req: Web.Request): Web.Response
-        ran.value = ran.value + 1
+        ran = ran + 1
         return Web.json({ ok = true })
       end),
       Web.get("/shared", function(_req: Web.Request): Web.Response
@@ -36,7 +35,7 @@ local function make_app(opts: Cors.Options, more?: {Web.Middleware}): Web.App
         error("a fault")
       end),
       Web.post("/save", function(_req: Web.Request): Web.Response
-        ran.value = ran.value + 1
+        ran = ran + 1
         return Web.text("saved")
       end),
     },
@@ -70,9 +69,9 @@ end
 
 local function test_a_stranger_gets_no_grant_and_the_cache_is_told_the_answer_varies()
   local client = Web.test_client(make_app{ allow_origins = { APP }, allow_credentials = true })
-  ran.value = 0
+  ran = 0
   local res = client:post("/save", { headers = { Origin = "https://evil.example" } })
-  assert(res.status == 200 and ran.value == 1, "CORS is not authorization: the request still runs")
+  assert(res.status == 200 and ran == 1, "CORS is not authorization: the request still runs")
   assert(res.headers["access-control-allow-origin"] == nil)
   assert(res.headers["access-control-allow-credentials"] == nil)
   assert(res.headers["vary"] == "Origin")
@@ -176,7 +175,7 @@ end
 local function test_a_preflight_is_answered_without_the_router()
   local client = Web.test_client(make_app{ allow_origins = { APP }, allow_credentials = true,
     allow_methods = { "GET", "POST", "DELETE" }, allow_headers = { "X-Token", "Authorization" }, max_age = 120 })
-  ran.value = 0
+  ran = 0
   local res = preflight(client, APP, "DELETE", "X-Token, authorization")
   assert(res.status == 204 and res.body == "")
   assert(res.headers["access-control-allow-origin"] == APP)
@@ -185,7 +184,7 @@ local function test_a_preflight_is_answered_without_the_router()
   assert(res.headers["access-control-allow-headers"] == "x-token, authorization")
   assert(res.headers["access-control-max-age"] == "120")
   assert(res.headers["vary"] == "Origin, Access-Control-Request-Method, Access-Control-Request-Headers")
-  assert(ran.value == 0)
+  assert(ran == 0)
   local plain = preflight(client, APP, "POST")
   assert(plain.status == 204 and plain.headers["access-control-allow-headers"] == "X-Token, Authorization",
     "no headers asked: the configured ones")

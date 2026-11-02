@@ -1,5 +1,6 @@
 local Shape = require("cosmic.shape")
 local Input = require("cosmic.web.input")
+local Types = require("cosmic.web.types")
 local Web = require("cosmic.web")
 local Test = require("cosmic.test")
 
@@ -32,10 +33,21 @@ local QUERY <const> = Shape.record_of("Listing")
 local NEW <const> = Shape.record_of("NewItem")
 local SETTINGS <const> = Shape.record_of("Settings")
 
+local record Problem
+  type: string
+  title: string
+  status: integer
+  detail?: string
+  errors?: {Types.FieldError}
+end
+local PROBLEM <const> = Shape.record_of("Problem")
+
 --- The error a refused request got, as a test needs to read it.
-local function problem(reply: Web.TestResponse): {string:any}
+local function problem(reply: Web.TestResponse): Problem
   assert(reply.headers["content-type"] == "application/problem+json", reply.headers["content-type"])
-  return reply:json() as {string:any} -- checked: cast_refused
+  local seen, why = PROBLEM:into((assert(reply:json())))
+  assert(seen ~= nil, why)
+  return seen
 end
 
 local function test_a_typed_get_is_given_its_path_and_query_as_records()
@@ -80,15 +92,15 @@ local function test_a_bad_path_value_is_422_before_the_query_or_body_is_read()
   local client = Web.test_client(app)
   local reply = client:put("/items/abc?page=x", { json = { title = 1 } })
   assert(reply.status == 422 and not called)
-  local errors = problem(reply)["errors"] as {{string:any}} -- checked: cast_refused
-  assert(#errors == 1 and errors[1].source == "path" and errors[1].field == "id" and errors[1].code == "integer")
+  local errors = assert(problem(reply).errors)
+  assert(#errors == 1 and assert(errors[1]).source == "path" and assert(errors[1]).field == "id" and assert(errors[1]).code == "integer")
   assert(errors[1].pointer == nil, "only a JSON body has a pointer")
   reply = client:put("/items/1?page=x", { json = { title = 1 } })
-  errors = problem(reply)["errors"] as {{string:any}} -- checked: cast_refused
-  assert(errors[1].source == "query" and errors[1].field == "page", "then the query")
+  errors = assert(problem(reply).errors)
+  assert(assert(errors[1]).source == "query" and assert(errors[1]).field == "page", "then the query")
   reply = client:put("/items/1", { json = { title = 1 } })
-  errors = problem(reply)["errors"] as {{string:any}} -- checked: cast_refused
-  assert(errors[1].source == "body" and errors[1].pointer == "/qty", "then the body")
+  errors = assert(problem(reply).errors)
+  assert(assert(errors[1]).source == "body" and assert(errors[1]).pointer == "/qty", "then the body")
   assert(not called)
 end
 
@@ -103,11 +115,11 @@ local function test_a_json_route_answers_a_problem_body_with_every_error_listed(
   local reply = client:post("/items", { json = { title = "t", qty = "x" } })
   assert(reply.status == 422)
   local body = problem(reply)
-  assert(body["type"] == "about:blank" and body["title"] == "Unprocessable Content" and body["status"] == 422)
-  assert(body["detail"] == "qty: want integer, got string", tostring(body["detail"]))
-  local errors = body["errors"] as {{string:any}} -- checked: cast_refused
-  assert(#errors == 1 and errors[1].source == "body" and errors[1].field == "qty" and errors[1].pointer == "/qty")
-  assert(errors[1].code == "integer" and errors[1].message == "want integer, got string")
+  assert(body.type == "about:blank" and body.title == "Unprocessable Content" and body.status == 422)
+  assert(body.detail == "qty: want integer, got string", tostring(body.detail))
+  local errors = assert(body.errors)
+  assert(#errors == 1 and assert(errors[1]).source == "body" and assert(errors[1]).field == "qty" and assert(errors[1]).pointer == "/qty")
+  assert(errors[1].code == "integer" and assert(errors[1]).message == "want integer, got string")
   reply = client:post("/items", { json = { title = "t", qty = 1 }, headers = { Accept = "text/html" } })
   assert(reply.status == 204)
   reply = client:post("/items", { json = { title = 5 }, headers = { Accept = "text/html" } })
@@ -129,9 +141,9 @@ local function test_a_form_route_prefers_a_page_and_lists_all_errors_as_json_whe
   assert(reply.status == 422 and reply_headers_content_type:find("text/html", 1, true) ~= nil)
   reply = client:post("/items", { form = { qty = "two" }, headers = { Accept = "application/json" } })
   assert(reply.status == 422)
-  local errors = problem(reply)["errors"] as {{string:any}} -- checked: cast_refused
-  assert(#errors == 2 and errors[1].field == "qty" and errors[2].field == "title", "every field, in field order")
-  assert(errors[1].source == "form" and errors[1].pointer == nil)
+  local errors = assert(problem(reply).errors)
+  assert(#errors == 2 and assert(errors[1]).field == "qty" and assert(errors[2]).field == "title", "every field, in field order")
+  assert(assert(errors[1]).source == "form" and assert(errors[1]).pointer == nil)
 end
 
 local function test_on_invalid_re_renders_in_place_of_the_handler()
@@ -184,16 +196,16 @@ local function test_the_wrong_content_type_is_415_and_a_big_body_413_and_bad_jso
   } }
   local client = Web.test_client(app)
   local reply = client:post("/items", { form = { title = "t", qty = "1" } })
-  assert(reply.status == 415 and problem(reply)["errors"] ~= nil)
+  assert(reply.status == 415 and problem(reply).errors ~= nil)
   reply = client:post("/items", { body = '{"title":"t","qty":1}', content_type = "text/plain" })
   assert(reply.status == 415)
   reply = client:post("/items", { json = { title = ("x"):rep(60), qty = 1 } })
   assert(reply.status == 413)
-  assert((problem(reply)["errors"] as {{string:any}})[1].code == "too_large") -- checked: cast_refused
+  assert(assert(assert(problem(reply).errors)[1]).code == "too_large")
   reply = client:post("/items", { body = '{"title":', content_type = "application/json" })
-  assert(reply.status == 400 and (problem(reply)["errors"] as {{string:any}})[1].code == "json") -- checked: cast_refused
+  assert(reply.status == 400 and assert(assert(problem(reply).errors)[1]).code == "json")
   reply = client:post("/items", { body = "", content_type = "application/json" })
-  assert(reply.status == 422 and (problem(reply)["errors"] as {{string:any}})[1].code == "required") -- checked: cast_refused
+  assert(reply.status == 422 and assert(assert(problem(reply).errors)[1]).code == "required")
   assert(client:post("/items", { json = { title = "t", qty = 1 } }).status == 204)
 end
 

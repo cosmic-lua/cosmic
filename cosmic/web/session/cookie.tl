@@ -93,9 +93,9 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
       if bytes == nil then return nil, "" end
       local body, _ = Json.decode(bytes, { max_depth = DEPTH })
       if not body is {string:any} then return nil, "" end -- checked: is_on_record
-      -- TODO: once a cookie body is checked by a shape validator, these are fields of a record, not reads of an `any` map.
-      local created, expires, values = body.c, body.e, body.d -- checked: map_field*3
-      if body.v ~= VERSION or not created is integer or not expires is integer or -- checked: map_field
+      -- TODO: once cosmic.shape answers a `mut {string: any}` field (`map` answers a view, and Session.Data.values is mut: view_as_mut), `Shape.record_of` types this body whole.
+      local created, expires, values = body["c"], body["e"], body.d -- checked: map_field
+      if body["v"] ~= VERSION or not created is integer or not expires is integer or
           not values is {string:any} then
         return nil, ""
       end

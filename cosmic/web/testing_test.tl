@@ -2,6 +2,7 @@ local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Web = require("cosmic.web")
+local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 
 --- An app that echoes what a request carried.
@@ -17,23 +18,36 @@ local function echo(): Web.App
   } }
 end
 
+local record Echo
+  method: string
+  query: {string}
+  body: string
+  ct: string
+  length: string
+end
+local ECHO <const> = Shape.record_of("Echo")
+
+--- What the echo app answered, checked against what it sends.
+local function echoed(res: Web.TestResponse): Echo
+  local seen, why = ECHO:into((assert(res:json())))
+  assert(seen ~= nil, why)
+  return seen
+end
+
 local function test_the_client_builds_the_query_form_json_and_body_of_a_request()
   local client = Web.test_client(echo())
-  local get = assert(client:get("/echo?a=1", { query = { b = "2", c = { "x", "y z" } } }):json())
-  assert(get is {string:any} and get["method"] == "GET") -- checked: is_on_record
-  -- TODO: once the echo reply is checked by a shape validator, `query` is a field; a key read here is `any`, which `is` cannot narrow.
-  local query = get.query -- checked: map_field
-  assert(query is {string} and table.concat(query, "&") == "a=1&b=2&c=x&c=y z")
-  local form = assert(client:post("/echo", { form = { title = "a b", qty = "2" } }):json())
-  assert(form is {string:any} and form["body"] == "qty=2&title=a+b" and form["ct"] == "application/x-www-form-urlencoded") -- checked: is_on_record
-  local json = assert(client:put("/echo", { json = { n = 1 } }):json())
-  assert(json is {string:any} and json["body"] == '{"n":1}' and json["ct"] == "application/json" and json["length"] == "7") -- checked: is_on_record
-  local raw = assert(client:patch("/echo", { body = "abc", content_type = "text/plain" }):json())
-  assert(raw is {string:any} and raw["body"] == "abc" and raw["ct"] == "text/plain") -- checked: is_on_record
-  local reader = assert(client:delete("/echo", { body = Stream.from_string("xyz") }):json())
-  assert(reader is {string:any} and reader["method"] == "DELETE" and reader["body"] == "xyz") -- checked: is_on_record
-  local headers = assert(client:post("/echo", { headers = { ["Content-Type"] = "text/csv" }, body = "a,b" }):json())
-  assert(headers is {string:any} and headers["ct"] == "text/csv") -- checked: is_on_record
+  local get = echoed(client:get("/echo?a=1", { query = { b = "2", c = { "x", "y z" } } }))
+  assert(get.method == "GET" and table.concat(get.query, "&") == "a=1&b=2&c=x&c=y z")
+  local form = echoed(client:post("/echo", { form = { title = "a b", qty = "2" } }))
+  assert(form.body == "qty=2&title=a+b" and form.ct == "application/x-www-form-urlencoded")
+  local json = echoed(client:put("/echo", { json = { n = 1 } }))
+  assert(json.body == '{"n":1}' and json.ct == "application/json" and json.length == "7")
+  local raw = echoed(client:patch("/echo", { body = "abc", content_type = "text/plain" }))
+  assert(raw.body == "abc" and raw.ct == "text/plain")
+  local reader = echoed(client:delete("/echo", { body = Stream.from_string("xyz") }))
+  assert(reader.method == "DELETE" and reader.body == "xyz")
+  local headers = echoed(client:post("/echo", { headers = { ["Content-Type"] = "text/csv" }, body = "a,b" }))
+  assert(headers.ct == "text/csv")
 end
 
 local function test_a_response_reads_as_text_json_and_header_lines()

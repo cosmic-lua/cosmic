@@ -5,12 +5,11 @@ local SessionCookie = require("cosmic.web.session.cookie")
 local SessionSqlite = require("cosmic.web.session.sqlite")
 local Sqlite = require("cosmic.sqlite")
 local Web = require("cosmic.web")
-local support = require("build.test_support_fixture")
 
 local KEY <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0"
 
 --- The time the sessions see, which a test moves.
-local clock: support.Counter = { value = 1000000 }
+local now = 1000000
 
 local function cookie_store(): Session.Store
   return SessionCookie.store{ keys = { KEY } }
@@ -33,7 +32,7 @@ end
 local function options(store: Session.Store, extra?: Extra): Session.Options
   local x: Extra = extra or {}
   return { store = store, cookie_name = x.cookie_name, max_age = x.max_age, rolling = x.rolling,
-    secure = x.secure, same_site = x.same_site, now = function(): integer return clock.value end }
+    secure = x.secure, same_site = x.same_site, now = function(): integer return now end }
 end
 
 local seen: mut {Session.Handle} = {}
@@ -235,27 +234,27 @@ end
 local function test_an_expired_cookie_session_is_anonymous()
   local client = Web.test_client(make_app(options(cookie_store(), { max_age = 100 })))
   client:post("/set/user/ada")
-  clock.value = clock.value + 99
+  now = now + 99
   assert(client:get("/get/user"):text() == "ada")
-  clock.value = clock.value + 1
+  now = now + 1
   assert(client:get("/get/user"):text() == "-")
 end
 
 local function test_rolling_extends_the_lifetime_once_half_is_gone()
   local client = Web.test_client(make_app(options(cookie_store(), { max_age = 1000, rolling = true })))
   client:post("/set/user/ada")
-  clock.value = clock.value + 400
+  now = now + 400
   assert(#set_cookies(client:get("/get/user")) == 0, "more than half is left")
-  clock.value = clock.value + 200
+  now = now + 200
   local res = client:get("/get/user")
   assert(res:text() == "ada" and #set_cookies(res) == 1, "less than half is left")
-  clock.value = clock.value + 900
+  now = now + 900
   assert(client:get("/get/user"):text() == "ada", "the renewed session outlived the first lifetime")
   local fixed = Web.test_client(make_app(options(cookie_store(), { max_age = 1000 })))
   fixed:post("/set/user/ada")
-  clock.value = clock.value + 600
+  now = now + 600
   assert(#set_cookies(fixed:get("/get/user")) == 0)
-  clock.value = clock.value + 500
+  now = now + 500
   assert(fixed:get("/get/user"):text() == "-", "not rolling: the lifetime is from the start")
 end
 
@@ -442,14 +441,13 @@ local function test_regenerate_changes_the_id_and_keeps_the_data()
   client:post("/set/theme/dark")
   local before = assert(client.jar["session"])
   local res = client:post("/login")
-  local after = client.jar["session"]
-  assert(before ~= after and #set_cookies(res) == 1)
+  assert(before ~= client.jar["session"] and #set_cookies(res) == 1)
   assert(client:get("/get/theme"):text() == "dark" and client:get("/get/user"):text() == "ada")
   assert(Web.test_client(app):get("/get/theme", { cookies = { session = before } }):text() == "-")
   local cookie_app = Web.test_client(make_app(options(cookie_store())))
   cookie_app:post("/set/theme/dark")
   local first = assert(cookie_app.jar["session"])
-  clock.value = clock.value + 5
+  now = now + 5
   cookie_app:post("/login")
   assert(cookie_app.jar["session"] ~= first)
   assert(cookie_app:get("/get/theme"):text() == "dark")
@@ -493,11 +491,11 @@ local function test_sqlite_expiry_and_rolling_follow_the_clock()
   local store = sqlite_store()
   local client = Web.test_client(make_app(options(store, { max_age = 1000, rolling = true })))
   client:post("/set/user/ada")
-  clock.value = clock.value + 600
+  now = now + 600
   assert(client:get("/get/user"):text() == "ada")
-  clock.value = clock.value + 900
+  now = now + 900
   assert(client:get("/get/user"):text() == "ada", "the read at 600 renewed it")
-  clock.value = clock.value + 1000
+  now = now + 1000
   assert(client:get("/get/user"):text() == "-")
 end
 
@@ -652,7 +650,7 @@ local function test_invalidate_revokes_even_when_the_response_is_a_500()
   local res = client:post("/logout-fails")
   assert(res.status == 500)
   assert(session_count(db) == 0, "the row is gone")
-  assert(store:load(before, clock.value, "session") == nil)
+  assert(store:load(before, now, "session") == nil)
   assert(#set_cookies(res) == 1 and client.jar["session"] == nil, "and the cookie is expired")
 end
 

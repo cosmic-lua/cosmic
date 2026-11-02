@@ -12,7 +12,6 @@ local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
 local Types = require("cosmic.web.types")
 local Web = require("cosmic.web")
-local support = require("build.test_support_fixture")
 
 local B <const> = "fuzzB"
 local NAMES <const>: {string} = { "a", "f", "pic", "tags", "é", "x y" }
@@ -46,11 +45,11 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
   assert(Fs.mkdirs(uploads))
   local app: Web.App
   -- What the handler is told to read with, and what it read.
-  local opts: support.Cell<Types.InputOptions> = {}
-  local outcome: support.Cell<Types.Parsed<Input.Multipart>> = {}
+  local opts: Types.InputOptions? = nil
+  local outcome: Types.Parsed<Input.Multipart>? = nil
   app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
-    local parsed = Input.multipart(req, opts.value)
-    outcome.value = parsed
+    local parsed = Input.multipart(req, opts)
+    outcome = parsed
     local value = parsed.value
     if value ~= nil then
       -- What a handler could still read while the request lasts.
@@ -82,10 +81,10 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
       local max_field_bytes = assert(math.tointeger(tonumber(f[3])))
       local max_files = assert(math.tointeger(tonumber(f[4])))
       local max_parts = assert(math.tointeger(tonumber(f[5])))
-      opts.value = { dir = uploads, max_file_bytes = max_file_bytes, max_field_bytes = max_field_bytes,
+      opts = { dir = uploads, max_file_bytes = max_file_bytes, max_field_bytes = max_field_bytes,
         max_files = max_files, max_parts = max_parts, max_bytes = 600 }
       local chunked = f[6] == "1"
-      outcome.value = nil
+      outcome = nil
       local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
         headers = { host = "x", ["content-type"] = "multipart/form-data; boundary=" .. B },
         body = Stream.from_string(text), length = if not chunked then #text else nil end }
@@ -94,7 +93,7 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
       if reply.status ~= 204 then return false, "the handler faulted: " .. reply.status end -- checked: any_use*2
       local left = assert(Fs.list(uploads))
       if #left ~= 0 then return false, "left behind: " .. table.concat(left, ", ") end
-      local read = assert(outcome.value, "the handler read nothing")
+      local read = assert(outcome, "the handler read nothing")
       local invalid = read.invalid
       if invalid ~= nil then
         if read.value ~= nil or not ALLOWED[invalid.status] then -- checked: condition_type
