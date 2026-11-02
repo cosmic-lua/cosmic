@@ -1647,6 +1647,7 @@ local function run_tree_checks(ctx: Fix)
         end
       end
       local marking: Ceilings.Marking = { sink = sink, force = #migrating > 0 }
+      local marks_began = Clock.monotonic_ns()
       local marks = tree_checks.markers(root, sink)
       for _, line in ipairs(marks.lines) do
         findings[#findings + 1] = "markers: " .. line
@@ -1657,7 +1658,8 @@ local function run_tree_checks(ctx: Fix)
         findings[#findings + 1] = "ceilings: " .. line
       end
       if held.note ~= "" then
-        tree_say("ceilings: " .. held.note)
+        tree_say("ceilings: " .. held.note .. ", read in " ..
+            tostring((Clock.monotonic_ns() - marks_began) // 1000000) .. " ms")
       end
       -- What the scope builder, the lowering and the checker found in a file that has not changed is kept in the build
       -- directory; without the memo the checks run in full.
