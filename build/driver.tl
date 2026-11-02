@@ -183,9 +183,10 @@ local record Driver
     --- hold them, each with its place and fix and then the count on the line and what is marked. None where the module is
     --- held. The stages are those of the tree's checks, over the same text: a module is held to its `scoped`, `declared` and
     --- `checked` markers, and to no syntax error. A module whose bodies were not checked is told so. With `markers` false (a
-    --- project's, which no marker holds) every error is refused, and the lines point to no marker. An error of a code of
-    --- `free` is never refused.
-    mut held: function(Build, result: Outcome, markers: boolean, free?: {string}): {string}
+    --- project's, which no marker holds) every error is refused, and the lines point to no marker. `free` names, by stage
+    --- (`scoped`, `declared`, `checked`), the codes that stage never refuses: a code free in one stage is still refused in
+    --- another that has it.
+    mut held: function(Build, result: Outcome, markers: boolean, free?: {string: {string}}): {string}
     --- Replaces the text of the module `name` with `text`, and answers its outcome, or nil where no provider has `name`. A module cannot be lowered twice in one program, so
     --- the program forgets the module and every module that requires it, through others as well ([`Declarations.forget`]),
     --- and lowers them again when they are next asked for, from the syntax tree the build has already; the others keep
@@ -668,7 +669,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     result = function(_self: Driver.Build, _name: string, _bodies: boolean): Driver.Outcome?
       return nil
     end,
-    held = function(_self: Driver.Build, _result: Driver.Outcome, _markers: boolean, _free?: {string}): {string}
+    held = function(_self: Driver.Build, _result: Driver.Outcome, _markers: boolean, _free?: {string: {string}}): {string}
       return {}
     end,
     replace = function(_self: Driver.Build, _name: string, _text: string): Driver.Outcome?
@@ -1201,18 +1202,18 @@ function Driver.new(options: Driver.Options): Driver.Build
     return result
   end
 
-  build.held = function(_self: Driver.Build, result: Driver.Outcome, markers: boolean, free?: {string}): {string}
+  build.held = function(_self: Driver.Build, result: Driver.Outcome, markers: boolean, free?: {string: {string}}): {string}
     local out: mut {string} = {}
     local source = result.source
     local file = source.filename
     if source.pinned ~= "" then
       file = source.pinned
     end
-    local exempt: mut {string: boolean} = {}
-    for _, code in ipairs(free or {}) do
-      exempt[code] = true
-    end
     local function stage(list: {Driver.Problem}, codes: {string}, name: Ceilings.Stage, what: string)
+      local exempt: mut {string: boolean} = {}
+      for _, code in ipairs((free or {})[tostring(name)] or {}) do
+        exempt[code] = true
+      end
       local findings: mut {Ceilings.Finding} = {}
       for _, p in ipairs(list) do
         if exempt[p.code] ~= true then

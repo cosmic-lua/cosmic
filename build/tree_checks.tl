@@ -1963,6 +1963,8 @@ function tree_checks.ci_testdata(root: string): {string}
           local y, x, msg, code, fix = line:match("^[^:]+:(%d+):(%d+): (.-) %(([%a_]+)%): (.*)$")
           if code == nil or msg == nil or fix == nil then
             -- The checker's own count of a code ("2 errors of x in its bodies") is told again, by the markers, below.
+            -- TODO: take the findings of [`Pipeline.checked_alone`] as the spots of [`build.ceilings.marked`] and not parse its
+            -- prose here, once it answers them beside its lines; a changed wording tells a count twice, which fails closed.
             if line:match("^[^:]+: %d+ errors? of [%a_]+ in its %a+ on line %d+; follow the fix above$") == nil then
               out[#out + 1] = if line:sub(1, #name + 1) == name .. ":" then file .. line:sub(#name + 1) else line end
             end
@@ -2374,7 +2376,7 @@ local function kept_outcomes(memo: Sqlite.Handle?, kind: string, tree: Tree,
   return outcomes, missed
 end
 
---- The lines that list the errors no marker holds ([`Ceilings.marked`]): the errors of each code of each file are held to the
+--- The lines that list the errors no marker holds ([`build.ceilings.marked`]): the errors of each code of each file are held to the
 --- markers of their lines, an error with none is listed with its place and fix, and a marker that holds more than its line
 --- has is stale. `what` says what the errors are of in the message.
 local function held_by_markers(tree: Tree, outcomes: {string: DeclareOutcome}, stage: Ceilings.Stage, codes: {string},

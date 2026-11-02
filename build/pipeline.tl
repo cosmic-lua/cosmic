@@ -850,7 +850,7 @@ function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Op
     -- What the file returns is its entry point ([`build.standalone`]) or, for a chunk of `cosmic -e`, its exit code, which
     -- nothing requires and so no declaration needs to describe: the one error a lone file is allowed, at every `return`,
     -- whatever it returns.
-    for _, line in ipairs(build:held(result, false, { "export_not_declared" })) do
+    for _, line in ipairs(build:held(result, false, { checked = { "export_not_declared" } })) do
       told[#told + 1] = line
     end
     note_stages(stages, "scoped", result.scope_errors)

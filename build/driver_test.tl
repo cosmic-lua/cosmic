@@ -331,12 +331,17 @@ local function test_a_project_is_held_by_no_marker()
   end
 end
 
-local function test_an_error_of_a_free_code_is_never_refused()
+local function test_an_error_of_a_free_code_is_not_refused_in_its_stage_alone()
   local build = build_of({ { "m.tl", FOUR } })
   local result = assert(build:result("m", true))
-  local told = build:held(result, false, { "not_assignable" })
+  local told = build:held(result, false, { checked = { "not_assignable" } })
   assert(#told == 2 and told[2]:find("float_key", 1, true) ~= nil, table.concat(told, "\n"))
-  assert(#build:held(result, false, { "not_assignable", "float_key" }) == 0)
+  assert(#build:held(result, false, { checked = { "not_assignable" }, declared = { "float_key" } }) == 0)
+  -- `float_key` is a finding of `declared` here: free in `checked` it is still refused, and a code free in a stage that
+  -- does not have it frees nothing
+  local other = build:held(result, false, { checked = { "float_key", "not_assignable" } })
+  assert(#other == 2 and other[2]:find("1 error of float_key in its declarations", 1, true) ~= nil, table.concat(other, "\n"))
+  assert(#build:held(result, false, { scoped = { "not_assignable" } }) == 10)
 end
 
 local function test_the_scope_builders_errors_are_a_stage_of_their_own_and_a_closed_code_is_held_by_no_marker()

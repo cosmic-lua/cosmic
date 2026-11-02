@@ -184,6 +184,8 @@ end
 
 --- Whether `line` counts the errors of a code ([`build.ceilings.marked`]: `file: 2 errors of arity in its bodies; follow the fix
 --- above`), which a list of the errors in an editor, each at its place, has no use for.
+-- TODO: drop this reader of the checker's prose once [`Driver.Build.held`] answers the spots of [`build.ceilings.marked`] beside its
+-- lines, so that a list of errors in an editor is made of the errors and no count line is there to leave out.
 local function counts_errors(line: string): boolean
   return line:match("^[^:\n]*: %d+ errors? of [%a][%w_]* in its [%a ]+[;,]") ~= nil or
     line:match("^[^:\n]*: %d+ errors? of [%a][%w_]* in its %a+ on line %d+[;,]") ~= nil

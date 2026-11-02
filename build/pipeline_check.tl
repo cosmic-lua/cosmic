@@ -54,6 +54,9 @@ end
 
 --- The file a line that refuses findings no marker holds ([`build.ceilings`]'s `marked`) is about, if the line is one about
 --- declarations or bodies.
+-- TODO: name the file of an error no marker holds from the spots of [`build.ceilings.marked`], not from the checker's prose, once
+-- [`Driver.Build.held`] and the checks of the tree answer their spots beside their lines: this reader and the one of the scope
+-- errors in `judge` match the words of a count line, which fail closed (a changed wording refuses) but break with the words.
 local function over_file(line: string): string?
   return line:match("^(%S+): %d+ errors? of %S+ in its %a+ on line %d+, marked %d+;")
 end

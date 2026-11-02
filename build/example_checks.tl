@@ -157,6 +157,9 @@ local function found_at(line: string): Place?
 end
 
 --- Whether `line` is the checker's own count of a code's errors in an example.
+-- TODO: drop this reader of the checker's prose, and the one of [`found_at`], once [`Pipeline.checked_alone`] answers the spots of
+-- [`build.ceilings.marked`] beside its lines: they match the words of a finding and of a count line, and a changed wording makes them
+-- tell a finding twice, which fails closed.
 local function is_count(line: string): boolean
   return line:match(": %d+ errors? of [%a][%w_]* in its %a+ on line %d+; follow the fix above$") ~= nil
 end
