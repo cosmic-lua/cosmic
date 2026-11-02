@@ -30,16 +30,17 @@ local function test_a_sandboxed_child_stays_on_the_database(tmp: string)
   local r = run({ core, "--database", path, "sandboxed" })
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local out = fields(assert(r.stdout))
-  if out.sandbox_refused ~= nil then -- checked: map_field
+  local refused = out["sandbox_refused"]
+  if refused ~= nil then
     -- A kernel that gives no sandbox here has nothing to check, which only
     -- the start can tell.
     for _, word in ipairs({ "Landlock", "seccomp", "not implemented", "namespace", "own /proc" }) do
-      if out.sandbox_refused:find(word, 1, true) then Test.skip(out.sandbox_refused) end -- checked: map_field*2
+      if refused:find(word, 1, true) then Test.skip(refused) end
     end
-    error("the sandboxed start was refused: " .. out.sandbox_refused) -- checked: map_field
+    error("the sandboxed start was refused: " .. refused)
   end
-  assert(out.child_code == "0", tostring(out.child_code) .. ": " .. tostring(out.child_stderr)) -- checked: map_field*3
-  assert(out.child_databases == "1", tostring(out.child_databases)) -- checked: map_field*2
-  assert(out.child_main == "probe.main", tostring(out.child_main)) -- checked: map_field*2
-  assert(out.child_args == "child|z", tostring(out.child_args)) -- checked: map_field*2
+  assert(out["child_code"] == "0", tostring(out["child_code"]) .. ": " .. tostring(out["child_stderr"]))
+  assert(out["child_databases"] == "1", tostring(out["child_databases"]))
+  assert(out["child_main"] == "probe.main", tostring(out["child_main"]))
+  assert(out["child_args"] == "child|z", tostring(out["child_args"]))
 end

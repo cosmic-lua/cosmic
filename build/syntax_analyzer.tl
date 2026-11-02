@@ -1298,6 +1298,7 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
   local limits: {string: integer}?
   local tmp: boolean?
   local cpu_features: boolean?
+  local store_text: boolean?
   local user: integer?
   local group: integer?
   local database: string?
@@ -1321,7 +1322,13 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
     local why = ""
     if takes == "flag" then
       if (given.kind == "Boolean") then
-        if field == "cpu_features" then cpu_features = given.value else tmp = given.value end
+        if field == "cpu_features" then
+          cpu_features = given.value
+        elseif field == "store_text" then
+          store_text = given.value
+        else
+          tmp = given.value
+        end
       else
         why = field .. " takes true or false"
       end
@@ -1421,7 +1428,7 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
   end
   return { profiles = profiles, isolate = isolate, promises = promises, connect = connect, loopback = loopback,
     env = env, requires = requires, set_env = set_env, set_env_digests = set_env_digests, grants = grants,
-    limits = limits, tmp = tmp, cpu_features = cpu_features, user = user, group = group,
+    limits = limits, tmp = tmp, cpu_features = cpu_features, store_text = store_text, user = user, group = group,
     database = database, timeout = timeout }, ""
 end
 

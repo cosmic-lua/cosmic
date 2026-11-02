@@ -33,6 +33,9 @@ local record policy_rules
     --- Whether a key holds the processor's features ([`Test.policy`]'s
     --- `cpu_features`).
     mut cpu_features?: boolean
+    --- Whether its tests read the text-derived rows of their closure's store
+    --- ([`Test.policy`]'s `store_text`).
+    mut store_text?: boolean
     caches: {string}
     --- The files of the project root's parent directory a policy
     --- grants (`/parent/<file>`), relative to it.
@@ -60,6 +63,7 @@ local record policy_rules
     limits?: {string:integer}
     tmp?: boolean
     cpu_features?: boolean
+    store_text?: boolean
     user?: integer
     group?: integer
     database?: string
@@ -170,6 +174,7 @@ local fields <const>: {string: string} = {
   set_env_digests = "map", tmp = "flag", limits = "limits", user = "id", group = "id",
   database = "string", requires = "list", timeout = "seconds",
   cpu_features = "flag",
+  store_text = "flag",
 }
 
 local field_names: mut {string} = {}
@@ -208,7 +213,7 @@ function policy_rules.declared(data: policy_rules.PolicyData, line: integer): po
   local out: policy_rules.Declared = {
     line = line, reads = {}, host = {}, env = {}, network = {},
     tool = false, lua = false, nests = false, noexec = false, store = false,
-    system = false, cpu_features = data.cpu_features == true, caches = {}, requires = {},
+    system = false, cpu_features = data.cpu_features == true, store_text = data.store_text == true, caches = {}, requires = {},
     parent = parents,
   }
   local not_yet = " is not yet taken: a worker is held to, and a key made of, what a " ..
