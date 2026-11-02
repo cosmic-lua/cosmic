@@ -263,6 +263,9 @@ function rebuild.stage(root: string, carried?: string): rebuild.Where?, string
   if shared ~= nil then shared.finish() end
   if parses == nil then
     local _, _ = work.abort(handle)
+    -- TODO: tell a failure of the host in the derive (a database that errors, a directory that cannot be read) from a refusal
+    -- of the tree: [`importer.derive`] answers both as one string, so a database error is worded as the build's refusal; this
+    -- waits on [`importer.derive`] answering a refusal apart from a failure.
     return { project = true, standing = found.standing, directory = found.directory,
       busy = false, other_schema = nil, unchecked = false, refused = derive_trouble }, ""
   end

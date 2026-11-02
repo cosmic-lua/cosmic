@@ -611,6 +611,16 @@ local function refreshed(src: source.View)
   if staged ~= nil and (not staged.project or other ~= nil) then
     src.pending = other ~= nil
     src.modules, src.files, src.requires = {}, {}, {}
+    -- No module is held now, and what was told of an earlier refusal is not the case: a directory that is no project has
+    -- none, and a database of another schema is one the editor could not stage ([`source.banner`]).
+    src.staged_once = false
+    src.refusing = false
+    if other ~= nil then
+      src.trouble = tostring(src.working) .. " is of schema " .. other .. ", another tool's; not staging or reading it " ..
+        "until a `cosmic test` of this tool makes it again"
+    else
+      src.trouble = ""
+    end
     if other ~= nil and (where == nil or where.other_schema ~= other) then
       src.err("cosmic: lsp: " .. tostring(src.working) .. " is of schema " .. other ..
           ", another tool's; not staging or reading it until a `cosmic test` of this tool makes it again")
@@ -620,7 +630,8 @@ local function refreshed(src: source.View)
   if staged ~= nil and staged.unchecked then
     -- Its stubs stay as last staged for the session, which says why once
     -- ([`source.unchecked`]); the stage it asks for at each check stages
-    -- nothing.
+    -- nothing, and there is no refusal to tell: none was found, the tool never having staged.
+    src.trouble, src.refusing = "", false
     listed(src, false)
     return
   end
@@ -630,6 +641,7 @@ local function refreshed(src: source.View)
           tostring(src.working) .. "; not staging, answering from the tree as last committed")
       src.told_busy = true
     end
+    -- What the last stage reported stands: this one did not look at the tree, so it neither clears the refusal nor adds one.
     listed(src, false)
     return
   end
