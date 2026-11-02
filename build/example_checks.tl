@@ -20,11 +20,16 @@
 --- directory instead.
 ---
 --- An example is compiled by the new checker as a file alone ([`build.pipeline`]'s `checked_alone`): the standard library
---- is the declarations the tool carries. What the examples still write that the checker refuses is pinned per file and
---- code under `[examples]` in [`build/ceilings.txt`], so that it can only fall.
+--- is the declarations the tool carries. What the examples still write that the checker refuses is held by markers, as in
+--- the rest of the tree ([`build.markers`]): `-- checked: <code>` at the end of the line, which is part of the text shown, so a
+--- marker in an example file is the marker its chunk is judged by. A finding with no marker on its line is refused, and so
+--- is a marker whose finding is gone. A guide's block holds no marker (a reader copies the block), so any finding in one
+--- is refused.
 local Ceilings = require("build.ceilings")
 local Fs = require("cosmic.fs")
+local Markers = require("build.markers")
 local Sqlite = require("cosmic.sqlite")
+local String = require("cosmic.string")
 local doctest = require("build.doctest")
 local symbols = require("build.symbols")
 local type Pipeline = require("build.pipeline")
@@ -32,14 +37,15 @@ local type Pipeline = require("build.pipeline")
 local record example_checks
 end
 
---- What the new checker says of `source` as the chunk `name`, one line each: its place is a line of the text as shown.
-local function problems(options: Pipeline.Options, name: string, source: string): {string}
+--- What the new checker says of `source` as the chunk `name`, one line each: its place is a line of the text as shown, and the
+--- stage of each finding ([`Pipeline.Alone`]'s `stages`, from the checker's own lists).
+local function problems(options: Pipeline.Options, name: string, source: string): {string}, {string: string}
   local made = require("build.pipeline").checked_alone(name, source, options)
   -- Each line is the checker's, `name:line:column: what is wrong (code): the fix`, the line a line of the text as shown.
   if made.code ~= nil then
-    return {}
+    return {}, {}
   end
-  return made.lines
+  return made.lines, made.stages
 end
 
 --- A stored example source ([`build.syntax_analyzer`]'s `ExampleEntry`.source: the
@@ -125,6 +131,140 @@ local function helper_trouble(file: string, name: string): string?
   return nil
 end
 
+--- The code a finding names: `(code): fix` ends the words of its message.
+local function code_of(line: string): string?
+  return line:match("%(([%a][%w_]*)%): ")
+end
+
+--- Where a finding is: its line of the chunk and its code.
+local record Place
+  y: integer
+  x: integer
+  code: string
+end
+
+--- Where a finding of the checker is (`name:5:9: message (code): fix`), nil for any other
+--- line: a helper too long to carry, a count of a code's errors ("2 errors of x in its bodies; follow the fix above"), which
+--- the judging below says again by the markers.
+local function found_at(line: string): Place?
+  local y = math.tointeger(tonumber(line:match(":(%d+):%d+: ")))
+  local x = math.tointeger(tonumber(line:match(":%d+:(%d+): ")))
+  local code = code_of(line)
+  if y == nil or x == nil or code == nil then
+    return nil
+  end
+  return { y = y, x = x, code = code }
+end
+
+--- Whether `line` is the checker's own count of a code's errors in an example.
+local function is_count(line: string): boolean
+  return line:match(": %d+ errors? of [%a][%w_]* in its %a+; follow the fix above$") ~= nil
+end
+
+local CLOSED: mut {string: boolean} = {}
+for _, code in ipairs(Ceilings.closed()) do
+  CLOSED[code] = true
+end
+
+--- The stage of the finding at `place`, from what the checker told ([`Pipeline.Alone`]'s `stages`): "" where it has none (a
+--- warning, a finding two stages report at one place), which no marker holds.
+local function stage_of(stages: {string: string}, place: Place): string
+  return stages[tostring(place.y) .. ":" .. tostring(place.x) .. ":" .. place.code] or ""
+end
+
+--- `lines`, the findings of the checker over `text` (the chunk `where` names), less what the markers of `text` hold: the
+--- findings of a code of a stage on a line that the markers of that stage do not hold, each told with a count, and each
+--- marker that holds more of a code than its line has. `marks` is false for a guide's block, which carries none. A closed
+--- code ([`Ceilings.closed`]) is held by no marker.
+local function held(where: string, text: string, lines: {string}, stages: {string: string}, marks: boolean): {string}
+  local out: mut {string} = {}
+  -- The findings and the markers by line and `<stage> <code>`.
+  local found: mut {integer: mut {string: integer}} = {}
+  local order: mut {string} = {}
+  for _, line in ipairs(lines) do
+    local place = found_at(line)
+    if place ~= nil then
+      local key = stage_of(stages, place) .. " " .. place.code
+      local on = found[place.y] or {}
+      found[place.y] = on
+      if on[key] == nil then
+        order[#order + 1] = tostring(place.y) .. " " .. key
+      end
+      on[key] = (on[key] or 0) + 1
+    end
+  end
+  local marked: mut {integer: mut {string: integer}} = {}
+  local marked_lines: mut {integer} = {}
+  if marks then
+    for _, mark in ipairs(Markers.read(text, where).marks) do
+      for _, segment in ipairs(mark.segments) do
+        for code, n in pairs(segment.counts) do
+          local on = marked[mark.line] or {}
+          if marked[mark.line] == nil then
+            marked[mark.line] = on
+            marked_lines[#marked_lines + 1] = mark.line
+          end
+          local key = segment.stage .. " " .. code
+          on[key] = (on[key] or 0) + n
+        end
+      end
+    end
+  end
+  local function allowed(y: integer, key: string): integer
+    if CLOSED[assert(key:match("^%S* (%S+)$"))] == true then
+      return 0
+    end
+    return (marked[y] or {})[key] or 0
+  end
+  local told: mut {string: boolean} = {}
+  for _, line in ipairs(lines) do
+    local place = found_at(line)
+    if place == nil then
+      if not is_count(line) then
+        out[#out + 1] = line
+      end
+    else
+      local key = stage_of(stages, place) .. " " .. place.code
+      if (assert(found[place.y])[key] or 0) > allowed(place.y, key) then
+        out[#out + 1] = line
+      end
+    end
+  end
+  for _, entry in ipairs(order) do
+    local y = assert(math.tointeger(tonumber(entry:match("^(%d+)"))))
+    local key = assert(entry:match("^%d+ (.*)$"))
+    local code = assert(key:match("^%S* (%S+)$"))
+    local n, has = assert(assert(found[y])[key]), allowed(y, key)
+    if n > has and told[entry] ~= true then
+      told[entry] = true
+      local how = if marks then ", marked " .. tostring(has) .. " rather than add a marker" else "" end
+      out[#out + 1] = where .. ": " .. String.counted(n, "error") .. " of " .. code .. " on line " .. tostring(y) ..
+        " of the text shown" .. how .. "; follow the fix above"
+    end
+  end
+  table.sort(marked_lines)
+  for _, y in ipairs(marked_lines) do
+    local keys: mut {string} = {}
+    for key in pairs(assert(marked[y])) do
+      keys[#keys + 1] = key
+    end
+    table.sort(keys)
+    for _, key in ipairs(keys) do
+      local n = assert(assert(marked[y])[key])
+      local has = (found[y] or {})[key] or 0
+      local code = assert(key:match("^%S* (%S+)$"))
+      if CLOSED[code] == true then
+        out[#out + 1] = where .. ": line " .. tostring(y) .. " of the text shown: " .. code .. " is closed: the tree keeps " ..
+          "this rule with no exceptions; a marker holds none of it, so fix the code"
+      elseif n > has then
+        out[#out + 1] = where .. ": line " .. tostring(y) .. " of the text shown: its marker holds " ..
+          String.counted(n - has, "finding") .. " of " .. code .. " that the line no longer has; remove the marker"
+      end
+    end
+  end
+  return out
+end
+
 --- Every public example's rendered source, compiled as it is copied.
 --- A name the text lacks that its file declares as a helper is said to
 --- be one too long to carry.
@@ -142,15 +282,21 @@ local function examples(db: Sqlite.Handle, options: Pipeline.Options, root: stri
     local file, _ = Fs.read(root .. "/" .. row:text(1))
     file = file or ""
     local told: mut {string: boolean} = {}
-    for _, line in ipairs(problems(options, where, chunk(row:text(3), row:text(4)))) do
+    local text = chunk(row:text(3), row:text(4))
+    local said_lines: mut {string} = {}
+    local lines, stages = problems(options, where, text)
+    for _, line in ipairs(lines) do
       local name = unknown_name(line)
       local said = if name ~= nil then helper_trouble(file, name) else nil end
       if said == nil then
-        out[#out + 1] = line
+        said_lines[#said_lines + 1] = line
       elseif told[said] ~= true then
         told[said] = true
-        out[#out + 1] = where .. ": " .. said
+        said_lines[#said_lines + 1] = where .. ": " .. said
       end
+    end
+    for _, line in ipairs(held(where, text, said_lines, stages, true)) do
+      out[#out + 1] = line
     end
   end
   return out
@@ -173,102 +319,18 @@ local function guide(text: string, file: string, options: Pipeline.Options): {st
       source = 'local tmp: string = ""\nlocal _ = tmp\n' .. source
     end
     local where = file .. ":" .. tostring(entry.line) .. ": example"
-    for _, line in ipairs(problems(options, where, source .. "\n")) do
+    local lines, stages = problems(options, where, source .. "\n")
+    for _, line in ipairs(held(where, source .. "\n", lines, stages, false)) do
       out[#out + 1] = line
     end
   end
   return out
-end
-
---- The code a finding names: `(code): fix` ends the words of its message.
-local function code_of(line: string): string?
-  return line:match("%(([%a][%w_]*)%): ")
-end
-
---- Where a finding is told: the example file or guide and the code it names.
-local record Told
-  file: string
-  code: string
-  --- Whether the line counts a code's errors in an example ("2 errors of nil_not_allowed in its bodies; follow the fix above"),
-  --- which counts for none.
-  summary: boolean
-end
-
---- The file and code a line is of, nil where it names no code (a helper too long to carry, a missing require of the text).
-local function told(line: string): Told?
-  local file = line:match("^([^:%s]+):%d+: example")
-  if file == nil then
-    return nil
-  end
-  local counted = line:match(": %d+ errors? of ([%a][%w_]*) in its %a+; follow the fix above$")
-  if counted ~= nil then
-    return { file = file, code = counted, summary = true }
-  end
-  local code = code_of(line)
-  if code == nil then
-    return nil
-  end
-  return { file = file, code = code, summary = false }
-end
-
---- `lines`, the findings of the new checker over all of the examples, less what `pins` (the `examples` ceilings of the tree,
---- [`build.ceilings`]) allows: the findings of a code in an example file or a guide, all of them or none. A code over its pin
---- is told whole with the count and the pin; a pin above the count is told to fall.
-local function held(lines: {string}, pins: {string: integer}): {string}
-  local found: mut {string: integer} = {}
-  for _, line in ipairs(lines) do
-    local at = told(line)
-    if at ~= nil and not at.summary then
-      local key = at.file .. " " .. at.code
-      found[key] = (found[key] or 0) + 1
-    end
-  end
-  local out: mut {string} = {}
-  local over: mut {string: boolean} = {}
-  -- In the order the findings came, which is the order of the files.
-  local keys: mut {string} = {}
-  for _, line in ipairs(lines) do
-    local at = told(line)
-    if at == nil then
-      out[#out + 1] = line
-    else
-      local key = at.file .. " " .. at.code
-      if (found[key] or 0) > (pins[key] or 0) then
-        out[#out + 1] = line
-        if over[key] ~= true then
-          over[key] = true
-          keys[#keys + 1] = key
-        end
-      end
-    end
-  end
-  for _, key in ipairs(keys) do
-    out[#out + 1] = key .. ": " .. tostring(found[key]) .. " found, pinned " .. tostring(pins[key] or 0) ..
-      "; follow the fix above rather than raise the pin in build/ceilings.txt's [examples]"
-  end
-  for _, line in ipairs(Ceilings.fallen(found, pins, "build/ceilings.txt's [examples]")) do
-    out[#out + 1] = line
-  end
-  return out
-end
-
---- The `examples` ceilings of the tree at `root`: none where it has no ceilings file, which a fixture's tree does not.
-local function pins_of(root: string): {string: integer}?, string
-  local there, _ = Fs.exists(root .. "/" .. Ceilings.path)
-  if there ~= true then
-    return {}, ""
-  end
-  local read, why = Ceilings.read(root)
-  if read == nil then
-    return nil, why
-  end
-  return Ceilings.of(read, "examples"), ""
 end
 
 --- Both of the above over the tree at `root`: the projection `db`'s
 --- examples and each of `guides` (default [`symbols.guides`], read from
---- `doc/guides/<name>.md`). The findings are those over the tree's `[examples]` ceilings, and the ceilings above the
---- findings.
+--- `doc/guides/<name>.md`). The findings are those the markers of an example do not hold, and the markers that hold
+--- none.
 function example_checks.run(db: Sqlite.Handle, root: string, guides?: {string}): {string}
   local options, options_trouble = require("build.pipeline").alone()
   if options == nil then
@@ -286,12 +348,7 @@ function example_checks.run(db: Sqlite.Handle, root: string, guides?: {string}):
       end
     end
   end
-  local pins, pins_trouble = pins_of(root)
-  if pins == nil then
-    out[#out + 1] = pins_trouble
-    return out
-  end
-  return held(out, pins)
+  return out
 end
 
 return example_checks

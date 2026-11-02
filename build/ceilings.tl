@@ -24,8 +24,8 @@
 --- requests that move neighbouring pins merge. The stages are the checks of [`build.tree_checks`], and `scoped`, `declared` and
 --- `checked` are also the stages of a compile ([`build.driver`]), whose [`Ceilings.over`] a compile calls for a module: the
 --- tree's check of a file and the build's refuse the same count, with the same words.
---- `examples` is the check of the examples a reader copies ([`build.example_checks`]): a key is an
---- example file or a guide and a code of any stage, and a count is the findings of that code in all of its examples.
+--- The examples a reader copies ([`build.example_checks`]) have no section: their findings are held by markers in the
+--- example files, which are part of the text shown, and a guide's block holds none.
 ---
 --- `testdata` is the check of the Teal under `ci/testdata` ([`build.tree_checks`]'s `ci_testdata`):
 --- a key is a file and a code of any stage, and a count is the findings of that code in the file.
@@ -46,7 +46,6 @@ local record Ceilings
     "declared"
     "untyped"
     "checked"
-    "examples"
     "testdata"
   end
 
@@ -283,8 +282,8 @@ end
 
 --- Why `key`, a ceiling of `stage`, can never be met, or "" where it can.
 local function unmeetable(stage: string, key: string): string
-  if stage == "examples" or stage == "testdata" then
-    -- A finding of an example or of a file of ci/testdata is of any stage's code, so the shape is all that can be held.
+  if stage == "testdata" then
+    -- A finding of a file of ci/testdata is of any stage's code, so the shape is all that can be held.
     if key:match("^%S+ %S+$") == nil then
       return "a ceiling of [" .. stage .. "] is a file and a code, not `" .. key .. "`"
     end
@@ -323,7 +322,7 @@ local function closed_code(shut: {string: boolean}, stage: string, key: string):
 end
 
 local STAGES <const>: {string: boolean} = {
-  scoped = true, declared = true, untyped = true, checked = true, examples = true, testdata = true,
+  scoped = true, declared = true, untyped = true, checked = true, testdata = true,
 }
 
 --- The stages that markers hold, in the order of the file.

@@ -55,6 +55,10 @@ function Example.iteration_select()
   assert(sum == 10 and seen["a"] == true and seen["b"] == true and value == "b" and count == 3)
 end
 
+-- TODO: write the metatable of this example as a class, once the library's handles are classes (a change of its own,
+-- library by library): the new checker refuses a call of `setmetatable`, a literal of `metatable` that leaves its
+-- fields out, a cast and a function given to `__index`, which the markers on the lines hold until then.
+
 --- getmetatable and setmetatable query/install metatables; __metatable can
 --- protect one. rawget, rawset, rawlen and rawequal bypass metamethods. Teal
 --- does not infer arbitrary __index, __newindex, __call, arithmetic,
@@ -229,6 +233,10 @@ function Example.utf8_operations()
   assert(count == 2 and string.match(text, utf8.charpattern) ~= nil)
 end
 
+-- TODO: write this coroutine example of the reference with typed coroutines, once lang/stdlib.d.tl declares them: the
+-- checker declares no `coroutine.yield`, and `coroutine.close` answers one of two lists of values; the markers on the
+-- lines hold them until then.
+
 --- coroutine.create makes a suspended thread; coroutine.resume returns success
 --- then yielded/final values or an error. coroutine.yield suspends;
 --- coroutine.status reports state; coroutine.running identifies current/main;
@@ -295,6 +303,9 @@ function Example.records_interfaces_methods()
   assert(friend("hello"):greet("Ada") == "hello, Ada")
 end
 
+-- TODO: write the field read of a map in this example as a read by a key, once the language tour shows the replacement
+-- and not the removed form; the marker on the line holds it until then.
+
 --- Enums are closed sets of literal strings. `{T}` is an array, `{K:V}` a map,
 --- and a record with a field for each position a fixed tuple.
 function Example.enums_arrays_maps_tuples()
@@ -312,6 +323,10 @@ function Example.enums_arrays_maps_tuples()
   local pair: Pair = { label = "age", count = 9 }
   assert(color == "red" and array[2] == 3 and map.answer == 42 and pair.label == "age") -- checked: map_field
 end
+
+-- TODO: rewrite or retire the forms this example shows that the new grammar cuts (a union of two records, a test of a
+-- record, a cast), once the language tour shows the replacements and not the removed forms; the markers on the lines
+-- hold them until then.
 
 --- A union `A | B` accepts only values assignable to one member; operations
 --- must be valid for every member until control flow narrows it. Comparisons

@@ -118,9 +118,12 @@ a code none of whose findings remain is closed: add it to
 `Ceilings.closed` in [`build/ceilings.tl`], and a marker naming it is
 refused from then on.
 
-[`build/ceilings.txt`] holds what a marker cannot: `[examples]`, the
-findings in the text of the examples a reader copies, which a marker
-would be part of. its counts only fall, and a pin is never raised.
+The examples a reader copies (`*_example.tl`) hold their findings by
+markers too: a marker is part of the text `cosmic docs` shows, and
+`cosmic fix --check .` refuses a finding with none and a marker whose
+finding is gone. A code block of a guide holds none, since a reader copies
+the block: a finding there is fixed. [`build/ceilings.txt`] holds only
+`[testdata]`, whose counts only fall and which pins none now.
 
 ## teal layout
 
