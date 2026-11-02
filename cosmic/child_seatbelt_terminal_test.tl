@@ -85,9 +85,8 @@ end
 local function on_pty(binary: string, streams: {integer}, policy?: Sandbox.Policy): string, Child.Result
   local on: mut {integer:boolean} = {}
   for _, number in ipairs(streams) do on[number] = true end
-  local opts: Child.Options = { policy = policy, timeout_ns = Clock.seconds(5) }
-  if not on[0] then opts.stdin = "null" end
-  if not on[2] then opts.stderr = "null" end
+  local opts: Child.Options = { policy = policy, timeout_ns = Clock.seconds(5),
+    stdin = if not on[0] then "null" else nil end, stderr = if not on[2] then "null" else nil end }
   local started = assert(Child.start_on_pty({ binary }, opts, { streams = streams, keep_slave = true }))
   -- Darwin drops what a slave wrote and the master had not read when the
   -- slave's last descriptor closes, which a child that writes and exits at

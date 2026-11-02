@@ -501,8 +501,7 @@ local function test_snapshot_names_a_same_size_rewrite_with_preserved_mtime(tmp:
   sys.stat = function(name: string): sys.Stat?, string, integer
     local st, trouble, errno = stat(name)
     if st ~= nil and name == path then
-      st.ctime = 100
-      st.ctime_ns = tick.value
+      return { ...st, ctime = 100, ctime_ns = tick.value }, trouble, errno
     end
     return st, trouble, errno
   end

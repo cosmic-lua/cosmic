@@ -1843,7 +1843,6 @@ lang/warnings.tl view_as_mut 1
 # a field assigned after its record is made, not declared `mut`: `mut` is written on the fields its
 # rows show assigned and not on those that cannot be attributed (a field of a module record assigned through its name)
 
-build/archive_test.tl field_fixed 10
 
 
 build/boot_test.tl field_fixed 2
@@ -1854,7 +1853,6 @@ build/boot_test.tl field_fixed 2
 
 build/cache_test.tl field_fixed 14
 
-build/codec_test.tl field_fixed 6
 
 build/confine.tl field_fixed 10
 
@@ -1862,7 +1860,7 @@ build/confine_tool_test.tl field_fixed 2
 
 
 
-build/declared_key_test.tl field_fixed 37
+build/declared_key_test.tl field_fixed 5
 
 
 
@@ -1877,7 +1875,6 @@ build/fix/init.tl field_fixed 1
 
 
 
-build/hash_test.tl field_fixed 2
 
 build/importer_boot_test.tl field_fixed 2
 
@@ -1896,7 +1893,7 @@ build/lsp/init.tl field_fixed 1
 
 
 
-build/patch_test.tl field_fixed 5
+build/patch_test.tl field_fixed 4
 
 
 
@@ -1915,76 +1912,59 @@ build/test_key.tl field_fixed 1
 
 build/test_policy.tl field_fixed 2
 
-build/test_policy_plan_tool_test.tl field_fixed 8
 
-build/test_policy_test.tl field_fixed 1
 
 build/test_sandbox_probe.tl field_fixed 2
 
-build/test_sandbox_test.tl field_fixed 3
 
-build/test_sandbox_tool_test.tl field_fixed 8
 
 build/test_worker.tl field_fixed 1
 
-build/test_worker_test.tl field_fixed 6
 
 build/this_program_test.tl field_fixed 2
 
 build/time.tl field_fixed 1
 
-build/work_test.tl field_fixed 14
+build/work_test.tl field_fixed 12
 
 build/work_tool_test.tl field_fixed 2
 
 
 build/writer_test.tl field_fixed 2
 
-build/zig_fetch_test.tl field_fixed 3
+build/zig_fetch_test.tl field_fixed 2
 
 build/zig_lock_test.tl field_fixed 6
 
-build/zig_test.tl field_fixed 13
+build/zig_test.tl field_fixed 11
 
 core/artifact_fd_tool_test.tl field_fixed 1
 
-core/promises_held_child_test.tl field_fixed 7
 
-core/syscalls_relay_test.tl field_fixed 1
 
-core/syscalls_restrict_refusal_test.tl field_fixed 1
 
 cosmic/archive.tl field_fixed 1
 
-cosmic/archive_fuzz_test.tl field_fixed 4
 
-cosmic/archive_test.tl field_fixed 4
 
 cosmic/channel.tl field_fixed 2
 
 cosmic/child.tl field_fixed 14
 
-cosmic/child_drain_test.tl field_fixed 15
+cosmic/child_drain_test.tl field_fixed 12
 
 cosmic/child_lua_test.tl field_fixed 2
 
-cosmic/child_policy_anywhere_test.tl field_fixed 4
+cosmic/child_policy_anywhere_test.tl field_fixed 2
 
-cosmic/child_policy_database_sandboxed_test.tl field_fixed 5
 
-cosmic/child_policy_isolate_test.tl field_fixed 2
 
-cosmic/child_policy_nest_test.tl field_fixed 1
 
-cosmic/child_policy_test.tl field_fixed 3
 
-cosmic/child_relay_test.tl field_fixed 13
 
-cosmic/child_seatbelt_terminal_test.tl field_fixed 2
 
-cosmic/child_seatbelt_test.tl field_fixed 2
 
-cosmic/child_stream_failure_test.tl field_fixed 10
+cosmic/child_stream_failure_test.tl field_fixed 8
 
 cosmic/child_task_tool_test.tl field_fixed 2
 
@@ -1994,12 +1974,11 @@ cosmic/fs_append_test.tl field_fixed 18
 
 cosmic/fs_test.tl field_fixed 24
 
-cosmic/http/server_test.tl field_fixed 2
 
 
 
 
-cosmic/http_test.tl field_fixed 13
+cosmic/http_test.tl field_fixed 9
 
 cosmic/internal/connector.tl field_fixed 3
 
@@ -2016,9 +1995,8 @@ cosmic/proc_user_test.tl field_fixed 1
 
 cosmic/sqlite.tl field_fixed 13
 
-cosmic/stream_test.tl field_fixed 21
+cosmic/stream_test.tl field_fixed 2
 
-cosmic/tar_test.tl field_fixed 7
 
 
 
@@ -2035,13 +2013,10 @@ cosmic/web/assets_test.tl field_fixed 2
 
 cosmic/web/csrf.tl field_fixed 2
 
-cosmic/web/csrf_test.tl field_fixed 3
 
-cosmic/web/dev_test.tl field_fixed 1
 
 cosmic/web/headers.tl field_fixed 1
 
-cosmic/web/headers_test.tl field_fixed 3
 
 cosmic/web/htmx.tl field_fixed 2
 
@@ -2049,7 +2024,6 @@ cosmic/web/init.tl field_fixed 41
 
 cosmic/web/input.tl field_fixed 4
 
-cosmic/web/request_test.tl field_fixed 1
 
 cosmic/web/response.tl field_fixed 2
 
@@ -2057,19 +2031,15 @@ cosmic/web/serve_test.tl field_fixed 3
 
 cosmic/web/session/init.tl field_fixed 3
 
-cosmic/web/session/session_test.tl field_fixed 9
 
 cosmic/web/sse.tl field_fixed 5
 
-cosmic/web/sse_fuzz_test.tl field_fixed 4
 
-cosmic/web/sse_test.tl field_fixed 1
 
 cosmic/web/typed.tl field_fixed 2
 
 cosmic/zip.tl field_fixed 2
 
-cosmic/zip_test.tl field_fixed 13
 
 
 
@@ -2613,11 +2583,9 @@ cosmic/poll_test.tl interface_method_value 1
 
 cosmic/stream_test.tl interface_method_value 1
 
-cosmic/tar_test.tl interface_method_value 1
 
 cosmic/web/app.tl interface_method_value 1
 
-cosmic/zip_test.tl interface_method_value 1
 
 
 cosmic/child_drain_test.tl interface_method_value 4
@@ -3432,7 +3400,7 @@ cosmic/web/dev.tl cast_refused 2
 
 cosmic/web/dev_supervise_test.tl cast_refused 1
 
-cosmic/web/dev_test.tl cast_refused 4
+cosmic/web/dev_test.tl cast_refused 2
 
 cosmic/web/htmx_test.tl cast_refused 4
 

@@ -312,17 +312,18 @@ end
 local function chunked(bytes: string): Stream.Reader
   local at: integer = 1
   local turn: integer = 0
-  local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-    if at > #bytes then return nil, "" end
-    turn = turn + 1
-    local size = bytes:byte(turn % math.max(#bytes, 1) + 1) % 300 + 1
-    if max_bytes ~= nil and max_bytes < size then size = max_bytes end
-    local chunk = bytes:sub(at, at + size - 1)
-    at = at + #chunk
-    return chunk, ""
-  end
-  r.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  local r: Stream.Reader = {
+    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+      if at > #bytes then return nil, "" end
+      turn = turn + 1
+      local size = bytes:byte(turn % math.max(#bytes, 1) + 1) % 300 + 1
+      if max_bytes ~= nil and max_bytes < size then size = max_bytes end
+      local chunk = bytes:sub(at, at + size - 1)
+      at = at + #chunk
+      return chunk, ""
+    end,
+    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+  }
   return r
 end
 
@@ -530,19 +531,20 @@ end
 --- states are the archive's to lie about, so a limit that read them
 --- alone would pass any body.
 local function understating(reader: Archive.Reader): Archive.Reader
-  local r: Archive.Reader = {}
-  r.next = function(_self: Archive.Reader): Archive.Entry?, string
-    local entry, why = reader:next()
-    if entry == nil then return nil, why end
-    local real: Archive.Entry = entry
-    local lie: Archive.Entry = {
-      path = real.path, kind = real.kind, mode = real.mode, size = 0, mtime = real.mtime,
-      linkpath = real.linkpath,
-      open = function(_self: Archive.Entry): Stream.Reader?, string return real:open() end,
-    }
-    return lie, ""
-  end
-  r.close = function(_self: Archive.Reader): boolean, string return reader:close() end
+  local r: Archive.Reader = {
+    next = function(_self: Archive.Reader): Archive.Entry?, string
+      local entry, why = reader:next()
+      if entry == nil then return nil, why end
+      local real: Archive.Entry = entry
+      local lie: Archive.Entry = {
+        path = real.path, kind = real.kind, mode = real.mode, size = 0, mtime = real.mtime,
+        linkpath = real.linkpath,
+        open = function(_self: Archive.Entry): Stream.Reader?, string return real:open() end,
+      }
+      return lie, ""
+    end,
+    close = function(_self: Archive.Reader): boolean, string return reader:close() end,
+  }
   return r
 end
 

@@ -163,13 +163,11 @@ end
   local env = started.options.env or {}
   env.ROOT, env.SCRATCH, env.PATH = root, scratch, "/usr/bin:/bin"
   env.ARTIFACT = launched.argv[3]
-  started.options.env, started.options.stdout, started.options.stderr = env, "capture", "capture"
-  started.options.timeout_ns = Clock.seconds(60)
+  local options = { ...started.options, env = env, stdout = "capture", stderr = "capture",
+    timeout_ns = Clock.seconds(60), cwd = tmp .. "/beside/ci", fds = nil }
   -- The launcher names the artifact by where it was started from: $PWD/$0.
   started.argv = { "../cosmic", "-e", script }
-  started.options.cwd = tmp .. "/beside/ci"
-  started.options.fds = nil
-  local result, trouble = Child.run(started.argv, started.options)
+  local result, trouble = Child.run(started.argv, options)
   assert(result ~= nil, tostring(trouble))
   assert(result.code == 0, tostring(result.stderr) .. tostring(result.stdout))
   assert(tostring(result.stdout):find("^ok\nok\nok\n$"), tostring(result.stdout) .. tostring(result.stderr))
@@ -242,21 +240,30 @@ local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directo
   nests.nests = true
   assert(planned(nests).own_scratch)
   -- A file read is no directory.
-  local file = TestInputsFixture.effective({})
-  file.reads = { "file.txt" }
+  local file = { ...TestInputsFixture.effective({}), reads = { "file.txt" } }
   assert(planned(file).own_scratch)
   -- Each declaration that puts a directory in the root keeps the host's.
-  local function shared(change: function(test_inputs.Effective), word: string)
-    local inputs = TestInputsFixture.effective({})
-    change(inputs)
+  local function shared(change: function(test_inputs.Effective): test_inputs.Effective, word: string)
+    local inputs = change(TestInputsFixture.effective({}))
     local made = planned(inputs)
     assert(not made.own_scratch and made.why_shared:find(word, 1, true) ~= nil, word .. ": " .. made.why_shared)
     assert((assert(made.sandbox.unveil).writes or {})[1] == scratch)
     local held = assert(test_policy.worker(made, inputs))
     assert(held.tmp == nil, word)
   end
-  shared(function(inputs: test_inputs.Effective) inputs.system = true end, "`system`")
-  shared(function(inputs: test_inputs.Effective) inputs.tool = true end, "`tool`")
-  shared(function(inputs: test_inputs.Effective) inputs.reads = { "data" } end, root .. "/data")
-  shared(function(inputs: test_inputs.Effective) inputs.host = { "/dev" } end, "/dev")
+  shared(function(inputs: test_inputs.Effective): test_inputs.Effective
+    return { ...inputs, system = true }
+  end,
+    "`system`")
+  shared(function(inputs: test_inputs.Effective): test_inputs.Effective
+    return { ...inputs, tool = true }
+  end,
+    "`tool`")
+  shared(function(inputs: test_inputs.Effective): test_inputs.Effective
+    return { ...inputs, reads = { "data" } }
+  end, root .. "/data")
+  shared(function(inputs: test_inputs.Effective): test_inputs.Effective
+    return { ...inputs, host = { "/dev" } }
+  end,
+    "/dev")
 end
